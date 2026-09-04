@@ -12,8 +12,8 @@ mod fluxo;
 pub(in crate::style::parse) use super::color::parse_color;
 pub(in crate::style::parse) use super::aplica::{set_edges, set_if, set_ou_limpa, set_side};
 pub(in crate::style::parse) use super::lengths::{
-    Caixa, parse_dimension, parse_dimension_signed, parse_edges, parse_gap_pair, parse_inset, parse_len,
-    parse_px, parse_side, parse_signed_px, split_top_ws,
+    Caixa, parse_dimension, parse_dimension_min_max, parse_dimension_signed, parse_edges, parse_gap_pair,
+    parse_inset, parse_len, parse_px, parse_side, parse_signed_px, split_top_ws,
 };
 pub(in crate::style::parse) use super::props::ComputedStyle;
 pub(in crate::style::parse) use super::stylesheet::DeclBlock;

@@ -242,6 +242,7 @@ pub(crate) fn layout_table(
             None,
             None,
             false,
+            false,
             // `<caption>`/bloco avulso da tabela: sem float dentro de uma
             // tabela (a tabela já é BFC), um contexto novo é o mesmo `&[]`.
             &crate::layout::BlockFormattingContext::new(),
@@ -356,6 +357,7 @@ pub(crate) fn layout_table(
                 Some(h),
                 Some(w),
                 Some(h),
+                false,
                 false,
                 // Célula de tabela: mesma razão do `<caption>` acima.
                 &crate::layout::BlockFormattingContext::new(),

@@ -165,13 +165,18 @@ pub enum Dimension {
     /// `None`, indistinguível de "não declarado", e o elemento tomava a largura
     /// do pai. É o painel do menu da Wikipédia — 198,6px no Chrome, 56,2 aqui.
     ///
-    /// `min-content` e `fit-content` NÃO entram, e não são aproximados a esta:
-    /// `min-content` é a maior palavra indivisível e `fit-content` precisa das
-    /// duas para o seu `min(max(min, disponível), max)`. A máquina que temos
-    /// calcula só o máximo. Responder max-content a um `min-content` erraria em
-    /// silêncio no sentido oposto ao que o nome promete, que é pior do que a
-    /// ausência — continuam descartados no parse, como hoje.
+    /// `fit-content` NÃO entra, e não é aproximada a esta: precisa das duas
+    /// pontas para o seu `min(max(min, disponível), max)`, e a máquina que
+    /// temos calcula só o máximo — continua descartada no parse, como hoje.
     MaxContent,
+    /// `min-content` — só reconhecida via `parse_dimension_min_max` (um
+    /// CLAMP: `min-width`/`max-width`/`min-height`/`max-height`), nunca como
+    /// tamanho preferido. Resolve como `MaxContent` (`None`, o layout
+    /// decide) porque o eixo de bloco não comprime por quebra de linha —
+    /// min-content == max-content aí (CSS Sizing 3 §2.1); no eixo inline
+    /// seria a resposta ERRADA (a máquina só mede o máximo), por isso o
+    /// `parse_dimension` geral continua sem a reconhecer.
+    MinContent,
     /// `calc(...)` linear reduzido no parse ([`CalcLen`]). Não cruza a ABI de
     /// faixas (`to_abi` → `-1`, corte documentado — o TS não empacota calc).
     Calc(CalcLen),
@@ -194,7 +199,7 @@ impl Dimension {
             // o layout. Responder `None` aqui é o mesmo que o `auto` faz, e é o
             // que faz um chamador sem contexto cair no seu caminho de fallback em
             // vez de inventar um número.
-            Dimension::Auto | Dimension::MaxContent => return None,
+            Dimension::Auto | Dimension::MaxContent | Dimension::MinContent => return None,
             Dimension::Px(v) => v,
             Dimension::Percent(p) => ctx.parent_content_w * p / 100.0,
             Dimension::Em(e) => ctx.node_font_size * e,
@@ -259,7 +264,9 @@ impl Dimension {
             // O TS lê `-1` — CORTE, e não o valor `auto`: quem o ler não sabe
             // distinguir os dois, e a alternativa (uma faixa nova) obrigaria o
             // lado TS a saber medir conteúdo, que é o que ele não pode fazer.
-            Dimension::MaxContent => return -1,
+            // `min-content` é a mesma questão do `max-content` acima, e a
+            // mesma resposta: `-1`.
+            Dimension::MaxContent | Dimension::MinContent => return -1,
         };
         unit * DIM_RANGE + (val * 1000.0) as i64
     }

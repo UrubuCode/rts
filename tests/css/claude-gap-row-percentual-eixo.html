@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Fixa: `row-gap` em percentagem resolve contra a ALTURA do content-box do
+     contentor flex (eixo de bloco), nunca contra a largura — e quando essa
+     altura é INDEFINIDA a percentagem computa como 'normal' (0), exactamente
+     como pede o assert do WPT flexbox-column-row-gap-004 e o CSS Align 3
+     §column-row-gap (github.com/w3c/csswg-drafts/issues/5081). `#A`: altura
+     DEFINIDA (200px), `row-gap:10%` — 10% de 200 = 20px entre as duas
+     linhas (aritmética directa, não carece de medição). `#B`: altura AUTO
+     (indefinida), `row-gap:20%` — a percentagem vira `normal` (0px) entre as
+     duas linhas, e a altura do próprio contentor colapsa para a soma simples
+     dos itens (sem o gap). O nosso motor resolve os dois casos contra a
+     LARGURA do contentor (64px e 200px): dá 6,4px e 40px — errado nos dois
+     sentidos, o dividendo (largura em vez de altura) E a exceção do bloco
+     indefinido. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="A,a1,a2,B,b1,b2">
+<meta name="fixar-estilo" content="row-gap,height,width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .a { display: flex; flex-wrap: wrap; width: 64px; height: 200px; row-gap: 10%; }
+  .a > div { width: 48px; height: 40px; background: #0c0; }
+  .b { display: flex; flex-wrap: wrap; width: 200px; row-gap: 20%; }
+  .b > div { width: 120px; height: 40px; background: #c0f; }
+</style></head>
+<body>
+  <div class="a" id="A"><div id="a1"></div><div id="a2"></div></div>
+  <div class="b" id="B"><div id="b1"></div><div id="b2"></div></div>
+</body>
+</html>

@@ -239,6 +239,13 @@ fn costurar(
             // um guard futuro mais permissivo não precise tocar nesta linha.
             child.forced_outer_w,
             child.forced_outer_h,
+            // O guard no topo desta função já recusa a costura quando algum
+            // filho tem `forced_outer_h` — que é sempre o caso de um MAIN
+            // SIZE de coluna (é `Some` incondicionalmente ali). Este ramo
+            // nunca corre com `hard=true` na prática; `false` é a leitura
+            // honesta do que `ChildRef` sabe (não guarda a flag — ver o
+            // comentário em `layout_block_reusing`).
+            false,
             child.shrink_to_fit,
             // A costura só alcança o que virou fragmento, e um bloco estorvado
             // por float — ou que ele próprio deixa floats escaparem para o
@@ -353,6 +360,13 @@ pub(in crate::layout) fn layout_block_reusing(
     margens: impl FnOnce() -> (f32, f32),
     forced_outer_w: Option<f32>,
     forced_outer_h: Option<f32>,
+    // Ver o comentário em `layout_block` (`bloco.rs`) — só
+    // `layout_children_column` passa `true`. Fica de fora da `FragmentKey`
+    // de propósito: o `style_epoch` global já invalida o cache inteiro
+    // quando um ancestral muda de `display`/`flex-direction` (o único jeito
+    // do MESMO nó passar a ser chamado com um valor diferente), então não
+    // há colisão possível a proteger.
+    forced_outer_h_hard: bool,
     shrink_to_fit: bool,
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
@@ -376,6 +390,7 @@ pub(in crate::layout) fn layout_block_reusing(
             avail_h,
             forced_outer_w,
             forced_outer_h,
+            forced_outer_h_hard,
             shrink_to_fit,
             bfc,
             ctx,
@@ -449,6 +464,7 @@ pub(in crate::layout) fn layout_block_reusing(
         avail_h,
         forced_outer_w,
         forced_outer_h,
+        forced_outer_h_hard,
         shrink_to_fit,
         bfc,
         ctx,
