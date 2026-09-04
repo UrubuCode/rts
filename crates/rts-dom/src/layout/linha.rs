@@ -174,6 +174,7 @@ pub(in crate::layout) fn layout_inline_flow(
             .map(|w| w.preserves_newlines())
             .unwrap_or(false),
         parent_css.word_spacing.unwrap_or(0.0),
+        parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
         ctx.measurer,
     );
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque

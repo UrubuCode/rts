@@ -16,7 +16,7 @@ claude-cursor-pointer-events.html
 # vaga 6 — medidas no Edge 152 (desvio 0 contra os 86 esperados) ANTES do
 # código, por implementar: unidades `ch`/`ex` e serialização da lista de
 # `font-family` (lote T); inline com conteúdo que quebra em fragmentos e não
-# engrossa a linha (lote S-inline-2); `hyphens: manual` com `&shy;` (lote S-hifen)
+# engrossa a linha (lote S-inline-2). `claude-hyphens-manual` saiu daqui com o
+# lote S-hifen.
 claude-font-unidades-ch-ex.html
 claude-inline-fragmentos.html
-claude-hyphens-manual.html

@@ -200,6 +200,8 @@ pub(in crate::layout) fn intrinsic_content_width(
         // vira a caixa de um elemento sem `width`.
         let (own_text, ws_extra) =
             crate::layout::tabulacao::ajustar_texto_intrinsico(own_text, css.as_deref());
+        // o hífen suave não pesa na largura natural (`hifen.rs`, regra 1).
+        let own_text = super::hifen::sem_shy(&own_text).into_owned();
         // o mesmo raciocínio do peso vale para o estilo: medir com a família
         // errada muda a largura natural e com ela o sítio onde a linha quebra.
         let italic = italico(css.as_deref(), tag_de(dom, id), false);
@@ -379,7 +381,9 @@ pub(crate) fn intrinsic_outer_width(
             // senão: a intrínseca do conteúdo + frame.
             intrinsic_content_width(dom, id, f, ctx) + frame
         }
-        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false, false),
+        NodeKind::Text(t) => {
+            ctx.measurer.text_width(&super::hifen::sem_shy(t), parent_font, false, false, false)
+        }
         _ => 0.0,
     }
 }
@@ -457,7 +461,9 @@ pub(in crate::layout) fn child_outer_width(
                 None => content_natural_width(dom, id, font, ctx) + frame,
             }
         }
-        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false, false),
+        NodeKind::Text(t) => {
+            ctx.measurer.text_width(&super::hifen::sem_shy(t), parent_font, false, false, false)
+        }
         _ => 0.0,
     }
 }
