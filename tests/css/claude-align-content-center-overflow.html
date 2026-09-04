@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: align-content:center quando as linhas de wrap TRANSBORDAM a
+     altura explícita do contentor. flex.rs:286 grampeia o espaço livre a
+     ≥0 antes de calcular o leading — a spec não dá fallback 'safe' por
+     omissão a 'center', então o leading deve ficar NEGATIVO e o bloco de
+     linhas transborda simetricamente para cima e para baixo. Contentor
+     256×64 (2 linhas de 128×40 cada = 80 de conteúdo, contentor só tem 64
+     → free=-16). Verificado contra o binário atual: i3/i4 hoje saem em
+     y=48 em vez de y=32. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="i1,i2,i3,i4">
+<meta name="fixar-estilo" content="align-content">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .c { display: flex; flex-wrap: wrap; align-content: center; width: 256px; height: 64px; }
+  .c > div { width: 128px; height: 40px; }
+</style></head>
+<body>
+<div class="c"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
+</body></html>
