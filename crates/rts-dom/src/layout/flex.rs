@@ -269,35 +269,32 @@ pub(in crate::layout) fn layout_children_horizontal(
     // linha muda por causa da largura só quando o encolhimento força quebra de
     // texto, um efeito de segunda ordem que esta aproximação aceita — refinar
     // exigiria resolver todas as linhas duas vezes.
-    let mut line_align_leading = 0.0f32;
-    let mut line_align_between = 0.0f32;
     // `normal` (não declarado) comporta-se como `stretch` no eixo CRUZADO
     // (CSS Box Alignment 3 §8.3) — cada linha cresce a sua fatia do espaço
     // livre, em vez de só abrir espaçamento como o `justify_offsets` acima
     // faz para um valor declarado. Achado ao medir `claude-gap-row-percentual-eixo`:
     // a leitura ingénua (só empacotar) dava #a2 em y=60; o Blink dá 110.
-    let mut line_stretch_extra = 0.0f32;
-    if wrap && lines.len() > 1 && container_cross_h > 0.0 {
-        let estimativa: f32 = lines
-            .iter()
-            .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
-            .sum::<f32>()
-            + (lines.len().saturating_sub(1)) as f32 * row_gap;
-        let free = (container_cross_h - estimativa).max(0.0);
-        match css.align_content {
-            Some(v) => {
-                let (leading, between) =
-                    crate::layout::coluna::justify_offsets(v, free, lines.len());
-                line_align_leading = leading;
-                line_align_between = between;
-            }
-            None => {
-                line_stretch_extra = free / lines.len() as f32;
-            }
-        }
-    }
+    // O grampo a `≥0` e o `align-content` negativo (linhas em overflow) são
+    // de `flex_linhas::distribuir_align_content` — ver o porquê lá.
+    let (line_align_leading, line_align_between, line_stretch_extra) =
+        if wrap && lines.len() > 1 && container_cross_h > 0.0 {
+            let estimativa: f32 = lines
+                .iter()
+                .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
+                .sum::<f32>()
+                + (lines.len().saturating_sub(1)) as f32 * row_gap;
+            super::flex_linhas::distribuir_align_content(
+                css.align_content,
+                container_cross_h,
+                estimativa,
+                lines.len(),
+            )
+        } else {
+            (0.0, 0.0, 0.0)
+        };
 
     // ── RESOLVE + POSICIONA por linha: grow/shrink (main), justify, align ────────
+    let n_lines = lines.len();
     let mut line_y = content_y + line_align_leading;
     for line in &mut lines {
         if line.is_empty() {
@@ -393,14 +390,13 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
 
         // Cross-size da linha = max dos itens; com `height` explícito e linha
-        // única é o content do contentor (Chrome). Em wrap cada linha usa o seu
-        // max (repartir o height entre linhas — corte documentado).
+        // ÚNICA (com ou sem `wrap`) é o content do contentor, MESMO em
+        // overflow — `flex_linhas::cross_unica_linha` (ver o porquê lá).
+        // Com mais de uma linha, cada uma usa o seu max + o que o
+        // `align-content` (acima) tiver esticado.
         let items_h = line.iter().fold(0.0f32, |a, it| a.max(it.h));
-        let line_h = if !wrap && container_cross_h > items_h {
-            container_cross_h
-        } else {
-            items_h + line_stretch_extra // 0.0 fora de wrap/multi-linha: no-op.
-        };
+        let line_h = super::flex_linhas::cross_unica_linha(n_lines, container_cross_h)
+            .unwrap_or(items_h + line_stretch_extra);
 
         // justify-content sobre o espaço restante PÓS-grow (com grow>0 o free é 0
         // e o justify é neutro — correto). Em overflow, ver justify_offsets.
