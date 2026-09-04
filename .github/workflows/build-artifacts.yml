@@ -275,11 +275,20 @@ jobs:
           target/release/rts run examples/claude-css-runner.ts 2>&1 | tee corpus.txt
           resumo=$(grep -E '^passam: ' corpus.txt)
           { echo "### Corpus CSS (Chrome 1280x800, 1 px)"; echo; echo '```'; cat corpus.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          # A regra do corpus é por FICHEIRO: qualquer fixture a falhar é vermelho.
-          # O denominador é o do corredor (conta os .html que existem), não daqui.
-          falham=$(echo "$resumo" | sed -E 's/.*falham: ([0-9]+).*/\1/')
+          # A regra do corpus é por FICHEIRO — mas uma fixture que falha DE
+          # PROPÓSITO (nomeia uma lacuna medida; tests/css/README.md) não pode
+          # deixar este check vermelho para sempre, senão ninguém o lê. A lista
+          # em tests/css/esperado-a-falhar.txt é a expectativa: vermelho só se
+          # cair uma fixture FORA dela; aviso se uma DA lista passar (a lista
+          # ficou para trás e tem de ser encurtada no mesmo PR).
           echo "$resumo"
-          test "$falham" = "0"
+          grep -E '^  claude-[a-z0-9-]+\.html' corpus.txt | sed -E 's/^  (claude-[a-z0-9-]+\.html).*/\1/' | sort > falham.txt
+          grep -vE '^\s*(#|$)' tests/css/esperado-a-falhar.txt | sort > esperadas.txt
+          inesperadas=$(comm -23 falham.txt esperadas.txt)
+          passaram=$(comm -13 falham.txt esperadas.txt)
+          if [ -n "$passaram" ]; then echo "::warning::fixtures na lista esperado-a-falhar que PASSAM (encurte a lista): $passaram"; fi
+          if [ -n "$inesperadas" ]; then echo "::error::fixtures a falhar FORA da lista esperado-a-falhar: $inesperadas"; exit 1; fi
+          echo "so falham as esperadas: $(wc -l < esperadas.txt) ficheiro(s)"
 
   # Os testes Rust do rts-dom (sem dependências: segundos) e do rts-dom-bridge
   # (o teste de contrato que cruza o que a fachada chama com o que o bridge
