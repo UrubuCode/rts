@@ -105,12 +105,38 @@ pub(in crate::layout) fn layout_out_of_flow(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    // mede (w, h) numa lista descartável para resolver right/bottom.
-    let (w, h) = measure_block(dom, id, cb.w, Some(cb.h), None, None, true, ctx);
     let left = resolve_inset(css.inset_left, cb.w, &resolve);
     let right = resolve_inset(css.inset_right, cb.w, &resolve);
     let top = resolve_inset(css.inset_top, cb.h, &resolve);
     let bottom = resolve_inset(css.inset_bottom, cb.h, &resolve);
+    // STRETCH (CSS Position 3 / CSS 2.1 §10.3.7 e §10.6.4): com os DOIS
+    // offsets de um eixo definidos e a dimensão AUTO, o valor usado desse
+    // eixo enche o espaço entre eles — não é shrink-to-fit. `forced_outer_w`/
+    // `forced_outer_h` já fazem esta conta para o `stretch` do flex (`outer
+    // imposto → content = outer − frame`); reusa-se aqui em vez de duplicar a
+    // subtracção do frame. `css.height.is_none()` e não `resolve_height(...)
+    // .is_none()`: um `height:auto` explícito e a AUSÊNCIA de `height` são o
+    // mesmo "auto" para este efeito, e é o `Option` do valor DECLARADO que a
+    // spec chama de "auto" no §10.6.4 — testar o resolvido re-abriria a
+    // pergunta que o `is_none()` já fecha.
+    let stretch_w = left.is_some() && right.is_some() && css.width.is_none();
+    let stretch_h =
+        top.is_some() && bottom.is_some() && css.height.is_none() && css.aspect_ratio.is_none();
+    let forced_outer_w = stretch_w.then(|| (cb.w - left.unwrap() - right.unwrap()).max(0.0));
+    let forced_outer_h = stretch_h.then(|| (cb.h - top.unwrap() - bottom.unwrap()).max(0.0));
+    // mede (w, h) numa lista descartável para resolver o eixo shrink-to-fit
+    // (um só offset definido) — sem efeito no eixo esticado, que os `forced_*`
+    // acima já fixam.
+    let (w, h) = measure_block(
+        dom,
+        id,
+        cb.w,
+        Some(cb.h),
+        forced_outer_w,
+        forced_outer_h,
+        true,
+        ctx,
+    );
     // Os offsets são RELATIVOS ao container: soma a origem do containing block.
     let x = match (left, right) {
         (Some(l), _) => cb.x + l,
@@ -129,8 +155,8 @@ pub(in crate::layout) fn layout_out_of_flow(
         y,
         cb.w,
         Some(cb.h),
-        None,
-        None,
+        forced_outer_w,
+        forced_outer_h,
         true,
         &[],
         ctx,
@@ -140,7 +166,14 @@ pub(in crate::layout) fn layout_out_of_flow(
 
 /// Resolve um offset de posicionamento (`top`/`left`/…): px SEM clamp (negativo
 /// desloca para fora — badges/tooltips); `%` contra o eixo do viewport dado.
-fn resolve_inset(d: Option<crate::style::Dimension>, axis: f32, ctx: &ResolveCtx) -> Option<f32> {
+/// `pub(in crate::layout)`: reusado por `relativo.rs` para os mesmos quatro
+/// insets no caminho de `position:relative` — mesma resolução, containing
+/// block diferente.
+pub(in crate::layout) fn resolve_inset(
+    d: Option<crate::style::Dimension>,
+    axis: f32,
+    ctx: &ResolveCtx,
+) -> Option<f32> {
     match d? {
         crate::style::Dimension::Px(v) => Some(v),
         crate::style::Dimension::Percent(p) => Some(axis * p / 100.0),

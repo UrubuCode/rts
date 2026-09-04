@@ -50,7 +50,9 @@ mod input;
 mod itens;
 mod medida;
 mod pintura;
+mod margem_escapada;
 mod posicionado;
+mod relativo;
 mod replaced;
 mod bloco;
 mod fragmento;
@@ -76,6 +78,7 @@ pub(crate) use self::fragmento::insert_item;
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
 use self::vertical::layout_children_vertical;
 use self::linha_ib::layout_inline_block_line;
+use self::relativo::aplica_offset_relativo;
 
 pub use self::display::{Corners, DisplayItem, DisplayList, Geometry, Rect, ScrollRegion};
 pub use self::medida::{ApproxMeasurer, TextMeasurer};
