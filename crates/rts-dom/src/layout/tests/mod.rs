@@ -10,6 +10,7 @@ mod colapso;
 mod dimensoes;
 mod flex;
 mod grid;
+mod grid_corpus;
 mod inline;
 mod pintura;
 mod posicionado;
