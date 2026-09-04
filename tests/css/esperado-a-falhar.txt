@@ -6,3 +6,14 @@ claude-ua-form-disabled.html
 claude-ua-headings.html
 claude-ua-th.html
 claude-grid-auto-fill.html
+
+# --- vaga 4 (PLAN §5), por implementar: medidas no Blink ANTES do codigo ---
+claude-background-camadas.html
+claude-clip-path-inset.html
+claude-cursor-pointer-events.html
+claude-grid-minmax-intrinseco.html
+claude-text-decoration-longhands.html
+claude-text-shadow.html
+claude-transform-nao-afeta-fluxo.html
+claude-transform-origin.html
+claude-transform-skew-matrix.html
