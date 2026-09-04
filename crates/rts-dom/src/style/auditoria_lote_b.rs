@@ -69,12 +69,22 @@ fn os_atributos_de_apresentacao_nao_entram() {
     assert_eq!(prop(&d, "td", "width"), "auto");
 }
 
-/// `estilo.seletor.nth-child-of-e-has` — `:has()` e a forma `of` do `nth-child`
-/// não são reconhecidos, e a regra inteira é descartada.
+/// `estilo.seletor.has` — **obsoleto**: o registo dizia que `:has()` não era
+/// reconhecido e derrubava a regra inteira. Passou a ser (lote O, `dom/has.rs`)
+/// — este teste fixa o estado novo: `p:has(span)` CASA o `<p>` que tem um
+/// `<span>` dentro.
 #[test]
-fn has_e_o_of_do_nth_child_derrubam_a_regra() {
+fn has_e_reconhecido_e_casa_o_ancestral() {
     let d = doc("p:has(span){color:red}", "<p><span>x</span></p>");
-    assert_eq!(prop(&d, "p", "color"), "rgb(0, 0, 0)");
+    assert_eq!(prop(&d, "p", "color"), "rgb(255, 0, 0)");
+}
+
+/// `estilo.seletor.nth-child-of` — a forma `of` do `nth-child` (`:nth-child(1
+/// of .x)`) continua sem reconhecimento: `parse_nth` só lê `odd`/`even`/`an+b`,
+/// não um segundo seletor depois de `of`. A regra inteira é descartada, como
+/// qualquer pseudo com argumento inválido.
+#[test]
+fn o_of_do_nth_child_ainda_derruba_a_regra() {
     let d = doc("p:nth-child(1 of .x){color:red}", "<p class=x>y</p>");
     assert_eq!(prop(&d, "p", "color"), "rgb(0, 0, 0)");
 }
