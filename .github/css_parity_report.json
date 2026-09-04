@@ -1,20 +1,20 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 106,
-    "total": 110,
-    "pct": 96.4
+    "passing": 109,
+    "total": 113,
+    "pct": 96.5
   },
   "measurements": {
-    "matching": 2556,
-    "total": 2572,
+    "matching": 2592,
+    "total": 2608,
     "pct": 99.4
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 271,
+    "passing": 275,
     "total": 489,
-    "pct": 55.4
+    "pct": 56.2
   },
   "expected_failures": [
     {
@@ -80,6 +80,7 @@
       "borda-em — bordas em `em`/`rem` resolvem contra a fonte",
       "cores-nomeadas — os 148 nomes de cor do CSS Color 4",
       "flex-margens-auto — margens `auto` no eixo transversal do flex",
+      "pintura-e-caixas — z-index negativo, `::before`/`::after` de bloco, flex evita float",
       "flex-basis-piso — piso de min-content sem grow; `flex-basis` unitless inválida; espaço antes do `:`",
       "pequenos-1 — três causas pequenas da triagem WPT: texto solto em `display:table`, largura intrínseca do flex em coluna, `<input>` estica no flex"
     ],
