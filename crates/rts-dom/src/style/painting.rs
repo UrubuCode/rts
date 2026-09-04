@@ -440,6 +440,14 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
                 )
             })
             .unwrap_or_default(),
+        // Não tinha braço NENHUM antes desta linha (mesmo defeito que
+        // `background-image` sem gradiente tinha) — o valor cru era guardado
+        // e nunca lido de volta pelo computed; agora também leva aspas duplas
+        // no `url(...)`, pela mesma `fmt_url` de `list-style-image`/
+        // `background-image`/`cursor`.
+        "mask-image" | "-webkit-mask-image" => {
+            css.mask_image.as_deref().map(super::fmt_values::fmt_url).unwrap_or_default()
+        }
         // As da máscara respondem pelos mesmos formatadores das de fundo, que é
         // a outra metade do reúso da gramática.
         "mask-position" => css
