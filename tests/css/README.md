@@ -42,49 +42,24 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04: 41 das 49 fixtures passam**, a 1px de tolerância. São 23 desvios
-em 8 ficheiros — o denominador cresceu de 42 para 49 desde a última vez que
-este número foi gravado aqui (2026-08-18: 7/42); a tabela abaixo não compara
-as duas medições ponto a ponto, só regista a mais recente.
+**2026-09-04: 49 das 49 fixtures passam**, a 1px de tolerância — zero desvios.
+Na manhã do mesmo dia eram 41 (23 desvios em 8 ficheiros); a vaga 1 do
+`crates/rts-dom/PLAN.md` fechou os oito com os lotes C (`position`), D (grid
+rows por áreas), E (`BlockFormattingContext`, floats, `clear`) e F (baseline
+por átomo, `vertical-align`, `white-space: pre`). Cada lote entrou com um
+teste Rust em `crates/rts-dom/src/layout/tests/*_corpus.rs` que parseia o HTML
+EXACTO da fixture e afirma os mesmos rects do Chrome — a suite unitária pina
+hoje o mesmo que este corpus.
 
-**Contra que binário:** `target/release/rts.exe`, construído em 2026-09-03
-sobre o commit `fc84d04f`, via `examples/claude-css-runner.ts`.
+**Contra que binário:** `target/release/rts.exe` construído a 2026-09-04
+01:39 sobre a branch `feat/dom-vaga-1` (o commit está no PLAN §0), via
+`examples/claude-css-runner.ts`.
 
-**As 8 que falham FICAM no corpus a falhar** — a regra que não levanta,
-`CLAUDE.md`: não se apaga uma fixture nem se ajusta um esperado para o número
-subir, porque um corpus verde por construção não é uma rede de segurança, é um
-enfeite.
-
-```
-claude-clear                claude-position-absolute    claude-vertical-align
-claude-float-clear          claude-position-relative    claude-white-space
-claude-grid-areas           claude-text-align
-```
-
-### O que está por trás delas
-
-Só os mecanismos das 8 fixtures que ainda falham hoje (2026-09-04). As linhas
-sobre `background-shorthand`/`cor-e-fundo`/`especificidade`/`heranca`/
-`important`/`seletor-*`/`where-vs-is` (altura de linha por omissão),
-`border-lados` (border-<lado> como longhand), `list-style-type` (folha UA de
-listas), `where-vs-is` (especificidade de `:is`/`:where`),
-`computed-valor-inicial`/`overflow`/`opacity-visibility`/`flex-*`/`grid-colunas`/
-`grid-linhas-gap` (`computedProperty` do valor inicial), `box-model`/
-`margin-collapse`/`padding-border` (colapso de margens), `display-basico`
-(inline/inline-block/none) e `font-size-unidades` (em/rem/% em font-size)
-saíram porque nenhuma fixture que citavam continua na lista de falhas —
-mecanismo resolvido, não fixture apagada (a fixture continua no corpus e
-corre; só deixou de precisar de linha aqui).
-
-| mecanismo | fixtures | o desvio |
-|---|---|---|
-| `clear` por lado | `clear`, `float-clear` | `clear: right` desce abaixo do float ESQUERDO (y=95 onde o Chrome diz 40) — os três valores comportam-se como um só, e `clear: none` também desce |
-| `vertical-align` | `vertical-align` | ausente: os sete `inline-block` de alturas diferentes ficam todos em y=0, onde o Chrome os espalha entre 7.25 e 19.91 |
-| `float` | `float-clear`, `clear` | o float não sai do fluxo (o pai só de floats mede 60 e devia medir 0) e o `clear` não empurra |
-| deslocamento de `position` | `position-relative`, `position-absolute` | `top`/`left` num relativo não deslocam; `top:0;left:0;right:0;bottom:0` num absoluto dá 0x0 em vez de esticar — confirmado como dívida aberta pela auditoria estrutural de 2026-09-04 ("`position:relative` nunca desloca a pintura", frente B) |
-| `white-space` | `white-space` | `nowrap` e `pre` não mudam a quebra: as quatro caixas medem 20 de altura onde o Chrome dá 20, 20, 40 e 40 |
-| medida de texto | `text-align` | a nossa largura de 5 caracteres monospace divergia do Chrome; `largura-auto` e `letter-spacing`, medidos pelo mesmo mecanismo, já passam — `text-align` é o que resta |
-| `grid-template-areas` | `grid-areas` | os itens da linha do meio ficam com altura 0 e o rodapé sobe para y=60 em vez de y=360 |
+**Um corpus verde deixou de medir alguma coisa.** É o que aconteceu ao
+anterior (2026-08-18) e é a razão de existir a regra: uma fixture que falha
+fica a falhar, e a próxima fixture é a próxima pergunta. O `PLAN.md` §5 lista
+o que ainda não tem fixture — cada lote de lá começa por medir uma no Chrome
+(`scripts/css_fixtures_medir.md`) antes de tocar no código.
 
 ---
 

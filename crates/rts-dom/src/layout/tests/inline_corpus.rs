@@ -134,14 +134,14 @@ fn text_align_contra_o_chrome() {
     afirma_rect(&dom, &list, "#sc", (186.8, 45.0, 26.39, 19.0));
     afirma_rect(&dom, &list, "#sd", (373.61, 90.0, 26.39, 19.0));
     afirma_rect(&dom, &list, "#bloco-filho", (0.0, 135.0, 100.0, 20.0));
-    // ⚠️ AINDA FALHA (não fechado por este lote — ver o relatório): a altura
-    // de `#herdado-pai` devia somar 20 (bloco-filho) + 20 (line-height
-    // herdado de `body`) = 40; o motor devolve 38 (usa o `normal` do
-    // medidor, 18, em vez do declarado). Investigado sem resolver: a cascade
-    // (`inherit_from`/`apply_font_shorthand`) reproduz `font-size` corretamente
-    // para o MESMO elemento pela MESMA herança (`#sh` mede 26.39 de largura,
-    // provando font-size:16 herdado) — a causa exata do line-height ficar
-    // para trás fica por determinar sem um binário para instrumentar.
+    // `#herdado-pai` mede 40 = 20 (bloco-filho) + 20 (line-height herdado de
+    // `body` via `font: 16px/20px`). O lote F sozinho media 38 (o `normal` do
+    // medidor, 18, em vez do declarado) e não encontrou a causa na cascade —
+    // `#sh` prova que o `font-size` chega ao mesmo elemento pela mesma
+    // herança. Passou a 40 quando os lotes C (colapso pai→primeiro-filho em
+    // `content_y`) e E (BlockFormattingContext) entraram na mesma integração,
+    // 2026-09-04; qual dos dois o fechou, e por que caminho, não foi isolado.
+    // Se voltar a 38, é aqui que se lê o que se sabe.
     afirma_rect(&dom, &list, "#herdado-pai", (0.0, 135.0, 400.0, 40.0));
     afirma_rect(&dom, &list, "#sh", (373.61, 155.0, 26.39, 19.0));
 }

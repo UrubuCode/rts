@@ -27,7 +27,7 @@ linha aqui não existe.
 | C | `position` relative/absolute | 1 | ☑ integrado; corpus 6/6 desvios fechados | `feat/dom-position-relativo-absoluto` → `a2d6dde1` | corpus: `claude-position-*` (6 desvios) |
 | D | grid: rows por áreas | 1 | ☑ integrado; corpus 3/3 fechados | `feat/dom-grid-areas-rows` → `161c532a` | corpus: `claude-grid-areas` (3) |
 | E | BFC, floats, `clear` | 1 | ☑ integrado; corpus 6/6 fechados, suite sem perdidos | `feat/dom-bfc-floats-clear` → `cf592ba0` | corpus: `claude-clear`, `claude-float-clear` (6) |
-| F | baseline, `vertical-align`, `white-space` | 1 | ◐ em curso | `feat/dom-linha-baseline` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
+| F | baseline, `vertical-align`, `white-space` | 1 | ☑ integrado; corpus 8/8 fechados (o 8.º por C/E) | `feat/dom-linha-baseline` → `ebe268ef` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
 | G | scroll no documento | 2 | ◐ integrado em `feat/dom-vaga-1`, por medir na janela | `feat/dom-scroll-no-documento` → `951a72b2` | teste de `scrollTop`/`scrollTo` + exemplo em janela |
 | H | o escopo de página não vê o Node | 2 | ◐ integrado em `feat/dom-vaga-1`, por medir na suite | `feat/dom-escopo-pagina-sem-node` → `8e30fcc1` | fixture `claude-dom-page-nao-ve-process` |
 | I | folha de UA em CSS real | 2 | ☐ | — | `<th>` negrito/centro; `scrollbar.rs` apagado |
