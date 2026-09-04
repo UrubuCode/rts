@@ -15,11 +15,16 @@ set -u
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$RAIZ" || exit 1
 
-BIN="target/release/examples/run_fixture.exe"
-[ -x "$BIN" ] || BIN="target/release/examples/run_fixture"
-if [ ! -x "$BIN" ]; then
-  echo "não há $BIN — construa-o com: cargo build --release -p rts-host --example run_fixture" >&2
-  exit 2
-fi
-
-exec "$BIN" examples/claude-css-runner.ts
+# Dois binários servem, e o corredor é o mesmo ficheiro TS sobre o mesmo
+# `rts:dom`: o exemplo `run_fixture` (um processo sem nada do CLI no caminho) e
+# o próprio `rts` (`cargo build --release` do pacote raiz — o que toda a gente
+# já tem, e o que o CI usa). O exemplo tem prioridade quando existe; o CLI é o
+# fallback, e foi por não existir que esta régua ficou dias sem ser corrida.
+for cand in target/release/examples/run_fixture.exe target/release/examples/run_fixture; do
+  if [ -x "$cand" ]; then exec "$cand" examples/claude-css-runner.ts; fi
+done
+for cand in target/release/rts.exe target/release/rts; do
+  if [ -x "$cand" ]; then exec "$cand" run examples/claude-css-runner.ts; fi
+done
+echo "não há binário em target/release/ — construa um: cargo build --release (o CLI) ou cargo build --release -p rts-host --example run_fixture" >&2
+exit 2
