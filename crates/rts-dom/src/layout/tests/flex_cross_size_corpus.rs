@@ -1,10 +1,17 @@
 //! `tests/css/claude-flex-cross-size-overflow.html`,
-//! `claude-flex-wrap-stretch-linha.html` e
-//! `claude-align-content-center-overflow.html` contra o Blink (Edge 152,
-//! 2026-09-04): o cross-size de uma linha ÚNICA é sempre a altura DEFINIDA
-//! do contentor (mesmo em overflow, com ou sem `flex-wrap`), e
-//! `align-content` sem fallback `safe` deixa o espaço livre ficar NEGATIVO
-//! quando as linhas transbordam (`flex_linhas.rs`).
+//! `claude-flex-wrap-stretch-linha.html`,
+//! `claude-align-content-center-overflow.html` e
+//! `claude-flex-wrap-gap-calc.html` contra o Blink (Edge 152, 2026-09-04): o
+//! cross-size de uma linha ÚNICA é sempre a altura DEFINIDA do contentor
+//! (mesmo em overflow, com ou sem `flex-wrap`), `align-content` sem
+//! fallback `safe` deixa o espaço livre ficar NEGATIVO quando as linhas
+//! transbordam (`flex_linhas.rs`), e RETRABALHO (2026-09-04, achado pelo
+//! reftest `gap-010-ltr` do WPT): `gap: calc(10% - 1rem / 2)` resolvia a 0 —
+//! não era este lote, era `parse_gap_pair` (`style/lengths.rs`) a separar o
+//! shorthand por `split_whitespace()` cru, que um `calc()` com espaços
+//! INTERNOS parte em 5 tokens inválidos (mesma causa que `parse_edges` já
+//! tinha corrigido com `split_top_ws`). Confirmado por comparação directa
+//! com um worktree do commit pré-merge: o mesmo bug já lá estava.
 
 use crate::table::tests::{geometria, rect};
 
@@ -96,4 +103,30 @@ fn align_content_center_deixa_as_linhas_transbordarem_simetricamente() {
     assert_eq!(r("#i2"), (128.0, -8.0, 128.0, 40.0));
     assert_eq!(r("#i3"), (0.0, 32.0, 128.0, 40.0), "leading negativo: -8+40, não o 0+40 do clamp antigo");
     assert_eq!(r("#i4"), (128.0, 32.0, 128.0, 40.0));
+}
+
+#[test]
+fn gap_com_calc_de_percentagem_e_rem_nao_resolve_a_zero() {
+    // RETRABALHO: `gap: calc(10% - 1rem / 2)` (WPT `gap-010-ltr`) dava 0 —
+    // `parse_gap_pair` separava o shorthand com `val.split_whitespace()`
+    // cru, que os espaços DENTRO do `calc()` partiam em 5 tokens
+    // ("calc(10%", "-", "1rem", "/", "2)"), caindo no `_ => (None, None)`.
+    // Corrigido com `split_top_ws` (a mesma função que `parse_edges` já
+    // usava). 10% de 400 = 40, menos 1rem/2 = 8 -> gap = 32; os 4 itens
+    // `flex:1 1 auto` crescem para 76 cada (4×76 + 3×32 = 304+96 = 400).
+    const HTML: &str = r#"<style>
+  #s { display: flex; flex-wrap: wrap; gap: calc(10% - 1rem / 2); width: 400px; height: 100px; }
+  #s > div { flex: 1 1 auto; }
+</style>
+<section id="s"><div id="a"></div><div id="b"></div><div id="c"></div><div id="d"></div></section>"#;
+    let (dom, list) = geometria(HTML, 1280.0);
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(r("#s"), (0.0, 0.0, 400.0, 100.0));
+    assert_eq!(r("#a"), (0.0, 0.0, 76.0, 100.0));
+    assert_eq!(r("#b"), (108.0, 0.0, 76.0, 100.0), "gap=32 (10%×400-8), não 0");
+    assert_eq!(r("#c"), (216.0, 0.0, 76.0, 100.0));
+    assert_eq!(r("#d"), (324.0, 0.0, 76.0, 100.0));
 }
