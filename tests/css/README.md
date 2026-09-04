@@ -42,19 +42,22 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04 (vaga 3): 72 das 86 fixtures passam**, a 1px de tolerância; as
-14 que falham estão TODAS em `esperado-a-falhar.txt`, cada uma com a razão:
-3 da folha de UA, `grid-auto-fill`, `sel-has` (o modelo de caixa inline por
-fragmentos, lote próprio) e as 9 réguas da vaga 4 — escritas, medidas e
-commitadas ANTES do código, pela regra nova do `crates/rts-dom/PLAN.md` §1.
-O job `dom-rulers` do CI fica vermelho se cair uma fixture fora dessa lista.
+**2026-09-04 (vaga 4): 82 das 86 fixtures passam**, a 1px de tolerância; as
+4 que falham estão em `esperado-a-falhar.txt` com a razão: 3 da folha de UA
+(largura de texto a negrito/controlos, fonte dos controlos, `tr` sem
+`border-spacing`) e `cursor: url()` (o Blink resolve a URL contra a base do
+documento; este motor não resolve URLs). O job `dom-rulers` do CI fica
+vermelho se cair uma fixture fora dessa lista.
+
+**A ordem que fez a vaga 4 custar ZERO rondas de retrabalho** (a vaga 3
+custou 16): as fixtures são escritas, medidas no Blink e commitadas ANTES do
+código (`crates/rts-dom/PLAN.md` §1), e o agente afirma os rects do Blink no
+teste Rust desde a primeira linha.
 
 **Contra que binário:** `target/release/rts.exe` construído sobre
-`feat/dom-vaga-3`, via `examples/claude-css-runner.ts`.
-
-**A régua das 37 fixtures novas de hoje é o Edge headless**
-(`scripts/css_fixtures_medir_edge.mjs`, Blink 152), validado a cada medição
-contra os esperados do Chrome: 1 460 números, desvio 0 na última.
+`feat/dom-vaga-4`, via `examples/claude-css-runner.ts`. Régua das fixtures
+novas de hoje: o Edge headless (`scripts/css_fixtures_medir_edge.mjs`, Blink
+152), validado a cada medição contra os esperados do Chrome (desvio 0).
 
 ---
 

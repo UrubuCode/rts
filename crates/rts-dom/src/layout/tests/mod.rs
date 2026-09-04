@@ -15,12 +15,15 @@ mod float_corpus;
 mod grid;
 mod grid_colocacao;
 mod grid_corpus;
+mod grid_intrinseco_corpus;
 mod inline;
 mod inline_corpus;
+mod inline_fragmentos_corpus;
 mod pintura;
 mod posicionado;
 mod position_corpus;
 mod texto_lote_s;
+mod transform_corpus;
     use super::*;
     use crate::dom::parse_html_to_dom;
 

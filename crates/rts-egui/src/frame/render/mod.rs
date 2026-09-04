@@ -373,7 +373,12 @@ pub(crate) fn render_dom_scrolled(
                     let cx = pos.x - origin.x;
                     let cy = pos.y - origin.y + offset; // tela → coords de conteúdo
                     if cx < viewport_w - bar_w {
-                        if let Some(idx) = list.hit_test(cx, cy) {
+                        // `hit_test_clickable`, e não `list.hit_test`: um nó com
+                        // `pointer-events: none` é transparente ao clique (a
+                        // regra de #2xxx S-decoração/host) — o clique atravessa
+                        // para o que estiver por baixo dele na mesma pilha.
+                        let idx = rts_dom::store::with_dom(h, |d| d.hit_test_clickable(&list, cx, cy)).flatten();
+                        if let Some(idx) = idx {
                             let _ = rts_dom::store::with_dom_mut(h, |d| {
                                 d.push_raw_event(idx, "click");
                             });

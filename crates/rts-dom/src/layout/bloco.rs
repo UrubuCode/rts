@@ -1062,24 +1062,37 @@ pub(crate) fn layout_block(
     // `transform`: a caixa de referência dele é a posição já deslocada.
     aplica_offset_relativo(dom, id, &css, avail_w, avail_h, font_size, box_index, ctx, list);
 
-    // ── TRANSFORM (translate/scale/rotate): pós-processa os itens DESTE elemento e
-    // seus descendentes (o range `[box_index..]`), em torno do CENTRO do border-box.
-    // Aplicado por último (não afeta o fluxo/tamanho — como no CSS, transform é visual).
+    // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
+    // compostas por `TransformList::resolve`): pós-processa os itens DESTE
+    // elemento e seus descendentes (o range `[box_index..]`), em torno de
+    // `transform-origin` (default `50% 50%` — CSS Transforms 1 §6). Aplicado
+    // por último (não afeta o fluxo/tamanho — como no CSS, transform é visual).
     if let Some(tf) = css.transform {
         if !tf.is_identity() {
-            let cx = box_rect.x + box_rect.w / 2.0;
-            let cy = box_rect.y + box_rect.h / 2.0;
-            // translate em px + fração do tamanho do elemento (translate(-50%,-50%)).
-            let tx = tf.tx + tf.tx_pct * box_rect.w;
-            let ty = tf.ty + tf.ty_pct * box_rect.h;
-            let (sin, cos) = tf.rot_deg.to_radians().sin_cos();
+            let mat = super::transformacao::matriz_transform(
+                tf,
+                css.transform_origin,
+                box_rect,
+                font_size,
+                ctx.viewport_w,
+                ctx.viewport_h,
+            );
+
+            // `getBoundingClientRect` (`node_rects`) SEMPRE reflete a matriz —
+            // a bounding box dos 4 cantos, para este nó E para cada
+            // descendente (herdam a transformação do pai). Corre ANTES do
+            // atalho abaixo e para os dois ramos: a bbox de um rect só
+            // transladado é só transladada, a mesma chamada serve os dois.
+            super::transformacao::transforma_node_rects(dom, id, &mat, list);
+
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo
             // que aponta para ele.
             //
-            // Um TRANSLATE puro não precisa de achatar nada: a subárvore é
-            // desenhada com um deslocamento que já existe no `ChildRef`, e somar
-            // ao `dx`/`dy` dele é a mesma conta sem tocar no que é partilhado.
+            // Uma matriz de TRANSLAÇÃO PURA não precisa de achatar nada: a
+            // subárvore é desenhada com um deslocamento que já existe no
+            // `ChildRef`, e somar ao `dx`/`dy` dele é a mesma conta sem tocar
+            // no que é partilhado.
             //
             // Achatar aqui era um defeito com alcance muito além do elemento:
             // `materialize` reescreve `items` INTEIRO, e todos os índices que os
@@ -1088,22 +1101,22 @@ pub(crate) fn layout_block(
             // — uma regra de ícone, na folha do MediaWiki — punha a página
             // inteira da Wikipédia a zero: 16 813 elementos sem geometria porque
             // uma regra de 40 bytes casou com um `<span>`.
-            let so_translate = tf.sx == 1.0 && tf.sy == 1.0 && tf.rot_deg == 0.0;
-            if so_translate {
+            let is_pure_translate = mat.a == 1.0 && mat.b == 0.0 && mat.c == 0.0 && mat.d == 1.0;
+            if is_pure_translate {
                 for it in list.items[box_index..].iter_mut() {
-                    translate_item(it, tx, ty);
+                    translate_item(it, mat.e, mat.f);
                 }
                 for child in list.children.iter_mut().filter(|c| c.at >= box_index) {
-                    child.dx += tx;
-                    child.dy += ty;
+                    child.dx += mat.e;
+                    child.dy += mat.f;
                 }
             } else {
-                // Escala e rotação continuam a exigir os itens em mãos. Vale a
-                // mesma ressalva de índices — por isso só quando não há
-                // subárvore por referência para achatar.
+                // Escala/rotação/skew/matriz continuam a exigir os itens em
+                // mãos. Vale a mesma ressalva de índices — por isso só quando
+                // não há subárvore por referência para achatar.
                 list.materialize();
                 for it in list.items[box_index..].iter_mut() {
-                    apply_transform_to_item(it, cx, cy, tx, ty, tf.sx, tf.sy, sin, cos);
+                    apply_transform_to_item(it, &mat);
                 }
             }
         }

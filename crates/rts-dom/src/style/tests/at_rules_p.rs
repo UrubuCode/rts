@@ -142,6 +142,9 @@ fn property_inherits_false_e_reconhecido_no_registo() {
 
 // ── at-rules reconhecidas e IGNORADAS de propósito (item 5) ─────────────────
 
+// Lê o contador `css_at_rules_ignoradas`, que só existe com a feature: sem
+// ela o `bump!` não expande e o teste falhava no job dom-tests do CI.
+#[cfg(feature = "metrics")]
 #[test]
 fn at_rules_sem_pre_requisito_ficam_fora_da_cascade_mas_sao_contadas() {
     let mut sheet = Stylesheet::new();

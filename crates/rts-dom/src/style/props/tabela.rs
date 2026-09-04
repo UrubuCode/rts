@@ -385,6 +385,27 @@ css_props! {
         [] bg_position: crate::style::BgPosition;
         /// `background-size` (`cover`/`contain`/`auto`/par de comprimentos).
         [] bg_size: crate::style::BgSize;
+        /// `background-image` DECLARADA por INTEIRO — todas as camadas separadas
+        /// por vírgula, crua. `bg_image`/`gradient` acima só guardam a PRIMEIRA
+        /// (ver `style::background`); este campo é o que deixa
+        /// `style::decoracao::fmt_bg_image_layers` reconstituir a lista inteira
+        /// no computado sem um segundo parser de fundo. `None` = uma só camada
+        /// (ou nenhuma) — nesse caso o computado continua a sair dos campos
+        /// velhos, que já a serializam certo.
+        [] bg_image_layers: String;
+        /// `background-repeat`/`-position`/`-size` DECLARADAS por INTEIRO, para
+        /// quando `bg_image_layers` tem mais de uma camada: o Blink reporta uma
+        /// entrada por camada de IMAGEM mesmo quando a longhand não foi
+        /// declarada (cai no inicial repetido) — por isso estes três também
+        /// crus, e não só o campo tipado de uma camada.
+        [] bg_repeat_layers: String;
+        [] bg_position_layers: String;
+        [] bg_size_layers: String;
+        /// `text-shadow` DECLARADA por INTEIRO — `text_shadow` acima só guarda a
+        /// 1ª sombra (reuso de `BoxShadow`, ver `style::painting`); esta é a
+        /// lista inteira, crua, para `style::decoracao::fmt_text_shadow_list`
+        /// reconstituir as sombras seguintes sem um 2º tipo de sombra.
+        [] text_shadow_raw: String;
         // ── Bordas POR LADO (ver `style::borders`) ────────────────────────────────
         /// `border-top-style` — o estilo SÓ deste lado. `None` = cai na borda
         /// uniforme (`border_style`), que é o fallback de `borders::resolved_sides`.

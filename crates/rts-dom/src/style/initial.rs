@@ -58,6 +58,7 @@ pub fn initial(name: &str) -> Option<&'static str> {
         "line-break" => "auto",
         "text-decoration-skip-ink" => "auto",
         "text-decoration-thickness" => "auto",
+        "clip-path" => "none",
         // O inicial de `caret-color` é `auto`, que o Chrome NÃO resolve para uma
         // cor — ao contrário do `currentColor` de `text-decoration-color`.
         "caret-color" => "auto",

@@ -210,9 +210,33 @@ pub(crate) fn fmt_tracks(t: Option<&Vec<crate::style::GridTrack>>) -> String {
                 crate::style::GridTrack::Bounded { min, max } => {
                     format!("minmax({}, {})", fmt_dim(*min), fmt_dim(*max))
                 }
+                crate::style::GridTrack::Intrinsic { min, max } => {
+                    format!("minmax({}, {})", fmt_track_bound(min), fmt_track_bound(max))
+                }
+                // Nunca chega aqui em uso normal: `dom/estilo.rs` serializa
+                // `grid-template-columns`/`-rows` a partir dos tamanhos JÁ
+                // RESOLVIDOS em `list.grid_column_tracks` (ver o comentário
+                // lá), nunca chamando `fmt_tracks` sobre a declaração crua
+                // quando ela contém um `repeat(auto-fill|auto-fit, …)` por
+                // resolver. A forma crua fica aqui só para não deixar o
+                // `match` incompleto.
+                crate::style::GridTrack::AutoRepeat { fit, .. } => {
+                    format!("repeat({}, …)", if *fit { "auto-fit" } else { "auto-fill" })
+                }
             })
             .collect::<Vec<_>>()
             .join(" "),
+    }
+}
+
+/// Um lado de `minmax()` intrínseco, na forma CSS — só usado pela forma crua
+/// de `fmt_tracks` (ver o comentário no `AutoRepeat` acima).
+fn fmt_track_bound(b: &crate::style::TrackBound) -> String {
+    match b {
+        crate::style::TrackBound::Fixed(d) => fmt_dim(*d),
+        crate::style::TrackBound::MinContent => "min-content".to_string(),
+        crate::style::TrackBound::MaxContent => "max-content".to_string(),
+        crate::style::TrackBound::FitContent(d) => format!("fit-content({})", fmt_dim(*d)),
     }
 }
 

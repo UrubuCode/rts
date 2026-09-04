@@ -168,22 +168,16 @@ fn rotate_individual_pinta_pelo_mesmo_transform_do_shorthand() {
     // layout já aplica. Um campo próprio seria uma segunda descrição da mesma
     // transformação, e alguém teria de as compor.
     let s = parse_inline("rotate: 45deg");
-    assert_eq!(s.transform.expect("cria a transformação").rot_deg, 45.0);
-    // as outras componentes ficam NEUTRAS — e o neutro da escala é 1, não 0.
-    let t = s.transform.unwrap();
-    assert_eq!(
-        (t.sx, t.sy),
-        (1.0, 1.0),
-        "um Default de zeros encolheria a caixa a nada"
-    );
+    let m = s.transform.expect("cria a transformação").ops.resolve(0.0, 0.0);
+    let (sin, cos) = 45.0_f32.to_radians().sin_cos();
+    assert!((m.a - cos).abs() < 1e-4 && (m.b - sin).abs() < 1e-4);
     // `turn` e `rad` também, pelo mesmo parser de ângulo do shorthand.
-    assert_eq!(
-        parse_inline("rotate: 0.5turn").transform.unwrap().rot_deg,
-        180.0
-    );
-    // `scale` com um valor vale para os dois eixos.
-    let e = parse_inline("scale: 2").transform.unwrap();
-    assert_eq!((e.sx, e.sy), (2.0, 2.0));
+    let m180 = parse_inline("rotate: 0.5turn").transform.unwrap().ops.resolve(0.0, 0.0);
+    assert!((m180.a - (-1.0)).abs() < 1e-4, "180° tem a=-1");
+    // `scale` com um valor vale para os dois eixos — e o neutro é 1, não 0
+    // (um `Default` de zeros encolheria a caixa a nada).
+    let e = parse_inline("scale: 2").transform.unwrap().ops.resolve(0.0, 0.0);
+    assert_eq!((e.a, e.d), (2.0, 2.0));
 }
 
 #[test]
@@ -205,7 +199,8 @@ fn sintaxe_de_flexbox_de_2009_cai_nos_campos_de_hoje() {
     );
     // e o alias puro do shorthand chega ao mesmo sítio que o nome nu.
     let a = parse_inline("-webkit-transform: rotate(90deg)");
-    assert_eq!(a.transform.unwrap().rot_deg, 90.0);
+    let m = a.transform.unwrap().ops.resolve(0.0, 0.0);
+    assert!(m.a.abs() < 1e-4, "90°: a=cos(90°)=0");
 }
 
 #[test]

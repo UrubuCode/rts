@@ -125,71 +125,40 @@ impl LinearGradient {
     }
 }
 
-/// Uma `transform` CSS reduzida a translação + escala + rotação (a composição comum
-/// `translate() scale() rotate()`). `tx`/`ty` em px (%, resolvido tarde contra o
-/// tamanho do elemento, fica como fração em `tx_pct`/`ty_pct`). Aplicada no paint em
-/// torno do CENTRO do elemento (origin default `50% 50%`). Egui-free.
-#[derive(Clone, Copy, PartialEq, Debug)]
+/// Uma `transform` CSS: a lista de funções (`translate`/`scale`/`rotate`/`skewX`/
+/// `skewY`/`matrix`, com aliases `*X`/`*Y`/`Z`), guardada NA ORDEM em que aparecem
+/// — a composição em matriz e a bounding box são cálculo de geometria e vivem no
+/// layout (`crate::layout::transformacao`), que tem o tamanho da caixa; aqui só o
+/// que a cascade produz. `Copy` como o resto de `ComputedStyle`.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Transform {
-    /// translação absoluta em px.
-    pub tx: f32,
-    pub ty: f32,
-    /// translação em FRAÇÃO do tamanho do elemento (de `translate(-50%, -50%)`),
-    /// resolvida no layout (× largura/altura). Somada a tx/ty.
-    pub tx_pct: f32,
-    pub ty_pct: f32,
-    /// escala (1 = sem escala).
-    pub sx: f32,
-    pub sy: f32,
-    /// rotação em graus (horário, como o CSS).
-    pub rot_deg: f32,
+    pub ops: crate::layout::TransformList,
 }
 
 impl Transform {
-    /// A transformação NEUTRA. Não é o `Default` derivado, e não pode ser: o
-    /// neutro da escala é 1, e um `Default` de zeros daria uma caixa de tamanho
-    /// zero em vez de uma caixa intacta.
+    /// A transformação NEUTRA — lista vazia.
     pub fn identity() -> Transform {
-        Transform {
-            tx: 0.0,
-            ty: 0.0,
-            tx_pct: 0.0,
-            ty_pct: 0.0,
-            sx: 1.0,
-            sy: 1.0,
-            rot_deg: 0.0,
-        }
+        Transform::default()
     }
 
-    /// `true` se é a identidade (nenhum efeito) — o layout pode pular a aplicação.
+    /// `true` se é a identidade (nenhuma função) — o layout pode pular a
+    /// aplicação sem resolver matriz nenhuma.
     pub fn is_identity(&self) -> bool {
-        self.tx == 0.0
-            && self.ty == 0.0
-            && self.tx_pct == 0.0
-            && self.ty_pct == 0.0
-            && self.sx == 1.0
-            && self.sy == 1.0
-            && self.rot_deg == 0.0
+        self.ops.is_empty()
     }
 
-    /// Parseia `transform: translate(...) scale(...) rotate(...) translateX/Y(...)
-    /// scaleX/Y(...)` — compõe as funções conhecidas. `none`/vazio → `None`.
-    /// Funções desconhecidas (skew/matrix/perspective/translate3d) são IGNORADAS
-    /// (corte documentado; cobre o uso dominante).
+    /// Parseia `transform: translate() scale() rotate() skewX() skewY()
+    /// matrix(a,b,c,d,e,f) translateX/Y() scaleX/Y() rotateZ()` — TODAS as
+    /// funções 2D da spec, na ordem em que aparecem (a composição fica para o
+    /// layout). `none`/vazio → `None`. `perspective`/`*3d`/`translateZ` etc.
+    /// (3D) ficam de fora — sem câmara nem projeção neste motor, sem sentido
+    /// resolvê-los a uma matriz 2D.
     pub fn parse(v: &str) -> Option<Transform> {
         let v = v.trim();
         if v.is_empty() || v.eq_ignore_ascii_case("none") {
             return None;
         }
-        let mut t = Transform {
-            tx: 0.0,
-            ty: 0.0,
-            tx_pct: 0.0,
-            ty_pct: 0.0,
-            sx: 1.0,
-            sy: 1.0,
-            rot_deg: 0.0,
-        };
+        let mut t = Transform::default();
         let mut saw = false;
         // percorre cada `func(args)`.
         let mut rest = v;
@@ -207,11 +176,13 @@ impl Transform {
             match name.as_str() {
                 "translate" | "translatex" | "translatey" => {
                     let (a, b) = length_pair(&parts);
-                    if name == "translatey" {
-                        add_translate(&mut t, (0.0, 0.0), a);
-                    } else {
-                        add_translate(&mut t, a, b);
-                    }
+                    let (x, y) = if name == "translatey" { ((0.0, 0.0), a) } else { (a, b) };
+                    t.ops.push(crate::layout::TransformOp::Translate {
+                        tx: x.0,
+                        ty: y.0,
+                        tx_pct: x.1,
+                        ty_pct: y.1,
+                    });
                     saw = true;
                 }
                 "scale" | "scalex" | "scaley" => {
@@ -223,23 +194,58 @@ impl Transform {
                         .get(1)
                         .and_then(|s| s.parse::<f32>().ok())
                         .unwrap_or(s0);
-                    match name.as_str() {
-                        "scalex" => t.sx *= s0,
-                        "scaley" => t.sy *= s0,
-                        _ => {
-                            t.sx *= s0;
-                            t.sy *= s1;
-                        }
-                    }
+                    let (sx, sy) = match name.as_str() {
+                        "scalex" => (s0, 1.0),
+                        "scaley" => (1.0, s0),
+                        _ => (s0, s1),
+                    };
+                    t.ops.push(crate::layout::TransformOp::Scale { sx, sy });
                     saw = true;
                 }
                 "rotate" | "rotatez" => {
                     if let Some(deg) = parts.first().and_then(parse_angle_deg) {
-                        t.rot_deg += deg;
+                        t.ops.push(crate::layout::TransformOp::Rotate { deg });
                         saw = true;
                     }
                 }
-                _ => {} // skew/matrix/… ignorados
+                "skewx" => {
+                    if let Some(deg) = parts.first().and_then(parse_angle_deg) {
+                        t.ops.push(crate::layout::TransformOp::SkewX { deg });
+                        saw = true;
+                    }
+                }
+                "skewy" => {
+                    if let Some(deg) = parts.first().and_then(parse_angle_deg) {
+                        t.ops.push(crate::layout::TransformOp::SkewY { deg });
+                        saw = true;
+                    }
+                }
+                // `skew(x [, y])` — atalho para `skewX(x) skewY(y)`, e nessa
+                // ordem (a spec define `skew()` exactamente como essa dupla).
+                "skew" => {
+                    if let Some(dx) = parts.first().and_then(parse_angle_deg) {
+                        t.ops.push(crate::layout::TransformOp::SkewX { deg: dx });
+                        if let Some(dy) = parts.get(1).and_then(parse_angle_deg) {
+                            t.ops.push(crate::layout::TransformOp::SkewY { deg: dy });
+                        }
+                        saw = true;
+                    }
+                }
+                "matrix" => {
+                    let n: Vec<f32> = parts.iter().filter_map(|s| s.parse::<f32>().ok()).collect();
+                    if n.len() == 6 {
+                        t.ops.push(crate::layout::TransformOp::Matrix {
+                            a: n[0],
+                            b: n[1],
+                            c: n[2],
+                            d: n[3],
+                            e: n[4],
+                            f: n[5],
+                        });
+                        saw = true;
+                    }
+                }
+                _ => {} // 3D/perspective ignorados — ver a doc do método.
             }
             rest = &after[close + 1..];
         }
@@ -262,14 +268,6 @@ fn length_pair(parts: &[&str]) -> ((f32, f32), (f32, f32)) {
     let a = parts.first().map(|s| length_val(s)).unwrap_or((0.0, 0.0));
     let b = parts.get(1).map(|s| length_val(s)).unwrap_or((0.0, 0.0));
     (a, b)
-}
-
-/// Soma um par translate (x=(px,pct), y=(px,pct)) ao transform.
-fn add_translate(t: &mut Transform, x: (f32, f32), y: (f32, f32)) {
-    t.tx += x.0;
-    t.tx_pct += x.1;
-    t.ty += y.0;
-    t.ty_pct += y.1;
 }
 
 /// Ângulo em graus de `<n>deg`/`<n>rad`/`<n>turn` (para rotate).

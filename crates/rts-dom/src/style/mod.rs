@@ -33,6 +33,7 @@ pub mod background;
 pub mod borders;
 pub mod calc;
 pub mod color;
+pub mod decoracao;
 pub mod effects;
 pub mod fmt;
 pub mod fmt_values;
@@ -127,6 +128,6 @@ pub use text_metrics::{
 pub use values::{
     AlignItems, BorderStyle, CalcLen, DIM_BASE_EM, DIM_BASE_PERCENT, DIM_BASE_PX, DIM_BASE_REM,
     DIM_BASE_VH, DIM_BASE_VW, DIM_RANGE, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
-    GridTrack, JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign,
+    GridTrack, JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign, TrackBound,
     TextTransform, WhiteSpace, clamp_size, dimensao_absoluta,
 };
