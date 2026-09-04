@@ -962,7 +962,14 @@ pub(crate) fn layout_block(
             0
         };
         let children_start = box_index + box_items;
-        // offset 0 aqui; o backend injeta o offset rolado por região antes de pintar.
+        // O offset vem do `Dom` (`dom/scroll.rs`) — não é escrito aqui de
+        // propósito, só LIDO: quem rola é o backend, respondendo a input, e o
+        // layout nunca recebe `&mut Dom` (ver a auditoria estrutural). Este
+        // valor é só o "como estava quando o fragmento foi montado" — nem a
+        // pintura nem uma consulta de geometria confiam nele (as duas voltam
+        // a perguntar ao `Dom` o valor VIVO); ver a nota de topo de
+        // `dom/scroll.rs` sobre por que scroll nunca invalida este cache.
+        let (offset_x, offset_y) = dom.scroll_of_idx(id);
         insert_item(
             list,
             children_start,
@@ -970,8 +977,8 @@ pub(crate) fn layout_block(
             DisplayItem::BeginClip {
                 rect: content_rect,
                 node: id,
-                offset_x: 0.0,
-                offset_y: 0.0,
+                offset_x,
+                offset_y,
                 filhos_antes: list.children.len(),
             },
         );

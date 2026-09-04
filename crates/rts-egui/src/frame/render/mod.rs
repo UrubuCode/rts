@@ -150,7 +150,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
         );
         ui.painter().rect_filled(rect, 0.0, rgba_to_color32(canvas));
     }
-    paint_list(ui, &list, 0.0);
+    paint_list(ui, &list, 0.0, dom);
     // reserva a altura total ocupada (p/ o egui ao redor dimensionar).
     ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
 }
@@ -244,11 +244,17 @@ pub(crate) fn render_dom_scrolled(
         .unwrap_or_default();
     let content_h = list.content_height;
 
-    // OFFSET de scroll: estado por-handle no egui (input é do backend). Acumula a roda
-    // do mouse; limita a [0, content_h - viewport_h].
+    // OFFSET de scroll da PÁGINA: vive no `Dom` (`dom/scroll.rs`), não mais em
+    // `ui.ctx().memory()` — finding 3 da auditoria estrutural (o offset era
+    // invisível e incontrolável a partir de JS). O egui só ACUMULA o input
+    // (roda do rato, arrastar a barra) igual a antes; a diferença é onde lê o
+    // valor de partida e para onde escreve o resultado. `id` continua a
+    // existir só como identidade de INTERAÇÃO da barra (drag), não mais como
+    // chave de armazenamento. Limita a [0, content_h - viewport_h].
     let max_off = (content_h - viewport_h).max(0.0);
     let id = egui::Id::new(("rts_dom_scroll", h));
-    let mut offset = ui.ctx().memory(|m| m.data.get_temp::<f32>(id).unwrap_or(0.0));
+    let (page_x, mut offset) =
+        rts_dom::store::with_dom(h, |d| d.page_scroll()).unwrap_or((0.0, 0.0));
     if scroll_y && (max_off > 0.0 || force) {
         // a roda do mouse só conta quando o ponteiro está sobre a área do DOM.
         let hovered = ui.rect_contains_pointer(ui.max_rect());
@@ -286,15 +292,25 @@ pub(crate) fn render_dom_scrolled(
         }
     }
     offset = offset.clamp(0.0, max_off);
-    ui.ctx().memory_mut(|m| m.data.insert_temp(id, offset));
+    // Escreve de volta no `Dom` — só em resposta a input, nunca guardado "para
+    // si" (a mesma disciplina de `set_hovered`). `_extent`: este frame já
+    // correu `layout_cached` com o medidor REAL para pintar, então o teto
+    // (`max_off`) já está em mãos; pedir um segundo layout aqui só para
+    // clampar pagaria o documento inteiro a cada tick da roda do rato (ver a
+    // nota de topo de `dom/scroll.rs`). `page_x` não é tocado por este
+    // backend (só rola Y); passa por igual para não apagar um valor que o
+    // bridge (`window.scrollTo`) tenha escrito.
+    let _ = rts_dom::store::with_dom_mut(h, |d| d.set_page_scroll_extent(page_x, offset, max_off));
 
     // BARRA emitida pelo DOM (SolidRect) — fixa na viewport (a função soma o offset).
     if scroll_y {
         layout::emit_scrollbar(&mut list, viewport_w, viewport_h, content_h, offset, sb, force);
     }
     // SCROLL CONTAINERS INTERNOS (#1744): para cada região rolável (div com overflow),
-    // o egui gerencia seu offset (input), injeta no BeginClip e emite as barras dela.
-    // O `base_origin` desloca o page-scroll p/ casar com o paint (que usa -offset).
+    // o egui lê/escreve o offset dela no `Dom` (`dom/scroll.rs`) e emite as
+    // barras dela — não mais injeta o offset na `DisplayList` (`paint_list`
+    // volta a perguntar ao `Dom`, ver a nota de topo de `scroll.rs`). O
+    // `base_origin` desloca o page-scroll p/ casar com o paint (que usa -offset).
     process_scroll_regions(ui, h, &mut list, sb, -offset);
     // CANVAS da página: a cor vem do `rts-dom` (`DisplayList::canvas_background`),
     // que já resolve a propagação do `<body>`/`<html>` e o branco por omissão.
@@ -314,7 +330,10 @@ pub(crate) fn render_dom_scrolled(
     let clip = ui.max_rect();
     let old_clip = ui.clip_rect();
     ui.set_clip_rect(clip);
-    paint_list(ui, &list, -offset);
+    // `paint_list` lê o offset AO VIVO de cada `BeginClip` no `Dom` (não do
+    // campo gravado no item, que pode vir de um fragmento reusado do cache) —
+    // por isso precisa do empréstimo, não só da `list` (já uma cópia própria).
+    let _ = rts_dom::store::with_dom(h, |d| paint_list(ui, &list, -offset, d));
     ui.set_clip_rect(old_clip);
 
     // HIT-TEST de CLIQUE (north-star §3 + handoff #1793 item 6): o egui é só o

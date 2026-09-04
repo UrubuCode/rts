@@ -2,10 +2,17 @@ use super::*;
 
 
 /// Processa os SCROLL CONTAINERS internos (#1744): para cada `ScrollRegion`, lê/
-/// atualiza o offset (roda do mouse quando o ponteiro está sobre a div), injeta esse
-/// offset no `BeginClip` correspondente (p/ o paint transladar os filhos) e emite as
+/// atualiza o offset (roda do mouse quando o ponteiro está sobre a div) e emite as
 /// barras (x/y) DENTRO da região via `emit_scrollbar_in`. `page_dy` é a translação do
 /// scroll da página (p/ posicionar a região na tela). Egui burro: só input + dados.
+///
+/// O offset vive no `Dom` (`dom/scroll.rs`, finding 3 da auditoria estrutural) —
+/// não mais em `ui.ctx().memory()`, e este backend NÃO injeta mais o offset num
+/// `BeginClip` da `DisplayList`: `paint_list` (e o hit-test) voltam a perguntar
+/// ao `Dom` o valor VIVO no momento em que precisam, então mutar a lista aqui
+/// escreveria um valor que ninguém mais lê. A única razão de ainda calcular
+/// `off` localmente é dar à BARRA (`emit_scrollbar_in`) o valor já CLAMPADO
+/// deste frame, sem um segundo `with_dom` só para reler o que acabou de gravar.
 pub(in crate::frame::render) fn process_scroll_regions(
     ui: &mut egui::Ui,
     h: u64,
@@ -29,9 +36,12 @@ pub(in crate::frame::render) fn process_scroll_regions(
         if !can_x && !can_y {
             continue;
         }
-        // offset por-nó em memory.
+        // `oid` continua a existir só como identidade de INTERAÇÃO das barras
+        // (`ui.interact` abaixo) — o offset em si já não mora no egui.
         let oid = egui::Id::new(("rts_dom_region", h, region.node_idx));
-        let mut off = ui.ctx().memory(|m| m.data.get_temp::<egui::Vec2>(oid).unwrap_or_default());
+        let (ox, oy) = rts_dom::store::with_dom(h, |d| d.scroll_of_idx(region.node_idx))
+            .unwrap_or((0.0, 0.0));
+        let mut off = egui::vec2(ox, oy);
         // rect da região na TELA (visible + page scroll).
         let screen = egui::Rect::from_min_size(
             base + egui::vec2(region.visible.x, region.visible.y + page_dy),
@@ -93,22 +103,15 @@ pub(in crate::frame::render) fn process_scroll_regions(
         }
         off.x = off.x.clamp(0.0, max_x);
         off.y = off.y.clamp(0.0, max_y);
-        ui.ctx().memory_mut(|m| m.data.insert_temp(oid, off));
-
-        // injeta o offset no BeginClip desta região (acha pelo node).
-        // Mutar um item exige a lista PLANA: um `BeginClip` pode estar dentro de
-        // uma subárvore compartilhada, e escrever nele afetaria todos os nós que
-        // a reusam.
-        list.materialize();
-        for it in list.items.iter_mut() {
-            if let layout::DisplayItem::BeginClip { node, offset_x, offset_y, .. } = it {
-                if *node == region.node_idx {
-                    *offset_x = off.x;
-                    *offset_y = off.y;
-                    break;
-                }
-            }
-        }
+        // Escreve de volta no `Dom` — só em resposta a este input (roda/drag),
+        // nunca guardado "para si". `_extent`: o teto (`max_x`/`max_y`) já
+        // veio da MESMA `list` que este frame vai pintar (o medidor REAL), e
+        // pedir um layout próprio aqui só para clampar pagaria o documento
+        // inteiro a cada tick da roda do rato (ver a nota de topo de
+        // `dom/scroll.rs`). Dispara o evento "scroll" quando o valor muda.
+        let _ = rts_dom::store::with_dom_mut(h, |d| {
+            d.set_scroll_extent_idx(region.node_idx, off.x, off.y, max_x, max_y)
+        });
         // barras DENTRO da região (coords de conteúdo; o paint soma o page scroll).
         layout::emit_scrollbar_in(list, region, off.x, off.y, sb);
     }

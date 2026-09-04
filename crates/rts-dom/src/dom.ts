@@ -1049,6 +1049,45 @@ class Element {
     this.classListAdd(cls);
     return true;
   }
+
+  // ── scroll (#2621 lote G) ─────────────────────────────────────────────────
+  //
+  // O offset vive no `Dom` (Rust, `dom/scroll.rs`) — não neste objeto e não
+  // no backend: `get`/`set` só chamam o primitivo, exactamente como o resto
+  // desta fachada. Sem overflow (elemento não é uma região rolável), o motor
+  // responde scrollTop/scrollLeft=0 e scrollWidth/Height===clientWidth/Height
+  // — a mesma resposta de um browser para um elemento que não rola.
+  get scrollTop(): number { return dom.scrollTop(this._dom, this._node); }
+  set scrollTop(v: number) { dom.setScrollTop(this._dom, this._node, v); }
+  get scrollLeft(): number { return dom.scrollLeft(this._dom, this._node); }
+  set scrollLeft(v: number) { dom.setScrollLeft(this._dom, this._node, v); }
+  get scrollWidth(): number { return dom.scrollWidth(this._dom, this._node); }
+  get scrollHeight(): number { return dom.scrollHeight(this._dom, this._node); }
+  get clientWidth(): number { return dom.clientWidth(this._dom, this._node); }
+  get clientHeight(): number { return dom.clientHeight(this._dom, this._node); }
+
+  // `el.scrollTo({top,left})` ou `el.scrollTo(x,y)` — as duas formas que o
+  // browser aceita. Na forma-objeto, um eixo ausente ({top:5}, sem `left`)
+  // mantém o offset actual desse eixo; a forma posicional exige os dois.
+  scrollTo(arg1: any, arg2: any): void {
+    if (typeof arg1 === "object" && arg1 !== null) {
+      const left = arg1.left !== undefined ? arg1.left : this.scrollLeft;
+      const top = arg1.top !== undefined ? arg1.top : this.scrollTop;
+      dom.elementScrollTo(this._dom, this._node, left, top);
+      return;
+    }
+    dom.elementScrollTo(this._dom, this._node, arg1, arg2);
+  }
+  // `el.scrollBy(dx, dy)` — relativo ao offset actual.
+  scrollBy(dx: number, dy: number): void {
+    dom.elementScrollTo(this._dom, this._node, this.scrollLeft + dx, this.scrollTop + dy);
+  }
+  // `el.scrollIntoView()` — mínimo: alinha o topo deste elemento com o topo
+  // da região (ou da página) que rola. Sem opções (`block`/`inline`,
+  // `behavior: smooth`) — é o que o browser faz sem argumento nenhum.
+  scrollIntoView(): void {
+    dom.scrollIntoView(this._dom, this._node);
+  }
 }
 
 // O `document` — fachada da árvore. No browser é a página; aqui embrulha um handle
