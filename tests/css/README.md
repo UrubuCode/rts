@@ -42,9 +42,9 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04 (vaga 7, lote V-img-2): 88 das 92 fixtures passam**, a 1px de
-tolerância; as 4 que falham estão em `esperado-a-falhar.txt` com a razão:
-3 da folha de UA
+**2026-09-04 (vaga 7, lotes flex-limites e flex-item-bfc): 90 das 94
+fixtures passam**, a 1px de tolerância; as 4 que falham estão em
+`esperado-a-falhar.txt` com a razão: 3 da folha de UA
 (largura de texto a negrito/controlos, fonte dos controlos, `tr` sem
 `border-spacing`) e `cursor: url()` (o Blink resolve a URL contra a base do
 documento; este motor não resolve URLs). O job `dom-rulers` do CI fica
