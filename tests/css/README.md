@@ -119,3 +119,29 @@ scripts/css_fixtures.sh            o comando
 scripts/css_fixtures_serve.ts      serve tests/css/ para o Chrome medir
 scripts/css_fixtures_medir.md      como medir
 ```
+
+---
+
+## A régua de pintura
+
+As réguas acima comparam CAIXAS (`getBoundingClientRect`) e ESTILO
+(`getComputedStyle`) — nunca a IMAGEM. É por isso que `text-shadow`,
+gradientes, `clip-path`, um `transform` rodado e `text-decoration-style` estão
+"só computados, não pintados" sem que nada o meça (achado 2 de
+`docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/06-reguas-e-saude-do-codigo.md`).
+A régua de pintura fecha essa lacuna: compara PIXEL contra Blink real.
+
+```
+cargo run -q -p rts-dom --example claude-raster -- \
+  tests/css/claude-X.html tests/css/pintura/claude-X.rts.png
+bun scripts/css_fixtures_screenshot_edge.mjs claude-X   # grava .blink.png
+bun scripts/css_pintura_comparar.mjs claude-X           # imprime % diferente
+```
+
+O procedimento completo, o que é ignorado e porquê, e como ler o número:
+`scripts/css_pintura.md`. Os `.rts.png`/`.blink.png`/`.diff.png` NÃO vão para
+o git (`tests/css/pintura/` está no `.gitignore`) — são grandes (o `.rts.png`
+sem compressão passa de 4 MB por fixture) e regeneráveis a qualquer momento;
+decide-se depois, por fixture, se algum entra como esperado.
+
+**Primeira medição (2026-09-04, 86 fixtures):** 79 com ≤ 0,5 % de pixels diferentes, 82 com ≤ 2 %, 4 acima (rotação de `transform` e recorte por `overflow` — declarados como aproximados). Detalhe em `scripts/css_pintura.md`.

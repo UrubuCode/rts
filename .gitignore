@@ -152,3 +152,6 @@ scripts/parity/*.combinada.html
 # assim que o walker do `rts test` o ignora, em vez de o contar como corpus.
 .node-suite/
 .claude/worktrees/
+
+# Regua de pintura: PNG regeneraveis (tests/css/pintura), grandes e nao versionados
+tests/css/pintura/
