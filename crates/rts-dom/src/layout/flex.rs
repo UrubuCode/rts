@@ -28,20 +28,19 @@ pub(in crate::layout) struct FlexItem {
     pub(in crate::layout) order: i32,
     /// o item PODE ser esticado pelo stretch (sem `height` explícito).
     pub(in crate::layout) can_stretch: bool,
-    /// piso de `min-content` no eixo principal (spec flexbox §9.7) — o
-    /// `flex-shrink` nunca encolhe o item abaixo disto. Texto solto e itens de
-    /// `grid_cols` não têm piso próprio (a coluna de grid não é um item de
-    /// conteúdo variável no mesmo sentido).
+    /// piso de `min-content` no eixo principal (§9.7): o `flex-shrink` nunca
+    /// desce abaixo; texto solto e itens de `grid_cols` não têm piso próprio.
     pub(in crate::layout) min_main: f32,
-    /// tecto de `max-width` (outer) no eixo principal, se declarado: a base e o
-    /// `flex-grow` nunca o ultrapassam (spec §9.7, "clamp"). O
-    /// `.cover-container.w-100.mx-auto{max-width:42em}` do Bootstrap saía com
-    /// a largura toda por isto faltar (`claude-flex-item-max-width`).
+    /// tecto de `max-width` (outer) no eixo principal (§9.7 "clamp") — o
+    /// `.cover-container{max-width:42em}` do Bootstrap (`claude-flex-item-max-width`).
     pub(in crate::layout) max_main: Option<f32>,
-    /// `margin-left`/`margin-right: auto` — absorvem o espaço livre da linha
-    /// (spec §8.1) antes do `justify-content`; é o `mx-auto` que centra.
+    /// margens `auto`: no eixo principal absorvem o espaço livre antes do
+    /// `justify-content` (`mx-auto`); no transversal vencem o `align-self`
+    /// (`flex_margens_auto.rs`).
     pub(in crate::layout) auto_esq: bool,
     pub(in crate::layout) auto_dir: bool,
+    pub(in crate::layout) auto_topo: bool,
+    pub(in crate::layout) auto_fundo: bool,
     /// um `::before`/`::after` do contentor, que é item flex (Flexbox §4) —
     /// medido e pintado por `flex_pseudo.rs`; `node` é o do contentor.
     pub(in crate::layout) pseudo: Option<super::flex_pseudo::PseudoItem>,
@@ -91,27 +90,17 @@ pub(in crate::layout) fn layout_children_horizontal(
         .and_then(|d| d.resolve(&resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    // `resolve_height`, não `Dimension::resolve`: `row-gap` (o espaço ENTRE
-    // LINHAS, aqui o eixo cruzado) é sempre o eixo de BLOCO — uma
-    // percentagem resolve contra a ALTURA do container, nunca a largura, e
-    // vira `normal` (0) quando essa altura é indefinida (CSS Align 3
-    // §column-row-gap, github.com/w3c/csswg-drafts/issues/5081; mesma regra
-    // do espelho em `coluna.rs`, onde `row-gap` é o eixo PRINCIPAL). Lote
-    // `flex-coluna-shrink`, `claude-gap-row-percentual-eixo`: 10%×64
-    // (largura) dava 6,4 onde a conta é 10%×200 (altura) = 20.
+    // `resolve_height`, não `Dimension::resolve`: `row-gap` é sempre o eixo
+    // de BLOCO — `%` contra a ALTURA do container, nunca a largura, e vira
+    // `normal` (0) quando ela é indefinida (CSS Align 3 §column-row-gap;
+    // espelho em `coluna.rs`, onde `row-gap` é o eixo PRINCIPAL).
     let row_gap = resolve_height(css.row_gap, container_content_h, &resolve)
         .unwrap_or(0.0)
         .max(0.0);
-    // Em `row-reverse` o main-start VISUAL é o lado DIREITO do container (spec
-    // §5.1: o eixo principal em si inverte, não só a ordem dos itens) — o
-    // efeito é o MESMO de espelhar `justify-content` (`flex-start`↔`flex-end`)
-    // e continuar a posicionar da esquerda para a direita com a lista já
-    // invertida (abaixo). A 1ª versão só invertia a lista e mantinha
-    // `flex-start`=0 de leading, o que empacotava os itens (já na ordem
-    // visual certa) encostados ao INÍCIO em vez de ao FIM — `#a.x` saía 100
-    // onde o Chrome dá 250 (medido pelo orquestrador, `claude-flex-reverse`).
-    // `space-between/around/evenly` são simétricos e não mudam com o espelho;
-    // `center` também não.
+    // Em `row-reverse` o main-start VISUAL é o lado DIREITO (spec §5.1: o
+    // eixo principal inverte, não só a ordem) — o efeito é espelhar
+    // `justify-content` e manter a lista já invertida. Só invertê-la mantinha
+    // `flex-start`=0 encostado ao INÍCIO em vez do FIM (`claude-flex-reverse`).
     let justify_declarado = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
@@ -145,14 +134,11 @@ pub(in crate::layout) fn layout_children_horizontal(
         if e_display_none(dom, child) {
             continue;
         }
-        // BLOCKIFICAÇÃO: um filho de flex é um item de nível BLOCO, mesmo sendo
-        // um `<span>` (a spec blockifica os itens de flex; o Chrome reporta
-        // `display:block` neles). Só um NÓ DE TEXTO é item anónimo.
-        //
-        // A condição era `!is_block_level`, e por isso um `<span>` filho de flex
-        // caía no ramo de texto: era achatado para uma string, pintado com o
-        // estilo do CONTAINER, e não registava caixa nenhuma — 345 dos 351
-        // elementos `display:block` sem caixa da Wikipédia eram exatamente isto.
+        // BLOCKIFICAÇÃO: um filho de flex é item de nível BLOCO, mesmo sendo
+        // `<span>` (a spec blockifica; o Chrome reporta `display:block`
+        // neles) — só um NÓ DE TEXTO é item anónimo. A condição era
+        // `!is_block_level` e achatava o `<span>` para string sem caixa (345
+        // dos 351 `display:block` sem caixa da Wikipédia eram isto).
         if matches!(dom.node(child).kind, NodeKind::Text(_)) {
             // texto solto: largura medida; vazio é ignorado. Não cresce nem encolhe.
             let text = collect_text(dom, child);
@@ -178,6 +164,8 @@ pub(in crate::layout) fn layout_children_horizontal(
                 max_main: None,
                 auto_esq: false,
                 auto_dir: false,
+                auto_topo: false,
+                auto_fundo: false,
                 pseudo: None,
             });
             continue;
@@ -225,6 +213,8 @@ pub(in crate::layout) fn layout_children_horizontal(
             max_main,
             auto_esq: auto(ccss.margin.left),
             auto_dir: auto(ccss.margin.right),
+            auto_topo: auto(ccss.margin.top),
+            auto_fundo: auto(ccss.margin.bottom),
             pseudo: None,
         });
     }
@@ -281,17 +271,11 @@ pub(in crate::layout) fn layout_children_horizontal(
     // exigiria resolver todas as linhas duas vezes.
     let mut line_align_leading = 0.0f32;
     let mut line_align_between = 0.0f32;
-    // `normal` (não declarado) — o INICIAL de `align-content` — comporta-se
-    // como `stretch` no eixo CRUZADO de um flex container (CSS Box Alignment
-    // 3 §8.3: "normal computes to stretch" nesse eixo), não como "sem
-    // espaçamento": cada linha ganha a SUA fatia igual do espaço livre,
-    // crescendo, em vez de só abrir espaçamento entre elas — o mecanismo do
-    // `justify_offsets` acima (`Some(v)`) não serve para isto, porque não
-    // toca na altura da linha. Achado com a régua ANTES do código
-    // (`claude-gap-row-percentual-eixo`, medido no Edge): a leitura ingénua
-    // (só empacotar) dava #a2 em y=60; o Blink dá 110 — as duas linhas de
-    // 40 crescem para 90 cada nos 200px do contentor, e só DEPOIS entra o
-    // `row-gap` entre elas.
+    // `normal` (não declarado) comporta-se como `stretch` no eixo CRUZADO
+    // (CSS Box Alignment 3 §8.3) — cada linha cresce a sua fatia do espaço
+    // livre, em vez de só abrir espaçamento como o `justify_offsets` acima
+    // faz para um valor declarado. Achado ao medir `claude-gap-row-percentual-eixo`:
+    // a leitura ingénua (só empacotar) dava #a2 em y=60; o Blink dá 110.
     let mut line_stretch_extra = 0.0f32;
     if wrap && lines.len() > 1 && container_cross_h > 0.0 {
         let estimativa: f32 = lines
@@ -408,18 +392,14 @@ pub(in crate::layout) fn layout_children_horizontal(
             }
         }
 
-        // Cross-size de referência da linha = max das alturas dos itens, MAS se o
-        // container tem `height` explícito e a linha é única (no-wrap), o cross-size
-        // é a ALTURA DO CONTENT do container (fiel ao Chrome). Em wrap, cada linha
-        // usa seu próprio max (repartir o height entre linhas — corte documentado).
+        // Cross-size da linha = max dos itens; com `height` explícito e linha
+        // única é o content do contentor (Chrome). Em wrap cada linha usa o seu
+        // max (repartir o height entre linhas — corte documentado).
         let items_h = line.iter().fold(0.0f32, |a, it| a.max(it.h));
         let line_h = if !wrap && container_cross_h > items_h {
             container_cross_h
         } else {
-            // `line_stretch_extra` (o `normal`→`stretch` de cima) só se aplica
-            // com `wrap` E múltiplas linhas — 0.0 em qualquer outro caso, um
-            // no-op aqui.
-            items_h + line_stretch_extra
+            items_h + line_stretch_extra // 0.0 fora de wrap/multi-linha: no-op.
         };
 
         // justify-content sobre o espaço restante PÓS-grow (com grow>0 o free é 0
@@ -445,15 +425,13 @@ pub(in crate::layout) fn layout_children_horizontal(
             // STRETCH real: item sem height explícito ganha a ALTURA DA LINHA
             // (forced_outer_h) — os cards `.col` preenchem a linha.
             let item_align = it.align_self.unwrap_or(align);
+            let auto_cross = super::flex_margens_auto::off_cross(it.auto_topo, it.auto_fundo, line_h, it.h);
             let stretches = item_align == crate::style::AlignItems::Stretch
                 && it.can_stretch
                 && !it.is_text
-                && line_h > it.h;
-            let off_cross = if stretches {
-                0.0
-            } else {
-                align_offset(item_align, line_h, it.h)
-            };
+                && line_h > it.h
+                && auto_cross.is_none();
+            let off_cross = auto_cross.unwrap_or(if stretches { 0.0 } else { align_offset(item_align, line_h, it.h) });
             let item_y = line_y + off_cross;
             if let Some(p) = &it.pseudo {
                 super::flex_pseudo::pintar(list, p, x, item_y, ctx);
@@ -476,20 +454,12 @@ pub(in crate::layout) fn layout_children_horizontal(
                 // o main resolvido é IMPOSTO ao item (grow/shrink venceram o
                 // width); stretch impõe a altura da linha.
                 let forced_h = if stretches { Some(line_h) } else { None };
-                // `layout_block_reusing`, não `layout_block`: um item cujo
-                // conteúdo não mudou (epoch igual) e cuja imposição de
-                // distribuição (`Some(it.main)`/`forced_h`) bateu com a de um
-                // frame anterior bate no cache — o CONTAINER continua sempre
-                // recalculado (é ele quem decide `it.main`/`forced_h` de novo a
-                // cada passada), só o item individual reusa. Margens não
-                // participam do modelo de caixa de um item flex do jeito que
-                // participam do fluxo de bloco (não colapsam com irmãos), então
-                // a closure devolve zero — o valor nem é lido por quem chama.
-                // Um item com margem `auto` no eixo principal já foi colocado
-                // AQUI (o `x` acima): a largura disponível que o bloco dele
-                // recebe é o seu próprio `main`, senão o bloco reparte de novo o
-                // espaço livre do contentor e centra duas vezes (608 onde o
-                // Blink dá 304, `claude-flex-item-max-width`).
+                // `layout_block_reusing`: o container recalcula sempre, o item
+                // reusa quando a imposição bate com um frame anterior. Margem
+                // não colapsa entre itens flex, então a closure devolve zero.
+                // Item com margem `auto` no principal já foi colocado (`x`
+                // acima) — a largura disponível é o seu próprio `main`, senão
+                // o bloco reparte de novo e centra duas vezes (`claude-flex-item-max-width`).
                 let avail = if it.auto_esq || it.auto_dir { it.main } else { content_w };
                 layout_block_reusing(
                     dom,
@@ -501,10 +471,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                     || (0.0, 0.0),
                     Some(it.main),
                     forced_h,
-                    // `forced_h` aqui é o stretch do eixo CRUZADO (`stretches`
-                    // já exige `line_h > it.h` — nunca encolhe), não o main
-                    // size: o `hard` de `coluna.rs` é a peça oposta.
-                    false,
+                    false, // `forced_h` é o stretch cruzado (nunca encolhe); o `hard` é de `coluna.rs`.
                     true,
                     // Item de flex-row: mesma razão do flex-column, ver `coluna.rs`.
                     &BlockFormattingContext::new(),
