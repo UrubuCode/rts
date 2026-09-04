@@ -93,7 +93,7 @@ cargo test -p rts-dom --lib --no-fail-fast
 cargo test -p rts-dom-bridge --no-fail-fast          # lote A em diante
 
 # 2. o corpus CSS (precisa do binário; release, porque o runner é o rts:dom real)
-cargo build --release -p rts-cli                      # ~1m30 incremental
+cargo build --release                                 # o pacote RAIZ `rts` é o rts.exe; `-p rts-cli` só constrói a lib
 target/release/rts.exe run examples/claude-css-runner.ts   # "N/49 passam" + desvios
 CSS_FILTRO=position target/release/rts.exe run examples/claude-css-runner.ts
 
