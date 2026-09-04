@@ -89,52 +89,15 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
             *x += dx;
             *y += dy;
         }
-        DisplayItem::EndClip { .. } => {}
-    }
-}
-
-/// Aplica uma matriz `transform` (já composta e em torno da origem — ver
-/// `layout/transformacao.rs`) a um `DisplayItem`, mutando suas coords.
-///
-/// O BACKEND (`rts-egui`) só pinta retângulos e texto AXIS-ALIGNED — não há
-/// mesh rotacionado — então isto é uma APROXIMAÇÃO deliberada e não a pintura
-/// exata que a matriz descreve: o CANTO `(x,y)` do item move-se pelo ponto
-/// exato que a matriz calcula (`Mat2d::apply`), e `w`/`h` escalam pela norma de
-/// cada coluna da matriz (`sqrt(a²+b²)`, `sqrt(c²+d²)`) — o fator de escala que
-/// uma rotação/skew pura induz no eixo, ignorando a inclinação. Cobre
-/// translate/scale exatamente e rotate/skew "razoavelmente" (o mesmo corte que
-/// já existia para rotate antes deste lote, agora extensivo a skew/matrix).
-/// Rodar o backend em si é outra fatia — ver o PLAN.
-pub(in crate::layout) fn apply_transform_to_item(it: &mut DisplayItem, mat: &super::Mat2d) {
-    let sx = (mat.a * mat.a + mat.b * mat.b).sqrt();
-    let sy = (mat.c * mat.c + mat.d * mat.d).sqrt();
-    match it {
-        DisplayItem::SolidRect { rect, .. }
-        | DisplayItem::Border { rect, .. }
-        | DisplayItem::GradientRect { rect, .. }
-        | DisplayItem::Shadow { rect, .. }
-        | DisplayItem::Image { rect, .. }
-        | DisplayItem::Pixels { rect, .. } => {
-            let (nx, ny) = mat.apply(rect.x, rect.y);
-            rect.x = nx;
-            rect.y = ny;
-            rect.w *= sx;
-            rect.h *= sy;
+        // A matriz descreve pontos em coordenadas de CONTEÚDO já absolutas —
+        // deslocar a subárvore por (dx,dy) é compor uma translação PURA
+        // depois dela: `nova(p) = mat(p) + (dx,dy)`, que em `e`/`f` é somar
+        // direto (a parte linear a/b/c/d não muda por uma translação).
+        DisplayItem::PushTransform { mat } => {
+            mat.e += dx;
+            mat.f += dy;
         }
-        DisplayItem::Text { x, y, size, .. } => {
-            let (nx, ny) = mat.apply(*x, *y);
-            *x = nx;
-            *y = ny;
-            *size *= sy; // escala o texto na vertical (aproxima).
-        }
-        DisplayItem::BeginClip { rect, .. } => {
-            let (nx, ny) = mat.apply(rect.x, rect.y);
-            rect.x = nx;
-            rect.y = ny;
-            rect.w *= sx;
-            rect.h *= sy;
-        }
-        DisplayItem::EndClip { .. } => {}
+        DisplayItem::EndClip { .. } | DisplayItem::PopTransform => {}
     }
 }
 

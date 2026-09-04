@@ -89,3 +89,23 @@ axis-aligned (o backend não roda); `claude-overflow` (5,57 %): o recorte por
 `overflow` não é aplicado pelo rasterizador; `claude-sel-target` (2,55 %).
 Texto ignorado em todas (a máscara): no máximo 1,4 % da área. Estes quatro
 são os primeiros alvos de um lote de pintura, e o número que os fecha é este.
+
+**2026-09-04, lote U-pintura-1 (`feat/dom-lote-pintura-rotacao-clip`) — os
+quatro fechados, medidos de novo sobre o corpus inteiro:**
+`claude-transform-origin` 6,06 % → **0 %**, `claude-transform-nao-afeta-fluxo`
+2,05 % → **0,38 %**, `claude-transform-skew-matrix` 1,47 % → **0,08 %**,
+`claude-overflow` 5,57 % → **0 %**, `claude-sel-target` 2,55 % → **0,05 %**
+(a régua ganhou este quinto: estava medido a 2,55 %, não citado na lista de 4,
+porque a tabela anterior arredondava "82 com ≤ 2 %" — ele já estava fora
+dela). Duas causas, não uma: a matriz de `transform` (`Mat2d`) agora viaja na
+`DisplayList` como `PushTransform`/`PopTransform` em vez de mutar o `rect` por
+aproximação (norma das colunas), e o rasterizador/backend pintam o
+quadrilátero real; e o `BeginClip` do `overflow` tinha o `filhos_antes` errado
+— contava `list.children.len()` DEPOIS de o filho já ter sido anexado, então
+`itens.rs::walk_items` desenhava sempre o filho ANTES de entrar no clip, e o
+recorte nunca continha nada (não era uma questão de eixo aberto — a correção
+inicial de "um eixo `visible` sozinho não recorta" não mudou o número; o que
+mudou foi este índice). Nenhuma das 86 piorou: o resto do corpus continua
+como estava (dois já estavam entre 0,5 % e 2 % antes deste lote e continuam —
+`claude-object-fit` 1,95 %, `claude-triangulo-de-borda` 1,58 % — sem relação
+com transform/overflow). `crates/rts-dom/PLAN.md` §0, linha `U-pintura-1`.

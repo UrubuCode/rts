@@ -562,12 +562,29 @@ pub(crate) fn layout_block(
     // filhos — eles transbordam e a div rola. Nesse caso layoutamos os filhos com a
     // largura NATURAL do conteúdo (intrinsic), não a do container. (overflow-y já não
     // comprime: o vertical empilha e a altura é a soma — só precisamos do clip+barra.)
-    let ov_x = css
+    let ov_x_declarado = css
         .overflow_x
         .unwrap_or(crate::scrollbar::Overflow::Visible);
-    let ov_y = css
+    let ov_y_declarado = css
         .overflow_y
         .unwrap_or(crate::scrollbar::Overflow::Visible);
+    // CSS Overflow 1 §3: se só UM eixo é `visible` e o outro não, o `visible`
+    // COMPUTA como `auto` — não fica um eixo aberto. `#so-x` de
+    // `claude-overflow.html` (`overflow-x:hidden;overflow-y:visible`) é
+    // exatamente este caso: o Chrome recorta os DOIS eixos (a régua de
+    // pintura mediu: sem esta regra o nosso lado deixava a coluna Y aberta e
+    // divergia 1,95% onde deveria bater). Sem a marca `visible` PURA (os
+    // dois iguais) a exceção não se aplica — só quando os eixos DIVERGEM.
+    let mistos = ov_x_declarado != ov_y_declarado;
+    let visible_vira_auto = |o: crate::scrollbar::Overflow| {
+        if mistos && o == crate::scrollbar::Overflow::Visible {
+            crate::scrollbar::Overflow::Auto
+        } else {
+            o
+        }
+    };
+    let ov_x = visible_vira_auto(ov_x_declarado);
+    let ov_y = visible_vira_auto(ov_y_declarado);
     let scrolls_x = ov_x.scrollable() || ov_x == crate::scrollbar::Overflow::Hidden;
     // A inflação vale para o eixo do FLUXO HORIZONTAL, que é onde a compressão
     // aconteceria (o flex encolhe os itens até caberem). Nos demais layouts ela
@@ -947,6 +964,12 @@ pub(crate) fn layout_block(
     let clips =
         ov_x != crate::scrollbar::Overflow::Visible || ov_y != crate::scrollbar::Overflow::Visible;
     if clips {
+        // Os dois eixos recortam sempre que `clips` é verdade: a regra
+        // `visible_vira_auto` acima já garante que um `visible` sozinho
+        // (`overflow-x:hidden;overflow-y:visible`, o caso `so-x` de
+        // `claude-overflow.html`) nunca chega aqui — computou como `auto`, e
+        // `ov_x`/`ov_y` já refletem isso. Um único `BeginClip` retangular
+        // basta, sem eixo aberto.
         let content_rect = Rect::new(
             content_x,
             box_rect.y + border_top + pad_top,
@@ -992,7 +1015,16 @@ pub(crate) fn layout_block(
                 node: id,
                 offset_x,
                 offset_y,
-                filhos_antes: list.children.len(),
+                // O valor capturado ANTES de os filhos serem layoutados
+                // (linha ~549), não `list.children.len()` de AGORA: os
+                // filhos deste elemento já foram anexados a `list.children`
+                // pela recursão que os layoutou, e usar a contagem atual
+                // marcava TODOS eles como "já existiam quando o clip abriu"
+                // — o `walk_items` de `itens.rs` então desenhava-os ANTES de
+                // entrar no clip, e o recorte nunca continha nada. Era por
+                // isso que `overflow:hidden`/`auto` nunca recortava (medido
+                // pela régua de pintura: `claude-overflow.html` a 5,57%).
+                filhos_antes: filhos_antes_da_caixa,
             },
         );
         list.items.push(DisplayItem::EndClip {
@@ -1111,13 +1143,18 @@ pub(crate) fn layout_block(
                     child.dy += mat.f;
                 }
             } else {
-                // Escala/rotação/skew/matriz continuam a exigir os itens em
-                // mãos. Vale a mesma ressalva de índices — por isso só quando
-                // não há subárvore por referência para achatar.
+                // Escala/rotação/skew/matriz: em vez de mutar cada item por
+                // aproximação (norma das colunas — a caixa continuava
+                // axis-aligned, só do tamanho errado), a matriz VIAJA na
+                // lista como `PushTransform`/`PopTransform` em torno de
+                // `[box_index..]`. `materialize()` primeiro pela mesma razão
+                // de índices que já valia aqui: a subárvore precisa estar
+                // achatada para o range `[box_index..]` corresponder
+                // exatamente a este elemento e seus descendentes — nada
+                // depois pertence a outro irmão ainda por vir.
                 list.materialize();
-                for it in list.items[box_index..].iter_mut() {
-                    apply_transform_to_item(it, &mat);
-                }
+                list.items.insert(box_index, DisplayItem::PushTransform { mat });
+                list.items.push(DisplayItem::PopTransform);
             }
         }
     }

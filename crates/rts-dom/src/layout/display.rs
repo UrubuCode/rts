@@ -201,6 +201,22 @@ pub enum DisplayItem {
         /// o que era "antes do primeiro item" passa a cair dentro do clip.
         filhos_antes: usize,
     },
+    /// Abre uma matriz `transform` EXATA para os itens seguintes, até o
+    /// `PopTransform` correspondente — rotação/skew/matrix pintados como o
+    /// quadrilátero real, não a bounding box axis-aligned que
+    /// `itens::apply_transform_to_item` calcula para `node_rects`.
+    ///
+    /// Duas verdades convivem de propósito: `node_rects` (o que
+    /// `getBoundingClientRect` devolve) SEMPRE guarda a bbox — é o contrato
+    /// que `layout/tests/transform_corpus.rs` mede e este lote não mexe — e
+    /// os ITENS de pintura, a partir daqui, guardam a matriz em vez de
+    /// mutarem `rect`/`size` pela aproximação de norma-de-coluna. Quem pinta
+    /// (`claude-raster.rs`, `rts-egui`) aplica a matriz aos 4 cantos do
+    /// `rect` original e preenche o quadrilátero — exato para
+    /// translate/scale/rotate/skew/matrix, os cinco casos do CSS.
+    PushTransform { mat: super::transformacao::Mat2d },
+    /// Fecha a matriz aberta pelo `PushTransform` correspondente.
+    PopTransform,
     /// Fecha o clip mais recente, restaurando o anterior.
     /// Fecha o clip aberto pelo `BeginClip` correspondente.
     ///

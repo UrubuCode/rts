@@ -1,4 +1,5 @@
 use super::*;
+use rts_dom::layout::{Mat2d, Rect};
 
 
 /// Percorre a [`DisplayList`] e pinta cada item via `ui.painter()`, em coordenadas
@@ -18,6 +19,12 @@ pub(in crate::frame::render) fn paint_list(
     // painter do topo e a SOMA dos offsets extra (a região rolada). Base = ui.
     let base = ui.painter().clone();
     let mut stack: Vec<(egui::Painter, egui::Vec2)> = Vec::new();
+    // PILHA de `PushTransform`/`PopTransform` — o topo já é a matriz ACUMULADA
+    // (`outer.then(inner)`), mesma técnica de `examples/claude-raster.rs`, a
+    // outra metade da régua de pintura: um `SolidRect`/`Border`/`GradientRect`
+    // sob uma matriz vira um `Shape::Mesh` com os 4 cantos transformados, em
+    // vez do `rect_filled` axis-aligned que ignorava rotação/skew.
+    let mut xform_stack: Vec<Mat2d> = Vec::new();
     // `walk` anda a ÁRVORE de fragmentos: os itens de uma subárvore reusada
     // chegam aqui sem nunca terem sido copiados, com o deslocamento a somar — e
     // somar uma origem já era o que este laço fazia.
@@ -52,6 +59,13 @@ pub(in crate::frame::render) fn paint_list(
             .unwrap_or_else(|| (base.clone(), egui::Vec2::ZERO));
         // origem da página + translação da região + deslocamento do fragmento
         let origin = base_origin + extra + egui::vec2(dx, dy);
+        // Matriz acumulada ativa (se algum `PushTransform` estiver aberto). O
+        // `rect`/ponto de um item sob a matriz é o ORIGINAL (pré-transform);
+        // `origin_sem_dxdy` é o mesmo `origin` SEM o `(dx,dy)` do `ChildRef`
+        // reusado — esse deslocamento já foi dobrado na matriz (mesma regra de
+        // `claude-raster.rs`: `e += dx; f += dy` no `PushTransform`).
+        let mat = xform_stack.last().copied();
+        let origin_sem_dxdy = base_origin + extra;
         // O que está fora da tela não é pintado — menos o `BeginClip`/`EndClip`,
         // que são ESTADO da pilha e têm de continuar a casar (saltar um abre um
         // clip que nunca fecha, e aí desaparece o que vinha depois).
@@ -74,52 +88,88 @@ pub(in crate::frame::render) fn paint_list(
         }
         match item {
             DisplayItem::SolidRect { rect, color, radius } => {
-                let r = egui::Rect::from_min_size(
-                    origin + egui::vec2(rect.x, rect.y),
-                    egui::vec2(rect.w, rect.h),
-                );
-                // RECORTA ao visível quando não há canto arredondado. Uma página
-                // real tem retângulos de dezenas de milhares de pontos (o fundo
-                // de um `<div>` que envolve o documento inteiro), e mandá-los
-                // assim ao tesselador desperdiça o trabalho todo fora do ecrã —
-                // e a precisão de um `f32` a 77 000 pontos já não é a de um a
-                // 780. Com raio não se recorta: cortar um canto arredondado
-                // mudava o desenho.
-                //
-                // A pergunta é sobre os QUATRO cantos e é o `any()` que a faz.
-                // Respondê-la por um canto — o que a leitura de um `radius`
-                // único virava naturalmente ao passar a quatro — mandaria o
-                // fundo do documento inteiro ao tesselador sempre que qualquer
-                // canto fosse zero, que é o caso comum.
-                let r = if radius.any() { r } else { r.intersect(visivel) };
-                if r.is_positive() {
-                    // nw/ne/se/sw do egui são tl/tr/br/bl do CSS.
-                    let cr = egui::CornerRadius {
-                        nw: radius.tl as u8,
-                        ne: radius.tr as u8,
-                        se: radius.br as u8,
-                        sw: radius.bl as u8,
-                    };
-                    painter.rect_filled(r, cr, rgba_to_color32(*color));
+                if let Some(m) = mat {
+                    // Sob rotação/skew/matrix: o quadrilátero REAL, não a
+                    // bounding box axis-aligned — mesmo argumento de
+                    // `claude-raster.rs::fill_rect_mat`. Cantos arredondados
+                    // sob matriz não são tentados aqui (mesma omissão da
+                    // régua de pintura: aproximados a retos).
+                    mesh_quad_filled(&painter, transform_corners(origin_sem_dxdy, &m, *rect), rgba_to_color32(*color));
+                } else {
+                    let r = egui::Rect::from_min_size(
+                        origin + egui::vec2(rect.x, rect.y),
+                        egui::vec2(rect.w, rect.h),
+                    );
+                    // RECORTA ao visível quando não há canto arredondado. Uma página
+                    // real tem retângulos de dezenas de milhares de pontos (o fundo
+                    // de um `<div>` que envolve o documento inteiro), e mandá-los
+                    // assim ao tesselador desperdiça o trabalho todo fora do ecrã —
+                    // e a precisão de um `f32` a 77 000 pontos já não é a de um a
+                    // 780. Com raio não se recorta: cortar um canto arredondado
+                    // mudava o desenho.
+                    //
+                    // A pergunta é sobre os QUATRO cantos e é o `any()` que a faz.
+                    // Respondê-la por um canto — o que a leitura de um `radius`
+                    // único virava naturalmente ao passar a quatro — mandaria o
+                    // fundo do documento inteiro ao tesselador sempre que qualquer
+                    // canto fosse zero, que é o caso comum.
+                    let r = if radius.any() { r } else { r.intersect(visivel) };
+                    if r.is_positive() {
+                        // nw/ne/se/sw do egui são tl/tr/br/bl do CSS.
+                        let cr = egui::CornerRadius {
+                            nw: radius.tl as u8,
+                            ne: radius.tr as u8,
+                            se: radius.br as u8,
+                            sw: radius.bl as u8,
+                        };
+                        painter.rect_filled(r, cr, rgba_to_color32(*color));
+                    }
                 }
             }
             DisplayItem::Border { rect, width, color, radius } => {
-                let r = egui::Rect::from_min_size(
-                    origin + egui::vec2(rect.x, rect.y),
-                    egui::vec2(rect.w, rect.h),
-                );
-                painter.rect_stroke(
-                    r,
-                    egui::CornerRadius::same(*radius as u8),
-                    egui::Stroke::new(*width, rgba_to_color32(*color)),
-                    egui::StrokeKind::Inside,
-                );
+                if let Some(m) = mat {
+                    // As 4 tiras, cada uma pelo seu quadrilátero — mesma
+                    // técnica de `claude-raster.rs::stroke_rect_mat`.
+                    let w = width.max(1.0);
+                    let tiras = [
+                        Rect::new(rect.x, rect.y, rect.w, w),
+                        Rect::new(rect.x, rect.y + rect.h - w, rect.w, w),
+                        Rect::new(rect.x, rect.y, w, rect.h),
+                        Rect::new(rect.x + rect.w - w, rect.y, w, rect.h),
+                    ];
+                    let col = rgba_to_color32(*color);
+                    for tira in tiras {
+                        mesh_quad_filled(&painter, transform_corners(origin_sem_dxdy, &m, tira), col);
+                    }
+                } else {
+                    let r = egui::Rect::from_min_size(
+                        origin + egui::vec2(rect.x, rect.y),
+                        egui::vec2(rect.w, rect.h),
+                    );
+                    painter.rect_stroke(
+                        r,
+                        egui::CornerRadius::same(*radius as u8),
+                        egui::Stroke::new(*width, rgba_to_color32(*color)),
+                        egui::StrokeKind::Inside,
+                    );
+                }
             }
             DisplayItem::Text { x, y, text, color, size, mono, bold, italic, letter_spacing, decoration } => {
                 // a MESMA escolha que o medidor faz — ver `EguiMeasurer::family`.
                 let font = egui::FontId::new(*size, EguiMeasurer::family(*mono, *bold, *italic));
                 let col = rgba_to_color32(*color);
-                let base = origin + egui::vec2(*x, *y);
+                // Sob transform, só a ANCORA se move pelo ponto exato da
+                // matriz — o glifo em si continua sem rotação (o egui não
+                // tesela texto num mesh arbitrário; a mesma aproximação que
+                // `claude-raster.rs` já assume ao MASCARAR o texto em vez de
+                // o rasterizar sob a matriz).
+                let base = match mat {
+                    Some(m) => {
+                        let (mx, my) = m.apply(*x, *y);
+                        origin_sem_dxdy + egui::vec2(mx, my)
+                    }
+                    None => origin + egui::vec2(*x, *y),
+                };
                 let total_w = if *letter_spacing != 0.0 {
                     // letter-spacing: pinta char a char, avançando pela largura do glifo
                     // + o espaçamento. Devolve a largura total (p/ a linha de decoração).
@@ -161,28 +211,45 @@ pub(in crate::frame::render) fn paint_list(
             DisplayItem::Shadow { rect, dx, dy, blur, spread, color, radius } => {
                 // box-shadow: um retângulo deslocado (dx,dy), crescido pelo spread, com
                 // borda amaciada pelo blur (feathering do egui). Pintado ANTES da caixa.
-                let r = egui::Rect::from_min_size(
-                    origin + egui::vec2(rect.x + *dx - *spread, rect.y + *dy - *spread),
-                    egui::vec2(rect.w + 2.0 * *spread, rect.h + 2.0 * *spread),
+                let deslocado = Rect::new(
+                    rect.x + *dx - *spread,
+                    rect.y + *dy - *spread,
+                    rect.w + 2.0 * *spread,
+                    rect.h + 2.0 * *spread,
                 );
-                let shadow = egui::epaint::Shadow {
-                    offset: [0, 0],
-                    blur: blur.max(0.0) as u8,
-                    spread: 0,
-                    color: rgba_to_color32(*color),
-                };
-                let shape = shadow.as_shape(r, egui::CornerRadius::same(*radius as u8));
-                painter.add(shape);
+                if let Some(m) = mat {
+                    // Sem o feathering do egui aqui (o `Shadow::as_shape` só
+                    // existe para um `egui::Rect` axis-aligned) — preenchido
+                    // achatado, a mesma aproximação de `claude-raster.rs`.
+                    mesh_quad_filled(&painter, transform_corners(origin_sem_dxdy, &m, deslocado), rgba_to_color32(*color));
+                } else {
+                    let r = egui::Rect::from_min_size(
+                        origin + egui::vec2(deslocado.x, deslocado.y),
+                        egui::vec2(deslocado.w, deslocado.h),
+                    );
+                    let shadow = egui::epaint::Shadow {
+                        offset: [0, 0],
+                        blur: blur.max(0.0) as u8,
+                        spread: 0,
+                        color: rgba_to_color32(*color),
+                    };
+                    let shape = shadow.as_shape(r, egui::CornerRadius::same(*radius as u8));
+                    painter.add(shape);
+                }
             }
             DisplayItem::GradientRect { rect, c0, c1, angle_deg, .. } => {
                 // gradiente linear: mesh de 4 vértices, cada canto com a cor interpolada
                 // conforme sua projeção no eixo do ângulo (convenção CSS: 0=cima,
                 // 90=direita). Aproxima o linear-gradient de 2 cores.
-                let r = egui::Rect::from_min_size(
-                    origin + egui::vec2(rect.x, rect.y),
-                    egui::vec2(rect.w, rect.h),
-                );
-                paint_linear_gradient(&painter, r, *c0, *c1, *angle_deg);
+                if let Some(m) = mat {
+                    paint_linear_gradient_mat(&painter, origin_sem_dxdy, &m, *rect, *c0, *c1, *angle_deg);
+                } else {
+                    let r = egui::Rect::from_min_size(
+                        origin + egui::vec2(rect.x, rect.y),
+                        egui::vec2(rect.w, rect.h),
+                    );
+                    paint_linear_gradient(&painter, r, *c0, *c1, *angle_deg);
+                }
             }
             DisplayItem::Image { rect, pixels_handle, pixels_off, img_w, img_h } => {
                 // lê os RGBA8 do Buffer no HandleTable, sobe como textura efêmera e
@@ -263,6 +330,19 @@ pub(in crate::frame::render) fn paint_list(
             DisplayItem::EndClip { .. } => {
                 stack.pop();
             }
+            DisplayItem::PushTransform { mat: novo } => {
+                // Dobra o `(dx,dy)` do `ChildRef` reusado na parte de
+                // TRANSLAÇÃO (`e`/`f`) — mesma regra de `claude-raster.rs`.
+                let efetiva = Mat2d { e: novo.e + dx, f: novo.f + dy, ..*novo };
+                let acumulada = match xform_stack.last() {
+                    Some(base) => base.then(efetiva),
+                    None => efetiva,
+                };
+                xform_stack.push(acumulada);
+            }
+            DisplayItem::PopTransform => {
+                xform_stack.pop();
+            }
         }
     });
     if diagnostico {
@@ -286,6 +366,79 @@ fn caixa_do_item(item: &DisplayItem, origin: egui::Pos2) -> Option<egui::Rect> {
         }
         _ => None,
     }
+}
+
+/// Os 4 cantos de `rect` (coordenadas de CONTEÚDO, pré-transform) sob `mat`,
+/// já em coordenadas de TELA (`origin` somado) — a entrada comum de todo item
+/// pintado sob um `PushTransform`.
+fn transform_corners(origin: egui::Pos2, mat: &Mat2d, rect: Rect) -> [egui::Pos2; 4] {
+    let p = |x: f32, y: f32| {
+        let (tx, ty) = mat.apply(x, y);
+        origin + egui::vec2(tx, ty)
+    };
+    [
+        p(rect.x, rect.y),
+        p(rect.x + rect.w, rect.y),
+        p(rect.x + rect.w, rect.y + rect.h),
+        p(rect.x, rect.y + rect.h),
+    ]
+}
+
+/// Preenche um quadrilátero (ordem CW ou CCW, os 4 cantos de um rect
+/// transformado) com uma cor sólida — dois triângulos, a mesma forma de mesh
+/// que `paint_linear_gradient` já usa, só que com um vértice colorido igual
+/// nos quatro em vez de interpolado.
+fn mesh_quad_filled(painter: &egui::Painter, corners: [egui::Pos2; 4], color: egui::Color32) {
+    let mut mesh = egui::epaint::Mesh::default();
+    for corner in corners {
+        mesh.colored_vertex(corner, color);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// A mesma ideia de `paint_linear_gradient`, mas com os 4 vértices do mesh nos
+/// cantos TRANSFORMADOS por `mat` — o `t` de interpolação usa a projeção do
+/// canto ORIGINAL (pré-transform), porque o CSS pinta o gradiente na caixa e
+/// SÓ DEPOIS aplica o `transform` (Transforms 1 §3: o alvo é a imagem já
+/// composta) — a mesma ordem de `claude-raster.rs::fill_gradient_mat`.
+fn paint_linear_gradient_mat(
+    painter: &egui::Painter,
+    origin: egui::Pos2,
+    mat: &Mat2d,
+    rect: Rect,
+    c0: u32,
+    c1: u32,
+    angle_deg: f32,
+) {
+    let rad = angle_deg.to_radians();
+    let (dx, dy) = (rad.sin(), -rad.cos());
+    let locais = [
+        (rect.x, rect.y),
+        (rect.x + rect.w, rect.y),
+        (rect.x + rect.w, rect.y + rect.h),
+        (rect.x, rect.y + rect.h),
+    ];
+    let proj: Vec<f32> = locais.iter().map(|(x, y)| x * dx + y * dy).collect();
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for &p in &proj {
+        lo = lo.min(p);
+        hi = hi.max(p);
+    }
+    let span = (hi - lo).max(1e-3);
+    let ca = rgba_to_color32(c0);
+    let cb = rgba_to_color32(c1);
+    let mut mesh = egui::epaint::Mesh::default();
+    for (i, &(x, y)) in locais.iter().enumerate() {
+        let t = ((proj[i] - lo) / span).clamp(0.0, 1.0);
+        let color = lerp_color32(ca, cb, t);
+        let (tx, ty) = mat.apply(x, y);
+        mesh.colored_vertex(origin + egui::vec2(tx, ty), color);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 /// Pinta um GRADIENTE LINEAR de 2 cores num retângulo, como mesh de 4 vértices. A cor
