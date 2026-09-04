@@ -109,7 +109,7 @@ impl TextMeasurer for EguiMeasurer {
     /// `docs/ui/css-implementation-gaps.md` já confirma certa
     /// (`claude-display-basico.html`, `depois-do-none.y`).
     fn font_ascent(&self, size: f32) -> f32 {
-        let key = (self.ctx as *const egui::Context as usize, size.to_bits());
+        let key = (&self.ctx as *const egui::Context as usize, size.to_bits());
         if let Some(ascent) = FONT_ASCENT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
             return ascent;
         }
