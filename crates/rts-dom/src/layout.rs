@@ -72,6 +72,7 @@ use self::runs::{InlineRun, collect_runs, inline_widget_size, pseudo_run};
 use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
 mod coluna;
 mod coluna_shrink;
+mod coluna_wrap;
 mod flex;
 mod flex_limites;
 mod flex_margens_auto;

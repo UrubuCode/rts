@@ -736,7 +736,9 @@ pub(crate) fn layout_block(
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let content_h = match display {
-        // flex column (com ou sem wrap — multi-coluna do wrap é corte documentado).
+        // flex column: sem wrap empilha numa coluna; COM wrap (e altura
+        // definida) `layout_children_column` delega para `coluna_wrap.rs` —
+        // ver o comentário no parâmetro `wrap` lá.
         _ if is_flex && is_column => layout_children_column(
             dom,
             id,
@@ -747,6 +749,7 @@ pub(crate) fn layout_block(
             &css,
             font_size,
             is_reverse,
+            display == crate::block::DISPLAY_WRAP,
             ctx,
             list,
         ),

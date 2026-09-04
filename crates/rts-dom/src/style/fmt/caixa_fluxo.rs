@@ -161,7 +161,12 @@ impl ComputedStyle {
                         },
                         None => "row",
                     },
-                    if w == Some(true) { "wrap" } else { "nowrap" }
+                    // mesma pergunta (bit de direção) que "flex-wrap" sozinho já faz.
+                    match (w, self.flex_wrap_reverse) {
+                        (Some(true), Some(true)) => "wrap-reverse",
+                        (Some(true), _) => "wrap",
+                        _ => "nowrap",
+                    }
                 ),
             },
             // O 2º lote responde do seu próprio módulo — ver `style::vocab`.
