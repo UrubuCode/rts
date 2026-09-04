@@ -340,6 +340,13 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
 
     rts_std::install(&mut context);
     rts_node::install(&mut context);
+    // O mesmo par e a mesma ordem do host JIT (`rts-host/src/run.rs`): o
+    // documento é headless e vem sempre; a janela só com a feature `ui`. Sem
+    // isto um `.exe` compilado de uma app de UI morria em "cannot resolve
+    // module rts:egui" — o comparativo RTS vs Electron foi quem o apanhou.
+    rts_dom_bridge::install(&mut context);
+    #[cfg(feature = "ui")]
+    rts_ui::install(&mut context);
 
     let nothing = singletons.undefined as u64;
     let (_, exit_code) = rts_core::entry::with_context(context, || {
@@ -391,5 +398,10 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
             0
         }
     });
+    // Depois do programa e antes de qualquer destrutor: um `wgpu::Device` solto
+    // num thread-local morre durante o descarregamento das DLLs do driver (ver
+    // `rts_ui::shutdown`; o host faz o mesmo). No-op sem janela aberta.
+    #[cfg(feature = "ui")]
+    rts_ui::shutdown();
     exit_code
 }

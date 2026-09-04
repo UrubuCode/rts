@@ -358,20 +358,48 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn display_block_no_pseudo_e_tratado_como_inline() {
-        // CORTE DECLARADO, fixado aqui para não passar por acidente: a caixa
-        // gerada entra sempre como run inline. Com `display:block` o browser
-        // punha-a numa linha só dela; nós pomo-la na mesma linha do conteúdo.
-        // A alternativa — gerar uma caixa de bloco — exige um ponto de enxerto
-        // no fluxo de `layout.rs` que ainda não foi aberto.
-        let t = textos("<style>p::before { content:\"→\"; display:block }</style><p>oi</p>");
-        // Idêntico ao caso sem `display` — é essa igualdade que diz que a
-        // declaração não foi lida, e não uma ordem que por acaso coincide.
-        assert_eq!(
-            t,
-            textos("<style>p::before { content:\"→\" }</style><p>oi</p>")
+    fn display_block_no_pseudo_gera_uma_caixa_de_bloco_propria() {
+        // Este teste fixava o OPOSTO até o lote `pintura-e-caixas`
+        // (2026-09-04, causa 8 da triagem WPT `flexbox_nested-flex`): dizia
+        // que `display:block` num pseudo era sempre tratado como inline, por
+        // não haver "ponto de enxerto" no fluxo de bloco para uma caixa
+        // gerada — `layout::pseudo_bloco` é esse enxerto agora, um gancho em
+        // `layout_children_vertical`.
+        //
+        // A PROVA por texto sozinha (`textos`) não distingue os dois casos: um
+        // `<p>` de uma única linha dá `["→", "oi"]` tratado como inline OU
+        // como bloco, porque a ORDEM calha a ser a mesma. O que distingue é a
+        // ALTURA — só uma caixa de bloco RESPEITA o `height` declarado do
+        // pseudo; tratado como inline essa `height` é descartada (o corte
+        // ainda vale para `inline-block`/`position:absolute`, ver
+        // `runs.rs::pseudo_run`) e a única altura que sobra é a da LINHA.
+        let t = textos(
+            "<style>p{margin:0} p::before{content:\"→\";display:block;height:30px}</style><p>oi</p>",
         );
-        assert_eq!(t, vec!["→".to_string(), "oi".to_string()]);
+        assert_eq!(t, vec!["→".to_string(), "oi".to_string()], "o texto pinta-se na mesma ordem de sempre");
+        let dom = crate::dom::parse_html_to_dom(
+            "<style>p{margin:0} p::before{content:\"→\";display:block;height:30px}</style><p>oi</p>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
+        let lista = layout_document(&dom, &ctx);
+        let p_id = dom
+            .resolve(dom.query_all("p")[0])
+            .expect("<p> vivo");
+        let h = lista
+            .geometry_now()
+            .rects
+            .get(&p_id)
+            .expect("<p> tem geometria")
+            .h;
+        // 30 (a altura do ::before, PRÓPRIA) + a linha inteira de "oi" — bem
+        // acima do que uma ÚNICA linha (~20px) daria se os 30px do `height`
+        // tivessem sido descartados, que é o que "tratado como inline" quer
+        // dizer na prática.
+        assert!(h > 40.0, "::before de bloco devia somar os seus 30px à altura do <p>: h={h}");
     }
 
     #[test]

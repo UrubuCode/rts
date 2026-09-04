@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: `display:inline-flex` e um valor de NIVEL INLINE (flui na linha
+     do pai, ao lado de outros inline, e sem `width` declarada encolhe ao
+     conteudo -- CSS Display Module 3 sec2.3/2.4) mas o motor colapsa
+     `inline-flex` no MESMO `DisplayKind::Flex` de `display:flex` de bloco
+     (style/parse/mod.rs:579), e `DisplayKind::is_inline_level`
+     (style/values/display.rs:109) so conhece `Inline`/`InlineBlock` -- nao
+     ha variante "e flex, mas e inline". Por isso #a/#b nunca ficam na
+     mesma linha de `#linha` e, sem `width`, #a nao encolhe ao conteudo
+     (fica a largura toda do bloco em vez de 40px). `vertical-align:top`
+     nos dois isola a pergunta (evita entrelacar com a baseline, que e
+     outra causa desta mesma pasta). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="linha,a,b">
+<meta name="fixar-estilo" content="display,width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha { width: 400px; }
+  .f { display: inline-flex; vertical-align: top; background: #eee; }
+  #a > div { width: 20px; height: 24px; background: #0c0; }
+  #b { width: 64px; height: 24px; background: #c0f; }
+</style></head>
+<body>
+  <div id="linha"><span class="f" id="a"><div></div><div></div></span><span class="f" id="b"></span></div>
+</body>
+</html>
