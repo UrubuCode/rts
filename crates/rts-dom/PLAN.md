@@ -35,7 +35,7 @@ linha aqui não existe.
 | K | invalidação escopada para `:nth-child` | 2 | ☐ | — | `dom_metrics`: cascades por `appendChild` |
 | L | cache de fragmentos em flex/grid/tabela | 2 | ☐ | — | `dom_metrics`: subárvores reusadas numa app flex |
 | M | ciclo de vida do nó | 2 | ☐ | — | teste: arena não cresce ao remover/inserir N vezes |
-| N | réguas no CI | 2 | ☐ | — | job verde a escrever o número no `tests/css/README.md` |
+| N | réguas no CI | 2 | ◐ jobs `dom-rulers` (corpus, vermelho se uma fixture cair) e `dom-tests` em `build-artifacts.yml`; a escrita automática do número no README e a régua de pintura ficam por fazer | `main` (2026-09-04) | resumo do job + check vermelho |
 | O–U | CSS como área | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
