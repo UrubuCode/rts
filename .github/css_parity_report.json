@@ -1,20 +1,20 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 100,
-    "total": 104,
-    "pct": 96.2
+    "passing": 103,
+    "total": 107,
+    "pct": 96.3
   },
   "measurements": {
-    "matching": 2476,
-    "total": 2492,
+    "matching": 2511,
+    "total": 2527,
     "pct": 99.4
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 254,
+    "passing": 257,
     "total": 489,
-    "pct": 51.9
+    "pct": 52.6
   },
   "expected_failures": [
     {
@@ -78,7 +78,9 @@
       "clearfix — `::after{display:block;clear:both}` contém os floats",
       "pseudo-flex-item — `::before`/`::after` de um flex são itens flex",
       "borda-em — bordas em `em`/`rem` resolvem contra a fonte",
-      "cores-nomeadas — os 148 nomes de cor do CSS Color 4"
+      "cores-nomeadas — os 148 nomes de cor do CSS Color 4",
+      "flex-margens-auto — margens `auto` no eixo transversal do flex",
+      "pequenos-1 — três causas pequenas da triagem WPT: texto solto em `display:table`, largura intrínseca do flex em coluna, `<input>` estica no flex"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"
