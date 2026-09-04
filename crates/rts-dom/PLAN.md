@@ -55,6 +55,23 @@ O binário desta medição fica como o próximo `target/baseline.exe` e
 o scroll numa janela real (G) — a fixture headless passa, o exemplo em janela
 fica para quem tiver ecrã.
 
+**Estado após a vaga 2 (2026-09-04, ~10:00)** — lotes I, J, L, M (K e N já
+estavam), medido com o `rts.exe` de `feat/dom-vaga-2` contra o binário do
+lote K (`target/baseline.exe`, `base-suite.txt` = `lotek-suite.txt`):
+
+| régua | antes (baseline) | depois | perdidos |
+|---|---|---|---|
+| corpus CSS | 49/49 | **51/54** — +5 fixtures: `revert`×2 passam, `ua`×3 falham de propósito (15 desvios = lacunas do motor) | nenhum |
+| suite `*.test.ts` por `medir.sh` | 858/887 | **859/888** (+`claude-dom-node-lifecycle`) | **nenhum** |
+| `cargo test -p rts-dom --lib --features metrics` | 758 (feature partida) | **788**, 0 falhas; a feature `metrics` voltou a compilar | — |
+| paridade em 6 páginas locais (só o lote L) | — | desvio máx. 6,1e-5 px | — |
+
+Régua nova: `scripts/css_fixtures_medir_edge.mjs` (Blink headless por CDP;
+validado com desvio 0 contra os 49 esperados do Chrome). Encontrado de
+caminho: `WeakRef`/`WeakMap` retêm fortemente (#2636), o que bloqueia os
+wrappers fracos do lote M. O binário desta medição é o próximo
+`target/baseline.exe`; `vaga2-suite.txt` o próximo `base-suite.txt`.
+
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
 do lote existe; (3) a tabela diz se foi integrado. Um lote com branch e sem
