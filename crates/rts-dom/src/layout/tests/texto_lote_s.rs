@@ -234,6 +234,58 @@ fn sel_has_contra_o_chrome() {
     }
 }
 
+/// `<span style="background:yellow">texto</span>` — SEM `display` declarado,
+/// COM texto e fundo — mede o TEXTO (não uma largura/altura declarada, que
+/// aqui nem existe) e PINTA o fundo. É o padrão mais comum de página real, e
+/// a razão de `bloco.rs` ignorar `width`/`height` DENTRO de `layout_block`
+/// em vez de recusar a caixa inteira (que apagava o fundo também).
+#[test]
+fn span_com_fundo_e_texto_mede_o_texto_e_pinta_o_fundo() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}
+    span{background:#ffff00}</style>
+    <p>a <span id="rotulo">texto</span> b</p>"#;
+    let (dom, list) = geometria(html, 600.0);
+    let r = rect_opt(&dom, &list, "#rotulo").expect("tem texto, tem caixa");
+    assert!(r.w > 0.0 && r.h > 0.0, "mede o conteúdo: {r:?}");
+    // `list.items` só tem o que ESTE nível pintou diretamente — subárvores em
+    // cache de fragmento (`layout_block_reusing`) ficam por REFERÊNCIA em
+    // `list.children`, não copiadas; `materialized()` é o que as achata.
+    let cores: Vec<u32> = list
+        .materialized()
+        .iter()
+        .filter_map(|it| match it {
+            crate::layout::DisplayItem::SolidRect { color, .. } => Some(*color),
+            _ => None,
+        })
+        .collect();
+    let pintou_fundo = cores.contains(&0xffff00ff);
+    assert!(pintou_fundo, "o fundo amarelo tem de estar na DisplayList; cores={cores:08x?} r={r:?}");
+}
+
+/// O CORTE ao lado: o MESMO `<span>` sem `display`, com fundo E `height`
+/// declarados, mas SEM conteúdo — 0×0 e NADA pintado, porque sem conteúdo
+/// não há linha para o fundo se apoiar (o Blink também dá 0 aqui, mesmo com
+/// `background-color` — é `claude-sel-has.html`, `#rotulo-com`/`#rotulo-sem`).
+#[test]
+fn span_vazio_com_fundo_e_height_nao_pinta_nada() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}
+    span{background:#ffff00;height:20px}</style>
+    <span id="rotulo"></span>"#;
+    let (dom, list) = geometria(html, 600.0);
+    assert!(
+        sem_area(rect_opt(&dom, &list, "#rotulo")),
+        "vazio: 0×0, mesmo com background e height declarados"
+    );
+    // Um `SolidRect` de área ZERO pode existir na DisplayList (o mesmo caminho
+    // de pintura corre, só que a caixa mede 0×0) — invisível, e é essa a parte
+    // que interessa: NENHUM pixel do fundo amarelo é visível sem conteúdo.
+    let pintou_algo_visivel = list.materialized().iter().any(|it| {
+        matches!(it, crate::layout::DisplayItem::SolidRect { color, rect, .. }
+            if *color == 0xffff00ff && rect.w > 0.0 && rect.h > 0.0)
+    });
+    assert!(!pintou_algo_visivel, "sem conteúdo, nenhum pixel do fundo deve ficar visível");
+}
+
 #[test]
 fn display_inline_explicito_com_texto_continua_a_ignorar_a_altura() {
     let html = r#"<style>body{margin:0;font:16px/20px monospace}

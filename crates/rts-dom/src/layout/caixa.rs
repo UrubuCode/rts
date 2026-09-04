@@ -44,7 +44,16 @@ pub(in crate::layout) fn ignores_inline_dimensions(css: Option<&ComputedStyle>, 
         Some(d) => d == crate::style::DisplayKind::Inline,
         None => crate::block::lookup(tag).is_none(),
     };
-    usa_inline && css.is_some_and(|c| c.width.is_some() || c.height.is_some())
+    // `position:absolute/fixed` BLOCKIFICA por si só (CSS 2.1 §9.7) — sai do
+    // fluxo e vira caixa de bloco, respeitando `width`/`height`, qualquer que
+    // seja o `display` (declarado ou não). Sem este corte, um `<i
+    // style="position:absolute;height:100%">` sem `display` perdia a altura
+    // que a posição absoluta pede — regressão medida em
+    // `absolute_dentro_de_display_none_nao_tem_caixa`/`_ancora_no_containing_block`.
+    let fora_do_fluxo = css
+        .and_then(|c| c.position)
+        .is_some_and(|p| p.out_of_flow());
+    usa_inline && !fora_do_fluxo && css.is_some_and(|c| c.width.is_some() || c.height.is_some())
 }
 
 /// `true` se este estilo, isoladamente (sem a tag/`replaced`/`display`
