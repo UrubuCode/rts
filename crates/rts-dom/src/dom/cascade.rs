@@ -167,7 +167,7 @@ impl Dom {
             .map(|c| c.split_whitespace().collect())
             .unwrap_or_default();
         let (matched, _content) = self.stylesheet.matched_for_pseudo(
-            self.viewport.get().0,
+            &self.media_context(),
             tag,
             self.nodes[idx].attr("id"),
             &classes,
