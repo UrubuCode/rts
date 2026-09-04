@@ -123,7 +123,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 <!-- RTS_VS_ELECTRON_START -->
 ## 📦 RTS vs Electron: packaging the same app
 
-Two packaged builds of the **same** app (`examples/react-app.html`, 144 KB, no network calls) — a native RTS `.exe` and an Electron 44.2.0 bundle — measured by `scripts/rts_vs_electron/medir.mjs`: 5 runs on the Electron side (RTS attempted 5, see below), startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-04 on win32 10.0.26200, Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz (16 logical cores), 47.9 GB RAM.
+Two packaged builds of the **same** app (`examples/react-app.html`, 144 KB, no network calls) — a native RTS `.exe` and an Electron 44.2.0 bundle — measured by `scripts/rts_vs_electron/medir.mjs`: 3 runs on the Electron side (RTS attempted 3, see below), startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-04 on win32 10.0.26100, AMD EPYC 7763 64-Core Processor (4 logical cores), 16 GB RAM.
 
 | | RTS | Electron |
 |---|---:|---:|
@@ -131,12 +131,12 @@ Two packaged builds of the **same** app (`examples/react-app.html`, 144 KB, no n
 | Folder size | 20.1 MB | 367.6 MB |
 | Files in folder | 5 | 73 |
 | Processes | — | 4 |
-| Startup (median, min–max) | **not built** | 313 ms (309–346) |
-| RSS (median, min–max) | — | 290.2 MB (287.5–290.8) |
-| Private bytes (median) | — | 143.1 MB |
+| Startup (median, min–max) | **not built** | 323 ms (294–335) |
+| RSS (median, min–max) | — | 261.2 MB (260.5–263.1) |
+| Private bytes (median) | — | 89.7 MB |
 | CPU at rest (median) | — | 0% |
 
-**RTS's AOT `.exe` does not run today**: processo terminou (exit code desconhecido) antes de abrir janela. stderr: rts: uncaught exception (tag 1): Error: cannot resolve module "rts:egui" - nothing registered that specifier (`scripts/rts_vs_electron/rts/README.md` has the full account and the fix). Its exe/folder size above is real — the binary compiled and links — but every runtime row is unmeasurable until it does.
+**RTS's AOT `.exe` does not run today**: processo terminou (exit code desconhecido) antes de abrir janela. stderr: rts: uncaught exception (tag 1): Error: cannot resolve module "rts:egui" — nothing registered that specifier (`scripts/rts_vs_electron/rts/README.md` has the full account and the fix). Its exe/folder size above is real — the binary compiled and links — but every runtime row is unmeasurable until it does.
 
 **What this does NOT measure**: no GPU workload, no network I/O, one tiny static page — the size and idle-memory difference between the two runtimes is the whole comparison, not a claim about either one under load.
 
