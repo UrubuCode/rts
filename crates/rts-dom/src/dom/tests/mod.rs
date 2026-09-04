@@ -7,6 +7,7 @@ mod animacao;
 mod cascade;
 mod consulta;
 mod eventos;
+mod freelist;
 mod invalidacao;
 mod medidor_ativo;
 mod mutacao;

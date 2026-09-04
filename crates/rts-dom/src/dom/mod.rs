@@ -38,6 +38,7 @@ mod consulta;
 mod eventos;
 mod estilo;
 mod formulario;
+mod freelist;
 mod geometria;
 mod helpers;
 mod invalidacao;
@@ -150,6 +151,18 @@ pub struct Dom {
     generation: u32,
     /// Arena: `nodes[idx]` é o nó de índice cru `idx`.
     pub nodes: Vec<Node>,
+    /// Geração POR NÓ (`dom/freelist.rs`, lote M) — paralelo a `nodes`. Um nó
+    /// recém-alocado herda a geração da árvore (`generation`, acima); reciclar
+    /// um `idx` incrementa só a entrada dele, então um `NodeId` do ocupante
+    /// anterior desse `idx` deixa de `resolve`. DERIVADO/de-identidade, fora
+    /// do `PartialEq` (mesma razão de `generation`).
+    node_generation: Vec<u32>,
+    /// Índices de nós DESANEXADOS e sem wrapper vivo, prontos para reuso por
+    /// `alloc_slot` — a via de saída que o ciclo de vida do nó não tinha.
+    /// Só cresce por `release_subtree` (chamado pela fachada TS); nunca por
+    /// `detach`/`remove_node` sozinhos, porque só o TS sabe se um wrapper
+    /// ainda existe.
+    free_list: Vec<NodeIdx>,
     /// A raiz sintética `#document` (índice cru — sempre 0).
     pub root: NodeIdx,
     /// Índice `valor-de-id → [NodeIdx]`. Mantém todos os candidatos para que a

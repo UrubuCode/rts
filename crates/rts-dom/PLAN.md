@@ -34,7 +34,7 @@ linha aqui não existe.
 | J | `DeclarationRecord` e `revert` | 2 | ☐ | — | fixture `revert`/`revert-layer` medida no Chrome |
 | K | invalidação escopada para `:nth-child` | 2 | ☑ subárvore do pai em vez de `touch()` global; testes de escopo; corpus 49/49 e suite 858/887 sem perdidos; TEMPO por medir (`dom_metrics`) | `feat/dom-lote-k-invalidacao-escopada` (2026-09-04) | `dom_metrics`: cascades por `appendChild` |
 | L | cache de fragmentos em flex/grid/tabela | 2 | ☐ | — | `dom_metrics`: subárvores reusadas numa app flex |
-| M | ciclo de vida do nó | 2 | ☐ | — | teste: arena não cresce ao remover/inserir N vezes |
+| M | ciclo de vida do nó | 2 | ◐ em curso — implementado, por integrar/medir | `feat/dom-lote-m-ciclo-de-vida` (2026-09-04) | `dom/tests/freelist.rs` (Rust); `tests/claude-dom-node-lifecycle.test.ts` |
 | N | réguas no CI | 2 | ☑ `dom-rulers` e `dom-tests` VERDES no runner (run 33840034384, 2026-09-04); `dom-rulers` corre com `if: !cancelled()` porque a matriz `build` teve o macOS vermelho de 03/09 a 04/09 (#2632, corrigido em #2633); ficam por fazer a escrita automática do número no README e a régua de pintura | `main` (#2629, #2633) | resumo do job + check vermelho |
 | O–U | CSS como área | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
@@ -359,6 +359,34 @@ paralelo com a vaga 1 se houver agentes livres: não tocam em layout.
   #217 diz o que falta); `document.close()`/descarte a chamar `dom.free`.
 - **Aceitação:** teste: inserir e remover 100 000 nós não faz a arena crescer
   além do pico vivo.
+- **Feito, branch `feat/dom-lote-m-ciclo-de-vida` (2026-09-04):** geração POR
+  NÓ (`dom/freelist.rs`) — `Dom::node_generation: Vec<u32>` paralelo a
+  `nodes`; `to_abi`/`from_abi` não mudaram (já empacotavam sem assumir
+  geração uniforme). `alloc_slot` reusa um `idx` da freelist antes de
+  crescer a arena; `recycle` incrementa só a geração DESSE `idx` e purga
+  TODO mapa lateral indexado por `NodeIdx` (`style_overrides`, `listeners`,
+  `listener_cbs`, `input_values`, `image_pixels`, `own_pixels`,
+  `scroll_regioes`, `active_transitions`, `prev_computed`, `anim_override`,
+  `anim_start`, `dirty_self`, `dirty_children`, `last_fragment`, `hovered`,
+  `focused_input`) — sem isto o PRÓXIMO ocupante do `idx` herdaria estado do
+  anterior. Quem decide reciclar: a fachada TS (decisão (a) do enunciado,
+  rejeitada a (b) — contagem de referências exigiria uma chamada extra em
+  CADA leitura que devolve um `NodeId`, não só na remoção). Novo membro do
+  bridge: `dom.releaseSubtree(doc, node)`; a fachada chama-o de
+  `removeChild`/`remove()` só quando NENHUM nó da subárvore removida tem
+  wrapper em `__wrappers` — `Element.isConnected` novo (getter, sobe por
+  `parentNode` até `rootId`), `Document.nodeCount`/`Document.close()`
+  (chamam `dom.nodeCount`/`dom.free`+`__dropWindow`, que já existiam sem
+  chamador). **`WeakRef`/`FinalizationRegistry` verificados e NÃO usados**:
+  `WeakRef.deref()` neste motor nunca devolve `undefined` (o alvo é uma
+  propriedade própria comum — `crates/rts-core/.../weakref.rs`) e
+  `WeakMap`/`WeakSet` também retêm forte, então nenhuma coleção do lado TS
+  hoje esquece uma entrada sozinha; um wrapper só é esquecido pela chamada
+  explícita que este lote acrescentou. Testes: `dom/tests/freelist.rs`
+  (Rust, 5 testes) + `tests/claude-dom-node-lifecycle.test.ts` (4 cenários).
+  `cargo check -p rts-dom -p rts-dom-bridge --tests` limpo (só avisos
+  pré-existentes noutros ficheiros). **Não medido ainda**: `cargo test`/a
+  suite completa — por integrar pelo orquestrador.
 
 ### N — as réguas no CI (`.github/workflows/`, `tests/css/README.md`)
 

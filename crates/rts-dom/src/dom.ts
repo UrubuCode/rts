@@ -30,13 +30,23 @@ const __compositionStates: Map<i64, number> = new Map();
 // A chave e o par (handle do DOM, `NodeId`), e nao so o `NodeId`, porque dois
 // documentos abertos ao mesmo tempo tem cada um a sua arena e os `idx` colidem.
 //
-// NAO precisa de invalidacao, e a razao esta do lado Rust em vez de aqui:
-// `mutacao.rs::remove_node` DESLIGA o no e deixa-o na arena — "o no continua na
-// arena (lixo)" — e `arvore.rs` so faz `nodes.push`. Um `idx` nunca e reciclado
-// dentro de uma geracao, e um re-parse muda a geracao de TODOS (o `NodeId` e
-// `(generation << 32) | idx`). Entao um wrapper guardado nunca pode ser
-// entregue a um no diferente daquele para que foi feito. O que a cache custa e
-// crescer com a arena — que tambem nunca encolhe — e nao mais do que ela.
+// NAO precisa de invalidacao, e a razao esta do lado Rust em vez de aqui — e
+// mudou de forma no lote M (ciclo de vida do no): ate la, `arvore.rs` so
+// fazia `nodes.push` e um `idx` nunca era reciclado, entao a chave (h, abi)
+// era estavel para sempre. Agora `dom.releaseSubtree` PODE reciclar um `idx`
+// desanexado sem wrapper vivo — mas a GERACAO passou a ser POR NO
+// (`dom/freelist.rs`), entao reciclar incrementa so a geracao DESSE `idx`, o
+// `NodeId` empacotado `(generation << 32) | idx` muda, e a chave abi deste
+// mapa muda com ele. Uma entrada VELHA fica presa a um abi que nenhum `idx`
+// reciclado volta a produzir — nao e lida por acidente, so deixa de ser
+// escrita: e por isso que `removeChild`/`remove()` so chamam
+// `dom.releaseSubtree` quando NENHUM no da subarvore tem wrapper (ver
+// `__maybeReleaseSubtree` abaixo) — reciclar um `idx` com wrapper vivo
+// deixaria esse wrapper a apontar, pela chave antiga, para um no que ja nao
+// existe (a proxima leitura por esse wrapper resolve a `None` no Rust, mas o
+// objeto TS continuaria "vivo" e mudo). O que a cache ainda custa e nao
+// reciclar quando ha um wrapper vivo na subarvore — o mesmo no fica "lixo"
+// na arena, como antes do lote M, ate esse wrapper deixar de existir.
 const __wrappers: Map<i64, Map<i64, any>> = new Map();
 
 // O wrapper DESTE no, sempre o mesmo. Todo o `dom.ts` passa por aqui em vez de
@@ -53,6 +63,65 @@ function __elem(h: i64, node: number): Element {
   const novo = new Element(h, node);
   daArvore.set(node, novo);
   return novo;
+}
+
+// `true` se `node` (abi, NÃO desempacotado) tem wrapper vivo em `__wrappers`
+// — a pergunta que só o TS sabe responder (§4.M: o Rust não vê este mapa).
+function __wrapperExists(h: i64, node: number): boolean {
+  const daArvore = __wrappers.get(h);
+  if (daArvore === undefined) return false;
+  return daArvore.get(node) !== undefined;
+}
+
+// `true` se `node` OU algum descendente dele tem wrapper vivo. Só chamado no
+// caminho de remoção (abaixo) — percorrer a subárvore tem custo, mas é o que
+// torna seguro reciclar: reciclar com um wrapper vivo lá dentro deixaria esse
+// wrapper apontando para um `idx` de geração errada (o comentário de
+// `__wrappers` acima tem o porquê).
+function __subtreeHasWrapper(h: i64, node: number): boolean {
+  if (__wrapperExists(h, node)) return true;
+  const n = dom.childNodesCount(h, node);
+  let i = 0;
+  while (i < n) {
+    if (__subtreeHasWrapper(h, dom.childNodeAt(h, node, i))) return true;
+    i = i + 1;
+  }
+  return false;
+}
+
+// Chamado DEPOIS de `node` já estar desanexado (`remove()`/`removeChild` já
+// correram). Esquece o CACHE deste nó — não o objeto JS: quem já tinha o
+// wrapper (`el`) continua com o MESMO objeto e os mesmos campos `_dom`/
+// `_node`, só deixa de ser o que uma consulta futura por este `NodeId`
+// devolveria (que agora, sendo o nó removido, teria de criar um novo mesmo
+// assim). É isto que torna seguro reciclar mesmo quando um wrapper foi
+// "guardado" pelo chamador: reciclar não invalida o OBJETO, só o `NodeId`
+// que ele carrega — uma leitura por ele passa a `resolve` a `None` do lado
+// Rust e responde vazio/`false` em vez de lançar (ver `get isConnected`
+// acima e `dom-bridge`, que já devolvem default em vez de entrar em pânico
+// para um `NodeId` que não resolve).
+//
+// Recicla a subárvore inteira via `dom.releaseSubtree` só se NENHUM
+// DESCENDENTE ainda tem wrapper em cache — reciclar com um filho em cache
+// deixaria ESSE wrapper (que continua um objeto JS válido para quem o
+// segura) a apontar para um `idx` que já não é dele.
+//
+// O que isto NÃO fecha: um wrapper cujo único dono é o `__wrappers` (nunca
+// lido de novo, nunca solto por ninguém) — hoje esse caso já não acontece,
+// porque esta função sempre esquece a ENTRADA do nó que ela própria recebe.
+// O caso que ficaria por fechar é justamente o oposto — reciclar cedo demais
+// um nó com wrapper vivo — que a checagem de subárvore acima já cobre.
+// `WeakRef`/`FinalizationRegistry` não substituem nada disto: verificado
+// nesta sessão (2026-09-04) que `WeakRef.deref()` neste motor NUNCA
+// devolve `undefined` — o alvo é guardado como propriedade própria comum
+// (`crates/rts-core/.../weakref.rs`), então pôr um wrapper atrás de um
+// `WeakRef` no cache não o tornaria coletável, só adicionaria indireção.
+function __maybeReleaseSubtree(h: i64, node: number): void {
+  const daArvore = __wrappers.get(h);
+  if (daArvore !== undefined) daArvore.delete(node);
+  if (!__subtreeHasWrapper(h, node)) {
+    dom.releaseSubtree(h, node);
+  }
 }
 
 function __listenerFlags(options: any): number {
@@ -496,6 +565,24 @@ class Element {
     return out;
   }
 
+  // `el.isConnected` — sobe por `parentNode` até achar a raiz `#document`
+  // (`dom.rootId`) ou ficar sem pai. Não precisa de um primitivo novo: é a
+  // mesma travessia que `is_attached` faz do lado Rust (`consulta.rs`), só
+  // que essa é privada ao crate — refazê-la aqui em 2 chamadas existentes é
+  // mais barato do que expor mais um membro do bridge para isto (§4.M).
+  // `false` depois de `remove()`/`releaseSubtree`: um `NodeId` que já não
+  // resolve (geração reciclada) faz `dom.parentNode` responder `-1` na
+  // primeira volta, tal como um nó solto sem pai — sem `TypeError`.
+  get isConnected(): boolean {
+    const root = dom.rootId(this._dom);
+    let cur: number = this._node;
+    while (cur !== __DOM_NONE) {
+      if (cur === root) return true;
+      cur = dom.parentNode(this._dom, cur);
+    }
+    return false;
+  }
+
   // ── Navegação (parentNode / first|lastChild / next|previousSibling) ──────────
   // Getters que devolvem `Element | null` (null no fim/sem pai). Extrair o NodeId
   // para uma const antes de comparar com -1 (limite do motor i64-cmp inline).
@@ -611,6 +698,7 @@ class Element {
   // `parent.removeChild(child)`.
   removeChild(child: Element): void {
     dom.removeChild(this._dom, this._node, child._node);
+    __maybeReleaseSubtree(this._dom, child._node);
   }
   // `parent.replaceChildren()` sem args — remove todos os filhos. (a variante com
   // novos filhos: chame replaceChildrenClear() + appendChild manualmente.)
@@ -941,6 +1029,7 @@ class Element {
   // `el.remove()` — desliga do pai.
   remove(): void {
     dom.removeNode(this._dom, this._node);
+    __maybeReleaseSubtree(this._dom, this._node);
   }
 
   // ── `el.style` — o objeto de estilo inline ──────────────────────
@@ -1235,6 +1324,29 @@ class Document {
     const root = dom.documentElement(this._dom);
     if (root === __DOM_NONE) return null;
     return __elem(this._dom, root);
+  }
+
+  // Tamanho da arena — inclui nós desanexados sem wrapper que ainda não
+  // passaram por `releaseSubtree` (ver `dom.nodeCount`). Não é o `.d.ts` do
+  // DOM real; existe para a régua do lote M ("inserir e remover N vezes não
+  // faz a arena crescer sem limite") ter algo a medir do lado TS.
+  get nodeCount(): number {
+    return dom.nodeCount(this._dom);
+  }
+
+  // `document.close()` — liberta o documento no lado Rust (`dom.free`,
+  // §4.M) e o escopo global que `runScripts` lhe tenha aberto
+  // (`__dropWindow`, `window.ts`). Nenhum dos dois tinha chamador antes
+  // deste lote — a arena inteira e o escopo de página de um documento
+  // descartado ficavam para sempre. Não é chamado automaticamente: um
+  // `Document` vive enquanto o programa quiser (é ele quem decide que
+  // acabou), então só quem criou o documento pode chamar `close()`.
+  // Chamar duas vezes é seguro: o segundo `dom.free` apaga um handle já
+  // ausente do store (sem efeito) e o segundo `__dropWindow` sai cedo
+  // (`idx < 0`, `window.ts:452`).
+  close(): void {
+    dom.free(this._dom);
+    __dropWindow(this._dom);
   }
 }
 
