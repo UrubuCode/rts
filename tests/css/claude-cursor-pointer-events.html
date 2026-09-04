@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Fixa: `cursor` (palavra-chave, `url()` com fallback para palavra-chave, e
+     outra palavra-chave) e `pointer-events` (`none`/`auto`) como valores
+     computados — nenhum dos dois tem efeito em geometria, ambos são "parseado
+     sem efeito" candidatos a ficarem presos no valor inicial. Um motor que
+     não reconhece `url(x.png), auto` como uma lista devolve a declaração
+     inteira vazia em vez de cair no fallback. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="ponteiro,url-fallback,arrastar,sem-eventos,com-eventos">
+<meta name="fixar-estilo" content="cursor,pointer-events">
+<style>
+  body { margin: 0; }
+  div { width: 50px; height: 20px; background: #eee; }
+  #ponteiro     { cursor: pointer; }
+  #url-fallback { cursor: url(x.png), auto; }
+  #arrastar     { cursor: grab; }
+  #sem-eventos  { pointer-events: none; }
+  #com-eventos  { pointer-events: auto; }
+</style></head>
+<body>
+  <div id="ponteiro"></div>
+  <div id="url-fallback"></div>
+  <div id="arrastar"></div>
+  <div id="sem-eventos"></div>
+  <div id="com-eventos"></div>
+</body>
+</html>

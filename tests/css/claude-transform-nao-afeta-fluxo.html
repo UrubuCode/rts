@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `transform` não participa no FLUXO — um elemento rodado/escalado
+     não move os irmãos, porque a transformação é aplicada depois do layout
+     (a caixa reserva o espaço original). Um motor que trata `transform` como
+     `margin`/`size` empurra `#depois` para baixo ou para o lado; o correto é
+     `#depois` ficar exactamente onde ficaria se `#rodado` não tivesse
+     transform nenhuma. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  div { width: 100px; height: 50px; background: #ccc; }
+  #antes  { background: #aaa; }
+  #rodado { transform: rotate(45deg) scale(2); background: #888; }
+  #depois { background: #666; }
+</style></head>
+<body>
+  <div id="antes"></div>
+  <div id="rodado"></div>
+  <div id="depois"></div>
+</body>
+</html>

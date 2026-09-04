@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- Fixa: `background-image` com DUAS camadas separadas por vírgula
+     (`linear-gradient()` e um `url(data:...)` de PNG 1x1), e as longhands
+     `background-repeat`/`background-position`/`background-size` declaradas
+     à parte do shorthand. O Blink serializa `url("data:...")` sempre com
+     aspas e as cores do gradiente como `rgb()`. Um motor que só lê a
+     PRIMEIRA camada antes da vírgula perde a segunda imagem; um que não
+     normaliza a URL com aspas falha a comparação mesmo com o mesmo ficheiro.
+     `claude-background-shorthand.html` já fixa o shorthand simples; esta
+     fixa camadas múltiplas e as longhands sozinhas. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="duas-camadas,longhands">
+<meta name="fixar-estilo" content="background-image,background-repeat,background-position,background-size">
+<style>
+  body { margin: 0; }
+  div { width: 100px; height: 50px; }
+  #duas-camadas {
+    background-image: linear-gradient(red, blue),
+      url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=);
+  }
+  #longhands {
+    background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=);
+    background-repeat: repeat-x;
+    background-position: 20px 10px;
+    background-size: 50px 25px;
+  }
+</style></head>
+<body>
+  <div id="duas-camadas"></div>
+  <div id="longhands"></div>
+</body>
+</html>

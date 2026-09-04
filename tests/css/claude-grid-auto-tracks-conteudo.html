@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `grid-template-columns: auto auto` dimensiona cada track pelo
+     conteúdo do maior item NESSA coluna — não em partes iguais do container,
+     que é o que `1fr 1fr` faria. Sem texto: a diferença de largura vem de um
+     filho com `width` fixo dentro de cada item, para isolar a geometria da
+     métrica de fonte. Um motor que trata `auto` como `1fr` dá as duas
+     colunas com a mesma largura (250px cada, para um grid de 500px). -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #grade { display: grid; grid-template-columns: auto auto; width: 500px; }
+  #grade > div { background: #eee; height: 30px; }
+  #grade > div > span { display: block; height: 30px; background: #999; }
+</style></head>
+<body>
+  <div id="grade">
+    <div id="col-estreita"><span style="width: 40px;"></span></div>
+    <div id="col-larga"><span style="width: 300px;"></span></div>
+  </div>
+</body>
+</html>

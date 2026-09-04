@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa: `minmax(min-content, 200px)` e `fit-content(150px)` como valores de
+     `grid-template-columns` — o track cresce até ao maior conteúdo mas nunca
+     além do máximo declarado. O texto É a pergunta aqui (por isso monospace,
+     ao contrário do resto do lote): "palavracomprida" sem espaços força
+     min-content a valer o comprimento da palavra inteira. Um motor que trata
+     `minmax()`/`fit-content()` como `1fr` ou como um valor fixo erra as duas
+     colunas. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #grade {
+    display: grid;
+    grid-template-columns: minmax(min-content, 200px) fit-content(150px);
+    width: 500px;
+  }
+  #grade > div { background: #eee; }
+</style></head>
+<body>
+  <div id="grade">
+    <div id="col-minmax">palavracompridasemespacos</div>
+    <div id="col-fit">ab</div>
+  </div>
+</body>
+</html>

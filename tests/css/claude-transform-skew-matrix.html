@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: as funções de transformação além de rotate/translate/scale —
+     `skewX`, `skewY`, `matrix()` a 6 valores, `scale()` com dois eixos
+     diferentes, e a COMPOSIÇÃO de duas funções na mesma declaração, onde a
+     ordem em que aparecem importa (aplica-se da direita para a esquerda). Um
+     motor que só reconhece `rotate`/`translate`/`scale(1 valor)` ou que
+     ignora `matrix()` deixa a bounding box igual à não transformada. Caixas
+     de 100x50 sem texto. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  div { position: absolute; width: 100px; height: 50px; background: #ccc; }
+  #skew-x   { top: 0px;   left: 0px;   transform: skewX(30deg); }
+  #skew-y   { top: 100px; left: 0px;   transform: skewY(20deg); }
+  #matriz   { top: 200px; left: 0px;   transform: matrix(1, 0, 0.5, 1, 0, 0); }
+  #escala   { top: 300px; left: 0px;   transform: scale(2, 0.5); }
+  #composta { top: 450px; left: 0px;   transform: translate(10px, 20px) rotate(45deg); }
+</style></head>
+<body>
+  <div id="skew-x"></div>
+  <div id="skew-y"></div>
+  <div id="matriz"></div>
+  <div id="escala"></div>
+  <div id="composta"></div>
+</body>
+</html>

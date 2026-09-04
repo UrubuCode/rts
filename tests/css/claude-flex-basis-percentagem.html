@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Fixa: `flex-basis` em PERCENTAGEM resolve contra o container (não contra
+     o conteúdo), `flex-basis: content` volta ao tamanho do conteúdo, e `gap`
+     funciona também em `flex-direction: column` (soma no eixo vertical, não
+     no horizontal). Um motor que resolve `flex-basis: %` como `auto` ou que
+     só aplica `gap` em linha erra as três medidas. Container de 400px de
+     largura; sem texto. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #linha { display: flex; width: 400px; height: 50px; }
+  #linha > div { background: #ccc; }
+  #um-quarto { flex-basis: 25%; flex-grow: 0; flex-shrink: 0; }
+  #metade    { flex-basis: 50%; flex-grow: 0; flex-shrink: 0; }
+  #coluna { display: flex; flex-direction: column; gap: 10px; width: 100px; }
+  #coluna > div { height: 30px; background: #999; }
+</style></head>
+<body>
+  <div id="linha">
+    <div id="um-quarto"></div>
+    <div id="metade"></div>
+  </div>
+  <div id="coluna">
+    <div id="c1"></div>
+    <div id="c2"></div>
+    <div id="c3"></div>
+  </div>
+</body>
+</html>
