@@ -290,15 +290,7 @@ pub fn environment_names(environment: u64) -> Vec<(String, u32)> {
             }
             found.push((text, hops));
         }
-        let outer = with_current(|context| {
-            let key = context.interner.intern(
-                &crate::text::Str::from_str(OUTER_LINK),
-                &mut context.keys,
-            );
-            super::objects::read_property(context, cell, crate::object::Key::Name(key))
-                .map(|found| found.bits())
-                .unwrap_or_else(|| undefined_of(context))
-        });
+        let outer = with_current(|context| outer_of(context, cell));
         walking = outer;
     }
     found
@@ -306,10 +298,88 @@ pub fn environment_names(environment: u64) -> Vec<(String, u32)> {
 
 /// The property an environment reaches its enclosing one through.
 ///
-/// The property an environment reaches its enclosing one through.
-///
 /// Written here as well as in `emit::binding` because the two sides are in
 /// different crates and nothing links them — the same shape as every other
 /// agreement `rts-host` asserts. A disagreement would make a chain stop at its
 /// first link, so a direct `eval` would see one function's bindings and no more.
 const OUTER_LINK: &str = "__rts_outer";
+
+/// What `cell`'s `__rts_outer` names, or `undefined` when it has none.
+///
+/// Factored out of [`environment_names`] so [`hides_node_globals`] walks the
+/// same link the same way — two readings of `__rts_outer` are two chances for
+/// one of them to walk it differently.
+fn outer_of(context: &mut Context, cell: u32) -> u64 {
+    let key = context
+        .interner
+        .intern(&crate::text::Str::from_str(OUTER_LINK), &mut context.keys);
+    super::objects::read_property(context, cell, crate::object::Key::Name(key))
+        .map(|found| found.bits())
+        .unwrap_or_else(|| undefined_of(context))
+}
+
+/// The property that marks an environment — and everything whose
+/// `__rts_outer` chain reaches it — as one a compiled scope must hide
+/// Node-only globals from.
+///
+/// `__rts_`-prefixed for the same reason [`OUTER_LINK`] is: the filter a few
+/// lines into [`environment_names`] already skips every name with that
+/// prefix, so this can never become a name a compiled program resolves.
+const HIDES_NODE_GLOBALS: &str = "__rts_hides_node_globals";
+
+/// Marks `environment` as a scope Node-only globals — `process`, `Buffer`,
+/// `setImmediate`, … — must not cross into. `rts-codegen`'s
+/// `emit::globals::NODE_ONLY` is the list and the reason it exists; this is
+/// the mechanism that lets the fact survive past the compilation that decided
+/// it.
+///
+/// # Why marking the object rather than remembering the fact here
+///
+/// `rts-codegen`'s `ctx.hide_node_globals` decides this for the scope BEING
+/// compiled, and a `Ctx` does not survive past that compilation. A direct
+/// `eval` called later, from inside that scope, compiles as a SEPARATE
+/// program (`Scoped::Eval`) with no `ctx` to inherit the fact from — its only
+/// handle on the calling scope is the environment object `eval_direct` was
+/// handed. A side table keyed by that object's CELL was the alternative, and
+/// it is the wrong one for a value the collector can free and a later
+/// allocation can reuse: a stale entry would mark an unrelated object. This
+/// property lives ON the object, so it is freed with it and never outlives
+/// it — the same reasoning `rts-node`'s `vm.rs` already applies to
+/// `__rts_vm_context__`, which this follows rather than a second scheme.
+///
+/// Idempotent: `rts-host`'s `live.rs` calls this on every compile against the
+/// same environment, which is the ordinary case — a document's second
+/// `<script>` re-marks the `window` its first one already marked.
+pub fn mark_hides_node_globals(environment: u64) {
+    with_current(|context| {
+        let value = super::modules::boolean_value(true);
+        super::modules::put_member(context, environment, HIDES_NODE_GLOBALS, value);
+    });
+}
+
+/// Whether `environment` — or anything reached by following its `__rts_outer`
+/// chain — was marked by [`mark_hides_node_globals`].
+///
+/// What a direct `eval` inside a page script asks, since its own compilation
+/// has no page of its own to read `ctx.hide_node_globals` from.
+///
+/// Bounded the same as [`environment_names`]'s own walk and for the same
+/// reason: the chain is built by the emitter and cannot cycle, and a defect
+/// should answer short rather than hang.
+pub fn hides_node_globals(environment: u64) -> bool {
+    let mut walking = environment;
+    for _ in 0..64u32 {
+        let Some(cell) = Value(walking).as_slot() else {
+            break;
+        };
+        let marked = with_current(|context| {
+            let value = super::modules::get_member(context, walking, HIDES_NODE_GLOBALS);
+            super::primitives::to_boolean_in(context, value)
+        });
+        if marked {
+            return true;
+        }
+        walking = with_current(|context| outer_of(context, cell));
+    }
+    false
+}

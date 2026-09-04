@@ -121,8 +121,19 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
 /// `SyntaxError`.
 pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
     let enclosing = rts_core::entry::environment_names(environment);
+    // The calling scope decided this when IT compiled, and that `Ctx` no
+    // longer exists — so it is read back off the environment `eval` was
+    // handed, the one thing both compilations share. `process is not defined`
+    // inside a page's `eval` and a real value outside one is the whole point;
+    // see `rts_core::entry::hides_node_globals`'s own doc.
+    let hide_node_globals = rts_core::entry::hides_node_globals(environment);
     let nothing = rts_core::entry::undefined_value();
-    place_and_enter(source, crate::run::Scoped::Eval(&enclosing), environment, nothing)
+    place_and_enter(
+        source,
+        crate::run::Scoped::Eval { enclosing: &enclosing, hide_node_globals },
+        environment,
+        nothing,
+    )
 }
 
 /// Runs source in an existing scope with an explicit JavaScript receiver.
@@ -130,13 +141,37 @@ pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
 /// VM contexts use the same environment for name lookup and `this`. Keeping
 /// this as a separate callback preserves direct `eval`'s existing receiver
 /// behavior while reusing the same placement and agreement checks.
+///
+/// The two callers of this function — `rts-dom-bridge`'s `DomScope.run`, for
+/// a page `<script>`, and `rts-node`'s `vm.rs`, for `runInContext` and its
+/// siblings — hand it the SAME shape of call, and this is the one place that
+/// can tell them apart: `environment` is the real, shared process global
+/// object only for `vm.runInThisContext`/`Script.runInThisContext`, which
+/// pass `rts_core::entry::global_object` directly. Anything else — a DOM
+/// `window`, a `vm.createContext` sandbox — is not, and Node-only globals must
+/// not resolve inside it, which is what marking it here (and what
+/// `rts-codegen` does with the flag) enforces.
 pub(crate) fn evaluate_in_scope_with_receiver(
     source: &str,
     environment: u64,
     receiver: u64,
 ) -> Option<u64> {
     let enclosing = rts_core::entry::environment_names(environment);
-    place_and_enter(source, crate::run::Scoped::Page(&enclosing), environment, receiver)
+    let global = rts_core::entry::with_runtime(|context| rts_core::entry::global_object(context));
+    let hide_node_globals = environment != global;
+    if hide_node_globals {
+        // Written BEFORE compiling, not after: a direct `eval` inside the
+        // script that is about to run reads this back
+        // (`evaluate_in_scope`, above), and it has to find the mark already
+        // there.
+        rts_core::entry::mark_hides_node_globals(environment);
+    }
+    place_and_enter(
+        source,
+        crate::run::Scoped::Page { enclosing: &enclosing, hide_node_globals },
+        environment,
+        receiver,
+    )
 }
 
 /// Compiles one source text into the running region and enters it, answering

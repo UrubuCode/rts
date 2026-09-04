@@ -132,7 +132,7 @@ pub use eval::{
 pub use eval_scope::{
     EvalCompiler, EvalCompilerWithReceiver, declare_eval_compiler,
     declare_eval_compiler_with_receiver, environment_names, eval_direct, evaluate_in_scope,
-    evaluate_in_scope_with_receiver,
+    evaluate_in_scope_with_receiver, hides_node_globals, mark_hides_node_globals,
 };
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
 pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};

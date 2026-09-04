@@ -44,9 +44,25 @@ use crate::syntax::Stmt;
 /// meanwhile is that the wrong answer is `undefined` — the value of a statement
 /// that produced nothing — rather than another program's variable, which is the
 /// failure the refusal this replaces was protecting against.
+///
+/// # `hide_node_globals`
+///
+/// A direct `eval` has no scope of its own to have decided this — it is
+/// compiled as a fresh, separate program (`rts-host`'s `Scoped::Eval`) with no
+/// `Ctx` surviving from whatever called it. So the caller reads the fact back
+/// off the running environment instead:
+/// `rts_core::entry::hides_node_globals(environment)` walks the SAME
+/// `__rts_outer` chain `environment_names` just walked, checking the mark
+/// `rts_core::entry::mark_hides_node_globals` left when that environment's
+/// OWN scope (a page script, a `vm` sandbox) was compiled. Without this,
+/// `eval("process")` called from inside a page would answer a real value even
+/// after the page's own bare read stopped — the second leak the 2026-09-04
+/// audit named, and the reason `NODE_ONLY`'s own doc says this list alone was
+/// never enough.
 pub fn emit_eval_program(
     body: &[Stmt],
     enclosing: &[(crate::names::Name, u32)],
+    hide_node_globals: bool,
     ctx: &mut Ctx,
 ) -> EmitResult<Program> {
     let mut body = body.to_vec();
@@ -59,12 +75,21 @@ pub fn emit_eval_program(
         };
         body.push(last);
     }
+    // Same reasoning as `page::emit_page_program`: a name found in the chain
+    // resolves at zero hops, before `globals::resolves` — and so before
+    // `NODE_ONLY` — is ever consulted, so the filter has to run here rather
+    // than trusting that check alone.
+    let enclosing: Vec<(crate::names::Name, u32)> = match hide_node_globals {
+        true => super::globals::without_node_only(ctx, enclosing),
+        false => enclosing.to_vec(),
+    };
+    ctx.hide_node_globals = hide_node_globals;
     let scope = Scope::for_function(
         None,
         std::collections::BTreeSet::new(),
         // Nothing is captured, so nothing is bound at zero hops either.
         &std::collections::BTreeSet::new(),
-        enclosing,
+        &enclosing,
     );
     emit_program_into(&body, &[], None, &[], &scope, ctx)
 }

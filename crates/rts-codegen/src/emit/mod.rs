@@ -352,13 +352,22 @@ pub struct Ctx<'a> {
     ///
     /// A flag rather than a parameter for [`Ctx::in_static_method`]'s reason.
     pub sloppy: bool,
-    /// Se o programa é um `<script>` de PÁGINA.
+    /// Se o escopo sendo compilado deve esconder os nomes que só o Node tem —
+    /// `process`, `Buffer`, `setImmediate`, `global` — porque num browser eles
+    /// não existem.
     ///
-    /// O que isso muda é uma coisa só e está em [`globals::resolves`]: um nome
-    /// que só o Node tem — `process`, `Buffer`, `setImmediate`, `global` —
-    /// deixa de resolver, porque num browser ele não existe. Ver a lista lá
-    /// para o que isso custou.
-    pub page: bool,
+    /// O que isso muda é uma coisa só e está em [`globals::resolves`]. Posto a
+    /// `true` por [`page::emit_page_program`] para um `<script>` de página, e
+    /// por [`eval::emit_eval_program`] quando o `eval` que produziu este
+    /// fragmento foi ele próprio chamado de um escopo marcado — ver
+    /// `rts_core::entry::hides_node_globals`, que é como o facto sobrevive à
+    /// compilação que o decidiu.
+    ///
+    /// Não é mais "é uma página": um `vm.runInContext` com um sandbox comum
+    /// também o quer `true` (o sandbox não é o `window`, mas também não deve
+    /// ver `process` de borla), e só `vm.runInThisContext` — que partilha o
+    /// OBJETO GLOBAL real — o quer `false`. `rts-host`'s `live.rs` decide qual.
+    pub hide_node_globals: bool,
     /// The objects a `with` put on the scope chain, innermost LAST.
     ///
     /// Empty everywhere except inside a `with` body. What reads it is
@@ -649,7 +658,7 @@ impl<'a> Ctx<'a> {
             in_static_method: false,
             in_field_initializer: false,
             sloppy: false,
-            page: false,
+            hide_node_globals: false,
             with_objects: Vec::new(),
             omitted: std::collections::BTreeSet::new(),
             local_inlinable: std::collections::BTreeMap::new(),
