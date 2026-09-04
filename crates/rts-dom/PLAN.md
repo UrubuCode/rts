@@ -28,8 +28,8 @@ linha aqui não existe.
 | D | grid: rows por áreas | 1 | ☑ integrado; corpus 3/3 fechados | `feat/dom-grid-areas-rows` → `161c532a` | corpus: `claude-grid-areas` (3) |
 | E | BFC, floats, `clear` | 1 | ☑ integrado; corpus 6/6 fechados, suite sem perdidos | `feat/dom-bfc-floats-clear` → `cf592ba0` | corpus: `claude-clear`, `claude-float-clear` (6) |
 | F | baseline, `vertical-align`, `white-space` | 1 | ☑ integrado; corpus 8/8 fechados (o 8.º por C/E) | `feat/dom-linha-baseline` → `ebe268ef` | corpus: `claude-vertical-align`, `claude-white-space`, `claude-text-align` (8) |
-| G | scroll no documento | 2 | ◐ integrado em `feat/dom-vaga-1`, por medir na janela | `feat/dom-scroll-no-documento` → `951a72b2` | teste de `scrollTop`/`scrollTo` + exemplo em janela |
-| H | o escopo de página não vê o Node | 2 | ◐ integrado em `feat/dom-vaga-1`, por medir na suite | `feat/dom-escopo-pagina-sem-node` → `8e30fcc1` | fixture `claude-dom-page-nao-ve-process` |
+| G | scroll no documento | 2 | ☑ integrado; fixture verde; janela real POR MEDIR | `feat/dom-scroll-no-documento` → `951a72b2` | teste de `scrollTop`/`scrollTo` + exemplo em janela |
+| H | o escopo de página não vê o Node | 2 | ☑ integrado; fixture verde; `eval` indirecto ainda vê `process` (§4.H) | `feat/dom-escopo-pagina-sem-node` → `8e30fcc1` | fixture `claude-dom-page-nao-ve-process` |
 | I | folha de UA em CSS real | 2 | ☐ | — | `<th>` negrito/centro; `scrollbar.rs` apagado |
 | J | `DeclarationRecord` e `revert` | 2 | ☐ | — | fixture `revert`/`revert-layer` medida no Chrome |
 | K | invalidação escopada para `:nth-child` | 2 | ☐ | — | `dom_metrics`: cascades por `appendChild` |
@@ -39,13 +39,21 @@ linha aqui não existe.
 | O–U | CSS como área | 3 | ☐ | — | §5 |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
 
-**Estado de referência da vaga 1** (para comparar POR FICHEIRO, nunca por
-soma): corpus CSS **41 de 49** a 1px (23 desvios em 8 fixtures), medido a
-2026-09-04 com o `rts.exe` de 2026-09-03; suite `*.test.ts` **855 de 884**
-verdes pelo `medir.sh` com esse mesmo binário guardado como
-`target/baseline.exe` (a lista está em `base-suite.txt` na raiz, ignorada
-pelo git — se não existir, refaça-a com o comando do §2 antes de tocar em
-nada). `cargo test -p rts-dom --lib`: 724 verdes.
+**Estado após a vaga 1 (2026-09-04, 01:41)** — medido com o `rts.exe`
+construído sobre `feat/dom-vaga-1` e comparado POR FICHEIRO contra o binário
+de 2026-09-03 (`target/baseline.exe`, lista em `base-suite.txt`):
+
+| régua | antes (baseline) | depois | perdidos |
+|---|---|---|---|
+| corpus CSS (`claude-css-runner`) | 41/49, 23 desvios | **49/49, 0 desvios** | nenhum |
+| suite `*.test.ts` por `medir.sh` | 855/884 | **858/887** (+3 fixtures novas) | **nenhum** |
+| `cargo test -p rts-dom --lib` | 718 | **756**, 0 falhas | — |
+| `cargo test -p rts-dom-bridge` | nunca corria (doctest partido) | **4 + doctests**, 0 falhas | — |
+
+O binário desta medição fica como o próximo `target/baseline.exe` e
+`vaga1-suite.txt` como o próximo `base-suite.txt`. O que a vaga 1 NÃO mediu:
+o scroll numa janela real (G) — a fixture headless passa, o exemplo em janela
+fica para quem tiver ecrã.
 
 **Se retomou depois de uma paragem:** (1) `git branch -a | grep feat/dom-`
 diz que lotes têm branch; (2) `git log main..origin/<branch>` diz se o commit
