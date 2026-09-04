@@ -171,6 +171,13 @@ pub struct Rule {
     /// que numera os retrolinks está num `::before`, e o que numera as
     /// referências está num `<li>` comum.
     pub counters: Option<std::rc::Rc<crate::counters::Ops>>,
+    /// `true` para uma regra da folha de UA (lote I, `style::ua`), `false` para
+    /// uma regra de autor. É a chave MAIS FORTE da ordenação da cascade — mais
+    /// forte que layer — porque a UA é a origem mais fraca em declarações
+    /// normais e a mais forte em `!important` (CSS Cascade 5 §6.1): nenhuma
+    /// combinação de layer/especificidade de autor deve poder vencer a UA em
+    /// normal, nem perder para o autor em `!important`.
+    pub is_ua: bool,
 }
 
 /// Um bloco de declarações separado nas DUAS camadas de importância da cascade
@@ -295,7 +302,12 @@ pub fn rule_size() -> usize {
 /// Um stylesheet de autor (o conteúdo de um `<style>`), já parseado em regras
 /// ordenadas. Egui-free como o resto. É anexado ao `Dom` e consultado na cascade
 /// de `computed_style`.
-#[derive(Clone, Default, Debug)]
+// `Default` NÃO é derivado de propósito: a derivação constrói `rules: vec![]`
+// direto, sem passar por `Stylesheet::new()` — e `new()` é o único lugar que
+// instala a folha de UA (lote I). Um `Default::default()` derivado seria um
+// stylesheet sem UA, silenciosamente, na primeira vez que alguém o chamasse em
+// vez de `new()`. `impl Default` abaixo delega em `new()` para fechar essa porta.
+#[derive(Clone, Debug)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
     /// AST sintáctico dos blocos CSS anexados, preservado para diagnósticos,
@@ -333,9 +345,12 @@ pub struct Stylesheet {
 /// que quem chama precisa é passá-lo aos dois passes, não ler o conteúdo.
 #[derive(Debug, Default)]
 pub struct MatchedRules {
-    /// `(prioridade-layer, especificidade, ordem, índice)`, crescente.
-    /// `prioridade-layer` usa `u32::MAX` para regras sem layer.
-    pub(crate) rules: Vec<(u32, u32, u32, usize)>,
+    /// `(origem, prioridade-layer, especificidade, ordem, índice)`, crescente.
+    /// `origem` é 0=UA/1=autor em declarações normais (invertido para
+    /// `!important` no ponto de ordenação, não aqui — o valor guardado é
+    /// sempre 0/1 e quem ordena decide o sentido). `prioridade-layer` usa
+    /// `u32::MAX` para regras sem layer.
+    pub(crate) rules: Vec<(u32, u32, u32, u32, usize)>,
 }
 
 impl MatchedRules {

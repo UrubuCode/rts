@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: `h1`-`h6` e `p` SEM CSS de autor — tamanho de fonte, negrito e a
+     margem vertical assimétrica que cada um traz da folha de UA. SEM
+     .esperado.json: por medir no Chrome (scripts/css_fixtures_medir.md).
+     Lote I, PLAN.md §4.I. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="t1,t2,t3,t4,t5,t6,paragrafo">
+<meta name="fixar-estilo" content="font-size,font-weight,margin-top,margin-bottom">
+<style>
+  body { margin: 0; }
+</style></head>
+<body>
+  <h1 id="t1">Título 1</h1>
+  <h2 id="t2">Título 2</h2>
+  <h3 id="t3">Título 3</h3>
+  <h4 id="t4">Título 4</h4>
+  <h5 id="t5">Título 5</h5>
+  <h6 id="t6">Título 6</h6>
+  <p id="paragrafo">Um parágrafo qualquer.</p>
+</body>
+</html>

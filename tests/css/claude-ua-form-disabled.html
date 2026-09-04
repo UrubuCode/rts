@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Fixa: `input`/`button` normais vs `:disabled` — a fonte própria de
+     controlo de formulário (13.3333px) e a cor "desactivado" que a UA dá,
+     sem NENHUM CSS de autor para eles. SEM .esperado.json: por medir no
+     Chrome (scripts/css_fixtures_medir.md). Lote I, PLAN.md §4.I. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="normal,desativado,botao,botao-desativado">
+<meta name="fixar-estilo" content="color,font-size,display">
+<style>
+  body { margin: 0; font: 16px/20px sans-serif; }
+</style></head>
+<body>
+  <input id="normal" value="a">
+  <input id="desativado" value="a" disabled>
+  <button id="botao">ok</button>
+  <button id="botao-desativado" disabled>ok</button>
+</body>
+</html>
