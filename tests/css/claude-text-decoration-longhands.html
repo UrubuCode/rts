@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- Fixa: `text-decoration-style`, `text-decoration-thickness` e
+     `text-underline-offset` como LONGHANDS declaradas isoladamente, e o
+     shorthand `text-decoration: underline dotted red 2px` a preencher as
+     quatro (linha, cor, estilo, espessura) de uma vez. `claude-
+     text-decoration-color.html` já fixa só a cor; esta fixa as outras três
+     longhands e a leitura computada, não geometria. Um motor que só
+     reconhece a cor no shorthand deixa `-style`/`-thickness` no valor
+     inicial mesmo quando declaradas. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="longas,shorthand">
+<meta name="fixar-estilo" content="text-decoration-style,text-decoration-color,text-decoration-thickness,text-underline-offset">
+<style>
+  body { margin: 0; font: 16px/20px monospace; color: #000; }
+  #longas {
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: #ff0000;
+    text-decoration-thickness: 3px;
+    text-underline-offset: 4px;
+  }
+  #shorthand { text-decoration: underline dotted red 2px; }
+</style></head>
+<body>
+  <p id="longas">um</p>
+  <p id="shorthand">dois</p>
+</body>
+</html>

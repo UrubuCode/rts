@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: `transform-origin` desloca o PONTO em volta do qual `rotate()` gira,
+     e a bounding box muda com ele — um motor que aplica sempre o centro da
+     caixa (o default) acerta só o primeiro caso e erra os outros três. Caixas
+     de 100x100 sem texto, rodadas 90deg, com a origem em `center` (default),
+     `top left`, `50% 100%` e `10px 10px`. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  div { position: absolute; width: 100px; height: 100px; background: #ccc; transform: rotate(90deg); }
+  #centro    { top: 0px;   left: 0px;   /* transform-origin: center (default) */ }
+  #topo-esq  { top: 150px; left: 0px;   transform-origin: top left; }
+  #meio-base { top: 300px; left: 0px;   transform-origin: 50% 100%; }
+  #fixo      { top: 450px; left: 0px;   transform-origin: 10px 10px; }
+</style></head>
+<body>
+  <div id="centro"></div>
+  <div id="topo-esq"></div>
+  <div id="meio-base"></div>
+  <div id="fixo"></div>
+</body>
+</html>

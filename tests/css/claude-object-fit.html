@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Fixa: `object-fit` (`contain`/`cover`/`fill`/`none`) NÃO muda a caixa do
+     `<img>` — a substituição fica dentro da caixa que `width`/`height` já
+     fixam, e é só o conteúdo pintado que se ajusta. Um motor que confunde
+     `object-fit` com `width`/`height` do próprio elemento redimensiona a
+     caixa (por exemplo `contain` encolhendo para o aspect-ratio da imagem em
+     vez de manter 100x50). As quatro caixas têm de medir 100x50 sempre;
+     `fixar-estilo` compara o valor computado da propriedade em si. Imagem
+     PNG 1x1 embutida em data: URL para não depender de rede. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="conter,cobrir,preencher,nenhum">
+<meta name="fixar-estilo" content="object-fit">
+<style>
+  body { margin: 0; }
+  img { display: block; width: 100px; height: 50px; background: #eee; }
+  #conter    { object-fit: contain; }
+  #cobrir    { object-fit: cover; }
+  #preencher { object-fit: fill; }
+  #nenhum    { object-fit: none; }
+</style></head>
+<body>
+<img id="conter"    src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
+<img id="cobrir"    src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
+<img id="preencher" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
+<img id="nenhum"    src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
+</body>
+</html>
