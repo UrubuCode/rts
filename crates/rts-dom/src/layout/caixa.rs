@@ -36,6 +36,36 @@ pub(in crate::layout) fn ignores_inline_dimensions(css: &ComputedStyle) -> bool 
         && (css.width.is_some() || css.height.is_some())
 }
 
+/// Este elemento produz algum ÁTOMO de linha — texto não vazio, um filho
+/// elemento (ele próprio pode acabar em `display:none`/vazio, mas isso é
+/// pergunta de `runs.rs`, não desta), ou conteúdo GERADO por `content` em
+/// `::before`/`::after`. Um inline sem nada disto é vazio, e é exatamente
+/// a diferença entre `<span></span>` (0×0, CSS 2.1 §10.6.1: sem conteúdo
+/// não há caixa de linha) e `<span>x</span>` ou `<span style="background">
+/// texto</span>` — que tem um fragmento para o fundo pintar ao longo dele.
+///
+/// Antes desta pergunta, `cria_caixa_de_bloco`/`cria_caixa_apesar_de_inline`
+/// promoviam um inline VAZIO com `background`/`height` à mesma caixa
+/// (`inline-block`/bloco de linha própria) que um inline com conteúdo — e é
+/// isso que dava a um `<span>` vazio da regra `div, span { height:20px;
+/// background:#fff }` uma caixa `w×20` em vez do `0×0` que o Blink mede: sem
+/// fragmento, não há onde a caixa se apoiar. Não desce a árvore inteira à
+/// procura de texto de verdade — um filho `display:none` sozinho fica do
+/// lado conservador (marca caixa em vez de 0×0), nunca o contrário, e
+/// perguntar isso aqui duplicaria `e_display_none`.
+pub(in crate::layout) fn tem_conteudo_para_fragmento(dom: &Dom, id: NodeIdx) -> bool {
+    dom.node(id).children.iter().any(|&c| match &dom.node(c).kind {
+        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Element { .. } => true,
+        _ => false,
+    }) || dom
+        .pseudo_box(id, crate::style::PseudoElement::Before)
+        .is_some()
+        || dom
+            .pseudo_box(id, crate::style::PseudoElement::After)
+            .is_some()
+}
+
 /// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
 /// `layout_block`, com sua própria caixa/eixo) — em vez de inline (texto corrido).
 /// É bloco se: tem `display` no CSS (qualquer um define caixa própria), OU tem um
@@ -96,10 +126,15 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             if css.as_ref().and_then(|c| c.effective_display())
                 == Some(crate::style::DisplayKind::Inline)
             {
+                // `tem_conteudo_para_fragmento`: um `display:inline` VAZIO
+                // (`<span style="display:inline;background:red"></span>`) não
+                // tem fragmento de linha nenhum a pintar — a caixa que
+                // `cria_caixa_apesar_de_inline` pediria ficaria pendurada do
+                // nada. §10.6.1 dá `0×0` a um inline sem conteúdo.
                 return css
-                    .as_ref()
-                    .map(|c| crate::inline_box::cria_caixa_apesar_de_inline(c))
-                    .unwrap_or(false);
+                    .as_deref()
+                    .is_some_and(crate::inline_box::cria_caixa_apesar_de_inline)
+                    && tem_conteudo_para_fragmento(dom, id);
             }
             css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
@@ -109,8 +144,11 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 // botão fica sem fundo/borda. (`has_box` cobre bg/pad/margin/border/
                 // radius/width; +height.)
                 // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
-                // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`.
-                || css.as_ref().map(|c| crate::inline_box::cria_caixa_de_bloco(c)).unwrap_or(false)
+                // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`. E só
+                // quando tem CONTEÚDO — ver `tem_conteudo_para_fragmento` acima, a
+                // mesma razão do ramo `display:inline` logo atrás.
+                || (css.as_deref().is_some_and(crate::inline_box::cria_caixa_de_bloco)
+                    && tem_conteudo_para_fragmento(dom, id))
         }
         _ => false,
     }
@@ -162,10 +200,12 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
             if crate::block::lookup(tag).is_some() || explicit_block {
                 return false;
             }
-            // é inline-com-box (tem caixa mas é tag inline) → inline-block.
-            css.as_ref()
-                .map(|c| crate::inline_box::cria_caixa_de_bloco(c))
-                .unwrap_or(false)
+            // é inline-com-box (tem caixa mas é tag inline) → inline-block. Só
+            // quando tem CONTEÚDO (`tem_conteudo_para_fragmento`): um inline
+            // vazio com fundo/padding não tem fragmento nenhum a que essa
+            // caixa se prenda — fica `Marker` (0×0), não `inline-block`.
+            css.as_deref().is_some_and(crate::inline_box::cria_caixa_de_bloco)
+                && tem_conteudo_para_fragmento(dom, id)
         }
         _ => false,
     }

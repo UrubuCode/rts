@@ -103,9 +103,7 @@ pub(in crate::layout) fn layout_inline_flow(
             parent_css.italic.unwrap_or(false),
         ));
     }
-    // Um MARKER (elemento inline vazio) não conta como conteúdo: um `<span></span>`
-    // sozinho num bloco não cria linha nenhuma no browser, e criá-la aqui mudaria
-    // a altura do bloco — o oposto de "acrescenta geometria, não muda a pintura".
+    // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
     if runs.iter().all(|r| {
         r.text.trim().is_empty()
             && !matches!(
@@ -119,6 +117,8 @@ pub(in crate::layout) fn layout_inline_flow(
                 ))
             )
     }) {
+        // Continua sem linha; cada Marker ganha 0×0 (`inline_fragmentos`).
+        inline_fragmentos::registar_markers_sem_linha(list, x, y, &runs);
         return y;
     }
     let mono = parent_css
