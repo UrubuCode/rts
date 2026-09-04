@@ -17,3 +17,8 @@ claude-text-shadow.html
 claude-transform-nao-afeta-fluxo.html
 claude-transform-origin.html
 claude-transform-skew-matrix.html
+
+# --- modelo de caixa inline (lote proprio na vaga 4): um <span> vazio com height
+# declarada tem de dar 0x0 sem virar bloco; tres remendos em 2026-09-04 partiram
+# claude-display-basico e foram revertidos. As reguas sao esta e display-basico. ---
+claude-sel-has.html
