@@ -19,19 +19,19 @@
   "expected_failures": [
     {
       "fixture": "claude-ua-form-disabled.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-ua-th.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
     }
   ],
   "dom_lots": {
