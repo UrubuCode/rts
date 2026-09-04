@@ -295,6 +295,17 @@ pub(in crate::layout) fn intrinsic_content_width(
         }
     }
     maior = maior.max(linha);
+    // `::before`/`::after` de um flex em linha são itens (Flexbox §4) e entram
+    // na largura natural do contentor — o caret do botão do Bootstrap.
+    if is_row {
+        for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
+            let w = super::flex_pseudo::largura(dom, id, pe, font, ctx);
+            if w > 0.0 {
+                sum += w;
+                count += 1;
+            }
+        }
+    }
     let width = if is_row {
         // soma + gaps entre os itens.
         sum + (count.saturating_sub(1)) as f32 * gap

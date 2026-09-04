@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Fixa: um `::before`/`::after` com `content` de um contentor FLEX é um item
+     flex (CSS Flexbox §4: "each in-flow child, including generated content,
+     becomes a flex item"). É o caret `.dropdown-toggle::after` do Bootstrap
+     dentro de um `<button class="d-flex">`: um inline-block só de bordas,
+     que aqui não entrava na linha de itens e o botão media 42 onde o Blink
+     dá 54. `#f` tem `::before` (20px) + um span (40px) + `::after` (12px de
+     bordas): o span começa a x=20 e o contentor `shrink-to-fit` mede 72;
+     `#g` tem só o span (40) e `::after` com texto "ab" a medir "ab". -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="f,fs,g,gs">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .abs { position: absolute; left: 0; display: flex; align-items: center; background: #eee; }
+  #f { top: 0; }
+  #f::before { content: ""; display: block; width: 20px; height: 10px; background: #0c0; }
+  #f::after { content: ""; display: inline-block; width: 0; height: 0; border-top: 6px solid #000; border-right: 6px solid transparent; border-bottom: 0; border-left: 6px solid transparent; }
+  .abs span { display: block; width: 40px; height: 30px; background: #fc0; }
+  #g { top: 40px; }
+  #g::after { content: "ab"; background: #c0f; }
+</style></head>
+<body>
+  <div class="abs" id="f"><span id="fs">x</span></div>
+  <div class="abs" id="g"><span id="gs">y</span></div>
+</body>
+</html>
