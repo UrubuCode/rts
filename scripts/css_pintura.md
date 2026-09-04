@@ -136,3 +136,7 @@ texto, e reportar a área — não do motor.
 este último já NÃO é o instrumento: o rasterizador pinta 0 itens nessa
 fixture, porque o motor não emite o fundo (`background: #eee`) de um `<img>`
 cuja imagem não carregou. É um defeito de pintura do motor, o próximo alvo.
+
+**2026-09-04, lote img-fundo:** `claude-object-fit` 1,95 % → 1,22 % (o fundo do
+`<img>` pinta). O que fica é a IMAGEM: um `data:` de 1×1 que o loader do lado
+TS não entrega ao `<img>` — não é do rasterizador nem do layout.
