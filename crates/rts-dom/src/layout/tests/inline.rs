@@ -112,10 +112,15 @@
         assert!(r.x > 0.0, "está depois do texto que o antecede: x={}", r.x);
     }
 
-    /// Um inline VAZIO (`<source>` dentro de um `<picture>`) tem no browser
-    /// largura zero mas posição e altura reais — não é `0,0,0,0`.
+    /// Um inline VAZIO (`<source>` dentro de um `<picture>`) tem POSIÇÃO (a
+    /// caixa existe, na coordenada da linha) mas NENHUMA área — 0×0, como o
+    /// Blink real dá a qualquer inline sem fragmento.
+    ///
+    /// CORRIGIDO (medido no Blink, `claude-sel-has.html`): a versão anterior
+    /// fixava `r.h > 0.0` — a altura do strut vazando para um elemento sem
+    /// conteúdo nenhum, o mesmo defeito de `inline_vazio_nao_tem_caixa`.
     #[test]
-    fn inline_vazio_tem_posicao_e_altura_sem_largura() {
+    fn inline_vazio_tem_posicao_sem_area() {
         let dom = parse_html_to_dom(
             "<p>antes <picture><source id='s'><img width='40' height='30'></picture></p>",
         );
@@ -130,12 +135,9 @@
             .geometry()
             .rects
             .get(&idx)
-            .expect("o <source> devia ter caixa");
-        assert_eq!(r.w, 0.0, "um inline vazio não tem largura");
-        assert!(
-            r.x > 0.0 && r.h > 0.0,
-            "mas tem posição e altura de linha: {r:?}"
-        );
+            .expect("o <source> devia ter caixa (sem área, mas registada)");
+        assert_eq!((r.w, r.h), (0.0, 0.0), "sem largura nem altura: {r:?}");
+        assert!(r.x > 0.0, "está depois do texto que o antecede: x={}", r.x);
     }
 
     /// Um inline vazio SOZINHO num bloco não inventa uma linha: o bloco continua
