@@ -49,6 +49,7 @@ mod float;
 mod input;
 mod itens;
 mod medida;
+pub mod medidor_ativo;
 mod pintura;
 mod posicionado;
 mod replaced;
