@@ -1,93 +1,93 @@
 {
-  "medido_em": "2026-09-04T23:05:42.071Z",
+  "medido_em": "2026-09-04T23:22:57.134Z",
   "maquina": {
-    "so": "win32 10.0.26200",
-    "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
-    "nucleos_logicos": 16,
-    "ram_gb": 47.9
+    "so": "win32 10.0.26100",
+    "cpu": "AMD EPYC 7763 64-Core Processor",
+    "nucleos_logicos": 4,
+    "ram_gb": 16
   },
   "app": "scripts/rts_vs_electron/app/index.html",
   "lados": {
     "electron": {
-      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\electron\\dist\\rts-vs-electron-win32-x64\\rts-vs-electron.exe",
+      "exe": "D:\\a\\_temp\\rts-vs-electron\\electron\\dist\\rts-vs-electron-win32-x64\\rts-vs-electron.exe",
       "bytes_exe": 246202368,
-      "bytes_pasta": 385473055,
+      "bytes_pasta": 385474145,
       "ficheiros_na_pasta": 73,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 450,
-        "min": 387,
-        "max": 501
+        "mediana": 351,
+        "min": 322,
+        "max": 1321
       },
       "rss_mb": {
-        "mediana": 288.31,
-        "min": 287.35,
-        "max": 290.81
+        "mediana": 260.77,
+        "min": 260.29,
+        "max": 262.7
       },
-      "private_mb": 145.09,
-      "cpu_repouso_pct": 0.7,
+      "private_mb": 89.11,
+      "cpu_repouso_pct": 0,
       "processos": 4,
       "js_da_pagina": true,
       "razao_js_da_pagina": null,
       "amostras": {
-        "n": 5,
-        "ok": 5
+        "n": 3,
+        "ok": 3
       },
       "versao": "44.2.0"
     },
     "rts_aot": {
-      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\rts\\app.exe",
-      "bytes_exe": 29193728,
-      "bytes_pasta": 31357171,
-      "ficheiros_na_pasta": 7,
+      "exe": "D:\\a\\_temp\\rts-vs-electron\\rts\\app.exe",
+      "bytes_exe": 29192704,
+      "bytes_pasta": 30299405,
+      "ficheiros_na_pasta": 5,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 382,
-        "min": 354,
-        "max": 518
+        "mediana": 288,
+        "min": 199,
+        "max": 304
       },
       "rss_mb": {
-        "mediana": 115.32,
-        "min": 115.22,
-        "max": 115.82
+        "mediana": 67.41,
+        "min": 67.3,
+        "max": 68.78
       },
-      "private_mb": 218.01,
-      "cpu_repouso_pct": 4.97,
+      "private_mb": 165.85,
+      "cpu_repouso_pct": 337.09,
       "processos": 2,
       "js_da_pagina": false,
       "razao_js_da_pagina": "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)",
       "amostras": {
-        "n": 5,
-        "ok": 5
+        "n": 3,
+        "ok": 3
       }
     },
     "rts_jit": {
-      "exe": "C:\\Users\\nexga\\AppData\\Local\\Temp\\rts-vs-electron\\jit\\rts.exe",
-      "bytes_exe": 115434496,
-      "bytes_pasta": 115582418,
+      "exe": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\rts-vs-electron\\jit\\rts.exe",
+      "bytes_exe": 115261440,
+      "bytes_pasta": 115409362,
       "ficheiros_na_pasta": 3,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 2488,
-        "min": 2429,
-        "max": 6749
+        "mediana": 1912,
+        "min": 1840,
+        "max": 2060
       },
       "rss_mb": {
-        "mediana": 168.68,
-        "min": 167.41,
-        "max": 169.81
+        "mediana": 109.33,
+        "min": 109.11,
+        "max": 111.73
       },
-      "private_mb": 271.32,
-      "cpu_repouso_pct": 10.7,
+      "private_mb": 210.42,
+      "cpu_repouso_pct": 339.67,
       "processos": 2,
       "js_da_pagina": true,
       "razao_js_da_pagina": null,
       "amostras": {
-        "n": 5,
-        "ok": 5
+        "n": 3,
+        "ok": 3
       }
     }
   }
