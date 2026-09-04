@@ -32,11 +32,72 @@ use rts_core::entry::Provided;
 
 use crate::{engine, events, nodes, scope, timers, travessia, tree};
 
+/// Apaga comentários (`//…` até ao fim da linha; `/* … */`, mesmo multi-linha),
+/// preservando literais `'…'`/`"…"`/`` `…` `` tal como estão — para um `://` de
+/// URL dentro de uma string (`dom.ts` tem várias: `"http://…"`,
+/// `url.substring(0, 7) === "http://") return …`) não ser lido como o início de
+/// um comentário. Não trata literais de regex (`dom.ts`/`window.ts` não têm
+/// nenhum logo a seguir a `dom.`/`engine.`/`DomScope.`/`DomTimers.` hoje).
+fn strip_comments(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut chars = source.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '/' if chars.peek() == Some(&'/') => {
+                chars.next();
+                for c2 in chars.by_ref() {
+                    if c2 == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = ' ';
+                for c2 in chars.by_ref() {
+                    if c2 == '\n' {
+                        out.push('\n');
+                    }
+                    if prev == '*' && c2 == '/' {
+                        break;
+                    }
+                    prev = c2;
+                }
+            }
+            '\'' | '"' | '`' => {
+                let quote = c;
+                out.push(c);
+                let mut escaped = false;
+                for c2 in chars.by_ref() {
+                    out.push(c2);
+                    if escaped {
+                        escaped = false;
+                    } else if c2 == '\\' {
+                        escaped = true;
+                    } else if c2 == quote {
+                        break;
+                    }
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// Os identificadores chamados como `<prefixo>.<nome>(` em `source` — a única
 /// forma de chamada que o prelude usa (nunca `dom["parseHtml"]`, nunca
-/// `dom?.parseHtml`), então varrer o texto por essa forma basta; não é preciso
-/// um parser de TypeScript para esta checagem.
+/// `dom?.parseHtml`), então varrer o texto (sem comentários) por essa forma
+/// basta; não é preciso um parser de TypeScript para esta checagem.
+///
+/// PRIMEIRO falso positivo apanhado por este teste, antes desta função existir:
+/// o comentário desta correção citando `dom.boundingComponent(doc,node,vw,which)`
+/// — o nome ANTIGO, morto — como exemplo do que já não se chama. Sem apagar
+/// comentários, um `dom.<x>(` dentro de um comentário conta como chamada, e o
+/// comentário que documenta a correção falhava o próprio teste que a prova.
 fn called_members(source: &str, prefix: &str) -> HashSet<String> {
+    let source = strip_comments(source);
     let needle = format!("{prefix}.");
     let mut out = HashSet::new();
     for (start, _) in source.match_indices(&needle) {
