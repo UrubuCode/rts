@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 186,
-  "falham": 303,
+  "passam": 193,
+  "falham": 296,
   "erros": 0,
   "tol": 8,
   "piores": [
@@ -79,24 +79,6 @@
       "script": false
     },
     {
-      "nome": "flexbox_item-float",
-      "pct": 11.15,
-      "n": 114176,
-      "script": false
-    },
-    {
-      "nome": "flexbox_visibility-collapse",
-      "pct": 10.295703125,
-      "n": 105428,
-      "script": false
-    },
-    {
-      "nome": "flexbox_rtl-direction",
-      "pct": 9.6201171875,
-      "n": 98510,
-      "script": false
-    },
-    {
       "nome": "table-item-flex-percentage-min-width",
       "pct": 9.610058593749999,
       "n": 98407,
@@ -124,12 +106,6 @@
       "nome": "flexbox_nested-flex",
       "pct": 8.0232421875,
       "n": 82158,
-      "script": false
-    },
-    {
-      "nome": "flexbox_visibility-collapse-line-wrapping",
-      "pct": 7.822265624999999,
-      "n": 80100,
       "script": false
     },
     {
@@ -163,12 +139,6 @@
       "script": true
     },
     {
-      "nome": "flexbox_flex-basis",
-      "pct": 6,
-      "n": 61440,
-      "script": false
-    },
-    {
       "nome": "fixed-table-layout-with-percentage-width-in-flex-item",
       "pct": 5.248828125,
       "n": 53748,
@@ -181,9 +151,9 @@
       "script": false
     },
     {
-      "nome": "flexbox_item-vertical-align",
-      "pct": 5.20234375,
-      "n": 53272,
+      "nome": "flexbox_visibility-collapse-line-wrapping",
+      "pct": 4.052734375,
+      "n": 41500,
       "script": false
     },
     {
@@ -208,18 +178,6 @@
       "nome": "multiline-shrink-to-fit",
       "pct": 3.80859375,
       "n": 39000,
-      "script": false
-    },
-    {
-      "nome": "flexbox_wrap-long",
-      "pct": 3.566796875,
-      "n": 36524,
-      "script": false
-    },
-    {
-      "nome": "flexbox_item-top-float",
-      "pct": 3.35,
-      "n": 34304,
       "script": false
     },
     {
@@ -277,24 +235,6 @@
       "script": false
     },
     {
-      "nome": "flexbox_flex-0-0-Npercent-shrink",
-      "pct": 2.709375,
-      "n": 27744,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-1-0-Npercent-shrink",
-      "pct": 2.709375,
-      "n": 27744,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-N-0-Npercent-shrink",
-      "pct": 2.709375,
-      "n": 27744,
-      "script": false
-    },
-    {
       "nome": "flexbox_fbfc",
       "pct": 2.7,
       "n": 27648,
@@ -307,51 +247,9 @@
       "script": false
     },
     {
-      "nome": "flexbox_flex-N-0-auto-shrink",
-      "pct": 2.5593749999999997,
-      "n": 26208,
-      "script": false
-    },
-    {
-      "nome": "flexbox_justifycontent-right-002",
-      "pct": 2.4,
-      "n": 24576,
-      "script": false
-    },
-    {
       "nome": "flexbox-writing-mode-srl-row-mix",
       "pct": 2.334375,
       "n": 23904,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flow-row-wrap-reverse",
-      "pct": 2.2757812499999996,
-      "n": 23304,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flow-row-wrap",
-      "pct": 2.2757812499999996,
-      "n": 23304,
-      "script": false
-    },
-    {
-      "nome": "flexbox_wrap",
-      "pct": 2.2757812499999996,
-      "n": 23304,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-0-0-auto-shrink",
-      "pct": 2.25,
-      "n": 23040,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-1-0-auto-shrink",
-      "pct": 2.25,
-      "n": 23040,
       "script": false
     },
     {
@@ -379,13 +277,13 @@
       "script": false
     },
     {
-      "nome": "flexbox_justifycontent-left-001",
+      "nome": "flexbox_justifycontent-left-002",
       "pct": 2,
       "n": 20480,
       "script": false
     },
     {
-      "nome": "flexbox_justifycontent-left-002",
+      "nome": "flexbox_justifycontent-right-002",
       "pct": 2,
       "n": 20480,
       "script": false
@@ -403,19 +301,7 @@
       "script": false
     },
     {
-      "nome": "flexbox_flex-0-0-N-shrink",
-      "pct": 1.7999999999999998,
-      "n": 18432,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-1-0-N-shrink",
-      "pct": 1.7999999999999998,
-      "n": 18432,
-      "script": false
-    },
-    {
-      "nome": "flexbox_flex-N-0-N-shrink",
+      "nome": "flexbox_rtl-direction",
       "pct": 1.7999999999999998,
       "n": 18432,
       "script": false
@@ -434,12 +320,6 @@
     },
     {
       "nome": "flexbox_justifycontent-end",
-      "pct": 1.6,
-      "n": 16384,
-      "script": false
-    },
-    {
-      "nome": "flexbox_justifycontent-right-001",
       "pct": 1.6,
       "n": 16384,
       "script": false
@@ -739,6 +619,12 @@
       "script": false
     },
     {
+      "nome": "flexbox_flex-basis",
+      "pct": 1.2,
+      "n": 12288,
+      "script": false
+    },
+    {
       "nome": "flex-box-wrap",
       "pct": 1.171875,
       "n": 12000,
@@ -925,6 +811,24 @@
       "script": false
     },
     {
+      "nome": "flexbox_flex-0-0-Npercent-shrink",
+      "pct": 0.8999999999999999,
+      "n": 9216,
+      "script": false
+    },
+    {
+      "nome": "flexbox_flex-1-0-Npercent-shrink",
+      "pct": 0.8999999999999999,
+      "n": 9216,
+      "script": false
+    },
+    {
+      "nome": "flexbox_flex-N-0-Npercent-shrink",
+      "pct": 0.8999999999999999,
+      "n": 9216,
+      "script": false
+    },
+    {
       "nome": "flexbox_flex-basis-shrink",
       "pct": 0.8999999999999999,
       "n": 9216,
@@ -1081,6 +985,12 @@
       "script": false
     },
     {
+      "nome": "flexbox_flex-0-0-auto-shrink",
+      "pct": 0.75,
+      "n": 7680,
+      "script": false
+    },
+    {
       "nome": "flexbox_flex-0-1-auto",
       "pct": 0.75,
       "n": 7680,
@@ -1088,6 +998,18 @@
     },
     {
       "nome": "flexbox_flex-0-N-auto",
+      "pct": 0.75,
+      "n": 7680,
+      "script": false
+    },
+    {
+      "nome": "flexbox_flex-1-0-auto-shrink",
+      "pct": 0.75,
+      "n": 7680,
+      "script": false
+    },
+    {
+      "nome": "flexbox_flex-N-0-auto-shrink",
       "pct": 0.75,
       "n": 7680,
       "script": false
@@ -1183,6 +1105,12 @@
       "script": false
     },
     {
+      "nome": "flexbox_flex-0-0-N-shrink",
+      "pct": 0.6,
+      "n": 6144,
+      "script": false
+    },
+    {
       "nome": "flexbox_flex-0-1-auto-shrink",
       "pct": 0.6,
       "n": 6144,
@@ -1201,6 +1129,12 @@
       "script": false
     },
     {
+      "nome": "flexbox_flex-1-0-N-shrink",
+      "pct": 0.6,
+      "n": 6144,
+      "script": false
+    },
+    {
       "nome": "flexbox_flex-1-1-auto-shrink",
       "pct": 0.6,
       "n": 6144,
@@ -1208,6 +1142,12 @@
     },
     {
       "nome": "flexbox_flex-1-N-auto-shrink",
+      "pct": 0.6,
+      "n": 6144,
+      "script": false
+    },
+    {
+      "nome": "flexbox_flex-N-0-N-shrink",
       "pct": 0.6,
       "n": 6144,
       "script": false
@@ -1381,6 +1321,18 @@
       "script": false
     },
     {
+      "nome": "flexbox_justifycontent-left-001",
+      "pct": 0.4,
+      "n": 4096,
+      "script": false
+    },
+    {
+      "nome": "flexbox_justifycontent-right-001",
+      "pct": 0.4,
+      "n": 4096,
+      "script": false
+    },
+    {
       "nome": "flexbox-overflow-horiz-004",
       "pct": 0.380859375,
       "n": 3900,
@@ -1516,6 +1468,12 @@
       "nome": "flexbox-overflow-horiz-002",
       "pct": 0.162109375,
       "n": 1660,
+      "script": false
+    },
+    {
+      "nome": "flexbox_visibility-collapse",
+      "pct": 0.158203125,
+      "n": 1620,
       "script": false
     },
     {

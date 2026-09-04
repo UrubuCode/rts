@@ -25,7 +25,8 @@ com os PNG de teste e referência lado a lado para olhar.
 
 ## O número, hoje
 
-**2026-09-04, `css/css-flexbox`, os 489 reftests: 186 passam (38 %)**, 0
+**2026-09-04, `css/css-flexbox`, os 489 reftests: 193 passam (39,5 %)** — eram
+186 antes dos lotes ib-nowrap, justify-fisico e clearfix;, 0
 falharam a rasterizar; 97 das 303 falhas têm menos de 0,5 % de pixels
 diferentes (anti-aliasing e fonte), 30 têm mais de 5 %. Por tema no nome:
 shrink 27, writing-mode 21, wrap 19, justify 16, baseline 12. **Corre no CI**
