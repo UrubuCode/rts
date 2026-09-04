@@ -32,10 +32,14 @@ pub(in crate::layout) fn layout_children_column(
     // `gap: X` seta os dois, então row_gap cobre o caso comum. (Fallback ao `gap`
     // — column-gap — só quando row_gap não veio, cobrindo `column-gap` usado
     // "errado" sem quebrar o shorthand.)
-    let main_gap = css
-        .row_gap
-        .or(css.gap)
-        .and_then(|d| d.resolve(&resolve))
+    //
+    // `resolve_height`, não `Dimension::resolve`: `row-gap` é sempre o eixo de
+    // BLOCO (aqui, o próprio eixo principal), então uma percentagem resolve
+    // contra a ALTURA do container — nunca a largura — e vira `normal` (0)
+    // quando essa altura é indefinida (CSS Align 3 §column-row-gap,
+    // github.com/w3c/csswg-drafts/issues/5081). Lote `flex-coluna-shrink`:
+    // media 10%×64(largura)=6,4 onde a conta é 10%×200(altura)=20.
+    let main_gap = resolve_height(css.row_gap.or(css.gap), container_content_h, &resolve)
         .unwrap_or(0.0)
         .max(0.0);
     // `column-reverse`: mesmo espelho de `flex.rs` — o main-start visual é o
@@ -55,14 +59,24 @@ pub(in crate::layout) fn layout_children_column(
     };
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
 
-    // ── PASSO 1: mede a altura outer desejada de cada filho + margens auto ───────
+    // ── PASSO 1: mede a BASE outer de cada filho (flex-basis/height/conteúdo)
+    // no eixo principal, + margens auto e os fatores de flex-shrink/grow ──────
     struct ColItem {
         node: NodeIdx,
+        /// tamanho BASE outer no eixo principal — antes de grow/shrink; após o
+        /// PASSO 2 é o MAIN final (mesmo campo, mesmo papel que `FlexItem::h`
+        /// tinha antes deste lote: cresce OU encolhe nele, nunca os dois).
         h: f32,
         is_text: bool,
         mt_auto: bool,
         mb_auto: bool,
         grow: f32,
+        /// `flex-shrink` (1 = default do CSS; texto solto não encolhe, como em
+        /// `flex.rs`).
+        shrink: f32,
+        /// piso de `min-height` no eixo principal — automático (§4.5,
+        /// [`coluna_shrink::min_main_auto`]) ou o declarado, que vence.
+        min_main: f32,
         order: i32,
     }
     let mut items: Vec<ColItem> = Vec::new();
@@ -94,36 +108,50 @@ pub(in crate::layout) fn layout_children_column(
                 mt_auto: false,
                 mb_auto: false,
                 grow: 0.0,
+                shrink: 0.0, // texto solto não encolhe (mesmo trato do eixo horizontal).
+                min_main: crate::inline_box::altura_da_linha(css, font_size, ctx.measurer),
                 order: 0,
             });
             continue;
         }
+        let ccss = dom.computed_style_idx(child).unwrap_or_default();
         // Um item que ESTICA (align stretch, o default) ocupa a largura do
         // contentor, e a altura tem de ser medida a essa largura — medi-la em
         // shrink-to-fit punha dois floats lado a lado um DEBAIXO do outro (100px
         // de largura em vez de 1280) e o item saía com 70px onde o Blink dá 40
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
-        let estica = dom
-            .computed_style_idx(child)
-            .and_then(|c| c.align_self)
-            .unwrap_or(align)
-            == crate::style::AlignItems::Stretch;
-        let h = if estica {
+        let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
+        let natural_h = if estica {
             measure_block(dom, child, content_w, container_content_h, None, None, false, ctx).1
         } else {
             child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
         };
-        let (mt_auto, mb_auto, grow, order) = dom
-            .computed_style_idx(child)
-            .map(|c| {
-                (
-                    c.margin.top.is_auto(),
-                    c.margin.bottom.is_auto(),
-                    c.flex_grow.unwrap_or(0.0),
-                    c.order.unwrap_or(0),
-                )
-            })
-            .unwrap_or((false, false, 0.0, 0));
+        let child_font = font_px(&ccss, font_size);
+        let h = super::coluna_shrink::base_outer(
+            &ccss,
+            natural_h,
+            container_content_h,
+            content_w,
+            child_font,
+            ctx,
+        );
+        let resolve_filho = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: child_font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        // `min-height` DECLARADO substitui o piso automático (spec §4.5: o
+        // mínimo automático só vale com `min-height: auto`) — mesma regra do
+        // eixo horizontal (`flex.rs:198-200`).
+        let min_main = resolve_height(ccss.min_height, container_content_h, &resolve_filho)
+            .unwrap_or_else(|| super::coluna_shrink::min_main_auto(&ccss, natural_h));
+        let mt_auto = ccss.margin.top.is_auto();
+        let mb_auto = ccss.margin.bottom.is_auto();
+        let grow = ccss.flex_grow.unwrap_or(0.0);
+        let shrink = ccss.flex_shrink.unwrap_or(1.0); // 1 é o default do CSS.
+        let order = ccss.order.unwrap_or(0);
         items.push(ColItem {
             node: child,
             h,
@@ -131,6 +159,8 @@ pub(in crate::layout) fn layout_children_column(
             mt_auto,
             mb_auto,
             grow,
+            shrink,
+            min_main,
             order,
         });
     }
@@ -163,6 +193,23 @@ pub(in crate::layout) fn layout_children_column(
             if it.grow > 0.0 {
                 it.h += it.grow / sum_grow * free;
             }
+        }
+    } else if free < 0.0 {
+        // FLEX-SHRINK no eixo principal (css-flexbox §9.7): quando FALTA
+        // espaço (a soma das bases + gaps excede o disponível), o défice
+        // reparte-se por `shrink × base`, com piso em `min_main` — o mesmo
+        // algoritmo iterativo de congelamento de `flex.rs:319-370`, aqui no
+        // eixo vertical (`coluna_shrink::shrink`). Sem isto, um item de
+        // coluna maior do que o espaço principal disponível transbordava
+        // sempre (achado 2026-09-04, `claude-flex-column-shrink`/
+        // `claude-flex-coluna-shrink-overflow`/
+        // `claude-flex-basis-percent-shrink-column`).
+        let bases: Vec<f32> = items.iter().map(|it| it.h).collect();
+        let shrinks: Vec<f32> = items.iter().map(|it| it.shrink).collect();
+        let mins: Vec<f32> = items.iter().map(|it| it.min_main).collect();
+        let mains = super::coluna_shrink::shrink(&bases, &shrinks, &mins, free);
+        for (it, m) in items.iter_mut().zip(mains) {
+            it.h = m;
         }
     }
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
@@ -229,14 +276,17 @@ pub(in crate::layout) fn layout_children_column(
                 let free_x = (content_w - w).max(0.0);
                 content_x + align_offset(align, content_w, content_w - free_x)
             };
-            // Um item que CRESCEU por flex-grow tem altura MAIOR que o conteúdo —
-            // passa essa altura como containing block (avail_h) E como outer forçada
-            // (forced_outer_h) para os filhos com `height:100%` resolverem contra ela.
-            let (avail, forced_h) = if it.grow > 0.0 {
-                (Some(it.h), Some(it.h))
-            } else {
-                (container_content_h, None)
-            };
+            // O `main` do PASSO 2 (grow, shrink, ou inalterado) é IMPOSTO ao
+            // item como altura outer — DURA (`hard`): vence `height`/
+            // `flex-basis` do próprio nó, ao contrário do `forced_outer_h`
+            // "mole" do stretch (que só cresce, nunca corta um item mais alto
+            // que a linha — a peça que faltava para o encolhimento; espelha
+            // `flex.rs:478`, onde `Some(it.main)` já é incondicional no eixo
+            // horizontal). A mesma altura vira o containing block (`avail`)
+            // dos NETOS com `height:100%` — é o item resolvido, cresceu ou
+            // encolheu, que eles têm de ver.
+            let avail = Some(it.h);
+            let forced_h = Some(it.h);
             // `layout_block_reusing`: mesmo raciocínio do flex-row em
             // `flex.rs` — o container refaz a distribuição toda vez, o item
             // individual bate no cache quando o epoch e a imposição (`avail`/
@@ -251,6 +301,7 @@ pub(in crate::layout) fn layout_children_column(
                 || (0.0, 0.0),
                 None,
                 forced_h,
+                true, // hard: o main size de coluna sempre vence o height próprio.
                 !stretch,
                 // Item de flex-column: floats não se aplicam dentro de um
                 // container flex (ele já é um BFC próprio), então um contexto

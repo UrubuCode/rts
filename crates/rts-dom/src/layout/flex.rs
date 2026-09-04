@@ -91,9 +91,15 @@ pub(in crate::layout) fn layout_children_horizontal(
         .and_then(|d| d.resolve(&resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    let row_gap = css
-        .row_gap
-        .and_then(|d| d.resolve(&resolve))
+    // `resolve_height`, não `Dimension::resolve`: `row-gap` (o espaço ENTRE
+    // LINHAS, aqui o eixo cruzado) é sempre o eixo de BLOCO — uma
+    // percentagem resolve contra a ALTURA do container, nunca a largura, e
+    // vira `normal` (0) quando essa altura é indefinida (CSS Align 3
+    // §column-row-gap, github.com/w3c/csswg-drafts/issues/5081; mesma regra
+    // do espelho em `coluna.rs`, onde `row-gap` é o eixo PRINCIPAL). Lote
+    // `flex-coluna-shrink`, `claude-gap-row-percentual-eixo`: 10%×64
+    // (largura) dava 6,4 onde a conta é 10%×200 (altura) = 20.
+    let row_gap = resolve_height(css.row_gap, container_content_h, &resolve)
         .unwrap_or(0.0)
         .max(0.0);
     // Em `row-reverse` o main-start VISUAL é o lado DIREITO do container (spec
@@ -275,19 +281,34 @@ pub(in crate::layout) fn layout_children_horizontal(
     // exigiria resolver todas as linhas duas vezes.
     let mut line_align_leading = 0.0f32;
     let mut line_align_between = 0.0f32;
-    if wrap && lines.len() > 1 {
-        if let Some(v) = css.align_content {
-            if container_cross_h > 0.0 {
-                let estimativa: f32 = lines
-                    .iter()
-                    .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
-                    .sum::<f32>()
-                    + (lines.len().saturating_sub(1)) as f32 * row_gap;
-                let free = (container_cross_h - estimativa).max(0.0);
+    // `normal` (não declarado) — o INICIAL de `align-content` — comporta-se
+    // como `stretch` no eixo CRUZADO de um flex container (CSS Box Alignment
+    // 3 §8.3: "normal computes to stretch" nesse eixo), não como "sem
+    // espaçamento": cada linha ganha a SUA fatia igual do espaço livre,
+    // crescendo, em vez de só abrir espaçamento entre elas — o mecanismo do
+    // `justify_offsets` acima (`Some(v)`) não serve para isto, porque não
+    // toca na altura da linha. Achado com a régua ANTES do código
+    // (`claude-gap-row-percentual-eixo`, medido no Edge): a leitura ingénua
+    // (só empacotar) dava #a2 em y=60; o Blink dá 110 — as duas linhas de
+    // 40 crescem para 90 cada nos 200px do contentor, e só DEPOIS entra o
+    // `row-gap` entre elas.
+    let mut line_stretch_extra = 0.0f32;
+    if wrap && lines.len() > 1 && container_cross_h > 0.0 {
+        let estimativa: f32 = lines
+            .iter()
+            .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
+            .sum::<f32>()
+            + (lines.len().saturating_sub(1)) as f32 * row_gap;
+        let free = (container_cross_h - estimativa).max(0.0);
+        match css.align_content {
+            Some(v) => {
                 let (leading, between) =
                     crate::layout::coluna::justify_offsets(v, free, lines.len());
                 line_align_leading = leading;
                 line_align_between = between;
+            }
+            None => {
+                line_stretch_extra = free / lines.len() as f32;
             }
         }
     }
@@ -395,7 +416,10 @@ pub(in crate::layout) fn layout_children_horizontal(
         let line_h = if !wrap && container_cross_h > items_h {
             container_cross_h
         } else {
-            items_h
+            // `line_stretch_extra` (o `normal`→`stretch` de cima) só se aplica
+            // com `wrap` E múltiplas linhas — 0.0 em qualquer outro caso, um
+            // no-op aqui.
+            items_h + line_stretch_extra
         };
 
         // justify-content sobre o espaço restante PÓS-grow (com grow>0 o free é 0
@@ -477,6 +501,10 @@ pub(in crate::layout) fn layout_children_horizontal(
                     || (0.0, 0.0),
                     Some(it.main),
                     forced_h,
+                    // `forced_h` aqui é o stretch do eixo CRUZADO (`stretches`
+                    // já exige `line_h > it.h` — nunca encolhe), não o main
+                    // size: o `hard` de `coluna.rs` é a peça oposta.
+                    false,
                     true,
                     // Item de flex-row: mesma razão do flex-column, ver `coluna.rs`.
                     &BlockFormattingContext::new(),

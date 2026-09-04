@@ -128,6 +128,7 @@ pub(in crate::layout) fn layout_inline_block_line(
                 avail_h,
                 None,
                 None,
+                false,
                 true,
                 // Corrida de inline-blocks irmãos: mesma razão da linha, ver
                 // `linha.rs`.

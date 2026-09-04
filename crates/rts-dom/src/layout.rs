@@ -71,6 +71,7 @@ use self::quebra::wrap_runs;
 use self::runs::{InlineRun, collect_runs, inline_widget_size, pseudo_run};
 use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
 mod coluna;
+mod coluna_shrink;
 mod flex;
 mod flex_limites;
 mod flex_pseudo;
@@ -172,6 +173,10 @@ pub(crate) fn measure_block(
         avail_h,
         forced_outer_w,
         forced_outer_h,
+        // `measure_block` nunca mede com o main-size DURO de coluna — quem o
+        // usa (`layout_children_column`) mede naturalmente aqui e só impõe o
+        // resolvido depois, no `layout_block_reusing` final.
+        false,
         shrink_to_fit,
         // A MEDIDA de um bloco é a do seu conteúdo, não a da banda onde calha
         // ficar: medir com o float à frente dava uma largura intrínseca que
@@ -265,6 +270,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
             Some(ctx.viewport_h),
             None,
             None,
+            false,
             false,
             &BlockFormattingContext::new(),
             ctx,

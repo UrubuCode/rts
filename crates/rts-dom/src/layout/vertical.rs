@@ -393,6 +393,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     avail_h,
                     None,
                     None,
+                    false,
                     true,
                     // Um float estabelece o SEU PRÓPRIO BFC (CSS 2.1 §9.4.1) —
                     // `bloco.rs` cria um novo internamente para o conteúdo dele
@@ -491,6 +492,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     || (m, m_baixo),
                     None,
                     None,
+                    false,
                     false,
                     bfc,
                     ctx,
