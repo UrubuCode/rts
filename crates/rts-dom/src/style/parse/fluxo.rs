@@ -54,8 +54,11 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.gap = cg;
         }
         "height" => set_if(&mut css.height, parse_dimension(val)),
-        "min-width" => set_if(&mut css.min_width, parse_dimension(val)),
-        "max-width" => set_if(&mut css.max_width, parse_dimension(val)),
+        // `min-content` só entra aqui (não em `width`/`height`): estas duas
+        // medidas TÊM para onde apontar (`crate::table::min_content`, via
+        // `layout/flex_limites.rs`) — ver `Dimension::MinContent`.
+        "min-width" => set_if(&mut css.min_width, parse_dimension_min_max(val)),
+        "max-width" => set_if(&mut css.max_width, parse_dimension_min_max(val)),
         "min-height" => set_if(&mut css.min_height, parse_dimension(val)),
         "max-height" => set_if(&mut css.max_height, parse_dimension(val)),
         // `position` + offsets (top/right/bottom/left). Os offsets aceitam

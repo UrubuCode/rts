@@ -27,6 +27,13 @@ pub(crate) fn parse_dimension_pub(v: &str) -> Option<Dimension> {
     parse_dimension(v)
 }
 
+/// `min-content` reconhecida — só p/ `min-width`/`max-width` (ver `Dimension::MinContent`).
+pub(crate) fn parse_dimension_min_max(v: &str) -> Option<Dimension> {
+    v.trim().eq_ignore_ascii_case("min-content")
+        .then_some(Dimension::MinContent)
+        .or_else(|| parse_dimension(v))
+}
+
 pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     let v = v.trim();
     if v.eq_ignore_ascii_case("auto") {
@@ -318,9 +325,10 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
     }
     Some(match d {
         Dimension::Auto => Dimension::Auto,
-        // `-max-content` não existe em CSS; um sinal antes de uma palavra-chave
-        // é a declaração inválida, e devolvê-la sem sinal é o que o `auto` já faz.
+        // `-max-content`/`-min-content` não existem em CSS; sem sinal é o
+        // que `auto` já faz (o 2º braço só por exaustão do match).
         Dimension::MaxContent => Dimension::MaxContent,
+        Dimension::MinContent => Dimension::MinContent,
         Dimension::Px(x) => Dimension::Px(-x),
         Dimension::Percent(x) => Dimension::Percent(-x),
         Dimension::Em(x) => Dimension::Em(-x),

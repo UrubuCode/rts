@@ -501,10 +501,11 @@ pub(crate) fn layout_block(
                 // (default), o `width` JÁ é o content.
                 Some(w) if border_box => (w - (padding_h + border_h)).max(0.0),
                 Some(w) => w,
-                // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
-                // senão (fluxo block normal) → ocupa a largura disponível.
-                None if shrink_to_fit => content_natural_width(dom, id, font_for_content, ctx)
-                    .min((avail_w - frame).max(0.0)),
+                // Shrink-to-fit com o piso que faltava — extraído para não
+                // crescer este ficheiro (CSS2 §10.3.5, `flex_limites.rs`).
+                None if shrink_to_fit => super::flex_limites::largura_shrink_to_fit(
+                    dom, id, (avail_w - frame).max(0.0), frame, font_for_content, ctx,
+                ),
                 None => (avail_w - frame).max(0.0),
             }
         };
