@@ -117,6 +117,26 @@ jobs:
           if [ -x smoke_graph.exe ]; then ./smoke_graph.exe > aot.txt; else ./smoke_graph > aot.txt; fi
           diff jit.txt aot.txt
 
+      # BLOCKING, and the claim is different again: not that the default
+      # archive runs a program, but that the SECOND one (`rts-runtime-jit`,
+      # `--embed-compiler`) makes `eval` work inside a compiled binary at all.
+      # `target/release/rts_runtime_jit.lib` exists already — it is a direct
+      # dependency of this same `rts` bin (root `Cargo.toml`), so the release
+      # build above already produced it, exactly as it does for
+      # `rts_runtime.lib` — no second build step. The fixture's page never
+      # ships without its `.exe`: `claude-pagina-eval.ts` reads
+      # `claude-pagina-eval.html` off disk with `node:fs` at RUN time, the same
+      # way `rts run` would, so this is a claim about the compiler the binary
+      # carries and not about anything baked in at compile time.
+      - name: Smoke test — rts compile --embed-compiler runs a page's own eval (AOT)
+        shell: bash
+        run: |
+          rm -f smoke_embed smoke_embed.exe smoke_embed.obj smoke_embed.rtsdata
+          target/release/rts compile --embed-compiler tests/aot/claude-pagina-eval.ts smoke_embed
+          if [ -x smoke_embed.exe ]; then out=$(./smoke_embed.exe); else out=$(./smoke_embed); fi
+          echo "eval(\"1+2\") inside the page's own <script> answered: $out"
+          [ "$out" = "3" ]
+
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
         shell: bash
