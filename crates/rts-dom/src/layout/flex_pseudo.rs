@@ -133,7 +133,7 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, item: &PseudoItem, x: f3
     if !item.texto.is_empty() {
         let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
         let lh = crate::inline_box::altura_da_linha(css, item.fonte, ctx.measurer);
-        let conteudo = crate::inline_box::altura_do_conteudo(item.fonte, ctx.measurer);
+        let conteudo = crate::inline_box::altura_do_conteudo(item.fonte, css.font_family.as_deref(), ctx.measurer);
         list.items.push(DisplayItem::Text {
             x: r.x + item.arestas[3],
             y: r.y + item.arestas[0] + (lh - conteudo) / 2.0,

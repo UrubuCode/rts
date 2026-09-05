@@ -250,7 +250,7 @@ pub(in crate::layout) fn layout_inline_flow(
         // A CAIXA de cada inline desta linha: a content area da fonte, centrada na
         // linha pela meia-entrelinha. A linha continua a avançar `line_h` — quem
         // decide o espaçamento é o `line-height`, quem decide a caixa é a fonte.
-        let conteudo = crate::inline_box::altura_do_conteudo(font_size, ctx.measurer);
+        let conteudo = crate::inline_box::altura_do_conteudo(font_size, family, ctx.measurer);
         let meia = crate::inline_box::meia_entrelinha(line_h, conteudo);
         // O descent extra abaixo só vale com TEXTO de verdade a partilhar a
         // baseline com o inline-block — sem texto, `line_h` (a margin box do

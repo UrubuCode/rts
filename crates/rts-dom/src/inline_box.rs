@@ -246,8 +246,17 @@ pub(crate) fn arestas_do_inline(
 /// sai das métricas da fonte: um backend com fonte real responde ascent+descent,
 /// e o medidor aproximado responde a sua constante calibrada. Não há aqui um
 /// segundo número — é o mesmo `line_height` que responde por `normal`.
-pub(crate) fn altura_do_conteudo(font_size: f32, m: &dyn TextMeasurer) -> f32 {
-    m.line_height(font_size)
+///
+/// `family` entra pela MESMA razão que em `font_ascent_family`/
+/// `line_height_family` do `TextMeasurer`: a Ahem tem `normal` EXATO (1em, não
+/// 1,125×) e os seis chamadores já tinham a `ComputedStyle` (logo a família)
+/// em alcance — só não a passavam. Sem isto, `line-height-002.xht` (um `div`
+/// com `font:20px/1 Ahem` e `line-height:0px`, cuja altura vem da content area
+/// via `meia_entrelinha`) media a content area pela fonte PADRÃO (22,5px) em
+/// vez da Ahem (20px), e a diferença aparecia como o quadrado preto da caixa
+/// de fundo alguns pixels mais alto do que a imagem de referência.
+pub(crate) fn altura_do_conteudo(font_size: f32, family: Option<&str>, m: &dyn TextMeasurer) -> f32 {
+    m.line_height_family(font_size, family)
 }
 
 /// Meia-entrelinha: o espaço que sobra da caixa de linha depois da content area

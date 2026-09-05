@@ -58,7 +58,7 @@ pub(in crate::layout) fn fragmento_do_dono(
     let Some(crate::style::Dimension::Px(fonte)) = css.font_size else {
         return Rect::new(x, y, w, conteudo_da_linha);
     };
-    let conteudo = crate::inline_box::altura_do_conteudo(fonte, ctx.measurer);
+    let conteudo = crate::inline_box::altura_do_conteudo(fonte, css.font_family.as_deref(), ctx.measurer);
     let top = if align_to_baseline {
         y - ctx.measurer.font_ascent_family(fonte, css.font_family.as_deref())
     } else {

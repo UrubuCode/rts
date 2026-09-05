@@ -149,7 +149,7 @@ fn pintar(list: &mut DisplayList, caixa: &PseudoBlockBox, x: f32, y: f32, ctx: &
     if !caixa.texto.is_empty() {
         let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
         let lh = crate::inline_box::altura_da_linha(css, caixa.fonte, ctx.measurer);
-        let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, ctx.measurer);
+        let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
         list.items.push(DisplayItem::Text {
             x: r.x + caixa.arestas[3],
             y: r.y + caixa.arestas[0] + (lh - conteudo) / 2.0,
