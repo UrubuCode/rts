@@ -74,7 +74,10 @@ function cor(pct) {
   return "red";
 }
 // A ARVORE do WPT: cada ponto de validacao com a sua percentagem, e nao so o
-// total. Um total sozinho engana nos dois sentidos — nao diz se o motor faz uma
+// total. VISIVEL, e nao dentro de um `<details>`: o GitHub mostra-o colapsado,
+// e a primeira pessoa a ler o README com a arvore la dentro nao deu por ela.
+// Uma coisa que ninguem abre e uma coisa que ninguem le, e o ponto deste bloco
+// e ser lido. Um total sozinho engana nos dois sentidos — nao diz se o motor faz uma
 // area bem e outra nada, e e por isso que ele nao chega para decidir onde
 // trabalhar. Le `resultados` (todos os testes) e nao `piores` (so as falhas):
 // a percentagem de um ramo precisa do denominador desse ramo.
@@ -130,7 +133,9 @@ ${barra(pctWpt)} ${pctWpt}%   ${wpt.passam}/${wpt.total} WPT reftests (css-flexb
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (\`scripts/wpt_reftests.md\`). It measures coherence, not Blink parity.` : ""}${arv ? `
 
-<details><summary><strong>Every checkpoint, with its own percentage</strong> — the total alone says nothing about where the work is</summary>
+### Every checkpoint, with its own percentage
+
+The total alone says nothing about where the work is — it does not tell a branch this engine does well from one it does not attempt.
 
 \`\`\`
 ${arv.sub.length ? `subfolders of css-flexbox
@@ -140,9 +145,7 @@ ${arv.sub.map(linhaArvore).join("\n")}
 ${arv.assunto.map(linhaArvore).join("\n")}
 \`\`\`
 
-Subfolders are the WPT's own hierarchy. The subject grouping is **ours**, read off the test names — it is a way to find the work, not a structure the WPT declares. A branch this engine does not attempt drags the total down without saying anything about the engine, which is the whole reason this breakdown is here.
-
-</details>` : ""}
+Subfolders are the WPT's own hierarchy. The subject grouping is **ours**, read off the test names — it is a way to find the work, not a structure the WPT declares.` : ""}
 
 Fixtures that fail **on purpose** (each names a measured gap; \`tests/css/esperado-a-falhar.txt\`):
 ${linhasEsperadas}
