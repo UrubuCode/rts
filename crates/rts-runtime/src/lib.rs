@@ -22,6 +22,13 @@
 //! dependent's `staticlib` unconditionally once the dependency is reached at
 //! all, regardless of whether the dependent's own code calls that
 //! particular item.
+// `#[cfg(not(test))]`: `cargo test -p rts-runtime` builds a REAL executable
+// for this crate's own (empty) test harness, which supplies its own `main` —
+// and a no_mangle `main` is emitted unconditionally, harness or not, so the
+// two collide with "entry symbol `main` declared multiple times" before a
+// single `#[test]` can run. Absent from a `staticlib`/`bin` build, where
+// nothing else offers a `main` for this to conflict with.
+#[cfg(not(test))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main(argc: i32, argv: *const *const i8) -> i32 {
     rts_runtime_boot::run(argc, argv, None)

@@ -80,6 +80,12 @@
 /// this is the same sequence as, plus one registration. See this crate's own
 /// module doc for what that registration is and why `rts-runtime-boot`
 /// exists rather than this crate depending on `rts-runtime` for it.
+// `#[cfg(not(test))]` — see `rts-runtime`'s own `lib.rs` for why: this
+// crate's test harness is a real executable with its own `main`, and a
+// no_mangle `main` is emitted regardless of `cfg(test)`'s absence, so the two
+// collide before a single `#[test]` runs. Caught by this lot's own gate run
+// (`cargo test -p rts-runtime-jit`), not assumed from the sibling crate.
+#[cfg(not(test))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main(argc: i32, argv: *const *const i8) -> i32 {
     rts_runtime_boot::run(argc, argv, Some(rts_host::install_compiler))
