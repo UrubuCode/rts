@@ -29,6 +29,12 @@ if (html === undefined || html.length === 0) {
   const doc = parseDocument(html);
   const loaded = loadResources(doc, path);
   console.log("recursos externos carregados: " + loaded);
+  // Sem isto os <script> da página (o bundle React e o código da app) nunca
+  // corriam: `loadResources` só materializa o texto/CSS, a EXECUÇÃO é
+  // `runScriptsAt` (ver `crates/rts-dom/src/dom.ts`). O comparativo abria a
+  // janela e pintava HTML/CSS estático com a árvore React inteira por montar.
+  const rodaram = runScriptsAt(doc, "https://" + path);
+  console.log("scripts da página corridos: " + rodaram);
   const win = egui.openWindow("RTS vs Electron", 1100, 750, 0);
   while (egui.isOpen(win)) {
     if (!egui.pump(win)) break;
