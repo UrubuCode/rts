@@ -118,7 +118,13 @@ pub fn command(
     } else {
         std::fs::read_to_string(&entry).with_context(|| format!("read {}", entry.display()))?
     };
-    let graph = super::new_engine::imports_a_file(&source);
+    // A `.html` entry never compiles as a graph: its shell imports only `rts:`
+    // namespaces, and the page's HTML travels inside it as one string literal
+    // — a bundled framework carries `require(`/`import(` in its TEXT, which
+    // is enough to fool the textual scan below and send the graph compiler to
+    // read the `.html` off disk as TypeScript ("Unexpected token `!`" on
+    // `<!DOCTYPE`, measured on `scripts/rts_vs_electron/app/index.html`).
+    let graph = !is_html_entry && super::new_engine::imports_a_file(&source);
 
     // Read and extracted on the SAME wide-stack thread as the compile below,
     // rather than on this one: `html_scripts::window_base` runs a throwaway
