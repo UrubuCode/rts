@@ -188,7 +188,11 @@ pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, con
     }
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
-    let eixo_de_linha = !css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    // Eixo FÍSICO (`eixos_flex::main_no_eixo_y`), não a keyword crua — a
+    // mesma troca de `medida.rs`/`replaced_transferido.rs`: sob
+    // `writing-mode` vertical um `column` é fisicamente uma linha.
+    let is_column_kw = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    let eixo_de_linha = !super::eixos_flex::main_no_eixo_y(css.writing_mode.unwrap_or_default(), is_column_kw);
     let em_flex = em_ordem_de_flex(dom, &filhos);
     let primeira_linha = if eixo_de_linha && css.flex_wrap.map(crate::style::FlexWrap::wraps).unwrap_or(false) {
         let font = font_px(&css, DEFAULT_FONT_SIZE);

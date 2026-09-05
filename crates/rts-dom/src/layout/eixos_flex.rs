@@ -79,6 +79,22 @@ pub(in crate::layout) fn wrap_reverse_efetivo(
     (wrap == Some(FlexWrap::WrapReverse)) ^ !forward
 }
 
+/// `true` quando o eixo FÍSICO do flex é uma LINHA (o oposto de
+/// [`main_no_eixo_y`], pela mesma troca) — usado pelos medidores de largura
+/// intrínseca (`medida.rs::intrinsic_content_width`,
+/// `replaced_transferido.rs::largura_intrinseca_transferida`,
+/// `flex_baseline.rs::ascent_do_contentor`) que decidiam SOMA-dos-filhos vs
+/// MAX-dos-filhos pela keyword `flex-direction` crua: um `column` sob
+/// `writing-mode` vertical é fisicamente uma linha (o eixo de bloco é X), e
+/// medi-lo pelo MAX dava uma largura shrink-to-fit menor que a soma dos
+/// itens — a `section` de `gap-005-rl`/`gap-007-*` (WPT) ficava mais
+/// estreita que o seu último item, cortando os primeiros para fora da
+/// caixa. Achado do retrabalho `flex-writing-mode` via probe de
+/// `eixos_flex_corpus.rs`, não coberto pelos 4 reftests que abriram o lote.
+pub(in crate::layout) fn linha_fisica(wm: WritingMode, is_column_keyword: bool) -> bool {
+    !main_no_eixo_y(wm, is_column_keyword)
+}
+
 /// `true` quando o eixo físico X corre invertido (RTL) — o que
 /// `coluna_rtl::cross_x` espelha. É o mesmo [`eixo_x_forward`] negado,
 /// exposto à parte porque `cross_x` não conhece `main_no_eixo_y` (o seu

@@ -135,11 +135,15 @@ pub(in crate::layout) fn largura_intrinseca_transferida(
     // `<img>` lá dentro: devolvia 4 (1px×razão + borda) em vez de deixar o
     // shrink-to-fit normal decidir (WPT `flexbox-min-height-auto-002b/c`,
     // divs com `flex-basis` em vez de `width` no `<img>`).
-    let is_column = dom
-        .computed_style_idx(id)
-        .and_then(|c| c.flex_direction)
-        .is_some_and(|f| f.is_column());
-    if is_column {
+    // O eixo FÍSICO (`eixos_flex::main_no_eixo_y`), não a keyword crua: sob
+    // `writing-mode` vertical um `flex-direction:column` é fisicamente uma
+    // linha (o eixo de bloco é X) e É elegível para a transferência — só a
+    // keyword sozinha marcava-o "coluna" e devolvia `None` mesmo quando o
+    // `<img>` está lado a lado com os irmãos, não empilhado.
+    let css_id = dom.computed_style_idx(id);
+    let is_column_kw = css_id.as_deref().and_then(|c| c.flex_direction).is_some_and(|f| f.is_column());
+    let wm = css_id.as_deref().and_then(|c| c.writing_mode).unwrap_or_default();
+    if super::eixos_flex::main_no_eixo_y(wm, is_column_kw) {
         return None;
     }
     let display = css_display(dom, id);

@@ -239,9 +239,12 @@ pub(in crate::layout) fn intrinsic_content_width(
     // o EIXO em que os filhos se dispõem decide SOMA vs MAX: um flex em COLUNA
     // empilha como um bloco (o maior filho), mesmo com `flex-wrap` — a
     // multi-coluna do wrap é corte dito (`claude-flex-column-shrink-to-fit`).
+    // "COLUNA" é o eixo FÍSICO (`eixos_flex::linha_fisica`), não a keyword crua.
     let display = css_display(dom, id);
-    let em_coluna = dom.computed_style_idx(id).and_then(|c| c.flex_direction).map(|f| f.is_column()).unwrap_or(false);
-    let is_row = (display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP) && !em_coluna;
+    let css_id = dom.computed_style_idx(id);
+    let is_column_kw = css_id.as_deref().and_then(|c| c.flex_direction).is_some_and(|f| f.is_column());
+    let wm = css_id.as_deref().map(|c| c.writing_mode.unwrap_or_default()).unwrap_or_default();
+    let is_row = matches!(display, crate::block::DISPLAY_HORIZONTAL | crate::block::DISPLAY_WRAP) && super::eixos_flex::linha_fisica(wm, is_column_kw);
     let gap = if is_row {
         let resolve = ResolveCtx {
             parent_content_w: ctx.viewport_w,
@@ -297,6 +300,19 @@ pub(in crate::layout) fn intrinsic_content_width(
         if w > 0.0 {
             count += 1;
         }
+        // `gap` soma-se aqui, POR ITEM, e não `+ (count-1)*gap` só no fim: o
+        // reftest WPT compara ESTE motor contra ele próprio, `gap` (aqui) vs
+        // margem lógica por item (`intrinsic_outer_width`, que já soma a sua
+        // margem UM item de cada vez no PRÓPRIO `w`) — dois grupamentos de
+        // soma em ponto flutuante diferentes para o MESMO valor não são bit-
+        // idênticos (associatividade), e isso já bastava para `gap-004-rtl`/
+        // `gap-005-rl` (WPT) falharem por UMA coluna de 1px arredondada ao
+        // pixel errado, mesmo com as duas larguras a baterem a 5 casas
+        // decimais. Somar o gap na MESMA posição do laço que a margem ocupa
+        // do outro lado idêntica a árvore de somas.
+        if is_row && w > 0.0 && count > 1 {
+            sum += gap;
+        }
         sum += w;
         if fecha_a_corrida(dom, child) {
             maior = maior.max(linha).max(w);
@@ -312,17 +328,16 @@ pub(in crate::layout) fn intrinsic_content_width(
         for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
             let w = super::flex_pseudo::largura(dom, id, pe, font, ctx);
             if w > 0.0 {
+                if count > 0 {
+                    sum += gap;
+                }
                 sum += w;
                 count += 1;
             }
         }
     }
-    let width = if is_row {
-        // soma + gaps entre os itens.
-        sum + (count.saturating_sub(1)) as f32 * gap
-    } else {
-        maior
-    };
+    // o gap já entrou por item, no mesmo laço — ver o comentário acima.
+    let width = if is_row { sum } else { maior };
     dom.intrinsic_width_put(key, width);
     width
 }
