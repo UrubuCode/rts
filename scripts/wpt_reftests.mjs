@@ -6,7 +6,7 @@
 // o `wptrunner` avalia um reftest.
 //
 //   cargo build --release -p rts-dom --example claude-raster
-//   bun scripts/wpt_reftests.mjs <pasta-do-wpt>/css/css-flexbox [--tol 8] [--max N] [--out dir]
+//   bun scripts/wpt_reftests.mjs <pasta-do-wpt>/css/css-flexbox [--tol 8] [--max N] [--out dir] [--filtro regex]
 //
 // O que este número NÃO é: a régua de Blink. Um reftest que passa aqui diz "o
 // motor é coerente consigo próprio nestes dois documentos"; um que falha diz
@@ -17,7 +17,7 @@
 // (o rasterizador não tem motor), e é dito na saída quantos são.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { basename, dirname, resolve, join } from "node:path";
+import { basename, dirname, relative, resolve, join } from "node:path";
 import { inflateSync } from "node:zlib";
 
 const args = process.argv.slice(2);
@@ -26,6 +26,20 @@ if (!pasta) { console.error("uso: bun scripts/wpt_reftests.mjs <pasta> [--tol 8]
 const opt = (n, d) => { const i = args.indexOf("--" + n); return i >= 0 ? args[i + 1] : d; };
 const TOL = Number(opt("tol", "8"));
 const MAX = Number(opt("max", "0"));
+// `--filtro` é para ITERAR num lote, nunca para produzir o número: a saída
+// diz-o na primeira linha, e um relatório filtrado não é comparável com o
+// `.github/wpt_report.json` do main (denominador diferente — a armadilha que
+// o honesty floor chama "verify the input"). Sem filtro, nada muda.
+const FILTRO = opt("filtro", "") ? new RegExp(opt("filtro", ""), "i") : null;
+// COMO se descobre o par teste/referencia. `match` e a convencao do WPT
+// (`<link rel="match" href>`); `sufixo` e a do Blink (`X.html` e um
+// reftest se existir `X-expected.html` ao lado). E uma flag e nao um
+// script novo porque o resto — rasterizar os dois lados e comparar
+// pixel a pixel — e identico, e duas copias divergiriam na tolerancia,
+// no timeout e no formato do relatorio, que sao exactamente as tres
+// coisas que tornam dois numeros comparaveis.
+const PARES = opt("pares", "match");
+if (!["match", "sufixo"].includes(PARES)) { console.error(`--pares ${PARES}: use "match" (WPT) ou "sufixo" (Blink)`); process.exit(2); }
 const OUT = resolve(opt("out", join(process.env.TEMP ?? ".", "wpt-reftests")));
 const RASTER = ["target/release/examples/claude-raster.exe", "target/release/examples/claude-raster"].find(existsSync);
 if (!RASTER) { console.error("construa o rasterizador: cargo build --release -p rts-dom --example claude-raster"); process.exit(2); }
@@ -65,18 +79,63 @@ function diff(a, b) {
 }
 
 // --- os testes: `<link rel="match" href="...">`; `mismatch` fica de fora
-const html = readdirSync(pasta).filter((f) => f.endsWith(".html") || f.endsWith(".xht")).sort();
+// RECURSIVO. Era `readdirSync(pasta)` e só via a raiz — `css/css-flexbox` tem
+// 533 reftests e o número dizia 489, porque 44 estão em subpastas. Um corpus
+// silenciosamente menor do que o nome diz é a armadilha que o honesty floor
+// chama "verify the input, not just the output", e ela estava aqui.
+// `support/`, `reference/` e as referências apontadas por um teste não são
+// testes: um ficheiro só entra se ELE tiver `rel=match`.
+function htmlRecursivo(dir) {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...htmlRecursivo(p));
+    else if (e.name.endsWith(".html") || e.name.endsWith(".xht")) out.push(p);
+  }
+  return out;
+}
+const html = htmlRecursivo(pasta);
 const testes = [];
 for (const f of html) {
-  const src = readFileSync(join(pasta, f), "utf8");
-  const m = src.match(/<link[^>]*rel=["']?match["']?[^>]*href=["']([^"']+)["']/i) ?? src.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["']?match["']?/i);
-  if (!m) continue;
-  const ref = resolve(pasta, m[1]);
-  if (!existsSync(ref)) continue;
-  testes.push({ teste: join(pasta, f), ref, script: /<script/i.test(src) });
+  // Um `-expected.html` e a REFERENCIA de outro teste, nunca um teste.
+  if (/-expected\.(html|xht)$/.test(f)) continue;
+  let ref = null;
+  if (PARES === "sufixo") {
+    // O `existsSync` vem ANTES de ler o ficheiro: neste modo o par decide-se
+    // pelo NOME, e ler cada html so para descobrir que nao tem par custava a
+    // varredura inteira dos web_tests do Blink (dezenas de milhares de
+    // ficheiros, 4 046 com par).
+    const cand = f.replace(/\.(html|xht)$/, "-expected.$1");
+    if (!existsSync(cand)) continue;
+    ref = cand;
+  }
+  const src = readFileSync(f, "utf8");
+  if (PARES !== "sufixo") {
+    const m = src.match(/<link[^>]*rel=["']?match["']?[^>]*href=["']([^"']+)["']/i) ?? src.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["']?match["']?/i);
+    if (!m) continue;
+    ref = resolve(dirname(f), m[1]);
+    if (!existsSync(ref)) continue;
+  }
+  testes.push({ teste: f, ref, script: /<script/i.test(src) });
 }
-const lista = MAX > 0 ? testes.slice(0, MAX) : testes;
-console.log(`${pasta}: ${html.length} html, ${testes.length} reftests (rel=match com referência existente), ${lista.filter((t) => t.script).length} com <script>`);
+const filtrados = FILTRO ? testes.filter((t) => FILTRO.test(relative(pasta, t.teste).split("\\").join("/"))) : testes;
+// GUARDA de corpus. Uma medicao contra um checkout encolhido nao falha: sai
+// um numero mais pequeno, com ar de numero. Aconteceu — `scripts/wpt_reftests.md`
+// documenta um `git sparse-checkout set css/css-flexbox ...` como passo de
+// instalacao, alguem o correu com a arvore ja alargada, e `css/CSS2` passou de
+// 6241 reftests para 102 a meio de uma varredura. Por isso `--esperado N`
+// RECUSA correr quando o corpus nao tem o tamanho que quem mede julga estar a
+// medir. Sem a flag, nada muda: e uma afirmacao opcional, nao um valor fixo
+// que envelhece dentro do script.
+const ESPERADO = Number(opt("esperado", "0"));
+if (ESPERADO > 0 && testes.length !== ESPERADO) {
+  console.error(`corpus com ${testes.length} reftests, esperava ${ESPERADO} — o checkout mudou de tamanho.`);
+  console.error(`  para o WPT: cd <wpt> && git sparse-checkout set css resources fonts`);
+  process.exit(3);
+}
+const lista = MAX > 0 ? filtrados.slice(0, MAX) : filtrados;
+if (FILTRO) console.log(`--filtro ${FILTRO.source}: ${lista.length} de ${testes.length} — número PARCIAL, não comparável com o relatório do main`);
+console.log(`${pasta}: ${html.length} html, ${testes.length} reftests (pares por ${PARES === "sufixo" ? "-expected.html" : "rel=match"}), ${lista.filter((t) => t.script).length} com <script>`);
 
 function rasterizar(htmlPath, png) {
   try { execFileSync(RASTER, [htmlPath, png], { stdio: ["ignore", "ignore", "pipe"], timeout: 20000 }); return true; }
@@ -87,13 +146,28 @@ function rasterizar(htmlPath, png) {
 // contava-o como GANHO — foi assim que um `flex-aspect-ratio-resize-001` a
 // encravar apareceu como teste fechado. Um erro é o pior resultado, não um
 // resultado ausente.
-let passam = 0, falham = 0, erros = 0; const piores = []; const nao_rasterizaram = [];
+// `resultados` guarda TODOS os testes, nao so as falhas: a arvore de
+// percentagens por subpasta precisa de saber quantos PASSAM em cada ramo,
+// e `piores` (so falhas) daria o numerador sem o denominador. E a mesma
+// razao pela qual `nao_rasterizaram` existe a parte — os tres conjuntos
+// juntos sao a medicao inteira; qualquer um sozinho e uma vista dela.
+let passam = 0, falham = 0, erros = 0; const piores = []; const nao_rasterizaram = []; const resultados = [];
 for (const t of lista) {
-  const nome = basename(t.teste).replace(/\.(html|xht)$/, "");
-  const a = join(OUT, nome + ".teste.png"), b = join(OUT, nome + ".ref.png");
-  if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { erros++; nao_rasterizaram.push(nome); continue; }
+  // O nome é RELATIVO à pasta, não o `basename`: com a varredura recursiva
+  // dois testes de subpastas diferentes podem partilhar o basename, e o nome
+  // é a chave da comparação "que reftests perdi" entre dois relatórios —
+  // duas linhas com a mesma chave tornariam essa comparação ambígua sem
+  // falhar em lado nenhum.
+  const nome = relative(pasta, t.teste).split("\\").join("/").replace(/\.(html|xht)$/, "");
+  // O ficheiro PNG achata o nome: a chave leva "/" desde que a varredura
+  // passou a ser recursiva, e `join` com ele criaria subpastas que nao
+  // existem — o raster falharia a escrever e o teste contaria como erro.
+  const plano = nome.split("/").join("__");
+  const a = join(OUT, plano + ".teste.png"), b = join(OUT, plano + ".ref.png");
+  if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { erros++; nao_rasterizaram.push(nome); resultados.push({ nome, estado: "erro" }); continue; }
   const d = diff(decodePng(readFileSync(a)), decodePng(readFileSync(b)));
-  if (d.n === 0) passam++; else { falham++; piores.push({ nome, pct: d.pct, n: d.n, script: t.script }); }
+  if (d.n === 0) { passam++; resultados.push({ nome, estado: "passa" }); }
+  else { falham++; piores.push({ nome, pct: d.pct, n: d.n, script: t.script }); resultados.push({ nome, estado: "falha", pct: d.pct }); }
 }
 piores.sort((x, y) => y.pct - x.pct);
 const total = passam + falham + erros;
@@ -101,4 +175,4 @@ console.log(`\nWPT reftests — ${passam}/${total} passam (${((passam / Math.max
 console.log(`\nos 15 piores:`);
 for (const p of piores.slice(0, 15)) console.log(`  ${p.pct.toFixed(2).padStart(6)}%  ${p.n.toString().padStart(7)} px  ${p.nome}${p.script ? "  (tem <script>)" : ""}`);
 if (nao_rasterizaram.length > 0) console.log(`NÃO RASTERIZARAM (encravou ou morreu): ${nao_rasterizaram.join(", ")}`);
-writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, falham, erros, nao_rasterizaram, tol: TOL, piores }, null, 2));
+writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, falham, erros, nao_rasterizaram, tol: TOL, piores, resultados }, null, 2));
