@@ -83,7 +83,7 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
     css.flow_root.unwrap_or(false)
         || display_bfc
         || item_bfc
-        || overflow_bfc
+        || (overflow_bfc && !super::overflow_viewport::propagado_para_viewport(dom, id))
         || float_bfc
         || positioned_bfc
         || is_root
