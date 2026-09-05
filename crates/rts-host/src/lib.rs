@@ -46,4 +46,5 @@ mod stack;
 mod wrap_script;
 
 pub use link::{HostError, singletons_for};
+pub use live::install_compiler;
 pub use run::{Compiled, compile, compile_for, compile_graph};

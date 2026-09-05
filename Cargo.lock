@@ -4654,6 +4654,7 @@ dependencies = [
  "rts-linker",
  "rts-napi",
  "rts-runtime",
+ "rts-runtime-jit",
  "sha2 0.10.9",
  "zstd",
 ]
@@ -4867,12 +4868,27 @@ version = "0.1.0"
 name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
+ "rts-runtime-boot",
+]
+
+[[package]]
+name = "rts-runtime-boot"
+version = "0.1.0"
+dependencies = [
  "libc",
  "rts-core",
  "rts-dom-bridge",
  "rts-node",
  "rts-std",
  "rts-ui",
+]
+
+[[package]]
+name = "rts-runtime-jit"
+version = "0.1.0"
+dependencies = [
+ "rts-host",
+ "rts-runtime-boot",
 ]
 
 [[package]]
