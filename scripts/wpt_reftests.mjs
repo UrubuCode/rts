@@ -17,7 +17,7 @@
 // (o rasterizador não tem motor), e é dito na saída quantos são.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { basename, dirname, resolve, join } from "node:path";
+import { basename, dirname, relative, resolve, join } from "node:path";
 import { inflateSync } from "node:zlib";
 
 const args = process.argv.slice(2);
@@ -70,17 +70,32 @@ function diff(a, b) {
 }
 
 // --- os testes: `<link rel="match" href="...">`; `mismatch` fica de fora
-const html = readdirSync(pasta).filter((f) => f.endsWith(".html") || f.endsWith(".xht")).sort();
+// RECURSIVO. Era `readdirSync(pasta)` e só via a raiz — `css/css-flexbox` tem
+// 533 reftests e o número dizia 489, porque 44 estão em subpastas. Um corpus
+// silenciosamente menor do que o nome diz é a armadilha que o honesty floor
+// chama "verify the input, not just the output", e ela estava aqui.
+// `support/`, `reference/` e as referências apontadas por um teste não são
+// testes: um ficheiro só entra se ELE tiver `rel=match`.
+function htmlRecursivo(dir) {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...htmlRecursivo(p));
+    else if (e.name.endsWith(".html") || e.name.endsWith(".xht")) out.push(p);
+  }
+  return out;
+}
+const html = htmlRecursivo(pasta);
 const testes = [];
 for (const f of html) {
-  const src = readFileSync(join(pasta, f), "utf8");
+  const src = readFileSync(f, "utf8");
   const m = src.match(/<link[^>]*rel=["']?match["']?[^>]*href=["']([^"']+)["']/i) ?? src.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["']?match["']?/i);
   if (!m) continue;
-  const ref = resolve(pasta, m[1]);
+  const ref = resolve(dirname(f), m[1]);
   if (!existsSync(ref)) continue;
-  testes.push({ teste: join(pasta, f), ref, script: /<script/i.test(src) });
+  testes.push({ teste: f, ref, script: /<script/i.test(src) });
 }
-const filtrados = FILTRO ? testes.filter((t) => FILTRO.test(basename(t.teste))) : testes;
+const filtrados = FILTRO ? testes.filter((t) => FILTRO.test(relative(pasta, t.teste).split("\\").join("/"))) : testes;
 const lista = MAX > 0 ? filtrados.slice(0, MAX) : filtrados;
 if (FILTRO) console.log(`--filtro ${FILTRO.source}: ${lista.length} de ${testes.length} — número PARCIAL, não comparável com o relatório do main`);
 console.log(`${pasta}: ${html.length} html, ${testes.length} reftests (rel=match com referência existente), ${lista.filter((t) => t.script).length} com <script>`);
@@ -96,8 +111,17 @@ function rasterizar(htmlPath, png) {
 // resultado ausente.
 let passam = 0, falham = 0, erros = 0; const piores = []; const nao_rasterizaram = [];
 for (const t of lista) {
-  const nome = basename(t.teste).replace(/\.(html|xht)$/, "");
-  const a = join(OUT, nome + ".teste.png"), b = join(OUT, nome + ".ref.png");
+  // O nome é RELATIVO à pasta, não o `basename`: com a varredura recursiva
+  // dois testes de subpastas diferentes podem partilhar o basename, e o nome
+  // é a chave da comparação "que reftests perdi" entre dois relatórios —
+  // duas linhas com a mesma chave tornariam essa comparação ambígua sem
+  // falhar em lado nenhum.
+  const nome = relative(pasta, t.teste).split("\\").join("/").replace(/\.(html|xht)$/, "");
+  // O ficheiro PNG achata o nome: a chave leva "/" desde que a varredura
+  // passou a ser recursiva, e `join` com ele criaria subpastas que nao
+  // existem — o raster falharia a escrever e o teste contaria como erro.
+  const plano = nome.split("/").join("__");
+  const a = join(OUT, plano + ".teste.png"), b = join(OUT, plano + ".ref.png");
   if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { erros++; nao_rasterizaram.push(nome); continue; }
   const d = diff(decodePng(readFileSync(a)), decodePng(readFileSync(b)));
   if (d.n === 0) passam++; else { falham++; piores.push({ nome, pct: d.pct, n: d.n, script: t.script }); }
