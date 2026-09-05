@@ -87,6 +87,11 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     if let Some(n) = low.strip_suffix("pc").and_then(num) {
         return Some(Dimension::Px(n * 16.0));
     }
+    // `in`/`cm`/`mm`/`q` — as outras unidades absolutas do CSS (Values §6.2);
+    // ver `unidades_absolutas.rs` para o porquê de viverem num módulo à parte.
+    if let Some(n) = super::unidades_absolutas::parse_absoluta(&low, false) {
+        return Some(Dimension::Px(n));
+    }
     // px explícito ou número puro.
     num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
 }
@@ -355,6 +360,14 @@ pub(crate) fn parse_len(v: &str) -> Option<f32> {
             .ok()
             .filter(|x| *x > 0.0)
             .map(|x| x * 16.0);
+    }
+    // As mesmas quatro unidades absolutas de `parse_dimension` — este parser
+    // serve `border-width`/`border-radius`, e o corpus CSS2.1 usa exatamente
+    // essa propriedade como régua (`border-top: 1in solid black` ao lado de um
+    // `height: 2.54cm`, para comparar as duas). Sem elas a borda caía no
+    // "medium" (3px) por padrão, e a régua media outra coisa que o teste.
+    if let Some(n) = super::unidades_absolutas::parse_absoluta(&low, true) {
+        return Some(n);
     }
     parse_px(&low)
 }
