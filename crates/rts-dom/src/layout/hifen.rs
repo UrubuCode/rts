@@ -51,6 +51,8 @@ fn maior_prefixo_que_cabe(
     mono: bool,
     bold: bool,
     italic: bool,
+    // Ver `inline_box::prefixo_que_cabe`: Ahem mede pelo avanço exato.
+    ahem: bool,
     m: &dyn TextMeasurer,
 ) -> Option<(String, f32, String)> {
     let mut melhor: Option<(String, f32, String)> = None;
@@ -63,7 +65,11 @@ fn maior_prefixo_que_cabe(
             continue;
         }
         prefixo.push('-');
-        let w = m.text_width(&prefixo, font_size, mono, bold, italic);
+        let w = if ahem {
+            prefixo.chars().count() as f32 * font_size
+        } else {
+            m.text_width(&prefixo, font_size, mono, bold, italic)
+        };
         if w <= disp {
             melhor = Some((prefixo, w, texto[i + SHY.len_utf8()..].to_string()));
         } else {
@@ -94,15 +100,16 @@ pub(in crate::layout) fn emitir_com_hifen(
     max_w: &mut dyn FnMut(usize) -> f32,
     font_size: f32,
     mono: bool,
+    ahem: bool,
     m: &dyn TextMeasurer,
 ) -> bool {
     let disp = max_w(lines.len()) - *cur_w;
     if largura_inteira + sep_w <= disp {
         return false;
     }
-    let Some((prefixo, w, resto)) =
-        maior_prefixo_que_cabe(texto, disp - sep_w, font_size, mono, run.bold, run.italic, m)
-    else {
+    let Some((prefixo, w, resto)) = maior_prefixo_que_cabe(
+        texto, disp - sep_w, font_size, mono, run.bold, run.italic, ahem, m,
+    ) else {
         return false;
     };
     // O espaço viaja no texto e `push_segment` decide se vira vão, exactamente
@@ -118,7 +125,11 @@ pub(in crate::layout) fn emitir_com_hifen(
     let mut resto = resto;
     loop {
         let limpo = sem_shy(&resto).into_owned();
-        let w = m.text_width(&limpo, font_size, mono, run.bold, run.italic);
+        let w = if ahem {
+            limpo.chars().count() as f32 * font_size
+        } else {
+            m.text_width(&limpo, font_size, mono, run.bold, run.italic)
+        };
         let disp = max_w(lines.len());
         if w <= disp || !resto.contains(SHY) {
             push_segment(cur, run, &limpo, w, 0.0);
@@ -126,7 +137,7 @@ pub(in crate::layout) fn emitir_com_hifen(
             *at_line_start = false;
             return true;
         }
-        match maior_prefixo_que_cabe(&resto, disp, font_size, mono, run.bold, run.italic, m) {
+        match maior_prefixo_que_cabe(&resto, disp, font_size, mono, run.bold, run.italic, ahem, m) {
             Some((prefixo, w, r)) => {
                 push_segment(cur, run, &prefixo, w, 0.0);
                 lines.push(std::mem::take(cur));

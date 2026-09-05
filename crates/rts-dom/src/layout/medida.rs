@@ -1,109 +1,14 @@
-//! MEDIÇÃO: o `TextMeasurer` e o medidor aproximado do headless, mais as
-//! larguras intrínsecas e as alturas externas que os pré-passos pedem.
+//! As larguras intrínsecas e as alturas externas que os pré-passos pedem.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
+//!
+//! O `TextMeasurer`/`ApproxMeasurer` MUDOU-SE para `medidor_texto.rs` no lote
+//! `medidor-ahem` (este ficheiro já estava no teto de 500 linhas do resto do
+//! workspace e os métodos `_family` novos não cabiam sem passar o teto).
 
 use super::*;
-/// Abstração de MEDIÇÃO de texto (largura/altura de uma string num tamanho/peso).
-/// Vive aqui (no `rts-dom`) e é IMPLEMENTADA pelo backend (o egui mede via galley);
-/// reimplementar largura de glifo no `rts-dom` é a armadilha que o roadmap alertou.
-/// O layout depende SÓ deste trait — continua egui-free e testável com um mock.
-pub trait TextMeasurer {
-    /// Largura em pontos de `text` renderizado em `size` (mono ou proporcional,
-    /// regular ou `bold`). O peso importa: a fonte bold é mais larga — medir regular
-    /// e pintar bold faz o texto estourar a linha (quebra a mais).
-    ///
-    /// `italic` entra pelo mesmo argumento e NÃO porque tenhamos um fator para
-    /// ele: um medidor com fonte de verdade (o do egui, que mede a galley)
-    /// responde a largura real da família itálica, e recusar-lhe o bit seria
-    /// pedir-lhe a largura do texto errado. O `ApproxMeasurer`, que não tem
-    /// fonte, ignora-o e diz porquê na sua implementação.
-    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32;
-    /// Altura de UMA linha em `size` (line-height). Aproximação aceitável: `size *
-    /// fator`; o backend pode dar o valor exato da fonte.
-    fn line_height(&self, size: f32) -> f32;
-
-    /// Ascent da fonte usado para alinhar texto com a baseline de atoms altos, e
-    /// para posicionar `vertical-align: text-top`/`middle` no modelo de baseline
-    /// (`layout::alinhamento_vertical`). `0.90×size`, calibrado contra o Chrome
-    /// — ver `style::ASCENT_RATIO` para a derivação. Backends com métricas
-    /// próprias (o `EguiMeasurer` do `rts-egui`) substituem pela ascent REAL da
-    /// fonte carregada.
-    fn font_ascent(&self, size: f32) -> f32 {
-        size * crate::style::ASCENT_RATIO
-    }
-
-    /// Descent da fonte usado para fechar a line box depois de um inline-block, e
-    /// para `vertical-align: text-bottom`. `0.3125×size` — ver
-    /// `style::DESCENT_RATIO`.
-    fn font_descent(&self, size: f32) -> f32 {
-        size * crate::style::DESCENT_RATIO
-    }
-
-    /// IDENTIDADE deste medidor: dois medidores com a mesma identidade têm de
-    /// dar a mesma largura para o mesmo texto.
-    ///
-    /// Entra na chave de todo cache de layout, porque a mesma árvore no mesmo
-    /// viewport se dispõe diferente com outra fonte. Era o ENDEREÇO do `dyn`
-    /// que servia de identidade — e um medidor construído na pilha por frame
-    /// (o do egui é) pode mudar de endereço sem mudar de comportamento, ou
-    /// reusar o endereço de outro que mudou: as duas falhas em direções
-    /// opostas. O default `0` serve a um medidor sem estado; um backend cujo
-    /// resultado dependa de fonte/escala DEVE derivar disto o que muda.
-    fn identity(&self) -> u64 {
-        0
-    }
-}
-
-/// Medidor APROXIMADO, sem backend — para teste e para o caminho headless puro
-/// (gerar layout sem janela). Largura ≈ `n_chars * size * 0.5` (média de fonte
-/// proporcional latina); altura ≈ `size * 1.3`. Não é exato (o egui dá o real),
-/// mas é determinístico e suficiente para block-flow (onde a largura do texto não
-/// decide a da caixa — a caixa ocupa o container).
-pub struct ApproxMeasurer;
-
-impl TextMeasurer for ApproxMeasurer {
-    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, _italic: bool) -> f32 {
-        // `_italic` é IGNORADO de propósito, e a alternativa rejeitada foi
-        // multiplicar por um fator: um itálico real é mais estreito ou mais
-        // largo conforme a fonte, e não há aqui uma única medição contra o
-        // Chrome que diga qual — ao contrário do 1,06 do bold e do 0,5498 do
-        // mono, que o corpus calibrou. Um fator inventado seria um erro com
-        // aparência de precisão. Quando houver medição, o número vai para
-        // `style::text_metrics` ao lado dos outros.
-        // Os avanços vivem em `style::text_metrics`, com a medição contra o
-        // Chrome que os calibrou — o mono era 0.6 e o Chrome mede 0.5498.
-        let mut per = if mono {
-            crate::style::MONO_ADVANCE
-        } else {
-            crate::style::PROP_ADVANCE
-        };
-        if bold {
-            per *= 1.06; // bold ~6% mais largo.
-        }
-        text.chars().count() as f32 * size * per
-    }
-    fn line_height(&self, size: f32) -> f32 {
-        // 1.125 e não 1.3, e o número é uma APROXIMAÇÃO calibrada, não uma lei:
-        // `line-height: normal` sai das métricas da fonte (ascent + descent +
-        // line gap) e este medidor não tem fonte nenhuma. 1.125 é o que o Chrome
-        // computa para a fonte padrão a 16px (18px), medido pelo corpus de
-        // fixtures — o 1.3 anterior dava 20.8 e aparecia como o desvio mais
-        // repetido do corpus, 43 vezes.
-        //
-        // Um backend COM métricas não usa isto: o `rts-egui` responde
-        // `row_height` da fonte real. Este valor serve o layout headless, onde a
-        // alternativa era não ter resposta nenhuma.
-        //
-        // A constante e a medição que a calibrou vivem em `style::text_metrics`,
-        // porque `normal` é o valor INICIAL de uma propriedade CSS e não uma
-        // preferência do medidor — e porque lá está o arredondamento para cima
-        // que faz 20px dar 23 e 30px dar 34, os inteiros que o Chrome reporta
-        // (sem ele saíam 22,5 e 33,75).
-        crate::style::normal_line_height(size)
-    }
-}
+pub use super::medidor_texto::{ApproxMeasurer, TextMeasurer};
 
 /// Largura NATURAL do conteúdo de um nó (sem `width` explícito): a maior largura
 /// de uma linha de texto entre os descendentes. É o "preferred width" do
@@ -220,7 +125,8 @@ pub(in crate::layout) fn intrinsic_content_width(
         // o mesmo raciocínio do peso vale para o estilo: medir com a família
         // errada muda a largura natural e com ela o sítio onde a linha quebra.
         let italic = italico(css.as_deref(), tag_de(dom, id), false);
-        let width = ctx.measurer.text_width(&own_text, font, mono, bold, italic)
+        let family = css.as_ref().and_then(|c| c.font_family.as_deref());
+        let width = ctx.measurer.text_width_family(&own_text, font, family, mono, bold, italic)
             + crate::style::spacing_width(own_text.chars().count(), ls)
             + ws_extra;
         dom.intrinsic_width_put(key, width);

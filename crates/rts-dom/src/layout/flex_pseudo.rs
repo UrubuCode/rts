@@ -64,7 +64,11 @@ pub(in crate::layout) fn medir(
     let texto = super::segmento::collapse_ws(&caixa.texto, false).into_owned();
     let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
     let bold = css.bold.unwrap_or(false);
-    let tw = if texto.is_empty() { 0.0 } else { ctx.measurer.text_width(&texto, fonte, mono, bold, false) };
+    let tw = if texto.is_empty() {
+        0.0
+    } else {
+        ctx.measurer.text_width_family(&texto, fonte, css.font_family.as_deref(), mono, bold, false)
+    };
     let conteudo_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or(tw);
     let conteudo_h = css.height.and_then(|d| d.resolve(&r)).unwrap_or(if texto.is_empty() {
         0.0
