@@ -19,3 +19,14 @@ claude-cursor-pointer-events.html
 
 # vaga 7 — `claude-img-natural` (medida antes do código) saiu daqui com o lote
 # V-img: o PNG de `data:` chega ao `<img>` pela ponte.
+
+# lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os
+# controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel`
+# (`<select>` sem opções) não — `<select>` não passa por `layout_input`
+# (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`),
+# por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não
+# recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`).
+# Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este
+# lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a
+# sua própria caixa.
+claude-controlos-tamanho-natural.html
