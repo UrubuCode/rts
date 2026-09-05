@@ -91,11 +91,20 @@ pub(crate) fn runtime_archive(embed_compiler: bool) -> Result<PathBuf> {
     if let Ok(path) = std::env::var("RTS_RUNTIME_RWK_ARCHIVE") {
         return Ok(PathBuf::from(path));
     }
-    let file_name = if embed_compiler {
-        "rts_runtime_jit.lib"
+    // O nome do `staticlib` é da PLATAFORMA, não uma constante: cargo escreve
+    // `rts_runtime_jit.lib` no Windows e `librts_runtime_jit.a` em todo o
+    // resto. Estavam aqui as duas strings do Windows, e o erro não aparecia
+    // porque o caminho SEM compilador tem um fallback embutido que respondia
+    // por ele — só `--embed-compiler`, que deliberadamente não tem fallback,
+    // é que ficava sem archive. Desde #2681 esse é o caminho por omissão, e o
+    // CI passou a falhar em Linux e macOS enquanto o Windows continuava verde.
+    let stem = if embed_compiler { "rts_runtime_jit" } else { "rts_runtime" };
+    let file_name = if cfg!(target_os = "windows") {
+        format!("{stem}.lib")
     } else {
-        "rts_runtime.lib"
+        format!("lib{stem}.a")
     };
+    let file_name = file_name.as_str();
     let workspace = std::env::current_dir().unwrap_or_default();
     // The profile the RUNNING `rts` was built under comes first, and it is what
     // this used to have no way of naming: the list was `["release", "debug"]`,
