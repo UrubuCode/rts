@@ -16,9 +16,10 @@
 // referência troca texto por caixas pode falhar por fonte e não por layout;
 // `rel="mismatch"` fica de fora; testes com `<script>` são corridos SEM JS
 // (o rasterizador não tem motor), e é dito na saída quantos são.
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, join } from "node:path";
+import { availableParallelism } from "node:os";
 import { inflateSync } from "node:zlib";
 
 const args = process.argv.slice(2);
@@ -147,8 +148,7 @@ if (FILTRO) console.log(`--filtro ${FILTRO.source}: ${lista.length} de ${testes.
 console.log(`${pasta}: ${html.length} html, ${testes.length} reftests (pares por ${PARES === "sufixo" ? "-expected.html" : "rel=match"}), ${lista.filter((t) => t.script).length} com <script>`);
 
 function rasterizar(htmlPath, png) {
-  try { execFileSync(RASTER, [htmlPath, png], { stdio: ["ignore", "ignore", "pipe"], timeout: 20000 }); return true; }
-  catch { return false; }
+  return new Promise((res) => execFile(RASTER, [htmlPath, png], { timeout: 20000 }, (err) => res(!err)));
 }
 // `nao_rasterizaram` guarda os NOMES: um teste que ENCRAVA (timeout do raster)
 // não entra em `piores`, e uma comparação por nome entre dois relatórios
@@ -162,6 +162,24 @@ function rasterizar(htmlPath, png) {
 // juntos sao a medicao inteira; qualquer um sozinho e uma vista dela.
 let passam = 0, falham = 0, erros = 0; const piores = []; const nao_rasterizaram = []; const resultados = [];
 const paraRepetir = [];
+const guardadas = [];
+// So as PIORES falhas ficam em imagem: ninguem abre 283 pares de PNG, abre-se
+// meia duzia — os que mais divergem.
+const PNG_TOP = Number(opt("png-top", "20"));
+// N rasterizacoes em voo, e nao uma de cada vez. Cada uma custa ~90 ms de
+// trabalho (medido) num processo proprio, portanto o corredor passava quase
+// todo o tempo a espera de um unico CPU de dezasseis. METADE das threads do
+// sistema, com tecto de 8: o timeout do raster mede tempo de RELOGIO, e saturar
+// a maquina empurra testes lentos para la dele — foi assim que uma medicao deu
+// 310 erros em 870. A rede que torna isto seguro e a segunda passagem EM SERIE,
+// que distingue "estava lento" de "encravou".
+const JOBS = Math.max(1, Number(opt("jobs", String(Math.min(8, Math.max(2, Math.floor((availableParallelism?.() ?? 4) / 2)))))));
+async function paraCada(itens, n, fn) {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, itens.length) }, async () => {
+    for (;;) { const k = i++; if (k >= itens.length) return; await fn(itens[k]); }
+  }));
+}
 // Os PNG de um teste que PASSA sao apagados: sao dois ficheiros identicos que
 // ninguem vai abrir, e sao a maioria. Guardados, uma varredura do `css` inteiro
 // (24 104 reftests) deixa ~50 mil imagens — 103 GB numa pasta so, medido em
@@ -173,7 +191,23 @@ function apaga(...paths) {
   for (const f of paths) { try { unlinkSync(f); } catch {} try { unlinkSync(f + ".mask.json"); } catch {} }
 }
 function julga(t, nome, a, b) {
-  const d = diff(decodePng(readFileSync(a)), decodePng(readFileSync(b)));
+  // ATALHO: dois PNG identicos byte a byte sao a mesma imagem, e nao ha nada a
+  // descodificar. E o caso da MAIORIA — um reftest que passa produz exactamente
+  // os mesmos bytes dos dois lados — e `decodePng` custa 23 ms medidos (inflate
+  // mais o filtro Paeth, em JavaScript, a bloquear o thread principal) contra
+  // 0 ms de `Buffer.equals`. Sem isto o comparador era o gargalo do corredor:
+  // 46 ms de JS por teste contra 17 ms de rasterizacao em paralelo.
+  //
+  // So vale como atalho para IGUAIS. Bytes diferentes nao provam pixels
+  // diferentes (o mesmo raster podia comprimir de duas maneiras), por isso o
+  // ramo do else desce ao diff verdadeiro, com a tolerancia por canal.
+  const bytesA = readFileSync(a), bytesB = readFileSync(b);
+  if (bytesA.equals(bytesB)) {
+    passam++; resultados.push({ nome, estado: "passa" });
+    apaga(a, b);
+    return;
+  }
+  const d = diff(decodePng(bytesA), decodePng(bytesB));
   if (d.n === 0) {
     passam++; resultados.push({ nome, estado: "passa" });
     apaga(a, b);
@@ -181,10 +215,10 @@ function julga(t, nome, a, b) {
     falham++;
     piores.push({ nome, pct: d.pct, n: d.n, script: t.script });
     resultados.push({ nome, estado: "falha", pct: d.pct });
-    if (SEM_PNG) apaga(a, b);
+    if (SEM_PNG) apaga(a, b); else guardadas.push({ pct: d.pct, a, b });
   }
 }
-for (const t of lista) {
+await paraCada(lista, JOBS, async (t) => {
   // O nome é RELATIVO à pasta, não o `basename`: com a varredura recursiva
   // dois testes de subpastas diferentes podem partilhar o basename, e o nome
   // é a chave da comparação "que reftests perdi" entre dois relatórios —
@@ -196,9 +230,10 @@ for (const t of lista) {
   // existem — o raster falharia a escrever e o teste contaria como erro.
   const plano = nome.split("/").join("__");
   const a = join(OUT, plano + ".teste.png"), b = join(OUT, plano + ".ref.png");
-  if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { paraRepetir.push({ t, nome, a, b }); continue; }
+  const [okA, okB] = await Promise.all([rasterizar(t.teste, a), rasterizar(t.ref, b)]);
+  if (!okA || !okB) { paraRepetir.push({ t, nome, a, b }); return; }
   julga(t, nome, a, b);
-}
+});
 
 // Segunda passagem, EM SERIE e ja sem o resto da varredura a competir. O
 // timeout do raster mede tempo de RELOGIO, portanto uma maquina ocupada empurra
@@ -210,12 +245,18 @@ for (const t of lista) {
 if (paraRepetir.length > 0) {
   console.log(`\n${paraRepetir.length} nao rasterizaram a primeira vez — a repetir em serie`);
   for (const { t, nome, a, b } of paraRepetir) {
-    if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) {
+    const okA = await rasterizar(t.teste, a), okB = await rasterizar(t.ref, b);
+    if (!okA || !okB) {
       erros++; nao_rasterizaram.push(nome); resultados.push({ nome, estado: "erro" });
     } else julga(t, nome, a, b);
   }
 }
 piores.sort((x, y) => y.pct - x.pct);
+if (!SEM_PNG) {
+  guardadas.sort((x, y) => y.pct - x.pct);
+  for (const g of guardadas.slice(PNG_TOP)) apaga(g.a, g.b);
+  if (guardadas.length > PNG_TOP) console.log(`imagens: as ${PNG_TOP} piores de ${guardadas.length} falhas (--png-top N para mais, --sem-png para nenhuma)`);
+}
 const total = passam + falham + erros;
 console.log(`\nWPT reftests — ${passam}/${total} passam (${((passam / Math.max(total, 1)) * 100).toFixed(1)}%), ${falham} falham, ${erros} não rasterizaram; tolerância ${TOL}/255 por canal`);
 console.log(`\nos 15 piores:`);
