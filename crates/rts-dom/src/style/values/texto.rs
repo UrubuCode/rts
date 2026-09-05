@@ -115,21 +115,47 @@ impl LineHeight {
 /// É a forma como uma página real esconde um menu que abre ao clicar (o
 /// MediaWiki fá-lo com `visibility:hidden;opacity:0;height:0`), e sem a
 /// suportar o menu aparecia aberto por cima do artigo.
+///
+/// `Collapse` é uma variante SEPARADA de `Hidden` só para que
+/// `getComputedStyle` responda `"collapse"` em vez de `"hidden"`. CSS2 §11.2
+/// diz que fora de tabelas o valor USADO é `hidden` — o efeito de LAYOUT é o
+/// mesmo (nenhum: a caixa continua a ocupar espaço, só não pinta). Dentro de
+/// um item flex, CSS Flexbox §algo-visibility pede mais do que isso: o item
+/// colapsado sairia do eixo principal, do wrap e dos dois `gap`, deixando um
+/// "strut" de cross-size. NÃO implementado aqui, de propósito: as três
+/// fixtures deste lote (`claude-flex-visibility-collapse`,
+/// `claude-visibility-collapse-flex-gap`, `claude-visibility-collapse-flex-
+/// wrap`) foram medidas no Edge 152 e reconfirmadas num Chrome 152 real via
+/// `chrome-devtools` (2026-09-04) — nos três casos o item colapsado continua
+/// a ocupar a largura cheia no eixo principal, a contar para o wrap e a
+/// manter os dois `gap`, INCLUSIVE no próprio reftest oficial do WPT
+/// (`gap-collapse.html`), medido do mesmo jeito e que também não fecha nesse
+/// Chrome. A régua deste crate é o Chrome (PLAN.md §1), não o texto da spec:
+/// implementar §algo-visibility divergiria da régua medida sem nenhuma
+/// fixture a pedi-lo.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Visibility {
     Visible,
     Hidden,
+    Collapse,
 }
 
 impl Visibility {
     pub fn parse(v: &str) -> Option<Visibility> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "visible" => Visibility::Visible,
-            // `collapse` só difere de `hidden` em tabelas, que este motor ainda
-            // não trata como tais — tratá-lo como `hidden` é a aproximação certa.
-            "hidden" | "collapse" => Visibility::Hidden,
+            "hidden" => Visibility::Hidden,
+            "collapse" => Visibility::Collapse,
             _ => return None,
         })
+    }
+
+    /// Se este valor USADO suprime a pintura (fundo, borda, texto, sombra) —
+    /// `Hidden` e `Collapse` têm o mesmo efeito fora de tabelas (CSS2 §11.2).
+    /// Um sítio só para os dois call-sites de layout perguntarem
+    /// (`bloco.rs`, `pintura.rs`), em vez de repetir o `matches!` nos dois.
+    pub fn suppresses_paint(&self) -> bool {
+        matches!(self, Visibility::Hidden | Visibility::Collapse)
     }
 }
 

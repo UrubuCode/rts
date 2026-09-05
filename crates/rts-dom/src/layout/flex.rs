@@ -187,16 +187,21 @@ pub(in crate::layout) fn layout_children_horizontal(
         // mais simples que condicionar por `grid_cols` (que ignora este piso).
         let min_main = crate::table::min_content(dom, child, font_size, ctx);
         let (max_main, min_declarado) =
-            super::flex_limites::limites_do_item(&ccss, content_w, font_size, ctx);
+            super::flex_limites::limites_do_item(dom, child, &ccss, content_w, font_size, ctx);
         let min_main = super::flex_limites::min_automatico(
             dom, child, min_main, &ccss, content_w, font_size, ctx,
         );
         let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
-        // A base fica capada só pelo tecto e o `min-width` DECLARADO — o piso
-        // automático de min-content entra depois do grow/shrink (§4.5/§9.7).
-        let base = base
-            .min(max_main.unwrap_or(f32::INFINITY))
-            .max(min_declarado.unwrap_or(0.0));
+        // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
+        // base size" entra INTACTO na soma que decide o défice/sobra da
+        // linha) — só a "hypothetical main size" (passo 4, `flex_limites::
+        // com_limites_finais`, aplicada a todo item mais abaixo) e o
+        // congelamento do encolhimento (§9.7, no laço) respeitam min/max.
+        // Capar aqui subtraía do orçamento dos OUTROS itens antes de tempo:
+        // `#capado{max-width:100px}` com conteúdo 300 saía a 75 (a sua base
+        // já chegava cortada a 100 e ainda cedia ao défice) em vez de
+        // congelar em 100 e devolver o resto a `#livre`
+        // (`claude-flex-base-size-max-width`).
         let auto = |s: crate::style::Side| s == crate::style::Side::Auto;
         items.push(FlexItem {
             node: child,
@@ -246,17 +251,24 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
     }
 
-    // agrupa em LINHAS pela BASE (o wrap decide pelas bases; grow/shrink POR linha).
+    // agrupa em LINHAS pelo HYPOTHETICAL main size (Flexbox §9.3: soma-se a
+    // base já grampeada por min/max, não a base nua) — `it.base` continua
+    // intacta no item (o orçamento de grow/shrink de cada linha, abaixo,
+    // ainda parte da base pura, Flexbox §9.2 passo 3). Sem isto, um
+    // `flex:1` (`flex-basis:0%`) com `min-width` declarado tinha base=0 e
+    // dois itens que deviam quebrar (100+100 > 150 pelo seu PISO) cabiam
+    // juntos na mesma linha (`claude-flex-wrap-quebra-com-min-width`).
     let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
     let mut line_w = 0.0f32;
     for it in items {
+        let hyp = super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols);
         let cur = lines.last_mut().unwrap();
         let with_gap = if cur.is_empty() { 0.0 } else { gap };
-        if wrap && !cur.is_empty() && line_w + with_gap + it.base > content_w {
+        if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
             lines.push(Vec::new());
-            line_w = it.base;
+            line_w = hyp;
         } else {
-            line_w += with_gap + it.base;
+            line_w += with_gap + hyp;
         }
         lines.last_mut().unwrap().push(it);
     }
@@ -269,35 +281,32 @@ pub(in crate::layout) fn layout_children_horizontal(
     // linha muda por causa da largura só quando o encolhimento força quebra de
     // texto, um efeito de segunda ordem que esta aproximação aceita — refinar
     // exigiria resolver todas as linhas duas vezes.
-    let mut line_align_leading = 0.0f32;
-    let mut line_align_between = 0.0f32;
     // `normal` (não declarado) comporta-se como `stretch` no eixo CRUZADO
     // (CSS Box Alignment 3 §8.3) — cada linha cresce a sua fatia do espaço
     // livre, em vez de só abrir espaçamento como o `justify_offsets` acima
     // faz para um valor declarado. Achado ao medir `claude-gap-row-percentual-eixo`:
     // a leitura ingénua (só empacotar) dava #a2 em y=60; o Blink dá 110.
-    let mut line_stretch_extra = 0.0f32;
-    if wrap && lines.len() > 1 && container_cross_h > 0.0 {
-        let estimativa: f32 = lines
-            .iter()
-            .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
-            .sum::<f32>()
-            + (lines.len().saturating_sub(1)) as f32 * row_gap;
-        let free = (container_cross_h - estimativa).max(0.0);
-        match css.align_content {
-            Some(v) => {
-                let (leading, between) =
-                    crate::layout::coluna::justify_offsets(v, free, lines.len());
-                line_align_leading = leading;
-                line_align_between = between;
-            }
-            None => {
-                line_stretch_extra = free / lines.len() as f32;
-            }
-        }
-    }
+    // O grampo a `≥0` e o `align-content` negativo (linhas em overflow) são
+    // de `flex_linhas::distribuir_align_content` — ver o porquê lá.
+    let (line_align_leading, line_align_between, line_stretch_extra) =
+        if wrap && lines.len() > 1 && container_cross_h > 0.0 {
+            let estimativa: f32 = lines
+                .iter()
+                .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
+                .sum::<f32>()
+                + (lines.len().saturating_sub(1)) as f32 * row_gap;
+            super::flex_linhas::distribuir_align_content(
+                css.align_content,
+                container_cross_h,
+                estimativa,
+                lines.len(),
+            )
+        } else {
+            (0.0, 0.0, 0.0)
+        };
 
     // ── RESOLVE + POSICIONA por linha: grow/shrink (main), justify, align ────────
+    let n_lines = lines.len();
     let mut line_y = content_y + line_align_leading;
     for line in &mut lines {
         if line.is_empty() {
@@ -306,78 +315,14 @@ pub(in crate::layout) fn layout_children_horizontal(
         let n = line.len();
         let total_gap = (n.saturating_sub(1)) as f32 * gap;
 
-        // GROW/SHRINK (spec flexbox §9.7 simplificada): espaço livre positivo
-        // distribui ∝ flex-grow (o `.col { flex:1 0 0% }` divide igual); negativo
-        // encolhe ∝ shrink × base (itens maiores cedem mais), clamp ≥ 0.
-        let sum_base: f32 = line.iter().map(|it| it.base).sum();
-        let free_pre = content_w - sum_base - total_gap;
-        let sum_grow: f32 = line.iter().map(|it| it.grow).sum();
-        if free_pre > 0.0 && sum_grow > 0.0 {
-            for it in line.iter_mut() {
-                it.main = it.base + free_pre * it.grow / sum_grow;
-                // clamp pelo `max-width` (spec §9.7 passo 4, sem a redistribuição
-                // do excedente pelos outros — corte dito; o Bootstrap não a pede).
-                if let Some(m) = it.max_main {
-                    it.main = it.main.min(m);
-                }
-            }
-        } else if free_pre < 0.0 {
-            // ENCOLHIMENTO com PISO de `min-content` (spec §9.7): a cada
-            // iteração repartimos o défice pelos itens ainda LIVRES
-            // (`shrink*base` ponderado); um item que bateria abaixo do seu
-            // `min_main` congela nele e sai da repartição — o défice que ele
-            // não absorveu volta para os itens que sobraram, na iteração
-            // seguinte. Sem isto um item de texto longo encolhia até
-            // sobrepor-se ao próprio conteúdo (achado da auditoria de
-            // 2026-09-04, `04-layout.md` finding 6).
-            let n = line.len();
-            let mut frozen = vec![false; n];
-            let mut deficit = free_pre; // negativo
-            loop {
-                let weighted: f32 = line
-                    .iter()
-                    .zip(&frozen)
-                    .filter(|&(_, f)| !f)
-                    .map(|(it, _)| it.shrink * it.base)
-                    .sum();
-                if weighted <= 0.0 || deficit >= -0.01 {
-                    break;
-                }
-                let mut novo_congelado = false;
-                for (it, f) in line.iter_mut().zip(frozen.iter_mut()) {
-                    if *f {
-                        continue;
-                    }
-                    let proposto = it.base + deficit * (it.shrink * it.base) / weighted;
-                    if proposto <= it.min_main {
-                        it.main = it.min_main;
-                        *f = true;
-                        novo_congelado = true;
-                    } else {
-                        it.main = proposto;
-                    }
-                }
-                if !novo_congelado {
-                    break; // convergiu sem ninguém bater no piso: acabou.
-                }
-                // défice restante = o que os itens NÃO congelados ainda devem
-                // absorver — a soma dos `main` correntes contra as bases.
-                deficit = line
-                    .iter()
-                    .zip(&frozen)
-                    .filter(|&(_, f)| !f)
-                    .map(|(it, _)| it.main - it.base)
-                    .sum::<f32>()
-                    .min(0.0);
-                if deficit >= -0.01 {
-                    break;
-                }
-            }
-        }
+        // GROW/SHRINK (spec flexbox §9.7): espaço livre positivo distribui ∝
+        // flex-grow; negativo encolhe ∝ shrink×base, com PISO e TECTO —
+        // extraído para `flex_limites.rs` (no tecto de 500 linhas aqui).
+        super::flex_limites::resolve_grow_encolhe(line, content_w, total_gap);
         // re-mede a ALTURA com o main final (mais largura → menos linhas de texto);
         // só quando o main mudou (senão a medição do pré-pass vale).
         for it in line.iter_mut() {
-            it.main = super::flex_limites::com_piso_minimo(it.main, it.min_main, grid_cols);
+            it.main = super::flex_limites::com_limites_finais(it.main, it.min_main, it.max_main, grid_cols);
             if !it.is_text && it.pseudo.is_none() && (it.main - it.base).abs() > 0.5 {
                 let (_, h) = measure_block(
                     dom,
@@ -394,14 +339,13 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
 
         // Cross-size da linha = max dos itens; com `height` explícito e linha
-        // única é o content do contentor (Chrome). Em wrap cada linha usa o seu
-        // max (repartir o height entre linhas — corte documentado).
+        // ÚNICA (com ou sem `wrap`) é o content do contentor, MESMO em
+        // overflow — `flex_linhas::cross_unica_linha` (ver o porquê lá).
+        // Com mais de uma linha, cada uma usa o seu max + o que o
+        // `align-content` (acima) tiver esticado.
         let items_h = line.iter().fold(0.0f32, |a, it| a.max(it.h));
-        let line_h = if !wrap && container_cross_h > items_h {
-            container_cross_h
-        } else {
-            items_h + line_stretch_extra // 0.0 fora de wrap/multi-linha: no-op.
-        };
+        let line_h = super::flex_linhas::cross_unica_linha(n_lines, container_cross_h)
+            .unwrap_or(items_h + line_stretch_extra);
 
         // justify-content sobre o espaço restante PÓS-grow (com grow>0 o free é 0
         // e o justify é neutro — correto). Em overflow, ver justify_offsets.

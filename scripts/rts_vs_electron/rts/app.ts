@@ -29,12 +29,19 @@ if (html === undefined || html.length === 0) {
   const doc = parseDocument(html);
   const loaded = loadResources(doc, path);
   console.log("recursos externos carregados: " + loaded);
-  // Sem isto os <script> da página (o bundle React e o código da app) nunca
-  // corriam: `loadResources` só materializa o texto/CSS, a EXECUÇÃO é
-  // `runScriptsAt` (ver `crates/rts-dom/src/dom.ts`). O comparativo abria a
-  // janela e pintava HTML/CSS estático com a árvore React inteira por montar.
-  const rodaram = runScriptsAt(doc, "https://" + path);
-  console.log("scripts da página corridos: " + rodaram);
+  // `runScriptsAt` compila e corre cada <script> da página EM RUNTIME (new
+  // Function -> pipeline swc->HIR->JIT, DomScope.run em
+  // crates/rts-dom-bridge/src/scope.rs) — e o binário AOT não leva esse
+  // compilador consigo (`rts compile` só gera código nativo para o que o
+  // PRÓPRIO app.ts referencia estaticamente, não para texto que só aparece
+  // como conteúdo de um <script> lido de um HTML). Chamamos na mesma, e não
+  // saltamos o <script> da página, por duas razões: o `.exe` fica igual ao
+  // lado JIT (examples/claude-react-janela.ts, que chama a mesma função) em
+  // vez de divergir por omissão, e o erro real aparece no stderr medido —
+  // hoje cada <script> falha com "a fonte não compilou" e a janela fica em
+  // branco para ESTA app (o HTML/CSS estático continua a pintar, ver
+  // README.md deste diretório).
+  console.log("scripts da pagina corridos: " + runScriptsAt(doc, "https://localhost/"));
   const win = egui.openWindow("RTS vs Electron", 1100, 750, 0);
   while (egui.isOpen(win)) {
     if (!egui.pump(win)) break;

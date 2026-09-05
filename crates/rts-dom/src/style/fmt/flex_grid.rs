@@ -68,6 +68,7 @@ impl ComputedStyle {
             "column-gap" => self.gap.map(fmt_dim).unwrap_or_default(),
             "visibility" => match self.visibility {
                 Some(crate::style::values::Visibility::Hidden) => "hidden".into(),
+                Some(crate::style::values::Visibility::Collapse) => "collapse".into(),
                 Some(crate::style::values::Visibility::Visible) => "visible".into(),
                 None => String::new(),
             },
@@ -81,10 +82,14 @@ impl ComputedStyle {
                 })
                 .map(|s| s.to_string())
                 .unwrap_or_default(),
-            "flex-wrap" => match self.flex_wrap {
-                Some(true) => "wrap".into(),
-                Some(false) => "nowrap".into(),
-                None => String::new(),
+            // `wrap-reverse` é `flex_wrap=true` COM `flex_wrap_reverse=true` — a
+            // ordem importa: só reporta "wrap-reverse" quando o bit de direção
+            // também está ligado, senão é "wrap" simples.
+            "flex-wrap" => match (self.flex_wrap, self.flex_wrap_reverse) {
+                (Some(true), Some(true)) => "wrap-reverse".into(),
+                (Some(true), _) => "wrap".into(),
+                (Some(false), _) => "nowrap".into(),
+                (None, _) => String::new(),
             },
             // As trilhas de grid: o browser reporta os tamanhos JÁ RESOLVIDOS em
             // px (`repeat(3, 1fr)` num container de 450px sai `150px 150px

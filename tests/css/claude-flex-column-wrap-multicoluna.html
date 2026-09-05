@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa: flex-direction:column + flex-wrap:wrap deve criar VÁRIAS COLUNAS
+     lado a lado quando a altura explícita do contentor não chega para
+     todos os itens numa coluna só (CSS Flexbox §5.2, simétrico ao
+     row-wrap mas no eixo ortogonal). layout_children_column (coluna.rs)
+     não tem lógica de wrap nenhuma — empilha tudo numa coluna, mesmo
+     transbordando. Contentor altura=160, 4 itens de 80px cada (2 cabem por
+     coluna). Verificado contra o binário atual: os 4 itens hoje saem
+     empilhados em y=0/80/160/240 (uma coluna só, transborda) em vez de 2
+     colunas de 2. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="i1,i2,i3,i4">
+<meta name="fixar-estilo" content="flex-direction,flex-wrap">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .c { display: flex; flex-direction: column; flex-wrap: wrap; height: 160px; }
+  .c > div { width: 100px; height: 80px; }
+</style></head>
+<body>
+<div class="c"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
+</body></html>

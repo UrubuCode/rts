@@ -497,10 +497,11 @@ pub(crate) fn layout_block(
                 // (default), o `width` JÁ é o content.
                 Some(w) if border_box => (w - (padding_h + border_h)).max(0.0),
                 Some(w) => w,
-                // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
-                // senão (fluxo block normal) → ocupa a largura disponível.
-                None if shrink_to_fit => content_natural_width(dom, id, font_for_content, ctx)
-                    .min((avail_w - frame).max(0.0)),
+                // Shrink-to-fit com o piso que faltava — extraído para não
+                // crescer este ficheiro (CSS2 §10.3.5, `flex_limites.rs`).
+                None if shrink_to_fit => super::flex_limites::largura_shrink_to_fit(
+                    dom, id, (avail_w - frame).max(0.0), frame, font_for_content, ctx,
+                ),
                 None => (avail_w - frame).max(0.0),
             }
         };
@@ -532,7 +533,11 @@ pub(crate) fn layout_block(
     let has_width = css.width.is_some() || css.max_width.is_some();
     if has_width {
         let box_outer = content_w + padding_h + border_h; // sem a margin
-        let free = (avail_w - box_outer).max(0.0);
+        // COM SINAL (não `.max(0.0)`): o ramo `direction:rtl` de
+        // `rtl_bloco::margin_left_usado` precisa do valor negativo quando o
+        // filho é mais largo do que o disponível — ver o módulo.
+        let free_com_sinal = avail_w - box_outer;
+        let free = free_com_sinal.max(0.0);
         match (m.left.is_auto(), m.right.is_auto()) {
             (true, true) => {
                 margin_left = free / 2.0;
@@ -540,7 +545,10 @@ pub(crate) fn layout_block(
             }
             (true, false) => margin_left = (free - margin_right).max(0.0),
             (false, true) => margin_right = (free - margin_left).max(0.0),
-            (false, false) => {}
+            (false, false) => {
+                margin_left =
+                    super::rtl_bloco::margin_left_usado(dom, id, margin_left, margin_right, free_com_sinal);
+            }
         }
     }
 
@@ -694,6 +702,24 @@ pub(crate) fn layout_block(
     // e `#neto h=0` (`claude-flex-definite-min-height`) — o `avail_children`
     // nunca incluía `mnh_pre`, calculado três linhas acima e descartado.
     let avail_children = explicit_content_h.or(mxh_pre).or(mnh_pre);
+    // O limiar de QUEBRA do `flex-wrap` numa coluna é uma pergunta MAIS
+    // ESTREITA do que `avail_children`: precisa de um main size que o
+    // CONTEÚDO não vai alargar — `height`/`max-height` são isso (um deles
+    // sendo o "genuinamente definido" que `avail_children` já mistura para
+    // %/stretch dos filhos); `min-height` NÃO é — é só um PISO, o container
+    // cresce à vontade acima dele, e é exatamente o que o "conteúdo" de uma
+    // coluna com wrap está livre para fazer. Achado do lote
+    // `flex-column-wrap` (merge com `flex-justify-logico`, régua central):
+    // `.item{min-height:0}` sendo ele próprio `display:flex;flex-direction:
+    // column;flex-wrap:wrap` (WPT `flexbox-flex-basis-content-004a/b`, o
+    // `innerFlex` com `flex-wrap:wrap` inline) fazia `avail_children` valer
+    // `Some(0.0)` — um limiar de wrap DEGENERADO onde o 2.º item de
+    // QUALQUER coluna já não cabe, abrindo uma coluna nova por item (3 itens
+    // ficavam 3 colunas de 1, lado a lado, em vez de uma pilha vertical de
+    // 3). `layout_children_column`/`coluna_wrap.rs` continuam a receber
+    // `avail_children` para tudo o resto (gap%, `height:%` dos netos,
+    // grow/shrink) — só o DESPACHO do wrap lê este valor mais estreito.
+    let wrap_definite_h = explicit_content_h.or(mxh_pre);
 
     // Novo BFC (fresco, vazio) só se `id` o estabelece — senão os filhos
     // recebem a mesma referência ambiente, e um float lá dentro alcança os
@@ -722,7 +748,9 @@ pub(crate) fn layout_block(
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let content_h = match display {
-        // flex column (com ou sem wrap — multi-coluna do wrap é corte documentado).
+        // flex column: sem wrap empilha numa coluna; COM wrap (e altura
+        // definida) `layout_children_column` delega para `coluna_wrap.rs` —
+        // ver o comentário no parâmetro `wrap` lá.
         _ if is_flex && is_column => layout_children_column(
             dom,
             id,
@@ -733,6 +761,8 @@ pub(crate) fn layout_block(
             &css,
             font_size,
             is_reverse,
+            display == crate::block::DISPLAY_WRAP,
+            wrap_definite_h,
             ctx,
             list,
         ),
@@ -918,11 +948,12 @@ pub(crate) fn layout_block(
         let cantos = Corners::from_style(&css, 0.0);
         // `opacity` do elemento: multiplica o ALPHA das cores próprias (fundo/borda).
         // Cobre o caso comum (card/botão/overlay com fade) sem grupo de compositing.
-        // `visibility:hidden` zera o alpha de tudo o que ESTE elemento pinta. Não
+        // `visibility:hidden`/`collapse` zera o alpha de tudo o que ESTE
+        // elemento pinta (`suppresses_paint`, style/values/texto.rs). Não
         // salta o layout: o elemento continua a ocupar o espaço dele, que é
         // exatamente o que o distingue de `display:none` — e como a propriedade
         // é herdada, os descendentes chegam aqui já com ela.
-        let op = if css.visibility == Some(crate::style::values::Visibility::Hidden) {
+        let op = if css.visibility.is_some_and(|v| v.suppresses_paint()) {
             0.0
         } else {
             css.opacity.unwrap_or(1.0)

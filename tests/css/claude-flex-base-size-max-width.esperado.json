@@ -1,0 +1,91 @@
+{
+ "fixture": "claude-flex-base-size-max-width.html",
+ "regua": "Edge 152 headless (Blink) por CDP, num iframe de 1280x800",
+ "viewport": [
+  1280,
+  800
+ ],
+ "medido_em": "2026-09-04",
+ "elementos": {
+  "capado": {
+   "rect": [
+    0,
+    0,
+    100,
+    40
+   ],
+   "estilo": {
+    "display": "block",
+    "position": "static",
+    "color": "rgb(0, 0, 0)",
+    "background-color": "rgb(0, 204, 0)",
+    "opacity": "1",
+    "visibility": "visible",
+    "z-index": "auto",
+    "font-size": "16px",
+    "line-height": "20px",
+    "text-align": "start",
+    "white-space": "normal",
+    "letter-spacing": "normal",
+    "overflow": "visible",
+    "box-sizing": "content-box",
+    "float": "none",
+    "clear": "none",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "justify-content": "normal",
+    "align-items": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "gap": "normal",
+    "font-weight": "400",
+    "padding-top": "0px",
+    "padding-left": "0px",
+    "margin-top": "0px",
+    "margin-bottom": "0px",
+    "border-spacing": "0px",
+    "width": "100px"
+   }
+  },
+  "livre": {
+   "rect": [
+    100,
+    0,
+    200,
+    40
+   ],
+   "estilo": {
+    "display": "block",
+    "position": "static",
+    "color": "rgb(0, 0, 0)",
+    "background-color": "rgb(0, 102, 204)",
+    "opacity": "1",
+    "visibility": "visible",
+    "z-index": "auto",
+    "font-size": "16px",
+    "line-height": "20px",
+    "text-align": "start",
+    "white-space": "normal",
+    "letter-spacing": "normal",
+    "overflow": "visible",
+    "box-sizing": "content-box",
+    "float": "none",
+    "clear": "none",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "justify-content": "normal",
+    "align-items": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "gap": "normal",
+    "font-weight": "400",
+    "padding-top": "0px",
+    "padding-left": "0px",
+    "margin-top": "0px",
+    "margin-bottom": "0px",
+    "border-spacing": "0px",
+    "width": "200px"
+   }
+  }
+ }
+}
