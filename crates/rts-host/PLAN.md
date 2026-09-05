@@ -74,6 +74,30 @@ closures are `rts-codegen` phases, and each arrives here as more programs that
 run. The exception is calls between compiled functions, which needs more than
 one function placed — the batch interface already takes a list for this reason.
 
+## H5 — `.html` as an entry, in `rts-cli`. DONE
+
+Not a phase of this crate's own object-emission work — `object::page`/
+`object::html_scripts` (H2) are unchanged — but the line this PLAN's own
+table asks for. `rts compile pagina.html`/`rts run pagina.html` need no
+`.ts` file: `rts-cli`'s `cli::html_entry` writes the `app.ts` window loop as
+generated TypeScript source and hands it to the SAME `compile`/`run` path an
+ordinary `.ts` entry takes, so this crate sees one more string of source —
+never a second entry point, which is exactly what the section above refuses.
+`docs/engine/aot-page-scripts.md` has the shell's shape and the one thing
+that differs between the two commands (HTML embedded as a build-time literal
+for `compile`, read from disk at run time for `run`).
+
+Measured at close (2026-09-05, release): `rts compile
+scripts/rts_vs_electron/app/index.html ReactApp` — 3 page `<script>`s
+precompiled, a 39.8 MB `.exe` that opens the window under the page's own
+`<title>` and logs `scripts da pagina corridos: 3`; `tests/aot/claude-pagina-entrada.html`
+compiles and runs (1 script) and `rts run` opens it in JIT; `cargo test
+--release -p rts-cli --test html_entry`: 5 passed. One fix at close, found by
+that measurement and not by the small fixture: an `.html` entry never compiles
+as a graph — the embedded bundle's own text carries `require(`/`import(` and
+fooled the textual import scan into reading the `.html` off disk as
+TypeScript (`c079c7ba3`).
+
 ## What is deliberately not planned
 
 **A second way to run.** One `compile`, and the object-file path when it comes
