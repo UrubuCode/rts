@@ -307,6 +307,11 @@ pub(in crate::layout) fn layout_children_column(
             // `claude-flex-column-rtl-cross-start` (WPT `flexbox_rtl-direction`).
             let stretch = align == crate::style::AlignItems::Stretch;
             let ccss = dom.computed_style_idx(it.node).unwrap_or_default();
+            // Um `<img>` não enche `avail_w` sozinho — precisa do stretch
+            // como `forced_outer_w` explícito (`flex-svg-no-intrinsic-
+            // column-001`, WPT); `<table>`/`<input>` ficam de fora.
+            let e_img = matches!(&dom.node(it.node).kind, NodeKind::Element { tag } if tag == "img");
+            let forced_w = (stretch && ccss.width.is_none() && e_img).then_some(content_w);
             let child_x = if stretch && ccss.width.is_none() {
                 super::coluna_rtl::cross_x(
                     css.direction,
@@ -360,7 +365,7 @@ pub(in crate::layout) fn layout_children_column(
                 content_w,
                 avail,
                 || (0.0, 0.0),
-                None,
+                forced_w,
                 forced_h,
                 true, // hard: o main size de coluna sempre vence o height próprio.
                 !stretch,
