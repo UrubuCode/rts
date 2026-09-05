@@ -80,10 +80,13 @@ pub(in crate::layout) fn layout_children_column(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    // Em column, o espaço entre itens no eixo principal é o ROW-gap; o shorthand
-    // `gap: X` seta os dois, então row_gap cobre o caso comum. (Fallback ao `gap`
-    // — column-gap — só quando row_gap não veio, cobrindo `column-gap` usado
-    // "errado" sem quebrar o shorthand.)
+    // Em column, o espaço entre itens no eixo principal é SÓ o ROW-gap: uma
+    // coluna de uma linha só não tem "colunas" para o `column-gap` espaçar
+    // (Box Alignment §8; WPT `flexbox-column-row-gap-004`). Havia um
+    // `.or(css.gap)` aqui — herdado do `layout.rs` pré-modularização, sem
+    // corpus nem teste a exercitá-lo — que lia `column-gap` sozinho como
+    // substituto de um `row-gap` em falta; o shorthand `gap: X` não precisa
+    // dele, porque já escreve OS DOIS campos no parse.
     //
     // `resolve_height`, não `Dimension::resolve`: `row-gap` é sempre o eixo de
     // BLOCO (aqui, o próprio eixo principal), então uma percentagem resolve
@@ -91,7 +94,7 @@ pub(in crate::layout) fn layout_children_column(
     // quando essa altura é indefinida (CSS Align 3 §column-row-gap,
     // github.com/w3c/csswg-drafts/issues/5081). Lote `flex-coluna-shrink`:
     // media 10%×64(largura)=6,4 onde a conta é 10%×200(altura)=20.
-    let main_gap = resolve_height(css.row_gap.or(css.gap), container_content_h, &resolve)
+    let main_gap = resolve_height(css.row_gap, container_content_h, &resolve)
         .unwrap_or(0.0)
         .max(0.0);
     // `column-reverse`: mesmo espelho de `flex.rs` — o main-start visual é o
