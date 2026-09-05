@@ -65,12 +65,23 @@ use crate::syntax::{
 /// `vm.runInThisContext`, which shares the real one and so shares what is on
 /// it. See `globals::NODE_ONLY`'s own doc for what this closes and what it
 /// does not.
+///
+/// Answers what this script PUBLISHES beside the compiled program — the same
+/// set [`super::sloppy::created`] found while building `chain`, handed back
+/// rather than dropped. A JIT run never needs it: the next `<script>` learns
+/// what this one left by reading `rts_core::entry::environment_names` off the
+/// object it actually wrote to, after this one has RUN. An AOT compiler has no
+/// such moment — nothing runs before every script is placed — so `rts-host`'s
+/// page-script batch compiler chains this return straight into the next
+/// call's `enclosing`, growing the same list a JIT run would have discovered
+/// one execution at a time. Named rather than re-derived, because re-deriving
+/// it from `chain` afterwards would mean subtracting `enclosing` back out.
 pub fn emit_page_program(
     body: &[Stmt],
     enclosing: &[(Name, u32)],
     hide_node_globals: bool,
     ctx: &mut Ctx,
-) -> EmitResult<Program> {
+) -> EmitResult<(Program, BTreeSet<Name>)> {
     let mut published = BTreeSet::new();
     let mut hoisted = Vec::new();
     let mut statements = Vec::new();
@@ -142,7 +153,8 @@ pub fn emit_page_program(
 
     ctx.hide_node_globals = hide_node_globals;
     let scope = Scope::for_function(None, BTreeSet::new(), &BTreeSet::new(), &chain);
-    emit_program_into(&body, &[], None, &[], &scope, ctx)
+    let program = emit_program_into(&body, &[], None, &[], &scope, ctx)?;
+    Ok((program, published))
 }
 
 /// Turns one top-level statement into what it means for script code.
