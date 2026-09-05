@@ -403,10 +403,16 @@ jobs:
           # tem 870. `fonts` entra porque 5 487 testes do WPT usam a Ahem.
           git -C "$RUNNER_TEMP/wpt" sparse-checkout set css resources fonts
           git -C "$RUNNER_TEMP/wpt" checkout -q "$WPT_SHA"
-          # `--esperado` recusa medir um corpus que mudou de tamanho: uma
-          # medição contra um checkout encolhido não falha, devolve um número
-          # mais pequeno com ar de número.
-          node scripts/wpt_reftests.mjs "$RUNNER_TEMP/wpt/css/css-flexbox" --esperado 870 --out "$RUNNER_TEMP/wpt-out" | tee wpt.txt
+          # SEM `--esperado`, e a razão é o que essa guarda protege. Ela existe
+          # para a árvore PARTILHADA de uma máquina de trabalho, onde um
+          # `sparse-checkout` de outra pessoa encolhe o corpus a meio de uma
+          # medição. Aqui o checkout é criado do zero a cada corrida e fixado
+          # num commit, portanto não há nada que o encolha — e um número fixo
+          # no workflow passaria a ser uma segunda fonte da verdade sobre o
+          # tamanho do corpus, que envelhece no dia em que `WPT_SHA` subir.
+          # O total medido vai para `wpt_report.json` e para o README, que é
+          # onde uma queda de denominador se vê.
+          node scripts/wpt_reftests.mjs "$RUNNER_TEMP/wpt/css/css-flexbox" --out "$RUNNER_TEMP/wpt-out" | tee wpt.txt
           { echo "### WPT reftests (css-flexbox @ ${WPT_SHA:0:9})"; echo; echo '```'; cat wpt.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           mkdir -p .github && cp "$RUNNER_TEMP/wpt-out/relatorio.json" .github/wpt_report.json
 
