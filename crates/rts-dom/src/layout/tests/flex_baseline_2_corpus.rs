@@ -31,6 +31,31 @@
 //! analises/2026-09-04-auditoria-estrutural/README.md`), não a faz ocupar
 //! espaço.
 //!
+//! **Lote `flex-baseline-3` (2026-09-05) tentou o mesmo mecanismo pelo lado
+//! do FLUXO INLINE MISTO** (texto + `<div class=flexContainer>` na mesma
+//! linha, o caso dos seis primeiros acima) e reverteu: `linha.rs` posiciona
+//! um átomo `AtomicKind::Block` com conteúdo sempre no TOPO da linha (`cy`),
+//! nunca na baseline PRÓPRIA (`linha_ib::ascent_do_item`) — parecia a mesma
+//! lacuna. MEDIDO: ler a baseline própria aí não moveu NENHUM dos onze (a
+//! causa de cada um continua a ser a listada acima, o gap de fonte-por-run
+//! incluído) e regrediu SEIS que já passavam
+//! (`flex-abspos-inset-nested-001/002`, `flexbox-baseline-multi-line-
+//! horiz-002/004`, `flexbox-baseline-single-item-001a/001b` — 393→387/489),
+//! porque o mesmo `AtomicKind::Block` também cobre `<span style=background>`
+//! e inline-block comum, que dependiam do alinhamento pelo topo. Não se
+//! repete sem primeiro isolar o caso FLEX do caso genérico.
+//!
+//! **O 11º do lote `flex-baseline-3`, `flex-vertical-align-effect`, não é
+//! deste mecanismo**: é `display:flex` de bloco (não `inline-flex` numa
+//! linha), e a asserção é "`vertical-align` não tem efeito num item flex".
+//! `claude-paint-dump` confirma a causa: os dois `<input>` sem `width`
+//! medem 4×19 e 0×13 em vez de ~180×19 e ~13×13 — `intrinsic_content_width`
+//! (`medida.rs`) não sabe medir um CONTROLO DE FORMULÁRIO (só texto, tabela,
+//! flex e bloco por filhos; `replaced_inline_size` também não cobre
+//! `input`/`button`/`select`/`textarea`), então a flex base size de
+//! `flex-basis:auto` cai a ~0. É um gap de TAMANHO INTRÍNSECO de widget em
+//! `flex-basis:auto`/shrink-to-fit, não de baseline — lote próprio.
+//!
 //! Por isso estes testes fixam o MECANISMO por geometria pura, com fixtures
 //! desenhadas para CANCELAR a métrica de fonte na álgebra da spec — a mesma
 //! técnica de `flex_baseline_corpus.rs` (`claude-flex-align-baseline.html`):
