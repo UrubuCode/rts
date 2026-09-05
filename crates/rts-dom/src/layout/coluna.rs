@@ -169,6 +169,14 @@ pub(in crate::layout) fn layout_children_column(
             child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
         };
         let child_font = font_px(&ccss, font_size);
+        let resolve_filho = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: child_font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
         let h = super::coluna_shrink::base_outer(
             &ccss,
             natural_h,
@@ -177,18 +185,6 @@ pub(in crate::layout) fn layout_children_column(
             child_font,
             ctx,
         );
-        let resolve_filho = ResolveCtx {
-            parent_content_w: content_w,
-            node_font_size: child_font,
-            root_font_size: crate::style::root_font_size(),
-            viewport_w: ctx.viewport_w,
-            viewport_h: ctx.viewport_h,
-        };
-        // `min-height` DECLARADO substitui o piso automático (spec §4.5: o
-        // mínimo automático só vale com `min-height: auto`) — mesma regra do
-        // eixo horizontal (`flex.rs:198-200`); `min-content` é o caso à parte
-        // que `coluna_shrink::min_main` decide.
-        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
         let mt_auto = ccss.margin.top.is_auto();
         let mb_auto = ccss.margin.bottom.is_auto();
         let grow = ccss.flex_grow.unwrap_or(0.0);
@@ -257,6 +253,10 @@ pub(in crate::layout) fn layout_children_column(
         for (it, m) in items.iter_mut().zip(mains) {
             it.h = m;
         }
+    }
+    // Piso pós-distribuição p/ `flex-basis:0` sem grow/shrink (011, WPT).
+    for it in &mut items {
+        it.h = it.h.max(it.min_main);
     }
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
     // Mesma troca de cima: espaço livre A SÉRIO, não o que sobra até um PISO já ultrapassado.

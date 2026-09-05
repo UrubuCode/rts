@@ -89,7 +89,7 @@ impl Dom {
         if let NodeKind::Element { tag } = &self.nodes[idx].kind {
             if tag == "style" {
                 let css = self.text_content(self.make_id(idx)).unwrap_or_default();
-                out.push(css);
+                out.push(strip_cdata_wrapper(&css));
             }
         }
         for &child in &self.nodes[idx].children {
@@ -354,5 +354,49 @@ impl Dom {
             NodeKind::Element { tag } => crate::block::lookup(tag).map(|d| d.display).unwrap_or(-1),
             _ => -1,
         }
+    }
+}
+
+/// Um `<style>` de XHTML embrulha as regras em `<![CDATA[ … ]]>` — o truque
+/// clássico p/ um documento servido como XML aceitar `<`/`&` cru dentro do
+/// texto (sem isso, um parser XML de verdade rejeitaria o documento inteiro
+/// no primeiro `<` de um seletor como `a > b`). Os fixtures `.xht` do WPT
+/// fazem-no sempre (`ref-filled-green-100px-square.xht`, entre outras
+/// referências partilhadas por centenas de reftests) — e este motor não tem
+/// um tokenizer CSS que reconheça `<![CDATA[`/`]]>` como whitespace (CSS não
+/// tem CDATA; só HTML/XML têm), então a folha de estilo inteira falhava a
+/// parsear e o `<div>` do teste nunca ficava verde. Descasca só as marcas nas
+/// PONTAS (depois de `trim`) — um CDATA no MEIO do texto não é este padrão
+/// (a marca fecha ANTES do fim do `<style>`) e fica como está, sem tentar
+/// adivinhar.
+fn strip_cdata_wrapper(css: &str) -> String {
+    let t = css.trim();
+    let t = t.strip_prefix("<![CDATA[").unwrap_or(t);
+    let t = t.strip_suffix("]]>").unwrap_or(t);
+    t.to_string()
+}
+
+#[cfg(test)]
+mod cdata_tests {
+    use super::*;
+
+    /// Um `<style>` de XHTML embrulhado em CDATA (como todo `.xht` do WPT)
+    /// aplica as regras normalmente — antes deste fix a folha inteira falhava
+    /// a parsear e o `<div>` de `ref-filled-green-100px-square.xht` ficava
+    /// sem `background-color`/`width`/`height` nenhum.
+    #[test]
+    fn style_em_cdata_de_xhtml_aplica_as_regras() {
+        let html = r#"<html><head><style type="text/css"><![CDATA[
+  div { background-color: green; height: 100px; width: 100px; }
+]]></style></head><body><div id="d"></div></body></html>"#;
+        let dom = crate::parse_html_to_dom(html);
+        let idx = dom
+            .nodes
+            .iter()
+            .position(|n| matches!(&n.kind, NodeKind::Element { tag } if tag == "div"))
+            .expect("div existe");
+        let css = dom.computed_style_idx(idx).unwrap();
+        assert_eq!(css.width, Some(crate::style::Dimension::Px(100.0)));
+        assert_eq!(css.height, Some(crate::style::Dimension::Px(100.0)));
     }
 }
