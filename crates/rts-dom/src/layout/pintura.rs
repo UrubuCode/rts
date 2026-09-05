@@ -129,19 +129,44 @@ pub fn emit_scrollbar_in(
     }
 }
 
-/// O `background` do `<body>` (ou, se ausente, do `<html>`) — a cor que o CSS
-/// PROPAGA para o viewport inteiro. `None` se nenhum dos dois tem fundo.
+/// O `background` do `<html>` (ou, se ausente/transparente e sem imagem, do
+/// `<body>` dentro dele) — a cor que o CSS PROPAGA para o viewport inteiro
+/// (CSS 2.1 §14.2). `None` se nenhum dos dois tem fundo (visível) algum.
+///
+/// **Precedência corrigida**: o `<html>` vence SEMPRE que declara fundo
+/// próprio (cor visível ou imagem) — `c45-bg-canvas-000` (`html:purple` +
+/// `body:navy`) espera a tela PURPLE, com o `<body>` a pintar a SUA navy por
+/// cima. A versão anterior tentava o `<body>` PRIMEIRO e só recorria ao
+/// `<html>` quando o body não tinha fundo — invertido face à cascata, e dava
+/// a tela errada sempre que os dois declaravam cores diferentes.
+///
+/// **E a falta que zerava o caso comum**: quando `<html>` não declara fundo
+/// nenhum, `bg_of_tag(html)` é `None` e o ramo nunca chegava a olhar para o
+/// `<body>` lá dentro — `background-body-001` (só `body{background:green}`)
+/// media 97,86% de pixels errados por isto: a tela ficava no branco por
+/// omissão em vez do verde do body.
 pub(in crate::layout) fn body_background(dom: &Dom) -> Option<u32> {
-    // procura body e html entre os descendentes da raiz.
     for &child in &dom.node(dom.root).children {
-        if let Some(bg) = bg_of_tag(dom, child, "body") {
-            return Some(bg);
-        }
-        if let Some(bg) = bg_of_tag(dom, child, "html") {
-            // o html pode ter o body dentro; tenta o body primeiro.
-            if let Some(body_bg) = find_body_bg(dom, child) {
-                return Some(body_bg);
+        if let NodeKind::Element { tag } = &dom.node(child).kind {
+            if tag == "html" {
+                let css = dom.computed_style_idx(child);
+                // Alpha zero (`background: transparent`, explícito ou o
+                // inicial) NÃO conta como fundo próprio para esta decisão —
+                // só bloqueia a propagação uma cor de facto visível.
+                let color = css.as_ref().and_then(|c| c.bg).filter(|c| c & 0xFF != 0);
+                let has_image = css.as_ref().is_some_and(|c| c.bg_image.is_some());
+                if color.is_some() || has_image {
+                    // Tem imagem mas não cor: devolve `None` (tela branca por
+                    // omissão) em vez de "roubar" a cor do `<body>`, que
+                    // perdeu a decisão — a imagem em si na tela é um corte à
+                    // parte (`fundo_imagem.rs` só desenha por caixa de
+                    // elemento, ainda não pela tela).
+                    return color;
+                }
+                return find_body_bg(dom, child);
             }
+        }
+        if let Some(bg) = bg_of_tag(dom, child, "body") {
             return Some(bg);
         }
     }
