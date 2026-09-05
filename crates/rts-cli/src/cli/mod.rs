@@ -37,18 +37,29 @@ pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
     let _ = ARCHIVE_RESOLVER.set(f);
 }
 
-/// Locates the `rts-runtime` staticlib `rts compile` links the AOT objects
-/// against.
+/// Locates the staticlib `rts compile` links the AOT object against —
+/// `rts-runtime-jit` by default, `rts-runtime` for `--sem-compilador`/
+/// `--no-compiler`. See [`CompileOptions::embed_compiler`]'s own doc for the
+/// two paths and why the default carries a compiler.
 ///
 /// # `target/` is preferred, the embedded copy is the fallback
 ///
 /// A dev iterating on `rts-core`/`rts-std`/`rts-node` needs their
 /// freshly-built archive, not whatever shipped inside this `rts` binary — so a
-/// `target/{debug,release}/rts_runtime.lib` on disk always wins when
-/// present. A `rts` copied to a machine with no `target/` at all (the case this
-/// exists for: a downloaded binary that could not `rts compile` before this
-/// change) falls back to [`set_runtime_archive_resolver`]'s embedded,
-/// extract-on-demand archive.
+/// `target/{debug,release}/<archive>` on disk always wins when present.
+///
+/// The embedded, extract-on-demand fallback
+/// ([`set_runtime_archive_resolver`]) exists for a `rts` copied to a machine
+/// with no `target/` at all, and it covers `rts-runtime` ONLY — build.rs
+/// never embeds `rts-runtime-jit`, which carries a whole compiler and would
+/// roughly double what every downloaded `rts` binary weighs for a capability
+/// most compiled programs never use. **The cost this leaves, stated rather
+/// than hidden:** a `rts` copied without its `target/` compiles by DEFAULT
+/// now, so a plain `rts compile` with no flags on such a binary refuses
+/// outright — where before this default flipped, the embedded fallback
+/// covered the (then-default) small archive and the command worked. The
+/// fix, for that one case, is naming the opt-out: `rts compile --sem-
+/// compilador input.ts`.
 ///
 /// # The staleness check
 ///
@@ -57,10 +68,17 @@ pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
 /// rebuilds it just because `rts` itself was rebuilt, since (for the `target/`
 /// case) it was built by a separate `cargo build -p rts-runtime` invocation,
 /// not as part of this binary's own dependency graph. So this compares the
-/// archive's mtime against every `.rs` file in the three source trees and
+/// archive's mtime against every `.rs` file in the source trees it carries and
 /// refuses to link a stale one — the failure CLAUDE.md's "regress explicitly"
 /// rule asks for: loud, and naming what to run, rather than a binary that links
-/// and then answers a question the source no longer asks.
+/// and then answers a question the source no longer asks. Both archives check
+/// `rts-runtime-boot`, the crate that actually carries the startup sequence
+/// now (see its own module doc for why `rts-runtime` and `rts-runtime-jit`
+/// are each a thin `main` over it). `--embed-compiler` additionally checks
+/// `rts-codegen`, `rts-cranelift` and `rts-host`: those are the crates
+/// `rts-runtime-jit` adds, and a stale answer FROM the compiler it carries —
+/// `eval`ing a construct `rts-codegen` gained since the archive was built — is
+/// the same silent-wrong-answer shape the existing check exists to refuse.
 ///
 /// This check does not apply to the embedded fallback: `rts-runtime` is now
 /// a direct dependency of the `rts` bin crate (root `Cargo.toml`), so the
@@ -68,10 +86,15 @@ pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
 /// invocation that produced this very binary — there is no separate source tree
 /// for it to be stale against. An embedded archive is only ever as stale as the
 /// `rts` executable running it.
-pub(crate) fn runtime_archive() -> Result<PathBuf> {
+pub(crate) fn runtime_archive(embed_compiler: bool) -> Result<PathBuf> {
     if let Ok(path) = std::env::var("RTS_RUNTIME_RWK_ARCHIVE") {
         return Ok(PathBuf::from(path));
     }
+    let file_name = if embed_compiler {
+        "rts_runtime_jit.lib"
+    } else {
+        "rts_runtime.lib"
+    };
     let workspace = std::env::current_dir().unwrap_or_default();
     // The profile the RUNNING `rts` was built under comes first, and it is what
     // this used to have no way of naming: the list was `["release", "debug"]`,
@@ -92,19 +115,26 @@ pub(crate) fn runtime_archive() -> Result<PathBuf> {
     // `target/` directory while the workspace it belongs to is the cwd.
     let beside_this_binary = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("rts_runtime.lib")));
-    let candidates = ["release", "debug", "fast"].map(|profile| {
-        workspace
-            .join("target")
-            .join(profile)
-            .join("rts_runtime.lib")
-    });
+        .and_then(|exe| exe.parent().map(|dir| dir.join(file_name)));
+    let candidates =
+        ["release", "debug", "fast"].map(|profile| workspace.join("target").join(profile).join(file_name));
     let dev_archive = beside_this_binary
         .into_iter()
         .chain(candidates)
         .find(|path| path.is_file());
 
     let Some(archive) = dev_archive else {
+        if embed_compiler {
+            // No embedded fallback for this one: nothing extracts a
+            // never-built `rts_runtime_jit.lib` out of a binary that was
+            // compiled without it, and pretending the default archive would
+            // do would silently drop the one thing `--embed-compiler` asked
+            // for.
+            bail!(
+                "no `{file_name}` under target/{{debug,release,fast}} nor beside this binary — build it first: \
+                 `cargo build -p rts-runtime-jit` (or `--release`), then re-run `rts compile --embed-compiler`."
+            );
+        }
         return match ARCHIVE_RESOLVER.get() {
             Some(f) => f().context(
                 "no `rts_runtime.lib` under target/{debug,release,fast} nor beside this binary and the embedded \
@@ -124,16 +154,23 @@ pub(crate) fn runtime_archive() -> Result<PathBuf> {
         .and_then(|meta| meta.modified())
         .with_context(|| format!("stat {}", archive.display()))?;
 
-    for crate_name in ["rts-core", "rts-std", "rts-node", "rts-runtime"] {
+    // `rts-runtime-boot` carries the ACTUAL startup sequence for both
+    // archives — `rts-runtime` and `rts-runtime-jit` are now each a `main`
+    // wrapper over it — so it is checked either way.
+    let mut crates = vec!["rts-core", "rts-std", "rts-node", "rts-runtime-boot", "rts-runtime"];
+    if embed_compiler {
+        crates.extend(["rts-codegen", "rts-cranelift", "rts-host", "rts-runtime-jit"]);
+    }
+    let package = if embed_compiler { "rts-runtime-jit" } else { "rts-runtime" };
+    for crate_name in crates {
         let source_dir = workspace.join("crates").join(crate_name).join("src");
         if let Some(stale) = newer_rust_file(&source_dir, archive_mtime)? {
             bail!(
-                "'{}' is newer than {} — rebuild the AOT runtime archive: \
-                 `cargo build -p rts-runtime` (or `--release` to match), then re-run \
-                 `rts compile`. Cargo will not do this for you: the archive is not on \
-                 `rts`'s own dependency graph.",
+                "'{}' is newer than {} — rebuild the AOT runtime archive: `cargo build -p {package}` \
+                 (or `--release` to match), then re-run `rts compile`. Cargo will not do this \
+                 for you: the archive is not on `rts`'s own dependency graph.",
                 stale.display(),
-                archive.display()
+                archive.display(),
             );
         }
     }
@@ -174,6 +211,10 @@ struct CliFlags {
     debug: bool,
     windows_subsystem: Option<WindowsSubsystem>,
     all_namespaces: bool,
+    // `true` by default — see `CompileOptions::embed_compiler`'s own doc for
+    // why: `rts compile` carries a compiler unless `--sem-compilador`/
+    // `--no-compiler` asks for the small archive instead.
+    embed_compiler: bool,
     /// `--html <file>`, repeatable, in the order given — `compile`'s own
     /// question, and the reason this struct is no longer `Copy`: a page's
     /// `<script>`s belong to the ONE command that precompiles them, not to
@@ -188,6 +229,7 @@ impl Default for CliFlags {
             debug: false,
             windows_subsystem: None,
             all_namespaces: false,
+            embed_compiler: true,
             html: Vec::new(),
         }
     }
@@ -200,6 +242,7 @@ impl CliFlags {
             debug: self.debug,
             emit_module_progress: false,
             all_namespaces: self.all_namespaces,
+            embed_compiler: self.embed_compiler,
         }
     }
 }
@@ -293,6 +336,15 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--all-namespaces" => flags.all_namespaces = true,
+            // The default already embeds a compiler — kept as an explicit,
+            // accepted synonym of it rather than removed, so a caller (this
+            // repo's own CI included) that already passes it sees no change.
+            "--embed-compiler" => flags.embed_compiler = true,
+            // The opt-out: the small archive, for a binary that never
+            // `eval`s and never runs a page `<script>` at run time. Two
+            // spellings for the same reason `-p`/`--production` has two:
+            // whichever a caller already reaches for.
+            "--sem-compilador" | "--no-compiler" => flags.embed_compiler = false,
             "--html" => {
                 let value = raw
                     .get(idx + 1)
@@ -366,5 +418,7 @@ fn print_help(bin_name: &str) {
     println!("Options:");
     println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");
     println!("  --all-namespaces                        (compile) keep all runtime symbols (needed for import(variable))");
+    println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
+    println!("  --sem-compilador, --no-compiler          (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
     println!("  --html <file>                           (compile) precompile this page's <script> tags into the binary (repeatable)");
 }

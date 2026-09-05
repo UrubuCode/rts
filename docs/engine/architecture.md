@@ -98,6 +98,59 @@ The name stays in every row — as **diagnostics**. A backtrace naming `rts_allo
 is readable and one naming index 47 is not. Keeping the name as metadata rather
 than as the mechanism is the entire distinction.
 
+### Two AOT archives, and the compiler is the default cargo now
+
+`rts compile` links one object file against ONE staticlib, and there are two of
+them to choose from. `rts-runtime-jit` is what plain `rts compile` links: the
+startup sequence — `rts_runtime_boot::run` — plus `rts_host::install_compiler`,
+the six hooks (`eval`, `new Function`, a page `<script>`'s scoped eval,
+`vm.runInNewContext`) the JIT host already wires for its own process in
+`run_region`. A **browser** is the program that most needs this: it compiles
+pages it did not ship with, the way Electron carries V8 rather than asking the
+OS for one — and it is the default because most compiled programs look more
+like `rts.exe` itself (which always carries a compiler) than like one that is
+provably done reading source the instant it starts.
+
+`rts-runtime` — `rts-core`, `rts-std`, `rts-node`, `rts:dom` and `rts:egui`,
+and no evaluator — is the opt-out: `rts compile --sem-compilador` (also
+`--no-compiler`), for a binary that never reads source again after `rts
+compile` produced it and would rather not carry `rts-codegen`/
+`rts-cranelift`'s front end and placement code for a capability it never
+uses. `--embed-compiler` is still accepted, as an explicit synonym of the
+default — this repository's own CI smoke already passed it before the
+default flipped, and a flag that quietly changed meaning instead of staying a
+synonym would have broken that job silently.
+
+**Three crates rather than two**, and the third exists because the first
+attempt at two — `rts-runtime-jit` depending on `rts-runtime` to reuse its
+sequence — compiled and linked with no error and silently ran the wrong
+`main`. A `#[unsafe(no_mangle)]` item is bundled into a dependent's staticlib
+UNCONDITIONALLY once the dependency is reached at all, not only the items the
+dependent's own code calls — so depending on `rts-runtime` for its sequence
+also bundled `rts-runtime`'s OWN `main`, unreferenced but present, and the
+linker resolved the resulting duplicate by keeping the wrong one. Nor is a
+Cargo feature the fix: it changes what ONE compilation of a package contains,
+and `rts-runtime` is compiled once per build, with its features UNIFIED
+across every edge that reaches it in one `cargo build` — a
+`default-features` toggle on one edge cannot produce two different archives.
+`rts-runtime-boot` is the sequence with no `main` of its own, and
+`rts-runtime` and `rts-runtime-jit` each depend on it instead of on each
+other — neither can bundle the other's entry point, because neither reaches
+the other. `rts-runtime-boot`'s own module doc has the measurement.
+
+A THIRD, later lot (`rts compile --html`, tracked separately) answers the
+complementary question — pre-compiling a KNOWN page's scripts at build time so
+they need no run-time compiler at all — and is not this one: embedding the
+compiler is for source the binary cannot enumerate in advance, pre-compiling is
+for source it can. Neither replaces the other, and a program can eventually
+want both.
+
+What embedding the compiler does NOT do: make a dynamic `import()` reach a file
+outside the compiled graph. `rts_core::entry::module_import` reads an
+already-registered module and rejects the promise otherwise — *"a rejected
+promise naming it, not a file read"*, by its own doc — and a compiler that can
+turn text into a callable does not change what that entry point looks up.
+
 ---
 
 ## Where the standard library lives

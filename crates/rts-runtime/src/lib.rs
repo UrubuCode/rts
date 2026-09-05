@@ -1,54 +1,37 @@
-//! The archive an AOT-compiled program links against.
-//!
-//! # What this crate is for
-//!
-//! A program the new engine compiles ahead of time is an object file full of
-//! calls to named symbols: allocate, the write barrier, every entry point the
-//! lowering could not express as instructions. Something has to hand the linker
-//! those symbols, and a `staticlib` is what cargo produces that can. See this
-//! crate's manifest for why it is ONE facade rather than one archive per crate.
+//! The small archive an AOT-compiled program links against for `rts compile
+//! --sem-compilador` (`--no-compiler` also accepted) — the opt-out of
+//! `rts-runtime-jit`, which is what plain `rts compile` links since the
+//! compiler became the default.
 //!
 //! # Why it holds no code of its own
 //!
-//! Because a facade that implements anything is a second place to look for it.
-//! What it does is depend on the three crates whose `#[rtse::entry]` symbols the
-//! object needs, and keep them reachable so cargo does not drop them.
+//! Because a facade that implements anything is a second place to look for
+//! it. `rts-runtime-boot::run` is the whole startup sequence — install stack
+//! scanning, seed the tables, install `rts-std`/`rts-node`/`rts:dom`/`rts:egui`,
+//! call the compiled entry, drain the event loop — and this crate's only job
+//! is to give it the platform's C ABI under the name a linker looks for.
 //!
-//! # The part that is not obvious, and the reason [`keep`] exists
+//! # Why the sequence itself lives in a THIRD crate
 //!
-//! An archive is not a promise that a symbol survived. Rust minted every entry
-//! with `#[unsafe(export_name = …)]`, which names the symbol, but a `staticlib`
-//! is still built from a dependency graph — and a dependency nothing in the crate
-//! root reaches is a dependency cargo is free to leave out entirely. That failure
-//! is quiet in the worst way: the archive builds, the link succeeds against
-//! whatever it did carry, and the binary dies at the first call to a symbol that
-//! was never there.
-//!
-//! So the three crates are TOUCHED here, and the touch is checked by
-//! `dumpbin`/`nm` rather than trusted.
-
-pub mod aot;
-
-/// Reaches each dependency so its symbols reach the archive.
-///
-/// Called by nothing. It exists to be a use of all three crates from this crate's
-/// root, which is what makes them part of this compilation rather than an
-/// unreferenced edge in the manifest.
-///
-/// A `pub` function rather than a `#[used]` static because the thing that must
-/// survive is the dependency's whole object, not one byte of data: naming a
-/// function from each is what pulls its translation unit in.
-pub fn keep() -> usize {
-    // `install` is the right name to reach in each: it is what the host calls,
-    // so it transitively touches everything the crate registers, which is
-    // exactly the set an AOT program can call.
-    let core = rts_core::entry::CORE_ENTRY_COUNT;
-    let std_install = rts_std::install as usize;
-    let node_install = rts_node::install as usize;
-    let dom_install = rts_dom_bridge::install as usize;
-    #[cfg(feature = "ui")]
-    let ui_install = rts_ui::install as usize;
-    #[cfg(not(feature = "ui"))]
-    let ui_install = 0usize;
-    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1)
+//! `rts-runtime-jit` needs the exact same sequence plus one extra
+//! registration (`rts_host::install_compiler`), and reusing it by having
+//! `rts-runtime-jit` depend on THIS crate was tried first — it compiled and
+//! linked without error, and silently ran the wrong `main`.
+//! `rts-runtime-boot`'s own module doc has the measured cause and why a
+//! third crate, rather than a smaller fix, is what closes it: neither this
+//! crate nor `rts-runtime-jit` may depend on the other, because a
+//! `#[unsafe(no_mangle)]` item — `main` is one — is bundled into a
+//! dependent's `staticlib` unconditionally once the dependency is reached at
+//! all, regardless of whether the dependent's own code calls that
+//! particular item.
+// `#[cfg(not(test))]`: `cargo test -p rts-runtime` builds a REAL executable
+// for this crate's own (empty) test harness, which supplies its own `main` —
+// and a no_mangle `main` is emitted unconditionally, harness or not, so the
+// two collide with "entry symbol `main` declared multiple times" before a
+// single `#[test]` can run. Absent from a `staticlib`/`bin` build, where
+// nothing else offers a `main` for this to conflict with.
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+pub extern "C" fn main(argc: i32, argv: *const *const i8) -> i32 {
+    rts_runtime_boot::run(argc, argv, None)
 }

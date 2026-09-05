@@ -44,8 +44,24 @@
 //! `live.rs`'s own header names both callers of the JIT seam this replaces —
 //! and the message is worded to cover both rather than naming `--html` as if
 //! it were the only door.
+//!
+//! # The FALLBACK, for `--embed-compiler` and `--html` together
+//!
+//! `--html` precompiles the page's <script>s it was GIVEN; `--embed-compiler`
+//! carries a compiler for anything else. Neither is a fallback for the other
+//! on its own — a hash lookup answers nothing for a script it never saw, and
+//! `rts-runtime-jit`'s `crate::run` installs a live compiler BEFORE this
+//! module's hook, not after, so overwriting `eval_compiler_with_receiver`
+//! outright would silently drop the live one the moment `--html` is also
+//! used. So `crate::run` hands this module whatever it finds already
+//! installed as the fallback: `Some(rts_host::live::evaluate_in_scope_with_
+//! receiver)` for `rts-runtime-jit`, `None` for `rts-runtime`, which is what
+//! keeps the DEFAULT (small) archive's exact refusal for a program compiled
+//! with `--html` alone.
 
 use std::sync::OnceLock;
+
+use rts_core::entry::EvalCompilerWithReceiver;
 
 use super::Entry;
 
@@ -53,32 +69,43 @@ use super::Entry;
 /// `page_scripts` table and `FUNCTION_TABLE_SYMBOL`'s addresses.
 static TABLE: OnceLock<Vec<(u64, Entry)>> = OnceLock::new();
 
+/// What answers a page `<script>` this binary's `--html` never saw — see the
+/// module doc's "The FALLBACK" section for who sets this and why it is read
+/// back rather than assumed.
+static FALLBACK: OnceLock<Option<EvalCompilerWithReceiver>> = OnceLock::new();
+
 /// Records what the manifest and the linker together said, once, before the
 /// program runs.
 ///
 /// `entries` pairs each page script's source hash with the address ALREADY
-/// resolved for it — `super::main` reads that address out of
+/// resolved for it — `crate::run` reads that address out of
 /// `FUNCTION_TABLE_SYMBOL` at the manifest's `page_scripts` index, which is
-/// why this module needs no address table of its own.
-pub fn declare(entries: Vec<(u64, Entry)>) {
+/// why this module needs no address table of its own. `fallback` is what a
+/// MISS answers instead of the refusal below — `None` for the default
+/// archive, `Some(..)` for one that also embeds a compiler.
+pub fn declare(entries: Vec<(u64, Entry)>, fallback: Option<EvalCompilerWithReceiver>) {
     let _ = TABLE.set(entries);
+    let _ = FALLBACK.set(fallback);
 }
 
 /// The host callback `rts_core::entry::declare_eval_compiler_with_receiver`
 /// installs: `fn(&str, u64, u64) -> Option<u64>`, source/environment/receiver
 /// in, the completion value out.
 ///
-/// `None` when no `--html` file this binary was compiled from carried this
-/// exact source: the caller (`rts_core::entry::evaluate_in_scope_with_receiver`)
-/// turns that into the ordinary "did not compile" report, AFTER this function
-/// has already raised the more specific reason — see this module's own
-/// header for why both happen.
+/// A MISS tries [`declare`]'s fallback before giving up — see the module
+/// doc's "The FALLBACK" section. `None` only once neither answers: the
+/// caller (`rts_core::entry::evaluate_in_scope_with_receiver`) turns that
+/// into the ordinary "did not compile" report, AFTER this function has
+/// already raised the more specific reason for the no-fallback case.
 pub fn evaluate_in_scope_with_receiver(source: &str, environment: u64, receiver: u64) -> Option<u64> {
     let hash = rts_core::entry::source_hash(source);
     let found = TABLE
         .get()
         .and_then(|table| table.iter().find(|(known, _)| *known == hash).map(|(_, entry)| *entry));
     let Some(entry) = found else {
+        if let Some(Some(fallback)) = FALLBACK.get() {
+            return fallback(source, environment, receiver);
+        }
         rts_core::entry::throw_type_error(
             "this script was not pre-compiled into this AOT binary — `rts compile --html` \
              only precompiles the <script> tags of the HTML files it was given, and \
@@ -90,7 +117,7 @@ pub fn evaluate_in_scope_with_receiver(source: &str, environment: u64, receiver:
     let nothing = rts_core::entry::undefined_value();
     // SAFETY: `entry` came out of `FUNCTION_TABLE_SYMBOL`, whose every address
     // is a function this same object placed under the convention `Entry`
-    // spells — `super::main` already relies on that for `__rts_functions`'
+    // spells — `crate::run` already relies on that for `__rts_functions`'
     // other entries, and a page script is placed no differently.
     Some(unsafe { entry(environment, receiver, nothing, nothing, nothing, nothing) })
 }

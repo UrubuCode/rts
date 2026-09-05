@@ -1,0 +1,39 @@
+[package]
+name = "rts-runtime-jit"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "The AOT staticlib for a program that compiles JS at run time — a browser, not a script."
+
+# staticlib, for `rts compile --embed-compiler` to link exactly as it links
+# `rts-runtime`'s own archive (see that crate's manifest for why a facade is
+# ONE staticlib rather than one per dependency). rlib alongside it for the
+# same reason `rts-runtime` keeps one: nothing needs it today, and it costs
+# nothing to leave the crate usable from ordinary Rust.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# The default archive's whole startup sequence, MINUS its `main` — see this
+# crate's own `src/lib.rs` for what `run` is, and `rts-runtime-boot`'s module
+# doc for why this depends on THAT crate and explicitly NOT on `rts-runtime`
+# itself: the measured reason is a duplicated, silently-mis-resolved `main`
+# symbol when it did.
+rts-runtime-boot = { path = "../rts-runtime-boot" }
+# The one thing the default archive does not carry: a compiler.
+# `rts_host::install_compiler` is the six hooks `rts-host`'s own JIT process
+# wires onto a `Context` — `eval`, `new Function`, a page `<script>`'s scoped
+# eval, `vm.runInNewContext`. This crate never writes `rts_codegen::` or
+# `rts_cranelift::` anywhere in its own source (grep confirms it) — it depends
+# on `rts-host`, which is the one crate CLAUDE.md allows to name
+# `rts-codegen`, `rts-cranelift` and `rts-core` all at once, and reaches the
+# compiler through the one function that crate already exports for exactly
+# this.
+rts-host = { path = "../rts-host" }
+
+# Plain dependencies, default features, deliberately not narrowed: `rts-host`
+# is ALSO reached (via `rts-cli`) by the `rts` bin's own default build, so
+# Cargo unifies features for it across every edge in one resolve regardless of
+# what this crate's own edge asks for — trimming `default-features` here would
+# not shrink a combined `cargo build` by one byte, only make this manifest
+# lie about what actually gets compiled.

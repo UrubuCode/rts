@@ -1,0 +1,34 @@
+[package]
+name = "rts-runtime-boot"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "The AOT startup sequence, shared by rts-runtime and rts-runtime-jit — neither depends on the other so neither can bundle the other's `main`."
+
+# rlib only. Nothing here is `#[unsafe(no_mangle)]` except `REGION_BASE` (a
+# data symbol, not an entry point) — the two `main`s live in `rts-runtime` and
+# `rts-runtime-jit`, which is the whole point: see this crate's `lib.rs` for
+# the measured reason NEITHER of those two may depend on the other.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# The three crates an AOT-compiled program calls into. `rts-core` alone is
+# not enough: a program that reaches a global or a `node:` module calls symbols
+# those two install, and a linker cannot resolve what no archive carries.
+rts-core = { path = "../rts-core" }
+rts-std = { path = "../rts-std" }
+rts-node = { path = "../rts-node" }
+# `rts:dom` e `rts:egui`: o host JIT instala-os (`rts-host/src/run.rs`) e o
+# programa AOT não os tinha — um `.exe` de UI morria à partida com "cannot
+# resolve module rts:egui". O `rts-adapters` que os trazia foi com o cutover de
+# 08-10 e ninguém os religou à fachada. Entram na ordem do host: o documento
+# (headless, sempre) antes da janela (opcional, como no host: um alvo sem
+# ecrã não a liga).
+rts-dom-bridge = { path = "../rts-dom-bridge" }
+rts-ui = { path = "../rts-ui", optional = true }
+libc = "0.2"
+
+[features]
+default = ["ui"]
+ui = ["dep:rts-ui"]

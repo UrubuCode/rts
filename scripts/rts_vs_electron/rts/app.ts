@@ -31,16 +31,13 @@ if (html === undefined || html.length === 0) {
   console.log("recursos externos carregados: " + loaded);
   // `runScriptsAt` compila e corre cada <script> da página EM RUNTIME (new
   // Function -> pipeline swc->HIR->JIT, DomScope.run em
-  // crates/rts-dom-bridge/src/scope.rs) — e o binário AOT não leva esse
-  // compilador consigo (`rts compile` só gera código nativo para o que o
-  // PRÓPRIO app.ts referencia estaticamente, não para texto que só aparece
-  // como conteúdo de um <script> lido de um HTML). Chamamos na mesma, e não
-  // saltamos o <script> da página, por duas razões: o `.exe` fica igual ao
-  // lado JIT (examples/claude-react-janela.ts, que chama a mesma função) em
-  // vez de divergir por omissão, e o erro real aparece no stderr medido —
-  // hoje cada <script> falha com "a fonte não compilou" e a janela fica em
-  // branco para ESTA app (o HTML/CSS estático continua a pintar, ver
-  // README.md deste diretório).
+  // crates/rts-dom-bridge/src/scope.rs). Desde o lote `aot-embed-compiler`
+  // `rts compile` (sem flag) embarca esse compilador por omissão
+  // (`rts-runtime-jit`), então isto já corre no `.exe` AOT tal como corre no
+  // lado JIT (examples/claude-react-janela.ts, que chama a mesma função) —
+  // README.md deste diretório tem o antes/depois medido. `--sem-compilador`/
+  // `--no-compiler` volta a ligar a archive pequena, sem este caminho, para
+  // quem quiser medir esse lado do comparativo de propósito.
   console.log("scripts da pagina corridos: " + runScriptsAt(doc, "https://localhost/"));
   const win = egui.openWindow("RTS vs Electron", 1100, 750, 0);
   while (egui.isOpen(win)) {

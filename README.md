@@ -132,12 +132,12 @@ Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145
 | Files in folder | 73 | 5 | 3 |
 | Page JavaScript runs | yes | **no** | yes |
 | Processes | 4 | 2 | 2 |
-| Startup (median, min–max) | 256 ms (208–1291) | 284 ms (284–293) | 1995 ms (1958–2125) |
-| RSS (median, min–max) | 260.9 MB (260.8–261.0) | 67.4 MB (67.4–68.9) | 110.5 MB (107.8–112.0) |
-| Private bytes (median) | 89.0 MB | 165.9 MB | 211.5 MB |
-| CPU at rest (median) | 0% | 342.08% | 342.85% |
+| Startup (median, min–max) | 224 ms (210–1037) | 259 ms (253–263) | 1892 ms (1814–2096) |
+| RSS (median, min–max) | 261.7 MB (261.0–261.9) | 67.6 MB (67.4–69.1) | 110.4 MB (108.3–112.2) |
+| Private bytes (median) | 89.5 MB | 166.2 MB | 212.7 MB |
+| CPU at rest (median) | 0% | 346.61% | 343.65% |
 
-**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
+**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: TypeError: this script was not pre-compiled into this AOT binary — `rts compile --html` only precompiles the <script> tags of the HTML files it was given, and `node:vm`'...". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
 
 **Honesty: the side comparable to Electron today is the last column, not the middle one.** Electron ships a JS engine (V8) inside its runtime, so any page script runs regardless of how the app was built. RTS's AOT `.exe` does not — it only runs the JavaScript that was compiled INTO it ahead of time, so it fits an app with no page `<script>` (or one whose HTML is generated from already-compiled TS, not read as text). `rts.exe` + the app is the actual Electron-equivalent pair (engine binary with a compiler + the page it opens, same relationship as Chromium + `app.asar`), and it is the only RTS column above where the same React page the Electron column renders also renders here.
 
@@ -177,20 +177,20 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `5a8305c`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `afddb77`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 24 ms | 50 ms | 48 ms | 42 ms | **31 ms** | **0.80×** | **1.64×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 360 ms | 531 ms | 521 ms | 429 ms | **426 ms** | **0.85×** | **1.25×** |
-| …the same RTS run, vs JS using native `Math.random` | 82 ms | 228 ms | 177 ms | 430 ms | **419 ms** | **0.20×** | **0.54×** |
-| π Machin f64 (RTS only) | — | — | — | 22 ms | **15 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 285 ms | **279 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 42 ms | **35 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 137 ms | **126 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 41 ms | **26 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 371 ms | **359 ms** | — | — |
-| one loop, state as a local / captured / property | 232 ms | 340 ms | 280 ms | 222 ms | **213 ms** | **1.09×** | **1.60×** |
+| Hello/startup | 28 ms | 65 ms | 56 ms | 49 ms | **37 ms** | **0.77×** | **1.79×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 429 ms | 805 ms | 772 ms | 465 ms | **449 ms** | **0.96×** | **1.79×** |
+| …the same RTS run, vs JS using native `Math.random` | 94 ms | 283 ms | 212 ms | 480 ms | **457 ms** | **0.21×** | **0.62×** |
+| π Machin f64 (RTS only) | — | — | — | 26 ms | **17 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 347 ms | **383 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 48 ms | **39 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 180 ms | **176 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 49 ms | **32 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 654 ms | **664 ms** | — | — |
+| one loop, state as a local / captured / property | 264 ms | 544 ms | 440 ms | 221 ms | **206 ms** | **1.28×** | **2.64×** |
 
 _Updated: 2026-09-05 — run locally with `powershell -File bench/benchmark.ps1`_
 

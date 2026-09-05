@@ -50,7 +50,59 @@
 use rts_cranelift::mem::{RegionBase, RegionBases};
 use rts_cranelift::target::InMemory;
 
+use rts_core::entry::Context;
+
 use crate::run::{Entry, Seed, addressed, front_end_agreeing, place, prepare};
+
+/// Wires the running host's compiler onto `context` — the same six hooks
+/// [`crate::run::run_region`] installs for the JIT, so a caller other than that
+/// one gets identical behaviour rather than a smaller lookalike.
+///
+/// # Why one function rather than six calls at each caller
+///
+/// Because there is now a second caller. `run_region` wired these inline until
+/// `rts-runtime-jit` needed the same six for an AOT binary compiled with
+/// `--embed-compiler`, and copying the six lines there would be a second
+/// statement of an agreement that already has one — the exact failure
+/// `rts-core`'s README names for a value encoding, here about an ORDER of
+/// registrations instead of a number. See that crate's rule 2.
+///
+/// # What "the same hooks" buys, precisely
+///
+/// Not a compiler that merely also runs — the SAME agreements `crate::live`'s
+/// module doc states: the running singleton numbering, the running property
+/// keys, the running literal table. A page `<script>` compiled through this is
+/// indistinguishable, from the compiled program's own perspective, from one
+/// compiled by the JIT host that ran `crate::run::compile` in the first place.
+///
+/// # What this does NOT install
+///
+/// `import.meta`, which is per-module and built by each caller out of its own
+/// facts about a file (`run_region`'s loop, `rts-runtime::aot`'s loop over its
+/// manifest) — bundling it here would tie a generic capability to one of the
+/// two callers' module tables.
+pub fn install_compiler(context: &mut Context) {
+    // What this crate can do and the module crates cannot: compile source.
+    // Handed DOWN because they cannot reach up — this crate depends on
+    // `rts-core`, so the other direction is a cycle. See
+    // `rts_core::entry::declare_evaluator`.
+    rts_core::entry::declare_evaluator(context, crate::run::evaluate_source);
+    // The same shape of injection, for the other thing only this crate knows:
+    // what `"./x"` means from a given file. A static import was resolved
+    // before the program was compiled; a dynamic one asks while it runs, and
+    // this is the answer coming down rather than the runtime learning about
+    // paths.
+    rts_core::entry::declare_resolver(context, crate::graph::resolve_specifier);
+    // The other half of that capability, and the half `evaluate_source` cannot
+    // give: `new Function` needs a CALLABLE, which is a reference, and a
+    // reference belongs to the region that made it. This module compiles into
+    // THIS context's region instead of building one, which is why it is a
+    // second injection rather than a second caller of the first.
+    rts_core::entry::declare_function_compiler(context, compile_function);
+    rts_core::entry::declare_source_parser(context, check_source);
+    rts_core::entry::declare_eval_compiler(context, evaluate_in_scope);
+    rts_core::entry::declare_eval_compiler_with_receiver(context, evaluate_in_scope_with_receiver);
+}
 
 thread_local! {
     /// Every module placed by a run-time compilation on this thread.

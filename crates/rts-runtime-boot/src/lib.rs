@@ -1,7 +1,36 @@
-//! The one startup sequence, callable from a linked-together `.exe` instead of
-//! from `rts-host`'s own process.
+//! The one startup sequence, shared by both AOT archives.
 //!
-//! # Why the entry point lives here and not synthesized into the object
+//! # Why this is a THIRD crate and not a function `rts-runtime-jit` calls on
+//! `rts-runtime`
+//!
+//! It was, briefly, and the archive it produced silently ran the wrong
+//! sequence — measured, not guessed: `rts compile --embed-compiler` linked
+//! without error, and the resulting binary answered `eval`'s ordinary refusal
+//! anyway. The cause is a property of how a `staticlib` bundles a dependency
+//! that this crate's own two callers now avoid by construction, so it is
+//! recorded here rather than only in a commit message.
+//!
+//! A function marked `#[unsafe(no_mangle)]` — `main` is exactly one — is
+//! ALWAYS carried into a dependent's bundled closure once that dependency is
+//! reached AT ALL, regardless of whether the dependent's own code calls that
+//! particular item. `rts-runtime-jit` reached `rts-runtime` (for this
+//! sequence) and thereby ALSO bundled `rts-runtime`'s OWN `#[no_mangle] fn
+//! main` — unreferenced by `rts-runtime-jit`'s code, but present all the
+//! same. Two definitions of the linker's most special name inside one
+//! archive is not an error the linker necessarily raises: it silently kept one, and
+//! it kept the WRONG one — the default sequence, with no compiler installed.
+//! `rts-runtime-jit`'s own `main` never ran.
+//!
+//! The fix is not "call `run` instead of `main`": both lived in the same
+//! crate, so reaching either one reaches the crate, and reaching the crate
+//! bundles EVERY `#[no_mangle]` item in it, `main` included. The only
+//! structural fix is that NEITHER final archive may depend on a crate that
+//! also defines a `#[no_mangle] main` — so the sequence moved here, a crate
+//! with no `main` of its own, and `rts-runtime` and `rts-runtime-jit` each
+//! depend on THIS rather than on each other. Neither can bundle the other's
+//! entry point, because neither is reachable from the other at all.
+//!
+//! # What the sequence itself is
 //!
 //! `rts-host::run::run_region` already IS this sequence, written in Rust,
 //! with an order that is load-bearing — install stack scanning, seed the key
@@ -14,9 +43,22 @@
 //!
 //! So the object built by `rts_host::object` exports its script under the fixed
 //! name `__rts_script`, under the exact ABI convention every compiled function
-//! uses, and this module supplies the process's actual `main`: it runs the same
-//! sequence `run_region` runs, then calls that symbol. One startup, two callers
-//! — this file's job is to be the second, not to invent a third.
+//! uses, and [`run`] is the process's real `main`, minus the C ABI: it runs the
+//! same sequence `run_region` runs, then calls that symbol.
+//!
+//! # The extra registration, and why it is a parameter here
+//!
+//! `rts-runtime-jit` — the archive `rts compile --embed-compiler` links
+//! instead of `rts-runtime`'s — needs the exact same sequence PLUS one extra
+//! call: `rts_host::install_compiler`, the six hooks that let
+//! runtime-compiled source (`eval`, `new Function`, a page `<script>`) run
+//! inside the AOT binary the way it already does inside `rts-host`'s own
+//! process. [`run`] takes it as an `Option<fn(&mut Context)>`, called once,
+//! after every namespace this binary installs unconditionally and before the
+//! compiled entry's first instruction — `None` for `rts-runtime`'s `main`,
+//! `Some(rts_host::install_compiler)` for `rts-runtime-jit`'s. Every other
+//! line of the sequence is read from this one place regardless of which
+//! archive a binary was linked against.
 //!
 //! # What a MODULE GRAPH added, and why it is three symbols and not one
 //!
@@ -35,7 +77,7 @@
 //! in an address that does not exist until this binary runs, so the object
 //! leaves the symbol undefined and this crate DEFINES it, as a plain data cell.
 //!
-//! [`REGION_BASE`] is written in [`start`], immediately after the region is
+//! [`REGION_BASE`] is written in [`run`], immediately after the region is
 //! allocated and before anything else touches it — in particular before
 //! `rts_std::install`, `rts_node::install`, or a single call into
 //! compiled code, every one of which can allocate. If the write happened after
@@ -53,6 +95,32 @@ use std::time::Duration;
 use rts_core::entry::Context;
 use rts_core::heap::Region;
 use rts_core::value::Singletons;
+
+/// Reaches each dependency so its symbols reach whichever archive bundles
+/// this crate.
+///
+/// Called by nothing. It exists to be a use of every dependency from this
+/// crate's root, which is what makes each one part of THIS compilation
+/// rather than an unreferenced edge in the manifest — see the module doc's
+/// first section for what an unreached dependency costs a `staticlib`.
+///
+/// A `pub` function rather than a `#[used]` static because the thing that
+/// must survive is the dependency's whole object, not one byte of data:
+/// naming a function from each is what pulls its translation unit in.
+pub fn keep() -> usize {
+    // `install` is the right name to reach in each: it is what the host calls,
+    // so it transitively touches everything the crate registers, which is
+    // exactly the set an AOT program can call.
+    let core = rts_core::entry::CORE_ENTRY_COUNT;
+    let std_install = rts_std::install as usize;
+    let node_install = rts_node::install as usize;
+    let dom_install = rts_dom_bridge::install as usize;
+    #[cfg(feature = "ui")]
+    let ui_install = rts_ui::install as usize;
+    #[cfg(not(feature = "ui"))]
+    let ui_install = 0usize;
+    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1)
+}
 
 /// How the compiled program is entered — its script, and each module body that
 /// runs before it.
@@ -141,8 +209,8 @@ unsafe fn addresses(table: *const u8, expected: usize) -> Option<Vec<u64>> {
 /// The top of the CURRENT thread's stack on a platform with a verified method.
 ///
 /// Duplicated from `rts-host::stack` rather than shared: that crate is not
-/// a dependency of this one (naming it would be backwards — the facade is what
-/// an AOT binary links against, and `rts-host` is a JIT host that itself
+/// a dependency of this one (naming it would be backwards — this facade is
+/// what an AOT binary links against, and `rts-host` is a JIT host that itself
 /// depends on nothing this crate produces). Both destinations must seed the
 /// same collector contract, but the small platform adapters remain local to
 /// the binaries that own their startup paths.
@@ -194,8 +262,9 @@ fn current_thread_stack_high() -> Option<usize> {
 /// `rts_host::run::compile`'s default.
 const CELLS: u32 = 1 << 16;
 
-/// The process's real entry point, for a binary the object file's
-/// `__rts_script` was linked into.
+/// The process's real entry point, minus the C ABI — see the module doc for
+/// why this is a plain function two different `#[no_mangle] extern "C" fn
+/// main`s call, rather than either of them calling the other.
 ///
 /// `#[cfg(not(test))]` because `cargo test`'s own harness needs a `main` of
 /// its own, and a `staticlib`'s exported one collided with it at LINK time —
@@ -213,9 +282,12 @@ const CELLS: u32 = 1 << 16;
 /// Called by the C runtime with the platform's own `argc`/`argv` convention.
 /// Nothing here reads them; the manifest is found next to the running
 /// executable rather than on the command line.
-#[cfg(not(test))]
-#[unsafe(no_mangle)]
-pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
+///
+/// `extra`, when given, runs once, after every namespace this binary
+/// installs unconditionally and before the compiled entry's first
+/// instruction — `None` for `rts-runtime`'s `main`,
+/// `Some(rts_host::install_compiler)` for `rts-runtime-jit`'s.
+pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>) -> i32 {
     // The sidecar file: `<exe>` with its extension replaced by `.rtsdata`. See
     // `rts_host::object`'s module doc for why this exists instead of a
     // second, linker-relocation-shaped mechanism.
@@ -331,6 +403,11 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
     // table empty rather than omitting it. The ADDRESS is `functions[index]`:
     // the manifest names a position in the SAME table `FUNCTION_TABLE_SYMBOL`
     // already resolved, so no second address table exists for this.
+    //
+    // Extracted here, ahead of `extra`, but not YET installed as the hook:
+    // `page_scripts::declare` below also takes what `extra` installs as ITS
+    // OWN fallback, so the extraction has to happen before `extra` runs and
+    // the installation after — see that call's own comment.
     let page_script_entries: Vec<(u64, Entry)> = manifest
         .page_scripts
         .into_iter()
@@ -344,15 +421,12 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
                 .map(|address| (hash, unsafe { std::mem::transmute::<u64, Entry>(*address) }))
         })
         .collect();
-    page_scripts::declare(page_script_entries);
-    rts_core::entry::declare_eval_compiler_with_receiver(
-        &mut context,
-        page_scripts::evaluate_in_scope_with_receiver,
-    );
-    // `vm.runInNewContext` needs a compiler this binary does not carry — an AOT
-    // program that reaches for one gets the honest absence rather than a link
-    // against `rts-codegen`, which would pull the whole front end into every
-    // compiled binary for a feature most programs never touch.
+    // `vm.runInNewContext` needs a compiler the DEFAULT archive does not
+    // carry — a program that reaches for one there gets the honest absence
+    // rather than a link against `rts-codegen`, which would pull the whole
+    // front end into every compiled binary for a feature most programs never
+    // touch. `--embed-compiler` is the opt-in that carries it, via `extra`
+    // below.
     rts_core::entry::declare_rest(&mut context, |wait: Duration| std::thread::sleep(wait));
     // What `require("./x")` and `import("./x")` name. The JIT host installs a
     // resolver that reads the disk; this one reads the answers the loader
@@ -384,6 +458,27 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
     rts_dom_bridge::install(&mut context);
     #[cfg(feature = "ui")]
     rts_ui::install(&mut context);
+    // The one registration the default archive never makes: see this
+    // function's own doc for what `extra` is and why it is a parameter here
+    // rather than a second copy of everything above it.
+    if let Some(install_extra) = extra {
+        install_extra(&mut context);
+    }
+    // `page_scripts` and a live compiler compose rather than one silently
+    // overwriting the other's `eval_compiler_with_receiver`. `extra` — when
+    // it is `rts_host::install_compiler` — already set that hook to the live
+    // compiler; read it back here as `page_scripts`'s OWN fallback for a
+    // page `<script>` whose exact source `--html` did not precompile, and
+    // only then install `page_scripts`'s hook, which tries the hash lookup
+    // FIRST and falls through to the fallback (`None` for the default
+    // archive, which is the whole of why a page script it never saw stays a
+    // refusal there, not a `--html` question).
+    let live_compiler = context.eval_compiler_with_receiver;
+    page_scripts::declare(page_script_entries, live_compiler);
+    rts_core::entry::declare_eval_compiler_with_receiver(
+        &mut context,
+        page_scripts::evaluate_in_scope_with_receiver,
+    );
 
     let nothing = singletons.undefined as u64;
     let (_, exit_code) = rts_core::entry::with_context(context, || {
