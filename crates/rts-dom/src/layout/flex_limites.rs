@@ -57,14 +57,15 @@ pub(in crate::layout) fn flex_base_outer(
 /// OUTER: em content-box somam o frame (padding + borda) e a margem; em
 /// border-box só a margem. `None` quando não declarados.
 ///
-/// `min-content` explícito (`Dimension::MinContent`, só possível em
-/// `min-width`/`max-width` — `style/lengths.rs`) resolve para o min-content
-/// REAL do item (`crate::table::min_content`, o mesmo que já serve o piso
-/// automático do encolhimento) em vez de cair no `None` genérico que
-/// `Dimension::resolve` dá a uma keyword que só a árvore resolve — sem isto
-/// `min-width:min-content` empatava com "não declarado" e um `max-width`
-/// menor vencia, ao contrário do CSS2 §10.4 (min sempre vence max em
-/// conflito; `claude-flex-min-width-min-content`).
+/// `min-content`/`max-content` explícitos (`Dimension::MinContent`/
+/// `MaxContent`, só possíveis em `min-width`/`max-width` — `style/lengths.rs`)
+/// resolvem para a intrínseca REAL do item (`intrinseco_min_max::resolve` —
+/// partilhado com `bloco.rs`, que precisa da mesma pergunta para um
+/// DESCENDENTE do item, não só para o item em si) em vez de caírem no `None`
+/// genérico que `Dimension::resolve` dá a uma keyword que só a árvore
+/// resolve — sem isto `min-width:min-content` empatava com "não declarado" e
+/// um `max-width` menor vencia, ao contrário do CSS2 §10.4 (min sempre vence
+/// max em conflito; `claude-flex-min-width-min-content`).
 pub(in crate::layout) fn limites_do_item(
     dom: &Dom,
     id: NodeIdx,
@@ -89,13 +90,7 @@ pub(in crate::layout) fn limites_do_item(
             + ccss.padding.resolve_h(&rc)
     };
     let resolve_lado = |d: Option<crate::style::Dimension>| -> Option<f32> {
-        match d {
-            Some(crate::style::Dimension::MinContent) => {
-                Some(crate::table::min_content(dom, id, font_size, ctx))
-            }
-            Some(other) => other.resolve(&rc),
-            None => None,
-        }
+        super::intrinseco_min_max::resolve(d, dom, id, font_size, ctx, &rc)
     };
     (
         resolve_lado(ccss.max_width).map(|m| m + extra),
@@ -253,18 +248,32 @@ pub(in crate::layout) fn com_limites_finais(
 
 /// O piso AUTOMÁTICO de min-content (Flexbox §4.5), antes de `min-width`
 /// DECLARADO entrar (esse, quando presente, substitui este resultado por
-/// inteiro — a spec só liga o automático a `min-width:auto`). O automático é
-/// o MENOR entre o min-content (`min_content`, já medido pelo chamador) e a
-/// "specified size suggestion": o `width` do item, quando é um comprimento
-/// DEFINIDO — a spec exclui a `flex-basis` desta conta de propósito, por
-/// isso um `flex-basis:0` sem `width` fica no min-content puro, sem teto
-/// (`claude-flex-basis-zero-min-content`, o piso do lote flex-basis-piso).
+/// inteiro — a spec só liga o automático a `min-width:auto`). É o MENOR
+/// entre três candidatos — a "content size suggestion" (`min_content`, já
+/// medido pelo chamador, e por baixo dela o `max-width` COMPUTADO, candidato
+/// (b) da spec — sem isto um `#capado{width:100;max-width:50}` erguia o
+/// automático ao `min_content` cru e `com_limites_finais` (min primeiro,
+/// depois max) devolvia-o inteiro em vez do teto, `flexbox-min-width-
+/// auto-001` blocos 4-6, WPT) — e a "specified size suggestion": o `width`
+/// do item, quando é um comprimento DEFINIDO (a spec exclui a `flex-basis`
+/// desta conta de propósito, por isso um `flex-basis:0` sem `width` fica no
+/// min-content puro, sem teto — `claude-flex-basis-zero-min-content`, o piso
+/// do lote flex-basis-piso).
 ///
-/// Sem este teto, um item `width:100%; aspect-ratio:1/1` cujo filho também
-/// mede a `100%` tinha min-content GIGANTE (o filho mede-se à custa do pai
-/// que ainda não tem largura) e o piso erguia o item bem acima do `width`
-/// pedido — em `flex-aspect-ratio-resize-001` (WPT) isso encravava o
-/// rasterizador tentando um canvas do tamanho desse min-content.
+/// Sem o teto de `width:100%; aspect-ratio:1/1`, ver a nota antiga: um filho
+/// que também mede a `100%` tinha min-content GIGANTE (mede-se à custa do
+/// pai que ainda não tem largura) e o piso erguia o item bem acima do
+/// `width` pedido — em `flex-aspect-ratio-resize-001` (WPT) isso encravava o
+/// rasterizador tentando um canvas do tamanho desse min-content; esse teto é
+/// o MESMO `max_main` do candidato (b), então os dois casos usam um só
+/// parâmetro.
+///
+/// `overflow-x` NÃO visível desliga o automático inteiro (o mesmo texto da
+/// spec que `coluna_shrink::min_main_auto` já aplica no eixo vertical) — e
+/// só fica visível quando os DOIS eixos o são: CSS Overflow 3 promove
+/// `overflow-x:visible` a `auto` sempre que `overflow-y` não é visível
+/// (`flexbox-min-width-auto-004`, WPT — o inverso de `-003`, que já cobria só
+/// o próprio `overflow-x`).
 pub(in crate::layout) fn min_automatico(
     dom: &Dom,
     id: NodeIdx,
@@ -273,7 +282,14 @@ pub(in crate::layout) fn min_automatico(
     content_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
+    max_main: Option<f32>,
 ) -> f32 {
+    use crate::scrollbar::Overflow::Visible;
+    let overflow_visible = ccss.overflow_x.unwrap_or(Visible) == Visible
+        && ccss.overflow_y.unwrap_or(Visible) == Visible;
+    if !overflow_visible {
+        return 0.0;
+    }
     let font = font_px(ccss, font_size);
     let rc = ResolveCtx {
         parent_content_w: content_w,
@@ -282,8 +298,9 @@ pub(in crate::layout) fn min_automatico(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
+    let conteudo = max_main.map(|m| min_content.min(m)).unwrap_or(min_content);
     match ccss.width.and_then(|d| d.resolve(&rc)) {
-        Some(_) => min_content.min(child_outer_width(dom, id, content_w, font_size, ctx)),
-        None => min_content,
+        Some(_) => conteudo.min(child_outer_width(dom, id, content_w, font_size, ctx)),
+        None => conteudo,
     }
 }

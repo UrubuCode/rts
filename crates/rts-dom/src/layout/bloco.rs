@@ -526,14 +526,14 @@ pub(crate) fn layout_block(
         // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
         // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao
         // content quando border-box; em content-box já são do content.
-        let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+        let mnw = super::intrinseco_min_max::resolve(css.min_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
             if border_box {
                 (v - (padding_h + border_h)).max(0.0)
             } else {
                 v
             }
         });
-        let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+        let mxw = super::intrinseco_min_max::resolve(css.max_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
             if border_box {
                 (v - (padding_h + border_h)).max(0.0)
             } else {

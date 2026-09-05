@@ -191,7 +191,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             base
         } else {
             let min_main = crate::table::min_content(dom, child, font_size, ctx);
-            super::flex_limites::min_automatico(dom, child, min_main, &ccss, content_w, font_size, ctx)
+            super::flex_limites::min_automatico(dom, child, min_main, &ccss, content_w, font_size, ctx, max_main)
         };
         let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
         // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
