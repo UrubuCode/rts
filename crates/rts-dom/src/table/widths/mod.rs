@@ -18,6 +18,8 @@
 
 mod reparticao;
 pub(crate) use reparticao::{resolve_colunas, resolve_fixo};
+mod max_width_floor;
+use max_width_floor::comprimento_outer;
 
 use crate::layout::LayoutCtx;
 use crate::style::ResolveCtx;
@@ -361,13 +363,9 @@ pub(in crate::table) fn min_content(
             // resposta, mais abaixo. É também o que o browser faz: uma largura
             // que não cabe é ignorada, não respeitada com o conteúdo a
             // transbordar.
-            let declarada = largura_absoluta(css.width, &resolve).map(|w| {
-                w + if css.border_box.unwrap_or(false) {
-                    0.0
-                } else {
-                    frame
-                }
-            });
+            let declarada = comprimento_outer(css.width, &css, &resolve, frame);
+            // clampa o PISO por `max-width` — ver `max_width_floor.rs`.
+            let max_width_cap = comprimento_outer(css.max_width, &css, &resolve, frame);
             // O `white-space` é herdado, por isso lê-se o do próprio nó em vez de
             // se propagar o do pai pela recursão: um descendente que volte a
             // `normal` PODE quebrar, e arrastar a bandeira para baixo negar-lhe-ia
@@ -395,7 +393,9 @@ pub(in crate::table) fn min_content(
                 }
             }
             if floor_width {
-                (m.max(linha) + frame).max(declarada.unwrap_or(0.0))
+                let piso = (m.max(linha) + frame).max(declarada.unwrap_or(0.0));
+                // teto nunca abaixo do `width` declarado (ordem de `clamp_size`).
+                max_width_cap.map_or(piso, |mx| piso.min(mx.max(declarada.unwrap_or(0.0))))
             } else {
                 m.max(linha) + frame
             }
