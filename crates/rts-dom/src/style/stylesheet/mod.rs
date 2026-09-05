@@ -26,7 +26,6 @@
 //! `revert`, `revert-layer` (lote J — `stylesheet::revert`) e `!important` já
 //! atravessam o pipeline actual.
 
-pub(in crate::style::stylesheet) use super::parse::parse_inline_block;
 pub(in crate::style::stylesheet) use super::props::ComputedStyle;
 pub(in crate::style::stylesheet) use super::selector::{ComplexSelector, PseudoClass, Selector, compound_matches};
 
