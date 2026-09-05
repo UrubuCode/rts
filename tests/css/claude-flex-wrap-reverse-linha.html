@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: flex-wrap:wrap-reverse não é o mesmo que nowrap. fluxo.rs:28
+     guarda flex_wrap como Option<bool> (`val=="wrap"`), então
+     "wrap-reverse" cai em Some(false) — idêntico a nowrap: o contentor
+     encolhe os 4 itens para caber numa linha em vez de quebrar em 2 linhas
+     com a ordem das linhas invertida no eixo cruzado (CSS Flexbox
+     §5.2 flex-wrap: cross-start e cross-end trocam de lado). Verificado
+     contra o binário atual: os 4 itens hoje saem com w=64 (encolhidos, uma
+     só linha) em vez de w=128 em 2 linhas. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="i1,i2,i3,i4">
+<meta name="fixar-estilo" content="flex-wrap">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .w { display: flex; flex-wrap: wrap-reverse; width: 256px; }
+  .w > div { width: 128px; height: 40px; }
+</style></head>
+<body>
+<div class="w"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
+</body></html>

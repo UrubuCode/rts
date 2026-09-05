@@ -18,7 +18,7 @@ pub(in crate::style::parse) use super::lengths::{
 pub(in crate::style::parse) use super::props::ComputedStyle;
 pub(in crate::style::parse) use super::stylesheet::DeclBlock;
 pub(in crate::style::parse) use super::values::{
-    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
+    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FlexWrap, FloatSide,
     JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, Visibility, WhiteSpace,
 };
 
