@@ -173,11 +173,20 @@ function __dropLifecycle(h: i64): void {
 // `runScriptsAt`: a wrapper continua a existir para quem já a chama (browser,
 // apps) — só `loadDocument` precisa da bomba movida para depois do evento.
 function loadDocument(html: string, url: string): Document {
+  return loadDocumentFrom(html, url, url);
+}
+
+// Como `loadDocument`, com a base dos recursos separada da URL dos scripts:
+// um `.exe` de `rts compile pagina.html` resolve `<link>`/`<img>` relativos
+// contra a pasta do HTML na máquina do build, mas publica `window.location`
+// como a URL de página que os bundles esperam. `loadDocument(html, url)` é o
+// caso em que as duas coincidem (navegação).
+function loadDocumentFrom(html: string, url: string, resourceBase: string): Document {
   const doc = parseDocument(html);
   __setUrlOf(doc._dom, url);
   dom.setScriptingEnabled(doc._dom, 1);
   dom.setReadyState(doc._dom, "loading");
-  loadResources(doc, url);
+  loadResources(doc, resourceBase);
 
   const scriptCount = dom.getByTagCount(doc._dom, "script");
   let j = 0;
