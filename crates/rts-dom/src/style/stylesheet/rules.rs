@@ -329,14 +329,31 @@ fn parse_keyframe_offset(s: &str) -> Option<f32> {
         .map(|p| (p / 100.0).clamp(0.0, 1.0))
 }
 
-/// Resolve uma declaração PENDENTE (`prop: …var()…`) contra as custom props do
-/// elemento e aplica no estilo — re-parseando a declaração única pelo parser
-/// normal (mantém TODO o vocabulário: cores, dimensões, shorthands…).
+/// Resolve uma declaração PENDENTE — `prop: …var()…` contra as custom props
+/// do elemento, ou uma `-inline-` lógica (`style::logical::
+/// e_direction_dependente`) contra o `direction` dele — e aplica no estilo,
+/// re-parseando a declaração única pelo parser normal (mantém TODO o
+/// vocabulário: cores, dimensões, shorthands…).
+///
+/// `direction`: o `direction` já conhecido para este elemento NESTE ponto da
+/// cascade (normalmente o herdado do pai — `style::logical`, cabeçalho
+/// "Quando isto resolve"; `dom::cascade` é quem o calcula). Só entra em jogo
+/// quando `css.direction` ainda está por declarar (`.or`, nunca substitui um
+/// `direction` que ESTA MESMA regra já tenha posto em `css` — a precedência
+/// normal da cascade, preservada).
+///
+/// Chama [`apply_declaration_final`] directo, NÃO
+/// [`crate::style::parse::apply_specified_declaration`]: essa função reconhece
+/// EXACTAMENTE os mesmos dois motivos de adiar (`var()` cru, ou uma logical
+/// `-inline-`) e voltaria a empurrar esta declaração — já resolvida — para
+/// `block.pending`, que aqui é descartado (só `block.normal` volta), i.e. a
+/// declaração desapareceria em silêncio.
 pub(crate) fn apply_resolved_decl(
     css: &mut ComputedStyle,
     prop: &str,
     raw: &str,
     vars: &std::collections::HashMap<String, String>,
+    direction: Option<crate::style::Direction>,
 ) {
     let resolved = super::vars::substitute(raw, vars);
     if resolved.trim().is_empty() {
@@ -344,7 +361,10 @@ pub(crate) fn apply_resolved_decl(
     }
     let mut block = DeclBlock::default();
     block.normal = css.clone();
-    crate::style::parse::apply_specified_declaration(&mut block, prop, &resolved, false);
+    if crate::style::logical::e_direction_dependente(prop) {
+        block.normal.direction = block.normal.direction.or(direction);
+    }
+    crate::style::parse::apply_declaration_final(&mut block, prop, &resolved, false);
     *css = block.normal;
 }
 

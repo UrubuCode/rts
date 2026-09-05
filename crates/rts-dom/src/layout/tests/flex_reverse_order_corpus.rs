@@ -2,6 +2,13 @@
 //! ORDEM DAS COLUNAS sob `direction:rtl`) e WPT
 //! `css-flexbox-img-expand-evenly` (`flex.rs`, `align-items:stretch` a
 //! ENCOLHER um item cuja altura pré-stretch já veio maior do que a linha).
+//!
+//! RETRABALHO (WPT `gap-007-rtl` a cair): `margin-inline-*`/`padding-inline-*`/
+//! `border-inline-*` agora resolvem contra `direction` (`style::logical`,
+//! `dom::cascade`) em vez de LTR fixo — e o corte que isso precisou
+//! (`dom::direction_herdada`: uma LINHA de flex sob `direction:rtl` ainda não
+//! reordena os itens, então a margem finge o `ltr` de propósito aí, para não
+//! virar margem certa + ordem errada).
 
 use crate::table::tests::{geometria, geometria_com, rect};
 
@@ -97,4 +104,93 @@ fn stretch_encolhe_um_item_cuja_altura_pela_razao_de_aspecto_excede_a_linha() {
     });
     let r = rect(&dom, &list, "#alvo", 0);
     assert_eq!((r.w, r.h), (48.0, 20.0), "estica aos 20px da linha, não fica em 48 (a razão de aspecto 1:1 da largura declarada)");
+}
+
+/// `margin-inline-end`/`padding-inline-end`/`border-inline-end-width` sob
+/// `direction:ltr` (o inicial — nem precisa de declarar) resolvem para a
+/// DIREITA, como sempre resolveram.
+#[test]
+fn logicas_inline_end_resolvem_para_a_direita_em_ltr() {
+    const HTML: &str = r#"<style>
+  #alvo { width: 50px; margin-inline-end: 10px; padding-inline-end: 6px; border-inline-end: 2px solid black; }
+</style>
+<div id="alvo"></div>"#;
+    let (dom, _list) = geometria(HTML, 1280.0);
+    let id = dom.query("#alvo").unwrap();
+    let css = dom.computed_style(id).unwrap();
+    assert_eq!(css.margin.right, crate::style::Side::Len(crate::style::Dimension::Px(10.0)));
+    assert_eq!(css.margin.left, crate::style::Side::Unset);
+    assert_eq!(css.padding.right, crate::style::Side::Len(crate::style::Dimension::Px(6.0)));
+    assert_eq!(css.padding.left, crate::style::Side::Unset);
+    assert_eq!(css.border_widths.right, crate::style::Side::Len(crate::style::Dimension::Px(2.0)));
+    assert_eq!(css.border_widths.left, crate::style::Side::Unset);
+}
+
+/// A MESMA folha, mas `direction:rtl` HERDADO de um ancestral (não declarado
+/// no próprio `#alvo` — o formato real de `gap-007-rtl`, `direction` no
+/// `body`): as três famílias resolvem para a ESQUERDA. Achado que motivou
+/// este retrabalho: antes, um braço em `style::parse::caixa` respondia por
+/// `margin`/`padding-inline-*` ANTES de `style::logical` ser chamado —
+/// sempre LTR, `direction` nunca lido.
+#[test]
+fn logicas_inline_end_resolvem_para_a_esquerda_em_rtl_herdado() {
+    const HTML: &str = r#"<style>
+  body { direction: rtl; }
+  #alvo { width: 50px; margin-inline-end: 10px; padding-inline-end: 6px; border-inline-end: 2px solid black; }
+</style>
+<div id="alvo"></div>"#;
+    let (dom, _list) = geometria(HTML, 1280.0);
+    let id = dom.query("#alvo").unwrap();
+    let css = dom.computed_style(id).unwrap();
+    assert_eq!(css.direction, Some(crate::style::Direction::Rtl), "herdado do body");
+    assert_eq!(css.margin.left, crate::style::Side::Len(crate::style::Dimension::Px(10.0)));
+    assert_eq!(css.margin.right, crate::style::Side::Unset);
+    assert_eq!(css.padding.left, crate::style::Side::Len(crate::style::Dimension::Px(6.0)));
+    assert_eq!(css.padding.right, crate::style::Side::Unset);
+    assert_eq!(css.border_widths.left, crate::style::Side::Len(crate::style::Dimension::Px(2.0)));
+    assert_eq!(css.border_widths.right, crate::style::Side::Unset);
+}
+
+/// O CORTE (`dom::direction_herdada`): dentro de uma LINHA de flex
+/// (`flex-direction:row`, o default) sob `direction:rtl`, `margin-inline-end`
+/// continua a resolver como `margin-right` — a ordem dos itens da linha
+/// ainda não inverte por `direction` (só por `row-reverse`), e margem certa
+/// com ordem errada é pior do que as duas erradas (WPT `gap-003-rtl`/
+/// `gap-006-rtl`, que simulam um `gap` com esta margem e passavam pela
+/// mesma coincidência inversa que `gap-007-rtl` explorava do lado da
+/// coluna). Uma COLUNA (`logicas_inline_end_numa_coluna_de_flex_rtl_resolve_normal`
+/// abaixo) não tem este corte — só a linha.
+#[test]
+fn logicas_inline_end_numa_linha_de_flex_rtl_fica_ltr_por_agora() {
+    const HTML: &str = r#"<style>
+  body { direction: rtl; }
+  .f { display: flex; }
+  .f > div { width: 50px; margin-inline-end: 10px; }
+</style>
+<div class="f"><div id="alvo"></div></div>"#;
+    let (dom, _list) = geometria(HTML, 1280.0);
+    let id = dom.query("#alvo").unwrap();
+    let css = dom.computed_style(id).unwrap();
+    assert_eq!(css.direction, Some(crate::style::Direction::Rtl), "herdado do body mesmo aqui");
+    assert_eq!(css.margin.right, crate::style::Side::Len(crate::style::Dimension::Px(10.0)), "corte: linha de flex ainda finge ltr");
+    assert_eq!(css.margin.left, crate::style::Side::Unset);
+}
+
+/// O MESMO corte NÃO se aplica a uma COLUNA: o eixo cruzado dela já respeita
+/// `direction:rtl` desde o lote `flex-justify-logico` (`coluna_rtl::cross_x`),
+/// então a margem lógica de um item de coluna resolve CORRETA (é a fixture
+/// que fecha `gap-007-rtl`, aqui isolada da grade/wrap).
+#[test]
+fn logicas_inline_end_numa_coluna_de_flex_rtl_resolve_normal() {
+    const HTML: &str = r#"<style>
+  body { direction: rtl; }
+  .f { display: flex; flex-direction: column; }
+  .f > div { width: 50px; margin-inline-end: 10px; }
+</style>
+<div class="f"><div id="alvo"></div></div>"#;
+    let (dom, _list) = geometria(HTML, 1280.0);
+    let id = dom.query("#alvo").unwrap();
+    let css = dom.computed_style(id).unwrap();
+    assert_eq!(css.margin.left, crate::style::Side::Len(crate::style::Dimension::Px(10.0)));
+    assert_eq!(css.margin.right, crate::style::Side::Unset);
 }

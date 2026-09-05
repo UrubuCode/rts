@@ -35,6 +35,7 @@ mod animacao;
 mod caches;
 mod cascade;
 mod consulta;
+mod direction_herdada;
 mod eventos;
 mod estilo;
 mod formulario;
