@@ -326,16 +326,44 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
 /// `<body>` no primeiro elemento de fluxo. O que NÃO faz é inserir `<html>` ou
 /// `<head>` ausentes — a árvore continua a aceitar um documento sem eles, e
 /// nenhuma regra CSS depende desses dois da forma que depende do `body`.
+/// Garante um `<html>` no topo da pilha, criando-o (filho do que estiver no
+/// topo agora) só se ainda não houver um aberto. Extraído para servir DOIS
+/// chamadores: o `<body>` explícito sem `<html>` antes dele, e o fluxo que
+/// abre os dois de vez (ver `open_implicit_body`).
+fn ensure_html(dom: &mut Dom, open: &mut Vec<(NodeIdx, String)>) {
+    if open.iter().any(|(_, n)| n == "html") {
+        return;
+    }
+    let raiz = open.last().unwrap().0;
+    let html = dom.push(
+        NodeKind::Element {
+            tag: "html".to_owned(),
+        },
+        Vec::new(),
+        raiz,
+    );
+    open.push((html, "html".to_owned()));
+}
+
 fn open_implicit_body(dom: &mut Dom, open: &mut Vec<(NodeIdx, String)>, new_tag: &str) {
-    // As três tags da estrutura nunca abrem uma estrutura implícita: são elas.
-    // Sem `html` nesta lista, um documento que traga o que quer que seja antes
-    // do `<html>` — um `<style>` injetado, um comentário — fazia nascer um
-    // `<html>` implícito e o `<html>` REAL ficava dentro dele. A árvore ainda
-    // parecia razoável num `dump`, mas todo o caminho de elemento
-    // (`html[1]/body[1]/…`) ganhava um nível, e uma comparação contra o browser
-    // deixava de encontrar os mesmos nós: de 16 813 caminhos comuns passaram a
-    // ser 2.
-    if matches!(new_tag, "html" | "head" | "body") || allowed_in_head(new_tag) {
+    // Um `<body>` ESCRITO no documento ainda chega aqui sem `<html>` ter sido
+    // aberto: a referência do WPT `align-items-006` (entre outras) escreve
+    // `<meta>`/`<title>`/`<link>`/`<style>` e depois `<body>` direto, sem
+    // nunca escrever `<html>` — todos os quatro primeiros são `allowed_in_head`
+    // e não disparam nada abaixo, e "body" estava na mesma lista de exclusão
+    // que "html"/"head", então a árvore inteira acabava SEM elemento `<html>`
+    // nenhum (`claude-paint-dump` respondia "sem elemento <html>"). Só falta o
+    // `<html>`: o `<body>` já vai ser criado pelo chamador, como filho do que
+    // `ensure_html` deixar no topo da pilha.
+    if new_tag == "body" {
+        ensure_html(dom, open);
+        return;
+    }
+    // `html`/`head` nunca abrem uma estrutura implícita a partir daqui: são
+    // elas próprias, e o `allowed_in_head` continua fora (fica solto na raiz
+    // até um `<body>` — decisão que já era assim; o "onde vivem os filhos
+    // soltos do head" é outro lote).
+    if matches!(new_tag, "html" | "head") || allowed_in_head(new_tag) {
         return;
     }
     // Já estamos DENTRO de um `<body>`? Então não há nada a abrir.
@@ -353,17 +381,7 @@ fn open_implicit_body(dom: &mut Dom, open: &mut Vec<(NodeIdx, String)>, new_tag:
     // nenhum. Toda a propriedade HERDADA declarada aí (a cor, a fonte, o
     // `line-height`) desaparecia em silêncio: a herança funcionava, o ancestral
     // é que não existia.
-    if !open.iter().any(|(_, n)| n == "html") {
-        let raiz = open.last().unwrap().0;
-        let html = dom.push(
-            NodeKind::Element {
-                tag: "html".to_owned(),
-            },
-            Vec::new(),
-            raiz,
-        );
-        open.push((html, "html".to_owned()));
-    }
+    ensure_html(dom, open);
     let parent = open.last().unwrap().0;
     let body = dom.push(
         NodeKind::Element {
