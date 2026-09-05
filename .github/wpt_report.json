@@ -2476,13 +2476,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-001",
-      "estado": "passa"
-    },
-    {
       "nome": "flex-aspect-ratio-img-column-018",
       "estado": "falha",
       "pct": 0.9765625
+    },
+    {
+      "nome": "flex-aspect-ratio-img-row-001",
+      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-row-002",
@@ -2572,11 +2572,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-002",
+      "nome": "flex-basis-001",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-001",
+      "nome": "flex-basis-002",
       "estado": "passa"
     },
     {
@@ -2613,11 +2613,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-item-margins-001",
+      "nome": "flex-basis-012",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-012",
+      "nome": "flex-basis-item-margins-001",
       "estado": "passa"
     },
     {
@@ -2657,11 +2657,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-direction-column-reverse",
+      "nome": "flex-direction-column",
       "estado": "passa"
     },
     {
-      "nome": "flex-direction-column",
+      "nome": "flex-direction-column-reverse",
       "estado": "passa"
     },
     {
@@ -2694,11 +2694,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-003",
+      "nome": "flex-flow-004",
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-004",
+      "nome": "flex-flow-003",
       "estado": "passa"
     },
     {
@@ -2777,11 +2777,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-inline",
+      "nome": "flex-item-and-percentage-abspos",
       "estado": "passa"
     },
     {
-      "nome": "flex-item-and-percentage-abspos",
+      "nome": "flex-inline",
       "estado": "passa"
     },
     {
@@ -2819,13 +2819,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-item-min-width-min-content",
-      "estado": "passa"
-    },
-    {
       "nome": "flex-item-position-relative-001",
       "estado": "falha",
       "pct": 0.244140625
+    },
+    {
+      "nome": "flex-item-min-width-min-content",
+      "estado": "passa"
     },
     {
       "nome": "flex-item-transferred-sizes-padding-border-sizing",
@@ -2943,14 +2943,14 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-021",
-      "estado": "falha",
-      "pct": 0.48828125
-    },
-    {
       "nome": "flex-minimum-height-flex-items-022",
       "estado": "falha",
       "pct": 0.966796875
+    },
+    {
+      "nome": "flex-minimum-height-flex-items-021",
+      "estado": "falha",
+      "pct": 0.48828125
     },
     {
       "nome": "flex-minimum-height-flex-items-023",
@@ -4870,11 +4870,11 @@
       "estado": "passa"
     },
     {
-      "nome": "item-with-max-height-and-scrollbar",
+      "nome": "item-with-table-with-infinite-max-intrinsic-width",
       "estado": "passa"
     },
     {
-      "nome": "item-with-table-with-infinite-max-intrinsic-width",
+      "nome": "item-with-max-height-and-scrollbar",
       "estado": "passa"
     },
     {
@@ -5370,11 +5370,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
