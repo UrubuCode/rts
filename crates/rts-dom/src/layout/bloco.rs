@@ -1202,43 +1202,49 @@ pub(crate) fn layout_block(
         }
     }
 
-    // ── CLIP-PATH: recorta o elemento a um retângulo. SÓ `inset()` sem `round`
-    // chega aqui com um rect — as outras formas devolvem `None` e não recortam
-    // nada, porque recortar um `polygon()` pela caixa envolvente desenharia um
-    // quadrado onde devia estar um losango (ver `painteffects`).
-    //
-    // Emitido DEPOIS do bloco de overflow acima, e de propósito: inserir em
-    // `box_index` empurra tudo o que vem a partir dali, e fazê-lo antes
-    // desalinharia por um o `children_start` que aquele bloco calcula. Como o
-    // `EndClip` deste é empilhado no fim, o aninhamento sai certo — este abre
-    // primeiro e fecha por último, portanto envolve o clip de scroll.
-    //
-    // A diferença para o clip de overflow é onde ABRE: aquele recorta só os
-    // FILHOS (abre depois dos itens de caixa), este recorta o elemento INTEIRO,
-    // fundo e borda incluídos, que é o que o `clip-path` do CSS faz. Daí abrir
-    // em `box_index`.
-    if let Some(cp) = css.clip_path.as_deref() {
-        if let Some(rect) = crate::painteffects::clip_retangulo(cp, box_rect) {
-            insert_item(
-                list,
-                box_index,
-                filhos_antes_da_caixa,
-                DisplayItem::BeginClip {
-                    rect,
-                    node: id,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    // Os fragmentos-filhos que existiam quando a CAIXA foi
-                    // reservada — não `list.children.len()` de agora, que já
-                    // conta os desta subárvore. O clip abre conceptualmente
-                    // antes deles, mesmo sendo inserido depois de existirem.
-                    filhos_antes: filhos_antes_da_caixa,
-                },
-            );
-            list.items.push(DisplayItem::EndClip {
-                filhos_dentro: list.children.len(),
-            });
-        }
+    // `clip-path` — SÓ `inset()` sem `round` chega a devolver um rect (ver
+    // `painteffects`) — e o `clip` legado (CSS2.1 §11.1.2), que só se aplica a
+    // posicionados (`absolute`/`fixed`, a condição da spec) e reusa o MESMO
+    // par BeginClip/EndClip: dois retângulos possíveis, o mesmo emissor.
+    let clip_path_rect = css
+        .clip_path
+        .as_deref()
+        .and_then(|cp| crate::painteffects::clip_retangulo(cp, box_rect));
+    let legacy_clip_rect = css
+        .position
+        .is_some_and(|p| p.out_of_flow())
+        .then(|| css.clip)
+        .flatten()
+        .and_then(|clip| crate::painteffects::clip_legacy_retangulo(clip, box_rect));
+    for rect in [clip_path_rect, legacy_clip_rect].into_iter().flatten() {
+        // Emitido DEPOIS do bloco de overflow acima, e de propósito: inserir em
+        // `box_index` empurra tudo o que vem a partir dali, e fazê-lo antes
+        // desalinharia por um o `children_start` que aquele bloco calcula. Como
+        // o `EndClip` deste é empilhado no fim, o aninhamento sai certo — este
+        // abre primeiro e fecha por último, portanto envolve o clip de scroll.
+        //
+        // A diferença para o clip de overflow é onde ABRE: aquele recorta só
+        // os FILHOS (abre depois dos itens de caixa), este recorta o elemento
+        // INTEIRO, fundo e borda incluídos.
+        insert_item(
+            list,
+            box_index,
+            filhos_antes_da_caixa,
+            DisplayItem::BeginClip {
+                rect,
+                node: id,
+                offset_x: 0.0,
+                offset_y: 0.0,
+                // Os fragmentos-filhos que existiam quando a CAIXA foi
+                // reservada — não `list.children.len()` de agora, que já
+                // conta os desta subárvore. O clip abre conceptualmente antes
+                // deles, mesmo sendo inserido depois de existirem.
+                filhos_antes: filhos_antes_da_caixa,
+            },
+        );
+        list.items.push(DisplayItem::EndClip {
+            filhos_dentro: list.children.len(),
+        });
     }
 
     // POSITION:RELATIVE — porquê e o que desloca em `relativo.rs`. ANTES do

@@ -92,25 +92,21 @@ pub enum PointerEvents {
 /// canto SUPERIOR ESQUERDO da caixa (não é um `inset`: `bottom` cresce para
 /// baixo, ao contrário de `inset-bottom`).
 ///
-/// GUARDADA, SEM RECORTE — e a pergunta que decide isso foi verificada em vez de
-/// assumida. `clip` está obsoleta na spec há anos e mesmo assim aparece em 8 das
-/// 13 folhas do corpus, sempre com o mesmo papel: o `.sr-only`/`.visually-hidden`
-/// que esconde texto de quem vê e o deixa para o leitor de ecrã. **Se o recorte
-/// faltasse, esse texto aparecia na página** — um defeito visível é pior que uma
-/// propriedade ausente, que é a razão para não a reconhecer às cegas.
+/// GUARDADA **E RECORTADA** — este parágrafo dizia "sem recorte", e a razão
+/// dada não sobreviveu ao lote WPT `cluster-9216`: os 13 ficheiros do corpus
+/// de páginas reais são todos `.sr-only`/`.visually-hidden` com
+/// `width:1px; height:1px; overflow:hidden` ao lado, onde o `overflow:hidden`
+/// já escondia o conteúdo — mas os reftests `visufx/clip-*` do CSS2.1 usam
+/// `clip: rect(0,0,0,0)` SOZINHO, numa caixa `1in × 1in` SEM `overflow`, para
+/// testar exatamente o recorte. Guardar sem recortar pintava a caixa inteira
+/// onde o browser não pinta nada — 96×96px exatos, em 28 reftests.
 ///
-/// Não é o caso, e isto é a evidência: em TODAS as ocorrências do corpus o
-/// `clip: rect(…)` vem ao lado de `width:1px; height:1px; overflow:hidden`
-/// (Bootstrap, Tailwind, Bulma, Foundation, Primer, MediaWiki, WhatsApp). A
-/// caixa de 1px com `overflow:hidden` já esconde o conteúdo sozinha; o `clip` é
-/// cinto-e-suspensórios do tempo em que `overflow` não bastava. Guardar sem
-/// recortar não torna nada visível.
-///
-/// A alternativa — recortar a sério — pedia um retângulo de corte na lista de
-/// display, que hoje não existe (o `overflow` é resolvido pelo container de
-/// rolagem, não por um clip por item). Seria um segundo mecanismo de recorte ao
-/// lado do primeiro, para uma propriedade que a spec já substituiu por
-/// `clip-path`.
+/// A alternativa dita como não feita também ficou desatualizada: "um
+/// retângulo de corte na lista de display, que hoje não existe" deixou de ser
+/// verdade quando `clip-path` ganhou `BeginClip`/`EndClip`
+/// (`layout::bloco`/`painteffects::clip_retangulo`) — `clip_legacy_retangulo`
+/// reusa o MESMO par para este valor, restrito a posicionados
+/// (`absolute`/`fixed`, a condição da spec).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Clip {
     Auto,

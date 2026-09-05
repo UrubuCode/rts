@@ -193,3 +193,45 @@
         assert!(clip_retangulo("inset(1em)", CAIXA).is_none());
         assert!(clip_retangulo("inset(2rem 1px)", CAIXA).is_none());
     }
+
+    /// `clip: rect(0,0,0,0)` (CSS2.1) recorta a caixa a NADA — a área em que
+    /// o WPT `visufx/clip-004..006` etc. falhavam: 9216px = 96×96 (1in²)
+    /// pintados onde o browser não pinta nada.
+    #[test]
+    fn clip_legado_todo_zero_da_area_zero() {
+        use crate::style::values::Dimension;
+        use crate::style::vocab::Clip;
+        let zero = Some(Dimension::Px(0.0));
+        let clip = Clip::Rect {
+            top: zero,
+            right: zero,
+            bottom: zero,
+            left: zero,
+        };
+        let r = clip_legacy_retangulo(clip, CAIXA).unwrap();
+        assert_eq!((r.w, r.h), (0.0, 0.0));
+    }
+
+    /// Um lado `auto` é a borda DESSA caixa, não a origem — `right: auto` vai
+    /// até `caixa.w`, não até 0.
+    #[test]
+    fn clip_legado_auto_e_a_borda_da_propria_caixa() {
+        use crate::style::values::Dimension;
+        use crate::style::vocab::Clip;
+        let clip = Clip::Rect {
+            top: Some(Dimension::Px(5.0)),
+            right: None,
+            bottom: None,
+            left: Some(Dimension::Px(5.0)),
+        };
+        let r = clip_legacy_retangulo(clip, CAIXA).unwrap();
+        assert_eq!((r.x, r.y), (CAIXA.x + 5.0, CAIXA.y + 5.0));
+        assert_eq!((r.w, r.h), (CAIXA.w - 5.0, CAIXA.h - 5.0));
+    }
+
+    /// `clip: auto` não recorta nada — é o valor inicial da propriedade.
+    #[test]
+    fn clip_legado_auto_geral_nao_recorta() {
+        use crate::style::vocab::Clip;
+        assert!(clip_legacy_retangulo(Clip::Auto, CAIXA).is_none());
+    }

@@ -420,6 +420,53 @@ pub fn clip_retangulo(valor: &str, caixa: Rect) -> Option<Rect> {
     Some(Rect::new(x, y, w, h))
 }
 
+/// `clip: rect(top, right, bottom, left)` (CSS2.1 §11.1.2) — SÓ para
+/// posicionados (`absolute`/`fixed`), o mesmo `BeginClip`/`EndClip` de
+/// `clip_retangulo` acima recebe o retângulo. A justificação em
+/// `style::vocab::tipos::Clip` que dizia não valer a pena recortar a sério
+/// ficou desatualizada: falava de "um retângulo de corte na lista de display,
+/// que hoje não existe", e passou a existir quando `clip-path` ganhou
+/// `BeginClip`/`EndClip` — este reusa o MESMO mecanismo.
+///
+/// Os quatro lados são OFFSETS a partir do canto superior-esquerdo do
+/// border-box (não do viewport): `auto` num lado é a borda desse lado da
+/// própria caixa (0 em cima/esquerda, largura/altura em baixo/direita). Só
+/// `Dimension::Px` resolve — `%`/`em`/`rem` no `clip` legado não aparecem no
+/// corpus WPT e exigiriam um eixo de referência que esta função não tem à
+/// mão; um lado nessas unidades cai para o comportamento de `auto` desse
+/// lado, que é seguro (não recorta mais do que devia).
+pub fn clip_legacy_retangulo(clip: crate::style::vocab::Clip, caixa: Rect) -> Option<Rect> {
+    use crate::style::values::Dimension;
+    let crate::style::vocab::Clip::Rect {
+        top,
+        right,
+        bottom,
+        left,
+    } = clip
+    else {
+        return None;
+    };
+    let px = |d: Option<Dimension>| -> Option<f32> {
+        match d {
+            None => None,
+            Some(Dimension::Px(v)) => Some(v),
+            Some(_) => None,
+        }
+    };
+    let t = px(top).unwrap_or(0.0);
+    let l = px(left).unwrap_or(0.0);
+    let r = px(right).unwrap_or(caixa.w);
+    let b = px(bottom).unwrap_or(caixa.h);
+    let x = caixa.x + l;
+    let y = caixa.y + t;
+    // Lados invertidos dão área zero, não negativa — mesma regra de
+    // `clip_retangulo` acima, e a mesma razão (largura negativa desenharia ao
+    // contrário em vez de não desenhar nada).
+    let w = (r - l).max(0.0);
+    let h = (b - t).max(0.0);
+    Some(Rect::new(x, y, w, h))
+}
+
 /// `12px`, `10%` ou `0` → px, dado o tamanho de referência do eixo. Recusa
 /// unidades relativas à fonte: resolver um `em` exige o estilo do elemento, que
 /// esta função não tem — e adivinhar 16 daria um recorte errado num elemento
