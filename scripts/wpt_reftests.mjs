@@ -16,7 +16,7 @@
 // `rel="mismatch"` fica de fora; testes com `<script>` são corridos SEM JS
 // (o rasterizador não tem motor), e é dito na saída quantos são.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, join } from "node:path";
 import { inflateSync } from "node:zlib";
 
@@ -152,6 +152,23 @@ function rasterizar(htmlPath, png) {
 // razao pela qual `nao_rasterizaram` existe a parte — os tres conjuntos
 // juntos sao a medicao inteira; qualquer um sozinho e uma vista dela.
 let passam = 0, falham = 0, erros = 0; const piores = []; const nao_rasterizaram = []; const resultados = [];
+const paraRepetir = [];
+// Os PNG de um teste que PASSA sao apagados: sao dois ficheiros identicos que
+// ninguem vai abrir, e sao a maioria. Guardados, uma varredura do `css` inteiro
+// (24 104 reftests) deixa ~50 mil imagens — 103 GB numa pasta so, medido em
+// 2026-09-05 depois de encher o disco desta maquina. Os das FALHAS ficam, que e
+// para o que servem: olhar para o que divergiu.
+function julga(t, nome, a, b) {
+  const d = diff(decodePng(readFileSync(a)), decodePng(readFileSync(b)));
+  if (d.n === 0) {
+    passam++; resultados.push({ nome, estado: "passa" });
+    try { unlinkSync(a); unlinkSync(b); } catch {}
+  } else {
+    falham++;
+    piores.push({ nome, pct: d.pct, n: d.n, script: t.script });
+    resultados.push({ nome, estado: "falha", pct: d.pct });
+  }
+}
 for (const t of lista) {
   // O nome é RELATIVO à pasta, não o `basename`: com a varredura recursiva
   // dois testes de subpastas diferentes podem partilhar o basename, e o nome
@@ -164,10 +181,24 @@ for (const t of lista) {
   // existem — o raster falharia a escrever e o teste contaria como erro.
   const plano = nome.split("/").join("__");
   const a = join(OUT, plano + ".teste.png"), b = join(OUT, plano + ".ref.png");
-  if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { erros++; nao_rasterizaram.push(nome); resultados.push({ nome, estado: "erro" }); continue; }
-  const d = diff(decodePng(readFileSync(a)), decodePng(readFileSync(b)));
-  if (d.n === 0) { passam++; resultados.push({ nome, estado: "passa" }); }
-  else { falham++; piores.push({ nome, pct: d.pct, n: d.n, script: t.script }); resultados.push({ nome, estado: "falha", pct: d.pct }); }
+  if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) { paraRepetir.push({ t, nome, a, b }); continue; }
+  julga(t, nome, a, b);
+}
+
+// Segunda passagem, EM SERIE e ja sem o resto da varredura a competir. O
+// timeout do raster mede tempo de RELOGIO, portanto uma maquina ocupada empurra
+// um teste lento para la dele e ele conta como erro — e um erro nao e um
+// resultado ausente, e o pior resultado, por isso mentia para baixo. Numa
+// medicao feita ao lado de outras tres, 310 dos 870 "nao rasterizaram" e o
+// total saiu 380 em vez de 586; os mesmos ficheiros passavam sozinhos. A
+// repeticao distingue as duas coisas: carga passa, encravamento real repete.
+if (paraRepetir.length > 0) {
+  console.log(`\n${paraRepetir.length} nao rasterizaram a primeira vez — a repetir em serie`);
+  for (const { t, nome, a, b } of paraRepetir) {
+    if (!rasterizar(t.teste, a) || !rasterizar(t.ref, b)) {
+      erros++; nao_rasterizaram.push(nome); resultados.push({ nome, estado: "erro" });
+    } else julga(t, nome, a, b);
+  }
 }
 piores.sort((x, y) => y.pct - x.pct);
 const total = passam + falham + erros;
