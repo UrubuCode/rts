@@ -122,10 +122,17 @@ What is left:
 
 - **No fault handling.** A compiled program that traps takes the process with
   it.
-- **An AOT binary carries less than a JIT run.** `rts-runtime` links `rts-core`,
-  `rts-std` and `rts-node` and not the DOM, the UI or the physics solver, and it
-  installs no evaluator — so `eval`, `new Function` and `vm.runInNewContext`
-  raise there where they work here. Each of those refusals names itself; none is
-  silent.
+- **An AOT binary carries less than a JIT run, and less than it used to.**
+  `rts-runtime` links `rts-core`, `rts-std`, `rts-node` and — since the DOM/UI
+  landed in the AOT facade — `rts-dom-bridge` and, behind the `ui` feature,
+  `rts-ui`; not the physics solver. It installs no `eval`/`Function` compiler
+  either way, so those two and `vm.runInNewContext` still raise there where
+  they work here. Each of those refusals names itself; none is silent. One
+  exception, and it is narrow: `rts compile --html <file>` precompiles a
+  page's own `<script>` bodies at build time and installs
+  `eval_compiler_with_receiver` to find one again by the hash of its exact
+  source (`docs/engine/aot-page-scripts.md`) — a script `--html` never saw, or
+  `node:vm`'s dynamic sources, still raise, now naming that specifically
+  rather than folding into `eval`'s generic refusal.
 - **No source POSITION in a trace.** The names are there on both paths now; the
   line numbers are on neither, and they are `rts_cranelift::observe`'s question.

@@ -123,7 +123,21 @@ pub(super) fn lexical_read(
             Some(value) => Ok(value),
             None => match super::globals::read(builder, ctx, name) {
                 Some(answered) => answered,
-                None => super::globals::unbound_read(builder, ctx, name),
+                // Neither PROVIDED nor sloppily created anywhere in THIS
+                // compilation — for an ordinary program that is the
+                // language's own `ReferenceError`. A page script gets one
+                // more door first: a SIBLING `<script>` may have created the
+                // name on the SAME window since this one compiled, which
+                // `unbound_read`'s process-wide object cannot see at all.
+                // See `emit::page::page_window_name`'s own doc for why the
+                // sentinel is looked up rather than a flag consulted.
+                None => match scope.lookup(super::page::page_window_name(ctx)) {
+                    Some(Binding::InEnvironment { hops, .. }) => {
+                        let environment = walk(builder, scope, ctx, hops)?;
+                        super::globals::page_read(builder, ctx, environment, name)
+                    }
+                    _ => super::globals::unbound_read(builder, ctx, name),
+                },
             },
         },
     }
@@ -207,7 +221,19 @@ pub(super) fn lexical_write(
         // being wrong.
         None => match super::globals::resolves(ctx, name) {
             true => super::globals::write(builder, ctx, name, value),
-            false => Err(EmitError::UnboundName(name)),
+            // A page script gets one more door before this is refused: sloppy
+            // mode creates a global by assignment UNCONDITIONALLY, and for a
+            // page script that global is a property of the window, not of
+            // the process object `globals::resolves` asks about. See
+            // `lexical_read`'s identical fallback for why the sentinel is
+            // looked up rather than a flag consulted.
+            false => match scope.lookup(super::page::page_window_name(ctx)) {
+                Some(Binding::InEnvironment { hops, .. }) => {
+                    let environment = walk(builder, scope, ctx, hops)?;
+                    super::globals::page_write(builder, ctx, environment, name, value)
+                }
+                _ => Err(EmitError::UnboundName(name)),
+            },
         },
     }
 }
