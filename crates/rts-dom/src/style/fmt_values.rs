@@ -264,6 +264,7 @@ pub(crate) fn overflow_css(o: crate::scrollbar::Overflow) -> &'static str {
         crate::scrollbar::Overflow::Auto => "auto",
         crate::scrollbar::Overflow::Scroll => "scroll",
         crate::scrollbar::Overflow::Hidden => "hidden",
+        crate::scrollbar::Overflow::Clip => "clip",
     }
 }
 

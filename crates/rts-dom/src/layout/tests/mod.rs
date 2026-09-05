@@ -17,6 +17,7 @@ mod flex_column_wrap_corpus;
 mod flex_cross_size_corpus;
 mod flex_max_width_corpus;
 mod flex_min_content_corpus;
+mod flex_min_auto_content_corpus;
 mod flex_item_floats_corpus;
 mod intrinseco_whitespace_corpus;
 mod svg_atributo_corpus;

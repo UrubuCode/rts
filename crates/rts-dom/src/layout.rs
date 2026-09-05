@@ -54,6 +54,7 @@ mod empilhamento;
 mod float;
 mod inline_fragmentos;
 mod input;
+mod intrinseco_min_max;
 mod itens;
 mod medida;
 pub mod medidor_ativo;
