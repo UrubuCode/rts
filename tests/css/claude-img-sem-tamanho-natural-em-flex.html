@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- Fixa (BAIXA CONFIANÇA — ver nota): um <img> sem width/height CSS,
+     com fonte SVG `data:` com viewBox/width/height PRÓPRIOS (20x20, razão
+     1:1), como item de um flex-column (#dentro, height:100px) dentro de
+     um flex-row (#fora, width:100px) — pela razão 1:1 e o stretch do
+     eixo cruzado, deve ocupar 100x100. #alvo mede 0x0 no nosso motor
+     headless.
+     NOTA: nem `claude-paint-dump` nem `claude-raster` correm o loader de
+     recursos (dom.ts) — confirmado por leitura do código, nenhuma
+     imagem (PNG ou SVG, local ou data:) tem pixels/tamanho natural
+     nestas ferramentas; um <img> comum FORA de qualquer flex também dá
+     0x0 nelas. Só a fonte SVG `data:` tem uma causa confirmada
+     independente do instrumento: o motor não tem NENHUM descodificador
+     de SVG (só PNG, PLAN.md lote V-img). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="fora,dentro,alvo">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #fora { width: 100px; display: flex; border: 1px solid #000; }
+  #dentro { display: flex; height: 100px; }
+</style></head>
+<body>
+  <div id="fora">
+    <div id="dentro">
+      <img id="alvo" src="data:image/svg+xml,<svg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' fill='green'/></svg>">
+    </div>
+  </div>
+</body>
+</html>

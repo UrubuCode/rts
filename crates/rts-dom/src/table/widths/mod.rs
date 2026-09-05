@@ -342,8 +342,12 @@ pub(in crate::table) fn min_content(
             // largura da viewport devolveria o que coubesse nela, que é outra
             // pergunta.
             if let Some((w, _)) =
-                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx)
+                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
             {
+                // Candidato (d) do `min-width:auto` (Flexbox §4.5, `inline_box`):
+                // com razão de aspeto, o piso vem dela, não da `width` acima
+                // (essa é a caixa REAL).
+                let w = crate::inline_box::largura_min_content_por_razao(dom, id, &css, &resolve).unwrap_or(w);
                 return w + frame;
             }
             // Um `width` explícito é um PISO e não um teto, e a diferença é o

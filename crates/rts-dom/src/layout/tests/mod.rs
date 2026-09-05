@@ -38,6 +38,7 @@ mod grid_corpus;
 mod grid_intrinseco_corpus;
 mod hifen_corpus;
 mod fontes_corpus;
+mod imagens_corpus;
 mod inline;
 mod inline_corpus;
 mod inline_fragmentos_corpus;
@@ -53,6 +54,7 @@ mod texto_lote_s;
 mod transform_corpus;
 mod visibility_collapse_corpus;
 mod inline_flex_corpus;
+mod flex_align_justify_familia_corpus;
     use super::*;
     use crate::dom::parse_html_to_dom;
 

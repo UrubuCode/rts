@@ -22,25 +22,62 @@
 //! SALTA: `Text` — o medidor é aproximado (`0.5×size` por caractere, sem
 //! fonte real) e pintar caixas por essa métrica compararia um erro de medição
 //! contra um glifo real do Blink, o que a fixture de texto nunca vai bater
-//! nem que o rasterizador esteja perfeito. `Image`/`Pixels` — a primeira
-//! aponta para um handle do `HandleTable`, que este exemplo não tem (não há
-//! `Engine` nem `Registry` aqui, só `Dom`+layout); a segunda carrega bytes
-//! próprios e É pintável, mas nenhuma fixture do corpus a usa hoje, então fica
-//! para quando uma precisar. Ambas as omissões contam para a MÁSCARA que o
-//! comparador (`scripts/css_pintura_comparar.mjs`) recebe: os rects de texto
-//! do nosso lado saem também num `.mask.json` ao lado do PNG.
+//! nem que o rasterizador esteja perfeito. `Image` — aponta para um handle do
+//! `HandleTable`, que este exemplo não tem (não há `Engine` nem `Registry`
+//! aqui, só `Dom`+layout). `Pixels` de uma imagem que NÃO carregou (abaixo)
+//! continua mascarado; `Pixels` de uma que carregou PINTA (lote
+//! imagens-no-raster: `fill_pixels`, já existia para `<canvas>`, `<img>`
+//! nunca tinha pixels antes deste lote). Ambas as omissões contam para a
+//! MÁSCARA que o comparador (`scripts/css_pintura_comparar.mjs`) recebe: os
+//! rects de texto e de imagem sem pixels do nosso lado saem também num
+//! `.mask.json` ao lado do PNG.
 //!
-//! # Zero dependências novas no CRATE
+//! # Imagens (lote imagens-no-raster)
 //!
-//! `rts-dom` continua com zero `[dependencies]` — o PNG é escrito à mão neste
-//! FICHEIRO (bloco IDAT com deflate "stored", sem compressão) porque o
-//! ficheiro é um exemplo e não faz parte do crate publicado, e a alternativa
-//! (a crate `png`) não está no `Cargo.lock`: trazê-la custaria uma
-//! dependência nova (mesmo que só de dev) para ~40 linhas de CRC32/Adler32.
+//! ANTES do layout, `carregar_imagens` (implementação em
+//! `claude-paint-dump.rs`, chamada aqui — descodificador ÚNICO em
+//! `rts_dom::imagem`, movido de `rts-dom-bridge`; só o `std::fs::read` se
+//! repete nos dois exemplos, ver o porquê no cabeçalho de `imagem/mod.rs`)
+//! carrega PNG local (relativo ao HTML) e `data:image/png;base64,…` — o
+//! mesmo que `dom.ts::loadResources` faz numa página a correr. NÃO carrega
+//! `http(s)` nem `data:image/svg+xml` (este motor só descodifica PNG,
+//! PLAN.md lote V-img) — essas continuam mascaradas como antes.
+//!
+//! # Zero dependências novas no CRATE (para a ESCRITA de PNG)
+//!
+//! `rts-dom` já tem uma dependência agora (`flate2`, para a LEITURA de PNG
+//! em `src/imagem/png.rs`, lote imagens-no-raster) — mas a ESCRITA do PNG de
+//! saída continua escrita à mão neste FICHEIRO (bloco IDAT com deflate
+//! "stored", sem compressão): a crate `png` faria os dois sentidos, e
+//! trazê-la só para a escrita, quando a leitura já não precisa dela, seria
+//! uma segunda dependência para o mesmo problema que a primeira já resolve.
 
 use rts_dom::layout::{self, DisplayItem, DisplayList, Mat2d, Rect, TextMeasurer};
 use rts_dom::Dom;
 use std::io::Write;
+use std::path::Path;
+
+/// Ver o cabeçalho e a doc em `claude-paint-dump.rs` — a mesma função,
+/// duplicada de propósito (glue de I/O, não lógica: o DESCODIFICADOR é um
+/// só, `rts_dom::imagem`) porque `examples/` não tem um módulo partilhado
+/// entre dois binários sem o truque de `#[path]` num ficheiro sem `main`, que
+/// nenhum outro exemplo deste crate usa.
+fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
+    for id in dom.query_all("img") {
+        let Some(idx) = dom.resolve(id) else { continue };
+        let Some(src) = dom.node(idx).attr("src").map(str::to_string) else { continue };
+        let decoded = if src.starts_with("data:") {
+            rts_dom::imagem::bytes_da_data_url(&src).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        } else if src.starts_with("http://") || src.starts_with("https://") {
+            None
+        } else {
+            std::fs::read(base_dir.join(&src)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        };
+        if let Some((rgba, w, h)) = decoded {
+            dom.set_pixel_data(id, rgba, w, h);
+        }
+    }
+}
 
 const W: usize = 1280;
 const H: usize = 800;
@@ -454,15 +491,19 @@ fn main() {
     if let Some(hash) = meta_fixar_hash(&html) {
         dom.set_location_hash(&hash);
     }
+    let base_dir = Path::new(entrada).parent().unwrap_or_else(|| Path::new("."));
+    carregar_imagens(&mut dom, base_dir);
     let ctx = layout::LayoutCtx {
         viewport_w: W as f32,
         viewport_h: H as f32,
         measurer: &layout::ApproxMeasurer,
     };
     let list: DisplayList = layout::layout_document(&dom, &ctx);
-    // Um `<img>` com `src` e SEM pixels: o Blink pinta a imagem, este exemplo
-    // não tem quem a descodifique (o PNG de `data:` vive na ponte, e a ponte
-    // traz o motor). A área vai para a máscara como o texto — o instrumento
+    // Um `<img>` com `src` e SEM pixels a esta altura: `carregar_imagens`
+    // (acima, antes do layout) já tentou PNG local e `data:image/png` — o que
+    // sobra aqui é `http(s)` (sem busca síncrona neste exemplo) e
+    // `data:image/svg+xml` (este motor só descodifica PNG). O Blink pinta
+    // essas na mesma; a área vai para a máscara como o texto — o instrumento
     // diz o que não vê em vez de o contar como diferença.
     let mut mascara_de_imagens: Vec<[f32; 4]> = Vec::new();
     for id in dom.query_all("img") {
