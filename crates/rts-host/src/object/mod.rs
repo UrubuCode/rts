@@ -23,7 +23,7 @@
 //! why its ordering is the one thing about this design that cannot be gotten
 //! wrong quietly.
 //!
-//! # What crosses beside the object bytes, and why it is not IN them
+//! # What crosses beside the object bytes, and where it travels
 //!
 //! Property keys, string literals and template pieces are per-COMPILATION data
 //! that the language names by NUMBER — `declare_keys`/`declare_literals`/
@@ -32,11 +32,18 @@
 //! before the entry is ever called. An AOT binary needs the identical seed at
 //! the identical moment.
 //!
-//! So the numbers travel as a small sidecar file next to the executable,
-//! written by [`write_manifest`] and read by the facade's own `main` before it
-//! calls the compiled entry. This is the one place this design is not fully
-//! self-contained in a single file, and it is named here rather than left to be
-//! discovered: moving an AOT binary without its `.rtsdata` sidecar breaks it.
+//! Every one of those numbers is known here, before any linker has touched
+//! anything, which is what tells this data apart from the address tables
+//! below: it needs no relocation, only somewhere to sit. So [`embed_manifest`]
+//! places it as [`rts_cranelift::target::DataBlob`] under [`MANIFEST_SYMBOL`],
+//! inside the SAME object the program's own code goes into — a moved `.exe`
+//! carries it because there is only the one file. `write_manifest` still
+//! writes the identical bytes to a `.rtsdata` sidecar beside the executable,
+//! which `rts-runtime-boot::run` accepts when the image itself carries none —
+//! an executable stripped of the section it does not expect, or one built
+//! before this batch. This used to be the ONE place this design was not
+//! self-contained in a single file; it no longer is, and [`manifest`]'s own
+//! header has the exact order the two carriers are tried in.
 //!
 //! # And what could NOT travel that way, until the machine grew a table
 //!
@@ -73,7 +80,7 @@ use std::collections::HashSet;
 use rts_cranelift::ir::FuncId;
 use rts_cranelift::mem::{RegionBase, RegionBases};
 use rts_cranelift::target::{
-    AddressTable, Placing, Visibility, object_file, place_in_object,
+    AddressTable, DataBlob, Placing, Visibility, object_file, place_in_object,
 };
 
 use crate::link::HostError;
@@ -360,14 +367,17 @@ fn place(
         rts_core::heap::STRIDE,
     );
 
-    let object = object_file("rts_program")?;
-    let bytes = place_in_object(object, &placing, &tables, &funcs, &types, Some(bases))?;
-
     let singletons = crate::link::singletons_for(&model);
     let kinds = crate::link::kinds_for(&model);
 
-    Ok(ObjectProgram {
-        bytes,
+    // Everything but the object's own bytes, built BEFORE placement — every
+    // field below is known from the compilation alone, none of them from where
+    // a linker eventually puts anything. `bytes: Vec::new()` is a placeholder
+    // `encode` never reads (see its own doc comment); overwritten below once
+    // the object exists, by struct-update rather than a second literal, so the
+    // two can never list these fields differently by accident.
+    let meta = ObjectProgram {
+        bytes: Vec::new(),
         singletons: [singletons.undefined, singletons.null, singletons.hole],
         kinds: [kinds.symbol, kinds.bigint],
         keys: names
@@ -383,11 +393,63 @@ fn place(
         module_metas,
         resolutions,
         page_scripts,
-    })
+    };
+    let manifest_bytes = embed_manifest(&meta);
+    let blobs = [DataBlob {
+        name: MANIFEST_SYMBOL,
+        bytes: &manifest_bytes,
+    }];
+
+    let object = object_file("rts_program")?;
+    let bytes = place_in_object(
+        object,
+        &placing,
+        &tables,
+        &blobs,
+        &funcs,
+        &types,
+        Some(bases),
+    )?;
+
+    Ok(ObjectProgram { bytes, ..meta })
+}
+
+/// The name the manifest's own bytes are exported under, alongside the three
+/// address tables.
+///
+/// A `.rtsdata` sidecar written by [`write_manifest`] is still accepted — see
+/// [`manifest`]'s own header for the order `rts-runtime-boot::run` tries the
+/// two in — but no longer required for a program compiled after this name
+/// exists: moving the `.exe` alone carries its manifest with it.
+pub const MANIFEST_SYMBOL: &str = "__rts_manifest";
+
+/// [`manifest::encode`]'s bytes, framed with an eight-byte little-endian
+/// length so a reader holding only a start address can find the end of them.
+///
+/// The frame is this function's to add and not
+/// [`rts_cranelift::target::DataBlob`]'s: that type places exactly the bytes it
+/// is given, on purpose (see its own doc comment) — a blob that imposed its own
+/// length prefix would make a client that already frames its payload, as this
+/// one does, carry the count twice. It is also not [`manifest::encode`]'s to
+/// add: the SAME bytes go into the `.rtsdata` sidecar unframed, where the
+/// operating system's own file length already answers "how many", and a
+/// prefix there would be a length nothing reads.
+fn embed_manifest(program: &ObjectProgram) -> Vec<u8> {
+    let body = manifest::encode(program);
+    let mut framed = Vec::with_capacity(8 + body.len());
+    framed.extend_from_slice(&(body.len() as u64).to_le_bytes());
+    framed.extend_from_slice(&body);
+    framed
 }
 
 /// Writes everything but the object bytes to `path`, in the format
-/// `rts-runtime`'s `main` reads. See [`manifest`] for that format.
+/// `rts-runtime-boot::manifest::read` reads.
+///
+/// Kept for compatibility, and for what [`manifest::tests`] exercises directly
+/// — not because a program compiled today needs it: [`embed_manifest`] already
+/// placed the same bytes inside the object itself, under [`MANIFEST_SYMBOL`],
+/// which is what lets a moved `.exe` alone still run. See [`manifest`]'s own
+/// header for the two carriers and the order a reader tries them in.
 pub fn write_manifest(path: &std::path::Path, program: &ObjectProgram) -> std::io::Result<()> {
     manifest::write(path, program)
 }

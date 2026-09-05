@@ -402,3 +402,39 @@
         let h1 = dom.query("h1").unwrap();
         assert_eq!(dom.text_content(h1).unwrap(), "Cover your page.");
     }
+
+    #[test]
+    fn body_explicito_sem_html_antes_ainda_ganha_um_html() {
+        // Achado pelo lote `flex-align-justify-familia` (WPT
+        // `reference/align-content-001-ref.html`, entre outras referências do
+        // WPT): uma página que escreve `<meta>`/`<title>`/`<link>`/`<style>` e
+        // depois `<body>` DIRETO — sem nunca escrever `<html>` — é HTML5
+        // válido (a spec insere o `<html>` implícito), mas "body" estava na
+        // mesma lista de exclusão de `open_implicit_body` que "html"/"head",
+        // então NENHUM `<html>` nascia: a árvore inteira ficava sem ele, e
+        // `claude-paint-dump` respondia "sem elemento <html>".
+        let dom = parse_html_to_dom(
+            "<meta charset='utf-8'><title>t</title><link rel=author href=x><style>div{color:red}</style><body><p>x</p></body>",
+        );
+        let html_el = dom.query("html").expect("html implícito tinha de nascer");
+        let body = dom.query("body").unwrap();
+        assert_eq!(
+            dom.parent_of(body),
+            Some(html_el),
+            "body é filho do html implícito"
+        );
+    }
+
+    #[test]
+    fn html_explicito_antes_do_body_nao_ganha_um_segundo() {
+        // O caminho comum (a maioria das páginas) não pode regredir: quando
+        // `<html>` já foi escrito, `<body>` não cria outro.
+        let dom = parse_html_to_dom("<html><head><title>t</title></head><body><p>x</p></body></html>");
+        let count = dom
+            .node(dom.root)
+            .children
+            .iter()
+            .filter(|&&c| matches!(&dom.node(c).kind, NodeKind::Element { tag } if tag == "html"))
+            .count();
+        assert_eq!(count, 1, "um único <html>");
+    }

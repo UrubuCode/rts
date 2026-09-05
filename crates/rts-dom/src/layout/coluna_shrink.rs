@@ -66,16 +66,34 @@ pub(in crate::layout) fn base_outer(
 /// nenhuma das fixtures deste lote precisa dela. `min-height` DECLARADO
 /// (lido pelo chamador, `resolve_height(ccss.min_height, ...)`) continua a
 /// vencer este automático, como no eixo horizontal.
-pub(in crate::layout) fn min_main_auto(ccss: &ComputedStyle, natural_h: f32) -> f32 {
+pub(in crate::layout) fn min_main_auto(
+    dom: &Dom,
+    id: NodeIdx,
+    ccss: &ComputedStyle,
+    natural_h: f32,
+    resolve: &ResolveCtx,
+) -> f32 {
     let overflow_visible =
         ccss.overflow_y.unwrap_or(crate::scrollbar::Overflow::Visible)
             == crate::scrollbar::Overflow::Visible;
     if !overflow_visible {
-        0.0
-    } else if ccss.height.is_none() {
-        natural_h
-    } else {
-        0.0
+        return 0.0;
+    }
+    if ccss.height.is_none() {
+        return natural_h;
+    }
+    // `height` DECLARADO: candidato (d) do `min-height:auto` (Flexbox §4.5,
+    // eixo de coluna) — com razão de aspeto E a largura já USADA
+    // (`altura_min_content_por_razao`, `inline_box`), o piso é a altura
+    // DERIVADA dela, não 0 — sem isto um `<img height=100>` cujo width=30
+    // constrangido dá 1:1 encolhia até quase 0 em vez de parar em 30
+    // (`flexbox-min-height-auto-002`, WPT).
+    match crate::inline_box::altura_min_content_por_razao(dom, id, ccss, resolve) {
+        Some(h) => {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
+            h + bt + bb
+        }
+        None => 0.0,
     }
 }
 
@@ -88,6 +106,8 @@ pub(in crate::layout) fn min_main_auto(ccss: &ComputedStyle, natural_h: f32) -> 
 /// — a régua contra a fixture anterior, onde `overflow:auto` zera o
 /// automático, tinha zerado este também).
 pub(in crate::layout) fn min_main(
+    dom: &Dom,
+    id: NodeIdx,
     ccss: &ComputedStyle,
     natural_h: f32,
     container_h: Option<f32>,
@@ -96,7 +116,8 @@ pub(in crate::layout) fn min_main(
     if ccss.min_height == Some(crate::style::Dimension::MinContent) {
         return natural_h;
     }
-    resolve_height(ccss.min_height, container_h, resolve).unwrap_or_else(|| min_main_auto(ccss, natural_h))
+    resolve_height(ccss.min_height, container_h, resolve)
+        .unwrap_or_else(|| min_main_auto(dom, id, ccss, natural_h, resolve))
 }
 
 
