@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 586,
+    "passing": 598,
     "total": 870,
-    "pct": 67.4,
+    "pct": 68.7,
     "by_subfolder": {
       "balance": {
         "passing": 5,
@@ -29,7 +29,7 @@
         "total": 19
       },
       "flex-lines": {
-        "passing": 2,
+        "passing": 4,
         "total": 4
       },
       "order": {
@@ -59,7 +59,7 @@
         "total": 53
       },
       "gap": {
-        "passing": 40,
+        "passing": 38,
         "total": 46
       },
       "percentage": {
@@ -79,7 +79,7 @@
         "total": 34
       },
       "overflow": {
-        "passing": 28,
+        "passing": 27,
         "total": 32
       },
       "basis": {
@@ -91,15 +91,15 @@
         "total": 29
       },
       "wrap": {
-        "passing": 21,
+        "passing": 22,
         "total": 28
       },
       "writing-mode": {
-        "passing": 3,
+        "passing": 14,
         "total": 24
       },
       "justify": {
-        "passing": 19,
+        "passing": 20,
         "total": 21
       },
       "order": {
@@ -232,13 +232,15 @@
       "flex-abspos-static-bfc — a STATIC POSITION de um `position:absolute` sem inset num eixo (CSS 2.1 §10.3.7/§10.6.4, Flexbox §4.1); overflow de `<body>`/`<html>` propagado à viewport não estabelece BFC",
       "largura-intrinseca-de-controlos — tamanho NATURAL (max-content) de um controlo de formulário sem `width`/`height` — `intrinsic_content_width`/`replaced_inline_size` (`layout/medida.rs`) não sabiam medir `input`/`select`/`textarea`/`input[submit/button/reset]`, só texto/tabela/flex/bloco-por-filhos; caíam no ramo de bloco vazio, largura 0 (o achado de `flex-vertical-align-effect`, WPT, diagnosticado antes deste lote)",
       "flex-coluna-wrap-intrinseco — `intrinsic-size/col-wrap-*` e `balance/*` do WPT flexbox — nunca medido (as duas subpastas ficavam fora do corredor de reftests não-recursivo/sparse-checkout)",
+      "medidor-ahem — a fonte Ahem (WPT: 5 487 testes em `css/`) medida EXATA no `ApproxMeasurer` em vez da aproximação proporcional/mono — sem `@font-face`, sem parser de TTF, só o NOME `font-family: Ahem` (`style::ahem::is_ahem_family`, mesma regra de `is_mono_family`)",
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha",
       "flex-basis-content-wrap — `flex-basis: content` (Flexbox §7.2.3) ignora `width`/`height` do item; `flex-wrap` em linha e coluna com tamanhos definidos vs indefinidos",
       "flex-reverse-order — `row-reverse`/`column-reverse` com `wrap`/`wrap-reverse` (ordem das linhas E dos itens, `align-content` com linhas invertidas), `order` com `direction:rtl`, `order` com `position:absolute`+`space-around`, a família `css-flexbox-row*`",
-      "flex-aspect-ratio-collapse — aspect-ratio/tamanho intrínseco de substituídos em coluna (o corte deixado por `imagens-no-raster`); `visibility:collapse` horizontal/wrap FICA DE FORA, medido"
+      "flex-aspect-ratio-collapse — aspect-ratio/tamanho intrínseco de substituídos em coluna (o corte deixado por `imagens-no-raster`); `visibility:collapse` horizontal/wrap FICA DE FORA, medido",
+      "flex-writing-mode-2 — `writing-mode` troca de verdade o eixo do flex (retrabalho do `414147c88`/`5e9130c65`, nunca merged) — a família WPT `flexbox-writing-mode-*`, `-slr`/`-srl`, `gap-*-{lr,rl,rtl}`"
     ],
     "pendentes": [
       "Q — CSSOM",
