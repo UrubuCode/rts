@@ -364,6 +364,11 @@ pub(crate) fn prefixo_que_cabe(
     mono: bool,
     bold: bool,
     italic: bool,
+    // `true` quando a família resolve para Ahem (`style::is_ahem_family`): a
+    // busca binária mede pelo AVANÇO EXATO (1em/carácter) em vez de pedir ao
+    // medidor — a spec da fonte é a medição, não há kerning nem ligadura para
+    // uma busca binária respeitar.
+    ahem: bool,
     m: &dyn TextMeasurer,
 ) -> (usize, f32) {
     if disp <= 0.0 {
@@ -382,7 +387,12 @@ pub(crate) fn prefixo_que_cabe(
     while lo < hi {
         let meio = (lo + hi) / 2;
         let corte = cortes[meio];
-        let w = m.text_width(&texto[..corte], font_size, mono, bold, italic);
+        let prefixo = &texto[..corte];
+        let w = if ahem {
+            prefixo.chars().count() as f32 * font_size
+        } else {
+            m.text_width(prefixo, font_size, mono, bold, italic)
+        };
         if w <= disp {
             melhor = (corte, w);
             lo = meio + 1;

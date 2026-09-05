@@ -60,7 +60,7 @@ pub(in crate::layout) fn fragmento_do_dono(
     };
     let conteudo = crate::inline_box::altura_do_conteudo(fonte, ctx.measurer);
     let top = if align_to_baseline {
-        y - ctx.measurer.font_ascent(fonte)
+        y - ctx.measurer.font_ascent_family(fonte, css.font_family.as_deref())
     } else {
         y + (conteudo_da_linha - conteudo) / 2.0
     };

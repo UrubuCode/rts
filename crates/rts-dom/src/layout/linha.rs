@@ -121,11 +121,9 @@ pub(in crate::layout) fn layout_inline_flow(
         inline_fragmentos::registar_markers_sem_linha(list, x, y, &runs);
         return y;
     }
-    let mono = parent_css
-        .font_family
-        .as_deref()
-        .map(crate::style::is_mono_family)
-        .unwrap_or(false);
+    let family = parent_css.font_family.as_deref();
+    let mono = family.is_some_and(crate::style::is_mono_family);
+    let ahem = family.is_some_and(crate::style::is_ahem_family); // ver quebra::wrap_runs
     // line-height: do CSS (multiplicador ou px), senão o default do measurer —
     // #1749. O medidor é também quem responde por `line-height: normal`, porque
     // esse valor sai das MÉTRICAS DA FONTE e não de uma constante: sem isto, o
@@ -175,12 +173,12 @@ pub(in crate::layout) fn layout_inline_flow(
             .unwrap_or(false),
         parent_css.word_spacing.unwrap_or(0.0),
         parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
-        ctx.measurer,
+        ahem, ctx.measurer,
     );
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
     // o que se corta é uma LINHA já formada. Ver [`aplicar_elipse`].
     let lines = match elipse_pedida(parent_css, nowrap) {
-        true => aplicar_elipse(lines, content_w, font_size, mono, ctx.measurer),
+        true => aplicar_elipse(lines, content_w, font_size, mono, ahem, ctx.measurer),
         false => lines,
     };
     // `-webkit-line-clamp`/`line-clamp` — limita a N linhas, com "…" na
@@ -192,8 +190,7 @@ pub(in crate::layout) fn layout_inline_flow(
             n as usize,
             content_w,
             font_size,
-            mono,
-            ctx.measurer,
+            mono, ahem, ctx.measurer,
         ),
         _ => lines,
     };
@@ -273,7 +270,7 @@ pub(in crate::layout) fn layout_inline_flow(
         // baseline e o descent do strut fica abaixo dela. É o contrato Blink que
         // dá, na fixture display, texto em y=55 e o bloco seguinte em y=75.
         let text_top = if tall_inline_block {
-            cy + line_h - ctx.measurer.font_ascent(font_size)
+            cy + line_h - ctx.measurer.font_ascent_family(font_size, family)
         } else {
             cy + meia
         };
@@ -288,7 +285,7 @@ pub(in crate::layout) fn layout_inline_flow(
             cy + meia
         };
         let line_advance = if tall_inline_block {
-            line_h + ctx.measurer.font_descent(font_size)
+            line_h + ctx.measurer.font_descent_family(font_size, family)
         } else {
             line_h
         };
@@ -344,7 +341,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         // `layout_image` que o faz, o mesmo caminho do fluxo de bloco,
                         // em vez de um segundo emissor de imagem só para o inline.
                         // Replaced inline senta na BASELINE (§10.8; `claude-img-ficheiro`: y=15).
-                        let topo = text_top + ctx.measurer.font_ascent(font_size) - seg.wh;
+                        let topo = text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh;
                         if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
                             layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
@@ -357,7 +354,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         // não um segundo emissor — só que o x/y vem do fluxo.
                         // Inline-block VAZIO senta o fundo na baseline (§10.8.1; caret do Bootstrap a y=9).
                         let vazio = !super::caixa::tem_conteudo_para_fragmento(dom, a_idx);
-                        let topo = if vazio && seg.wh < line_h { text_top + ctx.measurer.font_ascent(font_size) - seg.wh } else { cy };
+                        let topo = if vazio && seg.wh < line_h { text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh } else { cy };
                         layout_block(
                             dom,
                             a_idx,
@@ -415,7 +412,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         AtomicKind::Marker => Rect::new(seg_x, text_top, 0.0, 0.0),
                         AtomicKind::Break => Rect::new(seg_x, text_top, 0.0, conteudo),
                         AtomicKind::Replaced =>
-                            Rect::new(seg_x, text_top + ctx.measurer.font_ascent(font_size) - seg.wh, seg.ww, seg.wh),
+                            Rect::new(seg_x, text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh, seg.ww, seg.wh),
                         _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                     };
                     crate::inline_box::union_rect(list, a_idx, propria);

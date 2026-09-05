@@ -80,3 +80,36 @@ fn line_height_normal_com_ahem_e_1em_exato() {
     // 50 × (0.8 + 0.2) = 50, contra os 56.25 (ceil(50×1.125)) da aproximação.
     assert_eq!(r.h, 50.0, "{r:?}");
 }
+
+/// Lote `medidor-ahem` (ronda 2): `quebra::wrap_runs` decide ONDE quebrar
+/// pelo avanço EXATO da Ahem, não por `mono`/`PROP_ADVANCE` — o padrão que a
+/// maioria dos testes do WPT usa (N carateres numa largura conhecida).
+///
+/// Duas palavras de 10 "A" a 10px Ahem = 100px cada, exatas. Um contentor de
+/// 105px cabe a primeira (100 ≤ 105) mas NÃO cabe a segunda com o espaço
+/// (100+10+100=210): a segunda desce de linha. Com `PROP_ADVANCE` (0.46) as
+/// DUAS cabiam juntas (10×10×0.46=46 cada, 46+4.6+46≈97 < 105) — a quebra
+/// aconteceria no sítio errado, o defeito que este lote fecha.
+#[test]
+fn wrap_ahem_usa_avanco_exato_para_decidir_onde_quebrar() {
+    let list = layout(
+        "<p style='width:105px;font:10px/1 Ahem'>AAAAAAAAAA AAAAAAAAAA</p>",
+        600.0,
+    );
+    let t = all_texts(&list);
+    assert_eq!(t.len(), 2, "duas palavras, cada uma o seu segmento: {t:?}");
+    assert_ne!(t[0].2, t[1].2, "a 2ª palavra desce para a linha seguinte: {t:?}");
+}
+
+/// A mesma pergunta com uma família qualquer: as DUAS palavras cabem na
+/// MESMA linha (a régua de que o teste acima depende para provar que Ahem
+/// muda o resultado, e não é sempre assim).
+#[test]
+fn wrap_familia_normal_cabe_as_duas_palavras_na_mesma_linha() {
+    let list = layout(
+        "<p style='width:105px;font:10px/1 Arial'>AAAAAAAAAA AAAAAAAAAA</p>",
+        600.0,
+    );
+    let t = all_texts(&list);
+    assert_eq!(t.len(), 1, "uma palavra só — colapsaram no mesmo segmento: {t:?}");
+}

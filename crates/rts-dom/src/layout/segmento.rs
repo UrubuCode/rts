@@ -160,9 +160,10 @@ pub(in crate::layout) fn aplicar_elipse(
     content_w: f32,
     font_size: f32,
     mono: bool,
+    ahem: bool,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
-    aplicar_elipse_forcada(lines, content_w, font_size, mono, m, false)
+    aplicar_elipse_forcada(lines, content_w, font_size, mono, ahem, m, false)
 }
 
 /// O mesmo corte de [`aplicar_elipse`], mas com um `forcar` que salta a saída
@@ -177,10 +178,15 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
     content_w: f32,
     font_size: f32,
     mono: bool,
+    // Ver `quebra::wrap_runs` — Ahem mede pelo avanço exato, não por `mono`.
+    ahem: bool,
     m: &dyn TextMeasurer,
     forcar: bool,
 ) -> Vec<Vec<Segment>> {
     const ELIPSE: &str = "…";
+    let medir = |t: &str| -> f32 {
+        if ahem { t.chars().count() as f32 * font_size } else { m.text_width(t, font_size, mono, false, false) }
+    };
     lines
         .into_iter()
         .map(|line| {
@@ -194,7 +200,7 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
             if total <= content_w && forcar {
                 // cabe, mas a elipse é devida na mesma (linha cortada por
                 // `line-clamp`, não por transbordo): só acrescenta o "…".
-                let w_elipse = m.text_width(ELIPSE, font_size, mono, false, false);
+                let w_elipse = medir(ELIPSE);
                 let mut line = line;
                 match line.last_mut() {
                     Some(last) if last.atomic.is_none() => {
@@ -217,7 +223,7 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
                 }
                 return line;
             }
-            let w_elipse = m.text_width(ELIPSE, font_size, mono, false, false);
+            let w_elipse = medir(ELIPSE);
             let orcamento = content_w - w_elipse;
             let mut out: Vec<Segment> = Vec::with_capacity(line.len());
             let mut acc = 0.0f32;
@@ -241,6 +247,7 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
                         mono,
                         seg.bold,
                         seg.italic,
+                        ahem,
                         m,
                     );
                     seg.text.truncate(n);
