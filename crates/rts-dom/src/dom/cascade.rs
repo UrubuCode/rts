@@ -126,12 +126,19 @@ impl Dom {
             &|nome: &str| self.nodes[idx].attr(nome).map(str::to_string),
             contadores.get(&(idx, pe)),
         )?;
-        let decls = self.stylesheet.declarations_from(&matched, None);
+        // O `direction`/`writing-mode` do ORIGINANTE, já resolvidos (herança
+        // incluída) — o pseudo herda deles daqui a pouco, e uma
+        // `margin-inline-*` que o pseudo declare tem de ver os MESMOS
+        // valores, não os iniciais.
+        let pai = self.computed_style_idx(idx);
+        let direction = pai.as_deref().and_then(|p| p.direction);
+        let writing_mode = pai.as_deref().and_then(|p| p.writing_mode);
+        let decls = self.stylesheet.declarations_from(&matched, None, direction, writing_mode);
         // Herda do originante e só depois aplica o que o pseudo declara — a
         // ordem inversa perderia a herança para qualquer propriedade que o
         // pseudo não declare.
         let mut css = crate::style::ComputedStyle::default();
-        if let Some(pai) = self.computed_style_idx(idx) {
+        if let Some(pai) = pai {
             css.inherit_from(&pai);
         }
         css.merge_over(&decls.normal);
@@ -177,7 +184,7 @@ impl Dom {
         if matched.is_empty() {
             return None;
         }
-        let decls = self.stylesheet.declarations_from(&matched, None);
+        let decls = self.stylesheet.declarations_from(&matched, None, herdado.direction, herdado.writing_mode);
         let mut css = herdado.clone();
         css.merge_over(&decls.normal);
         css.merge_over(&decls.important);
@@ -288,6 +295,31 @@ impl Dom {
         let parent_css_for_vars = self
             .element_parent_idx(idx)
             .and_then(|p| self.base_style_idx(p));
+        // O `direction`/`writing-mode` HERDADOS, cedo — pela mesma razão que
+        // `parent_font` (abaixo) é lido cedo: uma `margin-inline-*`/
+        // `padding-inline-*`/`border-inline-*`/`inline-size` deste elemento
+        // (`style::logical`) só resolve o lado/eixo físico depois de saber
+        // os dois, e a herança OFICIAL (`css.inherit_from`, mais abaixo) só
+        // corre depois de as declarações próprias serem aplicadas. É só o
+        // FALLBACK: se este elemento também declarar `direction`/
+        // `writing-mode` (mesma regra ou outra mais específica), essa
+        // vitória normal da cascade continua a valer — `apply_resolved_decl`
+        // só usa isto quando o campo ainda está por declarar (`.or`).
+        //
+        // Sem exceção para uma LINHA de flex (havia uma, `dom::
+        // direction_herdada`, removida no retrabalho do lote
+        // `flex-writing-mode`): essa exceção compensava um gap que já não
+        // existe — "o motor não reordena uma linha por `direction`, só por
+        // `flex-direction`" deixou de ser verdade quando `layout::flex::
+        // layout_children_horizontal` passou a inverter o eixo principal em
+        // `direction:rtl` sozinho (`eixos_flex::reverse_efetivo`). Com a
+        // ORDEM já correta, negar a margem de volta para LTR voltava a
+        // desalinhar os dois — achado ao re-medir `gap-003-rtl`/
+        // `gap-006-rtl` depois do merge: a exceção (pensada para uma ordem
+        // que nunca invertia) agora põe a margem no lado FÍSICO oposto ao
+        // dos itens, já devidamente invertidos.
+        let parent_direction = parent_css_for_vars.as_deref().and_then(|p| p.direction);
+        let parent_writing_mode = parent_css_for_vars.as_deref().and_then(|p| p.writing_mode);
         // As regras que casam este nó, casadas UMA vez e usadas nos DOIS passes
         // (custom properties e declarações). Antes cada passe refazia o
         // matching completo — e o matching navega a árvore.
@@ -385,7 +417,8 @@ impl Dom {
         let author = if self.stylesheet.is_empty() {
             style::DeclBlock::default()
         } else {
-            self.stylesheet.declarations_from(&matched, Some(vars_ref))
+            self.stylesheet
+                .declarations_from(&matched, Some(vars_ref), parent_direction, parent_writing_mode)
         };
         let override_node = self.style_overrides.get(&idx);
 
@@ -401,7 +434,9 @@ impl Dom {
         css.merge_over(&inline.normal); // style="" inline
         for (prop, raw, important) in &inline.pending {
             if !important {
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref);
+                let dir = css.direction.or(parent_direction);
+                let wm = css.writing_mode.or(parent_writing_mode);
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir, wm);
             }
         }
         if let Some(ov) = override_node {
@@ -418,7 +453,9 @@ impl Dom {
         css.merge_over(&inline.important); // inline !important
         for (prop, raw, important) in &inline.pending {
             if *important {
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref);
+                let dir = css.direction.or(parent_direction);
+                let wm = css.writing_mode.or(parent_writing_mode);
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir, wm);
             }
         }
         // o mapa de vars entra no computado (os FILHOS herdam daqui).

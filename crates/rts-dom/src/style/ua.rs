@@ -120,7 +120,7 @@ mod tests {
         };
         let ctx = crate::style::MediaContext { width: 1280.0, height: 800.0, ..Default::default() };
         let matched = sheet.matched_for_node(&ctx, "input", None, &[], matches_disabled);
-        let computed = sheet.declarations_from(&matched, None);
+        let computed = sheet.declarations_from(&matched, None, None, None);
         // rgb(84,84,84) — medido no Chrome real, não a aproximação `gray`
         // (#808080) do primeiro rascunho; ver `claude-ua-form-disabled`.
         assert_eq!(computed.normal.color, Some(0x545454ff));

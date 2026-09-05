@@ -400,12 +400,26 @@ pub(in crate::layout) fn layout_children_horizontal(
             // align por item: `align-self` vence o `align-items` do container;
             // STRETCH real: item sem height explícito ganha a ALTURA DA LINHA
             // (forced_outer_h) — os cards `.col` preenchem a linha.
+            //
+            // `line_h != it.h` em vez do antigo `line_h > it.h`: o stretch do
+            // eixo cruzado (Flexbox §9.4 passo 7) impõe a altura da linha
+            // SEMPRE que a propriedade computa `auto` e a margem não é
+            // `auto` — inclusive para ENCOLHER um item cuja hipotética altura
+            // (`it.h`) já veio maior do que a linha, que é exatamente o caso
+            // de um `<img width>` sem `height`: a razão de aspecto dá-lhe uma
+            // altura NATURAL antes do stretch decidir, e `align-items:
+            // stretch` (o default) tem de vencê-la — não só crescer itens
+            // menores (`claude-flexbox-img-expand-evenly`, WPT
+            // `css-flexbox-img-expand-evenly`: 3 `<img>` com `width` e
+            // `flex-grow`, sem `height`, deviam esticar aos 48px da linha e
+            // ficavam com 98 pela razão de aspecto 1:1 do PNG). `!=` continua
+            // a evitar o `layout_block_reusing` redundante quando já bate.
             let item_align = it.align_self.unwrap_or(align);
             let auto_cross = super::flex_margens_auto::off_cross(it.auto_topo, it.auto_fundo, line_h, it.h);
             let stretches = item_align == crate::style::AlignItems::Stretch
                 && it.can_stretch
                 && !it.is_text
-                && line_h > it.h
+                && (line_h - it.h).abs() > 0.5
                 && auto_cross.is_none();
             let bo = baseline.as_ref().and_then(|b| b.offsets[j]);
             let off_cross = auto_cross.unwrap_or_else(|| {

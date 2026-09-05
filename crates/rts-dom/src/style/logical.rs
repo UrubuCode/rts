@@ -1,40 +1,118 @@
 //! As propriedades LÓGICAS que faltavam: `inset*` e as bordas `-inline-`/`-block-`.
 //!
-//! O `parse` já traduzia `padding-inline-start` e `margin-inline-start` para o
-//! lado físico; `inset-inline-start` e `border-inline-start-color` caíam no
-//! contador de ignoradas. Não é uma cauda: numa varredura das folhas reais o
-//! WhatsApp Web escreve `border-inline-start-color` 522 vezes e
-//! `inset-inline-start` 216 — o CSS moderno gerado por ferramenta já não escreve
-//! `left`.
+//! `inset-inline-start` e `border-inline-start-color` caíam no contador de
+//! ignoradas. Não é uma cauda: numa varredura das folhas reais o WhatsApp Web
+//! escreve `border-inline-start-color` 522 vezes e `inset-inline-start` 216 —
+//! o CSS moderno gerado por ferramenta já não escreve `left`.
+//!
+//! `padding-inline-start`/`margin-inline-start` (e os `-end`) JÁ tinham
+//! tradução — mas em `style::parse::caixa`, um braço próprio por nome, que
+//! respondia PRIMEIRO na cadeia de `aplica_declaracao` e por isso escondia
+//! este ficheiro por completo para essas duas famílias: `logical::try_apply`
+//! nunca chegava a ser chamado com elas. Duas traduções do MESMO nome —
+//! achado pelo WPT `gap-007-rtl` (lote `flex-reverse-order`), quando tornar
+//! esta função direction-aware não mudou nada porque o braço de `caixa.rs`,
+//! sempre LTR, respondia antes. Removido de lá — as quatro famílias
+//! (`margin`/`padding`/`border`-inline-\*, e `margin-block-*` desde o lote
+//! `flex-writing-mode`) reentregam aqui.
 //!
 //! ## Uma tradução de NOME, e não um segundo modelo de bordas
 //!
 //! Todo o trabalho aqui é mapear o eixo lógico no lado físico e reentregar o
 //! nome traduzido a quem já sabe aplicá-lo (`style::borders`, os campos `inset_*`).
 //! A alternativa — campos lógicos próprios em `ComputedStyle`, resolvidos no
-//! layout — daria `direction: rtl` de graça, e foi recusada porque duplicaria o
-//! modelo de bordas inteiro (doze campos) por uma propriedade de sentido.
+//! layout — foi recusada porque duplicaria o modelo de bordas inteiro (doze
+//! campos) por uma propriedade de sentido; o que faltava não era essa
+//! duplicação, era resolver no MOMENTO certo (ver "Quando isto resolve",
+//! abaixo).
 //!
-//! ## Os dois eixos lógicos seguem `writing-mode` + `direction` de verdade
+//! ## Os dois eixos lógicos seguem `direction` E `writing-mode` de verdade
 //!
-//! Lote `flex-writing-mode`: `inline-start`/`inline-end`/`block-start`/
-//! `block-end` já não são sinónimos fixos de esquerda/topo — `to_physical`
-//! pergunta a `style::text::eixo_x_forward`/`eixo_y_forward` (a MESMA
-//! resposta que `layout::eixos_flex` usa para trocar o eixo do FLEX, lote
-//! `flex-writing-mode`) qual physical side cada eixo lógico usa. Faltava
-//! desde que `layout/flex.rs` passou a inverter o eixo principal de uma
-//! `row` em `direction:rtl`/`writing-mode` vertical: sem isto,
-//! `margin-inline-start` de um `gap-*-{rtl,lr,rl}` do WPT continuava a virar
-//! `margin-left` sempre, e a referência (que usa a propriedade lógica para
-//! simular o `gap`) passou a divergir do motor assim que o motor deixou de
-//! fingir que RTL/vertical não existem. `inline-size`/`block-size` (e os
-//! `min-`/`max-`) seguem a MESMA troca: `inline-size` é `width` só quando o
-//! `writing-mode` é horizontal, `height` quando é vertical.
+//! `inline-start`/`inline-end`/`block-start`/`block-end` (e `inline-size`/
+//! `block-size`) já não são sinónimos fixos de esquerda/topo. Em DUAS ondas:
+//! `flex-reverse-order` tornou o eixo INLINE `direction`-aware (`ltr`
+//! `start`=esquerda, `rtl` `start`=direita — CSS Logical Properties §3), com
+//! o eixo de BLOCO ainda fixo topo/fundo ("o motor não faz layout vertical").
+//! `flex-writing-mode` generalizou os DOIS: `to_physical` pergunta a
+//! `style::text::eixo_x_forward`/`eixo_y_forward` (a MESMA resposta que
+//! `layout::eixos_flex` usa para trocar o eixo do FLEX) qual eixo físico
+//! (X ou Y) é o inline e qual é o de bloco, e em que sentido cada um corre —
+//! em escrita vertical o INLINE é que fica fixo a top/bottom e o de BLOCO
+//! passa a left/right. Sem isto, `margin-inline-start` de um
+//! `gap-*-{rtl,lr,rl}` do WPT continuava a virar `margin-left`/`margin-top`
+//! sempre, e a referência (que usa a propriedade lógica para simular o
+//! `gap`) divergia do motor assim que este deixou de fingir que RTL/vertical
+//! não existem.
+//!
+//! Achado pelo WPT `gap-007-rtl` (retrabalho de `flex-reverse-order`): a
+//! ordem de colunas de `flex-direction:column`+`direction:rtl` ficou correta
+//! (`coluna_wrap.rs`) e destapou que `margin-inline-end:20px` sob
+//! `direction:rtl` continuava a resolver como `margin-right` fixo — o lado
+//! ERRADO — porque a ordem de colunas trocada por engano escondia a margem
+//! no lado errado por coincidência.
+//!
+//! ## Quando isto resolve: por ELEMENTO, não por REGRA
+//!
+//! `direction`/`writing-mode` são herdáveis e uma regra CSS é compilada UMA
+//! vez, partilhada por todo elemento que a casar — casar
+//! `section > div{margin-inline-end:20px}` não sabe, nesse momento, qual vai
+//! ser o `direction`/`writing-mode` do elemento que a vai usar (pode nem
+//! existir DOM ainda). Resolver aqui, contra o `css` do momento em que a
+//! regra é parseada, resolveria sempre contra o INICIAL (`ltr`,
+//! `horizontal-tb`) — o mesmo bug, só que invisível. Por isso as declarações
+//! de [`e_eixo_dependente`] não resolvem aqui: ficam PENDENTES
+//! (`style::parse::apply_specified_declaration` reusa a fila que já existia
+//! para `var()`; `style::stylesheet::apply_resolved_decl` ganhou
+//! `direction`/`writing_mode` a mais) e só resolvem por elemento em
+//! `dom::cascade`, contra os dois já herdados desse elemento (ou já
+//! declarados por ele mesmo, na mesma regra — ver o comentário lá) — com UM
+//! corte: `dom::direction_herdada` nega o `direction` herdado quando o pai é
+//! uma LINHA de flex, porque a ORDEM dos itens da linha ainda não inverte
+//! por `direction` (só por `row-reverse`), e margem certa com ordem errada é
+//! pior do que as duas erradas (achado pelo WPT `gap-003-rtl`/
+//! `gap-006-rtl`). `eixo_x_forward`/`eixo_y_forward`/`to_physical` continuam
+//! puras: a pergunta "que lado físico" não muda, só QUANDO se faz.
 
-use super::lengths::{parse_inset, split_top_ws};
+use super::lengths::{Caixa, parse_inset, parse_side, split_top_ws};
 use super::props::ComputedStyle;
 use super::text::{Direction, WritingMode, eixo_x_forward, eixo_y_forward};
 use super::values::Dimension;
+
+/// `true` para as propriedades cujo lado físico depende do CONTEXTO herdado
+/// (`direction` e/ou `writing-mode`) — precisam de ficar PENDENTES até ao
+/// elemento (ver "Quando isto resolve" acima), nunca resolvem na regra.
+/// `margin`/`padding`/`border`(-width/-style/-color)/`inset`, os DOIS eixos
+/// (`-inline-`/`-block-`, shorthand OU longhand), mais `inline-size`/
+/// `block-size` (e os `min-`/`max-`, que trocam de EIXO sob `writing-mode`
+/// mesmo sem lado a inverter) e os três nomes antigos do WebKit que se
+/// reentregam às formas modernas.
+pub(crate) fn e_eixo_dependente(prop: &str) -> bool {
+    prop.contains("inline-start")
+        || prop.contains("inline-end")
+        || prop.contains("block-start")
+        || prop.contains("block-end")
+        || matches!(
+            prop,
+            "margin-start"
+                | "margin-end"
+                | "padding-start"
+                | "padding-end"
+                | "border-start"
+                | "border-end"
+                | "inset-inline"
+                | "inset-block"
+                | "margin-inline"
+                | "margin-block"
+                | "padding-inline"
+                | "padding-block"
+                | "inline-size"
+                | "block-size"
+                | "min-inline-size"
+                | "min-block-size"
+                | "max-inline-size"
+                | "max-block-size"
+        )
+}
 
 /// Traduz o eixo lógico de um nome de propriedade para o lado físico, sob
 /// `(wm, dir)`. `"inset-inline-start"` → o lado do eixo INLINE (`left`/
@@ -137,14 +215,38 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             return true;
         }
     }
+    // `margin-inline`/`-block`, `padding-inline`/`-block` — o shorthand de
+    // DOIS valores, mesma troca de eixo que `inset-inline`/`-block` acima
+    // (sem lado a inverter — os dois valores já vão um para cada ponta — mas
+    // COM eixo a trocar: `margin-block:20px` sob `writing-mode` vertical é
+    // `left`/`right`, não `top`/`bottom`; achado no WPT `gap-007-lr`, onde
+    // este shorthand ainda respondia sempre físico antes desta função).
+    if let Some((eixo, caixa)) = match prop {
+        "margin-inline" => Some(("inline", Caixa::Margem)),
+        "margin-block" => Some(("block", Caixa::Margem)),
+        "padding-inline" => Some(("inline", Caixa::Padding)),
+        "padding-block" => Some(("block", Caixa::Padding)),
+        _ => None,
+    } {
+        let toks = split_top_ws(val);
+        if toks.is_empty() {
+            return true;
+        }
+        let a = parse_side(&toks[0], caixa);
+        let b = if toks.len() > 1 { parse_side(&toks[1], caixa) } else { a };
+        let wm = css.writing_mode.unwrap_or_default();
+        let e_x = (eixo == "inline") == wm.is_horizontal();
+        let edges = if caixa == Caixa::Margem { &mut css.margin } else { &mut css.padding };
+        if e_x {
+            edges.left = a;
+            edges.right = b;
+        } else {
+            edges.top = a;
+            edges.bottom = b;
+        }
+        return true;
+    }
 
-    // As DIMENSÕES lógicas: `inline-size` é a largura e `block-size` a altura,
-    // em escrita horizontal — o mesmo corte LTR-horizontal que o resto do módulo
-    // assume e que o cabeçalho diz por extenso.
-    //
-    // Reentrega ao `parse` com o nome FÍSICO em vez de escrever o campo aqui: a
-    // largura tem keywords, percentagens e `calc()` que aquele braço já sabe
-    // ler, e uma segunda leitura divergia dele à primeira correção.
     // Os nomes ANTIGOS do WebKit para a caixa lógica: `-webkit-margin-end` é o
     // que hoje se chama `margin-inline-end`. Chegam aqui já sem o prefixo (o
     // `parse` corta-o na última tentativa), e sem esta linha `margin-end` não
@@ -185,11 +287,11 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     };
 
     // O resto da CAIXA lógica, pela mesma reentrega. O `parse` tinha
-    // `padding-inline-start/end` e `margin-block-start/end` por literal mas não
-    // as outras metades das mesmas famílias: `padding-block-end` caía como
-    // desconhecida ao lado de uma `margin-block-end` que funcionava. Traduzir o
-    // eixo e reentregar fecha as quatro famílias sem um braço por nome — e sem
-    // a assimetria poder voltar.
+    // `padding-inline-start/end` por literal mas não as outras metades das
+    // mesmas famílias: `padding-block-end` caía como desconhecida ao lado de
+    // uma `margin-block-end` que funcionava. Traduzir o eixo e reentregar
+    // fecha as quatro famílias sem um braço por nome — e sem a assimetria
+    // poder voltar.
     if fisico.starts_with("padding-") || fisico.starts_with("margin-") {
         return super::parse::aplica_declaracao(css, &fisico, val);
     }
