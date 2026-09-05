@@ -257,3 +257,29 @@ fn filter_e_clip_path_chegam_crus_ao_paint() {
         Some("inset(10px)")
     );
 }
+
+// ── `border` inteiro cai quando um token não classifica (WPT border-width-010) ──
+
+#[test]
+fn border_shorthand_com_largura_negativa_nao_apaga_a_borda_ja_declarada() {
+    // `border: red solid -1px` é uma declaração INVÁLIDA (largura negativa não
+    // existe em nenhuma unidade) e o CSS 2.1 descarta-a por inteiro — não "os
+    // dois tokens válidos aplicam-se, o `-1px` ignora-se sozinho". O defeito:
+    // o laço por token escrevia style=solid/color=red mesmo assim, por cima de
+    // um `border-width: 8px` de uma declaração anterior na mesma regra —
+    // `clear_sides` corria primeiro e o `-1px` não corrigia nada.
+    let s = parse_inline(
+        "border-color: green; border-width: 8px; border-style: solid; border: red solid -1px",
+    );
+    assert_eq!(crate::style::borders::used_widths(&s), [8.0, 8.0, 8.0, 8.0]);
+    assert_eq!(s.border_color, Some(0x008000FF));
+}
+
+// `border-bottom-width: -1px` (WPT `border-bottom-width-001`..`-078`, a
+// família `flags: invalid`) fica sem teste aqui: o valor usado correto é
+// `medium` (3px), mas dar isso ao `resolved_sides::uw` por defeito regride
+// `border-width-002` — um lado sem NENHUM estilo passa a ter 3px de largura,
+// porque é este mesmo campo que o paint lê como largura bruta, antes de
+// `paints()`/`used_widths` zerarem pelo estilo. A correção certa aplica a
+// regra "`none`/`hidden` ⇒ zero" ANTES do default de `medium`, não depois —
+// falta fazer.

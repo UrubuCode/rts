@@ -673,6 +673,12 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
 /// vier, a borda não aparece — o render checa `is_visible`), width=medium(3),
 /// color=currentColor (aqui deixamos `border_color` como veio / herdado).
 fn apply_border_shorthand(css: &mut ComputedStyle, val: &str) {
+    // Um token que não classifica em nada invalida a declaração INTEIRA — CSS
+    // 2.1 não aplica "os outros dois valem". Ver o porquê em
+    // `borders::shorthand_tokens_all_valid` (`border-width-010`).
+    if !crate::style::borders::shorthand_tokens_all_valid(val) {
+        return;
+    }
     // O curto escreve as DOZE longhands, não só as três uniformes: um lado
     // declarado antes dele é reposto (ver `borders::clear_sides`).
     crate::style::borders::clear_sides(css);
