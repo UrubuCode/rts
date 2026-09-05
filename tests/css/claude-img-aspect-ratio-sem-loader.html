@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa a EXPECTATIVA: um <img> com só width definido (via CSS) e sem
+     atributos HTML width/height deve derivar a altura da razão de aspecto
+     NATURAL da imagem decodificada (HTML "dimension attributes" /
+     aspect-ratio auto). Testado com um PNG 20×50 real
+     (support/20x50-green.png, commitado ao lado, do próprio corpus WPT):
+     90×(90×50/20)=225. A primeira medição desta fixture saiu ERRADA — o PNG
+     nunca tinha sido commitado, e o Edge desenhou o ícone de imagem PARTIDA
+     (90×16); esta é a re-medição com o ficheiro presente. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="img1">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #img1 { width: 90px; display: block; }
+</style></head>
+<body>
+<img id="img1" src="support/20x50-green.png">
+</body></html>

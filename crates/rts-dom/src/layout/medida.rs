@@ -159,8 +159,17 @@ pub(in crate::layout) fn intrinsic_content_width(
     // que coubesse em vez do que se quer.
     if let Some(css) = dom.computed_style_idx(id) {
         if let Some((w, _)) =
-            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, ctx)
+            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
         {
+            // `replaced_inline_size` devolve a caixa COM borda (o contrato
+            // dela é border-box); esta função devolve CONTEÚDO, como o resto
+            // dos ramos abaixo — todo chamador soma o frame (que já tem essa
+            // borda) por cima, e sem subtrair aqui ela contava-se DUAS vezes
+            // (um `<img>` sem width e com borda inflava a estimativa de
+            // shrink-to-fit de quem o continha — `child_outer_width`,
+            // `intrinsic_outer_width` — em 2×borda).
+            let [_, br, _, bl] = crate::style::borders::used_widths(&css);
+            let w = (w - bl - br).max(0.0);
             dom.intrinsic_width_put(key, w);
             return w;
         }
@@ -367,18 +376,25 @@ pub(crate) fn intrinsic_outer_width(
             // flex com um filho assim ocupava a linha toda e empurrava o irmão
             // para a linha de baixo, que é a origem dos 120px de desvio do `<h1>`
             // da Wikipédia.
+            // `max-width`/`min-width` clampam a contribuição ao shrink-to-fit
+            // do pai — a EFETIVA, não a crua nem só o natural (CSS2 §10.4);
+            // sem isto nem um `width` fixo nem um `min-width` sozinho (sem
+            // `width`) entravam na conta (WPT `-min-height-auto-002b/c`).
+            let mnw = super::intrinseco_min_max::resolve(css.min_width, dom, id, f, ctx, &resolve);
+            let mxw = super::intrinseco_min_max::resolve(css.max_width, dom, id, f, ctx, &resolve);
             if let Some(w) = crate::style::dimensao_absoluta(
                 css.width.unwrap_or(crate::style::Dimension::Auto),
                 &resolve,
             ) {
+                let w = crate::style::clamp_size(w, mnw, mxw);
                 return if border_box {
                     w + css.margin.resolve_h_intrinseco(&resolve)
                 } else {
                     w + frame
                 };
             }
-            // senão: a intrínseca do conteúdo + frame.
-            intrinsic_content_width(dom, id, f, ctx) + frame
+            // senão: a intrínseca do conteúdo, clampada, + frame.
+            crate::style::clamp_size(intrinsic_content_width(dom, id, f, ctx), mnw, mxw) + frame
         }
         // Um nó de texto solto mede-se COLAPSADO (CSS Text §4.1) — o mesmo
         // motivo de `intrinsic_content_width`; `pre` num pai não é visto aqui
@@ -461,6 +477,17 @@ pub(in crate::layout) fn child_outer_width(
                 + css.padding.resolve_h(&resolve);
             // Em border-box, o `width` declarado JÁ é a caixa (outer sem margin) —
             // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
+            //
+            // SEM clamp de `max-width`/`min-width` aqui de propósito: esta
+            // função também dá a BASE de um item flex (`flex_base_outer`), e
+            // Flexbox §9.2 passo 3 é explícito — a flex base size NÃO é
+            // grampeada por max-width; só a hypothetical main size (§9.7) o
+            // faz, ao CONGELAR o encolhimento nela — capar aqui pré-cortava
+            // o orçamento dos OUTROS itens da linha antes de tempo
+            // (`claude-flex-base-size-max-width`, `#capado{max-width:100}`
+            // com conteúdo 300 tinha de entrar na conta como 300, não 100).
+            // O clamp para um FLOAT sem `width` (que precisa dele) vive no
+            // chamador em `vertical.rs`, não aqui.
             match css.width.and_then(|d| d.resolve(&resolve)) {
                 Some(w) if css.border_box.unwrap_or(false) => w + css.margin.resolve_h(&resolve),
                 Some(w) => w + frame,

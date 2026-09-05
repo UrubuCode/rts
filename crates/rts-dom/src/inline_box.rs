@@ -18,7 +18,9 @@ use crate::layout::{DisplayList, LayoutCtx, Rect, TextMeasurer};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod substituido;
-pub(crate) use self::substituido::replaced_inline_size;
+pub(crate) use self::substituido::{
+    altura_min_content_por_razao, largura_min_content_por_razao, replaced_inline_size,
+};
 
 /// O que é uma caixa ATÓMICA no fluxo inline — flui como uma palavra
 /// inquebrável, em vez de como texto que se pode partir ao meio.

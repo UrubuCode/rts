@@ -136,12 +136,12 @@ pub(in crate::layout) fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, t
 /// o que as 29 declarações `ellipsis` do corpus escrevem — todas num container
 /// com `overflow:hidden` e `white-space:nowrap`.
 pub(in crate::layout) fn elipse_pedida(css: &ComputedStyle, nowrap: bool) -> bool {
+    // `clips()` (hidden/clip) OU `scrollable()` (auto/scroll) — qualquer
+    // `overflow-x` que não seja `visible` pede a elipse; `clip` entrou no
+    // lote `flex-min-auto-content` como variante própria (antes era a
+    // mesma que `Hidden`, e este `matches!` já os cobria sem saber).
     css.text_overflow == Some(crate::style::vocab::TextOverflow::Ellipsis)
-        && matches!(
-            css.overflow_x,
-            Some(crate::scrollbar::Overflow::Hidden | crate::scrollbar::Overflow::Auto)
-                | Some(crate::scrollbar::Overflow::Scroll)
-        )
+        && css.overflow_x.is_some_and(|o| o.clips() || o.scrollable())
         && nowrap
 }
 

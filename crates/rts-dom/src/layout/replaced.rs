@@ -112,6 +112,16 @@ pub(in crate::layout) fn layout_image(
     x: f32,
     y: f32,
     avail_w: f32,
+    // Tamanho OUTER que o FLEX já decidiu (grow/shrink no eixo principal,
+    // `align-items: stretch` no cruzado) — `None` fora de um item flex, ou
+    // quando o eixo não é imposto (o `<img>` decide sozinho pela CSS/atributo/
+    // natural). Vence `width`/`height` do mesmo jeito que já vence num bloco
+    // comum (`bloco.rs`): sem isto um `<img>` esticado no eixo cruzado nunca
+    // via a altura que o flex lhe deu (`claude-flex-abspos-img-aspect-ratio`,
+    // `claude-img-sem-tamanho-natural-em-flex`) — o despacho de `<img>` em
+    // `bloco.rs` ignorava os dois parâmetros por inteiro.
+    forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
@@ -123,12 +133,28 @@ pub(in crate::layout) fn layout_image(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    // margens (respeita o CSS); a imagem em si é o content (sem padding/borda v1).
+    // margens (respeita o CSS); a imagem em si é o content.
     let m = &css.margin;
     let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
     let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    // `forced_outer_*` é OUTER (margem+borda+padding+conteúdo, como
+    // `FlexItem::main`); `replaced_inline_size` decide em CONTEÚDO e soma
+    // borda+padding por conta própria no fim (`substituido.rs`) — descontam-se
+    // aqui as três para não as somar em dobro. Padding entrou com
+    // `flex-aspect-ratio-intrinsic-padding-001` (WPT): antes disto o `<img>`
+    // nunca via padding nenhum, então um `forced_outer_w` de 240 com
+    // `padding:20px` chegava a `replaced_inline_size` como CONTEÚDO 240 em
+    // vez de 200, e a razão de aspeto derivava a altura errada.
+    let [border_top, border_right, border_bottom, border_left] = crate::style::borders::used_widths(css);
+    let p = &css.padding;
+    let (pad_left, pad_right) = (p.left.resolve(&resolve).unwrap_or(0.0), p.right.resolve(&resolve).unwrap_or(0.0));
+    let (pad_top, pad_bottom) = (p.top.resolve(&resolve).unwrap_or(0.0), p.bottom.resolve(&resolve).unwrap_or(0.0));
+    let forced_w = forced_outer_w
+        .map(|w| (w - margin_left - margin_right - border_left - border_right - pad_left - pad_right).max(0.0));
+    let forced_h = forced_outer_h
+        .map(|h| (h - margin_top - margin_bottom - border_top - border_bottom - pad_top - pad_bottom).max(0.0));
     // A CAIXA não depende de haver pixels, e é por isso que ela vem de
     // `replaced_inline_size` em vez de uma segunda cópia das mesmas regras: o
     // `width`/`height` do CSS ou do atributo HTML já decide, que é o que o
@@ -150,7 +176,7 @@ pub(in crate::layout) fn layout_image(
     //
     // A alternativa — manter a subtração e corrigi-la só para o `calc` — punha a
     // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, ctx)?;
+    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (forced_w, forced_h), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com
@@ -158,10 +184,20 @@ pub(in crate::layout) fn layout_image(
     // (`claude-object-fit`: o Blink mostra o `#eee` por baixo, e aqui a régua
     // de pintura via 0 itens). CORTE dito: a cor sai crua — sem `filter` nem
     // `opacity` do elemento, que o caminho do bloco aplica por `cor()`; e sem
-    // borda/padding, que este layout ainda não dá à imagem (v1 acima).
+    // borda pintada (v1 acima) — só reservada na caixa (`used_widths` acima).
     if let Some(color) = css.bg.filter(|_| !super::pintura::deve_suprimir_fundo(css)) {
         list.items.push(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
     }
+    // Os PIXELS pintam só o CONTENT-BOX — a borda/padding reservados acima na
+    // caixa não são a imagem (CSS2 §10.3.2: `<img>` sizes the replaced content
+    // to its content area). Sem este inset, `padding:20px` desenharia os
+    // pixels por baixo do padding em vez de dentro dele.
+    let content_rect = Rect::new(
+        rect.x + border_left + pad_left,
+        rect.y + border_top + pad_top,
+        (rect.w - border_left - border_right - pad_left - pad_right).max(0.0),
+        (rect.h - border_top - border_bottom - pad_top - pad_bottom).max(0.0),
+    );
     // O item de pintura, esse, PRECISA de pixels: uma caixa reservada com nada
     // dentro é o que o browser mostra enquanto a imagem não chega, e é a mesma
     // doutrina do `<canvas>` logo abaixo. Pixels guardados NO documento (uma
@@ -170,13 +206,13 @@ pub(in crate::layout) fn layout_image(
     // a imagem estica à caixa (`object-fit: fill`); `contain`/`cover`/`none`
     // ainda não recortam nem centram.
     if let Some((data, pw, ph)) = dom.pixel_data_of(id).filter(|(_, pw, ph)| *pw > 0 && *ph > 0) {
-        list.items.push(DisplayItem::Pixels { rect, data, w: pw, h: ph });
+        list.items.push(DisplayItem::Pixels { rect: content_rect, data, w: pw, h: ph });
     } else if let Some((handle, off, iw, ih)) = dom
         .image_of(id)
         .filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
     {
         list.items.push(DisplayItem::Image {
-            rect,
+            rect: content_rect,
             pixels_handle: handle,
             pixels_off: off,
             img_w: iw,

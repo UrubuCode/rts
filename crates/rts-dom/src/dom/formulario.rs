@@ -142,16 +142,60 @@ impl Dom {
         self.image_pixels.get(&idx).copied()
     }
 
-    /// As dimensões da imagem de um nó, venha ela por handle (`set_image`) ou
+    /// As dimensões da imagem de um nó, venha ela por handle (`set_image`),
     /// guardada no documento (`set_pixel_data`, o caminho de `data:` e do
-    /// `<canvas>`). É a pergunta que o layout faz — "tem tamanho natural?" — e
-    /// antes era feita só ao handle, por isso um PNG embutido não dava caixa.
+    /// `<canvas>`), ou lida da RAIZ de um `data:image/svg+xml` sem
+    /// descodificar nada (`svg_data_url_dims`, abaixo). É a pergunta que o
+    /// layout faz — "tem tamanho natural?" — e antes era feita só ao handle,
+    /// por isso um PNG embutido não dava caixa.
     pub fn image_dims(&self, idx: NodeIdx) -> Option<(u32, u32)> {
         self.image_pixels
             .get(&idx)
             .map(|(_, _, w, h)| (*w, *h))
             .or_else(|| self.own_pixels.get(&idx).map(|(_, w, h)| (*w, *h)))
             .filter(|(w, h)| *w > 0 && *h > 0)
+            .or_else(|| self.svg_data_url_dims(idx))
+    }
+
+    /// A dimensão intrínseca de um `<img src="data:image/svg+xml,…">` lida
+    /// dos atributos `width`/`height` (e a razão do `viewBox`) da RAIZ do
+    /// SVG embutido — sem descodificar nem rasterizar nada: este motor não
+    /// tem descodificador de SVG (PLAN.md lote V-img), mas a GEOMETRIA da
+    /// tag `<svg>` já vem de graça no próprio texto da URL, a MESMA pergunta
+    /// que `layout_svg_placeholder` (`layout/replaced.rs`) faz a um `<svg>`
+    /// literal via atributos DOM, aqui aplicada ao texto de uma `data:` URL.
+    /// Corte dito: só o esquema SEM `;base64,` (o caso de
+    /// `claude-img-sem-tamanho-natural-em-flex`) e sem descodificação
+    /// percent-encoded — a fixture escreve o SVG cru, aspas simples.
+    fn svg_data_url_dims(&self, idx: NodeIdx) -> Option<(u32, u32)> {
+        let src = self.node(idx).attr("src")?;
+        let svg = src.strip_prefix("data:image/svg+xml,")?;
+        // O valor de um atributo `nome="…"`/`nome='…'` na tag — a MESMA
+        // procura para `width`, `height` e `viewBox`.
+        let valor = |nome: &str| -> Option<&str> {
+            let i = svg.find(&format!("{nome}="))? + nome.len() + 1;
+            let quote = *svg.as_bytes().get(i)?;
+            if quote != b'"' && quote != b'\'' {
+                return None;
+            }
+            let resto = &svg[i + 1..];
+            let fim = resto.find(quote as char)?;
+            Some(&resto[..fim])
+        };
+        let num = |nome: &str| -> Option<f32> {
+            valor(nome)?.trim().trim_end_matches("px").trim().parse().ok()
+        };
+        let vb_ratio = valor("viewBox").and_then(|vb| {
+            let n: Vec<f32> = vb.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+            (n.len() == 4 && n[3] > 0.0).then(|| n[2] / n[3])
+        });
+        let (w, h) = match (num("width"), num("height")) {
+            (Some(w), Some(h)) => (w, h),
+            (Some(w), None) => (w, vb_ratio.map(|r| w / r)?),
+            (None, Some(h)) => (vb_ratio.map(|r| h * r)?, h),
+            (None, None) => return None,
+        };
+        (w > 0.0 && h > 0.0).then_some((w.round() as u32, h.round() as u32))
     }
 
     /// `true` se o `NodeIdx` cru é um `<input>`/`<textarea>` (para o hit-test de foco).

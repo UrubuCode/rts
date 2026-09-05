@@ -168,39 +168,36 @@ pub(in crate::layout) fn layout_children_horizontal(
             continue;
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
-        let base = super::flex_limites::flex_base_outer(dom, child, content_w, font_size, ctx);
-        // A altura CRUZADA mede-se com a largura que o item VAI TER (`base`,
-        // a "flex base size" da spec — Flexbox §9.2 passo 3), forçada via
-        // `forced_outer_w`, e não com a largura DISPONÍVEL do contentor
-        // inteiro (`content_w`): um item cujo conteúdo QUEBRA (texto,
-        // inline-block) muda de altura conforme a largura, e medi-lo contra
-        // `content_w` dava a um `flex:0 0 content` num contentor de 1px uma
-        // altura MULTIPLICADA (cada inline-block quebrando para a sua
-        // própria linha) mesmo já sabendo a largura certa
-        // (`flexbox-flex-basis-content-003a/003b`, WPT). Um item que ainda
-        // vai CRESCER/ENCOLHER (`main != base`) é remedido mais abaixo com o
-        // `main` FINAL (`it.h = ...` no laço por linha); para quem não
-        // muda, `base` já é a largura definitiva.
-        let (_, h) = measure_block(
-            dom,
-            child,
-            content_w,
-            container_content_h,
-            Some(base),
-            None,
-            true,
-            ctx,
+        // Um `<img>` DIRETO desta linha sem width/height, esticado
+        // (`align-items: stretch`): base/h vêm da razão transferida, não do
+        // natural — `replaced_transferido.rs` decide quando (Flexbox §9.2).
+        // No caminho SEM transferência, a altura CRUZADA mede-se com a
+        // largura que o item VAI TER (`base`, a "flex base size" — Flexbox
+        // §9.2 passo 3), não com a do contentor inteiro (`content_w`): ver o
+        // comentário em `base_e_altura_do_item` (lote `flex-basis-content-
+        // wrap`, `flexbox-flex-basis-content-003a/003b`, WPT).
+        let align_efetivo = ccss.align_self.unwrap_or(align);
+        let (base, h, transferiu) = super::replaced_transferido::base_e_altura_do_item(
+            dom, child, content_w, container_content_h, align_efetivo, font_size, ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
         // frame do elemento"), sem duplicar a travessia; medir aqui sempre é
         // mais simples que condicionar por `grid_cols` (que ignora este piso).
-        let min_main = crate::table::min_content(dom, child, font_size, ctx);
+        //
+        // `transferiu`: o candidato (d) do automático (§4.5) é a MESMA conta
+        // do transferido (§9.2) — `table::min_content` não sabe nada de eixo
+        // cruzado/stretch e mediria o `<img>` pelo natural, erguendo-o de
+        // volta acima do que o stretch já decidiu (`replaced_transferido.rs`
+        // documenta o WPT que isto media errado).
         let (max_main, min_declarado) =
             super::flex_limites::limites_do_item(dom, child, &ccss, content_w, font_size, ctx);
-        let min_main = super::flex_limites::min_automatico(
-            dom, child, min_main, &ccss, content_w, font_size, ctx,
-        );
+        let min_main = if transferiu {
+            base
+        } else {
+            let min_main = crate::table::min_content(dom, child, font_size, ctx);
+            super::flex_limites::min_automatico(dom, child, min_main, &ccss, content_w, font_size, ctx, max_main)
+        };
         let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
         // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
         // base size" entra INTACTO na soma que decide o défice/sobra da
@@ -223,7 +220,9 @@ pub(in crate::layout) fn layout_children_horizontal(
             shrink: ccss.flex_shrink.unwrap_or(1.0), // 1 é o default do CSS
             align_self: ccss.align_self,
             order: ccss.order.unwrap_or(0),
-            can_stretch: ccss.height.is_none(),
+            // `height:auto` DECLARADO conta como indefinido, não só a ausência
+            // (`dimensao_indefinida.rs` — achado por `align-self-stretch`).
+            can_stretch: super::dimensao_indefinida::e_auto_ou_ausente(ccss.height),
             min_main,
             max_main,
             auto_esq: auto(ccss.margin.left),

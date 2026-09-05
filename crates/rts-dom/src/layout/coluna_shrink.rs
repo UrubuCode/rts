@@ -59,24 +59,81 @@ pub(in crate::layout) fn base_outer(
 /// CONTEÚDO (sem `height` declarado): um `height:50px` some do numerador,
 /// mas o item continua sem conteúdo próprio nenhum a proteger.
 ///
-/// CORTE dito: um item com `height` declarado E conteúdo que por si só
-/// exigisse mais do que o encolhimento permite (ex.: texto que não cabe)
-/// devia manter esse piso — não temos uma medição de "altura mínima do
-/// conteúdo, ignorando `height`" sem uma segunda passada de layout, e
-/// nenhuma das fixtures deste lote precisa dela. `min-height` DECLARADO
-/// (lido pelo chamador, `resolve_height(ccss.min_height, ...)`) continua a
-/// vencer este automático, como no eixo horizontal.
-pub(in crate::layout) fn min_main_auto(ccss: &ComputedStyle, natural_h: f32) -> f32 {
-    let overflow_visible =
-        ccss.overflow_y.unwrap_or(crate::scrollbar::Overflow::Visible)
-            == crate::scrollbar::Overflow::Visible;
+/// Com `height` declarado e SEM razão de aspeto, o automático é o MENOR
+/// entre a "specified size suggestion" (`natural_h`, que já É o `height`
+/// convertido a outer) e a "content size suggestion" — a altura que os
+/// FILHOS exigem, ignorando este `height` (`altura_conteudo_sem_height`,
+/// abaixo: soma cada filho pela SUA própria altura, sem forçar a do item,
+/// em vez de uma segunda passada de `layout_block` completa). Antes deste
+/// lote devolvia 0 sempre que `height` estava presente sem razão de aspeto —
+/// `flexbox-min-height-auto-001` (WPT): os blocos com `height`/`calc()`
+/// sem `max-height` encolhiam a zero em vez de pararem no menor dos dois.
+pub(in crate::layout) fn min_main_auto(
+    dom: &Dom,
+    id: NodeIdx,
+    ccss: &ComputedStyle,
+    natural_h: f32,
+    resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
+) -> f32 {
+    // `Clip` conta como `Visible` — não é um scroll container (CSS Overflow
+    // 3 §clip), e só um eixo que PODE rolar desliga este automático
+    // (espelho do retrabalho em `flex_limites::min_automatico`,
+    // `min-size-auto-overflow-clip`, WPT — não tinha fixture neste eixo
+    // ainda, mas é a MESMA pergunta).
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let overflow_visible = matches!(ccss.overflow_y.unwrap_or(Visible), Visible | Clip);
     if !overflow_visible {
-        0.0
-    } else if ccss.height.is_none() {
-        natural_h
-    } else {
-        0.0
+        return 0.0;
     }
+    if ccss.height.is_none() {
+        return natural_h;
+    }
+    // `height` DECLARADO: candidato (d) do `min-height:auto` (Flexbox §4.5,
+    // eixo de coluna) — com razão de aspeto E a largura já USADA
+    // (`altura_min_content_por_razao`, `inline_box`), o piso é a altura
+    // DERIVADA dela, não 0 — sem isto um `<img height=100>` cujo width=30
+    // constrangido dá 1:1 encolhia até quase 0 em vez de parar em 30
+    // (`flexbox-min-height-auto-002`, WPT).
+    match crate::inline_box::altura_min_content_por_razao(dom, id, ccss, resolve) {
+        Some(h) => {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
+            h + bt + bb
+        }
+        None => {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
+            let conteudo = altura_conteudo_sem_height(
+                dom, id, ccss, resolve.parent_content_w, resolve.node_font_size, ctx,
+            ) + bt + bb;
+            natural_h.min(conteudo)
+        }
+    }
+}
+
+/// A altura do CONTEÚDO de um item ignorando o `height` do PRÓPRIO item —
+/// candidato (c), sem razão de aspeto, de [`min_main_auto`]: soma a altura
+/// outer de cada filho (`child_outer_height`, que mede CADA FILHO pela sua
+/// própria altura — nada aqui força a do item) em vez de uma segunda
+/// passada de `layout_block` completa, que é o corte que o cabeçalho antigo
+/// desta função citava (nenhuma fixture precisava até `flexbox-min-height-
+/// auto-001`, WPT).
+fn altura_conteudo_sem_height(
+    dom: &Dom,
+    id: NodeIdx,
+    ccss: &ComputedStyle,
+    container_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    dom.node(id)
+        .children
+        .iter()
+        .filter(|&&c| !is_out_of_flow(dom, c) && !e_display_none(dom, c))
+        .map(|&c| match &dom.node(c).kind {
+            NodeKind::Text(_) => crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer),
+            _ => child_outer_height(dom, c, container_w, None, ccss, font_size, ctx),
+        })
+        .sum()
 }
 
 /// O piso de `min-height` no eixo principal de coluna: DECLARADO vence
@@ -88,15 +145,19 @@ pub(in crate::layout) fn min_main_auto(ccss: &ComputedStyle, natural_h: f32) -> 
 /// — a régua contra a fixture anterior, onde `overflow:auto` zera o
 /// automático, tinha zerado este também).
 pub(in crate::layout) fn min_main(
+    dom: &Dom,
+    id: NodeIdx,
     ccss: &ComputedStyle,
     natural_h: f32,
     container_h: Option<f32>,
     resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
 ) -> f32 {
     if ccss.min_height == Some(crate::style::Dimension::MinContent) {
         return natural_h;
     }
-    resolve_height(ccss.min_height, container_h, resolve).unwrap_or_else(|| min_main_auto(ccss, natural_h))
+    resolve_height(ccss.min_height, container_h, resolve)
+        .unwrap_or_else(|| min_main_auto(dom, id, ccss, natural_h, resolve, ctx))
 }
 
 
