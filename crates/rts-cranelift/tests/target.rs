@@ -321,8 +321,16 @@ fn a_symbolic_heap_base_is_an_undefined_reference_in_an_object_file() {
         visibility: Visibility::Exported,
         body: Some(&func),
     }];
-    let bytes = place_in_object(object_module, &program, &[], &funcs, &types, Some(bases))
-        .expect("a symbolic base compiles rather than hitting the old `unreachable!`");
+    let bytes = place_in_object(
+        object_module,
+        &program,
+        &[],
+        &[],
+        &funcs,
+        &types,
+        Some(bases),
+    )
+    .expect("a symbolic base compiles rather than hitting the old `unreachable!`");
 
     let file = object::File::parse(bytes.as_slice()).expect("a well-formed object file");
     use object::{Object, ObjectSymbol};
@@ -400,6 +408,7 @@ fn an_address_table_leaves_one_relocation_per_function_it_lists() {
         object_file("tables").expect("host"),
         &program,
         &tables,
+        &[],
         &funcs,
         &types,
         None,
@@ -457,6 +466,79 @@ fn an_address_table_leaves_one_relocation_per_function_it_lists() {
     );
 }
 
+/// A [`DataBlob`] places exactly the bytes it is given, with no relocations —
+/// the claim it makes that an [`AddressTable`] cannot: everything in a blob was
+/// already known while compiling, so there is nothing for a linker to fill in.
+///
+/// This is `rts_host::object`'s manifest-embedding claim, one layer down: the
+/// object a program compiles to can carry the manifest's own bytes directly,
+/// rather than only in a file written beside it.
+#[test]
+fn a_data_blob_places_its_exact_bytes_with_no_relocations() {
+    use object::{Object, ObjectSection, ObjectSymbol};
+    use rts_cranelift::target::DataBlob;
+
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature::default());
+    let id = funcs.declare_function(shape);
+    let mut func = function(&[], &[]);
+    let entry = func.entry;
+    FuncBuilder::new(&mut func, &types, entry).ret(&[]);
+
+    let program = [Placing {
+        id,
+        name: "beside_a_blob",
+        visibility: Visibility::Exported,
+        body: Some(&func),
+    }];
+    // A `u64` length prefix followed by non-zero payload — the shape
+    // `rts_host::object::manifest`'s embedding actually uses, so this checks
+    // the format a real caller writes rather than an arbitrary byte string.
+    let payload = b"\x05\x00\x00\x00\x00\x00\x00\x00hello!";
+    let blobs = [DataBlob {
+        name: "test_blob",
+        bytes: payload,
+    }];
+
+    let bytes = place_in_object(
+        object_file("blob").expect("host"),
+        &program,
+        &[],
+        &blobs,
+        &funcs,
+        &types,
+        None,
+    )
+    .expect("a program with a function and a blob both emit");
+
+    let file = object::File::parse(bytes.as_slice()).expect("a well-formed object file");
+    let symbol = file
+        .symbols()
+        .find(|symbol| symbol.name() == Ok("test_blob"))
+        .expect("the blob's own name is exported by the object");
+    assert!(
+        !symbol.is_undefined(),
+        "the blob is DEFINED here, not imported"
+    );
+
+    let section = file
+        .section_by_index(symbol.section_index().expect("the blob is in a section"))
+        .expect("the section it named exists");
+    assert!(
+        section.relocations().next().is_none(),
+        "a blob is bytes the compiler already knew — nothing here needs a linker to fill in"
+    );
+
+    let section_bytes = section.data().expect("the section has contents");
+    let at = (symbol.address() - section.address()) as usize;
+    assert_eq!(
+        &section_bytes[at..at + payload.len()],
+        payload,
+        "the object carries the exact bytes handed to `DataBlob`, unchanged"
+    );
+}
+
 /// A table with nothing in it still defines its name.
 ///
 /// The reason is a link failure and not a nicety: the archive that reads these
@@ -490,6 +572,7 @@ fn an_empty_address_table_still_defines_its_name() {
         object_file("empty_table").expect("host"),
         &program,
         &tables,
+        &[],
         &funcs,
         &types,
         None,
@@ -536,6 +619,7 @@ fn an_address_table_refuses_a_function_that_was_not_placed() {
         object_file("absent").expect("host"),
         &program,
         &tables,
+        &[],
         &funcs,
         &types,
         None,
@@ -603,6 +687,7 @@ fn an_address_table_refuses_a_function_that_was_declared_without_a_body() {
         object_file("imported").expect("host"),
         &program,
         &tables,
+        &[],
         &funcs,
         &types,
         None,

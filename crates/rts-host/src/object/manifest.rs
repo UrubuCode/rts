@@ -1,20 +1,30 @@
-//! The numbers that travel beside an object file, and their format.
+//! The numbers a compiled program needs seeded before its entry runs, and
+//! their format.
 //!
-//! # Why any of this is outside the object
+//! # Why any of this is outside the object's own bytes
 //!
 //! [`super`]'s own doc comment has the reason: the key, literal and template
 //! tables are per-COMPILATION data the language names by NUMBER, and the entry
-//! must be called with those tables already seeded. This is the seed, written
-//! next to the executable and read by the facade's `main`.
+//! must be called with those tables already seeded. This is that seed.
+//!
+//! # Two carriers, one format
+//!
+//! [`encode`] is written twice: once into `__rts_manifest`, a data symbol
+//! [`super::embed_manifest`] places inside the object itself (read straight out
+//! of the running image, so a moved `.exe` alone is enough); once into the
+//! `.rtsdata` file [`write`] writes beside the executable, kept for a binary
+//! moved without its own bytes intact and for the sidecar-specific tests below.
+//! `rts-runtime-boot::run` tries the image first and the sidecar second — see
+//! its own doc for the order and why neither is assumed.
 //!
 //! # Why the format is hand-rolled
 //!
-//! The reader is an `extern "C" fn` in `rts-runtime`, a crate this one does not
-//! depend on and which does not depend on this one — so there is no shared type
-//! to derive a serializer against, and adding one would make the AOT facade
-//! depend on the JIT host. The two sides are kept honest by a test that writes
-//! a manifest here and reads it back with the reader's own rules, not by a
-//! derive.
+//! The reader is `rts-runtime-boot::manifest::read`, in a crate this one does
+//! not depend on and which does not depend on this one — so there is no shared
+//! type to derive a serializer against, and adding one would make the AOT
+//! facade depend on the JIT host. The two sides are kept honest by a test that
+//! writes a manifest here and reads it back with the reader's own rules, not by
+//! a derive.
 //!
 //! # The format
 //!
@@ -62,9 +72,24 @@
 
 use super::ObjectProgram;
 
-/// Writes everything but the object bytes, in the format `rts-runtime`'s `main`
-/// reads.
+/// Writes everything but the object bytes to a `.rtsdata` sidecar, in the
+/// format `rts-runtime-boot::manifest::read` reads.
 pub fn write(path: &std::path::Path, program: &ObjectProgram) -> std::io::Result<()> {
+    std::fs::write(path, encode(program))
+}
+
+/// The same bytes [`write`] writes to a sidecar file, in memory.
+///
+/// Split out of `write` so there is exactly one place that builds this format:
+/// `write` still produces the `.rtsdata` sidecar (accepted for compatibility,
+/// and what [`tests`] exercises), and [`super::embed_manifest`] hands these
+/// SAME bytes to [`rts_cranelift::target::DataBlob`] to place inside the object
+/// itself. Two callers of one function rather than the format written out
+/// twice — see this module's own header for why a hand-rolled format exists at
+/// all, which is the reason a second copy of it would be worse here than
+/// almost anywhere else in this crate: the reader in `rts-runtime-boot` has no
+/// derive to catch the two drifting apart.
+pub fn encode(program: &ObjectProgram) -> Vec<u8> {
     let mut out = Vec::new();
     for singleton in program.singletons {
         out.extend_from_slice(&singleton.to_le_bytes());
@@ -146,7 +171,7 @@ pub fn write(path: &std::path::Path, program: &ObjectProgram) -> std::io::Result
         out.extend_from_slice(&index.to_le_bytes());
     }
 
-    std::fs::write(path, out)
+    out
 }
 
 /// A count, as the `u32` every table in this format starts with.

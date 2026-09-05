@@ -506,6 +506,21 @@ class Element {
     dom.setAttr(this._dom, this._node, "class", v);
   }
 
+  // `el.src` (get/set via atributo `src`) — IDL reflectida, mesmo padrão de
+  // `id`/`className`. Faltava: sem isto, `document.createElement("script");
+  // s.src = "..."` gravava uma propriedade solta NO WRAPPER (o motor aceita
+  // escrita dinâmica num objeto) em vez do atributo — `getAttribute(...,
+  // "src")` continuava a responder "", e um `<script src>` criado por
+  // programa nunca era distinguível de um inline. `lifecycle.ts` é o primeiro
+  // chamador a precisar disto: um `<script>` ligado por `appendChild` decide
+  // inline-vs-`src` por este atributo.
+  get src(): string {
+    return dom.getAttribute(this._dom, this._node, "src");
+  }
+  set src(v: string) {
+    dom.setAttr(this._dom, this._node, "src", v);
+  }
+
   // `el.getAttribute(name)` — string vazia se ausente (o primitivo já normaliza).
   getAttribute(name: string): string {
     return dom.getAttribute(this._dom, this._node, name);
@@ -1013,16 +1028,24 @@ class Element {
   }
 
   // `el.appendChild(child)` — anexa e devolve o filho (como o browser).
+  //
+  // `__afterConnect` (lifecycle.ts) é o gancho da ligação: um `<script>` que
+  // FICA ligado ao documento por esta chamada corre agora, se o documento tiver
+  // scripting ligado (`loadDocument`) — `parseDocument` nunca liga, então esta
+  // chamada é um no-op nele, exatamente como um `DOMParser` real.
   appendChild(child: Element): Element {
     dom.appendChild(this._dom, this._node, child._node);
+    __afterConnect(this._dom, child._node);
     return child;
   }
 
   // `el.insertBefore(child, reference)` — insere child antes de reference (ou no
-  // fim se reference for null). Devolve child (como o browser).
+  // fim se reference for null). Devolve child (como o browser). Mesmo gancho de
+  // `appendChild` acima: outra forma de um `<script>` ficar ligado.
   insertBefore(child: Element, reference: Element | null): Element {
     const ref = reference === null ? __DOM_NONE : reference._node;
     dom.insertBefore(this._dom, this._node, child._node, ref);
+    __afterConnect(this._dom, child._node);
     return child;
   }
 
@@ -1326,6 +1349,14 @@ class Document {
     return __elem(this._dom, root);
   }
 
+  // `document.readyState` — `"loading"`/`"interactive"`/`"complete"`. Estado
+  // vive no `Dom` (Rust, `dom/ciclo.rs`): um `parseDocument` nunca o muda
+  // (fica `"complete"`, como um `DOMParser` real) — só `loadDocument`
+  // (`lifecycle.ts`) o move pelos três estados que a navegação atravessa.
+  get readyState(): string {
+    return dom.readyState(this._dom);
+  }
+
   // Tamanho da arena — inclui nós desanexados sem wrapper que ainda não
   // passaram por `releaseSubtree` (ver `dom.nodeCount`). Não é o `.d.ts` do
   // DOM real; existe para a régua do lote M ("inserir e remover N vezes não
@@ -1347,6 +1378,7 @@ class Document {
   close(): void {
     dom.free(this._dom);
     __dropWindow(this._dom);
+    __dropLifecycle(this._dom);
   }
 }
 

@@ -192,7 +192,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             base
         } else {
             let min_main = crate::table::min_content(dom, child, font_size, ctx);
-            super::flex_limites::min_automatico(dom, child, min_main, &ccss, content_w, font_size, ctx)
+            super::flex_limites::min_automatico(dom, child, min_main, &ccss, content_w, font_size, ctx, max_main)
         };
         let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
         // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
@@ -216,7 +216,9 @@ pub(in crate::layout) fn layout_children_horizontal(
             shrink: ccss.flex_shrink.unwrap_or(1.0), // 1 é o default do CSS
             align_self: ccss.align_self,
             order: ccss.order.unwrap_or(0),
-            can_stretch: ccss.height.is_none(),
+            // `height:auto` DECLARADO conta como indefinido, não só a ausência
+            // (`dimensao_indefinida.rs` — achado por `align-self-stretch`).
+            can_stretch: super::dimensao_indefinida::e_auto_ou_ausente(ccss.height),
             min_main,
             max_main,
             auto_esq: auto(ccss.margin.left),

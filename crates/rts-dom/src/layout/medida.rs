@@ -400,8 +400,8 @@ pub(crate) fn intrinsic_outer_width(
             // do pai — a EFETIVA, não a crua nem só o natural (CSS2 §10.4);
             // sem isto nem um `width` fixo nem um `min-width` sozinho (sem
             // `width`) entravam na conta (WPT `-min-height-auto-002b/c`).
-            let mnw = css.min_width.and_then(|d| d.resolve(&resolve));
-            let mxw = css.max_width.and_then(|d| d.resolve(&resolve));
+            let mnw = super::intrinseco_min_max::resolve(css.min_width, dom, id, f, ctx, &resolve);
+            let mxw = super::intrinseco_min_max::resolve(css.max_width, dom, id, f, ctx, &resolve);
             if let Some(w) = crate::style::dimensao_absoluta(
                 css.width.unwrap_or(crate::style::Dimension::Auto),
                 &resolve,

@@ -645,6 +645,13 @@ fn uses_dom_facade(source: &str) -> bool {
         // programa que precisava daqueles nomes era o teste de paridade entre
         // o scanner em Rust e o seu oráculo `.ts`, que foi apagado com eles.
         || source.contains("runScripts")
+        // E a navegação da HTML spec (`loadDocument`/`loadDocumentFrom`,
+        // `crates/rts-dom/src/lifecycle.ts`): a casca que `rts run pagina.html`
+        // gera só nomeia esta — sem a linha o JIT morria em
+        // "loadDocumentFrom is not defined" enquanto o AOT, que anexa a fachada
+        // por outro caminho, corria (medido a 05/09 com a fixture
+        // `tests/aot/claude-pagina-entrada.html`).
+        || source.contains("loadDocument")
 }
 
 /// The same, for a compilation that must agree with a numbering that already

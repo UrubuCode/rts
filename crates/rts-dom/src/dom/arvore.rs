@@ -83,6 +83,8 @@ impl Dom {
             dirty_self: std::cell::RefCell::new(std::collections::HashSet::new()),
             last_fragment: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
             doc_order: std::cell::RefCell::new((u64::MAX, Vec::new())),
+            scripting_enabled: std::cell::Cell::new(false),
+            ready_state: std::cell::RefCell::new("complete".to_string()),
         }
     }
 

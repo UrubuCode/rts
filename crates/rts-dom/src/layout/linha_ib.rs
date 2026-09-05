@@ -22,6 +22,25 @@ use crate::style::VerticalAlign;
 /// `align-items:baseline` do flex — só soma a margem própria do item, que
 /// aqui não entra (`h` já é a altura da border-box, não a outer).
 pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+    // Um flex/inline-flex é um CONTENTOR: a sua baseline vista de fora não é
+    // a da sua PRÓPRIA fonte (a fórmula abaixo) — é a de `flex_baseline::
+    // ascent_do_contentor` (Flexbox §8.5: o grupo baseline da 1ª linha, ou o
+    // 1º item em fluxo). Sem este desvio, um `<div class=flexContainer>` com
+    // FILHOS ELEMENTO caía em `tem_conteudo_para_fragmento` (tem filhos) e
+    // usava a fonte do CONTENTOR — que é a mesma pergunta errada, no mesmo
+    // sentido, que a doc de `caixa.rs` descreve para "é de bloco?": um
+    // contentor tem baseline PRÓPRIA por definição, um flex não.
+    if matches!(
+        dom.computed_style_idx(id).and_then(|c| c.effective_display()),
+        Some(
+            crate::style::DisplayKind::Flex
+                | crate::style::DisplayKind::FlexWrap
+                | crate::style::DisplayKind::InlineFlex
+                | crate::style::DisplayKind::InlineFlexWrap
+        )
+    ) {
+        return super::flex_baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
+    }
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
     // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
     // `<input>` de 21px puxava a linha e o `<button>` ao lado descia 3,5px

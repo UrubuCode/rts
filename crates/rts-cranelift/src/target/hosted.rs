@@ -24,6 +24,7 @@
 
 use cranelift_module::{Linkage, Module};
 
+use super::blob::{DataBlob, define_data_blob};
 use super::tables::AddressTable;
 use super::{MachineModule, TargetError, destination::executable_memory_calling};
 use crate::ir::{FuncId, FuncRegistry, Function};
@@ -221,15 +222,29 @@ pub unsafe fn place_in_memory(
 /// a name holding the address of each listed function, filled in by the linker
 /// rather than by this crate. See [`AddressTable`] for why a reader on this
 /// side cannot simply be handed the addresses.
+///
+/// `blobs` is placed after every table, for the same reason tables come after
+/// every body: nothing about a blob depends on placement, but keeping every
+/// data symbol's definition together (bodies, then relocation-bearing tables,
+/// then plain bytes) is one order to read rather than two interleaved ones. A
+/// blob's own client — `rts_host::object`, embedding its manifest — has no
+/// destination-specific data to hand over on the [`place_in_memory`] side,
+/// which is why that function takes no equivalent parameter: an in-memory run
+/// is one process, seeding whatever a blob would carry straight into the
+/// `Context` it already holds.
 pub fn place_in_object(
     mut object: cranelift_object::ObjectModule,
     program: &[Placing<'_>],
     tables: &[AddressTable<'_>],
+    blobs: &[DataBlob<'_>],
     funcs: &FuncRegistry,
     types: &TypeRegistry,
     heap: Option<crate::mem::RegionBases>,
 ) -> Result<Vec<u8>, TargetError> {
     compile_batch(&mut object, program, tables, funcs, types, heap)?;
+    for blob in blobs {
+        define_data_blob(&mut object, blob)?;
+    }
     object
         .finish()
         .emit()
