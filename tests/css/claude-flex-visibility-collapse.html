@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `visibility:collapse` num item de uma linha flex (Flexbox
+     §algo-visibility) NÃO é `visibility:hidden` — hoje Visibility::parse
+     (style/values/texto.rs:130) funde os dois no mesmo enum, e nem
+     flex.rs nem coluna.rs perguntam por `visibility` nenhuma (só
+     bloco.rs:897, que só decide se PINTA). Pela spec, um item colapsado
+     sai da distribuição de flex-grow/justify-content do eixo principal
+     como se não existisse — o(s) OUTRO(S) item(ns) flexível(eis) ficam
+     com o espaço livre todo. #a (collapse, flex:1 auto) deve sair da
+     distribuição; #b (flex:1 auto) deve ficar com a largura toda do
+     contentor disponível para os dois. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="cont,a,b">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #cont { display: flex; width: 100px; height: 40px; background: #eee; }
+  #a { width: 20px; height: 40px; background: #f0f; visibility: collapse; flex: 1 auto; }
+  #b { width: 20px; height: 20px; background: #0c0; flex: 1 auto; }
+</style></head>
+<body>
+  <div id="cont"><div id="a"></div><div id="b"></div></div>
+</body>
+</html>

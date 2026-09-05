@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- Fixa: num flex-container `flex-direction:column` com `direction:rtl`, um
+     item de largura definida (não esticado) alinha ao cross-start FÍSICO, que
+     em RTL é a borda DIREITA — não a esquerda (default LTR). #item deve
+     encostar à direita de #c. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="c,item">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #c { display: flex; flex-direction: column; direction: rtl; width: 320px; background: #eee; }
+  #item { width: 120px; height: 40px; background: #0c0; }
+</style></head>
+<body>
+  <div id="c"><div id="item"></div></div>
+</body>
+</html>
