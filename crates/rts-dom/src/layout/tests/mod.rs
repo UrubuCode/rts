@@ -55,6 +55,7 @@ mod position_corpus;
 mod texto_lote_s;
 mod transform_corpus;
 mod visibility_collapse_corpus;
+mod flex_stretch_replaced_corpus;
 mod inline_flex_corpus;
 mod flex_basis_content_wrap_corpus;
 mod flex_align_justify_familia_corpus;
