@@ -42,7 +42,7 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-04 (vaga 7, lote visibility-collapse): 125 das 129
+**2026-09-04 (vaga 7, lote flex-justify-logico): 129 das 133
 fixtures passam**, a 1px de tolerância; as 4 que falham estão em
 `esperado-a-falhar.txt` com a razão: 3 da folha de UA
 (largura de texto a negrito/controlos, fonte dos controlos, `tr` sem
