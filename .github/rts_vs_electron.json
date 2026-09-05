@@ -1,8 +1,8 @@
 {
-  "medido_em": "2026-09-05T13:41:14.076Z",
+  "medido_em": "2026-09-05T14:12:45.698Z",
   "maquina": {
     "so": "win32 10.0.26100",
-    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
     "nucleos_logicos": 4,
     "ram_gb": 16
   },
@@ -16,16 +16,16 @@
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 219,
-        "min": 181,
-        "max": 1627
+        "mediana": 540,
+        "min": 228,
+        "max": 1422
       },
       "rss_mb": {
-        "mediana": 261.73,
-        "min": 261.52,
-        "max": 263.64
+        "mediana": 261.27,
+        "min": 260.82,
+        "max": 263.19
       },
-      "private_mb": 90.18,
+      "private_mb": 90.43,
       "cpu_repouso_pct": 0,
       "processos": 4,
       "js_da_pagina": true,
@@ -38,23 +38,23 @@
     },
     "rts_aot": {
       "exe": "D:\\a\\_temp\\rts-vs-electron\\rts\\app.exe",
-      "bytes_exe": 34790400,
-      "bytes_pasta": 36007462,
+      "bytes_exe": 34793472,
+      "bytes_pasta": 36010534,
       "ficheiros_na_pasta": 5,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 2260,
-        "min": 2195,
-        "max": 2532
+        "mediana": 2370,
+        "min": 2357,
+        "max": 2793
       },
       "rss_mb": {
-        "mediana": 105.86,
-        "min": 84.96,
-        "max": 106.7
+        "mediana": 105.45,
+        "min": 104.71,
+        "max": 106.99
       },
-      "private_mb": 201.63,
-      "cpu_repouso_pct": 197.53,
+      "private_mb": 203.54,
+      "cpu_repouso_pct": 264.82,
       "processos": 2,
       "js_da_pagina": null,
       "razao_js_da_pagina": null,
@@ -65,23 +65,23 @@
     },
     "rts_jit": {
       "exe": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\rts-vs-electron\\jit\\rts.exe",
-      "bytes_exe": 115431936,
-      "bytes_pasta": 115579858,
+      "bytes_exe": 115445760,
+      "bytes_pasta": 115593682,
       "ficheiros_na_pasta": 3,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 2559,
-        "min": 2387,
-        "max": 2675
+        "mediana": 2302,
+        "min": 2025,
+        "max": 2633
       },
       "rss_mb": {
-        "mediana": 109.55,
-        "min": 107.12,
-        "max": 112.96
+        "mediana": 109.77,
+        "min": 106.86,
+        "max": 111.49
       },
-      "private_mb": 206.66,
-      "cpu_repouso_pct": 198.02,
+      "private_mb": 209.74,
+      "cpu_repouso_pct": 318.82,
       "processos": 2,
       "js_da_pagina": true,
       "razao_js_da_pagina": null,
