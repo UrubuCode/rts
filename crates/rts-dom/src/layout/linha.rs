@@ -269,7 +269,26 @@ pub(in crate::layout) fn layout_inline_flow(
         // mais alto que o strut, o texto mantém o ascent da fonte acima dessa
         // baseline e o descent do strut fica abaixo dela. É o contrato Blink que
         // dá, na fixture display, texto em y=55 e o bloco seguinte em y=75.
-        let text_top = if tall_inline_block {
+        // Sem TEXTO mas com um `<img>` mais alto do que a linha normal: ele senta
+        // na BASELINE (linha 344, `topo = text_top + ascent - wh`) mas — ao
+        // contrário de texto — não tem DESCIDA nenhuma (CSS 2.1 §10.8): toda a
+        // sua altura fica ACIMA da baseline. A meia-entrelinha simétrica reparte
+        // o excesso de `line_h` (que É a própria altura da imagem, pelo `fold`
+        // acima) igualmente acima/abaixo da content-area do texto — e sobe a
+        // caixa da imagem bem acima de `cy`, mesmo ELA sendo o motivo do
+        // `line_h` ter crescido. `<p>…</p><img/>` (o idioma-padrão de quadrado
+        // de referência do WPT) saía com o quadrado a começar 43px ANTES do fim
+        // do parágrafo — deslocando a REFERÊNCIA de qualquer reftest que o use.
+        // `tall_inline_block` já resolve o caso análogo COM texto (acima); esta
+        // é a mesma correção sem exigir `tem_texto`, e só toca `text_top` — não
+        // `line_advance`/`text_owner_anchor`, que são a distinção que aquele
+        // filtro já protege (ver o comentário do `tem_texto` acima).
+        let imagem_alta_sem_texto = line_h > lh + 0.001
+            && !tem_texto
+            && line
+                .iter()
+                .any(|segment| matches!(segment.atomic, Some((_, AtomicKind::Replaced))));
+        let text_top = if tall_inline_block || imagem_alta_sem_texto {
             cy + line_h - ctx.measurer.font_ascent_family(font_size, family)
         } else {
             cy + meia
