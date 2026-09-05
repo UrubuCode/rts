@@ -1,13 +1,13 @@
 {
   "date": "2026-09-05",
   "fixtures": {
-    "passing": 138,
-    "total": 142,
+    "passing": 141,
+    "total": 145,
     "pct": 97.2
   },
   "measurements": {
-    "matching": 3210,
-    "total": 3226,
+    "matching": 3264,
+    "total": 3280,
     "pct": 99.5
   },
   "wpt": {
@@ -19,19 +19,19 @@
   "expected_failures": [
     {
       "fixture": "claude-ua-form-disabled.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-th.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
     }
   ],
   "dom_lots": {
@@ -91,7 +91,8 @@
       "flex-column-wrap — `flex-direction:column` + `flex-wrap` quebra em MÚLTIPLAS COLUNAS",
       "flex-justify-logico — `justify-content:start`/`end` lógicos; `left`/`right` numa coluna físicos ao TOPO; `direction:rtl` no eixo cruzado da flex-column",
       "visibility-collapse — `visibility:collapse` distinto de `hidden` no `computedStyle`",
-      "flex-cross-size — o cross-size de uma linha flex vence mesmo em overflow; `align-content` transborda quando as linhas não cabem"
+      "flex-cross-size — o cross-size de uma linha flex vence mesmo em overflow; `align-content` transborda quando as linhas não cabem",
+      "imagens-no-raster — o raster/paint-dump carregam PNG; `<img>` deriva a dimensão em falta pela razão e o item flex esticado transfere-a"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"
