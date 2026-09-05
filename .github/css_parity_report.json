@@ -233,7 +233,8 @@
       "largura-intrinseca-de-controlos — tamanho NATURAL (max-content) de um controlo de formulário sem `width`/`height` — `intrinsic_content_width`/`replaced_inline_size` (`layout/medida.rs`) não sabiam medir `input`/`select`/`textarea`/`input[submit/button/reset]`, só texto/tabela/flex/bloco-por-filhos; caíam no ramo de bloco vazio, largura 0 (o achado de `flex-vertical-align-effect`, WPT, diagnosticado antes deste lote)",
       "flex-coluna-wrap-intrinseco — `intrinsic-size/col-wrap-*` e `balance/*` do WPT flexbox — nunca medido (as duas subpastas ficavam fora do corredor de reftests não-recursivo/sparse-checkout)",
       "medidor-ahem — a fonte Ahem (WPT: 5 487 testes em `css/`) medida EXATA no `ApproxMeasurer` em vez da aproximação proporcional/mono — sem `@font-face`, sem parser de TTF, só o NOME `font-family: Ahem` (`style::ahem::is_ahem_family`, mesma regra de `is_mono_family`)",
-      "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`"
+      "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`",
+      "css2-normal-flow-unidades — `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha",
