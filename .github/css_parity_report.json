@@ -1,37 +1,37 @@
 {
   "date": "2026-09-04",
   "fixtures": {
-    "passing": 118,
-    "total": 122,
-    "pct": 96.7
+    "passing": 122,
+    "total": 126,
+    "pct": 96.8
   },
   "measurements": {
-    "matching": 2796,
-    "total": 2812,
+    "matching": 2885,
+    "total": 2901,
     "pct": 99.4
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 299,
+    "passing": 305,
     "total": 489,
-    "pct": 61.1
+    "pct": 62.4
   },
   "expected_failures": [
     {
       "fixture": "claude-ua-form-disabled.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-ua-th.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
     },
     {
       "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
     }
   ],
   "dom_lots": {
@@ -84,7 +84,8 @@
       "pintura-e-caixas — z-index negativo, `::before`/`::after` de bloco, flex evita float",
       "flex-basis-piso — piso de min-content sem grow; `flex-basis` unitless inválida; espaço antes do `:`",
       "pequenos-1 — três causas pequenas da triagem WPT: texto solto em `display:table`, largura intrínseca do flex em coluna, `<input>` estica no flex",
-      "flex-coluna-shrink — `flex-basis`/`flex-shrink` no eixo de coluna; `row-gap` contra a ALTURA; `min-height` como altura definida"
+      "flex-coluna-shrink — `flex-basis`/`flex-shrink` no eixo de coluna; `row-gap` contra a ALTURA; `min-height` como altura definida",
+      "flex-cross-size — o cross-size de uma linha flex vence mesmo em overflow; `align-content` transborda quando as linhas não cabem"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha"

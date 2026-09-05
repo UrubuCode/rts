@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Fixa: `gap: calc(10% - 1rem / 2)` num flex com `flex-wrap: wrap` e itens
+     `flex: 1 1 auto` — o gap resolve contra a largura do contentor (10% de
+     400 = 40, menos 8 = 32) e os itens crescem para o resto. O lote
+     flex-cross-size perdeu o `gap-010-ltr` do WPT: o gap deixou de ser
+     aplicado na linha com wrap (a referência usa margens e tem as riscas). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="s,a,b,c,d">
+<meta name="fixar-estilo" content="width,height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #s { display: flex; flex-wrap: wrap; gap: calc(10% - 1rem / 2); width: 400px; height: 100px; background: #0a0; }
+  #s > div { flex: 1 1 auto; background: #888; }
+</style></head>
+<body>
+  <section id="s"><div id="a"></div><div id="b"></div><div id="c"></div><div id="d"></div></section>
+</body>
+</html>

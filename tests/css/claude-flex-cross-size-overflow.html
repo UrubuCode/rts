@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: um flex-container de UMA linha com height DEFINIDA tem de manter
+     essa altura como o cross-size da linha mesmo quando um item transborda
+     (é a própria razão de existir do `overflow` nestes casos) — hoje o
+     motor só usa a altura do contentor quando ela é MAIOR que a do maior
+     item (`container_cross_h > items_h`), o oposto do caso que interessa.
+     `#grande`: height:128 explícita, maior que o contentor (o transbordo
+     esperado). `#pequeno`: sem height própria, deve esticar
+     (align-items:stretch, default) à altura do CONTENTOR (64) menos a sua
+     margem, não à do `#grande` (WPT: flexbox-overflow-horiz-001). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="pequeno">
+<meta name="fixar-estilo" content="height">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; width: 200px; height: 64px; background: #eee; }
+  #grande { width: 40px; height: 128px; background: #06c; }
+  #pequeno { width: 40px; margin-bottom: 8px; background: #0c0; }
+</style></head>
+<body>
+  <div class="f"><div id="grande"></div><div id="pequeno"></div></div>
+</body>
+</html>
