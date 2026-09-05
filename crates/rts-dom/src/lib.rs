@@ -24,6 +24,9 @@
 /// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
 pub mod block;
 mod dom;
+/// Descodificação de PNG e `data:` URL (lote imagens-no-raster, movido de
+/// `rts-dom-bridge`) — só bytes já em memória, sem I/O. Ver o módulo.
+pub mod imagem;
 /// Hasher rápido para as chaves INTERNAS (índices de nó, chaves de cache de
 /// layout): nenhuma delas vem de fora do processo, e o SipHash da `std` cobra
 /// uma resistência que não se usa. Ver as ressalvas no módulo.

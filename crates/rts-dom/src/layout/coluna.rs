@@ -185,7 +185,7 @@ pub(in crate::layout) fn layout_children_column(
         // mínimo automático só vale com `min-height: auto`) — mesma regra do
         // eixo horizontal (`flex.rs:198-200`); `min-content` é o caso à parte
         // que `coluna_shrink::min_main` decide.
-        let min_main = super::coluna_shrink::min_main(&ccss, natural_h, container_content_h, &resolve_filho);
+        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho);
         let mt_auto = ccss.margin.top.is_auto();
         let mb_auto = ccss.margin.bottom.is_auto();
         let grow = ccss.flex_grow.unwrap_or(0.0);

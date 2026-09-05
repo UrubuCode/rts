@@ -63,6 +63,7 @@ mod posicionado;
 mod pseudo_bloco;
 mod relativo;
 mod replaced;
+mod replaced_transferido;
 mod bloco;
 mod fragmento;
 mod rtl_bloco;
