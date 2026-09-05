@@ -52,16 +52,45 @@ impl ComputedStyle {
     /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + `wrap`
     /// OU `wrap-reverse` → FlexWrap; inline-flex + wrap/wrap-reverse →
     /// InlineFlexWrap — a ORDEM das linhas sob `wrap-reverse` é uma pergunta
-    /// do layout, não do display). `None` se não declarado (o layout cai no
-    /// default da tag).
+    /// do layout, não do display) e a BLOCKIFICAÇÃO de CSS 2.1 §9.7 / CSS
+    /// Display 3 §2.7: um elemento flutuado ou fora-do-fluxo (`position:
+    /// absolute`/`fixed` — `Position::out_of_flow`) nunca gera uma caixa
+    /// inline nem interna de tabela; o valor COMPUTADO de `display` vira
+    /// `block`. `None` se não declarado (o layout cai no default da tag).
+    ///
+    /// Só `Inline`/`InlineBlock` e os quatro internos de tabela que geram
+    /// caixa (`TableRow`, `TableRowGroup`, `TableCell`, `TableCaption`) entram
+    /// aqui — `table-column`/`table-column-group` já param em `None` no parse
+    /// (`style/parse/mod.rs`: não geram caixa nenhuma, flutuados ou não) e
+    /// `inline-table` já colapsa em `Table` no parse, que é bloco-level e não
+    /// precisa de conversão. `Flex`/`Grid`/os dois wrap ficam de fora: nenhum
+    /// fixture do balde `float-applies-to-*`/`clear-applies-to-*` exercita a
+    /// blockificação de flex, e alargar sem uma régua confirmando é o mesmo
+    /// erro que este lote existe para evitar.
     pub fn effective_display(&self) -> Option<DisplayKind> {
-        match self.display {
+        let base = match self.display {
             Some(DisplayKind::Flex) if self.flex_wrap.is_some_and(FlexWrap::wraps) => {
                 Some(DisplayKind::FlexWrap)
             }
             Some(DisplayKind::InlineFlex) if self.flex_wrap.is_some_and(FlexWrap::wraps) => {
                 Some(DisplayKind::InlineFlexWrap)
             }
+            other => other,
+        };
+        let blockifies = self.float_side.is_some_and(|f| f != FloatSide::None)
+            || self.position.is_some_and(Position::out_of_flow);
+        if !blockifies {
+            return base;
+        }
+        match base {
+            Some(
+                DisplayKind::Inline
+                | DisplayKind::InlineBlock
+                | DisplayKind::TableRow
+                | DisplayKind::TableRowGroup
+                | DisplayKind::TableCell
+                | DisplayKind::TableCaption,
+            ) => Some(DisplayKind::Block),
             other => other,
         }
     }

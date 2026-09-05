@@ -22,14 +22,15 @@ fn min_max_clamp_nao_parseiam() {
     assert_eq!(parse_inline("width:max(10px,2vw)").width, None);
 }
 
-/// `estilo.unidade.tabela` — dez unidades da spec que o parse recusa. Não são
-/// aproximadas: a declaração inteira cai. `ch` e `ex` saíram daqui com o lote T
-/// (resolvem pela métrica calibrada — ver `Dimension::Ex`/`Ch`).
+/// `estilo.unidade.tabela` — as unidades da spec que o parse ainda recusa. Não
+/// são aproximadas: a declaração inteira cai. `ch` e `ex` saíram daqui com o
+/// lote T (resolvem pela métrica calibrada — ver `Dimension::Ex`/`Ch`), e
+/// `cm`/`mm`/`in`/`q` saíram com o lote das unidades absolutas — as quatro
+/// passaram a ser exactas (`style::unidades_absolutas`), e valiam +138 reftests
+/// da suite oficial do CSS 2.1, que as usa como régua.
 #[test]
 fn as_unidades_em_falta_derrubam_a_declaracao() {
-    for u in [
-        "10cm", "10mm", "10in", "10q", "10lh", "10vmin", "10vmax", "10dvh", "10svh", "10lvh",
-    ] {
+    for u in ["10lh", "10vmin", "10vmax", "10dvh", "10svh", "10lvh"] {
         assert_eq!(
             parse_inline(&format!("width:{u}")).width,
             None,
@@ -37,7 +38,10 @@ fn as_unidades_em_falta_derrubam_a_declaracao() {
         );
     }
     // O contraste: as oito que aceitamos.
-    for u in ["10px", "10%", "10em", "10rem", "10vw", "10vh", "10ex", "10ch"] {
+    for u in [
+        "10px", "10%", "10em", "10rem", "10vw", "10vh", "10ex", "10ch", "10cm", "10mm", "10in",
+        "10q",
+    ] {
         assert!(parse_inline(&format!("width:{u}")).width.is_some(), "{u}");
     }
 }

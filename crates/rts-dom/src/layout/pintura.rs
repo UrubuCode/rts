@@ -270,11 +270,13 @@ pub(in crate::layout) fn is_text_input_tag(tag: &str) -> bool {
 ///   `SolidRect`. Emitir a moldura uniforme neste caso desenharia os quatro lados
 ///   onde a página pediu um: errado de forma mais visível do que ignorar.
 ///
-/// ⚠️ CORTE declarado: a largura por lado NÃO entra na geometria da caixa — o box
-/// model do motor tem um `border` escalar, usado em ~15 sítios (content_w,
-/// content_x, outer_h, measure, flex basis…). Uma `border-bottom: 1px` pinta a
-/// barra mas não empurra o conteúdo 1px para cima. Trocar o escalar por quatro
-/// valores é uma mudança de box model, não desta propriedade.
+/// CORTE FECHADO (estava documentado aqui como aberto): a largura por lado JÁ
+/// entra na geometria da caixa. `bloco.rs` lê `style::borders::used_widths` —
+/// as quatro larguras por lado, não o escalar — e alimenta `border_h`/`border_v`,
+/// `content_w`, `content_x` e o `box_rect` com elas; esta função já recebe os
+/// quatro valores separados (`border_top`/`right`/`bottom`/`left`) de quem a
+/// chama. Uma `border-bottom: 1px` empurra o conteúdo 1px, como o Chrome. A nota
+/// antiga ficou a descrever um estado que outro lote já tinha corrigido.
 ///
 /// O `outline` sai por último (por cima) e por FORA do border-box, inflado pelo
 /// `outline-offset` — é o que o distingue da borda: não ocupa espaço nenhum.

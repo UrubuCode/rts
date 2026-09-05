@@ -287,7 +287,16 @@ pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
     // depois.
     let uw = css.border_width.unwrap_or(0.0);
     let us = css.border_style.unwrap_or(BorderStyle::None);
-    let uc = css.border_color.unwrap_or(0x808080FF);
+    // `currentColor` é o inicial de `border-*-color` (CSS Backgrounds 3
+    // §border-color), e sem um `color` declarado isso é PRETO — não um
+    // cinzento de fallback. Era `unwrap_or(0x808080FF)` sem olhar para
+    // `css.color`, e por isso um `border-width:0.5in` sem `border-color`
+    // pintava cinzento (128,128,128) onde a referência do WPT pinta preto: a
+    // geometria já batia (96×96 no sítio certo), só a cor divergia — cluster
+    // de 9216px, 35 fixtures (`border-width-001` e vizinhos). O padrão certo
+    // já existe em `pintura.rs:391` para `outline`: `.or(css.color)` antes do
+    // preto inicial.
+    let uc = css.border_color.or(css.color).unwrap_or(0x000000FF);
     // `em`/`rem` num lado resolvem contra a fonte DESTE nó (a computada é px
     // depois da cascade); `%` não existe em bordas e a viewport não entra.
     let fonte = match css.font_size {
