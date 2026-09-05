@@ -126,3 +126,27 @@ fn flex_base_size_nao_capada_por_max_width_e_encolhimento_congela() {
     assert_eq!((capado.x, capado.y, capado.w, capado.h), (0.0, 0.0, 100.0, 40.0), "#capado congela no seu max-width: {capado:?}");
     assert_eq!((livre.x, livre.y, livre.w, livre.h), (100.0, 0.0, 200.0, 40.0), "#livre absorve o resto: {livre:?}");
 }
+
+/// A QUEBRA de linha (Flexbox §9.3) soma o HYPOTHETICAL main size — a base
+/// já grampeada por min/max — não a base nua. Retrabalho: o resto deste
+/// lote (base sem pré-capagem no construtor) tinha feito a quebra ler a
+/// base de `flex:1` (0, de `flex-basis:0%`) em vez do piso declarado
+/// (`min-width:100px`), e dois itens que deviam quebrar (100+100 > 150)
+/// cabiam juntos numa só linha — regressão que o WPT
+/// `flexbox-flex-wrap-flexing` apanhou.
+#[test]
+fn quebra_de_linha_usa_o_hypothetical_main_size_nao_a_base_nua() {
+    const HTML: &str = r#"<style>
+      body { margin: 0; font: 16px/20px monospace; }
+      #c { display: flex; flex-wrap: wrap; width: 150px; height: 100px; background: #c00; }
+      #c > div { min-width: 100px; flex: 1; height: 50px; background: #0c0; }
+    </style>
+    <div id="c"><div id="a"></div><div id="b"></div></div>"#;
+    let (dom, list) = geometria(HTML, 1280.0);
+    let c = rect(&dom, &list, "#c", 0);
+    let a = rect(&dom, &list, "#a", 0);
+    let b = rect(&dom, &list, "#b", 0);
+    assert_eq!((c.x, c.y, c.w, c.h), (0.0, 0.0, 150.0, 100.0), "#c: duas linhas de 50: {c:?}");
+    assert_eq!((a.x, a.y, a.w, a.h), (0.0, 0.0, 150.0, 50.0), "#a: sozinho na 1ª linha, cresce a 150: {a:?}");
+    assert_eq!((b.x, b.y, b.w, b.h), (0.0, 50.0, 150.0, 50.0), "#b: sozinho na 2ª linha, cresce a 150: {b:?}");
+}

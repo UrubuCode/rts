@@ -251,17 +251,24 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
     }
 
-    // agrupa em LINHAS pela BASE (o wrap decide pelas bases; grow/shrink POR linha).
+    // agrupa em LINHAS pelo HYPOTHETICAL main size (Flexbox §9.3: soma-se a
+    // base já grampeada por min/max, não a base nua) — `it.base` continua
+    // intacta no item (o orçamento de grow/shrink de cada linha, abaixo,
+    // ainda parte da base pura, Flexbox §9.2 passo 3). Sem isto, um
+    // `flex:1` (`flex-basis:0%`) com `min-width` declarado tinha base=0 e
+    // dois itens que deviam quebrar (100+100 > 150 pelo seu PISO) cabiam
+    // juntos na mesma linha (`claude-flex-wrap-quebra-com-min-width`).
     let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
     let mut line_w = 0.0f32;
     for it in items {
+        let hyp = super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols);
         let cur = lines.last_mut().unwrap();
         let with_gap = if cur.is_empty() { 0.0 } else { gap };
-        if wrap && !cur.is_empty() && line_w + with_gap + it.base > content_w {
+        if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
             lines.push(Vec::new());
-            line_w = it.base;
+            line_w = hyp;
         } else {
-            line_w += with_gap + it.base;
+            line_w += with_gap + hyp;
         }
         lines.last_mut().unwrap().push(it);
     }
