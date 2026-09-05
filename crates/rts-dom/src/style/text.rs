@@ -228,6 +228,59 @@ impl Direction {
     }
 }
 
+/// `writing-mode` — a direção do eixo de BLOCO. Herdável.
+///
+/// CORTE declarado (lote `flex-justify-logico`, retrabalho): só
+/// `horizontal-tb` (o default) tem layout de verdade — os quatro valores
+/// verticais são aceites e serializados, mas o motor não troca os eixos de
+/// bloco/inline (a mesma limitação de `Direction`, que também não faz bidi).
+/// O que ISTO desbloqueia é [`is_horizontal`](WritingMode::is_horizontal):
+/// um efeito físico que só faz sentido quando o eixo de bloco é vertical
+/// (como o espelho de `direction:rtl` no eixo CRUZADO de uma flex-column,
+/// `coluna_rtl::cross_x`) pode perguntar por ele ANTES de se aplicar — sem
+/// isto, um `.row-wrapper{writing-mode:vertical-rl;direction:rtl}` do WPT
+/// `overflow-top-left` espelhava um contentor que o motor já desenha
+/// horizontal, divergindo da referência (também tratada como bloco/
+/// horizontal) só porque o espelho não perguntou.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WritingMode {
+    #[default]
+    HorizontalTb,
+    VerticalRl,
+    VerticalLr,
+    SidewaysRl,
+    SidewaysLr,
+}
+
+impl WritingMode {
+    pub fn parse(v: &str) -> Option<WritingMode> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "horizontal-tb" => WritingMode::HorizontalTb,
+            "vertical-rl" => WritingMode::VerticalRl,
+            "vertical-lr" => WritingMode::VerticalLr,
+            "sideways-rl" => WritingMode::SidewaysRl,
+            "sideways-lr" => WritingMode::SidewaysLr,
+            _ => return None,
+        })
+    }
+
+    pub fn css(self) -> &'static str {
+        match self {
+            WritingMode::HorizontalTb => "horizontal-tb",
+            WritingMode::VerticalRl => "vertical-rl",
+            WritingMode::VerticalLr => "vertical-lr",
+            WritingMode::SidewaysRl => "sideways-rl",
+            WritingMode::SidewaysLr => "sideways-lr",
+        }
+    }
+
+    /// `true` só para `horizontal-tb` (o default) — a única forma que o
+    /// motor sabe dispor. Ver o corte no comentário do tipo.
+    pub fn is_horizontal(self) -> bool {
+        matches!(self, WritingMode::HorizontalTb)
+    }
+}
+
 /// `list-style-type` — o marcador de um item de lista. Herdável.
 ///
 /// Aceite e serializado. O motor NÃO desenha marcador nenhum hoje (nem o `disc`

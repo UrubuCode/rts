@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: justify-content:start/end num contentor row-reverse. A spec
+     (CSS Box Alignment §8.1) define start/end como LÓGICOS — fixos no lado
+     do eixo inline, que row-reverse NÃO espelha — ao contrário de
+     flex-start/flex-end, que seguem o main-start/main-end do flex e SÃO
+     espelhados. O motor confunde os dois: 'start' e 'end' são parseados
+     como sinónimos literais de flex-start/flex-end (display.rs:149-150) e
+     por isso saem espelhados também. .row1 usa justify-content:start;
+     .row2 usa justify-content:end. Verificado contra o binário atual
+     (que troca os dois): a1/a2/a3 hoje saem em 240/152/64 (empacotados à
+     DIREITA, errado) e b1/b2/b3 em 176/88/0 (empacotados à ESQUERDA,
+     errado) — exatamente trocados com o esperado abaixo. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="a1,a2,a3,b1,b2,b3">
+<meta name="fixar-estilo" content="justify-content">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .row { display: flex; flex-direction: row-reverse; width: 320px; height: 40px; gap: 8px; }
+  .row > div { width: 80px; height: 40px; }
+  .row1 { justify-content: start; }
+  .row2 { justify-content: end; margin-top: 8px; }
+</style></head>
+<body>
+<div class="row row1"><div id="a1"></div><div id="a2"></div><div id="a3"></div></div>
+<div class="row row2"><div id="b1"></div><div id="b2"></div><div id="b3"></div></div>
+</body></html>

@@ -87,6 +87,7 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
         "overflow-wrap" | "word-wrap" => set_if(&mut css.overflow_wrap, crate::style::OverflowWrap::parse(val)),
         "direction" => set_if(&mut css.direction, crate::style::Direction::parse(val)),
+        "writing-mode" => set_if(&mut css.writing_mode, crate::style::WritingMode::parse(val)),
         // `text-indent` aceita negativo (o truque de esconder texto atrás da
         // margem, comum em logos com fundo).
         "text-indent" => set_if(&mut css.text_indent, parse_dimension_signed(val)),

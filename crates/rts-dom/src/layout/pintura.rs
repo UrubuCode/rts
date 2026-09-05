@@ -231,7 +231,7 @@ pub(in crate::layout) fn italico(css: Option<&crate::style::ComputedStyle>, tag:
 }
 
 pub(in crate::layout) fn cor_visivel(css: &crate::style::ComputedStyle, cor: u32) -> u32 {
-    if css.visibility == Some(crate::style::values::Visibility::Hidden) {
+    if css.visibility.is_some_and(|v| v.suppresses_paint()) {
         cor & 0xFFFF_FF00
     } else {
         cor

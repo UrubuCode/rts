@@ -68,6 +68,7 @@ impl ComputedStyle {
             "column-gap" => self.gap.map(fmt_dim).unwrap_or_default(),
             "visibility" => match self.visibility {
                 Some(crate::style::values::Visibility::Hidden) => "hidden".into(),
+                Some(crate::style::values::Visibility::Collapse) => "collapse".into(),
                 Some(crate::style::values::Visibility::Visible) => "visible".into(),
                 None => String::new(),
             },

@@ -308,11 +308,28 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 let item_align = it.align_self.unwrap_or(align);
                 let stretches =
                     item_align == crate::style::AlignItems::Stretch && it.can_stretch;
-                let child_x = if stretches {
+                // `direction:rtl` no eixo cruzado (lote `flex-justify-logico`,
+                // `coluna_rtl::cross_x`): a mesma pergunta do caminho de UMA
+                // coluna, só que aqui o "content-box" a espelhar dentro É a
+                // COLUNA (`[x, x+cw]`), não o contentor inteiro — um item
+                // alinha-se dentro da SUA coluna, e é essa caixa que o RTL
+                // inverte. A ORDEM DAS COLUNAS em si não inverte com RTL
+                // (corte dito: essa é a mesma pergunta, adjacente a bidi, que
+                // a triagem original já tinha marcado fora de âmbito para o
+                // wrap no eixo de linha — `gap-007-rtl`).
+                let child_x_ltr = if stretches {
                     x
                 } else {
                     x + align_offset(item_align, cw, it.cross)
                 };
+                let child_x = super::coluna_rtl::cross_x(
+                    css.direction,
+                    css.writing_mode,
+                    x,
+                    cw,
+                    child_x_ltr,
+                    if stretches { cw } else { it.cross },
+                );
                 let avail_w = if stretches { cw } else { content_w };
                 layout_block_reusing(
                     dom,
@@ -362,3 +379,9 @@ pub(in crate::layout) fn layout_children_column_wrap(
 // - **`::before`/`::after` como item flex** (`flex_pseudo.rs`) não entra no
 //   caminho de coluna nenhum, com ou sem wrap — gap pré-existente do
 //   `coluna.rs` de uma coluna, não deste lote.
+// - **`direction:rtl` só espelha o item DENTRO da sua coluna** (merge com o
+//   lote `flex-justify-logico`, `coluna_rtl::cross_x` — ver o PASSO 5): a
+//   ORDEM DAS COLUNAS no eixo cruzado não inverte com RTL (só com
+//   `wrap-reverse`, PASSO 4). É a mesma pergunta, adjacente a bidi, que a
+//   triagem original de `flex-column-wrap` já tinha marcado fora de âmbito
+//   para o wrap no eixo de linha (`gap-007-rtl`).

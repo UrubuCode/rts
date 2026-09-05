@@ -1,20 +1,20 @@
 {
-  "date": "2026-09-04",
+  "date": "2026-09-05",
   "fixtures": {
-    "passing": 122,
-    "total": 126,
-    "pct": 96.8
+    "passing": 129,
+    "total": 133,
+    "pct": 97
   },
   "measurements": {
-    "matching": 2885,
-    "total": 2901,
-    "pct": 99.4
+    "matching": 3037,
+    "total": 3053,
+    "pct": 99.5
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 305,
+    "passing": 312,
     "total": 489,
-    "pct": 62.4
+    "pct": 63.8
   },
   "expected_failures": [
     {
@@ -85,6 +85,8 @@
       "flex-basis-piso — piso de min-content sem grow; `flex-basis` unitless inválida; espaço antes do `:`",
       "pequenos-1 — três causas pequenas da triagem WPT: texto solto em `display:table`, largura intrínseca do flex em coluna, `<input>` estica no flex",
       "flex-coluna-shrink — `flex-basis`/`flex-shrink` no eixo de coluna; `row-gap` contra a ALTURA; `min-height` como altura definida",
+      "flex-justify-logico — `justify-content:start`/`end` lógicos; `left`/`right` numa coluna físicos ao TOPO; `direction:rtl` no eixo cruzado da flex-column",
+      "visibility-collapse — `visibility:collapse` distinto de `hidden` no `computedStyle`",
       "flex-cross-size — o cross-size de uma linha flex vence mesmo em overflow; `align-content` transborda quando as linhas não cabem"
     ],
     "parciais": [
