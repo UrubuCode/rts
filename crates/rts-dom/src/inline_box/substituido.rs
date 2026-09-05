@@ -86,9 +86,20 @@ pub(crate) fn replaced_inline_size(
     // `<svg>` e `<canvas>` não estão aqui de propósito: `is_block_level` já os
     // manda para o caminho de bloco, que os pinta. Duplicar a decisão aqui era
     // criar um segundo sítio onde o tamanho de um replaced se decide.
+    // O default de CSS Images §5 quando não há intrínseco NENHUM (nem
+    // dimensão, nem razão) é 300×150 para QUALQUER replaced — mas só um
+    // `<img>` com `src` (mesmo que o recurso não decodifique dimensão
+    // nenhuma, como um `data:image/svg+xml` sem `width`/`height`/`viewBox`:
+    // `flex-svg-no-intrinsic-column-001`, WPT) o recebe; `<img>` SEM `src`
+    // continua em `(0,0)` — `imagem_sem_dimensao_nenhuma_continua_sem_caixa`
+    // fixa exactamente essa distinção ("a caixa vem do que se DECLARA, não
+    // de o elemento ser um `<img>`") e teria uma caixa inventada sem este
+    // corte. "video"/"iframe"/"embed"/"object" sempre tiveram o default,
+    // com ou sem `src`/`srcdoc` — nenhum teste os condiciona a isso.
+    let has_src = dom.node(id).attr("src").is_some_and(|s| !s.is_empty());
     let default_box = match tag.as_str() {
+        "img" if has_src => Some((300.0, 150.0)),
         "img" => None,
-        // O default do HTML para estes é 300x150 (a mesma caixa do canvas).
         "video" | "iframe" | "embed" | "object" => Some((300.0, 150.0)),
         _ => return None,
     };
@@ -206,7 +217,8 @@ pub(crate) fn replaced_inline_size(
     }
     // A caixa de um replaced é a BORDER-BOX, que é o que `getBoundingClientRect`
     // devolve — e os clamps acima são sobre a content box (`box-sizing` inicial é
-    // `content-box`), por isso a borda entra só aqui, depois deles.
+    // `content-box`), por isso a borda (e o padding, ver abaixo) entram só aqui,
+    // depois deles.
     //
     // Eram os 2px que sobravam em cada miniatura da Wikipédia depois de a base da
     // percentagem ser corrigida: `.mw-file-element{border:1px solid}` dá 250 de
@@ -216,7 +228,21 @@ pub(crate) fn replaced_inline_size(
     let bordas = crate::style::borders::resolved_sides(css);
     let px = |b: crate::style::borders::SideBorder| if b.paints() { b.width } else { 0.0 };
     let (bt, br, bb, bl) = (px(bordas[0]), px(bordas[1]), px(bordas[2]), px(bordas[3]));
-    Some((w.max(0.0) + bl + br, h.max(0.0) + bt + bb))
+    // Padding: era o cut "v1" citado no comentário deste ficheiro
+    // (`caixa de um replaced é a BORDER-BOX ... o padding NÃO entrava"),
+    // que `flex-aspect-ratio-intrinsic-padding-001` (WPT) expõe: um `<img>`
+    // com `padding:20px` numa coluna flex deve medir a ALTURA pela razão
+    // do CONTENT-BOX (200×100 → 100), e só DEPOIS somar o padding (a caixa
+    // final é 240×140) — não a razão do border-box. `w`/`h` acima já são
+    // conteúdo (o `declarado`/`forced` que os produz nunca inclui padding:
+    // `layout_image` subtrai padding do `forced_outer_*`, como já fazia
+    // para margem/borda), por isso somar aqui é o mesmo padrão da borda.
+    let p = &css.padding;
+    let pt = p.top.resolve(&resolve).unwrap_or(0.0);
+    let pr = p.right.resolve(&resolve).unwrap_or(0.0);
+    let pb = p.bottom.resolve(&resolve).unwrap_or(0.0);
+    let pl = p.left.resolve(&resolve).unwrap_or(0.0);
+    Some((w.max(0.0) + bl + br + pl + pr, h.max(0.0) + bt + bb + pt + pb))
 }
 
 /// A razão de aspeto de um replaced (`id` cru, sem resolver `<picture>`): a
