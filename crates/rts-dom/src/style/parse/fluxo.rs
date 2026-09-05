@@ -25,7 +25,15 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             );
         }
         // `flex-wrap` — combina com display:flex para promover a FlexWrap.
-        "flex-wrap" => set_if(&mut css.flex_wrap, Some(val.eq_ignore_ascii_case("wrap"))),
+        // `wrap-reverse` também é wrap (`flex_wrap`) — o bit de DIREÇÃO fica à
+        // parte em `flex_wrap_reverse` (ver o comentário do campo).
+        "flex-wrap" => {
+            set_if(
+                &mut css.flex_wrap,
+                Some(val.eq_ignore_ascii_case("wrap") || val.eq_ignore_ascii_case("wrap-reverse")),
+            );
+            set_if(&mut css.flex_wrap_reverse, Some(val.eq_ignore_ascii_case("wrap-reverse")));
+        }
         // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
         "justify-content" => set_if(&mut css.justify, JustifyContent::parse(val)),
         "align-items" => set_if(&mut css.align_items, AlignItems::parse(val)),
@@ -54,12 +62,15 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.gap = cg;
         }
         "height" => set_if(&mut css.height, parse_dimension(val)),
-        "min-width" => set_if(&mut css.min_width, parse_dimension(val)),
-        "max-width" => set_if(&mut css.max_width, parse_dimension(val)),
-        // `parse_dimension_min_max`, não `parse_dimension`: um CLAMP aceita
-        // `min-content` (o piso DECLARADO de um item flex — encolhimento de
-        // coluna, `layout/coluna_shrink.rs` — não pode desaparecer só porque
-        // o automático some sob overflow não-visível).
+        // `parse_dimension_min_max`, não `parse_dimension`, nos quatro: um
+        // CLAMP aceita `min-content` — no eixo inline resolve para o
+        // min-content REAL (`crate::table::min_content`, via
+        // `layout/flex_limites.rs`); no eixo de bloco é o piso DECLARADO de
+        // um item flex (encolhimento de coluna, `layout/coluna_shrink.rs` —
+        // não pode desaparecer só porque o automático some sob overflow
+        // não-visível). Ver `Dimension::MinContent`.
+        "min-width" => set_if(&mut css.min_width, parse_dimension_min_max(val)),
+        "max-width" => set_if(&mut css.max_width, parse_dimension_min_max(val)),
         "min-height" => set_if(&mut css.min_height, parse_dimension_min_max(val)),
         "max-height" => set_if(&mut css.max_height, parse_dimension_min_max(val)),
         // `position` + offsets (top/right/bottom/left). Os offsets aceitam
@@ -79,6 +90,7 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
         "overflow-wrap" | "word-wrap" => set_if(&mut css.overflow_wrap, crate::style::OverflowWrap::parse(val)),
         "direction" => set_if(&mut css.direction, crate::style::Direction::parse(val)),
+        "writing-mode" => set_if(&mut css.writing_mode, crate::style::WritingMode::parse(val)),
         // `text-indent` aceita negativo (o truque de esconder texto atrás da
         // margem, comum em logos com fundo).
         "text-indent" => set_if(&mut css.text_indent, parse_dimension_signed(val)),
@@ -117,12 +129,15 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             for tok in val.split_whitespace() {
                 if let Some(d) = FlexDirection::parse(tok) {
                     set_if(&mut css.flex_direction, Some(d));
-                } else if tok.eq_ignore_ascii_case("wrap")
-                    || tok.eq_ignore_ascii_case("wrap-reverse")
-                {
+                } else if tok.eq_ignore_ascii_case("wrap") {
                     set_if(&mut css.flex_wrap, Some(true));
+                    set_if(&mut css.flex_wrap_reverse, Some(false));
+                } else if tok.eq_ignore_ascii_case("wrap-reverse") {
+                    set_if(&mut css.flex_wrap, Some(true));
+                    set_if(&mut css.flex_wrap_reverse, Some(true));
                 } else if tok.eq_ignore_ascii_case("nowrap") {
                     set_if(&mut css.flex_wrap, Some(false));
+                    set_if(&mut css.flex_wrap_reverse, Some(false));
                 }
             }
         }
@@ -144,6 +159,7 @@ fn parse_flex_basis(v: &str) -> Option<Dimension> {
     }
     parse_dimension(v)
 }
+
 
 /// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
 /// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =

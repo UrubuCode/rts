@@ -271,15 +271,16 @@ pub(in crate::table) fn min_content(
     // (abaixo) porque `font-family` é herdada e já vem resolvida no
     // `ComputedStyle` — não precisa de olhar para o pai outra vez.
     mono: bool,
-    // `true` (o comportamento de sempre, para a tabela): um `width` DECLARADO
-    // é um PISO — a célula nunca fica abaixo da largura que o autor pediu.
-    // `false` (para quem quer o min-content PURO, como o piso do
-    // `flex-shrink`, spec flexbox §9.7): a spec de flex NÃO trata `width`
-    // como mínimo — é só a `flex-basis` de fallback, e o item PODE encolher
-    // abaixo dela. Reusar esta função sem o parâmetro (a 1ª versão desta
-    // mudança) recusava encolher qualquer item com `width` declarado, que é
-    // quase todos — `o_shrink_e_ponderado_pela_base_e_nao_so_pelo_peso` e
-    // `flex_shrink_encolhe_em_overflow` apanharam-no.
+    // `true` (sempre, para a tabela, e sempre aplicado aos DESCENDENTES — ver
+    // a recursão abaixo): um `width` DECLARADO é um PISO. `false` só se
+    // aplica ao NÓ DE TOPO (para quem quer o min-content PURO dele, como o
+    // piso do `flex-shrink`, spec §9.7: a `width` do PRÓPRIO item não é
+    // mínimo — `o_shrink_e_ponderado_pela_base_e_nao_so_pelo_peso`/
+    // `flex_shrink_encolhe_em_overflow`). Isso é sobre o item em SI: um
+    // filho-bloco sem texto e com `width` fixa não deixa de ter essa largura
+    // só por o ANCESTRAL ser um item flex — media 0 antes disto, porque o
+    // `false` do topo se propagava para a recursão inteira
+    // (`claude-flex-min-width-auto-block-child`, Flexbox §4.5 candidato (c)).
     floor_width: bool,
 ) -> f32 {
     match &dom.node(id).kind {
@@ -380,7 +381,9 @@ pub(in crate::table) fn min_content(
                 if crate::layout::is_out_of_flow(dom, c) {
                     continue;
                 }
-                let w = min_content(dom, c, f, ctx, sem_quebra, mono, floor_width);
+                // SEMPRE `true` para um descendente — só o TOPO usa o
+                // `floor_width` recebido (ver o comentário do parâmetro).
+                let w = min_content(dom, c, f, ctx, sem_quebra, mono, true);
                 if sem_quebra && em_linha(dom, c) {
                     linha += w;
                 } else {

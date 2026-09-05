@@ -171,11 +171,21 @@ pub enum Dimension {
     MaxContent,
     /// `min-content` — só reconhecida via `parse_dimension_min_max` (um
     /// CLAMP: `min-width`/`max-width`/`min-height`/`max-height`), nunca como
-    /// tamanho preferido. Resolve como `MaxContent` (`None`, o layout
-    /// decide) porque o eixo de bloco não comprime por quebra de linha —
-    /// min-content == max-content aí (CSS Sizing 3 §2.1); no eixo inline
-    /// seria a resposta ERRADA (a máquina só mede o máximo), por isso o
-    /// `parse_dimension` geral continua sem a reconhecer.
+    /// tamanho preferido — `width`/`height`/`flex-basis` continuam a
+    /// descartá-la no `parse_dimension` geral, de propósito (a máquina não
+    /// sabe calcular um MÍNIMO, só o máximo do conteúdo).
+    ///
+    /// No eixo INLINE (`min-width`/`max-width`) resolve para o min-content
+    /// REAL do item via `crate::table::min_content` em
+    /// `flex_limites::limites_do_item` — a mesma travessia que já serve o
+    /// piso automático do encolhimento (Flexbox §9.9/§4.5: um filho bloco
+    /// com `width` fixa entra pela sua própria largura); min sempre vence
+    /// max em conflito (CSS2 §10.4, `claude-flex-min-width-min-content`). No
+    /// eixo de BLOCO (`min-height`/`max-height`) resolve como `MaxContent`
+    /// (`None`, o layout decide): o eixo de bloco não comprime por quebra de
+    /// linha, min-content == max-content aí (CSS Sizing 3 §2.1), e usar o
+    /// mesmo mecanismo do eixo inline ali seria a resposta ERRADA (a
+    /// máquina só mede o máximo, nunca um mínimo de bloco).
     MinContent,
     /// `calc(...)` linear reduzido no parse ([`CalcLen`]). Não cruza a ABI de
     /// faixas (`to_abi` → `-1`, corte documentado — o TS não empacota calc).
@@ -195,8 +205,9 @@ impl Dimension {
     /// negativas (`.row` gutters do Bootstrap) e offsets de posicionamento.
     pub fn resolve_signed(self, ctx: &ResolveCtx) -> Option<f32> {
         Some(match self {
-            // Sem árvore não há conteúdo para medir: quem resolve `max-content` é
-            // o layout. Responder `None` aqui é o mesmo que o `auto` faz, e é o
+            // Sem árvore não há conteúdo para medir: quem resolve `max-content`/
+            // `min-content` é o layout (`crate::table::min_content` para o
+            // segundo). Responder `None` aqui é o mesmo que o `auto` faz, e é o
             // que faz um chamador sem contexto cair no seu caminho de fallback em
             // vez de inventar um número.
             Dimension::Auto | Dimension::MaxContent | Dimension::MinContent => return None,
@@ -259,13 +270,12 @@ impl Dimension {
             // calc não cabe na codificação de faixas — o TS lê `-1` (corte
             // documentado; calc resolve no layout, não cruza slots).
             Dimension::Calc(_) => return -1,
-            // `max-content` também não, e pela mesma razão de fundo: a faixa
-            // codifica uma unidade e um número, e isto não é nem uma nem outro.
-            // O TS lê `-1` — CORTE, e não o valor `auto`: quem o ler não sabe
-            // distinguir os dois, e a alternativa (uma faixa nova) obrigaria o
-            // lado TS a saber medir conteúdo, que é o que ele não pode fazer.
-            // `min-content` é a mesma questão do `max-content` acima, e a
-            // mesma resposta: `-1`.
+            // `max-content`/`min-content` também não, e pela mesma razão de
+            // fundo: a faixa codifica uma unidade e um número, e isto não é
+            // nem uma nem outro. O TS lê `-1` — CORTE, e não o valor `auto`:
+            // quem o ler não sabe distinguir os dois, e a alternativa (uma
+            // faixa nova) obrigaria o lado TS a saber medir conteúdo, que é
+            // o que ele não pode fazer.
             Dimension::MaxContent | Dimension::MinContent => return -1,
         };
         unit * DIM_RANGE + (val * 1000.0) as i64

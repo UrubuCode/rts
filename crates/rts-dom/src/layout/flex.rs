@@ -184,16 +184,21 @@ pub(in crate::layout) fn layout_children_horizontal(
         // mais simples que condicionar por `grid_cols` (que ignora este piso).
         let min_main = crate::table::min_content(dom, child, font_size, ctx);
         let (max_main, min_declarado) =
-            super::flex_limites::limites_do_item(&ccss, content_w, font_size, ctx);
+            super::flex_limites::limites_do_item(dom, child, &ccss, content_w, font_size, ctx);
         let min_main = super::flex_limites::min_automatico(
             dom, child, min_main, &ccss, content_w, font_size, ctx,
         );
         let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
-        // A base fica capada só pelo tecto e o `min-width` DECLARADO — o piso
-        // automático de min-content entra depois do grow/shrink (§4.5/§9.7).
-        let base = base
-            .min(max_main.unwrap_or(f32::INFINITY))
-            .max(min_declarado.unwrap_or(0.0));
+        // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
+        // base size" entra INTACTO na soma que decide o défice/sobra da
+        // linha) — só a "hypothetical main size" (passo 4, `flex_limites::
+        // com_limites_finais`, aplicada a todo item mais abaixo) e o
+        // congelamento do encolhimento (§9.7, no laço) respeitam min/max.
+        // Capar aqui subtraía do orçamento dos OUTROS itens antes de tempo:
+        // `#capado{max-width:100px}` com conteúdo 300 saía a 75 (a sua base
+        // já chegava cortada a 100 e ainda cedia ao défice) em vez de
+        // congelar em 100 e devolver o resto a `#livre`
+        // (`claude-flex-base-size-max-width`).
         let auto = |s: crate::style::Side| s == crate::style::Side::Auto;
         items.push(FlexItem {
             node: child,
@@ -243,17 +248,24 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
     }
 
-    // agrupa em LINHAS pela BASE (o wrap decide pelas bases; grow/shrink POR linha).
+    // agrupa em LINHAS pelo HYPOTHETICAL main size (Flexbox §9.3: soma-se a
+    // base já grampeada por min/max, não a base nua) — `it.base` continua
+    // intacta no item (o orçamento de grow/shrink de cada linha, abaixo,
+    // ainda parte da base pura, Flexbox §9.2 passo 3). Sem isto, um
+    // `flex:1` (`flex-basis:0%`) com `min-width` declarado tinha base=0 e
+    // dois itens que deviam quebrar (100+100 > 150 pelo seu PISO) cabiam
+    // juntos na mesma linha (`claude-flex-wrap-quebra-com-min-width`).
     let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
     let mut line_w = 0.0f32;
     for it in items {
+        let hyp = super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols);
         let cur = lines.last_mut().unwrap();
         let with_gap = if cur.is_empty() { 0.0 } else { gap };
-        if wrap && !cur.is_empty() && line_w + with_gap + it.base > content_w {
+        if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
             lines.push(Vec::new());
-            line_w = it.base;
+            line_w = hyp;
         } else {
-            line_w += with_gap + it.base;
+            line_w += with_gap + hyp;
         }
         lines.last_mut().unwrap().push(it);
     }
@@ -300,78 +312,14 @@ pub(in crate::layout) fn layout_children_horizontal(
         let n = line.len();
         let total_gap = (n.saturating_sub(1)) as f32 * gap;
 
-        // GROW/SHRINK (spec flexbox §9.7 simplificada): espaço livre positivo
-        // distribui ∝ flex-grow (o `.col { flex:1 0 0% }` divide igual); negativo
-        // encolhe ∝ shrink × base (itens maiores cedem mais), clamp ≥ 0.
-        let sum_base: f32 = line.iter().map(|it| it.base).sum();
-        let free_pre = content_w - sum_base - total_gap;
-        let sum_grow: f32 = line.iter().map(|it| it.grow).sum();
-        if free_pre > 0.0 && sum_grow > 0.0 {
-            for it in line.iter_mut() {
-                it.main = it.base + free_pre * it.grow / sum_grow;
-                // clamp pelo `max-width` (spec §9.7 passo 4, sem a redistribuição
-                // do excedente pelos outros — corte dito; o Bootstrap não a pede).
-                if let Some(m) = it.max_main {
-                    it.main = it.main.min(m);
-                }
-            }
-        } else if free_pre < 0.0 {
-            // ENCOLHIMENTO com PISO de `min-content` (spec §9.7): a cada
-            // iteração repartimos o défice pelos itens ainda LIVRES
-            // (`shrink*base` ponderado); um item que bateria abaixo do seu
-            // `min_main` congela nele e sai da repartição — o défice que ele
-            // não absorveu volta para os itens que sobraram, na iteração
-            // seguinte. Sem isto um item de texto longo encolhia até
-            // sobrepor-se ao próprio conteúdo (achado da auditoria de
-            // 2026-09-04, `04-layout.md` finding 6).
-            let n = line.len();
-            let mut frozen = vec![false; n];
-            let mut deficit = free_pre; // negativo
-            loop {
-                let weighted: f32 = line
-                    .iter()
-                    .zip(&frozen)
-                    .filter(|&(_, f)| !f)
-                    .map(|(it, _)| it.shrink * it.base)
-                    .sum();
-                if weighted <= 0.0 || deficit >= -0.01 {
-                    break;
-                }
-                let mut novo_congelado = false;
-                for (it, f) in line.iter_mut().zip(frozen.iter_mut()) {
-                    if *f {
-                        continue;
-                    }
-                    let proposto = it.base + deficit * (it.shrink * it.base) / weighted;
-                    if proposto <= it.min_main {
-                        it.main = it.min_main;
-                        *f = true;
-                        novo_congelado = true;
-                    } else {
-                        it.main = proposto;
-                    }
-                }
-                if !novo_congelado {
-                    break; // convergiu sem ninguém bater no piso: acabou.
-                }
-                // défice restante = o que os itens NÃO congelados ainda devem
-                // absorver — a soma dos `main` correntes contra as bases.
-                deficit = line
-                    .iter()
-                    .zip(&frozen)
-                    .filter(|&(_, f)| !f)
-                    .map(|(it, _)| it.main - it.base)
-                    .sum::<f32>()
-                    .min(0.0);
-                if deficit >= -0.01 {
-                    break;
-                }
-            }
-        }
+        // GROW/SHRINK (spec flexbox §9.7): espaço livre positivo distribui ∝
+        // flex-grow; negativo encolhe ∝ shrink×base, com PISO e TECTO —
+        // extraído para `flex_limites.rs` (no tecto de 500 linhas aqui).
+        super::flex_limites::resolve_grow_encolhe(line, content_w, total_gap);
         // re-mede a ALTURA com o main final (mais largura → menos linhas de texto);
         // só quando o main mudou (senão a medição do pré-pass vale).
         for it in line.iter_mut() {
-            it.main = super::flex_limites::com_piso_minimo(it.main, it.min_main, grid_cols);
+            it.main = super::flex_limites::com_limites_finais(it.main, it.min_main, it.max_main, grid_cols);
             if !it.is_text && it.pseudo.is_none() && (it.main - it.base).abs() > 0.5 {
                 let (_, h) = measure_block(
                     dom,
