@@ -42,7 +42,7 @@ no laço de iteração.
 
 ## O número, hoje
 
-**2026-09-05 (vaga 7, lote imagens-no-raster): 141 das 145
+**2026-09-05 (vaga 8, lote flex-align-justify-familia): 141 das 145
 fixtures passam**, a 1px de tolerância; as 4 que falham estão em
 `esperado-a-falhar.txt` com a razão: 3 da folha de UA
 (largura de texto a negrito/controlos, fonte dos controlos, `tr` sem
