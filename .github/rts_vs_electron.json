@@ -1,8 +1,8 @@
 {
-  "medido_em": "2026-09-05T02:42:07.250Z",
+  "medido_em": "2026-09-05T13:41:14.076Z",
   "maquina": {
     "so": "win32 10.0.26100",
-    "cpu": "AMD EPYC 7763 64-Core Processor",
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
     "nucleos_logicos": 4,
     "ram_gb": 16
   },
@@ -16,16 +16,16 @@
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 224,
-        "min": 210,
-        "max": 1037
+        "mediana": 219,
+        "min": 181,
+        "max": 1627
       },
       "rss_mb": {
-        "mediana": 261.68,
-        "min": 261.02,
-        "max": 261.93
+        "mediana": 261.73,
+        "min": 261.52,
+        "max": 263.64
       },
-      "private_mb": 89.46,
+      "private_mb": 90.18,
       "cpu_repouso_pct": 0,
       "processos": 4,
       "js_da_pagina": true,
@@ -38,26 +38,26 @@
     },
     "rts_aot": {
       "exe": "D:\\a\\_temp\\rts-vs-electron\\rts\\app.exe",
-      "bytes_exe": 29215232,
-      "bytes_pasta": 30324752,
+      "bytes_exe": 34790400,
+      "bytes_pasta": 36007462,
       "ficheiros_na_pasta": 5,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 259,
-        "min": 253,
-        "max": 263
+        "mediana": 2260,
+        "min": 2195,
+        "max": 2532
       },
       "rss_mb": {
-        "mediana": 67.57,
-        "min": 67.44,
-        "max": 69.07
+        "mediana": 105.86,
+        "min": 84.96,
+        "max": 106.7
       },
-      "private_mb": 166.16,
-      "cpu_repouso_pct": 346.61,
+      "private_mb": 201.63,
+      "cpu_repouso_pct": 197.53,
       "processos": 2,
-      "js_da_pagina": false,
-      "razao_js_da_pagina": "[page] <script> 0 de https://localhost/ falhou: TypeError: this script was not pre-compiled into this AOT binary — `rts compile --html` only precompiles the <script> tags of the HTML files it was given, and `node:vm`'s runInContext/runInNewContext have no compiler at all in an AOT binary (rts-host README, \"what it does not do yet\") (×3 nesta corrida)",
+      "js_da_pagina": null,
+      "razao_js_da_pagina": null,
       "amostras": {
         "n": 3,
         "ok": 3
@@ -65,23 +65,23 @@
     },
     "rts_jit": {
       "exe": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\rts-vs-electron\\jit\\rts.exe",
-      "bytes_exe": 115348992,
-      "bytes_pasta": 115496914,
+      "bytes_exe": 115431936,
+      "bytes_pasta": 115579858,
       "ficheiros_na_pasta": 3,
       "nao_construido": false,
       "razao": null,
       "arranque_ms": {
-        "mediana": 1892,
-        "min": 1814,
-        "max": 2096
+        "mediana": 2559,
+        "min": 2387,
+        "max": 2675
       },
       "rss_mb": {
-        "mediana": 110.43,
-        "min": 108.28,
-        "max": 112.2
+        "mediana": 109.55,
+        "min": 107.12,
+        "max": 112.96
       },
-      "private_mb": 212.74,
-      "cpu_repouso_pct": 343.65,
+      "private_mb": 206.66,
+      "cpu_repouso_pct": 198.02,
       "processos": 2,
       "js_da_pagina": true,
       "razao_js_da_pagina": null,

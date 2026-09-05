@@ -180,6 +180,14 @@ pub(in crate::layout) fn layout_children_column(
             child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
         };
         let child_font = font_px(&ccss, font_size);
+        let resolve_filho = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: child_font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
         let h = super::coluna_shrink::base_outer(
             &ccss,
             natural_h,
@@ -188,18 +196,6 @@ pub(in crate::layout) fn layout_children_column(
             child_font,
             ctx,
         );
-        let resolve_filho = ResolveCtx {
-            parent_content_w: content_w,
-            node_font_size: child_font,
-            root_font_size: crate::style::root_font_size(),
-            viewport_w: ctx.viewport_w,
-            viewport_h: ctx.viewport_h,
-        };
-        // `min-height` DECLARADO substitui o piso automático (spec §4.5: o
-        // mínimo automático só vale com `min-height: auto`) — mesma regra do
-        // eixo horizontal (`flex.rs:198-200`); `min-content` é o caso à parte
-        // que `coluna_shrink::min_main` decide.
-        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
         let mt_auto = ccss.margin.top.is_auto();
         let mb_auto = ccss.margin.bottom.is_auto();
         let grow = ccss.flex_grow.unwrap_or(0.0);
@@ -269,6 +265,10 @@ pub(in crate::layout) fn layout_children_column(
             it.h = m;
         }
     }
+    // Piso pós-distribuição p/ `flex-basis:0` sem grow/shrink (011, WPT).
+    for it in &mut items {
+        it.h = it.h.max(it.min_main);
+    }
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
     // Mesma troca de cima: espaço livre A SÉRIO, não o que sobra até um PISO já ultrapassado.
     let free = wrap_definite_h
@@ -328,9 +328,13 @@ pub(in crate::layout) fn layout_children_column(
             let ccss = dom.computed_style_idx(it.node).unwrap_or_default();
             // Um `<img>` não enche `avail_w` sozinho — precisa do stretch
             // como `forced_outer_w` explícito (`flex-svg-no-intrinsic-
-            // column-001`, WPT); `<table>`/`<input>` ficam de fora.
-            let e_img = matches!(&dom.node(it.node).kind, NodeKind::Element { tag } if tag == "img");
-            let forced_w = (stretch && ccss.width.is_none() && e_img).then_some(content_w);
+            // column-001`, WPT); o mesmo vale para `<input type=checkbox|
+            // radio>` (o quadrado de 13px de `layout/input.rs`, WPT
+            // `stretch-flex-item-checkbox-input`/`-radio-input`) —
+            // `flex_stretch_replaced` decide os dois; um campo de texto ou
+            // `<table>` já se enchem sozinhos e ficam de fora.
+            let precisa_forced_w = super::flex_stretch_replaced::precisa_de_forced_w_no_stretch(dom, it.node);
+            let forced_w = (stretch && ccss.width.is_none() && precisa_forced_w).then_some(content_w);
             let child_x = if stretch && ccss.width.is_none() {
                 super::coluna_rtl::cross_x(
                     css.direction,
