@@ -16,6 +16,21 @@ impl ComputedStyle {
             || self.margin.any_set()
             || self.border_width.is_some()
             || self.border_widths.any_set()
+            // Um lado com ESTILO declarado e NENHUMA largura válida (`border-
+            // left-width:-1px`, rejeitada — CSS 2.1 exige voltar ao inicial
+            // `medium`) não marca `border_widths.any_set()`: o campo de
+            // largura fica `Unset`, só o de estilo é `Some`. Sem este braço,
+            // `has_box()` dava falso e `border_items` nunca era chamado — a
+            // borda "existia" em `resolved_sides` (que aplica o fallback
+            // `medium`) mas a caixa inteira era pulada antes de lá chegar.
+            // Achado com `border-left-width-001`: `width:0` mascarava o bug
+            // (entrava por `self.width.is_some()`), e por isso só os
+            // fixtures com largura AUTO (sem esse mascarador) mostravam os
+            // 288px em falta.
+            || self.border_top_style.is_some()
+            || self.border_right_style.is_some()
+            || self.border_bottom_style.is_some()
+            || self.border_left_style.is_some()
             // o outline não ocupa espaço, mas é PINTADO pelo mesmo caminho da
             // caixa — sem isto, um elemento que só declara outline não chega lá.
             || self.outline_width.is_some()

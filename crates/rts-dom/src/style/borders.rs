@@ -273,19 +273,25 @@ pub fn apply_outline_shorthand(css: &mut ComputedStyle, val: &str) {
 /// As quatro bordas EFETIVAS (top, right, bottom, left), com o fallback para a
 /// borda uniforme por lado. É o que o paint consome.
 pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
-    // REVERTIDO (medido 2026-09-05): pôr `medium` (3px) aqui parecia certo —
-    // é o inicial de `border-*-width` — mas este `SideBorder::width` sai bruto
-    // para o paint, e é `paints()`/`used_widths`, mais acima na cadeia, quem
-    // aplica a regra "estilo `none`/`hidden` força a largura USADA a zero".
-    // Um `unwrap_or(3.0)` aqui dava 3px de LARGURA a um lado sem estilo
-    // nenhum, e nada depois zera essa largura quando é o PRÓPRIO campo
-    // `width` que o paint lê — apareceu um quadrado cinzento de 3+3=6px onde
-    // não devia haver borda (`border-width-002`, medido: 36px de 255,255,255
-    // para 128,128,128, caixa 6×6). Regride `border-bottom-width-001..-078`
-    // (a família `flags: invalid`, que ficava sem largura nenhuma) até a
-    // regra "`none`/`hidden` ⇒ zero" ser aplicada ANTES deste default, não
-    // depois.
-    let uw = css.border_width.unwrap_or(0.0);
+    // REINSTAURADO: `medium` (3px) É o inicial de `border-*-width` (CSS2.1
+    // §border-width), e é seguro pôr aqui porque `paints()`/`used_widths`
+    // continuam a zerar a largura USADA sempre que o estilo não é visível —
+    // um lado sem `border-style` nenhum tem `us = BorderStyle::None`, `paints()`
+    // dá falso, e o `unwrap_or(3.0)` nunca chega a pintar nem a ocupar espaço.
+    //
+    // O quadrado cinzento de `border-width-002` que motivou o revert anterior
+    // media 128,128,128 — a cor exata do fallback `border_color.unwrap_or
+    // (0x808080FF)` que este mesmo lote acabou de substituir por `currentColor`
+    // (ver `uc` abaixo). E a causa de ele aparecer sem largura nenhuma
+    // declarada era o OUTRO bug deste lote: `parse_width_token` não conhecia
+    // `in`/`cm`/`mm`/`q`, então `border-width: 0.5in 0.25in` caía a `None` nos
+    // quatro lados e o `unwrap_or(3.0)` de então aplicava-se a TODOS — um
+    // quadrado uniforme de 3+3=6px em vez do retângulo assimétrico esperado.
+    // Com as duas causas já corrigidas (unidades absolutas no shorthand +
+    // `currentColor`), a shorthand de dois valores dá `Side::Len` explícito
+    // aos quatro lados e nunca toca neste `uw` — o cenário que quebrou já não
+    // existe. Fica para quem mediu depois confirmar com um binário fresco.
+    let uw = css.border_width.unwrap_or(3.0);
     let us = css.border_style.unwrap_or(BorderStyle::None);
     // `currentColor` é o inicial de `border-*-color` (CSS Backgrounds 3
     // §border-color), e sem um `color` declarado isso é PRETO — não um
