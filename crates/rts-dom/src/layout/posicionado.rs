@@ -144,15 +144,24 @@ pub(in crate::layout) fn layout_out_of_flow(
         ctx,
     );
     // Os offsets são RELATIVOS ao container: soma a origem do containing block.
+    // Sem NENHUM dos dois insets de um eixo, a posição não é a origem do
+    // containing block — é a STATIC POSITION (CSS 2.1 §10.3.7/§10.6.4): onde
+    // `id` cairia se estivesse em fluxo normal, no seu PAI de verdade (que
+    // pode não ser `cb`, quando o ancestral positioned está mais acima). Só
+    // resolve o eixo que falta: o outro já veio de um inset declarado.
+    let precisa_estatica = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
+    let estatica = precisa_estatica.then(|| {
+        super::posicao_estatica::posicao_estatica(dom, id, &css, flow_rects, ctx)
+    });
     let x = match (left, right) {
         (Some(l), _) => cb.x + l,
         (None, Some(r)) => cb.x + cb.w - w - r,
-        (None, None) => cb.x,
+        (None, None) => estatica.unwrap().0,
     };
     let y = match (top, bottom) {
         (Some(t), _) => cb.y + t,
         (None, Some(b)) => cb.y + cb.h - h - b,
-        (None, None) => cb.y,
+        (None, None) => estatica.unwrap().1,
     };
     layout_block(
         dom,

@@ -38,6 +38,38 @@ pub(in crate::layout) fn padding_box(border_box: Rect, css: &ComputedStyle) -> R
     )
 }
 
+/// Converte o border-box para a CONTENT box do MESMO nó — onde os filhos em
+/// fluxo normal começam. Diferente de [`padding_box`]: o CONTAINING BLOCK de
+/// um `position:absolute` é a padding box (CSS 2.1 §10.1), mas a STATIC
+/// POSITION de um fora-de-fluxo (`posicao_estatica.rs`) é onde o CONTEÚDO
+/// começaria — um passo mais para dentro, através do padding.
+///
+/// O padding pode ser percentual; sem o `avail_w` que o layout do PAI de
+/// `css` usou de verdade para o resolver, aproxima-se com a LARGURA do
+/// próprio border-box — exacto para `px`/`em`/`rem` (a maioria dos casos, e
+/// os medidos por este lote), e o único caso onde diverge (padding em `%`)
+/// não tem fixture a pedir mais.
+pub(in crate::layout) fn content_box(border_box: Rect, css: &ComputedStyle, ctx: &LayoutCtx) -> Rect {
+    let pb = padding_box(border_box, css);
+    let resolve = ResolveCtx {
+        parent_content_w: border_box.w,
+        node_font_size: font_px(css, DEFAULT_FONT_SIZE),
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let pt = css.padding.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let pr = css.padding.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let pbo = css.padding.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let pl = css.padding.left.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    Rect::new(
+        pb.x + pl,
+        pb.y + pt,
+        (pb.w - pl - pr).max(0.0),
+        (pb.h - pt - pbo).max(0.0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,5 +119,28 @@ mod tests {
         set_side_style(&mut css, SideName::Left, Some(BorderStyle::Solid));
         let pb = padding_box(border_box, &css);
         assert_eq!(pb, Rect::new(8.0, 2.0, 100.0 - 8.0 - 4.0, 50.0 - 2.0 - 6.0));
+    }
+
+    fn ctx() -> LayoutCtx<'static> {
+        LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &crate::layout::medida::ApproxMeasurer,
+        }
+    }
+
+    /// `content_box` desce um passo A MAIS que `padding_box` (usado pela
+    /// `posicao_estatica.rs`): um `padding:20px` sem borda nenhuma NÃO desloca
+    /// o containing block (a padding box começa na mesma origem do border box
+    /// quando não há borda) mas DESLOCA onde o conteúdo — e a posição estática
+    /// de um fora-de-fluxo — começaria.
+    #[test]
+    fn padding_sem_borda_desloca_o_content_mas_nao_a_padding_box() {
+        let border_box = Rect::new(0.0, 0.0, 100.0, 300.0);
+        let mut css = ComputedStyle::default();
+        css.padding = crate::style::Edges::all(crate::style::Side::px_len(20.0));
+        assert_eq!(padding_box(border_box, &css), border_box);
+        let cb = content_box(border_box, &css, &ctx());
+        assert_eq!(cb, Rect::new(20.0, 20.0, 60.0, 260.0));
     }
 }

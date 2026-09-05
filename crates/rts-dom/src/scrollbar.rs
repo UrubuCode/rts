@@ -19,6 +19,15 @@ use crate::style::parse_color;
 /// - `Auto`: barra SÓ se o conteúdo exceder a área. (o sensato p/ uma página)
 /// - `Scroll`: barra SEMPRE (forçada), mesmo cabendo.
 /// - `Hidden`: corta o excesso, sem barra.
+/// - `Clip`: corta o excesso como `Hidden` — mas NÃO estabelece um scroll
+///   container (CSS Overflow 3 §clip; `Element.scrollTop`/`scrollTo` não
+///   fazem nada nele, e é por isso que Flexbox §4.5 trata `clip` como
+///   `visible` para o mínimo automático de `min-width`/`min-height:auto` —
+///   só um eixo que PODE rolar desliga esse automático, e `clip` não pode
+///   (`min-size-auto-overflow-clip`, WPT: o retrabalho do lote
+///   `flex-min-auto-content` que separou esta variante de `Hidden`, onde
+///   as duas eram indistinguíveis e o novo desligamento por overflow do
+///   eixo de linha tratava `clip` como `hidden` por engano).
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum Overflow {
     #[default]
@@ -26,6 +35,7 @@ pub enum Overflow {
     Auto,
     Scroll,
     Hidden,
+    Clip,
 }
 
 impl Overflow {
@@ -39,13 +49,25 @@ impl Overflow {
             "visible" => Overflow::Visible,
             "auto" => Overflow::Auto,
             "scroll" => Overflow::Scroll,
-            "hidden" | "clip" => Overflow::Hidden,
+            "hidden" => Overflow::Hidden,
+            "clip" => Overflow::Clip,
             _ => return None,
         })
     }
-    /// `true` se este eixo pode rolar (auto/scroll). `Visible`/`Hidden` não rolam.
+    /// `true` se este eixo pode rolar (auto/scroll). Os outros não — nem
+    /// `Hidden` (recorta sem UI de scroll) nem `Clip` (nem sequer é um
+    /// scroll container: `scrollTo` não faz nada nele).
     pub fn scrollable(self) -> bool {
         matches!(self, Overflow::Auto | Overflow::Scroll)
+    }
+    /// `true` se este eixo corta visualmente o que transborda — `Hidden` e
+    /// `Clip` cortam da MESMA forma (a única diferença entre os dois é se o
+    /// eixo é um scroll container, que é o que [`scrollable`](Self::scrollable)
+    /// responde); `Auto`/`Scroll` também recortam quando o conteúdo excede,
+    /// mas com barra, e por isso ficam de fora daqui — quem precisa desse
+    /// caso já usa `scrollable()` ao lado.
+    pub fn clips(self) -> bool {
+        matches!(self, Overflow::Hidden | Overflow::Clip)
     }
     /// `true` se a barra é FORÇADA a aparecer (scroll), mesmo sem precisar.
     pub fn always_bar(self) -> bool {

@@ -34,6 +34,7 @@ mod arvore;
 mod animacao;
 mod caches;
 mod cascade;
+mod ciclo;
 mod consulta;
 mod direction_herdada;
 mod eventos;
@@ -436,6 +437,21 @@ pub struct Dom {
     /// tocado não paga uma entrada de mapa. `RefCell`: `scroll_of` é `&self`.
     /// DERIVADO, fora do `PartialEq`. Ver `dom/scroll.rs`.
     scroll_regioes: std::cell::RefCell<HashMap<NodeIdx, (f32, f32)>>,
+    /// The HTML "scripting flag": whether a `<script>` that becomes connected
+    /// to this document is allowed to run. `false` for anything produced by
+    /// `parseHtml` alone — a `DOMParser` result never executes a script, by
+    /// spec. Navigation (`loadDocument`, the facade) turns it on once and
+    /// leaves it on; nothing in this crate reads it — a pure `Cell` for the
+    /// facade in `rts-dom-bridge` to consult before running a script that just
+    /// got appended. DERIVADO, fora do `PartialEq`. Ver `dom/ciclo.rs`.
+    scripting_enabled: std::cell::Cell<bool>,
+    /// `Document.readyState`: `"loading"`, `"interactive"` or `"complete"`.
+    /// Starts at `"complete"` — a document that never navigated (a bare
+    /// `parseHtml`) matches what `DOMParser.parseFromString` reports; a
+    /// navigated document is moved through the three states by the facade
+    /// (`loadDocument`) as it runs the page's scripts and fires its events.
+    /// DERIVADO, fora do `PartialEq`. Ver `dom/ciclo.rs`.
+    ready_state: std::cell::RefCell<String>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`

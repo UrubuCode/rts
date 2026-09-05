@@ -3,6 +3,7 @@
 pub mod clean;
 pub mod compile;
 pub mod emit_types;
+pub mod html_entry;
 pub mod init;
 pub mod install;
 pub mod ir;
@@ -11,7 +12,7 @@ pub mod new_engine;
 pub mod run;
 pub mod test_cmd;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -312,10 +313,14 @@ where
             Ok(())
         }
         other => {
-            // Allow `rts <file.ts>` / `rts <https://…/file.ts>` as shorthand
-            // for `rts run`.
+            // Allow `rts <file.ts>` / `rts <file.html>` / `rts
+            // <https://…/file.ts>` as shorthand for `rts run` — a `.html`
+            // entry takes `cli::html_entry`'s shell rather than compiling the
+            // page itself as TypeScript, exactly as `rts run <file.html>`
+            // does below.
             if other.ends_with(".ts")
                 || other.ends_with(".js")
+                || crate::cli::html_entry::is_html(Path::new(other))
                 || crate::url_entry::is_url(other)
             {
                 return run::command(Some(other.to_string()), flags.as_compile_options());
@@ -406,8 +411,8 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
 fn print_help(bin_name: &str) {
     println!("RTS compiler CLI");
     println!("Usage:");
-    println!("  {bin_name} compile <input.ts> [output.o]");
-    println!("  {bin_name} run <input.ts>");
+    println!("  {bin_name} compile <input.ts|input.html> [output.o]");
+    println!("  {bin_name} run <input.ts|input.html>");
     println!("  {bin_name} init [name]");
     println!("  {bin_name} clean");
     println!("  {bin_name} test [path]");
@@ -421,4 +426,13 @@ fn print_help(bin_name: &str) {
     println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
     println!("  --sem-compilador, --no-compiler          (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
     println!("  --html <file>                           (compile) precompile this page's <script> tags into the binary (repeatable)");
+    println!();
+    println!("An `.html` entry needs no TypeScript at all: `{bin_name} compile pagina.html [out]` writes the");
+    println!("app.ts-style window loop for you (parse+resources+scripts -> egui.openWindow -> per-frame");
+    println!("render + input/event/timer pumps), with the page's HTML embedded as a build-time literal and");
+    println!("its <script>s precompiled as if `--html pagina.html` had been passed. A relative <link>/<img>");
+    println!("resolves against pagina.html's OWN folder as it exists on THIS machine at build time, not at");
+    println!("run time — moving the .exe elsewhere loses those. `<script src=\"http…\">` never enters either");
+    println!("way — fetched by a page loader, never by this compiler. `{bin_name} run pagina.html` runs the");
+    println!("same loop in JIT, reading the page from disk each time instead of embedding it.");
 }

@@ -46,6 +46,16 @@ struct Item {
     /// "`can_stretch`" de `FlexItem` em `flex.rs`, só que no eixo trocado.
     can_stretch: bool,
     order: i32,
+    /// margens `auto` no eixo PRINCIPAL (vertical) — mesma leitura de
+    /// `ColItem::mt_auto`/`mb_auto` em `coluna.rs`, que faltava aqui (corte
+    /// dito no cabeçalho do módulo até este lote): uma margem `auto` vence o
+    /// `justify-content` da COLUNA que a contém (spec §8.1) — sem isto, um
+    /// item de `margin-bottom:auto` numa coluna de `flex-wrap` recebia o
+    /// mesmo offset `space-around`/`space-between` das colunas SEM margem
+    /// `auto`, em vez de ficar encostado ao início com o livre absorvido no
+    /// fim (`flexbox-column-row-gap-001`, WPT).
+    mt_auto: bool,
+    mb_auto: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -73,10 +83,14 @@ pub(in crate::layout) fn layout_children_column_wrap(
         viewport_h: ctx.viewport_h,
     };
     // Mesma regra de `coluna.rs`: o gap ENTRE ITENS (eixo principal, vertical)
-    // é o row-gap; o gap ENTRE COLUNAS (eixo cruzado, horizontal) é o
+    // é SÓ o row-gap; o gap ENTRE COLUNAS (eixo cruzado, horizontal) é o
     // column-gap (`css.gap`) — o espelho exato do que `flex.rs` faz (gap
-    // entre itens de uma linha = `css.gap`; row_gap entre LINHAS).
-    let main_gap = resolve_height(css.row_gap.or(css.gap), Some(container_content_h), &resolve)
+    // entre itens de uma linha = `css.gap`; row_gap entre LINHAS). Sem
+    // `.or(css.gap)`: `column-gap` sozinho não empurra os itens dentro de UMA
+    // coluna (lote `flex-gap-2`, `flexbox-column-row-gap-004` do WPT — ver o
+    // comentário mais completo em `coluna.rs`, de onde este ficheiro herdou
+    // o mesmo fallback ao ser extraído).
+    let main_gap = resolve_height(css.row_gap, Some(container_content_h), &resolve)
         .unwrap_or(0.0)
         .max(0.0);
     let cross_gap = css
@@ -121,6 +135,8 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 align_self: None,
                 can_stretch: false,
                 order: 0,
+                mt_auto: false,
+                mb_auto: false,
             });
             continue;
         }
@@ -151,7 +167,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         // decide entre o declarado, `min-content` (§4.5, não some sob
         // overflow não-visível) e o automático — a mesma pergunta que
         // `coluna.rs` faz, agora numa função só.
-        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, Some(container_content_h), &resolve_filho);
+        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, Some(container_content_h), &resolve_filho, ctx);
         // Largura NATURAL (shrink-to-fit): para um item de `width` explícito
         // é essa largura, qualquer que seja a coluna — layout_block honra o
         // `width` declarado antes de olhar para o `avail_w`. É o que permite
@@ -178,6 +194,8 @@ pub(in crate::layout) fn layout_children_column_wrap(
             align_self: ccss.align_self,
             can_stretch: ccss.width.is_none(),
             order: ccss.order.unwrap_or(0),
+            mt_auto: ccss.margin.top.is_auto(),
+            mb_auto: ccss.margin.bottom.is_auto(),
         });
     }
     if items.is_empty() {
@@ -291,7 +309,24 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let sum_main: f32 = col.iter().map(|it| it.main).sum();
         let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
         let free = container_content_h - sum_main - total_gap;
-        let (leading, between) = justify_offsets(justify, free, n);
+        // Margem `auto` no eixo principal (Flexbox §8.1) vence o
+        // `justify-content` DESTA coluna — mesma regra de `coluna.rs`: com
+        // pelo menos um `auto` a lista fica encostada ao início (leading=0,
+        // between=0) e cada `auto` absorve a sua fatia do livre POSITIVO.
+        let auto_count: usize = col
+            .iter()
+            .map(|it| it.mt_auto as usize + it.mb_auto as usize)
+            .sum();
+        let auto_size = if free > 0.0 && auto_count > 0 {
+            free / auto_count as f32
+        } else {
+            0.0
+        };
+        let (leading, between) = if auto_count > 0 {
+            (0.0, 0.0)
+        } else {
+            justify_offsets(justify, free, n)
+        };
         // `column-reverse`: só a ORDEM DE POSIÇÃO dentro desta coluna espelha
         // (ver o comentário do cabeçalho — o agrupamento em colunas já
         // aconteceu na ordem normal, acima).
@@ -304,6 +339,9 @@ pub(in crate::layout) fn layout_children_column_wrap(
         for (j, it) in posicoes.iter().enumerate() {
             if j > 0 {
                 y += main_gap + between;
+            }
+            if it.mt_auto {
+                y += auto_size;
             }
             if it.is_text {
                 let text = collect_text(dom, it.node);
@@ -345,7 +383,21 @@ pub(in crate::layout) fn layout_children_column_wrap(
                     child_x_ltr,
                     if stretches { cw } else { it.cross },
                 );
-                let avail_w = if stretches { cw } else { content_w };
+                // `cw` (a largura da COLUNA), nunca `content_w` (a largura do
+                // CONTENTOR inteiro): um item que não estica ainda vive dentro
+                // da sua coluna, e é contra essa caixa que `align_offset`
+                // (acima) já resolveu `child_x_ltr`. Passar `content_w` aqui
+                // dava ao `layout_block` de dentro um `avail_w` bem maior do
+                // que o que decidiu o `child_x` — e um item com
+                // `margin-left:auto` tem a sua própria resolução de margem
+                // AUTO ali dentro (a centragem genérica de bloco), que
+                // reabria a conta com esse `avail_w` maior e empurrava o item
+                // para fora da coluna (achado: `margin-left:auto` sozinho, ou
+                // com `margin-bottom:auto`, num item de `flex-flow:column
+                // wrap` — `flexbox-column-row-gap-001`, WPT — punha-o numa
+                // 3ª coluna a ~170px à direita da 2ª, e as duas colunas
+                // seguintes esticavam para preencher o espaço que sobrava).
+                let avail_w = cw;
                 layout_block_reusing(
                     dom,
                     it.node,
@@ -367,6 +419,9 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 );
             }
             y += it.main;
+            if it.mb_auto {
+                y += auto_size;
+            }
         }
         max_bottom = max_bottom.max(y);
         x += cw + cross_gap + between_cross;

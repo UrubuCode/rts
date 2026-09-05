@@ -7,8 +7,39 @@ compile --html <file>` (repeatable) closes that: it extracts every `<script>`
 from the given HTML, exactly by `rts-dom`'s own tree
 (`rts_host::object::html_scripts`, calling `rts_dom::parse_html_to_dom`
 directly rather than through the JS bridge), compiles each one at BUILD time,
-and installs a run-time hook — `crates/rts-runtime/src/aot/page_scripts.rs`
-— that finds the right one by the hash of its exact source.
+and installs a run-time hook — `crates/rts-runtime-boot/src/page_scripts.rs`,
+shared by both archives since the sequence itself moved there (see
+`rts-runtime-boot`'s own module doc) — that finds the right one by the hash
+of its exact source.
+
+## The manifest travels inside the image now
+
+Everything this document calls "the manifest" — singletons, kinds, property
+keys, literals, templates, the `page_scripts` table above included — used to
+reach a running program only as a `.rtsdata` file written beside the `.exe`,
+which meant moving the binary without that file broke it: `rts: missing
+program data … an AOT binary from rts compile is not standalone of this
+file`, measured against a real user on 2026-09-05 when only the `.exe` was
+shared. `rts_host::object::embed_manifest` now places the same bytes
+[`manifest::encode`] produces as a plain [`rts_cranelift::target::DataBlob`]
+inside the object itself, under `MANIFEST_SYMBOL` (`__rts_manifest`) —
+alongside the three address tables this document's own "why one object, not
+two" section explains, but needing none of THEIR machinery: every byte of the
+manifest is known at compile time, so there is nothing for a linker to fill
+in, unlike a table whose entries are relocations.
+
+`rts-runtime-boot::run` reads that symbol straight out of the running image
+first, and falls back to the `.rtsdata` sidecar — still written by `rts
+compile`, and still what `rts_host::object::manifest`'s own tests exercise
+directly — only when the image carries none. So a `.rtsdata` file is still
+ACCEPTED, for a binary built before this note or moved apart from an image a
+future backend cannot embed into, but no compiled program needs one any
+more: `rts compile tests/aot/claude-pagina-eval.ts X`, delete `X.rtsdata`,
+run `X.exe` — it still prints `3`. `crates/rts-host/src/object/mod.rs` and
+`crates/rts-host/src/object/manifest.rs`'s own module docs have the exact
+framing (an eight-byte little-endian length ahead of the same bytes the
+sidecar carries unframed) and why it lives where it does rather than in
+`rts_cranelift::target::DataBlob` itself.
 
 ## Why one object, not two
 
@@ -84,6 +115,61 @@ processes because it has no seed to disagree about, unlike `DefaultHasher`'s
 per-process SipHash key. One function, called by `rts compile` writing the
 manifest's `page_scripts` table and by the installed hook looking a
 requested source up — never restated.
+
+## `.html` as an entry — no TypeScript to write
+
+`rts compile pagina.html [out]` and `rts run pagina.html` need no `.ts` file
+at all — "só mandar a página e ele compilar sozinho". `crates/rts-cli/src/cli/html_entry.rs`
+recognises the extension and writes the shell PROGRAM a user would otherwise
+write by hand — `scripts/rts_vs_electron/rts/app.ts`'s own loop — rather than
+teaching `compile`/`run` a second front end: by the time
+`rts_host::object`/`rts_host::compile` see anything, it is one more string of
+ordinary TypeScript source, generated rather than typed.
+
+The generated program is the same shape either way — `casca(html,
+resourceBase, scriptUrl, title)` parses the page, loads its resources, runs
+its `<script>`s, opens an `egui` window titled from the page's own `<title>`
+(the file's stem when it has none), and loops `beginFrame`/`render(win,
+doc._dom)`/`endFrame` plus `pumpInputEvents`/`pumpEventCallbacks`/
+`pumpTimerCallbacks` per frame, exactly as `app.ts` does today by hand.
+`casca`'s own leading comment marks the line to replace with a single
+`loadDocument(html, url)` call once that function lands from the DOM lot
+building it — this shell composes the identical result from
+`parseDocument`+`loadResources`+`runScriptsAt` in the meantime, so nothing
+about the CALLER changes the day it does.
+
+What differs between the two commands is only where the HTML text comes
+from, matching each destination's own constraint:
+
+- **`rts compile`** embeds the page as a JSON-escaped literal
+  (`html_entry::for_compile`) — the binary may run on a machine with no copy
+  of the source tree, so it never reads the page from disk again. The page's
+  OWN `<script>`s are precompiled exactly as if `--html <entry>` had been
+  passed on the command line — the entry path is pushed onto the very same
+  list `compile::command` already builds for an explicit `--html`, not a
+  second mechanism. A relative `<link>`/`<img>` resolves against the HTML
+  file's OWN folder as it exists on the machine that ran `compile`, baked in
+  at build time (`std::path::absolute`, not `canonicalize` — the latter's
+  Windows `\\?\` prefix would break the very same-drive check
+  `__resolveUrl` does on the string). Moving the `.exe` to a machine without
+  that exact path loses those resources; a `<script src="http…">` was never
+  going to travel anyway (see the cut list below).
+- **`rts run`** reads the page from disk at run time (`html_entry::for_run`),
+  the same way `examples/view.ts` already does — editing the page and
+  re-running costs no rebuild. Nothing is precompiled: the JIT binary already
+  carries a compiler by default, so `runScriptsAt` reaches it through the
+  ordinary `eval` path, not the hash lookup below.
+
+**Why `rts run`'s generated shell is handed to `run_path` on a mirrored file
+and not to `run_source` on the text directly.** `run_source` compiles and
+runs on a freshly spawned thread (`new_engine::on_a_deep_thread`) — the right
+choice for `-e`/`eval`, which never opens a window — but winit panics
+building an event loop off the process's main thread, which is the exact
+reason `run_path` itself no longer spawns one (see that function's own
+comment). `html_entry::write_shell` mirrors the generated program into the
+system temp dir, the same way `url_entry::fetch_program` mirrors a URL entry,
+so `run_path` runs it on the CALLING thread and a `.html` entry's window opens
+exactly like an ordinary `.ts` one's does.
 
 ## What is cut, named rather than discovered
 
