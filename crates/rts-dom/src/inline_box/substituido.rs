@@ -134,12 +134,32 @@ pub(crate) fn replaced_inline_size(
         Some(d) => d.resolve(&resolve),
         None => attr_px(attr),
     };
+    // ALTURA declarada em PERCENTAGEM: esta função não recebe `avail_h` —
+    // nenhum dos seis chamadores (bloco.rs, linha.rs, medida.rs, este
+    // ficheiro, runs.rs, table/widths) o passa — e `Dimension::resolve` usa
+    // `ctx.parent_content_w` como base de QUALQUER percentagem, `Percent`
+    // incluído. Para `width` isso é a base certa (§10.2); para `height` é a
+    // LARGURA do containing block, não a altura, e nunca a base certa. Um
+    // `<img height:100%>` dentro de um `<div>` de altura auto virava um
+    // retângulo do tamanho da LARGURA do pai em vez do quadrado natural
+    // (`height-percentage-005`, WPT: 96×96 esperado, saía ~1230×739).
+    //
+    // CSS 2.1 §10.5: sem uma altura de containing block CONHECIDA a
+    // percentagem computa a `auto` — e é exactamente o caso aqui, porque a
+    // função não tem essa informação. Threading de `avail_h` por seis
+    // chamadores fica para quando um caso legítimo (CB de altura definida)
+    // precisar dele; até lá, tratar como o pedido não declarasse altura
+    // nenhuma é estritamente melhor do que herdar a largura por engano.
+    let declarado_altura = |d: Option<crate::style::Dimension>, attr: &str| match d {
+        Some(crate::style::Dimension::Percent(_)) => None,
+        d => declarado(d, attr),
+    };
     // O flex vence o CSS do mesmo jeito que já vence num bloco comum — é
     // por isso que entra ANTES de `declarado`, não depois: um `<img>` com
     // `width` declarado mas encolhido pelo `flex-shrink` tem de acabar na
     // largura que o flex decidiu, não na declarada.
     let w0 = forced.0.or_else(|| declarado(css.width, "width"));
-    let h0 = forced.1.or_else(|| declarado(css.height, "height"));
+    let h0 = forced.1.or_else(|| declarado_altura(css.height, "height"));
     // A razão de aspecto: a dos pixels quando existem e, quando não, a dos
     // ATRIBUTOS `width`/`height` do HTML.
     //
