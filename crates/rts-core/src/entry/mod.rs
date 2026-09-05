@@ -99,6 +99,7 @@ mod registers;
 mod regex;
 pub mod roots;
 mod rooted;
+mod source_hash;
 pub(super) mod string;
 mod switches;
 mod symbol;
@@ -198,6 +199,7 @@ pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 pub use buffer::validate::MAX_LENGTH as BUFFER_MAX_LENGTH;
+pub use source_hash::source_hash;
 /// The largest non-empty JavaScript string this runtime can materialise.
 ///
 /// This is deliberately narrower than the byte-buffer ceiling: strings are
