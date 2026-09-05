@@ -113,3 +113,51 @@ fn em_coluna_a_baseline_do_contentor_e_a_do_primeiro_item_apesar_de_align_items_
     let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
     assert_eq!(r("#sib3"), (0.0, 6.0, 40.0, 20.0), "desce a margem do PRIMEIRO item (#y1: 6), ignora #y2 (30)");
 }
+
+#[test]
+fn o_primeiro_item_conta_pela_ordem_de_order_nao_pela_ordem_do_dom() {
+    // RETRABALHO (2026-09-05, WPT `flex-order-wrap-reverse-baseline`
+    // regrediu no fecho conjunto com os lotes `gap`/`min-auto`): `#inner4`
+    // não tem `align-items:baseline` nem `flex-wrap` — cai sempre na regra 2
+    // (primeiro item), numa única linha. `#p1` é o PRIMEIRO no DOM mas
+    // `order:2` (ÚLTIMO na ordem de flex); `#p2` é o SEGUNDO no DOM mas
+    // `order:1` (PRIMEIRO). A resposta certa usa `#p2` (margin-top:4);
+    // antes deste retrabalho, `ascent_do_contentor` lia `filhos_flex_em_fluxo`
+    // pela ordem do DOM crua e usava `#p1` (margin-top:20) — 20 em vez de 4.
+    const HTML: &str = r#"<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #outer4 { display: flex; align-items: baseline; width: 400px; background: #eee; }
+  #sib4 { width: 40px; }
+  #inner4 { display: flex; width: 80px; }
+  #p1 { width: 40px; order: 2; margin-top: 20px; }
+  #p2 { width: 40px; order: 1; margin-top: 4px; }
+</style>
+<div id="outer4"><div id="sib4">x</div><div id="inner4"><div id="p1">a</div><div id="p2">b</div></div></div>"#;
+    let (dom, list) = geometria(HTML, 1280.0);
+    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    assert_eq!(r("#sib4"), (0.0, 4.0, 40.0, 20.0), "usa a margem de #p2 (order:1, PRIMEIRO na ordem de flex), não a de #p1 (order:2, primeiro só no DOM)");
+}
+
+#[test]
+fn a_primeira_linha_sob_wrap_reverse_e_a_ultima_na_ordem_de_flex() {
+    // RETRABALHO (2026-09-05, o mesmo achado do teste acima, na forma
+    // ORIGINAL do WPT: `flex-wrap:wrap-reverse` em vez de `order` puro).
+    // `#q1`/`#q2` medem 40px cada num `#inner5` de 40px — cada um força a
+    // sua PRÓPRIA linha (`linhas_por_largura`); `wrap-reverse` desenha a
+    // linha que o documento escreve DEPOIS (a de `#q2`) no INÍCIO do eixo
+    // cruzado (Flexbox §8.3), que é a que conta como "primeira" para a
+    // baseline (Flexbox §8.5). A resposta certa usa `#q2` (margin-top:10);
+    // sem a reversão de linhas, cairia em `#q1` (sem margem, offset 0).
+    const HTML: &str = r#"<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #outer5 { display: flex; align-items: baseline; width: 400px; background: #eee; }
+  #sib5 { width: 40px; }
+  #inner5 { display: flex; flex-wrap: wrap-reverse; width: 40px; }
+  #q1 { width: 40px; }
+  #q2 { width: 40px; margin-top: 10px; }
+</style>
+<div id="outer5"><div id="sib5">x</div><div id="inner5"><div id="q1">a</div><div id="q2">b</div></div></div>"#;
+    let (dom, list) = geometria(HTML, 1280.0);
+    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    assert_eq!(r("#sib5"), (0.0, 10.0, 40.0, 20.0), "usa a margem de #q2 (linha que o wrap-reverse desenha primeiro), não a de #q1 (0)");
+}

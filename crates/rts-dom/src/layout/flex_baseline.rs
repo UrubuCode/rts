@@ -75,45 +75,134 @@ fn ascent_do_item_neto(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) 
     mt + super::linha_ib::ascent_do_item(dom, id, f32::MAX, content_w, ctx)
 }
 
+/// Os filhos, na ORDEM DE FLUXO que a spec usa para decidir "qual item é o
+/// primeiro"/"qual linha é a primeira" — por `order` (Flexbox §5.4.1),
+/// ascendente, empates pela ordem do documento (`sort_by_key` é ESTÁVEL, e
+/// `filhos` já chega em ordem de documento — sem precisar de índice
+/// explícito para o desempate). RETRABALHO (2026-09-05, WPT
+/// `flex-order-wrap-reverse-baseline`): antes disto, `ascent_do_contentor`
+/// lia os filhos pela ordem do DOM crua, e um `order` que trocasse a
+/// sequência (o `.a{order:1}`/`.b{order:2}` do WPT, que aqui coincide com a
+/// ordem do DOM, mas o `flex-wrap:wrap-reverse` do teste TROCA qual linha é
+/// a primeira — ver [`ascent_do_contentor`]) dava uma resposta que não batia
+/// com a REFERÊNCIA (que não declara `order` nem `align-self`, e por isso
+/// caía sempre no PRIMEIRO item — o item ERRADO sob `wrap-reverse`).
+fn em_ordem_de_flex(dom: &Dom, filhos: &[NodeIdx]) -> Vec<NodeIdx> {
+    let mut v = filhos.to_vec();
+    v.sort_by_key(|&c| dom.computed_style_idx(c).unwrap_or_default().order.unwrap_or(0));
+    v
+}
+
+/// A largura de CONTEÚDO do PRÓPRIO contentor — não a do ancestral
+/// (`content_w`, o parâmetro de todo o resto deste ficheiro) — para decidir
+/// onde as linhas de [`linhas_por_largura`] quebram. Só a `width`
+/// DECLARADA entra; sem ela, cai no `content_w` do ancestral como
+/// aproximação de "tanto quanto houver" — medir o shrink-to-fit de verdade
+/// exigiria reexecutar o layout do contentor, o mesmo corte que o resto do
+/// ficheiro já assume para o ascent.
+fn largura_do_proprio(css: &ComputedStyle, content_w: f32, font_size: f32, ctx: &LayoutCtx) -> f32 {
+    let resolve = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font_size,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    css.width.and_then(|d| d.resolve(&resolve)).unwrap_or(content_w)
+}
+
+/// Agrupa `filhos` (já em ORDEM DE FLEX — [`em_ordem_de_flex`]) em LINHAS
+/// pela largura DECLARADA — aproximação sem `grow`/`shrink`/`gap`, só para
+/// saber a que LINHA cada um pertence: a baseline de fora só precisa disso,
+/// nunca do tamanho FINAL (a mesma classe de aproximação estrutural que
+/// [`ascent_do_item_neto`] já assume). Um item sem `width` conta 0 (nunca
+/// força quebra sozinho) — corte declarado.
+fn linhas_por_largura(dom: &Dom, filhos: &[NodeIdx], content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Vec<Vec<NodeIdx>> {
+    let mut linhas: Vec<Vec<NodeIdx>> = vec![Vec::new()];
+    let mut usado = 0.0f32;
+    for &c in filhos {
+        let ccss = dom.computed_style_idx(c).unwrap_or_default();
+        let resolve = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: font_size,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let w = ccss.width.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0);
+        if !linhas.last().unwrap().is_empty() && usado + w > content_w + 0.01 {
+            linhas.push(Vec::new());
+            usado = 0.0;
+        }
+        linhas.last_mut().unwrap().push(c);
+        usado += w;
+    }
+    linhas
+}
+
 /// A baseline do CONTENTOR flex, vista de FORA (Flexbox §8.5) — o que
 /// [`super::linha_ib::ascent_do_item`] usa quando o nó que ele mede é, ele
 /// próprio, um flex/inline-flex, em vez da fórmula genérica (fonte do
 /// CONTENTOR) que só está certa para um bloco comum. `h` é a altura outer já
 /// resolvida do contentor (a mesma que `ascent_do_item` recebe).
 ///
-/// Duas regras, na ordem que o comentário do WPT
+/// A "PRIMEIRA LINHA" desta secção é a primeira na ORDEM DE LAYOUT, não a do
+/// DOM: os itens contam pela ordem de `order` ([`em_ordem_de_flex`]), e sob
+/// `flex-wrap: wrap-reverse` a ordem das LINHAS inverte no eixo cruzado
+/// (Flexbox §8.3 — a MESMA leitura que [`reverte_linhas_se_wrap_reverse`] já
+/// aplica às linhas REAIS de `flex.rs`): a linha que o documento escreve
+/// DEPOIS desenha-se no INÍCIO, e é ELA a "primeira" para a baseline. Sem
+/// `flex-wrap` (ou com `nowrap`), tudo cabe numa única linha e só o `order`
+/// interessa — nenhuma quebra é sequer calculada.
+///
+/// Duas regras sobre essa primeira linha, na ordem que o comentário do WPT
 /// `flexbox-baseline-multi-item-horiz-001a` cita da spec:
-/// 1. Se algum item da PRIMEIRA linha participa do grupo baseline — a MESMA
-///    pergunta que [`calcula_linha`] já faz, e só no eixo de LINHA
-///    (`flex-direction: row`; numa coluna a baseline de um item de texto
-///    normal não é paralela ao eixo principal e por isso nunca participa,
-///    Flexbox §8.5 — a mesma leitura que já faz `coluna.rs::align_offset`
-///    cair em `FlexStart`) — a baseline do contentor é a desse
-///    GRUPO: o `max_ascent` que [`calcula_linha`] devolveria.
-/// 2. Senão (sem participante, ou eixo de coluna), a baseline do contentor é
-///    a do PRIMEIRO item em fluxo — [`ascent_do_item_neto`], que recorre de
-///    volta a este ficheiro quando esse item é OUTRO flex.
+/// 1. Se algum item dela participa do grupo baseline — a MESMA pergunta que
+///    [`calcula_linha`] já faz, e só no eixo de LINHA (`flex-direction:
+///    row`; numa coluna a baseline de um item de texto normal não é
+///    paralela ao eixo principal e por isso nunca participa, Flexbox §8.5 —
+///    a mesma leitura que já faz `coluna.rs::align_offset` cair em
+///    `FlexStart`) — a baseline do contentor é a desse GRUPO: o
+///    `max_ascent` que [`calcula_linha`] devolveria PARA ESSA LINHA.
+/// 2. Senão (sem participante nela, ou eixo de coluna), a baseline do
+///    contentor é a do PRIMEIRO item DESSA linha — [`ascent_do_item_neto`],
+///    que recorre de volta a este ficheiro quando esse item é OUTRO flex.
 /// 3. Sem item NENHUM em fluxo: devolve `h` tal e qual — Flexbox §8.5
 ///    sintetiza a baseline do bottom margin edge quando não há itens, que é
 ///    exactamente o que `h` já significa para quem chama `ascent_do_item`.
 ///
-/// CORTE declarado: calcula por ESTRUTURA (margem + recursão), sem
-/// reexecutar o algoritmo de flex do filho — ver o porquê no doc de
-/// [`ascent_do_item_neto`]; errado só para um item cujo próprio conteúdo se
-/// desloca verticalmente por outro motivo (`vertical-align` num controlo,
-/// por exemplo) — nenhuma fixture medida pediu isso. `content_w` continua a
-/// ser o do CONTENTOR ANCESTRAL, não o deste flex — percentagens de margem
-/// num NETO ficam por essa aproximação.
+/// CORTES declarados: o ascent de cada item calcula por ESTRUTURA (margem +
+/// recursão), sem reexecutar o algoritmo de flex do filho — ver o porquê no
+/// doc de [`ascent_do_item_neto`]; o AGRUPAMENTO em linhas ([`linhas_por_largura`])
+/// é pela largura DECLARADA, sem `grow`/`shrink`/`gap` — a mesma aproximação,
+/// generalizada de "um item" para "que linha ele ocupa". `content_w` que
+/// chega aos NETOS continua a ser o do CONTENTOR ANCESTRAL, não o deste flex
+/// — percentagens de margem num NETO ficam por essa aproximação.
 pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
     let filhos = filhos_flex_em_fluxo(dom, id);
-    let Some(&primeiro) = filhos.first() else {
+    if filhos.is_empty() {
         return h;
-    };
+    }
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     let eixo_de_linha = !css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    let em_flex = em_ordem_de_flex(dom, &filhos);
+    let primeira_linha = if eixo_de_linha && css.flex_wrap.map(crate::style::FlexWrap::wraps).unwrap_or(false) {
+        let font = font_px(&css, DEFAULT_FONT_SIZE);
+        let largura = largura_do_proprio(&css, content_w, font, ctx);
+        let mut linhas = linhas_por_largura(dom, &em_flex, largura, font, ctx);
+        if css.flex_wrap == Some(crate::style::FlexWrap::WrapReverse) {
+            linhas.reverse();
+        }
+        linhas.into_iter().next().unwrap_or_default()
+    } else {
+        em_flex
+    };
+    let Some(&primeiro) = primeira_linha.first() else {
+        return h;
+    };
     if eixo_de_linha {
-        let max_ascent = filhos
+        let max_ascent = primeira_linha
             .iter()
             .filter(|&&c| dom.computed_style_idx(c).unwrap_or_default().align_self.unwrap_or(align) == crate::style::AlignItems::Baseline)
             .map(|&c| ascent_do_item_neto(dom, c, content_w, ctx))
