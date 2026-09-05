@@ -280,8 +280,23 @@ pub(in crate::layout) fn layout_children_column_wrap(
     // `wrap-reverse`: troca cross-start↔cross-end (spec §5.3) — a PRIMEIRA
     // coluna calculada vai para o FIM do eixo cruzado. Só a ordem das
     // colunas; os itens dentro de cada uma não mudam de posição por isto.
+    //
+    // `direction:rtl` troca o MESMO par cross-start↔cross-end, porque o eixo
+    // cruzado de uma coluna É o eixo inline (Flexbox §4.1 + Writing Modes) —
+    // é a mesma pergunta que `coluna_rtl::cross_x` já resolve para a
+    // posição de um item DENTRO da sua coluna, agora para a ORDEM das
+    // colunas em si (achado `claude-flex-column-wrap-rtl-order`, WPT
+    // `flexbox_rtl-order`: a referência hand-authored — floats reordenados —
+    // só bate com "three,four" à esquerda/"one,two" à direita quando RTL
+    // TAMBÉM inverte cross-start, cancelando o `wrap-reverse` do mesmo teste).
+    // As duas trocas são a mesma pergunta feita duas vezes: RTL sozinho
+    // inverte, `wrap-reverse` sozinho inverte, os dois juntos cancelam — daí o
+    // XOR. Só quando `writing-mode` é horizontal (o único que este motor
+    // faz) — a mesma guarda de `coluna_rtl::cross_x`/`rtl_bloco.rs`.
+    let rtl_horizontal = matches!(css.direction, Some(crate::style::Direction::Rtl))
+        && css.writing_mode.unwrap_or_default().is_horizontal();
     let mut columns = columns;
-    if wrap_reverse {
+    if wrap_reverse ^ rtl_horizontal {
         columns.reverse();
         col_cross.reverse();
     }
@@ -351,10 +366,10 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 // coluna, só que aqui o "content-box" a espelhar dentro É a
                 // COLUNA (`[x, x+cw]`), não o contentor inteiro — um item
                 // alinha-se dentro da SUA coluna, e é essa caixa que o RTL
-                // inverte. A ORDEM DAS COLUNAS em si não inverte com RTL
-                // (corte dito: essa é a mesma pergunta, adjacente a bidi, que
-                // a triagem original já tinha marcado fora de âmbito para o
-                // wrap no eixo de linha — `gap-007-rtl`).
+                // inverte. A ORDEM DAS COLUNAS em si TAMBÉM inverte com RTL
+                // desde o lote `flex-reverse-order` (o XOR com `wrap_reverse`
+                // acima) — as duas perguntas eram tratadas como distintas até
+                // `flexbox_rtl-order` (WPT) mostrar que não são.
                 let child_x_ltr = if stretches {
                     x
                 } else {
@@ -434,9 +449,10 @@ pub(in crate::layout) fn layout_children_column_wrap(
 // - **`::before`/`::after` como item flex** (`flex_pseudo.rs`) não entra no
 //   caminho de coluna nenhum, com ou sem wrap — gap pré-existente do
 //   `coluna.rs` de uma coluna, não deste lote.
-// - **`direction:rtl` só espelha o item DENTRO da sua coluna** (merge com o
-//   lote `flex-justify-logico`, `coluna_rtl::cross_x` — ver o PASSO 5): a
-//   ORDEM DAS COLUNAS no eixo cruzado não inverte com RTL (só com
-//   `wrap-reverse`, PASSO 4). É a mesma pergunta, adjacente a bidi, que a
-//   triagem original de `flex-column-wrap` já tinha marcado fora de âmbito
-//   para o wrap no eixo de linha (`gap-007-rtl`).
+// - **RESOLVIDO no lote `flex-reverse-order`**: `direction:rtl` inverte a
+//   ORDEM DAS COLUNAS no eixo cruzado, do mesmo jeito que `wrap-reverse`
+//   (PASSO 4, XOR das duas) — não só o item DENTRO da coluna
+//   (`coluna_rtl::cross_x`, PASSO 5, que continua a fazer a sua parte). Achado
+//   pelo WPT `flexbox_rtl-order` (referência hand-authored, floats
+//   reordenados): sem o XOR, `direction:rtl` sozinho não tinha efeito nenhum
+//   na ordem física das colunas.

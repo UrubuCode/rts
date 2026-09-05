@@ -1,40 +1,114 @@
 //! As propriedades LÓGICAS que faltavam: `inset*` e as bordas `-inline-`/`-block-`.
 //!
-//! O `parse` já traduzia `padding-inline-start` e `margin-inline-start` para o
-//! lado físico; `inset-inline-start` e `border-inline-start-color` caíam no
-//! contador de ignoradas. Não é uma cauda: numa varredura das folhas reais o
-//! WhatsApp Web escreve `border-inline-start-color` 522 vezes e
-//! `inset-inline-start` 216 — o CSS moderno gerado por ferramenta já não escreve
-//! `left`.
+//! `inset-inline-start` e `border-inline-start-color` caíam no contador de
+//! ignoradas. Não é uma cauda: numa varredura das folhas reais o WhatsApp Web
+//! escreve `border-inline-start-color` 522 vezes e `inset-inline-start` 216 —
+//! o CSS moderno gerado por ferramenta já não escreve `left`.
+//!
+//! `padding-inline-start`/`margin-inline-start` (e os `-end`) JÁ tinham
+//! tradução — mas em `style::parse::caixa`, um braço próprio por nome, que
+//! respondia PRIMEIRO na cadeia de `aplica_declaracao` e por isso escondia
+//! este ficheiro por completo para essas duas famílias: `logical::try_apply`
+//! nunca chegava a ser chamado com elas. Duas traduções do MESMO nome —
+//! achado pelo WPT `gap-007-rtl` (lote `flex-reverse-order`), quando tornar
+//! esta função direction-aware não mudou nada porque o braço de `caixa.rs`,
+//! sempre LTR, respondia antes. Removido de lá: as duas famílias reentregam
+//! aqui como as outras duas já faziam.
 //!
 //! ## Uma tradução de NOME, e não um segundo modelo de bordas
 //!
 //! Todo o trabalho aqui é mapear o eixo lógico no lado físico e reentregar o
 //! nome traduzido a quem já sabe aplicá-lo (`style::borders`, os campos `inset_*`).
 //! A alternativa — campos lógicos próprios em `ComputedStyle`, resolvidos no
-//! layout — daria `direction: rtl` de graça, e foi recusada porque duplicaria o
-//! modelo de bordas inteiro (doze campos) por uma propriedade de sentido, e
-//! porque o layout não inverte em RTL de qualquer maneira.
+//! layout — foi recusada porque duplicaria o modelo de bordas inteiro (doze
+//! campos) por uma propriedade de sentido; o que faltava não era essa
+//! duplicação, era resolver no MOMENTO certo (ver "Quando isto resolve",
+//! abaixo) — o layout já inverte em RTL em alguns sítios (`coluna_rtl`,
+//! `rtl_bloco`), só não em todos (`dom::direction_herdada` documenta o que
+//! ainda falta: uma LINHA de flex).
 //!
-//! ## O corte, dito por extenso: assume-se LTR horizontal
+//! ## O corte, dito por extenso: o eixo BLOCO continua horizontal-topo
 //!
-//! `start` = esquerda/topo, `end` = direita/fundo. É o MESMO corte que
-//! `padding-inline-start` e `margin-inline-start` já faziam — mantê-lo é ter uma
-//! resposta só para a pergunta. Numa página `direction: rtl` os lados saem
-//! trocados, e é isso que o dia do RTL vai ter de resolver nos três sítios ao
-//! mesmo tempo (`style::text` guarda `direction`; o layout ainda não o lê).
+//! `block-start`/`block-end` continuam fixos em topo/fundo — o motor não faz
+//! layout vertical (`writing-mode` aceite e serializado, nunca disposto), e
+//! ninguém pediu essa metade. O eixo INLINE (`start`/`end`) já não é: desde o
+//! lote `flex-reverse-order` resolve contra `direction` nos "três sítios"
+//! que este cabeçalho reservava — `margin-inline-*`, `padding-inline-*` e
+//! `border-inline-*` (mais `inset-inline-*`, de graça, pela MESMA função) —
+//! `ltr` continua `start`=esquerda, e `rtl` inverte para `start`=direita
+//! (CSS Logical Properties §3, `direction` como o eixo herdável já lido por
+//! `coluna_rtl`/`rtl_bloco`). O fluxo de TEXTO/inline em si continua LTR —
+//! sem bidi — o que muda é só qual LADO físico um `start`/`end` aponta.
+//!
+//! Achado pelo WPT `gap-007-rtl` (retrabalho do lote `flex-reverse-order`):
+//! a ordem de colunas de `flex-direction:column`+`direction:rtl` ficou
+//! correta (`coluna_wrap.rs`) e destapou que `margin-inline-end:20px` sob
+//! `direction:rtl` continuava a resolver como `margin-right` fixo — o lado
+//! ERRADO (devia ser `margin-left`, o lado que fecha o vão ENTRE colunas em
+//! RTL) — porque a ordem de colunas trocada por engano escondia a margem no
+//! lado errado por coincidência.
+//!
+//! ## Quando isto resolve: por ELEMENTO, não por REGRA
+//!
+//! `direction` é herdável e uma regra CSS é compilada UMA vez, partilhada por
+//! todo elemento que a casar — casar `section > div{margin-inline-end:20px}`
+//! não sabe, nesse momento, qual vai ser o `direction` do elemento que a vai
+//! usar (pode nem existir DOM ainda). Resolver aqui, contra o `css.direction`
+//! do momento em que a regra é parseada, resolveria sempre contra o INICIAL
+//! (`ltr`) — o mesmo bug, só que invisível. Por isso as declarações destas
+//! famílias não resolvem aqui: ficam PENDENTES (`style::parse::
+//! apply_specified_declaration` reusa a fila que já existia para `var()`,
+//! `style::stylesheet::apply_resolved_decl` ganhou um `direction` a mais) e
+//! só resolvem por elemento em `dom::cascade`, contra o `direction` já
+//! herdado desse elemento (ou já declarado por ele mesmo, na mesma regra —
+//! ver o comentário lá) — com UM corte: `dom::direction_herdada` nega esse
+//! `direction` quando o pai é uma LINHA de flex, porque a ORDEM dos itens da
+//! linha ainda não inverte por `direction` (só por `row-reverse`), e margem
+//! certa com ordem errada é pior do que as duas erradas (achado pelo WPT
+//! `gap-003-rtl`/`gap-006-rtl`, retrabalho deste lote). `eixo_inline_invertido`/
+//! `to_physical` continuam puras: a pergunta "que lado físico" não muda, só
+//! QUANDO se faz.
 
 use super::lengths::{parse_inset, split_top_ws};
 use super::props::ComputedStyle;
 use super::values::Dimension;
+use crate::style::Direction;
 
-/// Traduz o eixo lógico de um nome de propriedade para o lado físico, em LTR.
-/// `"inset-inline-start"` → `"inset-left"`, `"border-block-end-width"` →
-/// `"border-bottom-width"`. `None` quando o nome não tem eixo lógico nenhum.
-fn to_physical(prop: &str) -> Option<String> {
+/// `true` quando o eixo INLINE de `css` está espelhado — só `direction:rtl`
+/// decide (o motor não roda o inline com `writing-mode`, então não há aqui a
+/// guarda "só se horizontal" que `coluna_rtl::cross_x` tem: para este motor o
+/// inline É sempre o eixo horizontal, qualquer que seja o `writing-mode`
+/// declarado).
+fn eixo_inline_invertido(css: &ComputedStyle) -> bool {
+    matches!(css.direction, Some(Direction::Rtl))
+}
+
+/// `true` para as propriedades cujo lado físico depende de `direction` —
+/// `margin`/`padding`/`border`(-width/-style/-color)/`inset`, eixo INLINE,
+/// mais os três nomes antigos do WebKit que se reentregam a elas. É a mesma
+/// lista de nomes que `to_physical`/o alias `antigo` reconhecem, aqui à
+/// parte para quem PARSEIA decidir se adia a resolução (ver o cabeçalho).
+/// `inline-size`/`min-inline-size`/etc. não entram: são dimensões, não têm
+/// lado.
+pub(crate) fn e_direction_dependente(prop: &str) -> bool {
+    prop.contains("inline-start")
+        || prop.contains("inline-end")
+        || matches!(
+            prop,
+            "margin-start" | "margin-end" | "padding-start" | "padding-end" | "border-start" | "border-end"
+        )
+}
+
+/// Traduz o eixo lógico de um nome de propriedade para o lado físico.
+/// `"inset-inline-start"` → `"inset-left"` (`rtl=false`) ou `"inset-right"`
+/// (`rtl=true`); `"border-block-end-width"` → sempre `"border-bottom-width"`
+/// (o eixo bloco não lê `direction`). `None` quando o nome não tem eixo
+/// lógico nenhum.
+fn to_physical(prop: &str, rtl: bool) -> Option<String> {
+    let (inline_start, inline_end) = if rtl { ("right", "left") } else { ("left", "right") };
     for (logico, fisico) in [
-        ("inline-start", "left"),
-        ("inline-end", "right"),
+        ("inline-start", inline_start),
+        ("inline-end", inline_end),
         ("block-start", "top"),
         ("block-end", "bottom"),
     ] {
@@ -145,7 +219,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         return super::parse::aplica_declaracao(css, fisico, val);
     }
 
-    let Some(fisico) = to_physical(prop) else {
+    let Some(fisico) = to_physical(prop, eixo_inline_invertido(css)) else {
         return false;
     };
 

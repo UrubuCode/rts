@@ -25,8 +25,26 @@ pub(in crate::style::parse) use super::values::{
 /// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
 /// NORMAL — atalho retrocompatível; `!important` inline é raro). Para a cascade
 /// completa com `!important`, use [`parse_inline_block`].
+///
+/// Resolve as PENDENTES (`var()`, e desde o lote `flex-reverse-order` uma
+/// `-inline-` lógica — `style::logical::e_direction_dependente`) contra um
+/// contexto VAZIO: sem árvore, `parse_inline` não tem custom props nem
+/// `direction` herdado nenhum para lhes dar, e é isso — não "fica por
+/// resolver" — que um bloco solto, sem ancestral, responde (`direction`
+/// cai no inicial `ltr`, como sempre respondeu antes deste lote). É a mesma
+/// pergunta que `dom::cascade::computed_style_idx_inner` faz por elemento,
+/// só que aqui o "elemento" não existe.
 pub fn parse_inline(style: &str) -> ComputedStyle {
-    parse_inline_block(style).normal
+    let mut block = parse_inline_block(style);
+    if block.pending.is_empty() {
+        return block.normal;
+    }
+    let vars = std::collections::HashMap::new();
+    for (prop, raw, important) in std::mem::take(&mut block.pending) {
+        let target = if important { &mut block.important } else { &mut block.normal };
+        super::stylesheet::apply_resolved_decl(target, &prop, &raw, &vars, None);
+    }
+    block.normal
 }
 
 /// Preserva as declarações de um `style="..."` no estado especificado. O
@@ -363,6 +381,13 @@ pub(crate) fn apply_specified_declaration(
         }
         return;
     }
+    // `var()` adia para resolver contra as custom props do ELEMENTO; uma
+    // logical `-inline-` (margin/padding/border/inset, `style::logical::
+    // e_direction_dependente`) adia pela MESMA razão de fundo — o lado
+    // físico depende de `direction`, que também só se conhece por elemento,
+    // nunca no momento em que esta regra é compilada (`style::logical`,
+    // cabeçalho "Quando isto resolve"). A mesma fila, os dois motivos —
+    // `css_var_refs` só conta o motivo que já tinha nome.
     if val.contains("var(") {
         crate::bump!(css_var_refs);
         block
@@ -370,19 +395,36 @@ pub(crate) fn apply_specified_declaration(
             .push((prop, val.trim().to_string(), important));
         return;
     }
+    if crate::style::logical::e_direction_dependente(&prop) {
+        block
+            .pending
+            .push((prop, val.trim().to_string(), important));
+        return;
+    }
+    apply_declaration_final(block, &prop, val, important);
+}
 
+/// A parte de baixo de [`apply_specified_declaration`]: já sabe que `prop`
+/// não é `--custom`, `all` nem precisa de adiar — aplica de vez.
+///
+/// À parte para [`crate::style::stylesheet::apply_resolved_decl`] chamar
+/// DIRECTO: uma declaração pendente já resolvida (var() substituído,
+/// `direction` decidido) que voltasse a `apply_specified_declaration`
+/// bateria nos MESMOS dois motivos de adiar e desapareceria em silêncio —
+/// ver o comentário lá.
+pub(crate) fn apply_declaration_final(block: &mut DeclBlock, prop: &str, val: &str, important: bool) {
     let css = if important {
         &mut block.important
     } else {
         &mut block.normal
     };
-    if is_css_wide_keyword(val) && apply_css_wide_keyword(css, &prop, val) {
+    if is_css_wide_keyword(val) && apply_css_wide_keyword(css, prop, val) {
         return;
     }
 
-    crate::style::inherit_kw::clear_inherit_marker(css, &prop);
-    crate::style::inherit_kw::clear_initial_marker(css, &prop);
-    if !aplica_declaracao(css, prop.as_str(), val) {
+    crate::style::inherit_kw::clear_inherit_marker(css, prop);
+    crate::style::inherit_kw::clear_initial_marker(css, prop);
+    if !aplica_declaracao(css, prop, val) {
         let nu = prop
             .strip_prefix("-webkit-")
             .or_else(|| prop.strip_prefix("-moz-"))
@@ -392,7 +434,7 @@ pub(crate) fn apply_specified_declaration(
             Some(n) if aplica_declaracao(css, n, val) => {}
             _ => {
                 crate::bump!(css_declarations_unknown);
-                crate::note!("propriedade-ignorada", prop);
+                crate::note!("propriedade-ignorada", prop.to_string());
             }
         }
     }
