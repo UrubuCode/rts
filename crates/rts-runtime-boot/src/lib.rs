@@ -169,6 +169,59 @@ unsafe extern "C" {
     /// Every placed function, in the manifest's function order.
     #[link_name = "__rts_functions"]
     static FUNCTION_TABLE: u8;
+
+    /// The manifest's own bytes, framed with an eight-byte little-endian
+    /// length — see `rts_host::object::embed_manifest`'s doc comment for why
+    /// the frame lives inside the blob rather than in a second symbol, and
+    /// `rts_host::object::MANIFEST_SYMBOL` for the name.
+    ///
+    /// Every object [`rts_host::object`] places defines this unconditionally,
+    /// the same reason an address table does when its own list is empty (see
+    /// [`FUNCTION_TABLE`]'s sibling doc): an `extern "C" static` reference that
+    /// the linker could not resolve would fail the LINK, for every program,
+    /// rather than answer absent at run time for the rare one. So there is no
+    /// "the image has none" case for this crate's two callers to handle —
+    /// only a `.rtsdata` sidecar can be truly missing, which is a separate
+    /// file the compiler wrote after the link already succeeded.
+    #[link_name = "__rts_manifest"]
+    static MANIFEST_BLOB: u8;
+}
+
+/// A generous ceiling on the length [`embedded_manifest`] trusts out of the
+/// eight bytes at the front of [`MANIFEST_BLOB`], before it allocates anything
+/// sized by them.
+///
+/// The same discipline `rts-runtime-boot::manifest::Reader::table` already
+/// applies to a count read from the SIDECAR file: a corrupt word must be
+/// refused rather than turned into an allocation request an allocator answers
+/// by aborting the process. A real manifest — every property key, string
+/// literal, template and function name a compilation produced — is smaller
+/// than this by orders of magnitude; nothing legitimate is refused by it.
+const MAX_EMBEDDED_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
+
+/// The manifest bytes carried inside this very image, if the length at the
+/// front of [`MANIFEST_BLOB`] looks like one this process wrote rather than
+/// noise.
+///
+/// # Safety
+///
+/// `blob` must be `&raw const MANIFEST_BLOB`.
+unsafe fn embedded_manifest(blob: *const u8) -> Option<Vec<u8>> {
+    // SAFETY: `blob` is 8-byte aligned — `rts_host::object`'s `DataBlob` sets
+    // that alignment exactly so this read is not a misaligned `u64` access —
+    // and the eight bytes it reads are the length `embed_manifest` always
+    // writes there, even for a program with an otherwise-empty manifest.
+    let len = unsafe { (blob as *const u64).read() } as usize;
+    if len > MAX_EMBEDDED_MANIFEST_BYTES {
+        return None;
+    }
+    // SAFETY: `rts_host::object::embed_manifest` writes exactly `len` bytes
+    // starting eight bytes past this symbol's own address — the length lives
+    // beside the bytes it measures, in the one file the linker placed both
+    // into, which is what a manifest and a STALE sidecar file cannot promise
+    // each other.
+    let data = unsafe { std::slice::from_raw_parts(blob.add(8), len) };
+    Some(data.to_vec())
 }
 
 /// The addresses in one of the tables above, or `None` if it does not hold as
@@ -288,9 +341,18 @@ const CELLS: u32 = 1 << 16;
 /// instruction — `None` for `rts-runtime`'s `main`,
 /// `Some(rts_host::install_compiler)` for `rts-runtime-jit`'s.
 pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>) -> i32 {
-    // The sidecar file: `<exe>` with its extension replaced by `.rtsdata`. See
-    // `rts_host::object`'s module doc for why this exists instead of a
-    // second, linker-relocation-shaped mechanism.
+    // The image itself, first: `rts_host::object::embed_manifest` places these
+    // exact bytes inside the object the program was compiled to, so a moved
+    // `.exe` alone already carries them.
+    //
+    // SAFETY: `&raw const MANIFEST_BLOB` names the symbol declared above.
+    let embedded = unsafe { embedded_manifest(&raw const MANIFEST_BLOB) };
+
+    // The sidecar file, tried when the image did not answer: `<exe>` with its
+    // extension replaced by `.rtsdata`. This is what carried the manifest on
+    // its own before this crate could read one out of the image, and it is
+    // still accepted — a binary built before this batch, or one moved apart
+    // from an image a future backend cannot embed into.
     let exe = match std::env::current_exe() {
         Ok(path) => path,
         Err(error) => {
@@ -299,24 +361,35 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
         }
     };
     let manifest_path = exe.with_extension("rtsdata");
-    let bytes = match std::fs::read(&manifest_path) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            eprintln!(
-                "rts: missing program data '{}': {error} — an AOT binary from `rts \
-                 compile` is not standalone of this file; moving the .exe without it \
-                 breaks property access and string literals",
-                manifest_path.display()
-            );
-            return 1;
+
+    let manifest = match embedded.as_deref().and_then(manifest::read) {
+        Some(manifest) => manifest,
+        // The image had nothing usable — read the sidecar, and only now is
+        // its ABSENCE a real error rather than the ordinary case.
+        None => {
+            let bytes = match std::fs::read(&manifest_path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    eprintln!(
+                        "rts: missing program data: neither this executable's own image \
+                         nor '{}' beside it carries one ({error}) — an AOT binary from \
+                         `rts compile` needs one or the other; moving the .exe without \
+                         either breaks property access and string literals",
+                        manifest_path.display()
+                    );
+                    return 1;
+                }
+            };
+            let Some(manifest) = manifest::read(&bytes) else {
+                eprintln!(
+                    "rts: neither this executable's own image nor '{}' beside it is a \
+                     well-formed program-data file",
+                    manifest_path.display()
+                );
+                return 1;
+            };
+            manifest
         }
-    };
-    let Some(manifest) = manifest::read(&bytes) else {
-        eprintln!(
-            "rts: '{}' is not a well-formed program-data file",
-            manifest_path.display()
-        );
-        return 1;
     };
 
     // The region: allocated BEFORE its address is published anywhere, so there

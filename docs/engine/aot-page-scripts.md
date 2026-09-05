@@ -7,8 +7,39 @@ compile --html <file>` (repeatable) closes that: it extracts every `<script>`
 from the given HTML, exactly by `rts-dom`'s own tree
 (`rts_host::object::html_scripts`, calling `rts_dom::parse_html_to_dom`
 directly rather than through the JS bridge), compiles each one at BUILD time,
-and installs a run-time hook — `crates/rts-runtime/src/aot/page_scripts.rs`
-— that finds the right one by the hash of its exact source.
+and installs a run-time hook — `crates/rts-runtime-boot/src/page_scripts.rs`,
+shared by both archives since the sequence itself moved there (see
+`rts-runtime-boot`'s own module doc) — that finds the right one by the hash
+of its exact source.
+
+## The manifest travels inside the image now
+
+Everything this document calls "the manifest" — singletons, kinds, property
+keys, literals, templates, the `page_scripts` table above included — used to
+reach a running program only as a `.rtsdata` file written beside the `.exe`,
+which meant moving the binary without that file broke it: `rts: missing
+program data … an AOT binary from rts compile is not standalone of this
+file`, measured against a real user on 2026-09-05 when only the `.exe` was
+shared. `rts_host::object::embed_manifest` now places the same bytes
+[`manifest::encode`] produces as a plain [`rts_cranelift::target::DataBlob`]
+inside the object itself, under `MANIFEST_SYMBOL` (`__rts_manifest`) —
+alongside the three address tables this document's own "why one object, not
+two" section explains, but needing none of THEIR machinery: every byte of the
+manifest is known at compile time, so there is nothing for a linker to fill
+in, unlike a table whose entries are relocations.
+
+`rts-runtime-boot::run` reads that symbol straight out of the running image
+first, and falls back to the `.rtsdata` sidecar — still written by `rts
+compile`, and still what `rts_host::object::manifest`'s own tests exercise
+directly — only when the image carries none. So a `.rtsdata` file is still
+ACCEPTED, for a binary built before this note or moved apart from an image a
+future backend cannot embed into, but no compiled program needs one any
+more: `rts compile tests/aot/claude-pagina-eval.ts X`, delete `X.rtsdata`,
+run `X.exe` — it still prints `3`. `crates/rts-host/src/object/mod.rs` and
+`crates/rts-host/src/object/manifest.rs`'s own module docs have the exact
+framing (an eight-byte little-endian length ahead of the same bytes the
+sidecar carries unframed) and why it lives where it does rather than in
+`rts_cranelift::target::DataBlob` itself.
 
 ## Why one object, not two
 
