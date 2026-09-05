@@ -318,7 +318,18 @@ jobs:
     # era SALTADO em todos os runs e a régua nunca corria — o primeiro run
     # provou-o. Corre sempre que o run não foi cancelado; o binário que lhe
     # interessa é o Linux, e se esse não existir o download falha por si.
-    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    #
+    # SÓ em `main`. Este job existe para escrever o número medido nas regiões
+    # do README, e só um push a `main` o pode fazer — num PR ele corria a régua
+    # inteira (~30 min de runner) para depois saltar a escrita, o que atrasava
+    # os jobs que decidem o merge sem produzir nada. O efeito prático interessa
+    # mais do que o tempo: o workflow tem `cancel-in-progress`, e este job vem
+    # DEPOIS do `build`, portanto quantos menos runs concorrerem, maior a
+    # probabilidade de um chegar ao fim inteiro — que é a única forma de o
+    # README ser reescrito. Em 2026-09-05, quatro merges seguidos cancelaram
+    # três runs antes deste job e o README ficou a anunciar `393/489` com o
+    # `main` já em 477/870.
+    if: ${{ !cancelled() && needs.version.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -443,6 +454,15 @@ jobs:
   # do CLAUDE.md valer a pena.
   dom-tests:
     needs: version
+    # SÓ em `main`. Estes testes correm na máquina de quem trabalha — o fecho de
+    # cada lote do DOM passa por `cargo test -p rts-dom --lib` — e o `rts-dom`
+    # não tem dependências, portanto a resposta é a mesma em Windows e em Linux:
+    # ao contrário do `build`, este job não sabia nada que a máquina local não
+    # soubesse. E, sendo `continue-on-error`, já não bloqueava merge nenhum;
+    # um lote com testes vermelhos entrava na mesma. Em `main` continua a
+    # correr, que é onde serve de rede: apanha o caso de um lote ter sido
+    # fechado sem os correr.
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -497,7 +517,22 @@ jobs:
     # Windows — sem isto este job seria SALTADO sempre que isso acontecesse. O
     # binário que interessa aqui é o de Windows; se esse artefacto não existir,
     # o download da próxima etapa falha por si.
-    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    # MANUAL. Este job mede arranque, memória e CPU de três artefactos da mesma
+    # app — não é uma régua de correcção, é um benchmark, e um benchmark num
+    # runner partilhado mede sobretudo o runner. Trinta minutos de máquina
+    # Windows a arrancar Electron três vezes, com vizinhos a competir pelo CPU,
+    # produzem um número que ninguém deve citar; a mesma medição numa máquina
+    # parada produz um número que se pode.
+    #
+    # Fica invocável à mão (`workflow_dispatch`) para não se perder, mas a
+    # forma normal de o correr é local:
+    #
+    #     node scripts/rts_vs_electron/medir.mjs
+    #     node scripts/rts_vs_electron_readme.mjs
+    #
+    # e o README recebe o resultado pelo commit de quem mediu. `medir.mjs` diz
+    # no cabeçalho o que cada um dos três artefactos é e porque são três.
+    if: ${{ !cancelled() && needs.version.result == 'success' && github.event_name == 'workflow_dispatch' }}
     continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 30
