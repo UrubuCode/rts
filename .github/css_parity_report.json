@@ -1,20 +1,20 @@
 {
   "date": "2026-09-05",
   "fixtures": {
-    "passing": 129,
-    "total": 133,
-    "pct": 97
+    "passing": 134,
+    "total": 138,
+    "pct": 97.1
   },
   "measurements": {
-    "matching": 3037,
-    "total": 3053,
+    "matching": 3098,
+    "total": 3114,
     "pct": 99.5
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 312,
+    "passing": 316,
     "total": 489,
-    "pct": 63.8
+    "pct": 64.6
   },
   "expected_failures": [
     {
@@ -84,6 +84,8 @@
       "pintura-e-caixas — z-index negativo, `::before`/`::after` de bloco, flex evita float",
       "flex-basis-piso — piso de min-content sem grow; `flex-basis` unitless inválida; espaço antes do `:`",
       "pequenos-1 — três causas pequenas da triagem WPT: texto solto em `display:table`, largura intrínseca do flex em coluna, `<input>` estica no flex",
+      "flex-coluna-shrink — `flex-basis`/`flex-shrink` no eixo de coluna; `row-gap` contra a ALTURA; `min-height` como altura definida",
+      "flex-min-content — `min-content`/`max-content` em `min-width`/`max-width` do item flex; piso automático conta filho bloco sem texto; piso de min-content no shrink-to-fit geral; base flex sem pré-capagem por `max-width`, encolhimento congela quem a viola",
       "flex-coluna-shrink — `flex-basis`/`flex-shrink` no eixo de coluna; `row-gap` contra a ALTURA; `min-height` como altura definida",
       "flex-justify-logico — `justify-content:start`/`end` lógicos; `left`/`right` numa coluna físicos ao TOPO; `direction:rtl` no eixo cruzado da flex-column",
       "visibility-collapse — `visibility:collapse` distinto de `hidden` no `computedStyle`",

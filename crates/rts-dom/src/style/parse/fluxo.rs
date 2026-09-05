@@ -62,12 +62,15 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.gap = cg;
         }
         "height" => set_if(&mut css.height, parse_dimension(val)),
-        "min-width" => set_if(&mut css.min_width, parse_dimension(val)),
-        "max-width" => set_if(&mut css.max_width, parse_dimension(val)),
-        // `parse_dimension_min_max`, não `parse_dimension`: um CLAMP aceita
-        // `min-content` (o piso DECLARADO de um item flex — encolhimento de
-        // coluna, `layout/coluna_shrink.rs` — não pode desaparecer só porque
-        // o automático some sob overflow não-visível).
+        // `parse_dimension_min_max`, não `parse_dimension`, nos quatro: um
+        // CLAMP aceita `min-content` — no eixo inline resolve para o
+        // min-content REAL (`crate::table::min_content`, via
+        // `layout/flex_limites.rs`); no eixo de bloco é o piso DECLARADO de
+        // um item flex (encolhimento de coluna, `layout/coluna_shrink.rs` —
+        // não pode desaparecer só porque o automático some sob overflow
+        // não-visível). Ver `Dimension::MinContent`.
+        "min-width" => set_if(&mut css.min_width, parse_dimension_min_max(val)),
+        "max-width" => set_if(&mut css.max_width, parse_dimension_min_max(val)),
         "min-height" => set_if(&mut css.min_height, parse_dimension_min_max(val)),
         "max-height" => set_if(&mut css.max_height, parse_dimension_min_max(val)),
         // `position` + offsets (top/right/bottom/left). Os offsets aceitam
@@ -156,6 +159,7 @@ fn parse_flex_basis(v: &str) -> Option<Dimension> {
     }
     parse_dimension(v)
 }
+
 
 /// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
 /// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =

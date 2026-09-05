@@ -325,8 +325,8 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
     }
     Some(match d {
         Dimension::Auto => Dimension::Auto,
-        // `-max-content`/`-min-content` não existem em CSS; devolver sem
-        // sinal é o que o `auto` já faz.
+        // `-max-content`/`-min-content` não existem em CSS; sem sinal é o
+        // que `auto` já faz.
         Dimension::MaxContent => Dimension::MaxContent,
         Dimension::MinContent => Dimension::MinContent,
         Dimension::Px(x) => Dimension::Px(-x),

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: a "flex base size" (spec Flexbox §9.2 passo 3) NÃO é capada pelo
+     max-width do PRÓPRIO item — o clamp só entra na "hypothetical main
+     size" (passo 4) e, ao encolher, um item que já viola o seu max-width
+     CONGELA nesse valor (spec §9.7) em vez de continuar a encolher a partir
+     de uma base já capada. Hoje o motor capa `base` no construtor do item,
+     ANTES do cálculo do défice: `#capado` (max-width 100, conteúdo 300, num
+     contentor de 300) fica em 75 em vez de 100. A expectativa aqui não
+     depende do Blink — a referência do WPT é só duas larguras planas
+     (100px/200px), o alvo é a definição de "máximo" mais a distribuição do
+     que sobra (WPT: flex-base-size-ignores-max-width). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="capado,livre">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; width: 300px; height: 40px; background: #eee; }
+  .f > div { min-width: 0; }
+  #capado { max-width: 100px; background: #0c0; }
+  #livre { background: #06c; }
+  #capado .conteudo, #livre .conteudo { width: 300px; height: 8px; }
+</style></head>
+<body>
+  <div class="f"><div id="capado"><div class="conteudo"></div></div><div id="livre"><div class="conteudo"></div></div></div>
+</body>
+</html>
