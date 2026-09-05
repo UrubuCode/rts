@@ -6,7 +6,8 @@
 // o `wptrunner` avalia um reftest.
 //
 //   cargo build --release -p rts-dom --example claude-raster
-//   bun scripts/wpt_reftests.mjs <pasta-do-wpt>/css/css-flexbox [--tol 8] [--max N] [--out dir] [--filtro regex]
+//   bun scripts/wpt_reftests.mjs <pasta-do-wpt>/css/css-flexbox [--tol 8] [--max N] [--out dir]
+//                                 [--filtro regex] [--esperado N] [--pares match|sufixo] [--sem-png]
 //
 // O que este número NÃO é: a régua de Blink. Um reftest que passa aqui diz "o
 // motor é coerente consigo próprio nestes dois documentos"; um que falha diz
@@ -16,7 +17,7 @@
 // `rel="mismatch"` fica de fora; testes com `<script>` são corridos SEM JS
 // (o rasterizador não tem motor), e é dito na saída quantos são.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, join } from "node:path";
 import { inflateSync } from "node:zlib";
 
@@ -43,7 +44,15 @@ if (!["match", "sufixo"].includes(PARES)) { console.error(`--pares ${PARES}: use
 const OUT = resolve(opt("out", join(process.env.TEMP ?? ".", "wpt-reftests")));
 const RASTER = ["target/release/examples/claude-raster.exe", "target/release/examples/claude-raster"].find(existsSync);
 if (!RASTER) { console.error("construa o rasterizador: cargo build --release -p rts-dom --example claude-raster"); process.exit(2); }
+// A pasta de saida e LIMPA no arranque. Sem isto ela acumula os PNG de todas as
+// corridas anteriores — e como o nome de um teste e estavel, uma falha antiga
+// que ja foi corrigida fica la a parecer actual. Uma medicao nova comeca vazia.
+if (existsSync(OUT)) rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
+// `--sem-png` nao guarda imagem nenhuma, nem das falhas. Para uma varredura
+// larga (o `css` inteiro sao 24 104 reftests) em que so interessa o numero;
+// para investigar uma falha, corre-se so essa pasta sem a flag.
+const SEM_PNG = args.includes("--sem-png");
 
 // --- PNG mínimo (o mesmo de css_pintura_comparar.mjs: inflate + os 5 filtros)
 function decodePng(buf) {
@@ -158,15 +167,21 @@ const paraRepetir = [];
 // (24 104 reftests) deixa ~50 mil imagens — 103 GB numa pasta so, medido em
 // 2026-09-05 depois de encher o disco desta maquina. Os das FALHAS ficam, que e
 // para o que servem: olhar para o que divergiu.
+// Cada PNG traz um `.mask.json` ao lado (o raster escreve-o para dizer o que
+// mascarou); apagar so o PNG deixava metade dos ficheiros para tras.
+function apaga(...paths) {
+  for (const f of paths) { try { unlinkSync(f); } catch {} try { unlinkSync(f + ".mask.json"); } catch {} }
+}
 function julga(t, nome, a, b) {
   const d = diff(decodePng(readFileSync(a)), decodePng(readFileSync(b)));
   if (d.n === 0) {
     passam++; resultados.push({ nome, estado: "passa" });
-    try { unlinkSync(a); unlinkSync(b); } catch {}
+    apaga(a, b);
   } else {
     falham++;
     piores.push({ nome, pct: d.pct, n: d.n, script: t.script });
     resultados.push({ nome, estado: "falha", pct: d.pct });
+    if (SEM_PNG) apaga(a, b);
   }
 }
 for (const t of lista) {

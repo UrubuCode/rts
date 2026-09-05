@@ -16,7 +16,7 @@
 // nada sobre o motor, e uma pasta que ele faz bem sobe-o do mesmo modo. A
 // tabela por pasta é o número; o total é a soma dela.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -57,6 +57,11 @@ for (const nome of pastas) {
   const rel = join(saida, "relatorio.json");
   if (!existsSync(rel)) { linhas.push({ nome, passam: null, total: null, erro: "sem relatorio.json" }); continue; }
   const r = JSON.parse(readFileSync(rel, "utf8"));
+  // O `relatorio.json` e lido AQUI e os PNG dessa pasta deixam de ser precisos:
+  // a varredura larga quer o numero, e quem for investigar uma falha corre essa
+  // pasta sozinha. Guardados, o `css` inteiro deixou 103 GB numa so pasta e
+  // encheu o disco desta maquina a meio de uma medicao (2026-09-05).
+  for (const f of readdirSync(saida)) if (f.endsWith(".png") || f.endsWith(".mask.json")) rmSync(join(saida, f), { force: true });
   tp += r.passam; tf += r.falham; te += r.erros;
   const pct = r.total > 0 ? (r.passam / r.total) * 100 : 0;
   linhas.push({ nome, passam: r.passam, total: r.total, erros: r.erros, pct });
