@@ -52,14 +52,13 @@ use anyhow::{Context, Result};
 /// same reason, and a page whose scripts read `location.href` while its
 /// `<link>`s resolve against a local folder needs both answers to be real.
 const CASCA_FN: &str = r#"
-// TODO(loadDocument): troca isto por `const doc = loadDocument(html, scriptUrl);`
-// quando esse lote da DOM entregar parse + recursos + scripts +
-// DOMContentLoaded/load numa só chamada. Ate la, a mesma composicao feita a
-// mao em scripts/rts_vs_electron/rts/app.ts.
+// `loadDocumentFrom` (crates/rts-dom/src/lifecycle.ts) e a navegacao da HTML
+// spec: parse, recursos, os <script> do parse por ordem, DOMContentLoaded,
+// load — e a partir dai um <script> anexado por appendChild corre sozinho. A
+// base dos recursos e a pasta do HTML; a URL dos scripts e a de pagina.
 function casca(html: string, resourceBase: string, scriptUrl: string, title: string): void {
-  const doc = parseDocument(html);
-  loadResources(doc, resourceBase);
-  console.log("scripts da pagina corridos: " + runScriptsAt(doc, scriptUrl));
+  const doc = loadDocumentFrom(html, scriptUrl, resourceBase);
+  console.log("pagina carregada: " + doc.readyState + ", scripts: " + doc.querySelectorAll("script").length);
   const win = egui.openWindow(title, 1100, 750, 0);
   while (egui.isOpen(win)) {
     if (!egui.pump(win)) break;

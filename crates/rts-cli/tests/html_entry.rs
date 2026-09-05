@@ -64,9 +64,8 @@ fn compile_shell_embeds_the_html_escaped_the_title_and_the_frame_loop() {
         "pumpInputEvents(doc)",
         "pumpEventCallbacks(doc)",
         "pumpTimerCallbacks(doc)",
-        "runScriptsAt",
-        "loadResources",
-        "scripts da pagina corridos: ",
+        "loadDocumentFrom(html, scriptUrl, resourceBase)",
+        "pagina carregada: ",
     ] {
         assert!(program.contains(needle), "faltou `{needle}` no programa gerado:\n{program}");
     }
