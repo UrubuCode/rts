@@ -186,6 +186,15 @@ pub enum DisplayItem {
         color: u32,
         size: f32,
         mono: bool,
+        /// `true` quando a família computada resolve em Ahem
+        /// (`style::ahem::is_ahem_family`). A Ahem tem glifos definidos por
+        /// especificação — retângulos, não desenho — e é isso que deixa um
+        /// backend sem fonte real (`claude-raster.rs`) PINTAR o texto em vez
+        /// de o mascarar: sem este bit o item não carrega o suficiente para
+        /// decidir isso depois de emitido, e refazer a pergunta ali exigiria
+        /// repetir a cadeia `font-family` computada → `is_ahem_family` que o
+        /// layout já resolveu.
+        ahem: bool,
         bold: bool,
         /// `font-style: italic`/`oblique`. Um bit à parte do `bold` e não um
         /// "peso" — no browser são dois eixos independentes (`<em><strong>` é

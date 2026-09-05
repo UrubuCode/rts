@@ -24,6 +24,7 @@ pub(super) fn layout_texto_solto(dom: &Dom, id: NodeIdx, t: &str, x: f32, y: f32
     let size = crate::layout::font_px(&pai, DEFAULT_FONT_SIZE);
     let bold = pai.bold.unwrap_or(false);
     let mono = pai.font_family.as_deref().map(crate::style::is_mono_family).unwrap_or(false);
+    let ahem = pai.font_family.as_deref().map(crate::style::is_ahem_family).unwrap_or(false);
     let lh = crate::inline_box::altura_da_linha(&pai, size, ctx.measurer);
     let tw = ctx.measurer.text_width(t, size, bold, false, mono);
     list.items.push(DisplayItem::Text {
@@ -33,6 +34,7 @@ pub(super) fn layout_texto_solto(dom: &Dom, id: NodeIdx, t: &str, x: f32, y: f32
         color: pai.color.unwrap_or(0x000000FF),
         size,
         mono,
+        ahem,
         bold,
         italic: false,
         letter_spacing: pai.letter_spacing.unwrap_or(0.0),

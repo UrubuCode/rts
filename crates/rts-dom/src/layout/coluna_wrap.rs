@@ -368,6 +368,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                     color: cor_visivel(css, css.color.unwrap_or(0x000000FF)),
                     size: font_size,
                     mono: false,
+                    ahem: css.font_family.as_deref().is_some_and(crate::style::is_ahem_family),
                     bold: css.bold.unwrap_or(false),
                     italic: italico(Some(css), tag_de(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),

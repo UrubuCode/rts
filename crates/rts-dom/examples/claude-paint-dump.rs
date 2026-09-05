@@ -178,6 +178,7 @@ fn item_linha(item: &DisplayItem, dx: f32, dy: f32, i: usize) -> Option<String> 
             color,
             size,
             mono,
+            ahem: _,
             bold,
             italic,
             letter_spacing,

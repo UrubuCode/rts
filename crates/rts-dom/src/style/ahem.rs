@@ -43,6 +43,32 @@ pub const AHEM_ASCENT_RATIO: f32 = 0.8;
 /// Descent Ahem: 0,2×font-size.
 pub const AHEM_DESCENT_RATIO: f32 = 0.2;
 
+/// A banda VERTICAL que o glifo Ahem de `c` preenche, como fração de
+/// `font-size` a partir do TOPO do ascent (0.0 = topo, 1.0 = fundo do
+/// descent) — `None` quando o carácter não pinta nada.
+///
+/// Só três casos além do bloco cheio, e são os que o WPT usa para testar
+/// alinhamento vertical por FORMA do glifo em vez de por posição do rect
+/// inteiro (`vertical-align-baseline-*` compara onde a metade de baixo de um
+/// `p` cai contra onde cai o topo de um `X`):
+/// - `X` e a maioria: bloco cheio, ascent+descent — spec Ahem/CSS Fonts.
+/// - `p`: só a metade de BAIXO (baseline → fundo do descent).
+/// - `É`: só a metade de CIMA (topo do ascent → baseline).
+/// - espaço: nada.
+///
+/// Não é uma lista exaustiva do alfabeto Ahem real (que também distingue
+/// outros descendentes/ascendentes) — é o subconjunto que os reftests desta
+/// régua exercitam; alargar por medição quando um caso novo aparecer, não por
+/// suposição.
+pub fn ahem_fill_band(c: char) -> Option<(f32, f32)> {
+    match c {
+        ' ' => None,
+        'p' => Some((AHEM_ASCENT_RATIO, 1.0)),
+        'É' => Some((0.0, AHEM_ASCENT_RATIO)),
+        _ => Some((0.0, 1.0)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

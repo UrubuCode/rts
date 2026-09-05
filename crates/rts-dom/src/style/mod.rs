@@ -104,7 +104,7 @@ pub use borders::{SideBorder, SideName};
 pub use color::parse_color;
 pub use grid_areas::{GridArea, GridAreas};
 pub use lerp::{lerp_color, lerp_dimension, lerp_f32};
-pub use ahem::{AHEM_ADVANCE, AHEM_ASCENT_RATIO, AHEM_DESCENT_RATIO, is_ahem_family};
+pub use ahem::{AHEM_ADVANCE, AHEM_ASCENT_RATIO, AHEM_DESCENT_RATIO, ahem_fill_band, is_ahem_family};
 pub use parse::{is_mono_family, parse_inline, parse_inline_block, parse_inline_specified};
 pub use props::{
     ComputedStyle, SLOT_BG, SLOT_BORDER_COLOR, SLOT_BORDER_WIDTH, SLOT_COLOR, SLOT_CORNER_RADIUS,

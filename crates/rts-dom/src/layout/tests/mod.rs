@@ -140,6 +140,7 @@ mod flex_scroll_overflow_corpus;
                     color: ca,
                     size: sa,
                     mono: ma,
+                    ahem: aa,
                     bold: ba,
                     italic: ia,
                     letter_spacing: la,
@@ -152,6 +153,7 @@ mod flex_scroll_overflow_corpus;
                     color: cb,
                     size: sb,
                     mono: mb,
+                    ahem: ab,
                     bold: bb,
                     italic: ib,
                     letter_spacing: lb,
@@ -164,6 +166,7 @@ mod flex_scroll_overflow_corpus;
                     && ca == cb
                     && (sa - sb).abs() < TOL
                     && ma == mb
+                    && aa == ab
                     && ba == bb
                     && ia == ib
                     && (la - lb).abs() < TOL

@@ -22,7 +22,17 @@
 //! SALTA: `Text` — o medidor é aproximado (`0.5×size` por caractere, sem
 //! fonte real) e pintar caixas por essa métrica compararia um erro de medição
 //! contra um glifo real do Blink, o que a fixture de texto nunca vai bater
-//! nem que o rasterizador esteja perfeito. `Image` — aponta para um handle do
+//! nem que o rasterizador esteja perfeito. **Exceto quando a família
+//! computada é Ahem** (`DisplayItem::Text::ahem`, decidido no layout por
+//! `style::ahem::is_ahem_family`): a Ahem não tem glifo nenhum a desenhar,
+//! tem retângulos definidos pela SPEC (avanço 1em, ascent 0,8em, descent
+//! 0,2em — `style::ahem::ahem_fill_band` diz qual banda cada carácter
+//! preenche), então pintá-la é aritmética exata contra a referência, não uma
+//! aproximação — `fn pintar_texto_ahem` abaixo. Só o caso SEM `transform`
+//! pinta (`mat.is_none()`, mesma condição que já guarda `Pixels`): um glifo
+//! por-carácter sob uma matriz pediria a mesma composição que `Quad` já faz
+//! para retângulos comuns, e nenhuma fixture de `linebox` combina as duas
+//! coisas — alargar quando uma aparecer, não antes. `Image` — aponta para um handle do
 //! `HandleTable`, que este exemplo não tem (não há `Engine` nem `Registry`
 //! aqui, só `Dom`+layout). `Pixels` de uma imagem que NÃO carregou (abaixo)
 //! continua mascarado; `Pixels` de uma que carregou PINTA (lote
@@ -455,6 +465,23 @@ fn text_mask_rect(x: f32, y: f32, text: &str, size: f32, mono: bool) -> Rect {
     Rect::new(x, y - size, w, size * 1.3)
 }
 
+/// Pinta UM item de texto Ahem como a spec define — sem medidor nenhum: cada
+/// carácter avança exatamente `size` (`AHEM_ADVANCE`, `style::ahem`) a partir
+/// de `x`, e a banda vertical que preenche (cheia, metade de cima, metade de
+/// baixo, ou nenhuma) vem de `rts_dom::style::ahem_fill_band`. `x`/`y` são o
+/// canto superior-esquerdo do texto (`text_top`, ver `DisplayItem::Text`),
+/// então a banda de cada carácter é `y + top_frac*size .. y + bottom_frac*size`.
+fn pintar_texto_ahem(canvas: &mut Canvas, x: f32, y: f32, text: &str, size: f32, letter_spacing: f32, color: u32, clip: Option<Rect>) {
+    let mut cx = x;
+    for c in text.chars() {
+        if let Some((topo, fundo)) = rts_dom::style::ahem_fill_band(c) {
+            let r = Rect::new(cx, y + topo * size, size, (fundo - topo) * size);
+            canvas.fill_rect(r, color, clip);
+        }
+        cx += size + letter_spacing;
+    }
+}
+
 /// O primeiro fragmento de `<meta name="fixar-hash" content="alvo">`, se a
 /// fixture declarar um — mesma leitura textual de `lista()` em
 /// `examples/claude-css-runner.ts`, sem depender de um parser de atributos
@@ -565,6 +592,12 @@ fn main() {
                     Some(m) => canvas.fill_rect_mat(r, &m, *color, clip),
                     None => canvas.fill_rect(shift(r, dx, dy), *color, clip),
                 }
+                pintados += 1;
+            }
+            DisplayItem::Text { x, y, text, size, mono, ahem, color, letter_spacing, .. }
+                if *ahem && mat.is_none() =>
+            {
+                pintar_texto_ahem(&mut canvas, *x + dx, *y + dy, text, *size, *letter_spacing, *color, clip);
                 pintados += 1;
             }
             DisplayItem::Text { x, y, text, size, mono, .. } => {

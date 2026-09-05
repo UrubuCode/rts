@@ -459,6 +459,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 color: seg.color,
                 size: font_size,
                 mono,
+                ahem,
                 bold: seg.bold,
                 italic: seg.italic,
                 letter_spacing: ls,

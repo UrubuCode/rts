@@ -181,6 +181,7 @@ pub(crate) fn emit_marker(
                 color,
                 size: font_size,
                 mono: false,
+                ahem: false,
                 bold: false,
                 // A cor JÁ vem do `::marker` quando a folha o declara (ver
                 // `color` acima); peso/itálico do marcador continuam fixos —
