@@ -12,10 +12,31 @@
 //! `staticlib` facade, so both preconditions this command was held back for now
 //! exist.
 //!
+//! # The compiler is embedded by DEFAULT — `--sem-compilador`/`--no-compiler`
+//! opts out
+//!
+//! `rts compile` links `rts-runtime-jit`, not `rts-runtime`, unless told
+//! otherwise: the `.exe` carries a compiler the way `rts.exe` (the JIT) and
+//! Electron (which carries V8 rather than asking the OS for a browser) do,
+//! so `eval`, `new Function` and a page `<script>` (`rts-dom-bridge`'s
+//! `DomScope::run`) work at run time instead of raising the refusal
+//! `rts-host`'s README states for the small archive.
+//!
+//! `--sem-compilador` (`--no-compiler` also accepted) is the opt-out: it
+//! links `rts-runtime` instead, for a binary that never `eval`s and never
+//! runs a page `<script>` at run time and would rather not carry
+//! `rts-codegen`/`rts-cranelift`'s front end and placement code for a
+//! capability it does not use. `--embed-compiler` is still accepted, as an
+//! explicit synonym of the default — this repository's own CI smoke already
+//! passes it, and changing what it means rather than keeping it a synonym
+//! would have broken that job silently. See `rts-runtime-jit`'s own crate
+//! doc for the cut the default costs and the size it adds.
+//!
 //! # What still needs a two-step build
 //!
-//! `cargo build -p rts-runtime` before `rts compile`, matching profile — the
-//! same requirement the old engine's `rts-runtime` had, and for the same
+//! `cargo build -p rts-runtime-jit` (or `-p rts-runtime` for `--sem-
+//! compilador`) before `rts compile`, matching profile — the same
+//! requirement the old engine's `rts-runtime` had, and for the same
 //! reason: a `staticlib` is only emitted for a package built as a direct
 //! target, and cargo does not do that as a side effect of depending on it. See
 //! [`super::runtime_archive`] for the staleness check that makes skipping
@@ -51,6 +72,7 @@ pub fn command(
     output: Option<String>,
     options: CompileOptions,
     windows_subsystem: Option<WindowsSubsystem>,
+    html_files: &[String],
 ) -> Result<()> {
     let input = input.ok_or_else(|| anyhow!("usage: rts compile <input.ts> [output]"))?;
     let (entry, output_base) = if crate::url_entry::is_url(&input) {
@@ -73,6 +95,12 @@ pub fn command(
         .with_context(|| format!("read {}", entry.display()))?;
     let graph = super::new_engine::imports_a_file(&source);
 
+    // Read and extracted on the SAME wide-stack thread as the compile below,
+    // rather than on this one: `html_scripts::window_base` runs a throwaway
+    // JIT compile of its own, and that is exactly the recursion depth the
+    // comment on `STACK` names.
+    let html_paths: Vec<PathBuf> = html_files.iter().map(PathBuf::from).collect();
+
     // The emitter recurses with the shape of the expression it lowers — see
     // `rts_cli::cli::new_engine`'s own comment for the fixture that overflows
     // the 1 MB default Windows stack at COMPILE time, not at run time. Compiled
@@ -81,9 +109,23 @@ pub fn command(
     let on_disk = entry.clone();
     let program = std::thread::Builder::new()
         .stack_size(STACK)
-        .spawn(move || match graph {
-            true => rts_host::object::compile_graph_to_object(&on_disk),
-            false => rts_host::object::compile_to_object(&source),
+        .spawn(move || -> Result<rts_host::object::ObjectProgram, rts_host::HostError> {
+            // Extracted here rather than passed in already-extracted: a page
+            // `<script>` compiles under the SAME `Scoped::Page` rules as a
+            // JIT run, which is what `object::page` builds on top of the
+            // main program's own `FrontEnd` — see that module's header for
+            // why the two cannot be two object files.
+            let page_scripts = rts_host::object::html_scripts::extract_files(&html_paths)?;
+            match (graph, page_scripts.is_empty()) {
+                (true, true) => rts_host::object::compile_graph_to_object(&on_disk),
+                (true, false) => {
+                    rts_host::object::compile_graph_to_object_with_html(&on_disk, &page_scripts)
+                }
+                (false, true) => rts_host::object::compile_to_object(&source),
+                (false, false) => {
+                    rts_host::object::compile_to_object_with_html(&source, &page_scripts)
+                }
+            }
         })
         .expect("a thread to compile the new engine's AOT object on")
         .join()
@@ -100,14 +142,42 @@ pub fn command(
     std::fs::write(&obj_path, &program.bytes)
         .with_context(|| format!("write object {}", obj_path.display()))?;
 
-    let archive = super::runtime_archive()
-        .context("locate the new engine's AOT runtime archive (rts-runtime)")?;
+    let archive = super::runtime_archive(options.embed_compiler).with_context(|| {
+        format!(
+            "locate the new engine's AOT runtime archive ({})",
+            if options.embed_compiler { "rts-runtime-jit" } else { "rts-runtime" }
+        )
+    })?;
     let exe_path = exe_output_path(output.as_deref(), &output_base);
 
     let mut request = LinkRequest::from_env();
     if windows_subsystem.is_some() {
         request.windows_subsystem = windows_subsystem;
     }
+    // NOT implied by `--embed-compiler`, and an earlier version of this line
+    // said the opposite. It cost a real, measured bug to find out why that
+    // was wrong — not about this flag, but about `rts-runtime-jit`'s
+    // dependency on `rts-runtime` at the time: a `#[unsafe(no_mangle)]` item
+    // (`main` is one) is bundled into a dependent's staticlib
+    // UNCONDITIONALLY once the dependency is reached at all, so
+    // `rts-runtime-jit.lib` carried TWO definitions of `main` regardless of
+    // `/WHOLEARCHIVE`, and the linker silently kept the wrong one — the
+    // compiled binary ran the DEFAULT sequence, installing no compiler, and
+    // `eval` failed with the ordinary refusal rather than a link error. Fixed
+    // structurally: `rts-runtime-jit` now depends on `rts-runtime-boot` (the
+    // sequence, no `main`) and never reaches `rts-runtime` at all —
+    // `rts-runtime-boot`'s own module doc has the measurement.
+    //
+    // With that fixed, this flag itself costs nothing correctness-wise to
+    // leave off: `main` in `rts-runtime-jit` unconditionally calls
+    // `install_compiler`, which unconditionally reaches every low-level entry
+    // point through `crate::run::place`'s `RtEntry::ALL` loop and every
+    // high-level builtin through `rts_std::install`/`rts_node::install` —
+    // ordinary `/OPT:REF` reachability already keeps all of that BECAUSE
+    // `main` is the one thing a linker never treats as unreachable. What
+    // `--all-namespaces` still covers, and this does not replace, is a
+    // `import(variable)`'s dynamic MODULE table entries — orthogonal to
+    // whether a compiler is embedded, and still available as its own flag.
     request.keep_all_runtime_symbols = options.all_namespaces;
 
     let linked = link_objects_to_binary_with_request(&[obj_path.clone(), archive], &exe_path, &request)
@@ -130,6 +200,13 @@ pub fn command(
         linked.backend,
         manifest_path.display(),
     );
+    if !program.page_scripts.is_empty() {
+        println!(
+            "  {} page <script>(s) precompiled from --html: {}",
+            program.page_scripts.len(),
+            html_files.join(", "),
+        );
+    }
     Ok(())
 }
 

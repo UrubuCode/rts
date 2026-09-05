@@ -246,7 +246,18 @@ fn flex_flow_expande_direcao_e_wrap() {
         css.flex_direction,
         Some(crate::style::FlexDirection::Column)
     );
-    assert_eq!(css.flex_wrap, Some(true));
+    assert_eq!(css.flex_wrap, Some(crate::style::FlexWrap::Wrap));
+}
+
+#[test]
+fn flex_wrap_reverse_nao_e_o_mesmo_que_nowrap() {
+    // `flex_wrap` era `Option<bool>` (`val == "wrap"`): "wrap-reverse" não
+    // batia a comparação exacta e caía em `Some(false)`, idêntico a
+    // `nowrap` — `FlexWrap` dá ao terceiro valor um estado próprio.
+    let longhand = parse_inline("flex-wrap: wrap-reverse");
+    assert_eq!(longhand.flex_wrap, Some(crate::style::FlexWrap::WrapReverse));
+    let shorthand = parse_inline("flex-flow: row wrap-reverse");
+    assert_eq!(shorthand.flex_wrap, Some(crate::style::FlexWrap::WrapReverse));
 }
 
 #[test]

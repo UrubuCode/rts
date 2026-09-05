@@ -1,8 +1,8 @@
 {
-  "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
+  "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 335,
-  "falham": 154,
+  "passam": 336,
+  "falham": 153,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -89,12 +89,6 @@
       "nome": "flexbox-writing-mode-013",
       "pct": 5.203125,
       "n": 53280,
-      "script": false
-    },
-    {
-      "nome": "multiline-reverse-wrap-baseline",
-      "pct": 4.971972656249999,
-      "n": 50913,
       "script": false
     },
     {
@@ -344,12 +338,6 @@
       "script": false
     },
     {
-      "nome": "flexbox_align-items-baseline",
-      "pct": 0.7970703125,
-      "n": 8162,
-      "script": false
-    },
-    {
       "nome": "css-flexbox-row",
       "pct": 0.779296875,
       "n": 7980,
@@ -377,12 +365,6 @@
       "nome": "flexbox-min-width-auto-004",
       "pct": 0.7195312500000001,
       "n": 7368,
-      "script": false
-    },
-    {
-      "nome": "flexbox_align-self-baseline",
-      "pct": 0.6978515625,
-      "n": 7146,
       "script": false
     },
     {
@@ -620,12 +602,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-flex-flow-002",
-      "pct": 0.11328124999999999,
-      "n": 1160,
-      "script": false
-    },
-    {
       "nome": "flexbox-flex-wrap-horiz-002",
       "pct": 0.112890625,
       "n": 1156,
@@ -674,7 +650,19 @@
       "script": false
     },
     {
+      "nome": "flexbox_align-items-baseline",
+      "pct": 0.1025390625,
+      "n": 1050,
+      "script": false
+    },
+    {
       "nome": "flexbox_align-items-center-2",
+      "pct": 0.1025390625,
+      "n": 1050,
+      "script": false
+    },
+    {
+      "nome": "flexbox_align-self-baseline",
       "pct": 0.1025390625,
       "n": 1050,
       "script": false
@@ -707,12 +695,6 @@
       "nome": "flexbox_align-self-center",
       "pct": 0.0939453125,
       "n": 962,
-      "script": false
-    },
-    {
-      "nome": "flexbox-collapsed-item-baseline-001",
-      "pct": 0.0935546875,
-      "n": 958,
       "script": false
     },
     {
@@ -749,6 +731,12 @@
       "nome": "flexbox_justifycontent-spacebetween-negative",
       "pct": 0.09316406249999999,
       "n": 954,
+      "script": false
+    },
+    {
+      "nome": "flexbox-collapsed-item-baseline-001",
+      "pct": 0.09140625000000001,
+      "n": 936,
       "script": false
     },
     {
@@ -885,14 +873,14 @@
     },
     {
       "nome": "dynamic-baseline-change-nested",
-      "pct": 0.01953125,
-      "n": 200,
+      "pct": 0.021484375,
+      "n": 220,
       "script": true
     },
     {
       "nome": "dynamic-baseline-change",
-      "pct": 0.01953125,
-      "n": 200,
+      "pct": 0.021484375,
+      "n": 220,
       "script": true
     },
     {
@@ -929,6 +917,12 @@
       "nome": "flexbox-baseline-multi-item-horiz-001b",
       "pct": 0.013671875000000002,
       "n": 140,
+      "script": false
+    },
+    {
+      "nome": "multiline-reverse-wrap-baseline",
+      "pct": 0.0087890625,
+      "n": 90,
       "script": false
     }
   ]

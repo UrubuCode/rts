@@ -102,20 +102,20 @@ _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.5%   3122/3138 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 97.1%   135/139 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 68.5%   335/489 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.5%   3210/3226 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 97.2%   138/142 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 68.7%   336/489 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
 
 Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
-- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **55/59 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **56/60 lots done**, 1 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-05 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
@@ -123,27 +123,27 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 <!-- RTS_VS_ELECTRON_START -->
 ## 📦 RTS vs Electron: packaging the same app
 
-Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145 KB, no network calls) — an Electron 44.2.0 bundle, a native RTS `.exe` (AOT, `rts compile`), and the RTS `rts.exe` engine running the `.ts` source (JIT, `rts run`) — measured by `scripts/rts_vs_electron/medir.mjs`: 5 Electron runs, 5 AOT runs, 5 JIT runs, startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-04 on win32 10.0.26200, Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz (16 logical cores), 47.9 GB RAM.
+Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145 KB, no network calls) — an Electron 44.2.0 bundle, a native RTS `.exe` (AOT, `rts compile`), and the RTS `rts.exe` engine running the `.ts` source (JIT, `rts run`) — measured by `scripts/rts_vs_electron/medir.mjs`: 3 Electron runs, 3 AOT runs, 3 JIT runs, startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-05 on win32 10.0.26100, AMD EPYC 7763 64-Core Processor (4 logical cores), 16 GB RAM.
 
 | | Electron | RTS `.exe` AOT | RTS `rts.exe` + app |
 |---|---:|---:|---:|
-| Exe size | 234.8 MB | 27.8 MB | 110.1 MB |
-| Folder size | 367.6 MB | 29.9 MB | 110.2 MB |
-| Files in folder | 73 | 7 | 3 |
+| Exe size | 234.8 MB | 27.9 MB | 110.0 MB |
+| Folder size | 367.6 MB | 28.9 MB | 110.1 MB |
+| Files in folder | 73 | 5 | 3 |
 | Page JavaScript runs | yes | **no** | yes |
 | Processes | 4 | 2 | 2 |
-| Startup (median, min–max) | 450 ms (387–501) | 382 ms (354–518) | 2488 ms (2429–6749) |
-| RSS (median, min–max) | 288.3 MB (287.4–290.8) | 115.3 MB (115.2–115.8) | 168.7 MB (167.4–169.8) |
-| Private bytes (median) | 145.1 MB | 218.0 MB | 271.3 MB |
-| CPU at rest (median) | 0.7% | 4.97% | 10.7% |
+| Startup (median, min–max) | 224 ms (210–1037) | 259 ms (253–263) | 1892 ms (1814–2096) |
+| RSS (median, min–max) | 261.7 MB (261.0–261.9) | 67.6 MB (67.4–69.1) | 110.4 MB (108.3–112.2) |
+| Private bytes (median) | 89.5 MB | 166.2 MB | 212.7 MB |
+| CPU at rest (median) | 0% | 346.61% | 343.65% |
 
-**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
+**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: TypeError: this script was not pre-compiled into this AOT binary — `rts compile --html` only precompiles the <script> tags of the HTML files it was given, and `node:vm`'...". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
 
 **Honesty: the side comparable to Electron today is the last column, not the middle one.** Electron ships a JS engine (V8) inside its runtime, so any page script runs regardless of how the app was built. RTS's AOT `.exe` does not — it only runs the JavaScript that was compiled INTO it ahead of time, so it fits an app with no page `<script>` (or one whose HTML is generated from already-compiled TS, not read as text). `rts.exe` + the app is the actual Electron-equivalent pair (engine binary with a compiler + the page it opens, same relationship as Chromium + `app.asar`), and it is the only RTS column above where the same React page the Electron column renders also renders here.
 
 **What this does NOT measure**: no GPU workload, no network I/O, one tiny static-plus-React page — the size and idle-memory difference between the three is the whole comparison, not a claim about any of them under load.
 
-*Updated 2026-09-04 by `scripts/rts_vs_electron/medir.mjs`.*
+*Updated 2026-09-05 by `scripts/rts_vs_electron/medir.mjs`.*
 <!-- RTS_VS_ELECTRON_END -->
 
 ---
@@ -177,22 +177,22 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `3a0e5fd`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `afddb77`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 27 ms | 62 ms | 62 ms | 47 ms | **31 ms** | **0.87×** | **1.99×** |
-| Monte Carlo π 10M — vs the same xorshift in JS | 448 ms | 890 ms | 865 ms | 484 ms | **474 ms** | **0.95×** | **1.88×** |
-| …the same RTS run, vs JS using native `Math.random` | 97 ms | 270 ms | 220 ms | 482 ms | **473 ms** | **0.20×** | **0.57×** |
-| π Machin f64 (RTS only) | — | — | — | 24 ms | **14 ms** | — | — |
-| 3M objects allocated (RTS only) | — | — | — | 360 ms | **347 ms** | — | — |
-| …the same loop without allocating — the difference is the collector | — | — | — | 49 ms | **38 ms** | — | — |
-| 3M objects, reached through a method (RTS only) | — | — | — | 171 ms | **156 ms** | — | — |
-| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 50 ms | **30 ms** | — | — |
-| string indexing, input doubled four times (RTS only) | — | — | — | 446 ms | **431 ms** | — | — |
-| one loop, state as a local / captured / property | 272 ms | 615 ms | 493 ms | 227 ms | **211 ms** | **1.29×** | **2.92×** |
+| Hello/startup | 28 ms | 65 ms | 56 ms | 49 ms | **37 ms** | **0.77×** | **1.79×** |
+| Monte Carlo π 10M — vs the same xorshift in JS | 429 ms | 805 ms | 772 ms | 465 ms | **449 ms** | **0.96×** | **1.79×** |
+| …the same RTS run, vs JS using native `Math.random` | 94 ms | 283 ms | 212 ms | 480 ms | **457 ms** | **0.21×** | **0.62×** |
+| π Machin f64 (RTS only) | — | — | — | 26 ms | **17 ms** | — | — |
+| 3M objects allocated (RTS only) | — | — | — | 347 ms | **383 ms** | — | — |
+| …the same loop without allocating — the difference is the collector | — | — | — | 48 ms | **39 ms** | — | — |
+| 3M objects, reached through a method (RTS only) | — | — | — | 180 ms | **176 ms** | — | — |
+| two fields read from classes of 2/5/10/20 (RTS only) | — | — | — | 49 ms | **32 ms** | — | — |
+| string indexing, input doubled four times (RTS only) | — | — | — | 654 ms | **664 ms** | — | — |
+| one loop, state as a local / captured / property | 264 ms | 544 ms | 440 ms | 221 ms | **206 ms** | **1.28×** | **2.64×** |
 
-_Updated: 2026-09-04 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-09-05 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 

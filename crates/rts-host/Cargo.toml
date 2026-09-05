@@ -49,6 +49,11 @@ rts-ui = { path = "../rts-ui", optional = true }
 # como a UI: um DOM headless não precisa de tela, e é justamente sem tela que
 # ele se distingue de um Node com jsdom.
 rts-dom-bridge = { path = "../rts-dom-bridge" }
+# O parser/árvore HTML por trás dos nativos `dom.*` acima — usado DIRETO por
+# `object::html_scripts` para extrair `<script>`s de um `--html` em tempo de
+# build, sem passar pela ponte JS: mesma árvore, mesma ordem, sem reimplementar
+# um tokenizer HTML aqui.
+rts-dom = { path = "../rts-dom" }
 libc = "0.2"
 
 [features]

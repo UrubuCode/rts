@@ -24,7 +24,7 @@
 use super::effects::{BoxShadow, LinearGradient, Transform};
 use super::lerp::AnimValue;
 use super::values::{
-    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
+    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FlexWrap, FloatSide,
     JustifyContent, LineHeight, Position, Rgba, Side, TextAlign, TextDecoration, TextTransform,
     Visibility, WhiteSpace,
 };

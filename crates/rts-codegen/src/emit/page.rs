@@ -48,6 +48,28 @@ use crate::syntax::{
     AssignOp, AssignTarget, BindingKind, Expr, ExprKind, Function, Pattern, Stmt, StmtKind,
 };
 
+/// The chain entry [`binding`](super::binding)'s fallback looks up to find a
+/// page script's window from wherever emission currently is — never itself
+/// read as a property.
+///
+/// # Why a chain entry rather than a `Ctx` flag
+///
+/// `Scope` already recomputes a chain name's hop count once per enclosing
+/// closure — the mechanism `emit_page_program`'s own header names, so a
+/// captured read three closures deep still reaches the same object. A flag on
+/// `Ctx` answers "is this a page script" but not "how many `__rts_outer`
+/// links from HERE to the window", which is the number `binding`'s fallback
+/// actually needs and the one thing this crate must never compute a second,
+/// possibly different way — rule 3 of this crate's README.
+///
+/// `__rts_`-prefixed so it can never be a name source text spells, and
+/// therefore never collides with — nor is it seen by — `published` or
+/// `rts_core::entry::environment_names`, which already skips that prefix for
+/// the identical reason (`__rts_outer`, the link it walks, is one too).
+pub(super) fn page_window_name(ctx: &mut Ctx) -> Name {
+    ctx.names.intern("__rts_page_window")
+}
+
 /// Emits a page script: free names resolve against `enclosing`, and top-level
 /// `var` and `function` declarations become writes to the global object.
 ///
@@ -65,12 +87,23 @@ use crate::syntax::{
 /// `vm.runInThisContext`, which shares the real one and so shares what is on
 /// it. See `globals::NODE_ONLY`'s own doc for what this closes and what it
 /// does not.
+///
+/// Answers what this script PUBLISHES beside the compiled program — the same
+/// set [`super::sloppy::created`] found while building `chain`, handed back
+/// rather than dropped. A JIT run never needs it: the next `<script>` learns
+/// what this one left by reading `rts_core::entry::environment_names` off the
+/// object it actually wrote to, after this one has RUN. An AOT compiler has no
+/// such moment — nothing runs before every script is placed — so `rts-host`'s
+/// page-script batch compiler chains this return straight into the next
+/// call's `enclosing`, growing the same list a JIT run would have discovered
+/// one execution at a time. Named rather than re-derived, because re-deriving
+/// it from `chain` afterwards would mean subtracting `enclosing` back out.
 pub fn emit_page_program(
     body: &[Stmt],
     enclosing: &[(Name, u32)],
     hide_node_globals: bool,
     ctx: &mut Ctx,
-) -> EmitResult<Program> {
+) -> EmitResult<(Program, BTreeSet<Name>)> {
     let mut published = BTreeSet::new();
     let mut hoisted = Vec::new();
     let mut statements = Vec::new();
@@ -139,10 +172,15 @@ pub fn emit_page_program(
             chain.push((*name, 0));
         }
     }
+    // The sentinel [`binding`]'s fallback reads to answer a name NEITHER of
+    // the two loops above placed — see its own doc for why a page script
+    // needs this and an ordinary one does not.
+    chain.push((page_window_name(ctx), 0));
 
     ctx.hide_node_globals = hide_node_globals;
     let scope = Scope::for_function(None, BTreeSet::new(), &BTreeSet::new(), &chain);
-    emit_program_into(&body, &[], None, &[], &scope, ctx)
+    let program = emit_program_into(&body, &[], None, &[], &scope, ctx)?;
+    Ok((program, published))
 }
 
 /// Turns one top-level statement into what it means for script code.

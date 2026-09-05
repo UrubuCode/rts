@@ -46,14 +46,11 @@ pub(in crate::layout) struct FlexItem {
     pub(in crate::layout) pseudo: Option<super::flex_pseudo::PseudoItem>,
 }
 
-
 /// Dispõe os filhos HORIZONTAL (flex-row). Implementa gap, justify-content (eixo
 /// principal) e align-items (eixo cruzado). Devolve a altura total do content.
 ///
-/// - `wrap = false` (flex sem wrap): tudo numa linha; justify distribui o espaço
-///   livre; em overflow, cai para flex-start (transborda no fim).
-/// - `wrap = true` (inline-block/flex-wrap): quebra para a próxima linha quando não
-///   cabe; justify/align aplicam POR LINHA.
+/// - `wrap = false`: tudo numa linha; justify distribui o livre (overflow cai a flex-start).
+/// - `wrap = true`: quebra linha quando não cabe; justify/align aplicam POR LINHA.
 pub(in crate::layout) fn layout_children_horizontal(
     dom: &Dom,
     id: NodeIdx,
@@ -277,27 +274,31 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
         lines.last_mut().unwrap().push(it);
     }
+    // `wrap-reverse` troca cross-start/cross-end (`flex_baseline.rs`).
+    super::flex_baseline::reverte_linhas_se_wrap_reverse(&mut lines, css.flex_wrap);
 
     // `align-content` em MULTI-LINHA (spec §8.4/flexbox §8): distribui o
-    // espaço cruzado sobrante entre as linhas de wrap, com o mesmo
-    // `justify_offsets` do flex/grid — a estimativa de altura de cada linha
-    // usa a medição do PRÉ-PASS (antes do grow/shrink do eixo principal, que
-    // é o que a resolução por linha abaixo ainda vai fazer): a altura de uma
-    // linha muda por causa da largura só quando o encolhimento força quebra de
-    // texto, um efeito de segunda ordem que esta aproximação aceita — refinar
-    // exigiria resolver todas as linhas duas vezes.
-    // `normal` (não declarado) comporta-se como `stretch` no eixo CRUZADO
-    // (CSS Box Alignment 3 §8.3) — cada linha cresce a sua fatia do espaço
-    // livre, em vez de só abrir espaçamento como o `justify_offsets` acima
-    // faz para um valor declarado. Achado ao medir `claude-gap-row-percentual-eixo`:
-    // a leitura ingénua (só empacotar) dava #a2 em y=60; o Blink dá 110.
-    // O grampo a `≥0` e o `align-content` negativo (linhas em overflow) são
-    // de `flex_linhas::distribuir_align_content` — ver o porquê lá.
+    // espaço cruzado sobrante entre as linhas, com o mesmo `justify_offsets`
+    // do flex/grid. A estimativa usa o PRÉ-PASS (antes do grow/shrink do
+    // eixo principal — efeito de 2ª ordem aceite) e o ENVELOPE de baseline
+    // (`flex_baseline::calcula_linha`): sem ele, `align-content:center`
+    // sobre um grupo baseline descentrava o bloco por um valor fixo (a linha
+    // via max cru ficava curta demais — `flexbox-baseline-multi-line-
+    // horiz-003` desviava 3,35px em bloco). `normal` comporta-se como
+    // `stretch` no eixo cruzado (CSS Box Alignment 3 §8.3): cada linha
+    // cresce a sua fatia do livre — achado ao medir
+    // `claude-gap-row-percentual-eixo` (#a2 dava y=60 na leitura ingénua; o
+    // Blink dá 110). O grampo a `≥0` e o negativo em overflow são de
+    // `flex_linhas::distribuir_align_content`.
     let (line_align_leading, line_align_between, line_stretch_extra) =
         if wrap && lines.len() > 1 && container_cross_h > 0.0 {
             let estimativa: f32 = lines
                 .iter()
-                .map(|l| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
+                .map(|l| {
+                    super::flex_baseline::calcula_linha(dom, l, align, content_w, ctx)
+                        .map(|b| b.cross_size)
+                        .unwrap_or_else(|| l.iter().fold(0.0f32, |a, it| a.max(it.h)))
+                })
                 .sum::<f32>()
                 + (lines.len().saturating_sub(1)) as f32 * row_gap;
             super::flex_linhas::distribuir_align_content(
@@ -343,12 +344,17 @@ pub(in crate::layout) fn layout_children_horizontal(
             }
         }
 
-        // Cross-size da linha = max dos itens; com `height` explícito e linha
-        // ÚNICA (com ou sem `wrap`) é o content do contentor, MESMO em
-        // overflow — `flex_linhas::cross_unica_linha` (ver o porquê lá).
-        // Com mais de uma linha, cada uma usa o seu max + o que o
-        // `align-content` (acima) tiver esticado.
-        let items_h = line.iter().fold(0.0f32, |a, it| a.max(it.h));
+        // Cross-size da linha = max dos itens, OU o envelope do grupo
+        // baseline quando há um (`flex_baseline::calcula_linha` — ver o
+        // porquê lá); com `height` explícito e linha ÚNICA (com ou sem
+        // `wrap`) é o content do contentor, MESMO em overflow
+        // (`flex_linhas::cross_unica_linha`). Com mais de uma linha, cada
+        // uma usa o seu max + o que o `align-content` (acima) tiver esticado.
+        let baseline = super::flex_baseline::calcula_linha(dom, line, align, content_w, ctx);
+        let items_h = baseline
+            .as_ref()
+            .map(|b| b.cross_size)
+            .unwrap_or_else(|| line.iter().fold(0.0f32, |a, it| a.max(it.h)));
         let line_h = super::flex_linhas::cross_unica_linha(n_lines, container_cross_h)
             .unwrap_or(items_h + line_stretch_extra);
 
@@ -381,7 +387,10 @@ pub(in crate::layout) fn layout_children_horizontal(
                 && !it.is_text
                 && line_h > it.h
                 && auto_cross.is_none();
-            let off_cross = auto_cross.unwrap_or(if stretches { 0.0 } else { align_offset(item_align, line_h, it.h) });
+            let bo = baseline.as_ref().and_then(|b| b.offsets[j]);
+            let off_cross = auto_cross.unwrap_or_else(|| {
+                super::flex_baseline::off_cross_item(stretches, item_align, bo, line_h, it.h)
+            });
             let item_y = line_y + off_cross;
             if let Some(p) = &it.pseudo {
                 super::flex_pseudo::pintar(list, p, x, item_y, ctx);

@@ -2,9 +2,8 @@
 
 use rts_codegen::emit::{Ctx, emit_program};
 use rts_codegen::names::Names;
-use rts_codegen::parse::{parse_module, parse_script};
+use rts_codegen::parse::parse_module;
 use rts_codegen::runtime::{RuntimeCalls, RuntimeOp};
-use rts_codegen::syntax::{FunctionBody, ModuleItem, StmtKind};
 use rts_codegen::values::ValueModel;
 use rts_cranelift::ir::FuncRegistry;
 use rts_cranelift::mem::{RegionBase, RegionBases};
@@ -16,12 +15,13 @@ use rts_cranelift::types::TypeRegistry;
 
 use crate::entries::{agree, machine_entry, resolve};
 use crate::link::HostError;
+use crate::wrap_script::wrap_and_parse_script;
 
 /// The name a compiled script is placed under.
 ///
 /// Not derived from anything in the source: a script has no name, and inventing
 /// one from a file path would make the symbol depend on where the file was.
-const SCRIPT: &str = "__rts_script";
+pub(crate) const SCRIPT: &str = "__rts_script";
 
 /// The tag a JavaScript throw carries, as this crate has to state it.
 ///
@@ -349,15 +349,15 @@ fn run_region(
     // the `context` it is HANDED. A module reaching the ambient one instead
     // would be asking for a borrow this call already holds, which is a panic in
     // an `extern "C"` frame and therefore an abort.
-    // What this crate can do and the module crates cannot: compile source. Handed
-    // DOWN because they cannot reach up — this crate depends on them, so the
-    // other direction is a cycle. See `entry::declare_evaluator`.
-    rts_core::entry::declare_evaluator(&mut context, evaluate_source);
-    // The same shape of injection, for the other thing only this crate knows:
-    // what `"./x"` means from a given file. A static import was resolved before
-    // the program was compiled; a dynamic one asks while it runs, and this is
-    // the answer coming down rather than the runtime learning about paths.
-    rts_core::entry::declare_resolver(&mut context, crate::graph::resolve_specifier);
+    //
+    // What this crate can do and the module crates cannot: compile source, and
+    // answer what a specifier NAMES. Both come DOWN because they cannot reach
+    // up — this crate depends on `rts-core`, so the other direction is a
+    // cycle — and both are wired by one call rather than six: see
+    // `crate::live::install_compiler`'s own doc for why an AOT binary compiled
+    // with `--embed-compiler` (`rts-runtime-jit`) calls it too, and for what
+    // that means "the same hooks" rather than "hooks like these".
+    crate::live::install_compiler(&mut context);
     // And what `import.meta` is, per module — built HERE, in this run's region,
     // out of the host's own two facts about the file. The runtime holds the
     // object and hands it back; it does not know what a URL is.
@@ -372,18 +372,6 @@ fn run_region(
         rts_core::entry::put_member(&mut context, object, "main", main);
         rts_core::entry::declare_module_meta(&mut context, &meta.specifier, object);
     }
-    // The other half of that capability, and the half `evaluate_source` cannot
-    // give: `new Function` needs a CALLABLE, which is a reference, and a
-    // reference belongs to the region that made it. `crate::live` compiles into
-    // THIS context's region instead of building one, which is why it is a
-    // second injection rather than a second caller of the first.
-    rts_core::entry::declare_function_compiler(&mut context, crate::live::compile_function);
-    rts_core::entry::declare_source_parser(&mut context, crate::live::check_source);
-    rts_core::entry::declare_eval_compiler(&mut context, crate::live::evaluate_in_scope);
-    rts_core::entry::declare_eval_compiler_with_receiver(
-        &mut context,
-        crate::live::evaluate_in_scope_with_receiver,
-    );
     // The other capability that has to come down rather than up: letting time
     // pass. `rts-core`'s membership rule is availability and
     // `std::thread::sleep` is not on every target, so the runtime holds a hook
@@ -736,32 +724,21 @@ pub(crate) fn front_end_agreeing(
         ),
         false => None,
     };
-    // `async` when the source awaits at its top level. A script is wrapped in a
-    // function, and `await` outside an async function is a SYNTAX error — so 14
-    // files in the corpus were refused by the parser for a wrapper this host
-    // wrote, not for anything they contained.
-    // The `#!` line goes FIRST, because the wrapper below would put it in the
-    // middle of a program where it means nothing. `parse_as` strips it too, and
-    // for a module that is the only place it happens — this is the script path,
-    // whose source never reaches the parser unwrapped.
+    // `async` when the source awaits at its top level, checked over the
+    // shebang-stripped text so a `#!` line at the top does not count — the
+    // `#!` line has to go first, because a wrapper below it would put it in
+    // the middle of a program where it means nothing.
     let source = rts_codegen::parse::strip_shebang(source);
-    let wrapper = match source.contains("await ") {
-        true => "async function",
-        false => "function",
-    };
-    // The newline before the closing brace is load-bearing. A file ending in a
-    // `//` comment with no trailing newline put that brace INSIDE the comment,
-    // so the wrapper never closed and the parser reported `Expected '}', got
-    // '<eof>'` — twelve files in the corpus, refused for a character this host
-    // wrote rather than for anything they contained.
-    let wrapped = format!("{wrapper} {SCRIPT}() {{ {source}
- }}");
-    // Parsed even when a module was: the script path needs it, and asking for it
-    // here keeps ONE place where a parse failure becomes a `HostError`.
-    let program = match &module {
-        Some(_) => rts_codegen::syntax::Program::new(rts_codegen::syntax::Goal::Script),
-        None => parse_script(&wrapped, &mut names)
-            .map_err(|error| HostError::Parse(format!("{error:?}")))?,
+    // Wrapped and parsed HERE, before the registries below exist, and not
+    // folded into their construction: `wrap_and_parse_script` only touches
+    // `names`, and keeping it ahead of `reserve_keys` is what keeps this the
+    // exact order the corpus counts in that function's own doc were measured
+    // against. Skipped for a module, which parses directly above and never
+    // reaches the wrapper this needs — `import`/`export` are syntax errors
+    // inside it.
+    let script_body = match &module {
+        Some(_) => None,
+        None => Some(wrap_and_parse_script(source, &mut names)?),
     };
 
     let mut tags = TagRegistry::new();
@@ -777,31 +754,9 @@ pub(crate) fn front_end_agreeing(
         reserve_keys(&mut names, &mut keys, seed.keys);
     }
 
-    // Unwrapping what was wrapped above. Anything other than the one function
-    // declaration means the wrapping did not produce what it was written to
-    // produce, which is a defect here rather than in the source.
-    // Unwrapping what was wrapped above, for the script path only.
-    let body: Vec<rts_codegen::syntax::Stmt> = match &module {
-        Some(_) => Vec::new(),
-        None => {
-            let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
-                return Err(HostError::Parse(
-                    "the wrapper did not produce one statement".to_owned(),
-                ));
-            };
-            let StmtKind::Function(function) = &statement.kind else {
-                return Err(HostError::Parse(
-                    "the wrapper did not produce a function".to_owned(),
-                ));
-            };
-            let FunctionBody::Block(body) = &function.body else {
-                return Err(HostError::Parse(
-                    "a declaration always has a block body".to_owned(),
-                ));
-            };
-            body.clone()
-        }
-    };
+    // What `wrap_and_parse_script` already unwrapped, above — empty for a
+    // module, whose body is read some other way by the emit arm below.
+    let body: Vec<rts_codegen::syntax::Stmt> = script_body.unwrap_or_default();
 
     // Every function the program contains, not one. Emission declares each of
     // them itself now, including the script's own — a nested function has to be
@@ -851,7 +806,12 @@ pub(crate) fn front_end_agreeing(
                     .iter()
                     .map(|(text, hops)| (ctx.names.intern(text), *hops))
                     .collect();
+                // The published-names half of the answer is for a caller
+                // batching several page scripts into ONE compilation — see
+                // `crate::object::page`. A single `<script>` compiled here, on
+                // its own, has nothing to chain it into.
                 rts_codegen::emit::emit_page_program(&body, &enclosing, *hide_node_globals, &mut ctx)
+                    .map(|(program, _published)| program)
             }
             (None, Scoped::Nothing) => emit_program(&body, &mut ctx),
         };
@@ -899,7 +859,7 @@ pub(crate) fn front_end_agreeing(
 /// has to line up: skipping one would shift every key after it. `\0` cannot
 /// begin an identifier or a property name a program writes, so the placeholder
 /// can never be the name the source is asking about.
-fn reserve_keys(names: &mut Names, keys: &mut KeyRegistry, texts: &[Option<String>]) {
+pub(crate) fn reserve_keys(names: &mut Names, keys: &mut KeyRegistry, texts: &[Option<String>]) {
     for (at, text) in texts.iter().enumerate() {
         let spelled = match text {
             Some(text) => text.clone(),
@@ -1168,7 +1128,7 @@ pub(crate) fn prepare(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn assemble(
+pub(crate) fn assemble(
     emitted: rts_codegen::emit::Program,
     dependency_ids: &[rts_cranelift::ir::FuncId],
     regions: u32,
@@ -1278,7 +1238,7 @@ fn assemble(
 /// only a value needing no region crosses — a number, a boolean, a singleton —
 /// and anything else answers `None` rather than a wrong object. Named rather
 /// than discovered, and it is what a shared heap would remove.
-fn evaluate_source(source: &str) -> Option<u64> {
+pub(crate) fn evaluate_source(source: &str) -> Option<u64> {
     // An EXPRESSION answers itself, and that is what a caller of this asks for:
     // `vm.runInNewContext("1 + 2")` and a repl line both want the value, and
     // there is no completion value to give them — `compile` wraps a script in a
