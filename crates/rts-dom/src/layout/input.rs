@@ -62,6 +62,21 @@ pub(in crate::layout) fn layout_button(
 /// por isso é uma constante e não uma medida.
 const CAIXA_DE_MARCA: f32 = 13.0;
 
+/// Largura de CONTEÚDO natural de um `<input>` de texto sem `width` — medido
+/// no Edge (`tests/css/claude-controlos-tamanho-natural.esperado.json`, campo
+/// `#txt`): 177px de caixa (border-box com padding 1px 2px + border 2px de
+/// cada lado, 8px de frame) menos esse frame. Não sai de fonte nenhuma (é o
+/// mesmo "20 caracteres" que todo browser reserva para `size` por omissão),
+/// por isso é uma constante e não uma medida — como `CAIXA_DE_MARCA`.
+const LARGURA_CAMPO_TEXTO: f32 = 169.0;
+
+/// Largura de CONTEÚDO natural de um `<textarea>` sem `cols` — medida no
+/// mesmo corpus (`#txa`): 168px de caixa menos o mesmo frame de 8px. É MENOR
+/// que a de um `<input>` (169) apesar do mesmo `size`/`cols`=20 nominal — o
+/// Blink reserva a faixa da scrollbar vertical mesmo sem overflow nenhum, e
+/// não há fórmula aqui que a derive; é o número medido.
+const LARGURA_TEXTAREA: f32 = 160.0;
+
 /// A caixa de um `<input>` de texto/marca: `(outer_w, outer_h)` e o frame com
 /// que ela foi construída.
 ///
@@ -99,6 +114,10 @@ pub(in crate::layout) fn medida_do_input(
     // do frame são ZERO para eles (o CSS do autor continua a mandar).
     let tipo = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
     let quadrado = matches!(tipo.as_deref(), Some("checkbox") | Some("radio"));
+    // `<textarea>` E `<input>` chegam aqui pelo mesmo `is_text_input_tag`
+    // (`bloco.rs`/`runs.rs`), mas o tamanho por omissão de um NÃO é o do
+    // outro — ver `LARGURA_TEXTAREA` e as duas linhas por omissão abaixo.
+    let e_textarea = matches!(&dom.node(id).kind, crate::dom::NodeKind::Element { tag } if tag == "textarea");
     // `type=range` também não leva a moldura do campo de texto: a folha da UA
     // do Blink dá-lhe `padding: initial; border: initial` (0 e 0) — num flex de
     // 80px o campo computa `height: 80px`, não 74 (`claude-flex-stretch-input-height`).
@@ -126,8 +145,10 @@ pub(in crate::layout) fn medida_do_input(
         }
     } else if quadrado {
         CAIXA_DE_MARCA
+    } else if e_textarea {
+        LARGURA_TEXTAREA.min((avail_w - frame).max(0.0))
     } else {
-        180.0_f32.min((avail_w - frame).max(0.0))
+        LARGURA_CAMPO_TEXTO.min((avail_w - frame).max(0.0))
     };
     // `resolve_height` e não `resolve`: uma percentagem no eixo VERTICAL mede-se
     // contra a altura do containing block. Com o `resolve` genérico media-se
@@ -149,6 +170,10 @@ pub(in crate::layout) fn medida_do_input(
         .map(|fh| (fh - margin_top - margin_bottom - pad_top - pad_bottom - 2.0 * border).max(0.0));
     let content_h = imposta.or(declarada).unwrap_or(if quadrado {
         CAIXA_DE_MARCA
+    } else if e_textarea {
+        // `rows` por omissão de um `<textarea>` é 2 (HTML Standard §4.10.11),
+        // não 1 — a mesma altura medida em `#txa` (30 = 2×15).
+        2.0 * ctx.measurer.line_height(font)
     } else {
         ctx.measurer.line_height(font)
     });
@@ -191,6 +216,14 @@ impl MedidaDoInput {
             self.content_w + self.padding_h + 2.0 * self.border + self.margin_h,
             self.content_h + self.padding_v + 2.0 * self.border + self.margin_v,
         )
+    }
+
+    /// A caixa de CONTEÚDO só — o que `intrinsic_content_width`
+    /// (`layout/medida.rs`) precisa: o frame (padding/borda) é somado pelo
+    /// CHAMADOR de lá (`intrinsic_outer_width`), como em qualquer outro ramo
+    /// dessa função; somá-lo aqui também contava-o duas vezes.
+    pub(in crate::layout) fn conteudo(&self) -> (f32, f32) {
+        (self.content_w, self.content_h)
     }
 }
 
@@ -321,4 +354,91 @@ pub(in crate::layout) fn layout_input(
         box_rect.w + margin_left + margin_right,
         box_rect.h + margin_top + margin_bottom,
     )
+}
+
+/// Devolve o CONTEÚDO que faz `intrinsic_outer_width`/`intrinsic_content_width`
+/// (`layout/medida.rs`, que somam o frame de `css` por cima) produzir
+/// exatamente `outer_w`×`outer_h` — em vez de reconstruir padding/borda à mão
+/// para cada tipo de controlo, subtrai o mesmo frame que o chamador vai somar
+/// depois, e os dois cancelam. `avail_w = INFINITY` porque isto é sempre uma
+/// pergunta de max-content (a mesma razão de `replaced_inline_size`).
+fn conteudo_para_outer(
+    css: &ComputedStyle,
+    font: f32,
+    ctx: &LayoutCtx,
+    outer_w: f32,
+    outer_h: f32,
+) -> (f32, f32) {
+    let resolve = ResolveCtx {
+        parent_content_w: f32::INFINITY,
+        node_font_size: font,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let border = css.border_width.unwrap_or(0.0).max(0.0);
+    let ph = css.padding.left.resolve(&resolve).unwrap_or(0.0) + css.padding.right.resolve(&resolve).unwrap_or(0.0);
+    let pv = css.padding.top.resolve(&resolve).unwrap_or(0.0) + css.padding.bottom.resolve(&resolve).unwrap_or(0.0);
+    ((outer_w - ph - 2.0 * border).max(0.0), (outer_h - pv - 2.0 * border).max(0.0))
+}
+
+/// Chamada por `intrinsic_content_width` (`layout/medida.rs`, que só
+/// invoca — a explicação fica aqui e não lá porque esse ficheiro já está
+/// acima do teto de 500 linhas): sem esta função, um controlo sem filhos
+/// caía no ramo de bloco vazio dessa função e media 0.
+///
+/// Tamanho NATURAL (max-content) de um controlo de formulário sem `width`/
+/// `height` — a mesma pergunta que decide a *flex base size* de
+/// `flex-basis:auto` (Flexbox §9.2) e o shrink-to-fit de um bloco sem
+/// `width`. `None` para o `<button>` COM filhos de texto (`<button>Clica
+/// </button>`): esse já tem resposta certa pelo ramo de TEXTO genérico de
+/// `intrinsic_content_width` (o texto é um filho de verdade), e responder
+/// aqui também seria um segundo cálculo da mesma largura.
+///
+/// `input[submit/button/reset]` e `<select>`/`<textarea>` não têm essa saída:
+/// o primeiro só tem o atributo `value`, sem filho nenhum; os outros dois
+/// têm caixa própria mesmo vazios. Medido em
+/// `tests/css/claude-controlos-tamanho-natural` (Edge/Blink): o achado que
+/// origina este lote (`flex-vertical-align-effect`, WPT) era exactamente
+/// este vazio — um `<input>` sem `width` caía no ramo de bloco-por-filhos
+/// vazio e media 0.
+pub(in crate::layout) fn tamanho_natural_controlo(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    font: f32,
+    ctx: &LayoutCtx,
+) -> Option<(f32, f32)> {
+    let crate::dom::NodeKind::Element { tag } = &dom.node(id).kind else {
+        return None;
+    };
+    match tag.as_str() {
+        "input" => {
+            let tipo = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
+            if matches!(tipo.as_deref(), Some("submit") | Some("button") | Some("reset")) {
+                // A MESMA fórmula de `layout_button` (`tw+2*12`, `lh+2*5`) —
+                // são o mesmo widget, uma pergunta de tamanho e outra de
+                // pintura; reescrevê-la aqui teria as duas a poder divergir.
+                let label = dom.node(id).attr("value").unwrap_or("").to_string();
+                let bf = font_px(css, DEFAULT_FONT_SIZE - 3.0);
+                let tw = ctx.measurer.text_width(&label, bf, false, false, false);
+                let lh = ctx.measurer.line_height(bf);
+                Some(conteudo_para_outer(css, bf, ctx, tw + 24.0, lh + 10.0))
+            } else {
+                // texto, password, checkbox, radio, range, … — o MESMO
+                // cálculo que já pinta o widget (`medida_do_input`), com
+                // `avail_w = INFINITY`: max-content não tem linha nenhuma
+                // para encolher contra.
+                Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).conteudo())
+            }
+        }
+        "textarea" => {
+            Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).conteudo())
+        }
+        // Sem `<option>` nenhum para medir (v1 não lê a lista), a caixa mais
+        // pequena que o Chrome ainda desenha é a seta do dropdown: 22×19,
+        // medido no mesmo corpus.
+        "select" => Some(conteudo_para_outer(css, font, ctx, 22.0, 19.0)),
+        _ => None,
+    }
 }
