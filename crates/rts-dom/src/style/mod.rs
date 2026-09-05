@@ -123,7 +123,7 @@ pub use syntax::{
     SpecifiedStyle, StylesheetAst, Token, TokenKind, tokenize,
 };
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
-pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak};
+pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak, WritingMode};
 pub use text_metrics::{
     ASCENT_RATIO, DESCENT_RATIO, MONO_ADVANCE, PROP_ADVANCE, SUB_OFFSET_RATIO,
     SUPER_OFFSET_RATIO, X_HEIGHT_RATIO, normal_line_height, spacing_width,
