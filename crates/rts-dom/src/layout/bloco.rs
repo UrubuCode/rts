@@ -1070,6 +1070,16 @@ pub(crate) fn layout_block(
             );
             at += 1;
         }
+        // IMAGEM DE FUNDO: sobre a cor/gradiente, atrás da borda — os pixels
+        // (quando já carregados; ver `fundo_imagem`) tapam o que a cor pintou,
+        // exatamente como o Blink compõe as camadas de `background`.
+        for item in super::fundo_imagem::background_pixels_items(
+            dom, id, &css, box_rect, border_top, border_right, border_bottom, border_left,
+            filhos_antes_da_caixa, list.children.len(),
+        ) {
+            insert_item(list, at, filhos_antes_da_caixa, item);
+            at += 1;
+        }
         for item in border_items(&css, box_rect, radius, op, fx) {
             insert_item(list, at, filhos_antes_da_caixa, item);
             at += 1;
@@ -1106,6 +1116,11 @@ pub(crate) fn layout_block(
             // o índice do clip quando uma borda por lado entra em jogo.
             css.box_shadow.is_some() as usize
                 + (css.gradient.is_some() || css.bg.is_some()) as usize
+                + super::fundo_imagem::background_pixels_items(
+                    dom, id, &css, box_rect, border_top, border_right, border_bottom, border_left,
+                    filhos_antes_da_caixa, list.children.len(),
+                )
+                .len()
                 + border_items(
                     &css,
                     box_rect,

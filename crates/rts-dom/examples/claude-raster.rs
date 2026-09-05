@@ -77,6 +77,31 @@ fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
             dom.set_pixel_data(id, rgba, w, h);
         }
     }
+    carregar_fundos(dom, base_dir);
+}
+
+/// O mesmo carregamento acima, para `background-image: url(...)` — o achado
+/// do lote `background-image-pintado`: nenhum elemento além de `<img>` tinha
+/// os seus pixels carregados, então `layout::fundo_imagem` nunca tinha o que
+/// pintar. `dom.query_all("*")` (em vez de uma tag) porque um fundo pode
+/// estar em QUALQUER elemento, não só numa lista fechada de tags.
+fn carregar_fundos(dom: &mut Dom, base_dir: &Path) {
+    for id in dom.query_all("*") {
+        let Some(css) = dom.computed_style(id) else { continue };
+        let Some(url) = css.bg_image.as_deref().and_then(rts_dom::style::background::bg_image_url) else {
+            continue;
+        };
+        let decoded = if url.starts_with("data:") {
+            rts_dom::imagem::bytes_da_data_url(&url).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        } else if url.starts_with("http://") || url.starts_with("https://") {
+            None
+        } else {
+            std::fs::read(base_dir.join(&url)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        };
+        if let Some((rgba, w, h)) = decoded {
+            dom.set_pixel_data(id, rgba, w, h);
+        }
+    }
 }
 
 const W: usize = 1280;

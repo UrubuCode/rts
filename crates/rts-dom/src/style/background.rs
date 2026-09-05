@@ -178,6 +178,29 @@ impl BgSize {
     }
 }
 
+/// O caminho/URL cru de dentro de `url(...)`, sem aspas — o miolo que
+/// `fmt_url` (`style::fmt_values`) devolve ENTRE aspas para o CSSOM, aqui nu,
+/// para quem vai LER o recurso (o rasterizador da régua de pintura, o mesmo
+/// gesto que o `<img>` já faz a partir do atributo `src`). `None` quando
+/// `raw` não é `url(...)` ou é `none` — o chamador não tenta carregar nada.
+pub fn bg_image_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.eq_ignore_ascii_case("none") || raw.is_empty() {
+        return None;
+    }
+    let miolo = raw
+        .strip_prefix("url(")
+        .or_else(|| raw.strip_prefix("URL("))?
+        .strip_suffix(')')?
+        .trim();
+    let sem_aspas = miolo
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| miolo.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(miolo);
+    Some(sem_aspas.to_string())
+}
+
 /// O que uma declaração `background: ...` nomeou. Campos `None` = não nomeados
 /// (o chamador não os toca — ver o corte do reset no topo do módulo).
 #[derive(Default)]
