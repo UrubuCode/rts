@@ -111,11 +111,12 @@ fn posicao_estatica_flex(css: &ComputedStyle, parent_css: &ComputedStyle, conten
         fd,
         crate::style::FlexDirection::RowReverse | crate::style::FlexDirection::ColumnReverse
     );
-    let justify = super::coluna::fisico_para_eixo(
+    let justify = super::eixos_flex::fisico_para_eixo(
         parent_css
             .justify
             .unwrap_or(crate::style::JustifyContent::FlexStart),
         reverse,
+        parent_css.direction.unwrap_or_default(),
     );
     let align = css
         .align_self

@@ -49,16 +49,17 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.margin.top = s;
             css.margin.bottom = s;
         }
-        // `margin-inline-start`/`-end`: mesmo motivo do `padding-inline-*`
-        // acima — cai em `style::logical`, direction-aware.
-        "margin-block-start" | "margin-block-end" => {
-            let s = parse_side(val, Caixa::Margem);
-            if prop == "margin-block-start" {
-                css.margin.top = s;
-            } else {
-                css.margin.bottom = s;
-            }
-        }
+        // `margin-block-start`/`-end` NÃO entram aqui — mesmo motivo do
+        // `padding-inline-*` acima, e não só o `direction`: desde o lote
+        // `flex-writing-mode-2`, o lado físico do eixo de BLOCO também
+        // depende de `writing-mode` (herdado, só conhecido por elemento) —
+        // um braço fixo `top`/`bottom` aqui escondia `style::logical::
+        // try_apply` por completo para esta família, como acontecia com
+        // `margin-inline-start`/`-end` antes do lote `flex-reverse-order`
+        // (achado pelo WPT `gap-002-lr`: a referência simula o `gap`
+        // principal de um `flex-direction:column` com `margin-block-start`,
+        // e sob `writing-mode:vertical-lr` essa margem é a ESQUERDA/DIREITA,
+        // não `top`).
         // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
         // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
         "border" => apply_border_shorthand(css, val),

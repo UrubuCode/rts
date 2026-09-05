@@ -65,23 +65,27 @@
 //! `direction` quando o pai é uma LINHA de flex, porque a ORDEM dos itens da
 //! linha ainda não inverte por `direction` (só por `row-reverse`), e margem
 //! certa com ordem errada é pior do que as duas erradas (achado pelo WPT
-//! `gap-003-rtl`/`gap-006-rtl`, retrabalho deste lote). `eixo_inline_invertido`/
-//! `to_physical` continuam puras: a pergunta "que lado físico" não muda, só
-//! QUANDO se faz.
+//! `gap-003-rtl`/`gap-006-rtl`, retrabalho deste lote). `to_physical`
+//! continua pura: a pergunta "que lado físico" não muda, só QUANDO se faz.
+//!
+//! **Lote `flex-writing-mode`**: `to_physical` já não assume o inline
+//! sempre-horizontal que o parágrafo acima descrevia — lê `writing_mode`
+//! também (`style::text::eixo_x_forward`/`eixo_y_forward`, a MESMA pergunta
+//! que `layout::eixos_flex` faz para o flex): em `writing-mode` vertical o
+//! eixo inline é Y (`inline-start`/`inline-end` viram `top`/`bottom`) e o de
+//! bloco é X (`block-start`/`block-end` viram `left`/`right`, e PODEM
+//! inverter — `vertical-rl`/`sideways-rl` sozinhos, sem `direction` nenhum).
+//! Por isso `apply_resolved_decl` passou a injectar `writing_mode` herdado
+//! no clone, ao lado do `direction` que já injectava — a MESMA fila de
+//! pendentes, um segundo motivo (achado pelo WPT `gap-001-lr`/`gap-007-lr`:
+//! um `margin-inline-start` sob `vertical-lr` é a margem de CIMA, não a da
+//! esquerda).
 
 use super::lengths::{parse_inset, split_top_ws};
 use super::props::ComputedStyle;
 use super::values::Dimension;
-use crate::style::Direction;
-
-/// `true` quando o eixo INLINE de `css` está espelhado — só `direction:rtl`
-/// decide (o motor não roda o inline com `writing-mode`, então não há aqui a
-/// guarda "só se horizontal" que `coluna_rtl::cross_x` tem: para este motor o
-/// inline É sempre o eixo horizontal, qualquer que seja o `writing-mode`
-/// declarado).
-fn eixo_inline_invertido(css: &ComputedStyle) -> bool {
-    matches!(css.direction, Some(Direction::Rtl))
-}
+use crate::style::text::{eixo_x_forward, eixo_y_forward};
+use crate::style::{Direction, WritingMode};
 
 /// `true` para as propriedades cujo lado físico depende de `direction` —
 /// `margin`/`padding`/`border`(-width/-style/-color)/`inset`, eixo INLINE,
@@ -99,18 +103,65 @@ pub(crate) fn e_direction_dependente(prop: &str) -> bool {
         )
 }
 
+/// `true` para `margin`/`padding`/`border`(-width/-style/-color)/`inset`
+/// no eixo de BLOCO (`block-start`/`block-end`) — o lado físico não
+/// depende de `direction` nenhum (o eixo de bloco nunca lê `direction`,
+/// `to_physical` já dizia isso), mas depende de QUAL eixo físico é o de
+/// bloco, e isso é `writing-mode`. Ficaram de fora de
+/// [`e_direction_dependente`] porque nunca precisaram de adiar ATÉ este
+/// lote — em `horizontal-tb` o bloco é sempre Y, fixo, sem pergunta
+/// nenhuma para fazer; passou a ter uma só quando o bloco pode ser X
+/// (achado pelo WPT `gap-002-lr`: uma `section` com `flex-direction:
+/// column` simula o `gap` principal com `margin-block-start` numa
+/// referência, e essa margem resolvia sempre como `margin-top` — physico
+/// ERRADO sob `vertical-lr`, onde o eixo de bloco é X).
+pub(crate) fn e_bloco_writing_mode_dependente(prop: &str) -> bool {
+    prop.contains("block-start") || prop.contains("block-end")
+}
+
+/// `true` para as DIMENSÕES lógicas (`inline-size`/`block-size` e os
+/// `min-`/`max-` das duas) — o lado FÍSICO de `-start`/`-end` depende de
+/// `direction`, mas qual EIXO físico (largura ou altura) `inline-size`/
+/// `block-size` apontam depende de `writing-mode`, herdado do mesmo jeito
+/// (`dom::cascade`, "o writing-mode herdado" ao lado do `direction`
+/// herdado) — a razão de precisar de uma lista à parte de
+/// `e_direction_dependente` em vez de reusar a mesma pendência.
+pub(crate) fn e_writing_mode_dependente(prop: &str) -> bool {
+    matches!(
+        prop,
+        "inline-size" | "block-size" | "min-inline-size" | "min-block-size" | "max-inline-size" | "max-block-size"
+    )
+}
+
 /// Traduz o eixo lógico de um nome de propriedade para o lado físico.
 /// `"inset-inline-start"` → `"inset-left"` (`rtl=false`) ou `"inset-right"`
 /// (`rtl=true`); `"border-block-end-width"` → sempre `"border-bottom-width"`
 /// (o eixo bloco não lê `direction`). `None` quando o nome não tem eixo
 /// lógico nenhum.
-fn to_physical(prop: &str, rtl: bool) -> Option<String> {
-    let (inline_start, inline_end) = if rtl { ("right", "left") } else { ("left", "right") };
+fn to_physical(prop: &str, wm: WritingMode, dir: Direction) -> Option<String> {
+    // Horizontal: inline=X (`eixo_x_forward` decide left/right), bloco=Y
+    // fixo (top/bottom, nunca invertido — o motor não roda o fluxo normal).
+    // Vertical: TROCADOS — inline=Y (`eixo_y_forward`), bloco=X
+    // (`eixo_x_forward`, que já ignora `direction` nesse caso).
+    let (inline_start, inline_end) = if wm.is_horizontal() {
+        if eixo_x_forward(wm, dir) { ("left", "right") } else { ("right", "left") }
+    } else if eixo_y_forward(wm, dir) {
+        ("top", "bottom")
+    } else {
+        ("bottom", "top")
+    };
+    let (block_start, block_end) = if wm.is_horizontal() {
+        ("top", "bottom")
+    } else if eixo_x_forward(wm, dir) {
+        ("left", "right")
+    } else {
+        ("right", "left")
+    };
     for (logico, fisico) in [
         ("inline-start", inline_start),
         ("inline-end", inline_end),
-        ("block-start", "top"),
-        ("block-end", "bottom"),
+        ("block-start", block_start),
+        ("block-end", block_end),
     ] {
         if let Some(i) = prop.find(logico) {
             let mut out = String::with_capacity(prop.len());
@@ -206,20 +257,29 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         return try_apply(css, moderno, val);
     }
 
+    // Em `writing-mode` vertical os dois eixos TROCAM: `inline-size` é a
+    // altura (o eixo inline correu para Y) e `block-size` a largura — a
+    // MESMA pergunta que `layout::eixos_flex` faz para o flex, aqui para a
+    // dimensão declarada (achado pelo WPT `gap-001-lr`/`gap-002-lr`: um
+    // `block-size` no contentor flex de um `writing-mode:vertical-lr`
+    // media a LARGURA física no Chrome, não a altura).
+    let vertical = !css.writing_mode.unwrap_or_default().is_horizontal();
     let dimensao = match prop {
-        "inline-size" => Some("width"),
-        "block-size" => Some("height"),
-        "min-inline-size" => Some("min-width"),
-        "min-block-size" => Some("min-height"),
-        "max-inline-size" => Some("max-width"),
-        "max-block-size" => Some("max-height"),
+        "inline-size" => Some(if vertical { "height" } else { "width" }),
+        "block-size" => Some(if vertical { "width" } else { "height" }),
+        "min-inline-size" => Some(if vertical { "min-height" } else { "min-width" }),
+        "min-block-size" => Some(if vertical { "min-width" } else { "min-height" }),
+        "max-inline-size" => Some(if vertical { "max-height" } else { "max-width" }),
+        "max-block-size" => Some(if vertical { "max-width" } else { "max-height" }),
         _ => None,
     };
     if let Some(fisico) = dimensao {
         return super::parse::aplica_declaracao(css, fisico, val);
     }
 
-    let Some(fisico) = to_physical(prop, eixo_inline_invertido(css)) else {
+    let wm = css.writing_mode.unwrap_or_default();
+    let dir = css.direction.unwrap_or_default();
+    let Some(fisico) = to_physical(prop, wm, dir) else {
         return false;
     };
 

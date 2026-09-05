@@ -230,18 +230,19 @@ impl Direction {
 
 /// `writing-mode` — a direção do eixo de BLOCO. Herdável.
 ///
-/// CORTE declarado (lote `flex-justify-logico`, retrabalho): só
-/// `horizontal-tb` (o default) tem layout de verdade — os quatro valores
-/// verticais são aceites e serializados, mas o motor não troca os eixos de
-/// bloco/inline (a mesma limitação de `Direction`, que também não faz bidi).
-/// O que ISTO desbloqueia é [`is_horizontal`](WritingMode::is_horizontal):
-/// um efeito físico que só faz sentido quando o eixo de bloco é vertical
-/// (como o espelho de `direction:rtl` no eixo CRUZADO de uma flex-column,
-/// `coluna_rtl::cross_x`) pode perguntar por ele ANTES de se aplicar — sem
-/// isto, um `.row-wrapper{writing-mode:vertical-rl;direction:rtl}` do WPT
-/// `overflow-top-left` espelhava um contentor que o motor já desenha
-/// horizontal, divergindo da referência (também tratada como bloco/
-/// horizontal) só porque o espelho não perguntou.
+/// **O FLEX troca de eixo de verdade** (lote `flex-writing-mode`,
+/// `layout/eixos_flex.rs`): `flex-direction:row`/`column` despacham para o
+/// algoritmo físico certo (X ou Y) e correm no sentido que o `writing-mode` +
+/// `direction` pedem — `row` num contentor VERTICAL é o eixo inline, que aí
+/// é o Y; `column` vertical é o eixo de bloco, que aí é o X e corre RTL em
+/// `vertical-rl`/`sideways-rl`. CORTE que continua: o fluxo de BLOCO normal
+/// (não-flex — `layout/vertical.rs`, `bloco.rs`) e o texto dentro de uma
+/// caixa continuam tratados como `horizontal-tb` sempre — só as CAIXAS do
+/// flex trocam de eixo, não os glifos lá dentro nem um `<div>` empilhado
+/// fora de um flex. [`is_horizontal`](WritingMode::is_horizontal) é o que os
+/// dois mundos perguntam antes de decidir: `eixos_flex.rs` para o eixo do
+/// flex, `rtl_bloco.rs` para saber se ainda pode aplicar o espelho físico
+/// do fluxo normal (que continua a assumir bloco = Y sempre).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum WritingMode {
     #[default]
@@ -274,10 +275,38 @@ impl WritingMode {
         }
     }
 
-    /// `true` só para `horizontal-tb` (o default) — a única forma que o
-    /// motor sabe dispor. Ver o corte no comentário do tipo.
+    /// `true` só para `horizontal-tb` (o default). O flex troca de eixo nos
+    /// outros quatro valores (`eixos_flex.rs`); o fluxo de bloco normal
+    /// ainda não — ver o corte no comentário do tipo.
     pub fn is_horizontal(self) -> bool {
         matches!(self, WritingMode::HorizontalTb)
+    }
+}
+
+/// O sentido físico do eixo X: LTR em `horizontal-tb` (`direction` decide);
+/// num modo VERTICAL, X é o eixo de BLOCO — que `direction` nunca toca — e o
+/// sentido é LTR para `vertical-lr`/`sideways-lr`, RTL para `vertical-rl`/
+/// `sideways-rl`. Partilhado entre `layout::eixos_flex` (que eixo do FLEX
+/// corre em X) e `style::logical` (que lado físico é `inline-start`/
+/// `block-start` quando X é esse eixo) — a mesma pergunta em dois
+/// consumidores, uma resposta só (lote `flex-writing-mode`).
+pub fn eixo_x_forward(wm: WritingMode, dir: Direction) -> bool {
+    if wm.is_horizontal() {
+        dir == Direction::Ltr
+    } else {
+        matches!(wm, WritingMode::VerticalLr | WritingMode::SidewaysLr)
+    }
+}
+
+/// O sentido físico do eixo Y: TB em `horizontal-tb` (nunca invertido);
+/// num modo VERTICAL, Y é o eixo INLINE — TB por omissão e invertido por
+/// `direction:rtl`, EXCETO `sideways-lr` (BT por omissão; o XOR volta a TB
+/// sob `rtl` — confirmado contra `flexbox-writing-mode-slr-rtl`).
+pub fn eixo_y_forward(wm: WritingMode, dir: Direction) -> bool {
+    if wm.is_horizontal() {
+        true
+    } else {
+        (dir == Direction::Ltr) ^ (wm == WritingMode::SidewaysLr)
     }
 }
 

@@ -739,12 +739,21 @@ pub(crate) fn layout_block(
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
     // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
-    let is_column = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
-    // `row-reverse`/`column-reverse`: mesmo eixo principal, ordem visual
-    // invertida. Aplicado DEPOIS do `order` (spec §5.1) — cada função inverte
-    // a lista já ordenada por `order`, o que é equivalente a inverter a
-    // atribuição de posições no eixo principal.
-    let is_reverse = css
+    // `is_column` é o eixo FÍSICO e não a keyword crua — `writing-mode` troca
+    // qual eixo lógico é X e qual é Y (`eixos_flex::main_no_eixo_y`): um
+    // `row` VERTICAL é o eixo inline, que aí é o Y, e desce por
+    // `layout_children_column` como se fosse `column` (e vice-versa).
+    let wm = css.writing_mode.unwrap_or_default();
+    let dir = css.direction.unwrap_or_default();
+    let is_column_kw = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    let is_column = super::eixos_flex::main_no_eixo_y(wm, is_column_kw);
+    // `row-reverse`/`column-reverse` × o sentido FÍSICO do eixo que ficou
+    // principal (`eixos_flex::reverse_efetivo`), nunca o do eixo original da
+    // keyword — que já pode não ser mais o principal. Aplicado DEPOIS do
+    // `order` (spec §5.1) — cada função inverte a lista já ordenada por
+    // `order`, o que é equivalente a inverter a atribuição de posições no
+    // eixo principal.
+    let is_reverse_kw = css
         .flex_direction
         .map(|f| {
             matches!(
@@ -753,8 +762,32 @@ pub(crate) fn layout_block(
             )
         })
         .unwrap_or(false);
+    let is_reverse = super::eixos_flex::reverse_efetivo(wm, dir, is_column, is_reverse_kw);
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
+    // `gap`/`row-gap` seguem a KEYWORD, nunca o eixo físico que `writing-mode`
+    // troca (CSS Box Alignment §12.2 + Flexbox §8.1: "row-gap" é o espaço
+    // entre as LINHAS do flex e "column-gap" entre os itens de uma linha —
+    // "linha"/"coluna" aqui são o que `flex-direction:row`/`column` definem,
+    // não X/Y físicos). `flex.rs` (roda o eixo físico X) e `coluna.rs` (roda
+    // o Y) continuam a ler `gap`=principal/`row_gap`=cruzado e
+    // `row_gap`=principal/`gap`=cruzado, respetivamente — os papéis que já
+    // tinham antes deste lote. Quando o DESPACHO físico diverge da keyword
+    // (`is_column != is_column_kw`, que só acontece em `writing-mode`
+    // vertical — `main_no_eixo_y` troca-o), o algoritmo que corre é o do
+    // eixo físico ERRADO para os nomes que já lê; troca-se os dois campos
+    // aqui, uma vez, para o algoritmo continuar a ler o nome que já lia e
+    // acertar mesmo assim (achado pelo WPT `gap-*-lr/rl/rtl` e
+    // `flexbox-column-row-gap-002/004`: sem isto, um `flex-direction:column`
+    // vertical passava o `gap` do documento — pensado para as SUAS colunas —
+    // a `flex.rs`, que o lê como o espaço entre ITENS de uma linha).
+    let css = if is_flex && is_column != is_column_kw {
+        let mut c = (*css).clone();
+        std::mem::swap(&mut c.gap, &mut c.row_gap);
+        std::rc::Rc::new(c)
+    } else {
+        css
+    };
     let content_h = match display {
         // flex column: sem wrap empilha numa coluna; COM wrap (e altura
         // definida) `layout_children_column` delega para `coluna_wrap.rs` —

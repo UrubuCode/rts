@@ -42,7 +42,7 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
     let vars = std::collections::HashMap::new();
     for (prop, raw, important) in std::mem::take(&mut block.pending) {
         let target = if important { &mut block.important } else { &mut block.normal };
-        super::stylesheet::apply_resolved_decl(target, &prop, &raw, &vars, None);
+        super::stylesheet::apply_resolved_decl(target, &prop, &raw, &vars, None, None);
     }
     block.normal
 }
@@ -396,6 +396,20 @@ pub(crate) fn apply_specified_declaration(
         return;
     }
     if crate::style::logical::e_direction_dependente(&prop) {
+        block
+            .pending
+            .push((prop, val.trim().to_string(), important));
+        return;
+    }
+    // `inline-size`/`block-size` (e `min-`/`max-`): a MESMA fila, pela mesma
+    // razão de fundo — qual eixo físico é o inline depende de `writing-mode`
+    // herdado, só conhecido por elemento (`style::logical::
+    // e_writing_mode_dependente`). `margin`/`padding`/`border`/`inset`
+    // `-block-start`/`-block-end` (`e_bloco_writing_mode_dependente`): a
+    // MESMA pergunta, para o outro eixo.
+    if crate::style::logical::e_writing_mode_dependente(&prop)
+        || crate::style::logical::e_bloco_writing_mode_dependente(&prop)
+    {
         block
             .pending
             .push((prop, val.trim().to_string(), important));

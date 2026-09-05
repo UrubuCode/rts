@@ -86,6 +86,7 @@ mod coluna_rtl;
 mod coluna_shrink;
 mod coluna_wrap;
 mod coluna_wrap_largura;
+mod eixos_flex;
 mod flex;
 mod flex_baseline;
 mod flex_basis_content;
