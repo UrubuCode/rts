@@ -61,11 +61,21 @@ pub(in crate::layout) fn layout_children_column(
     // `flex-wrap` era lido em `bloco.rs` só para achatar `display` em
     // `FlexWrap`/`Flex` e nunca chegava até aqui.
     wrap: bool,
+    // O limiar de QUEBRA do wrap — `height`/`max-height`, NUNCA `min-height`
+    // (que só é um PISO: o container cresce à vontade acima dele). É mais
+    // ESTREITO do que `container_content_h` de propósito — ver o comentário
+    // em `bloco.rs` onde é calculado (`wrap_definite_h`). Achado no merge com
+    // `flex-justify-logico`: um `.item{min-height:0}` que É ele próprio
+    // `column wrap` (WPT `flexbox-flex-basis-content-004a/b`) tinha
+    // `container_content_h == Some(0.0)` só por causa do `min-height`, e
+    // isso abria uma coluna nova por item (3 itens, 3 colunas de 1) em vez
+    // de os empilhar numa pilha vertical de altura auto.
+    wrap_definite_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
     if wrap {
-        if let Some(h) = container_content_h {
+        if let Some(h) = wrap_definite_h {
             return super::coluna_wrap::layout_children_column_wrap(
                 dom, id, content_x, content_y, content_w, h, css, font_size, reverse,
                 css.flex_wrap_reverse.unwrap_or(false), ctx, list,
