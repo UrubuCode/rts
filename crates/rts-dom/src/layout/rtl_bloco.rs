@@ -28,14 +28,25 @@
 //! o Chrome dá 200) — por isso o gancho central devolve cedo com "sem PAI",
 //! "PAI sem estilo" ou "PAI é flex/grid".
 //!
+//! RETRABALHO (o mesmo `overflow-top-left` do WPT, agora pela sua metade de
+//! BLOCO): a MESMA guarda de `writing-mode` que `coluna_rtl::cross_x` tem —
+//! só desloca quando o `writing-mode` do PAI é horizontal. Sem ela, o
+//! `.row-wrapper` do reftest (bloco, `writing-mode:vertical-rl;
+//! direction:rtl`) passava a encostar os filhos à direita enquanto a coluna
+//! flex do outro caso (`.column-wrapper`, guardada desde o primeiro
+//! retrabalho) os deixava à esquerda — os dois lados do teste, que antes
+//! divergiam da MESMA forma do Chrome (os dois à esquerda, sem nenhum saber
+//! de `direction`), passaram a divergir um do outro.
+//!
 //! Extraído de `bloco.rs` (a mais de 1000 linhas) para não crescer lá.
 
 use crate::dom::{Dom, NodeIdx};
 
 /// O `margin-left` USADO de um filho de bloco sem margens `auto`. Devolve o
-/// valor LTR sem tocar sempre que o pai não é fluxo normal RTL (sem pai, sem
-/// estilo, pai `ltr`, ou pai flex/grid — ver o porquê no cabeçalho); só num
-/// pai `direction:rtl` de fluxo normal resolve a equação do §10.3.3
+/// valor LTR sem tocar sempre que o pai não é fluxo normal RTL HORIZONTAL
+/// (sem pai, sem estilo, pai `ltr`, pai flex/grid, ou `writing-mode` vertical
+/// — ver o porquê no cabeçalho); só num pai `direction:rtl` de fluxo normal
+/// E horizontal resolve a equação do §10.3.3
 /// (`espaço_livre_com_sinal - margin_right`), negativo incluído.
 pub(in crate::layout) fn margin_left_usado(
     dom: &Dom,
@@ -60,7 +71,8 @@ pub(in crate::layout) fn margin_left_usado(
                 | crate::style::DisplayKind::Grid
         )
     );
-    if e_flex_ou_grid || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl)) {
+    let horizontal = parent_css.writing_mode.unwrap_or_default().is_horizontal();
+    if e_flex_ou_grid || !horizontal || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl)) {
         return margin_left_ltr;
     }
     free_com_sinal - margin_right
