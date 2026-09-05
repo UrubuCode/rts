@@ -625,22 +625,14 @@ pub(crate) fn layout_block(
     };
     let ov_x = visible_vira_auto(ov_x_declarado);
     let ov_y = visible_vira_auto(ov_y_declarado);
-    let scrolls_x = ov_x.scrollable() || ov_x.clips();
-    // A inflação vale para o eixo do FLUXO HORIZONTAL, que é onde a compressão
-    // aconteceria (o flex encolhe os itens até caberem). Nos demais layouts ela
-    // vira base de PORCENTAGEM dos filhos, e aí está errada: `width:100%` dentro
-    // de um container que rola é 100% da CAIXA, não do conteúdo transbordado.
-    //
-    // Medido na página real do WhatsApp Web, que aninha vários containers com
-    // `overflow-y:auto`: cada nível multiplicava a largura do seguinte, e o
-    // conteúdo terminava em x = 2300 numa janela de 1100 — a tela abria vazia
-    // com tudo desenhado fora dela.
-    let scroll_children_w = if scrolls_x {
-        // largura que o conteúdo QUER (sem comprimir) — pode exceder content_w.
-        intrinsic_content_width(dom, id, font_size, ctx).max(content_w)
-    } else {
-        content_w
-    };
+    // `scroll_children_width` (overflow_viewport.rs, tecto): decide se os
+    // filhos recebem a largura NATURAL (sem comprimir — #1744) e se isso
+    // ainda vale quando `flex-wrap:wrap` precisa de saber ONDE quebrar linha
+    // (`flexbox-overflow-horiz-004`/`-005` do WPT — `overflow:hidden` não
+    // rola, então não há "deixar transbordar" para ele: a linha quebra na
+    // largura declarada e o excesso é só recortado na pintura).
+    let scroll_children_w =
+        overflow_viewport::scroll_children_width(dom, id, font_size, ctx, display, ov_x, content_w);
     let children_w = content_w;
 
     // `height` EXPLÍCITO resolve ANTES dos filhos (não depende deles): eles o
