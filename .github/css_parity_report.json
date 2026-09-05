@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 336,
+    "passing": 373,
     "total": 489,
-    "pct": 68.7
+    "pct": 76.3
   },
   "expected_failures": [
     {
@@ -92,6 +92,7 @@
       "flex-justify-logico — `justify-content:start`/`end` lógicos; `left`/`right` numa coluna físicos ao TOPO; `direction:rtl` no eixo cruzado da flex-column",
       "visibility-collapse — `visibility:collapse` distinto de `hidden` no `computedStyle`",
       "flex-cross-size — o cross-size de uma linha flex vence mesmo em overflow; `align-content` transborda quando as linhas não cabem",
+      "flex-align-justify-familia — a causa comum de 33 reftests do WPT (`align-items`/`align-content`/`align-self`/`justify-content`/margens `auto`), todos a falhar por 0,0–0,2 % dos pixels",
       "imagens-no-raster — o raster/paint-dump carregam PNG; `<img>` deriva a dimensão em falta pela razão e o item flex esticado transfere-a"
     ],
     "parciais": [
