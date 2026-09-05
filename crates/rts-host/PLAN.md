@@ -195,3 +195,14 @@ coordenador já fez `cargo build --release`.
 **Não fiz**: medir o tamanho do `.exe` antes/depois (pedido explicitamente ao
 coordenador, que mede no fecho); rodar a suite completa `*.test.ts`; qualquer
 `cargo build --release`; PR/merge.
+
+**Medido no fecho (2026-09-05, release, ramo com `main` merged em `bce19ed17`)**:
+`rts compile tests/aot/claude-pagina-eval.ts X` → 34 745 856 bytes (antes
+34 714 624: +31 KB, o manifesto de 26 KB emoldurado); apagado o `X.rtsdata`,
+`X.exe` imprime `3`. `rts compile scripts/rts_vs_electron/app/index.html
+ReactApp` → 40 138 240 bytes (antes 39 772 672); só o `.exe` copiado para outra
+pasta abre a janela e corre os 3 scripts. Testes de integração em release:
+`rts-cranelift --test target` 12, `rts-host --test aot_manifest_embedded` 1
+(o de ponta a ponta, 4,4 s), `aot_embed_compiler` 1, `aot_object` 11, 0 falhas.
+Suite `*.test.ts` 859/888, 0 perdidos por ficheiro. O `.rtsdata` continua a ser
+escrito ao lado (compatibilidade); deixar de o escrever é decisão para outro dia.
