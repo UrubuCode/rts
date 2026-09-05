@@ -191,6 +191,27 @@ pub fn parse_width_token(tok: &str) -> Option<f32> {
     super::lengths::parse_len_pub(&low)
 }
 
+/// `true` se TODOS os tokens do shorthand `border: <width> <style> <color>`
+/// classificam em largura, estilo ou cor.
+///
+/// CSS 2.1 não deixa "os componentes válidos aplicam-se, o inválido ignora-se
+/// sozinho": um valor que não corresponde à gramática da propriedade invalida
+/// a declaração INTEIRA, que fica como se não tivesse sido escrita — a
+/// cascata mantém o que já lá estava. `border: red solid -1px` tinha o
+/// inverso: `-1px` não classifica em nada (largura negativa é inválida em
+/// qualquer unidade), mas o resto do shorthand corria na mesma e escrevia
+/// style=solid/color=red por cima de um `border-width: 8px` de uma regra
+/// anterior — a parte INVÁLIDA "vencia" ao apagar a válida em vez de reprovar
+/// a linha toda (`border-width-010` do WPT).
+pub fn shorthand_tokens_all_valid(val: &str) -> bool {
+    val.split_whitespace().all(|tok| {
+        BorderStyle::parse(tok).is_some()
+            || parse_width_token(tok).is_some()
+            || parse_width_dim(tok).is_some()
+            || super::color::parse_color(tok).is_some()
+    })
+}
+
 /// `true` se o nome é uma longhand de borda POR LADO
 /// (`border-<lado>-<width|style|color>`). Reconhecer pela FORMA — e não com doze
 /// braços literais no `match` do parse — mantém o dispatch por nome num sítio só
@@ -252,6 +273,18 @@ pub fn apply_outline_shorthand(css: &mut ComputedStyle, val: &str) {
 /// As quatro bordas EFETIVAS (top, right, bottom, left), com o fallback para a
 /// borda uniforme por lado. É o que o paint consome.
 pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
+    // REVERTIDO (medido 2026-09-05): pôr `medium` (3px) aqui parecia certo —
+    // é o inicial de `border-*-width` — mas este `SideBorder::width` sai bruto
+    // para o paint, e é `paints()`/`used_widths`, mais acima na cadeia, quem
+    // aplica a regra "estilo `none`/`hidden` força a largura USADA a zero".
+    // Um `unwrap_or(3.0)` aqui dava 3px de LARGURA a um lado sem estilo
+    // nenhum, e nada depois zera essa largura quando é o PRÓPRIO campo
+    // `width` que o paint lê — apareceu um quadrado cinzento de 3+3=6px onde
+    // não devia haver borda (`border-width-002`, medido: 36px de 255,255,255
+    // para 128,128,128, caixa 6×6). Regride `border-bottom-width-001..-078`
+    // (a família `flags: invalid`, que ficava sem largura nenhuma) até a
+    // regra "`none`/`hidden` ⇒ zero" ser aplicada ANTES deste default, não
+    // depois.
     let uw = css.border_width.unwrap_or(0.0);
     let us = css.border_style.unwrap_or(BorderStyle::None);
     let uc = css.border_color.unwrap_or(0x808080FF);
