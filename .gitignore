@@ -152,6 +152,9 @@ scripts/parity/*.combinada.html
 # assim que o walker do `rts test` o ignora, em vez de o contar como corpus.
 .node-suite/
 .claude/worktrees/
+# Locks cooperativos entre agentes que partilham esta arvore
+# (scripts/claude_lock.py). Sao estado de uma sessao, nunca do repositorio.
+.claude/locks/
 
 # Regua de pintura: PNG regeneraveis (tests/css/pintura), grandes e nao versionados
 tests/css/pintura/
