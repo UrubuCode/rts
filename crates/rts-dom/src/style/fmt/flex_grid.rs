@@ -82,15 +82,7 @@ impl ComputedStyle {
                 })
                 .map(|s| s.to_string())
                 .unwrap_or_default(),
-            // `wrap-reverse` é `flex_wrap=true` COM `flex_wrap_reverse=true` — a
-            // ordem importa: só reporta "wrap-reverse" quando o bit de direção
-            // também está ligado, senão é "wrap" simples.
-            "flex-wrap" => match (self.flex_wrap, self.flex_wrap_reverse) {
-                (Some(true), Some(true)) => "wrap-reverse".into(),
-                (Some(true), _) => "wrap".into(),
-                (Some(false), _) => "nowrap".into(),
-                (None, _) => String::new(),
-            },
+            "flex-wrap" => self.flex_wrap.map(fmt_flex_wrap).unwrap_or_default(),
             // As trilhas de grid: o browser reporta os tamanhos JÁ RESOLVIDOS em
             // px (`repeat(3, 1fr)` num container de 450px sai `150px 150px
             // 150px`). Aqui saem na forma DECLARADA, porque o computed não tem o

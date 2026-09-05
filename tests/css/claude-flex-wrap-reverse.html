@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- Fixa: `flex-wrap: wrap-reverse` (longhand direto, nao o shorthand
+     `flex-flow`) comporta-se como `nowrap` -- style/parse/fluxo.rs compara
+     o valor a igual a string "wrap" (`val.eq_ignore_ascii_case("wrap")`);
+     qualquer outra palavra, incluindo o keyword valido "wrap-reverse", cai
+     no `false` (nowrap) porque `set_if` recebe sempre `Some(..)`, nunca
+     `None`. E mesmo pelo `flex-flow` (que reconhece a palavra), o campo
+     `flex_wrap` e so um `bool` -- nao ha onde guardar "inverte a ordem
+     das linhas". #linha: 3 itens de 160px num contentor de 400px (cabem
+     so 2 por linha) com `flex-wrap:wrap-reverse` devem quebrar em DUAS
+     linhas com a linha que o documento poe DEPOIS ("c", sozinho)
+     desenhada em CIMA (CSS Flexbox sec8.3: wrap-reverse inverte o eixo
+     cruzado; o agrupamento em linhas fica igual ao de `wrap`). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="linha,a,b,c">
+<meta name="fixar-estilo" content="flex-wrap">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha { display: flex; flex-wrap: wrap-reverse; width: 400px; background: #eee; }
+  #linha > div { width: 160px; height: 40px; }
+  #a { background: #fc0; }
+  #b { background: #0c0; }
+  #c { background: #c0f; }
+</style></head>
+<body>
+  <div id="linha"><div id="a">a</div><div id="b">b</div><div id="c">c</div></div>
+</body>
+</html>

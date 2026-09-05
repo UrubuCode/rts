@@ -4763,6 +4763,7 @@ dependencies = [
  "rts-codegen",
  "rts-core",
  "rts-cranelift",
+ "rts-dom",
  "rts-dom-bridge",
  "rts-node",
  "rts-physics",

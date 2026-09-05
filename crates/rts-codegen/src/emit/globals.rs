@@ -446,3 +446,38 @@ pub(super) fn write(
     let key = key_constant(builder, ctx, name);
     Ok(call(builder, ctx, RuntimeOp::GlobalSet, &[key, value])?[0])
 }
+
+/// The read [`unbound_read`] performs, redirected at a page script's OWN
+/// window value instead of the process-wide global object.
+///
+/// Reached only from [`super::binding`]'s fallback, and only in place of
+/// `unbound_read` — never instead of `PROVIDED`/[`resolves`], which still
+/// answer first. A name that resolves here is one a SIBLING `<script>` may
+/// have created since this one compiled: a UMD bundle's
+/// `(function (global) { global.React = {}; })(this)` writes `React` as a
+/// property of `this`, which at the top of a page script IS the window this
+/// call is handed — and `unbound_read`'s own object, shared by every ordinary
+/// program, never sees that write at all.
+pub(super) fn page_read(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    environment: ValueId,
+    name: Name,
+) -> EmitResult<ValueId> {
+    let key = key_constant(builder, ctx, name);
+    Ok(call(builder, ctx, RuntimeOp::PageGlobalGet, &[environment, key])?[0])
+}
+
+/// The write [`write`] performs, redirected the same way as [`page_read`] —
+/// sloppy mode's global creation, aimed at the page's own window rather than
+/// the process object.
+pub(super) fn page_write(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    environment: ValueId,
+    name: Name,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    let key = key_constant(builder, ctx, name);
+    Ok(call(builder, ctx, RuntimeOp::PageGlobalSet, &[environment, key, value])?[0])
+}
