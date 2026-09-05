@@ -76,9 +76,13 @@ pub(in crate::layout) fn min_main_auto(
     resolve: &ResolveCtx,
     ctx: &LayoutCtx,
 ) -> f32 {
-    let overflow_visible =
-        ccss.overflow_y.unwrap_or(crate::scrollbar::Overflow::Visible)
-            == crate::scrollbar::Overflow::Visible;
+    // `Clip` conta como `Visible` — não é um scroll container (CSS Overflow
+    // 3 §clip), e só um eixo que PODE rolar desliga este automático
+    // (espelho do retrabalho em `flex_limites::min_automatico`,
+    // `min-size-auto-overflow-clip`, WPT — não tinha fixture neste eixo
+    // ainda, mas é a MESMA pergunta).
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let overflow_visible = matches!(ccss.overflow_y.unwrap_or(Visible), Visible | Clip);
     if !overflow_visible {
         return 0.0;
     }

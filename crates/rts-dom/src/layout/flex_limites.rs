@@ -284,9 +284,16 @@ pub(in crate::layout) fn min_automatico(
     ctx: &LayoutCtx,
     max_main: Option<f32>,
 ) -> f32 {
-    use crate::scrollbar::Overflow::Visible;
-    let overflow_visible = ccss.overflow_x.unwrap_or(Visible) == Visible
-        && ccss.overflow_y.unwrap_or(Visible) == Visible;
+    // `Clip` conta como `Visible` aqui — RETRABALHO: a 1ª versão deste
+    // desligamento tratava QUALQUER `!= Visible` como "não visível", e
+    // `Clip`/`Hidden` eram indistinguíveis antes deste lote (a mesma
+    // variante do enum) — mas `clip` não é um scroll container (não pode
+    // ser rolado, nem por script) e a spec trata-o como `visible` para este
+    // fim (`min-size-auto-overflow-clip`, WPT). Só `Hidden`/`Auto`/`Scroll`
+    // desligam o automático.
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let eixo_visivel = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    let overflow_visible = eixo_visivel(ccss.overflow_x) && eixo_visivel(ccss.overflow_y);
     if !overflow_visible {
         return 0.0;
     }
