@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- Fixa: o encolhimento automático (shrink-to-fit, CSS2 §10.3.5) de um
+     bloco/float sem `width`, dentro de um contentor de largura ZERO, usa
+     só `min(max-content, disponível)` (`bloco.rs`, ramo `shrink_to_fit`)
+     — falta o piso `max(min-content, disponível)` da fórmula
+     `width = min(max(pref-min, disponível), pref)`. É o truque que o WPT
+     usa para simular `width:min-content` (que nem chega a ser parseado
+     aqui): um `float:left` sem `width` dentro de um pai `width:0` deve
+     encolher até à sua largura MÍNIMA de conteúdo, não até zero. #teste
+     tem essa estrutura (com um `display:flex` lá dentro, como o WPT);
+     #controlo é o MESMO item, mas sem o pai de largura zero — mede a
+     largura de referência (aqui min-content == max-content, porque "AB"
+     não tem onde quebrar). Os dois `.item` devem medir IGUAL. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="teste,item-teste,controlo,item-controlo">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #zero { width: 0; height: 0; }
+  #teste { float: left; background: #00c; }
+  #teste > div { display: flex; }
+  #controlo { float: left; background: #0c0; }
+  #controlo > div { display: flex; }
+  .item { margin: 5px; padding: 3px; border: 2px solid aqua; }
+</style></head>
+<body>
+  <div id="zero"><div id="teste"><div><div id="item-teste" class="item">AB</div></div></div></div>
+  <div id="controlo"><div><div id="item-controlo" class="item">AB</div></div></div>
+</body>
+</html>

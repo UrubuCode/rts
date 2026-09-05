@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa: com `flex-wrap: wrap`, a QUEBRA de linha usa o "hypothetical main
+     size" — a base (`flex: 1` → 0) já grampeada pelo `min-width` (100) —
+     e não a base nua (Flexbox §9.3). Dois itens de 100 não cabem em 150:
+     cada um vai para a sua linha e cresce até 150. O lote flex-min-content
+     moveu o grampo para depois do grow/shrink e o `flexbox-flex-wrap-flexing`
+     do WPT caiu: os dois itens ficaram na mesma linha. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="c,a,b">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #c { display: flex; flex-wrap: wrap; width: 150px; height: 100px; background: #c00; }
+  #c > div { min-width: 100px; flex: 1; height: 50px; background: #0c0; }
+</style></head>
+<body>
+  <div id="c"><div id="a"></div><div id="b"></div></div>
+</body>
+</html>
