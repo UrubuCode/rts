@@ -125,7 +125,7 @@ use self::caixa::{css_display, em_contexto_inline, is_block_level, is_inline_blo
 use self::float::{banda_livre, fecha_a_corrida, float_of};
 use self::input::{layout_button, layout_input, medida_do_input};
 use self::itens::{translate_item, walk_items};
-use self::medida::{child_outer_height, child_outer_width, collect_text, content_natural_width, intrinsic_content_width};
+use self::medida::{child_outer_height, child_outer_width, collect_text, content_natural_width};
 use self::pintura::{apply_opacity, body_background, cor_visivel, decoration_code, deve_suprimir_fundo, is_text_input_tag, italico, tag_de};
 use self::posicionado::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
 use self::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
