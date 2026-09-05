@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Eventos de script</title>
+<script>
+window.ordem = [];
+ordem.push("head-inline");
+document.addEventListener("DOMContentLoaded", function () { ordem.push("DOMContentLoaded"); });
+window.addEventListener("load", function () {
+  ordem.push("window-load");
+  document.getElementById("saida").textContent = ordem.join(",");
+});
+</script>
+</head>
+<body>
+<div id="saida"></div>
+<script>
+ordem.push("body-inline");
+var s = document.createElement("script");
+s.textContent = 'ordem.push("dinamico-inline")';
+s.addEventListener("load", function () { ordem.push("dinamico-load"); });
+document.body.appendChild(s);
+ordem.push("apos-append");
+var e = document.createElement("script");
+e.src = "data:text/javascript,ordem.push(%22externo-data%22)";
+e.addEventListener("load", function () { ordem.push("externo-load"); });
+document.body.appendChild(e);
+ordem.push("apos-append-externo");
+</script>
+</body>
+</html>
