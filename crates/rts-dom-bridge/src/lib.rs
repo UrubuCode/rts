@@ -39,6 +39,7 @@ use rts_core::entry::{self, Context, Provided};
 mod engine;
 mod events;
 mod imagem;
+mod lifecycle;
 mod location;
 mod nodes;
 mod recursos;
@@ -70,6 +71,7 @@ pub(crate) fn dom_members() -> Vec<(&'static str, Provided)> {
         .chain(events::MEMBERS)
         .chain(scroll::MEMBERS)
         .chain(location::MEMBERS)
+        .chain(lifecycle::MEMBERS)
         .chain(imagem::MEMBERS)
         .chain(recursos::MEMBERS)
         .copied()
