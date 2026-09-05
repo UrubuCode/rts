@@ -918,7 +918,7 @@ pub(crate) fn layout_block(
         && css.height.is_none()
         && is_inline_block(dom, id);
     let content_h = if caixa_inline {
-        crate::inline_box::altura_do_conteudo(font_size, ctx.measurer)
+        crate::inline_box::altura_do_conteudo(font_size, css.font_family.as_deref(), ctx.measurer)
     } else {
         content_h
     };
