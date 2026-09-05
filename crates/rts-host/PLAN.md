@@ -74,6 +74,19 @@ closures are `rts-codegen` phases, and each arrives here as more programs that
 run. The exception is calls between compiled functions, which needs more than
 one function placed — the batch interface already takes a list for this reason.
 
+## H5 — `.html` as an entry, in `rts-cli`. DONE
+
+Not a phase of this crate's own object-emission work — `object::page`/
+`object::html_scripts` (H2) are unchanged — but the line this PLAN's own
+table asks for. `rts compile pagina.html`/`rts run pagina.html` need no
+`.ts` file: `rts-cli`'s `cli::html_entry` writes the `app.ts` window loop as
+generated TypeScript source and hands it to the SAME `compile`/`run` path an
+ordinary `.ts` entry takes, so this crate sees one more string of source —
+never a second entry point, which is exactly what the section above refuses.
+`docs/engine/aot-page-scripts.md` has the shell's shape and the one thing
+that differs between the two commands (HTML embedded as a build-time literal
+for `compile`, read from disk at run time for `run`).
+
 ## What is deliberately not planned
 
 **A second way to run.** One `compile`, and the object-file path when it comes

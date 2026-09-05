@@ -59,6 +59,15 @@
 //! a specifier. So a CommonJS program reaching a sibling file was not refused
 //! and not compiled as a graph either; it was compiled ALONE, and died at run
 //! time on a name that was never bound. One question, one answer, one place.
+//!
+//! # `.html` as an entry — no TypeScript to write
+//!
+//! `rts compile pagina.html [out]` needs none: [`super::html_entry::is_html`]
+//! recognises the extension, [`super::html_entry::for_compile`] writes the
+//! window-loop shell in its place (`docs/engine/aot-page-scripts.md` has the
+//! section), and `entry` itself is pushed onto the SAME `--html` list `page`
+//! precompiles below — a `.html` entry is `--html <entry>` implied, not a
+//! second mechanism.
 
 use std::path::{Path, PathBuf};
 
@@ -74,7 +83,7 @@ pub fn command(
     windows_subsystem: Option<WindowsSubsystem>,
     html_files: &[String],
 ) -> Result<()> {
-    let input = input.ok_or_else(|| anyhow!("usage: rts compile <input.ts> [output]"))?;
+    let input = input.ok_or_else(|| anyhow!("usage: rts compile <input.ts|input.html> [output]"))?;
     let (entry, output_base) = if crate::url_entry::is_url(&input) {
         let local = crate::url_entry::fetch_program(&input)?;
         let name = local
@@ -91,15 +100,34 @@ pub fn command(
         return Err(anyhow!("input file not found: {}", entry.display()));
     }
 
-    let source = std::fs::read_to_string(&entry)
-        .with_context(|| format!("read {}", entry.display()))?;
+    // `.html` needs no TypeScript at all — "só mandar a página e ele
+    // compilar sozinho" — so a `.html` entry is not read as the program's own
+    // source. `html_entry::for_compile` writes the shell instead (the
+    // `app.ts` window loop, with this page's HTML embedded as a build-time
+    // literal), and the page's OWN `<script>`s are precompiled exactly as if
+    // `--html <entry>` had been given: pushed onto the same list below rather
+    // than handled as a separate case downstream. A plain read, not the
+    // wide-stack thread below — `std::fs::read_to_string` does not recurse,
+    // unlike the JIT bootstrap `html_scripts::window_base` runs.
+    let is_html_entry = crate::cli::html_entry::is_html(&entry);
+    let source = if is_html_entry {
+        let html = std::fs::read_to_string(&entry)
+            .with_context(|| format!("read {}", entry.display()))?;
+        crate::cli::html_entry::for_compile(&entry, &html)
+            .with_context(|| format!("build the window-loop shell for {}", entry.display()))?
+    } else {
+        std::fs::read_to_string(&entry).with_context(|| format!("read {}", entry.display()))?
+    };
     let graph = super::new_engine::imports_a_file(&source);
 
     // Read and extracted on the SAME wide-stack thread as the compile below,
     // rather than on this one: `html_scripts::window_base` runs a throwaway
     // JIT compile of its own, and that is exactly the recursion depth the
     // comment on `STACK` names.
-    let html_paths: Vec<PathBuf> = html_files.iter().map(PathBuf::from).collect();
+    let mut html_paths: Vec<PathBuf> = html_files.iter().map(PathBuf::from).collect();
+    if is_html_entry {
+        html_paths.push(entry.clone());
+    }
 
     // The emitter recurses with the shape of the expression it lowers — see
     // `rts_cli::cli::new_engine`'s own comment for the fixture that overflows
@@ -201,10 +229,18 @@ pub fn command(
         manifest_path.display(),
     );
     if !program.page_scripts.is_empty() {
+        // `html_files` alone would print empty for a `.html` ENTRY with no
+        // explicit `--html` flag — the entry itself is what supplied the
+        // scripts in that case, pushed into `html_paths` above rather than
+        // into this list, which stays the CLI flag as typed.
+        let mut precompiled_from: Vec<String> = html_files.to_vec();
+        if is_html_entry {
+            precompiled_from.push(entry.display().to_string());
+        }
         println!(
             "  {} page <script>(s) precompiled from --html: {}",
             program.page_scripts.len(),
-            html_files.join(", "),
+            precompiled_from.join(", "),
         );
     }
     Ok(())

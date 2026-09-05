@@ -131,6 +131,24 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// The page's own `<title>` text, trimmed — `None` for a page with no
+/// `<title>` at all, or one whose text is empty/whitespace, so a caller (`rts
+/// compile pagina.html`/`rts run pagina.html`, which have no other source for
+/// a window title) can fall back to something else — a file name — rather
+/// than opening a window with a blank bar.
+///
+/// Uses the same [`rts_dom::parse_html_to_dom`]/`query_all` this module's own
+/// [`extract`] already calls, for the reason that function's header states:
+/// one HTML tree-builder, so this cannot find a different `<title>` than a
+/// JIT run's `document.title` would (once that exists) from the same page.
+pub fn title(html: &str) -> Option<String> {
+    let dom = rts_dom::parse_html_to_dom(html);
+    let id = dom.query_all("title").into_iter().next()?;
+    let text = dom.text_content(id)?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() { None } else { Some(trimmed.to_owned()) }
+}
+
 /// Reads and extracts every `<script>` `rts compile --html` was pointed at,
 /// one file after another, in the order they were given.
 pub fn extract_files(paths: &[std::path::PathBuf]) -> Result<Vec<String>, HostError> {
