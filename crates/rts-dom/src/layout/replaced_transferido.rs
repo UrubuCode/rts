@@ -126,6 +126,22 @@ pub(in crate::layout) fn largura_intrinseca_transferida(
     own_cross_h: Option<f32>,
     ctx: &LayoutCtx,
 ) -> Option<f32> {
+    // `css_display`/`to_display_code` não distingue `flex-direction`: uma
+    // COLUNA responde o MESMO código HORIZONTAL/WRAP que uma linha (é o
+    // eixo dos FILHOS de qualquer flex, não a direção) — sem o `is_column`
+    // aqui, uma `.flexbox{flex-direction:column;height:1px}` entrava nesta
+    // função como se a sua altura de 1px (o main size dela, não o eixo
+    // cruzado dos FILHOS) fosse a restrição para transferir a largura de um
+    // `<img>` lá dentro: devolvia 4 (1px×razão + borda) em vez de deixar o
+    // shrink-to-fit normal decidir (WPT `flexbox-min-height-auto-002b/c`,
+    // divs com `flex-basis` em vez de `width` no `<img>`).
+    let is_column = dom
+        .computed_style_idx(id)
+        .and_then(|c| c.flex_direction)
+        .is_some_and(|f| f.is_column());
+    if is_column {
+        return None;
+    }
     let display = css_display(dom, id);
     if display != crate::block::DISPLAY_HORIZONTAL && display != crate::block::DISPLAY_WRAP {
         return None;
