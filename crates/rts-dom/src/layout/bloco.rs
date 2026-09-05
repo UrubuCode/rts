@@ -546,8 +546,24 @@ pub(crate) fn layout_block(
     // auto — centralizando (ambos auto) ou empurrando (um só auto). Resolvido AQUI,
     // depois de saber o content_w. Só quando há largura explícita (senão o bloco já
     // ocupa avail_w e não há espaço a distribuir).
+    //
+    // UM FLOAT NUNCA CENTRALIZA (CSS2.1 §10.3.5): o valor usado de
+    // `margin-left`/`margin-right` quando `auto` é ZERO, não uma fração do
+    // espaço livre — a regra de distribuição acima é para blocos não-flutuantes
+    // no fluxo normal. Sem esta guarda, `float:left; margin-left:auto` central-
+    // izava o quadrado em vez de o colar no canto superior-esquerdo do
+    // container (WPT `floats-clear/float-non-replaced-width-001` e
+    // `float-replaced-width-001`, ambos com `n` idêntico — a mesma causa).
+    let is_float = super::float::float_of(dom, id) != crate::style::FloatSide::None;
     let has_width = css.width.is_some() || css.max_width.is_some();
-    if has_width {
+    if is_float {
+        if m.left.is_auto() {
+            margin_left = 0.0;
+        }
+        if m.right.is_auto() {
+            margin_right = 0.0;
+        }
+    } else if has_width {
         let box_outer = content_w + padding_h + border_h; // sem a margin
         // COM SINAL (não `.max(0.0)`): o ramo `direction:rtl` de
         // `rtl_bloco::margin_left_usado` precisa do valor negativo quando o
