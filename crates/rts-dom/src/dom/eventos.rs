@@ -104,6 +104,34 @@ impl Dom {
         self.listener_cbs.remove(&(idx, event_type.to_string()));
     }
 
+    /// Todos os words de callback que este documento ainda guarda.
+    ///
+    /// Existe para quem tem de os manter VIVOS. Um `ListenerRecord` guarda o
+    /// handler como `i64` opaco, e uma varredura conservativa da pilha não
+    /// reconhece um inteiro num `HashMap` do Rust como uma referência — logo o
+    /// coletor recolhe a célula do closure enquanto o listener continua
+    /// registado, e a invocação seguinte encontra o que ficou no índice. O
+    /// sintoma é `TypeError: object is not a function` num `addEventListener`
+    /// que nunca foi removido, e chega depois de alocação suficiente: uma
+    /// página com relógio perde os handlers em segundos.
+    ///
+    /// Este crate não pode enraizar nada — não tem dependências, e é isso que
+    /// o mantém portável. Responde QUE words tem; quem sabe falar com o
+    /// coletor (a ponte) é que os segura. A alternativa — guardar aqui um
+    /// identificador de posse — obrigaria este crate a conhecer o runtime, que
+    /// é exactamente a dependência que ele não tem.
+    pub fn callback_words(&self) -> Vec<i64> {
+        let mut words = Vec::new();
+        for records in self.listener_cbs.values() {
+            for record in records {
+                if !words.contains(&record.callback) {
+                    words.push(record.callback);
+                }
+            }
+        }
+        words
+    }
+
     /// `true` se o nó escuta o tipo de evento dado (case-sensitive).
     pub fn has_listener(&self, id: NodeId, event_type: &str) -> bool {
         let Some(idx) = self.resolve(id) else {
@@ -477,6 +505,18 @@ impl Dom {
     /// Nº de callbacks coletados pelo último [`Dom::dispatch_event_collect`].
     pub fn last_dispatch_len(&self) -> i64 {
         self.last_dispatch.len() as i64
+    }
+
+    /// Os words do lote de despacho AINDA POR INVOCAR.
+    ///
+    /// Um `once` é retirado da lista de listeners dentro do `dispatch_collect`,
+    /// antes de ser chamado — é essa a semântica do DOM. Quem mantém os
+    /// callbacks vivos não pode, portanto, olhar só para os listeners
+    /// registados: entre a coleta e a invocação há words que já não estão
+    /// registados em lado nenhum e que ainda vão ser chamados. Esta lista é
+    /// esses.
+    pub fn pending_dispatch_words(&self) -> Vec<i64> {
+        self.last_dispatch.iter().map(|&(_, cb)| cb).collect()
     }
 
     /// O i-ésimo par coletado: `(NodeId versionado do nó que escuta, callback-word)`.

@@ -51,6 +51,7 @@ extern "C" fn create_document(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _d: u
 
 /// `free(doc)` — solta o documento. O handle fica inválido.
 extern "C" fn free(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    crate::raizes::liberta_documento(handle(doc));
     rts_dom::store::remove(handle(doc));
     nothing()
 }
