@@ -18,8 +18,8 @@ pub(in crate::style::parse) use super::lengths::{
 pub(in crate::style::parse) use super::props::ComputedStyle;
 pub(in crate::style::parse) use super::stylesheet::DeclBlock;
 pub(in crate::style::parse) use super::values::{
-    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FlexWrap, FloatSide,
-    JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, Visibility, WhiteSpace,
+    AlignItems, BorderStyle, Dimension, DisplayKind, FlexDirection, FlexWrap, FloatSide,
+    JustifyContent, LineHeight, Position, TextAlign, TextTransform, Visibility, WhiteSpace,
 };
 
 /// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
