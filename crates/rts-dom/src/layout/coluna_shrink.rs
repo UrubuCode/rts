@@ -99,6 +99,7 @@ pub(in crate::layout) fn min_main(
     resolve_height(ccss.min_height, container_h, resolve).unwrap_or_else(|| min_main_auto(ccss, natural_h))
 }
 
+
 /// ENCOLHIMENTO com piso de `min_main` (CSS Flexbox §9.7) — a mesma iteração
 /// de congelamento de `flex.rs:319-370`, extraída para slices paralelas em
 /// vez de reusar `FlexItem` (que carrega campos do eixo horizontal, como

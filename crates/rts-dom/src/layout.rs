@@ -78,6 +78,7 @@ mod coluna_shrink;
 mod coluna_wrap;
 mod flex;
 mod flex_limites;
+mod flex_linhas;
 mod flex_margens_auto;
 mod flex_pseudo;
 mod grid;
