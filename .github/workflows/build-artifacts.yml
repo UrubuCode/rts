@@ -318,7 +318,18 @@ jobs:
     # era SALTADO em todos os runs e a régua nunca corria — o primeiro run
     # provou-o. Corre sempre que o run não foi cancelado; o binário que lhe
     # interessa é o Linux, e se esse não existir o download falha por si.
-    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    #
+    # SÓ em `main`. Este job existe para escrever o número medido nas regiões
+    # do README, e só um push a `main` o pode fazer — num PR ele corria a régua
+    # inteira (~30 min de runner) para depois saltar a escrita, o que atrasava
+    # os jobs que decidem o merge sem produzir nada. O efeito prático interessa
+    # mais do que o tempo: o workflow tem `cancel-in-progress`, e este job vem
+    # DEPOIS do `build`, portanto quantos menos runs concorrerem, maior a
+    # probabilidade de um chegar ao fim inteiro — que é a única forma de o
+    # README ser reescrito. Em 2026-09-05, quatro merges seguidos cancelaram
+    # três runs antes deste job e o README ficou a anunciar `393/489` com o
+    # `main` já em 477/870.
+    if: ${{ !cancelled() && needs.version.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -497,7 +508,14 @@ jobs:
     # Windows — sem isto este job seria SALTADO sempre que isso acontecesse. O
     # binário que interessa aqui é o de Windows; se esse artefacto não existir,
     # o download da próxima etapa falha por si.
-    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    # SÓ em `main`, pela mesma razão do `dom-rulers`: este job existe para
+    # escrever a região `RTS_VS_ELECTRON` do README, e o passo que escreve já
+    # era `main only` — num PR corria os 30 minutos de runner Windows (a medir
+    # arranques de Electron, N=3) para depois não produzir nada. Menos runs a
+    # concorrer também aumenta a hipótese de um run chegar ao fim inteiro, que
+    # é a única forma de o README ser reescrito num workflow com
+    # `cancel-in-progress`.
+    if: ${{ !cancelled() && needs.version.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 30
