@@ -49,13 +49,17 @@ impl ComputedStyle {
             .filter(|v| !v.eq_ignore_ascii_case("none"))
     }
 
-    /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + wrap →
-    /// FlexWrap; inline-flex + wrap → InlineFlexWrap). `None` se não
-    /// declarado (o layout cai no default da tag).
+    /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + `wrap`
+    /// OU `wrap-reverse` → FlexWrap; inline-flex + wrap/wrap-reverse →
+    /// InlineFlexWrap — a ORDEM das linhas sob `wrap-reverse` é uma pergunta
+    /// do layout, não do display). `None` se não declarado (o layout cai no
+    /// default da tag).
     pub fn effective_display(&self) -> Option<DisplayKind> {
         match self.display {
-            Some(DisplayKind::Flex) if self.flex_wrap == Some(true) => Some(DisplayKind::FlexWrap),
-            Some(DisplayKind::InlineFlex) if self.flex_wrap == Some(true) => {
+            Some(DisplayKind::Flex) if self.flex_wrap.is_some_and(FlexWrap::wraps) => {
+                Some(DisplayKind::FlexWrap)
+            }
+            Some(DisplayKind::InlineFlex) if self.flex_wrap.is_some_and(FlexWrap::wraps) => {
                 Some(DisplayKind::InlineFlexWrap)
             }
             other => other,

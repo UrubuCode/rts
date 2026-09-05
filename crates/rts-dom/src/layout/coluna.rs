@@ -52,24 +52,15 @@ pub(in crate::layout) fn layout_children_column(
     // `flex-direction: column-reverse` — ver a nota gémea em `flex.rs`.
     reverse: bool,
     // `flex-wrap: wrap`/`wrap-reverse` — só tem efeito com altura DEFINIDA
-    // (senão não há critério de "a coluna encheu"; a mesma pergunta que
-    // `layout_children_horizontal` faz para o content_w, que é sempre
-    // definido). Delega para `coluna_wrap.rs` — o algoritmo de MÚLTIPLAS
-    // colunas é grande o bastante (agrupar, `align-content` no eixo cruzado)
-    // para não caber aqui sem estourar o teto de 500 linhas. Lote
-    // `flex-column-wrap` (2026-09-04): antes, este parâmetro nem existia —
-    // `flex-wrap` era lido em `bloco.rs` só para achatar `display` em
-    // `FlexWrap`/`Flex` e nunca chegava até aqui.
+    // (senão não há critério de "a coluna encheu"). Delega para
+    // `coluna_wrap.rs` (o algoritmo de MÚLTIPLAS colunas não cabe aqui sem
+    // estourar o teto de 500 linhas).
     wrap: bool,
     // O limiar de QUEBRA do wrap — `height`/`max-height`, NUNCA `min-height`
-    // (que só é um PISO: o container cresce à vontade acima dele). É mais
-    // ESTREITO do que `container_content_h` de propósito — ver o comentário
-    // em `bloco.rs` onde é calculado (`wrap_definite_h`). Achado no merge com
-    // `flex-justify-logico`: um `.item{min-height:0}` que É ele próprio
-    // `column wrap` (WPT `flexbox-flex-basis-content-004a/b`) tinha
-    // `container_content_h == Some(0.0)` só por causa do `min-height`, e
-    // isso abria uma coluna nova por item (3 itens, 3 colunas de 1) em vez
-    // de os empilhar numa pilha vertical de altura auto.
+    // (só um PISO). Mais ESTREITO do que `container_content_h` de propósito
+    // — ver `bloco.rs::wrap_definite_h`: um `min-height:0` conta como altura
+    // definida para stretch, mas não pode ser o limiar de wrap (abriria uma
+    // coluna nova por item).
     wrap_definite_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -78,7 +69,7 @@ pub(in crate::layout) fn layout_children_column(
         if let Some(h) = wrap_definite_h {
             return super::coluna_wrap::layout_children_column_wrap(
                 dom, id, content_x, content_y, content_w, h, css, font_size, reverse,
-                css.flex_wrap_reverse.unwrap_or(false), ctx, list,
+                css.flex_wrap == Some(crate::style::FlexWrap::WrapReverse), ctx, list,
             );
         }
     }
@@ -391,28 +382,19 @@ pub(in crate::layout) fn layout_children_column(
 
 /// Calcula (leading, between) do justify-content dado o espaço livre `free` e o nº
 /// de itens `n`. `leading` = offset inicial; `between` = espaço EXTRA entre itens
-/// (além do gap).
+/// (além do gap). OVERFLOW (free<=0): validado contra o Chrome — os três
+/// `space-*` caem para FLEX-START, só `center`/`flex-end` mantêm o leading
+/// (negativo = transborda dos dois lados/start).
 ///
-/// OVERFLOW (free<=0): VALIDADO contra o Chrome (com `flex-shrink:0` para forçar
-/// overflow real — sem isso o flex-shrink encolhe os itens e não há overflow). Os
-/// três distribuidores `space-*` caem para FLEX-START ([0,100,200] no teste), e só
-/// `center`/`flex-end` mantêm o leading (negativo = transborda dos dois lados/start).
-/// NB: a verificação adversarial sugeriu around/evenly→center, mas o Chrome real os
-/// trata como flex-start — a medição no browser desempatou.
 /// `justify-content` no eixo principal ESPELHADO — o que `row-reverse`/
-/// `column-reverse` precisam (spec §5.1: o eixo principal inverte de sentido,
-/// não só a ordem dos itens). `flex-start`↔`flex-end` trocam; os três
-/// `space-*` e `center` são simétricos em torno do centro do eixo e ficam
-/// como estão.
-/// `left`/`right` (físicos) traduzidos ao eixo principal de uma LINHA: em `row`
-/// `left` é o início; em `row-reverse` o início é a direita, logo `left` é o
-/// fim — e o espelho que se segue devolve-o ao lado físico certo.
-/// `start`/`end` (LÓGICOS, Box Alignment §8.1) seguem o MESMO caminho: sem
-/// bidi implementado (`direction` não muda qual borda é a inline-start),
-/// `start`=esquerda/`end`=direita como `left`/`right` — e por isso ficam
-/// invariantes a `row-reverse` do mesmo jeito (causa 1 da triagem
-/// `flex-justify-logico`: eram sinónimos literais de `flex-start`/
-/// `flex-end` e saíam espelhados; `claude-justify-start-end-row-reverse`).
+/// `column-reverse` precisam (spec §5.1): `flex-start`↔`flex-end` trocam; os
+/// `space-*`/`center` são simétricos ao centro e ficam como estão. `left`/
+/// `right` (físicos) e `start`/`end` (LÓGICOS, Box Alignment §8.1 — sem bidi
+/// implementado, `start`=esquerda/`end`=direita como `left`/`right`) seguem
+/// o MESMO mapa físico e ficam invariantes a `row-reverse` do mesmo jeito
+/// (causa 1 da triagem `flex-justify-logico`: `start`/`end` eram sinónimos
+/// literais de `flex-start`/`flex-end` e saíam espelhados;
+/// `claude-justify-start-end-row-reverse`).
 pub(in crate::layout) fn fisico_para_eixo(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match (j, reverse) {
@@ -493,12 +475,21 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
 /// Offset no eixo cruzado de um item, dado o align-items, a altura da linha `line_h`
 /// e a altura outer do item `item_h`. (stretch é tratado como flex-start aqui — o
 /// esticar real exige passar altura imposta ao layout_block, fase futura.)
+///
+/// `Baseline` cai em `FlexStart`: o alinhamento por baseline REAL (grupo por
+/// linha, ascent por item) só está feito no eixo de LINHA
+/// (`layout/flex_baseline.rs`, que resolve o offset ANTES de chegar aqui —
+/// esta função só vê o `Baseline` de uma coluna, ou de um item cujo grupo não
+/// tinha ninguém para partilhar a baseline). É o fallback que a própria spec
+/// prevê (Flexbox §8.5) quando o eixo cruzado não tem baseline partilhável.
+/// `LastBaseline` cai em `FlexEnd` (a margem INFERIOR) pelo mesmo motivo que
+/// `Baseline` cai em `FlexStart` — ver o corte no doc da variante.
 pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
     use crate::style::AlignItems as A;
     let free = line_h - item_h;
     match a {
-        A::Stretch | A::FlexStart => 0.0,
-        A::FlexEnd => free,
+        A::Stretch | A::FlexStart | A::Baseline => 0.0,
+        A::FlexEnd | A::LastBaseline => free,
         A::Center => free / 2.0,
     }
 }

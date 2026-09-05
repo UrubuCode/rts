@@ -16,7 +16,12 @@ use crate::style::VerticalAlign;
 /// primeira linha dele (borda + padding + meia-entrelinha + ascent da fonte
 /// dele — a última linha, que a spec pede, é a mesma num item de uma linha, o
 /// caso de um botão); vazio, o fundo da margem (a altura toda).
-fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+///
+/// `pub(in crate::layout)`, não privado: `flex_baseline.rs` reusa esta MESMA
+/// distância (do topo da BORDER-BOX à baseline) para o grupo
+/// `align-items:baseline` do flex — só soma a margem própria do item, que
+/// aqui não entra (`h` já é a altura da border-box, não a outer).
+pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
     // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
     // `<input>` de 21px puxava a linha e o `<button>` ao lado descia 3,5px
