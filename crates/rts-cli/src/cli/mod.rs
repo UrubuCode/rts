@@ -168,12 +168,17 @@ fn newer_rust_file(dir: &std::path::Path, than: std::time::SystemTime) -> Result
     Ok(None)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct CliFlags {
     profile: CompilationProfile,
     debug: bool,
     windows_subsystem: Option<WindowsSubsystem>,
     all_namespaces: bool,
+    /// `--html <file>`, repeatable, in the order given — `compile`'s own
+    /// question, and the reason this struct is no longer `Copy`: a page's
+    /// `<script>`s belong to the ONE command that precompiles them, not to
+    /// `CompileOptions`, which every other command shares unchanged.
+    html: Vec<String>,
 }
 
 impl Default for CliFlags {
@@ -183,12 +188,13 @@ impl Default for CliFlags {
             debug: false,
             windows_subsystem: None,
             all_namespaces: false,
+            html: Vec::new(),
         }
     }
 }
 
 impl CliFlags {
-    fn as_compile_options(self) -> CompileOptions {
+    fn as_compile_options(&self) -> CompileOptions {
         CompileOptions {
             profile: self.profile,
             debug: self.debug,
@@ -241,6 +247,7 @@ where
             positional.get(2).cloned(),
             flags.as_compile_options(),
             flags.windows_subsystem,
+            &flags.html,
         ),
         "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
         "eval" | "-e" | "--eval" => run::eval_command(
@@ -286,6 +293,21 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--all-namespaces" => flags.all_namespaces = true,
+            "--html" => {
+                let value = raw
+                    .get(idx + 1)
+                    .ok_or_else(|| anyhow!("missing value for --html"))?;
+                if value.starts_with('-') {
+                    return Err(anyhow!("invalid value for --html: {value} (expected a path)"));
+                }
+                flags.html.push(value.clone());
+                idx += 2;
+                continue;
+            }
+            _ if arg.starts_with("--html=") => {
+                let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
+                flags.html.push(value.to_owned());
+            }
             "--windows-subsystem" => {
                 let value = raw
                     .get(idx + 1)
@@ -344,4 +366,5 @@ fn print_help(bin_name: &str) {
     println!("Options:");
     println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");
     println!("  --all-namespaces                        (compile) keep all runtime symbols (needed for import(variable))");
+    println!("  --html <file>                           (compile) precompile this page's <script> tags into the binary (repeatable)");
 }

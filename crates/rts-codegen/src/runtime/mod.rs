@@ -957,6 +957,30 @@ pub enum RuntimeOp {
     /// unnecessary. Measured at 35.22 ns before it existed, four times the next
     /// most expensive arithmetic row in `bench/analytic.ts`.
     NumberExponent,
+
+    /// A free identifier a page `<script>`'s static `enclosing` chain did not
+    /// carry, read off the environment VALUE the script was handed — its
+    /// `window` — rather than off [`RuntimeOp::GlobalGet`]'s process-wide
+    /// object, which a page script never writes to.
+    ///
+    /// **Appended**, for the reason [`RuntimeOp::SloppyThis`] records: the
+    /// discriminant is the position in [`RuntimeOp::ALL`].
+    ///
+    /// Emitted only inside a page `<script>` compilation
+    /// (`emit::page::emit_page_program`), for a name [`super::emit::binding::
+    /// read`]'s scope walk, `predefined` and [`RuntimeOp::GlobalGet`]'s own
+    /// `PROVIDED`/sloppy-created check all failed to place — the same
+    /// condition that reaches [`RuntimeOp::UnboundGlobalGet`] for an ORDINARY
+    /// program, redirected at the page's own window because a sibling
+    /// `<script>` (a UMD bundle's `global.React = {}`, `global` being `this`)
+    /// may have put the name there since this one was compiled.
+    PageGlobalGet,
+
+    /// Writes a free identifier sloppy mode creates onto a page `<script>`'s
+    /// own window, rather than onto [`RuntimeOp::GlobalSet`]'s process object.
+    ///
+    /// **Appended**, [`RuntimeOp::PageGlobalGet`]'s own reason.
+    PageGlobalSet,
 }
 
 impl RuntimeOp {
@@ -1063,6 +1087,8 @@ impl RuntimeOp {
         RuntimeOp::ModulePublishCommon,
         RuntimeOp::SloppyThis,
         RuntimeOp::NumberExponent,
+        RuntimeOp::PageGlobalGet,
+        RuntimeOp::PageGlobalSet,
     ];
 
     /// The linker name the runtime must define.
@@ -1169,6 +1195,8 @@ impl RuntimeOp {
             RuntimeOp::ModulePublishCommon => "__rts_module_publish_common",
             RuntimeOp::SloppyThis => "__rts_sloppy_this",
             RuntimeOp::NumberExponent => "__rts_number_exponent",
+            RuntimeOp::PageGlobalGet => "__rts_page_global_get",
+            RuntimeOp::PageGlobalSet => "__rts_page_global_set",
         }
     }
 
@@ -1413,6 +1441,13 @@ impl RuntimeOp {
             // A key the compiler resolved, like `GlobalGet` — and for the same
             // reason: both sides hold the same number, so no text crosses.
             RuntimeOp::UnboundGlobalGet => (vec![Repr::I64], vec![UNPROVEN]),
+            // The environment VALUE the page script was handed, then the key —
+            // `GlobalGet`'s own parameter, plus the one argument that makes
+            // this a page script's own window instead of the process object.
+            RuntimeOp::PageGlobalGet => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            // The environment, the key, and the value — `GlobalSet`'s own
+            // pair, with the environment argument `PageGlobalGet` adds.
+            RuntimeOp::PageGlobalSet => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
         };
         Signature {
             params,

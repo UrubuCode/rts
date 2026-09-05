@@ -385,6 +385,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::SloppyThis => (CoreEntry::SloppyThis, {
             rts_core::entry::sloppy_this as extern "C" fn(u64) -> u64 as *const u8
         }),
+        RuntimeOp::PageGlobalGet => (CoreEntry::PageGlobalGet, {
+            rts_core::entry::page_global_get as extern "C" fn(u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::PageGlobalSet => (CoreEntry::PageGlobalSet, {
+            rts_core::entry::page_global_set as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+        }),
     }
 }
 
