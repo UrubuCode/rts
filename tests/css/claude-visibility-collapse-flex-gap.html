@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa que um item flex com `visibility:collapse` não ocupa espaço no eixo
+     principal e os DOIS gaps adjacentes a ele desaparecem — como se o item
+     não estivesse na lista de itens do flex (fica lá, 0×0, invisível, mas
+     não consome main-size nem gap). `#b` é o item colapsado no meio de
+     quatro; `#a`,`#c`,`#d` são os visíveis e são o que se afirma. O nosso
+     motor trata `visibility:collapse` como sinónimo de `hidden` (só não
+     pinta): a caixa de `#b` continua com a largura cheia e os gaps dos dois
+     lados ficam, empurrando `#c`/`#d` 64px para a direita do que deviam. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="a,c,d">
+<meta name="fixar-estilo" content="visibility,gap">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; gap: 16px; }
+  .f > div { width: 48px; height: 40px; background: #06c; }
+  #b { visibility: collapse; }
+</style></head>
+<body>
+  <div class="f"><div id="a"></div><div id="b"></div><div id="c"></div><div id="d"></div></div>
+</body>
+</html>

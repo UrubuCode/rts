@@ -918,11 +918,12 @@ pub(crate) fn layout_block(
         let cantos = Corners::from_style(&css, 0.0);
         // `opacity` do elemento: multiplica o ALPHA das cores próprias (fundo/borda).
         // Cobre o caso comum (card/botão/overlay com fade) sem grupo de compositing.
-        // `visibility:hidden` zera o alpha de tudo o que ESTE elemento pinta. Não
+        // `visibility:hidden`/`collapse` zera o alpha de tudo o que ESTE
+        // elemento pinta (`suppresses_paint`, style/values/texto.rs). Não
         // salta o layout: o elemento continua a ocupar o espaço dele, que é
         // exatamente o que o distingue de `display:none` — e como a propriedade
         // é herdada, os descendentes chegam aqui já com ela.
-        let op = if css.visibility == Some(crate::style::values::Visibility::Hidden) {
+        let op = if css.visibility.is_some_and(|v| v.suppresses_paint()) {
             0.0
         } else {
             css.opacity.unwrap_or(1.0)
