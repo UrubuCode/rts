@@ -31,6 +31,7 @@
 //! functions                   u32 count, then per function name/arity/flags
 //! metas                       u32 count, then per module specifier/url/main
 //! resolutions                 u32 count, then per entry three strings
+//! page_scripts                u32 count, then per entry u64 hash + u32 index
 //! ```
 //!
 //! where `strings` is a `u32` count followed by `u32` byte length + UTF-8
@@ -45,7 +46,9 @@
 //! `u32` that is it (0 when it does not). A function is its name as a string,
 //! then `u32` arity, then `u8` has-prototype, `u8` constructs and 2 bytes of
 //! padding. A meta is its specifier and url as strings, then `u8` main and 3
-//! bytes of padding.
+//! bytes of padding. A `page_scripts` entry is a page `<script>`'s source
+//! hash as `u64`, then its position in the `functions` table above — the same
+//! index `FUNCTION_TABLE_SYMBOL` resolves an address for — as `u32`.
 //!
 //! # What is deliberately NOT in here
 //!
@@ -137,6 +140,12 @@ pub fn write(path: &std::path::Path, program: &ObjectProgram) -> std::io::Result
         string(&mut out, resolved);
     }
 
+    count(&mut out, program.page_scripts.len());
+    for (hash, index) in &program.page_scripts {
+        out.extend_from_slice(&hash.to_le_bytes());
+        out.extend_from_slice(&index.to_le_bytes());
+    }
+
     std::fs::write(path, out)
 }
 
@@ -174,5 +183,75 @@ fn units(out: &mut Vec<u8>, literals: &[Vec<u16>]) {
         for unit in units {
             out.extend_from_slice(&unit.to_le_bytes());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write;
+    use crate::object::ObjectProgram;
+
+    /// An `ObjectProgram` with every table empty except `bytes`, which callers
+    /// fill in — the shape a program with no `--html` files writes.
+    fn empty_program() -> ObjectProgram {
+        ObjectProgram {
+            bytes: Vec::new(),
+            singletons: [0, 1, 2],
+            kinds: [3, 4],
+            keys: Vec::new(),
+            literals: Vec::new(),
+            templates: Vec::new(),
+            modules: 0,
+            frames: Vec::new(),
+            function_names: Vec::new(),
+            module_metas: Vec::new(),
+            resolutions: Vec::new(),
+            page_scripts: Vec::new(),
+        }
+    }
+
+    /// The exact tail this batch adds: a `u32` count of zero when there is
+    /// nothing to precompile, appended after every table this format already
+    /// had. `rts-runtime`'s own reader has the matching test for the other
+    /// side of this claim — this one is that the WRITER holds its half.
+    #[test]
+    fn an_empty_page_scripts_table_is_a_trailing_zero_count() {
+        let dir = std::env::temp_dir().join("rts-host-manifest-tests");
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let path = dir.join("empty.rtsdata");
+
+        write(&path, &empty_program()).expect("an empty manifest writes");
+        let bytes = std::fs::read(&path).expect("the file it just wrote");
+
+        assert_eq!(
+            &bytes[bytes.len() - 4..],
+            &0u32.to_le_bytes(),
+            "the last four bytes of a manifest with no page scripts are the \
+             `page_scripts` table's own zero count"
+        );
+    }
+
+    /// One page script's hash and function-table index, written and read back
+    /// as the exact bytes the format promises: `u64` then `u32`, little-endian,
+    /// after a `u32` count of one.
+    #[test]
+    fn one_page_script_writes_hash_then_index() {
+        let dir = std::env::temp_dir().join("rts-host-manifest-tests");
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let path = dir.join("one.rtsdata");
+
+        let mut program = empty_program();
+        program.page_scripts.push((0x1122_3344_5566_7788, 5));
+        write(&path, &program).expect("a manifest with one page script writes");
+        let bytes = std::fs::read(&path).expect("the file it just wrote");
+
+        let tail = &bytes[bytes.len() - 16..];
+        assert_eq!(&tail[0..4], &1u32.to_le_bytes(), "one entry");
+        assert_eq!(
+            &tail[4..12],
+            &0x1122_3344_5566_7788u64.to_le_bytes(),
+            "the source hash, little-endian"
+        );
+        assert_eq!(&tail[12..16], &5u32.to_le_bytes(), "the function-table index");
     }
 }
