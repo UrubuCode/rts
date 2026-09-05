@@ -369,7 +369,9 @@ pub(crate) fn layout_block(
                 }
             }
             if tag == "img" {
-                if let Some(img) = layout_image(dom, id, &css, x, y, avail_w, ctx, list) {
+                if let Some(img) =
+                    layout_image(dom, id, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
+                {
                     return img;
                 }
                 // sem pixels ainda (não baixou/decodificou): ocupa 0 (não pinta nada).
@@ -497,11 +499,27 @@ pub(crate) fn layout_block(
                 // (default), o `width` JÁ é o content.
                 Some(w) if border_box => (w - (padding_h + border_h)).max(0.0),
                 Some(w) => w,
-                // Shrink-to-fit com o piso que faltava — extraído para não
-                // crescer este ficheiro (CSS2 §10.3.5, `flex_limites.rs`).
-                None if shrink_to_fit => super::flex_limites::largura_shrink_to_fit(
-                    dom, id, (avail_w - frame).max(0.0), frame, font_for_content, ctx,
-                ),
+                // Sem width: shrink-to-fit → largura do conteúdo (com o piso
+                // de min-content e o tecto do disponível, CSS2 §10.3.5 —
+                // `flex_limites::largura_shrink_to_fit`, extraída para não
+                // crescer este ficheiro); senão (fluxo block normal) →
+                // ocupa a largura disponível.
+                //
+                // `largura_intrinseca_transferida` decide PRIMEIRO quando um
+                // `<img>` sem tamanho lá dentro pesa pela razão×altura
+                // esticada em vez do natural (`replaced_transferido.rs`) —
+                // `None` em qualquer outro caso, e cai no shrink-to-fit de
+                // sempre.
+                None if shrink_to_fit => {
+                    let h = forced_outer_h
+                        .map(|h| (h - pad_top - pad_bottom - border_top - border_bottom).max(0.0));
+                    super::replaced_transferido::largura_intrinseca_transferida(dom, id, font_for_content, h, ctx)
+                        .unwrap_or_else(|| {
+                            super::flex_limites::largura_shrink_to_fit(
+                                dom, id, (avail_w - frame).max(0.0), frame, font_for_content, ctx,
+                            )
+                        })
+                }
                 None => (avail_w - frame).max(0.0),
             }
         };

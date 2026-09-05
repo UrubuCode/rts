@@ -16,14 +16,20 @@ fn containing_block_rect(
 ) -> Option<Rect> {
     let mut cur = dom.node(id).parent;
     while let Some(p) = cur {
-        let positioned = dom
-            .computed_style_idx(p)
+        let css_p = dom.computed_style_idx(p);
+        let positioned = css_p
+            .as_ref()
             .and_then(|c| c.position)
             .map(|pos| pos != crate::style::Position::Static)
             .unwrap_or(false);
         if positioned {
-            if let Some(r) = flow_rects.get(&p) {
-                return Some(*r);
+            // O containing block é a PADDING BOX do ancestral (CSS 2.1 §10.1),
+            // não a border box guardada em `node_rects` — ver
+            // `caixa_contentora.rs` para o achado (a referência de 31 dos 33
+            // reftests `flex-align-justify-familia` tem um `border` no
+            // ancestral e desviava 1px nos dois eixos sem esta conversão).
+            if let (Some(r), Some(css_p)) = (flow_rects.get(&p), css_p) {
+                return Some(super::caixa_contentora::padding_box(*r, &css_p));
             }
             // Um ancestral posicionado SEM caixa (não foi layoutado) não serve de
             // containing block, e continuar a subir escolhe um contentor que o

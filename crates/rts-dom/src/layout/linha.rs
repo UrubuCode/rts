@@ -347,7 +347,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         let topo = text_top + ctx.measurer.font_ascent(font_size) - seg.wh;
                         if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), ctx, list);
+                            layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
                         }
                     }
                     AtomicKind::Block => {

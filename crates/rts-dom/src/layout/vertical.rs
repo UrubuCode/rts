@@ -375,7 +375,29 @@ pub(in crate::layout) fn layout_children_vertical(
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
                 let side = child_float;
-                let w = child_outer_width(dom, child, content_w, font_size, ctx);
+                // `child_outer_width` não clampa por `max-width`/`min-width`
+                // de propósito (é a mesma função da base flex, que a spec
+                // exige NÃO capada) — um float precisa da largura EFETIVA do
+                // PRÓPRIO para se posicionar, senão o irmão seguinte nascia
+                // além de onde o layout real ia desenhar
+                // (WPT `flexbox-min-height-auto-002b`). O clamp é sobre o
+                // limite DESLOCADO pela margem — `max-width`/`min-width` são
+                // do CONTEÚDO, não da caixa outer que `child_outer_width`
+                // devolve, e clampar a outer crua cortava a MARGEM também.
+                let ccss = dom.computed_style_idx(child).unwrap_or_default();
+                let rc = ResolveCtx {
+                    parent_content_w: content_w,
+                    node_font_size: font_size,
+                    root_font_size: crate::style::root_font_size(),
+                    viewport_w: ctx.viewport_w,
+                    viewport_h: ctx.viewport_h,
+                };
+                let margin_h = ccss.margin.resolve_h(&rc);
+                let w = crate::style::clamp_size(
+                    child_outer_width(dom, child, content_w, font_size, ctx),
+                    ccss.min_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
+                    ccss.max_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
+                );
                 let h = child_outer_height(dom, child, content_w, avail_h, css, font_size, ctx);
                 // Onde cabe: tenta o cursor; se a banda livre aí é estreita
                 // demais, desce para o fundo de cada float que a estorva, pela
