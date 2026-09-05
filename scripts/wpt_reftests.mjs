@@ -6,7 +6,7 @@
 // o `wptrunner` avalia um reftest.
 //
 //   cargo build --release -p rts-dom --example claude-raster
-//   bun scripts/wpt_reftests.mjs <pasta-do-wpt>/css/css-flexbox [--tol 8] [--max N] [--out dir]
+//   bun scripts/wpt_reftests.mjs <pasta-do-wpt>/css/css-flexbox [--tol 8] [--max N] [--out dir] [--filtro regex]
 //
 // O que este número NÃO é: a régua de Blink. Um reftest que passa aqui diz "o
 // motor é coerente consigo próprio nestes dois documentos"; um que falha diz
@@ -26,6 +26,11 @@ if (!pasta) { console.error("uso: bun scripts/wpt_reftests.mjs <pasta> [--tol 8]
 const opt = (n, d) => { const i = args.indexOf("--" + n); return i >= 0 ? args[i + 1] : d; };
 const TOL = Number(opt("tol", "8"));
 const MAX = Number(opt("max", "0"));
+// `--filtro` é para ITERAR num lote, nunca para produzir o número: a saída
+// diz-o na primeira linha, e um relatório filtrado não é comparável com o
+// `.github/wpt_report.json` do main (denominador diferente — a armadilha que
+// o honesty floor chama "verify the input"). Sem filtro, nada muda.
+const FILTRO = opt("filtro", "") ? new RegExp(opt("filtro", ""), "i") : null;
 const OUT = resolve(opt("out", join(process.env.TEMP ?? ".", "wpt-reftests")));
 const RASTER = ["target/release/examples/claude-raster.exe", "target/release/examples/claude-raster"].find(existsSync);
 if (!RASTER) { console.error("construa o rasterizador: cargo build --release -p rts-dom --example claude-raster"); process.exit(2); }
@@ -75,7 +80,9 @@ for (const f of html) {
   if (!existsSync(ref)) continue;
   testes.push({ teste: join(pasta, f), ref, script: /<script/i.test(src) });
 }
-const lista = MAX > 0 ? testes.slice(0, MAX) : testes;
+const filtrados = FILTRO ? testes.filter((t) => FILTRO.test(basename(t.teste))) : testes;
+const lista = MAX > 0 ? filtrados.slice(0, MAX) : filtrados;
+if (FILTRO) console.log(`--filtro ${FILTRO.source}: ${lista.length} de ${testes.length} — número PARCIAL, não comparável com o relatório do main`);
 console.log(`${pasta}: ${html.length} html, ${testes.length} reftests (rel=match com referência existente), ${lista.filter((t) => t.script).length} com <script>`);
 
 function rasterizar(htmlPath, png) {

@@ -17,6 +17,7 @@ cd $TEMP/wpt && git sparse-checkout set css/css-flexbox css/CSS2/floats css/css-
 cargo build --release -p rts-dom --example claude-raster
 bun scripts/wpt_reftests.mjs $TEMP/wpt/css/css-flexbox            # todos
 bun scripts/wpt_reftests.mjs $TEMP/wpt/css/css-flexbox --max 300  # os primeiros N, por ordem de nome
+bun scripts/wpt_reftests.mjs $TEMP/wpt/css/css-flexbox --filtro 'writing-mode'  # só os que casam, para ITERAR
 ```
 
 Saída: `passam/total`, os 15 piores por percentagem de pixels diferentes, e
@@ -36,6 +37,11 @@ shrink 27, writing-mode 21, wrap 19, justify 16, baseline 12. **Corre no CI**
 várias linhas (`flexbox-baseline-multi-line-horiz-003/004`, 36 %), tamanhos
 definidos (`flexbox-definite-sizes-005`, 30 %), `writing-mode` vertical
 (que este motor não tem) e os testes com `<script>` (corridos sem JS).
+
+`--filtro <regex>` corre só os reftests cujo NOME casa — serve para iterar num
+lote sem esperar pelos 489. O número que sai dele é PARCIAL e a saída diz-o:
+não se compara com `.github/wpt_report.json`, cujo denominador é a pasta
+inteira. O número do lote mede-se sempre sem filtro.
 
 ## O que este número NÃO é
 
