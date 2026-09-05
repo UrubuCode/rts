@@ -132,12 +132,12 @@ Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145
 | Files in folder | 73 | 5 | 3 |
 | Page JavaScript runs | yes | **no** | yes |
 | Processes | 4 | 2 | 2 |
-| Startup (median, min–max) | 256 ms (208–1291) | 284 ms (284–293) | 1995 ms (1958–2125) |
-| RSS (median, min–max) | 260.9 MB (260.8–261.0) | 67.4 MB (67.4–68.9) | 110.5 MB (107.8–112.0) |
-| Private bytes (median) | 89.0 MB | 165.9 MB | 211.5 MB |
-| CPU at rest (median) | 0% | 342.08% | 342.85% |
+| Startup (median, min–max) | 224 ms (210–1037) | 259 ms (253–263) | 1892 ms (1814–2096) |
+| RSS (median, min–max) | 261.7 MB (261.0–261.9) | 67.6 MB (67.4–69.1) | 110.4 MB (108.3–112.2) |
+| Private bytes (median) | 89.5 MB | 166.2 MB | 212.7 MB |
+| CPU at rest (median) | 0% | 346.61% | 343.65% |
 
-**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: a fonte não compilou (×3 nesta corrida)". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
+**RTS's AOT `.exe` starts and paints the static HTML/CSS**, same as the JIT side — but its page `<script>`s do not run: "[page] <script> 0 de https://localhost/ falhou: TypeError: this script was not pre-compiled into this AOT binary — `rts compile --html` only precompiles the <script> tags of the HTML files it was given, and `node:vm`'...". An AOT binary carries no compiler, so any JavaScript that only exists as page-script text (not referenced statically by the `.ts` that got compiled) has nothing to run it; the window opens and stays blank for *this* app, which is React mounted entirely from a `<script>` block. `scripts/rts_vs_electron/rts/README.md` has the full account.
 
 **Honesty: the side comparable to Electron today is the last column, not the middle one.** Electron ships a JS engine (V8) inside its runtime, so any page script runs regardless of how the app was built. RTS's AOT `.exe` does not — it only runs the JavaScript that was compiled INTO it ahead of time, so it fits an app with no page `<script>` (or one whose HTML is generated from already-compiled TS, not read as text). `rts.exe` + the app is the actual Electron-equivalent pair (engine binary with a compiler + the page it opens, same relationship as Chromium + `app.asar`), and it is the only RTS column above where the same React page the Electron column renders also renders here.
 
