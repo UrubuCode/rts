@@ -91,6 +91,7 @@ mod flex_limites;
 mod flex_linhas;
 mod flex_margens_auto;
 mod flex_pseudo;
+mod flex_stretch_replaced;
 mod grid;
 mod grid_linhas;
 mod grid_tracks;

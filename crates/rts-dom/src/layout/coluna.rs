@@ -317,9 +317,13 @@ pub(in crate::layout) fn layout_children_column(
             let ccss = dom.computed_style_idx(it.node).unwrap_or_default();
             // Um `<img>` não enche `avail_w` sozinho — precisa do stretch
             // como `forced_outer_w` explícito (`flex-svg-no-intrinsic-
-            // column-001`, WPT); `<table>`/`<input>` ficam de fora.
-            let e_img = matches!(&dom.node(it.node).kind, NodeKind::Element { tag } if tag == "img");
-            let forced_w = (stretch && ccss.width.is_none() && e_img).then_some(content_w);
+            // column-001`, WPT); o mesmo vale para `<input type=checkbox|
+            // radio>` (o quadrado de 13px de `layout/input.rs`, WPT
+            // `stretch-flex-item-checkbox-input`/`-radio-input`) —
+            // `flex_stretch_replaced` decide os dois; um campo de texto ou
+            // `<table>` já se enchem sozinhos e ficam de fora.
+            let precisa_forced_w = super::flex_stretch_replaced::precisa_de_forced_w_no_stretch(dom, it.node);
+            let forced_w = (stretch && ccss.width.is_none() && precisa_forced_w).then_some(content_w);
             let child_x = if stretch && ccss.width.is_none() {
                 super::coluna_rtl::cross_x(
                     css.direction,
