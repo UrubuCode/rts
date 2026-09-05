@@ -510,12 +510,16 @@ pub(in crate::layout) fn layout_children_vertical(
                 let com_topo = junta_ao_strut(strut, m);
                 let mut aresta = borda + strut_colapsado(com_topo);
                 // CLEARANCE (CSS 2.1 §9.5.2): com `clear`, a aresta fica no
-                // MAIOR entre a hipotética e o fundo do float (só do LADO que o
-                // `clear` pede — ver acima). Somar a margem por cima da descida
-                // era o defeito medido — o bloco ficava 10 px abaixo do fundo do
-                // float onde o Chrome o põe exactamente no fundo.
+                // MAIOR entre a hipotética e o fundo do float — e a hipotética
+                // inclui a margem que atravessa para o primeiro filho, não só
+                // `m` (ver `clearance_hipotetica.rs`, que é onde o defeito
+                // medido de `margin-collapse-clear-015` vivia).
                 if let Some(fundo) = clearance {
-                    aresta = aresta.max(fundo);
+                    if let Some(nova) = super::clearance_hipotetica::aresta_com_clearance(
+                        dom, child, content_w, font_size, ctx, borda, strut, m, fundo,
+                    ) {
+                        aresta = nova;
+                    }
                 }
                 // Um filho que ESTABELECE BFC não pode sobrepor um float
                 // anterior (causa 9, `bfc_evita_float.rs`) — distinto do
