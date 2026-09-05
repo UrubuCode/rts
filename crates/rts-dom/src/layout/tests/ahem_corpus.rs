@@ -113,3 +113,35 @@ fn wrap_familia_normal_cabe_as_duas_palavras_na_mesma_linha() {
     let t = all_texts(&list);
     assert_eq!(t.len(), 1, "uma palavra só — colapsaram no mesmo segmento: {t:?}");
 }
+
+/// Lote `medidor-ahem` (fecho pedido pelo coordenador): `width: Nch` num
+/// bloco Ahem resolve para `N×font-size` exato — em Ahem `1ch = 1em` POR
+/// CONSTRUÇÃO (o "0" que define `ch` é um glifo igual a todos os outros,
+/// avança 1em), não `N×font-size×MONO_ADVANCE` (0.5498), a fração calibrada
+/// contra uma fonte monoespaçada REAL que os três reftests do WPT
+/// (`eol-spaces-bidi-003`, `white-space-pre-wrap-trailing-spaces-012/015`)
+/// expunham: o mesmo bug em `Dimension::Ch`, achado ao investigar os 7
+/// perdidos de `css-text` da ronda 2 (todos partilhavam `width:Nch`).
+#[test]
+fn largura_em_ch_num_bloco_ahem_e_exata() {
+    let list = layout(
+        "<div style='width:4ch;font:20px/1 Ahem;background:#0f0'>XXXX</div>",
+        600.0,
+    );
+    let r = first_rect(&list);
+    // 4 × 20 = 80, contra os 43.98 (4×20×0.5498) que MONO_ADVANCE daria.
+    assert_eq!(r.w, 80.0, "{r:?}");
+}
+
+/// Uma família qualquer não muda: `ch` continua a resolver por
+/// `MONO_ADVANCE`, como sempre — este fecho não é um efeito colateral geral.
+#[test]
+fn largura_em_ch_com_familia_normal_continua_por_mono_advance() {
+    let list = layout(
+        "<div style='width:4ch;font:20px/1 Arial;background:#0f0'>XXXX</div>",
+        600.0,
+    );
+    let r = first_rect(&list);
+    // 4 × 20 × 0.5498 = 43.984.
+    assert!((r.w - 43.984).abs() < 0.01, "{r:?}");
+}

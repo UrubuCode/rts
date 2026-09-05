@@ -491,7 +491,7 @@ pub(crate) fn layout_block(
         let base = if css.width == Some(crate::style::Dimension::MaxContent) {
             content_natural_width(dom, id, font_for_content, ctx)
         } else {
-            match css.width.and_then(|d| d.resolve(&resolve)) {
+            match css.width.and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref())) {
                 // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
                 // então o content é `width - (padding_h + 2*border)`. Em content-box
                 // (default), o `width` JÁ é o content.
