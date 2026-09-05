@@ -66,6 +66,7 @@ mod posicao_estatica;
 mod posicionado;
 mod pseudo_bloco;
 mod relativo;
+mod fundo_imagem;
 mod replaced;
 mod replaced_transferido;
 mod bloco;

@@ -88,6 +88,28 @@ fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
             dom.set_pixel_data(id, rgba, w, h);
         }
     }
+    carregar_fundos(dom, base_dir);
+}
+
+/// O mesmo carregamento acima, para `background-image: url(...)` — ver a
+/// doc gêmea em `claude-raster.rs` (lote `background-image-pintado`).
+fn carregar_fundos(dom: &mut Dom, base_dir: &Path) {
+    for id in dom.query_all("*") {
+        let Some(css) = dom.computed_style(id) else { continue };
+        let Some(url) = css.bg_image.as_deref().and_then(rts_dom::style::background::bg_image_url) else {
+            continue;
+        };
+        let decoded = if url.starts_with("data:") {
+            rts_dom::imagem::bytes_da_data_url(&url).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        } else if url.starts_with("http://") || url.starts_with("https://") {
+            None
+        } else {
+            std::fs::read(base_dir.join(&url)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        };
+        if let Some((rgba, w, h)) = decoded {
+            dom.set_pixel_data(id, rgba, w, h);
+        }
+    }
 }
 
 /// Escapar para JSON. O texto de um item de pintura é conteúdo do AUTOR — pode
