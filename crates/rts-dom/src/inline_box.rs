@@ -19,7 +19,7 @@ use crate::style::{ComputedStyle, ResolveCtx};
 
 mod substituido;
 pub(crate) use self::substituido::{
-    altura_min_content_por_razao, largura_min_content_por_razao, ratio_do_replaced, replaced_inline_size,
+    altura_min_content_por_razao, largura_min_content_por_razao, replaced_inline_size,
 };
 
 /// O que é uma caixa ATÓMICA no fluxo inline — flui como uma palavra

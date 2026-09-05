@@ -19,18 +19,3 @@ claude-cursor-pointer-events.html
 
 # vaga 7 — `claude-img-natural` (medida antes do código) saiu daqui com o lote
 # V-img: o PNG de `data:` chega ao `<img>` pela ponte.
-
-# lote imagens-no-raster — a fonte é `data:image/svg+xml`; o motor só
-# descodifica PNG (`rts_dom::imagem`, PLAN.md lote V-img) e por isso o <img>
-# nunca tem razão de aspeto para transferir, mesmo com o stretch de flex a
-# funcionar (corpus Rust: `layout::tests::imagens_corpus`). Corte documentado,
-# não deste lote.
-claude-img-sem-tamanho-natural-em-flex.html
-
-# lote imagens-no-raster — a altura medida (16) é o ícone de imagem PARTIDA
-# do Chromium (sem `alt`, `src` que não resolve neste corpus): não é uma
-# constante de CSS2 §10.3.2/§10.6.2 (cujo fallback seria 150) nem algo que
-# este motor calcule — não há razão de aspeto disponível para derivar
-# NADA (nem 16 nem 225). `layout::tests::imagens_corpus` fixa o que o motor
-# faz hoje (altura 0).
-claude-img-aspect-ratio-sem-loader.html

@@ -14,14 +14,14 @@ use crate::table::tests::{geometria_com, rect};
 /// `#fora` (flex-row, `width:100px`) — pela razão 1:1 e o stretch do eixo
 /// cruzado dos dois níveis, `#alvo` deve ocupar 100×100.
 ///
-/// A fixture usa uma fonte SVG `data:` (razão 1:1, 20×20 no viewBox); este
-/// motor não tem descodificador de SVG (só PNG, PLAN.md lote V-img) — corte
-/// dito, não deste lote. Os pixels são alimentados DIRETAMENTE por
-/// `set_pixel_data` com a MESMA razão 1:1 (20×20), o mesmo método que
-/// `img_natural`/`img_com_pixels_no_documento` já usam para testar a
-/// GEOMETRIA sem depender de um descodificador: a pergunta aqui é se o
-/// stretch transfere a razão através de DOIS níveis de flex, não se o SVG
-/// decodifica.
+/// A fixture usa uma fonte SVG `data:` (razão 1:1, 20×20 no viewBox). Este
+/// motor não RASTERIZA SVG (só PNG, PLAN.md lote V-img — pintar continua
+/// mascarado, corte mantido) mas `Dom::image_dims` agora lê a dimensão
+/// intrínseca direto do texto da `data:` URL (`width`/`height`/`viewBox` da
+/// RAIZ do `<svg>`, retrabalho deste lote) sem descodificar nada — por isso
+/// o `<img>` real da fixture, sem nenhum `set_pixel_data` a simular nada,
+/// já basta para testar que o stretch transfere a razão através de DOIS
+/// níveis de flex.
 #[test]
 fn flex_stretch_transfere_a_razao_atraves_de_dois_niveis() {
     let html = r#"<style>
@@ -30,17 +30,14 @@ fn flex_stretch_transfere_a_razao_atraves_de_dois_niveis() {
 </style>
 <div id="fora">
   <div id="dentro">
-    <img id="alvo">
+    <img id="alvo" src="data:image/svg+xml,<svg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' fill='green'/></svg>">
   </div>
 </div>"#;
-    let (dom, list) = geometria_com(html, 1280.0, |d| {
-        let id = d.query("#alvo").unwrap();
-        d.set_pixel_data(id, vec![0, 200, 0, 255].repeat(400), 20, 20);
-    });
+    let (dom, list) = geometria_com(html, 1280.0, |_d| {});
     let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
     assert_eq!(r("#fora"), (0.0, 0.0, 102.0, 102.0), "declarado + 1px de borda por lado");
     assert_eq!(r("#dentro"), (1.0, 1.0, 100.0, 100.0), "encolhe ao alvo transferido, não ao natural (20×20)");
-    assert_eq!(r("#alvo"), (1.0, 1.0, 100.0, 100.0), "100×100: a altura definite de #dentro transferida à largura pela razão 1:1");
+    assert_eq!(r("#alvo"), (1.0, 1.0, 100.0, 100.0), "100×100: a altura definite de #dentro transferida à largura pela razão 1:1, lida do SVG sem rasterizar");
 }
 
 /// `claude-flex-abspos-img-aspect-ratio`: `#inner` (flex-row,
@@ -80,26 +77,30 @@ fn abspos_esticado_deriva_a_largura_pela_razao_do_png_data_url() {
 }
 
 /// `claude-img-aspect-ratio-sem-loader`: um `<img>` com só `width` (CSS) e um
-/// `src` que não resolve neste corpus (sem `support/20x50-green.png` — o
-/// mesmo que aconteceu na medição: o Edge também não encontrou o ficheiro, é
-/// por isso que o número medido NÃO é `w×(50/20)=225`, a razão do PNG real).
+/// `src` que agora RESOLVE (`tests/css/support/20x50-green.png`, commitado
+/// no retrabalho deste lote — a primeira medição tinha saído com o Edge a
+/// desenhar o ícone de imagem PARTIDA, 90×16, porque o PNG nunca tinha sido
+/// commitado; re-medido com o ficheiro presente, o Blink deriva a altura
+/// pela razão natural do PNG: 90 × (50/20) = 225).
 ///
-/// O medido no Blink é `(90, 16)` — a altura de fallback do ÍCONE de imagem
-/// PARTIDA do Chromium (sem `alt`, o HTML não declara nenhum). Esse número
-/// não vem de CSS2 §10.3.2/§10.6.2 (cujo fallback, quando só uma dimensão é
-/// dada e não há razão nem intrínseco, é 150px — nenhuma leitura da spec dá
-/// 16) nem de nenhuma constante que este motor já calcule: é um ícone de
-/// UA cujo tamanho não está documentado em lado nenhum consultável. **Corte
-/// dito**: este teste fixa o que o motor FAZ hoje (0 — sem razão disponível,
-/// a altura fica por derivar) e não o ícone do Chromium; a fixture entra em
-/// `tests/css/esperado-a-falhar.txt`.
+/// O PNG real é de 1 BIT por píxel (paleta de uma entrada, 84 bytes) — o
+/// formato que fazia o motor continuar a dar altura 0 mesmo com o ficheiro
+/// presente, porque `imagem/png.rs` só aceitava 8 bits por canal
+/// (retrabalho: `png.rs` ganhou suporte a 1/2/4 bits nos tipos 0/3, os
+/// únicos que a spec permite nessas profundidades).
 #[test]
-fn imagem_sem_ficheiro_e_sem_alt_fica_sem_altura_derivada() {
+fn largura_so_declarada_deriva_a_altura_pela_razao_do_png_de_1_bit() {
+    let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/css/support/20x50-green.png");
+    let (rgba, w, h) = crate::imagem::png::decodificar(&std::fs::read(p).expect("png no repo")).expect("png de 1 bit");
+    assert_eq!((w, h), (20, 50), "a fixture depende de um PNG 20×50 real");
     let html = r#"<style>#img1{width:90px;display:block}</style>
 <img id="img1" src="support/20x50-green.png">"#;
-    let (dom, list) = geometria_com(html, 1280.0, |_d| {});
+    let (dom, list) = geometria_com(html, 1280.0, |d| {
+        let id = d.query("#img1").unwrap();
+        d.set_pixel_data(id, rgba, w, h);
+    });
     let r = rect(&dom, &list, "#img1", 0);
-    assert_eq!((r.w, r.h), (90.0, 0.0), "largura do CSS; altura sem razão nenhuma para derivar (gap conhecido, ver o comentário acima)");
+    assert_eq!((r.w, r.h), (90.0, 225.0), "90 declarado; altura = 90 × (50/20), a razão natural do PNG");
 }
 
 /// `flexbox-min-width-auto-002a` (WPT, retrabalho do lote): `min-width:auto`

@@ -11,9 +11,12 @@ use std::io::Read;
 
 /// `Some((rgba8, w, h))` para um PNG de 8 bits por canal, não entrelaçado,
 /// nos tipos de cor 0 (cinzento), 2 (RGB), 3 (paleta), 4 (cinzento+alfa) e
-/// 6 (RGBA). `None` para 16 bits, entrelaçado (Adam7), ou um ficheiro que
-/// não é PNG — ditos aqui em vez de aproximados: uma imagem mal
-/// descodificada é um erro silencioso, uma que não aparece é visível.
+/// 6 (RGBA) — e também 1/2/4 bits por píxel nos tipos 0 e 3 (os únicos que a
+/// spec permite nessas profundidades, PNG §11.2.2): fixtures minúsculas
+/// (`tests/css/support/20x50-green.png`, 84 bytes, paleta de 1 bit) usam-nas
+/// para caber em poucos bytes. `None` para 16 bits, entrelaçado (Adam7), ou
+/// um ficheiro que não é PNG — ditos aqui em vez de aproximados: uma imagem
+/// mal descodificada é um erro silencioso, uma que não aparece é visível.
 pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     let corpo = bytes.strip_prefix(b"\x89PNG\r\n\x1a\n")?;
     let (mut w, mut h, mut profundidade, mut tipo, mut entrelacado) = (0u32, 0u32, 0u8, 0u8, 0u8);
@@ -48,7 +51,11 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         }
         pos += 12 + len; // comprimento + tipo + dados + CRC
     }
-    if w == 0 || h == 0 || profundidade != 8 || entrelacado != 0 {
+    // 1/2/4 bits por píxel só existem nos tipos 0 (cinzento) e 3 (paleta) —
+    // é a spec que o restringe (PNG §11.2.2), não uma escolha nossa; nos
+    // outros tipos continua a exigir 8.
+    let sub_byte = matches!(tipo, 0 | 3) && matches!(profundidade, 1 | 2 | 4);
+    if w == 0 || h == 0 || (profundidade != 8 && !sub_byte) || entrelacado != 0 {
         return None;
     }
     let canais = match tipo {
@@ -61,7 +68,13 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     };
     let mut cru = Vec::new();
     flate2::read::ZlibDecoder::new(&idat[..]).read_to_end(&mut cru).ok()?;
-    let passo = w as usize * canais;
+    // `passo`: bytes por linha JÁ FILTRADA — para sub-byte (canais sempre 1)
+    // vários píxeis partilham um byte, arredondado para cima (PNG §7.2).
+    // `bpp`: bytes por píxel COMPLETO para a previsão dos filtros (§9.2) —
+    // nunca menos de 1 mesmo quando o píxel ocupa menos de um byte.
+    let bits_px = canais * profundidade as usize;
+    let passo = (w as usize * bits_px).div_ceil(8);
+    let bpp = bits_px.div_ceil(8);
     if cru.len() < h as usize * (passo + 1) {
         return None;
     }
@@ -74,9 +87,9 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         let anterior: &[u8] = if y == 0 { &[] } else { &antes[(y - 1) * passo..] };
         let atual = &mut atual[..passo];
         for i in 0..passo {
-            let a = if i >= canais { atual[i - canais] } else { 0 };
+            let a = if i >= bpp { atual[i - bpp] } else { 0 };
             let b = if y > 0 { anterior[i] } else { 0 };
-            let c = if y > 0 && i >= canais { anterior[i - canais] } else { 0 };
+            let c = if y > 0 && i >= bpp { anterior[i - bpp] } else { 0 };
             let previsto = match filtro {
                 0 => 0,
                 1 => a,
@@ -89,13 +102,36 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         }
     }
     let mut rgba = Vec::with_capacity(w as usize * h as usize * 4);
-    for px in linhas.chunks_exact(canais) {
-        match tipo {
-            0 => rgba.extend_from_slice(&[px[0], px[0], px[0], 255]),
-            2 => rgba.extend_from_slice(&[px[0], px[1], px[2], 255]),
-            3 => rgba.extend_from_slice(paleta.get(px[0] as usize)?),
-            4 => rgba.extend_from_slice(&[px[0], px[0], px[0], px[1]]),
-            _ => rgba.extend_from_slice(&[px[0], px[1], px[2], px[3]]),
+    if sub_byte {
+        // Um valor de `profundidade` bits por píxel, MSB primeiro, vários por
+        // byte — o índice de paleta (tipo 3) ou o cinzento a ESCALAR para
+        // 0-255 (tipo 0: 1 bit → 0/255, 2 bits → múltiplos de 85, 4 → de 17).
+        let maximo = (1u32 << profundidade) - 1;
+        for y in 0..h as usize {
+            let linha = &linhas[y * passo..(y + 1) * passo];
+            for x in 0..w as usize {
+                let deslocamento = x * profundidade as usize;
+                let byte_i = deslocamento / 8;
+                let bit = 8 - profundidade as usize - (deslocamento % 8);
+                let valor = (linha[byte_i] >> bit) & (maximo as u8);
+                match tipo {
+                    0 => {
+                        let g = (u32::from(valor) * 255 / maximo) as u8;
+                        rgba.extend_from_slice(&[g, g, g, 255]);
+                    }
+                    _ => rgba.extend_from_slice(paleta.get(valor as usize)?),
+                }
+            }
+        }
+    } else {
+        for px in linhas.chunks_exact(canais) {
+            match tipo {
+                0 => rgba.extend_from_slice(&[px[0], px[0], px[0], 255]),
+                2 => rgba.extend_from_slice(&[px[0], px[1], px[2], 255]),
+                3 => rgba.extend_from_slice(paleta.get(px[0] as usize)?),
+                4 => rgba.extend_from_slice(&[px[0], px[0], px[0], px[1]]),
+                _ => rgba.extend_from_slice(&[px[0], px[1], px[2], px[3]]),
+            }
         }
     }
     Some((rgba, w, h))
@@ -143,6 +179,20 @@ mod tests {
         assert_eq!((w, h), (6, 4));
         assert_eq!(&rgba[0..4], &[200, 30, 30, 255]);
         assert_eq!(&rgba[6 * 4 * 3..6 * 4 * 3 + 4], &[30, 30, 200, 255]);
+    }
+
+    /// O PNG de `tests/css/claude-img-aspect-ratio-sem-loader.html` (20×50,
+    /// verde sólido, PALETA de 1 BIT — 84 bytes) — o formato que fazia o
+    /// motor CONTINUAR a dar altura 0 mesmo com o ficheiro presente, porque o
+    /// decodificador só aceitava 8 bits por canal (retrabalho do lote
+    /// imagens-no-raster).
+    #[test]
+    fn um_png_de_1_bit_por_pixel_descodifica() {
+        let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/css/support/20x50-green.png");
+        let (rgba, w, h) = decodificar(&std::fs::read(p).expect("png no repo")).expect("png de 1 bit");
+        assert_eq!((w, h), (20, 50));
+        assert_eq!(rgba.len(), 20 * 50 * 4);
+        assert!(rgba.chunks_exact(4).all(|p| p == [0, 128, 0, 255]), "verde sólido (paleta de 1 entrada)");
     }
 
     #[test]

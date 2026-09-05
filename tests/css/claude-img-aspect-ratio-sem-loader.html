@@ -1,15 +1,12 @@
 <!DOCTYPE html>
-<!-- POR VERIFICAR se é bug do motor ou do instrumento (claude-paint-dump/
-     claude-raster não correm JS, então dom.image_dims nunca é preenchido
-     para um <img src> estático, com ou sem data:). Fixa a EXPECTATIVA: um
-     <img> com só width definido (via CSS) e sem atributos HTML
-     width/height deve derivar a altura da razão de aspecto NATURAL da
-     imagem decodificada (HTML "dimension attributes" / aspect-ratio auto).
-     Testado com um PNG 20×50 real (support/20x50-green.png, do próprio
-     corpus WPT). Verificado contra o binário atual: height sai 0 em vez de
-     225, tanto com src=ficheiro local como com uma data: URL equivalente
-     — ou seja dom.image_dims(id) nunca é preenchido por este caminho de
-     parse, com ou sem rede. -->
+<!-- Fixa a EXPECTATIVA: um <img> com só width definido (via CSS) e sem
+     atributos HTML width/height deve derivar a altura da razão de aspecto
+     NATURAL da imagem decodificada (HTML "dimension attributes" /
+     aspect-ratio auto). Testado com um PNG 20×50 real
+     (support/20x50-green.png, commitado ao lado, do próprio corpus WPT):
+     90×(90×50/20)=225. A primeira medição desta fixture saiu ERRADA — o PNG
+     nunca tinha sido commitado, e o Edge desenhou o ícone de imagem PARTIDA
+     (90×16); esta é a re-medição com o ficheiro presente. -->
 <html>
 <head>
 <meta name="fixar-estilo-em" content="img1">
