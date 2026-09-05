@@ -131,7 +131,8 @@ impl Dom {
         // pseudo declare tem de ver o MESMO valor, não o inicial.
         let pai = self.computed_style_idx(idx);
         let direction = pai.as_deref().and_then(|p| p.direction);
-        let decls = self.stylesheet.declarations_from(&matched, None, direction);
+        let writing_mode = pai.as_deref().and_then(|p| p.writing_mode);
+        let decls = self.stylesheet.declarations_from(&matched, None, direction, writing_mode);
         // Herda do originante e só depois aplica o que o pseudo declara — a
         // ordem inversa perderia a herança para qualquer propriedade que o
         // pseudo não declare.
@@ -182,7 +183,7 @@ impl Dom {
         if matched.is_empty() {
             return None;
         }
-        let decls = self.stylesheet.declarations_from(&matched, None, herdado.direction);
+        let decls = self.stylesheet.declarations_from(&matched, None, herdado.direction, herdado.writing_mode);
         let mut css = herdado.clone();
         css.merge_over(&decls.normal);
         css.merge_over(&decls.important);
@@ -305,6 +306,15 @@ impl Dom {
         // declarar (`.or`). `direction_herdada::para_logicas` nega-o quando
         // o pai é uma LINHA de flex — ver o cabeçalho lá para o porquê.
         let parent_direction = direction_herdada::para_logicas(parent_css_for_vars.as_deref());
+        // O `writing-mode` HERDADO, cedo, pela mesma razão — uma
+        // `inline-size`/`block-size` (`style::logical::
+        // e_writing_mode_dependente`) só sabe que eixo físico é largura ou
+        // altura depois de saber o `writing-mode` herdado, e a herança
+        // OFICIAL só corre depois das declarações próprias. Sem o corte que
+        // `direction_herdada::para_logicas` aplica ao `direction` — `writing-
+        // mode` não tem o mesmo problema de ORDEM dos itens de uma linha de
+        // flex, é só o eixo de uma dimensão.
+        let parent_writing_mode = parent_css_for_vars.as_deref().and_then(|p| p.writing_mode);
         // As regras que casam este nó, casadas UMA vez e usadas nos DOIS passes
         // (custom properties e declarações). Antes cada passe refazia o
         // matching completo — e o matching navega a árvore.
@@ -403,7 +413,7 @@ impl Dom {
             style::DeclBlock::default()
         } else {
             self.stylesheet
-                .declarations_from(&matched, Some(vars_ref), parent_direction)
+                .declarations_from(&matched, Some(vars_ref), parent_direction, parent_writing_mode)
         };
         let override_node = self.style_overrides.get(&idx);
 
@@ -420,7 +430,8 @@ impl Dom {
         for (prop, raw, important) in &inline.pending {
             if !important {
                 let dir = css.direction.or(parent_direction);
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir);
+                let wm = css.writing_mode.or(parent_writing_mode);
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir, wm);
             }
         }
         if let Some(ov) = override_node {
@@ -438,7 +449,8 @@ impl Dom {
         for (prop, raw, important) in &inline.pending {
             if *important {
                 let dir = css.direction.or(parent_direction);
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir);
+                let wm = css.writing_mode.or(parent_writing_mode);
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir, wm);
             }
         }
         // o mapa de vars entra no computado (os FILHOS herdam daqui).

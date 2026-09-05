@@ -67,9 +67,20 @@ pub(in crate::layout) fn layout_children_column(
 ) -> f32 {
     if wrap {
         if let Some(h) = wrap_definite_h {
+            // `wrap-reverse` × o eixo X físico (`eixos_flex`): um `row`
+            // vertical desce aqui já invertido em `vertical-rl`, sem
+            // `wrap-reverse` declarado. `direction` forçado a LTR aqui — não
+            // porque não conte, mas porque `coluna_wrap::rtl_horizontal` já
+            // faz esse XOR (lote `flex-reverse-order`); passar o `direction`
+            // real duplicava-o (RTL cancelava consigo mesmo, medido nos
+            // testes `flex_reverse_order_corpus`). Em `writing-mode` vertical
+            // `eixo_x_forward` já ignora `direction` (o eixo de bloco não o
+            // lê), então forçar LTR aqui não perde nada nesse caso.
+            let wrap_reverse = super::eixos_flex::wrap_reverse_efetivo(
+                css.writing_mode.unwrap_or_default(), crate::style::Direction::Ltr, true, css.flex_wrap,
+            );
             return super::coluna_wrap::layout_children_column_wrap(
-                dom, id, content_x, content_y, content_w, h, css, font_size, reverse,
-                css.flex_wrap == Some(crate::style::FlexWrap::WrapReverse), ctx, list,
+                dom, id, content_x, content_y, content_w, h, css, font_size, reverse, wrap_reverse, ctx, list,
             );
         }
     }
@@ -393,31 +404,7 @@ pub(in crate::layout) fn layout_children_column(
     (y - content_y).max(0.0)
 }
 
-/// Calcula (leading, between) do justify-content dado o espaço livre `free` e o nº
-/// de itens `n`. `leading` = offset inicial; `between` = espaço EXTRA entre itens
-/// (além do gap). OVERFLOW (free<=0): validado contra o Chrome — os três
-/// `space-*` caem para FLEX-START, só `center`/`flex-end` mantêm o leading
-/// (negativo = transborda dos dois lados/start).
-///
-/// `justify-content` no eixo principal ESPELHADO — o que `row-reverse`/
-/// `column-reverse` precisam (spec §5.1): `flex-start`↔`flex-end` trocam; os
-/// `space-*`/`center` são simétricos ao centro e ficam como estão. `left`/
-/// `right` (físicos) e `start`/`end` (LÓGICOS, Box Alignment §8.1 — sem bidi
-/// implementado, `start`=esquerda/`end`=direita como `left`/`right`) seguem
-/// o MESMO mapa físico e ficam invariantes a `row-reverse` do mesmo jeito
-/// (causa 1 da triagem `flex-justify-logico`: `start`/`end` eram sinónimos
-/// literais de `flex-start`/`flex-end` e saíam espelhados;
-/// `claude-justify-start-end-row-reverse`).
-pub(in crate::layout) fn fisico_para_eixo(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
-    use crate::style::JustifyContent as J;
-    match (j, reverse) {
-        (J::Left, false) | (J::Right, true) | (J::Start, false) | (J::End, true) => J::FlexStart,
-        (J::Left, true) | (J::Right, false) | (J::Start, true) | (J::End, false) => J::FlexEnd,
-        (j, _) => j,
-    }
-}
-
-/// A MESMA ideia de [`fisico_para_eixo`], mas para o eixo PRINCIPAL de uma
+/// A MESMA ideia de [`super::eixos_flex::fisico_para_eixo`], mas para o eixo PRINCIPAL de uma
 /// COLUNA — e o mapa é diferente porque o eixo aí não é o mesmo: `left`/
 /// `right` não têm eixo NENHUM numa coluna (Box Alignment §5.1) e os DOIS
 /// colapsam em "início" (topo); `start`/`end` continuam assimétricos, porque

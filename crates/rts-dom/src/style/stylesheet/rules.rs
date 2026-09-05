@@ -354,6 +354,7 @@ pub(crate) fn apply_resolved_decl(
     raw: &str,
     vars: &std::collections::HashMap<String, String>,
     direction: Option<crate::style::Direction>,
+    writing_mode: Option<crate::style::WritingMode>,
 ) {
     let resolved = super::vars::substitute(raw, vars);
     if resolved.trim().is_empty() {
@@ -361,6 +362,15 @@ pub(crate) fn apply_resolved_decl(
     }
     let mut block = DeclBlock::default();
     block.normal = css.clone();
+    // `writing-mode`: as duas listas precisam dele agora — `e_direction_
+    // dependente` (`margin-inline-start` vira `top`/`bottom` em vertical,
+    // não só troca de lado dentro de X) E `e_writing_mode_dependente`
+    // (`inline-size`/`block-size`). Injectado uma vez, antes das duas.
+    if crate::style::logical::e_direction_dependente(prop)
+        || crate::style::logical::e_writing_mode_dependente(prop)
+    {
+        block.normal.writing_mode = block.normal.writing_mode.or(writing_mode);
+    }
     if crate::style::logical::e_direction_dependente(prop) {
         block.normal.direction = block.normal.direction.or(direction);
     }

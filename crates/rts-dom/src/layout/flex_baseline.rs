@@ -1,6 +1,9 @@
-//! `align-items: baseline` / `align-self: baseline` no flex (Flexbox §8.5) e
-//! a ordem das LINHAS sob `flex-wrap: wrap-reverse` (§8.3) — os dois ganchos
-//! que `flex.rs` chama para não crescer além do tecto do crate.
+//! `align-items: baseline` / `align-self: baseline` no flex (Flexbox §8.5) —
+//! o gancho que `flex.rs` chama para não crescer além do tecto do crate. A
+//! ordem das linhas sob `flex-wrap: wrap-reverse` mudou-se para
+//! `eixos_flex::wrap_reverse_efetivo` no lote `flex-writing-mode`, que
+//! combina o `wrap-reverse` declarado com o sentido físico do eixo sob
+//! `writing-mode` — a pergunta deixou de ser só do `flex_wrap` do CSS.
 //!
 //! O ascent de um item (topo da MARGIN-BOX até à baseline do seu conteúdo) é
 //! `margin-top + ascent_do_item` — [`super::linha_ib::ascent_do_item`] já
@@ -307,18 +310,5 @@ pub(in crate::layout) fn off_cross_item(
     match (align, baseline) {
         (crate::style::AlignItems::Baseline, Some(o)) => o,
         _ => align_offset(align, line_h, item_h),
-    }
-}
-
-/// `flex-wrap: wrap-reverse` troca cross-start/cross-end (Flexbox §8.3): o
-/// agrupamento em linhas é o de `wrap` (já feito por quem chama); só a ORDEM
-/// em que elas se empilham no eixo cruzado inverte — a linha que o
-/// documento escreve DEPOIS desenha-se no INÍCIO do eixo cruzado.
-pub(in crate::layout) fn reverte_linhas_se_wrap_reverse(
-    lines: &mut [Vec<super::flex::FlexItem>],
-    wrap: Option<crate::style::FlexWrap>,
-) {
-    if wrap == Some(crate::style::FlexWrap::WrapReverse) {
-        lines.reverse();
     }
 }

@@ -562,6 +562,7 @@ impl Stylesheet {
         matched: &MatchedRules,
         vars: Option<&std::collections::HashMap<String, String>>,
         direction: Option<crate::style::Direction>,
+        writing_mode: Option<crate::style::WritingMode>,
     ) -> DeclBlock {
         let empty_vars = std::collections::HashMap::new();
         let vars_map = vars.unwrap_or(&empty_vars);
@@ -576,7 +577,8 @@ impl Stylesheet {
                     continue;
                 }
                 let dir = out.normal.direction.or(direction);
-                apply_resolved_decl(&mut out.normal, prop, raw, vars_map, dir);
+                let wm = out.normal.writing_mode.or(writing_mode);
+                apply_resolved_decl(&mut out.normal, prop, raw, vars_map, dir, wm);
             }
         }
         // Ordem invertida p/ `!important` — ver `important_key`.
@@ -590,7 +592,8 @@ impl Stylesheet {
                     continue;
                 }
                 let dir = out.important.direction.or(out.normal.direction).or(direction);
-                apply_resolved_decl(&mut out.important, prop, raw, vars_map, dir);
+                let wm = out.important.writing_mode.or(out.normal.writing_mode).or(writing_mode);
+                apply_resolved_decl(&mut out.important, prop, raw, vars_map, dir, wm);
             }
         }
         super::revert::resolve_reverts(self, matched, &mut out); // lote J — ver revert.rs
@@ -616,6 +619,6 @@ impl Stylesheet {
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
         });
-        self.declarations_from(&matched, None, None)
+        self.declarations_from(&matched, None, None, None)
     }
 }
