@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: align-items:stretch (default) dentro de um contentor
+     flex-wrap:wrap deve encher a altura de CADA LINHA, tal como já
+     acontece sem wrap. flex.rs:395 usa items_h (altura natural, ignorando
+     a altura explícita do contentor) sempre que wrap=true — mesmo com uma
+     única linha. #s (uma linha, um item) deve esticar aos 50px do
+     contentor; #w1..#w4 (duas linhas de 2, contentor 100px) devem esticar
+     a 50px cada linha (distribuição igual, já que a altura natural de
+     todos é 0). Verificado contra o binário atual: TODOS saem com h=0 em
+     vez do esperado, e as duas linhas de .w saem sobrepostas no mesmo y
+     (58) em vez de y=58/108, porque line_h=0 também zera o avanço entre
+     linhas. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="s1,w1,w2,w3,w4">
+<meta name="fixar-estilo" content="align-items,flex-wrap">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .s { display: flex; flex-wrap: wrap; width: 200px; height: 50px; margin-bottom: 8px; }
+  .s > div { width: 80px; }
+  .w { display: flex; flex-wrap: wrap; width: 200px; height: 100px; }
+  .w > div { width: 100px; }
+</style></head>
+<body>
+<div class="s"><div id="s1"></div></div>
+<div class="w"><div id="w1"></div><div id="w2"></div><div id="w3"></div><div id="w4"></div></div>
+</body></html>

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: um item de flex com visibility:collapse não deve contar para o
+     cálculo de wrap da linha (CSS Flexbox: collapse ~ display:none para
+     efeitos de layout num item de flex, ao contrário de tabelas onde só
+     afeta pintura). texto.rs:128-130 conflacta collapse com hidden — o
+     item mantém a largura cheia e continua a competir por espaço na
+     linha. Contentor 320px, 4 itens de 160px (cabem 2 por linha); #i2 é
+     collapse. Se #i2 contar 0, #i1 e #i3 ficam juntos na linha 1 e só #i4
+     quebra para a linha 2. Verificado contra o binário atual: hoje #i3
+     quebra para a linha 2 (y=40) como se #i2 tivesse ocupado a vaga
+     inteira da linha 1. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="i1,i3,i4">
+<meta name="fixar-estilo" content="visibility,flex-wrap">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; flex-wrap: wrap; width: 320px; }
+  .f > div { width: 160px; height: 40px; }
+  #i2 { visibility: collapse; }
+</style></head>
+<body>
+<div class="f"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
+</body></html>

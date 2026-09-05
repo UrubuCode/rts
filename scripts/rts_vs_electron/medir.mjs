@@ -1,10 +1,21 @@
-// Mede arranque/memória/CPU/tamanho dos dois artefactos empacotados da MESMA
-// app React (examples/react-app.html) — um `.exe` Electron e um `.exe` AOT do
-// RTS — e grava .github/rts_vs_electron.json (histórico legível por máquina,
-// no mesmo espírito do css_parity_report.json: o número fica no ficheiro
-// gerado, não escrito à mão).
+// Mede arranque/memória/CPU/tamanho de TRÊS artefactos da MESMA app React
+// (o `.html` de scripts/rts_vs_electron/app/index.html) — um `.exe` Electron,
+// um `.exe` AOT do RTS, e o `rts.exe` do motor a correr `.ts` fonte — e grava
+// .github/rts_vs_electron.json (histórico legível por máquina, no mesmo
+// espírito do css_parity_report.json: o número fica no ficheiro gerado, não
+// escrito à mão).
 //
 //   node scripts/rts_vs_electron/medir.mjs
+//
+// PORQUÊ TRÊS e não dois: o `.exe` AOT (`rts compile`) e o `rts.exe` que
+// corre `.ts` (JIT) são coisas DIFERENTES — o AOT não leva o compilador
+// consigo (por isso o JS da própria página, compilado em runtime via
+// `DomScope.run`, falha nele — ver `js_da_pagina` abaixo), o JIT leva. O lado
+// comparável ao "Chromium + app.asar" do Electron é o `rts.exe` (o binário do
+// MOTOR, com compilador) + a página — não o `.exe` AOT, que só serve uma app
+// sem JS de página (ou TS já compilado nela). Medir os dois lados do RTS lado
+// a lado é o que torna essa distinção visível em vez de escondida atrás de um
+// "RTS" genérico.
 //
 // PORQUÊ uma corrida = uma invocação do PowerShell (start+poll+medir+matar),
 // e não Node a arrancar o processo e o PowerShell só a olhar para ele: a
@@ -23,7 +34,7 @@
 // núcleos) e não dividido pelo nº de núcleos: a árvore Electron tem 4
 // processos (main+gpu+utility+renderer) e cada um pode usar um núcleo
 // diferente ao mesmo tempo; dividir pelos núcleos esconderia isso.
-import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cpus, totalmem, platform, release, tmpdir } from "node:os";
@@ -34,7 +45,7 @@ import { spawnSync } from "node:child_process";
 // Electron do zero a cada corrida — 3 chega para um número estável dentro do
 // orçamento de tempo do runner, e o default local fica intocado.
 const N = Number(process.env.RTS_VS_ELECTRON_N) || 5;
-const WINDOW_TIMEOUT_MS = 15000; // generoso: a Electron abre em <1s, o RTS falha em <1s hoje
+const WINDOW_TIMEOUT_MS = 15000; // generoso: as três janelas abrem em <1s hoje
 const POST_WINDOW_WAIT_MS = 4000; // pedido: deixar assentar antes de medir memória
 const CPU_SAMPLE_MS = 2000; // pedido: amostra de CPU em repouso
 
@@ -49,20 +60,15 @@ const MED_DIR = join(TEMP_ROOT, "_medicoes"); // stderr por corrida — efémero
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const OUT_JSON = join(REPO_ROOT, ".github", "rts_vs_electron.json");
 
-// Caminhos dos dois artefactos, com override por env var para quando o lado
-// RTS voltar a compilar (ver scripts/rts_vs_electron/rts/README.md) sem
-// precisar editar este ficheiro.
-const SIDES = {
-  rts: {
-    label: "RTS",
-    exe: process.env.RTS_VS_ELECTRON_RTS_EXE || join(TEMP_ROOT, "rts", "app.exe"),
-  },
-  electron: {
-    label: "Electron",
-    exe: process.env.RTS_VS_ELECTRON_ELECTRON_EXE ||
-      join(TEMP_ROOT, "electron", "dist", "rts-vs-electron-win32-x64", "rts-vs-electron.exe"),
-  },
-};
+// A app React que os três lados abrem. UMA fonte committada
+// (scripts/rts_vs_electron/app/index.html — 144 KB, bundles React/ReactDOM
+// UMD do CDN + um componente com contador e lista, sem chamadas de rede) —
+// nunca `examples/react-app.html`: esse nome cai na regra `react-*.html` do
+// `.gitignore` ("são entrada de uma medição, não fonte"), então não existe
+// fora da máquina de quem a criou à mão. O lado JIT lê `"react-app.html"`
+// RELATIVO AO CWD (`examples/claude-react-janela.ts`), por isso é copiada
+// para a pasta de trabalho do JIT com esse nome — ver `prepararLadoJit`.
+const APP_HTML = join(REPO_ROOT, "scripts", "rts_vs_electron", "app", "index.html");
 
 function psQuote(s) {
   return "'" + String(s).replace(/'/g, "''") + "'";
@@ -98,21 +104,54 @@ function agregaMinMedMax(nums, casas = 0) {
   return { mediana: r(mediana(nums)), min: r(Math.min(...nums)), max: r(Math.max(...nums)) };
 }
 
-// O script PowerShell de UMA corrida: arranca, espera a janela (processo ou
-// filho direto — no Electron é sempre o principal), espera 4s, soma
-// RSS/private de TODA a árvore (recursivo por ParentProcessId — a Electron
-// tem main+gpu+utility+renderer), amostra CPU 2s, mata a árvore SEMPRE
-// (try/finally) mesmo que a medição falhe a meio.
-function buildMeasureScript({ exe, cwd, stderrFile }) {
+// Lê o stderr de uma corrida à procura do sinal de que o JS DA PÁGINA (os
+// `<script>` do HTML, não o `.ts`/`.exe` em si) não correu — a mensagem exata
+// que `DomScope.run` (crates/rts-dom-bridge/src/scope.rs) escreve quando o
+// binário não tem o compilador consigo: "<script> N de <url> falhou: a fonte
+// não compilou". Procurado no stderr em vez de assumido por qual LADO está a
+// correr, para o número vir do processo real e não de uma etiqueta escrita à
+// mão — se um dia o AOT ganhar o compilador, este texto simplesmente para de
+// aparecer e o campo muda sozinho.
+function lerFalhaJsDaPagina(stderrFile) {
+  if (!stderrFile || !existsSync(stderrFile)) return null;
+  let texto;
+  try { texto = readFileSync(stderrFile, "utf8"); } catch { return null; }
+  const linhas = texto.split(/\r?\n/).filter((l) => /<script>\s*\d+\s*de\s.*falhou:/.test(l));
+  if (linhas.length === 0) return null;
+  const exemplo = linhas[0].trim();
+  return linhas.length > 1 ? `${exemplo} (×${linhas.length} nesta corrida)` : exemplo;
+}
+
+// O script PowerShell de UMA corrida: arranca (com argumentos, para o lado
+// JIT — `rts.exe run ficheiro.ts` — os outros dois vão sem nenhum), espera a
+// janela (processo ou filho direto — no Electron é sempre o principal),
+// espera 4s, soma RSS/private de TODA a árvore (recursivo por
+// ParentProcessId — a Electron tem main+gpu+utility+renderer), amostra CPU
+// 2s, mata a árvore SEMPRE (try/finally) mesmo que a medição falhe a meio.
+function buildMeasureScript({ exe, cwd, stderrFile, stdoutFile, args = [] }) {
+  const argsLiteral = args.length ? `@(${args.map(psQuote).join(", ")})` : "@()";
   return `
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 $exe = ${psQuote(exe)}
 $wd = ${psQuote(cwd)}
 $stderrFile = ${psQuote(stderrFile)}
+$stdoutFile = ${psQuote(stdoutFile)}
+$procArgs = ${argsLiteral}
 $result = [ordered]@{ ok=$false; razao=$null; arranque_ms=$null; rss_mb=$null; private_mb=$null; cpu_pct=$null; processos=$null }
 try {
-  $proc = Start-Process -FilePath $exe -WorkingDirectory $wd -PassThru -RedirectStandardError $stderrFile
+  # RedirectStandardOutput e OBRIGATORIO aqui, nao so o Error: app.exe/rts.exe
+  # sao binarios de subsistema CONSOLE (tem console.log antes/durante abrir a
+  # janela) e, sem redirecionar, o Start-Process herda o stdout do PROPRIO
+  # powershell.exe -- que e o pipe que este script Node esta a ler como a
+  # SAIDA do PowerShell. Observado sem este redirect: as linhas de
+  # console.log do processo filho misturadas com o JSON deste script no mesmo
+  # stdout, e o JSON deixa de parsear. O Electron nunca mostrou este bug
+  # (subsistema GUI, sem consola), por isso passou despercebido na medicao
+  # anterior, so com dois lados.
+  $startParams = @{ FilePath = $exe; WorkingDirectory = $wd; PassThru = $true; RedirectStandardError = $stderrFile; RedirectStandardOutput = $stdoutFile }
+  if ($procArgs.Count -gt 0) { $startParams.ArgumentList = $procArgs }
+  $proc = Start-Process @startParams
 } catch {
   $result.razao = "Start-Process falhou: " + $_.Exception.Message
   $result | ConvertTo-Json -Compress
@@ -213,10 +252,12 @@ $result | ConvertTo-Json -Compress
 `;
 }
 
-function measureOnce(exe, cwd, idx) {
+function measureOnce(exe, cwd, idx, args = []) {
   mkdirSync(MED_DIR, { recursive: true });
-  const stderrFile = join(MED_DIR, `stderr_${Date.now()}_${idx}.txt`);
-  const script = buildMeasureScript({ exe, cwd, stderrFile });
+  const stamp = `${Date.now()}_${idx}`;
+  const stderrFile = join(MED_DIR, `stderr_${stamp}.txt`);
+  const stdoutFile = join(MED_DIR, `stdout_${stamp}.txt`); // nunca lido de volta — só para não corromper o JSON do PowerShell, ver buildMeasureScript
+  const script = buildMeasureScript({ exe, cwd, stderrFile, stdoutFile, args });
   const b64 = Buffer.from(script, "utf16le").toString("base64");
   const r = spawnSync(
     "powershell.exe",
@@ -224,11 +265,64 @@ function measureOnce(exe, cwd, idx) {
     { encoding: "utf8", timeout: WINDOW_TIMEOUT_MS + POST_WINDOW_WAIT_MS + CPU_SAMPLE_MS + 15000 },
   );
   const out = (r.stdout || "").trim();
+  let parsed;
   try {
-    return JSON.parse(out);
+    parsed = JSON.parse(out);
   } catch {
-    return { ok: false, razao: `saída do PowerShell não era JSON: ${out.slice(0, 300)} | stderr: ${(r.stderr || "").slice(0, 300)}` };
+    parsed = { ok: false, razao: `saída do PowerShell não era JSON: ${out.slice(0, 300)} | stderr: ${(r.stderr || "").slice(0, 300)}` };
   }
+  parsed._stderrFile = stderrFile; // lido depois por lerFalhaJsDaPagina, nunca gravado no JSON final
+  return parsed;
+}
+
+// Junta rts.exe + a MESMA página (copiada de APP_HTML, nunca duplicada à
+// mão) + o `.ts` que a abre numa pasta própria — como os outros dois lados já
+// têm a sua. Necessário (não só arrumação) porque
+// `examples/claude-react-janela.ts` lê `"react-app.html"` RELATIVO AO CWD:
+// correr `rts.exe` direto de `target/release` sem a página ao lado falharia
+// a ler o ficheiro. Também dá o tamanho de "pasta" certo deste lado: o
+// binário do MOTOR + a página + o `.ts`, o equivalente ao par
+// Chromium+app.asar do Electron.
+function prepararLadoJit() {
+  const srcExe = process.env.RTS_VS_ELECTRON_RTS_EXE_JIT || join(REPO_ROOT, "target", "release", "rts.exe");
+  const srcTs = join(REPO_ROOT, "examples", "claude-react-janela.ts");
+  const dir = join(TEMP_ROOT, "jit");
+  mkdirSync(dir, { recursive: true });
+  const destExe = join(dir, "rts.exe");
+  const destHtml = join(dir, "react-app.html");
+  const destTs = join(dir, "claude-react-janela.ts");
+  for (const [src, dest] of [[srcExe, destExe], [APP_HTML, destHtml], [srcTs, destTs]]) {
+    if (existsSync(src)) {
+      try { copyFileSync(src, dest); } catch { /* falha aqui vira "ficheiro não existe" em medirLado abaixo */ }
+    }
+  }
+  return destExe;
+}
+
+// Os três lados. `rts_aot` e `rts_jit` não fixam `js_da_pagina` aqui — é
+// determinado por lado a partir do stderr real de uma corrida (ver
+// `medirLado`), para o número vir da medição e não de uma etiqueta.
+function buildSides() {
+  return {
+    electron: {
+      label: "Electron",
+      exe: process.env.RTS_VS_ELECTRON_ELECTRON_EXE ||
+        join(TEMP_ROOT, "electron", "dist", "rts-vs-electron-win32-x64", "rts-vs-electron.exe"),
+      args: [],
+      js_da_pagina: true, // Chromium real: nunca falha a compilar JS
+    },
+    rts_aot: {
+      label: "RTS .exe AOT",
+      exe: process.env.RTS_VS_ELECTRON_RTS_EXE || join(TEMP_ROOT, "rts", "app.exe"),
+      args: [],
+    },
+    rts_jit: {
+      label: "RTS rts.exe + app",
+      exe: prepararLadoJit(),
+      args: ["run", "claude-react-janela.ts"],
+      js_da_pagina: true, // motor com compilador: corre os <script> da página
+    },
+  };
 }
 
 function medirLado(key, cfg) {
@@ -237,6 +331,7 @@ function medirLado(key, cfg) {
     return { exe: cfg.exe, bytes_exe: null, bytes_pasta: null, ficheiros_na_pasta: null,
       nao_construido: true, razao: `ficheiro não existe: ${cfg.exe}`,
       arranque_ms: null, rss_mb: null, private_mb: null, cpu_repouso_pct: null, processos: null,
+      js_da_pagina: cfg.js_da_pagina ?? null, razao_js_da_pagina: null,
       amostras: { n: N, ok: 0 } };
   }
   const bytes_exe = statSync(cfg.exe).size;
@@ -246,15 +341,32 @@ function medirLado(key, cfg) {
   const runs = [];
   for (let i = 1; i <= N; i++) {
     process.stdout.write(`  corrida ${i}/${N}... `);
-    const res = measureOnce(cfg.exe, pasta, i);
+    const res = measureOnce(cfg.exe, pasta, i, cfg.args || []);
     runs.push(res);
     console.log(res.ok ? `ok (${res.arranque_ms}ms, ${res.rss_mb}MB RSS)` : `falhou (${res.razao})`);
   }
+
+  // js_da_pagina: fixo em SIDES para Electron/JIT; para o AOT, procurado no
+  // stderr real (corridas OK primeiro — é nelas que o processo viveu tempo
+  // suficiente para os <script> falharem e escreverem a mensagem; as
+  // falhadas já têm a SUA própria razão, capturada acima).
+  let js_da_pagina = cfg.js_da_pagina;
+  let razao_js_da_pagina = null;
+  if (js_da_pagina === undefined) {
+    const oksFirst = [...runs.filter((r) => r.ok), ...runs.filter((r) => !r.ok)];
+    for (const r of oksFirst) {
+      const achado = lerFalhaJsDaPagina(r._stderrFile);
+      if (achado) { js_da_pagina = false; razao_js_da_pagina = achado; break; }
+    }
+    if (js_da_pagina === undefined) js_da_pagina = null; // stderr não tinha nem sucesso nem a falha conhecida
+  }
+
   const oks = runs.filter((r) => r.ok);
   if (oks.length === 0) {
     return { exe: cfg.exe, bytes_exe, bytes_pasta, ficheiros_na_pasta,
       nao_construido: true, razao: runs[0]?.razao ?? "todas as corridas falharam sem razão reportada",
       arranque_ms: null, rss_mb: null, private_mb: null, cpu_repouso_pct: null, processos: null,
+      js_da_pagina, razao_js_da_pagina,
       amostras: { n: N, ok: 0 } };
   }
   const result = {
@@ -265,6 +377,7 @@ function medirLado(key, cfg) {
     private_mb: agregaMinMedMax(oks.map((r) => r.private_mb), 2).mediana,
     cpu_repouso_pct: agregaMinMedMax(oks.map((r) => r.cpu_pct), 2).mediana,
     processos: Math.round(mediana(oks.map((r) => r.processos))),
+    js_da_pagina, razao_js_da_pagina,
     amostras: { n: N, ok: oks.length },
   };
   return result;
@@ -288,48 +401,62 @@ function maquinaInfo() {
   };
 }
 
+function fmtBytes(b) { return b == null ? "—" : `${(b / 1024 ** 2).toFixed(1)} MB`; }
 function fmtMB(mb) { return mb == null ? "—" : `${mb.toFixed(1)} MB`; }
 function fmtRange(obj, unidade) {
   if (!obj) return "—";
   return `${obj.mediana}${unidade} (${obj.min}–${obj.max})`;
 }
+function fmtJsDaPagina(lado) {
+  if (lado.nao_construido) return "—";
+  if (lado.js_da_pagina === true) return "sim";
+  if (lado.js_da_pagina === false) return "NÃO";
+  return "?";
+}
+
+const ORDEM = [["electron", "Electron"], ["rts_aot", "RTS .exe AOT"], ["rts_jit", "RTS rts.exe+app"]];
 
 function imprimeTabela(json) {
-  const { rts, electron } = json.lados;
+  const L = json.lados;
   const linhas = [
-    ["exe", rts.bytes_exe != null ? `${(rts.bytes_exe / 1024 ** 2).toFixed(1)} MB` : "—",
-      electron.bytes_exe != null ? `${(electron.bytes_exe / 1024 ** 2).toFixed(1)} MB` : "—"],
-    ["pasta", rts.bytes_pasta != null ? `${(rts.bytes_pasta / 1024 ** 2).toFixed(1)} MB` : "—",
-      electron.bytes_pasta != null ? `${(electron.bytes_pasta / 1024 ** 2).toFixed(1)} MB` : "—"],
-    ["ficheiros", rts.ficheiros_na_pasta ?? "—", electron.ficheiros_na_pasta ?? "—"],
-    ["processos", rts.nao_construido ? "—" : rts.processos, electron.nao_construido ? "—" : electron.processos],
-    ["arranque", rts.nao_construido ? "não construído" : fmtRange(rts.arranque_ms, "ms"),
-      electron.nao_construido ? "não construído" : fmtRange(electron.arranque_ms, "ms")],
-    ["RSS", rts.nao_construido ? "—" : fmtRange(rts.rss_mb, "MB"), electron.nao_construido ? "—" : fmtRange(electron.rss_mb, "MB")],
-    ["private", rts.nao_construido ? "—" : fmtMB(rts.private_mb), electron.nao_construido ? "—" : fmtMB(electron.private_mb)],
-    ["CPU repouso", rts.nao_construido ? "—" : `${rts.cpu_repouso_pct}%`, electron.nao_construido ? "—" : `${electron.cpu_repouso_pct}%`],
+    ["exe", ...ORDEM.map(([k]) => fmtBytes(L[k].bytes_exe))],
+    ["pasta", ...ORDEM.map(([k]) => fmtBytes(L[k].bytes_pasta))],
+    ["ficheiros", ...ORDEM.map(([k]) => L[k].ficheiros_na_pasta ?? "—")],
+    ["JS da página", ...ORDEM.map(([k]) => fmtJsDaPagina(L[k]))],
+    ["processos", ...ORDEM.map(([k]) => (L[k].nao_construido ? "—" : L[k].processos))],
+    ["arranque", ...ORDEM.map(([k]) => (L[k].nao_construido ? "não construído" : fmtRange(L[k].arranque_ms, "ms")))],
+    ["RSS", ...ORDEM.map(([k]) => (L[k].nao_construido ? "—" : fmtRange(L[k].rss_mb, "MB")))],
+    ["private", ...ORDEM.map(([k]) => (L[k].nao_construido ? "—" : fmtMB(L[k].private_mb)))],
+    ["CPU repouso", ...ORDEM.map(([k]) => (L[k].nao_construido ? "—" : `${L[k].cpu_repouso_pct}%`))],
   ];
-  const w0 = Math.max(...linhas.map((l) => l[0].length), "métrica".length);
-  const w1 = Math.max(...linhas.map((l) => String(l[1]).length), "RTS".length);
-  const w2 = Math.max(...linhas.map((l) => String(l[2]).length), "Electron".length);
+  const headers = ["métrica", ...ORDEM.map(([, label]) => label)];
+  const widths = headers.map((h, i) => Math.max(h.length, ...linhas.map((l) => String(l[i]).length)));
   const pad = (s, w) => String(s).padEnd(w);
-  console.log(`\n${pad("métrica", w0)} | ${pad("RTS", w1)} | ${pad("Electron", w2)}`);
-  console.log(`${"-".repeat(w0)}-|-${"-".repeat(w1)}-|-${"-".repeat(w2)}`);
-  for (const [k, a, b] of linhas) console.log(`${pad(k, w0)} | ${pad(a, w1)} | ${pad(b, w2)}`);
-  if (rts.nao_construido) console.log(`\nRTS não construído: ${rts.razao}`);
-  if (electron.nao_construido) console.log(`\nElectron não construído: ${electron.razao}`);
+  console.log(`\n${headers.map((h, i) => pad(h, widths[i])).join(" | ")}`);
+  console.log(widths.map((w) => "-".repeat(w)).join("-|-"));
+  for (const l of linhas) console.log(l.map((c, i) => pad(c, widths[i])).join(" | "));
+  for (const [k, label] of ORDEM) {
+    if (L[k].nao_construido) console.log(`\n${label} não construído: ${L[k].razao}`);
+    else if (L[k].js_da_pagina === false) console.log(`\n${label}: JS da página NÃO corre — ${L[k].razao_js_da_pagina}`);
+  }
 }
 
 function main() {
-  const ladoRts = medirLado("rts", SIDES.rts);
-  const ladoElectron = medirLado("electron", SIDES.electron);
-  ladoElectron.versao = versaoElectron(SIDES.electron.exe);
+  const sides = buildSides();
+  const lados = {};
+  for (const [key, cfg] of Object.entries(sides)) {
+    lados[key] = medirLado(key, cfg);
+  }
+  lados.electron.versao = versaoElectron(sides.electron.exe);
 
   const json = {
     medido_em: new Date().toISOString(),
     maquina: maquinaInfo(),
-    app: "examples/react-app.html",
-    lados: { rts: ladoRts, electron: ladoElectron },
+    // UMA fonte para os três: os dois lados empacotados (Electron, RTS AOT)
+    // abrem-na diretamente; o lado JIT lê uma cópia dela sob o nome
+    // `react-app.html` (ver `prepararLadoJit`) — mesmo ficheiro, dois nomes.
+    app: "scripts/rts_vs_electron/app/index.html",
+    lados,
   };
   mkdirSync(dirname(OUT_JSON), { recursive: true });
   writeFileSync(OUT_JSON, JSON.stringify(json, null, 2) + "\n");
