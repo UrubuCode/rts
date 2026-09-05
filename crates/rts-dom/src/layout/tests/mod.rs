@@ -24,6 +24,7 @@ mod clearfix_corpus;
 mod pseudo_flex_corpus;
 mod borda_em_corpus;
 mod flex_margens_auto_corpus;
+mod flex_justify_logico_corpus;
 mod flex_basis_piso_corpus;
 mod table_texto_solto_corpus;
 mod pequenos_1_corpus;

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Fixa: justify-content:left num flex-direction:column vs column-reverse.
+     Left/right não têm eixo numa coluna e valem 'start' (Box Alignment
+     §5.1) — que deve embalar sempre no TOPO físico, mesmo com
+     column-reverse (só a ORDEM dos itens inverte, não o lado do
+     empacotamento). coluna.rs:47-49 converte Left/Right para FlexStart sem
+     olhar para `reverse`, e o mirror seguinte então espelha-o — column1
+     (não invertida) fica correta; column2 (column-reverse) sai embalada no
+     FUNDO. Verificado contra o binário atual: q1/q2/q3 hoje saem em
+     240/160/80 (fundo, errado) em vez do esperado abaixo (topo). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="p1,p2,p3,q1,q2,q3">
+<meta name="fixar-estilo" content="justify-content,flex-direction">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .col { display: flex; width: 100px; height: 320px; float: left; }
+  .col > div { width: 100px; height: 80px; }
+  .col1 { flex-direction: column; justify-content: left; }
+  .col2 { flex-direction: column-reverse; justify-content: left; margin-left: 8px; }
+</style></head>
+<body>
+<div class="col col1"><div id="p1"></div><div id="p2"></div><div id="p3"></div></div>
+<div class="col col2"><div id="q1"></div><div id="q2"></div><div id="q3"></div></div>
+</body></html>
