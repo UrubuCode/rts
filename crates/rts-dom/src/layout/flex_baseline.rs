@@ -35,6 +35,96 @@
 
 use super::*;
 
+/// Filhos ELEMENTO deste contentor que são itens de flex EM FLUXO — a mesma
+/// filtragem que `flex.rs` aplica antes de construir cada `FlexItem` (tag não
+/// renderizável, fora do fluxo, `display:none`), MENOS texto solto e pseudo:
+/// nenhum dos dois tem uma baseline própria que [`ascent_do_contentor`] saiba
+/// medir — o mesmo corte que o doc deste módulo já declara para o GRUPO da
+/// linha ("pseudo-item e texto solto fora do grupo").
+fn filhos_flex_em_fluxo(dom: &Dom, id: NodeIdx) -> Vec<NodeIdx> {
+    dom.node(id)
+        .children
+        .iter()
+        .copied()
+        .filter(|&c| matches!(&dom.node(c).kind, NodeKind::Element { tag } if !is_non_rendered_tag(tag)))
+        .filter(|&c| !is_out_of_flow(dom, c) && !e_display_none(dom, c))
+        .collect()
+}
+
+/// O ascent de um FILHO para efeitos de [`ascent_do_contentor`]: a sua margem
+/// própria + a distância do topo da sua BORDER-BOX à baseline — a mesma soma
+/// que [`ascent_do_item_flex`] faz, só que sem precisar do `outer_h` do item:
+/// o ascent de um item de conteúdo normal (ancorado ao TOPO da própria caixa)
+/// não muda com a altura final que o `stretch`/`grow` do eixo cruzado lhe dão
+/// — só a margem e a fonte decidem, e é por isso que este cálculo não precisa
+/// de reexecutar o algoritmo de flex do filho para saber a resposta. Reusa
+/// `linha_ib::ascent_do_item` com uma altura que nunca é o limite — é essa
+/// função que, RECURSIVAMENTE, volta para `ascent_do_contentor` quando `id`
+/// é, ele próprio, um flex/inline-flex (um flex dentro de outro).
+fn ascent_do_item_neto(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> f32 {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let font = font_px(&css, DEFAULT_FONT_SIZE);
+    let resolve = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let mt = css.margin.top.resolve(&resolve).unwrap_or(0.0);
+    mt + super::linha_ib::ascent_do_item(dom, id, f32::MAX, content_w, ctx)
+}
+
+/// A baseline do CONTENTOR flex, vista de FORA (Flexbox §8.5) — o que
+/// [`super::linha_ib::ascent_do_item`] usa quando o nó que ele mede é, ele
+/// próprio, um flex/inline-flex, em vez da fórmula genérica (fonte do
+/// CONTENTOR) que só está certa para um bloco comum. `h` é a altura outer já
+/// resolvida do contentor (a mesma que `ascent_do_item` recebe).
+///
+/// Duas regras, na ordem que o comentário do WPT
+/// `flexbox-baseline-multi-item-horiz-001a` cita da spec:
+/// 1. Se algum item da PRIMEIRA linha participa do grupo baseline — a MESMA
+///    pergunta que [`calcula_linha`] já faz, e só no eixo de LINHA
+///    (`flex-direction: row`; numa coluna a baseline de um item de texto
+///    normal não é paralela ao eixo principal e por isso nunca participa,
+///    Flexbox §8.5 — a mesma leitura que já faz `coluna.rs::align_offset`
+///    cair em `FlexStart`) — a baseline do contentor é a desse
+///    GRUPO: o `max_ascent` que [`calcula_linha`] devolveria.
+/// 2. Senão (sem participante, ou eixo de coluna), a baseline do contentor é
+///    a do PRIMEIRO item em fluxo — [`ascent_do_item_neto`], que recorre de
+///    volta a este ficheiro quando esse item é OUTRO flex.
+/// 3. Sem item NENHUM em fluxo: devolve `h` tal e qual — Flexbox §8.5
+///    sintetiza a baseline do bottom margin edge quando não há itens, que é
+///    exactamente o que `h` já significa para quem chama `ascent_do_item`.
+///
+/// CORTE declarado: calcula por ESTRUTURA (margem + recursão), sem
+/// reexecutar o algoritmo de flex do filho — ver o porquê no doc de
+/// [`ascent_do_item_neto`]; errado só para um item cujo próprio conteúdo se
+/// desloca verticalmente por outro motivo (`vertical-align` num controlo,
+/// por exemplo) — nenhuma fixture medida pediu isso. `content_w` continua a
+/// ser o do CONTENTOR ANCESTRAL, não o deste flex — percentagens de margem
+/// num NETO ficam por essa aproximação.
+pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+    let filhos = filhos_flex_em_fluxo(dom, id);
+    let Some(&primeiro) = filhos.first() else {
+        return h;
+    };
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
+    let eixo_de_linha = !css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    if eixo_de_linha {
+        let max_ascent = filhos
+            .iter()
+            .filter(|&&c| dom.computed_style_idx(c).unwrap_or_default().align_self.unwrap_or(align) == crate::style::AlignItems::Baseline)
+            .map(|&c| ascent_do_item_neto(dom, c, content_w, ctx))
+            .fold(None, |acc: Option<f32>, a| Some(acc.map_or(a, |m| m.max(a))));
+        if let Some(max_ascent) = max_ascent {
+            return max_ascent.min(h);
+        }
+    }
+    ascent_do_item_neto(dom, primeiro, content_w, ctx).min(h)
+}
+
 /// O ascent de um item de flex — do topo da sua MARGIN-BOX à baseline do seu
 /// conteúdo — para o grupo baseline de uma linha. `outer_h` é a altura OUTER
 /// já resolvida do item (`FlexItem::h`, pós grow/shrink).
