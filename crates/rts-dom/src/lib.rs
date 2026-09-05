@@ -120,9 +120,16 @@ pub use dom::{
 /// `dom.ts` em escopo): o objeto `window` de browser (location/navigator/
 /// history/storage/timers) que o `runScripts` injeta em cada `<script>`, mais o
 /// ESCOPO GLOBAL compartilhado entre os `<script>` do mesmo documento.
+/// `lifecycle.ts` vem por ÚLTIMO: usa `Document`/`Element`/`__elem` (`dom.ts`) e
+/// `WindowImpl`/`__winFor` (`window.ts`), e é onde `loadDocument` — a navegação,
+/// com scripting ligado — vive, à parte dos dois ficheiros que já passam o teto
+/// de 500 linhas deste crate.
 pub const DOM_TS: &str = concat!(
     include_str!("dom.ts"),
     "\n",
     "\n",
-    include_str!("window.ts")
+    include_str!("window.ts"),
+    "\n",
+    "\n",
+    include_str!("lifecycle.ts")
 );
