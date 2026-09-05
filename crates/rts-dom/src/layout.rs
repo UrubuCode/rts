@@ -78,7 +78,7 @@ use self::flex::layout_children_horizontal;
 use self::grid::layout_children_grid;
 use self::linha::layout_inline_flow;
 use self::quebra::wrap_runs;
-use self::runs::{InlineRun, collect_runs, inline_widget_size, pseudo_run};
+use self::runs::{InlineRun, collect_runs, pseudo_run};
 use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
 mod coluna;
 mod coluna_rtl;
@@ -108,7 +108,6 @@ pub(crate) use self::fragmento::insert_item;
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
 use self::vertical::layout_children_vertical;
 use self::linha_ib::layout_inline_block_line;
-use self::alinhamento_vertical::{envelope, topo_do_item};
 use self::relativo::aplica_offset_relativo;
 
 pub use self::display::{Corners, DisplayItem, DisplayList, Geometry, Rect, ScrollRegion};
