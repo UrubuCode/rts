@@ -104,7 +104,7 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.5%   3264/3280 measurements matching Blink
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 97.2%   141/145 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78.9%   386/489 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 80.4%   393/489 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -115,7 +115,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 - `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **63/69 lots done**, 3 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **63/70 lots done**, 4 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-05 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->

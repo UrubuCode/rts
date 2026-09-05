@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 386,
-  "falham": 103,
+  "passam": 393,
+  "falham": 96,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -189,8 +189,8 @@
     },
     {
       "nome": "flex-container-max-content-001",
-      "pct": 1.04287109375,
-      "n": 10679,
+      "pct": 1.02041015625,
+      "n": 10449,
       "script": false
     },
     {
@@ -242,18 +242,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-break-request-vert-001a",
-      "pct": 0.83203125,
-      "n": 8520,
-      "script": false
-    },
-    {
-      "nome": "flexbox-break-request-vert-001b",
-      "pct": 0.83203125,
-      "n": 8520,
-      "script": false
-    },
-    {
       "nome": "flexbox-writing-mode-002",
       "pct": 0.8203125,
       "n": 8400,
@@ -297,8 +285,8 @@
     },
     {
       "nome": "flex-container-min-content-001",
-      "pct": 0.6958984375,
-      "n": 7126,
+      "pct": 0.6705078124999999,
+      "n": 6866,
       "script": false
     },
     {
@@ -311,18 +299,6 @@
       "nome": "flexbox_generated",
       "pct": 0.625,
       "n": 6400,
-      "script": false
-    },
-    {
-      "nome": "flexbox-flex-basis-content-003a",
-      "pct": 0.61171875,
-      "n": 6264,
-      "script": false
-    },
-    {
-      "nome": "flexbox-flex-basis-content-003b",
-      "pct": 0.61171875,
-      "n": 6264,
       "script": false
     },
     {
@@ -359,24 +335,6 @@
       "nome": "percentage-max-height-004",
       "pct": 0.5078125,
       "n": 5200,
-      "script": false
-    },
-    {
-      "nome": "flexbox-flex-wrap-vert-001",
-      "pct": 0.503515625,
-      "n": 5156,
-      "script": false
-    },
-    {
-      "nome": "flexbox-flex-basis-content-001a",
-      "pct": 0.4771484375,
-      "n": 4886,
-      "script": false
-    },
-    {
-      "nome": "flexbox-flex-basis-content-001b",
-      "pct": 0.4771484375,
-      "n": 4886,
       "script": false
     },
     {
@@ -470,21 +428,21 @@
       "script": false
     },
     {
-      "nome": "flexbox-flex-wrap-horiz-002",
-      "pct": 0.112890625,
-      "n": 1156,
-      "script": false
-    },
-    {
       "nome": "aspect-ratio-intrinsic-size-007",
       "pct": 0.11249999999999999,
       "n": 1152,
       "script": false
     },
     {
-      "nome": "flexbox-flex-wrap-vert-002",
-      "pct": 0.0978515625,
-      "n": 1002,
+      "nome": "flexbox-flex-basis-content-001a",
+      "pct": 0.09609375,
+      "n": 984,
+      "script": false
+    },
+    {
+      "nome": "flexbox-flex-basis-content-001b",
+      "pct": 0.09609375,
+      "n": 984,
       "script": false
     },
     {
