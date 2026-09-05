@@ -367,6 +367,28 @@ fn two_page_scripts_and_the_main_program_share_one_key_numbering() {
     tables_agree_with(&program);
 }
 
+/// The UMD shape that started this: a bundle writes `React` as a property of
+/// `this` (`global.React = {}` inside `(function (global) { … })(this)`,
+/// which never spells the bare name `React` anywhere in ITS OWN text), and a
+/// SIBLING script reads `React` as a free identifier. Before the dynamic
+/// window fallback this batch adds, that read had nowhere to resolve at all
+/// — nothing in either script's own text ever assigns `React` bare, so
+/// neither `enclosing`/`published` nor `sloppy::created` ever place it, and
+/// compiling the sibling failed outright (`UnboundName`).
+#[test]
+fn a_name_a_sibling_script_writes_only_as_a_property_of_this_still_compiles() {
+    let bundle = "(function (global) { global.React = {}; })(this);\n".to_owned();
+    let app = "console.log(React);\n".to_owned();
+    let program = compile_to_object_with_html("console.log(1);\n", &[bundle, app])
+        .expect(
+            "a page script reading a name only a SIBLING wrote as a property \
+             of `this` must still compile — the language resolves it at run \
+             time against the SAME window, not refuse it at build time",
+        );
+    assert_eq!(program.page_scripts.len(), 2);
+    tables_agree_with(&program);
+}
+
 #[test]
 fn an_import_cycle_is_refused_by_name_rather_than_half_compiled() {
     let entry = graph(

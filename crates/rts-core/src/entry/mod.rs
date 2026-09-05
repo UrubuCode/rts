@@ -87,6 +87,7 @@ mod object_proto;
 mod dynamic_module;
 mod modules;
 mod objects;
+mod page_scope;
 mod pattern;
 mod operators;
 mod primitive;
@@ -137,6 +138,7 @@ pub use eval_scope::{
 };
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
 pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};
+pub use page_scope::{page_global_get, page_global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use common_js::{module_publish_common, require_function};
 pub use dynamic_module::{
