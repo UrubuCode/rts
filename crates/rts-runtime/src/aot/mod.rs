@@ -45,6 +45,7 @@
 //! used was never set.
 
 mod manifest;
+mod page_scripts;
 mod resolver;
 
 use std::time::Duration;
@@ -196,11 +197,23 @@ const CELLS: u32 = 1 << 16;
 /// The process's real entry point, for a binary the object file's
 /// `__rts_script` was linked into.
 ///
+/// `#[cfg(not(test))]` because `cargo test`'s own harness needs a `main` of
+/// its own, and a `staticlib`'s exported one collided with it at LINK time —
+/// `error: main already defined`, plus the four undefined symbols this
+/// function names, none of which the test binary's object graph provides.
+/// That is a fact about the test harness rather than about a real AOT link,
+/// which never sets `cfg(test)`: this symbol is exported exactly as before in
+/// every archive `rts compile` actually links against. Discovered adding this
+/// batch's `page_scripts` unit tests, which live in the same module this
+/// function does and could not otherwise run at all — `cargo test -p
+/// rts-runtime` had never once succeeded.
+///
 /// # Safety
 ///
 /// Called by the C runtime with the platform's own `argc`/`argv` convention.
 /// Nothing here reads them; the manifest is found next to the running
 /// executable rather than on the command line.
+#[cfg(not(test))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
     // The sidecar file: `<exe>` with its extension replaced by `.rtsdata`. See
@@ -312,6 +325,30 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
         })
         .collect();
     rts_core::entry::declare_function_names(&mut context, named);
+    // Page `<script>`s `rts compile --html` precompiled, found by the hash of
+    // their exact source at run time — see `page_scripts`'s own header for
+    // the seam this fills and why a program with no `--html` writes this
+    // table empty rather than omitting it. The ADDRESS is `functions[index]`:
+    // the manifest names a position in the SAME table `FUNCTION_TABLE_SYMBOL`
+    // already resolved, so no second address table exists for this.
+    let page_script_entries: Vec<(u64, Entry)> = manifest
+        .page_scripts
+        .into_iter()
+        .filter_map(|(hash, index)| {
+            functions
+                .get(index as usize)
+                // SAFETY: every address in `functions` is a function this
+                // object placed under the one convention `Entry` spells,
+                // which is what makes reusing the table for a page script's
+                // entry safe rather than a second statement of the same fact.
+                .map(|address| (hash, unsafe { std::mem::transmute::<u64, Entry>(*address) }))
+        })
+        .collect();
+    page_scripts::declare(page_script_entries);
+    rts_core::entry::declare_eval_compiler_with_receiver(
+        &mut context,
+        page_scripts::evaluate_in_scope_with_receiver,
+    );
     // `vm.runInNewContext` needs a compiler this binary does not carry — an AOT
     // program that reaches for one gets the honest absence rather than a link
     // against `rts-codegen`, which would pull the whole front end into every
