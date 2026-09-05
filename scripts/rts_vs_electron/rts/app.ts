@@ -48,6 +48,12 @@ if (html === undefined || html.length === 0) {
     egui.beginFrame(win);
     egui.render(win, doc._dom);
     egui.endFrame(win);
+    // A mesma ordem de um frame do mini-browser e de `examples/claude-react-janela.ts`:
+    // teclado/edição, cliques, timers. Sem isto o React pinta mas o botão não
+    // responde — foi o que o Marcos viu no primeiro .exe.
+    pumpInputEvents(doc);
+    pumpEventCallbacks(doc);
+    pumpTimerCallbacks(doc);
   }
   egui.close(win);
 }
