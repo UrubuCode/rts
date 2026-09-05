@@ -47,9 +47,48 @@
 //! Os itens de pintura NÃO carregam o nó que os originou — a `DisplayList` não
 //! o guarda, salvo no `BeginClip` — e é isso que torna a pergunta dos órfãos uma
 //! pergunta genuína de geometria em vez de uma consulta a um campo.
+//!
+//! # Imagens (lote imagens-no-raster)
+//!
+//! ANTES do layout, `carregar_imagens` (abaixo) descodifica cada `<img src>`:
+//! PNG local (relativo ao HTML) e `data:image/png;base64,…` — o mesmo que
+//! `dom.ts::loadResources` faz numa página a correr. NÃO carrega `http(s)`
+//! (sem busca síncrona aqui, o mesmo corte do `dom.ts`) nem `data:image/
+//! svg+xml` (este motor só descodifica PNG, PLAN.md lote V-img) — um `<img>`
+//! desses continua sem pixels, com a caixa que a CSS/atributo decidir.
 
 use rts_dom::layout::{self, DisplayItem, DisplayList};
 use rts_dom::{Dom, NodeIdx, NodeKind};
+use std::path::Path;
+
+/// Carrega o PNG de cada `<img src>` — ficheiro local (relativo ao HTML) ou
+/// `data:image/png;base64,…` — ANTES do layout, o mesmo que `loadResources`
+/// (`dom.ts`, passo 3) faz do lado da ponte. O DESCODIFICADOR é UM só
+/// (`rts_dom::imagem`, movido de `rts-dom-bridge` neste lote); só o "ler
+/// bytes de disco" se repete aqui e em `claude-raster.rs` — `rts-dom`
+/// continua sem I/O no seu build normal (ver o cabeçalho de `imagem/mod.rs`),
+/// então o `std::fs::read` fica no EXEMPLO, não no crate.
+///
+/// NÃO carrega: `http(s)` (sem busca síncrona aqui — o mesmo corte do
+/// `dom.ts`) e `data:image/svg+xml` (SEM DESCODIFICADOR, PLAN.md lote V-img:
+/// só PNG). Um `<img>` que não carrega fica como ficava — sem pixels, com a
+/// caixa que a CSS/atributo decidir.
+fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
+    for id in dom.query_all("img") {
+        let Some(idx) = dom.resolve(id) else { continue };
+        let Some(src) = dom.node(idx).attr("src").map(str::to_string) else { continue };
+        let decoded = if src.starts_with("data:") {
+            rts_dom::imagem::bytes_da_data_url(&src).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        } else if src.starts_with("http://") || src.starts_with("https://") {
+            None
+        } else {
+            std::fs::read(base_dir.join(&src)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+        };
+        if let Some((rgba, w, h)) = decoded {
+            dom.set_pixel_data(id, rgba, w, h);
+        }
+    }
+}
 
 /// Escapar para JSON. O texto de um item de pintura é conteúdo do AUTOR — pode
 /// ter aspas, barras, e na Wikipédia tem tudo — e uma linha partida não se lê
@@ -273,7 +312,9 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let dom = rts_dom::parse_html_to_dom(&html);
+    let mut dom = rts_dom::parse_html_to_dom(&html);
+    let base_dir = std::path::Path::new(caminho).parent().unwrap_or_else(|| std::path::Path::new("."));
+    carregar_imagens(&mut dom, base_dir);
 
     // 1280x800 é o default do `Dom` e o que o lado do Chrome é forçado a usar
     // (`Emulation.setDeviceMetricsOverride`). Dito aqui em vez de assumido.

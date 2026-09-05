@@ -15,7 +15,3 @@ license.workspace = true
 [dependencies]
 rts-core = { path = "../rts-core" }
 rts-dom = { path = "../rts-dom" }
-# O `inflate` do PNG de um `<img src="data:…">` (lote V-img, `imagem.rs`). A
-# mesma crate e o mesmo pin do `rts-std` (`docs/reference/node/crates.md` §4.4):
-# backend puro Rust, sem C.
-flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
