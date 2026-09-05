@@ -99,13 +99,18 @@ const testes = [];
 for (const f of html) {
   // Um `-expected.html` e a REFERENCIA de outro teste, nunca um teste.
   if (/-expected\.(html|xht)$/.test(f)) continue;
-  const src = readFileSync(f, "utf8");
   let ref = null;
   if (PARES === "sufixo") {
+    // O `existsSync` vem ANTES de ler o ficheiro: neste modo o par decide-se
+    // pelo NOME, e ler cada html so para descobrir que nao tem par custava a
+    // varredura inteira dos web_tests do Blink (dezenas de milhares de
+    // ficheiros, 4 046 com par).
     const cand = f.replace(/\.(html|xht)$/, "-expected.$1");
     if (!existsSync(cand)) continue;
     ref = cand;
-  } else {
+  }
+  const src = readFileSync(f, "utf8");
+  if (PARES !== "sufixo") {
     const m = src.match(/<link[^>]*rel=["']?match["']?[^>]*href=["']([^"']+)["']/i) ?? src.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["']?match["']?/i);
     if (!m) continue;
     ref = resolve(dirname(f), m[1]);
