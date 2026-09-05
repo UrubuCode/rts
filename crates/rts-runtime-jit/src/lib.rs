@@ -1,16 +1,22 @@
-//! The archive `rts compile --embed-compiler` links instead of `rts-runtime`'s.
+//! The archive `rts compile` links by DEFAULT — opted out of with
+//! `--sem-compilador`/`--no-compiler`, which links `rts-runtime` instead.
+//! `--embed-compiler` remains accepted too, as an explicit synonym of the
+//! default that nothing already passing it needs to stop passing.
 //!
 //! # The problem this exists to close
 //!
-//! An AOT binary from plain `rts compile` links `rts-runtime`, which installs
-//! no evaluator — `rts-host`'s own README states the gap plainly: *"eval, new
-//! Function and vm.runInNewContext raise there where they work here"*. That is
-//! the right default for a program that compiles ahead of time and never
-//! touches source again. It is the wrong one for a program whose whole job is
-//! to compile source it did not ship with — a browser, running a page's own
-//! `<script>` tags, exactly as `examples/claude-browser.ts` does today under
-//! `rts run`. Shipping that as a `.exe` needs the compiler inside it, the way
-//! Electron ships V8 inside itself rather than asking the OS for a browser.
+//! An AOT binary linking `rts-runtime` installs no evaluator — `rts-host`'s
+//! own README states the gap plainly: *"eval, new Function and
+//! vm.runInNewContext raise there where they work here"*. That is the right
+//! choice for a program that compiles ahead of time and never touches source
+//! again, which is why it stays reachable via the opt-out. It is the wrong
+//! one for a program whose whole job is to compile source it did not ship
+//! with — a browser, running a page's own `<script>` tags, exactly as
+//! `examples/claude-browser.ts` does today under `rts run` — and DEFAULT
+//! because most compiled programs look more like `rts.exe` (the JIT, which
+//! always carries a compiler) than like a program that is provably done
+//! reading source the moment it starts. Electron ships V8 inside itself
+//! rather than asking the OS for a browser for the same reason.
 //!
 //! # Why this depends on `rts-runtime-boot` and explicitly NOT on `rts-runtime`
 //!

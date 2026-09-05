@@ -118,24 +118,53 @@ jobs:
           diff jit.txt aot.txt
 
       # BLOCKING, and the claim is different again: not that the default
-      # archive runs a program, but that the SECOND one (`rts-runtime-jit`,
-      # `--embed-compiler`) makes `eval` work inside a compiled binary at all.
-      # `target/release/rts_runtime_jit.lib` exists already — it is a direct
-      # dependency of this same `rts` bin (root `Cargo.toml`), so the release
-      # build above already produced it, exactly as it does for
-      # `rts_runtime.lib` — no second build step. The fixture's page never
-      # ships without its `.exe`: `claude-pagina-eval.ts` reads
-      # `claude-pagina-eval.html` off disk with `node:fs` at RUN time, the same
-      # way `rts run` would, so this is a claim about the compiler the binary
-      # carries and not about anything baked in at compile time.
-      - name: Smoke test — rts compile --embed-compiler runs a page's own eval (AOT)
+      # archive runs a program, but that it makes `eval` work inside a
+      # compiled binary at all — plain `rts compile`, no flag, links
+      # `rts-runtime-jit` now. `target/release/rts_runtime_jit.lib` exists
+      # already — it is a direct dependency of this same `rts` bin (root
+      # `Cargo.toml`), so the release build above already produced it,
+      # exactly as it does for `rts_runtime.lib` — no second build step. The
+      # fixture's page never ships without its `.exe`: `claude-pagina-eval.ts`
+      # reads `claude-pagina-eval.html` off disk with `node:fs` at RUN time,
+      # the same way `rts run` would, so this is a claim about the compiler
+      # the binary carries and not about anything baked in at compile time.
+      #
+      # `--embed-compiler` is run too, and deliberately: it is the explicit
+      # synonym of this same default, kept accepted so this exact step never
+      # had to change when the default flipped — the claim it makes is that
+      # the synonym still means what it always meant, not a second claim
+      # about `eval`.
+      - name: Smoke test — rts compile embeds a compiler by default; --embed-compiler still means the same thing (AOT)
         shell: bash
         run: |
           rm -f smoke_embed smoke_embed.exe smoke_embed.obj smoke_embed.rtsdata
+          target/release/rts compile tests/aot/claude-pagina-eval.ts smoke_embed
+          if [ -x smoke_embed.exe ]; then out=$(./smoke_embed.exe); else out=$(./smoke_embed); fi
+          echo "eval(\"1+2\") inside the page's own <script>, default archive, answered: $out"
+          [ "$out" = "3" ]
+          rm -f smoke_embed smoke_embed.exe smoke_embed.obj smoke_embed.rtsdata
           target/release/rts compile --embed-compiler tests/aot/claude-pagina-eval.ts smoke_embed
           if [ -x smoke_embed.exe ]; then out=$(./smoke_embed.exe); else out=$(./smoke_embed); fi
-          echo "eval(\"1+2\") inside the page's own <script> answered: $out"
+          echo "eval(\"1+2\") inside the page's own <script>, --embed-compiler, answered: $out"
           [ "$out" = "3" ]
+
+      # BLOCKING, and this is the OPT-OUT's own claim: `--sem-compilador`
+      # links the small archive, which still refuses `eval` exactly as
+      # `rts-host/README.md` states — the same source, same fixture, only the
+      # archive changes. A binary this small should never silently gain a
+      # compiler it did not ask for.
+      #
+      # The refusal is `console.error`, which this engine sends to STDERR —
+      # checked there rather than on stdout, which answers the empty string
+      # `dom.getText` gives back for a `textContent` `eval` never got to set.
+      - name: Smoke test — rts compile --sem-compilador still refuses eval (AOT, small archive)
+        shell: bash
+        run: |
+          rm -f smoke_small smoke_small.exe smoke_small.obj smoke_small.rtsdata
+          target/release/rts compile --sem-compilador tests/aot/claude-pagina-eval.ts smoke_small
+          if [ -x smoke_small.exe ]; then err=$(./smoke_small.exe 2>&1 1>/dev/null); else err=$(./smoke_small 2>&1 1>/dev/null); fi
+          echo "eval(\"1+2\") inside the page's own <script>, --sem-compilador, stderr: $err"
+          echo "$err" | grep -q "a fonte não compilou"
 
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
@@ -159,22 +188,29 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
-      # The AOT runtime archive, for the Benchmarks workflow, which downloads a
-      # built binary instead of compiling the workspace and therefore has no
-      # `target/` of its own. `rts compile` links against this, so without it
-      # every AOT bench is skipped — which is what it did, invisibly, until the
-      # name in `bench/benchmark.ps1` was corrected and the absence became the
-      # remaining cause.
+      # The AOT runtime archives, for the Benchmarks workflow, which downloads
+      # a built binary instead of compiling the workspace and therefore has no
+      # `target/` of its own. `rts compile` links against one of these, so
+      # without them every AOT bench is skipped — which is what it did,
+      # invisibly, until the name in `bench/benchmark.ps1` was corrected and
+      # the absence became the remaining cause.
+      #
+      # BOTH archives, since `rts compile` embeds a compiler by default now
+      # and links `rts_runtime_jit.lib` unless told `--sem-compilador` —
+      # a downstream consumer of only the small one would silently start
+      # failing the moment it ran a plain `rts compile` rather than the flag.
       #
       # A SEPARATE artifact, not another file in the one above: the release job
       # publishes what it downloads, and a static library is not a release
       # asset. That is also why the release job matches artifacts by name.
-      - name: Upload AOT runtime archive (Windows)
+      - name: Upload AOT runtime archives (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: runtime-archive-${{ runner.os }}-${{ runner.arch }}
-          path: target/release/rts_runtime.lib
+          path: |
+            target/release/rts_runtime.lib
+            target/release/rts_runtime_jit.lib
           if-no-files-found: error
 
       - name: Upload artifact (Unix)
@@ -379,12 +415,16 @@ jobs:
 
   # A quinta régua, no mesmo espírito das anteriores: mede o custo de
   # empacotar a MESMA app (examples/react-app.html) como um `.exe` RTS AOT e
-  # como um `.exe` Electron — tamanho, arranque, memória, CPU. Report-only: o
-  # lado RTS já não roda hoje por uma lacuna arquitetural conhecida e
-  # documentada (`scripts/rts_vs_electron/rts/README.md`: `rts-runtime` não
-  # liga `rts-ui`, então o `.exe` compilado morre em <1s em
-  # "cannot resolve module rts:egui") — o job continua a medir o que dá, em
-  # vez de ficar vermelho por algo já registado.
+  # como um `.exe` Electron — tamanho, arranque, memória, CPU. Report-only,
+  # `continue-on-error`, pela mesma razão de sempre: um runner hospedado sem
+  # ecrã pode não conseguir abrir a janela mesmo com os dois artefactos
+  # certos ligados, e isso não é uma regressão a bloquear a release.
+  #
+  # `scripts/rts_vs_electron/rts/README.md` documentava aqui uma lacuna —
+  # `rts-runtime` sem `rts-ui`, `.exe` a morrer em "cannot resolve module
+  # rts:egui" — que o PR #2671 fechou antes deste lote sequer começar; a
+  # frase que dizia isso foi apagada por estar enganada, não porque o job
+  # tenha sido re-verificado a fundo aqui.
   #
   # PORQUÊ este job NÃO compila nada: o job `build` já produz, para Windows,
   # exatamente os dois artefactos de que este precisa — o `rts.exe` de release
@@ -427,7 +467,7 @@ jobs:
           name: runtime-archive-${{ runner.os }}-${{ runner.arch }}
           path: dl-archive
 
-      - name: Stage rts.exe + rts_runtime.lib
+      - name: Stage rts.exe + rts_runtime.lib + rts_runtime_jit.lib
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path target/release | Out-Null
@@ -438,17 +478,27 @@ jobs:
           if (-not $exe) { throw "no .exe found in dl/ (contents: $((Get-ChildItem dl -Recurse | ForEach-Object FullName) -join ', '))" }
           Copy-Item $exe.FullName target/release/rts.exe
 
+          # As DUAS: `rts compile` (sem flag) liga `rts_runtime_jit.lib` desde
+          # que o compilador passou a ir por omissão — o app do comparativo
+          # (`scripts/rts_vs_electron/rts/app.ts`) precisa dele para o
+          # `runScriptsAt`/`eval` que corre a app React. `rts_runtime.lib`
+          # fica trazida na mesma para quem testar `--sem-compilador` à mão.
           $lib = Get-ChildItem dl-archive -Recurse -Filter rts_runtime.lib | Select-Object -First 1
           if (-not $lib) { throw "rts_runtime.lib not found in dl-archive/ (contents: $((Get-ChildItem dl-archive -Recurse | ForEach-Object FullName) -join ', '))" }
           Copy-Item $lib.FullName target/release/rts_runtime.lib
 
+          $libJit = Get-ChildItem dl-archive -Recurse -Filter rts_runtime_jit.lib | Select-Object -First 1
+          if (-not $libJit) { throw "rts_runtime_jit.lib not found in dl-archive/ (contents: $((Get-ChildItem dl-archive -Recurse | ForEach-Object FullName) -join ', '))" }
+          Copy-Item $libJit.FullName target/release/rts_runtime_jit.lib
+
           # `rts compile` recusa um archive mais velho que os `.rs` fonte que
           # verifica (proxy por mtime) — o transporte por artefacto não
-          # preserva essa ordem. Binário e archive vêm de UMA build de UM
+          # preserva essa ordem. Binário e archives vêm de UMA build de UM
           # commit (mesmo padrão de `benchmarks.yml`), por isso a data é
           # simplesmente carimbada para agora em vez de a checagem ser
           # enfraquecida.
           (Get-Item target/release/rts_runtime.lib).LastWriteTime = Get-Date
+          (Get-Item target/release/rts_runtime_jit.lib).LastWriteTime = Get-Date
           (Get-Item target/release/rts.exe).LastWriteTime = Get-Date
 
       - name: Setup Node

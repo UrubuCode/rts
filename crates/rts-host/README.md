@@ -122,26 +122,30 @@ What is left:
 
 - **No fault handling.** A compiled program that traps takes the process with
   it.
-- **The DEFAULT AOT binary carries less than a JIT run, and this line used to
-  overstate the gap.** `rts-runtime` links `rts-core`, `rts-std`, `rts-node`
-  and — since #2671 — `rts:dom` and `rts:egui`; still absent is the physics
-  solver, and it installs no evaluator — so `eval`, `new Function` and
-  `vm.runInNewContext` raise there where they work here. Each of those
-  refusals names itself; none is silent.
-- **A SECOND archive closes the evaluator gap, for a program that asks for
-  it.** `rts compile --embed-compiler` links `rts-runtime-jit` instead: the
-  same sequence as `rts-runtime`'s, plus `install_compiler` (this crate's own
-  export, wired in `run_region` too — one function, two callers). `eval`,
-  `new Function` and a page `<script>`'s scoped eval work inside that binary
-  exactly as they do here, at the cost of carrying `rts-codegen` and
-  `rts-cranelift`'s front end and placement code — a compiler is not a small
-  thing to ship, which is why it stays a second, opt-in archive rather than
-  the default one. `vm.runInNewContext` and its siblings gain the same
-  capability as a consequence of installing the SAME six hooks, not as a
-  separate decision. What it does NOT gain: a dynamic `import()` of a file the
-  compiler never saw — `rts_core::entry::module_import`'s own doc is explicit
-  that it reads an already-registered module rather than loading one, and
-  installing a compiler does not change what that entry point does. See
-  `rts-runtime-jit`'s own crate doc for the full cut.
+- **The DEFAULT AOT binary carries a compiler now, and this line used to say
+  it did not.** `rts compile` links `rts-runtime-jit`: the same sequence
+  `rts-runtime` runs, plus `install_compiler` (this crate's own export,
+  wired in `run_region` too — one function, two callers). `eval`, `new
+  Function` and a page `<script>`'s scoped eval work inside that binary
+  exactly as they do here — the compiler is the default the way `rts.exe`
+  (the JIT) and Electron (which carries V8 rather than asking the OS for a
+  browser) both already are. `vm.runInNewContext` and its siblings gain the
+  same capability as a consequence of installing the SAME six hooks, not as
+  a separate decision. What it does NOT gain: a dynamic `import()` of a file
+  the compiler never saw — `rts_core::entry::module_import`'s own doc is
+  explicit that it reads an already-registered module rather than loading
+  one, and installing a compiler does not change what that entry point does.
+- **`--sem-compilador` (`--no-compiler`) opts back OUT, to the small
+  archive.** `rts-runtime` links `rts-core`, `rts-std`, `rts-node` and —
+  since #2671 — `rts:dom` and `rts:egui`; still absent is the physics solver,
+  and it installs no evaluator — so `eval`, `new Function` and
+  `vm.runInNewContext` raise there where they work in the default binary.
+  Each of those refusals names itself; none is silent. For a program that
+  never reads source again once `rts compile` produced it and would rather
+  not carry `rts-codegen`/`rts-cranelift`'s front end and placement code — a
+  compiler is not a small thing to ship — for a capability it never uses.
+  `--embed-compiler` stays accepted too, as a synonym of the default: this
+  repository's own CI smoke already passed it before the default flipped.
+  See `rts-runtime-jit`'s own crate doc for the full cut either way.
 - **No source POSITION in a trace.** The names are there on both paths now; the
   line numbers are on neither, and they are `rts_cranelift::observe`'s question.

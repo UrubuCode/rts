@@ -98,22 +98,28 @@ The name stays in every row — as **diagnostics**. A backtrace naming `rts_allo
 is readable and one naming index 47 is not. Keeping the name as metadata rather
 than as the mechanism is the entire distinction.
 
-### Two AOT archives, because a compiler is not always the cargo
+### Two AOT archives, and the compiler is the default cargo now
 
 `rts compile` links one object file against ONE staticlib, and there are two of
-them to choose from. `rts-runtime` is the default: `rts-core`, `rts-std`,
-`rts-node`, `rts:dom` and `rts:egui`, and no evaluator — a compiled program
-never reads source again after `rts compile` produced it, so carrying a
-compiler in every binary would tax the common case (a script, a game, a CLI
-tool) for a capability only some programs use.
+them to choose from. `rts-runtime-jit` is what plain `rts compile` links: the
+startup sequence — `rts_runtime_boot::run` — plus `rts_host::install_compiler`,
+the six hooks (`eval`, `new Function`, a page `<script>`'s scoped eval,
+`vm.runInNewContext`) the JIT host already wires for its own process in
+`run_region`. A **browser** is the program that most needs this: it compiles
+pages it did not ship with, the way Electron carries V8 rather than asking the
+OS for one — and it is the default because most compiled programs look more
+like `rts.exe` itself (which always carries a compiler) than like one that is
+provably done reading source the instant it starts.
 
-`rts-runtime-jit` (`rts compile --embed-compiler`) is the other one: the exact
-same startup sequence — `rts_runtime_boot::run`, shared rather than
-forked — plus `rts_host::install_compiler`, the six hooks (`eval`, `new
-Function`, a page `<script>`'s scoped eval, `vm.runInNewContext`) the JIT host
-already wires for its own process in `run_region`. A **browser** is the program
-that needs this: it compiles pages it did not ship with, the way Electron
-carries V8 rather than asking the OS for one.
+`rts-runtime` — `rts-core`, `rts-std`, `rts-node`, `rts:dom` and `rts:egui`,
+and no evaluator — is the opt-out: `rts compile --sem-compilador` (also
+`--no-compiler`), for a binary that never reads source again after `rts
+compile` produced it and would rather not carry `rts-codegen`/
+`rts-cranelift`'s front end and placement code for a capability it never
+uses. `--embed-compiler` is still accepted, as an explicit synonym of the
+default — this repository's own CI smoke already passed it before the
+default flipped, and a flag that quietly changed meaning instead of staying a
+synonym would have broken that job silently.
 
 **Three crates rather than two**, and the third exists because the first
 attempt at two — `rts-runtime-jit` depending on `rts-runtime` to reuse its

@@ -1,5 +1,7 @@
-//! The default archive an AOT-compiled program links against — `rts compile`
-//! with no flag.
+//! The small archive an AOT-compiled program links against for `rts compile
+//! --sem-compilador` (`--no-compiler` also accepted) — the opt-out of
+//! `rts-runtime-jit`, which is what plain `rts compile` links since the
+//! compiler became the default.
 //!
 //! # Why it holds no code of its own
 //!
@@ -11,10 +13,10 @@
 //!
 //! # Why the sequence itself lives in a THIRD crate
 //!
-//! `rts compile --embed-compiler` needs the exact same sequence plus one
-//! extra registration (`rts_host::install_compiler`), and reusing it by
-//! having `rts-runtime-jit` depend on THIS crate was tried first — it
-//! compiled and linked without error, and silently ran the wrong `main`.
+//! `rts-runtime-jit` needs the exact same sequence plus one extra
+//! registration (`rts_host::install_compiler`), and reusing it by having
+//! `rts-runtime-jit` depend on THIS crate was tried first — it compiled and
+//! linked without error, and silently ran the wrong `main`.
 //! `rts-runtime-boot`'s own module doc has the measured cause and why a
 //! third crate, rather than a smaller fix, is what closes it: neither this
 //! crate nor `rts-runtime-jit` may depend on the other, because a

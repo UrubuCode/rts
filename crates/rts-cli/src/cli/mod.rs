@@ -38,19 +38,28 @@ pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
 }
 
 /// Locates the staticlib `rts compile` links the AOT object against —
-/// `rts-runtime` normally, `rts-runtime-jit` for `--embed-compiler`.
+/// `rts-runtime-jit` by default, `rts-runtime` for `--sem-compilador`/
+/// `--no-compiler`. See [`CompileOptions::embed_compiler`]'s own doc for the
+/// two paths and why the default carries a compiler.
 ///
 /// # `target/` is preferred, the embedded copy is the fallback
 ///
 /// A dev iterating on `rts-core`/`rts-std`/`rts-node` needs their
 /// freshly-built archive, not whatever shipped inside this `rts` binary — so a
-/// `target/{debug,release}/rts_runtime.lib` on disk always wins when
-/// present. A `rts` copied to a machine with no `target/` at all (the case this
-/// exists for: a downloaded binary that could not `rts compile` before this
-/// change) falls back to [`set_runtime_archive_resolver`]'s embedded,
-/// extract-on-demand archive — for the DEFAULT archive only, since an embedded
-/// binary was never built with an embed-compiler archive to extract; see
-/// below.
+/// `target/{debug,release}/<archive>` on disk always wins when present.
+///
+/// The embedded, extract-on-demand fallback
+/// ([`set_runtime_archive_resolver`]) exists for a `rts` copied to a machine
+/// with no `target/` at all, and it covers `rts-runtime` ONLY — build.rs
+/// never embeds `rts-runtime-jit`, which carries a whole compiler and would
+/// roughly double what every downloaded `rts` binary weighs for a capability
+/// most compiled programs never use. **The cost this leaves, stated rather
+/// than hidden:** a `rts` copied without its `target/` compiles by DEFAULT
+/// now, so a plain `rts compile` with no flags on such a binary refuses
+/// outright — where before this default flipped, the embedded fallback
+/// covered the (then-default) small archive and the command worked. The
+/// fix, for that one case, is naming the opt-out: `rts compile --sem-
+/// compilador input.ts`.
 ///
 /// # The staleness check
 ///
@@ -202,6 +211,9 @@ struct CliFlags {
     debug: bool,
     windows_subsystem: Option<WindowsSubsystem>,
     all_namespaces: bool,
+    // `true` by default — see `CompileOptions::embed_compiler`'s own doc for
+    // why: `rts compile` carries a compiler unless `--sem-compilador`/
+    // `--no-compiler` asks for the small archive instead.
     embed_compiler: bool,
 }
 
@@ -212,7 +224,7 @@ impl Default for CliFlags {
             debug: false,
             windows_subsystem: None,
             all_namespaces: false,
-            embed_compiler: false,
+            embed_compiler: true,
         }
     }
 }
@@ -317,7 +329,15 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--all-namespaces" => flags.all_namespaces = true,
+            // The default already embeds a compiler — kept as an explicit,
+            // accepted synonym of it rather than removed, so a caller (this
+            // repo's own CI included) that already passes it sees no change.
             "--embed-compiler" => flags.embed_compiler = true,
+            // The opt-out: the small archive, for a binary that never
+            // `eval`s and never runs a page `<script>` at run time. Two
+            // spellings for the same reason `-p`/`--production` has two:
+            // whichever a caller already reaches for.
+            "--sem-compilador" | "--no-compiler" => flags.embed_compiler = false,
             "--windows-subsystem" => {
                 let value = raw
                     .get(idx + 1)
@@ -376,5 +396,6 @@ fn print_help(bin_name: &str) {
     println!("Options:");
     println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");
     println!("  --all-namespaces                        (compile) keep all runtime symbols (needed for import(variable))");
-    println!("  --embed-compiler                        (compile) link a compiler in too — eval/new Function/page <script> work in the .exe");
+    println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
+    println!("  --sem-compilador, --no-compiler          (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
 }

@@ -12,22 +12,31 @@
 //! `staticlib` facade, so both preconditions this command was held back for now
 //! exist.
 //!
-//! # `--embed-compiler`
+//! # The compiler is embedded by DEFAULT — `--sem-compilador`/`--no-compiler`
+//! opts out
 //!
-//! Links `rts-runtime-jit` instead of `rts-runtime` — the archive that also
-//! installs a compiler, so `eval`, `new Function` and a page `<script>`
-//! (`rts-dom-bridge`'s `DomScope::run`) work inside the compiled binary
-//! instead of raising the refusal `rts-host`'s README states for the default
-//! archive. For a program whose whole job is to compile source it did not
-//! ship with — a browser — rather than one that merely runs its own,
-//! pre-compiled body. See `rts-runtime-jit`'s own crate doc for the cut this
-//! makes and the size it costs.
+//! `rts compile` links `rts-runtime-jit`, not `rts-runtime`, unless told
+//! otherwise: the `.exe` carries a compiler the way `rts.exe` (the JIT) and
+//! Electron (which carries V8 rather than asking the OS for a browser) do,
+//! so `eval`, `new Function` and a page `<script>` (`rts-dom-bridge`'s
+//! `DomScope::run`) work at run time instead of raising the refusal
+//! `rts-host`'s README states for the small archive.
+//!
+//! `--sem-compilador` (`--no-compiler` also accepted) is the opt-out: it
+//! links `rts-runtime` instead, for a binary that never `eval`s and never
+//! runs a page `<script>` at run time and would rather not carry
+//! `rts-codegen`/`rts-cranelift`'s front end and placement code for a
+//! capability it does not use. `--embed-compiler` is still accepted, as an
+//! explicit synonym of the default — this repository's own CI smoke already
+//! passes it, and changing what it means rather than keeping it a synonym
+//! would have broken that job silently. See `rts-runtime-jit`'s own crate
+//! doc for the cut the default costs and the size it adds.
 //!
 //! # What still needs a two-step build
 //!
-//! `cargo build -p rts-runtime` (or `-p rts-runtime-jit` for the flag above)
-//! before `rts compile`, matching profile — the same requirement the old
-//! engine's `rts-runtime` had, and for the same
+//! `cargo build -p rts-runtime-jit` (or `-p rts-runtime` for `--sem-
+//! compilador`) before `rts compile`, matching profile — the same
+//! requirement the old engine's `rts-runtime` had, and for the same
 //! reason: a `staticlib` is only emitted for a package built as a direct
 //! target, and cargo does not do that as a side effect of depending on it. See
 //! [`super::runtime_archive`] for the staleness check that makes skipping
