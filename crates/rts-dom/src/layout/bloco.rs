@@ -702,6 +702,24 @@ pub(crate) fn layout_block(
     // e `#neto h=0` (`claude-flex-definite-min-height`) — o `avail_children`
     // nunca incluía `mnh_pre`, calculado três linhas acima e descartado.
     let avail_children = explicit_content_h.or(mxh_pre).or(mnh_pre);
+    // O limiar de QUEBRA do `flex-wrap` numa coluna é uma pergunta MAIS
+    // ESTREITA do que `avail_children`: precisa de um main size que o
+    // CONTEÚDO não vai alargar — `height`/`max-height` são isso (um deles
+    // sendo o "genuinamente definido" que `avail_children` já mistura para
+    // %/stretch dos filhos); `min-height` NÃO é — é só um PISO, o container
+    // cresce à vontade acima dele, e é exatamente o que o "conteúdo" de uma
+    // coluna com wrap está livre para fazer. Achado do lote
+    // `flex-column-wrap` (merge com `flex-justify-logico`, régua central):
+    // `.item{min-height:0}` sendo ele próprio `display:flex;flex-direction:
+    // column;flex-wrap:wrap` (WPT `flexbox-flex-basis-content-004a/b`, o
+    // `innerFlex` com `flex-wrap:wrap` inline) fazia `avail_children` valer
+    // `Some(0.0)` — um limiar de wrap DEGENERADO onde o 2.º item de
+    // QUALQUER coluna já não cabe, abrindo uma coluna nova por item (3 itens
+    // ficavam 3 colunas de 1, lado a lado, em vez de uma pilha vertical de
+    // 3). `layout_children_column`/`coluna_wrap.rs` continuam a receber
+    // `avail_children` para tudo o resto (gap%, `height:%` dos netos,
+    // grow/shrink) — só o DESPACHO do wrap lê este valor mais estreito.
+    let wrap_definite_h = explicit_content_h.or(mxh_pre);
 
     // Novo BFC (fresco, vazio) só se `id` o estabelece — senão os filhos
     // recebem a mesma referência ambiente, e um float lá dentro alcança os
@@ -730,7 +748,9 @@ pub(crate) fn layout_block(
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let content_h = match display {
-        // flex column (com ou sem wrap — multi-coluna do wrap é corte documentado).
+        // flex column: sem wrap empilha numa coluna; COM wrap (e altura
+        // definida) `layout_children_column` delega para `coluna_wrap.rs` —
+        // ver o comentário no parâmetro `wrap` lá.
         _ if is_flex && is_column => layout_children_column(
             dom,
             id,
@@ -741,6 +761,8 @@ pub(crate) fn layout_block(
             &css,
             font_size,
             is_reverse,
+            display == crate::block::DISPLAY_WRAP,
+            wrap_definite_h,
             ctx,
             list,
         ),

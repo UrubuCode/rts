@@ -121,6 +121,12 @@ css_props! {
         /// `flex-wrap: wrap` — só relevante com `display:flex`; promove `Flex` a
         /// `FlexWrap` na resolução. `None`/`Some(false)` = nowrap.
         [] flex_wrap: bool;
+        /// `flex-wrap: wrap-reverse` (o BIT que `flex_wrap` sozinho perde: antes
+        /// deste campo `wrap` e `wrap-reverse` caíam os dois em `flex_wrap=Some(true)`,
+        /// e nada guardava QUAL dos dois — lote `flex-column-wrap`). `true` só com
+        /// `wrap-reverse`; inverte a ordem das LINHAS/COLUNAS no eixo cruzado
+        /// (CSS Flexbox §5.3), nunca a ordem dos itens dentro de cada uma.
+        [] flex_wrap_reverse: bool;
         /// `justify-content` — distribuição no eixo principal do flex. `None` =
         /// FlexStart.
         [] justify: JustifyContent;

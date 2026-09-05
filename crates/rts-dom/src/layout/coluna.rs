@@ -1,10 +1,43 @@
 //! FLEX em COLUNA: empilhar no eixo vertical, com `justify-content` e
 //! `align-items` trocados de eixo.
 //!
-//! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
-//! alterada — a reconstrução deste ficheiro é byte a byte a do original.
+//! Movido de `layout.rs` na modularização (nessa altura, byte a byte do
+//! original). Desde então ganhou o parâmetro `wrap` (lote `flex-column-wrap`,
+//! 2026-09-04): com `flex-wrap` e altura definida, delega para
+//! `coluna_wrap.rs` — ver o comentário no parâmetro.
 
 use super::*;
+
+/// `justify-content` (`fisico_para_coluna` — físicos/lógicos resolvidos e
+/// invariantes a `column-reverse`, ver o comentário lá — e depois espelhado
+/// se `reverse`, para os valores que NÃO são físicos) e `align-items`
+/// (`Stretch` por default) de um container de coluna. Extraído para que
+/// `coluna_wrap.rs` (multi-coluna) leia exatamente a mesma regra em vez de
+/// duplicá-la — as duas funções decidem o MESMO container, só a distribuição
+/// dos itens muda. Lote `flex-justify-logico`: antes, `left`/`right`
+/// colapsavam incondicionalmente em `FlexStart` aqui e o espelho seguinte
+/// invertia-os para o FUNDO em `column-reverse` — o mesmo bug que a versão
+/// inline em `layout_children_column` corrigia sem passar por aqui; ver o
+/// comentário de `fisico_para_coluna` para o porquê de não duplicar duas
+/// vezes o mesmo espelho.
+pub(in crate::layout) fn justify_e_align(
+    css: &ComputedStyle,
+    reverse: bool,
+) -> (crate::style::JustifyContent, crate::style::AlignItems) {
+    let justify_declarado = css
+        .justify
+        .unwrap_or(crate::style::JustifyContent::FlexStart);
+    let justify_declarado = fisico_para_coluna(justify_declarado, reverse);
+    let justify = if reverse {
+        mirror_justify(justify_declarado)
+    } else {
+        justify_declarado
+    };
+    let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
+    (justify, align)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_column(
     dom: &Dom,
     id: NodeIdx,
@@ -18,9 +51,37 @@ pub(in crate::layout) fn layout_children_column(
     font_size: f32,
     // `flex-direction: column-reverse` — ver a nota gémea em `flex.rs`.
     reverse: bool,
+    // `flex-wrap: wrap`/`wrap-reverse` — só tem efeito com altura DEFINIDA
+    // (senão não há critério de "a coluna encheu"; a mesma pergunta que
+    // `layout_children_horizontal` faz para o content_w, que é sempre
+    // definido). Delega para `coluna_wrap.rs` — o algoritmo de MÚLTIPLAS
+    // colunas é grande o bastante (agrupar, `align-content` no eixo cruzado)
+    // para não caber aqui sem estourar o teto de 500 linhas. Lote
+    // `flex-column-wrap` (2026-09-04): antes, este parâmetro nem existia —
+    // `flex-wrap` era lido em `bloco.rs` só para achatar `display` em
+    // `FlexWrap`/`Flex` e nunca chegava até aqui.
+    wrap: bool,
+    // O limiar de QUEBRA do wrap — `height`/`max-height`, NUNCA `min-height`
+    // (que só é um PISO: o container cresce à vontade acima dele). É mais
+    // ESTREITO do que `container_content_h` de propósito — ver o comentário
+    // em `bloco.rs` onde é calculado (`wrap_definite_h`). Achado no merge com
+    // `flex-justify-logico`: um `.item{min-height:0}` que É ele próprio
+    // `column wrap` (WPT `flexbox-flex-basis-content-004a/b`) tinha
+    // `container_content_h == Some(0.0)` só por causa do `min-height`, e
+    // isso abria uma coluna nova por item (3 itens, 3 colunas de 1) em vez
+    // de os empilhar numa pilha vertical de altura auto.
+    wrap_definite_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
+    if wrap {
+        if let Some(h) = wrap_definite_h {
+            return super::coluna_wrap::layout_children_column_wrap(
+                dom, id, content_x, content_y, content_w, h, css, font_size, reverse,
+                css.flex_wrap_reverse.unwrap_or(false), ctx, list,
+            );
+        }
+    }
     let resolve = ResolveCtx {
         parent_content_w: content_w,
         node_font_size: font_size,
@@ -44,22 +105,7 @@ pub(in crate::layout) fn layout_children_column(
         .max(0.0);
     // `column-reverse`: mesmo espelho de `flex.rs` — o main-start visual é o
     // FUNDO do container, não o topo; ver o comentário lá.
-    let justify_declarado = css
-        .justify
-        .unwrap_or(crate::style::JustifyContent::FlexStart);
-    // `left`/`right`/`start`/`end` são físicos ao TOPO/FUNDO (nunca ao lado
-    // de `reverse`) — resolvidos ANTES do espelho, como no eixo horizontal.
-    // Causa 2 da triagem `flex-justify-logico`: a versão anterior convertia
-    // Left/Right para FlexStart incondicionalmente, e o mirror seguinte
-    // então espelhava-os para o FUNDO em `column-reverse`
-    // (`claude-justify-left-column-reverse`).
-    let justify_declarado = fisico_para_coluna(justify_declarado, reverse);
-    let justify = if reverse {
-        mirror_justify(justify_declarado)
-    } else {
-        justify_declarado
-    };
-    let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
+    let (justify, align) = justify_e_align(css, reverse);
 
     // ── PASSO 1: mede a BASE outer de cada filho (flex-basis/height/conteúdo)
     // no eixo principal, + margens auto e os fatores de flex-shrink/grow ──────

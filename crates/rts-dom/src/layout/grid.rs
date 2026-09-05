@@ -7,18 +7,6 @@
 use super::*;
 use super::grid_linhas::place_grid_items;
 use super::grid_tracks;
-/// Dispõe os filhos como FLEX COLUMN (`display:flex; flex-direction:column`): o
-/// eixo PRINCIPAL é o vertical. Diferenças do block vertical: SEM margin-collapse
-/// (flex não colapsa margens), `gap` entre itens (em column o espaçamento main é o
-/// `row-gap`; o shorthand `gap:` seta ambos), `justify-content` distribui o espaço
-/// livre VERTICAL (só quando o container tem altura explícita), `margin-top/bottom:
-/// auto` de um item ABSORVE o espaço livre (spec flexbox §8.1 — é o `mb-auto`/
-/// `mt-auto` do Bootstrap empurrando header/footer para as pontas), e `align-items`
-/// atua no X: `stretch` (default) = item ocupa a largura; start/center/end = item
-/// shrink-to-fit deslocado. Devolve a altura natural do content.
-/// ⚠️ Cortes: `column-reverse` dispõe como `column` (sem inverter); `flex-wrap` em
-/// column (multi-coluna) trata como coluna única; `flex-grow/shrink/basis` ainda
-/// fora (fatia própria).
 /// GRID real (css-grid track-sizing simplificado): resolve as trilhas de coluna
 /// (px/%/fr/auto) e de linha, faz auto-placement dos itens célula-a-célula
 /// (row-by-row), e posiciona cada item na sua célula com `justify-items`
