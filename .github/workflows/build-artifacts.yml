@@ -454,6 +454,15 @@ jobs:
   # do CLAUDE.md valer a pena.
   dom-tests:
     needs: version
+    # SÓ em `main`. Estes testes correm na máquina de quem trabalha — o fecho de
+    # cada lote do DOM passa por `cargo test -p rts-dom --lib` — e o `rts-dom`
+    # não tem dependências, portanto a resposta é a mesma em Windows e em Linux:
+    # ao contrário do `build`, este job não sabia nada que a máquina local não
+    # soubesse. E, sendo `continue-on-error`, já não bloqueava merge nenhum;
+    # um lote com testes vermelhos entrava na mesma. Em `main` continua a
+    # correr, que é onde serve de rede: apanha o caso de um lote ter sido
+    # fechado sem os correr.
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 45
