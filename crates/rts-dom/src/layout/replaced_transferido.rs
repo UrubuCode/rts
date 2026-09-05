@@ -69,11 +69,19 @@ pub(in crate::layout) fn transferido(
     Some((w_content + margin_h + bl + br, cross_h))
 }
 
-/// `(base, h)` de um item do pré-passo de `flex.rs`: a versão TRANSFERIDA
-/// (`transferido`, acima) quando o item é um `<img>` esticado no eixo
-/// cruzado, senão a de sempre (`flex_base_outer`/`child_outer_height`) — uma
-/// chamada só, para o pré-passo (que já está no tecto de 500 linhas) não
-/// crescer com uma pergunta que já vive aqui.
+/// `(base, h, transferiu)` de um item do pré-passo de `flex.rs`: a versão
+/// TRANSFERIDA (`transferido`, acima) quando o item é um `<img>` esticado no
+/// eixo cruzado, senão a de sempre (`flex_base_outer`/`child_outer_height`)
+/// — uma chamada só, para o pré-passo (que já está no tecto de 500 linhas)
+/// não crescer com uma pergunta que já vive aqui.
+///
+/// `transferiu` diz ao chamador para usar `base` TAMBÉM como o piso
+/// automático de min-content (Flexbox §4.5 candidato (d) — a MESMA conta do
+/// candidato (§9.2) que já fez `base`): sem isto, `table::min_content` mede
+/// o `<img>` pelo tamanho NATURAL dos pixels (não sabe nada de eixo cruzado
+/// nem de stretch) e `com_piso_minimo` erguia o item de volta ao natural —
+/// `flexbox-definite-cross-size-constrained-percentage` (WPT) media 60×60
+/// em vez de 25×25, o próprio transferido sendo anulado pelo piso errado.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn base_e_altura_do_item(
     dom: &Dom,
@@ -84,16 +92,17 @@ pub(in crate::layout) fn base_e_altura_do_item(
     css: &ComputedStyle,
     font_size: f32,
     ctx: &LayoutCtx,
-) -> (f32, f32) {
+) -> (f32, f32, bool) {
     let t = (align_efetivo == crate::style::AlignItems::Stretch)
         .then_some(container_content_h)
         .flatten()
         .and_then(|h| transferido(dom, child, content_w, h, font_size, ctx));
     match t {
-        Some((w, h)) => (w, h),
+        Some((w, h)) => (w, h, true),
         None => (
             super::flex_limites::flex_base_outer(dom, child, content_w, font_size, ctx),
             super::medida::child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx),
+            false,
         ),
     }
 }

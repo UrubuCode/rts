@@ -175,19 +175,27 @@ pub(in crate::layout) fn layout_children_horizontal(
         // (`align-items: stretch`): base/h vêm da razão transferida, não do
         // natural — `replaced_transferido.rs` decide quando (Flexbox §9.2).
         let align_efetivo = ccss.align_self.unwrap_or(align);
-        let (base, h) = super::replaced_transferido::base_e_altura_do_item(
+        let (base, h, transferiu) = super::replaced_transferido::base_e_altura_do_item(
             dom, child, content_w, container_content_h, align_efetivo, css, font_size, ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
         // frame do elemento"), sem duplicar a travessia; medir aqui sempre é
         // mais simples que condicionar por `grid_cols` (que ignora este piso).
-        let min_main = crate::table::min_content(dom, child, font_size, ctx);
+        //
+        // `transferiu`: o candidato (d) do automático (§4.5) é a MESMA conta
+        // do transferido (§9.2) — `table::min_content` não sabe nada de eixo
+        // cruzado/stretch e mediria o `<img>` pelo natural, erguendo-o de
+        // volta acima do que o stretch já decidiu (`replaced_transferido.rs`
+        // documenta o WPT que isto media errado).
         let (max_main, min_declarado) =
             super::flex_limites::limites_do_item(dom, child, &ccss, content_w, font_size, ctx);
-        let min_main = super::flex_limites::min_automatico(
-            dom, child, min_main, &ccss, content_w, font_size, ctx,
-        );
+        let min_main = if transferiu {
+            base
+        } else {
+            let min_main = crate::table::min_content(dom, child, font_size, ctx);
+            super::flex_limites::min_automatico(dom, child, min_main, &ccss, content_w, font_size, ctx)
+        };
         let min_main = min_declarado.unwrap_or(min_main); // declarado vence o automático inteiro
         // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
         // base size" entra INTACTO na soma que decide o défice/sobra da

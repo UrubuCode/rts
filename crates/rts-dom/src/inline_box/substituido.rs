@@ -143,6 +143,12 @@ pub(crate) fn replaced_inline_size(
     // num quadrado (252x252). Isso não é regra de CSS nenhuma: é o que aquele
     // browser faz com uma imagem que FALHOU a carregar, e copiá-lo seria acertar
     // a régua contra o defeito de rede em vez de contra a página.
+    //
+    // `ratio_do_replaced` (mesmo ficheiro, abaixo): a resolução dos atributos
+    // pelo NÓ (`node`, já ajustado ao `<picture>`) é a mesma que essa função
+    // repete no `id` cru para quem não passa por `<picture>` — a `<img>` de um
+    // `<picture>` nunca precisa da razão como candidato de min-content (o
+    // `<source>` já lhe deu as duas dimensões), então a diferença não importa.
     let ratio = dom
         .image_dims(id)
         .map(|(iw, ih)| (iw as f32, ih as f32))
@@ -211,4 +217,79 @@ pub(crate) fn replaced_inline_size(
     let px = |b: crate::style::borders::SideBorder| if b.paints() { b.width } else { 0.0 };
     let (bt, br, bb, bl) = (px(bordas[0]), px(bordas[1]), px(bordas[2]), px(bordas[3]));
     Some((w.max(0.0) + bl + br, h.max(0.0) + bt + bb))
+}
+
+/// A razão de aspeto de um replaced (`id` cru, sem resolver `<picture>`): a
+/// dos pixels decodificados, senão a dos atributos HTML `width`/`height`
+/// juntos — a MESMA pergunta que [`replaced_inline_size`] já faz para
+/// derivar a dimensão em falta. `pub(crate)` para o candidato (d) do
+/// `min-width`/`min-height: auto` (Flexbox §4.5) em
+/// `table::widths::min_content`: com razão de aspeto e a OUTRA dimensão já
+/// definite, o piso automático é a largura/altura DERIVADA da razão, mesmo
+/// quando a dimensão do próprio eixo TAMBÉM está declarada — caso em que
+/// `replaced_inline_size` (pedido para a caixa REAL) honra a declaração e
+/// nunca chega a olhar para a razão (`flexbox-min-width-auto-002`/
+/// `-min-height-auto-002`, WPT: mediam a largura/altura DECLARADA, não a
+/// derivada — o piso nunca capava o item ao encolher).
+pub(crate) fn ratio_do_replaced(dom: &Dom, id: NodeIdx) -> Option<(f32, f32)> {
+    let node = dom.node(id);
+    let attr_px = |name: &str| -> Option<f32> {
+        node.attr(name)
+            .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
+            .filter(|n| *n >= 0.0)
+    };
+    dom.image_dims(id)
+        .map(|(iw, ih)| (iw as f32, ih as f32))
+        .or_else(|| match (attr_px("width"), attr_px("height")) {
+            (Some(aw), Some(ah)) if aw > 0.0 && ah > 0.0 => Some((aw, ah)),
+            _ => None,
+        })
+}
+
+/// O candidato (d) do `min-width: auto` (Flexbox §4.5) para um replaced com
+/// razão: a largura DERIVADA da razão pela altura USADA (CSS2 §10.7 —
+/// `height`, senão `min-height` como aproximação, clampada por
+/// `max-height`/`min-height`) — `None` sem razão nem altura para
+/// constranger. Extraído para `table::widths::min_content` (no tecto de 500
+/// linhas) não repetir o clamp; ver [`ratio_do_replaced`] para o porquê.
+pub(crate) fn largura_min_content_por_razao(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    resolve: &ResolveCtx,
+) -> Option<f32> {
+    let h = css
+        .height
+        .and_then(|d| d.resolve(resolve))
+        .or_else(|| css.min_height.and_then(|d| d.resolve(resolve)))
+        .map(|h| {
+            let h = css.max_height.and_then(|d| d.resolve(resolve)).map_or(h, |mx| h.min(mx));
+            css.min_height.and_then(|d| d.resolve(resolve)).map_or(h, |mn| h.max(mn))
+        })
+        .filter(|h| *h > 0.0)?;
+    let (nw, nh) = ratio_do_replaced(dom, id)?;
+    Some(h * nw / nh)
+}
+
+/// O espelho de [`largura_min_content_por_razao`] para o candidato (d) do
+/// `min-height: auto` no eixo de COLUNA (Flexbox §4.5): a altura DERIVADA da
+/// razão pela largura USADA (`width`, senão `min-width`, clampada por
+/// `max-width`/`min-width`) — `None` sem razão nem largura para constranger.
+pub(crate) fn altura_min_content_por_razao(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    resolve: &ResolveCtx,
+) -> Option<f32> {
+    let w = css
+        .width
+        .and_then(|d| d.resolve(resolve))
+        .or_else(|| css.min_width.and_then(|d| d.resolve(resolve)))
+        .map(|w| {
+            let w = css.max_width.and_then(|d| d.resolve(resolve)).map_or(w, |mx| w.min(mx));
+            css.min_width.and_then(|d| d.resolve(resolve)).map_or(w, |mn| w.max(mn))
+        })
+        .filter(|w| *w > 0.0)?;
+    let (nw, nh) = ratio_do_replaced(dom, id)?;
+    Some(w * nh / nw)
 }
