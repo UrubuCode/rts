@@ -19,7 +19,7 @@
 [![Node test suite](https://img.shields.io/badge/Node%20test%20suite-52.4%25-yellow?style=flat-square)](scripts/node_tests/README.md)
 <!-- NODE_SUITE_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
-[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-99.5%25-brightgreen?style=flat-square)](tests/css/README.md)
+[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-98.7%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
 
 </div>
@@ -30,17 +30,17 @@
 JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1182/1515 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1181/1514 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **78%** (1182/1515) |
-| ✅ RTS = Bun = Node | 1182 |
+| **Parity** | **78%** (1181/1514) |
+| ✅ RTS = Bun = Node | 1181 |
 | ❌ RTS diverges | 248 |
 | 💥 RTS runtime error | 85 |
 | 🛠️  **Left to fix** | **333** |
-| ⚠️ Bun ≠ Node (skip) | 0 |
+| ⚠️ Bun ≠ Node (skip) | 1 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
@@ -102,20 +102,64 @@ _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.5%   3264/3280 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 97.2%   141/145 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 80.4%   393/489 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.7%   3295/3340 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 96.6%   141/146 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱] 67.4%   586/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
 
-Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
-- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+<details><summary><strong>Every checkpoint, with its own percentage</strong> — the total alone says nothing about where the work is</summary>
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **63/70 lots done**, 4 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+```
+subfolders of css-flexbox
+  [▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  12.8%   5/39      balance
+  [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  45.8%   11/24     intrinsic-size
+  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  52.6%   10/19     abspos
+  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   2/4       flex-lines
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   3/4       order
+  [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  33.3%   1/3       alignment
+
+the 777 tests at the root, by subject
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  86.9%   139/160   outros
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.7%   46/77     item
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  91.4%   53/58     align
+  [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  35.8%   19/53     aspect-ratio
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  87.0%   40/46     gap
+  [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  46.2%   18/39     percentage
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.5%   22/37     baseline
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  94.6%   35/37     shrink
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  61.8%   21/34     min-
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  87.5%   28/32     overflow
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   24/30     basis
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  41.4%   12/29     table
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   21/28     wrap
+  [▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  12.5%   3/24      writing-mode
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  90.5%   19/21     justify
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   12/15     order
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  81.8%   9/11      column
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  88.9%   8/9       anonymous
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.7%   6/9       grow
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  87.5%   7/8       max-
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.7%   4/6       row
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  60.0%   3/5       scrollbar
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       abspos
+  [▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  25.0%   1/4       position
+  [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/1       visibility
+```
+
+Subfolders are the WPT's own hierarchy. The subject grouping is **ours**, read off the test names — it is a way to find the work, not a structure the WPT declares. A branch this engine does not attempt drags the total down without saying anything about the engine, which is the whole reason this breakdown is here.
+
+</details>
+
+Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
+- `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-ua-th.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
+- `claude-cursor-pointer-events.html` — cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
+- `claude-controlos-tamanho-natural.html` — lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel` (`<select>` sem opções) não — `<select>` não passa por `layout_input` (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`), por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`). Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a sua própria caixa.
+
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **65/72 lots done**, 4 partial, pending: Q, U, V–Y. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-05 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
@@ -123,7 +167,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 <!-- RTS_VS_ELECTRON_START -->
 ## 📦 RTS vs Electron: packaging the same app
 
-Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145 KB, no network calls) — an Electron 44.2.0 bundle, a native RTS `.exe` (AOT, `rts compile`), and the RTS `rts.exe` engine running the `.ts` source (JIT, `rts run`) — measured by `scripts/rts_vs_electron/medir.mjs`: 3 Electron runs, 3 AOT runs, 3 JIT runs, startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-05 on win32 10.0.26100, INTEL(R) XEON(R) PLATINUM 8573C (4 logical cores), 16 GB RAM.
+Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145 KB, no network calls) — an Electron 44.2.0 bundle, a native RTS `.exe` (AOT, `rts compile`), and the RTS `rts.exe` engine running the `.ts` source (JIT, `rts run`) — measured by `scripts/rts_vs_electron/medir.mjs`: 3 Electron runs, 3 AOT runs, 3 JIT runs, startup timed to a visible window, memory and CPU sampled over the *whole* process tree, median reported. Measured 2026-09-05 on win32 10.0.26100, AMD EPYC 9V74 80-Core Processor (4 logical cores), 16 GB RAM.
 
 | | Electron | RTS `.exe` AOT | RTS `rts.exe` + app |
 |---|---:|---:|---:|
@@ -132,10 +176,10 @@ Three builds of the **same** app (`scripts/rts_vs_electron/app/index.html`, ~145
 | Files in folder | 73 | 5 | 3 |
 | Page JavaScript runs | yes | ? | yes |
 | Processes | 4 | 2 | 2 |
-| Startup (median, min–max) | 219 ms (181–1627) | 2260 ms (2195–2532) | 2559 ms (2387–2675) |
-| RSS (median, min–max) | 261.7 MB (261.5–263.6) | 105.9 MB (85.0–106.7) | 109.5 MB (107.1–113.0) |
-| Private bytes (median) | 90.2 MB | 201.6 MB | 206.7 MB |
-| CPU at rest (median) | 0% | 197.53% | 198.02% |
+| Startup (median, min–max) | 540 ms (228–1422) | 2370 ms (2357–2793) | 2302 ms (2025–2633) |
+| RSS (median, min–max) | 261.3 MB (260.8–263.2) | 105.5 MB (104.7–107.0) | 109.8 MB (106.9–111.5) |
+| Private bytes (median) | 90.4 MB | 203.5 MB | 209.7 MB |
+| CPU at rest (median) | 0% | 264.82% | 318.82% |
 
 **Honesty: the side comparable to Electron today is the last column, not the middle one.** Electron ships a JS engine (V8) inside its runtime, so any page script runs regardless of how the app was built. RTS's AOT `.exe` does not — it only runs the JavaScript that was compiled INTO it ahead of time, so it fits an app with no page `<script>` (or one whose HTML is generated from already-compiled TS, not read as text). `rts.exe` + the app is the actual Electron-equivalent pair (engine binary with a compiler + the page it opens, same relationship as Chromium + `app.asar`), and it is the only RTS column above where the same React page the Electron column renders also renders here.
 
@@ -175,7 +219,7 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `4112841`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `476bafe`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
