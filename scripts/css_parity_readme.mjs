@@ -73,6 +73,43 @@ function cor(pct) {
   if (pct >= 50) return "yellow";
   return "red";
 }
+// A ARVORE do WPT: cada ponto de validacao com a sua percentagem, e nao so o
+// total. Um total sozinho engana nos dois sentidos — nao diz se o motor faz uma
+// area bem e outra nada, e e por isso que ele nao chega para decidir onde
+// trabalhar. Le `resultados` (todos os testes) e nao `piores` (so as falhas):
+// a percentagem de um ramo precisa do denominador desse ramo.
+//
+// Dois agrupamentos porque o corpus tem duas formas: as SUBPASTAS sao a
+// hierarquia real do WPT, e os testes da raiz — a maioria — nao tem nenhuma,
+// pelo que se agrupam pelo assunto que o nome anuncia. O segundo e uma leitura
+// nossa e o bloco di-lo, para ninguem o tomar por estrutura do WPT.
+const ASSUNTOS = ["writing-mode", "aspect-ratio", "baseline", "align", "justify", "percentage",
+  "shrink", "grow", "basis", "order", "gap", "wrap", "min-", "max-", "overflow", "table",
+  "abspos", "position", "scrollbar", "visibility", "anonymous", "column", "row", "item"];
+
+function arvoreWpt(rel) {
+  if (!rel || !Array.isArray(rel.resultados)) return null;
+  const sub = new Map(), assunto = new Map();
+  const junta = (m, k, passou) => {
+    const v = m.get(k) ?? [0, 0];
+    v[1]++; if (passou) v[0]++;
+    m.set(k, v);
+  };
+  for (const r of rel.resultados) {
+    const passou = r.estado === "passa";
+    const barra = r.nome.indexOf("/");
+    if (barra > 0) junta(sub, r.nome.slice(0, barra), passou);
+    else junta(assunto, ASSUNTOS.find((a) => r.nome.includes(a)) ?? "outros", passou);
+  }
+  const ordena = (m) => [...m].sort((a, b) => b[1][1] - a[1][1]);
+  return { sub: ordena(sub), assunto: ordena(assunto) };
+}
+function linhaArvore([nome, [p, t]]) {
+  const pct = t > 0 ? Math.round((p / t) * 1000) / 10 : 0;
+  return `  ${barra(pct)} ${String(pct.toFixed(1)).padStart(5)}%   ${String(p + "/" + t).padEnd(9)} ${nome}`;
+}
+const arv = arvoreWpt(wpt);
+
 const hoje = new Date().toISOString().slice(0, 10);
 
 const badge =
@@ -91,7 +128,21 @@ ${barra(pctFix)} ${pctFix}%   ${passam}/${fixtures} fixtures passing${wpt ? `
 ${barra(pctWpt)} ${pctWpt}%   ${wpt.passam}/${wpt.total} WPT reftests (css-flexbox) rendering test == reference` : ""}
 \`\`\`${wpt ? `
 
-The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (\`scripts/wpt_reftests.md\`). It measures coherence, not Blink parity.` : ""}
+The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (\`scripts/wpt_reftests.md\`). It measures coherence, not Blink parity.` : ""}${arv ? `
+
+<details><summary><strong>Every checkpoint, with its own percentage</strong> — the total alone says nothing about where the work is</summary>
+
+\`\`\`
+${arv.sub.length ? `subfolders of css-flexbox
+${arv.sub.map(linhaArvore).join("\n")}
+
+` : ""}the ${arv.assunto.reduce((n, [, v]) => n + v[1], 0)} tests at the root, by subject
+${arv.assunto.map(linhaArvore).join("\n")}
+\`\`\`
+
+Subfolders are the WPT's own hierarchy. The subject grouping is **ours**, read off the test names — it is a way to find the work, not a structure the WPT declares. A branch this engine does not attempt drags the total down without saying anything about the engine, which is the whole reason this breakdown is here.
+
+</details>` : ""}
 
 Fixtures that fail **on purpose** (each names a measured gap; \`tests/css/esperado-a-falhar.txt\`):
 ${linhasEsperadas}
@@ -120,7 +171,9 @@ writeFileSync(
   JSON.stringify(
     { date: hoje, fixtures: { passing: passam, total: fixtures, pct: pctFix },
       measurements: { matching: batem, total: medicoes, pct: pctMed },
-      wpt: wpt ? { suite: "css/css-flexbox", passing: wpt.passam, total: wpt.total, pct: pctWpt } : null,
+      wpt: wpt ? { suite: "css/css-flexbox", passing: wpt.passam, total: wpt.total, pct: pctWpt,
+        by_subfolder: arv ? Object.fromEntries(arv.sub.map(([k, v]) => [k, { passing: v[0], total: v[1] }])) : null,
+        by_subject: arv ? Object.fromEntries(arv.assunto.map(([k, v]) => [k, { passing: v[0], total: v[1] }])) : null } : null,
       expected_failures: esperadas, dom_lots: lotes },
     null, 2) + "\n",
 );
