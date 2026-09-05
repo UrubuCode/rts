@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 305,
-  "falham": 184,
+  "passam": 312,
+  "falham": 177,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -182,18 +182,6 @@
       "script": false
     },
     {
-      "nome": "flexbox_justifycontent-left-002",
-      "pct": 2,
-      "n": 20480,
-      "script": false
-    },
-    {
-      "nome": "flexbox_justifycontent-right-002",
-      "pct": 2,
-      "n": 20480,
-      "script": false
-    },
-    {
       "nome": "flexbox-min-width-auto-006",
       "pct": 1.953125,
       "n": 20000,
@@ -209,36 +197,6 @@
       "nome": "align-items-006",
       "pct": 1.82265625,
       "n": 18664,
-      "script": false
-    },
-    {
-      "nome": "flexbox_rtl-direction",
-      "pct": 1.7999999999999998,
-      "n": 18432,
-      "script": false
-    },
-    {
-      "nome": "flexbox_justifycontent-end-rtl",
-      "pct": 1.6,
-      "n": 16384,
-      "script": false
-    },
-    {
-      "nome": "flexbox_justifycontent-end",
-      "pct": 1.6,
-      "n": 16384,
-      "script": false
-    },
-    {
-      "nome": "flexbox_justifycontent-start-rtl",
-      "pct": 1.6,
-      "n": 16384,
-      "script": false
-    },
-    {
-      "nome": "flexbox_justifycontent-start",
-      "pct": 1.6,
-      "n": 16384,
       "script": false
     },
     {
