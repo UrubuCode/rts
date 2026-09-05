@@ -21,11 +21,13 @@
 //! program that re-declares its callee at every call site pays that per site.
 //! [`Declarations`] is the cache that makes it per callee instead.
 
+mod blob;
 mod declare;
 mod destination;
 mod hosted;
 mod tables;
 
+pub use blob::DataBlob;
 pub use declare::{Declarations, FunctionRefs, data_ref, func_ref};
 pub use destination::{executable_memory, executable_memory_calling, object_file};
 pub use hosted::{InMemory, Placing, Visibility, place_in_memory, place_in_object};
