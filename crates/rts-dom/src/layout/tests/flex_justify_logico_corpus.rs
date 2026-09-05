@@ -92,23 +92,27 @@ const HTML_RTL_VERTICAL: &str = r#"<style>
 </style>
 <div id="c"><div id="item"></div></div>"#;
 
-/// RETRABALHO (`overflow-top-left` do WPT): o espelho do `cross_x` só se
-/// aplica quando o `writing-mode` computado é HORIZONTAL — o motor não faz
-/// layout de `writing-mode` vertical (trata tudo como horizontal, corte
-/// dito em `WritingMode`), e espelhar um `direction:rtl` num contentor que
-/// já não é disposto corretamente só divergia MAIS da referência (que o
-/// Chrome também trata como bloco/horizontal para o resto do teste). Mesmo
-/// HTML/CSS de `direction_rtl_encosta_o_item_de_coluna_a_direita` +
-/// `writing-mode:vertical-rl`: o item fica onde ficaria SEM o `direction:rtl`
-/// (x=0) — não onde o retrabalho anterior o mandava (x=200).
+/// SUPERSEDIDO pelo lote `flex-writing-mode`: o corte antigo ("o motor não
+/// faz layout de `writing-mode` vertical, então desliga o espelho") não é
+/// mais verdade — `eixos_flex.rs` troca de eixo físico de verdade. Este
+/// `#c` é `flex-direction:column`, cujo eixo PRINCIPAL é sempre o de BLOCO
+/// (Flexbox §3); em `vertical-rl` o bloco é o eixo X, e corre RTL — pelo
+/// PRÓPRIO `vertical-rl` (`eixos_flex::eixo_x_forward`), não pelo
+/// `direction` do contentor (que só vale para o eixo INLINE, aqui o Y: o
+/// `direction:rtl` deste teste não muda nada nesta caixa). Um único item
+/// com `justify-content` por omissão (`flex-start`) fica no main-START, que
+/// passou a ser a borda DIREITA: `x = 320 - 120 = 200` — a MESMA caixa que
+/// `direction_rtl_encosta_o_item_de_coluna_a_direita` dá para
+/// `direction:rtl` sozinho (sem `writing-mode`), só que por um mecanismo
+/// diferente (eixo principal invertido, não um espelho do cruzado).
 #[test]
-fn writing_mode_vertical_desliga_o_espelho_rtl_do_eixo_cruzado() {
+fn writing_mode_vertical_rl_inverte_o_eixo_principal_de_uma_coluna() {
     let (dom, list) = geometria(HTML_RTL_VERTICAL, 1280.0);
     let item = rect(&dom, &list, "#item", 0);
     assert_eq!(
         (item.x, item.y, item.w, item.h),
-        (0.0, 0.0, 120.0, 40.0),
-        "writing-mode vertical: sem espelho, comportamento de antes do rtl"
+        (200.0, 0.0, 120.0, 40.0),
+        "vertical-rl: o eixo de bloco (X) corre RTL, item no main-start = borda direita"
     );
 }
 

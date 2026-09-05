@@ -12,16 +12,26 @@
 //! `claude-flex-column-rtl-cross-start` (WPT `flexbox_rtl-direction`).
 //!
 //! RETRABALHO (lote `flex-justify-logico`, `overflow-top-left` do WPT): o
-//! espelho só se aplica quando o `writing-mode` computado é HORIZONTAL
-//! (`horizontal-tb`, o default) — um `writing-mode:vertical-rl` troca os
-//! eixos de bloco/inline de verdade, e o motor não faz esse layout (trata
-//! tudo como horizontal, corte de `WritingMode`); espelhar o `direction:rtl`
-//! num contentor que já não é disposto corretamente só divergia mais da
-//! referência (também tratada como bloco/horizontal pelo motor).
+//! espelho só se aplicava quando o `writing-mode` computado era HORIZONTAL
+//! — na altura, o motor não fazia layout de `writing-mode` vertical nenhum
+//! (tratava tudo como horizontal), e espelhar o `direction:rtl` num
+//! contentor que já não era disposto corretamente só divergia mais.
+//!
+//! **Lote `flex-writing-mode`**: agora que `writing-mode` troca de verdade
+//! qual eixo físico é o principal (`eixos_flex.rs`), o eixo X CONTINUA a ser
+//! o que este ficheiro espelha — só que quando `writing-mode` é vertical, X
+//! deixou de ser o eixo inline (que `direction` decide) e passou a ser o
+//! eixo de BLOCO, cujo sentido `direction` nunca toca: é `vertical-rl`/
+//! `sideways-rl` (RTL) contra `vertical-lr`/`sideways-lr` (LTR) que decidem,
+//! não o `direction` do contentor. `eixos_flex::eixo_x_invertido` é a
+//! resposta única — o mesmo cálculo, direction OU writing-mode, consoante o
+//! caso, que este ficheiro delegava a duas condições soltas antes.
 
-/// Espelha uma posição X calculada em LTR para o lado físico certo quando
-/// `direction:rtl` E o `writing-mode` é horizontal — reflecte a caixa
-/// `[x, x+w]` dentro do content-box `[content_x, content_x+content_w]`.
+/// Espelha uma posição X calculada em LTR para o lado físico certo quando o
+/// eixo X corre invertido — `direction:rtl` num `writing-mode` horizontal,
+/// ou `vertical-rl`/`sideways-rl` (que invertem X sozinhos, sem `direction`)
+/// — reflectindo a caixa `[x, x+w]` dentro do content-box
+/// `[content_x, content_x+content_w]`.
 ///
 /// Um item que ocupa a largura TODA do content-box (`w == content_w`, o
 /// stretch de verdade) fica no mesmo sítio nos dois sentidos — não há folga
@@ -38,9 +48,9 @@ pub(in crate::layout) fn cross_x(
     x: f32,
     w: f32,
 ) -> f32 {
-    let rtl = matches!(direction, Some(crate::style::Direction::Rtl));
-    let horizontal = writing_mode.unwrap_or_default().is_horizontal();
-    if rtl && horizontal {
+    let wm = writing_mode.unwrap_or_default();
+    let dir = direction.unwrap_or_default();
+    if super::eixos_flex::eixo_x_invertido(wm, dir) {
         content_x + (content_x + content_w) - (x + w)
     } else {
         x

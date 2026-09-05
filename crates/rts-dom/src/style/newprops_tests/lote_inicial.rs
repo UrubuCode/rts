@@ -267,6 +267,31 @@ fn margin_inline_start_e_end_mapeiam_nos_lados_ltr() {
     assert_eq!(css.margin.right.px(), Some(4.0));
 }
 
+/// Lote `flex-writing-mode`: `inline-start`/`inline-end` trocam de lado sob
+/// `direction:rtl` — `start` é a borda DIREITA, não mais um sinónimo fixo de
+/// `left`. Achado ao medir o corpus WPT flexbox inteiro (não só as 23 fixtures
+/// do lote): `gap-001-rtl`/`003..007-{lr,rl,rtl}` e as duas
+/// `flexbox_justifycontent-{start,end}-rtl` regrediram quando `flex.rs`
+/// passou a inverter o eixo principal de uma `row` em `direction:rtl` — as
+/// referências desses reftests simulam o `gap`/a lógica com
+/// `margin-inline-start`, que continuava a virar `margin-left` sempre.
+#[test]
+fn margin_inline_start_e_end_trocam_de_lado_sob_direction_rtl() {
+    let css = parse_inline("direction: rtl; margin-inline-start: 8px; margin-inline-end: 4px");
+    assert_eq!(css.margin.right.px(), Some(8.0), "inline-start em rtl e a borda direita");
+    assert_eq!(css.margin.left.px(), Some(4.0), "inline-end em rtl e a borda esquerda");
+}
+
+/// `inset-inline` (o shorthand dos DOIS lados de uma vez) segue a MESMA regra
+/// — só o eixo inline lê `direction`; `inset-block` fica top/bottom sempre
+/// (o corte que sobra, dito no cabeçalho de `logical.rs`).
+#[test]
+fn inset_inline_shorthand_troca_de_lado_sob_direction_rtl() {
+    let css = parse_inline("direction: rtl; inset-inline: 3px 7px");
+    assert_eq!(css.inset_right, Some(crate::style::Dimension::Px(3.0)));
+    assert_eq!(css.inset_left, Some(crate::style::Dimension::Px(7.0)));
+}
+
 #[test]
 fn a_cascade_mescla_lado_a_lado_a_largura_de_borda() {
     // O motivo de a largura por lado ser um `Edges`: um `border-width` seguido de

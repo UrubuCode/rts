@@ -6,6 +6,32 @@
 
 use super::*;
 
+/// O lado FÍSICO de `inline-start`/`inline-end`/`block-start`/`block-end`
+/// sob `writing-mode`+`direction` — a mesma pergunta que `style::logical::
+/// to_physical` resolve para as OUTRAS logicas (`padding-inline`, `inset-*`),
+/// repetida aqui porque estes três nomes (Tailwind/WhatsApp Web os escrevem
+/// por milhares) já tinham braço PRÓPRIO no `match` antes de `logical.rs`
+/// existir — RULE 0b: mover para lá duplicaria o `match` de `try_apply`
+/// inteiro por três nomes. `is_inline`: eixo INLINE (`true`) ou de BLOCO
+/// (`false`); `is_start`: `-start` (`true`) ou `-end` (`false`).
+fn lado_logico(is_inline: bool, is_start: bool, css: &ComputedStyle) -> crate::style::SideName {
+    use crate::style::SideName as S;
+    let wm = css.writing_mode.unwrap_or_default();
+    let dir = css.direction.unwrap_or_default();
+    let e_x = is_inline == wm.is_horizontal();
+    let forward = if e_x {
+        crate::style::text::eixo_x_forward(wm, dir)
+    } else {
+        crate::style::text::eixo_y_forward(wm, dir)
+    };
+    match (e_x, forward == is_start) {
+        (true, true) => S::Left,
+        (true, false) => S::Right,
+        (false, true) => S::Top,
+        (false, false) => S::Bottom,
+    }
+}
+
 pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match prop {
         "padding" => set_edges(&mut css.padding, parse_edges(val, Caixa::Padding)),
@@ -26,12 +52,16 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.padding.bottom = s;
         }
         "padding-inline-start" | "padding-inline-end" => {
-            // LTR: start=left, end=right. Sem distinguir aqui, aplica no lado certo.
+            // `writing-mode`/`direction` decidem o lado (`lado_logico`, lote
+            // `flex-writing-mode`) — sem isto, `flex.rs` trocando o eixo
+            // principal em `rtl`/vertical divergia de uma folha que já usava
+            // a lógica.
             let s = parse_side(val, Caixa::Padding);
-            if prop == "padding-inline-start" {
-                css.padding.left = s;
-            } else {
-                css.padding.right = s;
+            match lado_logico(true, prop == "padding-inline-start", css) {
+                crate::style::SideName::Left => css.padding.left = s,
+                crate::style::SideName::Right => css.padding.right = s,
+                crate::style::SideName::Top => css.padding.top = s,
+                crate::style::SideName::Bottom => css.padding.bottom = s,
             }
         }
         // margin aceita `auto` (centralização); padding não.
@@ -50,22 +80,26 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.margin.top = s;
             css.margin.bottom = s;
         }
-        // LTR: start=left, end=right (o mesmo corte do `padding-inline-*` —
-        // `direction:rtl` é aceite mas o layout não inverte; ver `style::text`).
+        // `writing-mode`/`direction` decidem o lado — mesma regra de
+        // `padding-inline-start`/`-end` acima (`lado_logico`).
         "margin-inline-start" | "margin-inline-end" => {
             let s = parse_side(val, Caixa::Margem);
-            if prop == "margin-inline-start" {
-                css.margin.left = s;
-            } else {
-                css.margin.right = s;
+            match lado_logico(true, prop == "margin-inline-start", css) {
+                crate::style::SideName::Left => css.margin.left = s,
+                crate::style::SideName::Right => css.margin.right = s,
+                crate::style::SideName::Top => css.margin.top = s,
+                crate::style::SideName::Bottom => css.margin.bottom = s,
             }
         }
         "margin-block-start" | "margin-block-end" => {
+            // eixo de BLOCO: `false` no primeiro argumento — em `writing-mode`
+            // vertical isto é X (left/right), não top/bottom sempre.
             let s = parse_side(val, Caixa::Margem);
-            if prop == "margin-block-start" {
-                css.margin.top = s;
-            } else {
-                css.margin.bottom = s;
+            match lado_logico(false, prop == "margin-block-start", css) {
+                crate::style::SideName::Left => css.margin.left = s,
+                crate::style::SideName::Right => css.margin.right = s,
+                crate::style::SideName::Top => css.margin.top = s,
+                crate::style::SideName::Bottom => css.margin.bottom = s,
             }
         }
         // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer

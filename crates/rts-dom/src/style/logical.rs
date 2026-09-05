@@ -13,30 +13,52 @@
 //! nome traduzido a quem já sabe aplicá-lo (`style::borders`, os campos `inset_*`).
 //! A alternativa — campos lógicos próprios em `ComputedStyle`, resolvidos no
 //! layout — daria `direction: rtl` de graça, e foi recusada porque duplicaria o
-//! modelo de bordas inteiro (doze campos) por uma propriedade de sentido, e
-//! porque o layout não inverte em RTL de qualquer maneira.
+//! modelo de bordas inteiro (doze campos) por uma propriedade de sentido.
 //!
-//! ## O corte, dito por extenso: assume-se LTR horizontal
+//! ## Os dois eixos lógicos seguem `writing-mode` + `direction` de verdade
 //!
-//! `start` = esquerda/topo, `end` = direita/fundo. É o MESMO corte que
-//! `padding-inline-start` e `margin-inline-start` já faziam — mantê-lo é ter uma
-//! resposta só para a pergunta. Numa página `direction: rtl` os lados saem
-//! trocados, e é isso que o dia do RTL vai ter de resolver nos três sítios ao
-//! mesmo tempo (`style::text` guarda `direction`; o layout ainda não o lê).
+//! Lote `flex-writing-mode`: `inline-start`/`inline-end`/`block-start`/
+//! `block-end` já não são sinónimos fixos de esquerda/topo — `to_physical`
+//! pergunta a `style::text::eixo_x_forward`/`eixo_y_forward` (a MESMA
+//! resposta que `layout::eixos_flex` usa para trocar o eixo do FLEX, lote
+//! `flex-writing-mode`) qual physical side cada eixo lógico usa. Faltava
+//! desde que `layout/flex.rs` passou a inverter o eixo principal de uma
+//! `row` em `direction:rtl`/`writing-mode` vertical: sem isto,
+//! `margin-inline-start` de um `gap-*-{rtl,lr,rl}` do WPT continuava a virar
+//! `margin-left` sempre, e a referência (que usa a propriedade lógica para
+//! simular o `gap`) passou a divergir do motor assim que o motor deixou de
+//! fingir que RTL/vertical não existem. `inline-size`/`block-size` (e os
+//! `min-`/`max-`) seguem a MESMA troca: `inline-size` é `width` só quando o
+//! `writing-mode` é horizontal, `height` quando é vertical.
 
 use super::lengths::{parse_inset, split_top_ws};
 use super::props::ComputedStyle;
+use super::text::{Direction, WritingMode, eixo_x_forward, eixo_y_forward};
 use super::values::Dimension;
 
-/// Traduz o eixo lógico de um nome de propriedade para o lado físico, em LTR.
-/// `"inset-inline-start"` → `"inset-left"`, `"border-block-end-width"` →
-/// `"border-bottom-width"`. `None` quando o nome não tem eixo lógico nenhum.
-fn to_physical(prop: &str) -> Option<String> {
+/// Traduz o eixo lógico de um nome de propriedade para o lado físico, sob
+/// `(wm, dir)`. `"inset-inline-start"` → o lado do eixo INLINE (`left`/
+/// `right` em escrita horizontal, `top`/`bottom` em vertical) que
+/// `eixo_x_forward`/`eixo_y_forward` disserem ser o início; `block-start`
+/// segue o eixo OPOSTO. `None` quando o nome não tem eixo lógico nenhum.
+fn to_physical(prop: &str, wm: WritingMode, dir: Direction) -> Option<String> {
+    let (inline_par, inline_fwd): ((&str, &str), bool) = if wm.is_horizontal() {
+        (("left", "right"), eixo_x_forward(wm, dir))
+    } else {
+        (("top", "bottom"), eixo_y_forward(wm, dir))
+    };
+    let (block_par, block_fwd): ((&str, &str), bool) = if wm.is_horizontal() {
+        (("top", "bottom"), eixo_y_forward(wm, dir))
+    } else {
+        (("left", "right"), eixo_x_forward(wm, dir))
+    };
+    let (inicio_inline, fim_inline) = if inline_fwd { inline_par } else { (inline_par.1, inline_par.0) };
+    let (inicio_block, fim_block) = if block_fwd { block_par } else { (block_par.1, block_par.0) };
     for (logico, fisico) in [
-        ("inline-start", "left"),
-        ("inline-end", "right"),
-        ("block-start", "top"),
-        ("block-end", "bottom"),
+        ("inline-start", inicio_inline),
+        ("inline-end", fim_inline),
+        ("block-start", inicio_block),
+        ("block-end", fim_block),
     ] {
         if let Some(i) = prop.find(logico) {
             let mut out = String::with_capacity(prop.len());
@@ -97,12 +119,20 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             } else {
                 a
             };
-            if eixo == "inline" {
-                css.inset_left = a;
-                css.inset_right = b;
+            // mesma troca de `to_physical`: o eixo INLINE é X (left/right)
+            // em escrita horizontal, Y (top/bottom) em vertical — e vice-versa
+            // para o de BLOCO; o sentido vem de `eixo_x_forward`/`eixo_y_forward`.
+            let wm = css.writing_mode.unwrap_or_default();
+            let dir = css.direction.unwrap_or_default();
+            let e_x = (eixo == "inline") == wm.is_horizontal();
+            let forward = if e_x { eixo_x_forward(wm, dir) } else { eixo_y_forward(wm, dir) };
+            let (inicio, fim) = if forward { (a, b) } else { (b, a) };
+            if e_x {
+                css.inset_left = inicio;
+                css.inset_right = fim;
             } else {
-                css.inset_top = a;
-                css.inset_bottom = b;
+                css.inset_top = inicio;
+                css.inset_bottom = fim;
             }
             return true;
         }
@@ -132,20 +162,25 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         return try_apply(css, moderno, val);
     }
 
+    // `inline-size` é `width` em escrita horizontal, `height` em vertical
+    // (e vice-versa para `block-size`) — mesma troca de `to_physical`, mas
+    // sem `direction`: uma DIMENSÃO não tem lado a inverter, só eixo.
+    let wm = css.writing_mode.unwrap_or_default();
+    let (largura, altura) = if wm.is_horizontal() { ("width", "height") } else { ("height", "width") };
     let dimensao = match prop {
-        "inline-size" => Some("width"),
-        "block-size" => Some("height"),
-        "min-inline-size" => Some("min-width"),
-        "min-block-size" => Some("min-height"),
-        "max-inline-size" => Some("max-width"),
-        "max-block-size" => Some("max-height"),
+        "inline-size" => Some(largura),
+        "block-size" => Some(altura),
+        "min-inline-size" => Some(if largura == "width" { "min-width" } else { "min-height" }),
+        "min-block-size" => Some(if altura == "height" { "min-height" } else { "min-width" }),
+        "max-inline-size" => Some(if largura == "width" { "max-width" } else { "max-height" }),
+        "max-block-size" => Some(if altura == "height" { "max-height" } else { "max-width" }),
         _ => None,
     };
     if let Some(fisico) = dimensao {
         return super::parse::aplica_declaracao(css, fisico, val);
     }
 
-    let Some(fisico) = to_physical(prop) else {
+    let Some(fisico) = to_physical(prop, wm, css.direction.unwrap_or_default()) else {
         return false;
     };
 

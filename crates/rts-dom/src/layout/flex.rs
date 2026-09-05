@@ -102,7 +102,8 @@ pub(in crate::layout) fn layout_children_horizontal(
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
     // `left`/`right` são físicos: resolvem-se ANTES do espelho de `row-reverse`.
-    let justify_declarado = crate::layout::coluna::fisico_para_eixo(justify_declarado, reverse);
+    let justify_declarado =
+        super::eixos_flex::fisico_para_eixo(justify_declarado, reverse, css.direction.unwrap_or_default());
     let justify = if reverse {
         crate::layout::coluna::mirror_justify(justify_declarado)
     } else {
@@ -229,13 +230,6 @@ pub(in crate::layout) fn layout_children_horizontal(
     items.extend(super::flex_pseudo::item_flex(dom, id, crate::style::PseudoElement::After, content_w, font_size, ctx));
     // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
     items.sort_by_key(|it| it.order);
-    // `row-reverse`: a ordem VISUAL principal inverte DEPOIS do `order` (spec
-    // §5.1) — reverter a lista já ordenada tem o mesmo efeito de inverter a
-    // atribuição de posições no eixo principal, sem duplicar o algoritmo de
-    // posicionamento abaixo.
-    if reverse {
-        items.reverse();
-    }
 
     // GRID: cada item (não-texto) vira uma coluna de largura fixa. Fixa base=main=col_w
     // e zera grow/shrink (a coluna não flui) → o wrap abaixo quebra a cada N colunas.
@@ -274,8 +268,32 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
         lines.last_mut().unwrap().push(it);
     }
-    // `wrap-reverse` troca cross-start/cross-end (`flex_baseline.rs`).
-    super::flex_baseline::reverte_linhas_se_wrap_reverse(&mut lines, css.flex_wrap);
+    // `row-reverse`: a ordem VISUAL principal inverte DEPOIS de agrupar em
+    // linhas, não antes (ACHADO deste lote, `flexbox-writing-mode-001`: o
+    // reftest "CMYK" já falhava em `horizontal-tb` puro, sem nada de
+    // `writing-mode`). Reverter a lista ANTES da grupagem muda QUAIS itens
+    // partilham linha — `coluna_wrap.rs` já documentava a mesma regra para
+    // `column-reverse` ("a ordem do agrupamento é sempre a do documento");
+    // faltava aqui. Só a ORDEM dentro de cada linha já formada inverte.
+    if reverse {
+        for line in lines.iter_mut() {
+            line.reverse();
+        }
+    }
+    // `wrap-reverse` troca cross-start/cross-end, combinado com o sentido
+    // físico do eixo Y sob `writing-mode` (`eixos_flex::wrap_reverse_efetivo`,
+    // lote `flex-writing-mode`): um `column` vertical desce aqui (é dispatch
+    // por eixo físico, não pela keyword) com o cruzado no eixo INLINE, que
+    // já pode vir invertido (`direction:rtl`, `sideways-lr`) sem
+    // `wrap-reverse` nenhum declarado.
+    if super::eixos_flex::wrap_reverse_efetivo(
+        css.writing_mode.unwrap_or_default(),
+        css.direction.unwrap_or_default(),
+        false,
+        css.flex_wrap,
+    ) {
+        lines.reverse();
+    }
 
     // `align-content` em MULTI-LINHA (spec §8.4/flexbox §8): distribui o
     // espaço cruzado sobrante entre as linhas, com o mesmo `justify_offsets`

@@ -749,20 +749,21 @@ pub(crate) fn layout_block(
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
     // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
-    let is_column = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
-    // `row-reverse`/`column-reverse`: mesmo eixo principal, ordem visual
-    // invertida. Aplicado DEPOIS do `order` (spec §5.1) — cada função inverte
-    // a lista já ordenada por `order`, o que é equivalente a inverter a
-    // atribuição de posições no eixo principal.
-    let is_reverse = css
-        .flex_direction
-        .map(|f| {
-            matches!(
-                f,
-                crate::style::FlexDirection::RowReverse | crate::style::FlexDirection::ColumnReverse
-            )
-        })
-        .unwrap_or(false);
+    // `is_column` é o eixo FÍSICO e não a keyword crua — `writing-mode` troca
+    // qual eixo lógico é X e qual é Y (`eixos_flex::main_no_eixo_y`): um
+    // `row` VERTICAL é o eixo inline, que aí é o Y, e desce por
+    // `layout_children_column` como se fosse `column` (e vice-versa).
+    let wm = css.writing_mode.unwrap_or_default();
+    let dir = css.direction.unwrap_or_default();
+    let is_column_kw = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    let is_column = super::eixos_flex::main_no_eixo_y(wm, is_column_kw);
+    // `row-reverse`/`column-reverse` × o sentido FÍSICO do eixo que ficou
+    // principal (`eixos_flex::reverse_efetivo`), nunca o do eixo original da
+    // keyword — que já pode não ser mais o principal.
+    let is_reverse_kw = css.flex_direction.map(|f| {
+        matches!(f, crate::style::FlexDirection::RowReverse | crate::style::FlexDirection::ColumnReverse)
+    }).unwrap_or(false);
+    let is_reverse = super::eixos_flex::reverse_efetivo(wm, dir, is_column, is_reverse_kw);
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let content_h = match display {
