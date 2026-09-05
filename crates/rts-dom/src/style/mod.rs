@@ -66,6 +66,7 @@ pub mod syntax;
 /// As propriedades de TABELA e a posição do marcador de lista — ver o módulo.
 pub mod tables;
 pub mod text;
+mod unidades_absolutas;
 pub mod text_metrics;
 /// As longhands de `transition-*`/`animation-*` — ver o módulo.
 pub mod timing;
