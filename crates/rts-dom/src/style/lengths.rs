@@ -110,8 +110,14 @@ pub(crate) fn parse_inset(v: &str) -> Option<Dimension> {
 
 /// Parseia o shorthand `gap: <row-gap> <column-gap>` → `(row_gap, column_gap)`.
 /// 1 valor = ambos iguais; 2 valores = row primeiro (ordem CSS). Reusa parse_dimension.
+///
+/// `split_top_ws`, não `val.split_whitespace()` cru — mesma causa do
+/// `parse_edges` (comentário lá): um `calc(10% - 1rem / 2)` tem espaços
+/// INTERNOS que o split cru quebra em 5 tokens inválidos, caindo no `_ =>
+/// (None, None)` e resolvendo o gap a 0. Lote `flex-cross-size`, achado pelo
+/// reftest `gap-010-ltr` do WPT (`claude-flex-wrap-gap-calc`).
 pub(crate) fn parse_gap_pair(val: &str) -> (Option<Dimension>, Option<Dimension>) {
-    let parts: Vec<&str> = val.split_whitespace().collect();
+    let parts = split_top_ws(val);
     match parts.as_slice() {
         [a] => {
             let d = parse_dimension(a);
@@ -319,8 +325,8 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
     }
     Some(match d {
         Dimension::Auto => Dimension::Auto,
-        // `-max-content`/`-min-content` não existem em CSS; devolver sem
-        // sinal é o que o `auto` já faz.
+        // `-max-content`/`-min-content` não existem em CSS; sem sinal é o
+        // que `auto` já faz.
         Dimension::MaxContent => Dimension::MaxContent,
         Dimension::MinContent => Dimension::MinContent,
         Dimension::Px(x) => Dimension::Px(-x),

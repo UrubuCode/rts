@@ -205,7 +205,7 @@ fn newer_rust_file(dir: &std::path::Path, than: std::time::SystemTime) -> Result
     Ok(None)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct CliFlags {
     profile: CompilationProfile,
     debug: bool,
@@ -215,6 +215,11 @@ struct CliFlags {
     // why: `rts compile` carries a compiler unless `--sem-compilador`/
     // `--no-compiler` asks for the small archive instead.
     embed_compiler: bool,
+    /// `--html <file>`, repeatable, in the order given — `compile`'s own
+    /// question, and the reason this struct is no longer `Copy`: a page's
+    /// `<script>`s belong to the ONE command that precompiles them, not to
+    /// `CompileOptions`, which every other command shares unchanged.
+    html: Vec<String>,
 }
 
 impl Default for CliFlags {
@@ -225,12 +230,13 @@ impl Default for CliFlags {
             windows_subsystem: None,
             all_namespaces: false,
             embed_compiler: true,
+            html: Vec::new(),
         }
     }
 }
 
 impl CliFlags {
-    fn as_compile_options(self) -> CompileOptions {
+    fn as_compile_options(&self) -> CompileOptions {
         CompileOptions {
             profile: self.profile,
             debug: self.debug,
@@ -284,6 +290,7 @@ where
             positional.get(2).cloned(),
             flags.as_compile_options(),
             flags.windows_subsystem,
+            &flags.html,
         ),
         "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
         "eval" | "-e" | "--eval" => run::eval_command(
@@ -338,6 +345,21 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             // spellings for the same reason `-p`/`--production` has two:
             // whichever a caller already reaches for.
             "--sem-compilador" | "--no-compiler" => flags.embed_compiler = false,
+            "--html" => {
+                let value = raw
+                    .get(idx + 1)
+                    .ok_or_else(|| anyhow!("missing value for --html"))?;
+                if value.starts_with('-') {
+                    return Err(anyhow!("invalid value for --html: {value} (expected a path)"));
+                }
+                flags.html.push(value.clone());
+                idx += 2;
+                continue;
+            }
+            _ if arg.starts_with("--html=") => {
+                let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
+                flags.html.push(value.to_owned());
+            }
             "--windows-subsystem" => {
                 let value = raw
                     .get(idx + 1)
@@ -398,4 +420,5 @@ fn print_help(bin_name: &str) {
     println!("  --all-namespaces                        (compile) keep all runtime symbols (needed for import(variable))");
     println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
     println!("  --sem-compilador, --no-compiler          (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
+    println!("  --html <file>                           (compile) precompile this page's <script> tags into the binary (repeatable)");
 }

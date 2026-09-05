@@ -87,6 +87,7 @@
 //! used was never set.
 
 mod manifest;
+mod page_scripts;
 mod resolver;
 
 use std::time::Duration;
@@ -265,6 +266,17 @@ const CELLS: u32 = 1 << 16;
 /// why this is a plain function two different `#[no_mangle] extern "C" fn
 /// main`s call, rather than either of them calling the other.
 ///
+/// `#[cfg(not(test))]` because `cargo test`'s own harness needs a `main` of
+/// its own, and a `staticlib`'s exported one collided with it at LINK time —
+/// `error: main already defined`, plus the four undefined symbols this
+/// function names, none of which the test binary's object graph provides.
+/// That is a fact about the test harness rather than about a real AOT link,
+/// which never sets `cfg(test)`: this symbol is exported exactly as before in
+/// every archive `rts compile` actually links against. Discovered adding this
+/// batch's `page_scripts` unit tests, which live in the same module this
+/// function does and could not otherwise run at all — `cargo test -p
+/// rts-runtime` had never once succeeded.
+///
 /// # Safety
 ///
 /// Called by the C runtime with the platform's own `argc`/`argv` convention.
@@ -385,6 +397,30 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
         })
         .collect();
     rts_core::entry::declare_function_names(&mut context, named);
+    // Page `<script>`s `rts compile --html` precompiled, found by the hash of
+    // their exact source at run time — see `page_scripts`'s own header for
+    // the seam this fills and why a program with no `--html` writes this
+    // table empty rather than omitting it. The ADDRESS is `functions[index]`:
+    // the manifest names a position in the SAME table `FUNCTION_TABLE_SYMBOL`
+    // already resolved, so no second address table exists for this.
+    //
+    // Extracted here, ahead of `extra`, but not YET installed as the hook:
+    // `page_scripts::declare` below also takes what `extra` installs as ITS
+    // OWN fallback, so the extraction has to happen before `extra` runs and
+    // the installation after — see that call's own comment.
+    let page_script_entries: Vec<(u64, Entry)> = manifest
+        .page_scripts
+        .into_iter()
+        .filter_map(|(hash, index)| {
+            functions
+                .get(index as usize)
+                // SAFETY: every address in `functions` is a function this
+                // object placed under the one convention `Entry` spells,
+                // which is what makes reusing the table for a page script's
+                // entry safe rather than a second statement of the same fact.
+                .map(|address| (hash, unsafe { std::mem::transmute::<u64, Entry>(*address) }))
+        })
+        .collect();
     // `vm.runInNewContext` needs a compiler the DEFAULT archive does not
     // carry — a program that reaches for one there gets the honest absence
     // rather than a link against `rts-codegen`, which would pull the whole
@@ -428,6 +464,21 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
     if let Some(install_extra) = extra {
         install_extra(&mut context);
     }
+    // `page_scripts` and a live compiler compose rather than one silently
+    // overwriting the other's `eval_compiler_with_receiver`. `extra` — when
+    // it is `rts_host::install_compiler` — already set that hook to the live
+    // compiler; read it back here as `page_scripts`'s OWN fallback for a
+    // page `<script>` whose exact source `--html` did not precompile, and
+    // only then install `page_scripts`'s hook, which tries the hash lookup
+    // FIRST and falls through to the fallback (`None` for the default
+    // archive, which is the whole of why a page script it never saw stays a
+    // refusal there, not a `--html` question).
+    let live_compiler = context.eval_compiler_with_receiver;
+    page_scripts::declare(page_script_entries, live_compiler);
+    rts_core::entry::declare_eval_compiler_with_receiver(
+        &mut context,
+        page_scripts::evaluate_in_scope_with_receiver,
+    );
 
     let nothing = singletons.undefined as u64;
     let (_, exit_code) = rts_core::entry::with_context(context, || {

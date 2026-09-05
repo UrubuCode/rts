@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `min-width: min-content` num item flex tem de VENCER um
+     `max-width` menor (CSS2 §10.4: min sempre vence max quando entram em
+     conflito; Flexbox §9.7 aplica o mesmo clamp à base). O motor descarta a
+     keyword `min-content` no parse geral de `Dimension`
+     (style/lengths.rs: "continuam DESCARTADOS, deliberadamente"), então
+     `min-width:min-content` fica igual a não-declarado e só o `max-width`
+     capa a base — o item sai mais estreito que o próprio conteúdo.
+     `#piso`: um filho de 128px fixos força min-content=128; o
+     `max-width:64px` devia perder (WPT: flex-item-min-width-min-content-max-width). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="piso">
+<meta name="fixar-estilo" content="width,min-width,max-width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; width: 256px; height: 40px; background: #eee; }
+  #piso { min-width: min-content; max-width: 64px; background: #0c0; }
+  #piso .largo { width: 128px; height: 8px; }
+</style></head>
+<body>
+  <div class="f"><div id="piso"><div class="largo"></div></div></div>
+</body>
+</html>

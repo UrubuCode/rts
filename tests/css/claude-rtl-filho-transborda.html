@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: com `direction: rtl`, um filho mais largo do que o contentor
+     transborda pela ESQUERDA (a margem direita encosta à direita do
+     contentor), tanto num bloco normal como num flex em coluna — os dois têm
+     de dar a mesma caixa. O lote flex-justify-logico ensinou o flex em coluna
+     a respeitar o rtl no eixo transversal e o `overflow-top-left` do WPT caiu:
+     o bloco de referência continua a pôr o filho a x=0 (transborda pela
+     direita), como antes os dois faziam. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="b,bf,f,ff">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #b { direction: rtl; width: 300px; border: 2px solid #000; overflow: auto; margin-bottom: 10px; }
+  #bf { width: 500px; height: 30px; background: #ccc; }
+  #f { direction: rtl; width: 300px; border: 2px solid #000; overflow: auto; display: flex; flex-direction: column; }
+  #ff { width: 500px; height: 30px; background: #ccc; }
+</style></head>
+<body>
+  <div id="b"><div id="bf">bloco</div></div>
+  <div id="f"><div id="ff">flex</div></div>
+</body>
+</html>

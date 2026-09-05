@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Fixa: o piso automático de `min-width:auto` num item flex (spec §4.5)
+     tem de contar a largura DECLARADA de um filho bloco (aqui um único
+     `<div style="width:96px">`, sem texto nenhum) como candidato de
+     min-content — hoje `crate::table::widths::min_content` só mede a
+     PALAVRA mais larga de texto; sem texto devolve 0, e o item encolhe até
+     à borda nua num contentor apertado. `#item`: um filho de 96px fixos
+     deve impor min-content=96 ao item (o contentor força o encolhimento:
+     width:8) (WPT: flexbox-min-width-auto-001). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="item">
+<meta name="fixar-estilo" content="width">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .f { display: flex; width: 8px; height: 40px; background: #eee; }
+  #item { border: 2px dotted purple; background: #0c0; }
+  #item .fixo { width: 96px; height: 8px; }
+</style></head>
+<body>
+  <div class="f"><div id="item"><div class="fixo"></div></div></div>
+</body>
+</html>

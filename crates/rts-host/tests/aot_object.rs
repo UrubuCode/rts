@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use object::{Object, ObjectSection, ObjectSymbol};
 use rts_host::object::{
     FRAME_TABLE_SYMBOL, FUNCTION_TABLE_SYMBOL, MODULE_TABLE_SYMBOL, ObjectProgram,
-    compile_graph_to_object, compile_to_object,
+    compile_graph_to_object, compile_to_object, compile_to_object_with_html,
 };
 
 /// Writes a graph of files into a directory of its own and answers the entry.
@@ -277,6 +277,115 @@ fn a_single_file_program_still_takes_the_single_file_path() {
     // The tables are still THERE, all three of them, and that is the point: the
     // runtime archive names them unconditionally, so a program with no modules
     // and no generators would fail to LINK if an empty table were left out.
+    tables_agree_with(&program);
+}
+
+/// A program compiled with no `--html` writes the new table EMPTY rather than
+/// omitting it — the shape `rts-runtime`'s generic, prebuilt facade needs:
+/// `FUNCTION_TABLE_SYMBOL` and its manifest entries are unconditional, so the
+/// table this batch adds has to be too, or a program with `--html` and one
+/// without would need two different manifest shapes.
+#[test]
+fn a_program_with_no_html_writes_an_empty_page_scripts_table() {
+    let program = compile_to_object("console.log(1 + 1);\n").expect("compiles");
+    assert!(
+        program.page_scripts.is_empty(),
+        "nothing precompiled, nothing to find by hash"
+    );
+}
+
+/// The claim `rts compile --html` exists to make true: a page `<script>`
+/// becomes a function in the SAME object as the main program, findable by the
+/// hash of its exact source at the position `FUNCTION_TABLE_SYMBOL` places its
+/// address under — which is what `rts-runtime`'s `page_scripts` module reads
+/// at run time to answer `context.eval_compiler_with_receiver`.
+#[test]
+fn a_page_script_is_placed_beside_the_main_program_and_found_by_hash() {
+    let script = "document.getElementById(\"x\");\n".to_owned();
+    let program = compile_to_object_with_html("console.log(1);\n", std::slice::from_ref(&script))
+        .expect("a program with one page script compiles");
+
+    assert_eq!(
+        program.page_scripts.len(),
+        1,
+        "one `--html` script, one manifest entry"
+    );
+    let (hash, index) = program.page_scripts[0];
+    assert_eq!(
+        hash,
+        rts_core::entry::source_hash(&script),
+        "the manifest's hash is the SAME function both `rts compile` and an AOT \
+         binary call — a hand-rolled hash here would prove nothing about that"
+    );
+    assert!(
+        (index as usize) < program.function_names.len(),
+        "the index names a real row of the function table, not one past its end"
+    );
+    // Not a NAMED function — `object::page`'s own comment on why it still
+    // needs a `function_names` row — but a real one: `object::place`'s filter
+    // only carries a `FuncId` that has a body AND a name into the address
+    // table, so a missing row here would mean the address table and the
+    // manifest's own function count silently disagreeing.
+    tables_agree_with(&program);
+}
+
+/// Two page scripts share the SAME compilation as the main program and as
+/// each other — the property `rts-core`'s README rule 3 is about: a second,
+/// unseeded `KeyRegistry` for the scripts would number `document` (or
+/// whatever property either reads) as key 0, disagreeing with whatever the
+/// main program already calls key 0.
+#[test]
+fn two_page_scripts_and_the_main_program_share_one_key_numbering() {
+    // `f(x)` and not a literal `{ shared: 1 }`: a property whose VALUE the
+    // compiler can prove at compile time is exactly the shape this engine's
+    // own constant-folding may erase before a key is ever minted for it — a
+    // `shared` that disappeared that way would prove the fold worked, not
+    // that three bodies number the property alike. Routing it through an
+    // opaque function parameter keeps the object real.
+    let wrapping = |letter: &str, value: &str| {
+        format!("function f{letter}(x: number) {{ return {{ shared: x }}; }}\nconsole.log(f{letter}({value}).shared);\n")
+    };
+    let scripts = vec![wrapping("a", "1"), wrapping("b", "2")];
+    let program = compile_to_object_with_html(&wrapping("c", "3"), &scripts)
+        .expect("a main program with two page scripts compiles");
+
+    assert_eq!(program.page_scripts.len(), 2, "both scripts are placed");
+    let first = program.page_scripts[0].0;
+    let second = program.page_scripts[1].0;
+    assert_ne!(first, second, "two different sources hash differently");
+    // `shared` was minted ONCE — by whichever of the three bodies asked for it
+    // first — and every later use of the same text reuses that key rather
+    // than minting a second one. `program.keys` is the compiler's own record
+    // of that, in key order.
+    let shared_count = program.keys.iter().filter(|key| *key == "shared").count();
+    assert_eq!(
+        shared_count, 1,
+        "one property named `shared`, minted once, read by three bodies — \
+         two entries would mean the scripts numbered it separately from the \
+         main program"
+    );
+    tables_agree_with(&program);
+}
+
+/// The UMD shape that started this: a bundle writes `React` as a property of
+/// `this` (`global.React = {}` inside `(function (global) { … })(this)`,
+/// which never spells the bare name `React` anywhere in ITS OWN text), and a
+/// SIBLING script reads `React` as a free identifier. Before the dynamic
+/// window fallback this batch adds, that read had nowhere to resolve at all
+/// — nothing in either script's own text ever assigns `React` bare, so
+/// neither `enclosing`/`published` nor `sloppy::created` ever place it, and
+/// compiling the sibling failed outright (`UnboundName`).
+#[test]
+fn a_name_a_sibling_script_writes_only_as_a_property_of_this_still_compiles() {
+    let bundle = "(function (global) { global.React = {}; })(this);\n".to_owned();
+    let app = "console.log(React);\n".to_owned();
+    let program = compile_to_object_with_html("console.log(1);\n", &[bundle, app])
+        .expect(
+            "a page script reading a name only a SIBLING wrote as a property \
+             of `this` must still compile — the language resolves it at run \
+             time against the SAME window, not refuse it at build time",
+        );
+    assert_eq!(program.page_scripts.len(), 2);
     tables_agree_with(&program);
 }
 

@@ -64,7 +64,9 @@
 //! The manifest carries what the compiler knew and the tables carry what only
 //! the linker knows, and neither restates the other.
 
+pub mod html_scripts;
 mod manifest;
+mod page;
 
 use std::collections::HashSet;
 
@@ -154,6 +156,15 @@ pub struct ObjectProgram {
     /// thing that has to agree with the first. See [`crate::graph::Loaded`]'s
     /// own field for what disagreeing cost the last time.
     pub resolutions: Vec<(String, String, String)>,
+    /// One entry per page `<script>` this program was compiled with
+    /// (`--html`): the hash of its exact source, paired with its position in
+    /// [`Self::function_names`] — which is [`FUNCTION_TABLE_SYMBOL`]'s own
+    /// order, so the address is the linker's the same way every other entry's
+    /// is. Empty for a program compiled without `--html`; see [`page`] for
+    /// how they are placed, and `rts-runtime`'s `aot::page_scripts` for how
+    /// this table is read back and turned into
+    /// `context.eval_compiler_with_receiver`.
+    pub page_scripts: Vec<(u64, u32)>,
 }
 
 /// Compiles source text into an object file, ready to link against the
@@ -168,7 +179,31 @@ pub struct ObjectProgram {
 /// so it has no `import.meta` to answer and no directory to resolve `"./x"`
 /// against.
 pub fn compile_to_object(source: &str) -> Result<ObjectProgram, HostError> {
-    place(crate::run::front_end(source)?, &[], Vec::new(), Vec::new())
+    place(crate::run::front_end(source)?, &[], Vec::new(), Vec::new(), &[])
+}
+
+/// The same, plus every page `<script>` `extract_files` found in the caller's
+/// `--html` files — extracted, compiled and placed into this SAME object, so
+/// `rts-runtime`'s `eval_compiler_with_receiver` hook can find one by the
+/// hash of its source. See [`page`]'s own header for why they cannot be a
+/// second object file, and [`html_scripts`] for the extraction rule.
+///
+/// `page_scripts` is the extracted SOURCE TEXT, in the order the manifest
+/// records them — `crate::object::html_scripts::extract_files` is how a
+/// caller builds it from a list of `--html` paths. An empty slice is
+/// [`compile_to_object`] exactly: this function costs nothing extra when
+/// there is nothing to precompile.
+pub fn compile_to_object_with_html(
+    source: &str,
+    page_scripts: &[String],
+) -> Result<ObjectProgram, HostError> {
+    place(
+        crate::run::front_end(source)?,
+        &[],
+        Vec::new(),
+        Vec::new(),
+        page_scripts,
+    )
 }
 
 /// Compiles a file and everything it imports into ONE object file.
@@ -188,17 +223,42 @@ pub fn compile_to_object(source: &str) -> Result<ObjectProgram, HostError> {
 /// where an in-memory run reads them straight out of the placement.
 pub fn compile_graph_to_object(entry: &std::path::Path) -> Result<ObjectProgram, HostError> {
     let graph = crate::graph::front_end(entry)?;
-    place(graph.front, &graph.before, graph.metas, graph.resolutions)
+    place(graph.front, &graph.before, graph.metas, graph.resolutions, &[])
+}
+
+/// The same, plus `--html` page scripts — see [`compile_to_object_with_html`],
+/// which this mirrors for a program of more than one file.
+pub fn compile_graph_to_object_with_html(
+    entry: &std::path::Path,
+    page_scripts: &[String],
+) -> Result<ObjectProgram, HostError> {
+    let graph = crate::graph::front_end(entry)?;
+    place(
+        graph.front,
+        &graph.before,
+        graph.metas,
+        graph.resolutions,
+        page_scripts,
+    )
 }
 
 /// Everything both entry points share: prepare, name, place, and collect what
 /// has to cross beside the bytes.
+///
+/// `page_scripts` is placed into `front` BEFORE `prepare` ever sees it —
+/// [`page::extend`] appends their functions, names, literals and templates
+/// into `front.emitted` first, so every table `prepare`/`place_in_object`
+/// build from `front` already counts them. Nothing downstream of that line
+/// needs to know a page script is a different kind of function from any
+/// other this compilation placed.
 fn place(
     front: FrontEnd,
     before: &[FuncId],
     module_metas: Vec<crate::graph::ModuleMeta>,
     resolutions: Vec<(String, String, String)>,
+    page_scripts: &[String],
 ) -> Result<ObjectProgram, HostError> {
+    let (front, page_hashes) = page::extend(front, page_scripts)?;
     let model = front.model;
     let names = front.names;
     let Prepared {
@@ -259,6 +319,24 @@ fn place(
         })
         .collect();
 
+    // Each page script's `FuncId`, turned into its position in `function_ids`
+    // — the same order `FUNCTION_TABLE_SYMBOL` places addresses in, so this
+    // index is what `rts-runtime`'s `main` can hand straight to `addresses`'s
+    // result with no further translation. Looked up here rather than carried
+    // from `page::extend`, because that is BEFORE `prepare`'s own rewrite
+    // (generators) and BEFORE this function's OWN `placed` filter — either
+    // could in principle drop or renumber an id, and the position that
+    // matters is the one AFTER both have run.
+    let page_scripts: Vec<(u64, u32)> = page_hashes
+        .iter()
+        .filter_map(|(hash, id)| {
+            function_ids
+                .iter()
+                .position(|placed_id| placed_id == id)
+                .map(|position| (*hash, position as u32))
+        })
+        .collect();
+
     let tables = [
         AddressTable {
             name: MODULE_TABLE_SYMBOL,
@@ -304,6 +382,7 @@ fn place(
         function_names,
         module_metas,
         resolutions,
+        page_scripts,
     })
 }
 

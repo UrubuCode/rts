@@ -87,6 +87,7 @@ mod object_proto;
 mod dynamic_module;
 mod modules;
 mod objects;
+mod page_scope;
 mod pattern;
 mod operators;
 mod primitive;
@@ -99,6 +100,7 @@ mod registers;
 mod regex;
 pub mod roots;
 mod rooted;
+mod source_hash;
 pub(super) mod string;
 mod switches;
 mod symbol;
@@ -136,6 +138,7 @@ pub use eval_scope::{
 };
 pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
 pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};
+pub use page_scope::{page_global_get, page_global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use common_js::{module_publish_common, require_function};
 pub use dynamic_module::{
@@ -198,6 +201,7 @@ pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 pub use buffer::validate::MAX_LENGTH as BUFFER_MAX_LENGTH;
+pub use source_hash::source_hash;
 /// The largest non-empty JavaScript string this runtime can materialise.
 ///
 /// This is deliberately narrower than the byte-buffer ceiling: strings are

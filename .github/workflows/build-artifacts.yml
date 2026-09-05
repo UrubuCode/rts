@@ -414,17 +414,24 @@ jobs:
         run: cargo test -p rts-dom -p rts-dom-bridge --no-fail-fast
 
   # A quinta régua, no mesmo espírito das anteriores: mede o custo de
-  # empacotar a MESMA app (examples/react-app.html) como um `.exe` RTS AOT e
-  # como um `.exe` Electron — tamanho, arranque, memória, CPU. Report-only,
-  # `continue-on-error`, pela mesma razão de sempre: um runner hospedado sem
-  # ecrã pode não conseguir abrir a janela mesmo com os dois artefactos
-  # certos ligados, e isso não é uma regressão a bloquear a release.
+  # empacotar a MESMA app (scripts/rts_vs_electron/app/index.html) em TRÊS
+  # formas — um `.exe` Electron, um `.exe` RTS AOT (`rts compile`), e o
+  # `rts.exe` do motor a correr o `.ts` fonte (JIT, `rts run`) — tamanho,
+  # arranque, memória, CPU. Report-only, `continue-on-error`, pela mesma
+  # razão de sempre: um runner hospedado sem ecrã pode não conseguir abrir a
+  # janela mesmo com os artefactos certos ligados, e isso não é uma
+  # regressão a bloquear a release.
   #
-  # `scripts/rts_vs_electron/rts/README.md` documentava aqui uma lacuna —
-  # `rts-runtime` sem `rts-ui`, `.exe` a morrer em "cannot resolve module
-  # rts:egui" — que o PR #2671 fechou antes deste lote sequer começar; a
-  # frase que dizia isso foi apagada por estar enganada, não porque o job
-  # tenha sido re-verificado a fundo aqui.
+  # O `.exe` AOT ARRANCA e ABRE A JANELA desde 2026-09-04 (`rts:dom`/
+  # `rts:egui` passaram a registar no runtime AOT, PR #2671). O JS DA PÁGINA
+  # (o React, dentro de um `<script>` do HTML, via `runScriptsAt` em
+  # `scripts/rts_vs_electron/rts/app.ts`) passa a correr TAMBÉM a partir
+  # deste merge: `rts compile` (sem flag) embarca um compilador por omissão
+  # agora (lote `aot-embed-compiler`) — `docs/engine/architecture.md`,
+  # secção "Two AOT archives". `medir.mjs` lê o resultado real do stderr do
+  # processo (campo `js_da_pagina`) em vez de assumido, e não foi
+  # re-corrido aqui neste merge — o job continua a medir o que dá, em vez de
+  # ficar vermelho por algo já registado ou verde por algo assumido.
   #
   # PORQUÊ este job NÃO compila nada: o job `build` já produz, para Windows,
   # exatamente os dois artefactos de que este precisa — o `rts.exe` de release
@@ -508,14 +515,16 @@ jobs:
           cache: npm
           cache-dependency-path: scripts/rts_vs_electron/electron/package.json
 
-      # AOT do lado RTS. Sabe-se hoje que o `app.exe` resultante MORRE em <1s
-      # ao correr — "cannot resolve module rts:egui" — porque `rts-runtime`
-      # não liga `rts-ui` (`scripts/rts_vs_electron/rts/README.md` tem a causa
-      # raiz; o fix fica fora do que esta tarefa autoriza mexer). O
-      # `continue-on-error` nesta ÚNICA etapa é o que deixa o resto do job
-      # (empacotar o Electron, medir, atualizar o README) correr de qualquer
-      # forma se até o LINK falhar — `medir.mjs` já sabe reportar
-      # "não construído" com a razão real em vez de o job abortar.
+      # AOT do lado RTS. `--all-namespaces` embrulha o archive com
+      # `/WHOLEARCHIVE` para os símbolos de TODOS os namespaces (incluindo
+      # `rts:dom`/`rts:egui`) sobreviverem ao DCE do linker — sem esta flag o
+      # `.exe` compila mas morre em runtime com "cannot resolve module
+      # rts:egui" (a lacuna que existia até 2026-09-04, ver
+      # `scripts/rts_vs_electron/rts/README.md`). O `continue-on-error` nesta
+      # ÚNICA etapa é o que deixa o resto do job (empacotar o Electron, medir,
+      # atualizar o README) correr de qualquer forma se até o LINK falhar —
+      # `medir.mjs` já sabe reportar "não construído" com a razão real em vez
+      # de o job abortar.
       - name: Compile RTS side (AOT)
         shell: pwsh
         continue-on-error: true
@@ -523,7 +532,7 @@ jobs:
           $tmp = Join-Path $env:RUNNER_TEMP "rts-vs-electron"
           New-Item -ItemType Directory -Force -Path "$tmp\rts" | Out-Null
           Copy-Item scripts\rts_vs_electron\app\index.html "$tmp\rts\app.html" -Force
-          target\release\rts.exe compile -p scripts\rts_vs_electron\rts\app.ts "$tmp\rts\app"
+          target\release\rts.exe compile --all-namespaces -p scripts\rts_vs_electron\rts\app.ts "$tmp\rts\app"
 
       # Empacotamento Electron, seguindo `scripts/rts_vs_electron/electron/README.md`
       # à letra: o `@electron/packager` só apanha ficheiros de DENTRO da pasta
@@ -548,9 +557,13 @@ jobs:
       # N=3 em vez do 5 default local: este job empacota o Electron do zero a
       # cada corrida, e 3 tentativas por lado já dá um número estável dentro do
       # orçamento de tempo do runner. Caminhos passados explicitamente (em vez
-      # de confiar no default de `medir.mjs`, que usa `os.tmpdir()`) para não
-      # depender de `TEMP`/`TMP` do runner resolverem exatamente para
-      # `RUNNER_TEMP` — fica explícito e verificável nesta etapa.
+      # de confiar nos defaults de `medir.mjs`, que usam `os.tmpdir()`/
+      # `target/release`) para não depender de `TEMP`/`TMP` do runner
+      # resolverem exatamente para `RUNNER_TEMP`, nem do cwd de onde o `node`
+      # corre — fica explícito e verificável nesta etapa. O terceiro caminho
+      # (`RTS_VS_ELECTRON_RTS_EXE_JIT`) aponta para o MESMO `rts.exe` já
+      # encenado pela etapa "Stage rts.exe + rts_runtime.lib" acima — nenhuma
+      # compilação nova para o lado JIT, só o binário que o job já tinha.
       - name: Measure (N=3 in CI, for time)
         shell: pwsh
         env:
@@ -559,6 +572,7 @@ jobs:
           $tmp = Join-Path $env:RUNNER_TEMP "rts-vs-electron"
           $env:RTS_VS_ELECTRON_RTS_EXE = Join-Path $tmp "rts\app.exe"
           $env:RTS_VS_ELECTRON_ELECTRON_EXE = Join-Path $tmp "electron\dist\rts-vs-electron-win32-x64\rts-vs-electron.exe"
+          $env:RTS_VS_ELECTRON_RTS_EXE_JIT = Join-Path (Get-Location) "target\release\rts.exe"
           node scripts/rts_vs_electron/medir.mjs
 
       - name: Update README with RTS vs Electron numbers
@@ -576,9 +590,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md .github/rts_vs_electron.json
           if git diff --cached --quiet; then echo "nada mudou"; exit 0; fi
-          exe_rts=$(node -e "const j=require('./.github/rts_vs_electron.json'); console.log(j.lados.rts.bytes_exe!=null?(j.lados.rts.bytes_exe/1024/1024).toFixed(1):'?')")
+          exe_aot=$(node -e "const j=require('./.github/rts_vs_electron.json'); console.log(j.lados.rts_aot.bytes_exe!=null?(j.lados.rts_aot.bytes_exe/1024/1024).toFixed(1):'?')")
+          exe_jit=$(node -e "const j=require('./.github/rts_vs_electron.json'); console.log(j.lados.rts_jit.bytes_exe!=null?(j.lados.rts_jit.bytes_exe/1024/1024).toFixed(1):'?')")
           exe_electron=$(node -e "const j=require('./.github/rts_vs_electron.json'); console.log(j.lados.electron.bytes_exe!=null?(j.lados.electron.bytes_exe/1024/1024).toFixed(1):'?')")
-          git commit -m "docs: auto-update RTS vs Electron (${exe_rts} MB vs ${exe_electron} MB)"
+          git commit -m "docs: auto-update RTS vs Electron (AOT ${exe_aot} MB, JIT ${exe_jit} MB, Electron ${exe_electron} MB)"
           for i in 1 2 3; do git pull --rebase && git push && break || sleep 10; done
 
   # Reuses the Linux binary from `build` (no recompile). Runs as part of this

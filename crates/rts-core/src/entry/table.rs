@@ -104,6 +104,7 @@ use super::primitives::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, 
 use super::global::{
     GLOBAL_GET_ENTRY, GLOBAL_GET_UNBOUND_ENTRY, GLOBAL_SET_ENTRY, SLOPPY_THIS_ENTRY,
 };
+use super::page_scope::{PAGE_GLOBAL_GET_ENTRY, PAGE_GLOBAL_SET_ENTRY};
 use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
@@ -678,6 +679,20 @@ pub enum CoreEntry {
     /// program can hold — and the fused form answers a boolean and builds no
     /// string at all, which is the whole of what it saves.
     TypeOfIs = 94,
+    /// [`super::page_scope::page_global_get`].
+    ///
+    /// [`CoreEntry::GlobalGetUnbound`] reads a free identifier off
+    /// [`super::global::holder`], the ONE process-wide global object every
+    /// ordinary program shares. A page `<script>`'s free identifiers resolve
+    /// against its OWN `window` instead — a value the compiler carries as an
+    /// argument, not a fact this crate can look up on its own — so the read
+    /// needs a second entry taking that value, rather than a fourth parameter
+    /// on a call every other program already makes.
+    PageGlobalGet = 96,
+    /// [`super::page_scope::page_global_set`]. [`CoreEntry::PageGlobalGet`]'s
+    /// reasoning, for the write [`CoreEntry::GlobalSet`] answers for the
+    /// process object.
+    PageGlobalSet = 97,
 }
 
 /// How many entry points exist.
@@ -685,7 +700,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 96;
+pub const CORE_ENTRY_COUNT: usize = 98;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -786,6 +801,8 @@ impl CoreEntry {
         CoreEntry::ArrayPatternDirect,
         CoreEntry::TypeOfIs,
         CoreEntry::DefineField,
+        CoreEntry::PageGlobalGet,
+        CoreEntry::PageGlobalSet,
     ];
 
     /// The number a call site holds.
@@ -897,6 +914,8 @@ impl CoreEntry {
             CoreEntry::ArrayAppendAll => ARRAY_APPEND_ALL_ENTRY,
             CoreEntry::SuperConstructWithArgs => SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
             CoreEntry::DelegateStep => DELEGATE_STEP_ENTRY,
+            CoreEntry::PageGlobalGet => PAGE_GLOBAL_GET_ENTRY,
+            CoreEntry::PageGlobalSet => PAGE_GLOBAL_SET_ENTRY,
         }
     }
 
@@ -1121,8 +1140,11 @@ mod tests {
         // Proxy([1, 2, 3], {}))` throws `TypeError: the value is not iterable`
         // here and answers 6 on node. Copying that guard would have carried the
         // defect into destructuring; one row buys the version that cannot.
+        // Raised from 96 to 98 for page_global_get/page_global_set — two
+        // entries, not the order-of-magnitude jump this ceiling exists to
+        // catch (rts-symbol-baker's "thousands" is the shape it refuses).
         assert!(
-            CORE_ENTRY_COUNT <= 96,
+            CORE_ENTRY_COUNT <= 98,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

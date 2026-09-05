@@ -72,6 +72,7 @@ pub fn command(
     output: Option<String>,
     options: CompileOptions,
     windows_subsystem: Option<WindowsSubsystem>,
+    html_files: &[String],
 ) -> Result<()> {
     let input = input.ok_or_else(|| anyhow!("usage: rts compile <input.ts> [output]"))?;
     let (entry, output_base) = if crate::url_entry::is_url(&input) {
@@ -94,6 +95,12 @@ pub fn command(
         .with_context(|| format!("read {}", entry.display()))?;
     let graph = super::new_engine::imports_a_file(&source);
 
+    // Read and extracted on the SAME wide-stack thread as the compile below,
+    // rather than on this one: `html_scripts::window_base` runs a throwaway
+    // JIT compile of its own, and that is exactly the recursion depth the
+    // comment on `STACK` names.
+    let html_paths: Vec<PathBuf> = html_files.iter().map(PathBuf::from).collect();
+
     // The emitter recurses with the shape of the expression it lowers — see
     // `rts_cli::cli::new_engine`'s own comment for the fixture that overflows
     // the 1 MB default Windows stack at COMPILE time, not at run time. Compiled
@@ -102,9 +109,23 @@ pub fn command(
     let on_disk = entry.clone();
     let program = std::thread::Builder::new()
         .stack_size(STACK)
-        .spawn(move || match graph {
-            true => rts_host::object::compile_graph_to_object(&on_disk),
-            false => rts_host::object::compile_to_object(&source),
+        .spawn(move || -> Result<rts_host::object::ObjectProgram, rts_host::HostError> {
+            // Extracted here rather than passed in already-extracted: a page
+            // `<script>` compiles under the SAME `Scoped::Page` rules as a
+            // JIT run, which is what `object::page` builds on top of the
+            // main program's own `FrontEnd` — see that module's header for
+            // why the two cannot be two object files.
+            let page_scripts = rts_host::object::html_scripts::extract_files(&html_paths)?;
+            match (graph, page_scripts.is_empty()) {
+                (true, true) => rts_host::object::compile_graph_to_object(&on_disk),
+                (true, false) => {
+                    rts_host::object::compile_graph_to_object_with_html(&on_disk, &page_scripts)
+                }
+                (false, true) => rts_host::object::compile_to_object(&source),
+                (false, false) => {
+                    rts_host::object::compile_to_object_with_html(&source, &page_scripts)
+                }
+            }
         })
         .expect("a thread to compile the new engine's AOT object on")
         .join()
@@ -179,6 +200,13 @@ pub fn command(
         linked.backend,
         manifest_path.display(),
     );
+    if !program.page_scripts.is_empty() {
+        println!(
+            "  {} page <script>(s) precompiled from --html: {}",
+            program.page_scripts.len(),
+            html_files.join(", "),
+        );
+    }
     Ok(())
 }
 

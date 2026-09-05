@@ -147,5 +147,17 @@ What is left:
   `--embed-compiler` stays accepted too, as a synonym of the default: this
   repository's own CI smoke already passed it before the default flipped.
   See `rts-runtime-jit`'s own crate doc for the full cut either way.
+- **`--html <file>` precompiles a page's own `<script>` bodies at BUILD
+  time**, into EITHER archive, and installs `eval_compiler_with_receiver` to
+  find one again by the hash of its exact source
+  (`docs/engine/aot-page-scripts.md`). On the small archive this is the
+  ONLY way a page `<script>` runs at all — a script `--html` never saw
+  raises, naming that specifically rather than folding into `eval`'s generic
+  refusal. On the default (compiler-embedded) archive the two COMPOSE: the
+  hash lookup runs first, and a MISS falls through to the live compiler
+  rather than raising — `--html` a page's known scripts for speed and
+  smaller startup work, `--embed-compiler` handles whatever else that page
+  turns out to load. `crates/rts-runtime-boot/src/page_scripts.rs`'s own
+  module doc ("The FALLBACK") has the composition.
 - **No source POSITION in a trace.** The names are there on both paths now; the
   line numbers are on neither, and they are `rts_cranelift::observe`'s question.

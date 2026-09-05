@@ -43,6 +43,7 @@ mod live;
 pub mod object;
 mod run;
 mod stack;
+mod wrap_script;
 
 pub use link::{HostError, singletons_for};
 pub use live::install_compiler;
