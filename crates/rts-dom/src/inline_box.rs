@@ -103,7 +103,7 @@ pub(crate) fn palavras_css(s: &str) -> impl Iterator<Item = &str> {
 /// O medidor é quem responde por `normal` e pela ausência de declaração, porque
 /// esse valor sai das MÉTRICAS DA FONTE e não de uma constante.
 pub(crate) fn altura_da_linha(css: &ComputedStyle, font_size: f32, m: &dyn TextMeasurer) -> f32 {
-    let normal = m.line_height(font_size);
+    let normal = m.line_height_family(font_size, css.font_family.as_deref());
     css.line_height
         .map(|l| l.resolve(font_size, normal))
         .unwrap_or(normal)
