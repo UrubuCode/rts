@@ -84,6 +84,7 @@ mod coluna;
 mod coluna_rtl;
 mod coluna_shrink;
 mod coluna_wrap;
+mod coluna_wrap_largura;
 mod flex;
 mod flex_baseline;
 mod flex_basis_content;
