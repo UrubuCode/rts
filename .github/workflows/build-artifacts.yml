@@ -517,14 +517,22 @@ jobs:
     # Windows — sem isto este job seria SALTADO sempre que isso acontecesse. O
     # binário que interessa aqui é o de Windows; se esse artefacto não existir,
     # o download da próxima etapa falha por si.
-    # SÓ em `main`, pela mesma razão do `dom-rulers`: este job existe para
-    # escrever a região `RTS_VS_ELECTRON` do README, e o passo que escreve já
-    # era `main only` — num PR corria os 30 minutos de runner Windows (a medir
-    # arranques de Electron, N=3) para depois não produzir nada. Menos runs a
-    # concorrer também aumenta a hipótese de um run chegar ao fim inteiro, que
-    # é a única forma de o README ser reescrito num workflow com
-    # `cancel-in-progress`.
-    if: ${{ !cancelled() && needs.version.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    # MANUAL. Este job mede arranque, memória e CPU de três artefactos da mesma
+    # app — não é uma régua de correcção, é um benchmark, e um benchmark num
+    # runner partilhado mede sobretudo o runner. Trinta minutos de máquina
+    # Windows a arrancar Electron três vezes, com vizinhos a competir pelo CPU,
+    # produzem um número que ninguém deve citar; a mesma medição numa máquina
+    # parada produz um número que se pode.
+    #
+    # Fica invocável à mão (`workflow_dispatch`) para não se perder, mas a
+    # forma normal de o correr é local:
+    #
+    #     node scripts/rts_vs_electron/medir.mjs
+    #     node scripts/rts_vs_electron_readme.mjs
+    #
+    # e o README recebe o resultado pelo commit de quem mediu. `medir.mjs` diz
+    # no cabeçalho o que cada um dos três artefactos é e porque são três.
+    if: ${{ !cancelled() && needs.version.result == 'success' && github.event_name == 'workflow_dispatch' }}
     continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 30
