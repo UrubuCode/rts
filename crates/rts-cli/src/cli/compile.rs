@@ -12,10 +12,22 @@
 //! `staticlib` facade, so both preconditions this command was held back for now
 //! exist.
 //!
+//! # `--embed-compiler`
+//!
+//! Links `rts-runtime-jit` instead of `rts-runtime` — the archive that also
+//! installs a compiler, so `eval`, `new Function` and a page `<script>`
+//! (`rts-dom-bridge`'s `DomScope::run`) work inside the compiled binary
+//! instead of raising the refusal `rts-host`'s README states for the default
+//! archive. For a program whose whole job is to compile source it did not
+//! ship with — a browser — rather than one that merely runs its own,
+//! pre-compiled body. See `rts-runtime-jit`'s own crate doc for the cut this
+//! makes and the size it costs.
+//!
 //! # What still needs a two-step build
 //!
-//! `cargo build -p rts-runtime` before `rts compile`, matching profile — the
-//! same requirement the old engine's `rts-runtime` had, and for the same
+//! `cargo build -p rts-runtime` (or `-p rts-runtime-jit` for the flag above)
+//! before `rts compile`, matching profile — the same requirement the old
+//! engine's `rts-runtime` had, and for the same
 //! reason: a `staticlib` is only emitted for a package built as a direct
 //! target, and cargo does not do that as a side effect of depending on it. See
 //! [`super::runtime_archive`] for the staleness check that makes skipping
@@ -100,14 +112,42 @@ pub fn command(
     std::fs::write(&obj_path, &program.bytes)
         .with_context(|| format!("write object {}", obj_path.display()))?;
 
-    let archive = super::runtime_archive()
-        .context("locate the new engine's AOT runtime archive (rts-runtime)")?;
+    let archive = super::runtime_archive(options.embed_compiler).with_context(|| {
+        format!(
+            "locate the new engine's AOT runtime archive ({})",
+            if options.embed_compiler { "rts-runtime-jit" } else { "rts-runtime" }
+        )
+    })?;
     let exe_path = exe_output_path(output.as_deref(), &output_base);
 
     let mut request = LinkRequest::from_env();
     if windows_subsystem.is_some() {
         request.windows_subsystem = windows_subsystem;
     }
+    // NOT implied by `--embed-compiler`, and an earlier version of this line
+    // said the opposite. It cost a real, measured bug to find out why that
+    // was wrong — not about this flag, but about `rts-runtime-jit`'s
+    // dependency on `rts-runtime` at the time: a `#[unsafe(no_mangle)]` item
+    // (`main` is one) is bundled into a dependent's staticlib
+    // UNCONDITIONALLY once the dependency is reached at all, so
+    // `rts-runtime-jit.lib` carried TWO definitions of `main` regardless of
+    // `/WHOLEARCHIVE`, and the linker silently kept the wrong one — the
+    // compiled binary ran the DEFAULT sequence, installing no compiler, and
+    // `eval` failed with the ordinary refusal rather than a link error. Fixed
+    // structurally: `rts-runtime-jit` now depends on `rts-runtime-boot` (the
+    // sequence, no `main`) and never reaches `rts-runtime` at all —
+    // `rts-runtime-boot`'s own module doc has the measurement.
+    //
+    // With that fixed, this flag itself costs nothing correctness-wise to
+    // leave off: `main` in `rts-runtime-jit` unconditionally calls
+    // `install_compiler`, which unconditionally reaches every low-level entry
+    // point through `crate::run::place`'s `RtEntry::ALL` loop and every
+    // high-level builtin through `rts_std::install`/`rts_node::install` —
+    // ordinary `/OPT:REF` reachability already keeps all of that BECAUSE
+    // `main` is the one thing a linker never treats as unreachable. What
+    // `--all-namespaces` still covers, and this does not replace, is a
+    // `import(variable)`'s dynamic MODULE table entries — orthogonal to
+    // whether a compiler is embedded, and still available as its own flag.
     request.keep_all_runtime_symbols = options.all_namespaces;
 
     let linked = link_objects_to_binary_with_request(&[obj_path.clone(), archive], &exe_path, &request)

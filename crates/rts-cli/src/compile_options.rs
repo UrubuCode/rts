@@ -100,6 +100,15 @@ pub struct CompileOptions {
     /// Link all namespace symbols regardless of usage (disables linker DCE on
     /// the runtime archive). Required when the binary uses `import(variable)`.
     pub all_namespaces: bool,
+    /// (compile) Link `rts-runtime-jit` instead of `rts-runtime` — the archive
+    /// that also installs a compiler, so `eval`, `new Function` and a page
+    /// `<script>` work inside the compiled binary. Does NOT imply
+    /// `all_namespaces`: unlike a static call the object emits, the compiler
+    /// this links in is reached from `main` unconditionally, which is what
+    /// keeps its own transitive needs alive under ordinary linker DCE — see
+    /// `cli::compile::command`'s own comment for the measured bug that made
+    /// this worth stating rather than assuming.
+    pub embed_compiler: bool,
 }
 
 impl CompileOptions {
@@ -119,6 +128,7 @@ impl Default for CompileOptions {
             debug: false,
             emit_module_progress: false,
             all_namespaces: false,
+            embed_compiler: false,
         }
     }
 }

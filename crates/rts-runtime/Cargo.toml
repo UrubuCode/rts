@@ -2,6 +2,7 @@
 name = "rts-runtime"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # rlib: nothing needs it yet, and it costs nothing to keep the crate usable from
 #   Rust — the AOT half is what this exists for.
@@ -26,22 +27,13 @@ edition = "2024"
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# The three crates an AOT-compiled program calls into. `rts-core` alone is
-# not enough: a program that reaches a global or a `node:` module calls symbols
-# those two install, and a linker cannot resolve what no archive carries.
-rts-core = { path = "../rts-core" }
-rts-std = { path = "../rts-std" }
-rts-node = { path = "../rts-node" }
-# `rts:dom` e `rts:egui`: o host JIT instala-os (`rts-host/src/run.rs`) e o
-# programa AOT não os tinha — um `.exe` de UI morria à partida com "cannot
-# resolve module rts:egui". O `rts-adapters` que os trazia foi com o cutover de
-# 08-10 e ninguém os religou à fachada. Entram na ordem do host: o documento
-# (headless, sempre) antes da janela (opcional, como no host: um alvo sem
-# ecrã não a liga).
-rts-dom-bridge = { path = "../rts-dom-bridge" }
-rts-ui = { path = "../rts-ui", optional = true }
-libc = "0.2"
+# Everything this crate's `main` runs is `rts-runtime-boot::run`, over
+# `rts-core`/`rts-std`/`rts-node`/`rts-dom-bridge`/`rts-ui` — held there
+# rather than here so `rts-runtime-jit` can reuse the SAME sequence without
+# depending on THIS crate (and bundling this crate's `main` alongside its
+# own — the measured reason for the split is in that crate's `lib.rs`).
+rts-runtime-boot = { path = "../rts-runtime-boot" }
 
 [features]
 default = ["ui"]
-ui = ["dep:rts-ui"]
+ui = ["rts-runtime-boot/ui"]

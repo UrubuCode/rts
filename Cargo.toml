@@ -16,7 +16,9 @@ members = [
     "crates/rts-node",
     "crates/rts-physics",
     "crates/rts-host",
+    "crates/rts-runtime-boot",
     "crates/rts-runtime",
+    "crates/rts-runtime-jit",
     "crates/rts-napi",
     "crates/rts-cli",
 ]
@@ -71,6 +73,14 @@ rts-linker = { path = "crates/rts-linker" }
 # as a DIRECT target of the build, and being unreferenced (or merely a
 # dependency-of-a-dependency) does not count.
 rts-runtime = { path = "crates/rts-runtime" }
+# `rts compile --embed-compiler`'s archive, for the identical reason the line
+# above states: a staticlib is only emitted for a package built as a DIRECT
+# target, so this has to sit here too rather than only under `rts-runtime`'s
+# own dependency (which would make it a dependency-of-a-dependency — the exact
+# case that comment says does not count). See `rts-runtime-jit`'s own crate
+# doc for what it is and why it is a second package rather than a feature on
+# `rts-runtime`.
+rts-runtime-jit = { path = "crates/rts-runtime-jit" }
 # Linked so the `napi_*` symbols are IN the binary — a `.node` resolves them
 # out of the host process by name. Present is not the same as EXPORTED: the
 # root `build.rs` parses `crates/rts-napi/src/exported.rs` and hands each name

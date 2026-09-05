@@ -10,7 +10,7 @@
 //!
 //! What keeps the pair honest is that neither half guesses: every table is
 //! length-prefixed, every read is bounds-checked, and a short or malformed file
-//! answers `None` rather than a partially-filled `Manifest`. [`super::main`]
+//! answers `None` rather than a partially-filled `Manifest`. [`crate::run`]
 //! then refuses to run, which is the only safe answer — a program seeded from
 //! half a key table reads every property past the break as absent, with no
 //! error anywhere.
@@ -108,7 +108,7 @@ impl<'a> Reader<'a> {
 /// Reads a manifest written in `rts_host::object::manifest`'s format.
 ///
 /// `None` on anything short of a well-formed file: a truncated read is not a
-/// number this program is allowed to guess about, and [`super::main`] treats a
+/// number this program is allowed to guess about, and [`crate::run`] treats a
 /// missing manifest as a reason to abort loudly rather than run with an empty
 /// key table that would make every property access read as absent.
 pub fn read(bytes: &[u8]) -> Option<Manifest> {
