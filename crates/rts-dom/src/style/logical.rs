@@ -103,6 +103,22 @@ pub(crate) fn e_direction_dependente(prop: &str) -> bool {
         )
 }
 
+/// `true` para `margin`/`padding`/`border`(-width/-style/-color)/`inset`
+/// no eixo de BLOCO (`block-start`/`block-end`) — o lado físico não
+/// depende de `direction` nenhum (o eixo de bloco nunca lê `direction`,
+/// `to_physical` já dizia isso), mas depende de QUAL eixo físico é o de
+/// bloco, e isso é `writing-mode`. Ficaram de fora de
+/// [`e_direction_dependente`] porque nunca precisaram de adiar ATÉ este
+/// lote — em `horizontal-tb` o bloco é sempre Y, fixo, sem pergunta
+/// nenhuma para fazer; passou a ter uma só quando o bloco pode ser X
+/// (achado pelo WPT `gap-002-lr`: uma `section` com `flex-direction:
+/// column` simula o `gap` principal com `margin-block-start` numa
+/// referência, e essa margem resolvia sempre como `margin-top` — physico
+/// ERRADO sob `vertical-lr`, onde o eixo de bloco é X).
+pub(crate) fn e_bloco_writing_mode_dependente(prop: &str) -> bool {
+    prop.contains("block-start") || prop.contains("block-end")
+}
+
 /// `true` para as DIMENSÕES lógicas (`inline-size`/`block-size` e os
 /// `min-`/`max-` das duas) — o lado FÍSICO de `-start`/`-end` depende de
 /// `direction`, mas qual EIXO físico (largura ou altura) `inline-size`/

@@ -54,6 +54,25 @@ pub(in crate::layout) fn reverse_efetivo(
     main_no_eixo_y: bool,
     reverse_keyword: bool,
 ) -> bool {
+    // `writing-mode` horizontal + eixo principal FÍSICO X (`row`) + SEM
+    // `row-reverse`: `direction` sozinho NÃO reordena uma linha aqui — é o
+    // corte documentado em `dom::direction_herdada` ("a ORDEM dos itens da
+    // linha ainda não inverte por `direction`, só por `row-reverse`"), e
+    // esta função reentrava nele sem saber (achado no retrabalho deste
+    // lote: `gap-001-rtl`/`gap-004-rtl`/`gap-006-rtl`, RTL puro,
+    // `horizontal-tb`, SEM `writing-mode` nenhum, regrediam porque
+    // `eixo_x_forward` já reflecte `direction` para outros consumidores —
+    // `coluna_rtl::cross_x`, o espelho de POSIÇÃO de um item já colocado —
+    // e esta função reusava-o para REORDENAR, uma pergunta diferente que o
+    // motor não responde por `direction` sozinho).
+    //
+    // `row-reverse` + `direction:rtl` continua a CANCELAR (o XOR abaixo já
+    // acerta esse caso — `flexbox_justifycontent-start-rtl`/`-end-rtl`
+    // pinam-no: visualmente 1,2,3, não invertido) — só o `reverse_keyword`
+    // falso é que precisa do corte, nunca o verdadeiro.
+    if wm.is_horizontal() && !main_no_eixo_y && !reverse_keyword {
+        return false;
+    }
     let forward = if main_no_eixo_y {
         eixo_y_forward(wm, dir)
     } else {

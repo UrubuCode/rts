@@ -368,6 +368,7 @@ pub(crate) fn apply_resolved_decl(
     // (`inline-size`/`block-size`). Injectado uma vez, antes das duas.
     if crate::style::logical::e_direction_dependente(prop)
         || crate::style::logical::e_writing_mode_dependente(prop)
+        || crate::style::logical::e_bloco_writing_mode_dependente(prop)
     {
         block.normal.writing_mode = block.normal.writing_mode.or(writing_mode);
     }
