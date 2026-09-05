@@ -9,13 +9,46 @@ cargo build --release                       # o binário
 target/release/rts.exe run examples/dino/claude-dino-janela.ts
 ```
 
-Setas para cima e baixo, ou o rato. Um `.exe` de um ficheiro só:
+## Como se joga
+
+| tecla | o que faz |
+|---|---|
+| **seta para cima** | salta — e durante o salto não volta a saltar |
+| **seta para baixo** | agacha; **durante o salto**, faz cair mais depressa |
+| **clique** | salta também, para quem preferir o rato |
+
+Bater num cacto ou numa ave acaba o jogo; clicar (ou saltar) recomeça. O
+recorde fica marcado com `HI` e pisca quando é batido.
+
+Um `.exe` de um ficheiro só:
 
 ```bash
 cargo build --release -p rts-runtime-jit    # o arquivo contra o qual o AOT linka
 target/release/rts.exe compile examples/dino/claude-dino-standalone.ts dino.exe \
     --windows-subsystem windows
 ```
+
+## A anatomia do loop, que é onde está o motor
+
+O programa é dono do tempo. O motor não corre nada sozinho — exporta três
+bombas, e é o `while` do lançador que as chama:
+
+```ts
+while (egui.isOpen(win)) {
+  if (!egui.pump(win)) break;      // eventos da janela (fechar, redimensionar)
+  egui.beginFrame(win);
+  egui.render(win, d);             // layout + pintura do documento inteiro
+  egui.endFrame(win);
+  pumpInputEvents(doc);            // teclado -> keydown/keyup no DOM
+  pumpEventCallbacks(doc);         // cliques -> os listeners do React
+  pumpTimerCallbacks(doc);         // timers  -> o setInterval do jogo
+}
+```
+
+A ordem não é decorativa. `egui.endFrame` é onde as teclas do SO entram na fila
+do DOM; se `pumpInputEvents` viesse antes, cada tecla chegaria um frame
+atrasado. E sem `pumpTimerCallbacks` a página monta, fica bonita e não anda —
+sem erro nenhum, porque não há erro nenhum: ninguém pediu ao tempo que passasse.
 
 ## Os três ficheiros
 
@@ -32,6 +65,22 @@ como `data:` URLs sem nenhuma dependência de Python — trinta linhas de `zlib`
 ```bash
 python scripts/claude_dino_sprites.py > sprites.json
 ```
+
+## Como o jogo está construído por dentro
+
+Duas decisões, e as duas saem das restrições do motor listadas a seguir:
+
+**Uma piscina fixa de `<img>`.** Todas as poses possíveis — as duas do dino a
+correr, o agachado, o morto, cada tipo de cacto, as duas asas da ave, as nuvens,
+os tijolos do chão, a lua, as estrelas — existem no DOM desde o primeiro render
+e nunca são destruídas. Animar é ligar e desligar `display`; mover é mudar
+`left`/`top`. Setenta e uma imagens, decodificadas uma vez.
+
+**O estado do jogo não está no React.** Vive numa `useRef` mutável — posição,
+velocidade, obstáculos, pontuação — e o React só recebe **um** `setState` por
+tique, um contador que serve para pedir um re-render. Um `useState` por grandeza
+e um array de obstáculos novo a cada tique seriam milhares de objetos por
+segundo, e esta plataforma cobra isso.
 
 ## O que este exemplo existe para demonstrar
 
