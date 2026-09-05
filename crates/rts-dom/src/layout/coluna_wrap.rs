@@ -259,21 +259,37 @@ pub(in crate::layout) fn layout_children_column_wrap(
         .collect();
     let mut leading_cross = 0.0f32;
     let mut between_cross = 0.0f32;
-    if columns.len() > 1 && content_w > 0.0 {
-        let usado: f32 = col_cross.iter().sum::<f32>() + (columns.len() - 1) as f32 * cross_gap;
+    if content_w > 0.0 {
+        let usado: f32 = col_cross.iter().sum::<f32>()
+            + (columns.len().saturating_sub(1)) as f32 * cross_gap;
         let free = (content_w - usado).max(0.0);
         match css.align_content {
-            Some(v) => {
+            // `align-content` declarado não tem efeito com uma LINHA só
+            // (Flexbox §8.3, "this property has no effect when the flex
+            // container has only a single line") — só distribui espaço
+            // ENTRE colunas, que só existe com mais de uma.
+            Some(v) if columns.len() > 1 => {
                 let (l, b) = justify_offsets(v, free, columns.len());
                 leading_cross = l;
                 between_cross = b;
             }
+            // `normal` (não declarado) comporta-se como `stretch` no eixo
+            // cruzado (CSS Box Alignment 3 §8.3) — mesma regra que já valia
+            // para várias colunas, agora TAMBÉM com uma só. Isto não é
+            // `align-content` a fazer algo com 1 linha (o `Some(v)` acima
+            // continua sem efeito nesse caso): é `align-items:stretch`, cujo
+            // alvo é a largura da PRÓPRIA coluna — sem isto, uma coluna
+            // sozinha ficava na largura NATURAL do maior item (o
+            // shrink-to-fit de um item sem `width`, por vezes só a borda) e
+            // nunca crescia até `content_w` (`flexbox-flex-wrap-vert-001`,
+            // WPT: um item único deveria esticar à largura do contentor).
             None => {
                 let extra = free / columns.len() as f32;
                 for cw in col_cross.iter_mut() {
                     *cw += extra;
                 }
             }
+            _ => {}
         }
     }
 

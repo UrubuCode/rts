@@ -82,6 +82,17 @@ pub(in crate::layout) fn transferido(
 /// nem de stretch) e `com_piso_minimo` erguia o item de volta ao natural —
 /// `flexbox-definite-cross-size-constrained-percentage` (WPT) media 60×60
 /// em vez de 25×25, o próprio transferido sendo anulado pelo piso errado.
+///
+/// Sem transferência, a altura CRUZADA mede-se com a largura que o item VAI
+/// TER (`base`, a "flex base size" — Flexbox §9.2 passo 3) IMPOSTA via
+/// `forced_outer_w`, não com a largura DISPONÍVEL do contentor inteiro
+/// (`content_w`): um item cujo conteúdo QUEBRA (texto, inline-block) muda de
+/// altura conforme a largura, e medir contra `content_w` dava a um
+/// `flex:0 0 content` num contentor de 1px uma altura MULTIPLICADA (cada
+/// inline-block quebrando para a sua própria linha) mesmo já sabendo a
+/// largura certa (`flexbox-flex-basis-content-003a/003b`, WPT, lote
+/// `flex-basis-content-wrap`). Um item que ainda vai CRESCER/ENCOLHER
+/// (`main != base`) é remedido pelo chamador com o `main` FINAL.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn base_e_altura_do_item(
     dom: &Dom,
@@ -89,7 +100,6 @@ pub(in crate::layout) fn base_e_altura_do_item(
     content_w: f32,
     container_content_h: Option<f32>,
     align_efetivo: crate::style::AlignItems,
-    css: &ComputedStyle,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> (f32, f32, bool) {
@@ -99,11 +109,20 @@ pub(in crate::layout) fn base_e_altura_do_item(
         .and_then(|h| transferido(dom, child, content_w, h, font_size, ctx));
     match t {
         Some((w, h)) => (w, h, true),
-        None => (
-            super::flex_limites::flex_base_outer(dom, child, content_w, font_size, ctx),
-            super::medida::child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx),
-            false,
-        ),
+        None => {
+            let base = super::flex_limites::flex_base_outer(dom, child, content_w, font_size, ctx);
+            let (_, h) = measure_block(
+                dom,
+                child,
+                content_w,
+                container_content_h,
+                Some(base),
+                None,
+                true,
+                ctx,
+            );
+            (base, h, false)
+        }
     }
 }
 

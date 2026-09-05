@@ -171,9 +171,14 @@ pub(in crate::layout) fn layout_children_horizontal(
         // Um `<img>` DIRETO desta linha sem width/height, esticado
         // (`align-items: stretch`): base/h vêm da razão transferida, não do
         // natural — `replaced_transferido.rs` decide quando (Flexbox §9.2).
+        // No caminho SEM transferência, a altura CRUZADA mede-se com a
+        // largura que o item VAI TER (`base`, a "flex base size" — Flexbox
+        // §9.2 passo 3), não com a do contentor inteiro (`content_w`): ver o
+        // comentário em `base_e_altura_do_item` (lote `flex-basis-content-
+        // wrap`, `flexbox-flex-basis-content-003a/003b`, WPT).
         let align_efetivo = ccss.align_self.unwrap_or(align);
         let (base, h, transferiu) = super::replaced_transferido::base_e_altura_do_item(
-            dom, child, content_w, container_content_h, align_efetivo, css, font_size, ctx,
+            dom, child, content_w, container_content_h, align_efetivo, font_size, ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
@@ -387,15 +392,20 @@ pub(in crate::layout) fn layout_children_horizontal(
             // eixo cruzado (Flexbox §9.4 passo 7) impõe a altura da linha
             // SEMPRE que a propriedade computa `auto` e a margem não é
             // `auto` — inclusive para ENCOLHER um item cuja hipotética altura
-            // (`it.h`) já veio maior do que a linha, que é exatamente o caso
-            // de um `<img width>` sem `height`: a razão de aspecto dá-lhe uma
-            // altura NATURAL antes do stretch decidir, e `align-items:
-            // stretch` (o default) tem de vencê-la — não só crescer itens
-            // menores (`claude-flexbox-img-expand-evenly`, WPT
-            // `css-flexbox-img-expand-evenly`: 3 `<img>` com `width` e
-            // `flex-grow`, sem `height`, deviam esticar aos 48px da linha e
-            // ficavam com 98 pela razão de aspecto 1:1 do PNG). `!=` continua
-            // a evitar o `layout_block_reusing` redundante quando já bate.
+            // (`it.h`) já veio maior do que a linha. Dois casos independentes
+            // pediram exatamente isto: um `<img width>` sem `height` cuja
+            // razão de aspecto dá altura NATURAL maior do que a linha antes
+            // do stretch decidir (`claude-flexbox-img-expand-evenly`, WPT
+            // `css-flexbox-img-expand-evenly` — 3 `<img>` deviam esticar aos
+            // 48px da linha e ficavam com 98 pela razão 1:1 do PNG); e uma
+            // linha ÚNICA cujo contentor tem altura DEFINIDA (`line_h` vem
+            // dessa altura, `flex_linhas::cross_unica_linha`) — aí a altura
+            // que o autor pediu vence sempre (Flexbox §9.4 passo 7), mesmo
+            // que um item sem `height` tenha conteúdo natural maior
+            // (`flexbox-definite-sizes-003/004`, WPT: só encolhendo o item
+            // até `line_h` é que o seu `max-height:100%` interno se torna
+            // definido). `!=` continua a evitar o `layout_block_reusing`
+            // redundante quando já bate.
             let item_align = it.align_self.unwrap_or(align);
             let auto_cross = super::flex_margens_auto::off_cross(it.auto_topo, it.auto_fundo, line_h, it.h);
             let stretches = item_align == crate::style::AlignItems::Stretch

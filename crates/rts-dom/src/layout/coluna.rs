@@ -220,7 +220,11 @@ pub(in crate::layout) fn layout_children_column(
     let n = items.len();
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
     let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
-    let free = container_content_h
+    // `wrap_definite_h`, não `container_content_h`: o mesmo limiar do
+    // DESPACHO do wrap (nunca `min-height` — um PISO não é um TECTO, e
+    // tratá-lo como tal encolhia itens que já o excediam em vez de deixar
+    // o contentor crescer acima dele — `flexbox-flex-wrap-vert-002`, WPT).
+    let free = wrap_definite_h
         .map(|ch| ch - sum_h - total_gap)
         .unwrap_or(0.0);
     // FLEX-GROW no eixo principal (css-flexbox §9.7): quando há espaço livre
@@ -255,7 +259,8 @@ pub(in crate::layout) fn layout_children_column(
         }
     }
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
-    let free = container_content_h
+    // Mesma troca de cima: espaço livre A SÉRIO, não o que sobra até um PISO já ultrapassado.
+    let free = wrap_definite_h
         .map(|ch| ch - sum_h - total_gap)
         .unwrap_or(0.0);
     let auto_count: usize = items

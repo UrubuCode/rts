@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 386,
+    "passing": 393,
     "total": 489,
-    "pct": 78.9
+    "pct": 80.4
   },
   "expected_failures": [
     {
@@ -102,6 +102,7 @@
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha",
+      "flex-basis-content-wrap — `flex-basis: content` (Flexbox §7.2.3) ignora `width`/`height` do item; `flex-wrap` em linha e coluna com tamanhos definidos vs indefinidos",
       "flex-reverse-order — `row-reverse`/`column-reverse` com `wrap`/`wrap-reverse` (ordem das linhas E dos itens, `align-content` com linhas invertidas), `order` com `direction:rtl`, `order` com `position:absolute`+`space-around`, a família `css-flexbox-row*`",
       "flex-aspect-ratio-collapse — aspect-ratio/tamanho intrínseco de substituídos em coluna (o corte deixado por `imagens-no-raster`); `visibility:collapse` horizontal/wrap FICA DE FORA, medido"
     ],

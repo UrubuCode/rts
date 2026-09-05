@@ -65,3 +65,30 @@ pub(in crate::layout) fn float_of(dom: &Dom, id: NodeIdx) -> crate::style::Float
         .and_then(|c| c.float_side)
         .unwrap_or(crate::style::FloatSide::None)
 }
+
+/// `true` se este filho FECHA a corrida inline a que pertenceria no cálculo
+/// do max-content (`medida::intrinsic_content_width`) — ou seja, se a linha
+/// acaba nele em vez de continuar somando com o próximo irmão.
+///
+/// `is_block_level` sozinho não serve: responde `true` a um `inline-block`
+/// (que cria caixa mas NÃO quebra a linha — o mesmo "não é inline?" que esta
+/// árvore já pagou cinco vezes) e a um FLOAT (que blockifica mas EMPACOTA ao
+/// lado dos vizinhos em vez de quebrar: max-content é "disponível infinito",
+/// e com espaço infinito nenhum float desce de linha). O `<br>` é o oposto:
+/// não é de bloco, não cria caixa, e quebra na mesma.
+///
+/// Sem a exceção do float, o max-content de um bloco só de floats tomava o
+/// MAIOR em vez da SOMA (32 em vez de 160 para 5 floats de 32px lado a lado
+/// — `flexbox-flex-wrap-horiz-002`/`-vert-001/002`, WPT, lote
+/// `flex-basis-content-wrap`).
+pub(in crate::layout) fn fecha_a_corrida(dom: &Dom, id: NodeIdx) -> bool {
+    if let NodeKind::Element { tag } = &dom.node(id).kind {
+        if tag == "br" {
+            return true;
+        }
+    }
+    if float_of(dom, id) != crate::style::FloatSide::None {
+        return false;
+    }
+    is_block_level(dom, id) && !is_inline_block(dom, id)
+}

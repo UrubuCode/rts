@@ -36,11 +36,28 @@ pub(in crate::layout) fn flex_base_outer(
         // flex, `claude-flex-abspos-img-aspect-ratio`): a largura natural
         // dessa imagem (o que `child_outer_width` mediria) é o tamanho dos
         // pixels, não o que ela vai ocupar depois do `align-items: stretch`
-        // — ver `replaced_transferido.rs`.
+        // — ver `replaced_transferido.rs`. Verificada ANTES da keyword
+        // `content` abaixo porque é uma pergunta ortogonal (estrutura do
+        // contentor, não o valor de `flex-basis`) e já valia para `auto`
+        // antes deste lote.
         if let Some(w) = super::replaced_transferido::largura_intrinseca_transferida(
             dom, id, parent_font, None, ctx,
         ) {
             return w;
+        }
+        // `content` (a keyword, não a ausência de valor) é SEMPRE o
+        // conteúdo do item — nunca olha para `width`, ao contrário de
+        // `auto` (que cai em `child_outer_width`, e essa sim olha para
+        // `width` primeiro). Os dois resolvem ao mesmo `None` acima
+        // (`Dimension::MaxContent.resolve()` também devolve `None`), e por
+        // isso caíam os dois no MESMO fallback antes deste lote — um
+        // `flex-basis:content` com `width` declarado usava o `width`
+        // (`flexbox-flex-basis-content-001a/001b`, WPT: "various specified
+        // main-size values (should be ignored)").
+        if css.flex_basis == Some(crate::style::Dimension::MaxContent) {
+            return super::flex_basis_content::base_outer_linha_forcado_pelo_conteudo(
+                dom, id, &css, container_w, parent_font, ctx,
+            );
         }
         return child_outer_width(dom, id, container_w, parent_font, ctx);
     };
