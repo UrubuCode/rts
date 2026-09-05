@@ -117,6 +117,15 @@ pub(in crate::layout) fn min_main_auto(
 /// passada de `layout_block` completa, que é o corte que o cabeçalho antigo
 /// desta função citava (nenhuma fixture precisava até `flexbox-min-height-
 /// auto-001`, WPT).
+///
+/// Um nó de texto só-espaços (a INDENTAÇÃO do HTML entre `<div>`s, comum em
+/// fixtures de mais de uma linha) não é conteúdo — o resto do motor já o
+/// descarta ao agrupar itens flex (`is_row && … trim().is_empty()`, `coluna.
+/// rs`/`coluna_wrap.rs`), mas esta função somava uma `altura_da_linha`
+/// inteira por CADA um (achado ao expor `flex-minimum-height-flex-items-003`,
+/// WPT, do fix de CDATA: dois nós assim ladeando o filho real inflavam o
+/// piso de 100 para 200, igualando o `natural_h` do item — `natural_h.min
+/// (conteudo)` deixava de clampar nada).
 fn altura_conteudo_sem_height(
     dom: &Dom,
     id: NodeIdx,
@@ -130,6 +139,7 @@ fn altura_conteudo_sem_height(
         .iter()
         .filter(|&&c| !is_out_of_flow(dom, c) && !e_display_none(dom, c))
         .map(|&c| match &dom.node(c).kind {
+            NodeKind::Text(_) if collect_text(dom, c).trim().is_empty() => 0.0,
             NodeKind::Text(_) => crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer),
             _ => child_outer_height(dom, c, container_w, None, ccss, font_size, ctx),
         })

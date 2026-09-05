@@ -2,36 +2,168 @@
   "date": "2026-09-05",
   "fixtures": {
     "passing": 141,
-    "total": 145,
-    "pct": 97.2
+    "total": 146,
+    "pct": 96.6
   },
   "measurements": {
-    "matching": 3264,
-    "total": 3280,
-    "pct": 99.5
+    "matching": 3295,
+    "total": 3340,
+    "pct": 98.7
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 393,
-    "total": 489,
-    "pct": 80.4
+    "passing": 586,
+    "total": 870,
+    "pct": 67.4,
+    "by_subfolder": {
+      "balance": {
+        "passing": 5,
+        "total": 39
+      },
+      "intrinsic-size": {
+        "passing": 11,
+        "total": 24
+      },
+      "abspos": {
+        "passing": 10,
+        "total": 19
+      },
+      "flex-lines": {
+        "passing": 2,
+        "total": 4
+      },
+      "order": {
+        "passing": 3,
+        "total": 4
+      },
+      "alignment": {
+        "passing": 1,
+        "total": 3
+      }
+    },
+    "by_subject": {
+      "outros": {
+        "passing": 139,
+        "total": 160
+      },
+      "item": {
+        "passing": 46,
+        "total": 77
+      },
+      "align": {
+        "passing": 53,
+        "total": 58
+      },
+      "aspect-ratio": {
+        "passing": 19,
+        "total": 53
+      },
+      "gap": {
+        "passing": 40,
+        "total": 46
+      },
+      "percentage": {
+        "passing": 18,
+        "total": 39
+      },
+      "baseline": {
+        "passing": 22,
+        "total": 37
+      },
+      "shrink": {
+        "passing": 35,
+        "total": 37
+      },
+      "min-": {
+        "passing": 21,
+        "total": 34
+      },
+      "overflow": {
+        "passing": 28,
+        "total": 32
+      },
+      "basis": {
+        "passing": 24,
+        "total": 30
+      },
+      "table": {
+        "passing": 12,
+        "total": 29
+      },
+      "wrap": {
+        "passing": 21,
+        "total": 28
+      },
+      "writing-mode": {
+        "passing": 3,
+        "total": 24
+      },
+      "justify": {
+        "passing": 19,
+        "total": 21
+      },
+      "order": {
+        "passing": 12,
+        "total": 15
+      },
+      "column": {
+        "passing": 9,
+        "total": 11
+      },
+      "anonymous": {
+        "passing": 8,
+        "total": 9
+      },
+      "grow": {
+        "passing": 6,
+        "total": 9
+      },
+      "max-": {
+        "passing": 7,
+        "total": 8
+      },
+      "row": {
+        "passing": 4,
+        "total": 6
+      },
+      "scrollbar": {
+        "passing": 3,
+        "total": 5
+      },
+      "abspos": {
+        "passing": 4,
+        "total": 4
+      },
+      "position": {
+        "passing": 1,
+        "total": 4
+      },
+      "visibility": {
+        "passing": 0,
+        "total": 1
+      }
+    }
   },
   "expected_failures": [
     {
       "fixture": "claude-ua-form-disabled.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-ua-th.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor\r aproximado, fonte dos controlos, <tr> sem border-spacing horizontal\r"
+      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
       "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento;\r nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)\r"
+      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
+    },
+    {
+      "fixture": "claude-controlos-tamanho-natural.html",
+      "razao": "lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel` (`<select>` sem opções) não — `<select>` não passa por `layout_input` (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`), por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`). Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a sua própria caixa."
     }
   ],
   "dom_lots": {
@@ -98,6 +230,8 @@
       "flex-min-auto-content — `min-width`/`min-height:auto` (mínimo automático, Flexbox §4.5) num item flex, nos dois eixos; `min-width`/`max-width: max-content`/`min-content` num item flex",
       "flex-baseline-2 — a baseline de um CONTENTOR flex vista de FORA (Flexbox §8.5)",
       "flex-abspos-static-bfc — a STATIC POSITION de um `position:absolute` sem inset num eixo (CSS 2.1 §10.3.7/§10.6.4, Flexbox §4.1); overflow de `<body>`/`<html>` propagado à viewport não estabelece BFC",
+      "largura-intrinseca-de-controlos — tamanho NATURAL (max-content) de um controlo de formulário sem `width`/`height` — `intrinsic_content_width`/`replaced_inline_size` (`layout/medida.rs`) não sabiam medir `input`/`select`/`textarea`/`input[submit/button/reset]`, só texto/tabela/flex/bloco-por-filhos; caíam no ramo de bloco vazio, largura 0 (o achado de `flex-vertical-align-effect`, WPT, diagnosticado antes deste lote)",
+      "flex-coluna-wrap-intrinseco — `intrinsic-size/col-wrap-*` e `balance/*` do WPT flexbox — nunca medido (as duas subpastas ficavam fora do corredor de reftests não-recursivo/sparse-checkout)",
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`"
     ],
     "parciais": [

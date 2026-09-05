@@ -489,7 +489,7 @@ pub(crate) fn layout_block(
         // morde: o conteúdo pede 166,6. Se um dia bater nos 200, é sinal de que
         // esta medição passou a calcular a mais.
         let base = if css.width == Some(crate::style::Dimension::MaxContent) {
-            content_natural_width(dom, id, font_for_content, ctx)
+            super::coluna_wrap_largura::max_content_width(dom, id, font_for_content, avail_h, &css, ctx)
         } else {
             match css.width.and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref())) {
                 // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
