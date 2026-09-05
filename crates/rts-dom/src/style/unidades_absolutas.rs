@@ -61,8 +61,13 @@ mod testes {
     /// `10mm` é `1cm`, então também ~96px.
     #[test]
     fn milimetro_bate_com_centimetro() {
+        // `10mm` sao 1cm, nao 1in: a polegada sao 25.4mm. O teste dizia 96 (o
+        // valor da POLEGADA) e passava por acaso enquanto `mm` nao existia,
+        // porque `unwrap()` de um `None` nunca chegava a comparar.
         let mm = parse_absoluta("10mm", false).unwrap();
-        assert!((mm - 96.0).abs() < 0.01, "10mm = {mm}, esperado ~96");
+        let cm = parse_absoluta("1cm", false).unwrap();
+        assert!((mm - cm).abs() < 0.01, "10mm = {mm}, 1cm = {cm} — deviam ser iguais");
+        assert!((mm - 96.0 / 2.54).abs() < 0.01, "10mm = {mm}, esperado 96/2.54");
     }
 
     /// `q` (quarto de milímetro) — `101.6q` = `1in` (2540 centésimos / 25).
