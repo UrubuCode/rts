@@ -63,7 +63,8 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
     let pt = css.padding.top.resolve(&rc).unwrap_or(0.0);
     let lh = crate::inline_box::altura_da_linha(&css, font, ctx.measurer);
     let conteudo = crate::inline_box::altura_do_conteudo(font, ctx.measurer);
-    (bt + pt + (lh - conteudo) / 2.0 + ctx.measurer.font_ascent(font)).min(h)
+    let ascent = ctx.measurer.font_ascent_family(font, css.font_family.as_deref());
+    (bt + pt + (lh - conteudo) / 2.0 + ascent).min(h)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -139,10 +140,11 @@ pub(in crate::layout) fn layout_inline_block_line(
             .map(|&(n, _, h, va)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
             .collect();
         let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
-        let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, ctx.measurer);
+        let familia = parent_css.font_family.as_deref();
+        let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, familia, ctx.measurer);
         for (&(child, w, h, va), &(_, ascent, _)) in items.iter().zip(&atomos) {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
-            let item_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, ctx.measurer);
+            let item_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, familia, ctx.measurer);
             layout_block(
                 dom,
                 child,

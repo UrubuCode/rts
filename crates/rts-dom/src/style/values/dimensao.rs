@@ -201,6 +201,24 @@ impl Dimension {
         self.resolve_signed(ctx).map(|px| px.max(0.0))
     }
 
+    /// Como [`resolve`](Dimension::resolve), mas com o `font-family` do nó —
+    /// só muda a resposta de `Ch`: em Ahem `1ch = 1em` POR CONSTRUÇÃO (todo
+    /// glifo avança 1em, incluído o "0" que define `ch`), não a fração
+    /// `MONO_ADVANCE` (0,5498) calibrada contra uma fonte monoespaçada real.
+    /// Aditivo com um default que delega no antigo — não uma mudança de
+    /// `ResolveCtx` (que tem ~50 sítios de construção neste crate) — pela
+    /// MESMA razão de `TextMeasurer::text_width_family`: só quem já pergunta
+    /// pela família (aqui, o handful de sítios que resolvem `width`/`height`
+    /// de um bloco Ahem) paga a pergunta extra.
+    pub fn resolve_family(self, ctx: &ResolveCtx, family: Option<&str>) -> Option<f32> {
+        if let Dimension::Ch(c) = self {
+            if family.is_some_and(crate::style::is_ahem_family) {
+                return Some((ctx.node_font_size * c).max(0.0));
+            }
+        }
+        self.resolve(ctx)
+    }
+
     /// Como [`resolve`](Dimension::resolve), mas SEM o clamp ≥ 0 — para margens
     /// negativas (`.row` gutters do Bootstrap) e offsets de posicionamento.
     pub fn resolve_signed(self, ctx: &ResolveCtx) -> Option<f32> {

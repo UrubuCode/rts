@@ -58,6 +58,7 @@ mod intrinseco_min_max;
 mod itens;
 mod medida;
 pub mod medidor_ativo;
+mod medidor_texto;
 mod pintura;
 mod margem_escapada;
 mod overflow_viewport;
@@ -114,7 +115,7 @@ use self::linha_ib::layout_inline_block_line;
 use self::relativo::aplica_offset_relativo;
 
 pub use self::display::{Corners, DisplayItem, DisplayList, Geometry, Rect, ScrollRegion};
-pub use self::medida::{ApproxMeasurer, TextMeasurer};
+pub use self::medidor_texto::{ApproxMeasurer, TextMeasurer};
 pub use self::pintura::{emit_scrollbar, emit_scrollbar_in};
 pub use self::transformacao::{Mat2d, TransformList, TransformOp, MAX_TRANSFORM_OPS};
 pub(crate) use self::bfc::BlockFormattingContext;

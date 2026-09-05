@@ -92,7 +92,7 @@ fn ascent_acima_da_baseline(
     font_size: f32,
     m: &dyn TextMeasurer,
 ) -> f32 {
-    ascent_com_baseline_propria(valign, altura, altura, font_size, m)
+    ascent_com_baseline_propria(valign, altura, altura, font_size, None, m)
 }
 
 /// O mesmo, para um átomo COM baseline própria: `ascent` é a distância do
@@ -105,14 +105,17 @@ fn ascent_com_baseline_propria(
     altura: f32,
     ascent: f32,
     font_size: f32,
+    // `font-family` do STRUT — Ahem responde `font_ascent`/`font_descent`
+    // pela fração exata (0.8/0.2) em vez da calibrada contra o Chrome.
+    family: Option<&str>,
     m: &dyn TextMeasurer,
 ) -> f32 {
     match valign {
         VerticalAlign::Sub => altura - font_size * SUB_OFFSET_RATIO,
         VerticalAlign::Super => altura + font_size * SUPER_OFFSET_RATIO,
         VerticalAlign::Middle => altura / 2.0 + font_size * X_HEIGHT_RATIO / 2.0,
-        VerticalAlign::TextTop => m.font_ascent(font_size),
-        VerticalAlign::TextBottom => altura - m.font_descent(font_size),
+        VerticalAlign::TextTop => m.font_ascent_family(font_size, family),
+        VerticalAlign::TextBottom => altura - m.font_descent_family(font_size, family),
         VerticalAlign::Baseline => ascent,
         VerticalAlign::Top | VerticalAlign::Bottom => altura,
     }
@@ -128,17 +131,18 @@ pub(in crate::layout) fn envelope_com_baseline(
     itens: &[(f32, f32, VerticalAlign)],
     font_size: f32,
     line_height: f32,
+    family: Option<&str>,
     m: &dyn TextMeasurer,
 ) -> Envelope {
-    let conteudo = m.line_height(font_size);
+    let conteudo = m.line_height_family(font_size, family);
     let meia = (line_height - conteudo) / 2.0;
-    let mut acima = meia + m.font_ascent(font_size);
+    let mut acima = meia + m.font_ascent_family(font_size, family);
     let mut abaixo = (line_height - acima).max(0.0);
     for &(altura, ascent, valign) in itens {
         if matches!(valign, VerticalAlign::Top | VerticalAlign::Bottom) {
             continue;
         }
-        let a = ascent_com_baseline_propria(valign, altura, ascent, font_size, m).max(0.0);
+        let a = ascent_com_baseline_propria(valign, altura, ascent, font_size, family, m).max(0.0);
         acima = acima.max(a);
         abaixo = abaixo.max((altura - a).max(0.0));
     }
@@ -163,12 +167,13 @@ pub(in crate::layout) fn topo_do_item_com_baseline(
     linha_y: f32,
     env: &Envelope,
     font_size: f32,
+    family: Option<&str>,
     m: &dyn TextMeasurer,
 ) -> f32 {
     match valign {
         VerticalAlign::Top => linha_y,
         VerticalAlign::Bottom => linha_y + env.altura() - altura,
-        _ => linha_y + env.acima - ascent_com_baseline_propria(valign, altura, ascent, font_size, m),
+        _ => linha_y + env.acima - ascent_com_baseline_propria(valign, altura, ascent, font_size, family, m),
     }
 }
 
@@ -365,5 +370,42 @@ mod tests {
         let env = envelope(&[], FONTE, &ApproxMeasurer);
         assert!((env.acima - ApproxMeasurer.font_ascent(FONTE)).abs() < 0.01);
         assert!((env.abaixo - ApproxMeasurer.font_descent(FONTE)).abs() < 0.01);
+    }
+
+    /// Lote `medidor-ahem` (ronda 2): `text-top`/`text-bottom` com o STRUT em
+    /// Ahem usam a fração EXATA da fonte (0.8/0.2), não `ASCENT_RATIO`/
+    /// `DESCENT_RATIO` (0.90/0.3125, calibradas contra o Chrome real).
+    #[test]
+    fn ascent_com_baseline_propria_usa_fracao_exata_da_ahem() {
+        let acima = ascent_com_baseline_propria(
+            VerticalAlign::TextTop, 100.0, 0.0, FONTE, Some("Ahem"), &ApproxMeasurer,
+        );
+        assert!((acima - FONTE * 0.8).abs() < 0.01, "acima={acima}");
+        let abaixo_do_topo = ascent_com_baseline_propria(
+            VerticalAlign::TextBottom, 100.0, 0.0, FONTE, Some("Ahem"), &ApproxMeasurer,
+        );
+        assert!((abaixo_do_topo - (100.0 - FONTE * 0.2)).abs() < 0.01, "{abaixo_do_topo}");
+    }
+
+    /// Sem família Ahem, o comportamento é EXATAMENTE o de antes (`None` e
+    /// uma família qualquer respondem o mesmo que sem o parâmetro) — este
+    /// lote não é um efeito colateral geral.
+    #[test]
+    fn ascent_com_baseline_propria_sem_ahem_nao_muda() {
+        let com_none = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, None, &ApproxMeasurer);
+        let com_arial = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, Some("Arial"), &ApproxMeasurer);
+        assert_eq!(com_none, com_arial);
+        assert!((com_none - FONTE * crate::style::ASCENT_RATIO).abs() < 0.01);
+    }
+
+    /// O STRUT do envelope (linha só de texto Ahem, sem inline-block) fecha
+    /// com `font_ascent`/`font_descent` exatos — 0.8/0.2 — em vez da
+    /// calibração do Chrome. `line_height` (o `conteudo` que decide a
+    /// meia-entrelinha) também responde 1em exato.
+    #[test]
+    fn envelope_com_baseline_do_strut_ahem_e_exato() {
+        let env = envelope_com_baseline(&[], FONTE, FONTE, Some("Ahem"), &ApproxMeasurer);
+        assert!((env.acima - FONTE * 0.8).abs() < 0.01, "acima={}", env.acima);
+        assert!((env.abaixo - FONTE * 0.2).abs() < 0.01, "abaixo={}", env.abaixo);
     }
 }

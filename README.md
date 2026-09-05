@@ -30,17 +30,17 @@
 JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1181/1514 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1182/1515 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **78%** (1181/1514) |
-| ✅ RTS = Bun = Node | 1181 |
+| **Parity** | **78%** (1182/1515) |
+| ✅ RTS = Bun = Node | 1182 |
 | ❌ RTS diverges | 248 |
 | 💥 RTS runtime error | 85 |
 | 🛠️  **Left to fix** | **333** |
-| ⚠️ Bun ≠ Node (skip) | 1 |
+| ⚠️ Bun ≠ Node (skip) | 0 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
@@ -219,7 +219,7 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `476bafe`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `48be9e6`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
