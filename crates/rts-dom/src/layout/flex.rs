@@ -169,13 +169,26 @@ pub(in crate::layout) fn layout_children_horizontal(
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let base = super::flex_limites::flex_base_outer(dom, child, content_w, font_size, ctx);
-        let h = child_outer_height(
+        // A altura CRUZADA mede-se com a largura que o item VAI TER (`base`,
+        // a "flex base size" da spec — Flexbox §9.2 passo 3), forçada via
+        // `forced_outer_w`, e não com a largura DISPONÍVEL do contentor
+        // inteiro (`content_w`): um item cujo conteúdo QUEBRA (texto,
+        // inline-block) muda de altura conforme a largura, e medi-lo contra
+        // `content_w` dava a um `flex:0 0 content` num contentor de 1px uma
+        // altura MULTIPLICADA (cada inline-block quebrando para a sua
+        // própria linha) mesmo já sabendo a largura certa
+        // (`flexbox-flex-basis-content-003a/003b`, WPT). Um item que ainda
+        // vai CRESCER/ENCOLHER (`main != base`) é remedido mais abaixo com o
+        // `main` FINAL (`it.h = ...` no laço por linha); para quem não
+        // muda, `base` já é a largura definitiva.
+        let (_, h) = measure_block(
             dom,
             child,
             content_w,
             container_content_h,
-            css,
-            font_size,
+            Some(base),
+            None,
+            true,
             ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
@@ -350,8 +363,17 @@ pub(in crate::layout) fn layout_children_horizontal(
             .as_ref()
             .map(|b| b.cross_size)
             .unwrap_or_else(|| line.iter().fold(0.0f32, |a, it| a.max(it.h)));
-        let line_h = super::flex_linhas::cross_unica_linha(n_lines, container_cross_h)
-            .unwrap_or(items_h + line_stretch_extra);
+        // Se a linha é ÚNICA e o contentor tem altura DEFINIDA, `line_h` é
+        // essa altura — e nesse caso (só nesse) o `stretch` abaixo tem de
+        // poder ENCOLHER um item até ela, não só crescê-lo: é a diferença
+        // entre "a linha transborda por um item MAIOR" (mantém-se, spec não
+        // pede encolher um item ao lado de outro) e "o CONTENTOR tem uma
+        // altura que o autor pediu" (essa vence sempre, Flexbox §9.4 passo
+        // 7 — align-items:stretch redimensiona o item à cross size da
+        // linha, período; o conteúdo do item é que pode transbordar DELE).
+        let cross_unica = super::flex_linhas::cross_unica_linha(n_lines, container_cross_h);
+        let cross_definida = cross_unica.is_some();
+        let line_h = cross_unica.unwrap_or(items_h + line_stretch_extra);
 
         // justify-content sobre o espaço restante PÓS-grow (com grow>0 o free é 0
         // e o justify é neutro — correto). Em overflow, ver justify_offsets.
@@ -380,7 +402,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             let stretches = item_align == crate::style::AlignItems::Stretch
                 && it.can_stretch
                 && !it.is_text
-                && line_h > it.h
+                && (line_h > it.h || cross_definida)
                 && auto_cross.is_none();
             let bo = baseline.as_ref().and_then(|b| b.offsets[j]);
             let off_cross = auto_cross.unwrap_or_else(|| {

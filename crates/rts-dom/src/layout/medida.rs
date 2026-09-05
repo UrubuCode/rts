@@ -318,26 +318,6 @@ pub(in crate::layout) fn intrinsic_content_width(
     width
 }
 
-/// `true` se este filho FECHA a corrida inline a que pertenceria — ou seja, se a
-/// linha do max-content acaba nele.
-///
-/// `is_block_level` sozinho não serve: ele responde `true` a um `inline-block`,
-/// porque um `inline-block` cria caixa e precisa do caminho de bloco para a
-/// pintar. Mas criar caixa e quebrar a linha são perguntas diferentes, e o
-/// `InlineBlock` é exatamente o valor que as separa — está escrito assim no
-/// cabeçalho do `is_inline_block`, e é a mesma família do "não é inline?" que
-/// esta árvore já pagou cinco vezes.
-///
-/// O `<br>` é o outro lado: não é de bloco, não cria caixa, e quebra na mesma.
-fn fecha_a_corrida(dom: &Dom, id: NodeIdx) -> bool {
-    if let NodeKind::Element { tag } = &dom.node(id).kind {
-        if tag == "br" {
-            return true;
-        }
-    }
-    is_block_level(dom, id) && !is_inline_block(dom, id)
-}
-
 /// A largura OUTER intrínseca de UM filho (max-content): seu `width` fixo (+ frame),
 /// senão a intrínseca do seu conteúdo (+ frame). Texto → largura do texto.
 pub(crate) fn intrinsic_outer_width(
