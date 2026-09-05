@@ -542,25 +542,41 @@ impl Stylesheet {
     }
 
     /// PASS B: as declarações normais e `!important` das regras que casaram, com
-    /// as pendentes (`prop: …var(--x)…`) resolvidas na POSIÇÃO da regra contra
-    /// as custom props do elemento.
+    /// as pendentes resolvidas na POSIÇÃO da regra — `prop: …var(--x)…` contra
+    /// as custom props do elemento, uma `-inline-` lógica
+    /// (`style::logical::e_direction_dependente`) contra `direction`.
+    ///
+    /// `direction`: o já conhecido para ESTE elemento neste ponto da cascade
+    /// (normalmente o herdado — `dom::cascade` calcula-o cedo, antes da
+    /// herança "oficial" correr, pela mesma razão que já calcula cedo o
+    /// `parent_font` do `font-size`). `None` nos chamadores sem árvore
+    /// (testes, `computed_for`, pseudo-elementos que ainda não passam um) —
+    /// cai no inicial (`ltr`), o mesmo que antes deste lote.
+    ///
+    /// As pendentes que PRECISAM de `var()` e não têm `vars` continuam sem
+    /// resolver, como já acontecia (`pseudo_box`/`marker_color`/testes
+    /// chamam com `vars: None`); as que só precisam de `direction` resolvem
+    /// sempre — não têm `var()` para faltar.
     pub fn declarations_from(
         &self,
         matched: &MatchedRules,
         vars: Option<&std::collections::HashMap<String, String>>,
+        direction: Option<crate::style::Direction>,
     ) -> DeclBlock {
+        let empty_vars = std::collections::HashMap::new();
+        let vars_map = vars.unwrap_or(&empty_vars);
         let mut out = DeclBlock::default();
         for (_, _, _, _, i) in &matched.rules {
             let r = &self.rules[*i];
             out.all_initial_normal |= r.decls.all_initial_normal;
             out.all_initial_important |= r.decls.all_initial_important;
             r.decls.apply_normal(&mut out.normal);
-            if let Some(v) = vars {
-                for (prop, raw, important) in &r.decls.pending {
-                    if !important {
-                        apply_resolved_decl(&mut out.normal, prop, raw, v);
-                    }
+            for (prop, raw, important) in &r.decls.pending {
+                if *important || (raw.contains("var(") && vars.is_none()) {
+                    continue;
                 }
+                let dir = out.normal.direction.or(direction);
+                apply_resolved_decl(&mut out.normal, prop, raw, vars_map, dir);
             }
         }
         // Ordem invertida p/ `!important` — ver `important_key`.
@@ -569,12 +585,12 @@ impl Stylesheet {
         for (_, _, _, _, i) in &important_rules {
             let r = &self.rules[*i];
             r.decls.apply_important(&mut out.important);
-            if let Some(v) = vars {
-                for (prop, raw, important) in &r.decls.pending {
-                    if *important {
-                        apply_resolved_decl(&mut out.important, prop, raw, v);
-                    }
+            for (prop, raw, important) in &r.decls.pending {
+                if !*important || (raw.contains("var(") && vars.is_none()) {
+                    continue;
                 }
+                let dir = out.important.direction.or(out.normal.direction).or(direction);
+                apply_resolved_decl(&mut out.important, prop, raw, vars_map, dir);
             }
         }
         super::revert::resolve_reverts(self, matched, &mut out); // lote J — ver revert.rs
@@ -600,6 +616,6 @@ impl Stylesheet {
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
         });
-        self.declarations_from(&matched, None)
+        self.declarations_from(&matched, None, None)
     }
 }

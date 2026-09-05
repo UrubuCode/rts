@@ -126,12 +126,17 @@ impl Dom {
             &|nome: &str| self.nodes[idx].attr(nome).map(str::to_string),
             contadores.get(&(idx, pe)),
         )?;
-        let decls = self.stylesheet.declarations_from(&matched, None);
+        // O `direction` do ORIGINANTE, já resolvido (herança incluída) — o
+        // pseudo herda dele daqui a pouco, e uma `margin-inline-*` que o
+        // pseudo declare tem de ver o MESMO valor, não o inicial.
+        let pai = self.computed_style_idx(idx);
+        let direction = pai.as_deref().and_then(|p| p.direction);
+        let decls = self.stylesheet.declarations_from(&matched, None, direction);
         // Herda do originante e só depois aplica o que o pseudo declara — a
         // ordem inversa perderia a herança para qualquer propriedade que o
         // pseudo não declare.
         let mut css = crate::style::ComputedStyle::default();
-        if let Some(pai) = self.computed_style_idx(idx) {
+        if let Some(pai) = pai {
             css.inherit_from(&pai);
         }
         css.merge_over(&decls.normal);
@@ -177,7 +182,7 @@ impl Dom {
         if matched.is_empty() {
             return None;
         }
-        let decls = self.stylesheet.declarations_from(&matched, None);
+        let decls = self.stylesheet.declarations_from(&matched, None, herdado.direction);
         let mut css = herdado.clone();
         css.merge_over(&decls.normal);
         css.merge_over(&decls.important);
@@ -288,6 +293,18 @@ impl Dom {
         let parent_css_for_vars = self
             .element_parent_idx(idx)
             .and_then(|p| self.base_style_idx(p));
+        // O `direction` HERDADO, cedo — pela mesma razão que `parent_font`
+        // (abaixo) é lido cedo: uma `margin-inline-*`/`padding-inline-*`/
+        // `border-inline-*` deste elemento (`style::logical`) só resolve o
+        // lado físico depois de saber o `direction`, e a herança OFICIAL
+        // (`css.inherit_from`, mais abaixo) só corre depois de as
+        // declarações próprias serem aplicadas. É só o FALLBACK: se este
+        // elemento também declarar `direction` (mesma regra ou outra mais
+        // específica), essa vitória normal da cascade continua a valer —
+        // `apply_resolved_decl` só usa isto quando o campo ainda está por
+        // declarar (`.or`). `direction_herdada::para_logicas` nega-o quando
+        // o pai é uma LINHA de flex — ver o cabeçalho lá para o porquê.
+        let parent_direction = direction_herdada::para_logicas(parent_css_for_vars.as_deref());
         // As regras que casam este nó, casadas UMA vez e usadas nos DOIS passes
         // (custom properties e declarações). Antes cada passe refazia o
         // matching completo — e o matching navega a árvore.
@@ -385,7 +402,8 @@ impl Dom {
         let author = if self.stylesheet.is_empty() {
             style::DeclBlock::default()
         } else {
-            self.stylesheet.declarations_from(&matched, Some(vars_ref))
+            self.stylesheet
+                .declarations_from(&matched, Some(vars_ref), parent_direction)
         };
         let override_node = self.style_overrides.get(&idx);
 
@@ -401,7 +419,8 @@ impl Dom {
         css.merge_over(&inline.normal); // style="" inline
         for (prop, raw, important) in &inline.pending {
             if !important {
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref);
+                let dir = css.direction.or(parent_direction);
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir);
             }
         }
         if let Some(ov) = override_node {
@@ -418,7 +437,8 @@ impl Dom {
         css.merge_over(&inline.important); // inline !important
         for (prop, raw, important) in &inline.pending {
             if *important {
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref);
+                let dir = css.direction.or(parent_direction);
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir);
             }
         }
         // o mapa de vars entra no computado (os FILHOS herdam daqui).

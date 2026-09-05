@@ -1,8 +1,8 @@
 {
   "pasta": "C:\\Users\\nexga\\AppData\\Local\\Temp/wpt/css/css-flexbox",
   "total": 489,
-  "passam": 384,
-  "falham": 105,
+  "passam": 386,
+  "falham": 103,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -104,12 +104,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-single-line-clamp-1",
-      "pct": 2.9734375,
-      "n": 30448,
-      "script": false
-    },
-    {
       "nome": "flexbox-writing-mode-010",
       "pct": 2.86875,
       "n": 29376,
@@ -120,12 +114,6 @@
       "pct": 2.81328125,
       "n": 28808,
       "script": true
-    },
-    {
-      "nome": "css-flexbox-img-expand-evenly",
-      "pct": 2.66484375,
-      "n": 27288,
-      "script": false
     },
     {
       "nome": "flexbox_flex-natural-mixed-basis-auto",
@@ -170,7 +158,7 @@
       "script": false
     },
     {
-      "nome": "flexbox_rtl-order",
+      "nome": "css-flexbox-img-expand-evenly",
       "pct": 1.2,
       "n": 12288,
       "script": false
@@ -233,12 +221,6 @@
       "nome": "flexbox-column-row-gap-002",
       "pct": 0.953125,
       "n": 9760,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-004",
-      "pct": 0.9375,
-      "n": 9600,
       "script": false
     },
     {
@@ -395,6 +377,12 @@
       "nome": "flexbox-flex-basis-content-001b",
       "pct": 0.4771484375,
       "n": 4886,
+      "script": false
+    },
+    {
+      "nome": "flexbox-writing-mode-004",
+      "pct": 0.46875,
+      "n": 4800,
       "script": false
     },
     {

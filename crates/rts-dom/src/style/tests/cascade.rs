@@ -197,7 +197,7 @@ fn at_rules_nao_corrompem_o_parse() {
         sel.compounds.len() == 1
             && compound_matches(&sel.compounds[0], "h1", None, &[], &|_| None, &|_| false)
     });
-    let no_match = sheet.declarations_from(&matched, None);
+    let no_match = sheet.declarations_from(&matched, None, None);
     // `h1` tem `font-size: 2em` na folha de UA (lote I, valor do Blink —
     // `em` de font-size resolve contra o PAI), que aplica SEMPRE (não tem
     // `@media`) — o `@media` que não casou aqui é só o do AUTOR, e sem ele o

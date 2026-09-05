@@ -362,17 +362,8 @@ pub(in crate::layout) fn layout_children_horizontal(
             .as_ref()
             .map(|b| b.cross_size)
             .unwrap_or_else(|| line.iter().fold(0.0f32, |a, it| a.max(it.h)));
-        // Se a linha é ÚNICA e o contentor tem altura DEFINIDA, `line_h` é
-        // essa altura — e nesse caso (só nesse) o `stretch` abaixo tem de
-        // poder ENCOLHER um item até ela, não só crescê-lo: é a diferença
-        // entre "a linha transborda por um item MAIOR" (mantém-se, spec não
-        // pede encolher um item ao lado de outro) e "o CONTENTOR tem uma
-        // altura que o autor pediu" (essa vence sempre, Flexbox §9.4 passo
-        // 7 — align-items:stretch redimensiona o item à cross size da
-        // linha, período; o conteúdo do item é que pode transbordar DELE).
-        let cross_unica = super::flex_linhas::cross_unica_linha(n_lines, container_cross_h);
-        let cross_definida = cross_unica.is_some();
-        let line_h = cross_unica.unwrap_or(items_h + line_stretch_extra);
+        let line_h = super::flex_linhas::cross_unica_linha(n_lines, container_cross_h)
+            .unwrap_or(items_h + line_stretch_extra);
 
         // justify-content sobre o espaço restante PÓS-grow (com grow>0 o free é 0
         // e o justify é neutro — correto). Em overflow, ver justify_offsets.
@@ -396,12 +387,31 @@ pub(in crate::layout) fn layout_children_horizontal(
             // align por item: `align-self` vence o `align-items` do container;
             // STRETCH real: item sem height explícito ganha a ALTURA DA LINHA
             // (forced_outer_h) — os cards `.col` preenchem a linha.
+            //
+            // `line_h != it.h` em vez do antigo `line_h > it.h`: o stretch do
+            // eixo cruzado (Flexbox §9.4 passo 7) impõe a altura da linha
+            // SEMPRE que a propriedade computa `auto` e a margem não é
+            // `auto` — inclusive para ENCOLHER um item cuja hipotética altura
+            // (`it.h`) já veio maior do que a linha. Dois casos independentes
+            // pediram exatamente isto: um `<img width>` sem `height` cuja
+            // razão de aspecto dá altura NATURAL maior do que a linha antes
+            // do stretch decidir (`claude-flexbox-img-expand-evenly`, WPT
+            // `css-flexbox-img-expand-evenly` — 3 `<img>` deviam esticar aos
+            // 48px da linha e ficavam com 98 pela razão 1:1 do PNG); e uma
+            // linha ÚNICA cujo contentor tem altura DEFINIDA (`line_h` vem
+            // dessa altura, `flex_linhas::cross_unica_linha`) — aí a altura
+            // que o autor pediu vence sempre (Flexbox §9.4 passo 7), mesmo
+            // que um item sem `height` tenha conteúdo natural maior
+            // (`flexbox-definite-sizes-003/004`, WPT: só encolhendo o item
+            // até `line_h` é que o seu `max-height:100%` interno se torna
+            // definido). `!=` continua a evitar o `layout_block_reusing`
+            // redundante quando já bate.
             let item_align = it.align_self.unwrap_or(align);
             let auto_cross = super::flex_margens_auto::off_cross(it.auto_topo, it.auto_fundo, line_h, it.h);
             let stretches = item_align == crate::style::AlignItems::Stretch
                 && it.can_stretch
                 && !it.is_text
-                && (line_h > it.h || cross_definida)
+                && (line_h - it.h).abs() > 0.5
                 && auto_cross.is_none();
             let bo = baseline.as_ref().and_then(|b| b.offsets[j]);
             let off_cross = auto_cross.unwrap_or_else(|| {

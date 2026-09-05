@@ -25,15 +25,14 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.padding.top = s;
             css.padding.bottom = s;
         }
-        "padding-inline-start" | "padding-inline-end" => {
-            // LTR: start=left, end=right. Sem distinguir aqui, aplica no lado certo.
-            let s = parse_side(val, Caixa::Padding);
-            if prop == "padding-inline-start" {
-                css.padding.left = s;
-            } else {
-                css.padding.right = s;
-            }
-        }
+        // `padding-inline-start`/`-end` NÃO entram aqui: o lado físico depende
+        // de `direction`, que só se conhece POR ELEMENTO — `style::logical`
+        // trata as duas (cabeçalho "Quando isto resolve"), com o mesmo `parse_side`
+        // reentregue por `aplica_declaracao("padding-left"/"padding-right", …)`.
+        // Duplicar aqui, mesmo que fosse direction-aware, era a MESMA tradução
+        // escrita duas vezes — achado pelo WPT `gap-007-rtl` (lote
+        // `flex-reverse-order`): este braço claimava o nome primeiro, sempre
+        // LTR, e `style::logical::try_apply` nunca chegava a ser chamado.
         // margin aceita `auto` (centralização); padding não.
         "margin" => set_edges(&mut css.margin, parse_edges(val, Caixa::Margem)),
         "margin-top" => set_side(&mut css.margin.top, parse_side(val, Caixa::Margem)),
@@ -50,16 +49,8 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             css.margin.top = s;
             css.margin.bottom = s;
         }
-        // LTR: start=left, end=right (o mesmo corte do `padding-inline-*` —
-        // `direction:rtl` é aceite mas o layout não inverte; ver `style::text`).
-        "margin-inline-start" | "margin-inline-end" => {
-            let s = parse_side(val, Caixa::Margem);
-            if prop == "margin-inline-start" {
-                css.margin.left = s;
-            } else {
-                css.margin.right = s;
-            }
-        }
+        // `margin-inline-start`/`-end`: mesmo motivo do `padding-inline-*`
+        // acima — cai em `style::logical`, direction-aware.
         "margin-block-start" | "margin-block-end" => {
             let s = parse_side(val, Caixa::Margem);
             if prop == "margin-block-start" {
