@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 373,
+    "passing": 384,
     "total": 489,
-    "pct": 76.3
+    "pct": 78.5
   },
   "expected_failures": [
     {
@@ -93,11 +93,16 @@
       "visibility-collapse — `visibility:collapse` distinto de `hidden` no `computedStyle`",
       "flex-cross-size — o cross-size de uma linha flex vence mesmo em overflow; `align-content` transborda quando as linhas não cabem",
       "flex-align-justify-familia — a causa comum de 33 reftests do WPT (`align-items`/`align-content`/`align-self`/`justify-content`/margens `auto`), todos a falhar por 0,0–0,2 % dos pixels",
+      "flex-gap-2 — `gap`/`row-gap`/`column-gap` em flex (Box Alignment §8): os 4 modos de escrita/direção, `column-gap` não empurra nada dentro de UMA coluna, margem `auto` vence o `justify-content` da sua coluna",
       "imagens-no-raster — o raster/paint-dump carregam PNG; `<img>` deriva a dimensão em falta pela razão e o item flex esticado transfere-a",
+      "flex-min-auto-content — `min-width`/`min-height:auto` (mínimo automático, Flexbox §4.5) num item flex, nos dois eixos; `min-width`/`max-width: max-content`/`min-content` num item flex",
+      "flex-baseline-2 — a baseline de um CONTENTOR flex vista de FORA (Flexbox §8.5)",
+      "flex-abspos-static-bfc — a STATIC POSITION de um `position:absolute` sem inset num eixo (CSS 2.1 §10.3.7/§10.6.4, Flexbox §4.1); overflow de `<body>`/`<html>` propagado à viewport não estabelece BFC",
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`"
     ],
     "parciais": [
-      "S-inline — caixa inline por FRAGMENTOS de linha"
+      "S-inline — caixa inline por FRAGMENTOS de linha",
+      "flex-aspect-ratio-collapse — aspect-ratio/tamanho intrínseco de substituídos em coluna (o corte deixado por `imagens-no-raster`); `visibility:collapse` horizontal/wrap FICA DE FORA, medido"
     ],
     "pendentes": [
       "Q — CSSOM",

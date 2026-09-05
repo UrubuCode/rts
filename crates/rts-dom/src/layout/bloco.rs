@@ -42,16 +42,14 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
                 | crate::style::DisplayKind::TableCaption
         )
     );
-    let overflow_bfc = [css.overflow_x, css.overflow_y].into_iter().any(|value| {
-        matches!(
-            value,
-            Some(
-                crate::scrollbar::Overflow::Auto
-                    | crate::scrollbar::Overflow::Scroll
-                    | crate::scrollbar::Overflow::Hidden
-            )
-        )
-    });
+    // CSS2.1 §9.4.1: "overflow" outro que não `visible` estabelece um BFC —
+    // `scrollable()` (auto/scroll) OU `clips()` (hidden/clip, CSS Overflow 3;
+    // `clip` entrou no lote `flex-min-auto-content`, retrabalho: antes de
+    // `Overflow::Clip` existir como variante própria, `hidden`/`clip` eram a
+    // MESMA e este `any` já os cobria os dois sem saber).
+    let overflow_bfc = [css.overflow_x, css.overflow_y]
+        .into_iter()
+        .any(|value| value.is_some_and(|o| o.scrollable() || o.clips()));
     let float_bfc = css
         .float_side
         .is_some_and(|side| side != crate::style::FloatSide::None);
@@ -83,7 +81,7 @@ pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: Nod
     css.flow_root.unwrap_or(false)
         || display_bfc
         || item_bfc
-        || overflow_bfc
+        || (overflow_bfc && !super::overflow_viewport::propagado_para_viewport(dom, id))
         || float_bfc
         || positioned_bfc
         || is_root
@@ -526,14 +524,14 @@ pub(crate) fn layout_block(
         // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
         // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao
         // content quando border-box; em content-box já são do content.
-        let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+        let mnw = super::intrinseco_min_max::resolve(css.min_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
             if border_box {
                 (v - (padding_h + border_h)).max(0.0)
             } else {
                 v
             }
         });
-        let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+        let mxw = super::intrinseco_min_max::resolve(css.max_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
             if border_box {
                 (v - (padding_h + border_h)).max(0.0)
             } else {
@@ -627,7 +625,7 @@ pub(crate) fn layout_block(
     };
     let ov_x = visible_vira_auto(ov_x_declarado);
     let ov_y = visible_vira_auto(ov_y_declarado);
-    let scrolls_x = ov_x.scrollable() || ov_x == crate::scrollbar::Overflow::Hidden;
+    let scrolls_x = ov_x.scrollable() || ov_x.clips();
     // A inflação vale para o eixo do FLUXO HORIZONTAL, que é onde a compressão
     // aconteceria (o flex encolhe os itens até caberem). Nos demais layouts ela
     // vira base de PORCENTAGEM dos filhos, e aí está errada: `width:100%` dentro
