@@ -398,12 +398,14 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
 /// esta função só vê o `Baseline` de uma coluna, ou de um item cujo grupo não
 /// tinha ninguém para partilhar a baseline). É o fallback que a própria spec
 /// prevê (Flexbox §8.5) quando o eixo cruzado não tem baseline partilhável.
+/// `LastBaseline` cai em `FlexEnd` (a margem INFERIOR) pelo mesmo motivo que
+/// `Baseline` cai em `FlexStart` — ver o corte no doc da variante.
 pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
     use crate::style::AlignItems as A;
     let free = line_h - item_h;
     match a {
         A::Stretch | A::FlexStart | A::Baseline => 0.0,
-        A::FlexEnd => free,
+        A::FlexEnd | A::LastBaseline => free,
         A::Center => free / 2.0,
     }
 }

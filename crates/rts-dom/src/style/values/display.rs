@@ -219,6 +219,16 @@ pub enum AlignItems {
     /// `layout/flex_baseline.rs` — só no eixo de LINHA (`flex-direction:
     /// row`); numa coluna cai para `FlexStart` (`coluna.rs::align_offset`).
     Baseline,
+    /// `last baseline` (CSS Box Alignment §9): a spec manda alinhar pela
+    /// ÚLTIMA baseline do item — este motor só mede a PRIMEIRA
+    /// (`linha_ib::ascent_do_item`, um valor por item, não por linha
+    /// interna). CORTE dito: cai para o fallback pela MARGEM INFERIOR
+    /// (`coluna.rs::align_offset` trata como `FlexEnd`) em vez de reusar o
+    /// ascent da primeira baseline — reusar daria uma resposta plausível mas
+    /// ERRADA quando primeira e última divergem (item multi-linha), e o
+    /// fallback físico nunca diverge entre um teste e a sua referência do
+    /// jeito que um ascent mal medido divergiria.
+    LastBaseline,
 }
 
 impl AlignItems {
@@ -229,6 +239,7 @@ impl AlignItems {
             "flex-end" | "end" | "self-end" => AlignItems::FlexEnd,
             "center" => AlignItems::Center,
             "baseline" | "first baseline" => AlignItems::Baseline,
+            "last baseline" => AlignItems::LastBaseline,
             _ => return None,
         })
     }
