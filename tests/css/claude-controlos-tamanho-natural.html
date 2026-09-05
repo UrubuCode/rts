@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<!-- Tamanho NATURAL de um controlo de formulário sem width/height — o achado
+     de flex-vertical-align-effect (WPT): um <input> sem width media 4×19 em
+     vez de ~180×19 porque intrinsic_content_width/replaced_inline_size
+     (crates/rts-dom/src/layout/medida.rs) não sabem medir um widget, só
+     texto/tabela/flex/bloco-por-filhos. Um de cada controlo solto (o
+     shrink-to-fit puro) e um de cada dentro de um flex container com
+     flex-basis:auto (a mesma pergunta, mas pela flex base size). -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px sans-serif; }
+  #flexo { display: flex; }
+  #flexo > * { margin: 0; }
+</style></head>
+<body>
+  <input id="txt" type="text">
+  <input id="chk" type="checkbox">
+  <input id="rad" type="radio">
+  <input id="sub" type="submit" value="Enviar">
+  <button id="btn">Clica</button>
+  <select id="sel"></select>
+  <textarea id="txa"></textarea>
+  <div id="flexo">
+    <input id="ftxt" type="text">
+    <input id="fchk" type="checkbox">
+    <input id="frad" type="radio">
+    <input id="fsub" type="submit" value="Enviar">
+    <button id="fbtn">Clica</button>
+    <select id="fsel"></select>
+    <textarea id="ftxa"></textarea>
+  </div>
+</body>
+</html>

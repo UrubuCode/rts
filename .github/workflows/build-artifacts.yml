@@ -395,8 +395,23 @@ jobs:
           set -e
           WPT_SHA=972e0e100fa754629cd00e549d6fa20a243af2bd
           git clone -q --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
-          git -C "$RUNNER_TEMP/wpt" sparse-checkout set css/css-flexbox resources
+          # `css` INTEIRO, e não `css/css-flexbox`: o corredor só aceita um
+          # reftest cujo alvo de `rel=match` exista em disco, e muitos testes
+          # de `css-flexbox` apontam para `../support/` e `/css/support/`,
+          # fora da pasta. Com o checkout estreito esses eram descartados em
+          # SILÊNCIO — 381 deles — e o número dizia 489 reftests onde a pasta
+          # tem 870. `fonts` entra porque 5 487 testes do WPT usam a Ahem.
+          git -C "$RUNNER_TEMP/wpt" sparse-checkout set css resources fonts
           git -C "$RUNNER_TEMP/wpt" checkout -q "$WPT_SHA"
+          # SEM `--esperado`, e a razão é o que essa guarda protege. Ela existe
+          # para a árvore PARTILHADA de uma máquina de trabalho, onde um
+          # `sparse-checkout` de outra pessoa encolhe o corpus a meio de uma
+          # medição. Aqui o checkout é criado do zero a cada corrida e fixado
+          # num commit, portanto não há nada que o encolha — e um número fixo
+          # no workflow passaria a ser uma segunda fonte da verdade sobre o
+          # tamanho do corpus, que envelhece no dia em que `WPT_SHA` subir.
+          # O total medido vai para `wpt_report.json` e para o README, que é
+          # onde uma queda de denominador se vê.
           node scripts/wpt_reftests.mjs "$RUNNER_TEMP/wpt/css/css-flexbox" --out "$RUNNER_TEMP/wpt-out" | tee wpt.txt
           { echo "### WPT reftests (css-flexbox @ ${WPT_SHA:0:9})"; echo; echo '```'; cat wpt.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           mkdir -p .github && cp "$RUNNER_TEMP/wpt-out/relatorio.json" .github/wpt_report.json

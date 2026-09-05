@@ -174,7 +174,7 @@ pub(in crate::layout) fn intrinsic_content_width(
             return w;
         }
     }
-
+    if let Some(w) = dom.computed_style_idx(id).and_then(|css| super::input::tamanho_natural_controlo(dom, id, &css, font, ctx)).map(|(w, _)| w) { dom.intrinsic_width_put(key, w); return w; }
     // folha de texto puro → largura do texto.
     let own_text = collect_text(dom, id);
     let only_text = !dom.node(id).children.is_empty()
