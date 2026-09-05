@@ -42,6 +42,7 @@ mod imagem;
 mod lifecycle;
 mod location;
 mod nodes;
+mod raizes;
 mod recursos;
 mod scroll;
 mod travessia;
