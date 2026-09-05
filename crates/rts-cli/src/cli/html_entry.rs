@@ -9,16 +9,18 @@
 //! never learn the entry was HTML at all; they see one more string of source
 //! text.
 //!
-//! # `casca()`, and why it exists instead of a call to `loadDocument`
+//! # `casca()`, and what loads the page
 //!
-//! The shape this shell wants is `loadDocument(html, url): Document` — parse
-//! + resources + scripts + `DOMContentLoaded`/`load` in one call — which
-//! another lot in flight is building in `rts-dom`. Until it lands, [`CASCA_FN`]
-//! composes the same result from what already exists:
-//! `parseDocument`+`loadResources`+`runScriptsAt`, exactly the sequence
-//! `app.ts` hand-writes today. Its own leading comment marks the one line to
-//! delete once `loadDocument` exists, so swapping it is a one-line change to
-//! this module rather than a rewrite of the generator.
+//! [`CASCA_FN`] loads the page through `loadDocumentFrom(html, url,
+//! resourceBase)` (`crates/rts-dom/src/lifecycle.ts`): the HTML spec's
+//! navigation — parse, resources, the parse-time `<script>`s in document
+//! order, `DOMContentLoaded`, `load` — after which a `<script>` appended by
+//! the page runs on its own. The DOM knows nothing of the compiler; the seam
+//! it runs script text through is the same one a JIT run and an AOT binary
+//! already fill (`docs/engine/aot-page-scripts.md`). It shipped first with
+//! `parseDocument`+`loadResources`+`runScriptsAt` composed by hand (#2684),
+//! while the lifecycle lot was in flight; the swap was the one-line change
+//! that comment promised.
 //!
 //! # Embedded vs read from disk
 //!
@@ -41,13 +43,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 /// The loop every generated program shares — `app.ts`'s own sequence, wrapped
-/// in a function whose `resourceBase`/`scriptUrl`/`title` arguments stand in
-/// for the single `loadDocument(html, url)` call this shell will make once
-/// that lot lands.
+/// in a function whose `resourceBase`/`scriptUrl`/`title` arguments feed one
+/// `loadDocumentFrom(html, scriptUrl, resourceBase)` call.
 ///
 /// `resourceBase` and `scriptUrl` stay two parameters rather than one `url`
-/// because they answer different questions: `loadResources` resolves a
-/// relative HREF against a filesystem/URL base, `runScriptsAt` publishes a
+/// because they answer different questions: the resource loader resolves a
+/// relative HREF against a filesystem/URL base, the script scope publishes a
 /// `window.location` a script may read — `app.ts` keeps them apart for the
 /// same reason, and a page whose scripts read `location.href` while its
 /// `<link>`s resolve against a local folder needs both answers to be real.
