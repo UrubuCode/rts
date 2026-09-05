@@ -10,6 +10,20 @@ impl ComputedStyle {
     /// nenhum, o render desenha direto (sem o overhead do Frame).
     pub fn has_box(&self) -> bool {
         self.bg.is_some()
+            // `background-image` SEM cor de fundo. Faltava, e o efeito era o
+            // mesmo do braço dos estilos de borda abaixo: um `<div>` que só
+            // declara `background: url(…)` — sem cor, sem largura, sem borda —
+            // dava `false` aqui, e o bloco que emite fundo e imagem era
+            // saltado inteiro. Os pixels estavam carregados e ninguém os
+            // pintava.
+            //
+            // Achado por uma REFERÊNCIA partilhada que renderizava vazia:
+            // `positioning/bottom-applies-to-001-ref.xht` é `html,body,div
+            // {height:100%}` mais `div{background:url(…) no-repeat 8px
+            // bottom}`, e 24 testes comparam-se contra ela. Uma referência
+            // errada faz falhar todos os testes que a usam, e não há nada no
+            // resultado desses testes que aponte para ela.
+            || self.bg_image.is_some()
             || self.gradient.is_some()
             || self.box_shadow.is_some()
             || self.padding.any_set()
