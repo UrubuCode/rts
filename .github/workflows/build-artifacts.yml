@@ -157,6 +157,13 @@ jobs:
       # The refusal is `console.error`, which this engine sends to STDERR —
       # checked there rather than on stdout, which answers the empty string
       # `dom.getText` gives back for a `textContent` `eval` never got to set.
+      #
+      # The exact wording changed with `aot-scripts-de-pagina` (#2679):
+      # `page_scripts`'s hook is now installed on BOTH archives (empty table
+      # on the small one, since this fixture has no `--html`), so a miss
+      # raises `page_scripts`'s own, more specific `TypeError` — "not
+      # pre-compiled into this AOT binary" — rather than the generic "a fonte
+      # não compilou" this smoke used to check for.
       - name: Smoke test — rts compile --sem-compilador still refuses eval (AOT, small archive)
         shell: bash
         run: |
@@ -164,7 +171,28 @@ jobs:
           target/release/rts compile --sem-compilador tests/aot/claude-pagina-eval.ts smoke_small
           if [ -x smoke_small.exe ]; then err=$(./smoke_small.exe 2>&1 1>/dev/null); else err=$(./smoke_small 2>&1 1>/dev/null); fi
           echo "eval(\"1+2\") inside the page's own <script>, --sem-compilador, stderr: $err"
-          echo "$err" | grep -q "a fonte não compilou"
+          echo "$err" | grep -q "not pre-compiled into this AOT binary"
+
+      # BLOCKING, and this is `--html`'s own claim: a page's <script> found by
+      # the hash of its exact source runs on BOTH archives, with no compiler
+      # needed at all on the small one. `tests/aot/claude-pagina-com-script.ts`
+      # reads its `.html` off disk the same way `claude-pagina-eval.ts` does,
+      # so this is a claim about what the BUILD precompiled, not about
+      # anything the object references statically.
+      - name: Smoke test — rts compile --html precompiles a page's <script> (AOT, both archives)
+        shell: bash
+        run: |
+          rm -f smoke_html smoke_html.exe smoke_html.obj smoke_html.rtsdata
+          target/release/rts compile --html tests/aot/claude-pagina-com-script.html tests/aot/claude-pagina-com-script.ts smoke_html
+          if [ -x smoke_html.exe ]; then out=$(./smoke_html.exe); else out=$(./smoke_html); fi
+          echo "--html, default archive: $out"
+          echo "$out" | grep -q "textContent: ok"
+
+          rm -f smoke_html smoke_html.exe smoke_html.obj smoke_html.rtsdata
+          target/release/rts compile --html tests/aot/claude-pagina-com-script.html --sem-compilador tests/aot/claude-pagina-com-script.ts smoke_html
+          if [ -x smoke_html.exe ]; then out=$(./smoke_html.exe); else out=$(./smoke_html); fi
+          echo "--html, --sem-compilador (small archive): $out"
+          echo "$out" | grep -q "textContent: ok"
 
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'

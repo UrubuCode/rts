@@ -1,10 +1,12 @@
-// What `rts compile --embed-compiler` exists to make true: a page's own
-// `<script>` can call `eval` inside a compiled `.exe`, exactly as it already
-// does under `rts run` (`rts-dom-bridge::DomScope::run` ->
-// `evaluate_in_scope_with_receiver`). The DEFAULT archive (`rts-runtime`)
-// installs no evaluator — `rts-host/README.md` states the refusal by name —
-// so this same program, compiled WITHOUT the flag, prints the empty string
-// `eval` never got the chance to fill in.
+// What `rts compile` exists to make true, by DEFAULT now (the flag in this
+// file's own name predates that flip and stays valid as an accepted
+// synonym): a page's own `<script>` can call `eval` inside a compiled
+// `.exe`, exactly as it already does under `rts run`
+// (`rts-dom-bridge::DomScope::run` -> `evaluate_in_scope_with_receiver`).
+// `--sem-compilador`/`--no-compiler` opts OUT, to the small archive
+// (`rts-runtime`), which installs no evaluator — `rts-host/README.md`
+// states the refusal by name — so this same program, compiled WITH that
+// flag, prints the empty string `eval` never got the chance to fill in.
 //
 // No window: this is the DOM headless, exactly as `dom.parseHtml` always is
 // without a `rts:egui` surface open, so the claim is about the compiler and

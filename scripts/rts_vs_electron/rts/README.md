@@ -6,13 +6,15 @@
 
 ## Estado (2026-09-04, depois do lote `aot-embed-compiler`): o JS da página deixa de precisar de um caminho especial
 
-A secção que esteve aqui media exatamente o gap que a lista "O que falta" abaixo descrevia — e a primeira das duas alternativas que ela propunha é o que o lote `aot-embed-compiler` entregou: `rts compile` (sem flag nenhuma) já embarca `rts-codegen`/`rts-cranelift` no binário, ligando `rts-runtime-jit` em vez de `rts-runtime`. `app.ts` chama `runScriptsAt(doc, "https://localhost/")` — a mesma função que `examples/claude-react-janela.ts` usa no lado JIT — e essa chamada agora encontra um compilador instalado (`rts_host::install_compiler`, os mesmos seis ganchos que o JIT já instala) em vez do `context.eval_compiler_with_receiver` vazio que produzia:
+A secção que esteve aqui media exatamente o gap que a lista "O que falta" abaixo descrevia — e a primeira das duas alternativas que ela propunha é o que o lote `aot-embed-compiler` entregou: `rts compile` (sem flag nenhuma) já embarca `rts-codegen`/`rts-cranelift` no binário, ligando `rts-runtime-jit` em vez de `rts-runtime`. `app.ts` chama `runScriptsAt(doc, "https://localhost/")` — a mesma função que `examples/claude-react-janela.ts` usa no lado JIT — e essa chamada agora encontra um compilador instalado (`rts_host::install_compiler`, os mesmos seis ganchos que o JIT já instala) em vez do `context.eval_compiler_with_receiver` vazio que produzia, à data em que esta secção foi escrita:
 
 ```
 [page] <script> 0 de https://localhost/ falhou: a fonte não compilou
 ```
 
-**Não medido de novo NESTE merge** — a reconciliação trouxe o código, `scripts/rts_vs_electron/medir.mjs` (que lê `js_da_pagina`/`razao_js_da_pagina` do stderr real, nunca escritos à mão) é quem tem a palavra final. `--sem-compilador`/`--no-compiler` continua a existir para o lado que quiser voltar a medir o gap antigo de propósito.
+A reconciliação com `aot-scripts-de-pagina` (#2679, mergeado depois desta secção) mudou a palavra exata da recusa quando NÃO há compilador nenhum instalado: `page_scripts` passou a ser o gancho instalado em toda AOT (tabela vazia sem `--html`), e uma falta responde agora com o seu próprio `TypeError` — "this script was not pre-compiled into this AOT binary" — em vez da frase genérica acima. `--sem-compilador`/`--no-compiler` continua a existir para o lado que quiser voltar a medir o gap antigo de propósito; só o texto exato do sintoma mudou.
+
+**Não medido de novo NESTE merge** — a reconciliação trouxe o código, `scripts/rts_vs_electron/medir.mjs` (que lê `js_da_pagina`/`razao_js_da_pagina` do stderr real, nunca escritos à mão) é quem tem a palavra final.
 
 Se este app também ganhar um `rts compile --html scripts/rts_vs_electron/app/index.html`, os `<script>`s conhecidos passam a vir PRÉ-compilados do build (`docs/engine/aot-page-scripts.md`) e o compilador embarcado fica como *fallback* apenas para o que `--html` não viu — `crates/rts-runtime-boot/src/page_scripts.rs` tem a composição dos dois.
 
