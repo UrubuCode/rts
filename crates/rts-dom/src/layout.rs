@@ -60,6 +60,8 @@ mod medida;
 pub mod medidor_ativo;
 mod pintura;
 mod margem_escapada;
+mod overflow_viewport;
+mod posicao_estatica;
 mod posicionado;
 mod pseudo_bloco;
 mod relativo;
