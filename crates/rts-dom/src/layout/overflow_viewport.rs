@@ -19,6 +19,44 @@
 
 use super::*;
 
+/// A largura que os filhos de um flex-row/wrap recebem quando `overflow_x`
+/// não é `visible` — parte de `bloco.rs::layout_children` (movida para aqui
+/// por já estar no teto de 500/1000 linhas, RULE de tecto do `CLAUDE.md`).
+///
+/// Duas perguntas distintas partilhavam uma variável só (`scrolls_x`, #1744):
+/// "os filhos podem transbordar sem SER COMPRIMIDOS" (a resposta é sim para
+/// `auto`/`scroll` — rolam de verdade — E para `hidden`/`clip`, que também
+/// não devem cortar um item ao MEIO só porque escondem o excesso), e "onde é
+/// que uma linha de `flex-wrap:wrap` QUEBRA" — que é uma pergunta SÓ de
+/// `auto`/`scroll`: um scroll container real tem sentido "não quebrar, deixar
+/// rolar"; um `overflow:hidden`/`clip` não rola NUNCA (`Overflow::clips()`),
+/// então não há para onde "rolar" o excesso — a linha quebra na largura
+/// DECLARADA como sempre quebraria, e o que sobra do último item é só
+/// CORTADO na pintura. Fundir as duas perguntas fazia um `flex-wrap:wrap`
+/// com `overflow:hidden` e um item que não encolhe (`flex-shrink:0`) parar de
+/// quebrar linha (a largura "inflada" pela intrínseca cabia tudo numa só),
+/// que é o oposto do WPT `flexbox-overflow-horiz-004`/`-005` (o `align-content`
+/// da segunda linha, com container `wrap` mas UMA linha só, saía sem
+/// distribuição nenhuma — os itens colavam ao topo em vez do `space-around`
+/// das duas linhas que a referência espera).
+pub(in crate::layout) fn scroll_children_width(
+    dom: &Dom,
+    id: NodeIdx,
+    font_size: f32,
+    ctx: &LayoutCtx,
+    display: i64,
+    ov_x: crate::scrollbar::Overflow,
+    content_w: f32,
+) -> f32 {
+    let quebra_livre = display == crate::block::DISPLAY_WRAP && !ov_x.scrollable();
+    let nao_comprime = ov_x.scrollable() || ov_x.clips();
+    if nao_comprime && !quebra_livre {
+        super::medida::intrinsic_content_width(dom, id, font_size, ctx).max(content_w)
+    } else {
+        content_w
+    }
+}
+
 /// `true` quando o `overflow` de `id` (já sabido ≠ `visible`, é só essa
 /// pergunta que interessa aqui) PROPAGOU para a viewport em vez de contar
 /// para o próprio `<body>` — ou seja, quando `overflow_bfc` deve ser
