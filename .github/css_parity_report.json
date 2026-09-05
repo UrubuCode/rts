@@ -1,20 +1,20 @@
 {
   "date": "2026-09-05",
   "fixtures": {
-    "passing": 141,
+    "passing": 139,
     "total": 146,
-    "pct": 96.6
+    "pct": 95.2
   },
   "measurements": {
-    "matching": 3295,
+    "matching": 3292,
     "total": 3340,
-    "pct": 98.7
+    "pct": 98.6
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 598,
+    "passing": 600,
     "total": 870,
-    "pct": 68.7,
+    "pct": 69,
     "by_subfolder": {
       "balance": {
         "passing": 5,
@@ -43,7 +43,7 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 139,
+        "passing": 140,
         "total": 160
       },
       "item": {
@@ -63,7 +63,7 @@
         "total": 46
       },
       "percentage": {
-        "passing": 18,
+        "passing": 19,
         "total": 39
       },
       "baseline": {
@@ -234,7 +234,8 @@
       "flex-coluna-wrap-intrinseco — `intrinsic-size/col-wrap-*` e `balance/*` do WPT flexbox — nunca medido (as duas subpastas ficavam fora do corredor de reftests não-recursivo/sparse-checkout)",
       "medidor-ahem — a fonte Ahem (WPT: 5 487 testes em `css/`) medida EXATA no `ApproxMeasurer` em vez da aproximação proporcional/mono — sem `@font-face`, sem parser de TTF, só o NOME `font-family: Ahem` (`style::ahem::is_ahem_family`, mesma regra de `is_mono_family`)",
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`",
-      "css2-normal-flow-unidades — `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste"
+      "css2-normal-flow-unidades — `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste",
+      "borda-unidades — `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde)"
     ],
     "parciais": [
       "S-inline — caixa inline por FRAGMENTOS de linha",
@@ -246,7 +247,8 @@
     "pendentes": [
       "Q — CSSOM",
       "U — composição e pintura",
-      "V–Y — a superfície DOM que as bibliotecas pedem"
+      "V–Y — a superfície DOM que as bibliotecas pedem",
+      "borda-conflito-hidden — os 6 perdidos de `borda-unidades`: `border-conflict-style-101` a `-106` — `tr{border-color:red;border-style:hidden}`+`td{border:red solid}` sob `border-collapse:collapse` deviam sair SEM vermelho nenhum (CSS 2.1 §17.6.2: `hidden` vence qualquer conflito e apaga a borda, tem prioridade sobre `solid`); o motor pinta vermelho onde devia ficar branco"
     ]
   }
 }
