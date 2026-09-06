@@ -148,18 +148,32 @@ this — it comes back with its caller, in the same change.
 
 ### 10. A reference this crate holds is a reference the collector is told about
 
-Two hand-written lists say what is live: `roots::context_roots` enumerates the
-fields of `Context` that hold one, and `trace::edges_of` walks the side tables a
-marked cell reaches through. **A list is a place a thing can be missing from**,
+Two lists say what is live: `roots::context_roots` enumerates the fields of
+`Context` that hold one, and `side_tables` says which of the tables beside a
+cell can name another cell. **A list is a place a thing can be missing from**,
 and a reference missing from one does not fail where the mistake is — it fails
 at a collection, later, somewhere else.
 
+The second of the two is no longer hand-written, and that is the difference
+worth knowing when adding a table. `side_tables::SideTable` names every `Aside`
+of `Context`, `holds_references` answers for each one in a `match`, and
+`side_tables::edges` walks `SideTable::ALL`. **A `match` is total, so the
+compiler refuses the crate until a new table has an answer** — where the
+previous shape, a sequence of `if let`s closed by a paragraph, could accept
+silence. A debug assertion refuses the other drift: an arm that contributes an
+edge while its table answers `false`.
+
+What that does NOT close is stated in the module and is the reason this rule
+still exists: adding a field to `Context` does not add a variant. The author
+writes the variant, and what the compiler enforces from there is that every
+variant is classified and every classification is acted on.
+
 So, when adding anything:
 
-- **A new `Aside<T>` that can hold a `Value` gets an arm in `edges_of`, or a
-  line in its closing comment saying why it holds no reference.** In neither
-  list is the bug. `cursors` sat in exactly that state and a `for`-`of` over a
-  Set ENDED EARLY in silence.
+- **A new `Aside<T>` gets a variant in `SideTable`**, and its answer in
+  `holds_references` decides whether it also gets an arm that traces it. In
+  neither is no longer representable; being in neither *list* is what `cursors`
+  was, and a `for`-`of` over a Set ENDED EARLY in silence.
 - **A native that builds a cell roots it before anything else can allocate.**
   `cell` is a bare `u32` in a Rust frame and the stack scan recognises an
   encoded `Value`, not an index; `Rooted` is the guard, and `alloc_or_die`,
