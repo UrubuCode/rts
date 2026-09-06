@@ -606,6 +606,17 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     let Some(cell) = Value(callable).as_slot() else {
         return callable;
     };
+    // `Symbol.name` and `Symbol.length`, which every other constructor gets from
+    // `#[rtse::class]` and this one — built by hand, for the reason above — got
+    // from nothing. Both read `undefined`, and the visible cost is not the
+    // metadata itself: `e.constructor.name` is how a program names the thing it
+    // caught, so `try { throw Symbol() } catch (e) { e.constructor.name }`
+    // answered `undefined` where every runtime answers `"Symbol"`.
+    //
+    // `0` is the arity the specification pins: `Symbol(description)` counts no
+    // required argument.
+    super::native::name_of(context, callable, "Symbol");
+    super::native::length_of(context, callable, 0);
     super::native::install(context, cell, &[("for", for_key), ("keyFor", key_for)]);
     if let Some(prototype) = prototype_of(context) {
         let key = context.well_known("prototype");

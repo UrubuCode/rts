@@ -376,7 +376,19 @@ impl Writer {
             // only if a hook is actually reached: it is a `number_to_string` and
             // an ALLOCATION, and it was paid per element of every array ever
             // serialised, for a hook almost no value has.
-            let held = self.hooked(Value::from_slot(cell).bits(), *element, HookKey::Index(at));
+            // A HOLE reaches the hooks as `undefined`, which is what the
+            // property read the specification performs would answer for it. The
+            // sentinel was handed over raw, so a replacer inspecting
+            // `[1, , 3]` saw `typeof v === "object"` for the middle member —
+            // this crate's internal marker, leaked to a program's callback.
+            // What is WRITTEN for it stays `null`, which the arm below decides.
+            let element = match with_current(|context| {
+                super::super::array::is_hole(context, *element)
+            }) {
+                true => super::super::modules::undefined_value(),
+                false => *element,
+            };
+            let held = self.hooked(Value::from_slot(cell).bits(), element, HookKey::Index(at));
             if !self.write(held, depth + 1) {
                 self.ascii("null");
             }

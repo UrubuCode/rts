@@ -341,8 +341,61 @@ extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, 
 /// functions below `staged` for exactly this distinction, and its own
 /// documentation names the same mistake ("copying a thousand-element array to
 /// answer whether it contains a number is the whole cost of the answer").
+/// # An ARRAY-LIKE has a length too, and it is a property
+///
+/// `Array.prototype.reduce.call({0:1, 1:2, length:2}, f)` is a call the language
+/// defines: every method here is written over `LengthOfArrayLike`, which is
+/// `ToLength(Get(O, "length"))` and says nothing about an elements vector. This
+/// answered `None` for anything without one, so the whole family — `reduce`,
+/// `map`, `filter`, `join`, `indexOf` and the rest — answered `undefined` for
+/// the receiver the specification spends a paragraph per method accommodating.
+///
+/// The elements vector stays the FIRST question, and that is the point: a real
+/// array reads its length from a `Vec` header and pays nothing for the fallback
+/// below.
 pub(super) fn len_of(this: u64) -> Option<usize> {
-    with_current(|context| Some(super::borrowed(context, this)?.len()))
+    if let Some(count) = with_current(|context| Some(super::borrowed(context, this)?.len())) {
+        return Some(count);
+    }
+    // Only an object has properties to ask about. A primitive receiver keeps the
+    // old answer, which is what makes `[].map.call(7, f)` stay `undefined`
+    // rather than becoming a walk over nothing.
+    if !with_current(|context| super::super::objects::is_object(context, this)) {
+        return None;
+    }
+    let key = with_current(|context| context.well_known_text("length"));
+    let raw = super::super::computed::get_indexed(this, key);
+    if super::super::throw::in_flight() {
+        return None;
+    }
+    // `ToLength`: a negative, a `NaN` and a fraction all clamp, which is what
+    // makes `{length: -1}` a zero-length walk rather than an enormous one.
+    let count = super::super::class_support::to_number(raw);
+    if super::super::throw::in_flight() {
+        return None;
+    }
+    match count.is_finite() && count >= 1.0 {
+        true => Some(count.min(MAX_LENGTH) as usize),
+        false => Some(0),
+    }
+}
+
+/// `2^53 - 1`, which is what `ToLength` clamps to and the largest length the
+/// language admits.
+const MAX_LENGTH: f64 = 9_007_199_254_740_991.0;
+
+/// Whether this receiver keeps its own elements, and therefore answers about
+/// them definitively.
+///
+/// The question [`existing`] has to ask before it falls back to the property
+/// path: a HOLE in a real array is an absence, and asking the property path
+/// about it would walk the prototype chain and find whatever is there.
+fn holds_elements(this: u64) -> bool {
+    with_current(|context| {
+        Value(this)
+            .as_slot()
+            .is_some_and(|cell| context.elements_at(cell).is_some())
+    })
 }
 
 /// The element at a position RIGHT NOW, or `None` if there is none there.
@@ -356,11 +409,30 @@ pub(super) fn len_of(this: u64) -> Option<usize> {
 /// `delete`d. The two are one answer here because every caller treats them
 /// alike — the specification asks `HasProperty` and gets `false` for both.
 pub(super) fn existing(this: u64, index: usize) -> Option<u64> {
-    with_current(|context| {
-        let cell = Value(this).as_slot()?;
-        let held = *context.elements_at(cell)?.get(index)?;
-        (!super::super::array::is_hole(context, held)).then_some(held)
-    })
+    if holds_elements(this) {
+        return with_current(|context| {
+            let cell = Value(this).as_slot()?;
+            let held = *context.elements_at(cell)?.get(index)?;
+            (!super::super::array::is_hole(context, held)).then_some(held)
+        });
+    }
+    // An ARRAY-LIKE, where a position is an ordinary property: `HasProperty`
+    // then `Get`, which is what the specification asks and what makes a hole in
+    // one — a key that is simply not there — skip exactly as a hole in a real
+    // array does. Both run user code, so both happen outside every borrow.
+    let key = with_current(|context| {
+        context
+            .intern_value(crate::text::Str::from_str(&index.to_string()))
+            .bits()
+    });
+    if !super::super::computed::has_property(key, this) || super::super::throw::in_flight() {
+        return None;
+    }
+    let held = super::super::computed::get_indexed(this, key);
+    match super::super::throw::in_flight() {
+        true => None,
+        false => Some(held),
+    }
 }
 
 /// The same, as the program SEES it: an absent position reads `undefined`.
