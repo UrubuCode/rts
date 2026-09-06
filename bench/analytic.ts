@@ -32,9 +32,32 @@
 // is fifteen now and the rows below fell by up to 97%. Its documentation in
 // `rts-core`'s `heap::region` has the whole trade, including what it cost.
 //
-// The cliff still exists at the SIXTEENTH property. A row here that looks
-// absurd against node is still worth checking with `RTS_TIMING=1` before it is
-// read as the cost of the operation.
+// **The cliff has moved, and this paragraph used to point at the wrong half of
+// it.** It said the cliff still exists at the sixteenth property, meaning
+// READS. Measured 2026-09-06 by the four `ic read slot …` rows added below,
+// that is no longer true: slot 0, slot 14, slot 15 and slot 31-of-32 all read
+// at 2.90–3.08 ns, which is one number, not a cliff.
+//
+// What DOES fall off is CONSTRUCTION, and by more than anything else in this
+// file: `alloc object literal 8 escaping` is 57.9 ns and `alloc object literal
+// 16 escaping` is **7 473 ns** — 129×, against bun's 6.4 → 13.1. So a row that
+// looks absurd is still worth checking with `RTS_TIMING=1`, but the thing to
+// suspect is the overflow path of the WRITE, not a cached read that refused.
+//
+// # The 500-line ceiling, and why this file is exempt
+//
+// CLAUDE.md sets 500 lines for everything outside the two engine crates and
+// this file is far past it. The exemption is the section above: it must run
+// unmodified under `rts`, `node` and `bun`, so it can have no imports, and a
+// benchmark corpus with no imports is one file or it is nothing. Splitting it
+// into a folder would tie every measurement to one runtime's module resolution
+// — which is one of the things being measured.
+//
+// Recorded here rather than assumed, because RULE 0 says a rule the code
+// contradicts gets changed with its reason rather than left standing. What the
+// ceiling is protecting — that a change lands in a small focused module instead
+// of being appended to something oversized — has no purchase on a file whose
+// contents are a list of independent cases with no structure to erode.
 //
 // # Honesty
 //
@@ -682,6 +705,1635 @@ bench("flow", "switch 8-way", (n) => {
   return a;
 });
 
+// ===========================================================================
+// PART TWO — added 2026-09-06
+//
+// # Why it is appended rather than merged into the sections above
+//
+// Every row above has a number recorded against its name somewhere in
+// `docs/codegen/`. Renaming one, or moving it so the table's order changes,
+// silently invalidates those records — so nothing above this line was touched,
+// and the rows below are new names only. A number for `prop read own` taken
+// today is still comparable with the one in `plan.md`.
+//
+// # The rule these cases follow, and the defect it avoids
+//
+// **A fixture belongs INSIDE its case body, hoisted above the loop.** Not at
+// module scope. The header of this file records why in the only terms that
+// matter here: a closure's environment is an object, so every module-level
+// binding a case captures is a property of one object, and the property past
+// the fifteenth is uncacheable. This file already reported rows ten times too
+// high once for exactly that reason. Doubling the number of cases by doubling
+// the number of module-level fixtures would have re-created it, and the damage
+// would have landed on the rows above — which is to say, on the records.
+//
+// Creating the fixture inside `run(n)` costs one construction per measured
+// call, against `n` iterations of the loop. At the counts this harness settles
+// on it is not visible.
+//
+// Three module-level bindings are added and no more, each because a case needs
+// a value the compiler must NOT be able to prove:
+//
+//   KEEP          — an escape hatch. Assigning to it is the cheapest way to
+//                   stop an allocation being scalar-replaced away, which is
+//                   what `plan.md` §7.1 records as the reason the two
+//                   `alloc object literal` rows above measure nothing.
+//   ESCAPED_MASK  — an integer the emitter cannot fold.
+//   ESCAPED_SEED  — a double that reaches an operation through a capture
+//                   rather than as a loop local.
+//
+// The last two are the instrument for `docs/codegen/the-missing-pass.md`, and
+// that is the single largest thing this file could not see before today.
+// ===========================================================================
+
+let KEEP: any = null;
+let ESCAPED_MASK = 1023;
+let ESCAPED_SEED = 1.0000001;
+
+// ------------------------------------------- the machine-operation frontier
+//
+// `emit/call.rs`'s `machine_operation` turns `Math.floor(x)` into the
+// instruction the hardware has on three conditions, the third being that the
+// operand is ALREADY a proven double. `docs/codegen/the-missing-pass.md`
+// measures what happens when it is not — one instruction becomes a full
+// JavaScript call — and states the reason plainly: provenness does not survive
+// a block boundary, because the pass that would carry it across one does not
+// exist.
+//
+// Each pair below is the same operation twice, differing ONLY in where its
+// operand comes from. The difference between the two rows is the whole of what
+// that missing pass is worth on that operation. On a runtime whose optimiser
+// does not care where a value came from, the two rows are the same number —
+// which is what makes this readable as a table and not as an assertion.
+
+bench("machine", "Math.floor proven", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.floor(i * 1.5);
+  return a | 0;
+});
+bench("machine", "Math.floor captured", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    ESCAPED_SEED = ESCAPED_SEED * 1.0000001;
+    a += Math.floor(ESCAPED_SEED);
+  }
+  return a | 0;
+});
+bench("machine", "Math.sqrt proven", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.sqrt(i * 1.5);
+  return a | 0;
+});
+bench("machine", "Math.sqrt captured", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    ESCAPED_SEED = ESCAPED_SEED * 1.0000001;
+    a += Math.sqrt(ESCAPED_SEED);
+  }
+  return a | 0;
+});
+bench("machine", "Math.abs proven", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.abs(i - 500);
+  return a | 0;
+});
+bench("machine", "Math.min proven", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.min(i, 7);
+  return a | 0;
+});
+bench("machine", "Math.max proven", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.max(i & 7, 3);
+  return a | 0;
+});
+bench("machine", "Math.round proven", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.round(i * 1.5);
+  return a | 0;
+});
+bench("machine", "Math.trunc proven", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.trunc(i * 1.5);
+  return a | 0;
+});
+// The other side of the frontier: `Math` members with no machine form at all.
+// They are here as the control that says what a `Math` call costs when the
+// instruction is not the question, so a slow `Math.floor captured` cannot be
+// read as "Math is slow".
+bench("machine", "Math.pow", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.pow(i & 7, 2);
+  return a | 0;
+});
+bench("machine", "Math.log", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.log(i + 1);
+  return a | 0;
+});
+bench("machine", "Math.sin", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.sin(i);
+  return a | 0;
+});
+bench("machine", "Math.hypot", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.hypot(i, 3);
+  return a | 0;
+});
+bench("machine", "Math.imul", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a = Math.imul(a + i, 3) | 0;
+  return a;
+});
+bench("machine", "Math.fround", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.fround(i * 1.5);
+  return a | 0;
+});
+bench("machine", "Math.clz32", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Math.clz32(i);
+  return a | 0;
+});
+// `ToInt32` over a constant, against `ToInt32` over a value the emitter cannot
+// fold. `the-missing-pass.md` prices the first at 3.08 ns per occurrence on an
+// isolated model — "roughly twice what the entire loop costs when nothing is in
+// its way" — and this is the pair that says whether that reaches a program.
+bench("machine", "mask by literal", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += i & 1023;
+  return a;
+});
+bench("machine", "mask by captured", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += i & ESCAPED_MASK;
+  return a;
+});
+bench("machine", "float add proven", (n) => {
+  let a = 0.5;
+  for (let i = 0; i < n; i++) a = a + i * 0.5;
+  return a | 0;
+});
+bench("machine", "float add via property", (n) => {
+  const box = { k: 0.5 };
+  KEEP = box;
+  let a = 0.5;
+  for (let i = 0; i < n; i++) a = a + box.k;
+  return a | 0;
+});
+bench("machine", "float add via array", (n) => {
+  const xs = [0.5, 0.25, 0.125, 0.0625];
+  KEEP = xs;
+  let a = 0.5;
+  for (let i = 0; i < n; i++) a = a + xs[i & 3];
+  return a | 0;
+});
+
+// ------------------------------------------------------ inline-cache shapes
+//
+// A property read at one site over one shape is the case every engine is fast
+// at. What separates them is what happens when the site sees two shapes, or
+// four, or more than a cache can hold.
+//
+// **Read these rows as DIFFERENCES, never alone.** Every one of them pays the
+// same `objs[i & k]` element load, and `array index read` above says that is
+// not free here. `ic mono (control)` is that cost with one shape; each row
+// after it adds only shapes. The control is the subtrahend and the file has no
+// other way to give you one.
+
+bench("ic", "mono (control)", (n) => {
+  const objs = [{ v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }];
+  KEEP = objs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += objs[i & 3].v;
+  return a;
+});
+bench("ic", "poly 2", (n) => {
+  const objs: any[] = [{ v: 1 }, { x: 0, v: 2 }, { v: 3 }, { x: 0, v: 4 }];
+  KEEP = objs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += objs[i & 3].v;
+  return a;
+});
+bench("ic", "poly 4", (n) => {
+  const objs: any[] = [
+    { v: 1 },
+    { x: 0, v: 2 },
+    { x: 0, y: 0, v: 3 },
+    { x: 0, y: 0, z: 0, v: 4 },
+  ];
+  KEEP = objs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += objs[i & 3].v;
+  return a;
+});
+bench("ic", "mega 8", (n) => {
+  const objs: any[] = [
+    { v: 1 },
+    { a1: 0, v: 2 },
+    { a1: 0, a2: 0, v: 3 },
+    { a1: 0, a2: 0, a3: 0, v: 4 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, v: 5 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, v: 6 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, a6: 0, v: 7 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, a6: 0, a7: 0, v: 8 },
+  ];
+  KEEP = objs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += objs[i & 7].v;
+  return a;
+});
+bench("ic", "mega 8 write", (n) => {
+  const objs: any[] = [
+    { v: 1 },
+    { a1: 0, v: 2 },
+    { a1: 0, a2: 0, v: 3 },
+    { a1: 0, a2: 0, a3: 0, v: 4 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, v: 5 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, v: 6 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, a6: 0, v: 7 },
+    { a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, a6: 0, a7: 0, v: 8 },
+  ];
+  KEEP = objs;
+  for (let i = 0; i < n; i++) objs[i & 7].v = i;
+  return objs[0].v;
+});
+// The same question about a CALL site rather than a read site: one callee, two,
+// four. A call whose callee is not the one the site remembers is the shape an
+// interpreter handles for free and a compiler does not.
+bench("ic", "call mono", (n) => {
+  const fns = [(x: number) => x + 1, (x: number) => x + 1, (x: number) => x + 1, (x: number) => x + 1];
+  KEEP = fns;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = fns[i & 3](a) | 0;
+  return a;
+});
+bench("ic", "call poly 4", (n) => {
+  const fns = [(x: number) => x + 1, (x: number) => x + 2, (x: number) => x + 3, (x: number) => x + 4];
+  KEEP = fns;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = fns[i & 3](a) | 0;
+  return a;
+});
+bench("ic", "method poly 4", (n) => {
+  class A { m(x: number): number { return x + 1; } }
+  class B { m(x: number): number { return x + 2; } }
+  class C { m(x: number): number { return x + 3; } }
+  class D { m(x: number): number { return x + 4; } }
+  const os: any[] = [new A(), new B(), new C(), new D()];
+  KEEP = os;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = os[i & 3].m(a) | 0;
+  return a;
+});
+// The sixteenth property. This file's header states the cliff exists and that a
+// row looking absurd is worth checking against it — and until today there was
+// no row at the cliff, so the check had nowhere to start. Three rows: inside
+// the inline slots, at the boundary, and past it.
+bench("ic", "read slot 0 of 16", (n) => {
+  const o: any = { p0: 1, p1: 1, p2: 1, p3: 1, p4: 1, p5: 1, p6: 1, p7: 1,
+                   p8: 1, p9: 1, p10: 1, p11: 1, p12: 1, p13: 1, p14: 1, p15: 1 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.p0;
+  return a;
+});
+bench("ic", "read slot 14 of 16", (n) => {
+  const o: any = { p0: 1, p1: 1, p2: 1, p3: 1, p4: 1, p5: 1, p6: 1, p7: 1,
+                   p8: 1, p9: 1, p10: 1, p11: 1, p12: 1, p13: 1, p14: 1, p15: 1 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.p14;
+  return a;
+});
+bench("ic", "read slot 15 of 16", (n) => {
+  const o: any = { p0: 1, p1: 1, p2: 1, p3: 1, p4: 1, p5: 1, p6: 1, p7: 1,
+                   p8: 1, p9: 1, p10: 1, p11: 1, p12: 1, p13: 1, p14: 1, p15: 1 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.p15;
+  return a;
+});
+bench("ic", "read slot 31 of 32", (n) => {
+  const o: any = {};
+  for (let k = 0; k < 32; k++) o["p" + k] = 1;
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.p31;
+  return a;
+});
+
+// -------------------------------------------------- allocation, for real now
+//
+// `plan.md` §7.1: `alloc object literal 2` measures 1.22 ns against a 1.27 ns
+// floor because the literal is DELETED — `rts ir` contains no `ObjectNew` and
+// `RTS_ESCAPE_STATS` reports it replaced. That row is a correct measurement of
+// escape analysis and says nothing about allocation, and it has been quoted as
+// though it did.
+//
+// These are its escaping twins. `KEEP = o` is what stops the replacement, and
+// `alloc escape floor` is that store on its own so it can be subtracted.
+
+bench("alloc", "escape floor", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    KEEP = i;
+    a += i;
+  }
+  return a;
+});
+bench("alloc", "object literal 2 escaping", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const o = { x: i, y: i };
+    KEEP = o;
+    a += o.x;
+  }
+  return a;
+});
+bench("alloc", "object literal 8 escaping", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const o = { a: i, b: i, c: i, d: i, e: i, f: i, g: i, h: i };
+    KEEP = o;
+    a += o.a;
+  }
+  return a;
+});
+bench("alloc", "object literal 16 escaping", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const o = { p0: i, p1: i, p2: i, p3: i, p4: i, p5: i, p6: i, p7: i,
+                p8: i, p9: i, p10: i, p11: i, p12: i, p13: i, p14: i, p15: i };
+    KEEP = o;
+    a += o.p0;
+  }
+  return a;
+});
+bench("alloc", "array literal 4 escaping", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const xs = [i, i, i, i];
+    KEEP = xs;
+    a += xs[0];
+  }
+  return a;
+});
+// §L8's own experiment, quoted: "hand-flattened twin row in analytic.ts
+// (`const x0=i,x1=i,x2=i,x3=i; a += x0;`) against the existing row — the gap is
+// the entire ceiling, measured today."
+bench("alloc", "array literal 4 flattened", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const x0 = i, x1 = i, x2 = i, x3 = i;
+    a += x0 + (x1 - x1) + (x2 - x2) + (x3 - x3);
+  }
+  return a;
+});
+bench("alloc", "array 64", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const xs = new Array(64);
+    KEEP = xs;
+    a += xs.length;
+  }
+  return a;
+});
+bench("alloc", "Array.from 16", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const xs = Array.from({ length: 16 }, (_v, k) => k);
+    KEEP = xs;
+    a += xs.length;
+  }
+  return a;
+}, 16);
+bench("alloc", "class instance 8 fields", (n) => {
+  class Wide {
+    a = 1; b = 2; c = 3; d = 4; e = 5; f = 6; g = 7; h = 8;
+  }
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const o = new Wide();
+    KEEP = o;
+    acc += o.a;
+  }
+  return acc;
+});
+bench("alloc", "class instance ctor args", (n) => {
+  class P {
+    x: number;
+    y: number;
+    constructor(x: number, y: number) { this.x = x; this.y = y; }
+  }
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const o = new P(i, i);
+    KEEP = o;
+    a += o.x;
+  }
+  return a;
+});
+// §7.3: `array map 16` and `filter 16` above allocate their callback INSIDE the
+// loop, so ~1672 of ~3534 ns per call was `closure_new` and not `map`. These are
+// the hoisted twins; the difference between each pair is the closure.
+bench("alloc", "closure hoisted", (n) => {
+  const c = (x: number) => x + 1;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = c(a) | 0;
+  return a;
+});
+bench("alloc", "closure escaping", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const c = (x: number) => x + i;
+    KEEP = c;
+    a = c(a) | 0;
+  }
+  return a;
+});
+bench("alloc", "Symbol()", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    KEEP = Symbol();
+    a += 1;
+  }
+  return a;
+});
+
+// ------------------------------------------------------ properties, in depth
+
+bench("prop", "read missing", (n) => {
+  const o: any = { a: 1 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (o.zz === undefined) a++;
+  return a;
+});
+bench("prop", "read proto depth 1", (n) => {
+  class A { get v(): number { return 1; } }
+  const o = new A();
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.v;
+  return a;
+});
+bench("prop", "read proto depth 3", (n) => {
+  class A { p = 1; }
+  class B extends A {}
+  class C extends B {}
+  class D extends C { m(): number { return 1; } }
+  const o = new D();
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.m();
+  return a;
+});
+bench("prop", "getter", (n) => {
+  const o = { _v: 1, get v(): number { return this._v; } };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.v;
+  return a;
+});
+bench("prop", "setter", (n) => {
+  const o = { _v: 1, set v(x: number) { this._v = x; } };
+  KEEP = o;
+  for (let i = 0; i < n; i++) o.v = i;
+  return o._v;
+});
+bench("prop", "hasOwnProperty", (n) => {
+  const o: any = { a: 1, b: 2 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (Object.prototype.hasOwnProperty.call(o, "a")) a++;
+  return a;
+});
+bench("prop", "symbol key read", (n) => {
+  const k = Symbol("k");
+  const o: any = {};
+  o[k] = 1;
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o[k];
+  return a;
+});
+bench("prop", "numeric key read", (n) => {
+  const o: any = { 0: 1, 1: 2, 2: 3, 3: 4 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o[i & 3];
+  return a;
+});
+bench("prop", "frozen read", (n) => {
+  const o = Object.freeze({ a: 1 });
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.a;
+  return a;
+});
+bench("prop", "delete+add", (n) => {
+  const o: any = { a: 1 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    delete o.a;
+    o.a = i;
+    a += 1;
+  }
+  return a;
+}, 2);
+bench("prop", "spread 4", (n) => {
+  const o = { a: 1, b: 2, c: 3, d: 4 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const c = { ...o };
+    KEEP = c;
+    a += c.a;
+  }
+  return a;
+}, 4);
+bench("prop", "Object.assign 4", (n) => {
+  const o = { a: 1, b: 2, c: 3, d: 4 };
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const c = Object.assign({}, o);
+    KEEP = c;
+    a += c.a;
+  }
+  return a;
+}, 4);
+bench("prop", "destructure 4", (n) => {
+  const o = { a: 1, b: 2, c: 3, d: 4 };
+  KEEP = o;
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const { a, b, c, d } = o;
+    acc += a + b + c + d;
+  }
+  return acc;
+}, 4);
+bench("prop", "Proxy get", (n) => {
+  const p: any = new Proxy({ a: 1 }, { get: (t: any, k: any) => t[k] });
+  KEEP = p;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += p.a;
+  return a;
+});
+// `plan.md` §S3 calls this "the best experiment in this dataset, and it needs no
+// engine change at all". A text cell has no shape and no recorded prototype, so
+// `cache_resolve_indirect` REFUSES the site and the resolver runs on every
+// execution, forever. A wrapper is an ordinary cell with both, so its site can
+// arm — and the native body on the other end is byte-identical, because both go
+// through the same `coerce_receiver`. The difference between these two rows is
+// the whole of the ~68 ns tax under every `String.prototype` method.
+bench("prop", "method on primitive string", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.toUpperCase().length;
+  return a;
+});
+bench("prop", "method on String wrapper", (n) => {
+  const w = new String("abcdefghijklmnop");
+  KEEP = w;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += w.toUpperCase().length;
+  return a;
+});
+// §7.6: `prop typeof alone` above reads a MODULE-level const out of the
+// environment object, so its number carries a property read and two throw
+// checks that nothing in the name suggests. This is the same operator on a
+// local, which is the number a per-crossing cost should be derived from.
+bench("prop", "typeof local", (n) => {
+  const o = { a: 1 };
+  let a = 0;
+  for (let i = 0; i < n; i++) if (typeof o) a++;
+  return a;
+});
+
+// -------------------------------------------------------------- classes, new
+
+bench("class", "field read", (n) => {
+  class P { x = 1; }
+  const o = new P();
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.x;
+  return a;
+});
+bench("class", "private field read", (n) => {
+  class P {
+    #x = 1;
+    get(): number { return this.#x; }
+  }
+  const o = new P();
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.get();
+  return a;
+});
+bench("class", "static method", (n) => {
+  class P { static m(x: number): number { return x + 1; } }
+  KEEP = P;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = P.m(a) | 0;
+  return a;
+});
+bench("class", "super method call", (n) => {
+  class A { m(x: number): number { return x + 1; } }
+  class B extends A { m(x: number): number { return super.m(x); } }
+  const o = new B();
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = o.m(a) | 0;
+  return a;
+});
+bench("class", "accessor pair", (n) => {
+  class P {
+    _v = 0;
+    get v(): number { return this._v; }
+    set v(x: number) { this._v = x; }
+  }
+  const o = new P();
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    o.v = i;
+    a += o.v;
+  }
+  return a | 0;
+}, 2);
+bench("class", "instanceof depth 3", (n) => {
+  class A {}
+  class B extends A {}
+  class C extends B {}
+  class D extends C {}
+  const o = new D();
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (o instanceof A) a++;
+  return a;
+});
+
+// ------------------------------------------------------------ calls, in depth
+//
+// `plan.md` §7.2: `call free function` and `call arrow` above CONTAIN NO CALL —
+// `emit/inline.rs` substitutes the body and the loop is one `FloatArith`. Any
+// per-call cost derived by differencing against them is invalid. These rows are
+// shapes inlining cannot take, so the pair says what inlining is worth.
+
+bench("call", "not inlinable (recursive)", (n) => {
+  function rec(x: number, d: number): number {
+    return d === 0 ? x + 1 : rec(x, d - 1);
+  }
+  KEEP = rec;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = rec(a, 0) | 0;
+  return a;
+});
+bench("call", "through a variable", (n) => {
+  let f = (x: number) => x + 1;
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = f(a) | 0;
+  return a;
+});
+bench("call", "as an argument", (n) => {
+  function apply(g: (x: number) => number, x: number): number { return g(x); }
+  const inc = (x: number) => x + 1;
+  KEEP = inc;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = apply(inc, a) | 0;
+  return a;
+});
+bench("call", "0 args", (n) => {
+  function f(): number { return 1; }
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += f();
+  return a;
+});
+bench("call", "4 args", (n) => {
+  function f(a1: number, a2: number, a3: number, a4: number): number {
+    return a1 + a2 + a3 + a4;
+  }
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += f(1, 2, 3, 4);
+  return a | 0;
+});
+bench("call", "8 args", (n) => {
+  function f(a1: number, a2: number, a3: number, a4: number,
+             a5: number, a6: number, a7: number, a8: number): number {
+    return a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8;
+  }
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += f(1, 2, 3, 4, 5, 6, 7, 8);
+  return a | 0;
+});
+bench("call", "default params", (n) => {
+  function f(x: number, y: number = 1): number { return x + y; }
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = f(a) | 0;
+  return a;
+});
+bench("call", "destructured param", (n) => {
+  function f({ x, y }: { x: number; y: number }): number { return x + y; }
+  const arg = { x: 1, y: 1 };
+  KEEP = arg;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += f(arg);
+  return a | 0;
+});
+bench("call", "spread call 3", (n) => {
+  function f(a1: number, a2: number, a3: number): number { return a1 + a2 + a3; }
+  const xs = [1, 2, 3];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += f(...xs);
+  return a | 0;
+});
+bench("call", ".call()", (n) => {
+  function f(this: any, x: number): number { return x + 1; }
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = f.call(null, a) | 0;
+  return a;
+});
+bench("call", ".apply()", (n) => {
+  function f(this: any, x: number): number { return x + 1; }
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = f.apply(null, [a]) | 0;
+  return a;
+});
+bench("call", "bound function", (n) => {
+  function f(this: any, x: number): number { return x + 1; }
+  const b = f.bind(null);
+  KEEP = b;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = b(a) | 0;
+  return a;
+});
+bench("call", "recursion depth 8", (n) => {
+  function rec(d: number): number { return d === 0 ? 0 : 1 + rec(d - 1); }
+  KEEP = rec;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += rec(8);
+  return a | 0;
+}, 8);
+bench("call", "arguments object", (n) => {
+  function f(): number {
+    // eslint-disable-next-line prefer-rest-params
+    return arguments.length;
+  }
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (f as any)(1, 2, 3);
+  return a;
+});
+bench("call", "optional call", (n) => {
+  const f: ((x: number) => number) | null = (x: number) => x + 1;
+  KEEP = f;
+  let a = 0;
+  for (let i = 0; i < n; i++) a = (f?.(a) ?? 0) | 0;
+  return a;
+});
+bench("call", "closure capture depth 3", (n) => {
+  const outer = 1;
+  const mid = () => {
+    const m = outer + 1;
+    return () => m + 1;
+  };
+  const inner = mid();
+  KEEP = inner;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += inner();
+  return a;
+});
+
+// ------------------------------------------------------------ arrays, wider
+
+bench("array", "index read float", (n) => {
+  const xs: number[] = [];
+  for (let k = 0; k < 1024; k++) xs.push(k + 0.5);
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs[i & 1023];
+  return a | 0;
+});
+bench("array", "index read mixed", (n) => {
+  const xs: any[] = [];
+  for (let k = 0; k < 1024; k++) xs.push(k % 3 === 0 ? "s" : k);
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const v = xs[i & 1023];
+    a += typeof v === "number" ? v : 1;
+  }
+  return a | 0;
+});
+bench("array", "index read out of range", (n) => {
+  const xs = [1, 2, 3, 4];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (xs[9] === undefined) a++;
+  return a;
+});
+bench("array", "length read", (n) => {
+  const xs = [1, 2, 3, 4];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.length;
+  return a;
+});
+bench("array", "push 16 fresh", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const xs: number[] = [];
+    for (let k = 0; k < 16; k++) xs.push(k);
+    KEEP = xs;
+    a += xs.length;
+  }
+  return a;
+}, 16);
+bench("array", "classic for 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) for (let k = 0; k < xs.length; k++) a += xs[k];
+  return a | 0;
+}, 16);
+bench("array", "forEach 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const cb = (x: number) => { a += x; };
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) xs.forEach(cb);
+  return a | 0;
+}, 16);
+bench("array", "map 16 hoisted cb", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const cb = (x: number) => x + 1;
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.map(cb)[0];
+  return a;
+}, 16);
+bench("array", "filter 16 hoisted cb", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const cb = (x: number) => x > 8;
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.filter(cb).length;
+  return a;
+}, 16);
+bench("array", "reduce 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const cb = (p: number, x: number) => p + x;
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.reduce(cb, 0);
+  return a | 0;
+}, 16);
+bench("array", "some 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const cb = (x: number) => x === 15;
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (xs.some(cb)) a++;
+  return a;
+}, 16);
+bench("array", "find 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const cb = (x: number) => x === 15;
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.find(cb) as number;
+  return a;
+}, 16);
+bench("array", "includes 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (xs.includes(15)) a++;
+  return a;
+}, 16);
+bench("array", "slice 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.slice(0, 16).length;
+  return a;
+}, 16);
+bench("array", "concat 8+8", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7];
+  const ys = [8, 9, 10, 11, 12, 13, 14, 15];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.concat(ys).length;
+  return a;
+}, 16);
+bench("array", "spread copy 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const c = [...xs];
+    KEEP = c;
+    a += c.length;
+  }
+  return a;
+}, 16);
+bench("array", "sort 16 (incl. copy)", (n) => {
+  const xs = [9, 3, 15, 1, 7, 11, 5, 13, 0, 8, 2, 14, 6, 10, 4, 12];
+  const cmp = (p: number, q: number) => p - q;
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.slice().sort(cmp)[0];
+  return a;
+}, 16);
+bench("array", "reverse 16 (incl. copy)", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.slice().reverse()[0];
+  return a;
+}, 16);
+bench("array", "shift+unshift", (n) => {
+  const xs = [1, 2, 3, 4];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    xs.unshift(i);
+    a += xs.shift() as number;
+  }
+  return a | 0;
+}, 2);
+bench("array", "destructure [a,b]", (n) => {
+  const xs = [1, 2, 3, 4];
+  KEEP = xs;
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const [a, b] = xs;
+    acc += a + b;
+  }
+  return acc | 0;
+}, 2);
+bench("array", "flat 4x4", (n) => {
+  const xs = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.flat().length;
+  return a;
+}, 16);
+bench("array", "2D read", (n) => {
+  const g: number[][] = [];
+  for (let r = 0; r < 32; r++) {
+    const row: number[] = [];
+    for (let c = 0; c < 32; c++) row.push(r * c);
+    g.push(row);
+  }
+  KEEP = g;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += g[i & 31][(i >> 5) & 31];
+  return a | 0;
+});
+bench("array", "Array.isArray", (n) => {
+  const xs = [1, 2, 3, 4];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (Array.isArray(xs)) a++;
+  return a;
+});
+
+// ----------------------------------------------------------- strings, wider
+
+bench("string", "startsWith", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) if (s.startsWith("abc")) a++;
+  return a;
+});
+bench("string", "endsWith", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) if (s.endsWith("nop")) a++;
+  return a;
+});
+bench("string", "includes", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) if (s.includes("hij")) a++;
+  return a;
+});
+bench("string", "replace literal", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.replace("hij", "X").length;
+  return a;
+});
+bench("string", "trim", (n) => {
+  const s = "  abcdefghijklmnop  ";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.trim().length;
+  return a;
+});
+bench("string", "padStart 24", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.padStart(24, "0").length;
+  return a;
+});
+bench("string", "repeat 4", (n) => {
+  const s = "abcd";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.repeat(4).length;
+  return a;
+}, 4);
+bench("string", "codePointAt", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.codePointAt(i & 15) as number;
+  return a;
+});
+bench("string", "fromCharCode", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += String.fromCharCode(65 + (i & 15)).length;
+  return a;
+});
+bench("string", "compare <", (n) => {
+  const s = "abcdefghijklmnop";
+  const t = "abcdefghijklmnoq";
+  let a = 0;
+  for (let i = 0; i < n; i++) if (s < t) a++;
+  return a;
+});
+bench("string", "Number(str)", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Number("12345");
+  return a;
+});
+bench("string", "toFixed 2", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (1.23456).toFixed(2).length;
+  return a;
+});
+bench("string", "toString(16)", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (i & 65535).toString(16).length;
+  return a;
+});
+// §L4's own experiment, quoted: three rows whose SLOPE is the per-piece concat
+// and whose intercept is the fixed machinery. `text::template_join` allocates
+// about nine times and two region cells for a five-character answer, under a
+// comment claiming "one buffer, grown once" — which the plan records as false.
+bench("string", "template 1 hole", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += `${i}`.length;
+  return a;
+});
+bench("string", "template 2 holes", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += `v=${i}!${i}?`.length;
+  return a;
+});
+bench("string", "template 4 holes", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += `${i}a${i}b${i}c${i}`.length;
+  return a;
+});
+bench("string", "concat 4 pieces", (n) => {
+  const s = "abcd";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (s + "-" + s + "-" + s).length;
+  return a;
+}, 4);
+bench("string", "build 16 by +=", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    let s = "";
+    for (let k = 0; k < 16; k++) s += "x";
+    a += s.length;
+  }
+  return a;
+}, 16);
+bench("string", "join 16 pieces", (n) => {
+  const parts = ["a", "b", "c", "d", "e", "f", "g", "h",
+                 "i", "j", "k", "l", "m", "n", "o", "p"];
+  KEEP = parts;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += parts.join("").length;
+  return a;
+}, 16);
+bench("string", "for-of chars 16", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) for (const ch of s) a += ch.length;
+  return a;
+}, 16);
+bench("string", "localeCompare", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.localeCompare("abcdefghijklmnoq");
+  return a | 0;
+});
+bench("string", "normalize NFC", (n) => {
+  const s = "abcdefghijklmnop";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.normalize("NFC").length;
+  return a;
+});
+
+// ---------------------------------------------------------- collections, wider
+
+bench("coll", "Map.get miss", (n) => {
+  const m = new Map<string, number>();
+  for (let k = 0; k < 64; k++) m.set("k" + k, k);
+  KEEP = m;
+  let a = 0;
+  for (let i = 0; i < n; i++) if (m.get("zz") === undefined) a++;
+  return a;
+});
+bench("coll", "Map.get numeric key", (n) => {
+  const m = new Map<number, number>();
+  for (let k = 0; k < 64; k++) m.set(k, k);
+  KEEP = m;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += m.get(i & 63) as number;
+  return a;
+});
+bench("coll", "Map.get object key", (n) => {
+  const key = { id: 1 };
+  const m = new Map<any, number>();
+  m.set(key, 7);
+  KEEP = m;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += m.get(key) as number;
+  return a;
+});
+bench("coll", "Map build 16", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const m = new Map<number, number>();
+    for (let k = 0; k < 16; k++) m.set(k, k);
+    KEEP = m;
+    a += m.size;
+  }
+  return a;
+}, 16);
+bench("coll", "Map delete+set", (n) => {
+  const m = new Map<number, number>();
+  for (let k = 0; k < 64; k++) m.set(k, k);
+  KEEP = m;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    m.delete(7);
+    m.set(7, i);
+    a += 1;
+  }
+  return a;
+}, 2);
+bench("coll", "Map for-of 16", (n) => {
+  const m = new Map<number, number>();
+  for (let k = 0; k < 16; k++) m.set(k, k);
+  KEEP = m;
+  let a = 0;
+  for (let i = 0; i < n; i++) for (const [, v] of m) a += v;
+  return a | 0;
+}, 16);
+bench("coll", "Set build 16", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const s = new Set<number>();
+    for (let k = 0; k < 16; k++) s.add(k);
+    KEEP = s;
+    a += s.size;
+  }
+  return a;
+}, 16);
+bench("coll", "Set for-of 16", (n) => {
+  const s = new Set<number>();
+  for (let k = 0; k < 16; k++) s.add(k);
+  KEEP = s;
+  let a = 0;
+  for (let i = 0; i < n; i++) for (const v of s) a += v;
+  return a | 0;
+}, 16);
+bench("coll", "WeakMap get", (n) => {
+  const key = { id: 1 };
+  const w = new WeakMap<any, number>();
+  w.set(key, 7);
+  KEEP = w;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += w.get(key) as number;
+  return a;
+});
+bench("coll", "Object.values 4", (n) => {
+  const o = { a: 1, b: 2, c: 3, d: 4 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Object.values(o).length;
+  return a;
+}, 4);
+bench("coll", "Object.entries 4", (n) => {
+  const o = { a: 1, b: 2, c: 3, d: 4 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Object.entries(o).length;
+  return a;
+}, 4);
+bench("coll", "for-in 4", (n) => {
+  const o: any = { a: 1, b: 2, c: 3, d: 4 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) for (const k in o) a += o[k];
+  return a | 0;
+}, 4);
+
+// ------------------------------------------------------------- json, wider
+
+bench("json", "stringify array 100", (n) => {
+  const xs: number[] = [];
+  for (let k = 0; k < 100; k++) xs.push(k);
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += JSON.stringify(xs).length;
+  return a;
+}, 100);
+bench("json", "parse array 100", (n) => {
+  const xs: number[] = [];
+  for (let k = 0; k < 100; k++) xs.push(k);
+  const text = JSON.stringify(xs);
+  KEEP = text;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (JSON.parse(text) as number[]).length;
+  return a;
+}, 100);
+bench("json", "stringify nested 3", (n) => {
+  const o = { a: { b: { c: [1, 2, 3], d: "x" }, e: 1 }, f: true };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += JSON.stringify(o).length;
+  return a;
+});
+bench("json", "parse nested 3", (n) => {
+  const text = JSON.stringify({ a: { b: { c: [1, 2, 3], d: "x" }, e: 1 }, f: true });
+  KEEP = text;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (JSON.parse(text) as any).f ? 1 : 0;
+  return a;
+});
+bench("json", "stringify string 256", (n) => {
+  const s = "abcdefghijklmnop".repeat(16);
+  KEEP = s;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += JSON.stringify(s).length;
+  return a;
+});
+
+// ------------------------------------------------------------- regex, wider
+//
+// `compile.rs` already records the shape this pair tests: "280 ns for a
+// three-character subject, of which only 85 more appear when the subject grows
+// to 251 — so the cost was per CALL and not per character." Two rows, so a
+// reader can check that rather than take it.
+
+bench("regex", "test short subject", (n) => {
+  const r = /[a-f]+([0-9]+)/;
+  const s = "abc123";
+  let a = 0;
+  for (let i = 0; i < n; i++) if (r.test(s)) a++;
+  return a;
+});
+bench("regex", "test long subject", (n) => {
+  const r = /[a-f]+([0-9]+)/;
+  const s = "abcdefghijklmnop".repeat(16) + "abc123";
+  let a = 0;
+  for (let i = 0; i < n; i++) if (r.test(s)) a++;
+  return a;
+});
+bench("regex", "test no match", (n) => {
+  const r = /[a-f]+([0-9]+)/;
+  const s = "zzzzzzzzzzzzzzzz";
+  let a = 0;
+  for (let i = 0; i < n; i++) if (!r.test(s)) a++;
+  return a;
+});
+// A NAMED group. `plan.md` §S2 records that `regex/mod.rs` calls
+// `well_known(name)` with the user's own capture-group name — a name that
+// cannot be on the cached list, so it is allocated and hashed once per group
+// per match, forever. This row against `exec+group` above is that cost.
+bench("regex", "exec named group", (n) => {
+  const r = /[a-f]+(?<num>[0-9]+)/;
+  const s = "abc123";
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const m = r.exec(s);
+    a += m === null ? 0 : (m.groups as any).num.length;
+  }
+  return a;
+});
+bench("regex", "matchAll 4", (n) => {
+  const s = "a1 b2 c3 d4";
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const r = /([a-z])([0-9])/g;
+    for (const m of s.matchAll(r)) a += m[1].length;
+  }
+  return a;
+}, 4);
+bench("regex", "split by regex", (n) => {
+  const s = "a1b2c3d4e5f6g7h8";
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.split(/[0-9]/).length;
+  return a;
+}, 8);
+bench("regex", "replace with fn", (n) => {
+  const r = /[a-f]+([0-9]+)/;
+  const s = "abc123";
+  const fn = (_m: string, g: string) => g;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += s.replace(r, fn).length;
+  return a;
+});
+bench("regex", "new RegExp per call", (n) => {
+  const s = "abc123";
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const r = new RegExp("[a-f]+([0-9]+)");
+    KEEP = r;
+    if (r.test(s)) a++;
+  }
+  return a;
+});
+
+// ------------------------------------------------------------ binary, wider
+
+bench("binary", "Int32Array rw", (n) => {
+  const xs = new Int32Array(256);
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    xs[i & 255] = i;
+    a += xs[i & 255];
+  }
+  return a | 0;
+}, 2);
+bench("binary", "Float32Array rw", (n) => {
+  const xs = new Float32Array(256);
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    xs[i & 255] = i;
+    a += xs[i & 255];
+  }
+  return a | 0;
+}, 2);
+bench("binary", "DataView setF64", (n) => {
+  const dv2 = new DataView(new ArrayBuffer(64));
+  KEEP = dv2;
+  for (let i = 0; i < n; i++) dv2.setFloat64(0, i, true);
+  return dv2.getFloat64(0, true) | 0;
+});
+bench("binary", "typed set 64", (n) => {
+  const dst = new Uint8Array(1024);
+  const src = new Uint8Array(64);
+  KEEP = dst;
+  for (let i = 0; i < n; i++) dst.set(src, 0);
+  return dst[0];
+}, 64);
+bench("binary", "typed fill 64", (n) => {
+  const xs = new Uint8Array(64);
+  KEEP = xs;
+  for (let i = 0; i < n; i++) xs.fill(i & 255);
+  return xs[0];
+}, 64);
+bench("binary", "typed for-of 16", (n) => {
+  const xs = new Uint8Array(16);
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) for (const v of xs) a += v;
+  return a | 0;
+}, 16);
+bench("binary", "TextDecoder 16", (n) => {
+  const dec = new TextDecoder();
+  const bytes = new Uint8Array(16);
+  KEEP = dec;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += dec.decode(bytes).length;
+  return a;
+});
+bench("binary", "alloc ArrayBuffer 64", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const b = new ArrayBuffer(64);
+    KEEP = b;
+    a += b.byteLength;
+  }
+  return a;
+});
+bench("binary", "byteLength read", (n) => {
+  const xs = new Uint8Array(64);
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += xs.byteLength;
+  return a;
+});
+
+// --------------------------------------------------------- control flow, wider
+//
+// There is deliberately NO async row here. Every case is `run(n): number` and
+// the harness times it synchronously, so the only thing an `await`-free promise
+// row could do is queue `n` microtasks that drain after the clock stops —
+// measuring the queue's growth and reporting it as the operation. A promise
+// instrument is a different harness, not a row in this one.
+
+bench("flow", "while loop", (n) => {
+  let a = 0;
+  let i = 0;
+  while (i < n) { a += i; i++; }
+  return a;
+});
+bench("flow", "do-while loop", (n) => {
+  let a = 0;
+  let i = 0;
+  do { a += i; i++; } while (i < n);
+  return a;
+});
+bench("flow", "nested loop 16", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) for (let k = 0; k < 16; k++) a += k;
+  return a;
+}, 16);
+bench("flow", "labeled break 16", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    outer: for (let k = 0; k < 16; k++) {
+      for (let j = 0; j < 16; j++) if (j === 8) { a += 1; break outer; }
+    }
+  }
+  return a;
+});
+bench("flow", "try/finally no throw", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    try { a += 1; } finally { a += 0; }
+  }
+  return a;
+});
+bench("flow", "throw across a call", (n) => {
+  function boom(): number { throw new Error("x"); }
+  KEEP = boom;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    try { boom(); } catch { a += 1; }
+  }
+  return a;
+});
+bench("flow", "conditional ?:", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (i & 1) === 0 ? 1 : 2;
+  return a;
+});
+bench("flow", "logical &&", (n) => {
+  const o: any = { a: 1 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += (o && o.a) as number;
+  return a;
+});
+bench("flow", "nullish ??", (n) => {
+  const o: any = { a: 1 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += o.zz ?? 1;
+  return a;
+});
+bench("flow", "switch on string", (n) => {
+  const keys = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  KEEP = keys;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    switch (keys[i & 7]) {
+      case "a": a += 1; break;
+      case "b": a += 2; break;
+      case "c": a += 3; break;
+      case "d": a += 4; break;
+      case "e": a += 5; break;
+      case "f": a += 6; break;
+      case "g": a += 7; break;
+      default: a += 8; break;
+    }
+  }
+  return a;
+});
+bench("flow", "generator for-of 16", (n) => {
+  function* g(): Generator<number> {
+    for (let k = 0; k < 16; k++) yield k;
+  }
+  KEEP = g;
+  let a = 0;
+  for (let i = 0; i < n; i++) for (const v of g()) a += v;
+  return a | 0;
+}, 16);
+bench("flow", "manual iterator 16", (n) => {
+  const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  KEEP = xs;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const it = xs[Symbol.iterator]();
+    for (;;) {
+      const r = it.next();
+      if (r.done === true) break;
+      a += r.value;
+    }
+  }
+  return a | 0;
+}, 16);
+
+// ----------------------------------------------------------------- date, misc
+
+bench("misc", "Date.now", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += Date.now() & 1;
+  return a;
+});
+bench("misc", "performance.now", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) a += performance.now() & 1;
+  return a;
+});
+bench("misc", "new Date()", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const d = new Date(0);
+    KEEP = d;
+    a += 1;
+  }
+  return a;
+});
+bench("misc", "date.getTime", (n) => {
+  const d = new Date(0);
+  KEEP = d;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += d.getTime() & 1;
+  return a;
+});
+bench("misc", "date.toISOString", (n) => {
+  const d = new Date(0);
+  KEEP = d;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += d.toISOString().length;
+  return a;
+});
+bench("misc", "Object.freeze 4", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const o = Object.freeze({ a: i, b: i, c: i, d: i });
+    KEEP = o;
+    a += o.a;
+  }
+  return a;
+}, 4);
+bench("misc", "String(obj)", (n) => {
+  const o = { toString(): string { return "x"; } };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) a += String(o).length;
+  return a;
+});
+bench("misc", "Number.isInteger", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) if (Number.isInteger(i)) a++;
+  return a;
+});
+bench("misc", "isNaN", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) if (!isNaN(i)) a++;
+  return a;
+});
+bench("misc", "BigInt add", (n) => {
+  let a = 0n;
+  for (let i = 0; i < n; i++) a = a + 3n;
+  return Number(a & 1023n);
+});
+bench("misc", "structuredClone 4", (n) => {
+  const o = { a: 1, b: 2, c: 3, d: 4 };
+  KEEP = o;
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const c = structuredClone(o);
+    KEEP = c;
+    a += c.a;
+  }
+  return a;
+}, 4);
+
 // ------------------------------------------------------------------ harness
 
 // Nanoseconds a case costs per action, with the loop that carried it removed.
@@ -699,7 +2351,7 @@ function timeOnce(c: Case, n: number): number {
   return performance.now() - t0;
 }
 
-type Row = { group: string; name: string; nanos: number; failed: string };
+type Row = { group: string; name: string; ops: number; nanos: number; failed: string };
 
 function measure(c: Case): Row {
   try {
@@ -742,12 +2394,12 @@ function measure(c: Case): Row {
       const again = timeOnce(c, n);
       if (again < best) best = again;
     }
-    return { group: c.group, name: c.name, nanos: (best * 1e6) / (n * c.ops), failed: "" };
+    return { group: c.group, name: c.name, ops: c.ops, nanos: (best * 1e6) / (n * c.ops), failed: "" };
   } catch (e) {
     // A case that throws is DATA, not an interruption: an action this engine
     // does not have is exactly what an analytic of what it costs should report,
     // and stopping at the first one would report nothing about anything after.
-    return { group: c.group, name: c.name, nanos: 0, failed: String(e).slice(0, 60) };
+    return { group: c.group, name: c.name, ops: c.ops, nanos: 0, failed: String(e).slice(0, 60) };
   }
 }
 
@@ -767,10 +2419,15 @@ const rows: Row[] = [];
 for (const c of CASES) rows.push(measure(c));
 
 const floor = rows[0].nanos;
-console.log("action                          ns/op    minus floor");
-console.log("------------------------------------------------------");
+// The `ops` column is printed and was not, and `plan.md` §7.5 is why: the
+// divisor is not uniform — 16 for the sixteen-element rows, 4 for the four-key
+// ones, 2 for a pair — and three separate verdicts read a row as if it were 1.
+// A divisor a reader has to go and look up in the source is a divisor a reader
+// gets wrong.
+console.log("action                                    ops     ns/op    minus floor");
+console.log("---------------------------------------------------------------------");
 for (const r of rows) {
-  const label = pad(r.group + " " + r.name, 30);
+  const label = pad(r.group + " " + r.name, 38);
   if (r.failed !== "") {
     console.log(label + "  UNAVAILABLE  " + r.failed);
     continue;
@@ -778,10 +2435,12 @@ for (const r of rows) {
   const net = r.nanos - floor;
   console.log(
     label +
-      padLeft(r.nanos.toFixed(2), 9) +
+      padLeft(String(r.ops), 4) +
+      padLeft(r.nanos.toFixed(2), 10) +
       padLeft(net > 0 ? net.toFixed(2) : "~0", 13),
   );
 }
-console.log("------------------------------------------------------");
+console.log("---------------------------------------------------------------------");
 console.log("floor (empty loop iteration): " + floor.toFixed(2) + " ns");
-console.log("checksum " + SINK);
+console.log(rows.length + " cases, " + rows.filter((r) => r.failed !== "").length + " unavailable");
+console.log("checksum " + SINK + " " + (KEEP === null ? "-" : "+"));
