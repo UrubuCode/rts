@@ -2560,11 +2560,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-003",
+      "nome": "flex-basis-004",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-004",
+      "nome": "flex-basis-003",
       "estado": "passa"
     },
     {
@@ -2623,14 +2623,14 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-container-min-content-001",
-      "estado": "falha",
-      "pct": 1.2767578125
-    },
-    {
       "nome": "flex-container-max-content-001",
       "estado": "falha",
       "pct": 1.82392578125
+    },
+    {
+      "nome": "flex-container-min-content-001",
+      "estado": "falha",
+      "pct": 1.2767578125
     },
     {
       "nome": "flex-cross-size-border-box-001",
@@ -2694,11 +2694,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-009",
+      "nome": "flex-flow-008",
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-008",
+      "nome": "flex-flow-009",
       "estado": "passa"
     },
     {
@@ -2734,13 +2734,13 @@
       "estado": "passa"
     },
     {
+      "nome": "flex-grow-006",
+      "estado": "passa"
+    },
+    {
       "nome": "flex-grow-007",
       "estado": "falha",
       "pct": 0.87890625
-    },
-    {
-      "nome": "flex-grow-006",
-      "estado": "passa"
     },
     {
       "nome": "flex-grow-008",
@@ -3639,13 +3639,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-writing-mode-slr-rtl",
-      "estado": "passa"
-    },
-    {
       "nome": "flexbox-writing-mode-slr-row-mix",
       "estado": "falha",
       "pct": 2.271875
+    },
+    {
+      "nome": "flexbox-writing-mode-slr-rtl",
+      "estado": "passa"
     },
     {
       "nome": "flexbox-writing-mode-slr",
