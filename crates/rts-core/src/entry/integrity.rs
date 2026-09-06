@@ -361,6 +361,21 @@ pub(in crate::entry) fn enumerable(context: &Context, cell: u32, key: ShapeKey) 
 /// Strictest rather than latest, because the operations are one-way in the
 /// language: `Object.preventExtensions` on a frozen object must not thaw it.
 pub(in crate::entry) fn restrict(object: u64, level: Integrity) -> u64 {
+    // A PROXY is restricted through its handler, and it was restricted through
+    // the cell that stands for it — which has no properties, so
+    // `Object.freeze(proxy)` recorded a level on the proxy and left the target
+    // wide open. Every trap the operation is defined in terms of went unrun.
+    //
+    // `SetIntegrityLevel` is `[[PreventExtensions]]`, then `[[OwnPropertyKeys]]`,
+    // then a `[[DefineOwnProperty]]` per key — all three of them trapped, all
+    // three already wired here, and none of them reachable from this function
+    // before. Written as the composition rather than as a fourth level recorded
+    // on the proxy, because a level on the proxy is a fact the target does not
+    // share and every later read goes to the target.
+    if super::proxy::is_proxy(object) {
+        restrict_proxy(object, level);
+        return object;
+    }
     let refused = with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             // A primitive is already unchangeable, and the language answers it
@@ -389,6 +404,148 @@ pub(in crate::entry) fn restrict(object: u64, level: Integrity) -> u64 {
         super::throw::type_error("Cannot redefine property: 0");
     }
     object
+}
+
+/// `SetIntegrityLevel` over a proxy, as the three trapped operations it is.
+///
+/// Every step is `…OrThrow` in the specification, so the first refusal stops the
+/// walk — which is what makes a half-frozen object impossible rather than merely
+/// unlikely.
+///
+/// The descriptor per key is the level's difference and the whole of it: sealing
+/// says `configurable: false` and nothing else, and freezing adds
+/// `writable: false` for a DATA property alone — an accessor has no `writable`
+/// to set, and asking for one would be refused by the target as a descriptor
+/// that states both an accessor and a data attribute.
+fn restrict_proxy(object: u64, level: Integrity) {
+    if super::proxy::prevent_extensions(object) != Some(true) || super::throw::in_flight() {
+        if !super::throw::in_flight() {
+            super::throw::type_error("Cannot prevent extensions on this proxy");
+        }
+        return;
+    }
+    if level < Integrity::Sealed {
+        return;
+    }
+    let Some(listed) = super::proxy::own_keys(object) else {
+        return;
+    };
+    if super::throw::in_flight() {
+        return;
+    }
+    let keys = with_current(|context| {
+        Value(listed)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell).cloned())
+            .unwrap_or_default()
+    });
+    for key in keys {
+        let Some(named) =
+            with_current(|context| super::computed::property_key(context, Value(key)))
+        else {
+            continue;
+        };
+        // Freezing reads the property first, because only a DATA property gains
+        // `writable: false` — the same question `SetIntegrityLevel` asks with
+        // `getOwnPropertyDescriptor`, and one more trap the operation is
+        // defined to run.
+        let accessor = match level >= Integrity::Frozen {
+            false => false,
+            true => {
+                let described = super::object_global::describe_of(object, key);
+                if super::throw::in_flight() {
+                    return;
+                }
+                with_current(|context| {
+                    Value(described).as_slot().is_some_and(|cell| {
+                        let get = context.well_known("get");
+                        super::objects::read_property(context, cell, get).is_some()
+                    })
+                })
+            }
+        };
+        let wanted = super::objects::object_new(0);
+        with_current(|context| {
+            if let Some(cell) = Value(wanted).as_slot() {
+                let key = context.well_known("configurable");
+                let no = crate::value::Value::from_bool(false).bits();
+                super::objects::put(context, cell, key, no);
+                if level >= Integrity::Frozen && !accessor {
+                    let key = context.well_known("writable");
+                    super::objects::put(context, cell, key, no);
+                }
+            }
+        });
+        if super::proxy::define(object, named, wanted) != Some(true) {
+            if !super::throw::in_flight() {
+                super::throw::type_error(&format!(
+                    "Cannot redefine property: {}",
+                    super::proxy::spelled(named)
+                ));
+            }
+            return;
+        }
+    }
+}
+
+/// `TestIntegrityLevel` over a proxy, as the trapped operations it is.
+///
+/// `None` when the object is not a proxy, which leaves the cell-reading answer
+/// alone. The pair with [`restrict_proxy`] is the point: `Object.freeze(p)`
+/// running the traps while `Object.isFrozen(p)` read the proxy's own cell would
+/// have made the two disagree about the object they had just changed together.
+pub(in crate::entry) fn proxy_level(object: u64, level: Integrity) -> Option<bool> {
+    if !super::proxy::is_proxy(object) {
+        return None;
+    }
+    if super::proxy::extensible(object) != Some(false) || super::throw::in_flight() {
+        return Some(false);
+    }
+    let listed = super::proxy::own_keys(object)?;
+    if super::throw::in_flight() {
+        return Some(false);
+    }
+    let keys = with_current(|context| {
+        Value(listed)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell).cloned())
+            .unwrap_or_default()
+    });
+    for key in keys {
+        let described = super::object_global::describe_of(object, key);
+        if super::throw::in_flight() {
+            return Some(false);
+        }
+        // A key the handler does not claim as own constrains nothing, which is
+        // what `TestIntegrityLevel` skipping an absent descriptor says.
+        if with_current(|context| super::objects::nullish(context, described).is_some()) {
+            continue;
+        }
+        let (configurable, writable, data) = with_current(|context| {
+            let mut read = |name: &str| {
+                let named = context.well_known(name);
+                Value(described)
+                    .as_slot()
+                    .and_then(|cell| super::objects::read_property(context, cell, named))
+            };
+            let data = read("get").is_none() && read("set").is_none();
+            (
+                read("configurable").map(|held| held.bits()),
+                read("writable").map(|held| held.bits()),
+                data,
+            )
+        });
+        if configurable.is_some_and(|held| super::primitives::to_boolean(held)) {
+            return Some(false);
+        }
+        if level >= Integrity::Frozen
+            && data
+            && writable.is_some_and(|held| super::primitives::to_boolean(held))
+        {
+            return Some(false);
+        }
+    }
+    Some(true)
 }
 
 /// How many elements a cell holds that no shape records and no `delete` reaches.

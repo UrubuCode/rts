@@ -24,6 +24,22 @@ pub(in crate::entry) fn prototype_of(object: u64) -> Option<u64> {
     if throw::in_flight() {
         return Some(answered);
     }
+    // The result is an OBJECT or `null`, and nothing else. A handler answering
+    // `1`, `"p"` or `undefined` was passed straight through, so a prototype
+    // chain walk then started from a number — and `Object.getPrototypeOf(p)`
+    // answered something no prototype can be. The specification refuses it
+    // before any invariant is checked, which is also the order that matters:
+    // the extensibility comparison below reads the answer as a prototype.
+    let usable = crate::entry::with_current(|context| {
+        crate::entry::objects::is_object(context, answered)
+            || answered == Value::from_singleton(context.singletons.null).bits()
+    });
+    if !usable {
+        throw::type_error(
+            "'getPrototypeOf' on proxy: trap returned neither object nor null",
+        );
+        return Some(super::absent());
+    }
     // An extensible target may be relinked, so a handler naming a different
     // prototype is only describing something that could still become true. A
     // target that refuses to grow cannot be relinked at all, which makes its

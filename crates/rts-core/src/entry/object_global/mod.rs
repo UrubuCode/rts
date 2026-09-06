@@ -37,6 +37,12 @@ mod describe;
 use copy::held;
 pub(in crate::entry) use copy::each_enumerable_own;
 pub(in crate::entry) use describe::{describe_of, describe_own, own_symbols};
+/// `ToPropertyDescriptor`, for the one caller outside this module: a proxy's
+/// `getOwnPropertyDescriptor` trap, whose answer goes through the round trip the
+/// specification states.
+pub(in crate::entry) use descriptor::read as descriptor_read;
+/// The other half of that round trip — see [`descriptor::object_of`].
+pub(in crate::entry) use descriptor::object_of as descriptor_object;
 
 use super::native::Native;
 use super::objects::undefined_of;

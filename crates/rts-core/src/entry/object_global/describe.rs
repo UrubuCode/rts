@@ -91,6 +91,13 @@ extern "C" fn prevent_extensions(
 /// A primitive is frozen, which the specification says and which falls out of
 /// there being nothing to write rather than out of a special case.
 extern "C" fn is_frozen(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // A proxy answers through its traps, the pair of `restrict`'s own proxy
+    // arm: freezing one ran the handler and asking whether it was frozen read
+    // the proxy's own cell, so the two disagreed about the object they had just
+    // changed together.
+    if let Some(held) = super::super::integrity::proxy_level(object, Integrity::Frozen) {
+        return Value::from_bool(held).bits();
+    }
     let held = with_current(|context| match object_cell(context, object) {
         Some(cell) => super::super::integrity::is_frozen(context, cell),
         None => true,
@@ -100,6 +107,9 @@ extern "C" fn is_frozen(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a
 
 /// `Object.isSealed(o)`.
 extern "C" fn is_sealed(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if let Some(held) = super::super::integrity::proxy_level(object, Integrity::Sealed) {
+        return Value::from_bool(held).bits();
+    }
     let held = with_current(|context| match object_cell(context, object) {
         Some(cell) => super::super::integrity::is_sealed(context, cell),
         None => true,

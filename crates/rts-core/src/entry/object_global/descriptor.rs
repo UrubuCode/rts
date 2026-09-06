@@ -67,6 +67,56 @@ pub(in crate::entry) enum Verdict {
     BadLength,
 }
 
+/// `CompletePropertyDescriptor` then `FromPropertyDescriptor` — a descriptor
+/// record back as the object a program reads.
+///
+/// Completion is the half that is easy to skip and visible the moment anyone
+/// prints one: an incomplete data descriptor gains `value: undefined` and
+/// `writable: false`, an incomplete accessor gains `get`/`set` of `undefined`,
+/// and both gain `enumerable: false` and `configurable: false`. A record that
+/// states neither `value` nor `get` is a DATA descriptor, which is the rule that
+/// decides which pair of fields the answer carries.
+///
+/// One caller today — a proxy's `getOwnPropertyDescriptor` trap, whose answer the
+/// specification puts through exactly this round trip. It lives here rather than
+/// there because the six fields and their defaults are this module's, and a
+/// second statement of them is where the two would disagree about what an absent
+/// `writable` means.
+pub(in crate::entry) fn object_of(described: &Descriptor) -> u64 {
+    let made = super::super::objects::object_new(0);
+    let absent = with_current(|context| undefined_of(context));
+    let put = |name: &str, value: u64| {
+        with_current(|context| {
+            if let Some(cell) = Value(made).as_slot() {
+                let key = context.well_known(name);
+                super::super::objects::put(context, cell, key, value);
+            }
+        });
+    };
+    match described.get.is_some() || described.set.is_some() {
+        true => {
+            put("get", described.get.unwrap_or(absent));
+            put("set", described.set.unwrap_or(absent));
+        }
+        false => {
+            put("value", described.value.unwrap_or(absent));
+            put(
+                "writable",
+                Value::from_bool(described.writable.unwrap_or(false)).bits(),
+            );
+        }
+    }
+    put(
+        "enumerable",
+        Value::from_bool(described.enumerable.unwrap_or(false)).bits(),
+    );
+    put(
+        "configurable",
+        Value::from_bool(described.configurable.unwrap_or(false)).bits(),
+    );
+    made
+}
+
 /// `ToPropertyDescriptor` — reads the fields that are PRESENT.
 ///
 /// `None` when the descriptor is not an object (already thrown), or when

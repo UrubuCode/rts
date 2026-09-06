@@ -46,17 +46,57 @@ pub(in crate::entry) fn own_keys(object: u64) -> Option<u64> {
 
 /// The refusals a key list has to survive.
 ///
-/// Two of them, and they are the two facts a program can already have observed
-/// through the target: a key it cannot lose must still be listed, and a target
-/// that refuses to grow or shrink must be listed exactly.
+/// Three of them now. Two are facts a program can already have observed through
+/// the target: a key it cannot lose must still be listed, and a target that
+/// refuses to grow or shrink must be listed exactly.
+///
+/// The third is about the LIST, and it came first in the specification for a
+/// reason that showed here: `CreateListFromArrayLike(trapResult, «String,
+/// Symbol»)` refuses a result that is not a list at all, and refuses any entry
+/// that is neither a string nor a symbol. Neither was checked, so a handler
+/// answering `1` produced an empty walk and one answering `[1]` produced a key
+/// spelled `"1"` — a property name invented by the engine out of a value the
+/// program never named.
 fn checked_keys(target: u64, listed: u64) {
-    let reported: Vec<Key> = with_current(|context| {
-        let elements = Value(listed)
+    // A LIST, which is what `CreateListFromArrayLike` demands before it reads
+    // anything. Answering nothing for a non-list is what made
+    // `Reflect.ownKeys(new Proxy({}, { ownKeys: () => 1 }))` an empty array.
+    let is_list = with_current(|context| {
+        Value(listed)
+            .as_slot()
+            .is_some_and(|cell| context.elements_at(cell).is_some())
+    });
+    if !is_list {
+        throw::type_error("'ownKeys' on proxy: trap result must be a list of property keys");
+        return;
+    }
+    let entries = with_current(|context| {
+        Value(listed)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
             .cloned()
-            .unwrap_or_default();
-        elements
+            .unwrap_or_default()
+    });
+    // Every entry a String or a Symbol. `property_key` would happily turn `1`
+    // into `"1"`, which is the conversion `CreateListFromArrayLike` exists to
+    // refuse: a key list is not coerced, it is validated.
+    for entry in &entries {
+        let acceptable = with_current(|context| {
+            crate::entry::symbol::is_symbol(context, *entry)
+                || Value(*entry)
+                    .as_slot()
+                    .is_some_and(|cell| context.text_at(cell).is_some())
+        });
+        if !acceptable {
+            throw::type_error(
+                "'ownKeys' on proxy: trap result contains an entry that is neither a string \
+                 nor a symbol",
+            );
+            return;
+        }
+    }
+    let reported: Vec<Key> = with_current(|context| {
+        entries
             .into_iter()
             .filter_map(|value| crate::entry::computed::property_key(context, Value(value)))
             .collect()
@@ -132,7 +172,34 @@ pub(in crate::entry) fn describe(object: u64, key: Key) -> Option<u64> {
         return Some(answered);
     }
     checked_descriptor(trap.target, key, answered);
-    Some(answered)
+    if throw::in_flight() {
+        return Some(super::absent());
+    }
+    Some(completed(answered))
+}
+
+/// `FromPropertyDescriptor(CompletePropertyDescriptor(ToPropertyDescriptor(r)))`
+/// — the round trip the specification performs on a trap's answer.
+///
+/// The handler's own object was handed to the program unchanged, and that is two
+/// divergences at once. A descriptor the trap INVENTED came back incomplete:
+/// `{ value: 1, configurable: true }` reached the caller with no `writable` and
+/// no `enumerable` at all, so `d.writable` read `undefined` where every runtime
+/// reads `false` — and `undefined` is falsy, so a program branching on it agreed
+/// by accident and one printing it did not. The second is identity: the object a
+/// program gets back is a fresh one, and a handler that keeps a reference to what
+/// it returned cannot watch the caller mutate it.
+///
+/// `undefined` passes through, which is `FromPropertyDescriptor`'s own first
+/// step and the answer for a key the handler does not claim.
+fn completed(answered: u64) -> u64 {
+    if answered == super::absent() {
+        return answered;
+    }
+    let Some(read) = crate::entry::object_global::descriptor_read(answered) else {
+        return super::absent();
+    };
+    crate::entry::object_global::descriptor_object(&read)
 }
 
 /// The refusals a descriptor has to survive.
@@ -184,6 +251,20 @@ fn checked_descriptor(target: u64, key: Key, answered: u64) {
     // A descriptor with no `configurable` field means false, which is what
     // `Object.defineProperty` already reads it as.
     let claimed = field.is_some_and(|found| primitives::to_boolean(found));
+    // And the direction that was missing, which is the one a program uses to
+    // TRUST a key: a property the target says can never be redefined must not be
+    // reported as redefinable. `Object.getOwnPropertyDescriptor(p, "c")`
+    // answered `configurable: true` for a `c` the target had pinned, so a caller
+    // that checked the descriptor before redefining was told yes and then
+    // refused by the target.
+    if claimed && held.as_ref().is_some_and(|state| !state.configurable) {
+        throw::type_error(&format!(
+            "'getOwnPropertyDescriptor' on proxy: trap reported property '{}' as configurable \
+             which is non-configurable in the proxy target",
+            super::spelled(key)
+        ));
+        return;
+    }
     if !claimed && held.is_none_or(|state| state.configurable) {
         throw::type_error(&format!(
             "'getOwnPropertyDescriptor' on proxy: trap reported non-configurability for property \
