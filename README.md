@@ -30,21 +30,21 @@
 JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1181/1514 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱] 78%   1182/1515 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **78%** (1181/1514) |
-| ✅ RTS = Bun = Node | 1181 |
+| **Parity** | **78%** (1182/1515) |
+| ✅ RTS = Bun = Node | 1182 |
 | ❌ RTS diverges | 248 |
 | 💥 RTS runtime error | 85 |
 | 🛠️  **Left to fix** | **333** |
-| ⚠️ Bun ≠ Node (skip) | 1 |
+| ⚠️ Bun ≠ Node (skip) | 0 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
-_Updated: 2026-09-05 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-09-06 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -104,7 +104,7 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.6%   3292/3340 measurements matching Blink
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 95.2%   139/146 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 69%   600/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 69.1%   601/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -126,7 +126,7 @@ the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  87.5%   140/160   outros
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.7%   46/77     item
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  91.4%   53/58     align
-  [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  35.8%   19/53     aspect-ratio
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  37.7%   20/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.6%   38/46     gap
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  48.7%   19/39     percentage
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.5%   22/37     baseline
@@ -161,7 +161,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 
 **DOM engine state** (`crates/rts-dom/PLAN.md` §0): **68/77 lots done**, 5 partial, pending: Q, U, V–Y, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-09-05 by CI (`dom-rulers`).*
+*Updated 2026-09-06 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->
@@ -219,12 +219,12 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `74012d4`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `7add298`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
 
-_Updated: 2026-09-05 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-09-06 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 

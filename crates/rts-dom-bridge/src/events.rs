@@ -112,6 +112,7 @@ extern "C" fn add_listener_cb_options(
     rts_dom::store::with_dom_mut(h, |d| {
         d.add_event_listener_cb_with_options(id, event, callback, options);
     });
+    crate::raizes::sincroniza(h);
     nothing()
 }
 
@@ -134,6 +135,7 @@ extern "C" fn remove_listener_cb(
     rts_dom::store::with_dom_mut(h, |d| {
         d.remove_event_listener_cb(id, event, cb as i64, capture);
     });
+    crate::raizes::sincroniza(h);
     nothing()
 }
 
@@ -147,6 +149,7 @@ extern "C" fn remove_listener(_e: u64, _t: u64, doc: u64, n: u64, event: u64, _c
             d.remove_event_listener(id, &event);
         }
     });
+    crate::raizes::sincroniza(h);
     nothing()
 }
 
@@ -187,6 +190,8 @@ extern "C" fn dispatch_collect(
         d.dispatch_event_collect(id, &event, integer(bubbles, 0) != 0)
     })
     .unwrap_or(0);
+    // O despacho é também uma REMOÇÃO: os `once` saem da lista aqui dentro.
+    crate::raizes::sincroniza(h);
     int(count)
 }
 
