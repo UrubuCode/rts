@@ -513,6 +513,33 @@ pub(in crate::entry) fn groups_object(
     };
     let bare = methods::null_of(context);
     context.set_prototype(holder, bare);
+    // The object being built has to be ROOTED across this loop, and the reason
+    // is the shape of `holder` rather than anything about regular expressions.
+    // `intern_value` inserts into the slab and calls the allocator — its own
+    // documentation says so — and an allocation collects. `holder` is a bare
+    // `u32` slot number in a Rust local, and [`super::roots::scan_stack`] keeps
+    // only words that are unambiguously encoded references, so for the duration
+    // of this loop the collector cannot see the object the caller is about to
+    // be handed.
+    //
+    // Measured 2026-09-06 against a release binary of the tree as it stood
+    // before this change: `r.exec(s)`
+    // on `/[a-f]+(?<num>[0-9]+)/` in a loop answered `undefined` for
+    // `m.groups.num` from iteration 12 562 onward, and an access violation
+    // under the allocation pressure of `bench/analytic.ts`. It answered
+    // correctly for 1, 2, 10 and 1 000 iterations — which is to say, until the
+    // first collection.
+    //
+    // The neighbour in `indices.rs::named_object` has the same shape and is
+    // NOT the same bug: it reads its values back out of an array that is
+    // already reachable and calls no allocating function, so there is no
+    // window. Left as it is rather than guarded by symmetry.
+    //
+    // Same class and same fix as `generator_new`; `docs/engine/lost-roots.md`
+    // is the class and the four checks that find the next one.
+    let value = Value::from_slot(holder).bits();
+    let mut rooted = super::rooted::Rooted::new();
+    rooted.values().push(value);
     for (name, group) in named {
         let key = context.well_known(name);
         let value = match group {
@@ -521,5 +548,5 @@ pub(in crate::entry) fn groups_object(
         };
         super::objects::put(context, holder, key, value);
     }
-    Value::from_slot(holder).bits()
+    value
 }
