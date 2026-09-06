@@ -827,6 +827,12 @@ fn default_constructor(ctx: &mut Ctx, class: &Class) -> Function {
         captures_this: false,
         is_async: false,
         is_generator: false,
+        // ZERO, whatever the four forwarding parameters say. A default
+        // constructor's `length` is 0 in the language, and the four exist
+        // because that is how many arguments a call carries here — a number
+        // about this engine's convention, which `class C {}` reported as
+        // `C.length === 4`.
+        advertised_length: Some(0),
         at: class.at,
     }
 }

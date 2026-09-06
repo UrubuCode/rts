@@ -419,6 +419,18 @@ pub struct Function {
     pub is_async: bool,
     /// Whether it may yield.
     pub is_generator: bool,
+    /// What `fn.length` answers, when the parameter list is not what it counts.
+    ///
+    /// `None` for everything a program writes, where the count IS the answer —
+    /// `SetFunctionLength` counts the parameters before the first default.
+    ///
+    /// `Some` for one synthesised function: the constructor a class with no
+    /// `constructor` gets. It declares four parameters, because that is how many
+    /// a call carries and a derived class has to forward them, and the language
+    /// says a default constructor's `length` is 0. Without this, `class C {}`
+    /// answered `C.length === 4` — a number about this engine's calling
+    /// convention, leaking through a property the language pins.
+    pub advertised_length: Option<u32>,
     /// Where it was written.
     pub at: Position,
 }

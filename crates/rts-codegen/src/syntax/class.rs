@@ -253,6 +253,7 @@ mod tests {
             returns: None,
             captures_this: false,
             is_async: false,
+            advertised_length: None,
             is_generator: false,
             at,
         })

@@ -418,11 +418,13 @@ fn emit_function(
     // `length` is the count BEFORE the first default and before the rest, which
     // is what `SetFunctionLength` says: `function f(a, b = 1, ...c)` has
     // `length` 1.
-    let arity = function
-        .parameters
-        .iter()
-        .take_while(|parameter| parameter.default.is_none())
-        .count() as u32;
+    let arity = function.advertised_length.unwrap_or_else(|| {
+        function
+            .parameters
+            .iter()
+            .take_while(|parameter| parameter.default.is_none())
+            .count() as u32
+    });
     // Its own name, or the one a binding lent it: `const f = function () {}`
     // is called `f`, which is NamedEvaluation. Taken rather than read, so a
     // function nested inside that initialiser does not inherit it — see

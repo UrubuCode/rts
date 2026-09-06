@@ -986,10 +986,27 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // string and threw the fresh object away — a primitive winning over the
     // object, which is the one clause the specification is explicit about.
     if with_current(|context| super::primitive::is_object_in(context, produced)) {
-        produced
-    } else {
-        this
+        return produced;
     }
+    // A DERIVED constructor may answer `undefined` and nothing else. The
+    // specification's step is explicit and the reason is the paragraph above:
+    // a derived constructor has no fresh object to fall back on, so a primitive
+    // is not "ignored" — it leaves the construction with nothing.
+    // `class D extends B { constructor() { super(); return 1 } }` answered the
+    // `this` that `super()` had made, silently, where every runtime raises.
+    //
+    // `null` raises too, and that is worth naming because it is the one value a
+    // reader expects to behave like `undefined` here: `is_object_in` answers
+    // false for it, so it reaches this line, and the language admits only
+    // `undefined`.
+    if derived
+        && !super::throw::in_flight()
+        && produced != with_current(|context| undefined_of(context))
+    {
+        super::throw::type_error("Derived constructors may only return object or undefined");
+        return with_current(|context| undefined_of(context));
+    }
+    this
 }
 
 /// `new.target` — the constructor `new` named, for the activation ASKING.
@@ -1399,6 +1416,25 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
             return false;
         }
         return super::class_support::to_boolean(answered);
+    }
+    // A BOUND function delegates to its target by RE-ENTERING the operator, not
+    // by walking to the target's `prototype`. `OrdinaryHasInstance`'s step 2 is
+    // `InstanceofOperator(O, C.[[BoundTargetFunction]])`, and the difference is
+    // the hook: a target that defines `Symbol.hasInstance` decides, and the walk
+    // below never asks it again — so `({}) instanceof HasInst.bind(null)`
+    // answered `false` where the direct spelling answered `true`, for a class
+    // whose whole point is to say what an instance of it is.
+    //
+    // Only when the target is not the callee, which `bound_at` already
+    // guarantees, and only for a bound function: a PROXY's own `get` trap is how
+    // it would answer for the hook, and the probe above has already asked it.
+    if let Some(target) = with_current(|context| {
+        Value(callee)
+            .as_slot()
+            .and_then(|cell| context.bound_at(cell))
+            .map(|bound| bound.target)
+    }) {
+        return instance_of(value, target);
     }
     // `Err` is a refusal `OrdinaryHasInstance` states, raised outside the borrow
     // because `throw::type_error` builds the program's own error object and that
