@@ -41,27 +41,46 @@ pub fn disagreements(first: &[Binding], second: &[Binding]) -> Vec<usize> {
         .collect()
 }
 
-/// A join parameter per disagreement, at the representation that arrives.
+/// A join parameter per disagreement, at the representation both paths reach.
 ///
 /// # Why not `Tagged`
 ///
 /// A generic parameter would widen every proven value passed to it — silently,
 /// because the builder inserts that — and a proof would not survive an `if`.
 ///
-/// Reading the representation off one side is reading both, because the numeric
-/// analysis decided per **name** rather than per store: a proved local is
-/// numeric on every path, an unproved one is widened at every store. That is
-/// what makes one `reference` enough here rather than a merge of two.
+/// # Why both sides are read, and what reading one cost
+///
+/// This took a single `reference` environment and read the representation off
+/// it, on the grounds that reading one side is reading both: the numeric
+/// analysis decides per **name** rather than per store, so a proved local is
+/// numeric on every path and an unproved one is widened at every store.
+///
+/// That reasoning is sound for the analysis it names and it is not sound for
+/// the *machine*, which is where the two can still differ — a value narrowed by
+/// a guard on one path, an `Repr::I32` binding whose other arm carries the
+/// widened form. The consequence was not a wrong answer, and that is worth
+/// saying precisely: `FuncBuilder::jump` refuses to narrow, so the disagreement
+/// surfaced as `BuildError::ImplicitNarrowing` and the program was REFUSED.
+///
+/// So the parameter is the join of the two, which is the machine's own merge
+/// rule and the only total one: agreement keeps the representation, and
+/// disagreement widens to the generic form, where the builder's automatic
+/// widening then meets it from both sides. A program that used to be refused
+/// compiles, and one that used to compile is unchanged — the join of a
+/// representation with itself is itself.
 pub fn parameters(
     builder: &mut FuncBuilder,
     join: BlockId,
     merged: &[usize],
-    reference: &[Binding],
+    first: &[Binding],
+    second: &[Binding],
 ) -> Vec<ValueId> {
     merged
         .iter()
         .map(|&position| {
-            let repr = builder.repr_of(reference[position].value());
+            let repr = builder
+                .repr_of(first[position].value())
+                .join(builder.repr_of(second[position].value()));
             builder.add_block_param(join, repr)
         })
         .collect()

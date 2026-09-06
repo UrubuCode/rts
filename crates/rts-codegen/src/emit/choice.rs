@@ -57,10 +57,33 @@ struct Path {
 /// a parameter for a name that did not change is a correct program moving a
 /// value through a register for no purpose.
 ///
-/// The value parameter is `UNPROVEN` unconditionally. Two paths can produce two
-/// different representations — `c ? 1 : o.x` is a double on one and a tagged
-/// value on the other — and there is no representation that is both, so the
-/// widening happens on each path where it can still be defended.
+/// The value parameter is the JOIN of what the two paths produce, which is the
+/// machine's own merge rule and the only total one: agreement keeps the
+/// representation, disagreement widens to the generic form.
+///
+/// # Why this was `UNPROVEN` unconditionally, and what that cost
+///
+/// The reasoning here was that two paths can produce two different
+/// representations — `c ? 1 : o.x` is a double on one and a tagged value on the
+/// other — and that there is no representation that is both. Both halves are
+/// true, and the conclusion does not follow: it is the answer for the paths
+/// that DISAGREE, applied to every conditional including the ones that agree.
+///
+/// So `c ? 1 : 2` produced a tagged value, and so did every `a || b` and
+/// `a && b` between two proven numbers, because those merge through here too.
+/// A conditional was therefore a place a proof went to die, one operator before
+/// the arithmetic that needed it — and `machine_operation` requires an operand
+/// that is ALREADY proven, so what it cost is not the widening but every fast
+/// path downstream of one.
+///
+/// # Why the widening is no longer written here
+///
+/// It still happens in the path's own block, which is what the deleted comment
+/// was protecting, and it is now the builder that inserts it: a jump to a
+/// parameter of the generic form widens what it is given, in the block the jump
+/// is in, which is the path's exit. Writing it by hand as well would be the
+/// same instruction decided in two places, and the hand-written one would be
+/// the one that goes stale.
 fn merge(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
@@ -68,17 +91,17 @@ fn merge(
     second: Path,
 ) -> EmitResult<ValueId> {
     let join = builder.create_block();
-    let result = builder.add_block_param(join, UNPROVEN);
+    let produced = builder
+        .repr_of(first.value)
+        .join(builder.repr_of(second.value));
+    let result = builder.add_block_param(join, produced);
 
     let merged = super::merge::disagreements(&first.bindings, &second.bindings);
-    let params = super::merge::parameters(builder, join, &merged, &first.bindings);
+    let params = super::merge::parameters(builder, join, &merged, &first.bindings, &second.bindings);
 
     for path in [&first, &second] {
         builder.switch_to(path.exit);
-        // Widened in the path's own block, not at the join: a widening is an
-        // instruction, and it has to sit where the value it widens is defined.
-        let value = builder.widen(path.value);
-        let mut args = vec![value];
+        let mut args = vec![path.value];
         args.extend(merged.iter().map(|&at| path.bindings[at].value()));
         builder.jump(join, &args)?;
     }
