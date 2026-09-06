@@ -1909,6 +1909,26 @@ fn for_in_visits_them_in_the_order_they_were_added() {
 }
 
 #[test]
+fn a_for_of_closes_its_iterator_when_the_body_throws_and_keeps_what_the_body_assigned() {
+    // The two halves that have to hold at once, which is why they are one test.
+    //
+    // The close is what the region around the loop is for. The sum is what the
+    // FIRST attempt at it broke: a synthetic `try` around the body closed the
+    // iterator and made every assignment in the body vanish, because
+    // `protect::emit_try` discards the span's SSA bindings at its join and
+    // `capture::assigned_under_protection` — which is what makes that sound —
+    // reads the parse tree before any synthetic statement exists.
+    let produced = run("let log = \"\"; let sum = 0; \
+         function src() { let i = 0; return { [Symbol.iterator]() { return { \
+             next() { log = log + \"n\"; return { value: i++, done: i > 5 }; }, \
+             return() { log = log + \"R\"; return { done: true }; } }; } }; } \
+         try { for (const v of src()) { sum = sum + v; if (v === 1) throw new Error(\"x\"); } } \
+         catch (e) { log = log + \"c\"; } \
+         return log === \"nnRc\" && sum === 1;");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
 fn for_in_over_a_string_enumerates_its_indices_where_the_in_operator_refuses() {
     // The pair that made `for-in` need a guard of its own. The loop converts its
     // subject with `ToObject` and enumerates the wrapper's index keys; the `in`

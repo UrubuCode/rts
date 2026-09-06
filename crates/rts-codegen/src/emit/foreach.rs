@@ -57,15 +57,35 @@
 //! comparison, because a string primitive is not an object and reading a method
 //! off one to compare it allocates a wrapper for nothing.
 //!
-//! # What `IteratorClose` here does NOT cover
+//! # What `IteratorClose` here covers, and what it still does not
 //!
-//! A `break`, and nothing else. A `return` out of the body, a `throw` through
-//! it, or a `break` to a LABEL on an enclosing loop all leave by a path that
-//! never reaches the statement after this loop, so `return()` is not called.
-//! Covering those needs a `try`/`finally`-shaped region around the loop, and
-//! `destructure/array.rs`'s `apply_default_stepwise` records what a synthetic
-//! `try` built during emission costs here: `capture.rs` decided which names
-//! need heap storage before any of these statements existed.
+//! A `break` leaves by falling out of the loop, and the statement after it
+//! closes the iterator. A `throw` leaves through a protected REGION opened
+//! around the loop, whose handler closes and re-raises.
+//!
+//! The region is built out of blocks rather than expanded as a `try` statement,
+//! and that is not a style choice — the `try` was written and measured first. It
+//! closed the iterator and it also made `for (const x of [1,2,3]) s += x` answer
+//! `s === 0`, because `protect::emit_try` discards the protected span's SSA
+//! bindings at its join and is sound only because `capture.rs` has already
+//! forced every name assigned under protection into memory. That analysis reads
+//! the parse tree, before any statement this file invents exists.
+//!
+//! The experiment that says so is one flip: under the `try`, the same loop with
+//! a `try` the PROGRAM wrote inside its body answered 6, and so did one whose
+//! accumulator any other `try` in scope had touched. The region machinery was
+//! never the problem. `destructure/array.rs::open_close_region` met the same
+//! wall first and took the same way round it.
+//!
+//! Still not covered, measured against Bun rather than reasoned about: a
+//! `return` out of the body, and a `break` or `continue` to a label on an
+//! ENCLOSING loop. All three leave without unwinding and without falling out of
+//! this loop, so neither the handler nor the statement after it is reached.
+//!
+//! A label on THIS loop is covered — `break outer` from a nested loop still
+//! leaves the outer one by its own exit — and so is `continue`, which never
+//! leaves at all. Those two are worth naming because "a labelled break" reads
+//! like one case and is two with different answers.
 
 use rts_cranelift::fault::Position;
 use rts_cranelift::ir::{FuncBuilder, ValueId};
@@ -178,6 +198,25 @@ pub fn emit_for_each(
     let subject_name = ctx.names.intern("__rts_in_src");
     if !stepping {
         super::binding::declare(builder, scope, ctx, subject_name, subject_value)?;
+    }
+    // A second name for the same iterator, written ONCE and never again — what
+    // the cleanup handler below reads.
+    //
+    // It cannot read `__rts_of_it`, and the reason is SSA rather than taste:
+    // exhaustion assigns `it = undefined` inside the loop, so that binding has a
+    // block parameter and its value at any point is whichever edge arrived
+    // there. The handler is reached from a THROW rather than from an edge, so
+    // there is no such value for it to see. A binding the loop never writes has
+    // one definition, which dominates every block created after it — the same
+    // property `destructure/array.rs`'s handler relies on for `iter`.
+    //
+    // Never cleared is also what makes the handler's close unconditional and
+    // correct: it runs only on a throw, and a throw means the loop did not reach
+    // exhaustion, so the iterator is open by construction.
+    let closing = ctx.names.intern("__rts_of_close");
+    if stepping {
+        let held = super::binding::read(builder, scope, ctx, iterator)?;
+        super::binding::declare(builder, scope, ctx, closing, held)?;
     }
 
     let init = crate::syntax::ForInit::Declare {
@@ -438,6 +477,42 @@ pub fn emit_for_each(
         false => Some(&test),
         true => None,
     };
+    // `IteratorClose` on a THROW, as a region built directly rather than as a
+    // synthetic `try` statement.
+    //
+    // The `try` was written first and measured: it closed the iterator, and it
+    // also made `for (const x of [1,2,3]) s += x` answer `s === 0`. The cause is
+    // not the region — a `try` a PROGRAM writes in the same position works — it
+    // is that `protect::emit_try` discards the protected span's SSA bindings at
+    // its join, which is sound only because `capture::assigned_under_protection`
+    // has already forced those names into memory, and that analysis reads the
+    // parse tree before any synthetic statement exists. Proven by flipping one
+    // thing: under the patch, the same loop with a `try` the program wrote
+    // inside its body answered 6, and so did one whose accumulator any other
+    // `try` in scope had touched.
+    //
+    // This region has no join to restore at. Its handler RE-RAISES, so the block
+    // after it is reached from the normal path alone and the bindings the loop
+    // made dominate it — `destructure/array.rs::open_close_region` is the same
+    // shape, for the same reason, and hit the same defect first.
+    let closing_region = match stepping {
+        false => None,
+        true => {
+            let after = builder.create_block();
+            let protected = builder.create_block();
+            builder.jump(protected, &[])?;
+            builder.switch_to(protected);
+            let handler = builder.create_block();
+            builder.open_region(
+                vec![rts_cranelift::unwind::Handler {
+                    tag: super::protect::JS_THROW,
+                    block: handler,
+                }],
+                None,
+            );
+            Some((after, handler))
+        }
+    };
     let result = emit_for(
         builder,
         scope,
@@ -456,38 +531,53 @@ pub fn emit_for_each(
     if !length_was_proven {
         ctx.forget_minted(length);
     }
-    // `IteratorClose`, and the reason it can be a plain statement after the loop
-    // rather than a cleanup region: the only early exit that reaches here is a
-    // `break` out of this loop, and a `break` leaves `it` holding the iterator
-    // because only exhaustion clears it. The module doc lists what that misses.
-    //
-    // # What a `throw` out of the body still does not do, and what was tried
-    //
-    // It does not close the iterator, and the language says it must. The obvious
-    // repair — wrapping `body` in a synthetic `try { … } catch (e) { close();
-    // throw e }` — was written, measured and REVERTED, and the reason is worth
-    // keeping because it is not obvious from either side:
-    //
-    // `protect::emit_try` restores the scope snapshot at its join, which throws
-    // away every SSA binding the protected span made. That is sound for a `try`
-    // a PROGRAM wrote, because `capture::assigned_under_protection` has already
-    // forced those names into memory — and that analysis runs over the parse
-    // tree, before any synthetic statement exists. So a body this emitter wraps
-    // is protected by a region the analysis never saw, and every assignment in
-    // it is discarded: `for (const x of [1,2,3]) s += x` answered `s === 0`,
-    // across 14 fixtures, in the same run that gained the two this was for.
-    //
-    // The shape that would work is `destructure/array.rs::open_close_region` —
-    // a region built directly, whose handler re-raises and which therefore has
-    // no join to restore at. Doing it here means emitting the body inside a
-    // region rather than wrapping a statement around it, which is a change to
-    // how this expansion is emitted rather than to what it expands to.
+    // A THROW is the region's, and it is closed here — see the block that opened
+    // it, above the loop, for why it is a region and not a synthetic `try`.
+    if let Some((after, handler)) = closing_region {
+        builder.close_region();
+        let reaches = matches!(result, Ok(false));
+        // The snapshot is taken AFTER the loop and restored at `after`, which is
+        // the opposite of what `protect::emit_try` does and the whole reason
+        // this shape is sound: what the normal path carries forward is what the
+        // loop produced, not what preceded it.
+        let normal = scope.snapshot();
+        if reaches {
+            builder.jump(after, &[])?;
+        }
+        // The thrown value arrives as the handler's parameter — the machine's
+        // discipline for it, the same as every other handler here.
+        let thrown = builder.add_block_param(handler, rts_cranelift::repr::Repr::Tagged);
+        builder.switch_to(handler);
+        // Unconditional: the handler is reached only by a throw, and a throw
+        // means the loop never reached exhaustion, so the iterator is open. The
+        // name it reads is the write-once alias, for the SSA reason recorded
+        // where that alias is declared.
+        let close = close_iterator_stmt(ctx, at, closing, always(at), false);
+        let terminated =
+            super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
+        if !terminated {
+            builder.throw(super::protect::JS_THROW, thrown);
+        }
+        builder.switch_to(after);
+        scope.restore(&normal);
+    }
+    // `IteratorClose` on a `break`, which leaves by falling out of the loop
+    // rather than through the region: `it` still holds the iterator, because
+    // only exhaustion clears it.
     if stepping && matches!(result, Ok(false)) {
         let close = close_iterator_stmt(ctx, at, iterator, still_open(iterator, at), false);
         super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
     }
     scope.leave();
     result
+}
+
+/// `true`, as the guard for a close that has already been decided.
+fn always(at: Position) -> Expr {
+    Expr {
+        kind: ExprKind::Literal(Literal::Boolean(true)),
+        at,
+    }
 }
 
 /// `it !== undefined` — the iterator was abandoned rather than exhausted.
