@@ -44,20 +44,26 @@
 // looks absurd is still worth checking with `RTS_TIMING=1`, but the thing to
 // suspect is the overflow path of the WRITE, not a cached read that refused.
 //
-// # The 500-line ceiling, and why this file is exempt
+// # The 500-line ceiling does not reach this file, and that is a DECISION
 //
-// CLAUDE.md sets 500 lines for everything outside the two engine crates and
-// this file is far past it. The exemption is the section above: it must run
-// unmodified under `rts`, `node` and `bun`, so it can have no imports, and a
-// benchmark corpus with no imports is one file or it is nothing. Splitting it
-// into a folder would tie every measurement to one runtime's module resolution
-// — which is one of the things being measured.
+// This file is over two thousand lines. Agreed 2026-09-06: **the ceiling binds
+// the system's own code and not a test or benchmark corpus.** It is written
+// here rather than assumed, because RULE 0 says a rule the code contradicts is
+// changed with its reason rather than left standing — and because the next
+// person to count the lines will otherwise file it as debt.
 //
-// Recorded here rather than assumed, because RULE 0 says a rule the code
-// contradicts gets changed with its reason rather than left standing. What the
-// ceiling is protecting — that a change lands in a small focused module instead
-// of being appended to something oversized — has no purchase on a file whose
-// contents are a list of independent cases with no structure to erode.
+// Two reasons it is the right line to draw, and the first is specific to this
+// file. It must run unmodified under `rts`, under `node` and under `bun`, so it
+// can have no imports, and a benchmark corpus with no imports is one file or it
+// is nothing — splitting it into a folder would tie every measurement to one
+// runtime's module resolution, which is one of the things being measured.
+//
+// The second is general, and is why the rule reads the way it now does. What
+// the ceiling protects is that a change lands in a small focused module rather
+// than being appended to something already oversized — a claim about coupling.
+// A corpus has none: it is a list of independent cases, and case 200 cannot be
+// made worse by case 199 existing. Length here is coverage, which is the thing
+// the file is for.
 //
 // # Honesty
 //

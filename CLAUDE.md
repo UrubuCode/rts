@@ -612,6 +612,16 @@ that reason alone. A file
 that would pass its ceiling is split into a folder of cohesive modules. New code
 lands in a small focused module, never appended to something already oversized.
 
+**The ceiling binds the system's own code, and not a test or benchmark corpus**
+— agreed 2026-09-06, when `bench/analytic.ts` passed two thousand lines. What
+the rule protects is coupling: that a change lands in a focused module instead
+of being appended to something oversized. A corpus has no coupling to protect —
+its cases are independent, and case 200 cannot be made worse by case 199
+existing — so length there is coverage rather than debt. `bench/analytic.ts`
+carries the argument in its own header, including the reason it cannot be split
+at all: it runs unmodified under `rts`, `node` and `bun`, so it can have no
+imports.
+
 **The commit gate is gone with the crate it gated.**
 `scripts/read_before_commit.sh` checked `crates/rts-codegen-new/`: its
 primordial-vs-registry doctrine, its 1000-line ceiling, its symbol-table
