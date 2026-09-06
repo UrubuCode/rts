@@ -107,6 +107,36 @@ pub(super) fn emit_object(
     let expected = builder.use_const(expected);
     let object = call(builder, ctx, RuntimeOp::ObjectNew, &[expected])?[0];
     for property in properties {
+        // A COMPUTED key is evaluated BEFORE the value it names, which is the
+        // order `PropertyDefinitionEvaluation` states and the order this had
+        // backwards: the value was emitted in the match below and the key only
+        // at the write, so `{ [k()]: v() }` ran `v` first. Invisible until
+        // either side has an effect, and then it is the whole answer —
+        // `{ [k("ka")]: v("v1"), b: v("v2"), [k("kb")]: v("v3") }` logged
+        // `v1,ka,v2,v3,kb` where every runtime logs `ka,v1,v2,kb,v3`.
+        //
+        // Hoisted here rather than fixed at each of the three arms, because it
+        // is one rule about the property and not three about its shapes: a
+        // value, a method and an accessor all name themselves the same way.
+        let computed_key = match property {
+            Property::Value {
+                key: PropertyKey::Computed(expression),
+                ..
+            }
+            | Property::Method {
+                key: PropertyKey::Computed(expression),
+                ..
+            }
+            | Property::Getter {
+                key: PropertyKey::Computed(expression),
+                ..
+            }
+            | Property::Setter {
+                key: PropertyKey::Computed(expression),
+                ..
+            } => Some(emit_expr(builder, scope, ctx, expression)?),
+            _ => None,
+        };
         // A method is a function stored under a key, plus a **home object** —
         // which is what `super.x` inside it reads from. There is no `super`
         // yet, so the two are the same thing here; when there is, this becomes
@@ -175,8 +205,10 @@ pub(super) fn emit_object(
                         // is the caller that says so — see `define_accessor`.
                         define_accessor(builder, ctx, object, *name, closure, is_getter, true)?;
                     }
-                    PropertyKey::Computed(expr) => {
-                        let key = super::expr::emit_expr(builder, scope, ctx, expr)?;
+                    PropertyKey::Computed(_) => {
+                        // Already evaluated, above the closure — the key comes
+                        // first for an accessor as much as for a value.
+                        let key = computed_key.expect("a computed accessor key");
                         define_computed_accessor(
                             builder, ctx, object, key, closure, is_getter, true,
                         )?;
@@ -223,8 +255,8 @@ pub(super) fn emit_object(
             PropertyKey::Named(name) => {
                 super::property::emit_write(builder, ctx, object, *name, value)?;
             }
-            PropertyKey::Computed(expression) => {
-                let key = emit_expr(builder, scope, ctx, expression)?;
+            PropertyKey::Computed(_) => {
+                let key = computed_key.expect("a computed property key");
                 let key = tagged(builder, key);
                 let estrito = super::property::estrito(builder, ctx);
                 call(builder, ctx, RuntimeOp::SetIndexed, &[object, key, value, estrito])?;

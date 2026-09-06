@@ -232,7 +232,27 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // `for`-`in` walked own keys only; the moment it walked the chain,
             // `for (const k in C)` answered `prototype,name,length` before it
             // answered anything the program wrote.
-            super::native::hidden(context, cell, key);
+            //
+            // And NON-CONFIGURABLE, which `hidden` does not say and which is
+            // the half that was wrong: `SetFunctionPrototype` gives it
+            // `{ writable: true, enumerable: false, configurable: false }`, so
+            // `f.prototype = X` assigns and `delete f.prototype` refuses. This
+            // reported `configurable: true`, which is the one of the three a
+            // program can act on — `Object.defineProperty(f, "prototype", …)`
+            // succeeded where every runtime raises.
+            //
+            // Stated outright rather than through one of `native`'s three
+            // helpers, because it matches none of them: `hidden` is
+            // configurable, `pinned` is not writable, and this property is
+            // writable and not configurable. A fourth helper for one caller
+            // would be a name to look up instead of three words to read.
+            if let crate::object::Key::Name(named) = key {
+                super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+                    writable: true,
+                    enumerable: false,
+                    configurable: false,
+                });
+            }
             // And the BACK-link, which nothing wrote: `f.prototype.constructor`
             // is `f`, so `new f().constructor === f` and `x.constructor.name`
             // both work. Every engine has it, a great deal of ordinary code

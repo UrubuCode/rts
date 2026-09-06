@@ -408,6 +408,23 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         if let Some(element) = element_state(context, cell, key) {
             return Some(element);
         }
+        // A STRING's characters and its `length` are own properties too, and no
+        // shape records them either — the same argument the elements arm above
+        // makes, for the other kind of indexed storage.
+        //
+        // `super::super::array::own_names` already reports them, so
+        // `Object.getOwnPropertyNames(Object("ab"))` answered `0|1|length` while
+        // `getOwnPropertyDescriptor` answered `undefined` for every one of the
+        // three, and `getOwnPropertyDescriptors` answered `{}`. One object
+        // disagreeing with itself about what it has, which is the shape of
+        // defect this file's elements arm was added for.
+        //
+        // The attributes are the specification's and are not the elements':
+        // a string is immutable, so an index is non-writable and
+        // non-configurable but enumerable, and `length` is none of the three.
+        if let Some(state) = string_state(context, cell, key) {
+            return Some(state);
+        }
         let Key::Name(key) = key else {
             return None;
         };
@@ -445,6 +462,55 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         Value::from_bool(attributes.configurable).bits(),
     );
     Some(made)
+}
+
+/// The descriptor a STRING's own property is — an index, or `length`.
+///
+/// `None` for anything that is not a string cell, and for an index past the end:
+/// `Object.getOwnPropertyDescriptor(Object("ab"), "5")` is `undefined`, the same
+/// absence `"5" in Object("ab")` reports.
+fn string_state(
+    context: &mut super::super::Context,
+    cell: u32,
+    key: Key,
+) -> Option<(Descriptor, super::super::integrity::Attributes)> {
+    let named = match key {
+        Key::Name(named) => named,
+        Key::Index(_) => return None,
+    };
+    // `length` first, and by the same comparison the read path uses rather than
+    // by spelling it again here.
+    if let Some(held) = super::super::string::text::string_property(context, cell, key) {
+        return Some((
+            Descriptor::Value(held),
+            super::super::integrity::Attributes {
+                writable: false,
+                enumerable: false,
+                configurable: false,
+            },
+        ));
+    }
+    let _ = named;
+    let spelled = key_value(context, key)?;
+    let held = super::super::string::text::string_element(context, cell, Value(spelled))?;
+    Some((
+        Descriptor::Value(held),
+        super::super::integrity::Attributes {
+            writable: false,
+            // An index IS enumerable, which is what makes `Object.keys("ab")`
+            // answer `["0", "1"]` while `length` stays out of it.
+            enumerable: true,
+            configurable: false,
+        },
+    ))
+}
+
+/// A resolved key back as the VALUE the string paths take.
+fn key_value(context: &mut super::super::Context, key: Key) -> Option<u64> {
+    match key {
+        Key::Name(named) => Some(context.key_value(named)),
+        Key::Index(at) => Some(Value::from_f64(f64::from(at)).bits()),
+    }
 }
 
 /// The descriptor an ARRAY's element is, when the key names one.

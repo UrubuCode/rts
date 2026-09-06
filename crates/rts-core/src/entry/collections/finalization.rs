@@ -56,10 +56,20 @@ use crate::entry::{external, finalize, modules, objects, primitives, throw};
 use crate::value::Value;
 
 /// The cleanup callback a registry was built with.
-const CLEANUP: &str = "__cleanup__";
+///
+/// In the `@@` space, which is what enumeration filters on — see
+/// `crate::entry::symbol::is_symbol_key`. It was `__cleanup__`, an ORDINARY
+/// property name, so a registry answered `["__cleanup__", "__registrations__"]`
+/// to `Object.getOwnPropertyNames` and to `Object.keys`, and `JSON.stringify` of
+/// one serialised the callback's holder. Every runtime answers `[]`: these are
+/// internal slots in the specification and a program cannot see them at all.
+///
+/// A double underscore is not a hiding place — `o.__cleanup__` is a name a
+/// program can write, and one that did would have collided with this.
+const CLEANUP: &str = "@@finalizationCleanup";
 
 /// The registrations still waiting, as an array of records.
-const WAITING: &str = "__registrations__";
+const WAITING: &str = "@@finalizationRegistrations";
 
 /// What one record of [`WAITING`] carries.
 ///

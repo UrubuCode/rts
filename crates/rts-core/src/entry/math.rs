@@ -332,8 +332,24 @@ impl Math {
     }
 
     /// `Math.atanh(x)`.
+    ///
+    /// # Why the sign is carried rather than passed through
+    ///
+    /// Because `f64::atanh` is not ODD to the last bit and the language's
+    /// `atanh` is a mathematically odd function, so a program is entitled to
+    /// `atanh(-x) === -atanh(x)`. Measured on this machine:
+    /// `(-0.5).atanh()` is `-0.5493061443340548` and `-(0.5).atanh()` is
+    /// `-0.5493061443340549` — one unit in the last place apart, because the two
+    /// take different branches of the same series.
+    ///
+    /// Computing on the magnitude and reapplying the sign makes the pair agree
+    /// by construction rather than by luck. `-0` carries through `copysign`,
+    /// which is what keeps `Math.atanh(-0)` at `-0`.
+    ///
+    /// Only `atanh` here: `asinh` is odd on this machine already, and `acosh`
+    /// and `sinh`/`tanh` were checked with it.
     fn atanh(x: f64) -> f64 {
-        x.atanh()
+        x.abs().atanh().copysign(x)
     }
 
     /// `Math.hypot(…)` — the square root of the sum of the squares.
