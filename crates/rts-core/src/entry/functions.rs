@@ -1266,6 +1266,23 @@ pub fn mark_class_constructor(callee: u64) -> u64 {
     with_current(|context| {
         if let Some(cell) = Value(callee).as_slot() {
             context.mark_class_constructor(cell);
+            // A CLASS's `prototype` is non-writable, where an ordinary
+            // function's is writable — the one attribute the two differ in, and
+            // the reason `class C {}` refuses `C.prototype = X` while
+            // `function f() {}` accepts `f.prototype = X`.
+            //
+            // Applied here rather than in `closure_new`, because that is where
+            // the property is written and it does not know yet: whether a
+            // callable came from a `class` is syntax the compiler holds, and
+            // this entry point is how it says so.
+            let key = context.well_known("prototype");
+            if let crate::object::Key::Name(named) = key {
+                super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+                    writable: false,
+                    enumerable: false,
+                    configurable: false,
+                });
+            }
         }
         callee
     })

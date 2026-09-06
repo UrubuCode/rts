@@ -454,6 +454,15 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         // The attributes are the specification's and are not the elements':
         // a string is immutable, so an index is non-writable and
         // non-configurable but enumerable, and `length` is none of the three.
+        // A TYPED ARRAY's indices are the third kind of storage no shape
+        // records, and the third time this file has had to say so. They are
+        // `[[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true` —
+        // the language made them configurable in ES2021 so that
+        // `Object.seal(t)` stops being a refusal — which is neither the string's
+        // set nor the plain element's.
+        if let Some(state) = view_state(context, cell, key) {
+            return Some(state);
+        }
         if let Some(state) = string_state(context, cell, key) {
             return Some(state);
         }
@@ -494,6 +503,51 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         Value::from_bool(attributes.configurable).bits(),
     );
     Some(made)
+}
+
+/// The descriptor a TYPED ARRAY's index is.
+///
+/// `None` for anything that is not a view, and for an index outside it: the
+/// language calls an out-of-range index on a typed array absent rather than
+/// `undefined`-valued, which is why `Object.getOwnPropertyDescriptor(t, "9")` is
+/// `undefined` and not a descriptor holding one.
+///
+/// `length`, `byteLength` and the rest are NOT here: those are accessors on
+/// `%TypedArray%.prototype`, not own properties of an instance, and answering
+/// for them here would report an inherited accessor as own.
+fn view_state(
+    context: &mut super::super::Context,
+    cell: u32,
+    key: Key,
+) -> Option<(Descriptor, super::super::integrity::Attributes)> {
+    let view = context.view_at(cell)?;
+    let at = match key {
+        Key::Index(at) => at as usize,
+        Key::Name(named) => {
+            let text = context.interner.text(named)?;
+            crate::object::as_array_index(text)? as usize
+        }
+    };
+    if at >= view.count() {
+        return None;
+    }
+    // The context-taking spelling: this function is already inside a borrow, and
+    // a second one in an `extern "C"` frame aborts the process rather than
+    // failing. It did exactly that on the first attempt.
+    let held = super::super::buffers::typed::element_at_in(
+        context,
+        Value::from_slot(cell).bits(),
+        at as f64,
+        false,
+    );
+    Some((
+        Descriptor::Value(held),
+        super::super::integrity::Attributes {
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        },
+    ))
 }
 
 /// The descriptor a STRING's own property is — an index, or `length`.

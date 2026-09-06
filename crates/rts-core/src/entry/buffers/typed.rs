@@ -110,32 +110,46 @@ pub(in crate::entry) fn construct(
 /// [`crate::entry::computed::get_indexed`] learns about views, and a class nothing
 /// can read is a class nothing can test.
 pub(in crate::entry) fn element_at(this: u64, index: f64, negatives: bool) -> u64 {
-    with_current(|context| {
-        let absent = undefined_of(context);
-        let Some(view) = super::view_of(context, this) else {
-            return absent;
-        };
-        let Some(at) = resolve(&view, index, negatives) else {
-            return absent;
-        };
-        let kind = view.kind;
-        let Some(bytes) = super::window(context, &view) else {
-            return absent;
-        };
-        // The same split `indexed_get` makes, and it has to be made twice
-        // because a program reaches an element both ways: a bigint element is
-        // the word, where a numeric one is the double the codec speaks in.
-        if kind.is_bigint() {
-            return match super::element::word_at(bytes, at * kind.size(), kind, true) {
-                Some(word) => super::bigint_value(context, word, kind),
-                None => absent,
-            };
-        }
-        match super::element::read(bytes, at * kind.size(), kind, true) {
-            Some(number) => Value::from_f64(number).bits(),
+    with_current(|context| element_at_in(context, this, index, negatives))
+}
+
+/// [`element_at`] from a context already in hand.
+///
+/// For a caller that is already inside a borrow — a second `with_current` in an
+/// `extern "C"` frame is a panic that cannot unwind, so it aborts. The split is
+/// the one this crate makes everywhere for that reason;
+/// `object_global::describe` is what needed it, to describe an index without
+/// leaving the borrow it reads the view in.
+pub(in crate::entry) fn element_at_in(
+    context: &mut Context,
+    this: u64,
+    index: f64,
+    negatives: bool,
+) -> u64 {
+    let absent = undefined_of(context);
+    let Some(view) = super::view_of(context, this) else {
+        return absent;
+    };
+    let Some(at) = resolve(&view, index, negatives) else {
+        return absent;
+    };
+    let kind = view.kind;
+    let Some(bytes) = super::window(context, &view) else {
+        return absent;
+    };
+    // The same split `indexed_get` makes, and it has to be made twice
+    // because a program reaches an element both ways: a bigint element is
+    // the word, where a numeric one is the double the codec speaks in.
+    if kind.is_bigint() {
+        return match super::element::word_at(bytes, at * kind.size(), kind, true) {
+            Some(word) => super::bigint_value(context, word, kind),
             None => absent,
-        }
-    })
+        };
+    }
+    match super::element::read(bytes, at * kind.size(), kind, true) {
+        Some(number) => Value::from_f64(number).bits(),
+        None => absent,
+    }
 }
 
 /// `t.setAt(i, v)` — the value, because an assignment is an expression.
