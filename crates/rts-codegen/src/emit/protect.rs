@@ -167,9 +167,26 @@ pub fn emit_try(
     catch: Option<&Catch>,
     finally: Option<&[Stmt]>,
 ) -> EmitResult<bool> {
-    // Both outside every region, and for opposite reasons. A cleanup inside its
-    // own region would run itself; the continuation inside it would run the
-    // cleanup a second time on the way out.
+    // Outside THIS `try`'s regions, and inside whatever encloses it. A cleanup
+    // inside its own region would run itself; the continuation inside it would
+    // run the cleanup a second time on the way out — and being created here,
+    // before either region is opened, is what puts them outside both.
+    //
+    // `create_block` and NOT `create_unprotected_block`, which is what these
+    // three were. That spelling places a block in NO region whatever is open,
+    // and the difference is a throw that escapes the program: the continuation
+    // of a `try` nested inside a `catch` handler is this `join`, so
+    //
+    //     try { try { throw a } catch (e) { try {} catch {} throw e } }
+    //     catch (x) { … }
+    //
+    // left the rethrow in a block belonging to nothing, and the outer handler —
+    // written right there — never saw it. Every `for`-`of` now emits that shape,
+    // which is how it was found, but the defect is older than the loop and
+    // reproduces in four lines of hand-written JavaScript.
+    //
+    // `unwind_block` below already used `create_block` with a comment saying
+    // exactly this reasoning; these three were the half that had not caught up.
     // A `finally` that can complete abruptly takes the handler shape instead —
     // see [`leaves_abruptly`]. Its block is created HERE, before any region is
     // opened, so it belongs to whatever encloses this `try`: a throw from
@@ -181,7 +198,7 @@ pub fn emit_try(
     // returning FROM it does not re-enter this region's own cleanup — the
     // `finally` runs once, here, rather than once here and once on the way out.
     let returning = finally.map(|_| {
-        let block = builder.create_unprotected_block();
+        let block = builder.create_block();
         // The parameter exists at CREATION, not where the block is filled in.
         // A jump checks its argument count against the target's parameters, so
         // a parameter added later is an `ArgumentCount` refusal at every
@@ -190,10 +207,8 @@ pub fn emit_try(
         let held = builder.add_block_param(block, rts_cranelift::repr::Repr::Tagged);
         (block, held)
     });
-    let cleanup_block = finally
-        .filter(|_| !abrupt)
-        .map(|_| builder.create_unprotected_block());
-    let join = builder.create_unprotected_block();
+    let cleanup_block = finally.filter(|_| !abrupt).map(|_| builder.create_block());
+    let join = builder.create_block();
 
     let protected = builder.create_block();
     builder.jump(protected, &[])?;

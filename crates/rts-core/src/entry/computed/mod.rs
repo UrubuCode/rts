@@ -29,8 +29,8 @@ mod query;
 // as it did from a file, which is what makes the split invisible outside it.
 pub use access::{GET_INDEXED_ENTRY, SET_INDEXED_ENTRY, get_indexed, set_indexed};
 pub use query::{
-    DELETE_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, WITH_HAS_ENTRY, delete_property, has_property,
-    with_has,
+    DELETE_PROPERTY_ENTRY, FOR_IN_HAS_ENTRY, HAS_PROPERTY_ENTRY, WITH_HAS_ENTRY, delete_property,
+    for_in_has, has_property, with_has,
 };
 pub(in crate::entry) use query::{delete_own, length_key, remove_own};
 

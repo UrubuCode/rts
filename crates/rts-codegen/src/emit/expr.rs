@@ -1128,6 +1128,9 @@ fn emit_binary_inner(
         // order — `k in o`, not `o has k`. Getting this backwards produces a
         // program that runs and answers about the wrong operand.
         BinaryOp::In => return Ok(compared(builder, ctx, RuntimeOp::HasProperty, a, b)?),
+        // The compiler-minted guard, in the same operand order and to the entry
+        // that does not refuse a primitive receiver. See `BinaryOp::ForInHas`.
+        BinaryOp::ForInHas => return Ok(compared(builder, ctx, RuntimeOp::ForInHas, a, b)?),
         // The value on the left and the constructor on the right, which is
         // how it is written — and the runtime takes them that way.
         BinaryOp::InstanceOf => return Ok(compared(builder, ctx, RuntimeOp::InstanceOf, a, b)?),

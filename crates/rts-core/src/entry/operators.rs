@@ -79,16 +79,17 @@ pub fn subtract(left: u64, right: u64) -> u64 {
         operand_order(),
         crate::coerce::Hint::Number,
     );
+    // Asked in a borrow of ITS OWN, and `settled` after it ends. Mixing a bigint
+    // with anything else is a `TypeError`, so this arm refuses now, and building
+    // the error object borrows the context again — raising while `binary`'s
+    // borrow is live aborts the process rather than failing, because the panic
+    // cannot unwind through an entry point. Same shape as `bitwise.rs`.
+    if let Some(outcome) =
+        with_current(|context| super::bigint_class::binary(context, Op::Sub, left, right))
+    {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
-        // `settled` inside the borrow is safe for THIS op and not in general:
-        // only `<<`, `>>` and `**` refuse, and they ask in a borrow of their own
-        // for that reason (see `bitwise.rs`). The one that would break this is
-        // division by zero — it answers `undefined` today where the language
-        // throws, and making it raise means moving these five calls out of the
-        // borrow first. Raising in place aborts; it does not fail.
-        if let Some(outcome) = super::bigint_class::binary(context, Op::Sub, left, right) {
-            return super::bigint_class::settled(outcome);
-        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a - b).bits()
     })
@@ -103,10 +104,12 @@ pub fn multiply(left: u64, right: u64) -> u64 {
         operand_order(),
         crate::coerce::Hint::Number,
     );
+    if let Some(outcome) =
+        with_current(|context| super::bigint_class::binary(context, Op::Mul, left, right))
+    {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
-        if let Some(outcome) = super::bigint_class::binary(context, Op::Mul, left, right) {
-            return super::bigint_class::settled(outcome);
-        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a * b).bits()
     })
@@ -125,10 +128,12 @@ pub fn divide(left: u64, right: u64) -> u64 {
         operand_order(),
         crate::coerce::Hint::Number,
     );
+    if let Some(outcome) =
+        with_current(|context| super::bigint_class::binary(context, Op::Div, left, right))
+    {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
-        if let Some(outcome) = super::bigint_class::binary(context, Op::Div, left, right) {
-            return super::bigint_class::settled(outcome);
-        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a / b).bits()
     })
@@ -149,10 +154,12 @@ pub fn remainder(left: u64, right: u64) -> u64 {
         operand_order(),
         crate::coerce::Hint::Number,
     );
+    if let Some(outcome) =
+        with_current(|context| super::bigint_class::binary(context, Op::Rem, left, right))
+    {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
-        if let Some(outcome) = super::bigint_class::binary(context, Op::Rem, left, right) {
-            return super::bigint_class::settled(outcome);
-        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a % b).bits()
     })
@@ -210,23 +217,29 @@ fn compare(op: Relational, left: u64, right: u64) -> bool {
         crate::coerce::relational_operand_order(op),
         crate::coerce::Hint::Number,
     );
+    // Asked before the closures below, and before conversion: a bigint and a
+    // number DO compare in the language — only *arithmetic* between them is
+    // refused — but comparing them as doubles loses every value past 2^53, which
+    // is the range a bigint exists for.
+    //
+    // In a borrow of its own, like the five arithmetic operators above: a
+    // comparison cannot refuse today, and `settled` is shared with five that
+    // can, so the borrow discipline is the same one everywhere rather than a
+    // property of which operator is calling.
+    let want = match op {
+        Relational::Less => Relation::Less,
+        Relational::LessEqual => Relation::LessEqual,
+        Relational::Greater => Relation::Greater,
+        Relational::GreaterEqual => Relation::GreaterEqual,
+    };
+    if let Some(outcome) =
+        with_current(|context| super::bigint_class::binary(context, Op::Compare(want), left, right))
+    {
+        return Value(super::bigint_class::settled(outcome))
+            .as_bool()
+            .unwrap_or(false);
+    }
     with_current(|context| {
-        // Asked before the closures below, and before conversion: a bigint and
-        // a number DO compare in the language — only *arithmetic* between them
-        // is refused — but comparing them as doubles loses every value past
-        // 2^53, which is the range a bigint exists for.
-        let want = match op {
-            Relational::Less => Relation::Less,
-            Relational::LessEqual => Relation::LessEqual,
-            Relational::Greater => Relation::Greater,
-            Relational::GreaterEqual => Relation::GreaterEqual,
-        };
-        if let Some(outcome) = super::bigint_class::binary(context, Op::Compare(want), left, right) {
-            return Value(super::bigint_class::settled(outcome))
-                .as_bool()
-                .unwrap_or(false);
-        }
-
         let text_of = |value: Value| {
             value
                 .as_slot()

@@ -51,7 +51,16 @@ const p5: any = new Proxy(t5, {
 Reflect.defineProperty(p5, "x", { value: 100 });
 // target nao tem `x` (trap so' fingiu)
 const desc5 = Reflect.getOwnPropertyDescriptor(p5, "x");
-const desc5HasValue = Reflect.has(desc5, "value");
+// `desc5` e `undefined` — o trap so' fingiu — e `Reflect.has(undefined, k)`
+// LANCA um TypeError, verificado no Node e no Bun. Esta linha esperava `false`,
+// que era a convencao do motor antigo para um receptor que nao e objeto; ver a
+// nota igual em `proxy_phase3.test.ts`.
+let desc5Refused = "nao lancou";
+try {
+  Reflect.has(desc5, "value");
+} catch (e: any) {
+  desc5Refused = e.constructor.name;
+}
 
 // 6. setPrototypeOf trap retornando false rejeita silenciosamente
 const t6: any = {};
@@ -119,8 +128,8 @@ describe("proxy_phase3_extreme", () => {
     // 4. round-trip
     test("define + getOwnDesc round-trip", () => expect(descRTVal).toBe(77));
     // 5. trap fingindo + descriptor
-    test("trap defineProperty fake + getOwnDesc forward (no value)", () =>
-        expect(desc5HasValue).toBe(false));
+    test("Reflect.has on the undefined descriptor is refused", () =>
+        expect(desc5Refused).toBe("TypeError"));
     // 6. trap rejeita setProto
     test("setProto trap reject returns false", () => expect(r6).toBe(false));
     test("setProto trap reject leaves target untouched", () =>

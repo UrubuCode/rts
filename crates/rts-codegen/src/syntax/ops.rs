@@ -74,6 +74,24 @@ pub enum BinaryOp {
     /// `in` — asks whether a property key is reachable on an object.
     /// TypeError if the right operand is not an object.
     In,
+    /// The `for`-`in` guard, and **no program can write it**.
+    ///
+    /// Minted by `emit/foreach.rs` when it expands a `for`-`in` into a counted
+    /// loop over a snapshot of the keys: the body must not visit a key it has
+    /// itself deleted, so each pass asks whether the key is still reachable.
+    ///
+    /// It was [`BinaryOp::In`], and that is the one thing this variant exists to
+    /// stop being. The operator refuses a receiver that is not an object; a
+    /// `for`-`in` converts one with `ToObject` at the loop's head and enumerates
+    /// it. The two agreed only for as long as `in` answered `false` instead of
+    /// raising — the day it started raising, `for (const k in "ab")` ended the
+    /// program.
+    ///
+    /// A variant here rather than `Object(src)` around the operand, which is the
+    /// same question written in the language: the expansion would then depend on
+    /// a global name the program is free to shadow, and every `__rts_` name in
+    /// this file is minted precisely so that it cannot.
+    ForInHas,
     /// `instanceof` — walks the prototype chain, or defers to
     /// `Symbol.hasInstance` when the right operand defines it.
     /// TypeError if the right operand is not callable.

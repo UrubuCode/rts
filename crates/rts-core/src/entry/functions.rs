@@ -279,20 +279,6 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             let text = context.key_value(name);
             owned[1] = Some(key);
             write_own(context, cell, key, text, held_template, 1);
-            // `hidden` and not `introspective`, which is a KNOWN divergence
-            // rather than an oversight: `SetFunctionName` says
-            // `[[Writable]]: false`, and a compiled function's descriptors
-            // therefore report `writable: true` where every other engine
-            // reports `false`.
-            //
-            // It cannot be corrected here alone. `emit/class.rs` writes
-            // `C.name` with an ordinary STORE after this has run, and a
-            // non-writable record turns that store into
-            // `TypeError: Cannot assign to read only property 'name'` — every
-            // class in every program, measured. Closing it needs the class
-            // emitter to DEFINE the name instead, which is an entry point that
-            // does not exist; changing only this half trades a wrong descriptor
-            // for a dead program.
             let length_key = context.well_known("length");
             let count = Value::from_f64(f64::from(arity)).bits();
             owned[2] = Some(length_key);
@@ -302,7 +288,20 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // held anything for, so two calls paid that growth twice on a cell
             // that is always fresh here. Measured 2026-08-25, the pair was 98 ns
             // of a 514 ns closure.
-            super::native::hidden_many(context, cell, &[key, length_key]);
+            //
+            // `introspective_many` and NOT `hidden_many`, which is what it was.
+            // `SetFunctionName` and `SetFunctionLength` both spell
+            // `[[Writable]]: false`, so `fn.name = "x"` stores nothing and the
+            // descriptor reports `writable: false` — which is what every runtime
+            // reports and what this answered `true` to on every function in the
+            // language.
+            //
+            // A note here used to say the correction was impossible on its own,
+            // and it was right: `emit/class.rs` STORED `C.name` after this ran,
+            // so a non-writable record made every class definition a
+            // `TypeError`. That store is now `accessor::set_function_name`, a
+            // define, and the two halves land together for that reason.
+            super::native::introspective_many(context, cell, &[key, length_key]);
         }
         // Recorded only when this closure took the long way, and read back out
         // of the SHAPE it actually reached rather than from anything decided
@@ -1270,8 +1269,28 @@ fn is_bare_class_constructor_call(callee: u64) -> bool {
 /// **object** — not the callee. `x instanceof F` is false for an `x` whose
 /// chain never reaches `F.prototype`, and true for one that reaches it however
 /// many links away, which is why this is a loop rather than one comparison.
+///
+/// # The three refusals, and why answering `false` for them was worse
+///
+/// `InstanceofOperator` throws before it decides anything: a right-hand side
+/// that is not an object, a `Symbol.hasInstance` that is present and not
+/// callable, and — once the hook is out of the way — a right-hand side that is
+/// not callable at all. `OrdinaryHasInstance` adds a fourth, for a `prototype`
+/// property that is not an object.
+///
+/// All four answered `false`, and `false` is the one answer that cannot be told
+/// from a legitimate one. `x instanceof someObject` is a typo — the author meant
+/// a constructor — and it read as "no, x is not one of those" in every program
+/// that made it, including the ones testing for the mistake.
 #[rtse::entry]
 pub fn instance_of(value: u64, callee: u64) -> bool {
+    // Step 1, before anything else can run: the right-hand side is an OBJECT or
+    // the operator refuses. Asked ahead of the hook because the hook is a
+    // property of it, and a number has none to read.
+    if !with_current(|context| super::objects::is_object(context, callee)) {
+        super::throw::type_error("Right-hand side of 'instanceof' is not an object");
+        return false;
+    }
     // `Symbol.hasInstance` primeiro, que e o passo 1 do operador: uma classe que
     // o define decide ela propria o que e uma instancia dela, e sem isto a
     // decisao era sempre da cadeia de prototipos.
@@ -1327,8 +1346,16 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         }
     };
     if let Some(hook) = hook
-        && with_current(|context| super::modules::is_callable_in(context, hook))
+        && !with_current(|context| super::objects::nullish(context, hook).is_some())
     {
+        // `GetMethod` refuses a present, non-callable hook rather than ignoring
+        // it. Falling through was the wrong repair for it: a class writing
+        // `static [Symbol.hasInstance] = 3` got the ordinary chain walk and a
+        // plausible answer, where the language says the class is malformed.
+        if !with_current(|context| super::modules::is_callable_in(context, hook)) {
+            super::throw::type_error("Symbol.hasInstance is not a function");
+            return false;
+        }
         let absent = with_current(|context| undefined_of(context));
         let answered = call(hook, callee, value, absent, absent, absent);
         if super::throw::in_flight() {
@@ -1336,9 +1363,20 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         }
         return super::class_support::to_boolean(answered);
     }
-    with_current(|context| {
+    // `Err` is a refusal `OrdinaryHasInstance` states, raised outside the borrow
+    // because `throw::type_error` builds the program's own error object and that
+    // borrows the context again.
+    //
+    // The callable test is NOT written here as a separate step, and that is a
+    // repair rather than a shortcut: `modules::is_callable_in` asks for a code
+    // address, and a PROXY has none — so asking it up front refused
+    // `x instanceof new Proxy(F, {})`, which the language delegates and which
+    // the walk below already resolves by following the proxy to its target. The
+    // loop is the one place that knows what "callable" means for a proxy and a
+    // bound function, so the refusal is raised from inside it.
+    let held = with_current(|context| {
         let Some(mut function) = Value(callee).as_slot() else {
-            return false;
+            return Err(Refusal::NotCallable);
         };
         // A PROXY and a BOUND function are both callable with no code address
         // of their own, so `callable_at` answered `None` and the operator
@@ -1365,10 +1403,10 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         let mut found = None;
         for _ in 0..super::objects::CHAIN_LIMIT {
             if context.callable_at(function).is_none() && context.proxy_at(function).is_none() {
-                // `1 instanceof 2` is a `TypeError`. Answering false is the
-                // same stated gap every other operation has while throwing is
-                // missing.
-                return false;
+                // Nothing callable here or anywhere down the bound/proxy chain.
+                // A plain object and an array are what reach this in real code,
+                // and both are the typo the doc above names.
+                return Err(Refusal::NotCallable);
             }
             if let Some(value) = super::objects::read_property(context, function, key) {
                 found = Some(value);
@@ -1383,11 +1421,17 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
                 None => break,
             }
         }
-        let Some(wanted) = found else {
-            return false;
+        // Step 5 of `OrdinaryHasInstance`: `C.prototype` must be an OBJECT, and
+        // a constructor whose `prototype` was assigned a number or `null` is
+        // refused rather than compared against. Both spellings reached the walk
+        // and answered `false`, which reads as "not an instance" for a
+        // constructor nothing can ever be an instance of.
+        let Some(wanted) = found.filter(|held| super::objects::is_object(context, held.bits()))
+        else {
+            return Err(Refusal::BadPrototype);
         };
         let Some(mut cell) = Value(value).as_slot() else {
-            return false;
+            return Ok(false);
         };
         // Step 3 of `OrdinaryHasInstance`: if the left operand is not an
         // OBJECT, the answer is false before any chain is walked. A number, a
@@ -1402,7 +1446,7 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         // `new String("s")` still answers true: a wrapper is an ordinary object
         // cell that merely inherits from the same prototype.
         if context.text_at(cell).is_some() {
-            return false;
+            return Ok(false);
         }
         // Stepped with `inherited_from` rather than `prototype_at`, so the
         // prototypes that are SUBSTITUTED by kind rather than linked from the
@@ -1412,15 +1456,43 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         // question.
         for _ in 0..super::objects::CHAIN_LIMIT {
             let Some(next) = super::objects::inherited_from(context, cell) else {
-                return false;
+                return Ok(false);
             };
             if Value::from_slot(next).bits() == wanted.bits() {
-                return true;
+                return Ok(true);
             }
             cell = next;
         }
-        false
-    })
+        Ok(false)
+    });
+    match held {
+        Ok(answer) => answer,
+        Err(why) => {
+            super::throw::type_error(match why {
+                Refusal::NotCallable => "Right-hand side of 'instanceof' is not callable",
+                Refusal::BadPrototype => {
+                    "Function has non-object prototype in instanceof check"
+                }
+            });
+            false
+        }
+    }
+}
+
+/// Which of `OrdinaryHasInstance`'s two refusals the walk in [`instance_of`]
+/// reached.
+///
+/// Carried out of the borrow rather than raised inside it, for the reason every
+/// raising native here states: building the error object borrows the context a
+/// second time, and the panic that produces cannot unwind through an entry
+/// point — it aborts.
+enum Refusal {
+    /// The right-hand side is not callable, following bound targets and proxies
+    /// as far as they go.
+    NotCallable,
+    /// It is callable, and its `prototype` is not an object — `undefined`
+    /// included, which is what an arrow function and a bound function have.
+    BadPrototype,
 }
 
 /// What the `Symbol.hasInstance` probe in [`instance_of`] found, before

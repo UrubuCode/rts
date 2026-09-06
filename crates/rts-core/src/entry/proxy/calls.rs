@@ -27,7 +27,7 @@ use crate::value::Value;
 /// `handler.apply(target, thisArg, args)`, or a call to the target.
 pub(in crate::entry) fn apply(object: u64, this: u64, arguments: [u64; 4]) -> Option<u64> {
     let trap = super::trap_for(object, "apply")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(super::absent());
     }
     let listed = passed(arguments);
@@ -60,7 +60,7 @@ pub(in crate::entry) fn apply(object: u64, this: u64, arguments: [u64; 4]) -> Op
 /// is in `functions::construct_with_args`, not here.
 pub(in crate::entry) fn construct(object: u64, arguments: [u64; 4]) -> Option<u64> {
     let trap = super::trap_for(object, "construct")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(super::absent());
     }
     let listed = passed(arguments);

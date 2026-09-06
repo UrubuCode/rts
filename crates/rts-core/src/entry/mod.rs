@@ -121,7 +121,9 @@ pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, number_exponent, shift_left, shift_right,
     shift_right_unsigned,
 };
-pub use computed::{delete_property, get_indexed, has_property, key_number, set_indexed, with_has};
+pub use computed::{
+    delete_property, for_in_has, get_indexed, has_property, key_number, set_indexed, with_has,
+};
 pub use functions::{
     call_counted, call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
@@ -183,6 +185,7 @@ mod type_of;
 
 pub use accessor::{
     define_accessor_in, define_field, define_getter, define_method, define_setter,
+    set_function_name,
 };
 pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};

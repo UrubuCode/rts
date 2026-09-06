@@ -214,6 +214,20 @@ pub(in crate::entry) fn to_number(value: u64) -> f64 {
         super::throw::type_error("Cannot convert a Symbol value to a number");
         return f64::NAN;
     }
+    // A BIGINT is the second value with no numeric form, and it refuses for the
+    // same reason and with the same class. `+1n` and `Number(1n)` are not the
+    // same operation and only the second converts: the unary operator is
+    // `ToNumber`, which the specification makes a `TypeError` for a bigint
+    // precisely so that a value chosen for its exactness cannot slip into a
+    // double by being written next to a `+`.
+    //
+    // It answered `NaN`, which is the failure `Symbol` above already names and
+    // costs more here: `NaN` is a plausible number, so `+bigValue` produced one
+    // and the loss of range was invisible until an assertion far away.
+    if with_current(|context| super::bigints::digits_of(context, value).is_some()) {
+        super::throw::type_error("Cannot convert a BigInt value to a number");
+        return f64::NAN;
+    }
     with_current(|context| super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN))
 }
 

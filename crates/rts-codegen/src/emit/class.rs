@@ -251,8 +251,23 @@ pub(super) fn emit_class(
     if let Some(name) = class.name.or(lent) {
         let text = ctx.names.text(name).to_owned();
         let name_value = expr::string_literal(builder, ctx, &text)?;
-        let name_key = ctx.names.intern("name");
-        super::property::emit_write(builder, ctx, constructor, name_key, name_value)?;
+        // DEFINED, not stored. `SetFunctionName` gives `name` `[[Writable]]:
+        // false`, and an ordinary write is `[[Set]]` — which against a
+        // non-writable own property is refused. So while this was a store, the
+        // runtime had to mark every function's `name` WRITABLE to keep class
+        // definitions from raising, and the descriptor was wrong on every
+        // function in the language. The two halves land together.
+        //
+        // WIDENED first, like the `DefineMethod` call above it: an entry point
+        // takes tagged words, and `constructor` is an SSA value whose
+        // representation is whatever the class body's emission left it as.
+        let target = expr::tagged(builder, constructor);
+        expr::call(
+            builder,
+            ctx,
+            RuntimeOp::SetFunctionName,
+            &[target, name_value],
+        )?;
     }
 
     if let Some(parent) = parent {
@@ -363,8 +378,11 @@ pub(super) fn emit_class(
                         let is_getter = matches!(method.kind, MethodKind::Getter);
                         match accessor_name(&method.key) {
                             Some(name) => {
+                                // NON-enumerable: every member a class body
+                                // declares is, which is the same rule
+                                // `DefineMethod` applies to an ordinary method.
                                 super::object::define_accessor(
-                                    builder, ctx, target, name, closure, is_getter,
+                                    builder, ctx, target, name, closure, is_getter, false,
                                 )?;
                             }
                             // A computed key, already evaluated once above and
@@ -375,7 +393,7 @@ pub(super) fn emit_class(
                                     construct: "a computed accessor name with no evaluated key",
                                 })?;
                                 super::object::define_computed_accessor(
-                                    builder, ctx, target, key, closure, is_getter,
+                                    builder, ctx, target, key, closure, is_getter, false,
                                 )?;
                             }
                         }

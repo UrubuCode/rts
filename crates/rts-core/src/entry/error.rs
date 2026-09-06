@@ -71,6 +71,11 @@ impl Error {
     const message: &str = "";
 
     /// `new Error(message, options)` — `options.cause`, ES2022.
+    // `length` is 1. `SetFunctionLength` counts the arguments the LANGUAGE
+    // pins, and the options bag is not one of them — every runtime answers 1
+    // for all seven. The derived arity counts the Rust signature, which has to
+    // carry the bag as a slot, so the two differ and the override says which.
+    #[arity(1)]
     #[construct]
     fn build(this: u64, message: u64, options: u64) -> u64 {
         written_with_cause(this, message, options, "Error")
@@ -89,6 +94,11 @@ impl TypeError {
     const name: &str = "TypeError";
 
     /// `new TypeError(message, options)` — `options.cause`, ES2022.
+    // `length` is 1. `SetFunctionLength` counts the arguments the LANGUAGE
+    // pins, and the options bag is not one of them — every runtime answers 1
+    // for all seven. The derived arity counts the Rust signature, which has to
+    // carry the bag as a slot, so the two differ and the override says which.
+    #[arity(1)]
     #[construct]
     fn build(this: u64, message: u64, options: u64) -> u64 {
         written_with_cause(this, message, options, "TypeError")
@@ -102,6 +112,11 @@ impl RangeError {
     const name: &str = "RangeError";
 
     /// `new RangeError(message, options)` — `options.cause`, ES2022.
+    // `length` is 1. `SetFunctionLength` counts the arguments the LANGUAGE
+    // pins, and the options bag is not one of them — every runtime answers 1
+    // for all seven. The derived arity counts the Rust signature, which has to
+    // carry the bag as a slot, so the two differ and the override says which.
+    #[arity(1)]
     #[construct]
     fn build(this: u64, message: u64, options: u64) -> u64 {
         written_with_cause(this, message, options, "RangeError")
@@ -115,6 +130,11 @@ impl SyntaxError {
     const name: &str = "SyntaxError";
 
     /// `new SyntaxError(message, options)` — `options.cause`, ES2022.
+    // `length` is 1. `SetFunctionLength` counts the arguments the LANGUAGE
+    // pins, and the options bag is not one of them — every runtime answers 1
+    // for all seven. The derived arity counts the Rust signature, which has to
+    // carry the bag as a slot, so the two differ and the override says which.
+    #[arity(1)]
     #[construct]
     fn build(this: u64, message: u64, options: u64) -> u64 {
         written_with_cause(this, message, options, "SyntaxError")
@@ -128,6 +148,11 @@ impl ReferenceError {
     const name: &str = "ReferenceError";
 
     /// `new ReferenceError(message, options)` — `options.cause`, ES2022.
+    // `length` is 1. `SetFunctionLength` counts the arguments the LANGUAGE
+    // pins, and the options bag is not one of them — every runtime answers 1
+    // for all seven. The derived arity counts the Rust signature, which has to
+    // carry the bag as a slot, so the two differ and the override says which.
+    #[arity(1)]
     #[construct]
     fn build(this: u64, message: u64, options: u64) -> u64 {
         written_with_cause(this, message, options, "ReferenceError")
@@ -141,6 +166,11 @@ impl EvalError {
     const name: &str = "EvalError";
 
     /// `new EvalError(message, options)` — `options.cause`, ES2022.
+    // `length` is 1. `SetFunctionLength` counts the arguments the LANGUAGE
+    // pins, and the options bag is not one of them — every runtime answers 1
+    // for all seven. The derived arity counts the Rust signature, which has to
+    // carry the bag as a slot, so the two differ and the override says which.
+    #[arity(1)]
     #[construct]
     fn build(this: u64, message: u64, options: u64) -> u64 {
         written_with_cause(this, message, options, "EvalError")
@@ -154,6 +184,11 @@ impl UriError {
     const name: &str = "URIError";
 
     /// `new URIError(message, options)` — `options.cause`, ES2022.
+    // `length` is 1. `SetFunctionLength` counts the arguments the LANGUAGE
+    // pins, and the options bag is not one of them — every runtime answers 1
+    // for all seven. The derived arity counts the Rust signature, which has to
+    // carry the bag as a slot, so the two differ and the override says which.
+    #[arity(1)]
     #[construct]
     fn build(this: u64, message: u64, options: u64) -> u64 {
         written_with_cause(this, message, options, "URIError")
@@ -180,6 +215,10 @@ impl AggregateError {
     const name: &str = "AggregateError";
 
     /// `new AggregateError(errors, message, options)`.
+    // `AggregateError.length` is 2 — the list and the message — for the reason
+    // its siblings' is 1: the options bag is a slot here and not an argument
+    // the language counts.
+    #[arity(2)]
     #[construct]
     fn build(this: u64, errors: u64, message: u64, options: u64) -> u64 {
         // Walked FIRST, and outside every borrow. `errors` is an ITERABLE — the
@@ -240,16 +279,31 @@ impl AggregateError {
 /// object it was given would answer `undefined` for half the ways the
 /// constructor is written.
 fn written(this: u64, message: u64, class: &'static str) -> u64 {
+    // `ToString(message)` FIRST, and outside every borrow, because it is user
+    // code: the language converts the argument with the string hint before it
+    // has an object to write onto, so `new Error([1, 2])` carries `"1,2"`.
+    //
+    // This was `text::to_text` inside the borrow, which is the PRIMITIVE half of
+    // the conversion — it answers `None` for every object, and the `None` was
+    // read as "no message". So every object argument stored nothing silently,
+    // and `new Error(Symbol())` did too where the language raises.
+    // `text::to_string_value` is the whole conversion, and its `None` is a throw
+    // rather than an absence.
+    let absent = with_current(|context| undefined_of(context));
+    let mut converted = None;
+    if message != absent {
+        let Some(text) = super::text::to_string_value(message) else {
+            // Rule 8: the conversion raised. Nothing has been written and there
+            // is no instance to abandon — the receiver is made below.
+            return absent;
+        };
+        converted = Some(text);
+    }
     with_current(|context| {
         let Some(cell) = receiver(context, this, class) else {
             return undefined_of(context);
         };
-        let mut described = String::new();
-        if message != undefined_of(context)
-            && let Some(text) = super::text::to_text(context, Value(message))
-        {
-            described = text.to_rust().unwrap_or_default();
-            let value = context.intern_value(text).bits();
+        if let Some(value) = converted {
             let key = context.well_known("message");
             super::objects::put(context, cell, key, value);
             // Node exposes `message` as an own property, but not as an enumerable
@@ -266,10 +320,7 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
         // The header line is `Name: message`, then a frame per line, which is
         // what Node and Bun print and what a program that splits on `\n    at `
         // expects.
-        let header = match described.is_empty() {
-            true => class.to_owned(),
-            false => format!("{class}: {described}"),
-        };
+        //
         // DEFERRED. What is captured is the call stack as it stands right now —
         // a `Vec<u64>` of code addresses — and the class name. Rendering it into
         // text and interning that is what the accessor on `Error.prototype` does
@@ -291,8 +342,7 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
         // The header is NOT built here either: `class` is a `&'static str` and
         // the message is read back off the instance at render time, which is
         // also what makes `err.name = "Mine"` before the first read show up —
-        // the same reason `described` reads through the property path.
-        let _ = header;
+        // the same reason the message reads through the property path.
         install_stack_accessor(context);
         context.defer_stack(cell, class);
 
@@ -303,19 +353,60 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
 /// [`written`], plus the ES2022 options bag's `cause`.
 ///
 /// `Error(m, { cause })` (called with or without `new`) sets `.cause` from the
-/// bag's own `cause` property — `Error(m, {})` leaves it unset rather than
-/// writing `undefined`, which is why this checks for the property's presence
-/// rather than reading it unconditionally.
+/// bag's `cause` property — `Error(m, {})` leaves it unset rather than writing
+/// `undefined`, which is why this asks for the property's presence rather than
+/// reading it unconditionally.
+///
+/// # Why `HasProperty` and `Get` rather than the own slot
+///
+/// Because `InstallErrorCause` is written in terms of both, and the difference
+/// is not academic. This asked `objects::own_property`, which reads a slot the
+/// object holds ITSELF — so a bag built by `Object.create(base)` and a bag whose
+/// `cause` is a getter both reported "no cause" and the error came out without
+/// one. The second is worse than a wrong value: the getter never ran, so a bag
+/// counting its own reads saw zero.
+///
+/// The pair is also why this cannot stay inside one borrow: a getter is user
+/// code, and rule 8 applies to both crossings.
+///
+/// # Why the property is non-enumerable
+///
+/// `CreateNonEnumerableDataPropertyOrThrow` is what the specification names, and
+/// the enumerable spelling is observable in the most ordinary way there is:
+/// `JSON.stringify(err)` serialised the cause and `Object.keys(err)` reported
+/// `["cause"]` where every runtime reports nothing. `message`, `stack` and
+/// `errors` are non-enumerable for the same reason and this was the one that
+/// was not.
 fn written_with_cause(this: u64, message: u64, options: u64, class: &'static str) -> u64 {
     let made = written(this, message, class);
+    // Rule 8: `written` converted the message, which is user code. A throw there
+    // means there is no instance, and asking the bag for a cause to put on it
+    // would run a getter the language never reaches.
+    if super::throw::in_flight() {
+        return made;
+    }
+    // An OBJECT, which is what `InstallErrorCause` tests. `as_slot` was the test
+    // and it is a different one: a string primitive has a cell too, so
+    // `new Error("m", "bag")` took the branch and asked a string for a property.
+    if !with_current(|context| super::objects::is_object(context, options)) {
+        return made;
+    }
+    let key = with_current(|context| context.well_known_text("cause"));
+    let present = super::computed::has_property(key, options);
+    if super::throw::in_flight() || !present {
+        return made;
+    }
+    let cause = super::computed::get_indexed(options, key);
+    if super::throw::in_flight() {
+        return made;
+    }
     with_current(|context| {
-        let (Some(instance), Some(bag)) = (Value(made).as_slot(), Value(options).as_slot()) else {
+        let Some(instance) = Value(made).as_slot() else {
             return;
         };
         let key = context.well_known("cause");
-        if let Some(cause) = super::objects::own_property(context, bag, key) {
-            super::objects::put(context, instance, key, cause.0);
-        }
+        super::objects::put(context, instance, key, cause);
+        super::native::hidden(context, instance, key);
     });
     made
 }
@@ -332,20 +423,73 @@ fn receiver(context: &mut Context, this: u64, class: &'static str) -> Option<u32
     Some(cell)
 }
 
-/// `name` and `message` joined the way the specification joins them.
+/// `Error.prototype.toString` — `name` and `message` joined the way the
+/// specification joins them.
 ///
-/// Both are read through the ordinary property path, so a program that wrote
-/// `err.name = "Mine"` sees `"Mine: boom"` — which is what the language does and
-/// what reading the class's own name instead would have got wrong.
+/// # Why this does not go through [`joined`]
+///
+/// Because the two answer different questions and only one of them may run user
+/// code. `joined` is what an UNCAUGHT throw prints, and a program that has
+/// already failed must not be asked to run a getter to describe its own failure;
+/// this is `Error.prototype.toString`, which the specification writes in terms
+/// of `Get` and `ToString` — so `err.name = 7` prints `7`, an object with a
+/// `toString` prints what it answers, and a `name` accessor runs.
+///
+/// It went through `joined` and inherited three wrong answers from doing so, all
+/// three of them the same mistake — reading a property's ABSENCE and its
+/// `undefined` as the same thing. `{ name: undefined }` printed `"undefined: m"`
+/// where the language substitutes `"Error"`, `{ message: undefined }` printed a
+/// trailing `": undefined"` where it substitutes the empty string, and a `name`
+/// of `""` printed a leading `": "` where the language answers the message
+/// alone.
 fn described(this: u64) -> u64 {
+    // `Error.prototype.toString.call(1)` is a `TypeError`, not a description of
+    // the number. `as_slot` is the wrong test for it — a string primitive has a
+    // cell — so this asks the same "is it an object" every other coercion here
+    // asks.
+    if !with_current(|context| super::objects::is_object(context, this)) {
+        super::throw::type_error("Error.prototype.toString called on non-object");
+        return with_current(|context| undefined_of(context));
+    }
+    let Some(name) = field_text(this, "name", "Error") else {
+        return with_current(|context| undefined_of(context));
+    };
+    let Some(message) = field_text(this, "message", "") else {
+        return with_current(|context| undefined_of(context));
+    };
+    let joined = match (name.is_empty(), message.is_empty()) {
+        (true, _) => message,
+        (false, true) => name,
+        (false, false) => format!("{name}: {message}"),
+    };
+    with_current(|context| context.intern_value(Str::from_str(&joined)).bits())
+}
+
+/// One of `toString`'s two fields: `Get` then `ToString`, with a default for
+/// `undefined`.
+///
+/// The default is what the specification substitutes and it is substituted for
+/// `undefined` ALONE — a missing property reads `undefined` through the chain
+/// and lands here the same way, which is why one test covers both. Every other
+/// value converts, `null` and `0` included: `{ name: null }` describes itself as
+/// `"null"` in every runtime.
+///
+/// `None` is a throw in flight — the getter's or the conversion's — which the
+/// caller propagates under rule 8.
+fn field_text(this: u64, field: &str, default: &str) -> Option<String> {
+    let key = with_current(|context| context.well_known_text(field));
+    let found = super::computed::get_indexed(this, key);
+    if super::throw::in_flight() {
+        return None;
+    }
+    if found == with_current(|context| undefined_of(context)) {
+        return Some(default.to_owned());
+    }
+    let text = super::text::to_string_value(found)?;
     with_current(|context| {
-        let Some(cell) = Value(this).as_slot() else {
-            return undefined_of(context);
-        };
-        let Some(joined) = joined(context, cell) else {
-            return undefined_of(context);
-        };
-        context.intern_value(Str::from_str(&joined)).bits()
+        super::text::to_text(context, Value(text))
+            .and_then(|held| held.to_rust())
+            .or(Some(String::new()))
     })
 }
 
@@ -363,17 +507,30 @@ pub(super) fn joined(context: &mut Context, cell: u32) -> Option<String> {
     let read = |context: &mut Context, field: &str| {
         let key = context.well_known(field);
         let found = super::objects::read_property(context, cell, key)?;
+        // `undefined` is ABSENT here, not the word. A property that is not there
+        // and one holding `undefined` are the same thing to `Error.prototype.
+        // toString`, which substitutes its default for both — and reading the
+        // word is what printed `undefined: boom` for `err.name = undefined`.
+        if found.bits() == undefined_of(context) {
+            return None;
+        }
         super::text::to_text(context, found)?.to_rust()
     };
     let name = read(context, "name");
     let message = read(context, "message");
-    match (name, message) {
-        (None, None) => None,
-        (name, Some(message)) if !message.is_empty() => {
-            Some(format!("{}: {message}", name.unwrap_or_else(|| "Error".to_owned())))
-        }
-        (name, _) => Some(name.unwrap_or_else(|| "Error".to_owned())),
+    if name.is_none() && message.is_none() {
+        return None;
     }
+    let name = name.unwrap_or_else(|| "Error".to_owned());
+    let message = message.unwrap_or_default();
+    // An EMPTY name answers the message alone, which is the third arm the
+    // language spells out and the one a `{ name: "" }` reaches: the join is
+    // `name: message` only when there are two halves to join.
+    Some(match (name.is_empty(), message.is_empty()) {
+        (true, _) => message,
+        (false, true) => name,
+        (false, false) => format!("{name}: {message}"),
+    })
 }
 
 /// Every name this module provides, and the registration behind each.

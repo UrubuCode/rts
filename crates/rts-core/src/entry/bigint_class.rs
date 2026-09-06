@@ -238,9 +238,18 @@ pub(super) fn binary(
                 _ => return Some(Ok(Value::from_bool(false).bits())),
             }
         }
-        // Arithmetic with one side only. The language refuses to coerce, and
-        // this cannot throw.
-        _ => return Some(Ok(Value::from_f64(f64::NAN).bits())),
+        // Arithmetic with one side only. The language does not coerce ACROSS the
+        // boundary and does not answer either — it **refuses**, and the refusal
+        // is a `TypeError`, which is the whole point of the type: a bigint that
+        // silently became a double would lose exactly the range it exists for.
+        //
+        // This answered `NaN`, with a note saying it could not throw. It could;
+        // the note was describing a caller that held a borrow, and the five
+        // callers in `operators.rs` now ask in a borrow of their own the way
+        // `bitwise.rs` always did. `NaN` is the worse half of the two answers:
+        // `1n + 1` produced a number that then propagated through arithmetic
+        // nobody could trace back to the mixing.
+        _ => return Some(Err(MIXED)),
     };
 
     let produced = match op {
@@ -296,17 +305,37 @@ pub(super) fn binary(
 /// terabyte of digits from an expression that fits on one line.
 const MAX_BITS: u64 = 1 << 30;
 
-/// Why a count was refused — the text the `RangeError` carries.
+/// Why an operation was refused: the message, and **which** error carries it.
 ///
-/// The two reasons are told apart rather than merged into one message because a
-/// program meets them for opposite mistakes: `2n ** -1n` is a sign error and
-/// `1n << 2n**40n` is a size the machine cannot hold, and "out of range" for
-/// both would tell the reader neither.
-type Refused = &'static str;
+/// The reasons are told apart rather than merged into one because a program
+/// meets them for different mistakes: `2n ** -1n` is a sign error, `1n <<
+/// 2n**40n` is a size the machine cannot hold, and `1n + 1` is a type confusion.
+/// "Out of range" for all three would tell the reader none of them.
+///
+/// The CLASS travels with the text rather than being decided at the raise, and
+/// that is the point of the pair: mixing is the one refusal here the language
+/// spells `TypeError`, and a `settled` that only knew how to build a
+/// `RangeError` would have reported the right sentence under the wrong name —
+/// which a program catching `TypeError` around arithmetic would then miss.
+pub(super) struct Refused {
+    /// V8's wording, so a message a user searches for finds the same page.
+    message: &'static str,
+    /// Whether the language spells this refusal `TypeError`.
+    type_error: bool,
+}
 
-/// V8's wording for each, so a message a user searches for finds the same page.
-const TOO_LARGE: Refused = "Maximum BigInt size exceeded";
-const NEGATIVE_EXPONENT: Refused = "Exponent must be non-negative";
+const TOO_LARGE: Refused = Refused {
+    message: "Maximum BigInt size exceeded",
+    type_error: false,
+};
+const NEGATIVE_EXPONENT: Refused = Refused {
+    message: "Exponent must be non-negative",
+    type_error: false,
+};
+const MIXED: Refused = Refused {
+    message: "Cannot mix BigInt and other types, use explicit conversions",
+    type_error: true,
+};
 
 /// Turns what [`binary`] carried out into a value, raising if it refused.
 ///
@@ -320,15 +349,19 @@ const NEGATIVE_EXPONENT: Refused = "Exponent must be non-negative";
 /// re-raises what `throw::range_error` recorded. It exists because the entry
 /// point returns `u64`.
 ///
-/// `operators.rs` and `primitives.rs` do call this inside a borrow, and that is
-/// sound only because `+`, `-`, `*`, `/`, `%` and the comparisons cannot refuse
-/// — division by zero answers `undefined` rather than raising. Making that one
-/// throw means moving those calls out of their borrows in the same change.
+/// `operators.rs` and `primitives.rs` used to call this inside a borrow, on the
+/// argument that `+`, `-`, `*`, `/`, `%` and the comparisons could not refuse.
+/// They can now — mixing a bigint with anything else is a `TypeError` — so those
+/// six ask in a borrow of their own, exactly as `bitwise.rs` always did. There
+/// is no caller left that holds one across this.
 pub(super) fn settled(outcome: Result<u64, Refused>) -> u64 {
     match outcome {
         Ok(value) => value,
         Err(why) => {
-            super::throw::range_error(why);
+            match why.type_error {
+                true => super::throw::type_error(why.message),
+                false => super::throw::range_error(why.message),
+            }
             super::modules::undefined_value()
         }
     }

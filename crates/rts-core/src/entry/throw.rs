@@ -369,6 +369,17 @@ pub(in crate::entry) fn range_error(message: &str) {
     named_error("RangeError", message);
 }
 
+/// Raises a `URIError` a `catch` in the program can see.
+///
+/// The one class in the family a program cannot raise by mistake and can only
+/// meet from the four URI functions, which is why it is worth having rather than
+/// folding into [`range_error`]: code that decodes untrusted text catches this
+/// name specifically, and a `RangeError` in its place walks straight past the
+/// handler written for it.
+pub(in crate::entry) fn uri_error(message: &str) {
+    named_error("URIError", message);
+}
+
 
 /// Raises a plain `Error` a `catch` in the program can see.
 ///

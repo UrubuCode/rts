@@ -198,9 +198,12 @@ pub(super) fn define_accessor(
             setter.map(|code| entry::make_callable(context, code)),
         )
     });
-    entry::define_getter(object, key, getter);
+    // NON-enumerable, which is what a built-in prototype's accessor is —
+    // `URLSearchParams.prototype.size` must not show up in `Object.keys` or in a
+    // `for`-`in` over an instance, the same rule every other member here follows.
+    entry::define_getter(object, key, getter, false);
     if let Some(setter) = setter {
-        entry::define_setter(object, key, setter);
+        entry::define_setter(object, key, setter, false);
     }
 }
 

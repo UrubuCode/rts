@@ -28,7 +28,7 @@ use crate::value::Value;
 /// The fix is one level up, where the two spellings already differ.
 pub(in crate::entry) fn own_keys(object: u64) -> Option<u64> {
     let trap = super::trap_for(object, "ownKeys")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(crate::entry::modules::make_array(Vec::new()));
     }
     let Some(callee) = trap.callee else {
@@ -106,7 +106,7 @@ fn checked_keys(target: u64, listed: u64) {
 /// `handler.getOwnPropertyDescriptor(target, prop)`, or the target's own.
 pub(in crate::entry) fn describe(object: u64, key: Key) -> Option<u64> {
     let trap = super::trap_for(object, "getOwnPropertyDescriptor")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(super::absent());
     }
     let property = super::property_of(key);
@@ -203,7 +203,7 @@ fn checked_descriptor(target: u64, key: Key, answered: u64) {
 /// property, and that is recorded per object rather than per key.
 pub(in crate::entry) fn define(object: u64, key: Key, descriptor: u64) -> Option<bool> {
     let trap = super::trap_for(object, "defineProperty")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(false);
     }
     let property = super::property_of(key);

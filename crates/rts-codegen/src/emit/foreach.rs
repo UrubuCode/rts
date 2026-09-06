@@ -319,8 +319,14 @@ pub fn emit_for_each(
     // snapshot — collected once, because a cursor into a shape is a mechanism
     // this engine does not have. The snapshot is right in one direction already:
     // a key ADDED during the loop need not be visited, and is not. This guard
-    // fixes the other direction, and `k in o` is exactly the question — the key
-    // is visited if it is still reachable, own or inherited.
+    // fixes the other direction: the key is visited if it is still reachable,
+    // own or inherited.
+    //
+    // `BinaryOp::ForInHas` and NOT `BinaryOp::In`, which is what it was. The
+    // operator refuses a receiver that is not an object and this loop converts
+    // one — `for (const k in "ab")` enumerates two keys — so writing the guard
+    // as the operator made a `for`-`in` over a string raise the operator's
+    // `TypeError`. That variant's own doc has the rest.
     //
     // Only for `for`-`in`. A `for`-`of` steps a real iterator now, so nothing
     // there is a snapshot to go stale.
@@ -334,7 +340,7 @@ pub fn emit_for_each(
             kind: StmtKind::If {
                 condition: Expr {
                     kind: ExprKind::Binary {
-                        op: BinaryOp::In,
+                        op: BinaryOp::ForInHas,
                         left: Box::new(key_expression(pattern, at)),
                         right: Box::new(name(subject_name)),
                     },
@@ -454,6 +460,28 @@ pub fn emit_for_each(
     // rather than a cleanup region: the only early exit that reaches here is a
     // `break` out of this loop, and a `break` leaves `it` holding the iterator
     // because only exhaustion clears it. The module doc lists what that misses.
+    //
+    // # What a `throw` out of the body still does not do, and what was tried
+    //
+    // It does not close the iterator, and the language says it must. The obvious
+    // repair — wrapping `body` in a synthetic `try { … } catch (e) { close();
+    // throw e }` — was written, measured and REVERTED, and the reason is worth
+    // keeping because it is not obvious from either side:
+    //
+    // `protect::emit_try` restores the scope snapshot at its join, which throws
+    // away every SSA binding the protected span made. That is sound for a `try`
+    // a PROGRAM wrote, because `capture::assigned_under_protection` has already
+    // forced those names into memory — and that analysis runs over the parse
+    // tree, before any synthetic statement exists. So a body this emitter wraps
+    // is protected by a region the analysis never saw, and every assignment in
+    // it is discarded: `for (const x of [1,2,3]) s += x` answered `s === 0`,
+    // across 14 fixtures, in the same run that gained the two this was for.
+    //
+    // The shape that would work is `destructure/array.rs::open_close_region` —
+    // a region built directly, whose handler re-raises and which therefore has
+    // no join to restore at. Doing it here means emitting the body inside a
+    // region rather than wrapping a statement around it, which is a change to
+    // how this expansion is emitted rather than to what it expands to.
     if stepping && matches!(result, Ok(false)) {
         let close = close_iterator_stmt(ctx, at, iterator, still_open(iterator, at), false);
         super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;

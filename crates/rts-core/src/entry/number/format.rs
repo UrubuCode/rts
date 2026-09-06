@@ -207,10 +207,7 @@ fn round_decimal_string(digits: &str, places: usize) -> String {
 /// rounded half-away-from-zero on the digits themselves.
 fn carried(magnitude: f64, places: usize) -> (String, i32) {
     let significant_count = places + 1;
-    // 80 digits after the point is far more than any f64's exact decimal
-    // expansion needs to disambiguate a rounding decision at a realistic
-    // `places` — see `fixed`'s equivalent margin.
-    let exact = format!("{:.80}", magnitude);
+    let exact = format!("{:.*}", expansion_places(magnitude, significant_count), magnitude);
     let (int_part, frac_part) = exact.split_once('.').unwrap_or((exact.as_str(), ""));
     let int_len = int_part.len() as i32;
     let mut digits: Vec<u8> = int_part.bytes().chain(frac_part.bytes()).collect();
@@ -253,6 +250,38 @@ fn carried(magnitude: f64, places: usize) -> (String, i32) {
     (mantissa, exponent)
 }
 
+/// How many places after the point [`carried`] has to write to see the first
+/// significant digit, plus the ones it is about to round.
+///
+/// # Why this is not a constant
+///
+/// It was `80`, with a note saying that is "far more than any f64's exact
+/// decimal expansion needs". That is true of every NORMAL double and false of
+/// every subnormal one: `5e-324` has its first significant digit 324 places
+/// after the point, so a expansion cut at 80 is all zeros — and `carried` read
+/// that as "the first non-zero digit is the leading `0`", answering a mantissa
+/// of `0.000` and an exponent of `0`.
+///
+/// So `(5e-324).toExponential(3)` was `"0.000e+0"` and `(1e-320).toExponential(3)`
+/// was too, for every subnormal alike. A number that saturates to one answer
+/// over a whole range is the shape this repository's own notes say to read as a
+/// bug rather than as a rounding difference.
+///
+/// The bound comes from the type: the smallest positive double is about
+/// `4.94e-324`, so its base-ten exponent is what decides, and the significant
+/// digits plus a rounding digit ride on top. A margin of ten is for the carry
+/// [`carried`] performs, which can need one more digit than it kept.
+fn expansion_places(magnitude: f64, significant_count: usize) -> usize {
+    // `log10` of a subnormal is an ordinary double, so this needs no special
+    // case for the range it exists to serve. A magnitude of 1 or more needs no
+    // leading zeros at all, and 80 is the margin that was here already.
+    let leading_zeros = match magnitude >= 1.0 {
+        true => 0,
+        false => (-magnitude.log10().floor()) as usize,
+    };
+    80.max(leading_zeros + significant_count + 10)
+}
+
 /// A mantissa written with exactly this many places after the point.
 fn with_places(value: f64, places: usize) -> String {
     match places {
@@ -278,6 +307,21 @@ mod tests {
         // Rust's formatter answers "1.2e+0" for both of these.
         assert_eq!(exponential(1.25, Some(1)), "1.3e+0");
         assert_eq!(exponential(1.35, Some(1)), "1.4e+0");
+    }
+
+    #[test]
+    fn a_subnormal_keeps_its_digits_rather_than_saturating_to_zero() {
+        // The whole subnormal range answered `"0.000e+0"` while the expansion
+        // was cut at a constant 80 places: the first significant digit of
+        // `5e-324` is 324 places after the point, so the cut saw only zeros.
+        assert_eq!(exponential(5e-324, Some(3)), "4.941e-324");
+        assert_eq!(exponential(1e-320, Some(3)), "1.000e-320");
+        assert_eq!(exponential(-1e-320, Some(3)), "-1.000e-320");
+        assert_eq!(precision(5e-324, 5), "4.9407e-324");
+        // And the normal range is unmoved, which is what says the bound is
+        // derived rather than raised until the failing case passed.
+        assert_eq!(exponential(1.25, Some(1)), "1.3e+0");
+        assert_eq!(exponential(0.0001, Some(1)), "1.0e-4");
     }
 
     #[test]

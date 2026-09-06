@@ -16,19 +16,107 @@ use crate::value::Value;
 /// yields `undefined`: `({x: undefined})` has `x`, and `"x" in it` is true.
 /// That is the whole reason the operator exists, so it is what this asks.
 ///
-/// A receiver that is not an object answers `false` where the language throws a
-/// `TypeError`: `"x" in 5` is `false` here and
-/// `TypeError: Cannot use 'in' operator to search for 'x' in 5` on node.
+/// A receiver that is not an object **raises**, which is what the language does:
+/// `"x" in 5` is `TypeError: Cannot use 'in' operator to search for 'x' in 5`.
 ///
-/// **The gap is real; the reason recorded for it is not.** It said "throwing
-/// needs protected regions and nothing emits those", and it was the same
-/// sentence four places in two crates carried. `emit/protect.rs` emits them,
-/// natives raise catchable errors, and the two operations this cited as
-/// sharing the gap have both closed — `null.x` and `(5)()` each throw and are
-/// catchable. So nothing prevents this one; it is simply not written, and it
-/// stayed unwritten because the reason beside it said it could not be.
+/// It answered `false` for years, and the reason recorded beside the gap was
+/// wrong rather than merely stale — it said "throwing needs protected regions
+/// and nothing emits those", the same sentence four places in two crates
+/// carried. `emit/protect.rs` emits them and natives raise catchable errors, so
+/// nothing prevented it; it stayed unwritten because the note beside it said it
+/// could not be.
+///
+/// `false` is the answer that makes this worth raising rather than leaving: a
+/// program guarding with `if ("x" in maybe)` reads a `false` for "the receiver
+/// was not an object at all" identically to "the object does not have it", and
+/// takes the else branch instead of failing.
+///
+/// The refusal comes **before** `ToPropertyKey`, which is the order the
+/// specification states and is observable: a key whose `toString` has a side
+/// effect must not run when the receiver is a number.
 #[rtse::entry]
 pub fn has_property(key: u64, object: u64) -> bool {
+    if !with_current(|context| super::super::objects::is_object(context, object)) {
+        let described = with_current(|context| {
+            super::super::text::to_text(context, Value(key))
+                .and_then(|text| text.to_rust())
+                .unwrap_or_else(|| "the key".to_owned())
+        });
+        super::super::throw::type_error(&format!(
+            "Cannot use 'in' operator to search for '{described}' in a non-object"
+        ));
+        return false;
+    }
+    // A PRIVATE name is not a property, however much this engine spells it as
+    // one: `#x in o` is a brand check, and the specification answers it from the
+    // object's own private slots without consulting a prototype chain or a
+    // proxy. `new Proxy(box, {})` therefore answers **false** for `#value in p`
+    // in every runtime — a proxy forwards property operations and has no private
+    // state to forward — and this forwarded through the `has` trap and let the
+    // target answer, so a brand check could be defeated by wrapping.
+    if with_current(|context| {
+        super::super::text::to_text(context, Value(key))
+            .is_some_and(|text| super::super::symbol::is_private_key(&text))
+    }) {
+        return own_only(key, object);
+    }
+    resolved(key, object)
+}
+
+/// A brand check: the object's OWN slots, with no chain walk and no proxy.
+fn own_only(key: u64, object: u64) -> bool {
+    with_current(|context| {
+        let Some(slot) = Value(object).as_slot() else {
+            return false;
+        };
+        if context.proxy_at(slot).is_some() {
+            return false;
+        }
+        let Some(named) = property_key(context, Value(key)) else {
+            return false;
+        };
+        super::super::objects::own_property(context, slot, named).is_some()
+    })
+}
+
+/// Whether a `for`-`in` should still visit a key from its snapshot.
+///
+/// # Why this is not [`has_property`]
+///
+/// Because the operator refuses a receiver that is not an object and `for`-`in`
+/// must not. `for (const k in "ab")` enumerates `"0"` and `"1"` — the language
+/// converts the subject with `ToObject` at the loop's head — while `"0" in "ab"`
+/// is a `TypeError` in every runtime. Lowering the guard as the operator made
+/// the two share one answer, and the moment the operator learned to raise, a
+/// `for`-`in` over a string ended the program.
+///
+/// A primitive answers **true** without asking anything, and that is the whole
+/// content of the difference rather than a shortcut. The guard exists for one
+/// reason — a key the body DELETED must not be visited — and nothing can delete
+/// a property of a primitive: the wrapper the enumeration walked is not reachable
+/// from the program at all. So every key of the snapshot is still there, by
+/// construction.
+///
+/// The alternative was a `ToObject` runtime operation and a subject bound to its
+/// result. It was rejected as a larger change that answers the same question:
+/// the wrapper would be built once per loop and then only ever asked about keys
+/// nothing can remove.
+#[rtse::entry]
+pub fn for_in_has(key: u64, object: u64) -> bool {
+    match with_current(|context| super::super::objects::is_object(context, object)) {
+        true => resolved(key, object),
+        false => true,
+    }
+}
+
+/// The walk both spellings share: own storage, then the chain, asking a proxy
+/// first.
+///
+/// Split out when [`has_property`] learned to raise, so that the refusal is the
+/// only thing separating the operator from [`for_in_has`]. Two copies of this
+/// walk is how `1 in [1, 2, 3]` came to disagree with `hasOwnProperty` once
+/// already.
+fn resolved(key: u64, object: u64) -> bool {
     // Before the borrow, for the reason `get_property` states: a trap is user
     // code and may call back in here — and so is the `toString` an object key
     // reaches through `ToPropertyKey`.

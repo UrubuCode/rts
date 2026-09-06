@@ -591,7 +591,12 @@ fn can_throw(element: &Element) -> bool {
 /// them), so the scope it leaves is longer than the one it started in and
 /// `Scope::restore` refuses that by construction.
 fn open_close_region(builder: &mut FuncBuilder) -> EmitResult<CloseRegion> {
-    let after = builder.create_unprotected_block();
+    // Created before the region opens, which is what puts it outside THIS one;
+    // `create_block` rather than `create_unprotected_block` so that it is still
+    // inside whatever encloses the destructuring. See `protect::emit_try` for
+    // the defect the unprotected spelling produced — a continuation belonging to
+    // no region swallows a throw written after it.
+    let after = builder.create_block();
     let protected = builder.create_block();
     builder.jump(protected, &[])?;
     builder.switch_to(protected);

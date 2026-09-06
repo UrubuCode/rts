@@ -18,12 +18,18 @@ import { describe, test, expect } from "rts:test";
 // `instanceof` também ganhou variante própria no HIR: emitir um instanceof de
 // runtime nunca pode ser no que um operador não-modelado decai.
 //
-// Valores conferidos contra o Node, com UMA divergência conhecida e deliberada:
-// com um lado direito não-construtor (`v instanceof 2`, `v instanceof null`) o
-// Node lança TypeError e o RTS responde `false`. Isso é a convenção que o motor
-// já seguia antes desta mudança (`__rtsadp_instanceof_fn` responde `false`); o
-// TypeError é semântica de spec própria e vira mudança separada, para não
-// misturar duas coisas numa correção de resultado errado.
+// A divergência que este ficheiro registava ACABOU, e esta é a mudança separada
+// que o parágrafo anterior anunciava. Dizia: "com um lado direito não-construtor
+// (`v instanceof 2`, `v instanceof null`) o Node lança TypeError e o RTS
+// responde `false` … o TypeError é semântica de spec própria e vira mudança
+// separada".
+//
+// `InstanceofOperator` recusa antes de decidir seja o que for: um lado direito
+// que não é objeto, um `Symbol.hasInstance` presente e não-chamável, um lado
+// direito não-chamável, e um `prototype` que não é objeto. As quatro respondiam
+// `false`, e `false` é a única resposta que não se distingue de uma legítima —
+// `x instanceof algumObjeto` é uma gralha, e lia-se como "não, x não é um
+// desses" em todos os programas que a escreviam.
 
 class Animal {}
 class Cachorro extends Animal {}
@@ -45,9 +51,21 @@ const dinIrma = check(bicho, Cachorro);
 const dinHeranca = check(cao, Animal);
 const dinExata = check(cao, Cachorro);
 
-// ── lado direito não-construtor: RTS responde false (Node lança TypeError) ──
-const dinNumero = check(bicho, 2);
-const dinNulo = check(bicho, null);
+// ── lado direito não-construtor: RECUSADO, como no Node ─────────────────────
+function refusa(v: any, C: any): string {
+  try {
+    check(v, C);
+    return "nao lancou";
+  } catch (e: any) {
+    return e.constructor.name;
+  }
+}
+const dinNumero = refusa(bicho, 2);
+const dinNulo = refusa(bicho, null);
+
+// O lado ESQUERDO primitivo continua a responder `false` sem lançar, que é o
+// que a linguagem diz: `OrdinaryHasInstance` responde `false` para um operando
+// esquerdo que não é objeto, e só o direito é que recusa.
 const dinPrimitivo = check(5, Animal);
 const dinString = check("x", Animal);
 
@@ -78,10 +96,9 @@ describe("instanceof com classe por valor (#2072)", () => {
     expect(dinExata).toBe(true);
   });
 
-  // DIVERGE do Node de propósito: lá isso é TypeError. Ver o cabeçalho.
-  test("lado direito não-construtor responde false, sem quebrar", () => {
-    expect(dinNumero).toBe(false);
-    expect(dinNulo).toBe(false);
+  test("lado direito não-construtor é recusado, como no Node", () => {
+    expect(dinNumero).toBe("TypeError");
+    expect(dinNulo).toBe("TypeError");
   });
 
   test("primitivo nunca é instância", () => {

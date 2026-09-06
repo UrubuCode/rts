@@ -22,13 +22,19 @@
 //! # The attributes that are honoured, and the ones that are not
 //!
 //! `napi_static` decides which half a member lands on, and it is honoured
-//! because it changes where the member IS. `writable`, `enumerable` and
-//! `configurable` are recorded in the ABI's struct and are NOT honoured: this
-//! engine's `put_member` makes an ordinary property, and pretending otherwise
-//! would be the hollow surface `CLAUDE.md` names — a flag accepted and ignored
-//! reads as supported. `rts-core` has an `integrity` module that knows about
-//! attributes; wiring descriptors through it is a separate change with its own
-//! tests, and until then this comment is the whole truth.
+//! because it changes where the member IS.
+//!
+//! `napi_enumerable` is honoured for an ACCESSOR, because `define_getter` and
+//! `define_setter` grew an operand for it — an object literal's accessor is
+//! enumerable and a class body's is not, and an addon states which it wants.
+//!
+//! `writable` and `configurable`, and `enumerable` on a DATA property, are
+//! recorded in the ABI's struct and are still NOT honoured: `put_member` makes
+//! an ordinary property. Pretending otherwise would be the hollow surface
+//! `CLAUDE.md` names — a flag accepted and ignored reads as supported.
+//! `rts-core`'s `integrity` module knows about attributes; wiring the data path
+//! through it is a separate change with its own tests, and until then this
+//! comment is the whole truth.
 
 use core::ffi::c_void;
 
@@ -120,13 +126,21 @@ unsafe fn apply(env: napi_env, target: u64, descriptor: &napi_property_descripto
             rts_core::entry::make_string(context, &name)
         });
         let key = rts_core::entry::key_number(key);
+        // `napi_enumerable` is honoured for an ACCESSOR and only for one, which
+        // is not an inconsistency but the size of what the engine can carry
+        // today: `define_getter`/`define_setter` take the flag, and the data
+        // path below still writes an ordinary property. The module header says
+        // which attributes are honoured; this is the one that moved.
+        let enumerable = (descriptor.attributes as u32)
+            & (napi_property_attributes::napi_enumerable as u32)
+            != 0;
         if let Some(getter) = descriptor.getter {
             let code = callable_word(env, Some(getter), descriptor.data);
-            rts_core::entry::define_getter(target, key, code);
+            rts_core::entry::define_getter(target, key, code, enumerable);
         }
         if let Some(setter) = descriptor.setter {
             let code = callable_word(env, Some(setter), descriptor.data);
-            rts_core::entry::define_setter(target, key, code);
+            rts_core::entry::define_setter(target, key, code, enumerable);
         }
         return napi_ok;
     }

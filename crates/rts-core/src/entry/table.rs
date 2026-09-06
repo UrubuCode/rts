@@ -58,6 +58,7 @@ use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
 use super::accessor::{
     DEFINE_FIELD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_METHOD_ENTRY, DEFINE_SETTER_ENTRY,
+    SET_FUNCTION_NAME_ENTRY,
 };
 use super::array::{
     ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
@@ -73,7 +74,7 @@ use super::bitwise::{
 use super::chain::{GET_PROTOTYPE_ENTRY, SET_PROTOTYPE_ENTRY};
 use super::computed::{
     DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, HAS_PROPERTY_ENTRY, KEY_NUMBER_ENTRY,
-    SET_INDEXED_ENTRY, WITH_HAS_ENTRY,
+    FOR_IN_HAS_ENTRY, SET_INDEXED_ENTRY, WITH_HAS_ENTRY,
 };
 use super::functions::{
     CALL_COUNTED_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
@@ -693,6 +694,28 @@ pub enum CoreEntry {
     /// reasoning, for the write [`CoreEntry::GlobalSet`] answers for the
     /// process object.
     PageGlobalSet = 97,
+    /// [`super::for_in_has`] — whether a `for`-`in` should still visit a key
+    /// from the snapshot it enumerated.
+    ///
+    /// A row rather than the emitter calling [`HasProperty`](CoreEntry::
+    /// HasProperty), which is what it did, for the same reason
+    /// [`WithHas`](CoreEntry::WithHas) is a row: the two questions have
+    /// different answers and only one of them is the operator. `in` refuses a
+    /// receiver that is not an object and `for`-`in` converts one with
+    /// `ToObject` instead — so sharing the entry meant that the day the operator
+    /// learned to raise, `for (const k in "ab")` ended the program.
+    ForInHas = 98,
+    /// [`super::set_function_name`] — a function's own `name`, defined with the
+    /// attributes `SetFunctionName` states rather than stored.
+    ///
+    /// A row rather than reusing [`DefineMethod`](CoreEntry::DefineMethod),
+    /// which is the reuse question this list exists to force. The two write the
+    /// same own slot and differ in ONE attribute — a method is writable so that
+    /// a program may replace it, and a function's `name` is not — and that
+    /// attribute is the entire reason either exists. One number for both would
+    /// mean `fn.name = "x"` silently storing, which is what the ordinary store
+    /// this replaces already did.
+    SetFunctionName = 99,
 }
 
 /// How many entry points exist.
@@ -700,7 +723,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 98;
+pub const CORE_ENTRY_COUNT: usize = 100;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -803,6 +826,8 @@ impl CoreEntry {
         CoreEntry::DefineField,
         CoreEntry::PageGlobalGet,
         CoreEntry::PageGlobalSet,
+        CoreEntry::ForInHas,
+        CoreEntry::SetFunctionName,
     ];
 
     /// The number a call site holds.
@@ -916,6 +941,8 @@ impl CoreEntry {
             CoreEntry::DelegateStep => DELEGATE_STEP_ENTRY,
             CoreEntry::PageGlobalGet => PAGE_GLOBAL_GET_ENTRY,
             CoreEntry::PageGlobalSet => PAGE_GLOBAL_SET_ENTRY,
+            CoreEntry::ForInHas => FOR_IN_HAS_ENTRY,
+            CoreEntry::SetFunctionName => SET_FUNCTION_NAME_ENTRY,
         }
     }
 
@@ -1140,11 +1167,12 @@ mod tests {
         // Proxy([1, 2, 3], {}))` throws `TypeError: the value is not iterable`
         // here and answers 6 on node. Copying that guard would have carried the
         // defect into destructuring; one row buys the version that cannot.
-        // Raised from 96 to 98 for page_global_get/page_global_set — two
-        // entries, not the order-of-magnitude jump this ceiling exists to
-        // catch (rts-symbol-baker's "thousands" is the shape it refuses).
+        // Raised from 96 to 98 for page_global_get/page_global_set, and to 99
+        // for for_in_has — one entry at a time, not the order-of-magnitude jump
+        // this ceiling exists to catch (rts-symbol-baker's "thousands" is the
+        // shape it refuses).
         assert!(
-            CORE_ENTRY_COUNT <= 98,
+            CORE_ENTRY_COUNT <= 100,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

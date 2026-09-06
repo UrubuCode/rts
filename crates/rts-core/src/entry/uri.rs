@@ -36,20 +36,23 @@
 //! units into scalars first — and a **lone surrogate has no UTF-8 form at all**,
 //! which is the case the specification answers with a `URIError`.
 //!
-//! # Where this answers instead of throwing
+//! # What a refusal is
 //!
 //! A lone surrogate, and a malformed escape on the way back, are both `URIError`
-//! in the language and neither is thrown here. [`super::throw`] ends the program:
-//! a throw needs a protected region in a caller to land in, and an `extern "C"`
-//! frame cannot unwind to find one. Killing a program because one query
-//! parameter was malformed is a worse answer than any value.
+//! in the language, and **both raise one here**.
 //!
-//! So **all four answer `undefined`** for input they cannot transform — the same
-//! choice [`super::json`] made for a parse error, and for the same reason: it is
-//! visible to the program, it is testable with `===`, and it is not the empty
-//! string, which would be a wrong answer that looks like a right one. When
-//! protected regions exist these are four `throw_js_error` calls and nothing else
-//! in the file changes.
+//! All four used to answer `undefined` instead, and the note beside that choice
+//! said a throw needed a protected region an `extern "C"` frame could not unwind
+//! to find. It was true when it was written and stopped being true: natives raise
+//! catchable errors, `emit/protect.rs` emits the regions, and the same stale
+//! sentence stood in four places across two crates.
+//!
+//! `undefined` is the answer that made it worth changing rather than a smaller
+//! wrong. `decodeURIComponent(untrusted)` is written where the input is expected
+//! to be malformed sometimes — that is the whole reason the language raises
+//! there — and every one of those call sites got a value instead, which then
+//! flowed on as the string `"undefined"` or as a property read on nothing, pages
+//! away from the parameter that was broken.
 
 use super::native::Native;
 use super::objects::undefined_of;
@@ -194,17 +197,30 @@ extern "C" fn decode_uri(_e: u64, _t: u64, value: u64, _a1: u64, _a2: u64, _a3: 
 /// `"1"` rather than a refusal, and a version that took only strings would
 /// refuse calls the specification defines.
 ///
-/// The whole borrow is this function. Nothing below it touches the heap until
-/// the answer is interned, which is what keeps the module trivially free of the
-/// nested-borrow abort the entry layer is arranged around.
+/// [`super::text::to_string_value`] rather than `to_text`, which is the
+/// primitive half and answers `None` for every object — so
+/// `encodeURIComponent([1, 2])` refused a call the language defines as
+/// `"1%2C2"`, and `encodeURIComponent(Symbol())` refused it as a URI problem
+/// rather than as the `TypeError` a symbol conversion is. The conversion runs
+/// user code, so its own throw travels out as `None` here and the caller
+/// propagates it under rule 8.
 fn units_of(value: u64) -> Option<Vec<u16>> {
+    let text = super::text::to_string_value(value)?;
     with_current(|context| {
-        super::text::to_text(context, Value(value)).map(|text| text.units().collect())
+        super::text::to_text(context, Value(text)).map(|text| text.units().collect())
     })
 }
 
-/// A finished answer, or `undefined` where the specification throws.
+/// A finished answer, raising a `URIError` where the specification does.
+///
+/// The two `None`s reaching here mean different things and only one of them is
+/// this function's to report: a conversion that already raised leaves a throw in
+/// flight, and raising a second error over it would replace the `TypeError` a
+/// symbol argument produced with a `URIError` about text that was never built.
 fn answer(units: Option<Vec<u16>>) -> u64 {
+    if units.is_none() && !super::throw::in_flight() {
+        super::throw::uri_error("URI malformed");
+    }
     with_current(|context| match units {
         Some(units) => context.intern_value(Str::from_utf16(&units)).bits(),
         None => undefined_of(context),
@@ -392,7 +408,7 @@ mod tests {
         assert_eq!(
             encode(&[0xd800], false),
             None,
-            "a URIError in the specification; undefined here, and never U+FFFD"
+            "what `answer` turns into the URIError, and never U+FFFD"
         );
         assert_eq!(
             decode(&[0xd800], false),

@@ -95,6 +95,50 @@ pub(super) fn to_text(context: &Context, value: Value) -> Option<Str> {
     }
 }
 
+/// `ToString(value)` — the specification's, the refusals included.
+///
+/// # Why this exists beside [`to_text`] and beside [`string_of`]
+///
+/// [`to_text`] is the PRIMITIVE half: it cannot run a `toString`, so it answers
+/// `None` for every object, and a caller that treats that `None` as "no text"
+/// silently drops the conversion. [`string_of`] is the template substitution's
+/// spelling, which answers `undefined` where it cannot convert — a VALUE, and
+/// the whole failure mode this crate's honesty floor names.
+///
+/// A native that needs the language's `ToString` needs neither: it needs the
+/// conversion to run user code, and it needs a **symbol to raise** rather than
+/// become the word `undefined`. `new Error(Symbol())` is the case that found
+/// this — every runtime raises a `TypeError` there and this engine stored an
+/// empty message.
+///
+/// `None` means a throw is in flight, and the caller propagates it under rule 8.
+/// It is never "the value had no text": after `ToPrimitive` there is no such
+/// value left except the ones that raise.
+pub(in crate::entry) fn to_string_value(value: u64) -> Option<u64> {
+    // Outside the borrow: `ToPrimitive` runs `valueOf`/`toString`/
+    // `Symbol.toPrimitive`, and each of those is user code whose first act may
+    // be to call back into the runtime.
+    let primitive = super::primitive::to_primitive(value, crate::coerce::Hint::String);
+    if super::throw::in_flight() {
+        return None;
+    }
+    let converted = with_current(|context| match to_text(context, Value(primitive)) {
+        Some(text) => Some(context.intern_value(text).bits()),
+        None => None,
+    });
+    match converted {
+        Some(text) => Some(text),
+        // `to_text` refuses exactly two things once the value is primitive: a
+        // symbol, and an object `ToPrimitive` already raised over. The second
+        // was answered above, so this is the first — and the language's own
+        // message names it, because a program catching it reads the text.
+        None => {
+            super::throw::type_error("Cannot convert a Symbol value to a string");
+            None
+        }
+    }
+}
+
 /// `ToString(value)` — the conversion with the **string** hint.
 ///
 /// # Why this is an entry point and not `+` with a literal
@@ -107,18 +151,24 @@ pub(super) fn to_text(context: &Context, value: Value) -> Option<Str> {
 /// no spelling of `+` that fixes it, because the operator's own definition is
 /// the wrong one here.
 ///
-/// A symbol still refuses to convert, which is not an omission: the language
-/// makes implicit conversion of a symbol a `TypeError` precisely so that one
-/// never becomes text by accident, and a template is an implicit conversion.
+/// A symbol refuses to convert, which is not an omission: the language makes
+/// implicit conversion of a symbol a `TypeError` precisely so that one never
+/// becomes text by accident, and a template is an implicit conversion.
 /// `String(sym)` is the explicit spelling and it is the only one.
+///
+/// The refusal is a **raise**, and it used to be the value `undefined`. That is
+/// the failure this crate's honesty floor names: `` `${sym}` `` interpolated the
+/// word "undefined" and the program carried on, where every runtime ends it.
+/// [`to_string_value`] is the shared conversion, so the template and a native
+/// asking for `ToString` cannot disagree about which values refuse.
 #[rtse::entry]
 pub fn string_of(value: u64) -> u64 {
-    // Outside the borrow, because `toString` is user code.
-    let value = super::primitive::to_primitive(value, crate::coerce::Hint::String);
-    with_current(|context| match to_text(context, Value(value)) {
-        Some(text) => context.intern_value(text).bits(),
-        None => undefined_of(context),
-    })
+    match to_string_value(value) {
+        Some(text) => text,
+        // A throw is in flight; the compiled site above re-raises. `undefined`
+        // is what a raising entry point answers — a value nothing reads.
+        None => with_current(|context| undefined_of(context)),
+    }
 }
 
 /// `` `a${x}b${y}c` `` — every piece and every value joined, in ONE crossing.

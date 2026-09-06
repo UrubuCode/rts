@@ -175,9 +175,16 @@ pub(super) struct Trap {
     pub(super) handler: u64,
     /// The object the operation was really about.
     pub(super) target: u64,
-    /// Whether the proxy has been revoked. The `TypeError` is already recorded
-    /// by the time this is true, so the caller answers without looking further.
-    pub(super) revoked: bool,
+    /// Whether the operation must stop without touching the target.
+    ///
+    /// A throw is already recorded by the time this is true, so the caller
+    /// answers its "nothing to say" value and the compiled site above re-raises.
+    /// It was named `revoked` and covered one cause; there are three, and they
+    /// are the same to every caller: the proxy was revoked, reading the trap off
+    /// the handler threw, or the handler defines the trap as something that is
+    /// not callable. Forwarding to the target for the last two would answer
+    /// where the language raises.
+    pub(super) refused: bool,
 }
 
 /// Whether this value is a proxy at all, asked WITHOUT running anything.
@@ -199,37 +206,75 @@ pub(in crate::entry) fn is_proxy(object: u64) -> bool {
 ///
 /// `None` when the object is not a proxy at all, which is what tells every call
 /// site to carry on as it always did.
+/// # Why the trap is read through `[[Get]]` and not off the handler's slot
+///
+/// Because `GetMethod(handler, name)` is what the specification performs, and
+/// this read `objects::read_property` — the walk that answers a data property
+/// and runs nothing. Two shapes the language allows were therefore invisible:
+/// a handler that DEFINES a trap as a getter, and a handler that is itself a
+/// Proxy. The second is not a curiosity — it is how a program observes which
+/// traps an operation asks for, and it is what
+/// `claude2-proxy-handler-trap-name-reads` measures: every trap name came back
+/// empty, because the inner proxy's `get` was never reached.
+///
+/// The read runs user code, so it happens outside the borrow, and a throw from
+/// it stops the operation rather than being read as "no such trap" — which
+/// would forward to the target and answer where the language raises. That is
+/// what [`Trap::refused`] carries.
 pub(super) fn trap_for(object: u64, name: &str) -> Option<Trap> {
-    let held = with_current(|context| {
+    let (target, handler, revoked) = with_current(|context| {
         let cell = Value(object).as_slot()?;
         let (target, handler) = context.proxy_at(cell)?;
-        let Some(handler_cell) = Value(handler).as_slot() else {
-            // Revoked — see [`Proxy::revocable`] for why that is what a handler
-            // which is not an object means.
-            return Some(Trap {
-                callee: None,
-                handler,
-                target,
-                revoked: true,
-            });
-        };
-        let named = context.well_known(name);
-        let callee = super::objects::read_property(context, handler_cell, named)
-            .map(|found| found.bits())
-            .filter(|&found| Value(found).as_slot().is_some());
-        Some(Trap {
-            callee,
-            handler,
-            target,
-            revoked: false,
-        })
+        // Revoked — see [`Proxy::revocable`] for why a handler that is not an
+        // object is what revocation means.
+        Some((target, handler, Value(handler).as_slot().is_none()))
     })?;
-    if held.revoked {
+    if revoked {
         super::throw::type_error(&format!(
             "Cannot perform '{name}' on a proxy that has been revoked"
         ));
+        return Some(Trap {
+            callee: None,
+            handler,
+            target,
+            refused: true,
+        });
     }
-    Some(held)
+    let key = with_current(|context| context.well_known_text(name));
+    let found = super::computed::get_indexed(handler, key);
+    // Rule 8: the read may have run a getter or an outer proxy's own `get`.
+    if super::throw::in_flight() {
+        return Some(Trap {
+            callee: None,
+            handler,
+            target,
+            refused: true,
+        });
+    }
+    // `GetMethod` treats `undefined` and `null` as absent and refuses anything
+    // else that is not callable — a handler whose `get` is `3` is malformed, and
+    // forwarding to the target instead would answer for it.
+    let (nullish, callable) = with_current(|context| {
+        (
+            super::objects::nullish(context, found).is_some(),
+            super::modules::is_callable_in(context, found),
+        )
+    });
+    if !nullish && !callable {
+        super::throw::type_error(&format!("proxy handler's '{name}' is not a function"));
+        return Some(Trap {
+            callee: None,
+            handler,
+            target,
+            refused: true,
+        });
+    }
+    Some(Trap {
+        callee: (!nullish).then_some(found),
+        handler,
+        target,
+        refused: false,
+    })
 }
 
 /// The property, as the string a trap is handed.

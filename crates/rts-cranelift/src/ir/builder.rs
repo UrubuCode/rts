@@ -259,28 +259,29 @@ impl<'a> FuncBuilder<'a> {
     }
 
     /// Appends an empty block, in whatever region is open.
+    ///
+    /// # There is no way to place a block outside every region, and that is the
+    /// point
+    ///
+    /// `create_unprotected_block` was that way, and it stood here for the two
+    /// blocks a protected region needs and cannot contain — the continuation
+    /// after the region ends, and the cleanup itself. Both of those are already
+    /// answered by WHEN the block is created: made before `open_region`, a block
+    /// belongs to whatever encloses the region rather than to it.
+    ///
+    /// Belonging to *nothing* is a third thing, and it is never what a client
+    /// wants. A continuation that belongs to no region swallows a throw written
+    /// after it: `try { try {} catch {} throw e } catch (x)` had `x` never
+    /// reached, because the outer handler's continuation was that block. The
+    /// name said "unprotected", the client read it as "outside this region", and
+    /// the two are only the same at the outermost level — where `create_block`
+    /// answers the same thing anyway.
     pub fn create_block(&mut self) -> BlockId {
         let block = self.func.push_block();
         if let Some(&region) = self.open_regions.last() {
             self.func.set_block_region(block, region);
         }
         block
-    }
-
-    /// Appends an empty block that belongs to no region, whatever is open.
-    ///
-    /// For the two blocks a protected region needs and cannot contain: where
-    /// control continues after the region has ended, and the cleanup itself. A
-    /// cleanup inside its own region would run itself; a continuation inside it
-    /// would run the cleanup a second time on the way out.
-    ///
-    /// Separate from [`FuncBuilder::create_block`] rather than a flag on it,
-    /// because the two answer different questions and a flag would let a client
-    /// answer the wrong one by leaving it at the default. These are the only
-    /// blocks a client has a reason to place outside, and they are named by
-    /// what they are for.
-    pub fn create_unprotected_block(&mut self) -> BlockId {
-        self.func.push_block()
     }
 
     /// Appends a parameter to a block.

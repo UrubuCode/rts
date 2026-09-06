@@ -539,6 +539,25 @@ pub enum RuntimeOp {
     /// operator answers — see `rts_core::entry::with_has`.
     WithHas,
 
+    /// Whether a `for`-`in` should still visit a key from its snapshot.
+    ///
+    /// [`RuntimeOp::HasProperty`] is what this was, and the two questions are
+    /// not the same one: `in` refuses a receiver that is not an object, and
+    /// `for`-`in` converts one with `ToObject` at the loop's head. Sharing the
+    /// call meant `for (const k in "ab")` raised the operator's `TypeError` for
+    /// a loop the language runs — see `rts_core::entry::for_in_has`.
+    ForInHas,
+
+    /// `SetFunctionName` — a function's own `name`, with the attributes the
+    /// specification gives it.
+    ///
+    /// A call and not a store, because a store cannot carry an attribute and
+    /// the attribute is the whole point: `name` is non-writable, so
+    /// `emit/class.rs` writing `C.name` as an ordinary assignment forced the
+    /// runtime to mark every function's `name` writable to keep class
+    /// definitions from raising — see `rts_core::entry::set_function_name`.
+    SetFunctionName,
+
     /// `[…]` — a new array of a known length.
     ///
     /// The length is known at the literal, so the store is sized once rather
@@ -1047,6 +1066,8 @@ impl RuntimeOp {
         RuntimeOp::SetIndexed,
         RuntimeOp::HasProperty,
         RuntimeOp::WithHas,
+        RuntimeOp::ForInHas,
+        RuntimeOp::SetFunctionName,
         RuntimeOp::ArrayNew,
         RuntimeOp::DeleteProperty,
         RuntimeOp::OwnKeys,
@@ -1155,6 +1176,8 @@ impl RuntimeOp {
             RuntimeOp::SetIndexed => "__rts_set_indexed",
             RuntimeOp::HasProperty => "__rts_has_property",
             RuntimeOp::WithHas => "__rts_with_has",
+            RuntimeOp::ForInHas => "__rts_for_in_has",
+            RuntimeOp::SetFunctionName => "__rts_set_function_name",
             RuntimeOp::ArrayNew => "__rts_array_new",
             RuntimeOp::DeleteProperty => "__rts_delete_property",
             RuntimeOp::OwnKeys => "__rts_own_keys",
@@ -1335,6 +1358,8 @@ impl RuntimeOp {
             }
             RuntimeOp::HasProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::WithHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::ForInHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::SetFunctionName => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // A count the compiler knows, not a value: an array literal's
             // length is how many elements were written.
             RuntimeOp::ArrayNew => (vec![Repr::I64], vec![UNPROVEN]),
@@ -1425,9 +1450,12 @@ impl RuntimeOp {
             RuntimeOp::ArgumentsObject => {
                 (vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
             }
-            RuntimeOp::DefineGetter | RuntimeOp::DefineSetter => {
-                (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
-            }
+            // The fourth operand is `enumerable`, a compile-time constant: an
+            // object literal's accessor is enumerable and a class body's is not.
+            RuntimeOp::DefineGetter | RuntimeOp::DefineSetter => (
+                vec![UNPROVEN, Repr::I64, UNPROVEN, Repr::Bool],
+                vec![UNPROVEN],
+            ),
             // The receiver (`this`), the object the walk starts above, and the
             // key the compiler resolved. Two objects because `super` keeps
             // them apart: the one the getter runs against is not the one the

@@ -273,6 +273,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::WithHas => (CoreEntry::WithHas, {
             rts_core::entry::with_has as extern "C" fn(u64, u64) -> bool as *const u8
         }),
+        RuntimeOp::ForInHas => (CoreEntry::ForInHas, {
+            rts_core::entry::for_in_has as extern "C" fn(u64, u64) -> bool as *const u8
+        }),
+        RuntimeOp::SetFunctionName => (CoreEntry::SetFunctionName, {
+            rts_core::entry::set_function_name as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::ArrayNew => (CoreEntry::ArrayNew, {
             rts_core::entry::array_new as extern "C" fn(i64) -> u64 as *const u8
         }),
@@ -368,10 +374,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::mark_class_constructor as extern "C" fn(u64) -> u64 as *const u8
         }),
         RuntimeOp::DefineGetter => (CoreEntry::DefineGetter, {
-            rts_core::entry::define_getter as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+            rts_core::entry::define_getter as extern "C" fn(u64, i64, u64, bool) -> u64 as *const u8
         }),
         RuntimeOp::DefineSetter => (CoreEntry::DefineSetter, {
-            rts_core::entry::define_setter as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+            rts_core::entry::define_setter as extern "C" fn(u64, i64, u64, bool) -> u64 as *const u8
         }),
         RuntimeOp::GlobalSet => (CoreEntry::GlobalSet, {
             rts_core::entry::global_set as extern "C" fn(i64, u64) -> u64 as *const u8

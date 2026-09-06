@@ -101,8 +101,9 @@ UMD bundle's `typeof module` sniff now takes the CommonJS branch everywhere.
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-09-02: 796 of the 848 `*.test.ts` files pass** (3 429 of 3 486
-assertions), by `target/release/rts.exe test`. It was 758 of 819 on 08-29, 746
+claimed. **2026-09-05: 833 of the 888 `*.test.ts` files pass** (4 038 of 4 131
+assertions), by `target/release/rts.exe test`. It was 796 of 848 on 09-02, 758
+of 819 on 08-29, 746
 of 808 on 08-22, 754 of 808 on 08-15, 756 of 799 on 08-10, 626 of 797 on 08-09
 and 535 of 818 at the start of 08-08, through generators, `yield*`, `Proxy`,
 native iterators, `export *`, a catchable throw, the bare `rts` specifier, stack

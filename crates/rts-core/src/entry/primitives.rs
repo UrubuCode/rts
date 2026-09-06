@@ -50,24 +50,27 @@ pub fn add(left: u64, right: u64) -> u64 {
     }
     let [left, right] = operands;
 
-    with_current(|context| {
-        // Asked before the numeric path and AFTER the string one, which is the
-        // order the specification states and the order that is easy to get
-        // backwards: `"" + 1n` concatenates and answers `"1"`, while `1 + 1n` is
-        // a `TypeError`. A bigint checked first would have made the first of
-        // those `NaN`.
+    // Asked before the numeric path and AFTER the string one, which is the order
+    // the specification states and the order that is easy to get backwards:
+    // `"" + 1n` concatenates and answers `"1"`, while `1 + 1n` is a `TypeError`.
+    // A bigint checked first would have made the first of those `NaN`.
+    //
+    // In a borrow of its own, and `settled` after it ends: the mixed arm refuses
+    // with a `TypeError` now, and building that error borrows the context again.
+    if let Some(outcome) = with_current(|context| {
         let is_text = |value: u64| {
             Value(value)
                 .as_slot()
                 .is_some_and(|slot| context.text_at(slot).is_some())
         };
-        if !is_text(left)
-            && !is_text(right)
-            && let Some(outcome) =
-                super::bigint_class::binary(context, super::bigint_class::Op::Add, left, right)
-        {
-            return super::bigint_class::settled(outcome);
+        match is_text(left) || is_text(right) {
+            true => None,
+            false => super::bigint_class::binary(context, super::bigint_class::Op::Add, left, right),
         }
+    }) {
+        return super::bigint_class::settled(outcome);
+    }
+    with_current(|context| {
         // Empresta. O `.cloned()` que estava aqui copiava o texto inteiro só
         // para satisfazer a assinatura de `add`, e a assinatura mudou.
         let text_of = |value: Value| value.as_slot().and_then(|slot| context.text_at(slot));

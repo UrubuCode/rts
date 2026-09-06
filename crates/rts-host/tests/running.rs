@@ -1909,6 +1909,33 @@ fn for_in_visits_them_in_the_order_they_were_added() {
 }
 
 #[test]
+fn for_in_over_a_string_enumerates_its_indices_where_the_in_operator_refuses() {
+    // The pair that made `for-in` need a guard of its own. The loop converts its
+    // subject with `ToObject` and enumerates the wrapper's index keys; the `in`
+    // operator refuses a primitive receiver outright. While the expansion's
+    // per-pass guard was written as the operator, this program raised a
+    // `TypeError` from a loop every runtime runs.
+    let produced = run("let joined = \"\"; \
+         for (let k in \"ab\") { joined = joined + k; } \
+         let refused = false; \
+         try { (\"0\" in \"ab\"); } catch (e) { refused = e instanceof TypeError; } \
+         return joined === \"01\" && refused;");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn for_in_still_skips_a_key_the_body_deleted() {
+    // What the guard is FOR, kept beside the test above so that a change making
+    // one pass cannot quietly drop the other: the keys are a snapshot, and a key
+    // removed while the loop runs must not be visited.
+    let produced = run("let o = {}; o.a = 1; o.b = 2; o.c = 3; \
+         let joined = \"\"; \
+         for (let k in o) { if (k === \"a\") { delete o.c; } joined = joined + k; } \
+         return joined === \"ab\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
 fn for_in_over_nothing_runs_nothing() {
     let produced = run("let o = {}; let count = 0; for (let k in o) { count++; } return count;");
     assert_eq!(tags::decode_double(produced), 0.0);

@@ -248,6 +248,34 @@ fn looked_up(context: &mut Context, slot: u32, key: Key) -> Read {
     {
         return Read::Value(made);
     }
+    // A PRIVATE name that is nowhere is a **brand failure**, not an absent
+    // property. `this.#value` where `this` is not an instance of the class that
+    // declared `#value` is a `TypeError` in the language, and it is the only way
+    // a program can find out — a private field has no `in` to guard with from
+    // inside the class body, and `undefined` is a value the code will carry on
+    // with.
+    //
+    // Two fixtures measure exactly this and both are ordinary code:
+    // `class Base { static #v = 7; static read() { return this.#v; } }` reached
+    // through an inheriting `Child` answered `undefined` where every runtime
+    // raises, and a method extracted from a class and called on a plain object
+    // read its private state as absent instead of refusing.
+    //
+    // Asked on the MISS, which is where it costs nothing: an ordinary read has
+    // already answered by the time this line is reached.
+    if matches!(found, super::accessor::Found::Absent)
+        && let Key::Name(named) = key
+        && let Some(text) = context.interner.text(named)
+        && super::symbol::is_private_key(text)
+    {
+        // The `@@` is this crate's encoding and must not reach a program's
+        // `catch`; what a reader wrote is the `#name` underneath it.
+        let spelled = text.to_rust().unwrap_or_default();
+        let spelled = spelled.strip_prefix("@@").unwrap_or(&spelled).to_owned();
+        return Read::Refused(format!(
+            "Cannot read private member {spelled} from an object whose class did not declare it"
+        ));
+    }
     found_as_read(context, found)
 }
 

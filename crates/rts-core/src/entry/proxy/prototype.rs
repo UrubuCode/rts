@@ -13,7 +13,7 @@ use crate::value::Value;
 /// `handler.getPrototypeOf(target)`, or the target's prototype.
 pub(in crate::entry) fn prototype_of(object: u64) -> Option<u64> {
     let trap = super::trap_for(object, "getPrototypeOf")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(super::absent());
     }
     let Some(callee) = trap.callee else {
@@ -52,7 +52,7 @@ pub(in crate::entry) fn prototype_of(object: u64) -> Option<u64> {
 /// verdict back into the object, which is the one place that conversion belongs.
 pub(in crate::entry) fn set_prototype_verdict(object: u64, prototype: u64) -> Option<bool> {
     let trap = super::trap_for(object, "setPrototypeOf")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(false);
     }
     let Some(callee) = trap.callee else {
@@ -85,7 +85,7 @@ pub(in crate::entry) fn set_prototype_verdict(object: u64, prototype: u64) -> Op
 /// observable, not so that extensibility can be faked.
 pub(in crate::entry) fn extensible(object: u64) -> Option<bool> {
     let trap = super::trap_for(object, "isExtensible")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(false);
     }
     let actual = invariant::extensible(trap.target);
@@ -108,7 +108,7 @@ pub(in crate::entry) fn extensible(object: u64) -> Option<bool> {
 /// `handler.preventExtensions(target)`, or closing the target itself.
 pub(in crate::entry) fn prevent_extensions(object: u64) -> Option<bool> {
     let trap = super::trap_for(object, "preventExtensions")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(false);
     }
     let Some(callee) = trap.callee else {

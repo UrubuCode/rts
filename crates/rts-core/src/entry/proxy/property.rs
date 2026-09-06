@@ -15,7 +15,7 @@ use crate::value::Value;
 /// `handler.get(target, prop, receiver)`, or the target's own answer.
 pub(in crate::entry) fn get(object: u64, key: Key) -> Option<u64> {
     let trap = trap_for(object, "get")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(absent());
     }
     let Some(callee) = trap.callee else {
@@ -92,7 +92,7 @@ pub(in crate::entry) fn set(object: u64, key: Key, value: u64) -> Option<u64> {
 /// emitter checks after a store.
 pub(in crate::entry) fn set_verdict(object: u64, key: Key, value: u64) -> Option<bool> {
     let trap = trap_for(object, "set")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(false);
     }
     let Some(callee) = trap.callee else {
@@ -140,7 +140,7 @@ pub(in crate::entry) fn set_verdict(object: u64, key: Key, value: u64) -> Option
 /// `handler.has(target, prop)`, or whether the target has it.
 pub(in crate::entry) fn has(object: u64, key: Key) -> Option<bool> {
     let trap = trap_for(object, "has")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(false);
     }
     let Some(callee) = trap.callee else {
@@ -187,7 +187,7 @@ pub(in crate::entry) fn has(object: u64, key: Key) -> Option<bool> {
 /// `handler.deleteProperty(target, prop)`, or a delete on the target.
 pub(in crate::entry) fn delete(object: u64, key: Key) -> Option<bool> {
     let trap = trap_for(object, "deleteProperty")?;
-    if trap.revoked {
+    if trap.refused {
         return Some(false);
     }
     let Some(callee) = trap.callee else {

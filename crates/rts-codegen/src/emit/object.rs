@@ -53,6 +53,11 @@ pub(super) fn accessor_name(
     ctx.names.intern(&spelled)
 }
 
+/// `enumerable` is the caller's, and the two callers disagree on purpose: an
+/// object literal's accessor is enumerable and a class body's is not, which is
+/// the same split `DefineMethod` draws for an ordinary member. Both passed
+/// nothing before, and the runtime recorded nothing, so a class's accessor
+/// appeared in `Object.keys(C.prototype)`.
 pub(super) fn define_accessor(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
@@ -60,6 +65,7 @@ pub(super) fn define_accessor(
     name: Name,
     function: ValueId,
     is_getter: bool,
+    enumerable: bool,
 ) -> EmitResult<ValueId> {
     let key = key_constant(builder, ctx, name);
     let function = tagged(builder, function);
@@ -67,7 +73,13 @@ pub(super) fn define_accessor(
         true => RuntimeOp::DefineGetter,
         false => RuntimeOp::DefineSetter,
     };
-    Ok(call(builder, ctx, op, &[object, key, function])?[0])
+    // `builder.bool_constant` and NOT `expr::boolean_constant`, which builds a
+    // TAGGED boolean value. The entry point takes a Rust `bool`, so its declared
+    // shape is `Repr::Bool`, and a tagged word there is refused by the emitter
+    // — `CallArgumentRepr { expected: Bool, found: Tagged }`, on every program
+    // that defines an accessor, which is most of them.
+    let flag = builder.bool_constant(enumerable);
+    Ok(call(builder, ctx, op, &[object, key, function, flag])?[0])
 }
 
 
@@ -159,11 +171,15 @@ pub(super) fn emit_object(
                 let closure = super::function::emit_closure_method(builder, scope, ctx, function)?;
                 match key {
                     PropertyKey::Named(name) => {
-                        define_accessor(builder, ctx, object, *name, closure, is_getter)?;
+                        // ENUMERABLE: an object literal's accessor is, and this
+                        // is the caller that says so — see `define_accessor`.
+                        define_accessor(builder, ctx, object, *name, closure, is_getter, true)?;
                     }
                     PropertyKey::Computed(expr) => {
                         let key = super::expr::emit_expr(builder, scope, ctx, expr)?;
-                        define_computed_accessor(builder, ctx, object, key, closure, is_getter)?;
+                        define_computed_accessor(
+                            builder, ctx, object, key, closure, is_getter, true,
+                        )?;
                     }
                 }
                 continue;
@@ -235,6 +251,7 @@ pub(super) fn define_computed_accessor(
     key: ValueId,
     function: ValueId,
     is_getter: bool,
+    enumerable: bool,
 ) -> EmitResult<ValueId> {
     // The key arrives as a VALUE the caller already produced, because a class
     // body evaluates every computed key once before installing anything —
@@ -247,6 +264,12 @@ pub(super) fn define_computed_accessor(
         true => RuntimeOp::DefineGetter,
         false => RuntimeOp::DefineSetter,
     };
-    Ok(call(builder, ctx, op, &[object, key, function])?[0])
+    // `builder.bool_constant` and NOT `expr::boolean_constant`, which builds a
+    // TAGGED boolean value. The entry point takes a Rust `bool`, so its declared
+    // shape is `Repr::Bool`, and a tagged word there is refused by the emitter
+    // — `CallArgumentRepr { expected: Bool, found: Tagged }`, on every program
+    // that defines an accessor, which is most of them.
+    let flag = builder.bool_constant(enumerable);
+    Ok(call(builder, ctx, op, &[object, key, function, flag])?[0])
 }
 

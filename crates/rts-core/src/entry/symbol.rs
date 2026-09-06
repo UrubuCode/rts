@@ -197,6 +197,11 @@ const WELL_KNOWN: &[&str] = &[
     "hasInstance",
     "isConcatSpreadable",
     "match",
+    // Was ABSENT, and its key text has existed beside its siblings the whole
+    // time — [`MATCH_ALL`] — so `"@@matchAll"` was a key `String.prototype.
+    // matchAll` looked for while `Symbol.matchAll` was `undefined`. A program
+    // defining the protocol could not name the symbol to define it under.
+    "matchAll",
     "replace",
     "search",
     "species",
@@ -231,6 +236,24 @@ impl Context {
 /// four strings and dropped them.
 pub(super) fn is_symbol_key(text: &Str) -> bool {
     text.starts_with_ascii(PREFIX)
+}
+
+/// The reserved spelling of a private class member's key — `@@#`.
+const PRIVATE_PREFIX: &str = concat!("@@", "#");
+
+/// Whether a key text is a PRIVATE class member's, as opposed to a symbol's.
+///
+/// Both live in the reserved space [`is_symbol_key`] answers for, and the two
+/// questions are not the same one: a symbol key is an ordinary property that
+/// enumeration hides, and a private name is not a property at all in the
+/// language — it is a slot the class brands its instances with.
+///
+/// The difference is observable through a Proxy, which is what asks this.
+/// `#x in p` for a proxy `p` is **false** in every runtime, because a proxy has
+/// no private slots however faithfully it forwards; here a private name is a
+/// key, so the `has` trap ran and the target answered for it.
+pub(in crate::entry) fn is_private_key(text: &Str) -> bool {
+    text.starts_with_ascii(PRIVATE_PREFIX)
 }
 
 /// Whether a value is a symbol at all.
@@ -588,6 +611,12 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         let key = context.well_known("prototype");
         let value = Value::from_slot(prototype).bits();
         super::objects::put(context, cell, key, value);
+        // A constructor's `prototype` is the one property in the language that
+        // is non-writable AND non-configurable — `Symbol.prototype = x` is
+        // refused and `defineProperty` cannot get round it. Recorded rather than
+        // left at the defaults, which say enumerable and writable: it showed up
+        // in `Object.keys(Symbol)`, and `Symbol.prototype = 1` STORED.
+        super::native::pinned(context, cell, key);
         // And back: `Symbol("s").constructor` answered `undefined` without it,
         // where the language says `Symbol`. Non-enumerable like every other
         // member of a built-in prototype.
@@ -599,6 +628,18 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         let symbol = well_known(context, name);
         let key = context.well_known(name);
         super::objects::put(context, cell, key, symbol);
+        // Non-writable, non-enumerable and NON-CONFIGURABLE — the one property
+        // shape in the language that cannot be redefined at all, and the
+        // specification gives it to every well-known symbol for a reason a
+        // program can reach: `Symbol.iterator` is an identity that `for`-`of`,
+        // spread and destructuring all compare against, so a program able to
+        // replace it could make a class's `[Symbol.iterator]` member write a key
+        // nothing looks for.
+        //
+        // They were installed at the defaults, so all three read the other way:
+        // `Object.keys(Symbol)` listed fourteen names, `Symbol.iterator = 1`
+        // stored, and `delete Symbol.iterator` succeeded.
+        super::native::pinned(context, cell, key);
     }
     callable
 }

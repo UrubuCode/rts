@@ -77,8 +77,19 @@ const desc8Value: i64 = Reflect.get(desc8, "value");
 const t9: any = { x: 1 };
 const p9: any = new Proxy(t9, {});
 const desc9 = Reflect.getOwnPropertyDescriptor(p9, "missing");
-// desc9 eh handle 0 (invalido). Reflect.has(0, "value") -> false.
-const desc9HasValue = Reflect.has(desc9, "value");
+// `desc9` e `undefined`, e `Reflect.has(undefined, k)` LANCA um TypeError —
+// verificado no Node e no Bun. Esta linha dizia "desc9 eh handle 0 (invalido).
+// Reflect.has(0, "value") -> false", que era a convencao do motor antigo: o
+// operador `in` respondia `false` para um receptor que nao e objeto, e por isso
+// `Reflect.has` respondia o mesmo. `false` e a unica resposta que nao se
+// distingue de uma legitima — um programa que guarda com `if (Reflect.has(d,
+// "value"))` le "nao tem" onde a linguagem diz "isto nem sequer e um objeto".
+let desc9Refused = "nao lancou";
+try {
+  Reflect.has(desc9, "value");
+} catch (e: any) {
+  desc9Refused = e.constructor.name;
+}
 
 // 10. getOwnPropertyDescriptor trap retorna 0 — nao e nem objeto nem undefined
 //
@@ -145,8 +156,8 @@ describe("proxy_phase3", () => {
         expect(desc7Writable).toBe("true"));
     test("getOwnDesc forward synthesizes from target", () =>
         expect(desc8Value).toBe(50));
-    test("getOwnDesc forward missing has no value", () =>
-        expect(desc9HasValue).toBe(false));
+    test("Reflect.has on the undefined descriptor is refused", () =>
+        expect(desc9Refused).toBe("TypeError"));
     test("getOwnDesc trap answering a number is refused", () =>
         expect(desc10Refused).toBe(true));
     // Regressao: nao-proxy ainda funciona

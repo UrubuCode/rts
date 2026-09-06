@@ -264,15 +264,31 @@ impl Context {
 /// written separately and a single call would have to pass `undefined` for the
 /// half it does not define — which is indistinguishable from defining it as
 /// `undefined`.
+///
+/// # Why `enumerable` is an operand and not a third entry point
+///
+/// Because the accessor an object literal writes and the one a class body
+/// declares are the SAME operation with one flag different: `{ get x() {} }` is
+/// enumerable and `class C { get x() {} }` is not. Neither was — this recorded
+/// no attributes at all, so `integrity::effective` reported the defaults and a
+/// class's accessor showed up in `Object.keys(C.prototype)` and in a `for`-`in`
+/// over an instance.
+///
+/// The precedent that looks like it forces two entries — [`define_method`]
+/// beside [`define_field`] — does not: those are two operations, on different
+/// targets, one of which is a class member and the other an instance field. Here
+/// the caller knows a boolean at compile time and the work is identical either
+/// way, so an operand states it and there is one place the pair's attributes are
+/// decided.
 #[rtse::entry]
-pub fn define_getter(object: u64, key: i64, getter: u64) -> u64 {
-    define(object, key, Some(getter), None)
+pub fn define_getter(object: u64, key: i64, getter: u64, enumerable: bool) -> u64 {
+    define(object, key, Some(getter), None, enumerable)
 }
 
 /// `set x(v) { … }` — records the setter half.
 #[rtse::entry]
-pub fn define_setter(object: u64, key: i64, setter: u64) -> u64 {
-    define(object, key, None, Some(setter))
+pub fn define_setter(object: u64, key: i64, setter: u64, enumerable: bool) -> u64 {
+    define(object, key, None, Some(setter), enumerable)
 }
 
 /// `class C { m() {} }` — a member of a class, which is NOT enumerable.
@@ -327,6 +343,60 @@ pub fn define_method(object: u64, key: i64, value: u64) -> u64 {
     value
 }
 
+/// `SetFunctionName` — a function's own `name`, defined rather than stored.
+///
+/// # Why a store could not do it
+///
+/// `SetFunctionName` gives `name` `{ writable: false, enumerable: false,
+/// configurable: true }`, and a store cannot carry an attribute — the same
+/// sentence [`define_method`] opens with, for the same reason.
+///
+/// It mattered here in a way that had the two halves deadlocked.
+/// `functions::closure_new` writes `name` and `length` onto every closure and
+/// marked them WRITABLE, with a note saying so and saying why it could not be
+/// corrected: `emit/class.rs` wrote `C.name` with an ordinary store after that
+/// had run, so a non-writable record turned every class definition in every
+/// program into `TypeError: Cannot assign to read only property 'name'`.
+///
+/// So the descriptor was wrong on every function in the language —
+/// `Object.getOwnPropertyDescriptor(f, "name").writable` read `true` where every
+/// runtime reads `false` — because the one site that needed to write it could
+/// only store. This is the operation that site needed; with it, the closure can
+/// mark both properly and the class emitter defines over the mark.
+///
+/// The KEY is fixed rather than passed, because the operation is not "define
+/// something non-writable": it is the specification's `SetFunctionName`, and a
+/// general spelling would be an invitation to use it for the next property whose
+/// attributes happen to match, which is how one number comes to mean two things.
+#[rtse::entry]
+pub fn set_function_name(target: u64, value: u64) -> u64 {
+    with_current(|context| {
+        let Some(cell) = Value(target).as_slot() else {
+            return;
+        };
+        let key = context.well_known("name");
+        // The property is ALREADY non-writable by the time this runs — the
+        // closure this is called on was given its `name` and `length` by
+        // `functions::closure_new`, with `SetFunctionName`'s attributes — and
+        // `objects::put` honours that record and refuses.
+        //
+        // So the mark is lifted, the value written, and the mark restored. That
+        // is not a workaround for the refusal: it is what `[[DefineOwnProperty]]`
+        // does, which REPLACES a descriptor rather than writing through it, and
+        // it is legal here for the reason the language allows `defineProperty`
+        // over `name` at all — the property is configurable.
+        //
+        // Skipping the lift is what a first attempt did, and the failure was
+        // narrow enough to miss: a class with no explicit `constructor` has no
+        // name record yet, so the write landed, and one WITH an explicit
+        // constructor silently kept the empty name its closure was made with.
+        super::native::hidden(context, cell, key);
+        super::objects::put(context, cell, key, value);
+        super::native::introspective(context, cell, key);
+    });
+    target
+}
+
 /// `class C { k = 1; }` — an instance field, DEFINED and enumerable.
 ///
 /// [`define_method`]'s sibling, and the two differ in one line: a method is
@@ -365,7 +435,7 @@ pub fn define_field(object: u64, key: i64, value: u64) -> u64 {
 }
 
 /// Both, which differ only in which half they carry.
-fn define(object: u64, key: i64, get: Option<u64>, set: Option<u64>) -> u64 {
+fn define(object: u64, key: i64, get: Option<u64>, set: Option<u64>, enumerable: bool) -> u64 {
     with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             return object;
@@ -374,6 +444,17 @@ fn define(object: u64, key: i64, get: Option<u64>, set: Option<u64>) -> u64 {
             return object;
         };
         context.define_accessor_and_invalidate(cell, number, get, set);
+        // Recorded rather than left to the defaults, which say enumerable and
+        // writable. `writable` is meaningless for an accessor and the other two
+        // are what the language pins: both spellings are configurable, and only
+        // the object literal's is enumerable.
+        if let Some(crate::object::Key::Name(named)) = super::objects::key_for(context, key) {
+            super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
+                writable: true,
+                enumerable,
+                configurable: true,
+            });
+        }
         object
     })
 }
