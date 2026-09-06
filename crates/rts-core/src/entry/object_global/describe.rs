@@ -77,6 +77,12 @@ extern "C" fn prevent_extensions(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    // A proxy's handler decides, exactly as it does for
+    // `Reflect.preventExtensions` — which asked and this did not, so the two
+    // spellings of one question disagreed and the trap never ran.
+    if super::super::proxy::prevent_extensions(object).is_some() {
+        return object;
+    }
     super::super::integrity::restrict(object, Integrity::Closed)
 }
 
@@ -106,6 +112,11 @@ extern "C" fn is_sealed(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a
 /// The one of the three whose answer for a primitive is `false` rather than
 /// `true`: a primitive cannot be frozen further and cannot be extended either.
 extern "C" fn is_extensible(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // The handler's, when there is one — `Reflect.isExtensible` asked and this
+    // did not.
+    if let Some(answered) = super::super::proxy::extensible(object) {
+        return Value::from_bool(answered).bits();
+    }
     let open = with_current(|context| {
         object_cell(context, object).is_some_and(|cell| context.integrity_at(cell).is_none())
     });
@@ -267,6 +278,13 @@ extern "C" fn get_own_property_names(
 ///
 /// `undefined` for a key the object does not have, which is what distinguishes
 /// it from one holding `undefined` — the same distinction `in` exists for.
+/// Through [`describe_of`], which asks a proxy's handler first.
+///
+/// It called `descriptor` directly, and `Reflect.getOwnPropertyDescriptor` — the
+/// other spelling of the same question — went through the proxy. Two spellings
+/// of one question disagreeing is the defect this crate keeps naming, and here
+/// it was silent: `Object.getOwnPropertyDescriptor(proxy, k)` never ran the
+/// trap and answered about the proxy's own cell, which has nothing.
 extern "C" fn get_own_property_descriptor(
     _e: u64,
     _this: u64,
@@ -275,10 +293,7 @@ extern "C" fn get_own_property_descriptor(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    match descriptor(object, name) {
-        Some(made) => made,
-        None => with_current(|context| undefined_of(context)),
-    }
+    describe_of(object, name)
 }
 
 /// `Object.getOwnPropertySymbols(o)`.
@@ -348,9 +363,16 @@ extern "C" fn get_own_property_descriptors(
     // it silently. Same second list `Reflect.ownKeys` already stitches on.
     names.extend(elements(own_symbols(object)).unwrap_or_default());
     for name in names {
-        if let Some(built) = descriptor(object, name) {
-            super::super::computed::set_indexed(made, name, built, 0 /* strict: um native que escreve reporta a recusa */);
+        // `describe_of` rather than `descriptor`, for the reason the singular
+        // spelling above records: a proxy answers through its handler.
+        let built = describe_of(object, name);
+        if super::super::throw::in_flight() {
+            return made;
         }
+        if with_current(|context| super::super::objects::nullish(context, built).is_some()) {
+            continue;
+        }
+        super::super::computed::set_indexed(made, name, built, 0 /* strict: um native que escreve reporta a recusa */);
     }
     made
 }

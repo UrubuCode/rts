@@ -321,6 +321,47 @@ pub fn enumerate_keys(object: u64) -> u64 {
         let Some(cell) = Value(walking).as_slot() else {
             break;
         };
+        // A PROXY level is asked, and it was not: `key_list` reads the cell's
+        // own storage, and a proxy has none — so `for (const k in p)` visited
+        // NOTHING for every proxy in every program, which is an empty loop
+        // rather than a wrong answer and therefore silent.
+        //
+        // `EnumerateObjectProperties` is `ownKeys` followed by
+        // `getOwnPropertyDescriptor` per key, which is what Bun logs and what
+        // this asks. Both are traps, so both run user code and neither can
+        // happen inside the borrow below.
+        if let Some(level) = proxy_level(walking) {
+            let (enumerable, every) = with_current(|context| {
+                let canonical = |context: &Context, key: crate::object::Key| {
+                    canonical_key(context, key)
+                };
+                (
+                    level
+                        .0
+                        .into_iter()
+                        .map(|key| (canonical(context, key), key))
+                        .collect::<Vec<_>>(),
+                    level
+                        .1
+                        .into_iter()
+                        .map(|key| canonical(context, key))
+                        .collect::<Vec<_>>(),
+                )
+            });
+            for (canonical, key) in enumerable {
+                if seen.contains(&canonical) {
+                    continue;
+                }
+                offered.push(key);
+            }
+            seen.extend(every);
+            let next = super::chain::get_prototype(walking);
+            if next == walking {
+                break;
+            }
+            walking = next;
+            continue;
+        }
         let (enumerable, every) = with_current(|context| {
             let enumerable = key_list(context, walking, true);
             let every = key_list(context, walking, false);
@@ -332,13 +373,8 @@ pub fn enumerate_keys(object: u64) -> u64 {
             // equal — so the test has to put a name that SPELLS an index back
             // into the index form, or a `for`-`in` over an array whose prototype
             // carries `"0"` would offer the position twice.
-            let canonical = |context: &Context, key: crate::object::Key| match key {
-                crate::object::Key::Name(named) => context
-                    .interner
-                    .text(named)
-                    .and_then(index_spelling)
-                    .map_or(key, crate::object::Key::Index),
-                crate::object::Key::Index(_) => key,
+            let canonical = |context: &Context, key: crate::object::Key| {
+                canonical_key(context, key)
             };
             let enumerable: Vec<_> = enumerable
                 .into_iter()
@@ -365,6 +401,88 @@ pub fn enumerate_keys(object: u64) -> u64 {
         walking = next;
     }
     interned(offered)
+}
+
+/// A key in the one spelling the shadowing test can compare.
+///
+/// An element at position 0 and an inherited property named `"0"` are one key to
+/// a `for`-`in` and two to this crate's `Key` — `Index(0)` and `Name(…)` — so a
+/// name that SPELLS an index goes back into the index form. Without it, a
+/// `for`-`in` over an array whose prototype carries `"0"` offers the position
+/// twice.
+fn canonical_key(context: &Context, key: crate::object::Key) -> crate::object::Key {
+    match key {
+        crate::object::Key::Name(named) => context
+            .interner
+            .text(named)
+            .and_then(index_spelling)
+            .map_or(key, crate::object::Key::Index),
+        crate::object::Key::Index(_) => key,
+    }
+}
+
+/// One level of a `for`-`in` walk when that level is a PROXY: the keys its
+/// handler reports, split into the enumerable ones and all of them.
+///
+/// `None` when the object is not a proxy, which is what tells the walk to read
+/// the cell as it always did — and also when a trap threw, because the caller
+/// has nothing to offer for a level it could not ask about.
+///
+/// A SYMBOL is dropped here rather than by the enumeration below: a `for`-`in`
+/// never reports one, and a proxy's `ownKeys` is the one list that can contain
+/// one at this point.
+fn proxy_level(
+    object: u64,
+) -> Option<(Vec<crate::object::Key>, Vec<crate::object::Key>)> {
+    let listed = super::proxy::own_keys(object)?;
+    if super::throw::in_flight() {
+        return None;
+    }
+    let keys = with_current(|context| {
+        Value(listed)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell).cloned())
+            .unwrap_or_default()
+    });
+    let shown_key = with_current(|context| context.well_known_text("enumerable"));
+    let mut enumerable = Vec::new();
+    let mut every = Vec::new();
+    for key in keys {
+        let reserved = with_current(|context| {
+            super::text::to_text(context, Value(key))
+                .is_some_and(|text| super::symbol::is_symbol_key(&text))
+        });
+        if reserved {
+            continue;
+        }
+        // `getOwnPropertyDescriptor` per key, which is what decides enumerable
+        // and what the specification performs here. `undefined` means the
+        // handler does not claim the key as an own property after all, and it
+        // is then offered by neither list.
+        let described = super::object_global::describe_of(object, key);
+        if super::throw::in_flight() {
+            return None;
+        }
+        if with_current(|context| super::objects::nullish(context, described).is_some()) {
+            continue;
+        }
+        let shown = super::primitives::to_boolean(super::computed::get_indexed(
+            described, shown_key,
+        ));
+        if super::throw::in_flight() {
+            return None;
+        }
+        let Some(named) =
+            with_current(|context| super::computed::property_key(context, Value(key)))
+        else {
+            continue;
+        };
+        if shown {
+            enumerable.push(named);
+        }
+        every.push(named);
+    }
+    Some((enumerable, every))
 }
 
 /// Every own key, INCLUDING the ones an enumeration does not report.

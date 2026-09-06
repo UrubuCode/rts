@@ -68,28 +68,27 @@ pub(in crate::entry) fn get(object: u64, key: Key) -> Option<u64> {
 /// reporting it as the assignment's value would make `p.x = 1` evaluate to
 /// `true`. [`set_verdict`] is where that flag survives, for the one caller that
 /// reports it.
-pub(in crate::entry) fn set(object: u64, key: Key, value: u64) -> Option<u64> {
-    set_verdict(object, key, value)?;
-    Some(value)
-}
-
-/// The same write, answering whether it was accepted.
+/// The write, answering whether the handler ACCEPTED it.
 ///
-/// Beside [`set`] rather than replacing it, and the pair is one function with
-/// two readings rather than two implementations: `o.x = 1` is an expression
-/// whose value is `1` however the store went, and `Reflect.set(o, "x", 1)` is a
-/// question about whether it went. Writing the second as its own trap call
-/// would run the handler twice for one operation.
+/// One function rather than the pair that used to be here — a `set` answering
+/// the value beside a `set_verdict` answering the flag. `o.x = 1` is an
+/// expression whose value is `1` however the store went, so the value spelling
+/// carried no information its caller did not already have; and the callers that
+/// dropped the flag are exactly the ones that had to act on it.
 ///
-/// # The refusal this deliberately does not raise
+/// # The refusal, which is raised now
 ///
 /// A `set` trap answering falsy is a `TypeError` in strict code, and every
-/// module here is strict. It is not raised because a compiled STORE does not
-/// ask whether a throw is in flight — only calls do — so the error would
-/// surface at whatever call came next, naming a line that had nothing to do
-/// with it. That is worse than the missing throw: a wrong location is a
-/// diagnostic that costs time rather than saving it. It comes back when the
-/// emitter checks after a store.
+/// module here is strict. The note that stood here said it could not be raised,
+/// because "a compiled STORE does not ask whether a throw is in flight — only
+/// calls do". That has not been true for some time: `SetProperty` keeps its
+/// throw check, `runtime::raising::CANNOT_RAISE` does not list it, and a test
+/// beside that list asserts it never will. So the error surfaces at the store
+/// that caused it, which is what the note was protecting against.
+///
+/// Raised by the CALLER rather than here, because only the caller knows the
+/// mode — `Reflect.set` answers `false` for the same verdict and must not
+/// raise at all.
 pub(in crate::entry) fn set_verdict(object: u64, key: Key, value: u64) -> Option<bool> {
     let trap = trap_for(object, "set")?;
     if trap.refused {

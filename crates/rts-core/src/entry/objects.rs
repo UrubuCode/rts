@@ -369,7 +369,29 @@ fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
         // `TypeError` in strict. Neither is emitted yet, and the value comes
         // back either way because that is what the expression produces.
         None => value,
-        Some(Handled::Proxy(key)) => super::proxy::set(object, key, value).unwrap_or(value),
+        // A `set` trap answering falsy is a refusal, and a refusal in STRICT
+        // code raises — the same rule the `Refused` arm below applies to an
+        // ordinary one, reached through the same flag. It was
+        // `proxy::set(…).unwrap_or(value)`, which spent the verdict.
+        //
+        // The note that stood on `proxy::set_verdict` said this could not be
+        // raised because "a compiled STORE does not ask whether a throw is in
+        // flight". That stopped being true: `SetProperty` keeps its throw check
+        // — `runtime::raising::CANNOT_RAISE` does not list it, and a test there
+        // asserts it never will — so the error surfaces at the store that
+        // caused it.
+        Some(Handled::Proxy(key)) => {
+            if super::proxy::set_verdict(object, key, value) == Some(false)
+                && !sloppy
+                && !super::throw::in_flight()
+            {
+                super::throw::type_error(&format!(
+                    "'set' on proxy: trap returned falsish for property '{}'",
+                    super::proxy::spelled(key)
+                ));
+            }
+            value
+        }
         Some(Handled::Setter(setter)) => {
             let undefined = with_current(|context| undefined_of(context));
             super::functions::call(setter, object, value, undefined, undefined, undefined);

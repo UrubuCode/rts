@@ -52,7 +52,7 @@ mod prototype;
 
 pub(in crate::entry) use calls::{apply, construct};
 pub(in crate::entry) use keys::{define, describe, enumerable_keys, own_keys};
-pub(in crate::entry) use property::{delete, get, has, set, set_verdict};
+pub(in crate::entry) use property::{delete, get, has, set_verdict};
 pub(in crate::entry) use prototype::{
     extensible, prevent_extensions, prototype_of, set_prototype_verdict,
 };

@@ -126,10 +126,19 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
     // Ver a nota em [`get_indexed`]: a conversão da chave só acontece quando há
     // um proxy para perguntar, ou quando a chave é um objeto.
     let (key, trap) = opened(object, key);
+    // The computed spelling refuses exactly as the named one does — see
+    // `objects::set_property`'s proxy arm for why a falsy trap raises in strict
+    // code, and `o[k] = v` is the form a minified bundle writes most.
     if let Some(named) = trap
-        && let Some(answered) = super::super::proxy::set(object, named, value)
+        && let Some(accepted) = super::super::proxy::set_verdict(object, named, value)
     {
-        return answered;
+        if !accepted && !sloppy && !super::super::throw::in_flight() {
+            super::super::throw::type_error(&format!(
+                "'set' on proxy: trap returned falsish for property '{}'",
+                super::super::proxy::spelled(named)
+            ));
+        }
+        return value;
     }
     let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
