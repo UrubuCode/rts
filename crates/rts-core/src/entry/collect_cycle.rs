@@ -23,22 +23,30 @@
 //!
 //! # The table list, and how a forgotten one would be caught
 //!
-//! [`release`] below enumerates every `Aside` and every `Slab` [`super::Context`]
-//! declares, by reading its field list rather than from memory — the same
-//! discipline [`super::roots::context_roots`]'s own documentation names. That
-//! reading is manual and nothing enforces it stays exhaustive: a new `Aside`
-//! field added to `Context` without a matching line here compiles clean and
-//! leaks silently — the next occupant of that cell index would not read the
-//! old value (each table still refuses a `None` cell honestly), but the old
-//! entry sits there forever, unreachable and unreclaimed. That is a leak, not
-//! corruption, because `Region::free` only ever hands a freed cell's INDEX
-//! back out — a stale `Aside` entry is simply never looked at again once nothing
-//! composes that index into a live reference for it. Nothing here makes a
-//! missing line loud. The honest fix is exhaustiveness: `Context`'s own fields
-//! could be walked by a macro or a test that lists them once and fails to
-//! compile — or fails a test — when the two lists diverge, mirroring what this
-//! crate's `#[deny(dead_code)]` already does for a producer with no caller.
-//! That is not built here; this paragraph is the proposal in place of it.
+//! [`release`] below clears every `Aside` [`super::Context`] declares, as a
+//! total pass over [`super::side_tables::SideTable`] — the same enumeration the
+//! tracer walks. A `match` in Rust is total, so a table added there cannot be
+//! forgotten here: the compiler refuses the crate until its death is written
+//! down.
+//!
+//! **This paragraph used to be a proposal, and it was wrong twice.** It said the
+//! reading was manual, that nothing enforced exhaustiveness, and that the
+//! consequence of a missing line was "a leak, not corruption, because
+//! `Region::free` only ever hands a freed cell's INDEX back out". Handing the
+//! index back out is precisely what makes it corruption, and the crate has paid
+//! for it twice: `detached` is read as a live fact, so the next object to be
+//! given that index was born detached; and `pending_stacks` is keyed by the cell
+//! an `Error` occupied, so the next `Error` born there answers the dead one's
+//! `.stack`. A stale entry is only harmless where nothing ever reads the table
+//! without a live owner, and which tables those are is not a property anyone
+//! checked — it was an assumption doing the work of an argument.
+//!
+//! What the totality does NOT close is the step before it: adding a field to
+//! `Context` does not add a variant to `SideTable`. The author writes the
+//! variant, and from there the compiler enforces that the tracer classifies it
+//! and this function buries it. `side_tables`'s own documentation says why the
+//! airtight form — a struct pattern with no `..` over `Context` — was measured
+//! against its cost and rejected.
 //!
 //! # Why a generator's frame is not swept the same way
 //!
@@ -178,69 +186,10 @@ fn release(context: &mut Context, cell: u32) {
         context.cells.free(Slot(slot as u32));
     }
 
-    // The overflow is region cells now, and it spans — so every cell it covers
-    // comes back, not only the one its reference names.
-    if let Some((block, slots)) = context.spill_of.remove(cell) {
-        context.region.free_spanning(block, (slots + 1) * 8);
-    }
-    if let Some(elements) = context.array_elements.remove(cell) {
-        context.arrays.free(elements);
-    }
-    if let Some(buffer) = context.buffer_of.remove(cell) {
-        context.buffers.free(buffer);
-    }
-    // Beside the buffer it is a fact about, and it is the one entry this list
-    // MISSED. Left behind, it is not the leak this module's documentation
-    // predicts for a forgotten `Aside` — it is corruption, because `detached`
-    // is READ as a live fact: `buffers::window` refuses a view whose cell is
-    // marked, so the next object to be handed this index is born detached.
-    //
-    // Measured before this line existed: 80 000 iterations each making a fresh
-    // `ArrayBuffer` and transferring it once — which the language always allows,
-    // since the buffer transferred away is a different object every pass — died
-    // with an uncaught `TypeError: ArrayBuffer is detached`. Node runs the same
-    // program to completion. The failures start only once the region has filled
-    // and cells begin coming back, which is why nothing smaller reproduces it.
-    context.detached.remove(cell);
-
-    // Every remaining `Aside` in `Context`, by its field list — see this
-    // module's own documentation for what keeps this exhaustive and what does
-    // not.
-    context.prototypes.remove(cell);
-    // Keyed by the cell that WAS a prototype, so reclaiming it drops the numbers
-    // minted against it — which is what stops the free list handing the index
-    // back and an unrelated object inheriting a stale discrimination.
-    context.proto_types.remove(cell);
-    context.callables.remove(cell);
-    context.proxies.remove(cell);
-    context.cursors.remove(cell);
-    context.bound.remove(cell);
-    context.views.remove(cell);
-    context.collections.remove(cell);
-    // A generator's FRAME is a spanning block of its own, and removing the
-    // side-table entry only forgot where it was — the cells stayed taken
-    // forever. `Region::free` reads the width out of the header, so freeing the
-    // first cell gives the whole run back; this module's own documentation said
-    // the tail leaked, and that stopped being true when `free` learned the
-    // width.
-    //
-    // Measured before this line existed: a loop of 60 000 generators filled a
-    // 65 536-cell region with dead frames and the program stopped with "nothing
-    // left to reclaim" — a collection that ran, found everything unreachable,
-    // and freed none of it.
-    if let Some(state) = context.generators.remove(cell) {
-        context.region.free(state.frame_cell());
-    }
-    context.helpers.remove(cell);
-    context.regexes.remove(cell);
-    context.accessors.remove(cell);
-    context.integrity.remove(cell);
-    context.attributes.remove(cell);
-    context.derived.remove(cell);
-    context.boxed.remove(cell);
-    // The word a client attached. Dropped with the cell and nothing is called —
-    // `super::foreign` says so where an addon author will read it.
-    context.foreign.remove(cell);
+    // Every `Aside` in `Context`, as a total pass over the same enumeration the
+    // tracer walks. See `side_tables::release` for what a missed table does and
+    // for the two occasions this crate paid for one.
+    super::side_tables::release_tables(context, cell);
     // Whatever asked to be told about this death, moved to the run queue. NOT
     // called: this runs with the borrow held, and a finalizer calls out. See
     // `super::finalize`.
@@ -492,6 +441,35 @@ mod tests {
         assert!(
             context.prototype_at(dropped).is_none(),
             "the aside entry a stranger reusing this cell would otherwise inherit"
+        );
+    }
+
+    #[test]
+    fn a_freed_error_does_not_leave_its_captured_stack_behind() {
+        // The defect the total walk over `SideTable` found: nothing outside
+        // `take_stack` dropped an entry, so an `Error` collected before anything
+        // read its `.stack` left its class name and its captured frames in the
+        // table for the life of the process.
+        //
+        // The retention is the mild half. The sharp half is that the entry is
+        // keyed by a cell the free list is about to hand out, so the next
+        // `Error` born there would answer the dead one's `.stack` — a wrong
+        // answer that looks like a right one.
+        let mut context = empty_context();
+        let doomed = plain(&mut context);
+        context.defer_stack(doomed, "TypeError");
+        assert!(
+            context.take_stack(doomed).is_some(),
+            "the entry exists before the collection — otherwise this test \
+             would pass for the wrong reason"
+        );
+        context.defer_stack(doomed, "TypeError");
+
+        let freed = collect_over_empty_stack(&mut context);
+        assert_eq!(freed, 1, "the error was unreachable");
+        assert!(
+            context.take_stack(doomed).is_none(),
+            "the cell's death took its pending stack with it"
         );
     }
 }
