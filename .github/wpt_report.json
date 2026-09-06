@@ -2552,19 +2552,19 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-002",
-      "estado": "passa"
-    },
-    {
       "nome": "flex-basis-001",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-004",
+      "nome": "flex-basis-002",
       "estado": "passa"
     },
     {
       "nome": "flex-basis-003",
+      "estado": "passa"
+    },
+    {
+      "nome": "flex-basis-004",
       "estado": "passa"
     },
     {
@@ -2576,11 +2576,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-008",
+      "nome": "flex-basis-007",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-007",
+      "nome": "flex-basis-008",
       "estado": "passa"
     },
     {
@@ -3401,11 +3401,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-min-height-auto-002c",
+      "nome": "flexbox-min-height-auto-002b",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-min-height-auto-002b",
+      "nome": "flexbox-min-height-auto-002c",
       "estado": "passa"
     },
     {
@@ -3639,13 +3639,13 @@
       "estado": "passa"
     },
     {
+      "nome": "flexbox-writing-mode-slr-rtl",
+      "estado": "passa"
+    },
+    {
       "nome": "flexbox-writing-mode-slr-row-mix",
       "estado": "falha",
       "pct": 2.271875
-    },
-    {
-      "nome": "flexbox-writing-mode-slr-rtl",
-      "estado": "passa"
     },
     {
       "nome": "flexbox-writing-mode-slr",
