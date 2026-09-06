@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4666) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4545) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -2902,7 +2902,7 @@
   "status": "rts_error",
   "bun": "tdz=read-throws=ReferenceError|base-ctor|after-super=base\ndouble=ReferenceError\ndouble-is-ref=true\nnosuper=ReferenceError\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=TypeError\nprim-is-type=true\nundef-tag=base\nundef-instanceof=true\nbypass-tag=bypass\nbypass-instanceof=false\nretnull=TypeError\nfield-own=own:base\nfield-order=tag,own\nlog-tail=fields-ctor=own:base\nexplicit-len=0\nimplicit-len=0\nimplicit-tag=base\narrow-super=arrow\nearly-method=ReferenceError\nnewtarget-before-super=TargetBeforeSuper\nbase-ctor-count=11",
   "node": "tdz=read-throws=ReferenceError|base-ctor|after-super=base\ndouble=ReferenceError\ndouble-is-ref=true\nnosuper=ReferenceError\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=TypeError\nprim-is-type=true\nundef-tag=base\nundef-instanceof=true\nbypass-tag=bypass\nbypass-instanceof=false\nretnull=TypeError\nfield-own=own:base\nfield-order=tag,own\nlog-tail=fields-ctor=own:base\nexplicit-len=0\nimplicit-len=0\nimplicit-tag=base\narrow-super=arrow\nearly-method=ReferenceError\nnewtarget-before-super=TargetBeforeSuper\nbase-ctor-count=11",
-  "rts": "tdz=read-throws=TypeError|base-ctor|after-super=base\ndouble=no-throw\nnosuper=no-throw\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=no-throw",
+  "rts": "tdz=read-throws=TypeError|base-ctor|after-super=base\ndouble=no-throw\nnosuper=no-throw\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=TypeError\nprim-is-type=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
@@ -3011,10 +3011,10 @@
 ,
 {
   "name": "claude-method-property-descriptors",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "proto-area=data,e=false,c=true,w=true\nproto-width=accessor,e=false,c=true,g=true,s=true\nproto-rows=data,e=false,c=true,w=true\nproto-ctor=data,e=false,c=true,w=true\nstatic-make=data,e=false,c=true,w=true\nctor-prototype=data,e=false,c=false,w=false\nctor-length=data,e=false,c=true,w=false\nctor-name=data,e=false,c=true,w=false\nproto-names=area,constructor,rows,width\nproto-keys=\nctor-names=length,make,name,prototype\ninst-keys=side\ninst-names=side\ninst-json={\"side\":3}\narea-name=area\narea-length=2\nmake-name=make\nctor-name-value=Shape\nctor-length-value=0\ngetter-name=get width\nsetter-name=set width\ngetter-length=0\nsetter-length=1\nnew-method=TypeError\nnew-getter=TypeError\nmethod-has-prototype=false\ngenerator-has-prototype=true\ncall-class=TypeError\nfor-in=side\nproto-of-static=true\nproto-tostring=[object Object]",
   "node": "proto-area=data,e=false,c=true,w=true\nproto-width=accessor,e=false,c=true,g=true,s=true\nproto-rows=data,e=false,c=true,w=true\nproto-ctor=data,e=false,c=true,w=true\nstatic-make=data,e=false,c=true,w=true\nctor-prototype=data,e=false,c=false,w=false\nctor-length=data,e=false,c=true,w=false\nctor-name=data,e=false,c=true,w=false\nproto-names=area,constructor,rows,width\nproto-keys=\nctor-names=length,make,name,prototype\ninst-keys=side\ninst-names=side\ninst-json={\"side\":3}\narea-name=area\narea-length=2\nmake-name=make\nctor-name-value=Shape\nctor-length-value=0\ngetter-name=get width\nsetter-name=set width\ngetter-length=0\nsetter-length=1\nnew-method=TypeError\nnew-getter=TypeError\nmethod-has-prototype=false\ngenerator-has-prototype=true\ncall-class=TypeError\nfor-in=side\nproto-of-static=true\nproto-tostring=[object Object]",
-  "rts": "proto-area=data,e=false,c=true,w=true\nproto-width=accessor,e=false,c=true,g=true,s=true\nproto-rows=data,e=false,c=true,w=true\nproto-ctor=data,e=false,c=true,w=true\nstatic-make=data,e=false,c=true,w=true\nctor-prototype=data,e=false,c=false,w=false\nctor-length=data,e=false,c=true,w=false\nctor-name=data,e=false,c=true,w=false\nproto-names=area,constructor,rows,width\nproto-keys=\nctor-names=length,make,name,prototype\ninst-keys=side\ninst-names=side\ninst-json={\"side\":3}\narea-name=area\narea-length=2\nmake-name=make\nctor-name-value=Shape\nctor-length-value=4\ngetter-name=get width\nsetter-name=set width\ngetter-length=0\nsetter-length=1\nnew-method=TypeError\nnew-getter=TypeError\nmethod-has-prototype=false\ngenerator-has-prototype=true\ncall-class=TypeError\nfor-in=side\nproto-of-static=true\nproto-tostring=[object Object]",
+  "rts": "proto-area=data,e=false,c=true,w=true\nproto-width=accessor,e=false,c=true,g=true,s=true\nproto-rows=data,e=false,c=true,w=true\nproto-ctor=data,e=false,c=true,w=true\nstatic-make=data,e=false,c=true,w=true\nctor-prototype=data,e=false,c=false,w=false\nctor-length=data,e=false,c=true,w=false\nctor-name=data,e=false,c=true,w=false\nproto-names=area,constructor,rows,width\nproto-keys=\nctor-names=length,make,name,prototype\ninst-keys=side\ninst-names=side\ninst-json={\"side\":3}\narea-name=area\narea-length=2\nmake-name=make\nctor-name-value=Shape\nctor-length-value=0\ngetter-name=get width\nsetter-name=set width\ngetter-length=0\nsetter-length=1\nnew-method=TypeError\nnew-getter=TypeError\nmethod-has-prototype=false\ngenerator-has-prototype=true\ncall-class=TypeError\nfor-in=side\nproto-of-static=true\nproto-tostring=[object Object]",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3224,7 +3224,7 @@
   "status": "rts_diverge",
   "bun": "d-args=1,2,3,4\nd-count=4\nd-newtarget=D\nd-tag=c\nd-instanceof-a=true\ne-args=x,y\ne-count=2\ne-newtarget=E\nshort-args=only,undefined\nshort-count=1\nnone-args=\"undefined,undefined\"\nnone-count=0\nnone-newtarget=B\na-length=2\nb-length=0\nc-length=0\ne-length=0\nb-proto-ctor=true\ne-proto-ctor=true\nb-proto-names=constructor\nc-proto-names=constructor\ndistinct-bc=true\ndistinct-ba=true\nb-ctor-name=B\nreflect-args=p,q,r\nreflect-count=3\nreflect-newtarget=E\nreflect2-args=m,undefined\nreflect2-newtarget=C\nreflect2-instanceof-c=true\nreflect2-instanceof-e=false\nspread-args=7,8,9\nspread-count=3",
   "node": "d-args=1,2,3,4\nd-count=4\nd-newtarget=D\nd-tag=c\nd-instanceof-a=true\ne-args=x,y\ne-count=2\ne-newtarget=E\nshort-args=only,undefined\nshort-count=1\nnone-args=\"undefined,undefined\"\nnone-count=0\nnone-newtarget=B\na-length=2\nb-length=0\nc-length=0\ne-length=0\nb-proto-ctor=true\ne-proto-ctor=true\nb-proto-names=constructor\nc-proto-names=constructor\ndistinct-bc=true\ndistinct-ba=true\nb-ctor-name=B\nreflect-args=p,q,r\nreflect-count=3\nreflect-newtarget=E\nreflect2-args=m,undefined\nreflect2-newtarget=C\nreflect2-instanceof-c=true\nreflect2-instanceof-e=false\nspread-args=7,8,9\nspread-count=3",
-  "rts": "d-args=1,2,3,4\nd-count=4\nd-newtarget=D\nd-tag=c\nd-instanceof-a=true\ne-args=x,y\ne-count=2\ne-newtarget=E\nshort-args=only,undefined\nshort-count=1\nnone-args=\"undefined,undefined\"\nnone-count=0\nnone-newtarget=B\na-length=2\nb-length=4\nc-length=4\ne-length=4\nb-proto-ctor=true\ne-proto-ctor=true\nb-proto-names=constructor\nc-proto-names=constructor\ndistinct-bc=true\ndistinct-ba=true\nb-ctor-name=B\nreflect-args=p,q,r\nreflect-count=3\nreflect-newtarget=E\nreflect2-args=m,undefined\nreflect2-newtarget=E\nreflect2-instanceof-c=true\nreflect2-instanceof-e=false\nspread-args=7,8,9\nspread-count=3",
+  "rts": "d-args=1,2,3,4\nd-count=4\nd-newtarget=D\nd-tag=c\nd-instanceof-a=true\ne-args=x,y\ne-count=2\ne-newtarget=E\nshort-args=only,undefined\nshort-count=1\nnone-args=\"undefined,undefined\"\nnone-count=0\nnone-newtarget=B\na-length=2\nb-length=0\nc-length=0\ne-length=0\nb-proto-ctor=true\ne-proto-ctor=true\nb-proto-names=constructor\nc-proto-names=constructor\ndistinct-bc=true\ndistinct-ba=true\nb-ctor-name=B\nreflect-args=p,q,r\nreflect-count=3\nreflect-newtarget=E\nreflect2-args=m,undefined\nreflect2-newtarget=E\nreflect2-instanceof-c=true\nreflect2-instanceof-e=false\nspread-args=7,8,9\nspread-count=3",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3613,10 +3613,10 @@
 ,
 {
   "name": "codex3_034_derived_constructor_primitive_return",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true",
   "node": "true",
-  "rts": "false",
+  "rts": "true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5993,10 +5993,10 @@
 ,
 {
   "name": "claude-bind-construct-and-instanceof",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "call_used_bound_this=7,8,reused\nnew_ignored_bound_this=1,2\nnew_fresh=fresh\nbad_untouched_by_new=7,8\nbound_arg_kept=10,20\nbound_arg_sum=30\nboth_bound=7\nextra_args_ignored=7\ninstance_of_target=true\ninstance_of_bound=true\nproto_is_target_proto=true\ninherited_kind=Pair\ndirect_instanceof_bound=true\nbound_has_prototype=false\ndouble_bound=10,30\ndouble_bound_instanceof=true\nclass_bound=box:42\nclass_bound_instanceof=true\nclass_bound_proto=true\nbound_class_call_threw=TypeError\nsubclass=box:9/d\nsubclass_instanceof_bound_base=true\nhas_instance_target=true\nhas_instance_bound=true\nhas_instance_bound_no=false\nnew_target_via_bound=self\nnew_target_plain_call=none",
   "node": "call_used_bound_this=7,8,reused\nnew_ignored_bound_this=1,2\nnew_fresh=fresh\nbad_untouched_by_new=7,8\nbound_arg_kept=10,20\nbound_arg_sum=30\nboth_bound=7\nextra_args_ignored=7\ninstance_of_target=true\ninstance_of_bound=true\nproto_is_target_proto=true\ninherited_kind=Pair\ndirect_instanceof_bound=true\nbound_has_prototype=false\ndouble_bound=10,30\ndouble_bound_instanceof=true\nclass_bound=box:42\nclass_bound_instanceof=true\nclass_bound_proto=true\nbound_class_call_threw=TypeError\nsubclass=box:9/d\nsubclass_instanceof_bound_base=true\nhas_instance_target=true\nhas_instance_bound=true\nhas_instance_bound_no=false\nnew_target_via_bound=self\nnew_target_plain_call=none",
-  "rts": "call_used_bound_this=7,8,reused\nnew_ignored_bound_this=1,2\nnew_fresh=fresh\nbad_untouched_by_new=7,8\nbound_arg_kept=10,20\nbound_arg_sum=30\nboth_bound=7\nextra_args_ignored=7\ninstance_of_target=true\ninstance_of_bound=true\nproto_is_target_proto=true\ninherited_kind=Pair\ndirect_instanceof_bound=true\nbound_has_prototype=false\ndouble_bound=10,30\ndouble_bound_instanceof=true\nclass_bound=box:42\nclass_bound_instanceof=true\nclass_bound_proto=true\nbound_class_call_threw=TypeError\nsubclass=box:9/d\nsubclass_instanceof_bound_base=true\nhas_instance_target=true\nhas_instance_bound=false\nhas_instance_bound_no=false\nnew_target_via_bound=self\nnew_target_plain_call=none",
+  "rts": "call_used_bound_this=7,8,reused\nnew_ignored_bound_this=1,2\nnew_fresh=fresh\nbad_untouched_by_new=7,8\nbound_arg_kept=10,20\nbound_arg_sum=30\nboth_bound=7\nextra_args_ignored=7\ninstance_of_target=true\ninstance_of_bound=true\nproto_is_target_proto=true\ninherited_kind=Pair\ndirect_instanceof_bound=true\nbound_has_prototype=false\ndouble_bound=10,30\ndouble_bound_instanceof=true\nclass_bound=box:42\nclass_bound_instanceof=true\nclass_bound_proto=true\nbound_class_call_threw=TypeError\nsubclass=box:9/d\nsubclass_instanceof_bound_base=true\nhas_instance_target=true\nhas_instance_bound=true\nhas_instance_bound_no=false\nnew_target_via_bound=self\nnew_target_plain_call=none",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9913,16 +9913,16 @@
 ,
 {
   "name": "claude-microtask-and-timer-argument-forwarding",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "setTimeout_length=true\nclear_is_idempotent=true\nhandle_defined=true truthy=true\nstring_callback=TypeError\nno_callback=TypeError\nnothing_ran_yet=[\"async-sync\",\"sync-end\"]\nsync_first=true true\nmicrotask_order=qm1>p1>qm2>p2>qm3>thenable-called>rejected>after-await-1>qm2-nested>thenable-settled>after-await-2>p2-chained\nmicrotask_count=12\nall_microtasks_before_first_timer=true\ntimer_after_microtasks=true\ntimer_args=t0:x,7,undefined\nno_args=no-args:0\nrest_args=rest:4:1|two|null|false\ncleared_never_ran=true\nno_delay_ran=true\ntimer_microtask_before_next_timer=true\ntimers_in_order=true\ninterval_ran=interval:i:1 interval:i:2\ninterval_repeated_then_stopped=true\nnested_timer_later=true\nnested_after_all_first_round=true\ntotal_entries=25",
   "node": "setTimeout_length=true\nclear_is_idempotent=true\nhandle_defined=true truthy=true\nstring_callback=TypeError\nno_callback=TypeError\nnothing_ran_yet=[\"async-sync\",\"sync-end\"]\nsync_first=true true\nmicrotask_order=qm1>p1>qm2>p2>qm3>thenable-called>rejected>after-await-1>qm2-nested>thenable-settled>after-await-2>p2-chained\nmicrotask_count=12\nall_microtasks_before_first_timer=true\ntimer_after_microtasks=true\ntimer_args=t0:x,7,undefined\nno_args=no-args:0\nrest_args=rest:4:1|two|null|false\ncleared_never_ran=true\nno_delay_ran=true\ntimer_microtask_before_next_timer=true\ntimers_in_order=true\ninterval_ran=interval:i:1 interval:i:2\ninterval_repeated_then_stopped=true\nnested_timer_later=true\nnested_after_all_first_round=true\ntotal_entries=25",
-  "rts": "setTimeout_length=false\nclear_is_idempotent=true\nhandle_defined=true truthy=true\nstring_callback=accepted\nno_callback=accepted\nnothing_ran_yet=[\"async-sync\",\"sync-end\"]",
+  "rts": "setTimeout_length=false\nclear_is_idempotent=true\nhandle_defined=true truthy=true\nstring_callback=accepted\nno_callback=accepted\nnothing_ran_yet=[\"async-sync\",\"sync-end\"]\nsync_first=true true\nmicrotask_order=qm1>p1>qm2>p2>qm3>thenable-called>rejected>after-await-1>qm2-nested>thenable-settled>after-await-2>p2-chained\nmicrotask_count=12\nall_microtasks_before_first_timer=false\ntimer_after_microtasks=false\ntimer_args=t0:x,undefined,undefined\nno_args=no-args:0\nrest_args=rest:1:1\ncleared_never_ran=true\nno_delay_ran=true\ntimer_microtask_before_next_timer=true\ntimers_in_order=true\ninterval_ran=interval:i:1 interval:i:2\ninterval_repeated_then_stopped=true\nnested_timer_later=true\nnested_after_all_first_round=true\ntotal_entries=24",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: string is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1215,"reachable":1515,"rts_diverge":218,"bun_node_diverge":0,"errors":82,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1218,"reachable":1515,"rts_diverge":216,"bun_node_diverge":0,"errors":81,"rejected":0,"upstream_defect":1}}
