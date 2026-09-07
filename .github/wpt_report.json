@@ -2181,13 +2181,13 @@
       "estado": "passa"
     },
     {
-      "nome": "break-nested-float-in-flex-item-002-print",
-      "estado": "passa"
-    },
-    {
       "nome": "canvas-contain-size",
       "estado": "falha",
       "pct": 0.78125
+    },
+    {
+      "nome": "break-nested-float-in-flex-item-002-print",
+      "estado": "passa"
     },
     {
       "nome": "column-flex-child-with-max-width",
@@ -2465,11 +2465,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-003",
+      "nome": "flex-aspect-ratio-img-row-002",
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-002",
+      "nome": "flex-aspect-ratio-img-row-003",
       "estado": "passa"
     },
     {
@@ -2511,13 +2511,13 @@
       "estado": "passa"
     },
     {
+      "nome": "flex-aspect-ratio-img-row-014",
+      "estado": "passa"
+    },
+    {
       "nome": "flex-aspect-ratio-img-row-015",
       "estado": "falha",
       "pct": 0.9765625
-    },
-    {
-      "nome": "flex-aspect-ratio-img-row-014",
-      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-row-016",
@@ -2552,11 +2552,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-002",
+      "nome": "flex-basis-001",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-001",
+      "nome": "flex-basis-002",
       "estado": "passa"
     },
     {
@@ -3082,11 +3082,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-wrap-002",
+      "nome": "flex-vertical-align-effect",
       "estado": "passa"
     },
     {
-      "nome": "flex-vertical-align-effect",
+      "nome": "flex-wrap-002",
       "estado": "passa"
     },
     {
@@ -3271,11 +3271,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-001",
+      "nome": "flexbox-definite-sizes-002",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-002",
+      "nome": "flexbox-definite-sizes-001",
       "estado": "passa"
     },
     {
@@ -3539,11 +3539,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-single-line-clamp-3",
+      "nome": "flexbox-single-line-clamp-2",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-single-line-clamp-2",
+      "nome": "flexbox-single-line-clamp-3",
       "estado": "passa"
     },
     {
@@ -5349,11 +5349,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
