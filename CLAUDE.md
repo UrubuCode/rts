@@ -147,29 +147,36 @@ and the file that used to HANG is gone from the column:
 `for_await_break_return.test.ts` timed out on every run until `for`-`of`
 stopped materialising its sequence.
 
-**And the second ruler: 1 179 of 1 514 cross-runtime fixtures** (77.9 %),
-measured 2026-08-28 by the `cross-runtime` job of `build-artifacts.yml`, one
-process per file, against Bun and Node. That corpus is a different question from
-the one above — it asks whether this engine and a real one agree about the same
-program, where `*.test.ts` asks whether the program does what it says.
+**And the second ruler: the cross-runtime fixtures, and this file no longer
+carries the number.** It asks a different question from the one above — whether
+this engine and a real one agree about the same program, where `*.test.ts` asks
+whether the program does what it says — and it is run one process per file,
+against Bun and Node, by the `cross-runtime` job of `build-artifacts.yml`.
 
-**That share is lower than the one this line used to carry, and the reason is the
-denominator.** It said 728 of 762 (95.5 %) for 2026-08-15, and the corpus is now
-**1 516 files**. The old one had been very nearly exhausted — which is what a
-corpus is FOR, and also what makes it stop measuring anything — so it was
-roughly doubled. A share that falls because the ruler got longer is not a
-regression, and the two numbers are not comparable in either direction.
+**The share lives in `README.md`, between the `CROSS_RUNTIME_STATS` markers, and
+it is generated rather than typed**: that job rewrites the block on every run.
+Read it there.
 
-Read them as what they are: 728 files agreed with Bun and Node in August, and
-1 179 do now. **335 are left to fix** — 247 answering differently and 88 ending
-in a runtime error — and one is skipped because Bun and Node disagree with each
-other, which the harness refuses to arbitrate.
+This line used to carry a copy, and the copy went stale twice. It said 728 of
+762 (95.5 %) for 2026-08-15, then 1 179 of 1 514 (77.9 %) for 2026-08-28, while
+the generated block said something else — the second time by two and a half
+points. A pointer cannot do that, which is the whole reason this paragraph is a
+pointer now: the same "one source, generated views" this file demands of a
+runtime symbol, applied to a number about itself.
 
-The number in the README is the one CI writes, and it is generated rather than
-typed: the `cross-runtime` job rewrites the block between the
-`CROSS_RUNTIME_STATS` markers on every run. **Read it there rather than here**,
-because this file is edited by hand and has already been the stale half of this
-pair once.
+What is worth keeping written here is the part the generated block cannot say.
+**A share that falls because the ruler got longer is not a regression.** The
+corpus went from 762 files to about 1 516, roughly doubled, because the old one
+had been very nearly exhausted — which is what a corpus is FOR, and also what
+makes it stop measuring anything. Two shares across that boundary are not
+comparable in either direction; the counts are. And a handful of fixtures are
+outside the denominator entirely, because Bun and Node disagree with each other
+and the harness refuses to arbitrate.
+
+**A change to this engine is compared PER FILE against a kept binary**, which is
+the only form the claim "no regression" takes here, and
+`scripts/cross_runtime_check.sh` with `RTS_BIN` and `REPORT_FILE` is how. It
+takes about seven minutes a side on eight jobs.
 
 **What that job cannot do is fail.** `cross-runtime`, `node-suite` and `ts-suite`
 are all `continue-on-error: true`, and `node-suite` additionally runs only on
@@ -349,6 +356,7 @@ cargo check -p <crate>              # does it compile — the default loop
 cargo test -p <crate> <filter>      # only the area you touched
 cargo run -- run file.ts            # execute without a release build
 cargo run -- ir file.ts             # read what was emitted, without running it
+cargo run -- prove file.ts          # where it is settled, and where it falls back
 ```
 
 Never `cargo build --release` and never the full suite while iterating. Never
@@ -744,6 +752,7 @@ $env:RUST_BACKTRACE = "full"          # always — the crash handler needs it
 cargo run -- run file.ts              # JIT — the NEW engine
 cargo run -- -e "console.log(1)"      # inline source, same engine
 cargo run -- ir file.ts               # the new engine's IR, no execution
+cargo run -- prove file.ts            # the two tiers, counted per function
 target/release/rts.exe compile -p file.ts out   # AOT
 target/release/rts.exe test tests/one.test.ts   # a single file
 ```
@@ -758,7 +767,22 @@ answer differently from the same source saved to a file.
 
 `rts ir` prints `rts_cranelift::ir` — this engine's own representation, with a
 callee legend at the top — and NOT Cranelift's `.clif`, which only exists inside
-`lower/` after every decision this engine makes has been taken. `rts emit-types`
+`lower/` after every decision this engine makes has been taken.
+
+**`rts prove` is the summary over that same IR, and it answers a different
+question**: not *what does this compile to* but *where did the proofs stop*. It
+splits every function in two — what runs when every speculation holds, and the
+second tier under it — and counts the widenings, guards, cached accesses and
+runtime operations in each. That split is the point: counting them together says
+a class method asks the runtime four times to read two fields, when the armed
+path asks it none, and the first version of the command did exactly that.
+
+Read it as counts and never as costs, and compare two reports of **the same
+program** across a change. There is no honest denominator for ranking two
+different programs, and its own module says why. It is what found that a string
+literal written inside a loop was crossing into the runtime on every pass.
+
+`rts emit-types`
 answers from `#[rtse::class]`, which is what let `rts-codegen-new` be deleted.
 
 The two examples remain the way to run one program with nothing of the CLI in

@@ -97,6 +97,29 @@ pub(crate) struct BodyState {
     /// different from an address here: both are SSA values of the pre-rewrite
     /// function.
     pub(super) zero: Option<ValueId>,
+    /// Where this body starts, so a value that must dominate every use has
+    /// somewhere to go.
+    ///
+    /// Gated on the same condition as [`BodyState::flag`] and for the same
+    /// reason: a body that PARKS is rewritten around every suspension, so a
+    /// value defined at entry and read after a `yield` is not the value it was.
+    pub(super) entry: Option<BlockId>,
+    /// A string literal already materialized at this body's entry, by index.
+    ///
+    /// # Why a literal is worth hoisting where an ordinary constant is not
+    ///
+    /// Because it is not a constant here. `RuntimeOp::StringConst` is a CALL,
+    /// so a literal written inside a loop was a crossing into the runtime on
+    /// every pass — for a table lookup whose answer cannot change:
+    /// `entry::declare_literals` seeds the whole table once before the program
+    /// runs, and the collector does not move a cell.
+    ///
+    /// Two facts are what make hoisting it legal, and both are narrow enough to
+    /// be worth naming. It is on `runtime::raising::CANNOT_RAISE`, so there is
+    /// no throw check that would have to move with it. And the entry block
+    /// dominates every block in the function, which is the same property
+    /// [`BodyState::zero`] relies on.
+    pub(super) literals: std::collections::HashMap<u32, ValueId>,
     /// The block that re-raises, once per protected region that asked for one.
     ///
     /// See [`BodyState::reraise_in`] for why one per region rather than one per

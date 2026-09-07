@@ -101,6 +101,7 @@ mod regex;
 pub mod roots;
 mod rooted;
 mod source_hash;
+mod side_tables;
 pub(super) mod string;
 mod switches;
 mod symbol;

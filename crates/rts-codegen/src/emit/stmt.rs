@@ -425,7 +425,7 @@ fn emit_if(
         (false, false) => super::merge::disagreements(&after_then, &after_else),
         _ => Vec::new(),
     };
-    let params = super::merge::parameters(builder, join, &merged, &after_then);
+    let params = super::merge::parameters(builder, join, &merged, &after_then, &after_else);
 
     if !else_terminated {
         let args: Vec<_> = merged.iter().map(|&at| after_else[at].value()).collect();

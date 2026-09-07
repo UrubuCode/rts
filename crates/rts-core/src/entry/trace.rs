@@ -82,7 +82,7 @@ use crate::collect::Marks;
 use crate::heap::{INLINE_SLOTS, Slot};
 use crate::value::{Kind, Value};
 
-use super::Context;
+use super::{Context, side_tables};
 
 /// Marks every cell reachable from `roots`, and answers which cells are live.
 ///
@@ -162,171 +162,12 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
         }
     }
 
-    // 2. Properties past the fifteenth.
-    //
-    //    The spill is a REGION block and not a slab vector, so its slots are
-    //    reached the way an inline slot is — and that is exactly why the block
-    //    ITSELF has to be marked. The comment here used to say the opposite:
-    //    that pushing it "would only keep it alive by itself", which was true
-    //    of the `Vec` in a slab it replaced and false the moment it became a
-    //    region cell. `alloc_spanning` marks a span's cells 1..n as interior
-    //    and leaves the FIRST one ordinary, so `Region::live_refs` offers it to
-    //    the sweep as an object of its own — and nothing marked it, so every
-    //    collection freed the overflow of an object that was still alive. Its
-    //    cells went back on the free list, an unrelated allocation took them,
-    //    and the sixteenth property onward read somebody else's fields.
-    //
-    //    Pushed the same way a generator's parked frame is (step 9), for the
-    //    same reason and through the same mechanism: this is the one place that
-    //    knows the block exists, and it must be marked even on a cycle where
-    //    none of its slots happens to hold a reference. `collect_cycle::release`
-    //    still frees it explicitly with its owner — marking keeps the SWEEP off
-    //    a block whose owner survived, which is a different question.
-    if let Some((block, slots)) = context.spill_of.copied(cell) {
-        out.push(Value::from_slot(block).bits());
-        for slot in 0..slots {
-            if let Some(word) = context.region.spanning_field(block, slot, slots) {
-                out.push(word);
-            }
-        }
-    }
-
-    // 3. Array elements.
-    if let Some(elements) = context.array_elements.copied(cell)
-        && let Ok(words) = context.arrays.at(elements)
-    {
-        out.extend_from_slice(words);
-    }
-
-    // 4. A closure's environment. Never its code — `callables.0` is an
-    //    address, not a value, and following it as one would hand the region
-    //    a decompose of a number that is not a reference at all. The third
-    //    member is the class-constructor flag, which is a boolean.
-
-    if let Some((_, environment, _)) = context.callables.copied(cell) {
-        out.push(environment);
-    }
-
-    // 5. A proxy's target and handler — never reachable through an inline
-    //    slot, because a proxy has no own properties by design.
-    if let Some((target, handler)) = context.proxies.copied(cell) {
-        out.push(target);
-        out.push(handler);
-    }
-
-    // 6. A bound function's receiver and partial argument list, and the
-    //    function it calls.
-    if let Some(bound) = context.bound.get(cell) {
-        bound.trace(out);
-    }
-
-    // 7. A view's buffer. Stored as a bare cell index rather than an encoded
-    //    `Value` (`buffers::View::buffer` — see its own module documentation
-    //    for why a view never caches the derived `Slot`), so it is encoded
-    //    here before joining the rest: `follow` only ever reads `Value`s.
-    if let Some(view) = context.views.get(cell) {
-        out.push(Value::from_slot(view.buffer).bits());
-    }
-
-    // 8. A Map/Set/WeakMap/WeakSet's keys AND values — see the module
-    //    documentation for why the weak pair is traced identically.
-    if let Some(table) = context.collections.get(cell) {
-        table.trace(out);
-    }
-
-    // 8b. WHAT AN ITERATOR IS WALKING, and this table is the only path to it.
-    //
-    //     `Context::cursors` holds `(listed, at)`: the array an array or string
-    //     iterator steps, or the Map/Set whose table a collection cursor walks.
-    //     Both are encoded `Value`s and neither is reachable from the iterator
-    //     by any other route — an iterator has no own property naming its
-    //     source, exactly as a helper does not, which is why `helpers` is
-    //     traced at 9b below.
-    //
-    //     It was MISSING, and the failure it produced was silence rather than a
-    //     crash. `const it = [1,2,3][Symbol.iterator]()` leaves the array named
-    //     by nothing else; the first collection reclaimed it, `stepped` then
-    //     found no elements at the cell, and `next()` answered `{done: true}`.
-    //     A `for`-`of` over such an iterator ENDS EARLY and reports nothing.
-    //     Reproduced 2026-08-29 for an array, a Set and a Map at once.
-    //
-    //     `cursors` was also the one `Aside` holding a `Value` that neither this
-    //     walk visited nor the closing comment accounted for — every other
-    //     unvisited table (`regexes`, `integrity`, `attributes`, `derived`,
-    //     `buffer_of`, `foreign`, `detached`, `proto_types`) holds no reference,
-    //     and says so there.
-    if let Some((listed, _)) = context.cursors.copied(cell) {
-        out.push(listed);
-    }
-
-    // 9. A generator's parked frame. Its own cell reference is pushed
-    //    directly rather than through `follow`: `alloc_spanning` never wrote
-    //    it as an encoded `Value` anywhere a decode could find it, this is
-    //    the one place that knows the frame exists at all, and the frame
-    //    must be marked live even on a turn where every one of its fields
-    //    happens to hold no reference. Its fields are walked separately,
-    //    through `Region::spanning_field` rather than `Region::field`,
-    //    because a frame is not bounded by `INLINE_SLOTS`.
-    if let Some(state) = context.generators.get(cell) {
-        out.push(Value::from_slot(state.frame_cell()).bits());
-        state.trace(&context.region, out);
-    }
-
-    // 9b. An iterator helper's source, its callback, and the inner sequence a
-    //     `flatMap` is in the middle of. None of the three is reachable through
-    //     an own property — a helper has none — so this table is the only path
-    //     to them while the helper is alive.
-    if let Some(state) = context.helpers.get(cell) {
-        state.trace(out);
-    }
-
-    // 10. What a cell inherits from.
-    if let Some(prototype) = context.prototypes.copied(cell) {
-        out.push(prototype);
-    }
-
-    // 11. A getter and a setter are callables; an ordinary cached property
-    //     read never reaches this table (`cache_resolve` already answers
-    //     negative for an accessor), so this is the only path that visits it.
-    if let Some(list) = context.accessors.get(cell) {
-        for (_, getter, setter, _) in list {
-            out.extend(getter.iter().copied());
-            out.extend(setter.iter().copied());
-        }
-    }
-
-    // 12. A wrapper object's boxed primitive — `new String("x")`'s
-    //     `[[StringData]]`, which is itself a text reference and the one
-    //     `Aside<u64>` among these that is not obviously an object link.
-    if let Some(primitive) = context.boxed.copied(cell) {
-        out.push(primitive);
-    }
-
-    // What a cell's header records about it that is genuinely NOT a
-    // reference, so its absence above is a decision rather than a gap:
-    // `regexes` (a compiled pattern and its flags — `lastIndex` is an
-    // ordinary property, already covered by the inline slots or a spill),
-    // `integrity` (a freeze level) and `attributes` (writable/enumerable/
-    // configurable flags, keyed by a property NUMBER rather than by
-    // anything the heap allocated) hold no value of any kind. `derived` is a
-    // boolean, and so is the class-constructor flag that `callables` now
-    // carries as its third member. `buffer_of` only locates
-    // `Context::buffers`, whose bytes are never references themselves — an
-    // `ArrayBuffer`'s bytes are exactly that, bytes, and a live view already
-    // names the buffer's CELL through step 7 above, not through this table.
-    //
-    // **A field in NEITHER list is the bug.** That is not a hypothetical: it is
-    // the state `cursors` was in until step 8b existed, and what it produced was
-    // a `for`-`of` that ended early and reported nothing. So a new `Aside<T>`
-    // that can hold a `Value` gets an arm above, or a line here saying why it
-    // holds none — and there is no third option that leaves the reader able to
-    // tell "decided" from "forgotten".
-    //
-    // `rts-core`'s rule 10 makes that binding and `docs/engine/lost-roots.md`
-    // is the why: the four places a live reference hides, the three found on
-    // 2026-08-29, and the four mechanical checks that find the next one. **There
-    // will be a next one** — every new table is a fresh chance to be missing
-    // from a hand-written list.
+    // 2. Everything attached to the cell from OUTSIDE it, as a total walk
+    //    over every such table. `side_tables` is both the classification and
+    //    the walk, in one module, because a table and the answer to "can it
+    //    name a cell" are one decision and splitting them is what let the
+    //    answer be prose.
+    side_tables::edges(context, cell, out);
 }
 
 #[cfg(test)]

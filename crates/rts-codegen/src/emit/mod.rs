@@ -1599,23 +1599,24 @@ mod tests {
         // assertion it made was correct then: `+` is a call BECAUSE it might
         // concatenate. Proving both operands numeric is exactly the evidence
         // that it cannot, so the call goes.
-        // ONE call, and it is not the operator's.
+        // NO call at all, and the number has moved twice for reasons that were
+        // never about the operator. It asserted zero, then one once every body
+        // began asking for the address of the throw flag at its entry, and zero
+        // again now that the address is asked for only by a body that actually
+        // checks — which this one does not, because nothing in it can raise.
         //
-        // This asserted zero until every body started asking for the address of
-        // the throw flag at its entry — see `RuntimeOp::ThrownAddress`, which
-        // made that one call the price of turning every later check into a
-        // load. The claim being pinned is unchanged and is about the OPERATOR:
-        // `+` on two proven doubles is an instruction, so a second call here
-        // would be it going back to the runtime.
+        // The claim being pinned is unchanged through all three and is about
+        // the OPERATOR: `+` on two proven doubles is an instruction, so any
+        // call here would be it going back to the runtime.
         let calls = instructions(&func)
             .iter()
             .filter(|inst| matches!(inst, Inst::Call { .. }))
             .count();
         assert_eq!(
-            calls, 1,
-            "the only call in this body is the entry's throw-flag address; a \
-             second one would be `+` reaching the runtime, and both operands \
-             are proven doubles"
+            calls, 0,
+            "nothing in this body can raise, so it asks for no throw-flag \
+             address; a call here would be `+` reaching the runtime, and both \
+             operands are proven doubles"
         );
         assert!(
             instructions(&func)
@@ -1698,17 +1699,19 @@ mod tests {
     #[test]
     fn a_switch_over_proven_numbers_tests_with_instructions() {
         let func = emit_source("let x = 3; let hit = 0; switch (x) { case 1: hit = 1; break; case 2: hit = 2; break; case 3: hit = 3; break; }").expect("emits");
-        // One call, and it is the entry's throw-flag address — the same floor
-        // `an_operator_on_proven_numbers_is_an_instruction` documents. A switch
-        // used to add one call PER LABEL on top of it, each with the throw
-        // check a call implies, while every operand at every label was a proven
-        // double. Three labels here, so this asserted 4 before the change.
+        // No call at all — the same floor
+        // `an_operator_on_proven_numbers_is_an_instruction` documents, and it
+        // moved with that one for the same reason: a body that cannot raise no
+        // longer asks for the address of the throw flag. A switch used to add
+        // one call PER LABEL, each with the throw check a call implies, while
+        // every operand at every label was a proven double. Three labels here,
+        // so this asserted 4 before the comparison became an instruction.
         let calls = instructions(&func)
             .iter()
             .filter(|inst| matches!(inst, Inst::Call { .. }))
             .count();
         assert_eq!(
-            calls, 1,
+            calls, 0,
             "a switch over proven numbers must reach the runtime no more often \
              than an empty body does"
         );
@@ -1883,7 +1886,20 @@ mod tests {
         // Six of the seven falsy values a comparison settles. The seventh reads
         // a string's length from the heap, so truthiness is a call — which is
         // why control flow could not be emitted before calls existed.
-        let func = emit_body_of("if (1) { return 1; } return 2;").expect("emits");
+        //
+        // **The condition used to be `if (1)`, and this test was green for a
+        // reason that had nothing to do with its name.** A literal `1` is a
+        // proven double and its truthiness is settled without asking anyone;
+        // the call the assertion found was the entry's throw-flag address,
+        // which every body emitted at the time. When bodies that cannot raise
+        // stopped emitting it, the count went to zero and the test failed —
+        // correctly, and about itself rather than about the change.
+        //
+        // So the condition is now a string, which is the case the comment above
+        // describes and the one the name claims. `to_boolean` is a call because
+        // the empty string is falsy and every other string is not, and nothing
+        // but the heap knows which this is.
+        let func = emit_body_of("let s = \"a\"; if (s) { return 1; } return 2;").expect("emits");
         assert!(
             instructions(&func)
                 .iter()

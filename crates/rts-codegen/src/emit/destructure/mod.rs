@@ -485,7 +485,7 @@ fn apply_default(
     let join = builder.create_block();
     let result = builder.add_block_param(join, UNPROVEN);
     let merged = super::merge::disagreements(&evaluate_bindings, &skip_bindings);
-    let params = super::merge::parameters(builder, join, &merged, &evaluate_bindings);
+    let params = super::merge::parameters(builder, join, &merged, &evaluate_bindings, &skip_bindings);
 
     builder.switch_to(evaluate_exit);
     let mut args = vec![default_value];

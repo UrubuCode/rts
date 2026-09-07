@@ -943,43 +943,31 @@ fn emit_body_into(
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
 
-    // The address of this thread's throw flag, before anything else in the
-    // body: every check afterwards is a load from it rather than a call, and
-    // an SSA value has to be defined where it dominates every use — which for
-    // a check that can appear in any block means the entry block and nowhere
-    // else. `expr::raise_if_thrown` reads it back off the context.
+    // WHERE this body starts, and nothing else yet.
     //
-    // Emitted for every body rather than only for bodies that check, because
-    // whether one checks is not known until it has been emitted. That costs a
-    // call per activation and saves one per operation; the trade was measured
-    // and is recorded in `RuntimeOp::ThrownAddress`.
+    // Three things want to be emitted exactly once per body, in the one block
+    // that dominates every use of them: the address of this thread's throw
+    // flag, the zero every check compares it against, and a string literal.
+    // None of the three is emitted here any more, and this line is what lets
+    // them be emitted later and still land here.
     //
-    // Through `builder.call` and not `expr::call`: the latter emits a throw
-    // check after what it calls, which is the thing this exists to make
-    // possible and would be asking with the answer not yet in hand.
+    // The paragraph that stood here made the flag eager, and gave the reason:
+    // whether a body checks is not known until it has been emitted, so the call
+    // was made for all of them, costing one per activation to save one per
+    // operation. The reasoning was sound and the conclusion was forced only by
+    // WHERE the value had to go, not by when. A block's instructions and its
+    // terminator are separate, so the entry block can still be appended to
+    // after the body has moved on — which means the question can be answered
+    // when it is finally known. `expr::body_flag` is that, and a body with no
+    // check at all now crosses into the runtime zero times instead of once.
     //
     // NOT for a body that parks. `frame::resumable_form` rewrites a suspending
     // function around every suspension point, so a value defined at entry and
     // read after a `yield` is not the value it was — measured as 37 generator
-    // files lost in one run, which is what put the check here. Such a body
-    // keeps the call it always had; the address is what it cannot hold.
+    // files lost in one run, which is what put this gate here. Such a body
+    // keeps the calls it always had; the entry is what it cannot hold.
     if !super::suspends::body_suspends(body) {
-        let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::ThrownAddress);
-        let flag = builder.call(ctx.funcs, asked, &[])?[0];
-        ctx.body.flag = Some(flag);
-        // And the zero every one of those checks compares the flag against.
-        // One instruction here instead of one per check, for the reason the
-        // paragraph above gives about the address and for one more: the entry
-        // block dominates every block in the function, so a value put here
-        // reaches every site that wants it. See `BodyState::zero`.
-        //
-        // Under the same condition, and not by habit — a constant is as much an
-        // SSA value of the pre-rewrite function as the address is.
-        let declared = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-            repr: rts_cranelift::repr::Repr::I64,
-            bits: rts_cranelift::ir::ScalarBits(0),
-        });
-        ctx.body.zero = Some(builder.use_const(declared));
+        ctx.body.entry = Some(builder.current());
     }
 
     let handed = incoming[ENVIRONMENT_PARAM];
