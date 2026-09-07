@@ -138,13 +138,24 @@ fn settled_blocks(function: &Function) -> HashSet<BlockId> {
         };
         let taken = match terminator {
             Terminator::Jump(call) => vec![call.block],
-            // Both arms: which one runs is the program's own question, not a
-            // bet this compiler placed.
+            // Both arms, because which one runs is the program's own question
+            // rather than a bet this compiler placed — EXCEPT an arm that goes
+            // straight to a throw.
+            //
+            // That exception is not a nicety. The emitter puts a check after
+            // every call that can raise, and its raising arm is a `Branch`, so
+            // counting both arms put `__rts_take_thrown` on the settled path
+            // 273 times across `bench/`. Nothing there throws; the report was
+            // describing the error path as the program, which is the same
+            // mistake the first version of this file made about a cache miss.
             Terminator::Branch {
                 then_block,
                 else_block,
                 ..
-            } => vec![then_block.block, else_block.block],
+            } => [then_block.block, else_block.block]
+                .into_iter()
+                .filter(|arm| !throws_immediately(function, *arm))
+                .collect(),
             Terminator::Guard { ok, .. } | Terminator::GuardType { ok, .. } => vec![ok.block],
             Terminator::CachedGet { hit, .. }
             | Terminator::CachedGetIndirect { hit, .. }
@@ -155,6 +166,19 @@ fn settled_blocks(function: &Function) -> HashSet<BlockId> {
         queue.extend(taken);
     }
     seen
+}
+
+/// Whether a block does nothing but raise.
+///
+/// One block of lookahead, and one is enough: a `Throw` has no successor in
+/// this function graph, so the arm the emitter branches to when a call left a
+/// throw behind is exactly one block long. Anything deeper is a program that
+/// does work before throwing, and that work is on a path the program chose.
+fn throws_immediately(function: &Function, block: BlockId) -> bool {
+    matches!(
+        function.block(block).and_then(|data| data.terminator.as_ref()),
+        Some(Terminator::Throw { .. })
+    )
 }
 
 fn render(front: &FrontEnd) -> String {
