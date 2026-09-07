@@ -2465,11 +2465,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-002",
+      "nome": "flex-aspect-ratio-img-row-003",
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-003",
+      "nome": "flex-aspect-ratio-img-row-002",
       "estado": "passa"
     },
     {
@@ -2511,13 +2511,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-014",
-      "estado": "passa"
-    },
-    {
       "nome": "flex-aspect-ratio-img-row-015",
       "estado": "falha",
       "pct": 0.9765625
+    },
+    {
+      "nome": "flex-aspect-ratio-img-row-014",
+      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-row-016",
@@ -2552,11 +2552,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-001",
+      "nome": "flex-basis-002",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-002",
+      "nome": "flex-basis-001",
       "estado": "passa"
     },
     {
@@ -2923,14 +2923,14 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-022",
-      "estado": "falha",
-      "pct": 0.966796875
-    },
-    {
       "nome": "flex-minimum-height-flex-items-021",
       "estado": "falha",
       "pct": 0.48828125
+    },
+    {
+      "nome": "flex-minimum-height-flex-items-022",
+      "estado": "falha",
+      "pct": 0.966796875
     },
     {
       "nome": "flex-minimum-height-flex-items-023",
@@ -3082,11 +3082,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-vertical-align-effect",
+      "nome": "flex-wrap-002",
       "estado": "passa"
     },
     {
-      "nome": "flex-wrap-002",
+      "nome": "flex-vertical-align-effect",
       "estado": "passa"
     },
     {
@@ -3539,11 +3539,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-single-line-clamp-2",
+      "nome": "flexbox-single-line-clamp-3",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-single-line-clamp-3",
+      "nome": "flexbox-single-line-clamp-2",
       "estado": "passa"
     },
     {
@@ -5349,11 +5349,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
