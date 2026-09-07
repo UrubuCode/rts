@@ -644,6 +644,78 @@ fn check_for_throw(builder: &mut FuncBuilder, ctx: &mut Ctx, op: RuntimeOp) -> E
 /// moved on, so the rejection stayed flagged and unread until whatever ran next
 /// happened to ask — usually nothing did before the top level, which is why it
 /// surfaced as an unhandled rejection instead of a caught one.
+/// The address of this body's throw flag, asked once and only if asked at all.
+///
+/// # Why this is lazy, and what being eager cost
+///
+/// It was emitted at the top of every body, and the comment there said why: a
+/// body cannot be asked whether it checks until it has been emitted, so the
+/// call was made for all of them. That reasoning was sound and the conclusion
+/// was only forced by WHERE the emission had to happen — a value has to
+/// dominate its uses, so it had to be in the entry block, and the entry block
+/// is written before the body.
+///
+/// It does not have to be written at that MOMENT. A block's instructions and
+/// its terminator are separate, so the call can be appended to the entry block
+/// later, from wherever the first check turns out to be, and it still dominates
+/// every use. That is what this does, and it is the same move
+/// [`string_const`] makes for a literal.
+///
+/// What it buys is the two-tier rule applied to the emitter's own bookkeeping:
+/// a body with no check at all no longer crosses into the runtime once per
+/// activation to fetch an address nothing reads.
+///
+/// # Why the fallback stays
+///
+/// `None` for a body that PARKS, which has no entry it can put a value in:
+/// `frame::resumable_form` rewrites it around every suspension, so a value
+/// defined at entry and read after a `yield` is not the value it was. That cost
+/// 37 generator files in one run. Such a body keeps the `RuntimeOp::Thrown`
+/// call it always had, which is the other spelling of the same word.
+fn body_flag(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitResult<Option<ValueId>> {
+    if let Some(held) = ctx.body.flag {
+        return Ok(Some(held));
+    }
+    let Some(entry) = ctx.body.entry else {
+        return Ok(None);
+    };
+    let resume = builder.current();
+    builder.switch_to(entry);
+    let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::ThrownAddress);
+    // Through `builder.call` and not `call`: the latter emits a throw check
+    // after what it calls, which is the thing this exists to make possible and
+    // would be asking with the answer not yet in hand.
+    let value = builder.call(ctx.funcs, asked, &[]);
+    builder.switch_to(resume);
+    let value = value?[0];
+    ctx.body.flag = Some(value);
+    Ok(Some(value))
+}
+
+/// The integer zero every check compares against, on the same terms.
+///
+/// One value in the entry block instead of one per check: that was 1 066
+/// `Inst::Const` in `bench/analytic.ts`, a third of every constant in the file
+/// and all of them the same number. It is lazy for the reason [`body_flag`] is
+/// and it is gated on the same entry, so a body that never checks materializes
+/// neither and a body that parks materializes neither.
+fn body_zero(builder: &mut FuncBuilder, ctx: &mut Ctx) -> Option<ValueId> {
+    if let Some(held) = ctx.body.zero {
+        return Some(held);
+    }
+    let entry = ctx.body.entry?;
+    let resume = builder.current();
+    builder.switch_to(entry);
+    let declared = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(0),
+    });
+    let value = builder.use_const(declared);
+    builder.switch_to(resume);
+    ctx.body.zero = Some(value);
+    Some(value)
+}
+
 pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitResult<()> {
     // Not inside a cleanup: its block has a shape the machine checks, and a
     // branch breaks it. See `Ctx::in_cleanup` for what that costs.
@@ -655,7 +727,7 @@ pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitR
     // without an entry of its own has no address to load from, and answering
     // that case with the call it always used is what keeps the two spellings
     // agreeing about the same word. See `RuntimeOp::ThrownAddress`.
-    let flag = match ctx.body.flag {
+    let flag = match body_flag(builder, ctx)? {
         Some(address) => builder.word_load(address)?,
         None => {
             let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::Thrown);
@@ -672,7 +744,7 @@ pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitR
     // The fallback is not dead: a body that PARKS has neither, for the reason
     // `emit/function.rs` states, and this is the same shape as `flag`'s
     // fallback two statements up rather than a second rule.
-    let zero = match ctx.body.zero {
+    let zero = match body_zero(builder, ctx) {
         Some(held) => held,
         None => {
             let declared = builder.declare_const(ConstDecl::Scalar {
