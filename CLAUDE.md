@@ -349,6 +349,7 @@ cargo check -p <crate>              # does it compile — the default loop
 cargo test -p <crate> <filter>      # only the area you touched
 cargo run -- run file.ts            # execute without a release build
 cargo run -- ir file.ts             # read what was emitted, without running it
+cargo run -- prove file.ts          # where it is settled, and where it falls back
 ```
 
 Never `cargo build --release` and never the full suite while iterating. Never
@@ -744,6 +745,7 @@ $env:RUST_BACKTRACE = "full"          # always — the crash handler needs it
 cargo run -- run file.ts              # JIT — the NEW engine
 cargo run -- -e "console.log(1)"      # inline source, same engine
 cargo run -- ir file.ts               # the new engine's IR, no execution
+cargo run -- prove file.ts            # the two tiers, counted per function
 target/release/rts.exe compile -p file.ts out   # AOT
 target/release/rts.exe test tests/one.test.ts   # a single file
 ```
@@ -758,7 +760,22 @@ answer differently from the same source saved to a file.
 
 `rts ir` prints `rts_cranelift::ir` — this engine's own representation, with a
 callee legend at the top — and NOT Cranelift's `.clif`, which only exists inside
-`lower/` after every decision this engine makes has been taken. `rts emit-types`
+`lower/` after every decision this engine makes has been taken.
+
+**`rts prove` is the summary over that same IR, and it answers a different
+question**: not *what does this compile to* but *where did the proofs stop*. It
+splits every function in two — what runs when every speculation holds, and the
+second tier under it — and counts the widenings, guards, cached accesses and
+runtime operations in each. That split is the point: counting them together says
+a class method asks the runtime four times to read two fields, when the armed
+path asks it none, and the first version of the command did exactly that.
+
+Read it as counts and never as costs, and compare two reports of **the same
+program** across a change. There is no honest denominator for ranking two
+different programs, and its own module says why. It is what found that a string
+literal written inside a loop was crossing into the runtime on every pass.
+
+`rts emit-types`
 answers from `#[rtse::class]`, which is what let `rts-codegen-new` be deleted.
 
 The two examples remain the way to run one program with nothing of the CLI in
