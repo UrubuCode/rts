@@ -2228,8 +2228,66 @@ pub(super) fn string_literal_units(
     string_const(builder, ctx, which)
 }
 
-/// The call that turns a literal's number into its value.
+/// The call that turns a literal's number into its value, asked once per body.
+///
+/// # Why this is hoisted where an operator is not
+///
+/// A literal is a CALL here, not a constant, and it was emitted where it was
+/// written — so `for (…) { s = s + "ab" }` crossed into the runtime on every
+/// pass to ask for `"ab"`. The answer cannot change: `declare_literals` seeds
+/// the whole table once before the program runs, and the collector does not
+/// move a cell, so the word this hands back is the same word for the life of
+/// the program.
+///
+/// Two things make moving it legal rather than merely appealing.
+/// `RuntimeOp::StringConst` is on `runtime::raising::CANNOT_RAISE`, so there is
+/// no throw check that would have to travel with it and no ordering it could
+/// disturb. And the entry block dominates every block in the function, so a
+/// value put there reaches every site that wants it — the property
+/// `BodyState::zero` and `BodyState::flag` already stand on.
+///
+/// # What it costs where it does not pay
+///
+/// A literal read once, on a path rarely taken, is now materialized on every
+/// activation instead of only when that path runs. That is the same trade
+/// `RuntimeOp::ThrownAddress` records making and for the same reason: which
+/// literals a body will reach is not known until it has been emitted, and one
+/// call per activation is the price of not paying one per pass. A literal is
+/// asked for at most once per body either way.
+///
+/// # Not for a body that parks
+///
+/// `None` for the entry means no hoisting, which is what a suspending body
+/// gets: `frame::resumable_form` rewrites it around every suspension, so a
+/// value defined at entry and read after a `yield` is not the value it was.
+/// That cost 37 generator files in one run when the throw flag learned it, and
+/// this rides the same gate rather than discovering it a second time.
 fn string_const(builder: &mut FuncBuilder, ctx: &mut Ctx, which: u32) -> EmitResult<ValueId> {
+    if let Some(held) = ctx.body.literals.get(&which) {
+        return Ok(*held);
+    }
+    let Some(entry) = ctx.body.entry else {
+        return materialize_literal(builder, ctx, which);
+    };
+    // Emitted in the entry block and not here. The block already has its
+    // terminator, and appending is still correct: a block's instructions and
+    // its terminator are separate, so this lands at the end of the body rather
+    // than after the jump.
+    let resume = builder.current();
+    builder.switch_to(entry);
+    let value = materialize_literal(builder, ctx, which);
+    builder.switch_to(resume);
+    let value = value?;
+    ctx.body.literals.insert(which, value);
+    Ok(value)
+}
+
+/// The call itself, wherever the caller has decided to put it.
+fn materialize_literal(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    which: u32,
+) -> EmitResult<ValueId> {
     let index = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::I64,
         bits: ScalarBits(u64::from(which)),

@@ -980,6 +980,12 @@ fn emit_body_into(
             bits: rts_cranelift::ir::ScalarBits(0),
         });
         ctx.body.zero = Some(builder.use_const(declared));
+        // And WHERE that is, so anything else this body needs exactly once can
+        // be put in the one block that dominates every use of it.
+        // `expr::string_const` is the first: a literal is a call, and inside a
+        // loop it was a crossing into the runtime per pass for an answer that
+        // cannot change.
+        ctx.body.entry = Some(builder.current());
     }
 
     let handed = incoming[ENVIRONMENT_PARAM];
