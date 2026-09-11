@@ -131,6 +131,12 @@ pub const DOM_TS: &str = concat!(
     include_str!("dom.ts"),
     "\n",
     "\n",
+    // ANTES do `window.ts` e DEPOIS do `dom.ts`: declara `DomInterface`, que
+    // pergunta por `Element`, e é usado pelo construtor de `WindowImpl`. Uma
+    // `class` não é içada, então a ordem aqui é a ordem de declaração.
+    include_str!("interfaces.ts"),
+    "\n",
+    "\n",
     include_str!("window.ts"),
     "\n",
     "\n",

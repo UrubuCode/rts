@@ -214,6 +214,12 @@ class WindowImpl {
     (this as any).setInterval = (fn: any, ms: number) => DomTimers.add(doc._dom, fn, ms, 1);
     (this as any).clearInterval = (id: number) => { DomTimers.cancel(doc._dom, id); };
     (this as any).requestAnimationFrame = (fn: any) => DomTimers.add(doc._dom, fn, 16, 0);
+    // `window.HTMLIFrameElement` e a família — ver `interfaces.ts` para porquê
+    // não são classes e porquê a ausência deles deixou de ser inofensiva.
+    // Propriedades PRÓPRIAS e não getters do protótipo pela razão que o `name`
+    // acima já documenta: um acessor só-de-leitura bloqueia um global legítimo
+    // da página, e estes nomes são graváveis num browser.
+    __instalaInterfaces(this as any);
   }
 
   get document(): Document { return this._doc; }
