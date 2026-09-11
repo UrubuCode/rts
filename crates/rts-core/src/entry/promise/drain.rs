@@ -177,6 +177,15 @@ fn perform(step: Step) {
                 with_current(|context| state::reject(context, promise, thrown));
             }
         }
+        Step::Notify { callee, argument } => {
+            functions::call(callee, absent, argument, absent, absent, absent);
+            // TAKEN rather than propagated, and this is the drain — the one
+            // native that handles. There is no derived promise to reject and no
+            // caller above to re-raise at, so a settler that threw would
+            // otherwise leave a throw in flight that the NEXT reaction's call
+            // would be blamed for.
+            let _ = super::super::throw::caught();
+        }
         Step::Collect {
             promise,
             settlement,

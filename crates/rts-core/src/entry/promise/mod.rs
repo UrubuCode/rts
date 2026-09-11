@@ -49,10 +49,14 @@
 //! `adopt` settles the adopting promises **transitively inside the machine**,
 //! and the machine carries no value. This layer would learn only that something
 //! settled, not which promises did — so [`crate::schedule::Settlements`] would
-//! hold nothing for exactly the promises a program then reads. Adoption is
-//! instead an ordinary reaction with no handlers, which is also what the
-//! specification says it is: resolving with a thenable *calls its `then`*, and
-//! the result is observable through the queue rather than instantaneous.
+//! hold nothing for exactly the promises a program then reads.
+//!
+//! Adoption is instead what the specification says it is: a
+//! `NewPromiseResolveThenableJob` that CALLS the thenable's `then`. This
+//! paragraph used to say "an ordinary reaction with no handlers", which was one
+//! microtask short — a promise IS a thenable, and short-circuiting it settled
+//! `resolve(p, q)` a tick before every other runtime does. [`state::ops`]'s own
+//! `resolve` carries the measurement.
 //!
 //! The cycle detection `adopt` offers goes with it. `resolve(p, p)` is refused
 //! here directly, with the `TypeError` the language raises. A longer cycle —
@@ -76,6 +80,7 @@
 //! sequence.
 
 mod async_fn;
+mod capability;
 mod class;
 mod machine;
 mod combinators;
@@ -133,6 +138,71 @@ pub(in crate::entry) fn rejected_with(reason: u64) -> u64 {
         state::reject(context, id, reason);
         Value::from_slot(cell).bits()
     })
+}
+
+/// `Promise.resolve(v)` as a RECEIVER decides it — `PromiseResolve(C, x)`.
+///
+/// # Why identity is two questions and not one
+///
+/// `Promise.resolve(p) === p` is the half everybody writes; the other half is
+/// `p.constructor === C`, and without it `Promise.resolve(subclassInstance)`
+/// answers an object of the wrong class while looking correct. The two are
+/// asked here rather than in [`resolved_with`] because that one has a second
+/// caller — `import()` — with no receiver to compare against.
+pub(in crate::entry) fn resolved_by(this: u64, value: u64) -> u64 {
+    let receiver = capability::receiver_of(this);
+    let is_promise = with_current(|context| {
+        Value(value)
+            .as_slot()
+            .and_then(|cell| context.promises.id_of(cell))
+            .is_some()
+    });
+    if is_promise {
+        // Outside a borrow: `constructor` may be an accessor the program wrote.
+        let constructor = super::array_proto::species::property(value, "constructor");
+        if super::throw::in_flight() {
+            return undefined();
+        }
+        if constructor.is_some() && constructor == receiver {
+            return value;
+        }
+    }
+    match capability::chosen(this) {
+        Some(constructor) => match capability::derive(constructor) {
+            Some((promise, id)) => {
+                with_current(|context| state::resolve(context, id, value));
+                promise
+            }
+            None => undefined(),
+        },
+        // NOT [`resolved_with`]: the identity test above has already failed, so
+        // a promise reaching here is one that must be WRAPPED — which is
+        // exactly the case that function is written to pass through.
+        None => with_current(|context| {
+            let Some((cell, id)) = state::fresh(context) else {
+                return undefined_of(context);
+            };
+            state::resolve(context, id, value);
+            Value::from_slot(cell).bits()
+        }),
+    }
+}
+
+/// `Promise.reject(reason)` as a receiver decides it.
+///
+/// No identity test and no unwrapping, on either side of the branch: a reason
+/// is never adopted, however promise-shaped it is.
+pub(in crate::entry) fn rejected_by(this: u64, reason: u64) -> u64 {
+    match capability::chosen(this) {
+        Some(constructor) => match capability::derive(constructor) {
+            Some((promise, id)) => {
+                with_current(|context| state::reject(context, id, reason));
+                promise
+            }
+            None => undefined(),
+        },
+        None => rejected_with(reason),
+    }
 }
 
 /// `undefined`, from outside a borrow.

@@ -66,6 +66,27 @@ pub(super) fn then_of(context: &mut Context, cell: u32) -> Then {
     }
 }
 
+/// Whether a cell is a promise of the INTRINSIC class, decided without running
+/// anything.
+///
+/// `v.constructor === %Promise%` is the question, and it cannot be asked here:
+/// `constructor` may be an accessor, and this runs under a borrow. A cell whose
+/// prototype is exactly `Promise.prototype` and which carries no own
+/// `constructor` reads the intrinsic by construction, which answers the same
+/// question for every program that did not replace `Promise.prototype
+/// .constructor` — the one case this over-approximates, and the same trade
+/// [`super::capability::species_of`] records for the same reason.
+fn plain_promise(context: &mut Context, cell: u32) -> bool {
+    let Some(prototype) = crate::entry::class_support::prototype(context, "Promise") else {
+        return true;
+    };
+    if context.prototype_at(cell) != Some(prototype) {
+        return false;
+    }
+    let key = context.well_known("constructor");
+    crate::entry::objects::own_property(context, cell, key).is_none()
+}
+
 /// The promise a value has to be waited on THROUGH, or `None` for one that is
 /// already an answer.
 ///
@@ -88,12 +109,20 @@ pub(super) fn then_of(context: &mut Context, cell: u32) -> Then {
 /// another would spend a second microtask arriving at a value it already has.
 pub(super) fn waited_on(context: &mut Context, value: u64) -> Option<PromiseId> {
     let cell = Value(value).as_slot()?;
-    if let Some(id) = context.promises.id_of(cell) {
-        return Some(id);
+    if context.promises.id_of(cell).is_some() && plain_promise(context, cell) {
+        return context.promises.id_of(cell);
     }
     if matches!(then_of(context, cell), Then::Absent) {
         return None;
     }
+    // A SUBCLASS instance arrives here too, and that is the point of the guard
+    // above rather than an accident: `PromiseResolve(%Promise%, v)` hands `v`
+    // back only when `v.constructor` IS `%Promise%`, so a `MyP` is wrapped —
+    // and a wrap is the thenable job plus the reaction its `then` attaches,
+    // which is two microtasks more than a plain one. `await MyP.resolve(4)`
+    // resumed on the same tick as `await Promise.resolve(2)` before this, where
+    // every runtime puts it two later.
+    //
     // A foreign thenable is not a promise yet, and `resolve` is the one thing
     // that turns one into the other — including the deferred `then` read, which
     // is why this hands the value over rather than reading it again here.

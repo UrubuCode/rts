@@ -116,15 +116,16 @@ impl Promise {
 
     /// `Promise.resolve(v)`.
     ///
-    /// A promise is answered as it stands rather than wrapped, which the
-    /// language requires: `Promise.resolve(p) === p`, and a wrapper would be a
-    /// second promise settling one microtask later than every program expects.
-    /// The rules — pass a promise through, adopt a thenable — live in
-    /// [`super::resolved_with`], because `import()` answers a promise for a
-    /// namespace and must obey the same two.
+    /// A promise is answered as it stands rather than wrapped — but only one
+    /// whose `constructor` IS the receiver, which is the half the identity rule
+    /// is usually written without: `Promise.resolve(subclassInstance)` builds a
+    /// new plain promise, because the answer has to be of the class that was
+    /// asked. The rules for everything else — adopt a thenable, fulfil with an
+    /// ordinary value — live in [`super::resolved_with`], because `import()`
+    /// answers a promise for a namespace and must obey the same two.
     #[stat]
-    fn resolve(value: u64) -> u64 {
-        super::resolved_with(value)
+    fn resolve(this: u64, value: u64) -> u64 {
+        super::resolved_by(this, value)
     }
 
     /// `Promise.reject(reason)`.
@@ -133,33 +134,33 @@ impl Promise {
     /// promise itself. That asymmetry is in the language, and it is the one a
     /// symmetrical implementation gets wrong quietly.
     #[stat]
-    fn reject(reason: u64) -> u64 {
-        super::rejected_with(reason)
+    fn reject(this: u64, reason: u64) -> u64 {
+        super::rejected_by(this, reason)
     }
 
     /// `Promise.all(values)` — every value, or the first rejection.
     #[stat]
-    fn all(values: u64) -> u64 {
-        super::combinators::combine(values, super::group::Kind::All)
+    fn all(this: u64, values: u64) -> u64 {
+        super::combinators::combine(this, values, super::group::Kind::All)
     }
 
     /// `Promise.allSettled(values)` — a record per element, and never a rejection.
     #[stat]
-    fn all_settled(values: u64) -> u64 {
-        super::combinators::combine(values, super::group::Kind::AllSettled)
+    fn all_settled(this: u64, values: u64) -> u64 {
+        super::combinators::combine(this, values, super::group::Kind::AllSettled)
     }
 
     /// `Promise.race(values)` — the first settlement, either way.
     #[stat]
-    fn race(values: u64) -> u64 {
-        super::combinators::combine(values, super::group::Kind::Race)
+    fn race(this: u64, values: u64) -> u64 {
+        super::combinators::combine(this, values, super::group::Kind::Race)
     }
 
     /// `Promise.any(values)` — the first fulfilment, or an aggregate of the
     /// rejections.
     #[stat]
-    fn any(values: u64) -> u64 {
-        super::combinators::combine(values, super::group::Kind::Any)
+    fn any(this: u64, values: u64) -> u64 {
+        super::combinators::combine(this, values, super::group::Kind::Any)
     }
 
     /// `Promise.withResolvers()` — the promise and its two settlers, ES2024.
@@ -176,33 +177,51 @@ impl Promise {
     /// constructor with a native executor: the settlers are exactly what the
     /// executor would have been handed, so going through a constructor would be
     /// the same three values with a call in the middle of them.
+    ///
+    /// On a SUBCLASS the three parts are the capability's own — the promise
+    /// `new Sub(executor)` built and the very functions that executor was
+    /// handed — rather than a plain promise with settlers of this module's
+    /// making. Anything else would answer a `promise` of the right class whose
+    /// `resolve` settled a different object.
     #[stat]
-    fn with_resolvers() -> u64 {
-        with_current(|context| {
-            let Some((cell, id)) = state::fresh(context) else {
-                return undefined_of(context);
-            };
-            let pair = context.promises.open_pair(id);
-            // Rooted, because each of the three allocates and the record that
-            // will hold them does too — so until the last `put` runs they are
-            // named by a Rust local and nothing else, which is the hole
-            // `crate::entry::rooted` was written for.
-            let mut held = crate::entry::rooted::Rooted::new();
-            held.values().push(Value::from_slot(cell).bits());
-            held.values()
-                .push(settler::settler(context, pair, Settlement::Fulfilled));
-            held.values()
-                .push(settler::settler(context, pair, Settlement::Rejected));
-            let Some(kit) = crate::entry::native::plain(context) else {
-                return undefined_of(context);
-            };
-            for (name, value) in ["promise", "resolve", "reject"].into_iter().zip(held.take()) {
-                let key = context.well_known(name);
-                crate::entry::objects::put(context, kit, key, value);
-            }
-            Value::from_slot(kit).bits()
-        })
+    fn with_resolvers(this: u64) -> u64 {
+        let made = match super::capability::chosen(this) {
+            Some(constructor) => super::capability::made(constructor),
+            None => with_current(|context| {
+                let (cell, id) = state::fresh(context)?;
+                let pair = context.promises.open_pair(id);
+                Some((
+                    Value::from_slot(cell).bits(),
+                    settler::settler(context, pair, Settlement::Fulfilled),
+                    settler::settler(context, pair, Settlement::Rejected),
+                ))
+            }),
+        };
+        let Some((promise, resolve, reject)) = made else {
+            return super::undefined();
+        };
+        record_of(promise, resolve, reject)
     }
+}
+
+/// The `{ promise, resolve, reject }` both paths answer.
+///
+/// Rooted, because the record itself allocates and until the last `put` runs
+/// the three are named by a `Vec` on the Rust heap — which the conservative
+/// scan does not reach, and which is the hole `crate::entry::rooted` was
+/// written for.
+fn record_of(promise: u64, resolve: u64, reject: u64) -> u64 {
+    with_current(|context| {
+        let held = crate::entry::rooted::Rooted::with(vec![promise, resolve, reject]);
+        let Some(kit) = crate::entry::native::plain(context) else {
+            return undefined_of(context);
+        };
+        for (name, value) in ["promise", "resolve", "reject"].into_iter().zip(held.take()) {
+            let key = context.well_known(name);
+            crate::entry::objects::put(context, kit, key, value);
+        }
+        Value::from_slot(kit).bits()
+    })
 }
 
 /// A reaction on the receiver, and the promise it answers.
@@ -211,22 +230,42 @@ impl Promise {
 /// handler they build — and the part they share is the part with the mistake in
 /// it: a `.then` on something that is not a promise must answer a value rather
 /// than reach into the machine with an identifier it does not have.
+///
+/// The species is consulted BEFORE the borrow, because both halves of it —
+/// reading `constructor`, then constructing — are user code. See
+/// [`super::capability`] for why an ordinary promise never reaches either.
 fn attached(this: u64, make: impl FnOnce(PromiseId) -> Handler) -> u64 {
-    with_current(|context| {
-        let source = Value(this)
+    let source = with_current(|context| {
+        Value(this)
             .as_slot()
-            .and_then(|cell| context.promises.id_of(cell));
-        let Some(source) = source else {
-            // `Promise.prototype.then.call({})`. The language throws a
-            // `TypeError`; this answers `undefined`, the same stated gap every
-            // refusal in this crate settles on while there is nowhere for a
-            // throw to land.
-            return undefined_of(context);
+            .and_then(|cell| context.promises.id_of(cell))
+    });
+    let Some(source) = source else {
+        // `Promise.prototype.then.call({})`. The language throws a
+        // `TypeError`; this answers `undefined`, the same stated gap every
+        // refusal in this crate settles on while there is nowhere for a
+        // throw to land.
+        return super::undefined();
+    };
+    let built = match super::capability::species_of(this) {
+        Some(constructor) => super::capability::derive(constructor),
+        None => None,
+    };
+    // Rule 8: reading `constructor`, running a `Symbol.species` getter and
+    // running the constructor are three chances for the program to throw, and
+    // this native PROPAGATES — the call site above re-raises.
+    if crate::entry::throw::in_flight() {
+        return super::undefined();
+    }
+    with_current(|context| {
+        let derived = match built {
+            Some((promise, derived)) => (promise, derived),
+            None => match state::fresh(context) {
+                Some((cell, id)) => (Value::from_slot(cell).bits(), id),
+                None => return undefined_of(context),
+            },
         };
-        let Some((cell, derived)) = state::fresh(context) else {
-            return undefined_of(context);
-        };
-        state::react(context, source, make(derived));
-        Value::from_slot(cell).bits()
+        state::react(context, source, make(derived.1));
+        derived.0
     })
 }

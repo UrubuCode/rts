@@ -568,7 +568,7 @@ pub(super) fn provided(name: &str) -> Option<fn(&mut Context) -> u64> {
 /// throws itself — builds `Error.prototype` without passing through this
 /// module's `provided`. Installing there worked under `rts run` and left the
 /// 332 tests that share one process reading `undefined` from every `.stack`.
-fn install_stack_accessor(context: &mut Context) {
+pub(in crate::entry) fn install_stack_accessor(context: &mut Context) {
     if context.stack_accessor {
         return;
     }

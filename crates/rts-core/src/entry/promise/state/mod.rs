@@ -1,5 +1,11 @@
-//! The promise machine as this crate holds it, and every operation over it that
-//! runs no user code.
+//! The promise machine as this crate holds it — the tables, and nothing else.
+//!
+//! [`ops`] holds the operations over them, which is the whole of the rest of
+//! what this module used to be. The split is the crate's 500-line ceiling
+//! applied along the seam the module was already written around: a TABLE is
+//! read and written, a verb decides something, and every verb here shares one
+//! property worth keeping together — none of them runs user code, so any of
+//! them may be reached from inside a borrow.
 //!
 //! # What is here and what is the machine's
 //!
@@ -23,18 +29,19 @@
 use std::collections::HashMap;
 
 use rts_cranelift::sched::{
-    Attachment, ContinuationId, Delivery, PromiseId, PromiseState, PromiseTable, Ran, Scheduler,
-    SchedulerId, Settlement,
+    ContinuationId, PromiseId, PromiseState, PromiseTable, Ran, Scheduler, SchedulerId,
+    Settlement,
 };
 
-use crate::entry::Context;
-use crate::entry::objects::undefined_of;
 use crate::schedule::Settlements;
-use crate::text::Str;
 use crate::value::Value;
 
 use super::group::Group;
 use super::react::{Handler, Reaction};
+
+mod ops;
+
+pub(super) use ops::{built, fresh, react, reject, resolve, settle, type_error};
 
 /// Every promise this program has, and everything waiting on one.
 pub(in crate::entry) struct Machine {
@@ -67,6 +74,15 @@ pub(in crate::entry) struct Machine {
     /// pending one look identical there, and that is exactly the pair this has
     /// to tell apart.
     pairs: Vec<(PromiseId, bool)>,
+    /// The `(resolve, reject)` each `NewPromiseCapability` in flight collected.
+    ///
+    /// A STACK, and bounded by nesting rather than by how many promises a
+    /// program builds: the executor writes its slot while the constructor runs
+    /// and [`Self::close_capability`] truncates the moment the construction
+    /// returns, so a long-running program that derives a million subclass
+    /// promises holds no more here than the deepest nesting. Rule 10's
+    /// "a root source is BOUNDED, and the bound is about the right thing".
+    capabilities: Vec<Option<(u64, u64)>>,
 }
 
 impl Default for Machine {
@@ -106,7 +122,32 @@ impl Machine {
             of_cell: HashMap::new(),
             cells: Vec::new(),
             pairs: Vec::new(),
+            capabilities: Vec::new(),
         }
+    }
+
+    /// Opens a capability's slot, answering the number its executor carries.
+    pub(super) fn open_capability(&mut self) -> usize {
+        self.capabilities.push(None);
+        self.capabilities.len() - 1
+    }
+
+    /// What a capability's executor was handed.
+    pub(super) fn record_capability(&mut self, at: usize, resolve: u64, reject: u64) {
+        if let Some(slot) = self.capabilities.get_mut(at) {
+            *slot = Some((resolve, reject));
+        }
+    }
+
+    /// Takes a capability's answer and gives the slot back.
+    ///
+    /// Truncating rather than clearing: the slots are opened and closed in
+    /// order, so the one being closed is the last, and anything a throw left
+    /// above it goes with it.
+    pub(super) fn close_capability(&mut self, at: usize) -> Option<(u64, u64)> {
+        let taken = self.capabilities.get_mut(at).and_then(Option::take);
+        self.capabilities.truncate(at);
+        taken
     }
 
     /// Registers a cell as a fresh pending promise.
@@ -271,8 +312,24 @@ impl Machine {
                 // resumes it, nothing else in the heap names it. Without this
                 // the collector frees a body mid-`await`.
                 Handler::Frame { frame, .. } => out.push(Value::from_slot(frame).bits()),
+                // The two functions a foreign constructor's executor handed
+                // over. Nothing else names them: the capability's slot was
+                // truncated the moment the construction returned, so between
+                // that and the settlement this reaction IS the only path.
+                Handler::Forward { resolve, reject } => {
+                    out.push(resolve);
+                    out.push(reject);
+                }
                 Handler::Member { .. } => {}
             }
+        }
+        // A capability still being built: the executor has run and the
+        // construction has not returned, so the two functions are named by this
+        // stack and by the constructor's own frame — which a conservative scan
+        // may or may not reach, and "may" is not an answer rule 10 accepts.
+        for (resolve, reject) in self.capabilities.iter().flatten() {
+            out.push(*resolve);
+            out.push(*reject);
         }
         for group in &self.groups {
             out.extend_from_slice(&group.values);
@@ -311,159 +368,3 @@ impl AsIndex for ContinuationId {
     }
 }
 
-/// A pending promise, with `Promise.prototype` on it.
-pub(super) fn fresh(context: &mut Context) -> Option<(u32, PromiseId)> {
-    let cell = super::super::native::plain(context)?;
-    // Through the class's own registration rather than a field on the context,
-    // for the reason `collections::fresh` records: what `.then` answers must
-    // itself answer to the methods this module installed.
-    if let Some(prototype) = super::super::class_support::prototype(context, "Promise") {
-        context.set_prototype(cell, prototype);
-    }
-    let id = context.promises.create(cell);
-    Some((cell, id))
-}
-
-/// The object a constructor writes into: the one `new` made, or one made here.
-///
-/// # Why a plain call is not refused
-///
-/// `Promise(f)` without `new` is a `TypeError` in the language, and raising one
-/// here would end the program — `entry::throw` cannot find a handler in
-/// a caller. The same tolerance `Error("x")` and `Map()` settle on, and it fails
-/// where the program uses the result rather than at an arbitrary later point.
-pub(super) fn built(context: &mut Context, this: u64) -> Option<(u32, PromiseId)> {
-    match Value(this).as_slot() {
-        // The cell `construct` already made, which carries the prototype of
-        // whatever class was named — so `class Mine extends Promise {}` gives an
-        // instance with `Mine.prototype` on it and this only records what it is.
-        Some(cell) => Some((cell, context.promises.create(cell))),
-        None => fresh(context),
-    }
-}
-
-/// Settles a promise, waking whatever was waiting, and remembers the value.
-///
-/// Runs no user code: the waiters are queued, and the drain runs them. That is
-/// the single most-tested property of a promise implementation —
-/// `Promise.resolve(1).then(f)` must not call `f` before `then` returns — and it
-/// is a property of the machine's queue rather than of care taken here.
-pub(super) fn settle(context: &mut Context, id: PromiseId, settlement: Settlement, value: u64) {
-    let machine = &mut context.promises;
-    let delivery = machine
-        .scheduler
-        .settle(&mut machine.promises, id, settlement);
-    // Whether anything was already waiting, which is what decides an unhandled
-    // rejection. Taken from the machine's own answer rather than re-derived from
-    // this module's tables — the second copy is the one that would come to
-    // disagree.
-    let had_waiters = delivery != Delivery::Nobody;
-    machine
-        .settlements
-        .record(id, settlement, Value(value), had_waiters);
-}
-
-/// Resolves a promise, adopting whatever it was resolved with.
-///
-/// The three cases the language distinguishes, in the order it distinguishes
-/// them: the promise itself, another promise or thenable, an ordinary value.
-pub(super) fn resolve(context: &mut Context, id: PromiseId, value: u64) {
-    if let Some(cell) = Value(value).as_slot() {
-        if context.promises.id_of(cell) == Some(id) {
-            // `resolve(p)` inside `new Promise(resolve => …)`. Nothing could
-            // ever settle it, so the language rejects with a `TypeError` rather
-            // than leaving a promise that hangs and says nothing.
-            let reason = type_error(context, "Chaining cycle detected for promise");
-            settle(context, id, Settlement::Rejected, reason);
-            return;
-        }
-        if let Some(inner) = context.promises.id_of(cell) {
-            // Adoption as an ordinary reaction with no handlers: whatever the
-            // inner promise settles as, the `Pass` step hands straight on. See
-            // the module documentation for why `PromiseTable::adopt` is not
-            // what does this.
-            let absent = undefined_of(context);
-            react(
-                context,
-                inner,
-                Handler::Js {
-                    on_fulfilled: absent,
-                    on_rejected: absent,
-                    derived: id,
-                },
-            );
-            return;
-        }
-        let queued = match super::thenable::then_of(context, cell) {
-            // A callable `then` already in hand. It is user code and is called
-            // from a microtask, which is what the specification says and what
-            // stops it from running inside this borrow.
-            super::thenable::Then::Ready(then_fn) => Some(Some(then_fn)),
-            // A `then` behind a GETTER. Reading it is itself user code, so even
-            // the read waits for the microtask — see [`Then`] for why that is
-            // not the divergence it looks like.
-            super::thenable::Then::Deferred => Some(None),
-            super::thenable::Then::Absent => None,
-        };
-        if let Some(then_fn) = queued {
-            let waiter = context.promises.record(Reaction {
-                source: None,
-                handler: Handler::Thenable {
-                    thenable: value,
-                    then_fn,
-                    promise: id,
-                },
-            });
-            context.promises.scheduler.queues().wake(waiter);
-            return;
-        }
-    }
-    settle(context, id, Settlement::Fulfilled, value);
-}
-
-/// Rejects a promise with a reason.
-pub(super) fn reject(context: &mut Context, id: PromiseId, reason: u64) {
-    settle(context, id, Settlement::Rejected, reason);
-}
-
-
-/// Attaches a reaction to a promise, queueing it if the promise already settled.
-///
-/// Queued rather than run, even when the promise settled long ago: the ordering
-/// must not depend on whether the handler was early or late, which is the one
-/// thing a program can observe about a promise that it was never told it
-/// depended on.
-pub(super) fn react(context: &mut Context, source: PromiseId, handler: Handler) {
-    let machine = &mut context.promises;
-    let waiter = machine.record(Reaction {
-        source: Some(source),
-        handler,
-    });
-    if let Attachment::ReadyNow(_) = machine.promises.attach(source, waiter) {
-        machine.scheduler.queues().wake(waiter);
-    }
-    // Something is waiting on it now, so a rejection it carries is somebody's
-    // problem. `Promise.reject(x).catch(f)` attaches after the rejection and is
-    // not an unhandled rejection — which is the whole reason the report waits
-    // for the end of the turn.
-    machine.settlements.noticed(source);
-}
-
-/// A `TypeError` with a message, made without running a constructor.
-///
-/// The class is registered first so that the object inherits the same prototype
-/// `new TypeError("x")` gives — a program that catches one and reads `.name`
-/// must not be able to tell where it came from.
-pub(super) fn type_error(context: &mut Context, message: &str) -> u64 {
-    super::super::error::register_type_error(context);
-    let Some(cell) = super::super::native::plain(context) else {
-        return undefined_of(context);
-    };
-    if let Some(prototype) = super::super::class_support::prototype(context, "TypeError") {
-        context.set_prototype(cell, prototype);
-    }
-    let text = context.intern_value(Str::from_str(message)).bits();
-    let key = context.well_known("message");
-    super::super::objects::put(context, cell, key, text);
-    Value::from_slot(cell).bits()
-}
