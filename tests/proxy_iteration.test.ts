@@ -57,7 +57,10 @@ describe("fixture:proxy_iteration", () => {
     const out: number[] = [];
     for (const v of watched) out.push(v);
     expect(JSON.stringify(out)).toBe("[1,2,3]");
-    expect(seen[0]).toBe("@@iterator");
+    // The key reaches the trap as the SYMBOL, so `String(k)` is what the
+    // language spells: this line pinned the interner's own text (`@@iterator`)
+    // for as long as the trap was handed that text instead of the symbol.
+    expect(seen[0]).toBe("Symbol(Symbol.iterator)");
     expect(seen.includes("0")).toBe(true);
     expect(seen.includes("length")).toBe(true);
   });
