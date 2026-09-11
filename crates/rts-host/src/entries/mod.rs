@@ -279,6 +279,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::SetFunctionName => (CoreEntry::SetFunctionName, {
             rts_core::entry::set_function_name as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::IteratorResult => (CoreEntry::IteratorResult, {
+            rts_core::entry::iterator_result as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::ArrayNew => (CoreEntry::ArrayNew, {
             rts_core::entry::array_new as extern "C" fn(i64) -> u64 as *const u8
         }),

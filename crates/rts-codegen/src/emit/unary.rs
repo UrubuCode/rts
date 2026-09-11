@@ -50,6 +50,18 @@ pub fn emit_unary(
             choice::from_bool(builder, cond, true)
         }
 
+        // The one operator no program can write, minted by `foreach.rs` around
+        // the `it.next()` of a stepped `for`-`of`. It answers its operand
+        // unchanged and exists for its refusal: a step record that is not an
+        // object is the `TypeError` the language raises, and reading `done` off
+        // a primitive answers `undefined` instead — which is never true, which
+        // is a loop that does not end.
+        UnaryOp::IteratorResult => {
+            let value = emit_expr(builder, scope, ctx, operand)?;
+            let value = expr::as_value(builder, value);
+            Ok(expr::call(builder, ctx, RuntimeOp::IteratorResult, &[value])?[0])
+        }
+
         // The operand is still emitted. `void f()` calls `f`; the operator
         // discards the result, not the evaluation.
         UnaryOp::Void => {

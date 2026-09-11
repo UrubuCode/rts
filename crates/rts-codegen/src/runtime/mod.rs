@@ -558,6 +558,19 @@ pub enum RuntimeOp {
     /// definitions from raising — see `rts_core::entry::set_function_name`.
     SetFunctionName,
 
+    /// One step record of an iterator, checked to be an OBJECT and answered
+    /// unchanged.
+    ///
+    /// `emit/foreach.rs` expands a stepped `for`-`of` into `it.next()` followed
+    /// by reads of `done` and `value`, and a compiled property read of a
+    /// primitive answers `undefined` rather than raising — so
+    /// `{ next() { return 7 } }` never reported `done` and the loop HUNG. A
+    /// call rather than a check the expansion writes, because there is no way
+    /// to spell "raise the program's own `TypeError`" in a tree of JavaScript
+    /// statements without naming a global the program may have shadowed — see
+    /// `rts_core::entry::iterator_result`.
+    IteratorResult,
+
     /// `[…]` — a new array of a known length.
     ///
     /// The length is known at the literal, so the store is sized once rather
@@ -1068,6 +1081,7 @@ impl RuntimeOp {
         RuntimeOp::WithHas,
         RuntimeOp::ForInHas,
         RuntimeOp::SetFunctionName,
+        RuntimeOp::IteratorResult,
         RuntimeOp::ArrayNew,
         RuntimeOp::DeleteProperty,
         RuntimeOp::OwnKeys,
@@ -1178,6 +1192,7 @@ impl RuntimeOp {
             RuntimeOp::WithHas => "__rts_with_has",
             RuntimeOp::ForInHas => "__rts_for_in_has",
             RuntimeOp::SetFunctionName => "__rts_set_function_name",
+            RuntimeOp::IteratorResult => "__rts_iterator_result",
             RuntimeOp::ArrayNew => "__rts_array_new",
             RuntimeOp::DeleteProperty => "__rts_delete_property",
             RuntimeOp::OwnKeys => "__rts_own_keys",
@@ -1360,6 +1375,7 @@ impl RuntimeOp {
             RuntimeOp::WithHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ForInHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::SetFunctionName => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::IteratorResult => (vec![UNPROVEN], vec![UNPROVEN]),
             // A count the compiler knows, not a value: an array literal's
             // length is how many elements were written.
             RuntimeOp::ArrayNew => (vec![Repr::I64], vec![UNPROVEN]),

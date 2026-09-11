@@ -204,6 +204,23 @@ pub(in crate::entry) fn advance(cell: u32, sent: u64, mode: ResumeMode) -> Advan
             resuming.slots,
             mode.number(),
         );
+        // `g.return(v)` SEEDS the answer with `v` rather than substituting it
+        // afterwards, and the difference is a `finally` that returns.
+        //
+        // `ResumeMode::Return` re-enters the body so that the regions the
+        // parked `yield` sits in run what they owe, and one of those may
+        // complete abruptly with a `return` of its own — which the language
+        // says REPLACES the pending one. Compiled code spells that as an
+        // ordinary return, so it writes this field; a `finally` that merely
+        // runs writes nothing. Reading the field afterwards therefore answers
+        // the right value in both cases, where answering `v` unconditionally —
+        // which this did — made `try { yield 1 } finally { return "f" }` hand
+        // back `v` and swallow the `finally`'s answer.
+        if mode == ResumeMode::Return && let Some(field) = resuming.return_field {
+            context
+                .region
+                .set_spanning_field(resuming.frame, field, resuming.slots, sent);
+        }
         Some(resuming)
     });
     let Some(state) = entered else {
@@ -249,14 +266,11 @@ pub(in crate::entry) fn advance(cell: u32, sent: u64, mode: ResumeMode) -> Advan
     with_current(|context| {
         context.resuming.pop();
         let produced = match finished {
-            // A resumption that RETURNED answers the value it was given. The
-            // machine writes nothing where the function's answer goes on that
-            // path, and deliberately: the value is this caller's, so asking the
-            // frame to hand it back would be a round trip through a slot whose
-            // representation need not even match. See `ResumeMode::Return`.
-            true if mode == ResumeMode::Return => sent,
-            // Whatever the body left where it returns. A generator that falls off
-            // its end returns nothing, and `undefined` is what that means.
+            // Whatever the body left where it returns. A generator that falls
+            // off its end returns nothing, and `undefined` is what that means;
+            // one being closed by `g.return(v)` left `v` there on the way in,
+            // so this arm answers the `finally`'s value when there was one and
+            // `v` when there was not.
             true => state
                 .return_field
                 .and_then(|field| {
@@ -264,7 +278,12 @@ pub(in crate::entry) fn advance(cell: u32, sent: u64, mode: ResumeMode) -> Advan
                         .region
                         .spanning_field(state.frame, field, state.slots)
                 })
-                .unwrap_or_else(|| objects::undefined_of(context)),
+                .unwrap_or_else(|| match mode {
+                    // No slot to carry an answer back, so the value this caller
+                    // asked to end with is the only one there is.
+                    ResumeMode::Return => sent,
+                    _ => objects::undefined_of(context),
+                }),
             // What `yield` left on its way out, taken rather than read: the next
             // resumption must not see this one's value if the body ends without
             // producing another.

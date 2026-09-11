@@ -45,11 +45,13 @@ const NOT_A_KEY: &str =
 /// `WeakMap`.
 #[rtse::class("WeakMap", tag)]
 impl WeakMap {
-    /// `new WeakMap(iterable?)` — an array of `[key, value]` pairs.
+    /// `new WeakMap(iterable?)` — anything that iterates `[key, value]` pairs.
     ///
     /// A pair whose key is not an object stops the walk and raises, as `set`
     /// does: the entries before it are already written, which is what the
-    /// language's own loop leaves behind too.
+    /// language's own loop leaves behind too. That refusal is no longer written
+    /// here — filling through `this.set` means it comes from the one place that
+    /// states it, and a subclass overriding `set` is what decides instead.
     #[construct]
     /// Arity 0, not 1: the specification pins `Map.length` at zero because
     /// the iterable is optional in the way `length` counts.
@@ -58,31 +60,13 @@ impl WeakMap {
         if !super::requires_new(this, "WeakMap") {
             return super::undefined();
         }
-        let pairs = match super::nothing_to_fill_from(iterable) {
-            true => Vec::new(),
-            false => super::pairs_of(iterable),
+        let Some(map) = super::emptied(this, "WeakMap") else {
+            return super::undefined();
         };
-        let (made, refused) = with_current(|context| {
-            let Some(cell) = super::built(context, this, "WeakMap") else {
-                return (undefined_of(context), false);
-            };
-            let Some(mut table) = super::taken(context, cell) else {
-                return (undefined_of(context), false);
-            };
-            let mut refused = false;
-            for (key, value) in pairs {
-                if !write(context, &mut table, key, value) {
-                    refused = true;
-                    break;
-                }
-            }
-            super::restore(context, cell, table);
-            (Value::from_slot(cell).bits(), refused)
-        });
-        if refused {
-            throw::type_error(NOT_A_KEY);
+        if !super::nothing_to_fill_from(iterable) {
+            super::adder::fill(map, iterable, "set", super::adder::Shape::Entries);
         }
-        made
+        map
     }
 
     /// `w.get(k)`.
@@ -165,31 +149,13 @@ impl WeakSet {
         if !super::requires_new(this, "WeakSet") {
             return super::undefined();
         }
-        let values = match super::nothing_to_fill_from(iterable) {
-            true => Vec::new(),
-            false => super::elements_of(iterable),
+        let Some(set) = super::emptied(this, "WeakSet") else {
+            return super::undefined();
         };
-        let (made, refused) = with_current(|context| {
-            let Some(cell) = super::built(context, this, "WeakSet") else {
-                return (undefined_of(context), false);
-            };
-            let Some(mut table) = super::taken(context, cell) else {
-                return (undefined_of(context), false);
-            };
-            let mut refused = false;
-            for value in values {
-                if !write(context, &mut table, value, value) {
-                    refused = true;
-                    break;
-                }
-            }
-            super::restore(context, cell, table);
-            (Value::from_slot(cell).bits(), refused)
-        });
-        if refused {
-            throw::type_error(NOT_A_KEY);
+        if !super::nothing_to_fill_from(iterable) {
+            super::adder::fill(set, iterable, "add", super::adder::Shape::Members);
         }
-        made
+        set
     }
 
     /// `w.add(v)` — the set. A primitive is a `TypeError`, as in `WeakMap.set`.

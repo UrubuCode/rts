@@ -63,10 +63,12 @@
 //! inside `for (const e of m)` is not seen, where the same `m.set` from inside
 //! `m.forEach` is.
 
+mod adder;
 mod brand;
 mod cursor;
 mod finalization;
 mod map;
+mod ops;
 mod set;
 mod table;
 mod weak;
@@ -285,6 +287,27 @@ pub(super) fn built(context: &mut Context, this: u64, class: &'static str) -> Op
     Some(cell)
 }
 
+/// The empty, branded collection a constructor starts from.
+///
+/// All four constructors open with the same three steps — brand the cell, take
+/// the table back off it, put it back through [`restore_sized`] so the count
+/// this mutation did not change is still recorded by the one function that
+/// records counts — and each wrote them itself. They are here because the
+/// constructors stopped filling the table directly: what they now hand
+/// [`adder::fill`] is a collection user code can already read, so the object has
+/// to be finished before the argument is walked rather than after.
+///
+/// `None` means `this` is not something a table can be put on, which is the one
+/// case a constructor answers `undefined` for.
+pub(super) fn emptied(this: u64, class: &'static str) -> Option<u64> {
+    with_current(|context| {
+        let cell = built(context, this, class)?;
+        let table = taken(context, cell)?;
+        restore_sized(context, cell, table);
+        Some(Value::from_slot(cell).bits())
+    })
+}
+
 /// `undefined`, from outside a borrow.
 pub(super) fn undefined() -> u64 {
     with_current(|context| undefined_of(context))
@@ -334,48 +357,6 @@ pub(super) fn elements_of(iterable: u64) -> Vec<u64> {
             .and_then(|cell| context.elements_at(cell).cloned())
             .unwrap_or_default()
     })
-}
-
-/// The `[key, value]` pairs an iterable of two-element arrays yields.
-///
-/// An entry that is not an array contributes `undefined => undefined`, where the
-/// language throws — the same tolerance every other refusal here settles on.
-pub(super) fn pairs_of(iterable: u64) -> Vec<(u64, u64)> {
-    let entries = elements_of(iterable);
-    let (pairs, refused) = with_current(|context| {
-        let absent = undefined_of(context);
-        let mut pairs = Vec::new();
-        for entry in entries {
-            // An entry that is not an OBJECT is a `TypeError`: the specification
-            // spells it `AddEntriesFromIterable` and refuses the step outright,
-            // where this tolerated it as `undefined => undefined` — so
-            // `new Map([1, 2])` built a map with one `undefined` key instead of
-            // stopping. The comment here used to call that "the same tolerance
-            // every refusal in this module settles on"; a native raises now.
-            if !super::primitive::is_object_in(context, entry) {
-                return (pairs, true);
-            }
-            let held = Value(entry)
-                .as_slot()
-                .and_then(|cell| context.elements_at(cell));
-            pairs.push(match held {
-                Some(pair) => (
-                    pair.first().copied().unwrap_or(absent),
-                    pair.get(1).copied().unwrap_or(absent),
-                ),
-                // An object that is not an array: the specification reads its
-                // `"0"` and `"1"`, and this does not. Named rather than fixed
-                // here because the read is a property get and this runs under a
-                // borrow — the entries before it are already correct.
-                None => (absent, absent),
-            });
-        }
-        (pairs, false)
-    });
-    if refused {
-        super::throw::type_error("an entry of a Map iterable must be an object");
-    }
-    pairs
 }
 
 /// What a `for-of` over a collection yields.

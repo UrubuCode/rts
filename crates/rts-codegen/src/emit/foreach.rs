@@ -77,25 +77,33 @@
 //! never the problem. `destructure/array.rs::open_close_region` met the same
 //! wall first and took the same way round it.
 //!
-//! Still not covered, measured against Bun rather than reasoned about: a
-//! `return` out of the body, and a `break` or `continue` to a label on an
-//! ENCLOSING loop. All three leave without unwinding and without falling out of
-//! this loop, so neither the handler nor the statement after it is reached.
+//! A `return` out of the body, and a `break` or `continue` to a label on an
+//! ENCLOSING loop, leave without unwinding and without falling out of this
+//! loop — so neither the handler nor the statement after it is reached, and
+//! this file used to name all three as uncovered. Each is now routed through
+//! the mechanism the language already has for "run this on the way out": the
+//! `return` through a block on `Ctx::finally_returns`, the two jumps through a
+//! body on `Ctx::finally_jumps`. Neither is a third mechanism, which is the
+//! point — a `try`/`finally` written inside the body and this loop's close now
+//! run in one order, decided in one place.
 //!
-//! A label on THIS loop is covered — `break outer` from a nested loop still
-//! leaves the outer one by its own exit — and so is `continue`, which never
-//! leaves at all. Those two are worth naming because "a labelled break" reads
-//! like one case and is two with different answers.
+//! A label on THIS loop was covered already — `break outer` from a nested loop
+//! still leaves the outer one by its own exit — and so is `continue`, which
+//! never leaves at all. Those two are worth naming because "a labelled break"
+//! reads like one case and is two with different answers.
+//!
+//! What is still NOT covered: a `return` inside a `for await`, whose close must
+//! be awaited — `for_await.rs` builds its own loop and none of this reaches it.
 
 use rts_cranelift::fault::Position;
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
+use super::close::{always, assign_stmt, close_iterator_stmt, ident, member_expr, still_open, text_expr, undefined_expr};
 use super::loops::{Loops, emit_for};
 use super::{Ctx, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;
 use crate::syntax::{BinaryOp, Expr, ExprKind, Literal, LogicalOp, Pattern, Stmt, UnaryOp};
-use crate::values::Singleton;
 
 /// Emits `for (k in o)`.
 ///
@@ -495,6 +503,36 @@ pub fn emit_for_each(
     // after it is reached from the normal path alone and the bindings the loop
     // made dominate it — `destructure/array.rs::open_close_region` is the same
     // shape, for the same reason, and hit the same defect first.
+    // `IteratorClose` on a `return` out of the BODY, and on a `break`/`continue`
+    // naming a loop that encloses this one. Both leave without unwinding and
+    // without falling out of this loop, so neither the region's handler nor the
+    // statement after the loop is reached — which is what the module doc listed
+    // as "still not covered", measured against Bun.
+    //
+    // Each reuses the mechanism the language already has for "run this on the
+    // way out", rather than inventing a third: a `return` is routed through a
+    // block exactly as `try`/`finally` routes one, and a jump past this loop
+    // collects owed bodies exactly as a `finally` entered inside it does. The
+    // alternative — wrapping the loop in a synthetic `try`/`finally` — is the
+    // one the module doc records as measured and rejected: `emit_try` discards
+    // the protected span's SSA bindings at its join.
+    //
+    // Created BEFORE the region below is opened, so it belongs to whatever
+    // encloses this loop: a `return()` that throws while closing then lands in
+    // the caller's handler rather than in this loop's, which would be the close
+    // being closed. `protect.rs` creates its own returning block in the same
+    // position for the same reason.
+    let returning = match stepping {
+        false => None,
+        true => {
+            let block = builder.create_block();
+            // The parameter exists at CREATION: a jump checks its argument
+            // count against the target's parameters, so one added later is a
+            // refusal at every `return` that already jumped.
+            let held = builder.add_block_param(block, rts_cranelift::repr::Repr::Tagged);
+            Some((block, held))
+        }
+    };
     let closing_region = match stepping {
         false => None,
         true => {
@@ -513,6 +551,19 @@ pub fn emit_for_each(
             Some((after, handler))
         }
     };
+    // Owed to any jump that leaves PAST this loop, recorded at the depth this
+    // loop's own frame will occupy — `emit_for` pushes it. `emit_jump_out` runs
+    // every owed body whose depth is greater than the target frame's index, so
+    // a `break outer` runs this close and a `break`/`continue` of this loop does
+    // not: those two leave by the loop's own exit, where the statement below
+    // closes it once.
+    if stepping {
+        let close = close_iterator_stmt(ctx, at, iterator, still_open(iterator, at), false);
+        ctx.finally_jumps.push((vec![close], loops.depth()));
+    }
+    if let Some((block, _)) = returning {
+        ctx.finally_returns.push(block);
+    }
     let result = emit_for(
         builder,
         scope,
@@ -524,6 +575,12 @@ pub fn emit_for_each(
         &inner,
         label,
     );
+    if returning.is_some() {
+        ctx.finally_returns.pop();
+    }
+    if stepping {
+        ctx.finally_jumps.pop();
+    }
     ctx.prove_element_read(outer_element);
     if !index_was_proven {
         ctx.forget_minted(index);
@@ -558,6 +615,28 @@ pub fn emit_for_each(
         if !terminated {
             builder.throw(super::protect::JS_THROW, thrown);
         }
+        // The copy a `return` written in the body reaches. It closes the
+        // iterator and then leaves — by returning, or, when this loop is itself
+        // inside a `finally` or another stepped loop, by handing the value to
+        // the next block out, so the closes and the `finally` bodies run from
+        // the inside out. `protect.rs` ends its own returning copy the same way,
+        // and the two have to agree because they share the stack.
+        //
+        // It reads the write-once alias for the same SSA reason the handler
+        // does, and closes unconditionally for the same reason: a `return` out
+        // of the body means the loop did not reach exhaustion, so the iterator
+        // is open by construction.
+        if let Some((block, held)) = returning {
+            builder.switch_to(block);
+            let close = close_iterator_stmt(ctx, at, closing, always(at), false);
+            let left = super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
+            if !left {
+                match ctx.finally_returns.last().copied() {
+                    Some(outer) => builder.jump(outer, &[held])?,
+                    None => builder.ret(&[held]),
+                }
+            }
+        }
         builder.switch_to(after);
         scope.restore(&normal);
     }
@@ -570,29 +649,6 @@ pub fn emit_for_each(
     }
     scope.leave();
     result
-}
-
-/// `true`, as the guard for a close that has already been decided.
-fn always(at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Literal(Literal::Boolean(true)),
-        at,
-    }
-}
-
-/// `it !== undefined` — the iterator was abandoned rather than exhausted.
-///
-/// The flag IS the binding: exhaustion is the one thing that clears it, so
-/// nothing else has to be kept agreeing with it.
-pub(super) fn still_open(iterator: Name, at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Binary {
-            op: BinaryOp::StrictNotEqual,
-            left: Box::new(ident(iterator, at)),
-            right: Box::new(undefined_expr(at)),
-        },
-        at,
-    }
 }
 
 /// The array a `for-of` walks, and — declared as `iterator` — what to step once
@@ -780,11 +836,28 @@ fn fetch_element(
             kind: BindingKind::Const,
             bindings: vec![SyntaxBinding {
                 target: Pattern::Name(step),
+                // Wrapped in the operator no program can write, which answers
+                // the record unchanged and raises the `TypeError`
+                // `IteratorNext` raises for a record that is not an object.
+                // Without it `s.done` reads `undefined` off a primitive,
+                // `undefined` is never true, and the loop does not end — a
+                // HANG rather than a wrong answer, which is why the check is
+                // here and not left to the reads below.
                 value: Some(Expr {
-                    kind: ExprKind::Call {
-                        callee: Box::new(member_expr(ident(iterator, at), next_name, at)),
-                        arguments: Vec::new(),
-                        optional: false,
+                    kind: ExprKind::Unary {
+                        op: UnaryOp::IteratorResult,
+                        operand: Box::new(Expr {
+                            kind: ExprKind::Call {
+                                callee: Box::new(member_expr(
+                                    ident(iterator, at),
+                                    next_name,
+                                    at,
+                                )),
+                                arguments: Vec::new(),
+                                optional: false,
+                            },
+                            at,
+                        }),
                     },
                     at,
                 }),
@@ -856,82 +929,6 @@ fn fetch_element(
     vec![declare_held, choose]
 }
 
-/// `if (<guard>) { if (typeof it.return === "function") { it.return(); } }` —
-/// `IteratorClose`, as far as this engine expresses it.
-///
-/// One home for three callers — this loop, `for_await.rs`, and
-/// `destructure/array.rs` — because the rule has three parts a second copy
-/// would get differently: `return()` is called only when the source has not
-/// already reported `done`, only when it exists and is callable (a plain
-/// iterator-like object with a bare `next()` has none, and that is legal), and
-/// `for await` must AWAIT what it answers, which is what makes an async
-/// `return()` that suspends finish before the loop's caller carries on.
-pub(super) fn close_iterator_stmt(
-    ctx: &mut Ctx,
-    at: Position,
-    iterator: Name,
-    guard: Expr,
-    awaited: bool,
-) -> Stmt {
-    use crate::syntax::StmtKind;
-
-    let return_name = ctx.names.intern("return");
-    let return_member = member_expr(ident(iterator, at), return_name, at);
-    // `it.return?.()` — an OPTIONAL call, which is `GetMethod` exactly.
-    //
-    // It was `typeof it.return === "function"` followed by `it.return()`, and
-    // the member expression was CLONED between the two — so the property was
-    // read twice. For an ordinary method that is invisible; for a `return`
-    // defined as a getter it is not, and an iterator whose `return` counts its
-    // own reads saw two where the language performs one.
-    //
-    // The optional form also gets the refusal right without a second test: it
-    // skips `null` and `undefined`, and throws a `TypeError` for anything else
-    // that is not callable — which is what `GetMethod` says and what the
-    // `typeof` guard silently swallowed. A plain iterator-like object with a
-    // bare `next()` and no `return` still closes without calling anything,
-    // which is the case the guard existed for.
-    let called = Expr {
-        kind: ExprKind::Call {
-            callee: Box::new(return_member),
-            arguments: Vec::new(),
-            optional: true,
-        },
-        at,
-    };
-    // Wrapped in the chain BOUNDARY, which is what makes the `optional` flag do
-    // anything at all. Without it the flag says "this link may skip" with
-    // nowhere to skip TO, and the call happened regardless — six fixtures went
-    // from passing to `TypeError: it.return is not a function` before this line
-    // existed, because every iterator without a `return` was suddenly called.
-    // `ExprKind::Chain`'s own documentation says the flag on a link is only half
-    // of it; this is the other half.
-    let called = Expr {
-        kind: ExprKind::Chain(Box::new(called)),
-        at,
-    };
-    let called = match awaited {
-        false => called,
-        true => Expr {
-            kind: ExprKind::Await(Box::new(called)),
-            at,
-        },
-    };
-    let inner = Stmt {
-        kind: StmtKind::Expr(called),
-        at,
-    };
-    Stmt {
-        kind: StmtKind::If {
-            condition: guard,
-            then_branch: Box::new(inner),
-            else_branch: None,
-        },
-        at,
-    }
-}
-
-/// `name`, as a synthetic identifier expression.
 /// The key a `for`-`in` head just bound, as an expression.
 ///
 /// A plain name in the head is the only shape a `for`-`in` key can take that
@@ -945,58 +942,5 @@ fn key_expression(pattern: &Pattern, at: Position) -> Expr {
             kind: ExprKind::Literal(Literal::Boolean(true)),
             at,
         },
-    }
-}
-
-fn ident(name: Name, at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Ident(name),
-        at,
-    }
-}
-
-/// `object.property`, as a synthetic expression.
-fn member_expr(object: Expr, property: Name, at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Member {
-            object: Box::new(object),
-            property,
-            optional: false,
-        },
-        at,
-    }
-}
-
-/// `place = value;`, as a synthetic statement.
-fn assign_stmt(place: Expr, value: Expr, at: Position) -> Stmt {
-    use crate::syntax::{AssignOp, AssignTarget, StmtKind};
-
-    Stmt {
-        kind: StmtKind::Expr(Expr {
-            kind: ExprKind::Assign {
-                target: AssignTarget::Place(Box::new(place)),
-                value: Box::new(value),
-                op: AssignOp::Plain,
-            },
-            at,
-        }),
-        at,
-    }
-}
-
-/// `undefined`, as a synthetic expression — the language's own singleton
-/// literal rather than a name, which nothing here binds.
-fn undefined_expr(at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Literal(Literal::Singleton(Singleton::Undefined)),
-        at,
-    }
-}
-
-/// A string literal, as a synthetic expression.
-fn text_expr(text: &str, at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Literal(Literal::String(text.into())),
-        at,
     }
 }

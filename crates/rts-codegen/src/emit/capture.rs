@@ -293,7 +293,8 @@ pub(super) fn vars_at_any_depth(statement: &Stmt, found: &mut BTreeSet<Name>) {
     });
 }
 
-/// Names assigned inside a `try` body or a `using` scope.
+/// Names assigned inside a `try` body, a `catch`, a `finally`, or a `using`
+/// scope.
 ///
 /// These belong in the environment for exactly the reason a captured name does,
 /// arrived at from the other direction. A handler is entered from *every* point
@@ -330,8 +331,19 @@ fn assigned_under_protection(statement: &Stmt, found: &mut BTreeSet<Name>) {
                 found.extend(writes(inner));
                 assigned_under_protection(inner, found);
             }
+            // And the `finally`'s own assignments, which is the third of the
+            // three and was missing. A `finally` body is emitted FOUR times —
+            // the normal path, the unwinding handler, the cleanup, and the
+            // copy a `return` reaches — into blocks that have no common
+            // predecessor, so a name it writes has as many definitions as
+            // there are copies and no place for a block parameter to merge
+            // them. `do { try {} finally { n = n + 1; continue } } while (n <
+            // 3)` is what says so: the increment lived in an SSA value the
+            // `continue` edge never carried, the test read the value from
+            // before the loop, and the loop never ended.
             if let Some(finally) = finally {
                 for inner in finally {
+                    found.extend(writes(inner));
                     assigned_under_protection(inner, found);
                 }
             }

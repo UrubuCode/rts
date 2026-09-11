@@ -29,7 +29,11 @@
 //! `every`, `find` — drive the receiver through its own `next`, so they work on
 //! anything with the protocol rather than only on what this crate built.
 
-mod drive;
+// Visible to the rest of `entry` rather than to this module alone: the
+// protocol it spells — one step, one close, one `GetIterator` — is what a
+// collection constructor walks its argument with too, and a second copy of it
+// beside `collections/` is the rule written twice.
+pub(in crate::entry) mod drive;
 mod helper;
 
 use crate::entry::{
@@ -49,17 +53,47 @@ impl Iterator {
     /// `Iterator.prototype`, which every iterator this engine builds now does.
     /// Wrapping one would give a program two objects where the language gives
     /// it one, and `Iterator.from(it) === it` is what a fixture asks.
-    /// `new Iterator()` — refused, and `Iterator()` with it.
+    /// `new Iterator()` — refused, and `Iterator()` with it. A SUBCLASS's
+    /// `super()` is not.
     ///
     /// The language makes it an ABSTRACT class: it exists to be the prototype
-    /// every iterator inherits and to be extended, never to be built. A default
-    /// constructor would answer a bare object that passes `instanceof Iterator`
-    /// and has no `next`, which is worse than the refusal.
+    /// every iterator inherits and to be extended, never to be built directly.
+    /// A default constructor would answer a bare object that passes
+    /// `instanceof Iterator` and has no `next`, which is worse than the
+    /// refusal.
+    ///
+    /// The specification asks about **NewTarget** — undefined, or `Iterator`
+    /// itself, is the refusal — and what this asks instead is the prototype of
+    /// the object the construction already made. `new Iterator()` hands one
+    /// whose prototype IS `Iterator.prototype`; `class C extends Iterator {}`
+    /// hands one whose prototype is `C.prototype`, which reaches
+    /// `Iterator.prototype` one link further out. A plain `Iterator()` hands no
+    /// object at all.
+    ///
+    /// Not `new_target()`, and the reason is where that answer comes from: it
+    /// is keyed by the ACTIVATION depth a compiled constructor pushes, and a
+    /// native reached through the class attribute's wrapper is not one of
+    /// those. Refusing every subclass was the previous spelling's cost, and it
+    /// ended the program at `super()` — `class Counter extends Iterator` is
+    /// what the ES2025 helpers exist to be written with.
     #[construct]
     fn build(this: u64) -> u64 {
-        throw::type_error("Iterator is abstract and cannot be constructed directly");
-        let _ = this;
-        drive::absent()
+        let direct = with_current(|context| {
+            let Some(cell) = Value(this).as_slot() else {
+                return true;
+            };
+            match class_support::prototype(context, "Iterator") {
+                Some(prototype) => context.prototype_at(cell) == Some(prototype),
+                // No registration, so nothing to be a subclass OF: refusing is
+                // the answer that cannot be a wrong `instanceof`.
+                None => true,
+            }
+        });
+        if direct {
+            throw::type_error("Iterator is abstract and cannot be constructed directly");
+            return drive::absent();
+        }
+        this
     }
 
     #[stat]
