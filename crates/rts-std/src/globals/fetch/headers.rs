@@ -43,6 +43,9 @@ const METHODS: &[(&str, Provided)] = &[
     ("keys", keys),
     ("values", values),
     ("entries", entries),
+    // `[...headers]` iterates in `entries()` order; `entries` already answers a
+    // plain (iterable) array, so the default iterator is that same function.
+    ("@@iterator", entries),
 ];
 
 /// The `Headers` constructor.

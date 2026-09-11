@@ -28,7 +28,7 @@ use crate::value::Value;
 /// Nesting them is a panic on the re-entry, and an `extern "C"` frame cannot
 /// unwind — so it aborts the process rather than failing a test, which is how
 /// this one was found.
-pub(super) fn radix_argument(radix: u64) -> Option<i64> {
+pub(in crate::entry) fn radix_argument(radix: u64) -> Option<i64> {
     let absent = with_current(|context| undefined_of(context));
     match radix == absent {
         true => None,

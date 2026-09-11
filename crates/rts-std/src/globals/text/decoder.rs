@@ -77,6 +77,11 @@ const METHODS: &[(&str, Provided)] = &[("decode", decode)];
 /// The `TextDecoder` constructor, with its prototype linked.
 pub(super) fn class(context: &mut Context) -> u64 {
     let prototype = prototype(context);
+    // `Object.prototype.toString.call(new TextDecoder())` — written once here,
+    // not in `prototype()`, because `construct` also calls that helper on
+    // every `new` and a prototype property only needs setting once.
+    let tag = entry::make_string(context, "TextDecoder");
+    entry::put_member(context, prototype, "@@toStringTag", tag);
     let ctor = entry::make_callable(context, construct);
     entry::put_member(context, ctor, "prototype", prototype);
     entry::put_member(context, prototype, "constructor", ctor);
@@ -237,7 +242,8 @@ struct Split {
 fn split_decodable(bytes: &[u8], codec: &str, streaming: bool) -> Split {
     match codec {
         "utf8" => split_utf8(bytes, streaming),
-        "utf16le" => split_utf16le(bytes, streaming),
+        "utf16le" => split_utf16(bytes, streaming, u16::from_le_bytes),
+        "utf16be" => split_utf16(bytes, streaming, u16::from_be_bytes),
         // One byte, one character: nothing can be split and nothing is
         // invalid. `ascii` is included here rather than given a high-bit check
         // because this engine's `ascii` codec MASKS the high bit — a divergence
@@ -271,17 +277,20 @@ fn split_utf8(bytes: &[u8], streaming: bool) -> Split {
     }
 }
 
-/// UTF-16LE: an odd trailing byte is half a code unit, and a trailing high
-/// surrogate is half a character.
+/// UTF-16, either byte order: an odd trailing byte is half a code unit, and a
+/// trailing high surrogate is half a character.
 ///
 /// The second case is the one that is easy to miss and impossible to repair
-/// later: a chunk ending on `D8 3D` decodes to `U+FFFD` on its own, and the
-/// `DE 42` that would have completed the emoji decodes to a second `U+FFFD` on
-/// the next call. Holding two bytes back is what makes the pair survive.
-fn split_utf16le(bytes: &[u8], streaming: bool) -> Split {
+/// later: a chunk ending on the high half of a pair decodes to `U+FFFD` on its
+/// own, and the low half that would have completed the emoji decodes to a
+/// second `U+FFFD` on the next call. Holding two bytes back is what makes the
+/// pair survive. `from_pair` is `u16::from_le_bytes`/`from_be_bytes` — the only
+/// difference between the two byte orders is which of those this is called
+/// with.
+fn split_utf16(bytes: &[u8], streaming: bool, from_pair: fn([u8; 2]) -> u16) -> Split {
     let mut whole = bytes.len() - bytes.len() % 2;
     let trailing_high = whole >= 2 && {
-        let unit = u16::from_le_bytes([bytes[whole - 2], bytes[whole - 1]]);
+        let unit = from_pair([bytes[whole - 2], bytes[whole - 1]]);
         (0xD800..=0xDBFF).contains(&unit)
     };
     if streaming && trailing_high {
@@ -311,6 +320,7 @@ fn supported_label(label: &str) -> Option<&'static str> {
     match entry::canonical_encoding(label)? {
         "utf8" => Some("utf-8"),
         "utf16le" => Some("utf-16le"),
+        "utf16be" => Some("utf-16be"),
         "latin1" => Some("latin1"),
         "ascii" => Some("ascii"),
         _ => None,

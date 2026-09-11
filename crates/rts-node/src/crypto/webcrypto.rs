@@ -61,6 +61,11 @@ pub(crate) fn object(context: &mut Context) -> u64 {
     let crypto = entry::make_prototype(context, "Crypto", CRYPTO_MEMBERS);
     let subtle = entry::make_prototype(context, "SubtleCrypto", SUBTLE_MEMBERS);
     entry::put_member(context, crypto, "subtle", subtle);
+    // `Object.prototype.toString.call(crypto)` — `make_prototype` memoizes this
+    // object per context, so writing the tag on every call is writing it once
+    // in practice; see `rts-std`'s `events/event.rs` for the same pattern.
+    let tag = entry::make_string(context, "Crypto");
+    entry::put_member(context, crypto, "@@toStringTag", tag);
     crypto
 }
 
