@@ -191,6 +191,18 @@ impl Context {
         self.proxies.copied(cell)
     }
 
+    /// Whether this program has made a proxy at all.
+    ///
+    /// The gate on the prototype-chain walk `proxy::prototype::above` performs:
+    /// that question has to be asked on every miss, and a program that never
+    /// wrote `new Proxy` must not pay a chain walk for it. Asked of the table's
+    /// REACH rather than of a counter, because the table is the one record of
+    /// the fact — a counter beside it would be the same fact twice, and would
+    /// have to be kept in step with the collector dropping a revoked proxy.
+    pub(super) fn any_proxy(&self) -> bool {
+        self.proxies.reach() != 0
+    }
+
     /// Records what a proxy stands for.
     pub(super) fn set_proxy(&mut self, cell: u32, target: u64, handler: u64) {
         self.proxies.set(cell, (target, handler));

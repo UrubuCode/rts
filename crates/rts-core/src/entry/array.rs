@@ -62,13 +62,58 @@ pub fn array_of(count: i64, v0: u64, v1: u64, v2: u64, v3: u64) -> u64 {
 #[rtse::entry]
 pub fn array_new(length: i64) -> u64 {
     with_current(|context| {
+        let wanted = length.max(0) as usize;
+        // Past `DENSE_LIMIT`, `vec![hole; wanted]` is the allocation this
+        // module exists to refuse: `new Array(4294967295)` is a valid array
+        // length in the language and every other engine answers it without
+        // materialising four billion slots. `built_in_sparse` records the
+        // true count as the `length` property alone; `computed::access` is
+        // where a write at one specific huge index still lands, as a named
+        // property `Object.keys`'s index-spelling merge already sorts back
+        // into place.
+        if wanted > DENSE_LIMIT {
+            return built_in_sparse(context, wanted);
+        }
         // BURACOS, não `undefined`: `new Array(3)` tem três posições AUSENTES,
         // e `0 in new Array(3)` é falso. O emissor também passa por aqui ao
         // montar um literal, e ali as posições escritas sobrescrevem o buraco —
         // as não escritas são justamente as que devem continuar ausentes.
         let vazio = hole_of(context);
-        built_in(context, vec![vazio; length.max(0) as usize])
+        built_in(context, vec![vazio; wanted])
     })
+}
+
+/// Above this many elements, a dense `Vec<u64>` would allocate more than a
+/// program should pay for one array — 80 MB at this bound, chosen well below
+/// where the allocator itself refuses. `new Array(2**32-1)` and `a.length =
+/// 2**32-1` are both valid lengths the language grants, and both used to
+/// materialise 34 GB of holes and abort the process; that is the ONE thing
+/// this constant exists to stop; see [`array_new`], [`built_in_sparse`],
+/// `objects::reconcile_length` and `computed::access::store_indexed` for the
+/// four sites that check it.
+pub(in crate::entry) const DENSE_LIMIT: usize = 10_000_000;
+
+/// The store for a length past [`DENSE_LIMIT`]: no dense allocation, the
+/// `length` property alone states the count and the element store is empty
+/// until a specific index is written.
+fn built_in_sparse(context: &mut Context, length: usize) -> u64 {
+    let store = context.arrays.insert(Vec::new()).slot();
+    let cell = allocate_array_cell(context);
+    context.mark_array(cell, store);
+    set_length(context, cell, length);
+    Value::from_slot(cell).bits()
+}
+
+/// The `length` an array's own property currently states, read back rather
+/// than assumed — a sparse array past [`DENSE_LIMIT`] has a `length` the
+/// dense store does not reflect, which is exactly the case
+/// `computed::access::store_indexed` asks this for: whether a huge index it is
+/// about to write is already covered.
+pub(in crate::entry) fn current_length(context: &mut Context, cell: u32) -> usize {
+    let key = super::computed::length_key(context);
+    super::objects::own_property(context, cell, key)
+        .and_then(|value| value.numeric())
+        .map_or(0, |number| number.max(0.0) as usize)
 }
 
 /// O marcador de posição ausente. Ver [`crate::value::Singletons::hole`].
@@ -448,9 +493,16 @@ fn proxy_level(
     let mut enumerable = Vec::new();
     let mut every = Vec::new();
     for key in keys {
+        // Two spellings of the same key, because a trap answers either: a real
+        // symbol VALUE when the handler built the list itself, and the reserved
+        // key text when the list was forwarded out of the target's own shape.
+        // Only the text was asked, so `for (k in proxy)` reported `@@sym:15` as
+        // a property name — the encoding, leaked through the one walk that must
+        // never see a symbol at all.
         let reserved = with_current(|context| {
-            super::text::to_text(context, Value(key))
-                .is_some_and(|text| super::symbol::is_symbol_key(&text))
+            super::symbol::is_symbol(context, key)
+                || super::text::to_text(context, Value(key))
+                    .is_some_and(|text| super::symbol::is_symbol_key(&text))
         });
         if reserved {
             continue;
@@ -492,12 +544,17 @@ fn proxy_level(
 /// and the ordering, the symbol rule and the accessor pass are the same rules
 /// — which this crate keeps refusing to state twice.
 pub(in crate::entry) fn own_names(object: u64) -> u64 {
-    // A proxy answers both spellings the same way — its handler's `ownKeys` IS
-    // `[[OwnPropertyKeys]]`, and the enumerable/every distinction is applied by
-    // the caller rather than by the trap. Asking here as well as in `own_keys`
-    // is what stopped `Reflect.ownKeys` over a proxy from answering the empty
-    // list, which is what a cell with no properties of its own really has.
-    if let Some(answered) = super::proxy::own_keys(object) {
+    // A proxy's handler `ownKeys` IS `[[OwnPropertyKeys]]`, and the
+    // enumerable/every distinction is applied by the caller rather than by the
+    // trap. Asking here as well as in `own_keys` is what stopped
+    // `Reflect.ownKeys` over a proxy from answering the empty list, which is
+    // what a cell with no properties of its own really has.
+    //
+    // The NAMES half of it, because that is what this function is: a trap may
+    // list symbols, `Object.getOwnPropertyNames` may not report one, and
+    // `Reflect.ownKeys` asks the trap itself rather than stitching this back
+    // together with the symbols.
+    if let Some(answered) = super::proxy::own_names(object) {
         return answered;
     }
     keys_of(object, false)

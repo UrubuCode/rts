@@ -16,23 +16,28 @@ use crate::value::Value;
 /// forwarding case is the target's own keys and not the proxy's, which have
 /// never existed: a proxy cell holds no properties at all.
 ///
-/// # The divergence in the forwarding case, named
+/// # The forwarding case, and the divergence that used to be here
 ///
-/// It answers the target's ENUMERABLE own keys, where `[[OwnPropertyKeys]]`
-/// answers every one. `Reflect.ownKeys(new Proxy(o, {}))` therefore misses a
-/// property defined with `enumerable: false`. The reason is that
-/// `array::own_keys` and `array::own_names` — the filtered and unfiltered
-/// spellings — both reach this one function, so it has a single answer to give
-/// two callers that want different ones, and the other choice is worse:
-/// answering every key would put `length` into a spread of a proxied array.
-/// The fix is one level up, where the two spellings already differ.
+/// It answers EVERY own key of the target, strings and symbols, which is what
+/// `[[OwnPropertyKeys]]` means. It used to answer the ENUMERABLE ones, on the
+/// grounds that answering every key would put `length` into a spread of a
+/// proxied array — and that reasoning was right about the symptom and wrong
+/// about the level. `Object.keys` and a spread reach [`enumerable_keys`], which
+/// filters by the descriptor per key and drops `length` because it is not
+/// enumerable; the unfiltered spelling is what `Reflect.ownKeys` and
+/// `getOwnPropertyNames` want.
+///
+/// What the filtered answer cost was worse than a missing hidden property: the
+/// invariant below refuses a list that omits a key the target cannot lose, so
+/// `JSON.stringify(new Proxy([1, 2], {}))` raised *"'ownKeys' on proxy: trap
+/// result did not include 'length'"* — the engine refusing its own forward.
 pub(in crate::entry) fn own_keys(object: u64) -> Option<u64> {
     let trap = super::trap_for(object, "ownKeys")?;
     if trap.refused {
         return Some(crate::entry::modules::make_array(Vec::new()));
     }
     let Some(callee) = trap.callee else {
-        return Some(crate::entry::array::own_keys(trap.target));
+        return Some(forwarded_keys(trap.target));
     };
     let absent = super::absent();
     let listed =
@@ -42,6 +47,36 @@ pub(in crate::entry) fn own_keys(object: u64) -> Option<u64> {
     }
     checked_keys(trap.target, listed);
     Some(listed)
+}
+
+/// The target's own keys, in the order and the completeness
+/// `[[OwnPropertyKeys]]` states: strings first, then symbols.
+///
+/// Two lists rather than one walk because that is how this crate already
+/// answers the question — a symbol's key text is an internal encoding, so
+/// `array::own_names` deliberately filters it out and
+/// `object_global::own_symbols` is the one place that decodes it back. Writing
+/// a third walk here would be a second answer to which of an object's keys are
+/// symbols.
+fn forwarded_keys(target: u64) -> u64 {
+    let named = crate::entry::array::own_names(target);
+    let symbols = crate::entry::object_global::own_symbols(target);
+    let mut keys = with_current(|context| {
+        Value(named)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell))
+            .cloned()
+            .unwrap_or_default()
+    });
+    let rest = with_current(|context| {
+        Value(symbols)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell))
+            .cloned()
+            .unwrap_or_default()
+    });
+    keys.extend(rest);
+    crate::entry::modules::make_array(keys)
 }
 
 /// The refusals a key list has to survive.
@@ -311,6 +346,47 @@ pub(in crate::entry) fn define(object: u64, key: Key, descriptor: u64) -> Option
     Some(primitives::to_boolean(answered))
 }
 
+/// Whether a key a trap listed is a SYMBOL, in either spelling it arrives in.
+///
+/// A handler that built the list itself answers real symbol values; one that
+/// forwarded the target's own keys answers the reserved key TEXT, because that
+/// is how a symbol-keyed property is filed. Both are the same key, and every
+/// caller that splits a key list by kind has to recognise both — which is why
+/// this is one function rather than the test written twice.
+fn is_symbol_entry(entry: u64) -> bool {
+    with_current(|context| {
+        crate::entry::symbol::is_symbol(context, entry)
+            || crate::entry::text::to_text(context, Value(entry))
+                .is_some_and(|text| crate::entry::symbol::is_symbol_key(&text))
+    })
+}
+
+/// The STRING half of what `ownKeys` reported — `Object.getOwnPropertyNames`.
+///
+/// `[[OwnPropertyKeys]]` on a proxy is the trap's list entire, symbols
+/// included, and the two `Object` spellings each take one half of it. Handing
+/// the whole list to `getOwnPropertyNames` put a symbol where a name belongs:
+/// `Object.getOwnPropertyNames(p).join("|")` answered `a||b|`, the empty
+/// spellings being symbols that have no string form.
+pub(in crate::entry) fn own_names(object: u64) -> Option<u64> {
+    let listed = own_keys(object)?;
+    if throw::in_flight() {
+        return Some(listed);
+    }
+    let keys: Vec<u64> = with_current(|context| {
+        Value(listed)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell))
+            .cloned()
+            .unwrap_or_default()
+    });
+    let kept = keys
+        .into_iter()
+        .filter(|entry| !is_symbol_entry(*entry))
+        .collect();
+    Some(crate::entry::modules::make_array(kept))
+}
+
 /// The keys `Object.keys` reports for a proxy: its own keys, filtered.
 ///
 /// `Reflect.ownKeys` answers what the trap said and nothing else, and
@@ -338,6 +414,12 @@ pub(in crate::entry) fn enumerable_keys(object: u64) -> Option<u64> {
 
     let mut kept = Vec::with_capacity(keys.len());
     for key in keys {
+        // `Object.keys` never reports a symbol, whatever the trap listed — and
+        // skipped BEFORE the descriptor is asked for, because the specification
+        // only calls `[[GetOwnProperty]]` for the keys it could report.
+        if is_symbol_entry(key) {
+            continue;
+        }
         // Through the public spelling, so a proxy whose target is a proxy is
         // asked again — the forwarding every absent trap does.
         let described = crate::entry::object_global::describe_of(object, key);

@@ -142,6 +142,7 @@ fn resolved(key: u64, object: u64) -> bool {
         // same test, not a second one.
         if let Some(at) = super::super::array::as_index(context, Value(key))
             && let Some(elements) = context.elements_at(slot)
+            && at < super::super::array::DENSE_LIMIT
         {
             // Estar dentro do comprimento não basta: um BURACO ocupa índice e
             // não existe. `0 in [,1]` é falso; `0 in [undefined,1]` é verdadeiro.
@@ -149,6 +150,9 @@ fn resolved(key: u64, object: u64) -> bool {
                 .get(at)
                 .is_some_and(|&held| !super::super::array::is_hole(context, held));
         }
+        // An index past `DENSE_LIMIT` never reaches the dense store — see
+        // `array::DENSE_LIMIT` — so it falls through to the ordinary property
+        // walk below, which is where such a write actually landed.
         // A STRING's characters are own properties too, and no shape records
         // them either — the same argument the elements arm above makes, for the
         // other kind of indexed storage. `access.rs` already asks this on the

@@ -14,6 +14,33 @@ use crate::value::Value;
 
 /// `handler.get(target, prop, receiver)`, or the target's own answer.
 pub(in crate::entry) fn get(object: u64, key: Key) -> Option<u64> {
+    get_on(object, key, object)
+}
+
+/// The same read, with the receiver said rather than assumed.
+///
+/// `[[Get]]` carries a receiver distinct from the object holding the property in
+/// two shapes this engine could not express: `Reflect.get(p, k, other)`, and a
+/// proxy reached as a PROTOTYPE — where `child.x` must call the trap with
+/// `child`, not with the proxy. Passing the proxy in both cases made a handler
+/// that forwards with `Reflect.get(t, k, r)` run an inherited getter on the
+/// wrong `this`, which is the one thing the third argument exists to decide.
+pub(in crate::entry) fn get_on(object: u64, key: Key, receiver: u64) -> Option<u64> {
+    // A PRIVATE class member is not a property, so no trap can forward it and
+    // no target can answer it: a proxy has no private slots however faithfully
+    // it wraps something that does. Here a private name IS a key — see
+    // `symbol::is_private_key` for why — so the read reached the target and
+    // answered its field, where every runtime raises a brand failure. Asked
+    // before the handler is consulted, which is also the order: the
+    // specification never reaches `[[Get]]` for a private name at all.
+    if super::is_proxy(object)
+        && let Some(spelled) = private_name(key)
+    {
+        throw::type_error(&format!(
+            "Cannot read private member {spelled} from an object whose class did not declare it"
+        ));
+        return Some(absent());
+    }
     let trap = trap_for(object, "get")?;
     if trap.refused {
         return Some(absent());
@@ -27,7 +54,7 @@ pub(in crate::entry) fn get(object: u64, key: Key) -> Option<u64> {
         trap.handler,
         trap.target,
         property,
-        object,
+        receiver,
         absent(),
     );
     if throw::in_flight() {
@@ -90,15 +117,41 @@ pub(in crate::entry) fn get(object: u64, key: Key) -> Option<u64> {
 /// mode — `Reflect.set` answers `false` for the same verdict and must not
 /// raise at all.
 pub(in crate::entry) fn set_verdict(object: u64, key: Key, value: u64) -> Option<bool> {
+    set_verdict_on(object, key, value, object)
+}
+
+/// The same write, with the receiver said rather than assumed — see
+/// [`get_on`] for why the fourth argument of `[[Set]]` is not decoration.
+///
+/// The forwarding case is where it does the most work: `target.[[Set]](k, v,
+/// proxy)` is an `OrdinarySet` whose receiver is the PROXY, so a data store
+/// lands through the proxy's own `getOwnPropertyDescriptor` and
+/// `defineProperty` traps rather than on the target. That is what a handler
+/// logging its trap names observes, and writing the target directly — which is
+/// what this did — made both traps silent.
+pub(in crate::entry) fn set_verdict_on(
+    object: u64,
+    key: Key,
+    value: u64,
+    receiver: u64,
+) -> Option<bool> {
     let trap = trap_for(object, "set")?;
     if trap.refused {
         return Some(false);
     }
     let Some(callee) = trap.callee else {
         // A target that is itself a proxy gets its own traps, for the reason
-        // `forwarded_read` states.
-        if let Some(answered) = set_verdict(trap.target, key, value) {
+        // `forwarded_read` states — and the receiver travels with the forward.
+        if let Some(answered) = set_verdict_on(trap.target, key, value, receiver) {
             return Some(answered);
+        }
+        if receiver != trap.target {
+            return Some(crate::entry::ordinary::store_on(
+                trap.target,
+                key,
+                value,
+                receiver,
+            ));
         }
         return Some(with_current(|context| {
             let Some(cell) = Value(trap.target).as_slot() else {
@@ -113,7 +166,7 @@ pub(in crate::entry) fn set_verdict(object: u64, key: Key, value: u64) -> Option
         }));
     };
     let property = property_of(key);
-    let answered = functions::call(callee, trap.handler, trap.target, property, value, object);
+    let answered = functions::call(callee, trap.handler, trap.target, property, value, receiver);
     if throw::in_flight() {
         return Some(false);
     }
@@ -228,6 +281,26 @@ pub(in crate::entry) fn delete(object: u64, key: Key) -> Option<bool> {
         return Some(false);
     }
     Some(true)
+}
+
+/// The `#name` a key spells, when the key is a private class member's.
+///
+/// The `@@` is this crate's encoding and must not reach a program's `catch`;
+/// what a reader wrote is the `#name` underneath it — the same unwrapping
+/// `objects::looked_up` performs for the ordinary brand failure, and the message
+/// is the same one for the same reason.
+fn private_name(key: Key) -> Option<String> {
+    with_current(|context| {
+        let Key::Name(named) = key else {
+            return None;
+        };
+        let text = context.interner.text(named)?;
+        if !crate::entry::symbol::is_private_key(text) {
+            return None;
+        }
+        let spelled = text.to_rust()?;
+        Some(spelled.strip_prefix("@@").unwrap_or(&spelled).to_owned())
+    })
 }
 
 /// Reads through to the target, for a handler that does not trap the read.
