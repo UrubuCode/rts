@@ -432,6 +432,39 @@ pub(crate) fn present_wgpu(
     for id in &textures_delta.free {
         r.renderer.free_texture(id);
     }
+
+    // 6. PERGUNTA ao device o que a GPU já terminou — sem isto, nada volta.
+    //
+    // `free_texture` acima diz ao `Renderer` do egui para esquecer a textura, e
+    // `queue.submit` entrega o trabalho. Nenhum dos dois LIBERTA seja o que for:
+    // em wgpu um recurso destruído fica retido pelo device até alguém varrer as
+    // submissões concluídas, e quem varre é `poll`. `present` não o faz.
+    //
+    // Isso não se notava enquanto uma janela desenhava só retângulos e texto,
+    // porque aí não se cria recurso nenhum por frame. Uma página com `<img>`
+    // cria: `pintura.rs` sobe uma textura EFÉMERA por imagem por frame — a
+    // alternativa, guardá-las, é o cache stale que aquele ficheiro recusa — e o
+    // jogo do dino tem setenta e uma. Setenta e uma texturas por frame a
+    // cinquenta e seis frames por segundo, nenhuma devolvida.
+    //
+    // MEDIDO nesta árvore, binário de debug, a mesma página parada numa janela
+    // (`target/dino/v9-parada.ts`), amostras de 10 s:
+    //
+    //   sem esta linha   281,4 → 319,9 MB em 60 s, a subir sem patamar
+    //   com esta linha   281,7 → 287,5 MB, PLANO a partir dos 60 s
+    //
+    // E a prova de que era a imagem e não o frame: a mesma página com as
+    // imagens não pintadas ficava plana em 283,3 MB durante 5 333 frames, sem
+    // esta linha.
+    //
+    // `Poll` e não `Wait`: isto corre no frame do programa, e esperar pela GPU
+    // trocaria uma fuga por um bloqueio síncrono a cada frame. O que se quer é
+    // a varredura do que JÁ terminou, que é o que `Poll` faz e devolve já.
+    //
+    // O erro é ignorado: `poll` só falha com o device perdido, e nesse caso o
+    // frame seguinte falha a adquirir a surface — onde essa condição já é
+    // tratada. Dois sítios a decidir o mesmo seria um a mais.
+    let _ = r.device.poll(wgpu::PollType::Poll);
 }
 
 #[cfg(test)]
