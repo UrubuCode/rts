@@ -39,6 +39,28 @@ fn rgba_to_color32(c: u32) -> egui::Color32 {
 /// `frame/mod.rs`.
 struct EguiMeasurer {
     ctx: egui::Context,
+    /// One number per egui `Context`, stable for the life of that context, and
+    /// the ONLY thing the caches below may key on. It used to be the address
+    /// of the `ctx` field above — and this measurer is rebuilt every frame, so
+    /// that address changed every frame: `TEXT_WIDTH_CACHE` grew one fresh
+    /// bucket per frame that nothing ever evicted (the 8 192 ceiling is per
+    /// bucket), and the layout caches keyed by `identity()` never hit across
+    /// frames. Measured on the dino page: 544 B + 280 B retained per frame,
+    /// ~0.1 MB/s in release, flat once the key stopped moving.
+    context_id: u64,
+}
+
+/// A stable identity for an egui `Context`, minted once and kept in the
+/// context's own data store. `egui::Context` exposes no id of its own, and its
+/// address is the address of whichever clone one happens to hold.
+fn context_identity(ctx: &egui::Context) -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let slot = egui::Id::new("rts-egui: context identity for the text measurer");
+    ctx.data_mut(|data| {
+        *data.get_temp_mut_or_insert_with(slot, || {
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        })
+    })
 }
 
 /// Constrói o `EguiMeasurer` deste frame E regista-o como o medidor ACTIVO da
@@ -54,7 +76,7 @@ struct EguiMeasurer {
 /// ou o `pixels_per_point` mudassem) pedia detectar essa troca, que este ponto
 /// não precisa de ter.
 fn measurer_for(ctx: &egui::Context) -> Rc<EguiMeasurer> {
-    let measurer = Rc::new(EguiMeasurer { ctx: ctx.clone() });
+    let measurer = Rc::new(EguiMeasurer { ctx: ctx.clone(), context_id: context_identity(ctx) });
     rts_dom::layout::medidor_ativo::set_active(measurer.clone());
     measurer
 }

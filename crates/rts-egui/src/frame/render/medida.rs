@@ -38,15 +38,15 @@ impl TextMeasurer for EguiMeasurer {
     /// O `Context` do egui identifica as fontes; o `pixels_per_point` identifica
     /// a escala, e mudar o zoom MUDA a largura do texto. Este medidor é
     /// reconstruído (e reregistado como o activo) a cada frame — ver
-    /// `measurer_for` —, então o endereço DELE não serve — ver a nota em
-    /// `TextMeasurer::identity`; usa-se o endereço do `Context` que carrega.
+    /// `measurer_for` —, então nem o endereço DELE nem o do `Context` que
+    /// carrega servem (o segundo é o endereço do CAMPO, e muda com ele); é o
+    /// `context_id` cunhado uma vez por contexto — ver `EguiMeasurer`.
     fn identity(&self) -> u64 {
-        let context = &self.ctx as *const egui::Context as usize as u64;
-        context ^ ((self.ctx.pixels_per_point().to_bits() as u64) << 32)
+        self.context_id ^ ((self.ctx.pixels_per_point().to_bits() as u64) << 32)
     }
 
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32 {
-        let context_key = &self.ctx as *const egui::Context as usize;
+        let context_key = self.context_id as usize;
         // `italic` entra na CHAVE do cache: a família itálica tem avanços
         // próprios, e sem este bit a primeira medição de uma palavra ficava a
         // valer para as duas versões dela.
@@ -76,7 +76,7 @@ impl TextMeasurer for EguiMeasurer {
         width
     }
     fn line_height(&self, size: f32) -> f32 {
-        let key = (&self.ctx as *const egui::Context as usize, size.to_bits());
+        let key = (self.context_id as usize, size.to_bits());
         if let Some(height) = LINE_HEIGHT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
             return height;
         }
@@ -109,7 +109,7 @@ impl TextMeasurer for EguiMeasurer {
     /// `docs/ui/css-implementation-gaps.md` já confirma certa
     /// (`claude-display-basico.html`, `depois-do-none.y`).
     fn font_ascent(&self, size: f32) -> f32 {
-        let key = (&self.ctx as *const egui::Context as usize, size.to_bits());
+        let key = (self.context_id as usize, size.to_bits());
         if let Some(ascent) = FONT_ASCENT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
             return ascent;
         }
