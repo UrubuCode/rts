@@ -106,6 +106,33 @@ pub(super) fn emit_object(
     });
     let expected = builder.use_const(expected);
     let object = call(builder, ctx, RuntimeOp::ObjectNew, &[expected])?[0];
+    // A method of this literal may write `super`, and the object it resolves
+    // against is THIS one — a literal has a `[[HomeObject]]` exactly as a class
+    // body does. Built here, before any method is emitted, because the method
+    // bodies are separately compiled functions that reach the name through the
+    // environment chain and nothing else.
+    //
+    // Only when a method actually reaches `super`: the environment is an
+    // allocation and two property writes, and the overwhelmingly common literal
+    // with methods writes no `super` at all. See `home::reaches_super` for
+    // which direction that question over-approximates in.
+    let home = match properties.iter().any(|property| match property {
+        Property::Method { function, .. }
+        | Property::Getter { function, .. }
+        | Property::Setter { function, .. } => super::home::reaches_super(function),
+        _ => false,
+    }) {
+        true => {
+            let name = ctx.names.intern(super::home::HOME);
+            Some(super::home::environment_holding(
+                builder,
+                scope,
+                ctx,
+                &[(name, Some(object))],
+            )?)
+        }
+        false => None,
+    };
     for property in properties {
         // A COMPUTED key is evaluated BEFORE the value it names, which is the
         // order `PropertyDefinitionEvaluation` states and the order this had
@@ -178,7 +205,12 @@ pub(super) fn emit_object(
                 if let PropertyKey::Named(name) = key {
                     ctx.lend_name(*name);
                 }
-                let value = super::function::emit_closure_method(builder, scope, ctx, function)?;
+                let value = match &home {
+                    Some(inner) => {
+                        super::function::emit_closure_method(builder, inner, ctx, function)?
+                    }
+                    None => super::function::emit_closure_method(builder, scope, ctx, function)?,
+                };
                 let _ = ctx.take_lent_name();
                 (key, value)
             }
@@ -198,7 +230,12 @@ pub(super) fn emit_object(
                     let spelled = accessor_name(ctx, *name, is_getter);
                     ctx.lend_name(spelled);
                 }
-                let closure = super::function::emit_closure_method(builder, scope, ctx, function)?;
+                let closure = match &home {
+                    Some(inner) => {
+                        super::function::emit_closure_method(builder, inner, ctx, function)?
+                    }
+                    None => super::function::emit_closure_method(builder, scope, ctx, function)?,
+                };
                 match key {
                     PropertyKey::Named(name) => {
                         // ENUMERABLE: an object literal's accessor is, and this
@@ -252,8 +289,20 @@ pub(super) fn emit_object(
             // 40 ms and `{x: 1, y: 2}` cost 143 — the CLASS was three times
             // faster than the literal, and this was why. It scaled with the
             // field count: 83 ms for one field, 143 for two, 206 for three.
+            // DEFINED and not written. `PropertyDefinitionEvaluation` is
+            // `CreateDataPropertyOrThrow`, which is `[[DefineOwnProperty]]` —
+            // it never consults an accessor. A `[[Set]]` does, and the literal
+            // is where one can already be in the way: `{ get z() {…}, z: 5 }`
+            // is a legal literal whose second property REPLACES the accessor,
+            // and writing it threw `TypeError: … which has only a getter`. The
+            // same is true of any accessor the literal's own `__proto__:` put
+            // on the chain before the write.
+            //
+            // It costs nothing: `emit_define` and `emit_write` share the one
+            // `cached_set` fast path and differ only in the entry point the
+            // MISS calls, so the measurement in the comment above still holds.
             PropertyKey::Named(name) => {
-                super::property::emit_write(builder, ctx, object, *name, value)?;
+                super::property::emit_define(builder, ctx, object, *name, value)?;
             }
             PropertyKey::Computed(_) => {
                 let key = computed_key.expect("a computed property key");

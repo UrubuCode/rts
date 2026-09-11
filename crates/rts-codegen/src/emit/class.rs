@@ -89,24 +89,7 @@ use crate::syntax::{
     MethodKind, PropertyKey, Stmt, StmtKind,
 };
 
-/// The name the parent constructor is held under.
-///
-/// Spelled so a program cannot write it. A collision would be harmless anyway —
-/// a class environment is never handed to JavaScript — but naming it once is
-/// what keeps the writer and the reader agreeing.
-const SUPER: &str = "__rts_super";
-
-/// The name the home object is held under.
-const HOME: &str = "__rts_home";
-
-/// The name the home object of a STATIC member is held under.
-///
-/// A second name rather than a second value under the first, because both are
-/// live at once: a class body has instance methods and static ones, and each
-/// resolves `super` against its own home. The specification says the same in
-/// its own words — `[[HomeObject]]` is per function, and a static method's is
-/// the constructor.
-const STATIC_HOME: &str = "__rts_static_home";
+use super::home::{HOME, STATIC_HOME, SUPER};
 
 /// The name a derived constructor holds `this` under.
 ///
@@ -271,16 +254,16 @@ pub(super) fn emit_class(
     }
 
     if let Some(parent) = parent {
-        let parent_prototype = super::property::emit_read(builder, ctx, parent, prototype_name)?;
-        expr::call(
+        // Both links, or the one a `null` heritage makes — see `heritage.rs`
+        // for why `extends null` is a shape rather than a refusal.
+        super::heritage::link(
             builder,
             ctx,
-            RuntimeOp::SetPrototype,
-            &[prototype, parent_prototype],
+            constructor,
+            prototype,
+            parent,
+            prototype_name,
         )?;
-        // The link an implementation forgets, and whose absence shows only when
-        // a program calls an inherited STATIC method.
-        expr::call(builder, ctx, RuntimeOp::SetPrototype, &[constructor, parent])?;
     }
 
     // Written now rather than with the parent, because the prototype did not
@@ -871,68 +854,34 @@ fn class_scope(
         ));
     }
 
-    let zero = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-        repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(0),
-    });
-    let zero = builder.use_const(zero);
-    let environment = expr::call(builder, ctx, RuntimeOp::ObjectNew, &[zero])?[0];
-    let outer = binding::outer_link(ctx);
-    let handed = match scope.environment() {
-        Some(environment) => environment,
-        None => expr::undefined(builder, ctx),
-    };
-    super::property::emit_write(builder, ctx, environment, outer, handed)?;
-
-    let mut held = BTreeSet::new();
-    let home_name = ctx.names.intern(HOME);
-    held.insert(home_name);
-    // The static home too, and in the SAME environment: a class body has both
+    // The home objects are HELD and not written: neither the prototype nor the
+    // constructor exists yet, so `emit_class` writes both once it has made
+    // them. Both are in the same environment because a class body has both
     // kinds of method and each resolves `super` against its own.
-    let static_home_name = ctx.names.intern(STATIC_HOME);
-    held.insert(static_home_name);
+    let mut entries: Vec<(Name, Option<ValueId>)> = vec![
+        (ctx.names.intern(HOME), None),
+        (ctx.names.intern(STATIC_HOME), None),
+    ];
     // The class's own name lives here too when a method reads it, which is what
     // makes `class Inner { m() { return Inner; } }` resolve from inside a
-    // separately compiled body.
+    // separately compiled body. Written by `emit_class`'s `binding::declare`
+    // for the same reason the home objects are — the constructor is its value.
     if let Some(name) = own_name {
-        held.insert(name);
+        entries.push((name, None));
     }
-
     if let Some(parent) = parent {
-        let super_name = ctx.names.intern(SUPER);
-        super::property::emit_write(builder, ctx, environment, super_name, parent)?;
-        held.insert(super_name);
+        entries.push((ctx.names.intern(SUPER), Some(parent)));
     }
-
-    // Every computed instance field's key value, written into the SAME
-    // environment and recorded in the SAME `held` set as `__rts_home` and
-    // `__rts_super` above — which is what makes it reachable through
-    // `Scope::reachable` when the constructor's own scope is built, instead of
-    // being a write nothing downstream knows to look for.
-    for &(name, value) in computed_fields {
-        super::property::emit_write(builder, ctx, environment, name, value)?;
-        held.insert(name);
-    }
-
-    // One link further out for everything the enclosing scope could reach,
-    // because this environment sits between it and the methods.
-    let reachable: Vec<(Name, u32)> = scope
-        .reachable()
-        .into_iter()
-        .map(|(name, hops)| (name, hops + 1))
-        .collect();
-    // `held` IS the own level here, and the two sets being one is the point
-    // rather than a shortcut: every name in it was written into `environment`
-    // by the loops just above — `__rts_home`, `__rts_super`, the class's own
-    // name, each computed field's key. There is no nested block to
-    // over-include from, which is exactly the condition
-    // `capture::declared_at_own_level` exists to test for a function body.
-    Ok(Scope::for_function(
-        Some(environment),
-        held.clone(),
-        &held,
-        &reachable,
-    ))
+    // Every computed instance field's key value, in the SAME environment —
+    // which is what makes it reachable through `Scope::reachable` when the
+    // constructor's own scope is built, instead of being a write nothing
+    // downstream knows to look for.
+    entries.extend(
+        computed_fields
+            .iter()
+            .map(|&(name, value)| (name, Some(value))),
+    );
+    super::home::environment_holding(builder, scope, ctx, &entries)
 }
 
 /// `super.x` — the LOOKUP starts above the home object, but the receiver an
