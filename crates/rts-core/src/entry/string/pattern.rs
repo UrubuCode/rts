@@ -37,8 +37,8 @@ use crate::text::Str;
 use crate::value::Value;
 
 /// What a string's prototype holds that takes a pattern and reads the matches.
-pub(super) const NATIVES: &[(&str, Native)] =
-    &[("search", search), ("match", match_), ("matchAll", match_all)];
+pub(super) const NATIVES: &[(&str, Native, u32)] =
+    &[("search", search, 1), ("match", match_, 1), ("matchAll", match_all, 1)];
 
 /// Where a match begins and ends, in bytes, with its groups.
 pub(super) struct Found {

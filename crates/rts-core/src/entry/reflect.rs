@@ -22,16 +22,24 @@
 //! keeps refusing. Every verdict here is now read from what that module holds,
 //! or from a proxy handler's own answer.
 //!
+//! # The receiver, which used to be dropped
+//!
+//! `Reflect.get(t, k, r)`, `Reflect.set(t, k, v, r)` and
+//! `Reflect.construct(t, args, nt)` each carry a fourth object the operation is
+//! really about, and all three ignored it. That is not a wrapper's own gap: the
+//! receiver decides which object a getter's `this` is, which object a data
+//! store lands on, and what `new.target` reads — so it belongs in the operation
+//! rather than here, and `computed::read_on`, `ordinary::store_on` and
+//! `functions::construct_args_on` are where each went.
+//!
+//! What stays here is the ONE thing a wrapper decides: absent means the target.
+//!
 //! # What is deliberately incomplete
 //!
-//! `Reflect.set(target, key, value, receiver)` ignores its fourth argument, and
-//! `Reflect.get(target, key, receiver)` its third. A receiver distinct from the
-//! target changes which object a setter's `this` is, which is a capability of
-//! the property path rather than of this wrapper.
-//!
-//! `Reflect.construct(target, args, newTarget)` reads its third argument for
-//! the PROTOTYPE and not for `new.target` — see [`Reflect::construct`] for
-//! exactly which half is missing and where the rest of it belongs.
+//! An explicit `undefined` receiver is read as absent. `Reflect.get(o, k,
+//! undefined)` is a getter call on `undefined` in the specification and a
+//! getter call on `o` here, because a native cannot tell an argument that was
+//! written from one that was not.
 
 use super::{Context, with_current};
 use crate::object::Key;
@@ -58,6 +66,28 @@ pub(in crate::entry) fn write_lands(context: &mut Context, cell: u32, key: Key) 
     )
 }
 
+/// `target.[[DefineOwnProperty]](key, descriptor)` — the proxy trap, or the
+/// ordinary define.
+///
+/// A free function because two callers perform it and one of them is not a
+/// member here: [`super::ordinary::store_on`] defines on the RECEIVER, and a
+/// second spelling of "ask the trap, else define" is a second answer to whether
+/// a proxy sees the operation.
+pub(in crate::entry) fn defined(target: u64, key: u64, descriptor: u64) -> bool {
+    // The REPORTING spelling, which is the whole of what `Reflect.defineProperty`
+    // is. This forwarded to the raising one and then answered "was the target an
+    // object", so every refusal the language reports as `false` ended the program
+    // instead: `Reflect.defineProperty(class K {}, "prototype", {value: {}})`,
+    // a non-configurable property redefined, a frozen object, an array's locked
+    // `length`, a regular expression's `lastIndex`. Six fixtures died on that
+    // one line, each at the first refusal it asked about.
+    //
+    // The proxy arm moved with it — `define_reported` asks the trap first, for
+    // the reason its own comment gives — so this is one call rather than a
+    // second copy of "ask the handler, else define".
+    super::object_global::define_reported(target, key, descriptor)
+}
+
 /// An array's elements, the borrow ending here.
 ///
 /// The array itself stays named by a local of the caller's frame across the
@@ -76,17 +106,48 @@ fn elements_of(array: u64) -> Vec<u64> {
 /// `Reflect`.
 #[rtse::class("Reflect", namespace, tag)]
 impl Reflect {
-    /// `Reflect.get(target, key)` — the same read `target[key]` performs.
-    fn get(target: u64, key: u64) -> u64 {
-        super::computed::get_indexed(target, key)
+    /// `Reflect.get(target, key, receiver)` — the same read `target[key]`
+    /// performs, on the `this` the caller names.
+    ///
+    /// The receiver is what an accessor runs with and what a proxy's `get` trap
+    /// is handed; a data property ignores it. Absent, it is the target — which
+    /// is what `target[key]` means and what this used to assume even when a
+    /// third argument was written, so a handler forwarding with
+    /// `Reflect.get(t, k, r)` ran an inherited getter on the target instead of
+    /// on the object the read started from.
+    #[arity(2)]
+    fn get(target: u64, key: u64, receiver: u64) -> u64 {
+        let named = with_current(|context| receiver == super::objects::undefined_of(context));
+        let receiver = match named {
+            true => target,
+            false => receiver,
+        };
+        super::computed::read_on(target, key, receiver)
     }
 
-    /// `Reflect.set(target, key, value)` — answers whether it was written.
+    /// `Reflect.set(target, key, value, receiver)` — answers whether it was
+    /// written.
     ///
     /// A proxy answers with its handler's own `set` verdict, and an ordinary
     /// object with whether anything refused the store: `Object.freeze` and
     /// `writable: false` are both recorded, and both mean `false` here.
-    fn set(target: u64, key: u64, value: u64) -> bool {
+    ///
+    /// A receiver distinct from the target does NOT write the target at all —
+    /// see [`super::ordinary::store_on`], which is the operation the language
+    /// performs and which this used to drop on the floor.
+    #[arity(3)]
+    fn set(target: u64, key: u64, value: u64, receiver: u64) -> bool {
+        let substituted = with_current(|context| {
+            receiver != super::objects::undefined_of(context) && receiver != target
+        });
+        if substituted {
+            let Some(named) =
+                with_current(|context| super::computed::property_key(context, Value(key)))
+            else {
+                return false;
+            };
+            return super::ordinary::store_on(target, named, value, receiver);
+        }
         if let Some(named) =
             with_current(|context| super::computed::property_key(context, Value(key)))
             && let Some(answered) = super::proxy::set_verdict(target, named, value)
@@ -146,6 +207,15 @@ impl Reflect {
     /// Without this the operation whose whole job is to see everything was the
     /// one operation that could not see a `[sym]: v` property at all.
     fn own_keys(target: u64) -> u64 {
+        // A proxy answers the whole question in one call, and must be asked
+        // exactly once: `[[OwnPropertyKeys]]` on a proxy IS the `ownKeys` trap's
+        // list, symbols included and in the order the handler gave. Stitching it
+        // out of the two `Object` spellings would call the trap twice — which a
+        // handler counting its own invocations can see — and would also reorder
+        // what the handler answered.
+        if let Some(answered) = super::proxy::own_keys(target) {
+            return answered;
+        }
         // EVERY own key, not the enumerable ones: `Reflect.ownKeys` is
         // `[[OwnPropertyKeys]]`, and `Object.keys` is the filtered spelling.
         // Answering the filtered list here made a property defined with
@@ -194,47 +264,34 @@ impl Reflect {
 
     /// `Reflect.construct(target, argumentList, newTarget)`.
     ///
-    /// # What the third argument does here, and what it does not
+    /// # What the third argument does
     ///
-    /// It decides what the produced object INHERITS FROM, which is what a
-    /// program reaches for it for: `Reflect.construct(Base, [x], Derived)`
-    /// answers something `instanceof Derived`. It does **not** decide what
-    /// `new.target` reads inside `target`'s body, which stays `target`.
+    /// Both halves of `new.target`, which used to be one: it decides what the
+    /// produced object INHERITS FROM *and* what the constructor's own
+    /// `new.target` reads. They were separate here because the entry point that
+    /// allocates could not be told a target, so this relinked the object after
+    /// the fact — which fixed `instanceof` and left a constructor branching on
+    /// `new.target` branching on the wrong value.
     ///
-    /// The two are one act in the specification and two here, because the object
-    /// is allocated by `functions::construct_with_args` from the target stack it
-    /// pushes itself — so a different prototype can only be applied after the
-    /// fact. Making them one again means a `newTarget` parameter on that entry
-    /// point, which is where the whole of `[[Construct]]` already lives; this
-    /// wrapper cannot spell it without writing a second `[[Construct]]` beside
-    /// it, and a second one is how the two come to disagree about what a derived
-    /// constructor allocates.
-    ///
-    /// The divergence, named: a constructor that branches on `new.target`
-    /// branches on the wrong value. Answering the wrong PROTOTYPE — which is
-    /// what dropping the argument did — is the larger of the two wrongs, because
-    /// every `instanceof` on the result reads it.
+    /// `functions::construct_args_on` takes the target now, so the object is
+    /// allocated from it in the first place and the relink is gone with the
+    /// divergence it was patching.
+    // `Reflect.construct(target, argumentsList, newTarget?)` — two REQUIRED
+    // parameters, so `SetFunctionLength` pins 2 and the third does not count.
+    // The Rust signature takes three, which is what `declared_arity` reads, and
+    // this is exactly the override its own comment exists for.
+    #[arity(2)]
     fn construct(target: u64, arguments: u64, new_target: u64) -> u64 {
         let Some(list) = super::functions::list_from_array_like(arguments) else {
             super::throw::type_error("CreateListFromArrayLike called on non-object");
             return with_current(|context| super::objects::undefined_of(context));
         };
-        let produced = super::functions::construct_with_args(target, list);
-        // Rule 8 of this crate's README: the constructor is user code, and a
-        // relink applied to the `undefined` a throw leaves behind would be work
-        // done under an exception that is already on its way out.
-        if super::throw::in_flight() {
-            return produced;
-        }
-        if new_target == target || Value(new_target).as_slot().is_none() {
-            return produced;
-        }
-        let key = with_current(|context| context.well_known_text("prototype"));
-        let prototype = super::computed::get_indexed(new_target, key);
-        if Value(prototype).as_slot().is_some() {
-            super::chain::apply_prototype(produced, prototype);
-        }
-        produced
+        // Absent means the target itself, which is what `new C()` means.
+        let named = match Value(new_target).as_slot().is_some() {
+            true => new_target,
+            false => target,
+        };
+        super::functions::construct_args_on(target, list, named)
     }
 
     /// `Reflect.defineProperty(target, key, descriptor)`.
@@ -243,14 +300,7 @@ impl Reflect {
     /// `false` says and what distinguishes this from `Object.defineProperty` —
     /// that one answers the object.
     fn define_property(target: u64, key: u64, descriptor: u64) -> bool {
-        if let Some(named) =
-            with_current(|context| super::computed::property_key(context, Value(key)))
-            && let Some(answered) = super::proxy::define(target, named, descriptor)
-        {
-            return answered;
-        }
-        super::object_global::define(target, key, descriptor);
-        Value(target).as_slot().is_some()
+        defined(target, key, descriptor)
     }
 
     /// `Reflect.getOwnPropertyDescriptor(target, key)`.

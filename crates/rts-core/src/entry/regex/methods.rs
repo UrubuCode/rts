@@ -23,10 +23,10 @@ use crate::value::Value;
 use super::super::native::Native;
 
 /// What a regular expression's prototype holds.
-pub(super) const NATIVES: &[(&str, Native)] = &[
-    ("test", test),
-    ("exec", exec),
-    ("toString", super::accessors::to_string),
+pub(super) const NATIVES: &[(&str, Native, u32)] = &[
+    ("test", test, 1),
+    ("exec", exec, 1),
+    ("toString", super::accessors::to_string, 0),
 ];
 
 /// `RegExp(p, f)` and `new RegExp(p, f)`, which are the same thing here.

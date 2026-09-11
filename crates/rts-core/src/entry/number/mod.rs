@@ -17,8 +17,11 @@ mod parse;
 // so the split behind it is not something either has to know about.
 pub(in crate::entry) use class::{BOOLEAN_TYPES, NUMBER_TYPES, register_boolean};
 // What `global_fns` needs to give `parseInt` and `parseFloat` a body, and what
-// `bigint_class` reads for its own `toString(radix)`.
-pub(super) use parse::{float_of, integer_prefix, leading, radix_of};
+// `bigint_class` reads for its own `toString(radix)` — `radix_argument` rather
+// than `radix_of` there, because a `BigInt` needs to tell an EXPLICIT `0` (a
+// `RangeError`) from an absent argument (base ten), which the `radix_of`
+// sentinel already folds into the same answer.
+pub(super) use parse::{float_of, integer_prefix, leading, radix_argument, radix_of};
 
 use super::Context;
 use crate::value::Value;
@@ -41,6 +44,19 @@ use crate::value::Value;
 /// leaves the identity depending on which of the two a program touches first.
 pub(in crate::entry) fn register_number(context: &mut Context) -> u64 {
     let made = class::register_number(context);
+    // `Number.prototype` IS a Number object whose `[[NumberData]]` is `+0`, and
+    // the specification is explicit about it because programs read it: it is
+    // what makes `Number.prototype.valueOf()` answer `0` rather than raise,
+    // `Object.prototype.toString.call(Number.prototype)` answer
+    // `[object Number]` rather than `[object Object]`, and `Number.prototype + 0`
+    // answer `0` rather than `NaN`. The prototype is `native::plain`'s object —
+    // correct for every other class — so all three read the other way here.
+    if let Some(prototype) = super::class_support::prototype(context, "Number")
+        && let Some(cell) = Value(prototype).as_slot()
+    {
+        let zero = Value::from_f64(0.0).bits();
+        context.set_boxed(cell, zero);
+    }
     if let Some(cell) = Value(made).as_slot() {
         for name in ["parseInt", "parseFloat"] {
             shared_with_global(context, cell, name);
@@ -87,10 +103,19 @@ fn shared_with_global(context: &mut Context, cell: u32, name: &str) {
             super::native::name_of(context, made, name);
             super::native::length_of(context, made, arity);
             super::objects::put(context, holder, key, made);
+            // The attributes every global carries — see `global::recorded`, the
+            // path this one bypasses by seeding the holder itself.
+            super::native::hidden(context, holder, key);
             made
         }
     };
     super::objects::put(context, cell, key, shared);
+    // And non-enumerable on the CONSTRUCTOR, which is what every built-in
+    // static is. Unmarked, `Object.keys(Number)` answered
+    // `["parseInt", "parseFloat"]` — exactly the two this function puts there —
+    // where every runtime answers `[]`, so the one place that departs from
+    // `#[stat]` was also the one place that lost the attributes it gives.
+    super::native::hidden(context, cell, key);
 }
 
 #[cfg(test)]

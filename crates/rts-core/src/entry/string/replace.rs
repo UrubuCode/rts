@@ -17,8 +17,8 @@ use crate::text::Str;
 use crate::value::Value;
 
 /// The two replacements a string's prototype holds.
-pub(super) const NATIVES: &[(&str, Native)] =
-    &[("replace", replace), ("replaceAll", replace_all)];
+pub(super) const NATIVES: &[(&str, Native, u32)] =
+    &[("replace", replace, 2), ("replaceAll", replace_all, 2)];
 
 /// `s.replace(pattern, replacement)`.
 extern "C" fn replace(_e: u64, this: u64, pattern: u64, with: u64, _a2: u64, _a3: u64) -> u64 {

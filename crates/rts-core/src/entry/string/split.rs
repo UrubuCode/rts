@@ -46,7 +46,7 @@ use crate::text::Str;
 use crate::value::Value;
 
 /// The one method this file installs.
-pub(super) const NATIVES: &[(&str, Native)] = &[("split", split)];
+pub(super) const NATIVES: &[(&str, Native, u32)] = &[("split", split, 2)];
 
 /// `s.split(separator, limit)`.
 ///

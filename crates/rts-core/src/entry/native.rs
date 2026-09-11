@@ -47,12 +47,28 @@ pub(super) fn callable(context: &mut Context, code: Native) -> u64 {
     Value::from_slot(cell).bits()
 }
 
-/// Hangs a set of them on an object, by name.
+/// Hangs a set of HOST-PROVIDED functions on an object, by name.
 ///
 /// The object is what a value inherits from, so this is what makes `s.trim` and
 /// `re.test` findable by the ordinary prototype walk rather than by anything
 /// knowing what a string or a regular expression is.
-pub(in crate::entry) fn install(context: &mut Context, cell: u32, natives: &[(&str, Native)]) {
+///
+/// # Why this one carries no arity, and what that costs
+///
+/// Its only callers are [`super::modules`]'s two namespace builders, whose table
+/// comes from a HOST: `rts-std` and `rts-node` say what is available, which is
+/// their business, and the specification arity of `fs.readFile` is not something
+/// this crate can derive from a table of function pointers. So a member built
+/// here has no `.length`, and `node:timers`' `setTimeout.length` reads
+/// `undefined` where every runtime answers `1`.
+///
+/// That is a stated gap rather than a design: closing it means the host tables
+/// declaring the arity too, which is the same change [`install_with_arity`]
+/// already made for every table inside this crate. Everything built-in goes
+/// through that one — a built-in whose `.length` is missing is a property the
+/// language pins and this engine answered `undefined` for, which killed whole
+/// fixtures on `Array.prototype.at.length`.
+pub(in crate::entry) fn install_host(context: &mut Context, cell: u32, natives: &[(&str, Native)]) {
     for (name, code) in natives {
         let method = callable(context, *code);
         name_of(context, method, name);
@@ -84,17 +100,24 @@ pub(in crate::entry) fn hidden(context: &mut Context, cell: u32, key: crate::obj
     }
 }
 
-/// Like [`install`], for a list whose entries also declare `.length` — the
-/// spec's arity, which the specification requires on every named function.
+/// Installs a table whose entries also declare `.length` — the arity the
+/// specification requires on every named function. **Every built-in this crate
+/// owns goes through here.**
 ///
-/// A second list shape rather than a length on every one of this crate's
-/// dozens of `NATIVES` tables: most of those are called through property
-/// access on their receiver and a program almost never reads the function
-/// value itself, so most callers pay nothing. This one exists because
-/// `Object.assign`, `Object.keys` and friends ARE read as values — a program
-/// forwards them, wraps them, or introspects them — and the specification
-/// pins an exact arity for each.
-pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, natives: &[(&str, Native, u32)]) {
+/// This used to be the exception, beside an [`install_host`] that took pairs,
+/// and the reason given was that most methods are called through their receiver
+/// so a program never reads the function value. That reason was measured wrong:
+/// `Array.prototype.at.length`, `String.prototype.repeat.length` and the whole
+/// `Array.prototype` surface answered `undefined`, and a fixture reading them
+/// does not fail on one line — it prints a row of `undefined` and diverges from
+/// there. The arity belongs beside the name because that is where the
+/// specification puts it, and a table that could omit it was only ever a table
+/// that would.
+pub(in crate::entry) fn install_with_arity(
+    context: &mut Context,
+    cell: u32,
+    natives: &[(&str, Native, u32)],
+) {
     for (name, code, arity) in natives {
         let method = callable(context, *code);
         name_of(context, method, name);

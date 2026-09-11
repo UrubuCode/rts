@@ -92,8 +92,7 @@ pub(in crate::entry) fn supply(
         // call — and which error classes exist is a fact about that module.
         if let Some(register) = super::error::provided(&text) {
             let made = register(context);
-            super::objects::put(context, object, Key::Name(name), made);
-            return Some(made);
+            return Some(recorded(context, object, name, made, Shape::Replaceable));
         }
         // A global FUNCTION, which is a value rather than an object with
         // members — so it is made here rather than by a class registration, and
@@ -112,8 +111,23 @@ pub(in crate::entry) fn supply(
             // its cell by hand.
             super::native::name_of(context, made, &text);
             super::native::length_of(context, made, arity);
-            super::objects::put(context, object, Key::Name(name), made);
-            return Some(made);
+            return Some(recorded(context, object, name, made, Shape::Replaceable));
+        }
+        // The three VALUE globals, and the only three properties of the global
+        // object the specification nails down completely:
+        // `{ writable: false, enumerable: false, configurable: false }`. They
+        // are here rather than among the natives above because they are not
+        // functions — and they were absent entirely, so
+        // `Object.getOwnPropertyDescriptor(globalThis, "undefined")` answered
+        // `undefined` for a property every runtime reports, and `"NaN" in
+        // globalThis` was false.
+        if let Some(held) = match text.as_str() {
+            "undefined" => Some(undefined_of(context)),
+            "NaN" => Some(Value::from_f64(f64::NAN).bits()),
+            "Infinity" => Some(Value::from_f64(f64::INFINITY).bits()),
+            _ => None,
+        } {
+            return Some(recorded(context, object, name, held, Shape::Fixed));
         }
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
@@ -178,9 +192,42 @@ pub(in crate::entry) fn supply(
             "globalThis" => Value::from_slot(object).bits(),
             _ => return None,
         };
-        super::objects::put(context, object, Key::Name(name), made);
-        Some(made)
+        Some(recorded(context, object, name, made, Shape::Replaceable))
     }
+}
+
+/// What a global's three attributes are.
+enum Shape {
+    /// Every constructor, namespace and global function:
+    /// `{ writable: true, enumerable: false, configurable: true }`.
+    Replaceable,
+    /// `undefined`, `NaN` and `Infinity`: none of the three.
+    Fixed,
+}
+
+/// Puts a supplied global on the object with the attributes it must have.
+///
+/// # Why NON-ENUMERABLE is the point
+///
+/// Every one of these was written with the defaults, so each was ENUMERABLE:
+/// `Object.keys(globalThis)` answered with whichever built-ins the program had
+/// happened to touch, and `for (const k in globalThis)` walked them. That is
+/// not a descriptor detail — the list a program reads back changes with the
+/// order its own statements ran in, which is the shape of bug that is only ever
+/// found by someone else.
+fn recorded(
+    context: &mut Context,
+    object: u32,
+    name: rts_cranelift::shape::Key,
+    made: u64,
+    shape: Shape,
+) -> u64 {
+    super::objects::put(context, object, Key::Name(name), made);
+    match shape {
+        Shape::Replaceable => super::native::hidden(context, object, Key::Name(name)),
+        Shape::Fixed => super::native::pinned(context, object, Key::Name(name)),
+    }
+    made
 }
 
 /// Writes a global, creating it.

@@ -30,17 +30,17 @@ use crate::text::{Form, is_white_space, normalized};
 use crate::value::Value;
 
 /// What a string's prototype holds beyond the indexed, searched and patterned.
-pub(super) const NATIVES: &[(&str, Native)] = &[
-    ("trim", trim),
-    ("trimStart", trim_start),
-    ("trimEnd", trim_end),
-    ("substr", substr),
-    ("localeCompare", locale_compare),
-    ("normalize", normalize),
-    ("toString", text_value),
-    ("valueOf", value_of),
-    ("isWellFormed", is_well_formed),
-    ("toWellFormed", to_well_formed),
+pub(super) const NATIVES: &[(&str, Native, u32)] = &[
+    ("trim", trim, 0),
+    ("trimStart", trim_start, 0),
+    ("trimEnd", trim_end, 0),
+    ("substr", substr, 2),
+    ("localeCompare", locale_compare, 1),
+    ("normalize", normalize, 0),
+    ("toString", text_value, 0),
+    ("valueOf", value_of, 0),
+    ("isWellFormed", is_well_formed, 0),
+    ("toWellFormed", to_well_formed, 0),
 ];
 
 /// `s.trim()`.

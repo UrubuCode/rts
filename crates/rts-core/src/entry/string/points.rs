@@ -19,7 +19,7 @@ use super::{answer, arg_units, nothing, units_of};
 use crate::value::Value;
 
 /// What a string's prototype holds that reads whole code points.
-pub(super) const NATIVES: &[(&str, Native)] = &[("codePointAt", code_point_at)];
+pub(super) const NATIVES: &[(&str, Native, u32)] = &[("codePointAt", code_point_at, 1)];
 
 /// What `String` itself holds, each with the arity the specification pins.
 ///
