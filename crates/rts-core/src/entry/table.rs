@@ -1181,11 +1181,12 @@ mod tests {
         // here and answers 6 on node. Copying that guard would have carried the
         // defect into destructuring; one row buys the version that cannot.
         // Raised from 96 to 98 for page_global_get/page_global_set, and to 99
-        // for for_in_has — one entry at a time, not the order-of-magnitude jump
+        // for for_in_has, and to 101 for iterator_result — one entry at a
+        // time, not the order-of-magnitude jump
         // this ceiling exists to catch (rts-symbol-baker's "thousands" is the
         // shape it refuses).
         assert!(
-            CORE_ENTRY_COUNT <= 100,
+            CORE_ENTRY_COUNT <= 101,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

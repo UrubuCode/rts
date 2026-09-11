@@ -29,11 +29,13 @@ fn capturing_group_positions(pattern: &str) -> Vec<usize> {
             ']' if inside => inside = false,
             '(' if !inside => {
                 let rest = &pattern[at + 1..];
-                let non_capturing = rest.starts_with(":")
-                    || rest.starts_with('=')
-                    || rest.starts_with('!')
-                    || rest.starts_with("<=")
-                    || rest.starts_with("<!");
+                // `(?<name>` is a NAMED capture and counts; only `(?:`, the two
+                // lookaheads and the two lookbehinds are non-capturing.
+                let non_capturing = rest.starts_with("?:")
+                    || rest.starts_with("?=")
+                    || rest.starts_with("?!")
+                    || rest.starts_with("?<=")
+                    || rest.starts_with("?<!");
                 if !non_capturing {
                     positions.push(at);
                 }
@@ -245,9 +247,9 @@ mod tests {
     #[test]
     fn a_digit_run_past_the_group_count_is_octal_outside_a_class_too() {
         // No group at all: `\1` cannot be a backreference.
-        assert_eq!(legacy_octal_escapes(r"^\1a$"), "^\\x{1}a$");
+        assert_eq!(legacy_octal_escapes(r"^\1a$"), "^\\x{01}a$");
         // One group: `\2` is one past it.
-        assert_eq!(legacy_octal_escapes(r"(a)\2"), "(a)\\x{2}");
+        assert_eq!(legacy_octal_escapes(r"(a)\2"), "(a)\\x{02}");
         // In range: left untouched for the caller after this one.
         assert_eq!(legacy_octal_escapes(r"(a)\1"), r"(a)\1");
     }
