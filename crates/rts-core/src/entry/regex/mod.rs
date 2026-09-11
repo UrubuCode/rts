@@ -359,7 +359,7 @@ fn prototype_of(context: &mut Context) -> u64 {
         return undefined_of(context);
     };
     let object = Value::from_slot(cell).bits();
-    super::native::install(context, cell, methods::NATIVES);
+    super::native::install_with_arity(context, cell, methods::NATIVES);
     // `source`, `flags` and the eight booleans — accessors here rather than
     // properties on every instance. [`accessors`] says what that fixed.
     accessors::install(context, cell);

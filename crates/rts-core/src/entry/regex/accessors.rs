@@ -222,6 +222,19 @@ fn flags_text(context: &mut Context, this: u64) -> Option<String> {
     }
 }
 
+/// What `to_string` decided inside its borrow, for the reason [`refusal`]
+/// states throughout this crate: a `Foreign` receiver's `source`/`flags` need
+/// `ToString`, which may call user code and cannot run inside a borrow of the
+/// context — so the two raw property values cross out of the borrow instead
+/// of the finished text.
+enum Printed {
+    /// A genuine pattern or `RegExp.prototype` — already the exact text.
+    Ready(String),
+    /// A foreign object — the RAW `source`/`flags` property values, still
+    /// owing `ToString`.
+    Coerce(u64, u64),
+}
+
 /// `String(re)` — `/source/flags`, which is the literal a program can paste.
 ///
 /// It answered `[object RegExp]`, the plain-object fallback, because
@@ -231,6 +244,25 @@ fn flags_text(context: &mut Context, this: u64) -> Option<String> {
 /// Defined over the two getters above rather than over the compiled pattern,
 /// which is what the specification says and what makes
 /// `RegExp.prototype.toString.call({ source: "a", flags: "g" })` answer `/a/g`.
+///
+/// # Why a foreign receiver reads `source`/`flags` and coerces, not the
+/// getters above
+///
+/// The specification defines this over ANY object, not only one with the
+/// matcher slot: `Get(this, "source")` then `ToString` of whatever that
+/// answers — a number, an object with its own `toString`, anything. This
+/// crate's `source`/`flags` GETTERS refuse a foreign receiver outright, which
+/// is correct for THEM (`RegExp.prototype.source.call({})` really is a
+/// `TypeError`) and wrong for this method, which is generic. So a foreign
+/// receiver's two properties are read as ordinary properties and converted,
+/// not read through the accessors above.
+///
+/// `RegExp.prototype.toString.call({ source: 1, flags: 2 })` answering
+/// `/1/2` — numbers, not strings — is what pinned this: the previous version
+/// required the property to ALREADY be a string cell and threw for anything
+/// else, so a receiver whose `source` was a number raised the same
+/// `TypeError` a receiver with no matcher slot at all does, and the two are
+/// not the same failure.
 pub(super) extern "C" fn to_string(
     _environment: u64,
     this: u64,
@@ -239,36 +271,58 @@ pub(super) extern "C" fn to_string(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    let printed = with_current(|context| {
-        let written = match source_text(context, this) {
-            Some(text) => text,
-            None => text_member(context, this, "source")?,
-        };
-        // `this.flags` as a PROPERTY for a receiver that is not a pattern, and
-        // not the eight-boolean reconstruction [`flags_text`] does: `toString`
-        // reads the property, so `{ source: "a", flags: "g" }` prints `/a/g`
-        // where the reconstruction would have printed `/a/`.
-        let letters = match receiver(context, this) {
-            Receiver::Foreign => text_member(context, this, "flags").unwrap_or_default(),
-            _ => flags_text(context, this)?,
-        };
-        Some(format!("/{written}/{letters}"))
+    let decided = with_current(|context| match receiver(context, this) {
+        Receiver::Pattern(_, _) | Receiver::Prototype => {
+            let written = source_text(context, this).unwrap_or_default();
+            let letters = flags_text(context, this).unwrap_or_default();
+            Some(Printed::Ready(format!("/{written}/{letters}")))
+        }
+        Receiver::Foreign => {
+            let cell = Value(this).as_slot()?;
+            let absent = undefined_of(context);
+            let source_key = context.well_known("source");
+            let flags_key = context.well_known("flags");
+            let source_raw = read_property(context, cell, source_key)
+                .map(|value| value.bits())
+                .unwrap_or(absent);
+            let flags_raw = read_property(context, cell, flags_key)
+                .map(|value| value.bits())
+                .unwrap_or(absent);
+            Some(Printed::Coerce(source_raw, flags_raw))
+        }
     });
-    match printed {
-        Some(text) => with_current(|context| context.intern_value(Str::from_str(&text)).bits()),
+    match decided {
         None => refuse("toString"),
+        Some(Printed::Ready(text)) => {
+            with_current(|context| context.intern_value(Str::from_str(&text)).bits())
+        }
+        Some(Printed::Coerce(source_raw, flags_raw)) => {
+            // Outside every borrow: `ToString` of an object calls user code.
+            let source_value = super::super::text::string_of(source_raw);
+            if super::super::throw::in_flight() {
+                return with_current(|context| undefined_of(context));
+            }
+            let flags_value = super::super::text::string_of(flags_raw);
+            if super::super::throw::in_flight() {
+                return with_current(|context| undefined_of(context));
+            }
+            with_current(|context| {
+                let written = text_of(context, source_value);
+                let letters = text_of(context, flags_value);
+                context
+                    .intern_value(Str::from_str(&format!("/{written}/{letters}")))
+                    .bits()
+            })
+        }
     }
 }
 
-/// One property of a receiver that is not a pattern, as text.
-///
-/// Only the shape `toString` can meet here without calling user code: a string.
-/// A number or an object would need the coercion protocol, which calls user code
-/// and cannot run inside this borrow — so it is left out rather than half-done,
-/// and the caller raises instead of inventing an answer.
-fn text_member(context: &mut Context, this: u64, name: &str) -> Option<String> {
-    let cell = Value(this).as_slot()?;
-    let key = context.well_known(name);
-    let value = read_property(context, cell, key)?;
-    context.text_at(value.as_slot()?)?.to_rust()
+/// The text a value ALREADY IS — the one shape `string_of` always answers
+/// once it has not thrown: a string cell.
+fn text_of(context: &Context, value: u64) -> String {
+    Value(value)
+        .as_slot()
+        .and_then(|cell| context.text_at(cell))
+        .and_then(|text| text.to_rust())
+        .unwrap_or_default()
 }

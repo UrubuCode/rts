@@ -48,14 +48,28 @@ impl Engine {
     /// `SyntaxError` there; see [`super::regex_new`] for why this answers rather
     /// than throws.
     pub(super) fn compile(pattern: &str, flags: Flags) -> Option<Engine> {
-        // The four rewrites that are EXACT — see [`super::translate`] for why
-        // each one is there and what is deliberately left alone.
-        use super::translate::{class_operators, empty_classes, identity_escapes, unescape_solidus, wide_dot};
+        // The rewrites that are EXACT — see [`super::translate`] for why each
+        // one is there and what is deliberately left alone.
+        use super::translate::{
+            class_operators, empty_classes, forward_backreferences_as_empty, identity_escapes,
+            legacy_octal_escapes, unescape_solidus, wide_dot,
+        };
         // `class_operators` runs on what the PROGRAM wrote, before the rewrites
         // below inject Rust syntax of their own — `empty_classes` answers
         // `[^\s\S]` and `wide_dot` a bracketed set, and neither should be read
         // back as if a program had typed it.
         let pattern = identity_escapes(&unescape_solidus(pattern), flags.unicode);
+        // Annex B's octal reading, and only there: the `u`/`v` grammar refuses
+        // both readings rather than guessing, same as `identity_escapes`'s own
+        // gate on `\p{...}` two lines up.
+        let pattern = match flags.unicode {
+            true => pattern,
+            false => legacy_octal_escapes(&pattern),
+        };
+        // A forward reference is not something either engine can run at all —
+        // see `forward_backreferences_as_empty`'s own doc for why — so this
+        // runs under every flag combination, not only Annex B's.
+        let pattern = forward_backreferences_as_empty(&pattern);
         let pattern = class_operators(&pattern);
         let pattern = empty_classes(&pattern);
         let pattern = match flags.dot_all {
