@@ -50,29 +50,33 @@ pub(in crate::entry) fn apply(object: u64, this: u64, arguments: [u64; 4]) -> Op
 
 /// `handler.construct(target, args, newTarget)`, or `new` on the target.
 ///
-/// # What `newTarget` is here, and what it is not
+/// # What `newTarget` is here
 ///
-/// The proxy itself, which is what `new P()` means and what the trap in every
-/// such program compares against. `Reflect.construct(P, args, other)` should
-/// hand the trap `other` instead, and cannot yet: the target stack carries one
-/// class per construction and `Reflect.construct` drops its third argument
-/// before this is reached. Named rather than silently answered wrong — the gap
-/// is in `functions::construct_with_args`, not here.
-pub(in crate::entry) fn construct(object: u64, arguments: [u64; 4]) -> Option<u64> {
+/// Whatever the construction named: the proxy itself for `new P()`, and the
+/// third argument for `Reflect.construct(P, args, other)`. It used to be the
+/// proxy in both cases, because the target stack carried one class per
+/// construction and `Reflect.construct` dropped its third argument before this
+/// was reached. `functions::construct_args_on` is where that was fixed, and it
+/// hands the value down rather than this inventing one.
+pub(in crate::entry) fn construct(
+    object: u64,
+    arguments: [u64; 4],
+    new_target: u64,
+) -> Option<u64> {
     let trap = super::trap_for(object, "construct")?;
     if trap.refused {
         return Some(super::absent());
     }
     let listed = passed(arguments);
     let Some(callee) = trap.callee else {
-        return Some(functions::construct_with_args(trap.target, listed));
+        return Some(functions::construct_args_on(trap.target, listed, new_target));
     };
     let answered = functions::call(
         callee,
         trap.handler,
         trap.target,
         listed,
-        object,
+        new_target,
         super::absent(),
     );
     if throw::in_flight() {

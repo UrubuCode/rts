@@ -51,10 +51,10 @@ mod property;
 mod prototype;
 
 pub(in crate::entry) use calls::{apply, construct};
-pub(in crate::entry) use keys::{define, describe, enumerable_keys, own_keys};
-pub(in crate::entry) use property::{delete, get, has, set_verdict};
+pub(in crate::entry) use keys::{define, describe, enumerable_keys, own_keys, own_names};
+pub(in crate::entry) use property::{delete, get, get_on, has, set_verdict, set_verdict_on};
 pub(in crate::entry) use prototype::{
-    extensible, prevent_extensions, prototype_of, set_prototype_verdict,
+    above, extensible, prevent_extensions, prototype_of, set_prototype_verdict,
 };
 
 use super::{Context, with_current};
@@ -119,7 +119,13 @@ impl Proxy {
             if let Some(cell) = Value(revoke).as_slot() {
                 context.mark_callable(cell, code as usize as u64, proxy);
             }
-            super::native::name_of(context, revoke, "revoke");
+            // An ANONYMOUS function of no arguments, which is what the
+            // specification pins for it: `revoke.name` is `""` and
+            // `revoke.length` is `0`. It was named `"revoke"` and had no
+            // length at all, so a program printing either got a spelling this
+            // engine invented and `undefined`.
+            super::native::name_of(context, revoke, "");
+            super::native::length_of(context, revoke, 0);
             (proxy, revoke)
         });
         let held = super::objects::object_new(0);
@@ -277,14 +283,34 @@ pub(super) fn trap_for(object: u64, name: &str) -> Option<Trap> {
     })
 }
 
-/// The property, as the string a trap is handed.
+/// The property, as the VALUE a trap is handed — a string, or the symbol.
 ///
 /// A key is a NUMBER everywhere else, because that is the point of numbering it
-/// — but a trap is user code and reads `prop` as a string, so this is the one
-/// direction the interner has to answer.
+/// — but a trap is user code and reads `prop` as a property key, so this is the
+/// one direction the interner has to answer.
+///
+/// # Why the symbol is recovered rather than spelled
+///
+/// A symbol's key is an ordinary interned name in a reserved space — see
+/// [`crate::entry::symbol`] for why there is no third `Key` variant — so the
+/// text this used to build was the ENCODING: `p[Symbol("a")]` reached the `get`
+/// trap with the string `"@@sym:15"`, and `Symbol.for("x")` with `"@@for:x"`.
+/// A handler branching on `typeof k === "symbol"` therefore took the string arm
+/// for every symbol, and one printing the key printed an internal spelling no
+/// program can name. `symbol::value_of_key_text` is the decoder that already
+/// exists for `Object.getOwnPropertySymbols`, which is what keeps this from
+/// being a second table from text back to symbol.
+///
+/// A PRIVATE class member's key lives in the same reserved space and is not a
+/// symbol; it decodes to `None` and stays the string it was, which is the
+/// behaviour `symbol::is_private_key` documents.
 pub(super) fn property_of(key: Key) -> u64 {
     with_current(|context| {
-        let text = Str::from_str(&spelled_in(context, key));
+        let spelled = spelled_in(context, key);
+        if let Some(symbol) = super::symbol::value_of_key_text(context, &spelled) {
+            return symbol;
+        }
+        let text = Str::from_str(&spelled);
         context.intern_value(text).bits()
     })
 }

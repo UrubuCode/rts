@@ -195,11 +195,17 @@ pub fn get_property(object: u64, key: i64) -> u64 {
                     // cell whose trap has been asked, so neither remaining
                     // exit is reachable — and saying so beats answering
                     // `undefined` for a case that would then be silent.
-                    Read::Proxy(_) | Read::Refused(_) => {
+                    Read::Proxy(_) | Read::ProxyAbove(..) | Read::Refused(_) => {
                         with_current(|context| undefined_of(context))
                     }
                 }
             }
+        },
+        // The receiver stays the object the read NAMED, which is the whole
+        // point: `Object.create(p).x` calls `p`'s trap with the child.
+        Read::ProxyAbove(proxy, key) => match super::proxy::get_on(proxy, key, object) {
+            Some(answered) => answered,
+            None => with_current(|context| undefined_of(context)),
         },
         // The receiver is the object the read was written on, not the one the
         // getter was found on: `derived.x` running a getter defined on the
@@ -220,6 +226,13 @@ enum Read {
     Value(u64),
     /// A proxy's `get` trap, with the key already resolved.
     Proxy(Key),
+    /// A proxy reached as a PROTOTYPE of the receiver, with the key resolved.
+    ///
+    /// Distinct from [`Read::Proxy`] because the trap is asked on a different
+    /// object from the one the read named, and the receiver it is handed is
+    /// still the one the read named — which is the whole of what separates
+    /// `p.x` from `Object.create(p).x`.
+    ProxyAbove(u64, Key),
     /// A getter found on the receiver or above it.
     Getter(u64),
     /// The language refuses this read, with the message it refuses it by.
@@ -234,6 +247,14 @@ enum Read {
 fn looked_up(context: &mut Context, slot: u32, key: Key) -> Read {
     if let Some(answer) = super::string::text::string_property(context, slot, key) {
         return Read::Value(answer);
+    }
+    // A proxy standing between this object and the key answers instead of the
+    // walk, and it cannot answer here: a trap is user code and this is inside
+    // the borrow. Asked before `resolve` so the nearest proxy wins; the walk it
+    // performs stops at an ordinary level that owns the key, so this is silent
+    // whenever the property is nearer than the handler.
+    if let Some(proxy) = super::proxy::above(context, slot, key) {
+        return Read::ProxyAbove(proxy, key);
     }
     let found = super::accessor::resolve(context, slot, key);
     // A miss on the GLOBAL OBJECT is not a miss until the lazy build has been
@@ -856,7 +877,17 @@ pub(super) fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
     // because a callable is neither text nor an array, so the order costs
     // nothing and reads in the order a walk actually resolves.
     if context.callable_at(cell).is_some() {
-        return super::function_proto::prototype_of(context);
+        let shared = super::function_proto::prototype_of(context);
+        // `Function.prototype` is itself callable — the language says so, and
+        // `make_prototype_callable` is what makes it true here — so this
+        // branch would answer it for ITSELF and the walk would stop one step
+        // short of `Object.prototype`: `f instanceof Object` read `false` for
+        // every function the day that landed. The shared object inherits from
+        // the root like any other object.
+        if shared == Some(cell) {
+            return super::object_proto::prototype_of(context);
+        }
+        return shared;
     }
     if context.text_at(cell).is_some() {
         return super::string::prototype_of(context);
@@ -1359,6 +1390,16 @@ fn reconcile_length(context: &mut Context, slot: u32, key: Key, value: u64) {
         return;
     }
     let wanted = wanted as usize;
+    // Past `array::DENSE_LIMIT`, resizing the dense store to `wanted` is the
+    // allocation that constant exists to refuse — `a.length = 4294967295` is a
+    // valid length the language grants and used to materialise 34 GB of holes.
+    // The property write below still lands, so `a.length` answers `wanted`;
+    // only the element store stays as it is, and a write at one specific huge
+    // index is `computed::access::store_indexed`'s question rather than this
+    // function's.
+    if wanted > super::array::DENSE_LIMIT {
+        return;
+    }
     // The HOLE marker, not `undefined`. `a.length = 3` on a one-element array
     // adds two positions that do not exist — `2 in a` is false and
     // `Object.keys(a)` is `["0"]` — where filling with `undefined` makes both

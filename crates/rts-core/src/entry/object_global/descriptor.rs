@@ -136,6 +136,14 @@ pub(in crate::entry) fn read(descriptor: u64) -> Option<Descriptor> {
     let writable = field(descriptor, "writable")?;
     let get = field(descriptor, "get")?;
     let set = field(descriptor, "set")?;
+    // `ToPropertyDescriptor` steps 7.b and 8.b: a `get` or `set` that is neither
+    // callable nor `undefined` is a `TypeError` here, before anything is
+    // defined. Absent, `Object.defineProperty(o, "x", {get: 1})` was accepted —
+    // and the property it made was an accessor whose getter is the number 1, so
+    // the failure surfaced at the first READ of `o.x`, arbitrarily far from the
+    // line that caused it.
+    callable_or_absent(get, "Getter must be a function")?;
+    callable_or_absent(set, "Setter must be a function")?;
     if (get.is_some() || set.is_some()) && (value.is_some() || writable.is_some()) {
         super::super::throw::type_error(
             "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute",
@@ -150,6 +158,28 @@ pub(in crate::entry) fn read(descriptor: u64) -> Option<Descriptor> {
         enumerable: enumerable.map(|held| super::super::primitives::to_boolean(held)),
         configurable: configurable.map(|held| super::super::primitives::to_boolean(held)),
     })
+}
+
+/// Refuses a stated `get`/`set` that is not a function.
+///
+/// `Some(())` when the field is absent or acceptable, `None` once the throw is
+/// in flight — the same two-layer absence [`field`] answers with, so the caller
+/// propagates with one `?`.
+fn callable_or_absent(field: Option<u64>, message: &str) -> Option<()> {
+    let Some(held) = field else {
+        return Some(());
+    };
+    // `undefined` STATES that there is no half, which is exactly what
+    // `{get: undefined, set: f}` is for — so it is the one non-callable the
+    // specification accepts here.
+    let acceptable = with_current(|context| {
+        held == undefined_of(context) || super::super::modules::is_callable_in(context, held)
+    });
+    if acceptable {
+        return Some(());
+    }
+    super::super::throw::type_error(message);
+    None
 }
 
 /// One field, asked for only when the descriptor HAS it.

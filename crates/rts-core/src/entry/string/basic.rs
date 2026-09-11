@@ -39,20 +39,20 @@ use super::{
 use crate::value::Value;
 
 /// What a string's prototype holds, apart from the searches and the patterns.
-pub(super) const NATIVES: &[(&str, Native)] = &[
-    ("charAt", char_at),
-    ("charCodeAt", char_code_at),
-    ("at", at),
-    ("slice", slice),
-    ("substring", substring),
-    ("toUpperCase", to_upper_case),
-    ("toLowerCase", to_lower_case),
-    ("toLocaleUpperCase", to_upper_case),
-    ("toLocaleLowerCase", to_lower_case),
-    ("repeat", super::repeat::repeat),
-    ("concat", concat),
-    ("padStart", pad_start),
-    ("padEnd", pad_end),
+pub(super) const NATIVES: &[(&str, Native, u32)] = &[
+    ("charAt", char_at, 1),
+    ("charCodeAt", char_code_at, 1),
+    ("at", at, 1),
+    ("slice", slice, 2),
+    ("substring", substring, 2),
+    ("toUpperCase", to_upper_case, 0),
+    ("toLowerCase", to_lower_case, 0),
+    ("toLocaleUpperCase", to_upper_case, 0),
+    ("toLocaleLowerCase", to_lower_case, 0),
+    ("repeat", super::repeat::repeat, 1),
+    ("concat", concat, 1),
+    ("padStart", pad_start, 1),
+    ("padEnd", pad_end, 1),
 ];
 
 /// `s.charAt(i)`.

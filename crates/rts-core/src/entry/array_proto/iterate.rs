@@ -51,15 +51,15 @@ use super::built;
 use crate::value::Value;
 
 /// What an array's prototype holds that takes a callback.
-pub(super) const NATIVES: &[(&str, Native)] = &[
-    ("forEach", for_each),
-    ("map", map),
-    ("filter", filter),
-    ("find", find),
-    ("findIndex", find_index),
-    ("some", some),
-    ("every", every),
-    ("reduce", reduce),
+pub(super) const NATIVES: &[(&str, Native, u32)] = &[
+    ("forEach", for_each, 1),
+    ("map", map, 1),
+    ("filter", filter, 1),
+    ("find", find, 1),
+    ("findIndex", find_index, 1),
+    ("some", some, 1),
+    ("every", every, 1),
+    ("reduce", reduce, 1),
 ];
 
 /// `a.forEach(f, thisArg)` — answers `undefined`.

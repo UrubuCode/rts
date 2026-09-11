@@ -14,13 +14,13 @@ use crate::value::Value;
 /// `Map`.
 #[rtse::class("Map", tag)]
 impl Map {
-    /// `new Map(iterable?)`.
+    /// `new Map(iterable?)` — anything the iteration protocol walks, whose
+    /// elements are `[key, value]` entries.
     ///
-    /// The argument is an iterable of `[key, value]` pairs, which today means an
-    /// **array of two-element arrays**: `new Map([[1, "a"], [2, "b"]])`. What it
-    /// cannot yet take is another `Map`, a generator, or anything else declaring
-    /// `Symbol.iterator` — see [`super::elements_of`] for why that is a gap in
-    /// the iteration protocol rather than in this constructor.
+    /// Filled through `this.set` rather than by writing the table, which is
+    /// what makes a subclass that overrides `set` see its own method and an
+    /// entry that is not an object close the iterator where it failed.
+    /// [`super::adder`] holds the walk and the three reasons for it.
     /// Arity 0, not 1: the specification pins `Map.length` at zero because the
     /// iterable is optional in the way `length` counts.
     #[construct]
@@ -32,25 +32,16 @@ impl Map {
         if !super::requires_new(this, "Map") {
             return super::undefined();
         }
-        // Read before any borrow is taken, because `iterate` is itself an entry
-        // point and takes one of its own.
-        let pairs = match super::nothing_to_fill_from(iterable) {
-            true => Vec::new(),
-            false => super::pairs_of(iterable),
+        // The empty map EXISTS before the argument is walked, and that order is
+        // the specification's: every step below calls user code, and a `set`
+        // the program overrode is handed a map it can already read.
+        let Some(map) = super::emptied(this, "Map") else {
+            return super::undefined();
         };
-        with_current(|context| {
-            let Some(cell) = super::built(context, this, "Map") else {
-                return undefined_of(context);
-            };
-            let Some(mut table) = super::taken(context, cell) else {
-                return undefined_of(context);
-            };
-            for (key, value) in pairs {
-                table.set(context, key, value);
-            }
-            super::restore_sized(context, cell, table);
-            Value::from_slot(cell).bits()
-        })
+        if !super::nothing_to_fill_from(iterable) {
+            super::adder::fill(map, iterable, "set", super::adder::Shape::Entries);
+        }
+        map
     }
 
     /// `m.get(k)` — the value, or `undefined`.

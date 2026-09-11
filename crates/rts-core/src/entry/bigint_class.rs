@@ -68,6 +68,10 @@ impl BigIntClass {
     }
 
     /// `BigInt.asIntN(bits, value)` — the low bits, read as signed.
+    ///
+    /// A negative `bits` is a `RangeError` in the language (`ToIndex` refuses
+    /// it); this used to answer `undefined` for it, which read from `rts` as a
+    /// silent wrong answer rather than the refusal the specification names.
     #[stat]
     fn as_int_n(bits: f64, value: u64) -> u64 {
         wrapped(bits, value, true)
@@ -80,18 +84,30 @@ impl BigIntClass {
     }
 
     /// `big.toString(radix)`.
+    ///
+    /// An explicit radix outside 2..=36 is a `RangeError` — including `0` and
+    /// `1`, which `radix_of` cannot tell apart from "not given" on its own, so
+    /// this asks [`super::number::radix_argument`] instead: `None` is the
+    /// absent case (base ten), `Some(n)` is what was written, however it
+    /// truncates.
     fn to_string(this: u64, radix: u64) -> u64 {
-        let base = super::number::radix_of(radix);
+        let base = super::number::radix_argument(radix);
+        if let Some(base) = base {
+            if !(2..=36).contains(&base) {
+                // Outside any borrow, as `settled`'s doc requires: `range_error`
+                // takes the context's `RefCell` and the caller below is about to
+                // take one of its own.
+                super::throw::range_error("toString() radix must be between 2 and 36");
+                return with_current(|context| undefined_of(context));
+            }
+        }
         with_current(|context| {
             let Some(held) = super::bigints::digits_of(context, this) else {
                 return undefined_of(context);
             };
             let text = match base {
-                0 | 10 => held.to_decimal(),
-                base if (2..=36).contains(&base) => held.to_radix(base as u32),
-                // The specification throws a `RangeError`; answering the decimal
-                // form is the least wrong of the values available.
-                _ => held.to_decimal(),
+                None | Some(10) => held.to_decimal(),
+                Some(base) => held.to_radix(base as u32),
             };
             context.intern_value(crate::text::Str::from_str(&text)).bits()
         })
@@ -139,16 +155,30 @@ fn parsed(context: &Context, value: u64) -> Option<BigInt> {
     }
     let cell = Value(value).as_slot()?;
     let text = context.text_at(cell)?.to_rust()?;
+    // `StringNumericLiteral` trims `StrWhiteSpace`, which the specification
+    // defines to include `<ZWNBSP>` (U+FEFF, the BOM) alongside ordinary
+    // whitespace — `str::trim` does not, since U+FEFF is not Unicode
+    // whitespace, so `BigInt("﻿10")` read a BOM-prefixed string as
+    // unparsable rather than as `10n`.
+    let trimmed = text.trim_matches(|ch: char| ch.is_whitespace() || ch == '\u{FEFF}');
     // The empty string is `0n`, which is what `BigInt("")` answers and what a
     // parser rejecting empty input would have got wrong.
-    match text.trim().is_empty() {
+    match trimmed.is_empty() {
         true => Some(BigInt::zero()),
-        false => BigInt::parse(text.trim()),
+        false => BigInt::parse(trimmed),
     }
 }
 
 /// `asIntN` and `asUintN`, which differ in one flag.
 fn wrapped(bits: f64, value: u64, signed: bool) -> u64 {
+    // `ToIndex` refuses a negative count with a `RangeError`, raised OUTSIDE
+    // any borrow for the reason `settled`'s doc states: building the error
+    // object takes the context's `RefCell`, and a caller already holding one
+    // cannot survive a second.
+    if bits.is_finite() && bits < 0.0 {
+        super::throw::range_error("The bits argument must be non-negative");
+        return with_current(|context| undefined_of(context));
+    }
     let width = match bits.is_finite() && bits >= 0.0 {
         true => bits.trunc() as u32,
         false => return with_current(|context| undefined_of(context)),
@@ -256,14 +286,16 @@ pub(super) fn binary(
         Op::Add => a.add(&b),
         Op::Sub => a.sub(&b),
         Op::Mul => a.mul(&b),
-        // Division by zero is a `RangeError`; `undefined` is the stated answer.
+        // Division by zero is a `RangeError` in the language; it used to answer
+        // `undefined` here, which is the silent-wrong-answer shape rule 8 of
+        // `rts-core`'s README exists to close now that a native can raise.
         Op::Div => match a.div(&b) {
             Some(held) => held,
-            None => return Some(Ok(undefined_of(context))),
+            None => return Some(Err(DIVISION_BY_ZERO)),
         },
         Op::Rem => match a.rem(&b) {
             Some(held) => held,
-            None => return Some(Ok(undefined_of(context))),
+            None => return Some(Err(DIVISION_BY_ZERO)),
         },
         Op::BitAnd => a.bit_and(&b),
         Op::BitOr => a.bit_or(&b),
@@ -336,6 +368,7 @@ const MIXED: Refused = Refused {
     message: "Cannot mix BigInt and other types, use explicit conversions",
     type_error: true,
 };
+const DIVISION_BY_ZERO: Refused = Refused { message: "Division by zero", type_error: false };
 
 /// Turns what [`binary`] carried out into a value, raising if it refused.
 ///

@@ -225,6 +225,23 @@ pub enum UnaryOp {
     /// it. Answers `true` for things that were never properties. Two early
     /// errors: an unqualified identifier in strict code, and a private field.
     Delete,
+    /// One step record of an iterator, and **no program can write it**.
+    ///
+    /// Minted by `emit/foreach.rs` around the `it.next()` its expansion of a
+    /// stepped `for`-`of` emits. `IteratorNext` requires the answer to be an
+    /// Object and raises a `TypeError` when it is not; the expansion then reads
+    /// `done` off it, and a compiled property read of a primitive answers
+    /// `undefined` — which is never true, which is a loop that does not end.
+    ///
+    /// A variant here rather than the refusal written as JavaScript in the
+    /// expansion itself, which is the same argument [`BinaryOp::ForInHas`]
+    /// makes: raising the program's own `TypeError` means naming `TypeError`,
+    /// and every `__rts_` name that expansion mints exists precisely so that no
+    /// binding a program can shadow decides what a loop does.
+    ///
+    /// It answers its operand unchanged, so nothing downstream has to know it
+    /// is there.
+    IteratorResult,
 }
 
 impl UnaryOp {

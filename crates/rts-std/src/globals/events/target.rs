@@ -174,6 +174,32 @@ pub(super) fn drop_registration(target: u64, name: &str, listener: u64, capture:
     }
 }
 
+/// Adds one registration, named the way `addEventListener` names it.
+///
+/// The half of [`add`] that is not option parsing, lifted for the reason
+/// [`drop_registration`] was lifted: an event-handler attribute — `signal
+/// .onabort = f` — registers a listener at the moment it is ASSIGNED, and its
+/// position among the ordinary listeners is the assignment order. Going through
+/// the method would make that promise depend on a property a program may have
+/// replaced.
+pub(super) fn add_registration(target: u64, name: &str, listener: u64) {
+    let store = store_of(target);
+    let mut records = super::elements(super::get(store, name));
+    if records.iter().any(|&held| matches(held, listener, false)) {
+        return;
+    }
+    let record = entry::with_runtime(|context| {
+        let record = entry::make_object(context);
+        entry::put_member(context, record, "fn", listener);
+        entry::put_member(context, record, "once", entry::boolean_value(false));
+        entry::put_member(context, record, "capture", entry::boolean_value(false));
+        entry::put_member(context, record, PROTECTED, entry::boolean_value(false));
+        record
+    });
+    records.push(record);
+    super::store_elements(store, name, records);
+}
+
 /// `target.removeEventListener(type, listener, options?)` — removes the one
 /// registration whose `capture` matches, as specified.
 extern "C" fn remove(_e: u64, this: u64, kind: u64, listener: u64, options: u64, _d: u64) -> u64 {

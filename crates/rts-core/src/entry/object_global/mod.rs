@@ -31,10 +31,12 @@
 
 mod arrays;
 mod copy;
+mod define;
 mod descriptor;
 mod describe;
 
 use copy::held;
+pub(in crate::entry) use define::{define, define_read, define_reported};
 pub(in crate::entry) use copy::each_enumerable_own;
 pub(in crate::entry) use describe::{describe_of, describe_own, own_symbols};
 /// `ToPropertyDescriptor`, for the one caller outside this module: a proxy's
@@ -85,7 +87,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     let name_value = context.intern_value(Str::from_str("Object")).bits();
     super::objects::put(context, cell, name_key, name_value);
     super::native::install_with_arity(context, cell, STATICS);
-    super::native::install(context, cell, describe::STATICS);
+    super::native::install_with_arity(context, cell, describe::STATICS);
     // A `prototype` property like any constructor's, so `Object.prototype.m = f`
     // has somewhere to land — and so `instanceof Object` has something to
     // compare against once literals link to it.
@@ -242,85 +244,6 @@ extern "C" fn define_property(
 ) -> u64 {
     define(object, name, descriptor);
     object
-}
-
-/// One property defined from one descriptor, throwing when it is refused.
-///
-/// Its own function because `Object.create` and `Object.defineProperties` are
-/// this in a loop, and a second reading of what a descriptor means is where one
-/// of the three learns that `{}` defines `undefined` and the others do not.
-///
-/// The throw is here rather than in [`descriptor`] because that is the whole
-/// difference between this and `Reflect.defineProperty`, which reports the same
-/// refusal as `false`.
-pub(in crate::entry) fn define(object: u64, name: u64, stated: u64) {
-    // A proxy answers with its handler, and it is asked BEFORE the descriptor is
-    // read: `Reflect.defineProperty` — the same operation reporting instead of
-    // raising — hands the trap the descriptor the program wrote, and reading it
-    // here first would run a field's getter once for this check and again inside
-    // the handler.
-    //
-    // The divergence that leaves, named: `ToPropertyDescriptor` does not run for
-    // a trapped define, so a handler is handed the object as written rather than
-    // the normalised one, and an invalid descriptor is the handler's problem
-    // instead of a `TypeError` before it. The forwarding case still validates —
-    // it reaches this function again on the target.
-    if let Some(key) = with_current(|context| super::computed::property_key(context, Value(name)))
-        && let Some(accepted) = super::proxy::define(object, key, stated)
-    {
-        // The only difference from `Reflect.defineProperty`, which reports the
-        // same refusal as `false`. Rule 8: a trap that threw already has an
-        // error on its way out, and a second one here would name this operation
-        // for the handler's failure.
-        if !accepted && !super::throw::in_flight() {
-            super::throw::type_error(&format!(
-                "'defineProperty' on proxy: trap returned falsish for property '{}'",
-                spelled(name)
-            ));
-        }
-        return;
-    }
-    let Some(wanted) = descriptor::read(stated) else {
-        // Already thrown: either the descriptor was not an object, or reading a
-        // field of it ran a getter that threw. Rule 8 — the answer is not
-        // looked at.
-        return;
-    };
-    define_read(object, name, &wanted);
-}
-
-/// A property name as an error message spells it.
-fn spelled(name: u64) -> String {
-    with_current(|context| {
-        super::text::to_text(context, Value(name))
-            .and_then(|text| text.to_rust())
-            .unwrap_or_default()
-    })
-}
-
-/// The second half, for a caller that read the descriptor earlier.
-///
-/// `Object.defineProperties` is that caller, and it has to be: the language
-/// reads EVERY descriptor before it defines the first property, so a set whose
-/// second descriptor throws leaves the object untouched.
-pub(in crate::entry) fn define_read(object: u64, name: u64, wanted: &descriptor::Descriptor) {
-    match descriptor::apply(object, name, wanted) {
-        descriptor::Verdict::Done => {}
-        descriptor::Verdict::Refused => {
-            super::throw::type_error(&format!("Cannot redefine property: {}", spelled(name)));
-        }
-        descriptor::Verdict::NotObject => {
-            super::throw::type_error("Object.defineProperty called on non-object");
-        }
-        // A `RangeError` and not a `TypeError`, and it is `ArraySetLength`'s
-        // own: `a.length = 1.5` is not a property that refuses to be redefined,
-        // it is a length that is not a length. `Reflect.defineProperty` raises
-        // it too — the verdict/throw split above is about REFUSAL, and this is
-        // the specification throwing before it ever gets that far.
-        descriptor::Verdict::BadLength => {
-            super::throw::range_error("Invalid array length");
-        }
-    }
 }
 
 /// The key a property name value denotes.

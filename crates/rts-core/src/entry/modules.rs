@@ -447,7 +447,7 @@ pub fn make_namespace(context: &mut Context, members: &[(&str, Provided)]) -> u6
     let Some(cell) = super::native::plain(context) else {
         return undefined_of(context);
     };
-    super::native::install(context, cell, members);
+    super::native::install_host(context, cell, members);
     Value::from_slot(cell).bits()
 }
 
@@ -877,7 +877,7 @@ pub fn make_prototype(context: &mut Context, name: &'static str, members: &[(&st
     let object = Value::from_slot(cell).bits();
     let owner = owning.then_some(caller);
     super::class_support::record(context, name, object, object, owner);
-    super::native::install(context, cell, members);
+    super::native::install_host(context, cell, members);
     object
 }
 

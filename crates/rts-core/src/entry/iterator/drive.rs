@@ -47,6 +47,38 @@ pub(in crate::entry) fn direct(object: u64) -> Source {
     }
 }
 
+/// `GetIterator(value, sync)` — the iterator a value asks to be walked by.
+///
+/// `None` means a throw is in flight, either a callee's or this function's own,
+/// and the caller returns without looking at anything.
+///
+/// Apart from [`crate::entry::iterate::protocol`], which asks the same question
+/// and then DRAINS what it gets. A caller that must stop part way — a
+/// collection constructor whose adder throws, which has to close the iterator
+/// at that element and not at the end — cannot be written over a function whose
+/// contract is "walk it to the end", which is the same split [`step`] exists
+/// for one level down.
+pub(in crate::entry) fn iterator(value: u64) -> Option<Source> {
+    let method = read(value, crate::entry::symbol::ITERATOR);
+    if throw::in_flight() {
+        return None;
+    }
+    if !iterate::callable(method) {
+        throw::type_error("the value is not iterable");
+        return None;
+    }
+    let nothing = absent();
+    let answered = functions::call(method, value, nothing, nothing, nothing, nothing);
+    if throw::in_flight() {
+        return None;
+    }
+    if !is_object(answered) {
+        throw::type_error("Symbol.iterator answered something that is not an object");
+        return None;
+    }
+    Some(direct(answered))
+}
+
 /// `undefined`, for an argument nothing was given for.
 pub(in crate::entry) fn absent() -> u64 {
     with_current(|context| objects::undefined_of(context))

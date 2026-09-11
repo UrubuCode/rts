@@ -48,6 +48,10 @@ const METHODS: &[(&str, Provided)] = &[
     ("keys", keys),
     ("values", values),
     ("entries", entries),
+    // `[...params]` iterates in `entries()` order per WHATWG; `entries` already
+    // answers a plain array, which is itself iterable, so the default iterator
+    // is the same function rather than a second implementation of it.
+    ("@@iterator", entries),
 ];
 
 /// Builds the `URLSearchParams` class and returns the constructor.

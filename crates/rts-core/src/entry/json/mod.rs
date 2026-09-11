@@ -132,26 +132,40 @@ impl Json {
         // `ToString` of the argument first, which is what the specification
         // says — `JSON.parse(5)` parses `"5"` and answers 5, and refusing a
         // non-string would refuse a call the language defines.
-        // Parse an existing string through a borrow of its heap text. The old
-        // path cloned the complete input `Str` before the parser copied the
-        // string tokens it actually needed into `Node`; numbers and other
-        // primitive inputs still use the ordinary ToString conversion.
-        let parsed = with_current(|context| {
-            if let Some(existing) = Value(text)
+        //
+        // Parse an existing string through a borrow of its heap text — the
+        // fast path, and the common one. `super::text::to_text` handled the
+        // rest, but it is the PRIMITIVE half of `ToString`: it answers `None`
+        // for an object rather than running one, so `JSON.parse([1])` — whose
+        // conversion is `Array.prototype.join`, called through `ToPrimitive`
+        // — silently became `undefined`. `to_string_value` is the full
+        // conversion, called OUTSIDE the borrow because that is user code.
+        let existing = with_current(|context| {
+            Value(text)
                 .as_slot()
                 .and_then(|cell| context.text_at(cell))
-            {
-                return Ok(read::parse_text(existing));
-            }
-            let Some(converted) = super::text::to_text(context, Value(text)) else {
-                return Err(());
-            };
-            Ok(read::parse_text(&converted))
+                .cloned()
         });
-        let parsed = match parsed {
-            Ok(parsed) => parsed,
-            Err(()) => return with_current(|context| undefined_of(context)),
+        let converted = match existing {
+            Some(text) => Some(text),
+            None => match super::text::to_string_value(text) {
+                Some(value) => with_current(|context| {
+                    Value(value)
+                        .as_slot()
+                        .and_then(|cell| context.text_at(cell))
+                        .cloned()
+                }),
+                // Either the conversion raised (a symbol, or a `toString`
+                // that threw) and rule 8's caller re-raises, or it did not
+                // and there is nothing further to try — both read the same
+                // here.
+                None => None,
+            },
         };
+        let Some(converted) = converted else {
+            return with_current(|context| undefined_of(context));
+        };
+        let parsed = read::parse_text(&converted);
         match parsed {
             Some(node) => {
                 let value = materialise(&node);

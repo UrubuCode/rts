@@ -39,7 +39,7 @@ fn empty(node: &Node) -> u64 {
     match node {
         // The entry points, called with no borrow held — which they must be,
         // since each takes one.
-        Node::Array(_) => super::super::array::array_new(0),
+        Node::Array { .. } => super::super::array::array_new(0),
         // `native::plain` rather than the `object_new` entry point, which is
         // the spelling `json`'s materialisation settled on: both make an object
         // with no prototype, and this one is a plain function, so the arm below
@@ -85,6 +85,26 @@ fn empty(node: &Node) -> u64 {
                 None => undefined_of(context),
             }
         }),
+        // Complete here too: a PRIVATE backing buffer, sized and filled from
+        // the copied bytes, then `typed::made` gives it the right class's
+        // prototype and attaches the view — the same two steps `new Uint8Array`
+        // itself ends with. `Node::View`'s own documentation names what this
+        // does not do: share identity with the buffer the source named.
+        Node::View { kind, bytes } => with_current(|context| {
+            let Some(buffer) = super::super::buffers::new_buffer(context, bytes.len()) else {
+                return undefined_of(context);
+            };
+            if let Some(destination) = context.bytes_at_mut(buffer) {
+                destination.copy_from_slice(bytes);
+            }
+            let view = super::super::buffers::View {
+                buffer,
+                offset: 0,
+                length: bytes.len(),
+                kind: *kind,
+            };
+            super::super::buffers::typed::made(context, view)
+        }),
     }
 }
 
@@ -114,8 +134,8 @@ fn fill(node: &Node, value: u64, made: &[u64]) {
         return;
     };
     match node {
-        Node::Array(slots) => {
-            let elements: Vec<u64> = slots.iter().map(|slot| resolve(*slot, made)).collect();
+        Node::Array { elements, extra } => {
+            let elements: Vec<u64> = elements.iter().map(|slot| resolve(*slot, made)).collect();
             with_current(|context| {
                 // `length` is an ordinary property (`array::set_length`'s own
                 // doc comment says so), not something a reader derives from the
@@ -131,6 +151,18 @@ fn fill(node: &Node, value: u64, made: &[u64]) {
                 }
                 super::super::array::set_length(context, cell, count);
             });
+            // The named properties beside the indices, written the same way
+            // `Node::Object` writes its own — after `length`, so a program
+            // that hung a `length`-shadowing name on the array (impossible
+            // for a real array, but `array_extras` never assumed it was one)
+            // still lands where the property system puts it.
+            for (name, slot) in extra {
+                let held = resolve(*slot, made);
+                with_current(|context| {
+                    let key = Key::Name(context.interner.intern(name, &mut context.keys));
+                    super::super::objects::put(context, cell, key, held);
+                });
+            }
         }
         Node::Object(members) => with_current(|context| {
             for (name, slot) in members {
@@ -164,7 +196,11 @@ fn fill(node: &Node, value: u64, made: &[u64]) {
             }
             super::super::collections::restore_sized(context, cell, table);
         }),
-        Node::Date(_) | Node::Regexp(_, _) | Node::Buffer(_) | Node::Error { .. } => {}
+        Node::Date(_)
+        | Node::Regexp(_, _)
+        | Node::Buffer(_)
+        | Node::View { .. }
+        | Node::Error { .. } => {}
     }
 }
 

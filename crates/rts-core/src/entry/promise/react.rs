@@ -102,6 +102,21 @@ pub(super) enum Handler {
         result: PromiseId,
     },
 
+    /// A settlement handed to a FOREIGN capability's `resolve`/`reject`.
+    ///
+    /// `Promise.all.call(SomeFunction, …)` answers an object that is not a
+    /// promise, so there is no identifier to settle — the only way its author
+    /// learns anything is the pair their executor was handed. An internal
+    /// promise carries the settlement and this passes it on, which is why the
+    /// rest of this module never has to know that a derived promise might not
+    /// be one. See [`super::capability`].
+    Forward {
+        /// Called with the value, when the internal promise fulfils.
+        resolve: u64,
+        /// Called with the reason, when it rejects.
+        reject: u64,
+    },
+
     /// What `finally` does after its callback answered something to wait for.
     ///
     /// The callback ran, the value it produced was resolved into a promise of
@@ -183,6 +198,18 @@ pub(super) enum Step {
         settlement: Settlement,
         /// The value or the reason.
         value: u64,
+    },
+
+    /// Hand a settlement to a foreign capability's settler, and keep nothing.
+    ///
+    /// No `derived`: the capability's promise is the caller's answer and
+    /// whatever its author's `resolve` does with the value is their business,
+    /// not a value this module goes on to settle anything with.
+    Notify {
+        /// The settler, already known to be the right one for the settlement.
+        callee: u64,
+        /// The value or the reason.
+        argument: u64,
     },
 
     /// A combinator finished, and its answer is a list that becomes an array.
@@ -278,6 +305,25 @@ pub(super) fn prepare(context: &mut Context, waiter: ContinuationId) -> Option<S
                     settlement,
                     value,
                 }),
+            }
+        }
+        Handler::Forward { resolve, reject } => {
+            let (settlement, value) = settled(context, reaction.source)?;
+            let callee = match settlement {
+                Settlement::Fulfilled => resolve,
+                Settlement::Rejected => reject,
+            };
+            // An executor that never called what it was handed leaves
+            // `undefined` here. Nothing to notify is not an error to raise on
+            // the microtask queue, where there is no caller to raise at — the
+            // foreign promise simply never settles, which is what a capability
+            // its own author never completed means.
+            match callable(context, callee) {
+                true => Some(Step::Notify {
+                    callee,
+                    argument: value,
+                }),
+                false => None,
             }
         }
         Handler::Frame { frame, result } => {

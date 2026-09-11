@@ -235,3 +235,107 @@ fn cooked(part: &TemplatePart) -> EmitResult<&Text> {
         }),
     }
 }
+
+/// Whether a body holds a tagged template, and so may not be SUBSTITUTED into
+/// its call sites.
+///
+/// # Why a site is not something a substitution may copy
+///
+/// The specification gives a tagged-template SITE one strings object for the
+/// life of the program, which is the whole reason tags are used for memoising:
+/// `` tag`a` `` evaluated twice hands the tag the identical array. A site's
+/// number is minted where it is EMITTED, so a body emitted at three call sites
+/// mints three — and `` (() => tag`z`)() === (() => tag`z`)() `` answered
+/// `false` where every runtime answers `true`.
+///
+/// Refused rather than memoised, and the rejected alternative is worth naming.
+/// Keying the site by the node's `Position` looks like the obvious fix and is
+/// not sound here: `parse` gives each file its own `SourceMap`, so two files of
+/// one compilation number their bytes from the same origin, and two templates
+/// at the same offset in two files would silently become ONE site. Keying by
+/// the node's address fails for a different reason — `inline::body_shape`
+/// CLONES the tree, so every substitution has an address of its own.
+///
+/// What it costs is the substitution of a helper that writes a tagged template,
+/// which is a rare enough shape that the pass loses nothing measurable; what it
+/// buys is that the identity the language guarantees is one the emitter cannot
+/// break by being clever about code size.
+pub(super) fn holds_a_site(statements: &[crate::syntax::Stmt], answer: &Expr) -> bool {
+    let mut found = false;
+    for statement in statements {
+        site_in_stmt(statement, &mut found);
+    }
+    site_in_expr(answer, &mut found);
+    found
+}
+
+fn site_in_stmt(statement: &crate::syntax::Stmt, found: &mut bool) {
+    if *found {
+        return;
+    }
+    super::capture::walk_stmt(statement, &mut |child| match child {
+        super::capture::StmtChild::Stmt(inner) => site_in_stmt(inner, found),
+        super::capture::StmtChild::Expr(expr) => site_in_expr(expr, found),
+        super::capture::StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                site_in_expr(value, found);
+            }
+        }
+        super::capture::StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                site_in_stmt(inner, found);
+            }
+        }
+        super::capture::StmtChild::Function(function) => site_in_function(function, found),
+        super::capture::StmtChild::Class(class) => site_in_class(class, found),
+    });
+}
+
+fn site_in_expr(expr: &Expr, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if matches!(expr.kind, crate::syntax::ExprKind::TaggedTemplate { .. }) {
+        *found = true;
+        return;
+    }
+    super::capture::walk_expr(expr, &mut |child| match child {
+        super::capture::Child::Expr(inner) => site_in_expr(inner, found),
+        super::capture::Child::Function(function) => site_in_function(function, found),
+        super::capture::Child::Class(class) => site_in_class(class, found),
+    });
+}
+
+/// A nested function is emitted once per substitution too, so its own sites
+/// multiply with the body's — which is why this descends rather than stopping
+/// at the boundary.
+fn site_in_function(function: &crate::syntax::Function, found: &mut bool) {
+    match &function.body {
+        crate::syntax::FunctionBody::Block(body) => {
+            for statement in body {
+                site_in_stmt(statement, found);
+            }
+        }
+        crate::syntax::FunctionBody::Expression(value) => site_in_expr(value, found),
+    }
+}
+
+fn site_in_class(class: &crate::syntax::Class, found: &mut bool) {
+    for element in &class.body {
+        match element {
+            crate::syntax::ClassElement::Method(method) => {
+                site_in_function(&method.function, found)
+            }
+            crate::syntax::ClassElement::Field(field) => {
+                if let Some(value) = &field.value {
+                    site_in_expr(value, found);
+                }
+            }
+            crate::syntax::ClassElement::StaticBlock(body) => {
+                for statement in body {
+                    site_in_stmt(statement, found);
+                }
+            }
+        }
+    }
+}

@@ -17,13 +17,19 @@
 //! # `onabort`, and where it fires
 //!
 //! The specification registers `onabort` as a listener at the moment it is
-//! assigned, so its position among the `addEventListener` listeners depends on
-//! assignment order. Reproducing that needs a property setter, which is
-//! `#[rtse::class]`'s and not reachable from a host crate — so `onabort` is a
-//! plain property read by [`signal_abort`] **after** the registered listeners.
-//! Two divergences follow and are stated rather than discovered: the ordering,
-//! and that `signal.dispatchEvent(new Event('abort'))` written by a program does
-//! not reach it, because only this module's own abort path looks.
+//! assigned, so its position among the `addEventListener` listeners is the
+//! assignment order. This section said reproducing that "needs a property
+//! setter, which is `#[rtse::class]`'s and not reachable from a host crate",
+//! and stated the two divergences that followed — the ordering, and that a
+//! hand-dispatched `'abort'` event never reached the handler.
+//!
+//! `entry::define_accessor_in` is reachable from a host crate and had been for
+//! longer than the paragraph stood, which is why it is rewritten rather than
+//! deleted: a "cannot" that outlives its cause keeps a defect alive by looking
+//! like a decision. [`onabort_set`] registers the handler where it is written
+//! and withdraws the previous one, so both divergences are gone and the one
+//! that remains — a handler registered as itself rather than behind an internal
+//! wrapper — is stated there.
 
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
@@ -133,8 +139,51 @@ fn fresh_signal(context: &mut Context) -> u64 {
     // never-assigned event handler reads as, and what `signal.onabort === null`
     // tests for.
     let null = entry::null_in(context);
-    entry::put_member(context, signal, "onabort", null);
+    entry::put_member(context, signal, ONABORT, null);
+    entry::define_accessor_in(context, signal, "onabort", onabort_get, Some(onabort_set));
     signal
+}
+
+/// Where the handler `onabort` registered is kept, so the setter can withdraw
+/// it before registering the next one.
+///
+/// An own property, as [`DEPENDENTS`] and [`REMOVALS`] are, and for the same
+/// reason: a native closes over one word and there is nothing to capture in.
+const ONABORT: &str = "__onabort__";
+
+/// `signal.onabort` — whatever was last assigned, or `null`.
+extern "C" fn onabort_get(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    super::get(this, ONABORT)
+}
+
+/// `signal.onabort = f` — an event-handler attribute, registered where it is
+/// written.
+///
+/// # The divergence this closes, and the smaller one it opens
+///
+/// The module doc used to state that `onabort` fires after every registered
+/// listener, "because reproducing the order needs a property setter, which is
+/// `#[rtse::class]`'s and not reachable from a host crate". `define_accessor_in`
+/// is reachable, and was already — so the ordering is now the assignment
+/// order the specification gives, and `signal.dispatchEvent(new Event('abort'))`
+/// reaches the handler like any other listener.
+///
+/// What is NOT exact: the handler is registered as ITSELF rather than behind an
+/// internal wrapper, so `addEventListener('abort', f)` followed by
+/// `onabort = f` is one registration where a browser keeps two, and clearing
+/// `onabort` then removes both. The alternative is a per-assignment native
+/// closure, which `entry::make_callable` cannot give — the same wall
+/// [`DEPENDENTS`] works around.
+extern "C" fn onabort_set(_e: u64, this: u64, value: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let previous = super::get(this, ONABORT);
+    if entry::with_runtime(|context| entry::is_callable_in(context, previous)) {
+        super::target::drop_registration(this, "abort", previous, false);
+    }
+    entry::with_runtime(|context| entry::put_member(context, this, ONABORT, value));
+    if entry::with_runtime(|context| entry::is_callable_in(context, value)) {
+        super::target::add_registration(this, "abort", value);
+    }
+    super::absent()
 }
 
 /// `new AbortController()` — its signal is created here and never replaced, so
@@ -305,12 +354,11 @@ fn signal_abort(signal: u64, reason: u64, default: (&str, &str)) {
         withdraw(*target);
     }
     for (target, event) in events {
+        // `onabort` is not called separately any more: it is a REGISTERED
+        // listener from the moment it is assigned, so the dispatch above
+        // already runs it, in the position the program put it in. Calling it
+        // here as well would run it twice.
         super::target::dispatch_event(target, event);
-        let handler = super::get(target, "onabort");
-        if entry::with_runtime(|context| entry::is_callable_in(context, handler)) {
-            let absent = super::absent();
-            entry::call(handler, target, event, absent, absent, absent);
-        }
     }
 }
 

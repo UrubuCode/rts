@@ -376,8 +376,17 @@ pub(super) fn list_from_array_like(arguments: u64) -> Option<u64> {
     // Not "has a length": the specification refuses a PRIMITIVE and accepts
     // every object, so `Reflect.apply(f, o, new Set())` is a call with no
     // arguments rather than a `TypeError`, and `f.apply(o, "ab")` is the
-    // refusal. `as_slot` is what separates the two here.
-    Value(arguments).as_slot()?;
+    // refusal. `as_slot` is what separates the two here — except a STRING,
+    // which this engine also stores as a heap cell (`text.rs`'s `Kind::Reference`
+    // says so), so `as_slot` alone answers `Some` for one just as it does for
+    // an array-like object. `text_at` is what tells the two apart: a wrapper
+    // built by `new String(…)` hangs its text off `boxed_at` instead and still
+    // reads as an object here, which is right — `f.apply(o, new String("ab"))`
+    // is not a refusal, only a bare primitive is.
+    let cell = Value(arguments).as_slot()?;
+    if with_current(|context| context.text_at(cell).is_some()) {
+        return None;
+    }
     let key = with_current(|context| context.well_known_text("length"));
     // `ToLength`: the property is read through the ordinary path — a getter on
     // it runs, and a program counts how many times — then coerced, because
@@ -886,7 +895,7 @@ pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         // Paired with the vector, so a callee's count is its own — see `called`.
         context.pending_counts.push(None);
     });
-    let produced = construct_inner(callee, a0, a1, a2, a3);
+    let produced = construct_inner(callee, callee, a0, a1, a2, a3);
     with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
@@ -898,7 +907,23 @@ pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 ///
 /// Split from [`construct`] for the reason [`invoke`] is split from [`call`]:
 /// `construct_with_args` has already pushed the vector this construction reads.
-fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+/// `"<name> is not a constructor"` for a native, read off its own `name`.
+///
+/// The emitter's table cannot name one — it never saw it — so the message comes
+/// from the property `SetFunctionName` wrote, which is the same text a program
+/// reads back from `f.name`.
+fn named_refusal(context: &mut super::Context, cell: u32) -> String {
+    let key = context.well_known("name");
+    let spelled = super::objects::own_property(context, cell, key)
+        .and_then(|found| found.as_slot())
+        .and_then(|text| context.text_at(text))
+        .and_then(|text| text.to_rust())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| "anonymous".to_owned());
+    format!("{spelled} is not a constructor")
+}
+
+fn construct_inner(callee: u64, new_target: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // Callable but NOT constructible, which is a different refusal from "not
     // callable" and needs its own: an arrow, a method and an `async function`
     // are all perfectly good functions that `new` may not reach. This answered
@@ -922,7 +947,32 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         if context.is_class_constructor(cell) {
             return None;
         }
-        let (name, _, _, constructs) = context.described_at(code)?;
+        let Some((name, _, _, constructs)) = context.described_at(code) else {
+            // A NATIVE — nothing the emitter ever saw. The paragraph above used
+            // to let every one of them through, and that is a wrong answer this
+            // engine could not previously afford to fix: `new Math.abs(1)` ran
+            // `abs` with a fresh receiver and answered the object, where every
+            // runtime raises. The specification's own rule decides which of them
+            // may be reached with `new`, and it is readable rather than a list:
+            // a built-in function that is not a constructor has NO own
+            // `prototype` property. `Map`, `URL` and `napi_define_class`'s
+            // constructors all write one; `Math.abs`, `Reflect.construct` and
+            // `fs.readFile` do not.
+            //
+            // A BOUND function is the exception the rule cannot see: it is made
+            // by `native::callable` and has no `prototype` of its own, and
+            // `new (C.bind(null))()` is legal whenever `C` is. It keeps the old
+            // tolerance rather than forwarding the target's answer, because the
+            // forwarding belongs with `Bound` and this is the refusal.
+            if context.bound_at(cell).is_some() {
+                return None;
+            }
+            let key = context.well_known("prototype");
+            if super::objects::own_property(context, cell, key).is_some() {
+                return None;
+            }
+            return Some(named_refusal(context, cell));
+        };
         if constructs {
             return None;
         }
@@ -948,16 +998,30 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         // the activation about to start is the one that matches. See the field
         // on `Context` for why an activation and not merely a target.
         let depth = context.callees.len();
-        context.new_targets.push((callee, depth));
+        // `new_target` and not `callee`: `new C()` makes them the same object,
+        // and `Reflect.construct(C, args, Other)` is the whole reason they are
+        // two arguments. It was `callee` at this line, so `new.target` inside a
+        // constructor reached that way named the constructor that RAN rather
+        // than the one the caller said — and `allocate_for_target`, which reads
+        // this same stack, then linked the produced object to the wrong
+        // prototype and had to be corrected after the fact.
+        context.new_targets.push((new_target, depth));
         Some(context.is_derived(cell))
     });
 
     let Some(derived) = derived else {
-        if let Some(answered) = super::proxy::construct(callee, [a0, a1, a2, a3]) {
+        if let Some(answered) = super::proxy::construct(callee, [a0, a1, a2, a3], new_target) {
             return answered;
         }
-        // Not callable. `new 1` is a `TypeError`, and throwing needs protected
-        // regions — the same stated gap calling has.
+        // Not callable at all — `new 1`, `new Math`, `new JSON`. The comment
+        // here said throwing "needs protected regions"; it does not any more,
+        // and the silence was visible: `new Math()` answered `undefined` and the
+        // program carried on, where every runtime ends it. Rule 8 is what made
+        // the raise affordable, and it is the same one calling a non-function
+        // already takes.
+        let kind = super::text::described(super::type_of::type_of(callee))
+            .unwrap_or_else(|| "a value".to_owned());
+        super::throw::type_error(&format!("{kind} is not a constructor"));
         return with_current(|context| undefined_of(context));
     };
 
@@ -1151,6 +1215,18 @@ pub fn super_construct_with_args(parent: u64, arguments: u64) -> u64 {
 /// returned. See [`call_with_args`] for why the vector is the runtime's.
 #[rtse::entry]
 pub fn construct_with_args(callee: u64, arguments: u64) -> u64 {
+    construct_args_on(callee, arguments, callee)
+}
+
+/// The same construction, with `new.target` said rather than assumed.
+///
+/// `Reflect.construct(target, args, newTarget)` and a proxy's `construct` trap
+/// are the two places the language lets them differ, and both had to drop the
+/// third argument: the target stack carried one class per construction and this
+/// entry point could not spell a second. `Reflect.construct` compensated by
+/// relinking the produced object afterwards, which fixed the PROTOTYPE and left
+/// `new.target` naming the wrong constructor inside the body.
+pub(in crate::entry) fn construct_args_on(callee: u64, arguments: u64, new_target: u64) -> u64 {
     let first = with_current(|context| {
         let absent = undefined_of(context);
         let mut first = [absent; ARGUMENT_SLOTS];
@@ -1168,7 +1244,7 @@ pub fn construct_with_args(callee: u64, arguments: u64) -> u64 {
     });
     // Not through `construct`, which pushes a marker of its own — that marker
     // on top would hide the vector from the constructor it was made for.
-    let produced = construct_inner(callee, first[0], first[1], first[2], first[3]);
+    let produced = construct_inner(callee, new_target, first[0], first[1], first[2], first[3]);
     with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
@@ -1207,6 +1283,19 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
         let key = prototype_key(context);
         let mut resolved = cell;
         let prototype = loop {
+            // A proxy as `new.target` — `Reflect.construct(F, args, proxyOfG)`,
+            // or `new P()` on a proxy whose trap hands `P` back — owns no
+            // `prototype` of its own: the property lives on its target. Read
+            // there, which is what a handler without a `get` trap forwards to.
+            // A handler WITH a `get` trap is not consulted here, because this
+            // runs inside the context borrow and a trap is user code; that is
+            // the stated limit, not an oversight.
+            if let Some((target, _)) = context.proxy_at(resolved) {
+                if let Some(next) = Value(target).as_slot() {
+                    resolved = next;
+                    continue;
+                }
+            }
             if let Some(found) = super::objects::read_property(context, resolved, key) {
                 break found;
             }
@@ -1217,6 +1306,17 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
                 .bound_at(resolved)
                 .and_then(|bound| Value(bound.target).as_slot())?;
             resolved = next;
+        };
+        // `GetPrototypeFromConstructor`, second half: a `prototype` that is
+        // not an object — `NoProto.prototype = 7` as `new.target` — means the
+        // CALLEE's own, never the number. Read from the callee cell, which
+        // may be the same cell when nothing substituted a target.
+        let prototype = match prototype.as_slot() {
+            Some(_) => prototype,
+            None => Value(callee)
+                .as_slot()
+                .and_then(|own| super::objects::read_property(context, own, key))
+                .filter(|found| found.as_slot().is_some())?,
         };
 
         let shape = context.shapes.root();
@@ -1252,9 +1352,14 @@ pub(super) fn prototype_for_new(context: &mut Context, fallback: u64) -> u64 {
         return fallback;
     };
     let key = prototype_key(context);
+    // `GetPrototypeFromConstructor`: a `prototype` that is not an object —
+    // `NoProto.prototype = 7` handed to `Reflect.construct(Set, [], NoProto)`
+    // — is the built-in's own, not the number. Linking to `7` made the fresh
+    // Set inherit from nothing, and the constructor's own `this.add` was then
+    // "not a function".
     match super::objects::read_property(context, cell, key) {
-        Some(prototype) => prototype.bits(),
-        None => fallback,
+        Some(prototype) if prototype.as_slot().is_some() => prototype.bits(),
+        _ => fallback,
     }
 }
 

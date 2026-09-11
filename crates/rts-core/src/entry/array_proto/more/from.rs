@@ -55,7 +55,7 @@ use crate::value::Value;
 /// decides what it additionally accepts when nothing was iterated.
 pub(in crate::entry) extern "C" fn from(
     _e: u64,
-    _this: u64,
+    this: u64,
     items: u64,
     mapper: u64,
     receiver: u64,
@@ -65,14 +65,16 @@ pub(in crate::entry) extern "C" fn from(
     // getter, a `Symbol.iterator` method, or the mapper.
     match source(items) {
         Source::Like => {
-            let produced = built(like::values_of(items));
+            let elements = like::values_of(items);
             if throw::in_flight() {
                 return nothing();
             }
             match calls(mapper) {
-                true => mapped(produced, mapper, receiver),
-                // Already a fresh array, so there is nothing to build twice.
-                false => produced,
+                true => match mapped(items, elements, mapper, receiver) {
+                    Some(result) => finish(this, result),
+                    None => nothing(),
+                },
+                false => finish(this, elements),
             }
         }
         // Interleaved ONLY when there is both a mapper to fail and an iterator
@@ -80,18 +82,81 @@ pub(in crate::entry) extern "C" fn from(
         // pulls, so draining in one step is the operation rather than a
         // divergence — and it costs one allocation instead of two calls per
         // element.
-        Source::Stepped if calls(mapper) => walked(items, mapper, receiver),
+        Source::Stepped if calls(mapper) => walked(this, items, mapper, receiver),
         Source::Stepped | Source::Primordial => {
             let produced = super::super::super::iterate::iterate(items);
             if throw::in_flight() {
                 return nothing();
             }
+            let elements = snapshot(produced).unwrap_or_default();
             match calls(mapper) {
-                true => mapped(produced, mapper, receiver),
-                false => produced,
+                true => match mapped(produced, elements, mapper, receiver) {
+                    Some(result) => finish(this, result),
+                    None => nothing(),
+                },
+                false => finish(this, elements),
             }
         }
     }
+}
+
+/// Where `Array.from` puts its answer, `this` consulted.
+///
+/// `Array.from` and `Array.of` are generic over the callee the way the
+/// specification states them — `Sub.from([1, 2])` is `instanceof Sub`, and
+/// `Array.from.call(Box, …)` runs `Box`'s own constructor — which is a
+/// DIFFERENT protocol from `ArraySpeciesCreate`: there is no `constructor`
+/// property or `Symbol.species` read here, `this` IS the constructor, per
+/// `23.1.2.1` step 3. A receiver that is not one at all — `Array.from` called
+/// plainly, or through `.call(undefined, …)` — takes the plain path every
+/// program that never overrides it pays: `Construct` is skipped entirely, not
+/// merely defaulted to `Array`.
+///
+/// `this` is checked for being CALLABLE rather than for the narrower
+/// `IsConstructor`, which is the same over-approximation `species::made`
+/// accepts for the reason its own module states: a wrong class a program did
+/// not ask to distinguish is a smaller divergence than refusing a receiver
+/// this engine cannot yet tell apart from a constructor.
+pub(in crate::entry) fn finish(this: u64, elements: Vec<u64>) -> u64 {
+    let count = elements.len();
+    let is_constructor = with_current(|context| {
+        Value(this)
+            .as_slot()
+            .is_some_and(|cell| context.callable_at(cell).is_some())
+    });
+    if !is_constructor {
+        return built(elements);
+    }
+    // ROOTED across `Construct` and every write below, all of which are user
+    // code that allocates: until a value is written into the destination it is
+    // named only by this `Vec`, on the Rust heap and nowhere a scan reaches.
+    // See `super::super::super::rooted`.
+    let guard = super::super::super::rooted::Rooted::with(elements);
+    let (len_bits, absent) =
+        with_current(|context| (Value::from_f64(count as f64).bits(), undefined_of(context)));
+    // `Construct(C, « len »)`, a single argument — not the items, which land
+    // afterward through ordinary property writes. `made` itself needs no
+    // guard of its own: it is a whole encoded `Value` in this frame, which the
+    // conservative scan recognises, unlike the bare index rule 10 warns about.
+    let made = functions::construct(this, len_bits, absent, absent, absent);
+    if throw::in_flight() {
+        return nothing();
+    }
+    for index in 0..guard.len() {
+        let value = guard.as_slice()[index];
+        let at = Value::from_f64(index as f64).bits();
+        super::super::super::computed::set_indexed(made, at, value, 0);
+        if throw::in_flight() {
+            return made;
+        }
+    }
+    with_current(|context| {
+        if let Some(cell) = Value(made).as_slot() {
+            let key = context.well_known("length");
+            super::super::super::objects::put(context, cell, key, len_bits);
+        }
+    });
+    made
 }
 
 /// How `Array.from` reads its argument.
@@ -167,30 +232,28 @@ fn declares_iterator(context: &mut Context, cell: u32) -> bool {
     }
 }
 
-/// The mapper over an array already in hand.
+/// The mapper over elements already in hand — `None` when it threw.
 ///
 /// ROOTED, and written as a loop rather than a `collect` for that reason: the
 /// mapper is user code that allocates, an allocation collects, and what it has
 /// already answered would otherwise live only in a `Vec` on the Rust heap, which
 /// no scan of ours reaches. Same hole as `map`'s, same mechanism — see
 /// `entry::rooted`.
-fn mapped(produced: u64, mapper: u64, receiver: u64) -> u64 {
-    let Some(elements) = snapshot(produced) else {
-        return nothing();
-    };
+///
+/// Answers the elements rather than a built array, because the caller decides
+/// where they land — [`finish`] is `this`-aware and a plain array built here
+/// would be the wrong destination for `Sub.from([1], f)`.
+fn mapped(array_arg: u64, elements: Vec<u64>, mapper: u64, receiver: u64) -> Option<Vec<u64>> {
     let mut mapped = super::super::super::rooted::Rooted::new();
     for (index, element) in elements.iter().enumerate() {
         // `visit` is `map`'s call, and it is shared rather than repeated so that
         // the receiver, the argument order and the rule-8 check are decided in
         // one place. `thisArg` is this function's THIRD argument, which used to
         // be read as padding and thrown away.
-        let Some(answered) = array_iterate::visit(mapper, receiver, produced, *element, index)
-        else {
-            break;
-        };
+        let answered = array_iterate::visit(mapper, receiver, array_arg, *element, index)?;
         mapped.values().push(answered);
     }
-    built(mapped.take())
+    Some(mapped.take())
 }
 
 /// One pull, one mapper call, until the iterator says it is done.
@@ -200,7 +263,7 @@ fn mapped(produced: u64, mapper: u64, receiver: u64) -> u64 {
 /// the value and its position only. It is passed as absent for that reason,
 /// through the same [`array_iterate::visit`] the other path uses so the rule-8
 /// check has one spelling.
-fn walked(items: u64, mapper: u64, receiver: u64) -> u64 {
+fn walked(this: u64, items: u64, mapper: u64, receiver: u64) -> u64 {
     let Some((iterator, next)) = opened(items) else {
         // Either the method is not callable or it threw. `iterate` owns the
         // `TypeError` for the first and re-derives it from a data read that
@@ -240,7 +303,7 @@ fn walked(items: u64, mapper: u64, receiver: u64) -> u64 {
         produced.values().push(answered);
         index += 1;
     }
-    built(produced.take())
+    finish(this, produced.take())
 }
 
 /// The iterator a value's own `Symbol.iterator` answers, and its `next`.

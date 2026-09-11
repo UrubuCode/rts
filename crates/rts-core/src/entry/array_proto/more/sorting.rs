@@ -19,10 +19,28 @@
 //! collect, drop the borrow, call, re-borrow to store.
 
 use super::super::super::objects::undefined_of;
-use super::super::super::{Context, functions, with_current};
+use super::super::super::string::absent;
+use super::super::super::{Context, functions, throw, with_current};
 use super::super::built;
 use super::{calls, nothing, snapshot};
 use crate::value::Value;
+
+/// Whether a comparator argument is one `sort`/`toSorted` may run with.
+///
+/// The specification allows exactly `undefined` for "not given at all" —
+/// which is what an absent argument reads as *and* what an explicit
+/// `sort(undefined)` reads as, so [`absent`] alone answers both — and a
+/// callable object. Anything else, `sort(5)` included, is a `TypeError`
+/// raised before a single element is touched: a comparator that never runs
+/// must not be silently read as "no comparator".
+///
+/// Two borrows, taken one after the other and never nested: `calls` takes the
+/// context itself, and asking it from inside a `with_current` is the
+/// `RefCell already borrowed` panic that took twenty-one sort fixtures down
+/// the first time this guard was written.
+fn comparator_ok(comparator: u64) -> bool {
+    with_current(|context| absent(context, comparator)) || calls(comparator)
+}
 
 /// `a.sort(f)` — in place, answering the receiver.
 ///
@@ -48,6 +66,13 @@ pub(super) extern "C" fn sort(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    let ok = comparator_ok(comparator);
+    if !ok {
+        throw::type_error(
+            "The comparator argument must be a function or undefined",
+        );
+        return nothing();
+    }
     let Some(elements) = snapshot(this) else {
         return nothing();
     };
@@ -101,6 +126,13 @@ pub(super) extern "C" fn to_sorted(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    let ok = comparator_ok(comparator);
+    if !ok {
+        throw::type_error(
+            "The comparator argument must be a function or undefined",
+        );
+        return nothing();
+    }
     match super::seen(this) {
         Some(elements) => built(ordered(elements, comparator)),
         None => nothing(),

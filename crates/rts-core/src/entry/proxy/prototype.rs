@@ -7,8 +7,57 @@
 //! contradicting something the program can read off the target directly.
 
 use super::invariant;
-use crate::entry::{chain, functions, integrity, primitives, throw};
+use crate::entry::{Context, chain, functions, integrity, objects, primitives, throw};
+use crate::object::Key;
 use crate::value::Value;
+
+/// The nearest proxy ABOVE an object, when it stands between that object and a
+/// key — the other half of "what does this inherit from", asked from below.
+///
+/// # Why the chain walk cannot answer this itself
+///
+/// `accessor::resolve` runs inside the context borrow and a proxy answers by
+/// running user code, so the walk cannot call a handler where it meets one. It
+/// has no way to report one either: a fourth `Found` would have to be decided
+/// about by every caller of that walk, and most of them are asking about a key
+/// they already know is on the receiver.
+///
+/// So the question is asked separately, and the answer is EXACT rather than
+/// approximate: the walk stops as soon as an ordinary level owns the key, so a
+/// proxy further out never steals a property nearer in. Without it, a miss on a
+/// child whose prototype is a proxy answered `undefined` — the cell standing
+/// for a proxy holds no properties of its own, so the walk carried straight
+/// past it to `Object.prototype` and no trap was ever reached.
+///
+/// # What a program with no proxy in it pays
+///
+/// One comparison. [`Context::any_proxy`] is false until `new Proxy` has run at
+/// all, and this answers before touching the chain.
+pub(in crate::entry) fn above(context: &mut Context, start: u32, key: Key) -> Option<u64> {
+    if !context.any_proxy() {
+        return None;
+    }
+    let Key::Name(machine) = key else {
+        return None;
+    };
+    let number = machine.index() as u32;
+    let mut cell = start;
+    for _ in 0..objects::CHAIN_LIMIT {
+        // The receiver itself is never the answer: a read ON a proxy is
+        // intercepted before any chain is walked, and answering it here would
+        // ask one handler twice for one operation.
+        if cell != start && context.proxy_at(cell).is_some() {
+            return Some(Value::from_slot(cell).bits());
+        }
+        if context.accessor_at(cell, number).is_some()
+            || objects::own_property(context, cell, key).is_some()
+        {
+            return None;
+        }
+        cell = objects::inherited_from(context, cell)?;
+    }
+    None
+}
 
 /// `handler.getPrototypeOf(target)`, or the target's prototype.
 pub(in crate::entry) fn prototype_of(object: u64) -> Option<u64> {

@@ -11,6 +11,10 @@
 //! `&str -> String` over pattern SYNTAX, and none of them knows that an engine
 //! exists.
 
+mod legacy;
+
+pub(super) use legacy::{forward_backreferences_as_empty, legacy_octal_escapes};
+
 /// `\/` back to `/`.
 ///
 /// The one syntactic difference that is not optional. A literal has to escape

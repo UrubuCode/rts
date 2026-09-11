@@ -106,7 +106,9 @@ use super::global::{
     GLOBAL_GET_ENTRY, GLOBAL_GET_UNBOUND_ENTRY, GLOBAL_SET_ENTRY, SLOPPY_THIS_ENTRY,
 };
 use super::page_scope::{PAGE_GLOBAL_GET_ENTRY, PAGE_GLOBAL_SET_ENTRY};
-use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
+use super::iterate::{
+    ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY, ITERATOR_RESULT_ENTRY,
+};
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
 use super::modules::{MODULE_BINDING_ENTRY, MODULE_NAMESPACE_ENTRY, MODULE_PUBLISH_ENTRY};
@@ -716,6 +718,15 @@ pub enum CoreEntry {
     /// mean `fn.name = "x"` silently storing, which is what the ordinary store
     /// this replaces already did.
     SetFunctionName = 99,
+    /// [`super::iterator_result`] — one step record of an iterator, checked to
+    /// be an object.
+    ///
+    /// A row rather than a check the emitter writes, and its own documentation
+    /// says why: a `for`-`of` expanded into JavaScript statements has no way to
+    /// raise the program's own `TypeError` without naming a global the program
+    /// may have shadowed, and a step record that is a primitive made the loop
+    /// HANG rather than answer wrongly.
+    IteratorResult = 100,
 }
 
 /// How many entry points exist.
@@ -723,7 +734,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 100;
+pub const CORE_ENTRY_COUNT: usize = 101;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -828,6 +839,7 @@ impl CoreEntry {
         CoreEntry::PageGlobalSet,
         CoreEntry::ForInHas,
         CoreEntry::SetFunctionName,
+        CoreEntry::IteratorResult,
     ];
 
     /// The number a call site holds.
@@ -943,6 +955,7 @@ impl CoreEntry {
             CoreEntry::PageGlobalSet => PAGE_GLOBAL_SET_ENTRY,
             CoreEntry::ForInHas => FOR_IN_HAS_ENTRY,
             CoreEntry::SetFunctionName => SET_FUNCTION_NAME_ENTRY,
+            CoreEntry::IteratorResult => ITERATOR_RESULT_ENTRY,
         }
     }
 
@@ -1168,11 +1181,12 @@ mod tests {
         // here and answers 6 on node. Copying that guard would have carried the
         // defect into destructuring; one row buys the version that cannot.
         // Raised from 96 to 98 for page_global_get/page_global_set, and to 99
-        // for for_in_has — one entry at a time, not the order-of-magnitude jump
+        // for for_in_has, and to 101 for iterator_result — one entry at a
+        // time, not the order-of-magnitude jump
         // this ceiling exists to catch (rts-symbol-baker's "thousands" is the
         // shape it refuses).
         assert!(
-            CORE_ENTRY_COUNT <= 100,
+            CORE_ENTRY_COUNT <= 101,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

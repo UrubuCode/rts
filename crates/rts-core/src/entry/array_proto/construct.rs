@@ -41,9 +41,17 @@ pub(super) extern "C" fn make(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3
         super::super::throw::range_error("Invalid array length");
         return with_current(|context| super::super::objects::undefined_of(context));
     }
+    // The SAME bound the `RangeError` check above refuses past — a valid
+    // array length is `[0, 2**32 - 1]` INCLUSIVE, so the upper bound here has
+    // to be `4_294_967_296.0` exclusive, matching it. It was
+    // `4_294_967_295.0` exclusive, one short: `new Array(4294967295)` — a
+    // length the language grants — passed the `RangeError` check above and
+    // then failed this one, so it fell to `built(given)` and answered a
+    // ONE-element array holding the number `4294967295` instead of 4294967295
+    // empty slots.
     let made = if given.len() == 1
         && let Some(count) = Value(given[0]).numeric()
-        && (0.0..4_294_967_295.0).contains(&count)
+        && (0.0..4_294_967_296.0).contains(&count)
         && count.fract() == 0.0
     {
         super::super::array::array_new(count as i64)
@@ -57,9 +65,15 @@ pub(super) extern "C" fn make(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3
 /// `Array.of(…)` — an array of exactly the arguments given.
 ///
 /// The method that exists because `Array(3)` does not mean what it looks like.
-pub(super) extern "C" fn of(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+///
+/// Generic over `this`, the same protocol `Array.from` follows — `23.1.2.3`
+/// constructs through the callee rather than always answering a plain `Array`,
+/// which is what makes `Sub.of(1, 2) instanceof Sub` true and
+/// `Array.of.call(Box, "x", "y")` run `Box`'s own constructor.
+/// `more::from::finish` states the protocol once for both statics.
+pub(super) extern "C" fn of(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let given = with_current(|context| arguments_at(context, 0, [a0, a1, a2, a3]));
-    built(given)
+    super::more::from::finish(this, given)
 }
 
 /// `Array.isArray(x)`.

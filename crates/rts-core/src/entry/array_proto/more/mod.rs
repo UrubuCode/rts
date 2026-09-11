@@ -46,31 +46,31 @@ use crate::value::Value;
 
 /// What an array's prototype holds beyond the eleven in [`super`] and the eight
 /// in [`super::iterate`].
-pub(in crate::entry) const NATIVES: &[(&str, Native)] = &[
-    ("at", at),
-    ("lastIndexOf", last_index_of),
-    ("toString", to_string_),
-    ("toLocaleString", to_locale_string),
-    ("keys", keys),
-    ("values", values),
-    ("entries", entries),
-    ("flat", flat),
-    ("flatMap", flat_map),
-    ("splice", splice::splice),
-    ("toSpliced", splice::to_spliced),
-    ("sort", sorting::sort),
-    ("toSorted", sorting::to_sorted),
-    ("toReversed", to_reversed),
-    ("with", splice::with),
-    ("copyWithin", splice::copy_within),
-    ("reduceRight", reduce_right),
-    ("findLast", find_last),
-    ("findLastIndex", find_last_index),
+pub(in crate::entry) const NATIVES: &[(&str, Native, u32)] = &[
+    ("at", at, 1),
+    ("lastIndexOf", last_index_of, 1),
+    ("toString", to_string_, 0),
+    ("toLocaleString", to_locale_string, 0),
+    ("keys", keys, 0),
+    ("values", values, 0),
+    ("entries", entries, 0),
+    ("flat", flat, 0),
+    ("flatMap", flat_map, 1),
+    ("splice", splice::splice, 2),
+    ("toSpliced", splice::to_spliced, 2),
+    ("sort", sorting::sort, 1),
+    ("toSorted", sorting::to_sorted, 1),
+    ("toReversed", to_reversed, 0),
+    ("with", splice::with, 2),
+    ("copyWithin", splice::copy_within, 2),
+    ("reduceRight", reduce_right, 1),
+    ("findLast", find_last, 1),
+    ("findLastIndex", find_last_index, 1),
 ];
 
 /// What `Array` itself holds beyond `isArray` and `of`.
-pub(in crate::entry) const STATICS: &[(&str, Native)] =
-    &[("from", from::from), ("fromAsync", from_async::from_async)];
+pub(in crate::entry) const STATICS: &[(&str, Native, u32)] =
+    &[("from", from::from, 1), ("fromAsync", from_async::from_async, 1)];
 
 /// `a.at(i)` — negative counts from the end.
 ///

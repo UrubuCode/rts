@@ -393,7 +393,51 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     if super::class_support::made(context, "Function").is_none() {
         register_function(context);
     }
-    Value(super::class_support::prototype(context, "Function")?).as_slot()
+    let cell = Value(super::class_support::prototype(context, "Function")?).as_slot()?;
+    make_prototype_callable(context, cell);
+    Some(cell)
+}
+
+/// `Function.prototype` is itself a **function**, and this is what makes it one.
+///
+/// # Why it is not just a prototype object
+///
+/// Because the specification says so — `%Function.prototype%` is a built-in
+/// function that accepts any arguments, returns `undefined`, has `name` `""` and
+/// `length` `0` — and because programs read it that way. `typeof
+/// Function.prototype` is `"function"`, `Function.prototype()` runs, and
+/// `f.call`/`f.apply`/`f.bind` over it are the idiom a polyfill uses for a
+/// no-op. Here it was `crate::entry::native::plain`'s object: calling it raised
+/// `TypeError: Function.prototype is not a function`, which killed a fixture
+/// outright, and `Function.prototype.name` was `undefined` rather than `""` —
+/// which is what `delete f.name; f.name` falls through to, so a second fixture
+/// read `undefined` where the answer is the empty string.
+///
+/// # Why here rather than in the class declaration
+///
+/// `#[rtse::class]` builds a prototype with `native::plain`, and a prototype
+/// that is callable is a property of exactly one class in the language. An
+/// attribute for it would be a knob with one user and one correct setting; this
+/// is one function beside the object it is about.
+///
+/// Idempotent by asking the cell rather than by a flag: `prototype_of` runs on
+/// every inheritance walk that reaches a callable, and re-marking would overwrite
+/// a `name` a program had redefined.
+pub(in crate::entry) fn make_prototype_callable(context: &mut Context, cell: u32) {
+    if context.callable_at(cell).is_some() {
+        return;
+    }
+    let environment = super::objects::undefined_of(context);
+    let code: super::native::Native = accepts_anything;
+    context.mark_callable(cell, code as usize as u64, environment);
+    let value = Value::from_slot(cell).bits();
+    super::native::name_of(context, value, "");
+    super::native::length_of(context, value, 0);
+}
+
+/// The body `%Function.prototype%` has: take anything, answer `undefined`.
+extern "C" fn accepts_anything(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| super::objects::undefined_of(context))
 }
 
 /// The function currently running, as a value.

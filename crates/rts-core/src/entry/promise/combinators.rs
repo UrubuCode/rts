@@ -32,7 +32,93 @@ use crate::entry::with_current;
 use crate::value::Value;
 
 /// The shared body of the four static combinators.
-pub(super) fn combine(iterable: u64, kind: Kind) -> u64 {
+///
+/// `this` is the constructor, exactly as `NewPromiseCapability(C)` reads it —
+/// see [`super::capability`], including why a receiver this engine cannot use
+/// falls back to the intrinsic instead of throwing.
+pub(super) fn combine(this: u64, iterable: u64, kind: Kind) -> u64 {
+    match super::capability::chosen(this) {
+        Some(constructor) => foreign(this, constructor, iterable, kind),
+        None => intrinsic(iterable, kind),
+    }
+}
+
+/// The combinator on a constructor of the program's own.
+///
+/// # The protocol a program can count
+///
+/// `C.resolve` is read ONCE, before the walk, and called once per element —
+/// which is what `GetPromiseResolve` and the loop after it say, and what a
+/// program watching an accessor on `resolve` observes. Reading it per element
+/// would be the same answer for every program that is not watching and a
+/// different one for every program that is.
+fn foreign(this: u64, constructor: u64, iterable: u64, kind: Kind) -> u64 {
+    let Some((promise, result)) = super::capability::derive(constructor) else {
+        return super::undefined();
+    };
+    let adopt = super::super::array_proto::species::property(this, "resolve");
+    let callable = with_current(|context| {
+        adopt.is_some_and(|value| {
+            Value(value)
+                .as_slot()
+                .is_some_and(|cell| context.callable_at(cell).is_some())
+        })
+    });
+    if !callable {
+        // The capability REJECTS rather than the call throwing: the caller
+        // already said where a failure goes by writing `.catch` on the answer.
+        let reason = with_current(|context| state::type_error(context, "resolve is not a function"));
+        with_current(|context| state::reject(context, result, reason));
+        return promise;
+    }
+    let adopt = adopt.unwrap_or_else(super::undefined);
+    let elements = super::elements_of(iterable);
+    if let Some(reason) = crate::entry::throw::caught() {
+        with_current(|context| state::reject(context, result, reason));
+        return promise;
+    }
+    if elements.is_empty() {
+        settle_empty(result, kind);
+        return promise;
+    }
+    // `C.resolve(element)` for every element BEFORE any borrow, because each
+    // call is user code. Rooted: until the group holds them they are named by a
+    // `Vec` on the Rust heap, which no scan reaches.
+    let mut adopted = crate::entry::rooted::Rooted::new();
+    let absent = super::undefined();
+    for element in elements {
+        let answered = crate::entry::functions::call(adopt, this, element, absent, absent, absent);
+        if let Some(reason) = crate::entry::throw::caught() {
+            with_current(|context| state::reject(context, result, reason));
+            return promise;
+        }
+        adopted.values().push(answered);
+    }
+    with_current(|context| {
+        let adopted = adopted.take();
+        let group = context
+            .promises
+            .open(Group::new(kind, result, vec![absent; adopted.len()]));
+        for (index, element) in adopted.into_iter().enumerate() {
+            let Some(source) = observed(context, element) else {
+                let reason = state::type_error(context, "the heap is full");
+                state::reject(context, result, reason);
+                return promise;
+            };
+            state::react(context, source, Handler::Member { group, index });
+        }
+        promise
+    })
+}
+
+/// The combinator on `Promise` itself, which is every program that never
+/// subclassed one.
+///
+/// It reads no `resolve` and constructs nothing: the four answers are promises
+/// of this module's own making, so the protocol above could only ever arrive at
+/// what this already does — two property reads and a construction per element
+/// slower.
+fn intrinsic(iterable: u64, kind: Kind) -> u64 {
     // Before any borrow: `iterate` is an entry point and takes one of its own.
     let elements = super::elements_of(iterable);
     // Rule 8 of `crates/rts-core/README.md`, in its HANDLING form: walking the
@@ -99,6 +185,20 @@ fn observed(
 
 /// What each combinator answers for an input with nothing in it.
 fn empty(kind: Kind) -> u64 {
+    let made = with_current(state::fresh);
+    let Some((cell, id)) = made else {
+        return super::undefined();
+    };
+    settle_empty(id, kind);
+    Value::from_slot(cell).bits()
+}
+
+/// The same four answers, written into a promise that already exists.
+///
+/// Split out because a capability's promise is built before the walk and cannot
+/// be replaced by one made here: `Promise.all.call(C, [])` must still answer the
+/// `C` its author's constructor produced.
+fn settle_empty(id: rts_cranelift::sched::PromiseId, kind: Kind) {
     // Built before the borrow, because an array comes from an entry point —
     // `all` and `allSettled` fulfil with it, and `any` reports it as the
     // aggregate's (empty) `errors`.
@@ -107,9 +207,6 @@ fn empty(kind: Kind) -> u64 {
         _ => Some(super::array_of(Vec::new())),
     };
     with_current(|context| {
-        let Some((cell, id)) = state::fresh(context) else {
-            return undefined_of(context);
-        };
         match (kind, collected) {
             (Kind::All | Kind::AllSettled, Some(array)) => {
                 state::settle(context, id, Settlement::Fulfilled, array);
@@ -124,6 +221,5 @@ fn empty(kind: Kind) -> u64 {
             // Unreachable: every kind but `race` carries the array above.
             (_, None) => {}
         }
-        Value::from_slot(cell).bits()
     })
 }

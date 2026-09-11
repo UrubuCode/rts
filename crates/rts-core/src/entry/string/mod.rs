@@ -78,13 +78,13 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // region ran out, which is not a hypothetical: it is what the first version
     // did.
     context.string_prototype = Some(cell);
-    super::native::install(context, cell, basic::NATIVES);
-    super::native::install(context, cell, search::NATIVES);
-    super::native::install(context, cell, pattern::NATIVES);
-    super::native::install(context, cell, split::NATIVES);
-    super::native::install(context, cell, replace::NATIVES);
-    super::native::install(context, cell, more::NATIVES);
-    super::native::install(context, cell, points::NATIVES);
+    super::native::install_with_arity(context, cell, basic::NATIVES);
+    super::native::install_with_arity(context, cell, search::NATIVES);
+    super::native::install_with_arity(context, cell, pattern::NATIVES);
+    super::native::install_with_arity(context, cell, split::NATIVES);
+    super::native::install_with_arity(context, cell, replace::NATIVES);
+    super::native::install_with_arity(context, cell, more::NATIVES);
+    super::native::install_with_arity(context, cell, points::NATIVES);
     // Annex B, through `install_with_arity` rather than `install`: their
     // `.length` is read by programs that introspect the prototype, and the four
     // that take an attribute answer 1 where the nine tag-only ones answer 0.

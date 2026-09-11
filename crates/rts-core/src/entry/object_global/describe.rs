@@ -43,19 +43,19 @@ use crate::object::Key;
 use crate::value::Value;
 
 /// What `Object` holds beyond the eight in [`super`].
-pub(super) const STATICS: &[(&str, Native)] = &[
-    ("create", create),
-    ("getOwnPropertyNames", get_own_property_names),
-    ("getOwnPropertyDescriptor", get_own_property_descriptor),
-    ("getOwnPropertyDescriptors", get_own_property_descriptors),
-    ("getOwnPropertySymbols", get_own_property_symbols),
-    ("defineProperties", define_properties),
-    ("freeze", freeze),
-    ("seal", seal),
-    ("preventExtensions", prevent_extensions),
-    ("isFrozen", is_frozen),
-    ("isSealed", is_sealed),
-    ("isExtensible", is_extensible),
+pub(super) const STATICS: &[(&str, Native, u32)] = &[
+    ("create", create, 2),
+    ("getOwnPropertyNames", get_own_property_names, 1),
+    ("getOwnPropertyDescriptor", get_own_property_descriptor, 2),
+    ("getOwnPropertyDescriptors", get_own_property_descriptors, 1),
+    ("getOwnPropertySymbols", get_own_property_symbols, 1),
+    ("defineProperties", define_properties, 2),
+    ("freeze", freeze, 1),
+    ("seal", seal, 1),
+    ("preventExtensions", prevent_extensions, 1),
+    ("isFrozen", is_frozen, 1),
+    ("isSealed", is_sealed, 1),
+    ("isExtensible", is_extensible, 1),
 ];
 
 /// `Object.freeze(o)` — answers the object, which is what makes it chain.
@@ -333,6 +333,15 @@ extern "C" fn get_own_property_symbols(
 /// than a third `Key` variant) is exactly the fact two walks would eventually
 /// disagree about.
 pub(in crate::entry) fn own_symbols(object: u64) -> u64 {
+    // The well-known symbols have to EXIST before a key text can be mapped back
+    // to one: `symbol::value_of_key_text` looks the text up in the registry
+    // `Symbol`'s own registration fills, and the registrations are lazy. So a
+    // program that never spelled `Symbol` got an empty array from
+    // `Object.getOwnPropertySymbols(Math)` for a `@@toStringTag` the object
+    // demonstrably has — `Object.prototype.toString.call(Math)` read it in the
+    // same breath. Touching `Symbol` first made the same line answer correctly,
+    // which is a result depending on statement order and nothing else.
+    with_current(|context| super::super::global::ensure(context, "Symbol"));
     let symbols = with_current(|context| {
         super::super::array::symbol_keyed_with(context, object, false)
             .into_iter()

@@ -52,18 +52,18 @@ use super::{Context, with_current};
 use crate::value::Value;
 
 /// What an array's prototype holds, apart from the ones that call back.
-const NATIVES: &[(&str, super::native::Native)] = &[
-    ("push", push),
-    ("pop", pop),
-    ("shift", shift),
-    ("unshift", unshift),
-    ("indexOf", index_of),
-    ("includes", includes),
-    ("join", joining::join),
-    ("slice", slice),
-    ("concat", concat::concat),
-    ("reverse", reverse),
-    ("fill", fill),
+const NATIVES: &[(&str, super::native::Native, u32)] = &[
+    ("push", push, 1),
+    ("pop", pop, 0),
+    ("shift", shift, 0),
+    ("unshift", unshift, 1),
+    ("indexOf", index_of, 1),
+    ("includes", includes, 1),
+    ("join", joining::join, 1),
+    ("slice", slice, 2),
+    ("concat", concat::concat, 1),
+    ("reverse", reverse, 0),
+    ("fill", fill, 1),
 ];
 
 /// What `Array` itself holds.
@@ -71,8 +71,8 @@ const NATIVES: &[(&str, super::native::Native)] = &[
 /// Statics rather than prototype methods, and the language put them there on
 /// purpose: `Array.isArray(x)` has to answer for an `x` whose own prototype was
 /// replaced, which a method reached through the chain cannot.
-const STATICS: &[(&str, super::native::Native)] =
-    &[("isArray", construct::is_array), ("of", construct::of)];
+const STATICS: &[(&str, super::native::Native, u32)] =
+    &[("isArray", construct::is_array, 1), ("of", construct::of, 0)];
 
 /// What every array inherits from, made once.
 ///
@@ -90,9 +90,9 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // string version recursed until the region ran out before the order was
     // fixed, and the same order is the fix here.
     context.array_prototype = Some(cell);
-    super::native::install(context, cell, NATIVES);
-    super::native::install(context, cell, iterate::NATIVES);
-    super::native::install(context, cell, more::NATIVES);
+    super::native::install_with_arity(context, cell, NATIVES);
+    super::native::install_with_arity(context, cell, iterate::NATIVES);
+    super::native::install_with_arity(context, cell, more::NATIVES);
     // `Symbol.iterator`, which those three lists cannot carry: a native is named
     // by a string there and this key is a symbol. It IS `values` — the same
     // function, not a second one, because `[...a]` and `a.values()` walking an
@@ -157,6 +157,15 @@ fn install_unscopables(context: &mut Context, prototype: u32) {
     let Some(list) = super::native::plain(context) else {
         return;
     };
+    // `OrdinaryObjectCreate(null)` — the list inherits NOTHING, and the
+    // specification is explicit about it for a reason a program can see:
+    // `Symbol.unscopables` is consulted with `HasProperty`, so a list
+    // inheriting from `Object.prototype` answers `true` for `toString`,
+    // `constructor` and `hasOwnProperty`, and `with (a) { toString() }` then
+    // resolves past the array to whatever the enclosing scope has. This built a
+    // plain object, so all three were blocked that nothing asked to block.
+    let null = Value::from_singleton(context.singletons.null).bits();
+    context.set_prototype(list, null);
     let yes = Value::from_bool(true).bits();
     for name in BLOCKED {
         let key = context.well_known(name);
@@ -165,6 +174,12 @@ fn install_unscopables(context: &mut Context, prototype: u32) {
     let key = context.well_known(&format!("{}unscopables", super::symbol::PREFIX));
     let list = Value::from_slot(list).bits();
     super::objects::put(context, prototype, key, list);
+    // `{ writable: false, enumerable: false, configurable: true }`, which is
+    // what the specification gives every well-known-symbol member — so
+    // `Array.prototype[Symbol.unscopables] = x` stores nothing and
+    // `Reflect.set` reports the refusal. Unmarked it read as the defaults,
+    // which say writable and enumerable.
+    super::native::introspective(context, prototype, key);
 }
 
 /// `Array` itself, as the value the name reads.
@@ -187,8 +202,8 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         None => return undefined_of(context),
     };
     if let Some(cell) = Value(callable).as_slot() {
-        super::native::install(context, cell, STATICS);
-        super::native::install(context, cell, more::STATICS);
+        super::native::install_with_arity(context, cell, STATICS);
+        super::native::install_with_arity(context, cell, more::STATICS);
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }

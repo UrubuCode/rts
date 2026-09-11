@@ -246,6 +246,14 @@ pub fn adopt(addition: Addition) {
 /// adds is what running it does.
 pub(in crate::entry) fn register_function_constructor(context: &mut Context) -> u64 {
     let made = super::function_proto::register_function(context);
+    // `Function.prototype` is a callable of its own, and a program reaching
+    // `Function` never goes through the inheritance walk that would otherwise
+    // mark it — so `Function.prototype()` raised where it answers `undefined`.
+    if let Some(prototype) = super::class_support::prototype(context, "Function")
+        && let Some(prototype_cell) = Value(prototype).as_slot()
+    {
+        super::function_proto::make_prototype_callable(context, prototype_cell);
+    }
     let Some(cell) = Value(made).as_slot() else {
         return made;
     };

@@ -18,6 +18,18 @@ use crate::value::Value;
 /// context.
 #[rtse::entry]
 pub fn get_indexed(object: u64, key: u64) -> u64 {
+    read_on(object, key, object)
+}
+
+/// The same read, with the receiver said rather than assumed.
+///
+/// `[[Get]](key, receiver)` threads a receiver the property need not live on,
+/// and two callers need to say one: `Reflect.get(o, k, other)`, whose third
+/// argument is the `this` an accessor runs with, and the proxy-as-prototype
+/// walk, where the trap must be handed the object the read was WRITTEN on.
+/// Both were spelled as the object itself, so `Reflect.get(proto, "x", child)`
+/// ran the getter on `proto`.
+pub(in crate::entry) fn read_on(object: u64, key: u64, receiver: u64) -> u64 {
     // The computed spelling of the read `get_property` performs, and a proxy
     // has to be asked by BOTH: `o.x` reaches one and `Reflect.get(o, "x")` the
     // other, and a trap that answered one of them and not the other would be
@@ -35,7 +47,28 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
     // que quem não é proxy não paga mais a conversão.
     let (key, trap) = opened(object, key);
     if let Some(named) = trap
-        && let Some(answered) = super::super::proxy::get(object, named)
+        && let Some(answered) = super::super::proxy::get_on(object, named, receiver)
+    {
+        return answered;
+    }
+    // A proxy in the PROTOTYPE chain, which the borrow below cannot call: its
+    // trap is user code. Answered before the walk so that the nearest proxy
+    // wins, and `proxy::above` stops at an ordinary level that owns the key so
+    // one further out never steals a property nearer in.
+    let above = with_current(|context| {
+        // Asked BEFORE `ToPropertyKey`, for the reason the note above gives:
+        // resolving the key formats and interns, and a program with no proxy in
+        // it must not pay that on every indexed read to find out there is
+        // nothing to ask.
+        if !context.any_proxy() {
+            return None;
+        }
+        let slot = Value(object).as_slot()?;
+        let named = property_key(context, Value(key))?;
+        Some((super::super::proxy::above(context, slot, named)?, named))
+    });
+    if let Some((proxy, named)) = above
+        && let Some(answered) = super::super::proxy::get_on(proxy, named, receiver)
     {
         return answered;
     }
@@ -60,6 +93,7 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
         // text and lose the distinction the array store is built on.
         if let Some(at) = super::super::array::as_index(context, Value(key))
             && let Some(elements) = context.elements_at(slot)
+            && at < super::super::array::DENSE_LIMIT
         {
             // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
             // E um BURACO lido também é `undefined` — `[,1][0]` responde
@@ -71,6 +105,10 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
             };
             return super::super::accessor::Found::Value(answer);
         }
+        // An index at or past `array::DENSE_LIMIT` is never in the dense
+        // store — `store_indexed` below writes one as an ordinary named
+        // property instead — so this falls through to the accessor walk
+        // near the end of this function, which is where such a write lands.
         // A typed array's element, which is a byte range rather than a slot in
         // an element vector. Asked here for the reason the array branch is
         // asked before `ToPropertyKey`: the index is a number, and converting
@@ -99,9 +137,14 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
     });
     match found {
         super::super::accessor::Found::Value(value) => value,
+        // On the RECEIVER, which is the object the read was written on rather
+        // than the one the getter was found on — and which `Reflect.get`'s
+        // third argument is allowed to make a third object entirely.
         super::super::accessor::Found::Getter(getter) => {
             let undefined = with_current(|context| undefined_of(context));
-            super::super::functions::call(getter, object, undefined, undefined, undefined, undefined)
+            super::super::functions::call(
+                getter, receiver, undefined, undefined, undefined, undefined,
+            )
         }
         super::super::accessor::Found::Absent => with_current(|context| undefined_of(context)),
     }
@@ -162,6 +205,30 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
                 return Some(Store::Refused(format!(
                     "Cannot add property {at}, object is not extensible"
                 )));
+            }
+            // Past `array::DENSE_LIMIT`, growing the dense store to `at + 1`
+            // is the allocation that constant exists to refuse:
+            // `a[4294967294] = x` on a fresh array used to materialise 34 GB
+            // of holes. The value lands as an ordinary NAMED property
+            // instead — `array::key_list`'s merge and `array::ordered_keys`'s
+            // index-spelling sort already treat a name that SPELLS a
+            // canonical index as one, so `Object.keys`, `for`-`in` and a
+            // later `a[at]` read (which falls through to the same accessor
+            // walk once `at >= DENSE_LIMIT`, see the read side above) all see
+            // it in the right place regardless of which store it sits in.
+            if at >= super::super::array::DENSE_LIMIT {
+                let Some(named) = property_key(context, Value(key)) else {
+                    return None;
+                };
+                match super::super::objects::resolve_store(context, slot, named) {
+                    Store::Setter(setter) => return Some(Store::Setter(setter)),
+                    Store::Refused(why) => return Some(Store::Refused(why)),
+                    Store::Direct => put(context, slot, named, value),
+                }
+                if at + 1 > super::super::array::current_length(context, slot) {
+                    super::super::array::set_length(context, slot, at + 1);
+                }
+                return None;
             }
             // Writing past the end grows the array and fills the gap with
             // `undefined`, which is what the language does — `let a = []; a[2]

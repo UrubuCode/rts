@@ -385,6 +385,39 @@ fn code_points(text: &Str) -> Vec<Vec<u16>> {
     points
 }
 
+/// One step record, checked to be an OBJECT, and answered unchanged.
+///
+/// `IteratorNext` step 4: "if result is not an Object, throw a TypeError". The
+/// two places that walk an iterator inside this crate — [`drained`] and
+/// `iterator::drive::step` — already refuse it, and the third does not live
+/// here at all: `emit/foreach.rs` expands a `for`-`of` into `it.next()`
+/// followed by reads of `done` and `value`, and a compiled property read of a
+/// primitive answers `undefined` rather than raising.
+///
+/// What that produced was not a wrong answer but a HANG, which is the shape
+/// this class of defect takes: `undefined` is never true, so `s.done` never
+/// ended the loop and `{ next() { return 7 } }` spun forever. Two fixtures
+/// measured it — one capped its own pulls at 500 and reported 501, the other
+/// timed out.
+///
+/// A row of its own rather than the check living in the emitter, because there
+/// is no way to spell "raise the program's own `TypeError`" in a tree of
+/// JavaScript statements without naming a global the program may have shadowed
+/// — and the rule is already stated here twice, which is once too many for a
+/// third copy written in a different language.
+#[rtse::entry]
+pub fn iterator_result(step: u64) -> u64 {
+    let object = with_current(|context| {
+        Value(step)
+            .as_slot()
+            .is_some_and(|cell| context.text_at(cell).is_none())
+    });
+    if !object {
+        super::throw::type_error("the iterator answered a result that is not an object");
+    }
+    step
+}
+
 /// Appends one value to an array, and answers the array.
 ///
 /// Its own operation rather than a property write at a computed index: the index

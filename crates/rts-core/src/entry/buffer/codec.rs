@@ -1,4 +1,6 @@
-//! The six binary/text codecs `Buffer` needs, moved here from `rts-node`.
+//! The binary/text codecs `Buffer` needs, moved here from `rts-node`, plus
+//! `utf16be` — `TextDecoder("utf-16be")` is the only caller, so it gets decode
+//! only rather than a matching encoder nothing asks for.
 //!
 //! # Why moved rather than copied
 //!
@@ -23,6 +25,7 @@ pub(in crate::entry) fn canonical_encoding(name: &str) -> Option<&'static str> {
         "ascii" => Some("ascii"),
         "latin1" | "binary" => Some("latin1"),
         "utf16le" | "utf-16le" | "ucs2" | "ucs-2" => Some("utf16le"),
+        "utf16be" | "utf-16be" => Some("utf16be"),
         "base64" => Some("base64"),
         "base64url" => Some("base64url"),
         "hex" => Some("hex"),
@@ -82,6 +85,7 @@ pub(in crate::entry) fn decode(bytes: &[u8], encoding: &str) -> String {
         Some("ascii") => bytes.iter().map(|&byte| (byte & 0x7F) as char).collect(),
         Some("latin1") => bytes.iter().map(|&byte| byte as char).collect(),
         Some("utf16le") => decode_utf16le(bytes),
+        Some("utf16be") => decode_utf16be(bytes),
         Some("base64") | Some("base64url") => {
             encode_base64(bytes, matches!(canonical_encoding(encoding), Some("base64")))
         }
@@ -104,6 +108,12 @@ fn encode_utf16le(text: &str) -> Vec<u8> {
 /// becomes `U+FFFD`, matching Node's `ucs2`/`utf16le` decode.
 fn decode_utf16le(bytes: &[u8]) -> String {
     let units = bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
+    char::decode_utf16(units).map(|result| result.unwrap_or('\u{FFFD}')).collect()
+}
+
+/// UTF-16BE decode: same rule as [`decode_utf16le`], big-endian pairs.
+fn decode_utf16be(bytes: &[u8]) -> String {
+    let units = bytes.chunks_exact(2).map(|pair| u16::from_be_bytes([pair[0], pair[1]]));
     char::decode_utf16(units).map(|result| result.unwrap_or('\u{FFFD}')).collect()
 }
 

@@ -158,7 +158,21 @@ fn element(cell: u32, at: usize, wanted: &Descriptor) -> Option<Verdict> {
         if grows {
             resize(context, cell, at + 1);
         }
-        if let Some(elements) = context.elements_at_mut(cell) {
+        // Past `array::DENSE_LIMIT`, `resize` above deliberately left the
+        // dense store as it is — indexing it at `at` would be past its end,
+        // or worse, land on an unrelated position. The value goes to the same
+        // named property `computed::access::store_indexed` writes for a plain
+        // `a[at] = v` past the limit, which `array::key_list`'s merge and
+        // `array::ordered_keys`'s index-spelling sort already place correctly
+        // among an array's other keys.
+        if at >= array::DENSE_LIMIT {
+            let spelled = crate::coerce::number_to_string(at as f64);
+            let Some(text) = spelled.to_rust() else {
+                return Verdict::Done;
+            };
+            let named = context.well_known(&text);
+            super::super::objects::put(context, cell, named, value);
+        } else if let Some(elements) = context.elements_at_mut(cell) {
             elements[at] = value;
         }
         Verdict::Done
@@ -176,9 +190,17 @@ fn element(cell: u32, at: usize, wanted: &Descriptor) -> Option<Verdict> {
 /// that an array's count keeps having one writer — that function is also where
 /// its non-enumerability is recorded.
 fn resize(context: &mut Context, cell: u32, length: usize) {
-    let hole = array::hole_of(context);
-    if let Some(elements) = context.elements_at_mut(cell) {
-        elements.resize(length, hole);
+    // Past `array::DENSE_LIMIT`, growing the dense store to `length` is the
+    // allocation that constant exists to refuse —
+    // `Object.defineProperty(a, "4294967294", {value: …})` is a valid array
+    // write the language grants and used to materialise gigabytes of holes.
+    // The `length` property write below still lands; only the dense store
+    // stays as it is, same as the plain-assignment path in `objects.rs`.
+    if length <= array::DENSE_LIMIT {
+        let hole = array::hole_of(context);
+        if let Some(elements) = context.elements_at_mut(cell) {
+            elements.resize(length, hole);
+        }
     }
     array::set_length(context, cell, length);
 }

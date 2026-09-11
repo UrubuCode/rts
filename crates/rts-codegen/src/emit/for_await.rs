@@ -315,8 +315,8 @@ pub fn emit_for_await(
     // rather than copied: the synchronous loop and this one closing an iterator
     // differently is exactly what one shared statement makes unrepresentable.
     if matches!(result, Ok(false)) {
-        let guard = super::foreach::still_open(iter, at);
-        let close = super::foreach::close_iterator_stmt(ctx, at, iter, guard, true);
+        let guard = super::close::still_open(iter, at);
+        let close = super::close::close_iterator_stmt(ctx, at, iter, guard, true);
         super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
     }
     scope.leave();

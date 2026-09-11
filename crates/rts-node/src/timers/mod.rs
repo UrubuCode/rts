@@ -232,6 +232,18 @@ pub fn pump() {
             // here is one nothing cancelled.
             Deliver::Settle { promise, value, .. } => entry::promise_settle(promise, value, 0),
         }
+        // A microtask CHECKPOINT between two timers, and it is what makes the
+        // boundary observable at all: one pump finds EVERY timer whose deadline
+        // has passed, so two `setTimeout(f, 0)` arrive together and the second
+        // used to run before anything the first queued. That answered
+        // `timer1, timer2, t1-micro` where every runtime answers
+        // `timer1, t1-micro, timer2` — the queue is drained completely between
+        // macrotasks, and a macrotask is one callback rather than one pump.
+        //
+        // Here rather than in the host loop, which is where it would have to be
+        // to stay wrong: the loop can only see a pump boundary, and the boundary
+        // the language defines is the callback's.
+        entry::drain_microtasks();
     }
 }
 

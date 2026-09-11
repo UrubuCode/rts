@@ -22,12 +22,12 @@ use super::{arg_units, nothing, relative, units_of};
 use crate::value::Value;
 
 /// What a string's prototype holds that searches for literal text.
-pub(super) const NATIVES: &[(&str, Native)] = &[
-    ("indexOf", index_of),
-    ("lastIndexOf", last_index_of),
-    ("includes", includes),
-    ("startsWith", starts_with),
-    ("endsWith", ends_with),
+pub(super) const NATIVES: &[(&str, Native, u32)] = &[
+    ("indexOf", index_of, 1),
+    ("lastIndexOf", last_index_of, 1),
+    ("includes", includes, 1),
+    ("startsWith", starts_with, 1),
+    ("endsWith", ends_with, 1),
 ];
 
 /// `s.indexOf(t, from)` — where `t` first occurs, or -1.

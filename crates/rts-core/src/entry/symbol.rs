@@ -452,7 +452,7 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // Recorded before the members are installed: installing interns names, and
     // interning allocates, which can reach back here.
     context.symbols.prototype = Some(cell);
-    super::native::install(context, cell, NATIVES);
+    super::native::install_with_arity(context, cell, NATIVES);
     // Forces `Symbol` itself, which is what writes the `constructor` link back
     // here — the registrations are lazy, so a program that never spells
     // `Symbol` read `Symbol("s").constructor === undefined`.
@@ -473,7 +473,21 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     let tag = context.well_known(&format!("{PREFIX}toStringTag"));
     let value = context.intern_value(Str::from_str("Symbol")).bits();
     super::objects::put(context, cell, tag, value);
-    super::native::hidden(context, cell, tag);
+    // `tagged` and not `hidden`: a `@@toStringTag` is NON-writable, where a
+    // method is writable so that a program may replace it. Marked as a method,
+    // `Object.getOwnPropertyDescriptor(Symbol.prototype, Symbol.toStringTag)`
+    // reported `writable: true` against every runtime's `false`.
+    super::native::tagged(context, cell, tag);
+    // The third member of `Symbol.prototype`, installed apart from `NATIVES`
+    // because its key is a symbol rather than a name and its attributes are an
+    // accessor-like `{ writable: false, enumerable: false, configurable: true }`
+    // rather than a method's.
+    let hook = context.well_known(&format!("{PREFIX}toPrimitive"));
+    let method = super::native::callable(context, to_primitive as super::native::Native);
+    super::native::name_of(context, method, "[Symbol.toPrimitive]");
+    super::native::length_of(context, method, 1);
+    super::objects::put(context, cell, hook, method);
+    super::native::introspective(context, cell, hook);
     Some(cell)
 }
 
@@ -486,7 +500,13 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
 extern "C" fn description(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     super::with_current(|context| {
         let wanted = context.well_known("description");
-        match property(context, this, wanted) {
+        // `thisSymbolValue`: the receiver of an accessor reached through the
+        // prototype may be the WRAPPER, and [`property`] asks `symbol_of`, which
+        // knows only the primitive. So `Object(Symbol("od")).description` read
+        // `undefined` while the primitive beside it read `"od"` — the exact
+        // disagreement this function's own comment promised there would not be.
+        let held = super::primitive_proto::unwrap(context, this);
+        match property(context, held, wanted) {
             Some(found) => found,
             None => undefined_of(context),
         }
@@ -494,8 +514,26 @@ extern "C" fn description(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3:
 }
 
 /// What `Symbol.prototype` holds.
-const NATIVES: &[(&str, super::native::Native)] =
-    &[("toString", to_string), ("valueOf", value_of)];
+const NATIVES: &[(&str, super::native::Native, u32)] =
+    &[("toString", to_string, 0), ("valueOf", value_of, 0)];
+
+/// `Symbol.prototype[Symbol.toPrimitive]` — the symbol itself, for every hint.
+///
+/// # Why it has to EXIST rather than merely be unnecessary
+///
+/// `entry/primitive.rs` already answers a symbol correctly without consulting
+/// anything, so nothing about a conversion changes here. What changes is that
+/// the property is reachable: it is the one member of `Symbol.prototype` a
+/// program can use to tell a real symbol from an object pretending to be one,
+/// and a fixture describing the prototype's well-known members read `.value` off
+/// the `undefined` this answered.
+///
+/// Same body as `valueOf` and NOT the same function: `SetFunctionName` gives
+/// this one `[Symbol.toPrimitive]` and an arity of 1 (the hint), which is
+/// exactly what a program comparing the two reads back.
+extern "C" fn to_primitive(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    super::primitive_proto::unwrapped(this)
+}
 
 /// The text a symbol describes itself with.
 pub(super) fn described(context: &Context, value: u64) -> Option<String> {
@@ -513,6 +551,9 @@ pub(super) fn described(context: &Context, value: u64) -> Option<String> {
 /// symbol never accidentally becomes text, and [`super::text::to_text`]
 /// therefore refuses one. This is the explicit spelling, and it is the only one.
 extern "C" fn to_string(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `thisSymbolValue` again, for the reason `description` states: a wrapper
+    // object is a legal receiver and `described` knows only the primitive.
+    let this = super::primitive_proto::unwrapped(this);
     with_current(|context| match described(context, this) {
         Some(text) => context.intern_value(Str::from_str(&text)).bits(),
         None => undefined_of(context),
@@ -521,7 +562,10 @@ extern "C" fn to_string(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u
 
 /// `sym.valueOf()` — the symbol itself.
 extern "C" fn value_of(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    this
+    // The PRIMITIVE, which is what the name means: `Object(s).valueOf() === s`
+    // is what tells a boxed symbol from its box, and answering the receiver
+    // made it `false`.
+    super::primitive_proto::unwrapped(this)
 }
 
 /// `sym.description`, which is a property read rather than a method call.
@@ -567,8 +611,17 @@ extern "C" fn make(_e: u64, _this: u64, description: u64, _a1: u64, _a2: u64, _a
 /// `Symbol.for("iterator")` is **not** `Symbol.iterator`, and giving them the
 /// same key text is the collision the engine being replaced warns about.
 extern "C" fn for_key(_e: u64, _this: u64, key: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // `ToString(key)` through the spelling that runs user code, and OUTSIDE any
+    // borrow because it does: `Symbol.for({toString(){return "k"}})` is the
+    // language's own reading and this refused it, because `text::to_text` is
+    // the heap-free spelling that answers nothing for an object. The registry
+    // then kept no entry, so `Symbol.keyFor` on the result answered `undefined`
+    // for a symbol that had just been registered.
+    let Some(text) = super::text::to_string_value(key) else {
+        return with_current(|context| undefined_of(context));
+    };
     with_current(|context| {
-        let Some(text) = super::text::to_text(context, Value(key)).and_then(|text| text.to_rust())
+        let Some(text) = super::text::to_text(context, Value(text)).and_then(|text| text.to_rust())
         else {
             return undefined_of(context);
         };
@@ -581,6 +634,15 @@ extern "C" fn for_key(_e: u64, _this: u64, key: u64, _a1: u64, _a2: u64, _a3: u6
 /// `undefined` for a symbol that was not, which is what distinguishes one made
 /// by `Symbol()` from one made by `Symbol.for`.
 extern "C" fn key_for(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // Step 1 of `Symbol.keyFor`: anything that is not a symbol is a `TypeError`,
+    // and a WRAPPER object is not one either — `thisSymbolValue` is deliberately
+    // not applied here, which is the difference between this and every method on
+    // `Symbol.prototype`. It answered `undefined` for all six, which reads as
+    // "that symbol is not registered" and is a different fact.
+    if with_current(|context| context.symbol_of(value).is_none()) {
+        super::throw::type_error("Symbol.keyFor requires that the first argument be a symbol");
+        return with_current(|context| undefined_of(context));
+    }
     with_current(|context| {
         let registered = format!("{PREFIX}for:");
         let found = context
@@ -617,7 +679,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     // required argument.
     super::native::name_of(context, callable, "Symbol");
     super::native::length_of(context, callable, 0);
-    super::native::install(context, cell, &[("for", for_key), ("keyFor", key_for)]);
+    super::native::install_with_arity(context, cell, &[("for", for_key, 1), ("keyFor", key_for, 1)]);
     if let Some(prototype) = prototype_of(context) {
         let key = context.well_known("prototype");
         let value = Value::from_slot(prototype).bits();

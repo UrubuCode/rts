@@ -429,6 +429,16 @@ pub fn define_field(object: u64, key: i64, value: u64) -> u64 {
         let Some(named) = super::objects::key_for(context, key) else {
             return;
         };
+        // `CreateDataProperty` REPLACES the whole descriptor, not merely the
+        // value: `{ get z(){…}, z: 5 }` is one property, defined twice, and the
+        // second definition is a DATA property — so any accessor pair the
+        // first left behind for this key has to go, or `resolve`'s walk keeps
+        // finding the getter first and `z` answers 1 forever. Without this,
+        // the emitter's own `put` below stored 5 in the shape and nothing
+        // read it back.
+        if let Ok(number) = u32::try_from(key) {
+            context.remove_accessor(cell, number);
+        }
         super::objects::put(context, cell, named, value);
     });
     value

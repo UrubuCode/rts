@@ -128,6 +128,10 @@ fn encoder_class(context: &mut Context) -> u64 {
     // intern the string again on every `new`.
     let utf8 = entry::make_string(context, "utf-8");
     entry::put_member(context, prototype, "encoding", utf8);
+    // `Object.prototype.toString.call(new TextEncoder())` — WHATWG names the
+    // tag on the prototype, same as `encoding` above.
+    let tag = entry::make_string(context, "TextEncoder");
+    entry::put_member(context, prototype, "@@toStringTag", tag);
     let ctor = entry::make_callable(context, new_encoder);
     entry::put_member(context, ctor, "prototype", prototype);
     ctor

@@ -786,6 +786,14 @@ pub(super) fn shape_of(
         return None;
     }
 
+    // A TAGGED TEMPLATE is refused, and the reason is identity rather than
+    // shape: a site's strings object is the same one on every evaluation, and a
+    // body copied to three call sites mints three sites. See
+    // `template::holds_a_site` for the two keys that were rejected before this.
+    if super::template::holds_a_site(&statements, &answered) {
+        return None;
+    }
+
     // The parameters, plus whatever the body declares for itself. A declared
     // name is BOUND — reading it is not reading the caller's — and the count of
     // them travels out so `candidates` can ask the whole program about each.

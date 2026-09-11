@@ -486,6 +486,26 @@ fn super_member(cx: &mut Cx, super_prop: &swc::SuperPropExpr) -> Result<ExprKind
 /// SWC hands back a pattern where it could decide and an expression otherwise.
 /// The pattern side is the cover grammar already resolved for us; the expression
 /// side is a place to write.
+/// The PLACE a type assertion was written around.
+///
+/// `(x as any) = v` reaches here as `SimpleAssignTarget::Paren` wrapping a
+/// `TsAs`, and `expr` turns that into `ExprKind::Asserted` — a claim about a
+/// value, which is exactly what the left of an assignment is not. Nothing
+/// downstream has an assignment arm for it, so the whole program was refused
+/// with `Emit(Unsupported { construct: "assigning to anything but a local or a
+/// property" })`.
+///
+/// A claim on the target proves nothing about the write — the annotation
+/// describes what is read out of the place, and TypeScript erases it — so the
+/// place is what the assertion wrapped. Stripped in a loop because the
+/// spellings nest: `((x as any) as any)` is two.
+fn place(mut target: Expr) -> Expr {
+    while let ExprKind::Asserted { value, .. } = target.kind {
+        target = *value;
+    }
+    target
+}
+
 fn assign_target(cx: &mut Cx, target: &swc::AssignTarget) -> Result<AssignTarget> {
     match target {
         swc::AssignTarget::Simple(simple) => match simple {
@@ -496,18 +516,18 @@ fn assign_target(cx: &mut Cx, target: &swc::AssignTarget) -> Result<AssignTarget
             swc::SimpleAssignTarget::Member(member) => Ok(AssignTarget::Place(Box::new(
                 member_expr(cx, member, false)?,
             ))),
-            swc::SimpleAssignTarget::Paren(paren) => {
-                Ok(AssignTarget::Place(Box::new(expr(cx, &paren.expr)?)))
-            }
+            swc::SimpleAssignTarget::Paren(paren) => Ok(AssignTarget::Place(Box::new(place(expr(
+                cx, &paren.expr,
+            )?)))),
             swc::SimpleAssignTarget::TsAs(as_) => {
-                Ok(AssignTarget::Place(Box::new(expr(cx, &as_.expr)?)))
+                Ok(AssignTarget::Place(Box::new(place(expr(cx, &as_.expr)?))))
             }
             swc::SimpleAssignTarget::SuperProp(super_prop) => Ok(AssignTarget::Place(Box::new(
                 Expr::new(super_member(cx, super_prop)?, position(super_prop.span)),
             ))),
-            swc::SimpleAssignTarget::TsNonNull(non_null) => {
-                Ok(AssignTarget::Place(Box::new(expr(cx, &non_null.expr)?)))
-            }
+            swc::SimpleAssignTarget::TsNonNull(non_null) => Ok(AssignTarget::Place(Box::new(
+                place(expr(cx, &non_null.expr)?),
+            ))),
             other => unsupported("this assignment target", position(other.span())),
         },
         swc::AssignTarget::Pat(pattern) => match pattern {
