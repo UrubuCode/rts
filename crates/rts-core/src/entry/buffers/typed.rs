@@ -74,13 +74,34 @@ pub(in crate::entry) fn construct(
             return Value::from_slot(cell).bits();
         }
 
-        // From data, or from a length.
-        let values = match source == absent {
+        // From data, or from a length. A STRING is a length here and never
+        // data: the specification's own split is `IsObject(firstArgument)`,
+        // and a string primitive fails it even though this engine represents
+        // one as a heap cell — `new Uint8Array("3")` is three zeroed elements,
+        // not one element per code unit. Asked before `words_of`, which would
+        // otherwise find no elements and no `length` property and answer an
+        // empty view, silently losing the count the string spelled out.
+        let is_string = Value(source)
+            .as_slot()
+            .is_some_and(|cell| context.text_at(cell).is_some());
+        let values = match source == absent || is_string {
             true => Vec::new(),
             false => words_of(context, source, kind),
         };
         let count = match values.is_empty() {
-            true => super::as_count(Value(source).numeric().unwrap_or(0.0)),
+            true => {
+                // `Value::numeric` answers `None` for a string cell — it reads
+                // the encoded bits, and a string names a slot rather than
+                // carrying its number in them — so `string_to_number` is asked
+                // directly. It runs no user code, unlike the general
+                // `ToNumber`, which is why it is safe to call inside this
+                // borrow.
+                let length = match Value(source).as_slot().and_then(|cell| context.text_at(cell)) {
+                    Some(text) => crate::coerce::string_to_number(text),
+                    None => Value(source).numeric().unwrap_or(0.0),
+                };
+                super::as_count(length)
+            }
             false => values.len(),
         };
         let Some(buffer) = super::new_buffer(context, count * size) else {

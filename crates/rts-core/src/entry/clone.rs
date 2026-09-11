@@ -66,6 +66,7 @@ mod errors;
 
 use build::{materialise, resolve};
 
+use super::buffers::element::Kind;
 use super::objects::undefined_of;
 use super::{Context, with_current};
 use crate::text::Str;
@@ -179,7 +180,18 @@ enum Slot {
 
 /// What one cloneable object is, with its children as arena indices.
 enum Node {
-    Array(Vec<Slot>),
+    Array {
+        elements: Vec<Slot>,
+        /// String-keyed properties beside the indices — `const a = [1, 2];
+        /// a.tag = "x"` — which the specification clones too: `structuredClone`
+        /// walks `[[OwnPropertyKeys]]` and an array's is not only its indices.
+        /// Kept apart from [`Node::Object`]'s field of the same shape rather
+        /// than reused through a shared helper, because the source differs —
+        /// every index below `elements.len()` is skipped here since
+        /// `elements` already carries it, where an object has no such range to
+        /// exclude.
+        extra: Vec<(Str, Slot)>,
+    },
     /// Members in enumeration order, which is the order they are written back
     /// in — so the clone enumerates the way the original did.
     Object(Vec<(Str, Slot)>),
@@ -219,6 +231,21 @@ enum Node {
     /// is what the specification's "cloned, not shared" actually means for a
     /// buffer with no members to walk.
     Buffer(Vec<u8>),
+    /// A typed array: which of the nine kinds, and the bytes its window
+    /// covers — copied, for the reason [`Node::Buffer`] copies rather than
+    /// shares. `DataView` is deliberately absent: its kind is [`Kind::Raw`],
+    /// which [`shape_of`] refuses before a node is ever reserved for it, so
+    /// one clones as a plain object today rather than as a hollow view.
+    ///
+    /// The clone gets a private backing buffer of its own rather than sharing
+    /// the one the source view named — stated here as the divergence rather
+    /// than solved, the same shape the module's own "what is not cloneable"
+    /// section already keeps for other gaps: `structuredClone([b, new
+    /// Uint8Array(b)])` answers two buffers that do not alias, where the
+    /// specification's graph would keep them one. Solving it needs the view
+    /// to walk its buffer as a CHILD the way [`Node::Array`] walks its
+    /// elements, which needs the two-phase build this kind does not have yet.
+    View { kind: Kind, bytes: Vec<u8> },
 }
 
 /// The arena, and which original cell each node stands for.
@@ -278,6 +305,10 @@ enum Shape {
     /// [`super::buffers`], the one thing here that reaches into another
     /// module's storage rather than reading properties like everything else.
     Buffer(u32),
+    /// A typed array, recognised by naming a [`super::buffers::View`] whose
+    /// kind is not [`Kind::Raw`] — a `DataView` keeps the plain-object walk,
+    /// for the reason [`Node::View`] states.
+    View(u32, Kind),
     /// An error, recognised by its prototype chain reaching `Error.prototype`.
     Error(u32),
     /// A function or a symbol — see the module documentation.
@@ -315,6 +346,14 @@ fn shape_of(context: &mut Context, value: u64) -> Shape {
     // the element/plain-object fallback, none of which know what a buffer is.
     if context.bytes_at(cell).is_some() {
         return Shape::Buffer(cell);
+    }
+    // A typed array names a view rather than owning bytes directly — checked
+    // here, beside the buffer it is the other half of. `Kind::Raw` is a
+    // `DataView`, refused for the reason [`Node::View`] documents.
+    if let Some(view) = context.view_at(cell)
+        && view.kind != Kind::Raw
+    {
+        return Shape::View(cell, view.kind);
     }
     // Before the plain-object fallback: a regular expression answers
     // `source`/`flags` through PROTOTYPE accessors, so the walk below would
@@ -428,6 +467,23 @@ fn walk(graph: &mut Graph, value: u64, depth: usize) -> Slot {
             graph.nodes[at] = Node::Buffer(bytes);
             return Slot::At(at);
         }
+        Shape::View(cell, kind) => {
+            // Same reasoning as `Buffer`: no child VALUES — the bytes are
+            // copied whole, per [`Node::View`]'s stated gap — and still
+            // registered, so one view referenced twice comes back as one
+            // object twice rather than two independent copies.
+            if let Some(at) = graph.found(cell) {
+                return Slot::At(at);
+            }
+            let at = graph.reserve(cell);
+            let bytes = with_current(|context| {
+                super::buffers::view_of(context, value)
+                    .and_then(|view| super::buffers::window(context, &view).map(<[u8]>::to_vec))
+                    .unwrap_or_default()
+            });
+            graph.nodes[at] = Node::View { kind, bytes };
+            return Slot::At(at);
+        }
     };
     if let Some(at) = graph.found(cell) {
         return Slot::At(at);
@@ -442,12 +498,13 @@ fn walk(graph: &mut Graph, value: u64, depth: usize) -> Slot {
             // walking each element takes borrows of its own.
             let elements =
                 with_current(|context| context.elements_at(cell).cloned().unwrap_or_default());
-            Node::Array(
-                elements
-                    .into_iter()
-                    .map(|element| walk(graph, element, depth + 1))
-                    .collect(),
-            )
+            let count = elements.len();
+            let elements: Vec<Slot> = elements
+                .into_iter()
+                .map(|element| walk(graph, element, depth + 1))
+                .collect();
+            let extra = array_extras(graph, value, depth, count);
+            Node::Array { elements, extra }
         }
         Shape::Map(_) => Node::Map(
             super::collections::entries_of(value)
@@ -488,6 +545,46 @@ fn members(graph: &mut Graph, value: u64, depth: usize) -> Vec<(Str, Slot)> {
         let Some(key) = key else {
             continue;
         };
+        built.push((key, walk(graph, held, depth + 1)));
+    }
+    built
+}
+
+/// An array's own members that are NOT one of its `0..count` indices — a
+/// `length`, and every named property a program hung on it after the literal.
+///
+/// Reads `own_keys` the same way [`members`] does and for the same reason —
+/// enumeration order is the runtime's one answer, not something re-derived
+/// here — and skips every key `[`Node::Array`]`'s own field already carries:
+/// `length`, whose value the array's own `length` write already reproduces,
+/// and every index below `count`, whose value (including a hole) came from
+/// [`Context::elements_at`] rather than from a property read that would
+/// materialise it.
+fn array_extras(graph: &mut Graph, value: u64, depth: usize, count: usize) -> Vec<(Str, Slot)> {
+    let names = super::array::own_keys(value);
+    let names = with_current(|context| {
+        Value(names)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell).cloned())
+            .unwrap_or_default()
+    });
+    let mut built = Vec::new();
+    for name in names {
+        let key = with_current(|context| super::text::to_text(context, Value(name)));
+        let Some(key) = key else {
+            continue;
+        };
+        if let Some(rust) = key.to_rust() {
+            if rust == "length" {
+                continue;
+            }
+            if let Ok(index) = rust.parse::<usize>()
+                && index < count
+            {
+                continue;
+            }
+        }
+        let held = super::computed::get_indexed(value, name);
         built.push((key, walk(graph, held, depth + 1)));
     }
     built

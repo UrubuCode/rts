@@ -343,22 +343,41 @@ impl Writer {
     }
 
     /// `[…]`.
+    ///
+    /// # Why each element is a fresh `[[Get]]` and not a clone of the store
+    ///
+    /// `SerializeJSONArray` reads `len` ONCE and then performs an ordinary
+    /// property read per index — `array[i]`, the same operation `array[1]`
+    /// compiles to — so an index that is an ACCESSOR runs its getter, and a
+    /// getter or a `toJSON` that shrinks the array is observable on every
+    /// index still to come: `arr = [0,1,2,3]` with a getter at index 1 that
+    /// sets `arr.length = 2` serialises as `[0,"one",null,null]` — `len` was
+    /// still 4, but reading indices 2 and 3 after the shrink answers
+    /// `undefined`, which serialises as `null` here exactly as a hole does.
+    ///
+    /// A clone of the element store, taken once, cannot show any of that: it
+    /// answers what the array held before the walk started, so a shrink mid
+    /// walk left the old values printed — a well-formed but wrong array.
     fn array(&mut self, cell: u32, depth: usize) {
         if !self.enter(cell, depth) {
             return self.ascii("null");
         }
-        // Copied out of the borrow rather than iterated inside one, because
-        // each element's own serialisation calls back into the runtime.
-        //
-        // HELD for the same reason the key array is: the copy lives in a Rust
-        // `Vec`, whose buffer is on the Rust heap and is not scanned, and the
-        // array it came from is dead to Rust the moment the clone returns. Every
-        // element's serialisation allocates, so a collection in the middle of
-        // this loop freed cells this loop still names.
+        // A root for the whole walk: every read below is a call back into the
+        // runtime, and the array itself is otherwise named by nothing a
+        // conservative stack scan can see once `length` has been read out of
+        // it.
         let anchor = super::super::external::hold_current(Value::from_slot(cell).bits());
-        let elements = with_current(|context| context.elements_at(cell).cloned().unwrap_or_default());
+        let object = Value::from_slot(cell).bits();
+        // `LengthOfArrayLike`, read ONCE — see this function's own
+        // documentation for why every element after it is still a live read.
+        let length = with_current(|context| {
+            let key = super::super::computed::length_key(context);
+            super::super::objects::own_property(context, cell, key)
+                .and_then(|value| value.numeric())
+                .map_or(0usize, |number| number.max(0.0) as usize)
+        });
         self.ascii("[");
-        for (at, element) in elements.iter().enumerate() {
+        for at in 0..length {
             if super::super::throw::in_flight() {
                 break;
             }
@@ -366,37 +385,24 @@ impl Writer {
                 self.ascii(",");
             }
             self.newline(depth + 1);
-
-            // A hole, an `undefined` and a function are each `null` here, where
-            // in an object they are skipped. The asymmetry is the language's
-            // and it has a reason: an array's members are addressed by
-            // position, so dropping one renumbers every one after it.
-            // The key `toJSON` sees for an array member is its index, ToString'd
-            // -- `[9].toJSON` is called with `"0"`, never with the number 9. Built
-            // only if a hook is actually reached: it is a `number_to_string` and
-            // an ALLOCATION, and it was paid per element of every array ever
-            // serialised, for a hook almost no value has.
-            // A HOLE reaches the hooks as `undefined`, which is what the
-            // property read the specification performs would answer for it. The
-            // sentinel was handed over raw, so a replacer inspecting
-            // `[1, , 3]` saw `typeof v === "object"` for the middle member —
-            // this crate's internal marker, leaked to a program's callback.
-            // What is WRITTEN for it stays `null`, which the arm below decides.
-            let element = match with_current(|context| {
-                super::super::array::is_hole(context, *element)
-            }) {
-                true => super::super::modules::undefined_value(),
-                false => *element,
-            };
-            let held = self.hooked(Value::from_slot(cell).bits(), element, HookKey::Index(at));
+            // The ordinary indexed read: a hole and an `undefined` element
+            // both answer `undefined` here exactly as [`super::super::array::visible`]
+            // says a compiled `a[k]` does, which is what keeps this agreeing
+            // with the language about what an element IS at the moment it is
+            // actually read, rather than at the moment the walk began.
+            let element = super::super::computed::get_indexed(
+                object,
+                Value::from_f64(at as f64).bits(),
+            );
+            let held = self.hooked(object, element, HookKey::Index(at));
             if !self.write(held, depth + 1) {
                 self.ascii("null");
             }
         }
-        if !elements.is_empty() {
+        if length > 0 {
             self.newline(depth);
         }
-        // The elements are read for the last time above.
+        // The array is read for the last time above.
         super::super::external::release_current(anchor);
         self.ascii("]");
         self.leave();
