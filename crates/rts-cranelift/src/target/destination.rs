@@ -48,12 +48,39 @@ pub fn executable_memory() -> Result<JITModule, TargetError> {
 /// mismatch is a call through the wrong shape, which no verifier here can see —
 /// the code being called was not built by this crate.
 pub fn executable_memory_calling(symbols: &[(&str, *const u8)]) -> Result<JITModule, TargetError> {
+    Ok(JITModule::new(builder_calling(symbols)?))
+}
+
+/// Executable memory for one program, all of it inside ONE reservation of
+/// `bytes`, resolving the same names as [`executable_memory_calling`].
+///
+/// `target/arena.rs` says why a program of any size needs its code in one
+/// place: a call between two functions of the same program is a 32-bit
+/// displacement, and the default provider's chunks can land further apart
+/// than that. Reserving is also committing on Windows, so `bytes` is a cost
+/// and the caller sizes it from the program rather than guessing large.
+pub fn executable_memory_in_arena(
+    symbols: &[(&str, *const u8)],
+    bytes: usize,
+) -> Result<JITModule, TargetError> {
+    let mut builder = builder_calling(symbols)?;
+    let arena = cranelift_jit::ArenaMemoryProvider::new_with_size(bytes).map_err(|error| {
+        TargetError::Module(ModuleError::Backend(
+            anyhow::Error::new(error).context(format!("reserving {bytes} bytes of executable memory")),
+        ))
+    })?;
+    builder.memory_provider(Box::new(arena));
+    Ok(JITModule::new(builder))
+}
+
+/// The builder both executable destinations start from.
+fn builder_calling(symbols: &[(&str, *const u8)]) -> Result<JITBuilder, TargetError> {
     let isa = host_isa()?;
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     for (name, address) in symbols {
         builder.symbol(*name, *address);
     }
-    Ok(JITModule::new(builder))
+    Ok(builder)
 }
 
 /// A module that compiles into an object file for a linker to resolve later.

@@ -26,7 +26,7 @@ use cranelift_module::{Linkage, Module};
 
 use super::blob::{DataBlob, define_data_blob};
 use super::tables::AddressTable;
-use super::{MachineModule, TargetError, destination::executable_memory_calling};
+use super::{MachineModule, TargetError, destination::executable_memory_calling, destination::executable_memory_in_arena};
 use crate::ir::{FuncId, FuncRegistry, Function};
 use crate::types::TypeRegistry;
 
@@ -166,7 +166,6 @@ pub unsafe fn place_in_memory(
     types: &TypeRegistry,
     heap: Option<crate::mem::RegionBases>,
 ) -> Result<InMemory, TargetError> {
-    let mut jit = executable_memory_calling(outside)?;
     // The emitted description comes back with the identifiers, because the
     // module that holds it borrows `jit` and has to be given up before
     // `finalize_definitions` can run — and the addresses do not exist until
@@ -176,10 +175,35 @@ pub unsafe fn place_in_memory(
     // a table exists so that a reader with no linker to ask can still learn
     // where a function ended up, and this destination answers that directly
     // through [`InMemory::address_of`]. See `super::tables`.
-    let (machine_ids, placements) = compile_batch(&mut jit, program, &[], funcs, types, heap)?;
-
-    jit.finalize_definitions()
-        .map_err(|error| TargetError::Module(error))?;
+    //
+    // One reservation for the whole program, sized from it, and a second
+    // attempt at four times the size when the estimate was short — see
+    // `super::arena` for both halves of why. A module that ran out is freed
+    // before the next is built: its memory IS the arena, and `JITModule`
+    // leaks it on drop by design so that finalized code outlives the module.
+    let estimate = super::arena::estimated_bytes(program);
+    let mut attempt = 0;
+    let (jit, machine_ids, placements) = loop {
+        let bytes = estimate.saturating_mul(super::arena::GROWTH[attempt]);
+        let mut jit = executable_memory_in_arena(outside, bytes)?;
+        let compiled = compile_batch(&mut jit, program, &[], funcs, types, heap.clone()).and_then(
+            |(machine_ids, placements)| {
+                jit.finalize_definitions().map_err(TargetError::Module)?;
+                Ok((machine_ids, placements))
+            },
+        );
+        match compiled {
+            Ok((machine_ids, placements)) => break (jit, machine_ids, placements),
+            Err(error) => {
+                unsafe { jit.free_memory() };
+                if super::arena::exhausted(&error) && attempt + 1 < super::arena::GROWTH.len() {
+                    attempt += 1;
+                    continue;
+                }
+                return Err(error);
+            }
+        }
+    };
 
     let placed: Vec<(FuncId, *const u8)> = machine_ids
         .into_iter()

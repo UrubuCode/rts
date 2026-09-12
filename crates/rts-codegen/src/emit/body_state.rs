@@ -120,6 +120,15 @@ pub(crate) struct BodyState {
     /// dominates every block in the function, which is the same property
     /// [`BodyState::zero`] relies on.
     pub(super) literals: std::collections::HashMap<u32, ValueId>,
+    /// How many loops of THIS body enclose the statement being emitted.
+    ///
+    /// Read by `string_const` to decide between the entry block and the site:
+    /// hoisting pays inside a loop and costs outside one. It is not the
+    /// `Loops` stack — that one is threaded through the statement emitters
+    /// and counts `switch` and labelled blocks too, which are not passes.
+    /// Zero in a nested body, because a closure's own activation is where its
+    /// literal is asked for either way.
+    pub(super) loop_depth: u32,
     /// The block that re-raises, once per protected region that asked for one.
     ///
     /// See [`BodyState::reraise_in`] for why one per region rather than one per

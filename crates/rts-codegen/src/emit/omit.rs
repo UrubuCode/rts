@@ -97,6 +97,9 @@ pub(super) fn omittable(
     for statement in body {
         value_reads_in_statement(statement, &mut read_as_value);
     }
+    // Once for the body: the loop below asks it for every helper, and a body
+    // with a thousand helpers walked itself a thousand times for the answer.
+    let declared = super::inline::Declarations::of(body);
 
     let mut answer = Omission::default();
     for (name, function) in named {
@@ -146,7 +149,7 @@ pub(super) fn omittable(
         // as a `ReferenceError` instead — the other body emitted into this
         // block environment, which does not hold what that body reads.
         // `tests/claude-helper-declarado-duas-vezes.test.ts` pins both.
-        if super::inline::declarations_of(body, name) != 1 {
+        if declared.count(name) != 1 {
             continue;
         }
         // NEVER READ AS A VALUE. `g(f)`, `f.name`, `const h = f`, `[f]`,

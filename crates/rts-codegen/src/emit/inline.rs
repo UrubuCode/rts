@@ -149,17 +149,21 @@ pub(super) fn candidates(
     for statement in body {
         collect_declarations(statement, &mut declarations);
     }
+    // The two whole-program facts, ONCE for the body. Each is a walk of the
+    // entire tree, and the loop below used to ask for them once per helper —
+    // a body declaring a thousand helpers walked itself two thousand times,
+    // which is the quadratic `Declarations` documents.
+    let declared = Declarations::of(body);
+    let writes = super::primordial::disturbed(body, eval, global_this);
     for (name, function) in declarations {
         let Some((candidate, free, locals)) = shape_of(function, length, name, false) else {
             continue;
         };
-        // The three whole-program questions, asked only for a name that got
-        // this far — each walks the entire tree, and asking them first would
-        // walk it once per top-level statement.
-        if declarations_of(body, name) != 1 {
+        // The two whole-program questions, answered from the facts above.
+        if declared.count(name) != 1 {
             continue;
         }
-        if !super::primordial::untouched(body, name, eval, global_this) {
+        if !writes.untouched(name) {
             continue;
         }
         // AND THE SAME PAIR FOR EVERY NAME THE BODY READS THAT IT DOES NOT
@@ -225,9 +229,9 @@ pub(super) fn candidates(
         // was substituted before stops being and nothing new is substituted
         // without a proof — only the proof may now come from the site.
         let mut candidate = candidate;
-        let free_proved = !free.iter().any(|held| match declarations_of(body, *held) {
+        let free_proved = !free.iter().any(|held| match declared.count(*held) {
             1 => false,
-            0 => !super::primordial::untouched(body, *held, eval, global_this),
+            0 => !writes.untouched(*held),
             _ => true,
         });
         candidate.free_proved = free_proved;
@@ -251,7 +255,7 @@ pub(super) fn candidates(
         // This is the same proof the free names get, asked in the opposite
         // direction — there, that no caller resolves the name DIFFERENTLY; here,
         // that no caller resolves it at all.
-        if locals.iter().any(|held| declarations_of(body, *held) != 1) {
+        if locals.iter().any(|held| declared.count(*held) != 1) {
             continue;
         }
         // What a declaration count CANNOT see, asked once for the whole
@@ -259,7 +263,7 @@ pub(super) fn candidates(
         // declaration spells, so either of them present means the count above
         // proves nothing. `untouched` already ends on both, whatever name it is
         // given — so it is given `eval`, and answers the half that is left.
-        if !free.is_empty() && !super::primordial::untouched(body, eval, eval, global_this) {
+        if !free.is_empty() && !writes.untouched(eval) {
             continue;
         }
         found.insert(name, Rc::new(candidate));
@@ -1361,136 +1365,178 @@ fn returned_expression(function: &Function) -> Option<&Expr> {
 /// all count, and none of them could shadow a top-level function at the call
 /// sites that matter — but over-counting refuses a candidate, and under-counting
 /// substitutes the wrong function.
+///
+/// One walk for one name; a caller asking about MANY names of one body takes
+/// [`Declarations::of`] once instead. Both read `declared_in_statement`, so
+/// there is one statement of what counts as a declaration.
 pub(super) fn declarations_of(body: &[Stmt], name: Name) -> usize {
     let mut count = 0;
+    let mut on = |declared: Name| {
+        if declared == name {
+            count += 1;
+        }
+    };
     for statement in body {
-        count_in_statement(statement, name, &mut count);
+        declared_in_statement(statement, &mut on);
     }
     count
 }
 
-fn count_in_statement(statement: &Stmt, name: Name, count: &mut usize) {
+/// Every declaration of a body, counted per spelling — [`declarations_of`] for
+/// all names in one walk.
+///
+/// # Why a map beside the single-name question
+///
+/// `candidates` and `omit::omittable` ask [`declarations_of`] once per helper
+/// the body declares, and each answer walked the whole body: a bundle with a
+/// thousand `var f = function` in one function paid a thousand walks of a
+/// seven-thousand-node tree for that question alone, and as many again for
+/// `primordial::untouched`. Measured 2026-09-11 on a synthetic body of N such
+/// helpers: 3 s at 374 KB, 10 s at 748 KB, 37 s at 1.5 MB — and the 4.5 MB
+/// WhatsApp Web bundle never finished. This is the same walk done once.
+pub(super) struct Declarations(BTreeMap<Name, usize>);
+
+impl Declarations {
+    /// The counts of every name `body` declares, anywhere.
+    pub(super) fn of(body: &[Stmt]) -> Self {
+        let mut counts = BTreeMap::new();
+        let mut on = |declared: Name| {
+            *counts.entry(declared).or_insert(0) += 1;
+        };
+        for statement in body {
+            declared_in_statement(statement, &mut on);
+        }
+        Self(counts)
+    }
+
+    /// The number [`declarations_of`] answers for `name`.
+    pub(super) fn count(&self, name: Name) -> usize {
+        self.0.get(&name).copied().unwrap_or(0)
+    }
+}
+
+/// Hands `on` every name a statement declares, at any depth — the one place
+/// that says what a declaration is for the two readers above.
+fn declared_in_statement(statement: &Stmt, on: &mut dyn FnMut(Name)) {
     match &statement.kind {
         StmtKind::Function(function) => {
-            if function.name == Some(name) {
-                *count += 1;
+            if let Some(name) = function.name {
+                on(name);
             }
-            count_in_function(function, name, count);
+            declared_in_function(function, on);
             return;
         }
         StmtKind::Class(class) => {
-            if class.name == Some(name) {
-                *count += 1;
+            if let Some(name) = class.name {
+                on(name);
             }
-            count_in_class(class, name, count);
+            declared_in_class(class, on);
             return;
         }
         StmtKind::ForEach { target, .. } => match target {
-            ForEachTarget::Declare { target, .. } => count_in_pattern(target, name, count),
-            ForEachTarget::Dispose { target, .. } => {
-                if *target == name {
-                    *count += 1;
-                }
-            }
+            ForEachTarget::Declare { target, .. } => declared_in_pattern(target, on),
+            ForEachTarget::Dispose { target, .. } => on(*target),
             ForEachTarget::Assign(_) => {}
         },
         _ => {}
     }
     walk_stmt(statement, &mut |child| match child {
-        StmtChild::Stmt(inner) => count_in_statement(inner, name, count),
-        StmtChild::Expr(expr) => count_in_expr(expr, name, count),
+        StmtChild::Stmt(inner) => declared_in_statement(inner, &mut *on),
+        StmtChild::Expr(expr) => declared_in_expr(expr, &mut *on),
         StmtChild::Binding(binding) => {
-            count_in_pattern(&binding.target, name, count);
+            declared_in_pattern(&binding.target, &mut *on);
             if let Some(value) = &binding.value {
-                count_in_expr(value, name, count);
+                declared_in_expr(value, &mut *on);
             }
         }
         StmtChild::Catch(catch) => {
             if let Some(binding) = &catch.binding {
-                count_in_pattern(binding, name, count);
+                declared_in_pattern(binding, &mut *on);
             }
             for inner in &catch.body {
-                count_in_statement(inner, name, count);
+                declared_in_statement(inner, &mut *on);
             }
         }
         StmtChild::Function(function) => {
-            if function.name == Some(name) {
-                *count += 1;
+            if let Some(name) = function.name {
+                on(name);
             }
-            count_in_function(function, name, count);
+            declared_in_function(function, &mut *on);
         }
         StmtChild::Class(class) => {
-            if class.name == Some(name) {
-                *count += 1;
+            if let Some(name) = class.name {
+                on(name);
             }
-            count_in_class(class, name, count);
+            declared_in_class(class, &mut *on);
         }
     });
 }
 
-fn count_in_expr(expr: &Expr, name: Name, count: &mut usize) {
+fn declared_in_expr(expr: &Expr, on: &mut dyn FnMut(Name)) {
     walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => count_in_expr(inner, name, count),
+        Child::Expr(inner) => declared_in_expr(inner, &mut *on),
         Child::Function(function) => {
-            if function.name == Some(name) {
-                *count += 1;
+            if let Some(name) = function.name {
+                on(name);
             }
-            count_in_function(function, name, count);
+            declared_in_function(function, &mut *on);
         }
         Child::Class(class) => {
-            if class.name == Some(name) {
-                *count += 1;
+            if let Some(name) = class.name {
+                on(name);
             }
-            count_in_class(class, name, count);
+            declared_in_class(class, &mut *on);
         }
     });
 }
 
-fn count_in_function(function: &Function, name: Name, count: &mut usize) {
+fn declared_in_function(function: &Function, on: &mut dyn FnMut(Name)) {
     for parameter in &function.parameters {
-        count_in_pattern(&parameter.target, name, count);
+        declared_in_pattern(&parameter.target, on);
         if let Some(default) = &parameter.default {
-            count_in_expr(default, name, count);
+            declared_in_expr(default, on);
         }
     }
     if let Some(rest) = &function.rest_parameter {
-        count_in_pattern(rest, name, count);
+        declared_in_pattern(rest, on);
     }
     match &function.body {
         FunctionBody::Block(statements) => {
             for statement in statements {
-                count_in_statement(statement, name, count);
+                declared_in_statement(statement, on);
             }
         }
-        FunctionBody::Expression(expr) => count_in_expr(expr, name, count),
+        FunctionBody::Expression(expr) => declared_in_expr(expr, on),
     }
 }
 
-fn count_in_class(class: &Class, name: Name, count: &mut usize) {
+fn declared_in_class(class: &Class, on: &mut dyn FnMut(Name)) {
     if let Some(heritage) = &class.heritage {
-        count_in_expr(heritage, name, count);
+        declared_in_expr(heritage, on);
     }
     for element in &class.body {
         match element {
-            ClassElement::Method(method) => count_in_function(&method.function, name, count),
+            ClassElement::Method(method) => declared_in_function(&method.function, on),
             ClassElement::Field(field) => {
                 if let Some(value) = &field.value {
-                    count_in_expr(value, name, count);
+                    declared_in_expr(value, on);
                 }
             }
             ClassElement::StaticBlock(statements) => {
                 for statement in statements {
-                    count_in_statement(statement, name, count);
+                    declared_in_statement(statement, on);
                 }
             }
         }
     }
 }
 
-fn count_in_pattern(pattern: &Pattern, name: Name, count: &mut usize) {
+fn declared_in_pattern(pattern: &Pattern, on: &mut dyn FnMut(Name)) {
     let mut bound = Vec::new();
     pattern.bound_names(&mut bound);
-    *count += bound.iter().filter(|held| **held == name).count();
+    for name in bound {
+        on(name);
+    }
 }
 
 /// The candidate for ONE helper, built from its declaration rather than looked

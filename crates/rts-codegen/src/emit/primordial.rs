@@ -34,46 +34,70 @@ use super::capture::{Child, StmtChild, walk_expr, walk_stmt};
 
 /// Whether nothing in `body` writes to `name`, to a member of it, or brings in
 /// a spelling that could reach it indirectly.
+///
+/// One walk for one name. A caller with MANY names to ask about the same body
+/// — `inline::candidates`, once per helper the body declares — asks
+/// [`disturbed`] once instead and queries it, because this walk over a
+/// seven-thousand-node body, a thousand times, was the largest single term of
+/// a quadratic compile (measured 2026-09-11 on a synthetic body of N helpers:
+/// 3 s at 374 KB, 10 s at 748 KB, 37 s at 1.5 MB; the 4.5 MB WhatsApp Web
+/// bundle never finished). Both forms read the same walk, so they cannot
+/// disagree about what a write is.
 pub(super) fn untouched(body: &[Stmt], name: Name, eval: Name, global_this: Name) -> bool {
+    disturbed(body, eval, global_this).untouched(name)
+}
+
+/// Every name `body` writes to, directly or through a member — and whether it
+/// reaches for `eval` or `globalThis` at all, which disturbs every name at once.
+pub(super) struct Disturbed {
+    names: std::collections::BTreeSet<Name>,
+    indirect: bool,
+}
+
+impl Disturbed {
+    /// The answer [`untouched`] gives for `name`, from the walk already done.
+    pub(super) fn untouched(&self, name: Name) -> bool {
+        !self.indirect && !self.names.contains(&name)
+    }
+}
+
+/// The walk behind [`untouched`], done once for every name at the same time.
+pub(super) fn disturbed(body: &[Stmt], eval: Name, global_this: Name) -> Disturbed {
     let mut walk = Disturbance {
-        name,
         eval,
         global_this,
-        found: false,
+        names: std::collections::BTreeSet::new(),
+        indirect: false,
     };
     for statement in body {
         walk.statement(statement);
     }
-    !walk.found
+    Disturbed {
+        names: walk.names,
+        indirect: walk.indirect,
+    }
 }
 
-/// The walk, carrying the three names that end it.
+/// The walk: collects every written name, and stops at the first `eval` or
+/// `globalThis`, after which no name can be proved anything.
 struct Disturbance {
-    name: Name,
     eval: Name,
     global_this: Name,
-    found: bool,
+    names: std::collections::BTreeSet<Name>,
+    indirect: bool,
 }
 
 impl Disturbance {
     fn statement(&mut self, statement: &Stmt) {
-        if self.found {
+        if self.indirect {
             return;
         }
-        // `for (Math of xs)` and `for (Math.sqrt of fs)` write once per pass,
-        // and `walk_stmt`'s own documentation says it is SILENT about a
-        // for-each target — so the walk below cannot see them and this is the
-        // one place left to ask. `for (const x of xs)` introduces a binding
-        // instead and writes nothing, which is why only the assigning form is
-        // asked about.
         if let StmtKind::ForEach {
             target: crate::syntax::ForEachTarget::Assign(pattern),
             ..
         } = &statement.kind
-            && self.pattern_names_it(pattern)
         {
-            self.found = true;
-            return;
+            self.pattern_writes(pattern);
         }
         walk_stmt(statement, &mut |child| match child {
             StmtChild::Stmt(inner) => self.statement(inner),
@@ -94,27 +118,18 @@ impl Disturbance {
     }
 
     fn expression(&mut self, expr: &Expr) {
-        if self.found {
+        if self.indirect {
             return;
         }
         match &expr.kind {
-            // The two spellings that end the question rather than answer it.
             ExprKind::Ident(seen) if *seen == self.eval || *seen == self.global_this => {
-                self.found = true;
+                self.indirect = true;
                 return;
             }
-            // `Math = {}`, `Math.sqrt = f`, `Math.sqrt ||= f`, `Math["sqrt"] = f`
-            // — every form, because what matters is the target and not the
-            // operator.
             ExprKind::Assign {
                 target: AssignTarget::Place(place),
                 ..
-            } => {
-                if self.names_it(place) {
-                    self.found = true;
-                    return;
-                }
-            }
+            } => self.place_writes(place),
             // `[Math] = xs`, `({ sqrt: Math.sqrt } = o)`, `[Math.sqrt] = fs` —
             // a DESTRUCTURING assignment writes every place its pattern names,
             // and the arm above sees none of them because they are a `Pattern`
@@ -131,26 +146,11 @@ impl Disturbance {
             ExprKind::Assign {
                 target: AssignTarget::Pattern(pattern),
                 ..
-            } => {
-                if self.pattern_names_it(pattern) {
-                    self.found = true;
-                    return;
-                }
-            }
+            } => self.pattern_writes(pattern),
             // `Math.sqrt++` is a write in the same sense, and `delete Math.sqrt`
             // leaves the read answering undefined.
-            ExprKind::Update { target, .. } => {
-                if self.names_it(target) {
-                    self.found = true;
-                    return;
-                }
-            }
-            ExprKind::Unary { operand, .. } => {
-                if self.names_it(operand) {
-                    self.found = true;
-                    return;
-                }
-            }
+            ExprKind::Update { target, .. } => self.place_writes(target),
+            ExprKind::Unary { operand, .. } => self.place_writes(operand),
             _ => {}
         }
         walk_expr(expr, &mut |child| match child {
@@ -160,32 +160,41 @@ impl Disturbance {
         });
     }
 
-    /// Whether a place expression is the name itself or a member of it.
-    fn names_it(&self, place: &Expr) -> bool {
-        match &bare(place).kind {
-            ExprKind::Ident(seen) => *seen == self.name,
+    /// Records the name a place expression writes: the name itself, or the
+    /// object whose member it is.
+    fn place_writes(&mut self, place: &Expr) {
+        let object = match &bare(place).kind {
+            ExprKind::Ident(seen) => Some(*seen),
             ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => {
-                matches!(&bare(object).kind, ExprKind::Ident(seen) if *seen == self.name)
+                match &bare(object).kind {
+                    ExprKind::Ident(seen) => Some(*seen),
+                    _ => None,
+                }
             }
-            _ => false,
+            _ => None,
+        };
+        if let Some(name) = object {
+            self.names.insert(name);
         }
     }
 
-    /// Whether a destructuring pattern writes the name, at any depth.
+    /// Records every name a destructuring pattern writes, at any depth.
     ///
     /// A `Name` leaf is the name itself; a `Target` leaf is any place
-    /// expression, which is exactly what [`Self::names_it`] already decides. So
-    /// the two questions share one answer rather than having two chances to
+    /// expression, which is exactly what [`Self::place_writes`] already decides.
+    /// So the two questions share one answer rather than having two chances to
     /// disagree about what a write is.
     ///
     /// A DEFAULT inside the pattern is ordinary code and is walked as such —
     /// `[a = (Math.sqrt = f)] = xs` writes through an expression, not through a
     /// leaf.
-    fn pattern_names_it(&mut self, pattern: &crate::syntax::Pattern) -> bool {
+    fn pattern_writes(&mut self, pattern: &crate::syntax::Pattern) {
         use crate::syntax::Pattern;
         match pattern {
-            Pattern::Name(seen) => *seen == self.name,
-            Pattern::Target(place) => self.names_it(place),
+            Pattern::Name(seen) => {
+                self.names.insert(*seen);
+            }
+            Pattern::Target(place) => self.place_writes(place),
             Pattern::Object(object) => {
                 for property in &object.properties {
                     if let crate::syntax::PropertyKey::Computed(key) = &property.key {
@@ -194,28 +203,22 @@ impl Disturbance {
                     if let Some(default) = &property.value.default {
                         self.expression(default);
                     }
-                    if self.pattern_names_it(&property.value.pattern) {
-                        return true;
-                    }
+                    self.pattern_writes(&property.value.pattern);
                 }
-                object
-                    .rest
-                    .as_ref()
-                    .is_some_and(|rest| self.pattern_names_it(rest))
+                if let Some(rest) = &object.rest {
+                    self.pattern_writes(rest);
+                }
             }
             Pattern::Array(array) => {
                 for element in array.elements.iter().flatten() {
                     if let Some(default) = &element.default {
                         self.expression(default);
                     }
-                    if self.pattern_names_it(&element.pattern) {
-                        return true;
-                    }
+                    self.pattern_writes(&element.pattern);
                 }
-                array
-                    .rest
-                    .as_ref()
-                    .is_some_and(|rest| self.pattern_names_it(rest))
+                if let Some(rest) = &array.rest {
+                    self.pattern_writes(rest);
+                }
             }
         }
     }

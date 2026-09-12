@@ -200,7 +200,10 @@ pub fn emit_while(
         depth,
         merged: merged.clone(),
     };
-    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
+    ctx.body.loop_depth += 1;
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body));
+    ctx.body.loop_depth -= 1;
+    let terminated = terminated?;
 
     if !terminated {
         let leaving = scope.snapshot();
@@ -261,7 +264,10 @@ pub fn emit_do_while(
     // binding on every pass.
     let (copied, resident) = per_iteration_names(scope, None, body);
     let outer_environment = open_iteration(builder, scope, ctx, &copied, &resident)?;
-    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
+    ctx.body.loop_depth += 1;
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body));
+    ctx.body.loop_depth -= 1;
+    let terminated = terminated?;
 
     if !terminated {
         let leaving = scope.snapshot();
@@ -427,7 +433,10 @@ fn emit_for_inner(
         depth,
         merged: merged.clone(),
     };
-    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
+    ctx.body.loop_depth += 1;
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body));
+    ctx.body.loop_depth -= 1;
+    let terminated = terminated?;
 
     if !terminated {
         let leaving = scope.snapshot();
@@ -557,7 +566,10 @@ pub fn emit_labelled_block(
         depth,
         merged: merged.clone(),
     };
-    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
+    ctx.body.loop_depth += 1;
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body));
+    ctx.body.loop_depth -= 1;
+    let terminated = terminated?;
 
     if !terminated {
         let leaving = scope.snapshot();

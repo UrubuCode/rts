@@ -2300,7 +2300,8 @@ pub(super) fn string_literal_units(
     string_const(builder, ctx, which)
 }
 
-/// The call that turns a literal's number into its value, asked once per body.
+/// The call that turns a literal's number into its value — asked once per
+/// body when the literal sits inside a loop, and at the site otherwise.
 ///
 /// # Why this is hoisted where an operator is not
 ///
@@ -2318,14 +2319,20 @@ pub(super) fn string_literal_units(
 /// value put there reaches every site that wants it — the property
 /// `BodyState::zero` and `BodyState::flag` already stand on.
 ///
-/// # What it costs where it does not pay
+/// # Why only inside a loop
 ///
-/// A literal read once, on a path rarely taken, is now materialized on every
-/// activation instead of only when that path runs. That is the same trade
-/// `RuntimeOp::ThrownAddress` records making and for the same reason: which
-/// literals a body will reach is not known until it has been emitted, and one
-/// call per activation is the price of not paying one per pass. A literal is
-/// asked for at most once per body either way.
+/// Hoisting every literal of a body to its entry was the first form, and it
+/// is QUADRATIC in the body: each hoisted value is live from the entry to its
+/// use, across every call and every cache miss in between, and the machine
+/// pays for every live value at every one of those points. A bundle's top
+/// level is exactly that shape — thousands of `__d("Name", …)` in one
+/// function. Measured 2026-09-11, release, one function of N string literals
+/// and no loop: N = 1 000 took 232 MB and 1.1 s to compile, N = 2 000 took
+/// 507 MB and 4.5 s, N = 4 000 took 1.7 GB and 24.7 s; a 3.8 MB WhatsApp Web
+/// bundle took 7.2 GB and the JIT died placing it. Outside a loop a literal
+/// is asked for once per activation whichever block holds the call, so the
+/// hoist buys nothing there and costs that. Inside a loop it is the whole
+/// point, and stays.
 ///
 /// # Not for a body that parks
 ///
@@ -2341,6 +2348,9 @@ fn string_const(builder: &mut FuncBuilder, ctx: &mut Ctx, which: u32) -> EmitRes
     let Some(entry) = ctx.body.entry else {
         return materialize_literal(builder, ctx, which);
     };
+    if ctx.body.loop_depth == 0 {
+        return materialize_literal(builder, ctx, which);
+    }
     // Emitted in the entry block and not here. The block already has its
     // terminator, and appending is still correct: a block's instructions and
     // its terminator are separate, so this lands at the end of the body rather
