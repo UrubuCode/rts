@@ -540,28 +540,12 @@ function __dropWindow(h: i64): void {
 // JavaScript da página, que é superfície que ninguém pediu.
 (globalThis as any).__winFor = __winFor;
 
-// `Node` — as constantes de `nodeType` da spec do DOM. Um script usa-as como
-// guarda antes de tocar num nó (`el.nodeType === Node.ELEMENT_NODE`), e sem
-// elas a guarda lança em vez de responder `false` — o que derruba o script
-// inteiro por causa de uma verificação defensiva.
-(globalThis as any).Node = {
-  ELEMENT_NODE: 1,
-  ATTRIBUTE_NODE: 2,
-  TEXT_NODE: 3,
-  CDATA_SECTION_NODE: 4,
-  PROCESSING_INSTRUCTION_NODE: 7,
-  COMMENT_NODE: 8,
-  DOCUMENT_NODE: 9,
-  DOCUMENT_TYPE_NODE: 10,
-  DOCUMENT_FRAGMENT_NODE: 11,
-};
-
-// `MutationObserver` é uma classe do prelude, e uma classe do prelude é tão
-// invisível a um `new Function` quanto uma função dele. O que este alcance
-// trava não é a entrega de mutações — o stub regista e segue, e diz isso de si
-// próprio — é o `new` não lançar: um script que observa o DOM à cabeça morria
-// na primeira linha e nenhuma das seguintes corria.
-(globalThis as any).MutationObserver = MutationObserver;
+// `Node` (com as constantes de `nodeType`) e `MutationObserver` eram publicados
+// AQUI, em `globalThis`, para o `new Function` de outrora. Um `<script>` de
+// página compila hoje contra o `window` como escopo (`scope.rs`), e `globalThis`
+// não está nessa cadeia: o quinto script do WhatsApp Web morria em
+// `MutationObserver is not defined` com esta linha presente. Os dois vivem
+// agora em `interfaces.ts`, instalados no `window` com o resto da família.
 
 // `@import` DENTRO de um `<style>` inline (lote P, §5.P item 3) — o `<link
 // rel=stylesheet>` já expandia via `__inlineImports`/`__readResource`
