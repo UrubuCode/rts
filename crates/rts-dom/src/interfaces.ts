@@ -47,9 +47,18 @@
 /// `HTMLElement` são desta fachada, que não distingue os três.
 class DomInterface {
   _tag: string;
+  /// O protótipo REAL dos elementos desta fachada. Um bundle não pergunta só
+  /// `x instanceof Element`: lê `Element.prototype.matches` para o guardar ou
+  /// substituir, e `HTMLElement.prototype.click` para o chamar por `.call`.
+  /// Sem isto o WhatsApp Web morria em `Cannot read properties of undefined
+  /// (reading 'matches')` no nono script. É o mesmo objecto para todos os
+  /// nomes porque a fachada não distingue `Node`/`Element`/`HTML*Element`
+  /// — e um bundle que remende `Element.prototype` remenda o que os nós usam.
+  prototype: any;
 
   constructor(tag: string) {
     this._tag = tag;
+    this.prototype = Element.prototype;
   }
 
   [Symbol.hasInstance](v: any): boolean {
@@ -97,4 +106,22 @@ function __instalaInterfaces(alvo: any): void {
     alvo[nomes[i]] = new DomInterface(nomes[i + 1]);
     i = i + 2;
   }
+  // As constantes de `nodeType` vivem no `Node`, como na especificação: um
+  // script guarda-se com `el.nodeType === Node.ELEMENT_NODE` antes de tocar
+  // num nó, e sem elas a guarda responde `false` em silêncio. Viviam num
+  // objecto próprio em `globalThis` — que um `<script>` de página NÃO vê: o
+  // escopo de um script é o `window` (ver `scope.rs`), e foi assim que
+  // `MutationObserver`, publicado da mesma forma, respondeu `is not defined`
+  // no quinto script do WhatsApp Web.
+  const node = alvo.Node;
+  node.ELEMENT_NODE = 1;
+  node.ATTRIBUTE_NODE = 2;
+  node.TEXT_NODE = 3;
+  node.CDATA_SECTION_NODE = 4;
+  node.PROCESSING_INSTRUCTION_NODE = 7;
+  node.COMMENT_NODE = 8;
+  node.DOCUMENT_NODE = 9;
+  node.DOCUMENT_TYPE_NODE = 10;
+  node.DOCUMENT_FRAGMENT_NODE = 11;
+  alvo.MutationObserver = MutationObserver;
 }
