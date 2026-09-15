@@ -14,7 +14,15 @@ import process from "node:process";
 const f1 = format("%s = %d", "count", 42);
 const f2 = format("%s", "hello");
 const f3 = format("%d + %d = %d", 1, 2, 3);
+// A LONE argument is returned unchanged, `%%` included: `formatWithOptions`
+// answers `first` when `args.length === 1` and never walks the string.
+// PROVA (Node real v22.22.2, stdio piped): node -e "const
+// u=require('node:util'); console.log(JSON.stringify(u.format('100%% done')))"
+// -> "100%% done". The old assertion expected "100% done", which is what THIS
+// engine used to print and what no runtime prints — a test pinning our own
+// answer rather than the language's.
 const f4 = format("100%% done");
+const f4b = format("100%% done", "arg");
 const f5 = format("no specifiers", "extra", "args"); // extras appended
 const f6 = format("just text");
 const f7 = format("%i truncates", 3.9);
@@ -63,7 +71,9 @@ describe("node:util", () => {
     test("format %s %d", () => expect(f1).toBe("count = 42"));
     test("format %s", () => expect(f2).toBe("hello"));
     test("format multiple %d", () => expect(f3).toBe("1 + 2 = 3"));
-    test("format %%", () => expect(f4).toBe("100% done"));
+    test("format %% is untouched in a lone argument", () => expect(f4).toBe("100%% done"));
+    test("format %% collapses once there is an argument", () =>
+        expect(f4b).toBe("100% done arg"));
     test("format extra args", () => expect(f5).toBe("no specifiers extra args"));
     test("format plain", () => expect(f6).toBe("just text"));
     test("format %i truncates", () => expect(f7).toBe("3 truncates"));

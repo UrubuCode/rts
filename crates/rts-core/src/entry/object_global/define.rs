@@ -62,6 +62,29 @@ enum Refusal {
 /// spellings — the specification puts them before the validation that can say
 /// no.
 fn define_or_report(object: u64, name: u64, stated: u64, refusal: Refusal) -> bool {
+    // `ToPropertyKey(P)` FIRST — step 2, before the target is checked and long
+    // before the descriptor is read. On an OBJECT key that is a call, and every
+    // reading of a key in this crate happens under the borrow where a call
+    // cannot: `property_key` answered `None` for one, the definition fell
+    // through to a path that could not name the property, and
+    // `Object.defineProperty({}, {toString: () => "z"}, {value: 2})` ended the
+    // program with a `TypeError` where every runtime defines `z`.
+    //
+    // Asked as "what could the borrowed reading NOT answer", so a string, a
+    // symbol and a numeric index all keep the path they had — the conversion is
+    // reached only by the keys that needed one.
+    let convertible =
+        with_current(|context| super::super::computed::property_key(context, Value(name)).is_none());
+    let name = match convertible {
+        false => name,
+        true => match super::super::text::to_string_value(name) {
+            Some(text) => text,
+            // A throw is in flight — a symbol's, or one the key's own
+            // `toString` raised. Rule 8: it travels out rather than being
+            // replaced by this operation's refusal.
+            None => return false,
+        },
+    };
     // A proxy answers with its handler, and it is asked BEFORE the descriptor is
     // read: `Reflect.defineProperty` — the same operation reporting instead of
     // raising — hands the trap the descriptor the program wrote, and reading it

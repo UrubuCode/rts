@@ -173,7 +173,10 @@ fn settings_of(context: &mut Context, this: u64) -> Option<Settings> {
 extern "C" fn decode(_e: u64, this: u64, input: u64, options: u64, _c: u64, _d: u64) -> u64 {
     let collected = entry::with_runtime(|context| {
         let settings = settings_of(context, this)?;
-        let bytes = entry::bytes_of(context, input).unwrap_or_default();
+        // `BufferSource`, which is a view OR an `ArrayBuffer` — the WebIDL type
+        // `decode` declares. Reading only views made `decoder.decode(t.buffer)`
+        // answer `""` for bytes that were there.
+        let bytes = entry::buffer_source_bytes(context, input).unwrap_or_default();
         Some((settings, bytes, super::option_value(context, options, "stream")))
     });
     let Some((settings, bytes, requested_stream)) = collected else {

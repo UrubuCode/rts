@@ -898,7 +898,17 @@ pub(super) fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
     // array shares. `prototype_at` is asked first, so `Object.setPrototypeOf`
     // still wins over the substitution.
     if context.elements_at(cell).is_some() {
-        return super::array_proto::prototype_of(context);
+        let shared = super::array_proto::prototype_of(context);
+        // `Array.prototype` is itself an array — the language says so, which is
+        // what makes `Array.isArray(Array.prototype)` true — so this branch
+        // would answer it for ITSELF and the walk would stop one step short of
+        // `Object.prototype`. The same shape `Function.prototype` needs above,
+        // and with the same cost when it is missing: `[].hasOwnProperty` was
+        // not a function, in six fixtures, the day the array-ness landed.
+        if shared == Some(cell) {
+            return super::object_proto::prototype_of(context);
+        }
+        return shared;
     }
     // Everything left is a plain object, and a plain object inherits from
     // `Object.prototype`. Last, because there is nothing further to distinguish

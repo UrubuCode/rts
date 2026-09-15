@@ -193,6 +193,32 @@ impl Function {
 /// that property is what a program can have rewritten: `Object.defineProperty(f,
 /// "name", …)` changes what every engine prints here, and reading the table
 /// instead would answer from a record no program can reach.
+/// Whether this value is a function the PROGRAM wrote, rather than a native.
+///
+/// # Why a host needs the difference
+///
+/// Because `util.format`'s `%s` turns on it. Node prints `String(arg)` for an
+/// object carrying its own `toString` and INSPECTS one whose `toString` is a
+/// built-in — so `console.log("%s", {toString: () => "TS"})` is `TS` while
+/// `console.log("%s", [1, 2])` is `[ 1, 2 ]`, and the only thing separating the
+/// two is who wrote the method.
+///
+/// The same `function_names` membership [`rendering`] reads to decide between
+/// `[bytecode]` and `[native code]`, asked directly rather than by searching
+/// that string: a program can rewrite `.name`, which is inside the rendering,
+/// and a host matching on text would be reading something a program controls.
+pub fn is_user_function(value: u64) -> bool {
+    with_current(|context| {
+        let Some(cell) = Value(value).as_slot() else {
+            return false;
+        };
+        let Some((code, _)) = context.callable_at(cell) else {
+            return false;
+        };
+        context.function_names.iter().any(|(at, _, _, _, _)| *at == code)
+    })
+}
+
 fn rendering(context: &mut Context, this: u64) -> Option<String> {
     let cell = Value(this).as_slot()?;
     let (code, _) = context.callable_at(cell)?;
@@ -306,6 +332,19 @@ fn bound(target: u64, receiver: u64, partial: Vec<u64>) -> u64 {
             super::native::name_of(context, made, &format!("bound {named}"));
             let left = (arity - taken as f64).max(0.0);
             super::native::length_of(context, made, left as u32);
+        }
+        // `BoundFunctionCreate` takes the TARGET's `[[Prototype]]`, not
+        // `Function.prototype`. The difference is visible the moment a class is
+        // bound: `Object.getPrototypeOf(Sub.bind(null))` is `Parent` where
+        // `Sub extends Parent`, and this answered `Function.prototype` — so a
+        // bound subclass lost the static side of its own inheritance, and
+        // `BoundSub.someStatic` read `undefined` for a static the parent
+        // declares.
+        if let Some(target) = Value(target).as_slot()
+            && let Some(link) = super::objects::inherited_from(context, target)
+            && let Some(cell) = Value(made).as_slot()
+        {
+            context.set_prototype(cell, Value::from_slot(link).bits());
         }
         made
     })

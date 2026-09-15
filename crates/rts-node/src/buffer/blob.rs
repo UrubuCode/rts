@@ -199,16 +199,21 @@ fn gather(sources: u64, native_endings: bool) -> Vec<u8> {
 /// The order is the type test, most specific first: a real string; a non-object
 /// (where Node's own `BlobPart` handling is `ToString`, which is the ONE place
 /// here a coercion is the specification rather than a mistaken type test); a
-/// `Blob`, whose window is copied out of [`TABLE`]; and finally any view over
-/// bytes. An object that is none of those contributes nothing — the
-/// `ArrayBuffer` gap the module doc refuses by name.
+/// `Blob`, whose window is copied out of [`TABLE`]; and finally any
+/// `BufferSource` — a view or an `ArrayBuffer`. An object that is none of those
+/// contributes nothing.
+///
+/// The `usv_` spellings because a `BlobPart` string is a `USVString`: an
+/// unpaired surrogate is the replacement character's three bytes, not nothing.
+/// The plain conversions answer `None` for one, and `None` here fell through to
+/// `unwrap_or_default()` — so `new Blob(["\uD800"]).size` was `0`.
 fn part_bytes(part: u64, native_endings: bool) -> Vec<u8> {
     entry::with_runtime(|context| {
-        if let Some(text) = entry::string_in(context, part) {
+        if let Some(text) = entry::usv_string_in(context, part) {
             return with_endings(&text, native_endings).into_bytes();
         }
         if !entry::is_object(context, part) {
-            let text = entry::text_in(context, part).unwrap_or_default();
+            let text = entry::usv_text_in(context, part).unwrap_or_default();
             return with_endings(&text, native_endings).into_bytes();
         }
         if let Some(id) = held_id(context, part) {
@@ -216,7 +221,10 @@ fn part_bytes(part: u64, native_endings: bool) -> Vec<u8> {
                 return bytes;
             }
         }
-        entry::bytes_of(context, part).unwrap_or_default()
+        // `BufferSource`: a view or the `ArrayBuffer` itself. This module
+        // used to refuse the second by name — `new Blob([buffer])` had size 0 —
+        // and what it was refusing was a reader, not a decision.
+        entry::buffer_source_bytes(context, part).unwrap_or_default()
     })
 }
 

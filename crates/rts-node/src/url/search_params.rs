@@ -87,8 +87,8 @@ fn pairs_from(init: u64) -> Vec<(String, String)> {
         return collect_array(init)
             .into_iter()
             .filter_map(|pair| {
-                let name = entry::text_of(entry::get_indexed(pair, entry::make_number(0.0)))?;
-                let value = entry::text_of(entry::get_indexed(pair, entry::make_number(1.0)))?;
+                let name = entry::usv_text_of(entry::get_indexed(pair, entry::make_number(0.0)))?;
+                let value = entry::usv_text_of(entry::get_indexed(pair, entry::make_number(1.0)))?;
                 Some((name, value))
             })
             .collect();
@@ -97,11 +97,11 @@ fn pairs_from(init: u64) -> Vec<(String, String)> {
     // `querystring.rs::stringify` walks an options object.
     collect_array(entry::own_keys(init))
         .into_iter()
-        .filter_map(|key| entry::text_of(key).map(|name| (name, key)))
+        .filter_map(|key| entry::usv_text_of(key).map(|name| (name, key)))
         .flat_map(|(name, key)| {
             let value = entry::get_indexed(init, key);
             let values = match entry::is_array(value) {
-                true => collect_array(value).into_iter().filter_map(entry::text_of).collect(),
+                true => collect_array(value).into_iter().filter_map(entry::usv_text_of).collect(),
                 false => entry::described(value).into_iter().collect::<Vec<_>>(),
             };
             values.into_iter().map(move |value| (name.clone(), value))

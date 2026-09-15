@@ -277,6 +277,19 @@ pub(super) extern "C" fn format_with_options(
 pub(super) fn formatted(options: Options, pattern: u64, rest: [u64; 3]) -> String {
     let mut rest: std::collections::VecDeque<u64> =
         rest.into_iter().filter(|value| present(*value)).collect();
+    // A lone string argument is its own answer, and NOT a pattern.
+    //
+    // Node decides this by ARITY (`formatWithOptionsInternal` returns `first`
+    // when `args.length === 1`), which is the half a walk-and-substitute
+    // implementation has no reason to write: with nothing to substitute, `%s`
+    // already stays literal below — but `%%` does not. So `console.log("50%%")`
+    // printed `50%` here and `50%%` everywhere else, and every program logging
+    // a percent sign with no second argument lost a character.
+    if rest.is_empty()
+        && let Some(text) = string_of(pattern)
+    {
+        return text;
+    }
     let Some(pattern) = string_of(pattern) else {
         // The first argument is not a string: Node inspects and joins every
         // argument given rather than refusing the call.
@@ -359,20 +372,39 @@ fn render_specifier(spec: char, arg: u64, options: Options) -> String {
         // where `JSON.stringify` would throw.
         'j' => json_text(arg, &mut seen).unwrap_or_else(|| "undefined".to_owned()),
         'o' | 'O' => format_value(arg, options, &mut seen),
-        'i' => match number_of(arg) {
-            Some(number) => format!("{}", number.trunc()),
-            None => "NaN".to_owned(),
-        },
-        'd' | 'f' => match kind_of(arg).as_str() {
-            "bigint" => format!("{}n", entry::described(arg).unwrap_or_default()),
-            _ => match number_of(arg) {
-                Some(number) => entry::described(entry::make_number(number))
-                    .unwrap_or_else(|| "NaN".to_owned()),
-                None => "NaN".to_owned(),
-            },
-        },
+        // The three numeric specifiers are three different CONVERSIONS, and
+        // reading a value that already is a number is none of them. `%d` is
+        // `Number(arg)`, `%i` is `parseInt(arg)` and `%f` is `parseFloat(arg)`
+        // — Node's own three, and the difference is not academic: `%d` of
+        // `"0x10"` is 16, of `""` is 0, of `null` is 0 and of `true` is 1, and
+        // every one of those printed `NaN` here because the formatter asked
+        // whether the argument WAS a number instead of converting it.
+        //
+        // A bigint takes none of the three: it prints its digits with an `n`,
+        // which is what it does under every specifier.
+        'i' | 'd' | 'f' if kind_of(arg).as_str() == "bigint" => {
+            format!("{}n", entry::described(arg).unwrap_or_default())
+        }
+        // A SYMBOL prints `NaN` rather than raising. The conversions all refuse
+        // one — `Number(sym)` is a `TypeError` in the language — and a
+        // formatter is not a place a program asked for that throw, so the
+        // question is asked here, before the conversion that would raise it.
+        'i' | 'd' | 'f' if kind_of(arg).as_str() == "symbol" => "NaN".to_owned(),
+        'i' => numeric_text(entry::parse_int_for_host(arg, 0)),
+        'f' => numeric_text(entry::parse_float_for_host(arg)),
+        'd' => numeric_text(entry::number_for_host(arg)),
         _ => unreachable!("render_specifier is only called for a matched specifier"),
     }
+}
+
+/// A converted number as the program would print it.
+///
+/// Through `make_number`/`described` rather than Rust's own formatting, because
+/// JavaScript's number-to-string is not Rust's: `1e21` prints as `1e+21` and
+/// `0.1 + 0.2` as `0.30000000000000004`, and a second spelling here would be a
+/// second answer to what a number looks like.
+fn numeric_text(number: f64) -> String {
+    entry::described(entry::make_number(number)).unwrap_or_else(|| "NaN".to_owned())
 }
 
 /// `JSON.stringify(value)` over the same structural walk, for `%j`.

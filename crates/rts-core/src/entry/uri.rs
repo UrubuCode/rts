@@ -103,9 +103,14 @@ const ESCAPE_KEPT: &str = "@*_+-./";
 /// and `%uXXXX` at or above it. That second form is what makes it not a URI
 /// encoder — `encodeURIComponent` emits UTF-8 bytes instead — and it is why a
 /// lone surrogate survives here and becomes U+FFFD there.
+///
+/// The argument goes through `ToString` — the same [`units_of`] the URI encoders
+/// use — and not through the string receiver path. `escape` is a FUNCTION and
+/// not a method, so `escape(123)` is `"123"` in the specification; reading the
+/// argument as a string receiver answered `undefined` for every non-string,
+/// which is the one shape a legacy function nobody type-checks gets called in.
 extern "C" fn escape(_e: u64, _t: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let units = with_current(|context| super::string::units_of(context, value));
-    let Some(units) = units else {
+    let Some(units) = units_of(value) else {
         return with_current(|context| undefined_of(context));
     };
     let mut out = String::new();
@@ -127,8 +132,7 @@ extern "C" fn escape(_e: u64, _t: u64, value: u64, _a1: u64, _a2: u64, _a3: u64)
 /// version that threw would be a stricter function under a name programs use
 /// precisely because it does not.
 extern "C" fn unescape(_e: u64, _t: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let units = with_current(|context| super::string::units_of(context, value));
-    let Some(units) = units else {
+    let Some(units) = units_of(value) else {
         return with_current(|context| undefined_of(context));
     };
     let hex = |slice: &[u16]| -> Option<u16> {

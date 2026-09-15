@@ -95,6 +95,20 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // `"s".constructor === undefined`. Forcing the global here re-enters this
     // function, which answers from the cell recorded above.
     super::global::ensure(context, "String");
+    // `String.prototype` IS a String, holding the empty one — the same fact
+    // `Number.prototype` records about zero, and for the same three reasons:
+    // `String.prototype.length` is `0` rather than `undefined`,
+    // `String.prototype.valueOf()` is `""` rather than a refusal, and
+    // `Object.prototype.toString.call(String.prototype)` is `[object String]`.
+    // `native::plain`'s object is right for every other class and wrong for
+    // this one, so all three read the other way.
+    //
+    // LAST, and that order is load-bearing: interning allocates a cell, and an
+    // allocation is one chain walk away from asking this function again. The
+    // recording at the top is what makes that re-entry answer instead of
+    // recursing, so the interning has to happen after it.
+    let empty = context.intern_value(Str::from_str("")).bits();
+    context.set_boxed(cell, empty);
     Some(cell)
 }
 

@@ -163,12 +163,13 @@ fn ordered(elements: Vec<u64>, comparator: u64) -> Vec<u64> {
     if calls(comparator) {
         present = with_comparator(present, comparator);
     } else {
-        let mut keyed: Vec<(Vec<u16>, u64)> = with_current(|context| {
-            present
-                .iter()
-                .map(|held| (sort_key(context, *held), *held))
-                .collect()
-        });
+        let Some(keys) = default_keys(&present) else {
+            // A `toString` threw. The order it never decided is not written
+            // back — `sort` asks `in_flight` after this returns, the same way
+            // it does for a comparator that threw.
+            return present;
+        };
+        let mut keyed: Vec<(Vec<u16>, u64)> = keys.into_iter().zip(present).collect();
         // The standard sort, and only here: these keys are a genuine total
         // order, so nothing a program does can provoke it. That is the whole
         // difference from the branch above.
@@ -304,13 +305,43 @@ fn precedes(comparator: u64, a: u64, b: u64) -> bool {
 /// the basic plane and disagree above it, which is where a `String` key would
 /// quietly order an emoji before an ordinary character.
 ///
-/// An object sorts as the empty string: its `toString` is a call and this runs
-/// under a borrow — the same boundary `super::super::join` stops at, stated for
-/// the same reason.
-fn sort_key(context: &Context, value: u64) -> Vec<u16> {
-    super::super::super::text::to_text(context, Value(value))
-        .map(|text| text.units().collect())
-        .unwrap_or_default()
+/// `None` for an object, whose `toString` is a call: [`default_keys`] is where
+/// that call is made, outside every borrow. This is the primitive half.
+fn sort_key(context: &Context, value: u64) -> Option<Vec<u16>> {
+    super::super::super::text::to_text(context, Value(value)).map(|text| text.units().collect())
+}
+
+/// The key each element sorts by with no comparator — `ToString` of it.
+///
+/// # Why this is two passes rather than one
+///
+/// Because the conversion is `ToString`, and on an object that is a CALL:
+/// `[{toString: () => "a"}, {toString: () => "b"}]` is sorted by what those
+/// functions answer. This ran entirely under the borrow, where a call cannot
+/// happen, so every object keyed as the empty string — and an array of objects
+/// came back in the order it went in, silently, because equal keys are stable.
+/// That is the wrong-order half of the same failure `join` names.
+///
+/// The first pass is under the borrow and answers everything that is not an
+/// object, which is nearly every array anyone sorts. Only the elements it could
+/// not answer reach [`super::super::super::text::to_string_value`], so an array
+/// of primitives costs exactly what it did and calls nothing.
+///
+/// `None` means a `toString` threw and the caller must not write an order back.
+fn default_keys(values: &[u64]) -> Option<Vec<Vec<u16>>> {
+    let mut keys: Vec<Option<Vec<u16>>> =
+        with_current(|context| values.iter().map(|held| sort_key(context, *held)).collect());
+    for (at, key) in keys.iter_mut().enumerate() {
+        if key.is_some() {
+            continue;
+        }
+        // Outside every borrow: this is the call the two-stage shape exists for.
+        let text = super::super::super::text::to_string_value(values[at])?;
+        *key = with_current(|context| sort_key(context, text));
+    }
+    // Every `None` was replaced above, and `to_string_value` answers a primitive
+    // string — which `sort_key` never refuses.
+    keys.into_iter().collect()
 }
 
 #[cfg(test)]

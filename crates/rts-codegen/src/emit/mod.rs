@@ -886,6 +886,32 @@ impl<'a> Ctx<'a> {
         self.inferred_name = Some(name);
     }
 
+    /// Lends a name, answering whatever was already pending.
+    ///
+    /// # Why a nested lend needs putting back and a top-level one does not
+    ///
+    /// Because an initialiser can contain another one. `const F = class { m =
+    /// () => {} }` lends `F` and then reaches the field, which lends `m`; the
+    /// arrow takes `m`, and a plain [`Self::take_lent_name`] afterwards would
+    /// throw away the `F` that nothing had claimed yet — so the class came out
+    /// with an EMPTY name, which is what happened the first time the assignment
+    /// path lent one.
+    ///
+    /// The pair is for a lend made INSIDE another initialiser's emission. The
+    /// sites that lend at the top of a declaration keep [`Self::lend_name`],
+    /// where there is nothing pending to displace.
+    pub(super) fn lend_name_nested(
+        &mut self,
+        name: crate::names::Name,
+    ) -> Option<crate::names::Name> {
+        self.inferred_name.replace(name)
+    }
+
+    /// Puts back what [`Self::lend_name_nested`] displaced.
+    pub(super) fn restore_lent_name(&mut self, held: Option<crate::names::Name>) {
+        self.inferred_name = held;
+    }
+
     /// Takes the lent name, leaving none behind.
     ///
     /// Taken rather than read, so the first definition to ask is the only one

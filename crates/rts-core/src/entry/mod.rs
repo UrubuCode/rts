@@ -153,12 +153,12 @@ pub use modules::{
     Provided, boolean_value, buffer_class, canonical_encoding, decode_base64, decode_bytes, declare_global,
     declare_module, declare_module_common, declare_module_lazy, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
     make_bigint, make_buffer, make_namespace, make_number, make_object, make_string,
-    bytes_of, bytes_pointer, get_member_at, is_array, is_object, make_bytes, member_key, make_instance, make_prototype, module_at_name, module_binding, module_namespace, module_publish, module_specifiers, forget_module, null_value, number_of,
+    buffer_source_bytes, bytes_of, bytes_pointer, get_member_at, is_array, is_object, make_bytes, member_key, make_instance, make_prototype, module_at_name, module_binding, module_namespace, module_publish, module_specifiers, forget_module, null_value, number_for_host, number_of, parse_float_for_host, parse_int_for_host,
     Evaluator, declare_evaluator, evaluate, evaluator, is_array_in, is_callable_in, member_names, string_in, null_in, put_member, set_prototype_in, text_in,
     write_bytes,
-    text_of, undefined_in, undefined_value, utf8_bytes_if_string, with_runtime,
+    text_of, undefined_in, undefined_value, usv_string_in, usv_text_in, usv_text_of, utf8_bytes_if_string, with_runtime,
 };
-pub use function_proto::running_function;
+pub use function_proto::{is_user_function, running_function};
 pub use host_class::{declare_host_class, describe_callable};
 pub use pattern::array_pattern_direct;
 pub use objects::{
