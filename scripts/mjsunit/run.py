@@ -28,10 +28,18 @@ TESTS = c.ROOT / ".mjsunit" / "v8" / "test" / "mjsunit"
 # optimizada agora e verifica que foi. Não há motor de terceiros que isso possa
 # medir, e é a mesma decisão que a suíte do Node toma para `internal/…`.
 NATIVE = re.compile(r"%[A-Z][A-Za-z0-9_]*\(")
-# O `d8` é o shell do V8, não a linguagem: `load()` traz outro ficheiro,
-# `Realm`, `Worker` e `d8.*` são objetos de host. É o mesmo argumento que põe o
-# `$262` fora do denominador do test262.
-D8 = re.compile(r"\b(load|loadRelativeToScript|quit|read|readbuffer)\s*\(|\bd8\.|\bRealm\.|\bnew Worker\b")
+# O `d8` é o shell do V8, não a linguagem: `load()` traz outro ficheiro, `read()`
+# lê o disco, `gc()` só existe com `--expose-gc`, e `Realm`, `Worker`, `Sandbox`
+# e `d8.*` são objetos de host. É o mesmo argumento que põe o `$262` fora do
+# test262 e o `--expose-gc` fora da régua do Node.
+#
+# O lookbehind não é um detalhe: `\bload\s*\(` apanha `Atomics.load(` e
+# `module.exports.load(`, e media 117 ficheiros onde os do shell eram menos.
+# Um skip a mais sobe a percentagem sem nada ter melhorado, que é precisamente
+# o que uma régua não pode deixar acontecer por descuido de expressão regular.
+D8 = re.compile(
+    r"(?<![.$\w])(load|loadRelativeToScript|quit|read|readbuffer|readline|gc|Sandbox)\s*\("
+    r"|\bd8\.|\bRealm\.|\bnew Worker\b")
 
 
 def one(rel):
