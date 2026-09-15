@@ -96,6 +96,26 @@ sai da corrida completa, em CI.
 commits. Corre com `STRIDE=1`, portanto o número do README vem do **corpus
 inteiro**; a amostra é para a sessão de quem está a trabalhar.
 
+**Dividido por oito máquinas.** `SHARD=3/8` corre o terceiro oitavo, e a divisão
+é por ÍNDICE na lista ordenada (`files[i::n]`) e não por diretório: por
+diretório, o `built-ins/Temporal` sozinho são 9% do corpus e a máquina que o
+apanhasse decidia o tempo de todas as outras. Intercalada, cada fatia tem a
+mesma mistura de áreas — e continua determinista, que é o que faz duas corridas
+serem comparáveis.
+
+Cada fatia escreve linhas e mais nada. **Uma percentagem por fatia não é uma
+percentagem de coisa nenhuma**, porque o denominador dela é a fatia; o número só
+existe no `merge`, que junta os oito `rows.tsv` numa máquina só:
+
+```bash
+SHARD=3/8 ROWS=rows-3.tsv python3 scripts/test262/run.py
+python3 scripts/test262/run.py --merge rows-*.tsv
+```
+
+E as oito ou nenhuma: publicar seis fatias como se fossem o corpus é a mesma
+mentira que um checkout incompleto — o número desce e nada no motor mudou. Com
+menos, as linhas ficam no artefacto e o README fica como estava.
+
 Como as outras três, **reporta e não bloqueia** (`continue-on-error`). E como as
 outras, o bloco do README é reescrito pelo `UPDATE_README=1` do próprio
 `run.py` — não há um segundo renderizador no workflow, porque seria uma segunda

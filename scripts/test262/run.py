@@ -55,6 +55,12 @@ RTS = os.environ.get("RTS_BIN") or str(ROOT / "target" / "release" / "rts")
 TIMEOUT = int(os.environ.get("TIMEOUT", "15"))
 JOBS = int(os.environ.get("JOBS", str(max(1, (os.cpu_count() or 4) - 1))))
 STRIDE = int(os.environ.get("STRIDE", "1"))
+# `SHARD=3/8` corre o terceiro oitavo. A divisao e por INDICE na lista ordenada
+# (`files[i::n]`) e nao por diretorio: por diretorio, o `built-ins/Temporal`
+# sozinho sao 9% do corpus e a maquina que o apanhasse decidia o tempo de todas
+# as outras. Intercalada, cada fatia tem a mesma mistura de areas — e continua
+# determinista, que e o que faz duas corridas serem comparaveis.
+SHARD = os.environ.get("SHARD", "")
 ROWS = Path(os.environ.get("ROWS", ROOT / ".test262" / "rows.tsv"))
 REPORT = Path(os.environ.get("REPORT", ROOT / ".test262" / "report.json"))
 
@@ -200,10 +206,38 @@ def collect(prefixes):
         files.append(rel)
     if STRIDE > 1:
         files = files[::STRIDE]
+    if SHARD:
+        i, n = (int(x) for x in SHARD.split("/"))
+        if not 1 <= i <= n:
+            sys.exit("SHARD=i/n com 1 <= i <= n")
+        files = files[i - 1::n]
     return files
 
 
+def merge(paths):
+    """Junta as linhas de varias fatias e produz UM relatorio.
+
+    Cada fatia escreve o seu `rows.tsv` e mais nada: uma percentagem por fatia
+    nao e uma percentagem de nada, porque o denominador dela e arbitrario. O
+    numero so existe depois de estarem todas.
+    """
+    rows, seen = [], set()
+    for p in paths:
+        for line in Path(p).read_text(encoding="utf-8").splitlines():
+            row = tuple((line.split("\t", 3) + ["", "", "", ""])[:4])
+            # Uma fatia repetida (um `re-run failed jobs`) traria o mesmo
+            # ficheiro duas vezes e contava-o duas vezes.
+            if row[1] in seen:
+                continue
+            seen.add(row[1])
+            rows.append(row)
+    print("%d ficheiros de %d fatias" % (len(rows), len(paths)))
+    report(rows)
+
+
 def main():
+    if sys.argv[1:2] == ["--merge"]:
+        return merge(sys.argv[2:])
     if not TESTS.is_dir():
         sys.exit("sem corpus: corra bash scripts/test262/fetch.sh")
     if not os.access(RTS, os.X_OK):

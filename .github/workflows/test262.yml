@@ -41,9 +41,17 @@ permissions:
   contents: write   # README badge auto-update
 
 jobs:
-  test262:
+  # A matriz e uma lista literal e nao um `seq`: o `strategy.matrix` de um
+  # workflow reutilizavel e avaliado antes de qualquer step correr, portanto nao
+  # ha onde calcular `1..N`. Mudar o numero de fatias e mudar as duas linhas —
+  # esta e o `SHARDS` do step — e o `--merge` conta as que chegarem.
+  shard:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
     # Reporta, não bloqueia — o mesmo que `cross-runtime.yml` e `node-suite.yml`
     # fazem, e pela mesma razão: uma percentagem que cai é trabalho a fazer, não
     # uma merge a impedir.
@@ -121,18 +129,60 @@ jobs:
       # `timeout` disparar por espera na fila em vez de por ciclo infinito — o
       # que reportaria `t/o` para um ficheiro que nem tinha começado.
       #
-      # O `UPDATE_README` reescreve o bloco do README a partir do MESMO código
-      # que imprime a tabela. A alternativa — um segundo renderizador em
-      # JavaScript aqui dentro, como o `node-suite.yml` tem — é uma segunda
-      # resposta à mesma pergunta, que é o que este repositório passa o tempo a
-      # recusar.
-      - name: Run the suite
+      # A fatia escreve linhas e mais nada. Uma percentagem por fatia não é uma
+      # percentagem de coisa nenhuma — o denominador dela é a fatia — e o número
+      # só existe no `merge`, depois de todas terem chegado.
+      - name: Run shard ${{ matrix.shard }}
         run: |
           RTS_BIN=target/release/rts \
-          REPORT=$GITHUB_WORKSPACE/.github/test262_report.json \
-          STRIDE=${{ inputs.stride || '1' }} JOBS=3 TIMEOUT=20 UPDATE_README=1 \
+          ROWS=$GITHUB_WORKSPACE/rows-${{ matrix.shard }}.tsv \
+          REPORT=/dev/null \
+          STRIDE=${{ inputs.stride || '1' }} SHARD=${{ matrix.shard }}/8 \
+          JOBS=3 TIMEOUT=20 \
           python3 scripts/test262/run.py
         continue-on-error: true
+
+      - name: Upload shard rows
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test262-rows-${{ matrix.shard }}
+          path: rows-${{ matrix.shard }}.tsv
+
+  # O número sai daqui, de uma máquina só, a partir das linhas que as oito
+  # produziram. `if: always()` porque uma fatia que rebente não pode apagar o
+  # trabalho das outras sete — o `merge` conta o que chegou e a guarda de baixo
+  # recusa-se a publicar se chegou pouco.
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all shard rows
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test262-rows-*
+          path: rows
+
+      # As oito ou nenhuma. Publicar seis fatias como se fossem o corpus é a
+      # mesma mentira que um checkout incompleto — o número desce e nada no
+      # motor mudou. Com menos, as linhas ficam no artefacto para quem quiser
+      # olhar e o README fica como estava.
+      - name: Guard — as oito fatias chegaram
+        run: |
+          set -e
+          n=$(find rows -name 'rows-*.tsv' | wc -l)
+          echo "$n fatias"
+          [ "$n" -eq 8 ] || { echo "::error::só $n de 8 fatias — o README fica como estava"; exit 1; }
+
+      - name: Merge and report
+        run: |
+          REPORT=$GITHUB_WORKSPACE/.github/test262_report.json UPDATE_README=1 \
+          python3 scripts/test262/run.py --merge $(find rows -name 'rows-*.tsv' | sort)
 
       - name: Upload report
         uses: actions/upload-artifact@v4
@@ -142,7 +192,6 @@ jobs:
           path: .github/test262_report.json
 
       - name: Commit the README block
-        if: always()
         run: |
           set -e
           git config user.name "github-actions[bot]"
