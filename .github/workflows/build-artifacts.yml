@@ -711,6 +711,17 @@ jobs:
     permissions:
       contents: write
 
+  # A quinta: o `test/mjsunit` do V8, a mesma matriz de oito fatias.
+  mjsunit:
+    if: github.event_name == 'schedule'
+    needs: [version, build]
+    uses: ./.github/workflows/mjsunit.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      stride: "1"
+    permissions:
+      contents: write
+
   release:
     # Only create a release on push to main (not on PRs or dispatch).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

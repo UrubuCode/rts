@@ -159,3 +159,4 @@ tests/css/pintura/
 # test262, corpus lido e nunca carregado (scripts/test262/)
 .test262/
 __pycache__/
+.mjsunit/

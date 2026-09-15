@@ -19,8 +19,10 @@
 [![Node test suite](https://img.shields.io/badge/Node%20test%20suite-52.4%25-yellow?style=flat-square)](scripts/node_tests/README.md)
 <!-- NODE_SUITE_BADGE_END -->
 <!-- TEST262_BADGE_START -->
-[![test262](https://img.shields.io/badge/test262%20(executado)-54.9%25-yellow?style=flat-square)](scripts/test262/README.md)
+[![test262 (executado)](https://img.shields.io/badge/test262%20%28executado%29-54.9%25-yellow?style=flat-square)](scripts/test262/README.md)
 <!-- TEST262_BADGE_END -->
+<!-- MJSUNIT_BADGE_START -->
+<!-- MJSUNIT_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
 [![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-98.6%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
@@ -118,11 +120,11 @@ tradução nenhuma — o arnês do test262 corre como está.
 | ❌ Resposta errada | 398 |
 | 💥 Exceção não apanhada | 756 |
 | ⏱️ Não terminou | 3 |
-| ➖ Fora da conta (host `$262`) | 37 |
+| ➖ Fora da conta | 37 |
 
-**Por área** (as dez maiores):
+**Por área** (os dez maiores):
 
-| Área | % | ok/total |
+| Grupo | % | ok/total |
 |---|---|---|
 | `language/expressions` | **64.3%** | 357/555 |
 | `language/statements` | **67.9%** | 317/467 |
@@ -153,6 +155,9 @@ tradução nenhuma — o arnês do test262 corre como está.
 _SHA 90dd8d865 · amostra determinista de 1 em 20 — os mesmos ficheiros em cada corrida · 2026-09-15_
 
 <!-- TEST262_STATS_END -->
+
+<!-- MJSUNIT_STATS_START -->
+<!-- MJSUNIT_STATS_END -->
 
 <!-- CSS_DOM_STATS_START -->
 ## 🎨 CSS and DOM parity

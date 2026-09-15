@@ -57,7 +57,7 @@ resultados**. O primeiro `assert` que falha leva o ficheiro inteiro. Como corpus
 é ótimo para *encontrar* defeitos e péssimo para *medir progressão*. Vale como
 fonte de casos para `tests/`, não como régua.
 
-### V8 `test/mjsunit` — **metade é importável, e a metade certa**
+### V8 `test/mjsunit` — **adotado**, e é a metade certa que se importa
 
 9 286 ficheiros. **4 699 usam sintaxe nativa do V8** (`%OptimizeFunctionOnNextCall`
 e companhia) — contado, não estimado — e esses estão a medir o V8 por dentro.
@@ -65,10 +65,10 @@ Sobram ~4 587 que são JavaScript comum sobre o arnês `mjsunit.js`
 (`assertEquals`, `assertThrows`), que é um ficheiro único a carregar à frente,
 exatamente como o `sta.js` do test262.
 
-É o melhor candidato a seguir: falha por ficheiro, cobre casos-limite que a
-norma não exige de ninguém mas que os programas reais encontram, e o filtro é
-um `grep` por `%[A-Z]`. O que falta verificar antes de adotar é quanto do
-arnês depende do `d8` (`print`, `load`, `quit`).
+Verificado: o `mjsunit.js` à frente basta — nenhum `d8` é preciso para os que
+não o nomeiam. `scripts/mjsunit/` é o arnês, e o que fica fora do denominador
+são as duas coisas que são sobre o V8 e não sobre a linguagem: a sintaxe nativa
+e o shell.
 
 ## Não verificado, com o que se sabe
 
