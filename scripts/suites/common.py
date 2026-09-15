@@ -208,7 +208,8 @@ def badge_color(pct):
 
 
 def update_readme(tot, den, pct, by, causes, marker, badge_label, badge_href,
-                  heading, intro, group_label, footer, rows_label="ficheiros"):
+                  heading, intro, group_label, footer, rows_label="ficheiros",
+                  ok_label="A norma ficou satisfeita"):
     """Reescreve o bloco em vez de o deixar escrever à mão.
 
     A régua cross-runtime já pagou o preço da alternativa: uma cópia do número no
@@ -240,7 +241,7 @@ def update_readme(tot, den, pct, by, causes, marker, badge_label, badge_href,
 | Metric | Value |
 |---|---|
 | **Conformidade** | **%(pct).1f%%** (%(ok)d/%(den)d) |
-| ✅ A norma ficou satisfeita | %(ok)d |
+| ✅ %(ok_label)s | %(ok)d |
 | ❌ Resposta errada | %(fail)d |
 | 💥 Exceção não apanhada | %(error)d |
 | ⏱️ Não terminou | %(timeout)d |
@@ -263,7 +264,7 @@ _%(footer)s · %(hoje)s_
 <!-- %(m)s_STATS_END -->""" % {
         "m": marker, "heading": heading, "intro": intro,
         "bar": bar(pct), "pct": pct, "ok": tot["ok"], "den": den,
-        "rows_label": rows_label, "fail": tot["fail"], "error": tot["error"],
+        "rows_label": rows_label, "ok_label": ok_label, "fail": tot["fail"], "error": tot["error"],
         "timeout": tot["timeout"], "skipped": tot["skipped"],
         "group_label": group_label, "grouprows": grouprows, "causerows": causerows,
         "footer": footer, "hoje": datetime.date.today().isoformat(),

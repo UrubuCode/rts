@@ -22,7 +22,10 @@
 [![test262 (executado)](https://img.shields.io/badge/test262%20%28executado%29-54.9%25-yellow?style=flat-square)](scripts/test262/README.md)
 <!-- TEST262_BADGE_END -->
 <!-- MJSUNIT_BADGE_START -->
+[![V8 mjsunit](https://img.shields.io/badge/V8%20mjsunit-54.4%25-yellow?style=flat-square)](scripts/mjsunit/README.md)
 <!-- MJSUNIT_BADGE_END -->
+<!-- JSC_BADGE_START -->
+<!-- JSC_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
 [![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-98.6%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
@@ -157,7 +160,61 @@ _SHA 90dd8d865 · amostra determinista de 1 em 20 — os mesmos ficheiros em cad
 <!-- TEST262_STATS_END -->
 
 <!-- MJSUNIT_STATS_START -->
+## 🧪 V8 `mjsunit` — as regressões de um motor de produção
+
+O test262 mede o que a **norma exige**. Esta régua mede o que um motor de
+produção **aprendeu a não errar**: cada `regress-*.js` é um bug que alguém
+teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução.
+
+```
+[▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱] 54.4%   1645/3025 ficheiros passando
+```
+
+| Metric | Value |
+|---|---|
+| **Conformidade** | **54.4%** (1645/3025) |
+| ✅ Passou — saiu com 0, que é o que o V8 conta | 1645 |
+| ❌ Resposta errada | 627 |
+| 💥 Exceção não apanhada | 709 |
+| ⏱️ Não terminou | 44 |
+| ➖ Fora da conta | 6248 |
+
+**Por diretório** (os dez maiores):
+
+| Grupo | % | ok/total |
+|---|---|---|
+| `regress` | **61.6%** | 1014/1646 |
+| `(raiz)` | **47.9%** | 252/526 |
+| `es6` | **37.8%** | 108/286 |
+| `harmony` | **32.2%** | 65/202 |
+| `compiler` | **78.1%** | 121/155 |
+| `sandbox` | **0.0%** | 0/37 |
+| `maglev` | **86.2%** | 25/29 |
+| `math-sum-precise` | **6.2%** | 1/16 |
+| `shared-memory` | **12.5%** | 2/16 |
+| `wasm` | **21.4%** | 3/14 |
+
+**As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
+
+| Ficheiros | Mensagem |
+|---|---|
+| 216 | `Error: MjsUnitAssertionError at fail at assertEquals` |
+| 143 | `Error: MjsUnitAssertionError at failWithMessage at assertThrows` |
+| 64 | `error: stack overflow, aborting` |
+| 50 | `Error: MjsUnitAssertionError at fail at assertEquals at assertTrue` |
+| 39 | `ReferenceError: WebAssembly is not defined` |
+| 32 | `ReferenceError: Sandbox is not defined` |
+| 20 | `ReferenceError: testCodePointRange is not defined` |
+| 19 | `TypeError: Cannot read properties of undefined (reading 'return')` |
+| 17 | `TypeError: undefined is not a function` |
+| 15 | `TypeError: (intermediate value).__defineSetter__ is not a function` |
+
+_V8 348a6116c · corpus inteiro · 2026-09-15_
+
 <!-- MJSUNIT_STATS_END -->
+
+<!-- JSC_STATS_START -->
+<!-- JSC_STATS_END -->
 
 <!-- CSS_DOM_STATS_START -->
 ## 🎨 CSS and DOM parity

@@ -72,10 +72,32 @@ e o shell.
 
 ## Não verificado, com o que se sabe
 
+### JavaScriptCore `JSTests/stress` — **adotado**
+
+5 957 ficheiros, e portátil pela razão que se esperava: cada um traz o seu
+próprio `shouldBe`. O que precisa de vir de fora são as pistas de JIT do shell
+(`noInline`, `noDFG`), e essas levam um corpo vazio — a pista é sobre
+compilação, não sobre semântica, e um motor que não a atende computa o mesmo
+programa. `$vm` e os realms do shell ficam fora do denominador: falsificá-los
+seria responder mentira sobre o estado da máquina.
+
+`scripts/jsc/` é o arnês.
+
+### SpiderMonkey `js/src/tests` — **não vale a pena, e o número diz porquê**
+
+60 009 ficheiros no checkout, e **57 922 deles são uma cópia do test262** — que
+já corremos a montante, e contá-la outra vez era medir a mesma coisa duas vezes
+com um peso de 96%. O que é do SpiderMonkey são 2 021 ficheiros em `non262`,
+menos de metade do que o `mjsunit` dá e um terço do JSC.
+
+E custa mais: o arnês é um `shell.js` por diretório, **cumulativo**, e cinco
+ficheiros corridos com os três `shell.js` da cadeia falharam todos com o mesmo
+erro — o que quer dizer que falta mais alguma coisa do carregamento. Fica a
+verificação feita e a conclusão: mais trabalho do que as outras duas por menos
+corpus. Reabrir se o `non262` crescer.
+
 | suíte | o que mede | o que custa |
 |---|---|---|
-| SpiderMonkey `js/src/tests` | linguagem, com o `shell.js` de cada diretório carregado antes | O arnês é por diretório e cumulativo; `reportCompare` decide o resultado. Adaptável, mas a regra de carregamento é a parte a acertar |
-| JavaScriptCore `JSTests/stress` | casos-limite, muitos deles regressões reais | `shouldBe`/`shouldThrow` estão dentro de cada ficheiro, o que o torna portátil; uma fração usa `$vm`, que é o interior do JSC |
 | ChakraCore `test/` | comparação de stdout contra baseline | O mesmo modelo de fixture que o `rts test` já tem, mas o índice é XML (`rlexe.xml`) e teria de ser lido |
 | WPT (não-CSS) | as APIs de plataforma, não a linguagem | `testharness.js` precisa de DOM e de um `window`; só faz sentido pelo lado do `rts-dom` |
 | Kangax compat-table | quais *features* existem, por deteção | Barato e dá um mapa de cobertura em minutos. Mede nomes, não comportamento — é um índice, não uma régua |

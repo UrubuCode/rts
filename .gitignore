@@ -160,3 +160,4 @@ tests/css/pintura/
 .test262/
 __pycache__/
 .mjsunit/
+.jsc/

@@ -89,6 +89,7 @@ README = dict(
     intro=("O test262 mede o que a **norma exige**. Esta régua mede o que um motor de\n"
            "produção **aprendeu a não errar**: cada `regress-*.js` é um bug que alguém\n"
            "teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução."),
+    ok_label="Passou — saiu com 0, que é o que o V8 conta",
     group_label="Por diretório",
     footer="",
 )
