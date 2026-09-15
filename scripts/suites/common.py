@@ -191,6 +191,13 @@ def report(rows, label, readme=None):
         print("relatório: %s" % rep)
 
     if readme and os.environ.get("UPDATE_README") == "1":
+        # A contagem entra aqui e não no rodapé que cada arnês escreve, porque o
+        # `--merge` não sabe o `STRIDE` com que as linhas foram medidas: o
+        # ambiente da máquina que junta não é o da que correu. Um rodapé a dizer
+        # "corpus inteiro" sobre uma amostra é o instrumento a afirmar o que não
+        # sabe, e é o mesmo erro que o checkout incompleto — em texto.
+        readme = dict(readme)
+        readme["footer"] += " · %d ficheiros medidos" % (den + tot["skipped"])
         update_readme(tot, den, share(tot), by, top, **readme)
     return tot, den
 
@@ -222,10 +229,16 @@ def update_readme(tot, den, pct, by, causes, marker, badge_label, badge_href,
     if tot["ok"] == 0:
         sys.exit("recusado: ok=0 — o instrumento, não o motor. O README fica como estava")
 
-    top = sorted(by.items(), key=lambda kv: -(sum(kv[1].values()) - kv[1]["skipped"]))[:10]
+    # Uma barra por grupo, e não uma tabela: é a forma do bloco de CSS/DOM, e a
+    # razão dela é a mesma — o total sozinho não diz ONDE está o trabalho, e uma
+    # coluna de barras alinhadas responde a isso de relance. Ordenado por
+    # tamanho do grupo porque um 0% sobre três ficheiros não é a mesma notícia
+    # que um 0% sobre duzentos.
+    top = sorted(by.items(), key=lambda kv: -(sum(kv[1].values()) - kv[1]["skipped"]))[:16]
     grouprows = "\n".join(
-        "| `%s` | **%.1f%%** | %d/%d |" % (
-            g, share(d), d["ok"], sum(d.values()) - d["skipped"])
+        "  [%s] %5.1f%%   %-9s %s" % (
+            bar(share(d)), share(d),
+            "%d/%d" % (d["ok"], sum(d.values()) - d["skipped"]), g)
         for g, d in top)
     causerows = "\n".join("| %d | `%s` |" % (n, m.replace("|", "\\|")) for m, n in causes[:10])
 
@@ -247,11 +260,15 @@ def update_readme(tot, den, pct, by, causes, marker, badge_label, badge_href,
 | ⏱️ Não terminou | %(timeout)d |
 | ➖ Fora da conta | %(skipped)d |
 
-**%(group_label)s** (os dez maiores):
+### %(group_label)s
 
-| Grupo | %% | ok/total |
-|---|---|---|
+O total sozinho não diz onde está o trabalho: não distingue uma área que este
+motor faz bem de uma que não tenta. Os dezasseis maiores grupos, por número de
+ficheiros:
+
+```
 %(grouprows)s
+```
 
 **As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
 

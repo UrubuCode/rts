@@ -168,7 +168,7 @@ def main():
     README["footer"] = "SHA %s · %s" % (
         sha.read_text().strip()[:9] if sha.exists() else "?",
         "corpus inteiro" if c.STRIDE == 1 else
-        "amostra determinista de 1 em %d — os mesmos ficheiros em cada corrida" % c.STRIDE)
+        "amostra determinista de 1 em %d" % c.STRIDE)
     c.report(rows, ".test262", readme=README)
 
 

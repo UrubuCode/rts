@@ -125,20 +125,30 @@ tradução nenhuma — o arnês do test262 corre como está.
 | ⏱️ Não terminou | 3 |
 | ➖ Fora da conta | 37 |
 
-**Por área** (os dez maiores):
+### Por área
 
-| Grupo | % | ok/total |
-|---|---|---|
-| `language/expressions` | **64.3%** | 357/555 |
-| `language/statements` | **67.9%** | 317/467 |
-| `built-ins/Temporal` | **0.0%** | 0/230 |
-| `built-ins/Object` | **81.9%** | 140/171 |
-| `built-ins/Array` | **67.5%** | 104/154 |
-| `intl402/Temporal` | **0.0%** | 0/101 |
-| `built-ins/RegExp` | **47.3%** | 44/93 |
-| `built-ins/TypedArray` | **17.6%** | 12/68 |
-| `built-ins/String` | **85.0%** | 51/60 |
-| `annexB/language` | **19.5%** | 8/41 |
+O total sozinho não diz onde está o trabalho: não distingue uma área que este
+motor faz bem de uma que não tenta. Os dezasseis maiores grupos, por número de
+ficheiros:
+
+```
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.3%   357/555   language/expressions
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱]  67.9%   317/467   language/statements
+  [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/230     built-ins/Temporal
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  81.9%   140/171   built-ins/Object
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱]  67.5%   104/154   built-ins/Array
+  [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/101     intl402/Temporal
+  [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  47.3%   44/93     built-ins/RegExp
+  [▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  17.6%   12/68     built-ins/TypedArray
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  85.0%   51/60     built-ins/String
+  [▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  19.5%   8/41      annexB/language
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.9%   24/37     built-ins/Promise
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  60.6%   20/33     built-ins/Iterator
+  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  53.1%   17/32     built-ins/TypedArrayConstructors
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  73.3%   22/30     built-ins/Date
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   24/30     language/module-code
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  92.6%   25/27     language/literals
+```
 
 **As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
 
@@ -155,7 +165,7 @@ tradução nenhuma — o arnês do test262 corre como está.
 | 17 | `Test262Error: Expected a ReferenceError to be thrown but no exception was thrown at all` |
 | 12 | `TypeError: undefined is not a function` |
 
-_SHA 90dd8d865 · amostra determinista de 1 em 20 — os mesmos ficheiros em cada corrida · 2026-09-15_
+_SHA 90dd8d865 · amostra determinista de 1 em 20 · 2605 ficheiros medidos · 2026-09-15_
 
 <!-- TEST262_STATS_END -->
 
@@ -179,20 +189,30 @@ teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução.
 | ⏱️ Não terminou | 44 |
 | ➖ Fora da conta | 6248 |
 
-**Por diretório** (os dez maiores):
+### Por diretório
 
-| Grupo | % | ok/total |
-|---|---|---|
-| `regress` | **61.6%** | 1014/1646 |
-| `(raiz)` | **47.9%** | 252/526 |
-| `es6` | **37.8%** | 108/286 |
-| `harmony` | **32.2%** | 65/202 |
-| `compiler` | **78.1%** | 121/155 |
-| `sandbox` | **0.0%** | 0/37 |
-| `maglev` | **86.2%** | 25/29 |
-| `math-sum-precise` | **6.2%** | 1/16 |
-| `shared-memory` | **12.5%** | 2/16 |
-| `wasm` | **21.4%** | 3/14 |
+O total sozinho não diz onde está o trabalho: não distingue uma área que este
+motor faz bem de uma que não tenta. Os dezasseis maiores grupos, por número de
+ficheiros:
+
+```
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  61.6%   1014/1646 regress
+  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  47.9%   252/526   (raiz)
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  37.8%   108/286   es6
+  [▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  32.2%   65/202    harmony
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.1%   121/155   compiler
+  [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/37      sandbox
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  86.2%   25/29     maglev
+  [▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   6.2%   1/16      math-sum-precise
+  [▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  12.5%   2/16      shared-memory
+  [▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  21.4%   3/14      wasm
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  76.9%   10/13     es9
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  92.3%   12/13     turbolev
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.7%   8/12      ignition
+  [▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  27.3%   3/11      d8
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  40.0%   4/10      es7
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  87.5%   7/8       regexp
+```
 
 **As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
 
@@ -209,7 +229,7 @@ teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução.
 | 17 | `TypeError: undefined is not a function` |
 | 15 | `TypeError: (intermediate value).__defineSetter__ is not a function` |
 
-_V8 348a6116c · corpus inteiro · 2026-09-15_
+_V8 348a6116c · corpus inteiro · 9273 ficheiros medidos · 2026-09-15_
 
 <!-- MJSUNIT_STATS_END -->
 
