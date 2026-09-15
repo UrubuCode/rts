@@ -396,9 +396,18 @@ pub(super) fn list_from_array_like(arguments: u64) -> Option<u64> {
         return Some(super::array_proto::built(Vec::new()));
     }
     let length = super::class_support::to_number(raw);
+    // A length past the ceiling is REFUSED and not clamped. Clamping made
+    // `f.apply(o, {length: 2 ** 53 - 1})` a call with 65 535 arguments — a
+    // number the program never wrote, arrived at silently, where every runtime
+    // raises. Truncating a call's argument list is the shape of wrong this
+    // crate's honesty floor names: it produces an answer rather than a failure.
+    if length > MAX_APPLY_ARGUMENTS as f64 {
+        super::throw::range_error("Too many arguments in function call");
+        return Some(super::array_proto::built(Vec::new()));
+    }
     let count = match length.is_nan() || length <= 0.0 {
         true => 0usize,
-        false => length.trunc().min(MAX_APPLY_ARGUMENTS as f64) as usize,
+        false => length.trunc() as usize,
     };
     let mut found = Vec::with_capacity(count);
     for at in 0..count {
@@ -923,6 +932,77 @@ fn named_refusal(context: &mut super::Context, cell: u32) -> String {
     format!("{spelled} is not a constructor")
 }
 
+/// The reason `new` may not reach this callable, or `None` when it may.
+///
+/// The flag is the one the emitter already records and `closure_new` already
+/// reads to decide the `prototype` — asked here through the same index, so
+/// "may `new` reach this" has one answer rather than two that can disagree.
+/// A callable the table does not describe is allowed through, exactly as it is
+/// allowed to keep its `prototype`: `rts-napi` and `eval` mint callables the
+/// emitter never saw, and refusing those would break working programs.
+///
+/// `depth` bounds the walk through bound functions: `f.bind().bind()` chains,
+/// and a bound function's target is data a program controls.
+fn constructible(context: &mut super::Context, callee: u64, depth: u32) -> Option<String> {
+    if depth > super::objects::CHAIN_LIMIT as u32 {
+        return None;
+    }
+    let cell = Value(callee).as_slot()?;
+    let (code, _) = context.callable_at(cell)?;
+    // A class constructor is marked separately and is constructible by
+    // definition, whatever the emitter recorded about the function it was
+    // written as.
+    if context.is_class_constructor(cell) {
+        return None;
+    }
+    let Some((name, _, _, constructs)) = context.described_at(code) else {
+        // A NATIVE — nothing the emitter ever saw. The paragraph above used
+        // to let every one of them through, and that is a wrong answer this
+        // engine could not previously afford to fix: `new Math.abs(1)` ran
+        // `abs` with a fresh receiver and answered the object, where every
+        // runtime raises. The specification's own rule decides which of them
+        // may be reached with `new`, and it is readable rather than a list:
+        // a built-in function that is not a constructor has NO own
+        // `prototype` property. `Map`, `URL` and `napi_define_class`'s
+        // constructors all write one; `Math.abs`, `Reflect.construct` and
+        // `fs.readFile` do not.
+        //
+        // A BOUND function is the exception the rule cannot see: it is made
+        // by `native::callable` and has no `prototype` of its own, and
+        // `new (C.bind(null))()` is legal EXACTLY when `C` is — which is
+        // why the answer is the target's, asked again.
+        //
+        // It used to be a blanket tolerance, with a note saying the
+        // forwarding belonged with `Bound`. It belongs here: the question
+        // is this function's refusal, and `Bound` holds no opinion about
+        // `new`. What the tolerance cost is `new ((() => {}).bind(null))()`
+        // — an object, silently, for a target every runtime refuses, and
+        // the refusal is the whole reason the arrow case above exists.
+        if let Some(target) = context.bound_at(cell).map(|bound| bound.target) {
+            // Named after the BOUND function, which is the expression the
+            // program wrote — `bound f is not a constructor` and not `f`,
+            // since `f` may be perfectly constructible under another name.
+            return constructible(context, target, depth + 1)
+                .map(|_| named_refusal(context, cell));
+        }
+        let key = context.well_known("prototype");
+        if super::objects::own_property(context, cell, key).is_some() {
+            return None;
+        }
+        return Some(named_refusal(context, cell));
+    };
+    if constructs {
+        return None;
+    }
+    let spelled = context
+        .interner
+        .text(name)
+        .and_then(|text| text.to_rust())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| "anonymous".to_owned());
+    Some(format!("{spelled} is not a constructor"))
+}
+
 fn construct_inner(callee: u64, new_target: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // Callable but NOT constructible, which is a different refusal from "not
     // callable" and needs its own: an arrow, a method and an `async function`
@@ -931,59 +1011,7 @@ fn construct_inner(callee: u64, new_target: u64, a0: u64, a1: u64, a2: u64, a3: 
     // Node ends the program with `TypeError: … is not a constructor`, so a
     // program whose control flow depended on that catch took the wrong branch
     // in silence. Measured against Node 25.9 on 2026-08-25.
-    //
-    // The flag is the one the emitter already records and `closure_new` already
-    // reads to decide the `prototype` — asked here through the same index, so
-    // "may `new` reach this" has one answer rather than two that can disagree.
-    // A callable the table does not describe is allowed through, exactly as it
-    // is allowed to keep its `prototype`: `rts-napi` and `eval` mint callables
-    // the emitter never saw, and refusing those would break working programs.
-    let refused = with_current(|context| {
-        let cell = Value(callee).as_slot()?;
-        let (code, _) = context.callable_at(cell)?;
-        // A class constructor is marked separately and is constructible by
-        // definition, whatever the emitter recorded about the function it was
-        // written as.
-        if context.is_class_constructor(cell) {
-            return None;
-        }
-        let Some((name, _, _, constructs)) = context.described_at(code) else {
-            // A NATIVE — nothing the emitter ever saw. The paragraph above used
-            // to let every one of them through, and that is a wrong answer this
-            // engine could not previously afford to fix: `new Math.abs(1)` ran
-            // `abs` with a fresh receiver and answered the object, where every
-            // runtime raises. The specification's own rule decides which of them
-            // may be reached with `new`, and it is readable rather than a list:
-            // a built-in function that is not a constructor has NO own
-            // `prototype` property. `Map`, `URL` and `napi_define_class`'s
-            // constructors all write one; `Math.abs`, `Reflect.construct` and
-            // `fs.readFile` do not.
-            //
-            // A BOUND function is the exception the rule cannot see: it is made
-            // by `native::callable` and has no `prototype` of its own, and
-            // `new (C.bind(null))()` is legal whenever `C` is. It keeps the old
-            // tolerance rather than forwarding the target's answer, because the
-            // forwarding belongs with `Bound` and this is the refusal.
-            if context.bound_at(cell).is_some() {
-                return None;
-            }
-            let key = context.well_known("prototype");
-            if super::objects::own_property(context, cell, key).is_some() {
-                return None;
-            }
-            return Some(named_refusal(context, cell));
-        };
-        if constructs {
-            return None;
-        }
-        let spelled = context
-            .interner
-            .text(name)
-            .and_then(|text| text.to_rust())
-            .filter(|text| !text.is_empty())
-            .unwrap_or_else(|| "anonymous".to_owned());
-        Some(format!("{spelled} is not a constructor"))
-    });
+    let refused = with_current(|context| constructible(context, callee, 0));
     if let Some(message) = refused {
         super::throw::type_error(&message);
         return with_current(|context| undefined_of(context));

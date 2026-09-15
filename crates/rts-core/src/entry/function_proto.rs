@@ -333,6 +333,19 @@ fn bound(target: u64, receiver: u64, partial: Vec<u64>) -> u64 {
             let left = (arity - taken as f64).max(0.0);
             super::native::length_of(context, made, left as u32);
         }
+        // `BoundFunctionCreate` takes the TARGET's `[[Prototype]]`, not
+        // `Function.prototype`. The difference is visible the moment a class is
+        // bound: `Object.getPrototypeOf(Sub.bind(null))` is `Parent` where
+        // `Sub extends Parent`, and this answered `Function.prototype` — so a
+        // bound subclass lost the static side of its own inheritance, and
+        // `BoundSub.someStatic` read `undefined` for a static the parent
+        // declares.
+        if let Some(target) = Value(target).as_slot()
+            && let Some(link) = super::objects::inherited_from(context, target)
+            && let Some(cell) = Value(made).as_slot()
+        {
+            context.set_prototype(cell, Value::from_slot(link).bits());
+        }
         made
     })
 }

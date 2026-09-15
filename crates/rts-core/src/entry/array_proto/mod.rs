@@ -83,7 +83,21 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     if let Some(made) = context.array_prototype {
         return Some(made);
     }
-    let cell = super::native::plain(context)?;
+    // An ARRAY, not a plain object, which is what the specification says
+    // `Array.prototype` is: `Array.isArray(Array.prototype)` is `true`,
+    // `Array.prototype.length` is `0`, and
+    // `Object.prototype.toString.call(Array.prototype)` is `[object Array]`.
+    // All three read the other way while this was `native::plain`'s object —
+    // and the first is the one a library actually asks, since `isArray` is how
+    // a program decides whether something it was handed is one.
+    //
+    // Through `built_in` so that "what makes a cell an array" stays one
+    // answer: the element store, the mark and the `length` are attached
+    // together there, and a hand-rolled version here is where the three would
+    // come to disagree.
+    let Some(cell) = Value(super::array::built_in(context, Vec::new())).as_slot() else {
+        return None;
+    };
     // Recorded BEFORE the methods are installed, for the reason the string
     // prototype records: installing interns names, interning allocates, and an
     // allocation is one chain walk away from asking this function again. The

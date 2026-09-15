@@ -226,12 +226,26 @@ extern "C" fn normalize(_e: u64, this: u64, form: u64, _a1: u64, _a2: u64, _a3: 
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
-    let asked = with_current(|context| match absent(context, form) {
+    // `ToString(form)`, which is a CALL on an object and a `TypeError` on a
+    // symbol — neither of which the reading under the borrow could do. It read
+    // the value's own text instead, so `"a0".normalize({toString: () => "NFC"})`
+    // was a `RangeError` about a form the program did spell, and a symbol got
+    // that same `RangeError` where the language raises the `TypeError` every
+    // other implicit string conversion raises.
+    let absent_form = with_current(|context| absent(context, form));
+    let asked = match absent_form {
         true => Some(Form::Nfc),
-        false => super::text_of(context, form)
-            .and_then(|text| text.to_rust())
-            .and_then(|name| Form::named(&name)),
-    });
+        false => {
+            let Some(text) = super::super::text::to_string_value(form) else {
+                // A throw is in flight — the symbol's `TypeError`, or one the
+                // object's own `toString` raised. Rule 8: it travels out rather
+                // than being replaced by this method's `RangeError`.
+                return with_current(|context| nothing(context));
+            };
+            with_current(|context| super::text_of(context, text).and_then(|text| text.to_rust()))
+                .and_then(|name| Form::named(&name))
+        }
+    };
     let Some(form) = asked else {
         // Outside no borrow to release — `range_error` takes the context's own,
         // and this closure has already given it back.
@@ -275,13 +289,25 @@ extern "C" fn value_of(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u6
 /// `new String("a").valueOf() === "a"` is what makes a wrapper unwrappable at
 /// all, and answering `this` would hand the wrapper back and compare false.
 fn identity(this: u64) -> u64 {
-    with_current(|context| {
+    let held = with_current(|context| {
         let held = super::receiver(context, this);
-        match units_of(context, held) {
-            Some(_) => held,
-            None => nothing(context),
+        units_of(context, held).map(|_| held)
+    });
+    match held {
+        Some(held) => held,
+        // `thisStringValue` REFUSES a receiver that is not one, and this
+        // answered `undefined` — a VALUE, which the caller spends. So
+        // `String.prototype.valueOf.call({})` produced `undefined` where every
+        // runtime raises, and a brand check written as
+        // `try { String.prototype.toString.call(x); … }` — the idiom for "is
+        // this really a string" — answered that everything is.
+        None => {
+            super::super::throw::type_error(
+                "String.prototype.valueOf requires that 'this' be a String",
+            );
+            super::refused()
         }
-    })
+    }
 }
 
 /// `s.isWellFormed()` — whether every surrogate is part of a pair.
