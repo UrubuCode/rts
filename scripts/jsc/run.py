@@ -24,9 +24,11 @@ TESTS = c.ROOT / ".jsc" / "webkit" / "JSTests" / "stress"
 # O interior do JSC: `$vm` é a janela para a máquina virtual, e
 # `createGlobalObject`/`runString` criam realms do shell. Fora do denominador
 # pelo mesmo argumento que põe lá o `%Native` do V8 e o `$262` do test262.
-HOST = re.compile(r"\$vm\b|(?<![\w])\$\.(agent|globalObjectFor|evalScript)"
-                  r"|(?<![.$\w])(createGlobalObject|runString|transferArrayBuffer"
-                  r"|loadString|readFile|checkModuleSyntax|gc)\s*\(")
+HOST = re.compile(
+    r"\$vm\b|(?<![\w])\$\.\w"
+    r"|(?<![.$\w])(load|loadString|quit|read|readFile|readline|createGlobalObject"
+    r"|runString|transferArrayBuffer|checkModuleSyntax|gc|numberOfDFGCompiles"
+    r"|edenGC|fullGC|dollarVM)\s*\(")
 
 # Estas NÃO ficam de fora, e a diferença vale escrita. `noInline(f)` diz ao JIT
 # do JSC para não inlinar aquela função — é uma pista de compilação, e um motor
@@ -43,6 +45,13 @@ function ensureArrayStorage() {}
 function OSRExit() {}
 function noOSRExitFuzzing() {}
 function fiatInt52(x) { return x; }
+// O `testLoopCount` é do arnês e não do teste: o `run-jsc-stress-tests` injeta-o
+// para o corpus poder escolher quantas voltas dá a aquecer o JIT, e 1 881 dos
+// ficheiros lêem-no. O valor é o que os próprios ficheiros do corpus usam
+// quando se defendem com `globalThis.testLoopCount ??= 1e4` — copiado deles em
+// vez de inventado, e é um NÚMERO DE VOLTAS: muda quanto tempo o teste demora e
+// não o que ele computa.
+globalThis.testLoopCount ??= 10000;
 """
 
 
