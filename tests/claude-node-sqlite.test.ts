@@ -113,13 +113,24 @@ try {
 // path answers an instance with `isOpen === false` rather than refusing to
 // construct. Real Node throws synchronously from `new DatabaseSync(path)`
 // for a path whose directory does not exist.
-const badPathDb = new DatabaseSync("Z:\\this\\path\\does\\not\\exist\\anywhere\\claude.db");
+//
+// The path is one whose DIRECTORY is missing on both platforms, and it used
+// to be `Z:\this\path\...` — an unreachable drive on Windows and, on POSIX,
+// a perfectly legal single FILENAME with backslashes in it. So this line
+// created `Z:\this\...\claude.db` in the working directory on every Linux
+// run, beside its `-wal`, and the case it was written to exercise was never
+// reached there at all.
+const badPathDb = new DatabaseSync("/rts-nonexistent-dir/does/not/exist/claude.db");
 const badPathIsOpen = badPathDb.isOpen;
 
 // ── file-backed database, NOT under /tmp (Windows resolves that to
 // C:\tmp\x, which this repository's own history names as a false-negative
 // trap) — under the real OS temp dir instead. ───────────────────────────────
-const tmpDir = process.env.TEMP || process.env.TMP || ".";
+//
+// `TMPDIR` first because it is the POSIX spelling and the other two are
+// Windows'. Without it the chain fell through to `"."` on every Linux run —
+// the REPOSITORY ROOT — and left `claude-sqlite-file-test.db-wal` there.
+const tmpDir = process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
 const filePath = tmpDir + "/claude-sqlite-file-test.db";
 try {
     require("node:fs").unlinkSync(filePath);
