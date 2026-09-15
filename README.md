@@ -18,6 +18,14 @@
 <!-- NODE_SUITE_BADGE_START -->
 [![Node test suite](https://img.shields.io/badge/Node%20test%20suite-52.4%25-yellow?style=flat-square)](scripts/node_tests/README.md)
 <!-- NODE_SUITE_BADGE_END -->
+<!-- TEST262_BADGE_START -->
+[![test262 (executado)](https://img.shields.io/badge/test262%20%28executado%29-54.9%25-yellow?style=flat-square)](scripts/test262/README.md)
+<!-- TEST262_BADGE_END -->
+<!-- MJSUNIT_BADGE_START -->
+[![V8 mjsunit](https://img.shields.io/badge/V8%20mjsunit-54.4%25-yellow?style=flat-square)](scripts/mjsunit/README.md)
+<!-- MJSUNIT_BADGE_END -->
+<!-- JSC_BADGE_START -->
+<!-- JSC_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
 [![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-98.6%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
@@ -95,6 +103,118 @@ Os 374 de fora leem os módulos **internos** do Node (`internal/…`, `_http_com
 
 _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 <!-- NODE_SUITE_STATS_END -->
+
+<!-- TEST262_STATS_START -->
+## 📏 test262 — a suíte da própria norma, EXECUTADA
+
+`crates/rts-codegen/tests/test262.rs` pergunta se o front end **lê** cada
+programa como a norma diz. Esta régua pergunta a outra metade: se o motor **faz
+o que o programa manda**. Um processo por ficheiro, sloppy e strict, sem
+tradução nenhuma — o arnês do test262 corre como está.
+
+```
+[▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱] 54.9%   1411/2568 ficheiros passando
+```
+
+| Metric | Value |
+|---|---|
+| **Conformidade** | **54.9%** (1411/2568) |
+| ✅ A norma ficou satisfeita | 1411 |
+| ❌ Resposta errada | 398 |
+| 💥 Exceção não apanhada | 756 |
+| ⏱️ Não terminou | 3 |
+| ➖ Fora da conta | 37 |
+
+**Por área** (os dez maiores):
+
+| Grupo | % | ok/total |
+|---|---|---|
+| `language/expressions` | **64.3%** | 357/555 |
+| `language/statements` | **67.9%** | 317/467 |
+| `built-ins/Temporal` | **0.0%** | 0/230 |
+| `built-ins/Object` | **81.9%** | 140/171 |
+| `built-ins/Array` | **67.5%** | 104/154 |
+| `intl402/Temporal` | **0.0%** | 0/101 |
+| `built-ins/RegExp` | **47.3%** | 44/93 |
+| `built-ins/TypedArray` | **17.6%** | 12/68 |
+| `built-ins/String` | **85.0%** | 51/60 |
+| `annexB/language` | **19.5%** | 8/41 |
+
+**As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
+
+| Ficheiros | Mensagem |
+|---|---|
+| 292 | `ReferenceError: Temporal is not defined` |
+| 113 | `TypeError: (intermediate value).then is not a function` |
+| 54 | `Test262Error: Expected SameValue(«…», «…») to be true` |
+| 47 | `TypeError: Cannot read properties of undefined (reading 'return')` |
+| 35 | `Test262Error: Expected a TypeError to be thrown but no exception was thrown at all` |
+| 27 | `Test262Error: Expected a Test262Error to be thrown but no exception was thrown at all` |
+| 20 | `Test262Error: it should not get Symbol.iterator` |
+| 17 | `rts: heap exhausted — the region grew to its whole reservation of N cells and all of them are in use even afte` |
+| 17 | `Test262Error: Expected a ReferenceError to be thrown but no exception was thrown at all` |
+| 12 | `TypeError: undefined is not a function` |
+
+_SHA 90dd8d865 · amostra determinista de 1 em 20 — os mesmos ficheiros em cada corrida · 2026-09-15_
+
+<!-- TEST262_STATS_END -->
+
+<!-- MJSUNIT_STATS_START -->
+## 🧪 V8 `mjsunit` — as regressões de um motor de produção
+
+O test262 mede o que a **norma exige**. Esta régua mede o que um motor de
+produção **aprendeu a não errar**: cada `regress-*.js` é um bug que alguém
+teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução.
+
+```
+[▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱] 54.4%   1645/3025 ficheiros passando
+```
+
+| Metric | Value |
+|---|---|
+| **Conformidade** | **54.4%** (1645/3025) |
+| ✅ Passou — saiu com 0, que é o que o V8 conta | 1645 |
+| ❌ Resposta errada | 627 |
+| 💥 Exceção não apanhada | 709 |
+| ⏱️ Não terminou | 44 |
+| ➖ Fora da conta | 6248 |
+
+**Por diretório** (os dez maiores):
+
+| Grupo | % | ok/total |
+|---|---|---|
+| `regress` | **61.6%** | 1014/1646 |
+| `(raiz)` | **47.9%** | 252/526 |
+| `es6` | **37.8%** | 108/286 |
+| `harmony` | **32.2%** | 65/202 |
+| `compiler` | **78.1%** | 121/155 |
+| `sandbox` | **0.0%** | 0/37 |
+| `maglev` | **86.2%** | 25/29 |
+| `math-sum-precise` | **6.2%** | 1/16 |
+| `shared-memory` | **12.5%** | 2/16 |
+| `wasm` | **21.4%** | 3/14 |
+
+**As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
+
+| Ficheiros | Mensagem |
+|---|---|
+| 216 | `Error: MjsUnitAssertionError at fail at assertEquals` |
+| 143 | `Error: MjsUnitAssertionError at failWithMessage at assertThrows` |
+| 64 | `error: stack overflow, aborting` |
+| 50 | `Error: MjsUnitAssertionError at fail at assertEquals at assertTrue` |
+| 39 | `ReferenceError: WebAssembly is not defined` |
+| 32 | `ReferenceError: Sandbox is not defined` |
+| 20 | `ReferenceError: testCodePointRange is not defined` |
+| 19 | `TypeError: Cannot read properties of undefined (reading 'return')` |
+| 17 | `TypeError: undefined is not a function` |
+| 15 | `TypeError: (intermediate value).__defineSetter__ is not a function` |
+
+_V8 348a6116c · corpus inteiro · 2026-09-15_
+
+<!-- MJSUNIT_STATS_END -->
+
+<!-- JSC_STATS_START -->
+<!-- JSC_STATS_END -->
 
 <!-- CSS_DOM_STATS_START -->
 ## 🎨 CSS and DOM parity

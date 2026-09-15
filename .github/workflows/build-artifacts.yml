@@ -699,6 +699,40 @@ jobs:
     permissions:
       contents: write
 
+  # A quarta régua, e `schedule` pela mesma razão que a do Node: são ~48 000
+  # ficheiros, um processo cada, e a percentagem move-se em semanas.
+  test262:
+    if: github.event_name == 'schedule'
+    needs: [version, build]
+    uses: ./.github/workflows/test262.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      stride: "1"
+    permissions:
+      contents: write
+
+  # A quinta: o `test/mjsunit` do V8, a mesma matriz de oito fatias.
+  mjsunit:
+    if: github.event_name == 'schedule'
+    needs: [version, build]
+    uses: ./.github/workflows/mjsunit.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      stride: "1"
+    permissions:
+      contents: write
+
+  # A sexta: o `JSTests/stress` do JavaScriptCore, a mesma matriz.
+  jsc:
+    if: github.event_name == 'schedule'
+    needs: [version, build]
+    uses: ./.github/workflows/jsc.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      stride: "1"
+    permissions:
+      contents: write
+
   release:
     # Only create a release on push to main (not on PRs or dispatch).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

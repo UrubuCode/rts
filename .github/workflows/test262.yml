@@ -1,0 +1,208 @@
+name: test262
+
+# A quarta régua: a suíte da PRÓPRIA norma, executada.
+#
+# `crates/rts-codegen/tests/test262.rs` já corre este corpus pelo front end e
+# pergunta se cada programa é LIDO como a norma manda — nada ali executa. Este
+# job pergunta a outra metade: se o motor FAZ o que o programa diz.
+#
+# Reutilizável como `node-suite.yml`: quem chama já compilou o binário e passa a
+# versão do artefacto, para nada recompilar aqui.
+#
+# NÃO corre em cada push, e é decisão e não esquecimento — são ~48 000 ficheiros,
+# um processo cada, e o sloppy mais o strict fazem disso perto de 90 000
+# execuções. A percentagem move-se em semanas, não em commits, e pôr essa espera
+# à frente de cada pull request não a mediria melhor.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Artifact version tag produced by the build job"
+        required: true
+        type: string
+      stride:
+        description: "1 = corpus inteiro; N = amostra determinista de 1 em N"
+        required: false
+        default: "1"
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version tag to download (deixe vazio para compilar aqui)"
+        required: false
+        type: string
+      stride:
+        description: "1 = corpus inteiro; N = amostra determinista de 1 em N"
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: write   # README badge auto-update
+
+jobs:
+  # A matriz e uma lista literal e nao um `seq`: o `strategy.matrix` de um
+  # workflow reutilizavel e avaliado antes de qualquer step correr, portanto nao
+  # ha onde calcular `1..N`. Mudar o numero de fatias e mudar as duas linhas —
+  # esta e o `SHARDS` do step — e o `--merge` conta as que chegarem.
+  shard:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Reporta, não bloqueia — o mesmo que `cross-runtime.yml` e `node-suite.yml`
+    # fazem, e pela mesma razão: uma percentagem que cai é trabalho a fazer, não
+    # uma merge a impedir.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Só as libs de RUNTIME que o binário carrega. `libasound2` porque o
+      # binário linka `cpal`; sem ela o rts não arranca e o corpus inteiro conta
+      # como erro, publicando um 0% falso.
+      - name: Install runtime deps (ALSA)
+        run: |
+          set -e
+          for i in 1 2 3; do sudo apt-get update && break || sleep 5; done
+          for i in 1 2 3; do sudo apt-get install -y libasound2t64 && break || sleep 5; done
+
+      - name: Download rts binary
+        if: inputs.version != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: rts-${{ inputs.version }}-Linux-X64
+          path: dl
+
+      - name: Stage binary
+        if: inputs.version != ''
+        run: |
+          set -e
+          mkdir -p target/release
+          # De `dl` e não de `bin`: `bin/` tem o `rts.exe` de Windows commitado,
+          # e apanhá-lo aqui daria "Exec format error".
+          f=$(find dl -type f | head -1)
+          cp "$f" target/release/rts
+          chmod +x target/release/rts
+
+      - name: Build rts (manual dispatch without a version)
+        if: inputs.version == ''
+        uses: ./.github/actions/setup-rust
+
+      - name: Cargo build --release
+        if: inputs.version == ''
+        run: cargo build --release
+
+      # O binário TEM de arrancar antes de se medir seja o que for. Sem esta
+      # guarda, uma lib em falta faz todos os ficheiros falharem por igual e
+      # publica 0% como se fosse uma regressão do motor.
+      - name: Verify rts starts (guard vs false 0%)
+        run: |
+          set -e
+          miss=$(ldd target/release/rts 2>&1 | grep -i "not found" || true)
+          if [ -n "$miss" ]; then echo "::error::rts com libs faltando:"; echo "$miss"; exit 1; fi
+          echo 'console.log(1+2)' > /tmp/smoke.ts
+          out=$(target/release/rts run /tmp/smoke.ts)
+          [ "$out" = "3" ] || { echo "::error::rts nao inicia (out='$out')"; exit 1; }
+
+      # Um SHA fixo e não `main`: a suíte muda todos os dias e uma percentagem
+      # contra um alvo móvel não é comparável consigo mesma na semana seguinte.
+      # O SHA está escrito no `fetch.sh`.
+      - name: Fetch test262
+        run: bash scripts/test262/fetch.sh
+
+      # O checkout é contado e não assumido: um clone que traz menos do que diz
+      # já custou 0,8 pontos a este repositório uma vez, e a forma de isso
+      # acontecer em silêncio é um `git` que AVISA em vez de falhar.
+      - name: Guard — o corpus veio inteiro
+        run: |
+          set -e
+          n=$(find .test262/test262/test -name '*.js' | wc -l)
+          echo "$n ficheiros"
+          [ "$n" -gt 45000 ] || { echo "::error::checkout incompleto: $n ficheiros"; exit 1; }
+
+      # `JOBS: 3` num runner de 4 núcleos, de propósito: cada trabalho é um
+      # processo que COMPILA antes de correr, e saturar a máquina faz o
+      # `timeout` disparar por espera na fila em vez de por ciclo infinito — o
+      # que reportaria `t/o` para um ficheiro que nem tinha começado.
+      #
+      # A fatia escreve linhas e mais nada. Uma percentagem por fatia não é uma
+      # percentagem de coisa nenhuma — o denominador dela é a fatia — e o número
+      # só existe no `merge`, depois de todas terem chegado.
+      - name: Run shard ${{ matrix.shard }}
+        run: |
+          RTS_BIN=target/release/rts \
+          ROWS=$GITHUB_WORKSPACE/rows-${{ matrix.shard }}.tsv \
+          REPORT=/dev/null \
+          STRIDE=${{ inputs.stride || '1' }} SHARD=${{ matrix.shard }}/8 \
+          JOBS=3 TIMEOUT=20 \
+          python3 scripts/test262/run.py
+        continue-on-error: true
+
+      - name: Upload shard rows
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test262-rows-${{ matrix.shard }}
+          path: rows-${{ matrix.shard }}.tsv
+
+  # O número sai daqui, de uma máquina só, a partir das linhas que as oito
+  # produziram. `if: always()` porque uma fatia que rebente não pode apagar o
+  # trabalho das outras sete — o `merge` conta o que chegou e a guarda de baixo
+  # recusa-se a publicar se chegou pouco.
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all shard rows
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test262-rows-*
+          path: rows
+
+      # As oito ou nenhuma. Publicar seis fatias como se fossem o corpus é a
+      # mesma mentira que um checkout incompleto — o número desce e nada no
+      # motor mudou. Com menos, as linhas ficam no artefacto para quem quiser
+      # olhar e o README fica como estava.
+      - name: Guard — as oito fatias chegaram
+        run: |
+          set -e
+          n=$(find rows -name 'rows-*.tsv' | wc -l)
+          echo "$n fatias"
+          [ "$n" -eq 8 ] || { echo "::error::só $n de 8 fatias — o README fica como estava"; exit 1; }
+
+      - name: Merge and report
+        run: |
+          REPORT=$GITHUB_WORKSPACE/.github/test262_report.json UPDATE_README=1 \
+          python3 scripts/test262/run.py --merge $(find rows -name 'rows-*.tsv' | sort)
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test262-report
+          path: .github/test262_report.json
+
+      - name: Commit the README block
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md .github/test262_report.json
+          # `--quiet --exit-code` responde 1 quando HÁ diferença; sem a guarda,
+          # um `git commit` sem nada em stage falha o step inteiro.
+          if git diff --cached --quiet; then echo "nada mudou"; exit 0; fi
+          pct=$(python3 -c "import json;print(json.load(open('.github/test262_report.json'))['share'])")
+          git commit -m "docs: auto-update test262 % (${pct}%)"
+          # O job cross-runtime também escreve no README; sem o rebase os dois
+          # colidem e o último a acabar perde o número.
+          git pull --rebase
+          git push
