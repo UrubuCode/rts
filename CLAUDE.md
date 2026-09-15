@@ -173,6 +173,16 @@ comparable in either direction; the counts are. And a handful of fixtures are
 outside the denominator entirely, because Bun and Node disagree with each other
 and the harness refuses to arbitrate.
 
+**And a fourth ruler, new on 2026-09-15: the test262 EXECUTED.**
+`crates/rts-codegen/tests/test262.rs` asks whether the front end READS each
+program as the standard says and nothing there runs; `scripts/test262/` asks the
+other half — whether the engine DOES what the program says. First measurement,
+against the `v0.0-202609120208` release binary: **1411 of 2568 = 54.9%**, on a
+deterministic one-in-twenty sample, which is what `STRIDE` is for and which the
+generated README block states beside the number. `scripts/test262/README.md` is
+the harness and `docs/engine/importable-suites.md` is what else could be
+imported and what each one would cost.
+
 **A change to this engine is compared PER FILE against a kept binary**, which is
 the only form the claim "no regression" takes here, and
 `scripts/cross_runtime_check.sh` with `RTS_BIN` and `REPORT_FILE` is how. It

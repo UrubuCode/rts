@@ -96,6 +96,46 @@ Os 374 de fora leem os módulos **internos** do Node (`internal/…`, `_http_com
 _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 <!-- NODE_SUITE_STATS_END -->
 
+<!-- TEST262_STATS_START -->
+## 📏 test262 — a suíte da própria norma, EXECUTADA
+
+`crates/rts-codegen/tests/test262.rs` pergunta se o front end **lê** cada
+programa como a norma diz. Esta régua pergunta a outra metade: se o motor **faz
+o que o programa manda**. Um processo por ficheiro, sloppy e strict, sem
+tradução nenhuma — o arnês do test262 corre como está.
+
+```
+[▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱] 54.9%   1411/2568 ficheiros passando
+```
+
+| Metric | Value |
+|---|---|
+| **Conformidade** | **54.9%** (1411/2568) |
+| ✅ A norma ficou satisfeita | 1411 |
+| ❌ Resposta errada | 398 |
+| 💥 Exceção não apanhada | 756 |
+| ⏱️ Não terminou | 3 |
+| ➖ Fora da conta (host `$262`) | 37 |
+
+**Por área** (as dez maiores):
+
+| Área | % | ok/total |
+|---|---|---|
+| `language/expressions` | **64.3%** | 357/555 |
+| `language/statements` | **67.9%** | 317/467 |
+| `built-ins/Temporal` | **0.0%** | 0/230 |
+| `built-ins/Object` | **81.9%** | 140/171 |
+| `built-ins/Array` | **67.5%** | 104/154 |
+| `intl402/Temporal` | **0.0%** | 0/101 |
+| `built-ins/RegExp` | **47.3%** | 44/93 |
+| `built-ins/TypedArray` | **17.6%** | 12/68 |
+| `built-ins/String` | **85.0%** | 51/60 |
+| `annexB/language` | **19.5%** | 8/41 |
+
+_SHA 90dd8d865 · amostra determinista de 1 em 20 — os mesmos ficheiros em cada corrida · 2026-09-15_
+
+<!-- TEST262_STATS_END -->
+
 <!-- CSS_DOM_STATS_START -->
 ## 🎨 CSS and DOM parity
 
