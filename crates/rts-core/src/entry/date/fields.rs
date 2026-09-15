@@ -28,7 +28,7 @@
 //! for all of them, so it is written once.
 
 use super::civil::{from_parts, full_year};
-use super::support::{commit, fields_of};
+use super::support::{commit, fields_of, time_of};
 use super::with_current;
 use crate::entry::class_support::to_number;
 
@@ -75,10 +75,21 @@ pub(super) fn constructed(given: &[u64]) -> f64 {
 /// `setFullYear`, four for `setHours` — so an extra argument is ignored rather
 /// than rolling into the next field down, which is what `setFullYear(y, m, d, 9)`
 /// would otherwise do to the hour.
-pub(super) fn written(this: u64, first: usize, arity: usize, given: &[u64]) -> f64 {
+///
+/// `revives` is whether this member may rebuild an INVALID date. Only
+/// `setFullYear`/`setUTCFullYear` may — the specification reads their `t` as
+/// `+0` where every other setter returns `NaN` — and it is a parameter rather
+/// than "is `first` zero" because that coincidence is not the rule.
+///
+/// Both halves were missing, and each was a date that came back valid when the
+/// language says it does not: `new Date(NaN).setUTCMonth(5, 10)` rebuilt from
+/// the EPOCH, because `fields_of` falls back to it, so an invalid date was
+/// repairable by any setter at all.
+pub(super) fn written(this: u64, first: usize, arity: usize, given: &[u64], revives: bool) -> f64 {
     // Read before any coercion runs: `to_number` can call user code, and the
     // fields it would then observe are the ones this call is replacing.
     let existing = fields_of(this);
+    let current = time_of(this);
     let mut parts = [
         existing.year as f64,
         existing.month as f64,
@@ -88,11 +99,26 @@ pub(super) fn written(this: u64, first: usize, arity: usize, given: &[u64]) -> f
         existing.second as f64,
         existing.milli as f64,
     ];
-    for (at, value) in given.iter().take(arity).enumerate() {
+    for at in 0..arity {
         let Some(field) = parts.get_mut(first + at) else {
             break;
         };
-        *field = to_number(*value);
+        match given.get(at) {
+            Some(value) => *field = to_number(*value),
+            // The FIRST field is the member's declared parameter and is read
+            // whether or not the call carried it — `ToNumber(undefined)` is
+            // `NaN`, so `d.setUTCMonth()` invalidates the date. It used to
+            // leave every field alone and answer the date unchanged, which is
+            // a call that silently did nothing.
+            None if at == 0 => *field = f64::NAN,
+            None => break,
+        }
+    }
+    // AFTER the coercions, because they are observable: the specification reads
+    // every argument through `ToNumber` — running a `valueOf` the program
+    // wrote — and only then asks whether `t` was `NaN`.
+    if current.is_nan() && !revives {
+        return commit(this, f64::NAN);
     }
     let stored = from_parts(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]);
     commit(this, stored)

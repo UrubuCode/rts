@@ -291,6 +291,21 @@ impl Reflect {
             true => new_target,
             false => target,
         };
+        // `newTarget` must itself be a CONSTRUCTOR — step 3, and separate from
+        // the check on the target, because the two are different objects and
+        // only one of them is called. `Reflect.construct(f, [], () => {})`
+        // answered an object here where every runtime raises: an arrow has no
+        // `prototype` for the new object to inherit, so what came back was
+        // something with no chain at all.
+        //
+        // Through the same `constructible` the `new` operator asks, so the two
+        // spellings cannot come to disagree about what may be one.
+        if let Some(refusal) = with_current(|context| {
+            super::functions::constructible(context, named, 0)
+        }) {
+            super::throw::type_error(&refusal);
+            return with_current(|context| super::objects::undefined_of(context));
+        }
         super::functions::construct_args_on(target, list, named)
     }
 

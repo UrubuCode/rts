@@ -47,9 +47,13 @@ pub(in crate::entry) struct Descriptor {
     pub(super) value: Option<u64>,
     pub(super) get: Option<u64>,
     pub(super) set: Option<u64>,
-    writable: Option<bool>,
-    enumerable: Option<bool>,
-    configurable: Option<bool>,
+    // `pub(super)` like the three above, because `arrays.rs` folds them onto an
+    // element's own flags: an array index never reaches the generic path that
+    // reads them here, and the flags being unreadable there is why that path
+    // recorded none at all.
+    pub(super) writable: Option<bool>,
+    pub(super) enumerable: Option<bool>,
+    pub(super) configurable: Option<bool>,
 }
 
 /// What [`apply`] decided, so that the two spellings can report it differently.

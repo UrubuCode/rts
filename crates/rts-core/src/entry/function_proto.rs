@@ -124,6 +124,11 @@ impl Function {
     /// allocates a region cell and nothing collects one, so a `.call` in a loop
     /// that took the vector path unconditionally would exhaust the region. Four
     /// or fewer goes straight through, allocating nothing, exactly as before.
+    ///
+    /// `length` is **1**, and the derived arity is 4: the specification counts
+    /// the declared `thisArg` and nothing else, because the rest are a rest
+    /// parameter. Every runtime answers 1 and a currying helper reads it.
+    #[arity(1)]
     fn call(this: u64, receiver: u64, a: u64, b: u64, c: u64) -> u64 {
         let (arguments, absent) = with_current(|context| {
             (
@@ -178,6 +183,10 @@ impl Function {
     /// way [`Function::call`] reads its own — a binding that quietly dropped its
     /// fourth partial argument would produce the wrong call at every later use of
     /// the bound function rather than at the `bind`.
+    ///
+    /// `length` is **1** for the same reason [`Function::call`]'s is: only
+    /// `thisArg` is declared, and the partial arguments are a rest parameter.
+    #[arity(1)]
     fn bind(this: u64, receiver: u64, a: u64, b: u64, c: u64) -> u64 {
         let partial =
             with_current(|context| super::array_proto::arguments_at(context, 1, [receiver, a, b, c]));
