@@ -104,9 +104,16 @@ pub fn install(context: &mut Context) {
     entry::declare_global(context, "TextEncoder", encoder);
     let decoder = decoder::class(context);
     entry::declare_global(context, "TextDecoder", decoder);
+    // `describe_callable` and not a bare `make_callable`: a native minted here
+    // carries no `name` and no `length`, so `btoa.name` read `""` and
+    // `btoa.length` read `0` where WHATWG declares one argument. A program
+    // introspecting the global surface — which is what a polyfill shim does
+    // before deciding whether to install its own — reads both.
     let atob_global = entry::make_callable(context, atob);
+    entry::describe_callable(context, atob_global, "atob", 1);
     entry::declare_global(context, "atob", atob_global);
     let btoa_global = entry::make_callable(context, btoa);
+    entry::describe_callable(context, btoa_global, "btoa", 1);
     entry::declare_global(context, "btoa", btoa_global);
 }
 

@@ -304,11 +304,25 @@ pub(super) fn emit_object(
             PropertyKey::Named(name) => {
                 super::property::emit_define(builder, ctx, object, *name, value)?;
             }
+            // DEFINED, exactly as the named arm above is, and for the reasons
+            // written there. This was a `[[Set]]`, which is the one difference
+            // the two arms are not allowed to have — `{ get z() {…}, [k]: 5 }`
+            // with `k` of `"z"` ran the getter's setter instead of replacing
+            // the accessor, and `{ ["__proto__"]: v }` reached `Object.
+            // prototype`'s `__proto__` SETTER and changed the object's
+            // prototype. The language says the computed spelling is the one
+            // that does not: only a literal (or quoted) `__proto__:` is the
+            // prototype setter, and every other spelling is an ordinary own
+            // property of that name.
+            //
+            // `DefineField` is the define primitive `docs/codegen/object-
+            // model.md` prescribes, and that document already names an object
+            // literal's property as its third site.
             PropertyKey::Computed(_) => {
                 let key = computed_key.expect("a computed property key");
                 let key = tagged(builder, key);
-                let estrito = super::property::estrito(builder, ctx);
-                call(builder, ctx, RuntimeOp::SetIndexed, &[object, key, value, estrito])?;
+                let key = call(builder, ctx, RuntimeOp::KeyNumber, &[key])?[0];
+                call(builder, ctx, RuntimeOp::DefineField, &[object, key, value])?;
             }
         }
     }

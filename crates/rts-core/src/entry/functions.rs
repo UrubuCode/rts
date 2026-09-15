@@ -943,7 +943,11 @@ fn named_refusal(context: &mut super::Context, cell: u32) -> String {
 ///
 /// `depth` bounds the walk through bound functions: `f.bind().bind()` chains,
 /// and a bound function's target is data a program controls.
-fn constructible(context: &mut super::Context, callee: u64, depth: u32) -> Option<String> {
+pub(in crate::entry) fn constructible(
+    context: &mut super::Context,
+    callee: u64,
+    depth: u32,
+) -> Option<String> {
     if depth > super::objects::CHAIN_LIMIT as u32 {
         return None;
     }

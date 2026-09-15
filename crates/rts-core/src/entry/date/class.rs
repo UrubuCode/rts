@@ -143,7 +143,7 @@ impl Date {
     /// two lines.
     #[js("setFullYear")]
     fn set_full_year(this: u64, a: u64, b: u64, c: u64) -> f64 {
-        fields::written(this, 0, 3, &fields::given([a, b, c, absent()]))
+        fields::written(this, 0, 3, &fields::given([a, b, c, absent()]), true)
     }
 
     /// `date.setUTCFullYear(year, month?, date?)` — the same number, because
@@ -151,88 +151,88 @@ impl Date {
     /// differ, this pair is where the difference is written.
     #[js("setUTCFullYear")]
     fn set_utc_full_year(this: u64, a: u64, b: u64, c: u64) -> f64 {
-        fields::written(this, 0, 3, &fields::given([a, b, c, absent()]))
+        fields::written(this, 0, 3, &fields::given([a, b, c, absent()]), true)
     }
 
     /// `date.setMonth(month, date?)` — zero-based, as `getMonth` answers it.
     #[js("setMonth")]
     fn set_month(this: u64, a: u64, b: u64) -> f64 {
         let none = absent();
-        fields::written(this, 1, 2, &fields::given([a, b, none, none]))
+        fields::written(this, 1, 2, &fields::given([a, b, none, none]), false)
     }
 
     /// `date.setUTCMonth(month, date?)`.
     #[js("setUTCMonth")]
     fn set_utc_month(this: u64, a: u64, b: u64) -> f64 {
         let none = absent();
-        fields::written(this, 1, 2, &fields::given([a, b, none, none]))
+        fields::written(this, 1, 2, &fields::given([a, b, none, none]), false)
     }
 
     /// `date.setDate(date)` — the day of the month, one-based.
     #[js("setDate")]
     fn set_date(this: u64, a: u64) -> f64 {
         let none = absent();
-        fields::written(this, 2, 1, &fields::given([a, none, none, none]))
+        fields::written(this, 2, 1, &fields::given([a, none, none, none]), false)
     }
 
     /// `date.setUTCDate(date)`.
     #[js("setUTCDate")]
     fn set_utc_date(this: u64, a: u64) -> f64 {
         let none = absent();
-        fields::written(this, 2, 1, &fields::given([a, none, none, none]))
+        fields::written(this, 2, 1, &fields::given([a, none, none, none]), false)
     }
 
     /// `date.setHours(hour, minute?, second?, ms?)` — all four, where this
     /// stopped at three because a fourth had no slot to arrive in.
     #[js("setHours")]
     fn set_hours(this: u64, a: u64, b: u64, c: u64, d: u64) -> f64 {
-        fields::written(this, 3, 4, &fields::given([a, b, c, d]))
+        fields::written(this, 3, 4, &fields::given([a, b, c, d]), false)
     }
 
     /// `date.setUTCHours(hour, minute?, second?, ms?)`.
     #[js("setUTCHours")]
     fn set_utc_hours(this: u64, a: u64, b: u64, c: u64, d: u64) -> f64 {
-        fields::written(this, 3, 4, &fields::given([a, b, c, d]))
+        fields::written(this, 3, 4, &fields::given([a, b, c, d]), false)
     }
 
     /// `date.setMinutes(minute, second?, ms?)`.
     #[js("setMinutes")]
     fn set_minutes(this: u64, a: u64, b: u64, c: u64) -> f64 {
-        fields::written(this, 4, 3, &fields::given([a, b, c, absent()]))
+        fields::written(this, 4, 3, &fields::given([a, b, c, absent()]), false)
     }
 
     /// `date.setUTCMinutes(minute, second?, ms?)`.
     #[js("setUTCMinutes")]
     fn set_utc_minutes(this: u64, a: u64, b: u64, c: u64) -> f64 {
-        fields::written(this, 4, 3, &fields::given([a, b, c, absent()]))
+        fields::written(this, 4, 3, &fields::given([a, b, c, absent()]), false)
     }
 
     /// `date.setSeconds(second, ms?)`.
     #[js("setSeconds")]
     fn set_seconds(this: u64, a: u64, b: u64) -> f64 {
         let none = absent();
-        fields::written(this, 5, 2, &fields::given([a, b, none, none]))
+        fields::written(this, 5, 2, &fields::given([a, b, none, none]), false)
     }
 
     /// `date.setUTCSeconds(second, ms?)`.
     #[js("setUTCSeconds")]
     fn set_utc_seconds(this: u64, a: u64, b: u64) -> f64 {
         let none = absent();
-        fields::written(this, 5, 2, &fields::given([a, b, none, none]))
+        fields::written(this, 5, 2, &fields::given([a, b, none, none]), false)
     }
 
     /// `date.setMilliseconds(ms)`.
     #[js("setMilliseconds")]
     fn set_milliseconds(this: u64, a: u64) -> f64 {
         let none = absent();
-        fields::written(this, 6, 1, &fields::given([a, none, none, none]))
+        fields::written(this, 6, 1, &fields::given([a, none, none, none]), false)
     }
 
     /// `date.setUTCMilliseconds(ms)`.
     #[js("setUTCMilliseconds")]
     fn set_utc_milliseconds(this: u64, a: u64) -> f64 {
         let none = absent();
-        fields::written(this, 6, 1, &fields::given([a, none, none, none]))
+        fields::written(this, 6, 1, &fields::given([a, none, none, none]), false)
     }
 
     /// `date.getFullYear()`.

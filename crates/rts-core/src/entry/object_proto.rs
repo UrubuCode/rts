@@ -346,6 +346,24 @@ extern "C" fn proto_set(_e: u64, this: u64, value: u64, _a1: u64, _a2: u64, _a3:
 /// its own module already uses in place of an internal slot — see
 /// [`super::date`]'s module documentation for why that property exists.
 fn object_tag(context: &mut Context, this: u64) -> &'static str {
+    // A PROXY is tagged by what it wraps. The specification says so by writing
+    // the builtin-tag table over internal slots — `[[ProxyTarget]]` is consulted
+    // for the array and callable rows — and it is what a program depends on:
+    // `Object.prototype.toString.call(new Proxy([], {}))` is `[object Array]`,
+    // which is the ONE test that still works when a proxy has replaced
+    // everything else about the value. It answered `[object Object]` here,
+    // because none of the tests below sees past the wrapper.
+    //
+    // A chain, because a proxy's target may be another one, and bounded for the
+    // reason every walk in this file is: the chain is data a program built.
+    let mut this = this;
+    for _ in 0..super::objects::CHAIN_LIMIT {
+        let Some(target) = Value(this).as_slot().and_then(|cell| context.proxy_at(cell))
+        else {
+            break;
+        };
+        this = target.0;
+    }
     if this == Value::from_singleton(context.singletons.undefined).bits() {
         return "Undefined";
     }

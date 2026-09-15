@@ -641,10 +641,22 @@ fn element_state(
     if super::super::array::is_hole(context, held) {
         return None;
     }
-    let attributes = super::super::integrity::Attributes {
-        writable: !super::super::integrity::refuses_write(context, cell),
-        enumerable: true,
-        configurable: !super::super::integrity::refuses_removal(context, cell),
+    // `effective` and not the object's integrity alone: an element may now carry
+    // a record of its own — `super::arrays::element` writes one when a
+    // descriptor deviates — and reading only the object-level refusals made
+    // `Object.defineProperty(a, "2", {configurable: false})` answer
+    // `configurable: true` about the property it had just pinned.
+    //
+    // The fold is the same one every other key gets, so a frozen array's
+    // elements still report non-writable with no record at all.
+    let named = context.well_known(&at.to_string());
+    let attributes = match named {
+        Key::Name(key) => super::super::integrity::effective(context, cell, key),
+        Key::Index(_) => super::super::integrity::Attributes {
+            writable: !super::super::integrity::refuses_write(context, cell),
+            enumerable: true,
+            configurable: !super::super::integrity::refuses_removal(context, cell),
+        },
     };
     Some((Descriptor::Value(held), attributes))
 }

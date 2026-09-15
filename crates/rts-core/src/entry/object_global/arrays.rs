@@ -115,8 +115,36 @@ fn length(cell: u32, wanted: &Descriptor) -> Option<Verdict> {
         {
             return Verdict::Refused;
         }
-        resize(context, cell, wanted_length as usize);
-        Verdict::Done
+        // SHRINKING deletes, and a non-configurable element refuses to be
+        // deleted. The specification's step 17 walks DOWN from the old length
+        // and stops at the first index that will not go, leaving `length` one
+        // past it — so the operation partly succeeds and then reports a
+        // refusal, which is the one place in this file where both halves
+        // happen.
+        //
+        // Truncating regardless is what this did, and it is not a smaller
+        // divergence than the refusal: `Object.defineProperty(a, "2",
+        // {configurable: false})` is how a program pins an element, and
+        // `a.length = 1` silently threw it away — the element was gone AND no
+        // error said so.
+        let wanted_length = wanted_length as usize;
+        let mut floor = wanted_length;
+        if wanted_length < held {
+            for at in (wanted_length..held).rev() {
+                let key = context.well_known(&at.to_string());
+                if let Key::Name(named) = key
+                    && integrity::refuses_key_removal(context, cell, named)
+                {
+                    floor = at + 1;
+                    break;
+                }
+            }
+        }
+        resize(context, cell, floor);
+        match floor == wanted_length {
+            true => Verdict::Done,
+            false => Verdict::Refused,
+        }
     }))
 }
 
@@ -150,10 +178,14 @@ fn element(cell: u32, at: usize, wanted: &Descriptor) -> Option<Verdict> {
         // rather than a hole, which is the difference between
         // `Object.defineProperty(a, "5", {})` and `a.length = 6`.
         let absent = undefined_of(context);
+        // `None` means "leave the element alone" — a descriptor that states
+        // only flags. It used to RETURN here, which is what made the flag
+        // recording below unreachable for exactly the descriptor that is
+        // nothing but flags.
         let value = match wanted.value {
-            Some(stated) => stated,
-            None if grows => absent,
-            None => return Verdict::Done,
+            Some(stated) => Some(stated),
+            None if grows => Some(absent),
+            None => None,
         };
         if grows {
             resize(context, cell, at + 1);
@@ -165,15 +197,41 @@ fn element(cell: u32, at: usize, wanted: &Descriptor) -> Option<Verdict> {
         // `a[at] = v` past the limit, which `array::key_list`'s merge and
         // `array::ordered_keys`'s index-spelling sort already place correctly
         // among an array's other keys.
-        if at >= array::DENSE_LIMIT {
-            let spelled = crate::coerce::number_to_string(at as f64);
-            let Some(text) = spelled.to_rust() else {
-                return Verdict::Done;
+        if let Some(value) = value {
+            if at >= array::DENSE_LIMIT {
+                let spelled = crate::coerce::number_to_string(at as f64);
+                let Some(text) = spelled.to_rust() else {
+                    return Verdict::Done;
+                };
+                let named = context.well_known(&text);
+                super::super::objects::put(context, cell, named, value);
+            } else if let Some(elements) = context.elements_at_mut(cell) {
+                elements[at] = value;
+            }
+        }
+        // The FLAGS, which this path dropped entirely: it wrote the value and
+        // answered `Done`, so `Object.defineProperty(a, "2", {configurable:
+        // false})` left an element every bit as deletable as before. Three
+        // readings were wrong at once — the descriptor read back
+        // `configurable: true`, `delete a[2]` succeeded, and `a.length = 1`
+        // truncated past it.
+        //
+        // Folded onto what the element already permits rather than onto the
+        // defaults, so `{enumerable: false}` after `{configurable: false}`
+        // keeps both; and recorded only when it DEVIATES, which is the rule
+        // `integrity::implied_attributes` states and measures.
+        let key = context.well_known(&at.to_string());
+        if let Key::Name(named) = key {
+            let held = context.attributes_at(cell, named);
+            let attributes = super::super::integrity::Attributes {
+                writable: wanted.writable.unwrap_or(held.writable),
+                enumerable: wanted.enumerable.unwrap_or(held.enumerable),
+                configurable: wanted.configurable.unwrap_or(held.configurable),
             };
-            let named = context.well_known(&text);
-            super::super::objects::put(context, cell, named, value);
-        } else if let Some(elements) = context.elements_at_mut(cell) {
-            elements[at] = value;
+            match attributes == super::super::integrity::Attributes::default() {
+                true => integrity::clear_attributes(context, cell, named),
+                false => integrity::set_attributes(context, cell, named, attributes),
+            }
         }
         Verdict::Done
     }))

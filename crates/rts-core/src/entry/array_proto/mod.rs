@@ -112,7 +112,17 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // function, not a second one, because `[...a]` and `a.values()` walking an
     // array differently is the failure that would be found last.
     let key = context.well_known(super::symbol::ITERATOR);
-    let values = super::native::callable(context, more::values);
+    // The INSTALLED `values`, read back, and not a second callable over the
+    // same function pointer. The line below minted one, so
+    // `[][Symbol.iterator] === [].values` was `false` — and the comment above
+    // said the opposite of what the code did. Two cells is not merely
+    // redundant: the language makes them one object, a program compares them,
+    // and a replacement written to `Array.prototype.values` would leave
+    // spreading untouched.
+    let named = context.well_known("values");
+    let values = super::objects::read_property(context, cell, named)
+        .map(|found| found.bits())
+        .unwrap_or_else(|| super::native::callable(context, more::values));
     super::objects::put(context, cell, key, values);
     // Remembered as it is installed, which is the only moment it is knowably
     // the primordial: `super::pattern::array_pattern_direct` licenses reading an
