@@ -14,6 +14,15 @@ pub fn line(values: &[u64]) -> Result<String, Poisoned> {
     let Some((first, rest)) = values.split_first() else {
         return Ok(String::new());
     };
+    // A LONE argument is never a format string. Node decides this by arity
+    // (`formatWithOptionsInternal` answers `first` when `args.length === 1`),
+    // and the half a walk-and-substitute implementation has no reason to write
+    // is `%%`: with nothing to substitute, an unmatched `%s` already passes
+    // through below, but `%%` was still collapsed to one `%`. So
+    // `console.log("50%%")` printed `50%` here and `50%%` everywhere else.
+    if rest.is_empty() {
+        return joined(values);
+    }
     if !is_format_string(*first) {
         return joined(values);
     }
@@ -94,34 +103,74 @@ fn substitute(template: &str, args: &[u64]) -> Result<(String, usize), Poisoned>
 
 fn formatted(verb: char, value: u64) -> Result<String, Poisoned> {
     Ok(match verb {
-        's' => entry::text_of(value).unwrap_or_else(|| inspect::top_level(value).unwrap_or_default()),
-        'd' | 'i' => number_text(value, f64::trunc),
-        'f' => number_text(value, |n| n),
+        's' => string_text(value)?,
         'j' => inspect::json_stringify(value)?,
         'o' | 'O' => inspect::top_level(value)?,
-        _ => unreachable!("filtered by the caller's verb check"),
+        _ => number_text(verb, value),
     })
 }
 
-/// `%d`/`%i`/`%f` — `Number(value)`, then `round` (`f64::trunc` for the two
-/// integer verbs, identity for `%f`), printed as JavaScript would print it, or
-/// `NaN` for anything that does not convert to one.
+/// `%s` — the text, and an object only sometimes.
 ///
-/// A string is parsed as a whole decimal literal, the shape every value this
-/// engine's own `ToNumber` accepts; anything already numeric is read directly.
-/// An object is neither — its conversion is `valueOf`/`toString`, which is user
-/// code this formatter does not call for a `%`-verb, matching `described`'s own
-/// boundary — so it answers `NaN`, which is what Node itself prints for
-/// `util.format("%d", {})`.
-fn text_of_number(value: f64) -> String {
-    entry::text_of(entry::number_to_string(value)).unwrap_or_default()
+/// # Why an object is not always inspected
+///
+/// Because Node's `%s` asks WHO WROTE the `toString`: an object carrying its
+/// own is printed by calling it, and one whose `toString` is a built-in is
+/// inspected. That is what makes `console.log("%s", {toString: () => "TS"})`
+/// print `TS` while `console.log("%s", [1, 2])` prints `[ 1, 2 ]` — the array's
+/// `toString` would answer `1,2`, and no runtime prints that here.
+///
+/// The question is asked with [`entry::is_user_function`], which reads the same
+/// membership `Function.prototype.toString` reads to choose between
+/// `[bytecode]` and `[native code]`. Matching on that rendered text instead
+/// would be reading something a program can rewrite.
+///
+/// The conversion is `string_for_host`, which runs the `toString` — that is the
+/// point — so a `toString` that threw leaves the throw in flight and this
+/// answers nothing rather than spending it.
+fn string_text(value: u64) -> Result<String, Poisoned> {
+    if let Some(text) = entry::text_of(value) {
+        return Ok(text);
+    }
+    if !entry::with_runtime(|context| entry::is_object(context, value)) {
+        return Ok(inspect::top_level(value)?);
+    }
+    let method = entry::with_runtime(|context| entry::get_member(context, value, "toString"));
+    if !entry::is_user_function(method) {
+        return Ok(inspect::top_level(value)?);
+    }
+    match entry::string_for_host(value) {
+        Ok(Some(text)) => Ok(text),
+        // A symbol cannot be here (it is not an object) and a throw is the
+        // caller's to propagate, so both remaining cases mean "no text".
+        _ => Ok(inspect::top_level(value)?),
+    }
 }
 
-fn number_text(value: u64, round: impl Fn(f64) -> f64) -> String {
-    let number = entry::number_of(value).or_else(|| entry::text_of(value)?.trim().parse().ok());
-    match number {
-        Some(number) if number.is_finite() || number == 0.0 => text_of_number(round(number)),
-        Some(number) => text_of_number(number), // ±Infinity
-        None => "NaN".to_owned(),
+/// `%d`, `%i` and `%f` — three CONVERSIONS, and not one reading with a rounding
+/// on top.
+///
+/// Node's are `Number(arg)`, `parseInt(arg)` and `parseFloat(arg)` respectively,
+/// and the differences are the ones a program meets first: `%d` of `"0x10"` is
+/// 16 and of `""` is 0, `%d` of `4.7` is `4.7` where `%i` is `4`, and `%d` of an
+/// object runs its `valueOf`. This read the value instead — answering `NaN`
+/// unless it already WAS a number or parsed as a whole decimal literal — and
+/// truncated `%d` as well, so five of those six printed the wrong thing.
+///
+/// A bigint takes none of the three and prints its own digits; a SYMBOL prints
+/// `NaN` rather than raising, which is why it is answered before a conversion
+/// that would.
+fn number_text(verb: char, value: u64) -> String {
+    match entry::text_of(entry::type_of(value)).as_deref() {
+        Some("bigint") => return format!("{}n", entry::described(value).unwrap_or_default()),
+        Some("symbol") => return "NaN".to_owned(),
+        _ => {}
     }
+    let number = match verb {
+        'd' => entry::number_for_host(value),
+        'i' => entry::parse_int_for_host(value, 0),
+        'f' => entry::parse_float_for_host(value),
+        _ => unreachable!("filtered by the caller's verb check"),
+    };
+    entry::text_of(entry::number_to_string(number)).unwrap_or_default()
 }

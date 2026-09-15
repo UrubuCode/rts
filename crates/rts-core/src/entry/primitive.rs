@@ -171,13 +171,23 @@ pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
 /// user conversion already left a throw in flight. The three outcomes are kept
 /// distinct so a host can raise its own specification error without replacing a
 /// callback's exception.
+///
+/// # Why the conversion is lossy and the contract is not
+///
+/// `to_rust` has a SECOND reason to answer nothing — a lone surrogate — and the
+/// caller reading `Ok(None)` has only one message to print. So `btoa("\uD800")`
+/// raised "Cannot convert a Symbol value to a string" about a string, where the
+/// WHATWG answer is `InvalidCharacterError`. `to_rust_lossy` leaves `None`
+/// meaning the symbol it is documented to mean, and the surrogate arrives as
+/// `U+FFFD` — which does not change any caller's verdict, because the two agree
+/// everywhere a caller looks: both are above `U+00FF`, so `btoa` refuses either.
 pub fn string_for_host(value: u64) -> Result<Option<String>, ()> {
     let primitive = to_primitive(value, Hint::String);
     if super::throw::in_flight() {
         return Err(());
     }
     Ok(with_current(|context| {
-        super::text::to_text(context, Value(primitive)).and_then(|text| text.to_rust())
+        super::text::to_text(context, Value(primitive)).map(|text| text.to_rust_lossy())
     }))
 }
 

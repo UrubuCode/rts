@@ -669,6 +669,40 @@ pub fn number_of(value: u64) -> Option<f64> {
     Value(value).numeric()
 }
 
+/// `ToNumber(value)` — the conversion, not the reading.
+///
+/// # Why this exists beside [`number_of`]
+///
+/// Because they answer different questions and a host needs the second one.
+/// [`number_of`] READS a value that already is a number and refuses everything
+/// else; this CONVERTS, which for a string parses it, for `null` is zero, for
+/// `true` is one and for an object runs `valueOf`. `console.log("%d", "0x10")`
+/// is `16` in every runtime and was `NaN` here, because the reading is what the
+/// formatter had available.
+///
+/// A SYMBOL raises, which is the language's answer and not this function's to
+/// soften: a caller that must print something for one — `%d` prints `NaN` —
+/// asks whether the value is a symbol first, where the specification does.
+pub fn number_for_host(value: u64) -> f64 {
+    super::class_support::to_number(value)
+}
+
+/// `parseInt(value, radix)` and `parseFloat(value)`, as a host can ask them.
+///
+/// The same bodies the globals are, reached rather than rewritten: `%i` is
+/// `parseInt` in Node's own formatter and `%f` is `parseFloat`, so a second
+/// scanner here would be the place the two come to disagree about a leading
+/// sign or a hexadecimal prefix. Both run `ToString` on the argument, so both
+/// may run user code and may leave a throw in flight.
+pub fn parse_int_for_host(value: u64, radix: i64) -> f64 {
+    super::number::leading(value, move |text| super::number::integer_prefix(text, radix))
+}
+
+/// See [`parse_int_for_host`].
+pub fn parse_float_for_host(value: u64) -> f64 {
+    super::number::leading(value, super::number::float_of)
+}
+
 /// Whether a value is an array.
 ///
 /// Also reported by three modules, each having inferred it differently: one by
