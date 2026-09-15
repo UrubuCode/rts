@@ -91,10 +91,6 @@
 //! - **`TypeError` for calling either class without `new`.** `TextEncoder()`
 //!   builds an instance, the shape every host class in this workspace has while
 //!   there is nothing to throw with.
-//! - **A string holding a lone surrogate.** `Str::to_rust` answers nothing for
-//!   one rather than substituting, so `encoder.encode("\uD800")` answers an
-//!   empty `Uint8Array` where the specification's `USVString` conversion would
-//!   have produced the three bytes of `U+FFFD`.
 //! - **`TextEncoderStream`/`TextDecoderStream`.** `TransformStream`-shaped, and
 //!   documented under `node:stream/web` rather than here.
 
@@ -154,7 +150,9 @@ extern "C" fn new_encoder(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64
 extern "C" fn encode(_e: u64, _this: u64, input: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     // A primitive string already owns its code units in the runtime. Avoid
     // materialising a Rust `String` and then copying it again into the byte
-    // vector; non-string inputs retain the DOMString coercion path.
+    // vector; non-string inputs retain the USVString coercion path — which is
+    // also where a lone surrogate lands, because `utf8_bytes_if_string` refuses
+    // one and the `USVString` conversion is what turns it into `U+FFFD`.
     let bytes = entry::utf8_bytes_if_string(input).unwrap_or_else(|| {
         let text = text_argument(input).unwrap_or_default();
         entry::encode_text(&text, "utf8").unwrap_or_default()
@@ -320,7 +318,7 @@ fn text_argument(value: u64) -> Option<String> {
     let absent = entry::undefined_value();
     match value == absent {
         true => None,
-        false => entry::text_of(value),
+        false => entry::usv_text_of(value),
     }
 }
 

@@ -689,6 +689,32 @@ pub fn text_in(context: &Context, value: u64) -> Option<String> {
     super::text::to_text(context, Value(value))?.to_rust()
 }
 
+/// The same text, with every lone surrogate written as `U+FFFD`.
+///
+/// # Why this exists beside [`text_in`] instead of replacing it
+///
+/// Because WebIDL has two string types and this workspace had one conversion.
+/// A `DOMString` parameter takes the sixteen-bit units as they are — which is
+/// what [`text_in`] answers, refusing the ones Rust cannot hold — while a
+/// `USVString` parameter is DEFINED as the scalar-value conversion: `TextEncoder`,
+/// `Blob`, `URL` and `URLSearchParams` all say `USVString`, and every one of them
+/// is specified to turn an unpaired surrogate into the replacement character
+/// before it looks at a byte.
+///
+/// Answering `None` there is not the conservative choice it is for `normalize`
+/// or `RegExp`. It is a WRONG answer: `new Blob(["\uD800"]).size` was `0` where
+/// the specification says `3`, and `new URLSearchParams({a: "\uD800"})` serialised
+/// to nothing at all rather than to `a=%EF%BF%BD`. The refusal was invisible
+/// because it looked like an empty string.
+pub fn usv_text_in(context: &Context, value: u64) -> Option<String> {
+    Some(super::text::to_text(context, Value(value))?.to_rust_lossy())
+}
+
+/// [`usv_text_in`] with the borrow taken here — the `USVString` half of [`text_of`].
+pub fn usv_text_of(value: u64) -> Option<String> {
+    with_current(|context| usv_text_in(context, value))
+}
+
 /// `undefined`, from a context already in hand.
 pub fn undefined_in(context: &Context) -> u64 {
     undefined_of(context)
@@ -711,6 +737,30 @@ pub fn undefined_in(context: &Context) -> u64 {
 pub fn bytes_of(context: &Context, value: u64) -> Option<Vec<u8>> {
     let view = super::buffers::view_of(context, value)?;
     Some(super::buffers::window(context, &view)?.to_vec())
+}
+
+/// The bytes of a WebIDL `BufferSource` — a view **or** the `ArrayBuffer` itself.
+///
+/// # Why this is not [`bytes_of`] widened
+///
+/// Because "is this a view" is a question one caller asks with exactly that
+/// function: `util.types.isArrayBufferView` is `bytes_of(...).is_some()`, and
+/// `ArrayBuffer.isView(new ArrayBuffer(8))` is `false` in the language. Widening
+/// the shared one would have made it answer `true` — a wrong answer bought for
+/// a convenience, which is the trade this workspace keeps refusing.
+///
+/// So the two live side by side and each says which WebIDL type it is for. The
+/// `BufferSource` half is what `TextDecoder.decode` and a `Blob` part take:
+/// `decoder.decode(view.buffer)` answered `""` and `new Blob([buffer])` had
+/// size `0`, in both cases because the argument was the buffer rather than a
+/// window onto it.
+pub fn buffer_source_bytes(context: &Context, value: u64) -> Option<Vec<u8>> {
+    if let Some(bytes) = bytes_of(context, value) {
+        return Some(bytes);
+    }
+    // An `ArrayBuffer` cell owns its bytes and has no `View` — `Kind::Raw` is a
+    // `DataView`, not a buffer — so this is the only reading left.
+    Some(context.bytes_at(Value(value).as_slot()?)?.to_vec())
 }
 
 /// The address of a typed array's bytes, and how many there are.
@@ -1110,6 +1160,16 @@ pub fn member_names(context: &mut Context, object: u64) -> Vec<String> {
 pub fn string_in(context: &Context, value: u64) -> Option<String> {
     let slot = Value(value).as_slot()?;
     context.text_at(slot)?.to_rust()
+}
+
+/// The same test, answering the `USVString` conversion — see [`usv_text_in`].
+///
+/// The test itself is what a caller keeps: `None` still means "not a primitive
+/// string", never "a string this cannot spell", so a type-dispatching reader
+/// does not silently fall through to its next arm for a lone surrogate.
+pub fn usv_string_in(context: &Context, value: u64) -> Option<String> {
+    let slot = Value(value).as_slot()?;
+    Some(context.text_at(slot)?.to_rust_lossy())
 }
 
 /// Whether a value can be called, from a context already in hand.

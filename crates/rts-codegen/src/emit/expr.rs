@@ -1210,6 +1210,30 @@ fn emit_binary_inner(
     Ok(call(builder, ctx, runtime, &[a, b])?[0])
 }
 
+/// Whether `name = value` is the NamedEvaluation the specification describes.
+///
+/// Two conditions, and the second is about this compiler rather than about the
+/// language. The first is the language's: the right side must be an anonymous
+/// function or class written there — `stmt::anonymous_definition` is the one
+/// place that is decided.
+///
+/// The second refuses a name the COMPILER minted. Several lowerings here
+/// synthesise an assignment to a temporary and emit it back through this
+/// function — `destructure::array` writes the chosen value into
+/// `__rts_destructure_out_0_0` — and the definition on the right of one of those
+/// is the source's, already lent the name the source wrote. Naming it after the
+/// temporary is not a missed inference but a WRONG answer printed to the
+/// program: `const [c = function () {}] = []` reported
+/// `"__rts_destructure_out_0_0"` where every runtime says `"c"`.
+///
+/// The prefix is the test because it is the prefix every synthesised name in
+/// this crate already carries, and a name is text here. A program that writes
+/// `__rts_` itself loses an inferred name — it is already sharing a namespace
+/// with the temporaries, which is the older hazard of the two.
+fn lends_its_name(ctx: &Ctx, name: Name, value: &Expr) -> bool {
+    super::stmt::anonymous_definition(value) && !ctx.names.text(name).starts_with("__rts_")
+}
+
 /// Emits an assignment.
 fn emit_assign(
     builder: &mut FuncBuilder,
@@ -1276,7 +1300,37 @@ fn emit_assign(
         // Receiver first, then the value: `a().x = b()` runs `a` before `b`.
         let receiver = emit_expr(builder, scope, ctx, object)?;
         let assigned = match op {
-            AssignOp::Plain => emit_expr(builder, scope, ctx, value)?,
+            AssignOp::Plain => {
+                // A CLASS FIELD is named by its key, and it reaches this
+                // emitter as `this.k = <initialiser>` — see the define/assign
+                // note below. So the only property write NamedEvaluation
+                // touches is this one: `class C { f = () => {} }` names that
+                // arrow `f`, while a plain `o.f = () => {}` stays anonymous,
+                // because the specification attaches the rule to an identifier
+                // reference and a member expression is not one.
+                //
+                // The marker is what tells the two apart, and it is the same
+                // marker the define-versus-set decision reads — asked here as
+                // well rather than re-derived, so a field cannot be a field for
+                // one purpose and not the other.
+                let named = super::class::field_initialiser(value)
+                    .is_some_and(super::stmt::anonymous_definition);
+                match named {
+                    // Nested, and put back: this write is emitted while the
+                    // CLASS's own lent name may still be pending, and taking
+                    // that one away here is what left `const F = class { m = ()
+                    // => {} }` with an empty `F`.
+                    true => {
+                        let held = ctx.lend_name_nested(*property);
+                        let produced = emit_expr(builder, scope, ctx, value)?;
+                        ctx.restore_lent_name(held);
+                        produced
+                    }
+                    // Nothing lent, so nothing taken. An ordinary `this.x = 1`
+                    // in a constructor must leave a pending name alone.
+                    false => emit_expr(builder, scope, ctx, value)?,
+                }
+            }
             // `o.x += v` evaluates `o` once, reads the property, and only then
             // evaluates `v` — which is the order the specification gives and
             // the order a rewrite to `o.x = o.x + v` loses, by evaluating `o`
@@ -1444,6 +1498,21 @@ fn emit_assign(
     };
 
     let result = match op {
+        // NamedEvaluation reaches a plain ASSIGNMENT, not only a declaration:
+        // `let f; f = () => {}` names that arrow `f`, and the specification
+        // attaches the rule to an identifier REFERENCE on the left — which is
+        // why `o.f = () => {}` stays anonymous and is not lent anything above.
+        //
+        // This was the gap between the two spellings: `const f = () => {}` was
+        // named and the two-statement form was not, so a module that declares
+        // its exports and fills them in later had a table of functions whose
+        // `.name` was `""` — and a stack trace naming none of them.
+        AssignOp::Plain if lends_its_name(ctx, *name, value) => {
+            let held = ctx.lend_name_nested(*name);
+            let produced = emit_expr(builder, scope, ctx, value)?;
+            ctx.restore_lent_name(held);
+            produced
+        }
         AssignOp::Plain => emit_expr(builder, scope, ctx, value)?,
         AssignOp::Compound(binary) => {
             // `a += b` reads `a` once. The tree carries the operator rather
@@ -1462,7 +1531,22 @@ fn emit_assign(
         // above rather than routed here.
         AssignOp::Logical(logical) => {
             let current = super::binding::read(builder, scope, ctx, *name)?;
-            super::choice::emit_logical_from(builder, scope, ctx, logical, current, value)?
+            // The same NamedEvaluation the plain form gets: `f ??= () => {}`
+            // names the arrow `f`. Lent around the emission of the right side,
+            // which is the only thing inside the branch this builds.
+            match lends_its_name(ctx, *name, value) {
+                true => {
+                    let held = ctx.lend_name_nested(*name);
+                    let produced = super::choice::emit_logical_from(
+                        builder, scope, ctx, logical, current, value,
+                    )?;
+                    ctx.restore_lent_name(held);
+                    produced
+                }
+                false => {
+                    super::choice::emit_logical_from(builder, scope, ctx, logical, current, value)?
+                }
+            }
         }
     };
 
