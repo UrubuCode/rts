@@ -58,17 +58,27 @@ fn checkbox_e_radio_continuam_treze_por_treze_num_flex() {
 #[test]
 fn select_sem_opcoes_mede_a_largura_da_seta_do_dropdown_num_flex() {
     // 22 é a largura mais pequena que o Chrome ainda desenha para um
-    // `<select>` vazio (a seta) — medido no mesmo corpus. Só a LARGURA: a
-    // altura de um `<select>` solto (fora do stretch cruzado de um flex) é
-    // um mecanismo diferente (`bloco.rs` não roteia `select` por
-    // `layout_input`, só `input`/`textarea` — `is_text_input_tag`,
-    // `layout/pintura.rs:255`) e fica de fora deste lote — dito em
-    // "o que NÃO verifiquei" no relatório.
+    // `<select>` vazio (a seta) — medido no mesmo corpus.
     const HTML: &str = r#"<style>#f { display: flex; }</style>
 <div id="f"><select id="s"></select></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let s = rect(&dom, &list, "#s", 0);
     assert!((s.w - 22.0).abs() < 0.5, "select vazio: {:?}", s);
+}
+
+#[test]
+fn select_sem_opcoes_conserva_altura_natural_e_estica_no_flex() {
+    // Os dois rects vêm da fixture já medida no Blink. O <select> tem caixa
+    // própria, mesmo sem <option>: a altura não pode vir dos filhos vazios.
+    const HTML: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/css/claude-controlos-tamanho-natural.html"
+    ));
+    let (dom, list) = geometria(HTML, 1280.0);
+    let solto = rect(&dom, &list, "#sel", 0);
+    let flex = rect(&dom, &list, "#fsel", 0);
+    assert!((solto.w - 22.0).abs() < 0.5 && (solto.h - 19.0).abs() < 0.5, "select solto: {:?}", solto);
+    assert!((flex.w - 22.0).abs() < 0.5 && (flex.h - 36.0).abs() < 0.5, "select no flex: {:?}", flex);
 }
 
 #[test]

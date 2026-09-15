@@ -406,7 +406,6 @@ pub(in crate::layout) fn tamanho_natural_controlo(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,
-    font: f32,
     ctx: &LayoutCtx,
 ) -> Option<(f32, f32)> {
     let crate::dom::NodeKind::Element { tag } = &dom.node(id).kind else {
@@ -435,10 +434,7 @@ pub(in crate::layout) fn tamanho_natural_controlo(
         "textarea" => {
             Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).conteudo())
         }
-        // Sem `<option>` nenhum para medir (v1 não lê a lista), a caixa mais
-        // pequena que o Chrome ainda desenha é a seta do dropdown: 22×19,
-        // medido no mesmo corpus.
-        "select" => Some(conteudo_para_outer(css, font, ctx, 22.0, 19.0)),
+        "select" => Some(super::select::natural_content(css, ctx)),
         _ => None,
     }
 }

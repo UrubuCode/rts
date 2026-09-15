@@ -322,6 +322,12 @@ pub(crate) fn layout_block(
             if e_display_none(dom, id) {
                 return (0.0, 0.0);
             }
+            if tag == "select" {
+                return layout_select(
+                    id, &css, x, y, avail_w, avail_h, forced_outer_w,
+                    forced_outer_h, ctx, list,
+                );
+            }
             // `<input>`/`<textarea>` editável (mini-browser): void, sem filhos — o
             // "conteúdo" é o texto do value/placeholder + cursor. Caminho próprio,
             // fora do fluxo de bloco genérico (que desceria em filhos inexistentes).
