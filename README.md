@@ -18,6 +18,9 @@
 <!-- NODE_SUITE_BADGE_START -->
 [![Node test suite](https://img.shields.io/badge/Node%20test%20suite-52.4%25-yellow?style=flat-square)](scripts/node_tests/README.md)
 <!-- NODE_SUITE_BADGE_END -->
+<!-- TEST262_BADGE_START -->
+[![test262](https://img.shields.io/badge/test262%20(executado)-54.9%25-yellow?style=flat-square)](scripts/test262/README.md)
+<!-- TEST262_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
 [![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-98.6%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
@@ -131,6 +134,21 @@ tradução nenhuma — o arnês do test262 corre como está.
 | `built-ins/TypedArray` | **17.6%** | 12/68 |
 | `built-ins/String` | **85.0%** | 51/60 |
 | `annexB/language` | **19.5%** | 8/41 |
+
+**As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
+
+| Ficheiros | Mensagem |
+|---|---|
+| 292 | `ReferenceError: Temporal is not defined` |
+| 113 | `TypeError: (intermediate value).then is not a function` |
+| 54 | `Test262Error: Expected SameValue(«…», «…») to be true` |
+| 47 | `TypeError: Cannot read properties of undefined (reading 'return')` |
+| 35 | `Test262Error: Expected a TypeError to be thrown but no exception was thrown at all` |
+| 27 | `Test262Error: Expected a Test262Error to be thrown but no exception was thrown at all` |
+| 20 | `Test262Error: it should not get Symbol.iterator` |
+| 17 | `rts: heap exhausted — the region grew to its whole reservation of N cells and all of them are in use even afte` |
+| 17 | `Test262Error: Expected a ReferenceError to be thrown but no exception was thrown at all` |
+| 12 | `TypeError: undefined is not a function` |
 
 _SHA 90dd8d865 · amostra determinista de 1 em 20 — os mesmos ficheiros em cada corrida · 2026-09-15_
 

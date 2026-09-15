@@ -225,6 +225,32 @@ def main():
     report(rows)
 
 
+# As causas, e nao as falhas. Uma mensagem repetida 300 vezes e um nome que
+# falta, nao 300 problemas — e a tabela que diz isso e a unica parte do
+# relatorio que se usa para decidir o que fazer a seguir. O que esta lista
+# apaga da mensagem e o que varia SEM mudar a causa: o numero, o caminho do
+# ficheiro, e os valores que o `assert` interpolou.
+NOISE = [
+    (re.compile(r"«[^»]*»"), "«…»"),
+    (re.compile(r"/\S*?/[^\s'\"]*"), "<caminho>"),
+    (re.compile(r"\b\d+\b"), "N"),
+]
+
+
+def cause_of(detail):
+    """A mensagem reduzida ao que nela e a causa."""
+    d = detail
+    # A partir do nome do erro: o prefixo do processo (`rts: uncaught
+    # exception (tag 1):`) e o mesmo para tudo e nao distingue nada.
+    m = re.search(r"(Test262Error|TypeError|RangeError|SyntaxError|ReferenceError|"
+                  r"error: \w+|Error)\b.*", d)
+    if m:
+        d = m.group(0)
+    for rx, rep in NOISE:
+        d = rx.sub(rep, d)
+    return d.strip()[:110]
+
+
 def report(rows):
     by = {}
     tot = {"ok": 0, "fail": 0, "error": 0, "timeout": 0, "skipped": 0}
@@ -242,6 +268,16 @@ def report(rows):
         d = by[area]
         print("%-42s %6d %6d %6d %6d %6d  %5.1f%%" % (
             area, d["ok"], d["fail"], d["error"], d["timeout"], d["skipped"], share(d)))
+    causes = {}
+    for _, _, st, detail in rows:
+        if st in ("fail", "error") and detail:
+            causes[cause_of(detail)] = causes.get(cause_of(detail), 0) + 1
+    top = sorted(causes.items(), key=lambda kv: -kv[1])[:15]
+    if top:
+        print("\nas causas mais frequentes — uma mensagem repetida e UM defeito\n")
+        for msg, n in top:
+            print("%6d  %s" % (n, msg))
+
     den = tot["ok"] + tot["fail"] + tot["error"] + tot["timeout"]
     print("\nTOTAL %d/%d = %.1f%%  (%d skipped, fora do denominador)" % (
         tot["ok"], den, share(tot), tot["skipped"]))
@@ -254,14 +290,15 @@ def report(rows):
         "denominator": den,
         "share": round(share(tot), 2),
         "by_area": by,
+        "causes": [{"n": n, "message": m} for m, n in top],
     }, indent=2), encoding="utf-8")
     print("relatório: %s\nlinhas:    %s" % (REPORT, ROWS))
 
     if os.environ.get("UPDATE_README") == "1":
-        update_readme(tot, den, share(tot), by)
+        update_readme(tot, den, share(tot), by, top)
 
 
-def update_readme(tot, den, pct, by):
+def update_readme(tot, den, pct, by, causes):
     """Reescreve o bloco do README em vez de o deixar escrever à mão.
 
     A régua cross-runtime já pagou o preço da alternativa: uma cópia do número
@@ -276,6 +313,7 @@ def update_readme(tot, den, pct, by):
             a, 100.0 * d["ok"] / max(1, sum(d.values()) - d["skipped"]),
             d["ok"], sum(d.values()) - d["skipped"])
         for a, d in top)
+    causerows = "\n".join("| %d | `%s` |" % (n, m.replace("|", "\\|")) for m, n in causes[:10])
     sha = (SUITE.parent / "SHA").read_text().strip()[:9] if (SUITE.parent / "SHA").exists() else "?"
     amostra = "corpus inteiro" if STRIDE == 1 else (
         "amostra determinista de 1 em %d — os mesmos ficheiros em cada corrida" % STRIDE)
@@ -306,17 +344,43 @@ tradução nenhuma — o arnês do test262 corre como está.
 |---|---|---|
 %s
 
+**As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
+
+| Ficheiros | Mensagem |
+|---|---|
+%s
+
 _SHA %s · %s · %s_
 
 <!-- TEST262_STATS_END -->""" % (
         bar, pct, tot["ok"], den, pct, tot["ok"], den,
         tot["ok"], tot["fail"], tot["error"], tot["timeout"], tot["skipped"],
-        rows, sha, amostra, __import__("datetime").date.today().isoformat())
+        rows, causerows, sha, amostra, __import__("datetime").date.today().isoformat())
+
+    # A cor sai de um NÚMERO e nunca da percentagem já formatada: `"5.0" >= 95`
+    # compara com coerção, e sairia certa por acidente. A régua do Node tem a
+    # mesma nota, pela mesma razão.
+    color = ("red" if pct < 30 else "orange" if pct < 50 else "yellow" if pct < 70
+             else "yellowgreen" if pct < 85 else "green" if pct < 95 else "brightgreen")
+    badge = ("<!-- TEST262_BADGE_START -->\n"
+             "[![test262](https://img.shields.io/badge/test262%%20(executado)-%.1f%%25-%s"
+             "?style=flat-square)](scripts/test262/README.md)\n"
+             "<!-- TEST262_BADGE_END -->" % (pct, color))
 
     readme = ROOT / "README.md"
     txt = readme.read_text(encoding="utf-8")
     if "<!-- TEST262_STATS_START -->" not in txt:
         sys.exit("README.md não tem os marcadores TEST262_STATS")
+
+    # Recusar um zero é a guarda que o badge de paridade aprendeu à sua custa:
+    # um 0% quase nunca é o motor, é o instrumento — uma lib a faltar no runner
+    # e os 48 000 ficheiros falham por igual. Publicá-lo apagaria o último
+    # número verdadeiro.
+    if tot["ok"] == 0:
+        sys.exit("recusado: ok=0 — o instrumento, não o motor. O README fica como estava")
+
+    txt = re.sub(r"<!-- TEST262_BADGE_START -->.*?<!-- TEST262_BADGE_END -->",
+                 lambda _: badge, txt, flags=re.S)
     txt = re.sub(r"<!-- TEST262_STATS_START -->.*?<!-- TEST262_STATS_END -->",
                  lambda _: block, txt, flags=re.S)
     readme.write_text(txt, encoding="utf-8")

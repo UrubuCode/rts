@@ -88,6 +88,25 @@ Existe porque a corrida completa são ~48 000 ficheiros a compilar um de cada
 vez. `STRIDE` serve para ver a agulha mexer numa sessão; o número que se cita
 sai da corrida completa, em CI.
 
+## Em CI
+
+`.github/workflows/test262.yml`, chamado pelo `build-artifacts.yml` no
+`schedule` semanal — não em cada push, pela mesma razão que a régua do Node:
+~48 000 ficheiros, um processo cada, e a percentagem move-se em semanas e não em
+commits. Corre com `STRIDE=1`, portanto o número do README vem do **corpus
+inteiro**; a amostra é para a sessão de quem está a trabalhar.
+
+Como as outras três, **reporta e não bloqueia** (`continue-on-error`). E como as
+outras, o bloco do README é reescrito pelo `UPDATE_README=1` do próprio
+`run.py` — não há um segundo renderizador no workflow, porque seria uma segunda
+resposta à mesma pergunta.
+
+Duas guardas antes de qualquer número ser publicado: o binário tem de arrancar
+(`1+2` a dar `3`), e o checkout tem de trazer mais de 45 000 ficheiros. As duas
+existem porque um 0% quase nunca é o motor — é o instrumento — e publicá-lo
+apagaria o último número verdadeiro. O `run.py` recusa-se a escrever no README
+com `ok == 0` pela mesma razão.
+
 ## Comparar duas árvores
 
 Como em todo o resto deste repositório: **por ficheiro, nunca líquido.**
