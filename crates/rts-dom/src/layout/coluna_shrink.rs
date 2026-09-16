@@ -126,7 +126,7 @@ pub(in crate::layout) fn min_main_auto(
 /// WPT, do fix de CDATA: dois nós assim ladeando o filho real inflavam o
 /// piso de 100 para 200, igualando o `natural_h` do item — `natural_h.min
 /// (conteudo)` deixava de clampar nada).
-fn altura_conteudo_sem_height(
+pub(in crate::layout) fn altura_conteudo_sem_height(
     dom: &Dom,
     id: NodeIdx,
     ccss: &ComputedStyle,
@@ -185,7 +185,8 @@ pub(in crate::layout) fn shrink(bases: &[f32], shrinks: &[f32], mins: &[f32], fr
         return main;
     }
     let mut frozen = vec![false; n];
-    let mut deficit = free_pre; // negativo
+    let sum_shrink: f32 = shrinks.iter().sum();
+    let mut deficit = if sum_shrink < 1.0 { free_pre * sum_shrink } else { free_pre };
     loop {
         let weighted: f32 = (0..n)
             .filter(|&i| !frozen[i])

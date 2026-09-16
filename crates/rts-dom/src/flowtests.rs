@@ -88,12 +88,13 @@ fn o_grow_reparte_a_sobra_na_proporcao_dos_pesos() {
     // comportamento errado que esta asserção fixava, `a < 1.0`). `a` fica no
     // min-content da sua letra, bem abaixo do que um grow lhe daria — o
     // ponto do teste continua de pé: `b`, o único com peso, leva a sobra
-    // TODA (300), não uma fracção proporcional às larguras.
+    // TODA depois de descontar o mínimo de `a`. Medido no Edge 153:
+    // a=7.11, b=292.89; com o medidor aproximado a letra muda, a soma não.
     assert!(
         a > 0.0 && a < 20.0,
         "`a` fica no seu min-content (nem 0, nem crescido): {a}"
     );
-    assert!((b - 300.0).abs() < 0.5, "`b` devia levar a sobra toda: {b}");
+    assert!((a + b - 300.0).abs() < 0.5, "`b` devia levar a sobra após `a`: a={a}, b={b}");
 }
 
 /// Com bases zeradas e pesos 1 e 2, a sobra reparte-se em 1/3 e 2/3.

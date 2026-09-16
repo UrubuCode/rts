@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- Partial growth must leave space for alignment, including wrapped columns.
+     A capped item must return its unused growth to the remaining items. -->
+<style>
+body { margin: 0; }
+.row { display: flex; width: 200px; height: 20px; justify-content: center; }
+.column { display: flex; flex-direction: column; width: 20px; height: 200px; justify-content: center; }
+.partial > div { flex: .25 0 20px; width: 20px; height: 20px; }
+</style>
+<div class="row partial"><div id="r1"></div><div id="r2"></div></div>
+<div class="column partial"><div id="c1"></div><div id="c2"></div></div>
+<div class="column partial" style="flex-wrap:wrap"><div id="w1"></div><div id="w2"></div></div>
+<div class="row"><div id="cap" style="flex:1 0 0px;max-width:0"></div><div id="rest" style="flex:1 0 0px"></div></div>
+<div class="row"><div id="cap2" style="flex:.5 0 0px;max-width:20px"></div><div id="rest2" style="flex:.25 0 0px"></div></div>
+<!-- Reproduce the existing flow test: a non-growing item's minimum still
+     consumes space before the growing sibling gets the remainder. -->
+<div style="display:flex;width:300px"><div id="minimum" style="flex-basis:0">a</div><div id="remaining" style="flex-basis:0;flex-grow:2">b</div></div>
+<div style="display:flex;width:50px"><div id="shrink1" style="flex-shrink:.9;width:550px"></div></div>
+<div style="display:flex;width:50px"><div id="shrink2a" style="flex-shrink:.25;width:75px"></div><div id="shrink2b" style="flex-shrink:.25;width:75px"></div></div>
+<div style="display:flex;width:100px"><div id="infinite" style="flex:calc(infinity) 0 0px"></div><div id="finite" style="flex:1 0 0px"></div></div>
+<div style="display:flex;flex-direction:column;width:100px"><div id="indefinite-basis" style="flex:0 0 0%;height:500px"><div style="height:100px"></div></div></div>

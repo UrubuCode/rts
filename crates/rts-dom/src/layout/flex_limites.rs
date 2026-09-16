@@ -159,13 +159,47 @@ pub(in crate::layout) fn resolve_grow_encolhe(
     let free_pre = content_w - sum_base - total_gap;
     let sum_grow: f32 = line.iter().map(|it| it.grow).sum();
     if free_pre > 0.0 && sum_grow > 0.0 {
-        // O tecto (`max_main`) e o piso entram os dois em
-        // `com_limites_finais`, chamada pelo caller para TODO item — inclui
-        // o que nem cresce nem encolhe (`sum_grow==0`), que antes deste lote
-        // saía sem tecto nenhum quando a base deixou de vir pré-capada no
-        // construtor do item (`flex.rs`).
-        for it in line.iter_mut() {
-            it.main = it.base + free_pre * it.grow / sum_grow;
+        // Frozen items contribute their final size to the next round (§9.7).
+        // Clamping only after distribution strands the space freed by max-width.
+        let mut frozen: Vec<bool> = line.iter_mut().map(|it| {
+            let hypothetical = com_limites_finais(it.base, it.min_main, it.max_main, None);
+            let freeze = it.grow == 0.0 || it.base > hypothetical;
+            if freeze { it.main = hypothetical; }
+            freeze
+        }).collect();
+        let initial_free = content_w - total_gap - line.iter().zip(&frozen)
+            .map(|(it, &f)| if f { it.main } else { it.base }).sum::<f32>();
+        loop {
+            let infinite = line.iter().zip(&frozen)
+                .filter(|(it, f)| !**f && it.grow.is_infinite())
+                .count();
+            let grow: f32 = line.iter().zip(&frozen)
+                .filter(|(_, f)| !**f).map(|(it, _)| it.grow).sum();
+            if grow <= 0.0 && infinite == 0 { break; }
+            let mut free = content_w - total_gap - line.iter().zip(&frozen)
+                .map(|(it, &f)| if f { it.main } else { it.base }).sum::<f32>();
+            if infinite == 0 && grow < 1.0 && (initial_free * grow).abs() < free.abs() {
+                free = initial_free * grow;
+            }
+            let mut violations = vec![0.0; line.len()];
+            for ((it, &f), violation) in line.iter_mut().zip(&frozen).zip(&mut violations) {
+                if f { continue; }
+                let share = if infinite > 0 {
+                    if it.grow.is_infinite() { 1.0 / infinite as f32 } else { 0.0 }
+                } else {
+                    it.grow / grow
+                };
+                let proposed = it.base + free * share;
+                it.main = com_limites_finais(proposed, it.min_main, it.max_main, None);
+                *violation = it.main - proposed;
+            }
+            let total: f32 = violations.iter().sum();
+            if total == 0.0 { break; }
+            for (f, violation) in frozen.iter_mut().zip(violations) {
+                if (total > 0.0 && violation > 0.0) || (total < 0.0 && violation < 0.0) {
+                    *f = true;
+                }
+            }
         }
     } else if free_pre < 0.0 {
         // A cada iteração repartimos o défice pelos itens ainda LIVRES
@@ -182,7 +216,10 @@ pub(in crate::layout) fn resolve_grow_encolhe(
         // de congelar em 100).
         let n = line.len();
         let mut frozen = vec![false; n];
-        let mut deficit = free_pre; // negativo
+        // Como no grow, uma soma de fatores menor que 1 só consome essa
+        // fração do espaço livre inicial (Flexbox §9.7).
+        let sum_shrink: f32 = line.iter().map(|it| it.shrink).sum();
+        let mut deficit = if sum_shrink < 1.0 { free_pre * sum_shrink } else { free_pre };
         loop {
             let weighted: f32 = line
                 .iter()
@@ -254,9 +291,8 @@ pub(in crate::layout) fn resolve_grow_encolhe(
 /// se aplica para esse caso (`claude-flex-base-size-max-width`). O piso
 /// (`min_main`) já vivia aqui antes: um item `flex-grow:0` congela direto na
 /// sua base sem nunca entrar no laço de grow/shrink, e o piso tem de valer
-/// lá também. Sem redistribuir pelos outros itens o que o piso/tecto consome
-/// aqui — o mesmo corte já aceite para o `max_main` do grow (`flex.rs`); o
-/// encolhimento redistribui de verdade, no próprio laço. `grid_cols` fica de
+/// lá também. Grow e shrink redistribuem no próprio laço; este clamp também
+/// cobre itens que não participaram da distribuição. `grid_cols` fica de
 /// fora: uma coluna de grid tem largura FIXA por desenho (a base já veio
 /// zerada de grow/shrink em `flex.rs`), não pelo conteúdo.
 pub(in crate::layout) fn com_limites_finais(

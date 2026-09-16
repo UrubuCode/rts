@@ -188,9 +188,23 @@ pub(in crate::layout) fn layout_children_column(
             viewport_h: ctx.viewport_h,
         };
         let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
+        // Uma percentagem de flex-basis num container de altura indefinida
+        // vira `content`, não usa o `height` declarado do próprio item.
+        // `measure_block` acima preserva esse height para a geometria normal;
+        // a base flex precisa da contribuição intrínseca dos filhos.
+        let base_natural_h = if matches!(ccss.flex_basis, Some(crate::style::Dimension::Percent(_)))
+            && container_content_h.is_none()
+        {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
+            super::coluna_shrink::altura_conteudo_sem_height(
+                dom, child, &ccss, content_w, child_font, ctx,
+            ) + bt + bb + ccss.padding.resolve_v(&resolve_filho) + ccss.margin.resolve_v(&resolve_filho)
+        } else {
+            natural_h
+        };
         let h = super::coluna_shrink::base_outer(
             &ccss,
-            natural_h,
+            base_natural_h,
             container_content_h,
             content_w,
             child_font,
@@ -236,15 +250,15 @@ pub(in crate::layout) fn layout_children_column(
         .unwrap_or(0.0);
     // FLEX-GROW no eixo principal (css-flexbox §9.7): quando há espaço livre
     // positivo e algum item tem flex-grow, cada um cresce em proporção
-    // `grow / soma_dos_grows * free` — dando ALTURA aos containers que os filhos
-    // com `height:100%` resolvem (o logo/caixa do google centram assim). Consome
-    // o `free` (o justify/margin-auto abaixo vê 0). margin:auto tem prioridade.
+    // `grow / max(1, soma_dos_grows) * free`. A fração não consumida fica
+    // disponível para o alinhamento; os filhos resolvem height:100% depois.
     let sum_grow: f32 = items.iter().map(|it| it.grow).sum();
     let any_auto = items.iter().any(|it| it.mt_auto || it.mb_auto);
     if free > 0.0 && sum_grow > 0.0 && !any_auto {
         for it in &mut items {
             if it.grow > 0.0 {
-                it.h += it.grow / sum_grow * free;
+                // Soma abaixo de 1 deixa espaço para justify-content (§9.7).
+                it.h += it.grow / sum_grow.max(1.0) * free;
             }
         }
     } else if free < 0.0 {

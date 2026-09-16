@@ -15,6 +15,13 @@ fn parses_typography() {
 }
 
 #[test]
+fn parses_infinite_flex_factor_from_calc() {
+    let css = parse_inline("flex:calc(infinity) 0 0px");
+    assert!(css.flex_grow.is_some_and(f32::is_infinite));
+    assert_eq!(css.flex_shrink, Some(0.0));
+}
+
+#[test]
 fn parses_z_index() {
     assert_eq!(parse_inline("z-index: 10").z_index, Some(10));
     assert_eq!(parse_inline("z-index: -1").z_index, Some(-1));

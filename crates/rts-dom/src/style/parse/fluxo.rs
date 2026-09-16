@@ -42,8 +42,8 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             }
         }
         "order" => css.order = val.trim().parse::<i32>().ok(),
-        "flex-grow" => css.flex_grow = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
-        "flex-shrink" => css.flex_shrink = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
+        "flex-grow" => css.flex_grow = parse_flex_factor(val),
+        "flex-shrink" => css.flex_shrink = parse_flex_factor(val),
         "flex-basis" => set_if(&mut css.flex_basis, parse_flex_basis(val)),
         // shorthand `flex`: none | auto | <grow> [<shrink>] [<basis>] — o
         // `.col` do Bootstrap é `flex: 1 0 0%`.
@@ -180,7 +180,7 @@ fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
     let mut basis: Option<Dimension> = None;
     for t in &toks {
         if basis.is_none() && nums.len() < 2 {
-            if let Ok(n) = t.parse::<f32>() {
+            if let Some(n) = parse_flex_factor(t) {
                 nums.push(n.max(0.0));
                 continue;
             }
@@ -205,5 +205,15 @@ fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
             // UM número sem basis → basis 0% (spec); com basis explícita, usa-a.
             set_if(&mut css.flex_basis, Some(b.unwrap_or(Dimension::Percent(0.0))));
         }
+    }
+}
+
+/// Flex factors are `<number>` values, so `calc(infinity)` is valid and has
+/// a distinct meaning during flexible-length resolution.
+fn parse_flex_factor(val: &str) -> Option<f32> {
+    if val.trim().eq_ignore_ascii_case("calc(infinity)") {
+        Some(f32::INFINITY)
+    } else {
+        val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0)
     }
 }

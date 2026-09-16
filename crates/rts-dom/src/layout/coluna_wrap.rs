@@ -300,7 +300,8 @@ pub(in crate::layout) fn layout_children_column_wrap(
         if free > 0.0 && sum_grow > 0.0 {
             for it in col.iter_mut() {
                 if it.grow > 0.0 {
-                    it.main += it.grow / sum_grow * free;
+                    // Como na linha simples, fatores abaixo de 1 não preenchem tudo.
+                    it.main += it.grow / sum_grow.max(1.0) * free;
                 }
             }
         } else if free < 0.0 {
