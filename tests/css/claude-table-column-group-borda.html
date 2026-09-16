@@ -1,0 +1,67 @@
+<!-- Causa isolada (lote gémeo do fundo): `display: table-column`/
+     `table-column-group` não geram caixa (CSS 2.1 §17.2.1), e por isso a
+     BORDA que declaram nunca era pintada — mesmo com `border-collapse:
+     collapse`, onde a spec (§17.4) manda que ela conte. 28 reftests do WPT
+     confirmados por nome/assert (`border(-top|-right|-bottom|-left)?
+     (-color|-width)?-applies-to-005/-006`, todos com `border-collapse:
+     collapse` e SEM outra borda a competir) esperavam um quadrado oco
+     verde/preto e recebiam a tela em branco.
+
+     Corrigido em `table/mod.rs`: depois de todas as linhas resolvidas
+     (`row_y`/`alturas` completos), um retângulo por intervalo de coluna de
+     `g.col_bg` — largura do intervalo, altura da TABELA INTEIRA (o espelho
+     por eixo do que um grupo de LINHAS já faz com a largura) — pintado com
+     `border_items`, a MESMA função que pinta a borda de qualquer caixa.
+     `pinta_borda_de_coluna` só corre com `border-collapse:collapse` no
+     `<table>`: sem colapso a spec manda ignorar a borda, e é esse o
+     comportamento que já havia (nenhuma mudança lá).
+
+     CORTE dito (dentro do código, `pinta_borda_de_coluna`): isto NÃO é o
+     algoritmo de conflito de bordas da spec — não funde com uma borda de
+     célula ou de `<tr>` adjacente competindo pela mesma aresta, só desenha o
+     retângulo do PRÓPRIO grupo/coluna. Nenhum dos 28 fixtures confirmados
+     expõe a diferença (só o `#test` declara `border` em todos eles).
+
+     ESTA FIXTURE NÃO PROVA A PINTURA nem a GEOMETRIA — a correção não muda
+     nenhum retângulo do documento (só acrescenta itens de pintura), e
+     `border-top-width`/`border-color` computados de `#grupo`/`#col2` já
+     resolviam certo ANTES da correção, pela mesma razão do lote do fundo:
+     declarar uma propriedade sempre resolve o VALOR dela, haja ou não caixa.
+     O que prova a correção é o reftest WPT (comparação de pixels); esta
+     fixture só fixa que a leitura de `table-column`/`table-column-group`
+     (o `display`, o `border-collapse` do pai) e a geometria das células não
+     regridem no futuro. -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="fixar-estilo-em" content="grupo,col2,celula-a">
+<meta name="fixar-estilo" content="border-top-width,border-top-style,border-top-color,display">
+<style>
+  body { margin: 0; }
+  #tabela {
+    display: table;
+    table-layout: fixed;
+    border-collapse: collapse;
+    width: 200px;
+  }
+  #grupo { display: table-column-group; border: 4px solid green; }
+  .col { display: table-column; }
+  #col2 { border-color: rgb(0, 0, 255); }
+  .linha { display: table-row; }
+  .celula { display: table-cell; height: 50px; width: 100px; }
+</style></head>
+<body>
+  <div id="tabela">
+    <div id="grupo">
+      <div class="col" id="col1"></div>
+      <div class="col" id="col2"></div>
+    </div>
+    <div class="linha">
+      <div class="celula" id="celula-a">a</div><div class="celula" id="celula-b">b</div>
+    </div>
+    <div class="linha">
+      <div class="celula">c</div><div class="celula">d</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -77,6 +77,17 @@ pub(crate) fn replaced_inline_size(
     id: NodeIdx,
     css: &ComputedStyle,
     avail_w: f32,
+    // Altura de CONTEÚDO do containing block, só quando EXPLÍCITA (CSS 2.1
+    // §10.5) — `None` quando a altura do pai é `auto` (a maioria dos
+    // chamadores, incluindo QUALQUER medição de min-/max-content: uma
+    // percentagem aí fica indefinida por definição, não por falta de dado).
+    // Só dois chamadores SABEM que é explícita e podem passar `Some`:
+    // `layout_inline_flow`/`collect_runs`, cujo próprio `avail_h` já carrega
+    // essa garantia (ver o comentário de `vertical.rs`). Um `Some` vindo de
+    // um contexto que só empresta "espaço disponível para medir" (um piso de
+    // `min-height` de flex/grid, por exemplo) reintroduziria o defeito que
+    // este parâmetro resolve, ao contrário: uma altura que não é a do CSS.
+    avail_h: Option<f32>,
     forced: (Option<f32>, Option<f32>),
     ctx: &LayoutCtx,
 ) -> Option<(f32, f32)> {
@@ -151,24 +162,21 @@ pub(crate) fn replaced_inline_size(
         Some(d) => d.resolve(&resolve),
         None => attr_px(attr),
     };
-    // ALTURA declarada em PERCENTAGEM: esta função não recebe `avail_h` —
-    // nenhum dos seis chamadores (bloco.rs, linha.rs, medida.rs, este
-    // ficheiro, runs.rs, table/widths) o passa — e `Dimension::resolve` usa
-    // `ctx.parent_content_w` como base de QUALQUER percentagem, `Percent`
+    // ALTURA declarada em PERCENTAGEM: `Dimension::resolve` usa
+    // `resolve.parent_content_w` como base de QUALQUER percentagem, `Percent`
     // incluído. Para `width` isso é a base certa (§10.2); para `height` é a
-    // LARGURA do containing block, não a altura, e nunca a base certa. Um
-    // `<img height:100%>` dentro de um `<div>` de altura auto virava um
-    // retângulo do tamanho da LARGURA do pai em vez do quadrado natural
-    // (`height-percentage-005`, WPT: 96×96 esperado, saía ~1230×739).
-    //
-    // CSS 2.1 §10.5: sem uma altura de containing block CONHECIDA a
-    // percentagem computa a `auto` — e é exactamente o caso aqui, porque a
-    // função não tem essa informação. Threading de `avail_h` por seis
-    // chamadores fica para quando um caso legítimo (CB de altura definida)
-    // precisar dele; até lá, tratar como o pedido não declarasse altura
-    // nenhuma é estritamente melhor do que herdar a largura por engano.
+    // LARGURA do containing block, não a altura — por isso um `ResolveCtx`
+    // À PARTE, com `parent_content_w` trocado por `avail_h`, e não o mesmo
+    // `resolve` de sempre. Um `<img height:100%>` dentro de um `<div>` de
+    // altura auto virava um retângulo do tamanho da LARGURA do pai em vez do
+    // quadrado natural (`height-percentage-005`, WPT: 96×96 esperado, saía
+    // ~1230×739) — e é exactamente o caso que `avail_h.is_none()` continua a
+    // tratar como `auto`, CSS 2.1 §10.5: sem uma altura de containing block
+    // CONHECIDA a percentagem computa a `auto`.
+    let resolve_h = ResolveCtx { parent_content_w: avail_h.unwrap_or(0.0), ..resolve };
     let declarado_altura = |d: Option<crate::style::Dimension>, attr: &str| match d {
-        Some(crate::style::Dimension::Percent(_)) => None,
+        Some(crate::style::Dimension::Percent(_)) if avail_h.is_none() => None,
+        Some(d @ crate::style::Dimension::Percent(_)) => d.resolve(&resolve_h),
         d => declarado(d, attr),
     };
     // O flex vence o CSS do mesmo jeito que já vence num bloco comum — é

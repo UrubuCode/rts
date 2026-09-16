@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa: `open-quote`/`close-quote` lendo `quotes` (causa da maior família de
+     falhas WPT CSS2/generated-content — quotes-001/quotes-035/
+     quotes-applies-to-*, triados em 2026-09-16). Antes desta correção
+     `content: open-quote`/`close-quote` era recusado no parse e a declaração
+     inteira caía, então `#alvo` só continha o "x" — sem as aspas o `<span>`
+     mede mais estreito do que com elas. A régua é a LARGURA do `#alvo`
+     (cresce com o texto gerado), não um `id` no `::before`, que não existe. -->
+<html>
+<head><style>
+  body { margin: 0; font: 16px/1 monospace; white-space: nowrap; }
+  #alvo {
+    quotes: "\201C" "\201D";
+  }
+  #alvo::before { content: open-quote; }
+  #alvo::after { content: close-quote; }
+</style></head>
+<body>
+  <span id="alvo">x</span>
+</body>
+</html>

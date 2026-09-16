@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- CSS 2.1 9.5.2: `clear` só se aplica a caixas de nível BLOCO. Reduzido do
+     WPT `floats-clear/clear-applies-to-007.xht` (display:table-cell) e
+     `clear-applies-to-012.xht` (display:inline-block): o motor aplica `clear`
+     olhando só para a propriedade computada, sem perguntar se o `display`
+     efetivo da caixa é de nível bloco — então um `<div>` com
+     `display:table-cell;clear:left` desce abaixo do float como se fosse um
+     bloco normal, quando devia ficar EXATAMENTE onde ficaria sem o `clear`
+     (sobreposto à faixa do float, já que não é nível bloco e portanto não
+     desvia dele). #celula e #inlineb têm de ficar no y do float (0), não
+     abaixo do seu fundo (60). -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #flutua { float: left; width: 100px; height: 60px; background: red; }
+  #celula { display: table-cell; clear: left; width: 40px; height: 20px; background: green; }
+  #inlineb { display: inline-block; clear: left; width: 40px; height: 20px; background: blue; }
+</style></head>
+<body>
+  <div id="flutua"></div>
+  <div id="celula"></div>
+  <div id="inlineb"></div>
+</body>
+</html>

@@ -19,8 +19,12 @@
  * pior que não a declarar, porque parece coberta e não está.
  *
  * FICOU DE FORA, e porquê:
- *  - `quotes`, `unicode-bidi`, `direction` — sem suporte de bidi no motor
- *    (docs/ui/html-engine/PLAN.md §5.T).
+ *  - `unicode-bidi`, `direction` — sem suporte de bidi no motor
+ *    (docs/ui/html-engine/PLAN.md §5.T). `quotes` não é sobre bidi e já lê
+ *    (2026-09-16, `crate::quotes`); fica fora da UA por não ter um valor por
+ *    omissão VERDADEIRO — os pares tipográficos por omissão do browser
+ *    dependem do idioma (`:lang()`), que esta folha ainda não expressa; até
+ *    lá, `crate::quotes::default_pares` cobre o caso sem `quotes` nenhum.
  *  - `appearance`/skin nativa de controlos — o `replaced.rs` já desenha
  *    input/button/select/textarea com a sua própria forma; não há uma
  *    propriedade CSS que o motor leia para isso.
@@ -121,7 +125,22 @@ tr { display: table-row; }
 td, th { display: table-cell; padding: 1px; }
 th { font-weight: bold; text-align: center; }
 caption { display: table-caption; }
-col, colgroup { display: none; }
+/* `table-column`/`table-column-group`, não `none`: as duas resolvem para a
+ * MESMA caixa nenhuma no layout (`style/parse/mod.rs` mapeia os dois
+ * keywords para `DisplayKind::None`), mas só a palavra CERTA passa pelos
+ * campos que a distinguem de um `display:none` de verdade
+ * (`table_column`/`table_column_group`, em `style/parse/fluxo.rs`) — os que
+ * `table/grid.rs` lê para pintar o fundo/borda da coluna atrás das células
+ * (CSS 2.1 §17.5.1/§17.4) e que `style/props/metodos.rs::effective_display`
+ * lê para a blockificar quando flutua. Com `none` aqui, um `<col>`/
+ * `<colgroup>` NATIVO (sem o autor reescrever o óbvio em CSS) nunca batia
+ * nenhum dos dois campos — só um `<div style="display:table-column">`
+ * escrito à mão passava. Achado pela referência WPT
+ * `no_red_3x3_monospace_colored_table-ref.xht`, que usa `<col>`/`<colgroup>`
+ * a sério: pintava 0 itens onde a versão com `<span style="display:...">`
+ * (`table-anonymous-objects-093`) já pintava 9. */
+col { display: table-column; }
+colgroup { display: table-column-group; }
 li { display: list-item; }
 
 /* Controlos de formulário — fonte própria (13.3333px), não a do documento;

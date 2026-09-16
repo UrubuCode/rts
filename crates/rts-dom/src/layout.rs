@@ -67,7 +67,9 @@ mod posicao_estatica;
 mod posicionado;
 mod pseudo_bloco;
 mod relativo;
-mod fundo_imagem;
+// `pub(crate)`, não `mod`: `crate::table` chama `background_pixels_items`
+// para o fundo de imagem de uma coluna de tabela (`table/mod.rs::emite_fundo_simples`).
+pub(crate) mod fundo_imagem;
 mod replaced;
 mod replaced_transferido;
 mod bloco;

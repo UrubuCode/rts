@@ -13,9 +13,27 @@ use crate::style::VerticalAlign;
 /// `sub`/`super`/`middle` escalam, e o que `text-top`/`text-bottom` pedem ao
 /// medidor.
 /// A distância do topo de um inline-block à sua BASELINE: com conteúdo, a da
-/// primeira linha dele (borda + padding + meia-entrelinha + ascent da fonte
-/// dele — a última linha, que a spec pede, é a mesma num item de uma linha, o
-/// caso de um botão); vazio, o fundo da margem (a altura toda).
+/// ÚLTIMA linha dele (CSS 2.1 §10.8.1) — a fórmula de UMA linha (borda +
+/// padding + meia-entrelinha + ascent da fonte) mais `lh` por cada linha
+/// INTEIRA antes da última. Vazio, o fundo da margem (a altura toda).
+///
+/// **Não** "do fundo da caixa para cima" — essa foi a primeira versão desta
+/// função, revertida por regredir 4 fixtures do corpus (`claude-letter-
+/// spacing`, `claude-borda-por-lado-intrinseca`, `claude-ua-form-disabled`,
+/// `claude-controlos-tamanho-natural`) por um deslocamento de `0,0875 ×
+/// font-size` (1,4px a 16px) em TODO item de uma linha. A causa: essa versão
+/// provava por identidade algébrica que `bt+pt+halfL+ascent ==
+/// h-(bb+pb+halfL+descent)`, o que só é verdade se `ascent+descent ==
+/// conteudo` (a "content area"/`normal` que fecha `halfL`) — e neste motor
+/// NÃO é: `ASCENT_RATIO+DESCENT_RATIO = 1,2125` (`style::text_metrics`,
+/// calibrado no modelo de `vertical-align`) contra `line_height`'s `1,125`
+/// (`medidor_texto.rs`, calibrado à parte contra a fonte padrão do Chrome).
+/// Duas constantes com a MESMA forma mas calibradas para perguntas
+/// diferentes não são o mesmo número só porque a álgebra pede que sejam.
+/// Por isso esta versão em vez disso ESTENDE a fórmula de uma linha (que já
+/// estava certa, calibrada no corpus) somando `lh` por linha extra, e reduz a
+/// ELA EXATAMENTE quando há uma só linha — zero regressão possível por
+/// construção, não por prova.
 ///
 /// `pub(in crate::layout)`, não privado: `flex_baseline.rs` reusa esta MESMA
 /// distância (do topo da BORDER-BOX à baseline) para o grupo
@@ -64,12 +82,60 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let [bt, ..] = crate::style::borders::used_widths(&css);
+    let [bt, _, bb, _] = crate::style::borders::used_widths(&css);
     let pt = css.padding.top.resolve(&rc).unwrap_or(0.0);
+    let pb = css.padding.bottom.resolve(&rc).unwrap_or(0.0);
     let lh = crate::inline_box::altura_da_linha(&css, font, ctx.measurer);
     let conteudo = crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
     let ascent = ctx.measurer.font_ascent_family(font, css.font_family.as_deref());
-    (bt + pt + (lh - conteudo) / 2.0 + ascent).min(h)
+    // Quantas linhas o conteúdo tem: a caixa cresce por linha INTEIRA (`lh`)
+    // a partir da primeira — o mesmo `lh` que `measure_block` empilhou para
+    // chegar a `h`. A pergunta que isto faz não é "quantas linhas cabem
+    // nesta altura" — essa conta qualquer altura como linhas, mesmo quando
+    // não veio de nenhuma — é "quantas linhas é que este item de facto
+    // produziu", e há dois sinais baratos de que a resposta NÃO é a divisão:
+    //
+    // 1. `height` DECLARADO (`css.height.is_some()`): `h` vem do autor, não
+    //    de linhas empilhadas. `#i3` de `claude-flex-align-baseline`
+    //    (`height:40px`, uma linha de texto só, 20px de espaço vazio por
+    //    baixo) contava 2 linhas e destacava o seu ascent 20px acima dos
+    //    irmãos SEM `height`, arrastando o grupo `align-items:baseline`
+    //    inteiro; `#encolhe` de `claude-largura-auto` (`height:30px`, sem
+    //    `line-height` declarado) contava 2 por uma FRAÇÃO (30/18≈1,67
+    //    arredonda para 2), somando meia linha à altura do contentor.
+    // 2. Algum FILHO de nível bloco (`is_block_level`): `h` vem da pilha
+    //    desses filhos, não de texto que quebrou. `width-applies-to-012` do
+    //    WPT (`CSS2/normal-flow`) tem um `inline-block` com dois `<span
+    //    display:block>` de meia polegada cada — 96px de altura, zero linhas
+    //    de texto — e a divisão por `lh≈18` dava 5,33→5, quatro linhas
+    //    inventadas que só não explodiam a caixa por causa do `.min(h)`.
+    //
+    // Com qualquer um dos dois, `n_linhas = 1.0` sempre — a fórmula reduz-se
+    // à base de uma linha, a mesma garantia de zero-regressão do resto desta
+    // função, por construção e não por medição.
+    let tem_filho_de_bloco = dom.node(id).children.iter().any(|&c| {
+        matches!(&dom.node(c).kind, NodeKind::Element { .. }) && super::caixa::is_block_level(dom, c)
+    });
+    let n_linhas = if css.height.is_some() || tem_filho_de_bloco {
+        1.0
+    } else {
+        let area_conteudo = (h - bt - pt - pb - bb).max(0.0);
+        (area_conteudo / lh.max(1.0)).round().max(1.0)
+    };
+    (bt + pt + (n_linhas - 1.0) * lh + (lh - conteudo) / 2.0 + ascent).min(h)
+}
+
+/// O `line-height` DESTE item — só lido por um `vertical-align: <percentagem>`
+/// (CSS 2.1 §10.8: "refers to the 'line-height' of the element itself", não a
+/// da linha nem a do pai). Duplica as duas linhas que [`ascent_do_item`] já
+/// calcula para o mesmo fim, em vez de mudar o retorno dele: essa função é
+/// reusada VERBATIM por `flex_baseline.rs` (lote de outro agente), e mudar-lhe
+/// a assinatura arriscaria um crate que este agente não pode compilar para
+/// confirmar.
+fn line_height_do_item(dom: &Dom, id: NodeIdx, font_size_da_linha: f32, ctx: &LayoutCtx) -> f32 {
+    let Some(css) = dom.computed_style_idx(id) else { return font_size_da_linha };
+    let font = font_px(&css, DEFAULT_FONT_SIZE);
+    crate::inline_box::altura_da_linha(&css, font, ctx.measurer)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -171,16 +237,23 @@ pub(in crate::layout) fn layout_inline_block_line(
         // O default é `baseline` (CSS 2.1 §10.8.1) com a baseline PRÓPRIA de
         // cada item (`ascent_do_item`): o `Top` que aqui estava era o corte
         // que punha o caret `::after` do Bootstrap no topo da linha.
-        let atomos: Vec<(f32, f32, VerticalAlign)> = items
+        let atomos: Vec<(f32, f32, f32, VerticalAlign)> = items
             .iter()
-            .map(|&(n, _, h, va, _, _)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
+            .map(|&(n, _, h, va, _, _)| {
+                (
+                    h,
+                    ascent_do_item(dom, n, h, content_w, ctx),
+                    line_height_do_item(dom, n, font_size, ctx),
+                    va.unwrap_or(VerticalAlign::Baseline),
+                )
+            })
             .collect();
         let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
         let familia = parent_css.font_family.as_deref();
         let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, familia, ctx.measurer);
-        for (&(child, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atomos) {
+        for (&(child, w, h, va, gap, trailing), &(_, ascent, own_lh, _)) in items.iter().zip(&atomos) {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
-            let base_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, familia, ctx.measurer);
+            let base_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, own_lh, cy, &env, font_size, familia, ctx.measurer);
             let line_has_textarea = items.iter().any(|(n, _, _, _, _, _)| matches!(&dom.node(*n).kind, NodeKind::Element { tag } if tag == "textarea"));
             let is_mark = matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("checkbox" | "radio"));
             let form_text = matches!(&dom.node(child).kind, NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select")) && !is_mark;

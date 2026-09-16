@@ -71,9 +71,10 @@ pub enum GridTrack {
     /// `repeat(auto-fill|auto-fit, <tracks>)` — quantas vezes repetir é uma
     /// pergunta de LAYOUT (depende do espaço disponível), ao contrário de
     /// `repeat(N, …)`, que `parse_list` já expande aqui mesmo. Fica por
-    /// expandir até `layout::grid_tracks::expand_auto_repeat`, que o resolve
-    /// contra `content_w`. `fit` distingue `auto-fit` (colapsa trilhas vazias
-    /// a 0) de `auto-fill` (mantém-nas, mesmo vazias).
+    /// expandir até `layout::grid_tracks::expand_auto_repeats`, que o resolve
+    /// contra `content_w` (colunas) ou a altura do container (linhas). `fit`
+    /// distingue `auto-fit` (colapsa trilhas vazias a 0) de `auto-fill`
+    /// (mantém-nas, mesmo vazias).
     ///
     /// É o único variant que tira `GridTrack` de `Copy` — carrega um `Vec`.
     /// A alternativa considerada foi guardar o `content_w` de contagem já
@@ -82,17 +83,25 @@ pub enum GridTrack {
     /// CAIXA — duas instâncias do mesmo elemento com containers diferentes
     /// partilhariam o mesmo `ComputedStyle` e uma delas mentiria.
     ///
-    /// `count_unit` é a contribuição do padrão para a CONTAGEM de repetições
-    /// (§7.2.3.3), pré-calculada AQUI — no parse — porque é a única altura em
-    /// que o texto de `minmax(150px, 1fr)` ainda tem os dois lados: depois de
-    /// `tracks` estar construído, um `minmax` de máximo `fr` já colapsou à
-    /// trilha flexível pura (a aproximação certa para o SIZING, ver o
-    /// variant `Bounded`), e o mínimo — a única coisa que a contagem
+    /// `count_unit` é a contribuição de CADA trilha do padrão para a CONTAGEM
+    /// de repetições (§7.2.3.3), extraída AQUI — no parse — porque é a única
+    /// altura em que o texto de `minmax(150px, 1fr)` ainda tem os dois lados:
+    /// depois de `tracks` estar construído, um `minmax` de máximo `fr` já
+    /// colapsou à trilha flexível pura (a aproximação certa para o SIZING, ver
+    /// o variant `Bounded`), e o mínimo — a única coisa que a contagem
     /// pergunta — já não estaria lá para reler.
+    ///
+    /// É um `Vec<TrackBound>` e não um `f32` já somado porque uma `%`, um `em`
+    /// e um `rem` valem contra um container e uma fonte que o PARSE não tem:
+    /// somar aqui dava-lhes zero, a repetição pesava zero e a contagem caía no
+    /// mínimo de 1 — uma coluna onde o browser dá quatro. A contribuição viaja
+    /// por resolver e só vira número em `layout::grid_tracks`.
+    /// `TrackBound` em vez de um enum novo porque é exatamente este vocabulário
+    /// (fixo | min-content | max-content | fit-content) e já existe.
     AutoRepeat {
         tracks: Vec<GridTrack>,
         fit: bool,
-        count_unit: f32,
+        count_unit: Vec<TrackBound>,
     },
 }
 
@@ -182,8 +191,8 @@ impl GridTrack {
                     // único `AutoRepeat` que `layout::grid_tracks` resolve
                     // contra `content_w`.
                     if let Some(inner_tracks) = GridTrack::parse_list(tracks) {
-                        let count_unit: f32 =
-                            split_top_level(tracks).iter().map(|t| track_count_unit(t)).sum();
+                        let count_unit: Vec<TrackBound> =
+                            split_top_level(tracks).iter().map(|t| track_count_unit(t)).collect();
                         out.push(GridTrack::AutoRepeat {
                             tracks: inner_tracks,
                             fit: count == "auto-fit",
@@ -232,28 +241,30 @@ fn parse_track_bound(s: &str) -> Option<TrackBound> {
 }
 
 /// A contribuição de UMA trilha do padrão de `repeat(auto-fill|auto-fit, …)`
-/// para a CONTAGEM de repetições (CSS Grid 1 §7.2.3.3): um comprimento fixo
-/// conta o seu valor em px; `minmax(<fixo>, …)` conta o MÍNIMO — mesmo quando
-/// o máximo é `fr`, que fora daqui já colapsa à trilha flexível pura e
-/// perderia essa informação (ver `GridTrack::Bounded`). Qualquer trilha
-/// intrínseca ou `fr` sem mínimo fixo conta 0 — a mesma aproximação que
-/// `GridTrack::Auto` já faz no resto do ficheiro (a base real dependeria de
-/// itens ainda não colocados). Só `px`: `%`/`em`/`rem`/`vw` dependeriam do
-/// container ou da fonte, que o parse ainda não tem — ficam a contar 0, o que
-/// SUBESTIMA repetições em vez de as sobrestimar (nunca corta um item).
-fn track_count_unit(tok: &str) -> f32 {
+/// para a CONTAGEM de repetições (CSS Grid 1 §7.2.3.3, e §7.2.3.2 do Grid 3
+/// para o caso intrínseco): `minmax(<a>, …)` conta o lado MÍNIMO — mesmo
+/// quando o máximo é `fr`, que fora daqui já colapsa à trilha flexível pura e
+/// perderia essa informação (ver `GridTrack::Bounded`); qualquer outra trilha
+/// conta-se a si própria.
+///
+/// O que sai daqui é o TEXTO da trilha traduzido, não um número: um `%` resolve
+/// contra o container e um `em` contra a fonte, e nenhum dos dois existe no
+/// parse. Quem resolve é `layout::grid_tracks::expand_auto_repeats` — é lá
+/// também que está escrito porque um extremo INTRÍNSECO pesa zero.
+///
+/// `1fr` (e tudo o que não é comprimento nem extremo intrínseco) conta 0: uma
+/// trilha flexível não tem tamanho antes de haver espaço livre, e um
+/// `repeat(auto-fill, 1fr)` não é sequer da gramática.
+fn track_count_unit(tok: &str) -> TrackBound {
+    let zero = TrackBound::Fixed(Dimension::Px(0.0));
     let low = tok.trim().to_ascii_lowercase();
-    let px_de = |s: &str| match super::lengths::parse_dimension_pub(s.trim()) {
-        Some(Dimension::Px(p)) => p,
-        _ => 0.0,
-    };
     if let Some(inner) = low
         .strip_prefix("minmax(")
         .and_then(|s| s.strip_suffix(')'))
     {
-        return px_de(inner.splitn(2, ',').next().unwrap_or(""));
+        return parse_track_bound(inner.splitn(2, ',').next().unwrap_or("")).unwrap_or(zero);
     }
-    px_de(&low)
+    parse_track_bound(&low).unwrap_or(zero)
 }
 
 /// Tokeniza uma lista separada por espaços RESPEITANDO parênteses (para não

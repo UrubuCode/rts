@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: a PROFUNDIDADE de `open-quote`/`close-quote` é uma função da ORDEM
+     DOCUMENTAL inteira, não do elemento isolado — o par usado por um
+     `open-quote` do FILHO tem de ser o segundo par de `quotes` (o de
+     aninhamento), e o `close-quote` do PAI tem de descer de volta ao
+     primeiro. Espelha quotes-applies-to-001 do WPT (`open-quote open-quote
+     close-quote close-quote` com dois pares dá "PASS"). Sem a profundidade
+     global, os dois `open-quote` leriam sempre o par 0 e o `#interno` sairia
+     mais estreito (um caractere a menos de largura visível). A régua é a
+     LARGURA de `#interno` e de `#externo`, que crescem com o texto gerado à
+     volta deles. -->
+<html>
+<head><style>
+  body { margin: 0; font: 16px/1 monospace; white-space: nowrap; }
+  #externo { quotes: "P" "S" "A" "S"; }
+  #externo::before { content: open-quote; }
+  #externo::after { content: close-quote; }
+  #interno::before { content: open-quote; }
+  #interno::after { content: close-quote; }
+</style></head>
+<body>
+  <span id="externo"><span id="interno">x</span></span>
+</body>
+</html>

@@ -82,6 +82,7 @@ fn lower_items(
                 let decls = std::rc::Rc::new(RuleDecls::from_block(lower_declarations(block)));
                 let content = std::cell::OnceCell::new();
                 let counters = crate::counters::parse_ops(&body).map(std::rc::Rc::new);
+                let quotes = crate::quotes::parse_quotes_from_body(&body).map(std::rc::Rc::new);
                 for sel_str in super::selector::split_top_level_commas(&selectors_raw) {
                     if let Some(selector) = ComplexSelector::parse(sel_str) {
                         let content = selector.pseudo_element.and_then(|_| {
@@ -99,6 +100,7 @@ fn lower_items(
                             media: inherited_media.cloned(),
                             content,
                             counters: counters.clone(),
+                            quotes: quotes.clone(),
                             is_ua: false,
                         });
                     } else if !sel_str.trim().is_empty() {

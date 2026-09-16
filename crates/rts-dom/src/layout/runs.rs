@@ -26,6 +26,23 @@ pub(in crate::layout) struct InlineRun {
     pub(in crate::layout) atomic: Option<(NodeIdx, AtomicKind)>,
     pub(in crate::layout) ww: f32,
     pub(in crate::layout) wh: f32,
+    /// `white-space` EFETIVO deste run — herdado como `bold`/`italic`/`color`
+    /// acima, e por isso capaz de DIVERGIR do contentor: um
+    /// `<span style="white-space:pre"> </span>` dentro de um bloco `normal`
+    /// carrega aqui o SEU PRÓPRIO `true`, não o `false` do pai.
+    ///
+    /// Existe porque `wrap_runs` (`quebra.rs`) recebia só uma bandeira POR
+    /// CHAMADA (`preservar_quebras`, resolvida do `white-space` do CONTENTOR)
+    /// e por isso tratava um espaço de um `span.pre` aninhado como um espaço
+    /// colapsável comum — a mistura `normal`/`pre` na mesma linha (WPT
+    /// `white-space-mixed-002`/`-003`,
+    /// `tests/css/claude-whitespace-mistura-normal-pre-mesma-linha.html`) saía
+    /// mais estreita e com uma linha a mais do que devia. `word-break`
+    /// continua a ser do contentor de propósito — `quebra_dentro`, no mesmo
+    /// ficheiro, documenta porquê (o corpus real escreve-o sempre lá, nunca
+    /// por span) — e é essa a diferença que separa os dois, não um
+    /// esquecimento de espalhar a mesma regra duas vezes.
+    pub(in crate::layout) preserva_espacos: bool,
 }
 
 /// O run de texto de uma caixa gerada (`::before`/`::after`) de `id`, ou vazio
@@ -74,6 +91,8 @@ pub(in crate::layout) fn pseudo_run(
     cor_herdada: u32,
     // idem para o itálico: a caixa gerada herda o estilo do elemento.
     herdado_italico: bool,
+    // idem para `white-space`: ver `InlineRun::preserva_espacos`.
+    herdado_preserva: bool,
 ) -> Option<InlineRun> {
     let caixa = dom.pseudo_box(id, pe)?;
     if matches!(
@@ -99,6 +118,11 @@ pub(in crate::layout) fn pseudo_run(
         atomic: None,
         ww: 0.0,
         wh: 0.0,
+        preserva_espacos: caixa
+            .css
+            .white_space
+            .map(|w| w.preserves_newlines())
+            .unwrap_or(herdado_preserva),
     })
 }
 
@@ -112,6 +136,9 @@ pub(in crate::layout) fn collect_runs(
     id: NodeIdx,
     parent_css: &ComputedStyle,
     avail_w: f32,
+    // Ver `layout_inline_flow`: a base de uma `height` em percentagem num
+    // replaced desta linha, ou `None` quando o contentor nao tem altura.
+    avail_h: Option<f32>,
     ctx: &LayoutCtx,
 ) -> Vec<InlineRun> {
     let _phase = crate::metrics::phases::scope("collect-runs");
@@ -120,12 +147,17 @@ pub(in crate::layout) fn collect_runs(
         dom,
         ctx,
         avail_w,
+        avail_h,
         id,
         cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF)),
         decoration_code(parent_css),
         parent_css.text_transform,
         parent_css.bold.unwrap_or(false),
         parent_css.italic.unwrap_or(false),
+        parent_css
+            .white_space
+            .map(|w| w.preserves_newlines())
+            .unwrap_or(false),
         &[],
         &mut runs,
     );
@@ -135,12 +167,15 @@ pub(in crate::layout) fn collect_runs(
         dom: &Dom,
         ctx: &LayoutCtx,
         avail_w: f32,
+        avail_h: Option<f32>,
         id: NodeIdx,
         inherited_color: u32,
         inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
         inherited_bold: bool,
         inherited_italic: bool,
+        // `white-space` efetivo herdado até aqui — ver `InlineRun::preserva_espacos`.
+        inherited_preserva: bool,
         inherited_owners: &[NodeIdx],
         out: &mut Vec<InlineRun>,
     ) {
@@ -161,6 +196,7 @@ pub(in crate::layout) fn collect_runs(
                     atomic: None,
                     ww: 0.0,
                     wh: 0.0,
+                    preserva_espacos: inherited_preserva,
                 });
             }
             NodeKind::Element { tag } => {
@@ -216,6 +252,7 @@ pub(in crate::layout) fn collect_runs(
                         atomic: Some((id, AtomicKind::Widget)),
                         ww,
                         wh,
+                        preserva_espacos: inherited_preserva,
                     });
                     return;
                 }
@@ -237,6 +274,7 @@ pub(in crate::layout) fn collect_runs(
                         atomic: Some((id, AtomicKind::Break)),
                         ww: 0.0,
                         wh: 0.0,
+                        preserva_espacos: inherited_preserva,
                     });
                     return;
                 }
@@ -245,7 +283,7 @@ pub(in crate::layout) fn collect_runs(
                 // nenhum e ficava sem caixa. Flui como palavra inquebrável.
                 let rcss = dom.computed_style_idx(id).unwrap_or_default();
                 if let Some((ww, wh)) =
-                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, (None, None), ctx)
+                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, avail_h, (None, None), ctx)
                 {
                     // Como no widget: a caixa do replaced é dele; os ancestrais
                     // inline recebem só a linha que ele ocupa.
@@ -261,6 +299,7 @@ pub(in crate::layout) fn collect_runs(
                         atomic: Some((id, AtomicKind::Replaced)),
                         ww,
                         wh,
+                        preserva_espacos: inherited_preserva,
                     });
                     return;
                 }
@@ -283,6 +322,7 @@ pub(in crate::layout) fn collect_runs(
                         atomic: Some((id, AtomicKind::Block)),
                         ww: bw,
                         wh: bh,
+                        preserva_espacos: inherited_preserva,
                     });
                     return;
                 }
@@ -300,6 +340,15 @@ pub(in crate::layout) fn collect_runs(
                     Some(d) if d != 0 => d,
                     _ => inherited_deco,
                 };
+                // `white-space` deste inline (se declarar) vence para os
+                // filhos — a mesma regra de `bold`/`italic`/`deco` acima, e é
+                // o que faz um `<span style="white-space:pre">` divergir do
+                // contentor `normal` que o envolve.
+                let preserva = css
+                    .as_ref()
+                    .and_then(|c| c.white_space)
+                    .map(|w| w.preserves_newlines())
+                    .unwrap_or(inherited_preserva);
                 let mut owners = inherited_owners.to_vec();
                 // Um `display:inline` DECLARADO é dono dos seus fragmentos,
                 // mesmo quando `is_block_level` o marcou para pintura de caixa.
@@ -354,6 +403,7 @@ pub(in crate::layout) fn collect_runs(
                     atomic: Some((id, kind)),
                     ww,
                     wh: 0.0,
+                    preserva_espacos: preserva,
                 };
                 if let Some([esq, ..]) = arestas {
                     crate::bump!(inline_runs);
@@ -376,9 +426,12 @@ pub(in crate::layout) fn collect_runs(
                     crate::style::PseudoElement::Before,
                     color,
                     italic,
+                    preserva,
                 ));
                 for &c in &dom.node(id).children {
-                    walk(dom, ctx, avail_w, c, color, deco, tt, bold, italic, &owners, out);
+                    walk(
+                        dom, ctx, avail_w, avail_h, c, color, deco, tt, bold, italic, preserva, &owners, out,
+                    );
                 }
                 out.extend(pseudo_run(
                     dom,
@@ -387,6 +440,7 @@ pub(in crate::layout) fn collect_runs(
                     crate::style::PseudoElement::After,
                     color,
                     italic,
+                    preserva,
                 ));
                 if let Some([_, dir, ..]) = arestas {
                     crate::bump!(inline_runs);
@@ -407,6 +461,7 @@ pub(in crate::layout) fn collect_runs(
                         atomic: Some((id, AtomicKind::Marker)),
                         ww: 0.0,
                         wh: 0.0,
+                        preserva_espacos: preserva,
                     });
                 }
             }

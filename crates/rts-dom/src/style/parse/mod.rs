@@ -625,9 +625,55 @@ fn parse_aspect_ratio(v: &str) -> Option<f32> {
     v.parse::<f32>().ok().filter(|r| *r > 0.0)
 }
 
+/// A forma de DOIS VALORES de `display` (CSS Display 3 §2.1): `<outer> <inner>`,
+/// reescrita para o keyword de um valor equivalente. `None` quando não é dessa
+/// forma (o caso comum, e o caminho que não paga nada).
+///
+/// Existe porque `display: inline grid-lanes` é o que três reftests desta
+/// pasta escrevem, e a alternativa era um braço só para esse par. A spec dá a
+/// equivalência para todos: `block flow` = `block`, `inline flow` = `inline`,
+/// `inline flow-root` = `inline-block`, `inline flex` = `inline-flex`. Escrever
+/// a regra em vez do par não é generalizar por gosto — é que o par sozinho
+/// deixava `inline flex` (que já tem valor próprio) a cair no default da tag.
+///
+/// `run-in` e `list-item` como segundo valor ficam de fora: `list-item` é um
+/// terceiro token na gramática (`block flow list-item`) e `run-in` não tem
+/// caixa neste motor.
+///
+/// UM buraco, dito: `block flow-root` dá a caixa de bloco certa mas NÃO levanta
+/// o campo `flow_root` — `style/parse/fluxo.rs` lê a palavra da string
+/// DECLARADA, e a reescrita acontece aqui dentro, depois. Não é uma regressão
+/// (a forma de dois valores não parseava de todo antes), e o conserto é
+/// comparar lá a forma reescrita em vez da crua.
+fn display_dois_valores(low: &str) -> Option<String> {
+    let mut it = low.split_whitespace();
+    let (outer, inner) = (it.next()?, it.next()?);
+    if it.next().is_some() {
+        return None;
+    }
+    match outer {
+        "block" => Some(match inner {
+            "flow" => "block".to_string(),
+            outro => outro.to_string(),
+        }),
+        "inline" => Some(match inner {
+            "flow" => "inline".to_string(),
+            "flow-root" => "inline-block".to_string(),
+            outro => format!("inline-{outro}"),
+        }),
+        _ => None,
+    }
+}
+
 /// Valores não suportados (table, …) → `None` (cai no default da tag).
 fn parse_display(v: &str) -> Option<DisplayKind> {
-    match v.trim().to_ascii_lowercase().as_str() {
+    let low = v.trim().to_ascii_lowercase();
+    // Reescreve `<outer> <inner>` e volta a entrar com UM valor. A recursão tem
+    // um nível só: o que sai de `display_dois_valores` nunca tem espaço.
+    if let Some(um) = display_dois_valores(&low) {
+        return parse_display(&um);
+    }
+    match low.as_str() {
         // `flow-root` computa como `block` NA CAIXA; o que a distingue vive no
         // campo `flow_root`, levantado pelo braço de `display` — aqui não há
         // `css` à mão. Ver `style/props/tabela.rs`.
@@ -644,6 +690,10 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
         // portanto isto corrige a resposta sem mudar a disposição.
         "inline-block" => Some(DisplayKind::InlineBlock),
         "grid" | "inline-grid" => Some(DisplayKind::Grid),
+        // CSS Grid 3. Variante PRÓPRIA e não um sinónimo de `grid` — o porquê
+        // está no `DisplayKind::GridLanes`, e resume-se a que o eixo do fluxo
+        // é o outro quando as lanes são as linhas.
+        "grid-lanes" | "inline-grid-lanes" => Some(DisplayKind::GridLanes),
         "none" => Some(DisplayKind::None),
         // `list-item` — o `<li>`. Bloco MAIS um marcador; ver `crate::listitem`.
         "list-item" => Some(DisplayKind::ListItem),

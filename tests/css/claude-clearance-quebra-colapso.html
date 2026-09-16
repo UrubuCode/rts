@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<!-- HIPÓTESE EM ABERTO — não implementada nesta entrega, por não poder ser
+     verificada (compilação proibida nesta árvore partilhada). Reduzido do WPT
+     `floats-clear/margin-collapse-clear-014.xht`, cujo `assert` escreve a
+     posição final esperada.
+
+     #antes (altura EXPLÍCITA 60, margem-bottom 40) — não colapsa (altura
+     declarada), fica em y=0..60.
+     #flutua (float:left, 100 alto) — IRMÃO direto de #antes, não filho: o
+     motor lê `child_y` (que já soma a margem-bottom de #antes, 60+40=100) e
+     regista o float em y=100..200. Até aqui está certo: um float lê o cursor
+     corrente, incluindo a margem pendente.
+     O que se mede a seguir é a suspeita: depois de colocar o float, o motor
+     faz `borda = child_y; strut = (0.0, 0.0)` (`layout/vertical.rs`,
+     comentário "float quebra a sequência de collapse") — ou seja, EMBUTE a
+     margem de #antes (40) dentro de `borda` (que passa a valer 100) e ESVAZIA
+     a margem pendente. #limpo (clear:left, margem-top 120) soma a sua própria
+     margem a esse `borda` já cheio: 100+120=220. Mas a margem de #antes (40)
+     e a de #limpo (120) deviam competir pelo MAIOR entre as duas (CSS 2.1
+     §8.3.1: margens adjacentes colapsam, não somam) — 60+max(40,120)=180 é
+     que devia entrar na comparação com o fundo do float (200), dando
+     max(180,200)=200. #depois (sem margem própria) mede-se hoje em y=220;
+     pela regra de colapso devia medir-se em y=200 — os 20px de diferença são
+     exactamente a margem de #antes a ser somada em vez de disputada.
+
+     NÃO é o mesmo defeito que a fórmula de clearance em si (comparar contra
+     o fundo do float): a diferença aparece ANTES dessa comparação, na forma
+     como um float irmão trata a margem pendente. Mudar isso afecta qualquer
+     margem depois de QUALQUER float, com ou sem `clear` — maior superfície
+     do que esta entrega cobre. Fica registada, com os números, para quem for
+     medir com a suite a compilar. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #antes { height: 60px; margin-bottom: 40px; background: aqua; }
+  #flutua { float: left; width: 100px; height: 100px; background: blue; }
+  #limpo { clear: left; margin-top: 120px; background: orange; }
+  #depois { height: 50px; background: yellow; }
+</style></head>
+<body>
+  <div id="antes"></div>
+  <div id="flutua"></div>
+  <div id="limpo"></div>
+  <div id="depois"></div>
+</body>
+</html>

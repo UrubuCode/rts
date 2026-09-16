@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!-- Fixa: `grid-column: span N` (e `grid-row: span N`) SEM âncora de linha — a
+     forma que o WPT escreve por todo o lado — coloca o item automaticamente
+     MAS ocupando N trilhas, e salta para a linha seguinte quando o span não
+     cabe no resto da linha corrente (CSS Grid 1 §8.5).
+
+     O motor perdia o span entre o parse e a colocação: `span 2` com a outra
+     ponta `auto` não é resolúvel por `axis_placement`, o item caía na
+     colocação automática e esta colocava sempre 1x1. Sintoma: `#seis` ficava
+     de 100px na 3ª coluna da 2ª linha em vez de 200px no início da 3ª.
+
+     Prova também a ORDEM: `#quatro` vem depois de `#tres` no documento, e o
+     item com span era colocado DEPOIS de todos os automáticos (três laços em
+     vez de dois) — o que lhe dava a célula errada sempre que não era o último
+     filho. Aqui `#seis` não é o último. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #grelha { display: grid; width: 300px;
+            grid-template-columns: 100px 100px 100px;
+            grid-auto-rows: 50px;
+            background: #eee; }
+  /* `#grelha > …` nos dois de baixo: `#grelha > div` é (1,0,1) e um `#seis`
+     sozinho é (1,0,0), portanto perdia e saía tudo verde. */
+  #grelha > div { background: #cfc; }
+  #grelha > #seis { background: #966; }
+  #grelha > #linha { background: #69c; }
+</style></head>
+<body>
+  <div id="grelha">
+    <div id="um">1</div>
+    <div id="dois">2</div>
+    <div id="tres">3</div>
+    <div id="quatro">4</div>
+    <div id="cinco">5</div>
+    <!-- span 2 não cabe na coluna 3 da linha 2: desce para a linha 3, x=0. -->
+    <div id="seis" style="grid-column: span 2">6</div>
+    <!-- e o automático seguinte apanha o buraco que sobrou na linha 3. -->
+    <div id="sete">7</div>
+    <!-- span de LINHA sem âncora: duas linhas de altura, uma coluna. -->
+    <div id="linha" style="grid-row: span 2">L</div>
+  </div>
+</body>
+</html>

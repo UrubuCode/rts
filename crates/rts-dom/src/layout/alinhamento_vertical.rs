@@ -55,7 +55,35 @@
 //! lote medido à parte, com fixtures que isolem o default.
 
 use crate::layout::TextMeasurer;
-use crate::style::{SUB_OFFSET_RATIO, SUPER_OFFSET_RATIO, VerticalAlign, X_HEIGHT_RATIO};
+use crate::style::{
+    Dimension, MONO_ADVANCE, SUB_OFFSET_RATIO, SUPER_OFFSET_RATIO, VerticalAlign, X_HEIGHT_RATIO,
+    root_font_size,
+};
+
+/// Resolve um `VerticalAlign::Length(d)` para pixels — POSITIVO sobe (soma ao
+/// `ascent`, reduz o `y`: ver [`ascent_com_baseline_propria`]), NEGATIVO desce
+/// (CSS 2.1 §10.8). A PERCENTAGEM é do `line-height` DESTE elemento
+/// (`own_line_height`, nunca a altura do pai — "refers to the 'line-height' of
+/// the element itself"), por isso não reaproveita `Dimension::resolve` (que
+/// leria `%` contra `parent_content_w`). `vw`/`vh`/`calc`/`auto`/`*-content`
+/// respondem 0: [`VerticalAlign::parse`] já os recusa, este braço só existe
+/// para o `match` ser exaustivo.
+fn resolver_deslocamento(d: Dimension, font_size: f32, own_line_height: f32) -> f32 {
+    match d {
+        Dimension::Px(v) => v,
+        Dimension::Percent(p) => own_line_height * p / 100.0,
+        Dimension::Em(v) => font_size * v,
+        Dimension::Rem(v) => root_font_size() * v,
+        Dimension::Ex(v) => font_size * X_HEIGHT_RATIO * v,
+        Dimension::Ch(v) => font_size * MONO_ADVANCE * v,
+        Dimension::Auto
+        | Dimension::Vw(_)
+        | Dimension::Vh(_)
+        | Dimension::MaxContent
+        | Dimension::MinContent
+        | Dimension::Calc(_) => 0.0,
+    }
+}
 
 /// A distância da baseline da linha ao seu TOPO (`acima`) e ao seu FUNDO
 /// (`abaixo`) — CSS 2.1 §10.8.1. A baseline fica em `y + acima`, o topo da
@@ -92,7 +120,12 @@ fn ascent_acima_da_baseline(
     font_size: f32,
     m: &dyn TextMeasurer,
 ) -> f32 {
-    ascent_com_baseline_propria(valign, altura, altura, font_size, None, m)
+    // Sem caixa própria (só `envelope`/`topo_do_item` chamam isto, e só os
+    // testes — nenhum caminho de produção), não há `line-height` independente
+    // da altura do átomo para uma percentagem de `Length`: usa-se `altura`
+    // como palpite. A via de produção (`envelope_com_baseline`) recebe o
+    // `line-height` verdadeiro.
+    ascent_com_baseline_propria(valign, altura, altura, font_size, altura, None, m)
 }
 
 /// O mesmo, para um átomo COM baseline própria: `ascent` é a distância do
@@ -105,6 +138,9 @@ fn ascent_com_baseline_propria(
     altura: f32,
     ascent: f32,
     font_size: f32,
+    // O `line-height` DESTE elemento — só usado por `Length(Percent)`, ver
+    // `resolver_deslocamento`.
+    own_line_height: f32,
     // `font-family` do STRUT — Ahem responde `font_ascent`/`font_descent`
     // pela fração exata (0.8/0.2) em vez da calibrada contra o Chrome.
     family: Option<&str>,
@@ -118,17 +154,24 @@ fn ascent_com_baseline_propria(
         VerticalAlign::TextBottom => altura - m.font_descent_family(font_size, family),
         VerticalAlign::Baseline => ascent,
         VerticalAlign::Top | VerticalAlign::Bottom => altura,
+        // CSS 2.1 §10.8: desloca a partir da posição que `baseline` daria —
+        // por isso soma a `ascent` (a mesma distância que `Baseline` usa),
+        // não a `altura`.
+        VerticalAlign::Length(d) => ascent + resolver_deslocamento(d, font_size, own_line_height),
     }
 }
 
-/// [`envelope`] para átomos com baseline própria: `(altura, ascent, valign)`.
+/// [`envelope`] para átomos com baseline própria: `(altura, ascent,
+/// own_line_height, valign)` — o terceiro campo é o `line-height` DESTE átomo
+/// (não o da linha), só lido por um `vertical-align: <percentagem>` (ver
+/// [`resolver_deslocamento`]); irrelevante nos outros casos.
 /// O STRUT é o da caixa de linha do pai — `line_height` repartido pela
 /// meia-entrelinha à volta da content area (CSS 2.1 §10.8.1), e não a fonte
 /// crua: com `line-height: 20px` a 16px o strut é 15,4 acima / 4,6 abaixo, e
 /// uma linha só de inline-blocks com texto mede exactamente 20 (o Blink), não
 /// 20,4 (`claude-letter-spacing`, `#negativo.y`).
 pub(in crate::layout) fn envelope_com_baseline(
-    itens: &[(f32, f32, VerticalAlign)],
+    itens: &[(f32, f32, f32, VerticalAlign)],
     font_size: f32,
     line_height: f32,
     family: Option<&str>,
@@ -138,20 +181,20 @@ pub(in crate::layout) fn envelope_com_baseline(
     let meia = (line_height - conteudo) / 2.0;
     let mut acima = meia + m.font_ascent_family(font_size, family);
     let mut abaixo = (line_height - acima).max(0.0);
-    for &(altura, ascent, valign) in itens {
+    for &(altura, ascent, own_lh, valign) in itens {
         if matches!(valign, VerticalAlign::Top | VerticalAlign::Bottom) {
             continue;
         }
-        let a = ascent_com_baseline_propria(valign, altura, ascent, font_size, family, m).max(0.0);
+        let a = ascent_com_baseline_propria(valign, altura, ascent, font_size, own_lh, family, m).max(0.0);
         acima = acima.max(a);
         abaixo = abaixo.max((altura - a).max(0.0));
     }
-    for &(altura, _, valign) in itens {
+    for &(altura, _, _, valign) in itens {
         if valign == VerticalAlign::Bottom {
             acima = acima.max(altura - abaixo);
         }
     }
-    for &(altura, _, valign) in itens {
+    for &(altura, _, _, valign) in itens {
         if valign == VerticalAlign::Top {
             abaixo = abaixo.max(altura - acima);
         }
@@ -159,11 +202,13 @@ pub(in crate::layout) fn envelope_com_baseline(
     Envelope { acima, abaixo }
 }
 
-/// [`topo_do_item`] para um átomo com baseline própria.
+/// [`topo_do_item`] para um átomo com baseline própria (`own_line_height`
+/// como em [`envelope_com_baseline`]).
 pub(in crate::layout) fn topo_do_item_com_baseline(
     valign: VerticalAlign,
     altura: f32,
     ascent: f32,
+    own_line_height: f32,
     linha_y: f32,
     env: &Envelope,
     font_size: f32,
@@ -173,7 +218,10 @@ pub(in crate::layout) fn topo_do_item_com_baseline(
     match valign {
         VerticalAlign::Top => linha_y,
         VerticalAlign::Bottom => linha_y + env.altura() - altura,
-        _ => linha_y + env.acima - ascent_com_baseline_propria(valign, altura, ascent, font_size, family, m),
+        _ => {
+            linha_y + env.acima
+                - ascent_com_baseline_propria(valign, altura, ascent, font_size, own_line_height, family, m)
+        }
     }
 }
 
@@ -378,11 +426,11 @@ mod tests {
     #[test]
     fn ascent_com_baseline_propria_usa_fracao_exata_da_ahem() {
         let acima = ascent_com_baseline_propria(
-            VerticalAlign::TextTop, 100.0, 0.0, FONTE, Some("Ahem"), &ApproxMeasurer,
+            VerticalAlign::TextTop, 100.0, 0.0, FONTE, 100.0, Some("Ahem"), &ApproxMeasurer,
         );
         assert!((acima - FONTE * 0.8).abs() < 0.01, "acima={acima}");
         let abaixo_do_topo = ascent_com_baseline_propria(
-            VerticalAlign::TextBottom, 100.0, 0.0, FONTE, Some("Ahem"), &ApproxMeasurer,
+            VerticalAlign::TextBottom, 100.0, 0.0, FONTE, 100.0, Some("Ahem"), &ApproxMeasurer,
         );
         assert!((abaixo_do_topo - (100.0 - FONTE * 0.2)).abs() < 0.01, "{abaixo_do_topo}");
     }
@@ -392,8 +440,8 @@ mod tests {
     /// lote não é um efeito colateral geral.
     #[test]
     fn ascent_com_baseline_propria_sem_ahem_nao_muda() {
-        let com_none = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, None, &ApproxMeasurer);
-        let com_arial = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, Some("Arial"), &ApproxMeasurer);
+        let com_none = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, 100.0, None, &ApproxMeasurer);
+        let com_arial = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, 100.0, Some("Arial"), &ApproxMeasurer);
         assert_eq!(com_none, com_arial);
         assert!((com_none - FONTE * crate::style::ASCENT_RATIO).abs() < 0.01);
     }
@@ -407,5 +455,46 @@ mod tests {
         let env = envelope_com_baseline(&[], FONTE, FONTE, Some("Ahem"), &ApproxMeasurer);
         assert!((env.acima - FONTE * 0.8).abs() < 0.01, "acima={}", env.acima);
         assert!((env.abaixo - FONTE * 0.2).abs() < 0.01, "abaixo={}", env.abaixo);
+    }
+
+    /// `vertical-align: <comprimento>` (CSS 2.1 §10.8): um valor POSITIVO
+    /// soma ao `ascent` (sobe a caixa — reduz o `y` do seu topo), um
+    /// NEGATIVO subtrai (desce). A partir de `vertical-align-004`/`-005` do
+    /// WPT (`0px`/`-0px`, que têm de coincidir com `baseline`) e
+    /// `vertical-align-040` (`96px`, bem maior do que a linha).
+    #[test]
+    fn length_positivo_soma_ao_ascent_e_negativo_subtrai() {
+        let base = ascent_com_baseline_propria(VerticalAlign::Baseline, 20.0, 20.0, FONTE, 20.0, None, &ApproxMeasurer);
+        let subiu = ascent_com_baseline_propria(
+            VerticalAlign::Length(Dimension::Px(10.0)), 20.0, 20.0, FONTE, 20.0, None, &ApproxMeasurer,
+        );
+        let desceu = ascent_com_baseline_propria(
+            VerticalAlign::Length(Dimension::Px(-10.0)), 20.0, 20.0, FONTE, 20.0, None, &ApproxMeasurer,
+        );
+        assert!((subiu - (base + 10.0)).abs() < 0.001, "subiu={subiu}");
+        assert!((desceu - (base - 10.0)).abs() < 0.001, "desceu={desceu}");
+        // `0px` é a IDENTIDADE — o mesmo número que `baseline` dava antes
+        // deste lote, o que `vertical-align-004`/`-005` do WPT afirmam.
+        let zero = ascent_com_baseline_propria(
+            VerticalAlign::Length(Dimension::Px(0.0)), 20.0, 20.0, FONTE, 20.0, None, &ApproxMeasurer,
+        );
+        assert!((zero - base).abs() < 0.001, "zero={zero}");
+    }
+
+    /// A PERCENTAGEM de `vertical-align` é do `line-height` DESTE elemento
+    /// (CSS 2.1 §10.8: "refers to the 'line-height' of the element itself")
+    /// — nem da sua própria altura nem do `font-size`, os dois enganos
+    /// fáceis de fazer ao ligar isto sem separar o parâmetro. `altura` (30),
+    /// `font_size` (16) e `own_line_height` (50) são três números distintos
+    /// de propósito: se a fórmula lesse o errado, o teste apanhava — 50% de
+    /// 30 é 15, de 16 é 8, de 50 é 25.
+    #[test]
+    fn length_percent_resolve_contra_o_line_height_proprio() {
+        let (altura, font_size, own_lh) = (30.0, 16.0, 50.0);
+        let base = ascent_com_baseline_propria(VerticalAlign::Baseline, altura, altura, font_size, own_lh, None, &ApproxMeasurer);
+        let com_percent = ascent_com_baseline_propria(
+            VerticalAlign::Length(Dimension::Percent(50.0)), altura, altura, font_size, own_lh, None, &ApproxMeasurer,
+        );
+        assert!((com_percent - (base + 25.0)).abs() < 0.001, "com_percent={com_percent}");
     }
 }

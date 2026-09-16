@@ -41,8 +41,13 @@ use crate::style::BgRepeat;
 /// quatro larguras de borda USADAS), que é o `background-origin` inicial da
 /// spec (CSS Backgrounds 3 §3.4) — nunca o border-box inteiro, ou uma borda
 /// arredondada pintaria por baixo do canto reto do fundo.
+/// `pub(crate)`, e não `pub(in crate::layout)`: `crate::table` também chama
+/// esta função — o fundo de imagem de uma coluna/grupo-de-colunas de tabela
+/// (`table-column`/`table-column-group`) é a MESMA composição de ladrilhos
+/// que a de qualquer caixa, só que pintada atrás da célula em vez de atrás
+/// de um bloco (ver `table/mod.rs::pinta_fundo_de_coluna`).
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn background_pixels_items(
+pub(crate) fn background_pixels_items(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,

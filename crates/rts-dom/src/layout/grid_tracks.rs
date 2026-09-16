@@ -10,6 +10,21 @@
 
 use super::*;
 
+/// Um comprimento de TRILHA em px. A `%` resolve contra o CONTAINER do eixo —
+/// é o que uma trilha percentual mede — e não pelo `Dimension::resolve`
+/// genérico, que a resolveria contra a largura do pai da caixa. Nunca negativo.
+///
+/// Uma função e não duas: a contagem de repetições e o sizing das trilhas
+/// perguntam a MESMA coisa, e tê-la escrita nos dois sítios é como um `%` de
+/// contagem acabaria a divergir de um `%` de tamanho.
+fn comprimento_de_trilha(d: &crate::style::Dimension, container: f32, ctx: &ResolveCtx) -> f32 {
+    match d {
+        crate::style::Dimension::Percent(p) => container * p / 100.0,
+        other => other.resolve(ctx).unwrap_or(0.0),
+    }
+    .max(0.0)
+}
+
 /// `repeat(auto-fill|auto-fit, tracks)` → N cópias do padrão, N decidido
 /// AGORA contra `container` (largura/altura disponível) e `gap`. Uma lista
 /// sem nenhum `AutoRepeat` volta inalterada (o caminho comum, sem custo).
@@ -20,6 +35,16 @@ use super::*;
 /// (peso + gap)`, e não `container / peso`, que subcontaria a última que
 /// cabe exatamente. Nunca menos de 1: uma trilha vazia ainda é uma trilha.
 ///
+/// Um lado INTRÍNSECO (`auto`, `min-content`, `max-content`, `fit-content()`)
+/// pesa 0, e isso é o que a Grid 1 manda: §7.2.3.3 diz que o argumento de um
+/// `repeat(auto-fill|auto-fit, …)` **não pode** conter tamanhos intrínsecos ou
+/// flexíveis, portanto a declaração é inválida e o Blink responde `none`. Quem
+/// a escreve é a CSS Grid **3** (`display: grid-lanes`), que a define pelo
+/// conteúdo dos itens — e esse eixo não existe neste motor, por isso contar
+/// pelo conteúdo aqui daria uma resposta que nenhum browser dá. Fica dito em
+/// vez de adivinhado: quando `grid-lanes` chegar, é este `unidade` que ganha o
+/// `(min-content, max-content)` dos itens por parâmetro.
+///
 /// `auto-fit` usa a MESMA contagem que `auto-fill` (a spec não distingue
 /// aqui) — a diferença entre os dois é só se as repetições SEM item colapsam
 /// depois da colocação, que é `collapsible` (devolvido ao lado) e não esta
@@ -28,12 +53,19 @@ pub(in crate::layout) fn expand_auto_repeats(
     tracks: Vec<crate::style::GridTrack>,
     container: f32,
     gap: f32,
+    ctx: &ResolveCtx,
 ) -> (Vec<crate::style::GridTrack>, Vec<bool>) {
-    use crate::style::GridTrack as T;
+    use crate::style::{GridTrack as T, TrackBound as B};
     if !tracks.iter().any(|t| matches!(t, T::AutoRepeat { .. })) {
         let n = tracks.len();
         return (tracks, vec![false; n]);
     }
+    let unidade = |b: &B| -> f32 {
+        match b {
+            B::Fixed(d) => comprimento_de_trilha(d, container, ctx),
+            B::MinContent | B::MaxContent | B::FitContent(_) => 0.0,
+        }
+    };
     let mut out = Vec::with_capacity(tracks.len());
     let mut collapsible = Vec::with_capacity(tracks.len());
     for t in tracks {
@@ -47,7 +79,8 @@ pub(in crate::layout) fn expand_auto_repeats(
                     continue;
                 }
                 let internal_gaps = (pattern.len().saturating_sub(1)) as f32 * gap;
-                let per_rep = (count_unit + internal_gaps).max(0.0);
+                let soma: f32 = count_unit.iter().map(|b| unidade(b)).sum();
+                let per_rep = (soma + internal_gaps).max(0.0);
                 let n = if per_rep <= 0.0 || container <= 0.0 {
                     1
                 } else {
@@ -70,22 +103,51 @@ pub(in crate::layout) fn expand_auto_repeats(
 }
 
 /// Zera as trilhas `auto-fit` que não receberam NENHUM item — CSS Grid 1
-/// §7.2.3.3 "the empty repeated tracks are collapsed". Só o TAMANHO colapsa
-/// aqui (o gap ao lado de uma trilha colapsada continua a ser contado): a
-/// spec também suprime esse gap, que ficou por fazer — nenhuma fixture do
-/// corpus mede `auto-fit` com trilhas vazias (só `auto-fill`, onde isto é
-/// sempre `false` e a função não toca em nada), por isso a aproximação fica
-/// documentada em vez de adivinhada.
+/// §7.2.3.3 — e devolve QUAIS colapsaram.
+///
+/// A máscara é o ponto todo, e o que a obrigou está escrito na spec a seguir
+/// ao zero: *"a collapsed track is treated as having a fixed track sizing
+/// function of 0px, **and the gutters on either side of it — including any
+/// space allotted through distributed alignment — collapse**"*. São três
+/// consequências e o tamanho é só a primeira:
+///
+/// 1. a trilha mede 0 (era só isto que esta função fazia);
+/// 2. o gap de cada lado dela desaparece;
+/// 3. ela não conta como trilha para `justify-content`/`align-content`.
+///
+/// Devolver a máscara em vez de contar zeros é deliberado: um `0px` escrito
+/// pelo autor mede o mesmo e **não** colapsa gap nenhum nem sai da contagem.
+/// Só quem colapsou sabe que colapsou.
+///
+/// O que isto valia: `grid-content-distribution-with-collapsed-tracks-011`
+/// é `repeat(auto-fit, 20px)` nos dois eixos num quadrado de 200px com quatro
+/// itens. São dez trilhas por eixo, três com item; `space-between` tem de
+/// repartir os 140px livres por DOIS intervalos (entre as três vivas), e
+/// contava nove. A fixture desenha quadrados vermelhos exactamente onde os
+/// itens têm de aterrar, e é por isso que ela falha visivelmente em vez de
+/// falhar por um pixel.
 pub(in crate::layout) fn collapse_empty_auto_fit_tracks(
     sizes: &mut [f32],
     collapsible: &[bool],
     occupied: &[bool],
-) {
+) -> Vec<bool> {
+    let mut colapsadas = vec![false; sizes.len()];
     for i in 0..sizes.len() {
         if collapsible.get(i).copied().unwrap_or(false) && !occupied.get(i).copied().unwrap_or(false) {
             sizes[i] = 0.0;
+            colapsadas[i] = true;
         }
     }
+    colapsadas
+}
+
+/// Quantas trilhas SOBREVIVEM a um colapso de `auto-fit` — o `n` que a
+/// distribuição de conteúdo pergunta, e o número de gaps é `n - 1`.
+///
+/// Nunca menos de 1: `justify_offsets` divide por `n` e por `n - 1`, e uma
+/// grade cujas trilhas colapsaram todas não tem por onde repartir nada.
+pub(in crate::layout) fn trilhas_vivas(colapsadas: &[bool]) -> usize {
+    colapsadas.iter().filter(|c| !**c).count().max(1)
 }
 
 /// A LARGURA (ou altura) de cada trilha de uma grade — CSS Grid 1 §11,
@@ -115,14 +177,9 @@ pub(in crate::layout) fn resolve_tracks(
     use crate::style::{GridTrack as T, TrackBound as B};
     let n = tracks.len().max(1);
     let total_gap = (n.saturating_sub(1)) as f32 * gap;
-    let dim = |d: &crate::style::Dimension| -> f32 {
-        match d {
-            // % de trilha resolve contra o container (largura p/ colunas).
-            crate::style::Dimension::Percent(p) => container * p / 100.0,
-            other => other.resolve(ctx).unwrap_or(0.0),
-        }
-        .max(0.0)
-    };
+    // % de trilha resolve contra o container (largura p/ colunas) — ver
+    // `comprimento_de_trilha`, partilhada com a contagem de repetições.
+    let dim = |d: &crate::style::Dimension| -> f32 { comprimento_de_trilha(d, container, ctx) };
     let max_de = |i: usize| conteudo_max.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
     let min_de = |i: usize| conteudo_min.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
     // Um lado de `minmax()`/`fit-content()` avaliado contra o conteúdo da

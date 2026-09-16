@@ -125,9 +125,30 @@ pub(in crate::layout) fn layout_out_of_flow(
     // mesmo "auto" para este efeito, e é o `Option` do valor DECLARADO que a
     // spec chama de "auto" no §10.6.4 — testar o resolvido re-abriria a
     // pergunta que o `is_none()` já fecha.
-    let stretch_w = left.is_some() && right.is_some() && css.width.is_none();
-    let stretch_h =
-        top.is_some() && bottom.is_some() && css.height.is_none() && css.aspect_ratio.is_none();
+    // Um REPLACED (`<img>`/`<svg>`/`<iframe>`) nunca estica pelos dois insets
+    // (CSS 2.1 §10.3.8/§10.6.5, diferente de §10.3.7/§10.6.4 para não-replaced):
+    // o tamanho usado é sempre o INTRÍNSECO — `measure_block` já mede por ele
+    // quando não há `width`/`height` declarados — e um eixo com os DOIS insets
+    // dados fica OVER-CONSTRAINED em vez de esticado: o segundo inset é
+    // ignorado (a mesma regra que `(Some(l), _) => cb.x + l` já aplica no
+    // eixo horizontal quando SOBRA um `right`). Sem esta guarda, um
+    // `<img>{position:absolute}` com `top`/`bottom` dados e `height:auto`
+    // encolhia para `(cb.h-top-bottom).max(0.0)` — normalmente 0, porque o
+    // containing block de um ancestral só com filhos fora-de-fluxo mede
+    // altura 0 no fluxo — em vez de manter os 15px do PNG. Achado na família
+    // `absolute-replaced-height` do WPT (`-016`, `-030`: os comentários do
+    // próprio teste fazem essa conta e concluem "o bottom dado é IGNORADO").
+    // `claude-replaced-inset-nao-estica.html` prova o caso mínimo.
+    let is_replaced = matches!(
+        &dom.node(id).kind,
+        NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "svg" | "iframe" | "video" | "canvas" | "embed" | "object")
+    );
+    let stretch_w = left.is_some() && right.is_some() && css.width.is_none() && !is_replaced;
+    let stretch_h = top.is_some()
+        && bottom.is_some()
+        && css.height.is_none()
+        && css.aspect_ratio.is_none()
+        && !is_replaced;
     let forced_outer_w = stretch_w.then(|| (cb.w - left.unwrap() - right.unwrap()).max(0.0));
     let forced_outer_h = stretch_h.then(|| (cb.h - top.unwrap() - bottom.unwrap()).max(0.0));
     // mede (w, h) numa lista descartável para resolver o eixo shrink-to-fit
@@ -153,8 +174,59 @@ pub(in crate::layout) fn layout_out_of_flow(
     let estatica = precisa_estatica.then(|| {
         super::posicao_estatica::posicao_estatica(dom, id, &css, flow_rects, ctx)
     });
+    // MARGEM AUTO sobre `left`+`width`+`right` TODOS dados (CSS 2.1 §10.3.7,
+    // "solve the equation... the two margins get equal values, unless this
+    // would make them negative"): o ÚNICO caso em que uma margin-left/right
+    // `auto` de um posicionado NÃO vale 0 — `bloco.rs` (o `is_out_of_flow_pos`
+    // do bloco "margin: 0 auto") já zera qualquer margem `auto` de um
+    // absolute/fixed por default, porque ele só conhece `avail_w` (a largura
+    // do containing block inteiro) e não tem `left`/`right`: a decisão de
+    // QUANDO essa margem não é 0 fica só aqui, que já tem os dois insets.
+    // `left` sempre vence como âncora (`x = cb.x + l`, a regra de cima), e é
+    // por isso que só `margin_left` entra em `x` — `margin-right` nunca pinta
+    // nada (não há caixa nenhuma do lado do `right` ignorado), só entra na
+    // equação para a completar; calculá-lo é honesto (a spec pede) mas o
+    // valor não tem efeito visual, então não é lido de volta.
+    //
+    // `border_box_w` desfaz o que `w` (outer = content+padding+border+margem)
+    // já embutiu: a margem RAW que `bloco.rs` teria aplicado (explícita, ou 0
+    // se `auto` — a mesma medição da passada de `measure_block` acima, ANTES
+    // desta injeção existir).
+    let margin_left_extra = (left.is_some() && right.is_some() && !stretch_w)
+        .then(|| {
+            let ml_auto = css.margin.left.is_auto();
+            let mr_auto = css.margin.right.is_auto();
+            if !ml_auto {
+                return 0.0; // já correto: `bloco.rs` aplica o valor explícito sozinho.
+            }
+            let mr_raw = if mr_auto { 0.0 } else { css.margin.right.resolve(&resolve).unwrap_or(0.0) };
+            // `w` (outer) já saiu de `measure_block` com margin-left `auto` →
+            // 0 (garantido acima, `ml_auto` é verdade aqui) — só a margem
+            // DIREITA explícita, se houver, precisa de ser descontada para
+            // chegar à border-box pura.
+            let border_box_w = w - mr_raw;
+            let free = cb.w - left.unwrap() - right.unwrap() - border_box_w;
+            if mr_auto {
+                // Os dois `auto`: split igual, exceto se desse negativo — CSS
+                // 2.1 manda zerar `margin-left` em `ltr` (`margin-right` em
+                // `rtl`) e resolver o outro para o que sobrar.
+                let rtl = css.direction.unwrap_or_default() == crate::style::Direction::Rtl;
+                if free < 0.0 {
+                    if rtl { free } else { 0.0 }
+                } else {
+                    free / 2.0
+                }
+            } else {
+                // Só `margin-left` é `auto`: resolve sozinho (pode dar negativo
+                // — WPT `absolute-non-replaced-width-009`, direction:rtl,
+                // `margin-left:100/right:auto` invertido: aqui é o espelho,
+                // `margin-right` fixo e `margin-left` a resolver).
+                free - mr_raw
+            }
+        })
+        .unwrap_or(0.0);
     let x = match (left, right) {
-        (Some(l), _) => cb.x + l,
+        (Some(l), _) => cb.x + l + margin_left_extra,
         (None, Some(r)) => cb.x + cb.w - w - r,
         (None, None) => estatica.unwrap().0,
     };

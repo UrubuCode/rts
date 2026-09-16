@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!-- Isola a ÚNICA causa, das 37 falhas de CSS2/bidi-text/bidi-box-model, que
+     não depende de pintar texto/Ahem: `unicode-bidi: bidi-override` com
+     `direction: rtl` tem de INVERTER a ordem VISUAL das caixas inline da
+     linha (CSS2.1 §10.2 + o algoritmo bidi: override força ordem
+     estritamente lógica, mas mostrada da direita para a esquerda — o
+     primeiro item lógico fica na ponta DIREITA da linha, não na esquerda).
+
+     Espelha `wpt-novo/css/CSS2/bidi-text/bidi-box-model-003.xht` (que usa
+     `dnoceS`/`tsriF` — palavras escritas ao contrário no código-fonte
+     precisamente para que a inversão de override as devolva legíveis) sem
+     precisar de Ahem nem de pintar glifo nenhum: aqui a prova é a posição
+     dos DOIS `<span>` coloridos, medível por `getBoundingClientRect`.
+
+     Medido no motor (rts-raster) 2026-09-16: `#s2` nasce no MESMO x que
+     `#s1` (ambos ~8px, encostados à esquerda) porque o motor deposita os
+     inlines em ORDEM DE DOCUMENTO sem olhar a `direction`/`unicode-bidi` -
+     só o texto que seria `tsriF` fica com largura mas nunca desloca o span
+     para a direita dele. No Blink, `#s2` (primeiro no DOM da linha 2) fica
+     deslocado para a DIREITA de onde `tsriF` teria ficado, exactamente como
+     `#s1` fica à direita de "First " na linha de controlo.
+
+     A reordenação vive na construção da LINHA (a lista de runs por onde o
+     cursor avança), não no box model de um dono isolado — por isso a
+     correção não cabe em `rtl_bloco.rs`, `coluna_rtl.rs`,
+     `inline_fragmentos.rs` nem `fragmento.rs` (o lote a que esta fixture
+     pertence): esses só recebem x/y/w já decididos. Precisa de
+     `linha.rs`/`runs.rs`, que são de outro lote. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="ltr,rtl">
+<meta name="fixar-estilo" content="unicode-bidi,direction">
+<style>
+  body { margin: 0; }
+  p { font: 20px/1 monospace; text-align: left; }
+  span { border: 4px solid black; }
+  #s1 { background: red; }
+  #s2 { background: blue; }
+  .rtl { direction: rtl; unicode-bidi: bidi-override; }
+</style>
+</head>
+<body>
+  <p id="ltr">First <span id="s1">Second</span></p>
+  <p class="rtl" id="rtl"><span id="s2">dnoceS</span> tsriF</p>
+</body>
+</html>

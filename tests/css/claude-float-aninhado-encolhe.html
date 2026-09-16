@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- CSS 2.1 10.3.5: a largura shrink-to-fit de um float cujo ÚNICO conteúdo é
+     OUTRO float é a largura desse float interno — nem mais, nem menos.
+     Nasceu como redução do WPT `floats-clear/floats-143.xht` (97% de pintura
+     diferente), mas medido no motor este caso reduzido PASSA (largura externa
+     = 50 e 70, união 0..119, sem vermelho visível): o defeito de
+     `floats-143` não é o shrink-to-fit de um float-sobre-float com largura
+     FIXA — sobra em `<ul class="float"><li class="float"><span
+     class="float text">` (três níveis, com os defaults de UA de `ul`/`li`
+     E texto medido por fonte) e continua por isolar. Fica como fixture de
+     CONTROLO (prova que o caso reduzido funciona) e como registo de que a
+     causa real de `floats-143` ainda não tem ficheiro mínimo — não deve ser
+     lida como a fixture desse WPT. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  .externo { float: left; background: red; padding: 0; margin: 0; }
+  .interno { float: left; height: 30px; background: green; }
+  #interno1 { width: 50px; }
+  #interno2 { width: 70px; }
+</style></head>
+<body>
+  <div id="externo1" class="externo"><div id="interno1" class="interno"></div></div>
+  <div id="externo2" class="externo"><div id="interno2" class="interno"></div></div>
+</body>
+</html>

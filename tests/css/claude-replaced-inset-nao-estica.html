@@ -1,0 +1,51 @@
+<!--
+Prova a CAUSA 2 da vaga "largura/altura de um posicionado": um elemento
+REPLACED (`<img>`, `<svg>`...) `position:absolute` com os DOIS insets de um
+eixo dados e a dimensão desse eixo em `auto` NÃO estica para encher o espaço
+entre eles (CSS 2.1 §10.3.8/§10.6.5) — ao contrário de um NÃO-replaced no
+mesmo caso (§10.3.7/§10.6.4, onde o esticar É a regra). O tamanho usado
+continua o INTRÍNSECO, e o segundo inset (aqui: `bottom` e `right`) é o que
+sobra por resolver depois — não o motivo de encolher/esticar a caixa.
+
+`<img>` e não `<svg>`: o `<svg>` da primeira versão desta fixture não pinta
+NADA neste motor (sem rasterizador de SVG), então um reftest contra ele
+passa em vazio dos dois lados — a mesma doença que o Marcos mediu em 24% do
+corpus WPT. `<img>` com um PNG local de verdade pinta pixels reais,
+distinguíveis por posição/tamanho.
+
+O CONTAINING BLOCK também tem de reproduzir EXACTAMENTE a condição que faz o
+defeito aparecer — o `#cb` da família WPT (`absolute-replaced-height-016`/
+`-030`) mede altura 0 porque TODOS os filhos são fora-de-fluxo (nenhum
+contribui para a altura automática de `#cb`). `#cb` aqui não declara
+`height` e tem UM ÚNICO filho, `#rep`, que é `position:absolute` — logo
+`#cb` também mede altura automática 0.
+
+- #cb   : containing block (position:relative), SEM altura declarada, UM
+          filho, esse filho é fora-de-fluxo → altura de fluxo = 0.
+- #rep  : `<img width=20 height=20>` intrínseco (o PNG é 20×20 sólido azul),
+          position:absolute, `top:20px; bottom:20px; height:auto` no eixo
+          vertical e `left:20px; right:20px; width:auto` no horizontal.
+          Esperado: 20×20 (o intrínseco), ANCORADO por `top`/`left` (os
+          insets que "vencem" quando sobra um) — NUNCA esticado a preencher,
+          o que daria altura 0 (negativo clampado) neste `#cb` sem altura
+          própria e a imagem desaparecia inteira.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #cb { position: relative; width: 200px; }
+  #rep {
+    position: absolute;
+    top: 20px; bottom: 20px; height: auto;
+    left: 20px; right: 20px; width: auto;
+  }
+</style>
+</head>
+<body>
+  <div id="cb">
+    <img id="rep" src="claude-blue-20x20.png" width="20" height="20" alt="quadrado azul 20x20">
+  </div>
+</body>
+</html>

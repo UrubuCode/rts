@@ -133,6 +133,11 @@ pub(in crate::layout) fn layout_image(
     x: f32,
     y: f32,
     avail_w: f32,
+    // Altura de conteúdo do containing block, só quando EXPLÍCITA — repassada
+    // tal e qual para `replaced_inline_size` (ver o comentário lá: só um
+    // `avail_h` que já é a garantia "isto É a altura do CSS", nunca um piso
+    // de medição, pode chegar aqui como `Some`).
+    avail_h: Option<f32>,
     // Tamanho OUTER que o FLEX já decidiu (grow/shrink no eixo principal,
     // `align-items: stretch` no cruzado) — `None` fora de um item flex, ou
     // quando o eixo não é imposto (o `<img>` decide sozinho pela CSS/atributo/
@@ -197,7 +202,8 @@ pub(in crate::layout) fn layout_image(
     //
     // A alternativa — manter a subtração e corrigi-la só para o `calc` — punha a
     // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (forced_w, forced_h), ctx)?;
+    let (w, h) =
+        crate::inline_box::replaced_inline_size(dom, id, css, avail_w, avail_h, (forced_w, forced_h), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com
@@ -272,6 +278,8 @@ pub(in crate::layout) fn layout_canvas(
     x: f32,
     y: f32,
     avail_w: f32,
+    // Ver o comentário do mesmo parâmetro em `layout_image`, logo acima.
+    avail_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
@@ -289,7 +297,8 @@ pub(in crate::layout) fn layout_canvas(
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
     // A caixa devolvida é a BORDER-BOX, como no `<img>`.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (None, None), ctx)?;
+    let (w, h) =
+        crate::inline_box::replaced_inline_size(dom, id, css, avail_w, avail_h, (None, None), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     if let Some(color) = css.bg {

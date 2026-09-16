@@ -1,0 +1,33 @@
+<!--
+  PROVA: um `<span>` com `white-space: pre` DENTRO de um bloco `white-space:
+  normal` tem de preservar o(s) seu(s) espaço(s) literal(is) sem forçar uma
+  quebra de linha nem encolher a caixa — a decisão de colapsar (ou não) um
+  espaço é por RUN (o white-space efetivo DESSE nó), nunca uma única
+  bandeira do CONTENTOR inteiro.
+
+  `#normal` e `#pre` têm o MESMO conteúdo visível depois de resolvido
+  (colchete, 5 espaços — 2 preservados pelos `span.pre`, os 3 `span.normal`
+  colapsam para o espaço opcional entre eles — e colchete), por isso as duas
+  caixas (float, largura automática) TÊM de sair com a mesma largura e
+  UMA linha só. A WPT `white-space-mixed-002`/`-003` são este mesmo caso.
+
+  Hoje `#normal` sai mais ESTREITA e com DUAS linhas — porque `wrap_runs`
+  (crates/rts-dom/src/layout/quebra.rs) só conhece uma bandeira
+  `preservar_quebras` por CHAMADA (i.e. por contentor), nunca por run, e por
+  isso trata o espaço do `span.pre` como um espaço colapsável comum.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  .caixa { border: 4px solid blue; background: yellow; font: 25px/1 Arial; float: left; clear: left; margin: 8px; }
+  .normal { white-space: normal; }
+  .pre { white-space: pre; }
+</style>
+</head>
+<body>
+<div id="normal" class="caixa normal">[<span class="normal"> </span><span class="pre"> </span><span class="normal"> </span><span class="pre"> </span><span class="normal"> </span>]</div>
+<div id="pre" class="caixa pre">[     ]</div>
+</body>
+</html>

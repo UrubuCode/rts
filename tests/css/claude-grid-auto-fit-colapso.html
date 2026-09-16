@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!-- Fixa: uma faixa colapsada por `auto-fit` sai da grelha inteira, não só do
+     tamanho — CSS Grid 1 §7.2.3.3: "a collapsed track is treated as having a
+     fixed track sizing function of 0px, AND the gutters on either side of it —
+     including any space allotted through distributed alignment — collapse".
+
+     O motor só fazia a primeira metade (zerava o tamanho). As outras duas
+     faltavam: o gap ao lado da faixa colapsada continuava a ser somado, e ela
+     continuava a CONTAR como faixa para `justify-content`/`align-content`.
+
+     `#dist` é o caso da contagem, e é o que falhava de forma visível:
+     `repeat(auto-fit, 20px)` nos dois eixos num quadrado de 200px. Dez faixas
+     por eixo, TRÊS com item (colunas 1, 3 e 4; linhas 1, 3 e 4).
+     `space-between` tem de repartir os 200-60=140px livres por DOIS intervalos
+     de 70, e repartia por nove. Logo:
+       #a → x=0   y=0     (coluna 1, linha 1)
+       #b → x=90  y=0     (coluna 3)
+       #c → x=180 y=0     (coluna 4)
+       #d → x=0   y=90    (linha 3)
+       #e → x=0   y=180   (linha 4)
+
+     `#gut` é o caso do gutter, e está aqui porque a frase da spec tem DUAS
+     leituras e o `#dist` não as distingue (tem gap 0). 200px, faixas de 20px,
+     `column-gap: 10px` → (200+10)/(20+10) = 7 repetições; itens só na 1.ª e na
+     7.ª, cinco colapsadas no meio. Se os dois gutters à volta de cada faixa
+     colapsada se FUNDIREM num (a leitura que implementei, por analogia com o
+     colapso de margens), `#g2` fica em x=30. Se desaparecerem os dois, fica em
+     x=20. Não adivinhei: a medição no Blink é que decide, e se der 20 é esta
+     linha que muda e não a fixture. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #dist { display: grid; width: 200px; height: 200px;
+          grid-template-columns: repeat(auto-fit, 20px);
+          grid-template-rows: repeat(auto-fit, 20px);
+          justify-content: space-between;
+          align-content: space-between;
+          background: #eee; }
+  #dist > div { background: #3a3; }
+  #gut { display: grid; width: 200px; margin-top: 20px;
+         grid-template-columns: repeat(auto-fit, 20px);
+         column-gap: 10px;
+         justify-content: start;
+         background: #eef; }
+  #gut > div { height: 20px; background: #36c; }
+</style></head>
+<body>
+  <div id="dist">
+    <div id="a" style="grid-row: 1; grid-column: 1"></div>
+    <div id="b" style="grid-row: 1; grid-column: 3"></div>
+    <div id="c" style="grid-row: 1; grid-column: 4"></div>
+    <div id="d" style="grid-row: 3; grid-column: 1"></div>
+    <div id="e" style="grid-row: 4; grid-column: 1"></div>
+  </div>
+  <div id="gut">
+    <div id="g1" style="grid-column: 1"></div>
+    <div id="g2" style="grid-column: 7"></div>
+  </div>
+</body>
+</html>

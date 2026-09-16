@@ -182,6 +182,12 @@ pub(crate) fn fmt_justify(j: JustifyContent) -> String {
         JustifyContent::Right => "right",
         JustifyContent::Start => "start",
         JustifyContent::End => "end",
+        // NÃO respondem `flex-start`/`flex-end`, apesar de a geometria ser a
+        // mesma: o computed devolve a palavra escrita. É a única coisa que
+        // distingue estas duas variantes das de flex, e é por isso que elas
+        // existem — ver `JustifyContent::resolve_flow`.
+        JustifyContent::FlowStart => "flow-start",
+        JustifyContent::FlowEnd => "flow-end",
     }
     .into()
 }
@@ -194,6 +200,8 @@ pub(crate) fn fmt_align(a: AlignItems) -> String {
         AlignItems::Center => "center",
         AlignItems::Baseline => "baseline",
         AlignItems::LastBaseline => "last baseline",
+        AlignItems::FlowStart => "flow-start",
+        AlignItems::FlowEnd => "flow-end",
     }
     .into()
 }
@@ -282,6 +290,10 @@ pub(crate) fn display_css(d: DisplayKind) -> &'static str {
         DisplayKind::Inline => "inline",
         DisplayKind::InlineBlock => "inline-block",
         DisplayKind::Grid => "grid",
+        // NÃO responde `grid`: `getComputedStyle` devolve o keyword usado, e o
+        // valor usado aqui é o declarado — a normalização para `Grid` é do
+        // `effective_display`, que é o que o LAYOUT lê e não o que se imprime.
+        DisplayKind::GridLanes => "grid-lanes",
         // As caixas de tabela e o `list-item` respondem o keyword que lhes deu
         // origem: `getComputedStyle` devolve o `display` USADO, e um `<li>` que
         // gera marcador é `list-item`, não `block`.

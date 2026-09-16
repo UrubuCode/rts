@@ -5,6 +5,14 @@
 //! `flex-abspos-inset-nested-{001,002}`) precisa de dois casos, batidos à
 //! mão contra a fórmula do CSS — números exatos, não anti-aliasing a
 //! resolver.
+//!
+//! Uma segunda tentativa nesta função (trocar a prioridade para o irmão
+//! ANTERIOR, e espelhar o eixo X em `direction:rtl`) foi REVERTIDA
+//! (2026-09-16): custou 62 reftests medidos em `css-flexbox` sozinho, mais
+//! outros em `CSS2/abspos`, `css-grid` e `css-sizing` — ver o cabeçalho de
+//! `posicao_estatica.rs`. Os testes que defendiam essa versão saíram com
+//! ela; os que ficam abaixo são os que já existiam e continuam a valer para
+//! a fórmula ORIGINAL (irmão seguinte primeiro).
 
 use super::*;
 
@@ -69,6 +77,29 @@ fn sem_proximo_irmao_cai_no_fim_do_anterior() {
     );
     let abs = cor(&list, 0x0000FFFF);
     assert_eq!((abs.x, abs.y), (0.0, 20.0), "{abs:?}");
+}
+
+/// CAUSA 3 (`layout_out_of_flow` + o guard `is_out_of_flow_pos` de
+/// `bloco.rs`): `left`+`width`+`right` TODOS dados e `margin-left`/`right:
+/// auto` — CSS 2.1 §10.3.7, "solve the equation... the two margins get
+/// equal values". `#cb` tem 200px, `#box` mede 100px com `left:20px;
+/// right:80px` — espaço livre = 200-20-80-100 = 0, então as margens ficam
+/// 0/0 e `x` cola no `left` (20), NÃO no centro dos 200px do `#cb` (que a
+/// versão anterior desta conta, cega aos insets, dava). Mesmo caso da
+/// fixture `claude-abs-margin-auto-ignora-insets.html` (`#box2`). Esta causa
+/// NÃO foi revertida — validada contra dois testes WPT com a conta escrita
+/// no próprio comentário, e a régua confirmou zero perdidos por ela.
+#[test]
+fn margem_auto_com_left_width_right_todos_dados_soma_ao_lado_esquerdo() {
+    let list = layout(
+        "<div id=cb style='position:relative;width:200px;height:100px'>\
+           <div id=box style='position:absolute;left:20px;right:80px;width:100px;height:20px;\
+             margin-left:auto;margin-right:auto;background:#00f'></div>\
+         </div>",
+        600.0,
+    );
+    let b = cor(&list, 0x0000FFFF);
+    assert_eq!(b.x, 20.0, "{b:?}: espaço livre é 0, margens ficam 0/0, cola ao `left`");
 }
 
 /// `flex-abspos-inset-nested-{001,002}`: `.inner-flex` tem `top:0;bottom:0`

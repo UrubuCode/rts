@@ -32,6 +32,7 @@ use crate::html::{Token, tokenize};
 
 mod arvore;
 mod animacao;
+mod aspas;
 mod caches;
 mod cascade;
 mod css_url;
@@ -344,6 +345,13 @@ pub struct Dom {
     /// pergunta por cada pseudo-elemento.
     counter_memo: std::cell::RefCell<Option<std::rc::Rc<crate::counters::Tabela>>>,
     counter_memo_revision: std::cell::Cell<(u64, u64)>,
+    /// Memo da tabela de PROFUNDIDADES de aspas do documento (ver
+    /// [`crate::quotes`]) — a imagem em ponto pequeno do `counter_memo` acima,
+    /// pela mesma razão: a profundidade de um pseudo depende de tudo o que
+    /// veio antes dele em ordem documental, e memoizar por nó guardaria n
+    /// cópias de uma travessia feita uma vez.
+    quote_memo: std::cell::RefCell<Option<std::rc::Rc<crate::quotes::Profundidades>>>,
+    quote_memo_revision: std::cell::Cell<(u64, u64)>,
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante
     /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
     /// não reutilizar tamanho sob estilo ou conteúdo stale.

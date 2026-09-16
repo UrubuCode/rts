@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa: `vertical-align` também se aplica a um elemento `display: inline`
+     NORMAL (um `<span>` de texto, sem ser `inline-block`) — CSS 2.1 §10.8.1
+     não distingue os dois para efeitos desta propriedade. `#alvo` é um
+     `<span>` comum com `vertical-align: text-bottom` dentro de uma linha de
+     texto simples; hoje o motor só lê `vertical-align` na "corrida de
+     inline-blocks" (`linha_ib.rs`) e no baseline do flex — uma linha de
+     texto normal (`linha.rs`) não pergunta por ele. A partir de
+     `vertical-align-applies-to-008` e `vertical-align-117a`/`-118a` do WPT
+     (CSS2/linebox), que fazem o mesmo com `display:inline` explícito e com
+     `text-bottom`/`text-top`, respetivamente. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="linha,alvo">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha { width: 700px; background: #eee; }
+  #alvo { font-size: 32px; vertical-align: text-bottom; background: #fcc; }
+</style></head>
+<body>
+  <div id="linha">TTTT<span id="alvo">MMMM</span>TTTT</div>
+</body>
+</html>

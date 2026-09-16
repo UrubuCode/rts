@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!-- CASO EM ABERTO — NÃO resolvido pela fórmula de `vertical.rs` que trata o
+     caso comum de clearance (que só quebra o colapso com o IRMÃO anterior,
+     mantendo a margem PRÓPRIA). Aqui não há irmão anterior nenhum: #limpo é
+     o SEGUNDO filho de #caixa, e #envolve (o primeiro) só contém um float —
+     sem conteúdo em fluxo normal, #envolve atravessa-se (self-collapsing) e
+     é ele quem fica "entre" #limpo e o ponto antes do float. Medido: o motor
+     põe #limpo em y=450 (50 do float + 400 da margem própria, sem desconto
+     nenhum), e o WPT (`floats-clear/adjoining-float-before-clearance.html`,
+     reduzido aqui sem texto) espera y=50 — a margem de 400px TOTALMENTE
+     descartada, não só destacada do que veio antes. Isso contradiz a regra
+     do caso comum (que mantém a margem própria, só quebra a fusão com a
+     anterior — ver `margin-collapse-clear-014`/`clear-clearance-
+     calculation-004`, que têm a mesma margem própria a CONTAR). A condição
+     que distingue os dois — o irmão anterior atravessar-se com um float
+     dentro dele — ainda não está identificada com confiança suficiente para
+     implementar; fica registada aqui em vez de adivinhada. -->
+<!-- Sub-família: adjoining-float-before-clearance.html,
+     negative-clearance-after-adjoining-float.html,
+     nested-clearance-new-formatting-context.html,
+     remove-block-before-self-collapsing-sibling-with-clearance.html. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #caixa { width: 100px; background: red; }
+  #envolve { }
+  #flutua { float: left; width: 100px; height: 50px; background: green; }
+  #limpo { margin-top: 400px; clear: left; height: 50px; background: green; }
+</style></head>
+<body>
+  <div id="caixa">
+    <div id="envolve">
+      <div id="flutua"></div>
+    </div>
+    <div id="limpo"></div>
+  </div>
+</body>
+</html>

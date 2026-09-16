@@ -45,6 +45,9 @@ pub mod pseudo;
 /// CONTADORES de CSS (`counter-reset`/`counter-increment`) e o valor que
 /// `counter()` lê dentro de um `content`.
 pub mod counters;
+/// ASPAS de conteúdo gerado (`quotes`, `open-quote`/`close-quote`) — a
+/// herança dos pares e a profundidade de aninhamento documental.
+pub mod quotes;
 /// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
 /// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
 /// mutações pela fachada `document` mudam o que a janela pinta.

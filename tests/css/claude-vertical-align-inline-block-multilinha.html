@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Fixa: a baseline de um `inline-block` cujo conteúdo QUEBRA em mais de uma
+     linha é a da ÚLTIMA linha (CSS 2.1 §10.8.1) — medida do FUNDO da caixa
+     para cima, não do topo. `#curto` (uma só linha) e `#longo` (três linhas,
+     mesma fonte) têm de partilhar a MESMA baseline quando ambos usam
+     `vertical-align: baseline`: um motor que meça a partir do topo em ambos
+     alinha `#longo` demasiado ACIMA, pela altura das duas linhas extra.
+     A partir de `vertical-align-baseline-003` do WPT (CSS2/linebox), que faz
+     o mesmo teste com texto a envolver dentro de um inline-block estreito. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="curto,longo,ancora">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha { width: 700px; background: #eee; }
+  #curto, #longo { display: inline-block; vertical-align: baseline; background: #fcc; }
+  #curto { width: 60px; }
+  #longo { width: 60px; }
+  #ancora { display: inline-block; width: 10px; height: 20px; vertical-align: baseline; background: #6c6; }
+</style></head>
+<body>
+  <div id="linha"><span id="curto">uma</span><span id="longo">uma duas tres</span><span id="ancora"></span></div>
+</body>
+</html>

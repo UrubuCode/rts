@@ -84,9 +84,17 @@ impl ComputedStyle {
             "outline-color" => self.outline_color.map(fmt_color).unwrap_or_default(),
             "outline-offset" => self.outline_offset.map(fmt_px).unwrap_or_default(),
             // ── Texto / listas / fluxo ────────────────────────────────────────
+            // `Length` não tem forma `&'static str` (o valor é dinâmico) —
+            // `v.css()` responde um "0" propositalmente errado para esse caso
+            // (ver o doc do método), então este braço INTERCEPTA-o antes de o
+            // chamar, com `fmt_dim` (o mesmo serializador de `width`/`top`/
+            // `text-indent` — uma `Dimension` computada → string CSS).
             "vertical-align" => self
                 .vertical_align
-                .map(|v| v.css().to_string())
+                .map(|v| match v {
+                    crate::style::VerticalAlign::Length(d) => fmt_dim(d),
+                    v => v.css().to_string(),
+                })
                 .unwrap_or_default(),
             "clear" => self.clear.map(|c| c.css().to_string()).unwrap_or_default(),
             "word-break" => self

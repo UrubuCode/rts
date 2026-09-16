@@ -1,0 +1,51 @@
+<!--
+Prova a CAUSA 1 da vaga "largura/altura de um posicionado" (CSS 2.1
+§10.3.7/§10.6.4, static position de um out-of-flow sem NENHUM inset num eixo):
+a posição estática de #abs (position:absolute, sem left/right/top/bottom
+nenhum) tem de cair no TOPO do content do seu contentor de fluxo (#box) —
+onde ele estaria se fosse o placeholder de tamanho zero que é, primeiro filho
+— e NÃO na posição do irmão #next, que já tem a PRÓPRIA margin-top somada.
+
+`#box` DECLARA UMA BORDA, como o teste do WPT (`absolute-replaced-width-001`,
+`border: solid black`) — sem ela, a margin-top de #next não tem CONTRA QUE
+colapsar dentro do contentor e escapa para FORA (margin-collapse pai→filho),
+deslocando #box inteiro em vez de só #next: as duas fórmulas (irmão anterior
+vs. irmão seguinte) passam a dar o MESMO número, e a fixture não prova nada.
+Com a borda, o colapso é impedido (a borda é uma barreira, `margem_escapada.rs`)
+e a margin-top de #next fica DENTRO do content, só a mexer em #next.
+
+Antes do fix (`posicao_estatica.rs::posicao_estatica_bloco` a preferir o
+IRMÃO SEGUINTE): #abs caía em cima de #next (os dois em y=15 do CONTENT,
+y=25 da página com a borda de 10px), porque a função devolvia a posição já
+deslocada pela margin-top de #next. Depois do fix (preferir o irmão
+ANTERIOR — ou o topo do content, sem nenhum): #abs cai no topo do content
+(y=10, só a borda) e #next continua 15px abaixo dele (a sua própria
+margin-top, intocada).
+
+Cada #id mede uma combinação:
+- #box     : o contentor de fluxo (position:relative, `border: 10px solid
+             black` — a barreira contra o colapso).
+- #abs     : o out-of-flow, 20x20, SEM insets — a static position é o que
+             se mede aqui. Esperado: (10,10) — a borda desloca os dois eixos
+             por igual, é o mesmo `10` em x e em y.
+- #next    : o irmão em fluxo, 20x20, margin-top:15px — não deve mover-se
+             por causa de #abs (esperado (10,25) = borda(10) + margin-top(15),
+             IGUAL com ou sem o fix).
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #box { position: relative; width: 300px; height: 200px; border: 10px solid black; background: #eee; }
+  #abs { position: absolute; width: 20px; height: 20px; background: blue; }
+  #next { width: 20px; height: 20px; margin-top: 15px; background: orange; }
+</style>
+</head>
+<body>
+  <div id="box">
+    <div id="abs"></div>
+    <div id="next"></div>
+  </div>
+</body>
+</html>

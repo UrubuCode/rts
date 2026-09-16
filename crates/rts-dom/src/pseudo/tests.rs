@@ -1,241 +1,13 @@
-//! CONTEÚDO GERADO — `::before` e `::after`.
+//! Testes ponta-a-ponta do conteúdo gerado — extraído de `pseudo.rs` (ver o
+//! comentário em `mod.rs`) sem alterar uma linha do que já existia, mais os
+//! testes novos da família de aspas ao fundo.
 //!
-//! Um pseudo-elemento não é um nó do DOM: é uma caixa que a cascata manda
-//! existir. Isso obriga a uma decisão de arquitetura logo à entrada, e a que
-//! está tomada aqui é: **nada é acrescentado à árvore de nós**. Um `::before`
-//! não aparece em `childNodes`, `childCount`, `querySelectorAll` nem no
-//! `innerHTML`, exatamente como no browser — e a forma de garantir isso não é
-//! filtrar em cada uma dessas consultas (que seria preciso lembrar em todas as
-//! futuras), mas nunca criar o nó.
-//!
-//! A alternativa rejeitada foi a do Blink, que cria um `PseudoElement` real
-//! ligado ao elemento originante e o mantém fora da lista de filhos. Faz
-//! sentido lá, onde a árvore de layout é uma estrutura separada da árvore de
-//! nós; aqui o layout é indexado por `NodeIdx` e um nó a mais no arena teria de
-//! ser criado e destruído a cada recascata (a existência da caixa depende da
-//! cascata), tocando no memo por epoch e na numeração documental. O custo
-//! estava todo fora do problema.
-//!
-//! O que se faz em vez disso: a caixa gerada é resolvida sob procura, a partir
-//! do elemento originante, e entregue ao fluxo inline como um RUN de texto — a
-//! representação que o fluxo já tem para "texto com um estilo, pertencente a um
-//! elemento". Ver [`crate::layout`], onde entra, e o teste
-//! `before_nao_muda_a_arvore_de_nos`, que é o que prova que a árvore ficou
-//! limpa.
+//! `pub(crate)` no módulo e no `textos`: os testes ponta a ponta dos
+//! contadores vivem em `counters.rs`, ao lado da lógica que provam, e
+//! precisam do MESMO helper — reusá-lo é o que impede duas montagens
+//! diferentes de `layout_document` a responder à mesma pergunta.
 
-use crate::style::ComputedStyle;
-
-/// Uma caixa gerada, já resolvida: o texto que ela pinta e o estilo com que o
-/// pinta.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PseudoBox {
-    /// O texto de `content`, já com `attr()` substituído.
-    pub texto: String,
-    /// O estilo computado da caixa — herdado do elemento originante e depois
-    /// sobreposto pelas regras `::before`/`::after` que casaram.
-    pub css: ComputedStyle,
-}
-
-/// O valor de `content`, decomposto nas peças que a spec permite concatenar
-/// (`content: "[" attr(data-x) "]"`).
-///
-/// `content` não é uma propriedade do [`ComputedStyle`]: só se aplica a
-/// pseudo-elementos, e pô-la na tabela de propriedades daria um campo a mais em
-/// cada um dos milhares de `ComputedStyle` de uma página para servir umas
-/// dezenas de caixas. Fica guardada na regra, ao lado das declarações.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Content {
-    /// `none` / `normal` — não gera caixa nenhuma.
-    Nenhum,
-    /// As peças a concatenar, em ordem.
-    Pecas(Vec<Peca>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Peca {
-    /// Uma string literal do CSS, com os escapes já resolvidos.
-    Texto(String),
-    /// `attr(nome)` — o valor do atributo do elemento ORIGINANTE (não da caixa,
-    /// que não tem atributos). Ausente resolve para string vazia, como na spec.
-    Attr(String),
-    /// `counter(nome)` / `counter(nome, estilo)` — o valor do contador de
-    /// documento visível a esta caixa, escrito no sistema de numeração dado
-    /// (`decimal` por omissão). Ver [`crate::counters`], que é quem o calcula.
-    Contador(String, crate::style::ListStyleType),
-}
-
-/// Parseia o valor de uma declaração `content`.
-///
-/// `None` significa "não sei gerar isto", e é diferente de
-/// [`Content::Nenhum`]: o primeiro descarta a declaração e deixa a cascata
-/// continuar com o que outra regra disser, o segundo é a resposta `none` da
-/// própria folha e vence como qualquer outro valor.
-///
-/// FICAM DE FORA, e é aqui que se diz quais e porquê:
-/// - `url(...)` — gera uma caixa SUBSTITUÍDA (uma imagem), que não é texto e
-///   precisa do caminho de imagem do layout, com carregamento e tamanho
-///   intrínseco. Medido na folha da Wikipédia: 6 das 100 regras.
-/// - `counters(...)` — o PLURAL, que junta a pilha de escopos com um separador.
-///   Zero ocorrências nas quatro folhas do corpus (`pagina.css`, `google.css`,
-///   `wa.css`, `wa-app.css`), contra oito do singular. Recusado por nome e não
-///   por acidente de parse, para não ser confundido com o singular e pintar um
-///   número sem os antepassados.
-/// - `var(...)` — o valor de uma custom property só se resolve POR ELEMENTO, e
-///   o `content` é parseado uma vez ao ler a folha. Duas das oito ocorrências de
-///   `counter()` da folha da Wikipédia estão nesta forma; ambas perdem a cascata
-///   para uma regra posterior com o estilo literal, que é o que se pinta.
-/// - `open-quote`/`close-quote` — dependem de `quotes` e do nível de aninhamento.
-///
-/// Em todos, gerar uma caixa vazia seria pior do que não gerar: reservaria
-/// espaço e deslocaria o que está à volta sem pintar nada.
-pub fn parse_content(valor: &str) -> Option<Content> {
-    let v = valor.trim();
-    if v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("normal") {
-        return Some(Content::Nenhum);
-    }
-    let mut pecas = Vec::new();
-    let mut resto = v;
-    while !resto.trim().is_empty() {
-        resto = resto.trim_start();
-        let primeiro = resto.chars().next()?;
-        if primeiro == '"' || primeiro == '\'' {
-            let (texto, depois) = string_css(resto)?;
-            pecas.push(Peca::Texto(texto));
-            resto = depois;
-        } else if let Some(depois) = tira_prefixo_sem_caso(resto, "attr(") {
-            let fecha = depois.find(')')?;
-            let nome = depois[..fecha].trim().to_ascii_lowercase();
-            if nome.is_empty() {
-                return None;
-            }
-            pecas.push(Peca::Attr(nome));
-            resto = &depois[fecha + 1..];
-        } else if let Some(depois) = tira_prefixo_sem_caso(resto, "counter(") {
-            let fecha = depois.find(')')?;
-            let (nome, estilo) = counter_args(&depois[..fecha])?;
-            pecas.push(Peca::Contador(nome, estilo));
-            resto = &depois[fecha + 1..];
-        } else {
-            return None; // url(), counters(), open-quote, um identificador solto…
-        }
-    }
-    (!pecas.is_empty()).then_some(Content::Pecas(pecas))
-}
-
-/// Os argumentos de `counter(…)`: o nome e o sistema de numeração.
-///
-/// `None` recusa a declaração inteira, e é o que acontece com
-/// `counter(x, var(--y))`: o primeiro `)` do texto fecha o `var`, o segundo
-/// argumento chega partido e nenhum `ListStyleType` o reconhece. É o
-/// comportamento que se quer — descartar a declaração deixa a cascata escolher
-/// outra regra, enquanto adivinhar `decimal` pintaria um estilo que a folha não
-/// pediu.
-///
-/// Um estilo que não conhecemos também recusa, em vez de cair em `decimal`: a
-/// spec manda o *fallback*, mas aqui `decimal` seria um NÚMERO onde a folha
-/// pediu letras — um erro com aparência de acerto, que é o que esta casa não
-/// entrega.
-fn counter_args(args: &str) -> Option<(String, crate::style::ListStyleType)> {
-    let mut it = args.splitn(2, ',');
-    let nome = it.next()?.trim();
-    if nome.is_empty() || nome.contains(char::is_whitespace) {
-        return None;
-    }
-    let estilo = match it.next() {
-        None => crate::style::ListStyleType::Decimal,
-        Some(s) => crate::style::ListStyleType::parse(&s.trim().to_ascii_lowercase())?,
-    };
-    Some((nome.to_string(), estilo))
-}
-
-/// `s` sem o prefixo `pref`, comparado sem distinguir maiúsculas.
-fn tira_prefixo_sem_caso<'a>(s: &'a str, pref: &str) -> Option<&'a str> {
-    (s.len() >= pref.len() && s[..pref.len()].eq_ignore_ascii_case(pref)).then(|| &s[pref.len()..])
-}
-
-/// Lê uma string CSS entre aspas a partir de `s`, devolvendo (conteúdo, resto).
-///
-/// Trata `\` como escape porque é assim que uma folha real escreve um caractere
-/// que não consegue pôr no ficheiro: `content: "\2192"` é a seta que aparece nos
-/// menus da Wikipédia. Sem isto, o utilizador via `2192` escrito na página.
-fn string_css(s: &str) -> Option<(String, &str)> {
-    let aspa = s.chars().next()?;
-    let mut out = String::new();
-    let mut chars = s.char_indices().skip(1);
-    while let Some((i, c)) = chars.next() {
-        if c == aspa {
-            return Some((out, &s[i + c.len_utf8()..]));
-        }
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        // Escape: ou um código hexadecimal (até 6 dígitos, terminado por espaço
-        // opcional), ou o caractere seguinte à letra.
-        let hex: String = s[i + 1..]
-            .chars()
-            .take_while(|c| c.is_ascii_hexdigit())
-            .take(6)
-            .collect();
-        if hex.is_empty() {
-            if let Some((_, lit)) = chars.next() {
-                out.push(lit);
-            }
-            continue;
-        }
-        if let Some(ch) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
-            out.push(ch);
-        }
-        // consome os dígitos e o espaço que os termina, se houver.
-        let mut consumidos = hex.len();
-        if s[i + 1 + hex.len()..].starts_with(' ') {
-            consumidos += 1;
-        }
-        for _ in 0..consumidos {
-            chars.next();
-        }
-    }
-    None // string sem fecho — declaração inválida
-}
-
-/// Materializa o texto de um [`Content`] contra o elemento originante.
-///
-/// `contadores` é a fotografia dos contadores ativos nesta caixa, calculada em
-/// ordem documental por [`crate::counters`]. `None` significa "esta página não
-/// declara contadores" e não "o contador vale zero" — a diferença não se vê no
-/// resultado (ambos dão o zero implícito da spec) mas vê-se no custo: sem
-/// contadores na folha, a passagem documental não corre de todo.
-pub fn texto_de(
-    content: &Content,
-    attr: &impl Fn(&str) -> Option<String>,
-    contadores: Option<&crate::counters::Snapshot>,
-) -> Option<String> {
-    let Content::Pecas(pecas) = content else {
-        return None;
-    };
-    let mut out = String::new();
-    for p in pecas {
-        match p {
-            Peca::Texto(t) => out.push_str(t),
-            // Atributo ausente dá string vazia (spec), NÃO cancela a caixa: uma
-            // folha que escreve `content: "[" attr(x) "]"` ainda quer os
-            // colchetes quando `x` não existe.
-            Peca::Attr(nome) => out.push_str(&attr(nome).unwrap_or_default()),
-            Peca::Contador(nome, estilo) => {
-                out.push_str(&crate::counters::texto(contadores, nome, *estilo))
-            }
-        }
-    }
-    Some(out)
-}
-
-#[cfg(test)]
-// `pub(crate)` por causa do `textos` abaixo: os testes ponta a ponta dos
-// contadores vivem no `counters.rs`, ao lado da lógica que provam, e precisam
-// do mesmo helper. Reusar o helper é o que impede duas montagens diferentes de
-// `layout_document` a responder à mesma pergunta.
-pub(crate) mod tests {
-    use super::*;
+use super::*;
     use crate::dom::parse_html_to_dom;
     use crate::layout::{ApproxMeasurer, DisplayItem, LayoutCtx, layout_document};
 
@@ -487,9 +259,85 @@ pub(crate) mod tests {
     fn content_concatena_string_e_attr() {
         let c = parse_content(r#""[" attr(data-x) "]""#).unwrap();
         let attr = |n: &str| (n == "data-x").then(|| "oi".to_string());
-        assert_eq!(texto_de(&c, &attr, None).unwrap(), "[oi]");
+        let mut prof = 0i64;
+        assert_eq!(texto_de(&c, &attr, None, &[], &mut prof).unwrap(), "[oi]");
         // atributo ausente é string vazia, e os literais ficam.
         let vazio = |_: &str| None;
-        assert_eq!(texto_de(&c, &vazio, None).unwrap(), "[]");
+        assert_eq!(texto_de(&c, &vazio, None, &[], &mut prof).unwrap(), "[]");
     }
-}
+
+    // ── ASPAS (2026-09-16): `quotes`, `open-quote`/`close-quote` ──────────
+    //
+    // A causa da maior família de falhas WPT `CSS2/generated-content`
+    // (`quotes-035`/`quotes-036`/`quotes-applies-to-*`): `open-quote` e
+    // `close-quote` eram recusados no `parse_content` e a declaração inteira
+    // caía. Os testes de nível (a escolha de par, a saturação, o clamp em
+    // zero) vivem em `crate::quotes`; os daqui são PONTA A PONTA, contra o
+    // documento inteiro, para provar que a herança e a ordem documental
+    // chegam à caixa pintada.
+
+    #[test]
+    fn open_e_close_quote_envolvem_o_conteudo_com_o_par_declarado() {
+        // quotes-001 do WPT: um só par, um `::before`/`::after` cada.
+        let t = textos(
+            "<style>div{quotes:\"A\" \"Z\"} div::before{content:open-quote} \
+             div::after{content:close-quote}</style><div>x</div>",
+        );
+        assert_eq!(t, vec!["A".to_string(), "x".to_string(), "Z".to_string()]);
+    }
+
+    #[test]
+    fn quotes_e_herdado_do_ancestral_nao_do_pseudo() {
+        // `quotes` declarado no <div> exterior, lido pelo `::before` de um
+        // <span> dois níveis abaixo — se a herança não subisse a árvore, o
+        // par tipográfico por omissão sairia em vez de "A".
+        let t = textos(
+            "<style>#pai{quotes:\"A\" \"Z\"} b::before{content:open-quote}</style>\
+             <div id=\"pai\"><span><b>x</b></span></div>",
+        );
+        assert!(t.contains(&"A".to_string()), "{t:?}");
+    }
+
+    #[test]
+    fn profundidade_de_aspas_e_global_e_aninha_entre_elementos() {
+        // O caso de `quotes-applies-to-001`: dois `open-quote` seguidos (em
+        // elementos DIFERENTES, mas o mesmo `quotes` de dois pares) escolhem
+        // o par de fora e o de dentro — não o mesmo par repetido.
+        let t = textos(
+            "<style>#r{quotes:\"P\" \"S\" \"A\" \"S\"} \
+             .o::before{content:open-quote} .c::after{content:close-quote}\
+             </style>\
+             <div id=\"r\"><span class=\"o c\"><span class=\"o c\">x</span></span></div>",
+        );
+        // "P" (nível 0, exterior) + "A" (nível 1, interior) + "x" + "S" (fecha
+        // nível 1) + "S" (fecha nível 0) = PASS ao redor do "x".
+        let junto: String = t.concat();
+        assert_eq!(junto, "PAxSS", "{t:?}");
+    }
+
+    #[test]
+    fn no_open_e_no_close_quote_nao_pintam_texto_mas_contam_o_nivel() {
+        let t = textos(
+            "<style>div{quotes:\"A\" \"Z\"} \
+             div::before{content:no-open-quote open-quote} \
+             div::after{content:close-quote}</style><div>x</div>",
+        );
+        // O `no-open-quote` sobe o nível para 1 SEM pintar; o `open-quote`
+        // que o segue já lê o nível 1 — só há um par declarado, que satura
+        // nele, então o texto ainda é "A", mas o `close-quote` do `::after`
+        // tem de descer de volta ao nível 1 e não ao 0 (clamp visível só se
+        // uma segunda aspa tentasse fechar a mais).
+        assert_eq!(t, vec!["A".to_string(), "x".to_string(), "Z".to_string()]);
+    }
+
+    #[test]
+    fn quotes_none_apaga_o_texto_das_aspas_sem_apagar_a_caixa() {
+        let t = textos(
+            "<style>div{quotes:none} div::before{content:open-quote \"x\"}\
+             </style><div>y</div>",
+        );
+        // A aspa em si não pinta nada, mas o literal ao lado sobrevive — é a
+        // mesma prova que `um_contador_que_ninguem_criou_vale_zero...` faz
+        // para `counter()`.
+        assert_eq!(t, vec!["x".to_string(), "y".to_string()]);
+    }

@@ -64,7 +64,7 @@ pub(in crate::layout) fn intrinsic_content_width(
     // que coubesse em vez do que se quer.
     if let Some(css) = dom.computed_style_idx(id) {
         if let Some((w, _)) =
-            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
+            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx)
         {
             // `replaced_inline_size` devolve a caixa COM borda (o contrato
             // dela é border-box); esta função devolve CONTEÚDO, como o resto
@@ -126,9 +126,46 @@ pub(in crate::layout) fn intrinsic_content_width(
         // errada muda a largura natural e com ela o sítio onde a linha quebra.
         let italic = italico(css.as_deref(), tag_de(dom, id), false);
         let family = css.as_ref().and_then(|c| c.font_family.as_deref());
-        let width = ctx.measurer.text_width_family(&own_text, font, family, mono, bold, italic)
-            + crate::style::spacing_width(own_text.chars().count(), ls)
-            + ws_extra;
+        let medir_linha = |linha: &str| -> f32 {
+            ctx.measurer.text_width_family(linha, font, family, mono, bold, italic)
+                + crate::style::spacing_width(linha.chars().count(), ls)
+        };
+        // `white-space: pre/pre-wrap/pre-line` FORÇA uma quebra em cada `\n` —
+        // a largura que o conteúdo QUER (max-content) é a da linha MAIS LARGA
+        // entre essas quebras, nunca a do texto inteiro medido como uma
+        // corrida só. Sem isto, uma célula de tabela com um `<pre>` de 4
+        // linhas de 20 caracteres media ~80 caracteres somados e estourava
+        // para a largura do viewport (WPT `white-space-pre-001`/`-002`,
+        // `tests/css/claude-pre-largura-intrinseca-quebra-forcada.html`).
+        //
+        // Só o `\n` LITERAL conta como quebra aqui — a MESMA regra de
+        // `inline_box::quebra_forcada_em`/`wrap_runs`, que também só reage a
+        // ele. Não há normalização de fim-de-linha em nenhum ponto anterior
+        // do motor (nem o tokenizador em `html.rs`, nem `collect_text`), por
+        // isso dividir aqui por outra coisa divergiria do que o `wrap_runs`
+        // realmente quebra — a mesma "segunda verdade" que este ficheiro já
+        // paga para `word-spacing`/`tab-size`. Um `\r\n` funciona por
+        // acidente (o `\n` continua a fechar a linha; o `\r` residual é
+        // aparado antes de medir); só um `\r` SOZINHO (sem `\n`) escapa aos
+        // dois lados por igual — gap conhecido, pré-existente, não uma nova
+        // divergência introduzida aqui.
+        //
+        // `ws_extra` (a soma de `word-spacing`) continua a somar-se UMA vez
+        // sobre o total, não por linha: `ajustar_texto_intrinsico`
+        // conta separadores de palavra no texto INTEIRO (`palavras_css` trata
+        // `\n` como fronteira também), e refazer essa contagem por linha
+        // pedia partir `ajustar_texto_intrinsico` já — fora do alcance desta
+        // correção. Só importa quando `word-spacing` não é zero E há mais de
+        // uma linha; o corpus WPT medido aqui não tem os dois ao mesmo tempo.
+        let width = if preserva && own_text.contains('\n') {
+            own_text
+                .split('\n')
+                .map(|linha| medir_linha(linha.trim_end_matches('\r')))
+                .fold(0.0f32, f32::max)
+                + ws_extra
+        } else {
+            medir_linha(&own_text) + ws_extra
+        };
         dom.intrinsic_width_put(key, width);
         return width;
     }

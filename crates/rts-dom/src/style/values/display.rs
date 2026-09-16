@@ -71,6 +71,33 @@ pub enum DisplayKind {
     /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
     /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
     Grid,
+    /// `display:grid-lanes` (e `inline grid-lanes`) — CSS Grid **Level 3**: as
+    /// trilhas declaradas são as LANES e os itens correm no OUTRO eixo,
+    /// encostando cada um à posição corrente da sua lane.
+    ///
+    /// Variante PRÓPRIA e não um sinónimo de [`Grid`](DisplayKind::Grid), que
+    /// foi a primeira tentativa e é falsa em dois terços dos casos: o que
+    /// distingue os dois é QUAL é o eixo do fluxo, e com as lanes nas LINHAS
+    /// (só `grid-template-rows` declarado) o fluxo é coluna a coluna. Um
+    /// `grid-lanes` colapsado em `Grid` acerta a família das colunas e empilha
+    /// a das linhas numa coluna só — 38 dos 59 reftests de
+    /// `css-grid/grid-lanes/track-sizing/auto-repeat/`. Quem lê a distinção é
+    /// `layout::grid`, pelo valor DECLARADO.
+    ///
+    /// Para todo o resto do layout é uma grelha: [`ComputedStyle::
+    /// effective_display`](crate::style::ComputedStyle::effective_display)
+    /// normaliza-a para [`Grid`](DisplayKind::Grid) — é o mesmo mecanismo que
+    /// já sintetiza `Flex` + `flex-wrap` em `FlexWrap`, e é o que evita que
+    /// cada `== DisplayKind::Grid` espalhado pelo layout passasse a responder
+    /// "não" em silêncio a uma grelha (a armadilha que
+    /// [`is_inline_level`](DisplayKind::is_inline_level) documenta).
+    ///
+    /// O que NÃO faz, e fica dito: itens de tamanhos diferentes. O masonry a
+    /// sério encosta cada item ao fundo da lane mais curta; aqui o fluxo é o do
+    /// grid, que alinha por linhas. Todo o corpus desta pasta tem itens do
+    /// mesmo tamanho, onde as duas respostas coincidem. `flow-tolerance` não é
+    /// parseada por isso mesmo — não haveria o que ela ajustasse.
+    GridLanes,
     /// `display:list-item` — é o `<li>`. Uma caixa de BLOCO que, além dos filhos,
     /// gera um MARCADOR (o ponto, o número). O empilhamento é o do bloco: o que
     /// a distingue é o marcador, não o fluxo — por isso é uma variante e não um
@@ -129,7 +156,10 @@ impl DisplayKind {
             // horizontal do flex) punha o caret `::after` do Bootstrap no topo
             // da linha e qualquer filho de bloco lado a lado com o irmão.
             DisplayKind::Inline | DisplayKind::InlineBlock => 0,
-            DisplayKind::FlexWrap | DisplayKind::Grid | DisplayKind::InlineFlexWrap => 1, // wrap
+            DisplayKind::FlexWrap
+            | DisplayKind::Grid
+            | DisplayKind::GridLanes
+            | DisplayKind::InlineFlexWrap => 1, // wrap
             // `InlineFlex` é flex por DENTRO — o mesmo eixo horizontal de
             // `Flex`; só o outer-display muda, e essa pergunta é
             // `is_inline_level`, não o código de eixo dos filhos.
@@ -198,15 +228,46 @@ pub enum JustifyContent {
     /// `getComputedStyle` tem de responder o keyword usado.
     Start,
     End,
+    /// `flow-start`/`flow-end` — o início/fim do FLUXO. Num contentor flex
+    /// comportam-se exactamente como `flex-start`/`flex-end`, incluindo serem
+    /// espelhadas por `row-reverse` e `wrap-reverse`, que é o que as separa de
+    /// `Start`/`End` acima (lógicas, invariantes ao reverse). A referência do
+    /// WPT (`flow-start-flow-end-reverse-ref.html`) é o teste com as duas
+    /// palavras trocadas uma a uma e mais nada — é ela que fixa a equivalência.
+    ///
+    /// Variantes próprias e não sinónimos de `FlexStart`/`FlexEnd` no parse,
+    /// pela mesma razão que obrigou `Start`/`End` a existir: `getComputedStyle`
+    /// responde a palavra ESCRITA. A geometria reduz-se num sítio só,
+    /// [`resolve_flow`](JustifyContent::resolve_flow); o nome sobrevive.
+    FlowStart,
+    FlowEnd,
 }
 
 impl JustifyContent {
+    /// `flow-start`/`flow-end` → o par de flex equivalente; tudo o resto passa
+    /// intacto. Chamada pelas funções que transformam o valor em GEOMETRIA
+    /// (`justify_offsets`, `mirror_justify`), e por nenhuma que o serialize.
+    ///
+    /// Uma função e não um braço em cada uma: a equivalência é um facto sobre
+    /// as palavras, não sobre cada cálculo que as lê, e escrita em três sítios
+    /// era onde o `wrap-reverse` acabaria a espelhar `flex-start` e a esquecer
+    /// `flow-start`.
+    pub fn resolve_flow(self) -> JustifyContent {
+        match self {
+            JustifyContent::FlowStart => JustifyContent::FlexStart,
+            JustifyContent::FlowEnd => JustifyContent::FlexEnd,
+            outro => outro,
+        }
+    }
+
     pub fn parse(v: &str) -> Option<JustifyContent> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "flex-start" | "normal" => JustifyContent::FlexStart,
             "flex-end" => JustifyContent::FlexEnd,
             "start" => JustifyContent::Start,
             "end" => JustifyContent::End,
+            "flow-start" => JustifyContent::FlowStart,
+            "flow-end" => JustifyContent::FlowEnd,
             "left" => JustifyContent::Left,
             "right" => JustifyContent::Right,
             "center" => JustifyContent::Center,
@@ -243,14 +304,37 @@ pub enum AlignItems {
     /// fallback físico nunca diverge entre um teste e a sua referência do
     /// jeito que um ascent mal medido divergiria.
     LastBaseline,
+    /// `flow-start`/`flow-end` no eixo CRUZADO — o par de
+    /// [`JustifyContent::FlowStart`]/[`FlowEnd`](JustifyContent::FlowEnd), com
+    /// a mesma equivalência e a mesma razão para não ser um sinónimo no parse.
+    ///
+    /// Note-se que `start`/`end` aqui em cima JÁ são sinónimos de
+    /// `flex-start`/`flex-end` neste enum, ao contrário do que acontece em
+    /// `JustifyContent` — é uma divergência que vem de trás e não é deste
+    /// lote; o que ela significa é que um `align-items: start` serializa
+    /// `flex-start`. Não a alarguei a `flow-*` porque o defeito não se corrige
+    /// copiando-o.
+    FlowStart,
+    FlowEnd,
 }
 
 impl AlignItems {
+    /// O par de [`JustifyContent::resolve_flow`] — ver o porquê lá.
+    pub fn resolve_flow(self) -> AlignItems {
+        match self {
+            AlignItems::FlowStart => AlignItems::FlexStart,
+            AlignItems::FlowEnd => AlignItems::FlexEnd,
+            outro => outro,
+        }
+    }
+
     pub fn parse(v: &str) -> Option<AlignItems> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "stretch" | "normal" => AlignItems::Stretch,
             "flex-start" | "start" | "self-start" => AlignItems::FlexStart,
             "flex-end" | "end" | "self-end" => AlignItems::FlexEnd,
+            "flow-start" => AlignItems::FlowStart,
+            "flow-end" => AlignItems::FlowEnd,
             "center" => AlignItems::Center,
             "baseline" | "first baseline" => AlignItems::Baseline,
             "last baseline" => AlignItems::LastBaseline,

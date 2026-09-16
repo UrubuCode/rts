@@ -154,6 +154,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     content_x,
                     $y,
                     content_w,
+                    avail_h,
                     css,
                     font_size,
                     &bfc.snapshot(),
@@ -245,8 +246,60 @@ pub(in crate::layout) fn layout_children_vertical(
         // corte): `left` só lê o lado esquerdo do BFC, `right` só o direito,
         // `both` os dois — a mesma pergunta que `bfc.fundo_lado` existe para
         // responder.
+        //
+        // `clear` só se aplica a caixas de NÍVEL BLOCO (CSS 2.1 §9.5.2,
+        // "Applies to: block-level elements") — faltava perguntar. Sem isto,
+        // um `<div style="display:table-cell;clear:left">` ou
+        // `display:inline-block` descia abaixo do float como se fosse um
+        // bloco normal, quando devia ficar exatamente onde ficaria sem o
+        // `clear` (WPT `clear-applies-to-001..007/012/015`, `clear-inline-001`).
+        //
+        // **Não é `!is_table_part()`** — essa função (`style/values/
+        // display.rs`) responde para outra pergunta ("é uma peça INTERNA de
+        // tabela, não desças nela como um `<div>`") e por isso inclui
+        // `Table` — mas `display:table` gera uma caixa de nível BLOCO (a
+        // "table wrapper box", CSS 2.1 §17.4): `clear` aplica-se A ELA
+        // normalmente. Usar `is_table_part()` aqui tirou o `clear` também de
+        // `display:table` e custou três reftests que passavam
+        // (`clear-applies-to-013/016/017`, cujo `assert` diz exactamente
+        // isto: "The 'clear' property DOES apply to elements with a display
+        // of 'table'"). A lista aqui é escrita à mão, sem `Table`, e não com
+        // `!is_table_part()` invertido menos um caso — seria a MESMA
+        // armadilha com outro nome se a função ganhar um variant novo amanhã
+        // e ninguém se lembrar desta excepção.
+        //
+        // O que isto NÃO resolve, e não é o mesmo defeito: `display:
+        // inline-table` deveria ser o INVERSO de `table` para este efeito
+        // (nível INLINE, `clear` não se aplica — `clear-applies-to-014`) mas
+        // o `parse/mod.rs` já colapsa os dois em `DisplayKind::Table` antes
+        // de chegar aqui ("`inline-table` cai em `Table` porque a diferença
+        // [...]"), e não há campo nenhum que preserve qual dos dois foi
+        // escrito. Não é uma escolha desta função — é uma escolha já feita
+        // mais cedo no motor, e sem ela `inline-table` também nunca se
+        // comporta como inline-level em MAIS NENHUM sítio do layout (não só
+        // aqui). Corrigir isso é dar um variant novo a `DisplayKind`, fora
+        // do que este lote autoriza tocar.
+        //
+        // `None` (tag sem display próprio) conta como bloco — a UA-
+        // stylesheet já resolve `display` de papel na cascade antes disto
+        // correr (`layout/caixa.rs::used_display`), então um `None` aqui é
+        // mesmo "nada declarado", nunca uma tag inline/tabela escondida.
+        let child_e_de_bloco = child_css
+            .as_ref()
+            .and_then(|c| c.effective_display())
+            .map(|d| {
+                !matches!(
+                    d,
+                    crate::style::DisplayKind::TableRowGroup
+                        | crate::style::DisplayKind::TableRow
+                        | crate::style::DisplayKind::TableCell
+                        | crate::style::DisplayKind::TableCaption
+                ) && !d.is_inline_level()
+            })
+            .unwrap_or(true);
         if let Some((esquerda, direita)) = child_css
             .as_ref()
+            .filter(|_| child_e_de_bloco)
             .and_then(|c| c.clear)
             .map(|c| c.sides())
             .filter(|&(e, d)| e || d)
@@ -517,6 +570,30 @@ pub(in crate::layout) fn layout_children_vertical(
                 // `clear` pede — ver acima). Somar a margem por cima da descida
                 // era o defeito medido — o bloco ficava 10 px abaixo do fundo do
                 // float onde o Chrome o põe exactamente no fundo.
+                //
+                // NÃO TOQUES AQUI SEM MEDIR: esta linha parecia o defeito de
+                // `margin-collapse-clear-014`/`clear-clearance-calculation-004`
+                // (comparar a posição JÁ colapsada com o fundo do float, em
+                // vez de quebrar o colapso com o irmão anterior) — mas
+                // reconstruindo os dois exemplos à mão, com os números que o
+                // PRÓPRIO WPT escreve no `assert`/na referência, a causa real
+                // não está aqui: está em como um FLOAT irmão consome a margem
+                // pendente (ver o comentário "float quebra a sequência de
+                // collapse" mais acima nesta função, `borda = child_y; strut =
+                // (0.0, 0.0)`) — esse reset faz a margem do irmão ANTES do
+                // float ficar embutida em `borda`, e a margem PRÓPRIA do
+                // bloco com `clear` soma-se a ela em vez de competir por MAX
+                // com ela, o que dá uma aresta maior do que devia mesmo antes
+                // de qualquer comparação com o fundo do float. Uma correção
+                // aqui, na comparação com `fundo`, não alcança esse ponto.
+                // Cheguei a implementar "quebrar só com o anterior, manter a
+                // margem própria" e reverti: reconstruído à mão contra
+                // `margin-collapse-clear-014` dava 220 (esperado 200) —
+                // idêntico ao código actual, porque a margem própria (120) já
+                // dominava o MAX de qualquer forma. Mudar o reset do float é
+                // uma mudança maior (afecta qualquer margem depois de um
+                // float, com ou sem `clear`) e fica para quem confirmar essa
+                // hipótese com a suite a compilar.
                 if let Some(fundo) = clearance {
                     aresta = aresta.max(fundo);
                 }
@@ -590,6 +667,7 @@ pub(in crate::layout) fn layout_children_vertical(
                         content_x,
                         child_y,
                         content_w,
+                        avail_h,
                         css,
                         font_size,
                         &bfc.snapshot(),

@@ -113,6 +113,16 @@ css_props! {
         /// para dizer "sou um contexto de formatação", e sem este campo o parse
         /// aceitava-a e deitava fora a única coisa que a separa de `block`.
         [] flow_root: bool;
+        /// `display: table-column-group` — o `<colgroup>` (ou qualquer nó com o
+        /// keyword). Mesmo arranjo de `flow_root`: a variante de `DisplayKind`
+        /// já existe como `None` (CSS 2.1 §17.2.1 — não gera caixa nenhuma;
+        /// ver `style/parse/mod.rs`), e este campo guarda só a distinção que
+        /// se perdia — a que deixa `table/grid.rs` reconhecer o nó para lhe
+        /// pintar o FUNDO atrás das células da coluna, sem lhe dar uma caixa.
+        [] table_column_group: bool;
+        /// `display: table-column` — o `<col>` (ou qualquer nó com o
+        /// keyword). Par de [`table_column_group`] acima, mesma razão.
+        [] table_column: bool;
         [] border_box: bool;
         /// `display` parseado do CSS (block/flex/inline/none). `None` = não
         /// declarado (o layout usa o default da tag via `block::lookup`). Combina

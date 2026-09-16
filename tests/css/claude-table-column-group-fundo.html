@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<!-- Causa isolada: `display: table-column`/`table-column-group` não geram
+     caixa (CSS 2.1 §17.2.1 — `style/parse/mod.rs` mapeia os dois para
+     `DisplayKind::None`, de propósito, para não pintar um retângulo vazio
+     que o Chrome não tem), mas isso apagava também o `background` que
+     declaram — que a spec manda pintar ATRÁS das células da coluna que
+     atravessam (§17.5.1). 12 reftests do WPT (`background*-applies-to-005`/
+     `-006`, as 6 propriedades × grupo/coluna) esperam um quadrado preto e
+     recebiam a tela em branco.
+
+     Corrigido em `table/grid.rs` (coleta o intervalo de colunas de cada
+     `<col>`/`<colgroup>`, via dois campos novos em `ComputedStyle` —
+     `table_column`/`table_column_group` — que distinguem os dois de um
+     `display:none` de verdade) e `table/mod.rs::pinta_fundo_de_coluna`
+     (pinta o fundo da coluna atrás de cada célula, antes do `layout_block`
+     dela).
+
+     ESTA FIXTURE NÃO PROVA A PINTURA: a régua mede geometria e estilo
+     computado, não cor de pixel, e o `background-color` de `#grupo`/`#col2`
+     já computava certo ANTES da correção — declarar `background` num
+     elemento sempre resolve o valor da propriedade, esteja ou não gerando
+     caixa. O que prova a correção é o reftest WPT (comparação de pixels);
+     esta fixture só fixa que a GEOMETRIA das células (que não muda com este
+     lote) e o `background-color` computado continuam os esperados, para que
+     uma regressão futura na leitura de `table-column`/`table-column-group`
+     seja apanhada aqui também. -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="grupo,col2,celula-a">
+<meta name="fixar-estilo" content="background-color,display">
+<style>
+  body { margin: 0; }
+  #tabela {
+    display: table;
+    table-layout: fixed;
+    width: 200px;
+  }
+  #grupo { display: table-column-group; background: black; }
+  .col { display: table-column; }
+  #col2 { background: rgb(0, 128, 0); }
+  .linha { display: table-row; }
+  .celula { display: table-cell; height: 50px; width: 100px; }
+</style></head>
+<body>
+  <div id="tabela">
+    <div id="grupo">
+      <div class="col" id="col1"></div>
+      <div class="col" id="col2"></div>
+    </div>
+    <div class="linha">
+      <div class="celula" id="celula-a">a</div><div class="celula" id="celula-b">b</div>
+    </div>
+    <div class="linha">
+      <div class="celula">c</div><div class="celula">d</div>
+    </div>
+  </div>
+</body>
+</html>

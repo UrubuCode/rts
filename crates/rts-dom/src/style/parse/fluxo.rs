@@ -23,6 +23,21 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
                 &mut css.flow_root,
                 val.trim().eq_ignore_ascii_case("flow-root").then_some(true),
             );
+            // Mesma distinção, para `table-column-group`/`table-column`: o
+            // `DisplayKind` que `parse_display` devolve para os dois é `None`
+            // (não geram caixa — CSS 2.1 §17.2.1), indistinguível de um
+            // `display:none` de verdade. `table/grid.rs` precisa de saber
+            // QUAL dos dois era, para lhes pintar o fundo atrás das células
+            // da coluna que atravessam (CSS 2.1 §17.5.1) sem lhes dar caixa.
+            let kw = val.trim();
+            set_if(
+                &mut css.table_column_group,
+                kw.eq_ignore_ascii_case("table-column-group").then_some(true),
+            );
+            set_if(
+                &mut css.table_column,
+                kw.eq_ignore_ascii_case("table-column").then_some(true),
+            );
         }
         // `flex-wrap` — combina com display:flex para promover a FlexWrap.
         // `nowrap`/`wrap`/`wrap-reverse`: os três estados de `FlexWrap`.

@@ -87,15 +87,20 @@ impl ComputedStyle {
     /// inline nem interna de tabela; o valor COMPUTADO de `display` vira
     /// `block`. `None` se não declarado (o layout cai no default da tag).
     ///
-    /// Só `Inline`/`InlineBlock` e os quatro internos de tabela que geram
-    /// caixa (`TableRow`, `TableRowGroup`, `TableCell`, `TableCaption`) entram
-    /// aqui — `table-column`/`table-column-group` já param em `None` no parse
-    /// (`style/parse/mod.rs`: não geram caixa nenhuma, flutuados ou não) e
-    /// `inline-table` já colapsa em `Table` no parse, que é bloco-level e não
-    /// precisa de conversão. `Flex`/`Grid`/os dois wrap ficam de fora: nenhum
-    /// fixture do balde `float-applies-to-*`/`clear-applies-to-*` exercita a
-    /// blockificação de flex, e alargar sem uma régua confirmando é o mesmo
-    /// erro que este lote existe para evitar.
+    /// `Inline`/`InlineBlock` e os quatro internos de tabela que geram caixa
+    /// (`TableRow`, `TableRowGroup`, `TableCell`, `TableCaption`) entram aqui
+    /// direto; `inline-table` já colapsa em `Table` no parse, que é
+    /// bloco-level e não precisa de conversão. `table-column`/
+    /// `table-column-group` também param em `None` no parse
+    /// (`style/parse/mod.rs`: não geram caixa SEM flutuar) — mas flutuados ou
+    /// fora do fluxo voltam a ter caixa como qualquer outro display, e
+    /// `table_column`/`table_column_group` (os campos que os distinguem de um
+    /// `display:none` de verdade — ver `style/parse/fluxo.rs`) são o braço
+    /// que trata esse caso, sem entrar no `match` de baixo. `Flex`/`Grid`/os
+    /// dois wrap ficam de fora: nenhum fixture do balde
+    /// `float-applies-to-*`/`clear-applies-to-*` exercita a blockificação de
+    /// flex, e alargar sem uma régua confirmando é o mesmo erro que este lote
+    /// existe para evitar.
     pub fn effective_display(&self) -> Option<DisplayKind> {
         let base = match self.display {
             Some(DisplayKind::Flex) if self.flex_wrap.is_some_and(FlexWrap::wraps) => {
@@ -104,6 +109,17 @@ impl ComputedStyle {
             Some(DisplayKind::InlineFlex) if self.flex_wrap.is_some_and(FlexWrap::wraps) => {
                 Some(DisplayKind::InlineFlexWrap)
             }
+            // `grid-lanes` é uma GRELHA para todo o layout: estabelece o mesmo
+            // contexto de formatação, os filhos são itens de grelha, o `::after`
+            // do clearfix conta igual. O que a distingue — qual é o eixo do
+            // fluxo — é uma pergunta que só `layout::grid` faz, e faz ao valor
+            // DECLARADO (`self.display`), não a este.
+            //
+            // Normalizar AQUI e não em cada consumidor é o que impede o modo de
+            // falha que `DisplayKind::is_inline_level` documenta: há sete
+            // `== DisplayKind::Grid` espalhados pelo layout, e uma variante nova
+            // faria os sete responderem "não é grelha" em silêncio.
+            Some(DisplayKind::GridLanes) => Some(DisplayKind::Grid),
             other => other,
         };
         let blockifies = self.float_side.is_some_and(|f| f != FloatSide::None)
@@ -120,6 +136,20 @@ impl ComputedStyle {
                 | DisplayKind::TableCell
                 | DisplayKind::TableCaption,
             ) => Some(DisplayKind::Block),
+            // `table-column`/`table-column-group` já param em `None` no parse
+            // (não geram caixa — a nota acima) — MAS flutuar/sair do fluxo
+            // devolve a caixa (CSS 2.1 §9.7: a blockificação vale para
+            // QUALQUER display, e um `display:none` de verdade não teria
+            // como flutuar para começo de conversa). `table_column`/
+            // `table_column_group` são o sinal que os distingue de um
+            // `display:none` — ver `style/parse/fluxo.rs`. Sem este braço,
+            // `float-applies-to-005`/`-006` (WPT) continuavam sem caixa
+            // nenhuma mesmo flutuados.
+            Some(DisplayKind::None)
+                if self.table_column_group.unwrap_or(false) || self.table_column.unwrap_or(false) =>
+            {
+                Some(DisplayKind::Block)
+            }
             other => other,
         }
     }

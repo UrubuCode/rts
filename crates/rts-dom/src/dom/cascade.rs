@@ -121,10 +121,22 @@ impl Dom {
         );
         let content = content?;
         let contadores = self.document_counters();
+        // As aspas: a lista efetiva vem por HERANÇA de ancestral
+        // (`effective_quotes`), a profundidade de ENTRADA vem da passagem
+        // documental (`document_quote_depths`) pela mesma razão dos
+        // contadores — e as duas guardas (`has_generated_content` acima já
+        // filtrou "há pseudo-elemento"; dentro de `effective_quotes`/
+        // `document_quote_depths` a segunda guarda é `has_quote_content`)
+        // fazem o custo ser zero numa página sem `quotes`/aspas.
+        let quotes = self.effective_quotes(idx);
+        let profundidades = self.document_quote_depths();
+        let mut profundidade_aspas = profundidades.get(&(idx, pe)).copied().unwrap_or(0);
         let texto = crate::pseudo::texto_de(
             &content,
             &|nome: &str| self.nodes[idx].attr(nome).map(str::to_string),
             contadores.get(&(idx, pe)),
+            &quotes,
+            &mut profundidade_aspas,
         )?;
         // O `direction` do ORIGINANTE, já resolvido (herança incluída) — o
         // pseudo herda dele daqui a pouco, e uma `margin-inline-*` que o

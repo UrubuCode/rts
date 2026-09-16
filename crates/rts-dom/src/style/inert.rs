@@ -115,13 +115,19 @@ pub fn is_inert(prop: &str) -> bool {
             | "container-type" | "container-name" | "container"
             | "anchor-name" | "position-anchor"
         // CONTADORES E ASPAS: continuam fora do `ComputedStyle`, mas o motivo
-        // mudou. `counter-reset`/`counter-increment` JÁ TÊM leitor — o
-        // `crate::counters` lê-os do corpo cru da regra, porque a resposta deles
-        // é por documento e não por nó, e guardá-los em cada `ComputedStyle`
-        // daria dois `Vec` por elemento para servir umas dezenas. Estarem aqui
-        // significa "não é propriedade computada", não "é ignorado".
+        // mudou. `counter-reset`/`counter-increment`/`quotes` JÁ TÊM leitor — o
+        // `crate::counters`/`crate::quotes` lê-os do corpo cru da regra, porque
+        // a resposta deles é por documento (contador) ou por herança de
+        // ancestral (`quotes`, via `dom::Dom::effective_quotes`) e não um campo
+        // por nó, e guardá-los em cada `ComputedStyle` daria um `Vec` a mais por
+        // elemento para servir umas dezenas. Estarem aqui significa "não é
+        // propriedade computada", não "é ignorado" — `quotes` SAIU do grupo que
+        // dizia isso até 2026-09-16 (causa da maior família de falhas WPT
+        // `CSS2/generated-content`: `open-quote`/`close-quote` sem `quotes`
+        // para ler).
         //
-        // `counter-set` e `quotes` são o caso antigo, e esses sim: ninguém os lê.
+        // `counter-set` continua o caso antigo, e esse sim: ninguém o lê —
+        // `counter-reset`/`counter-increment` cobrem o corpus real.
             | "counter-reset" | "counter-increment" | "counter-set" | "quotes"
         // SVG: não há motor de SVG, e não é para haver nesta campanha. É a
         // recusa mais fácil de justificar com a própria sonda: reconhecer as ~300

@@ -16,11 +16,15 @@
 //!   pinta a sua borda. Duas bordas de 1px lado a lado ficam com 2px de tinta
 //!   onde o Chrome pinta 1px. Muda a cor de um traço, não a posição de nada.
 //! - `<caption>`, `<col>` e `<colgroup>` não dimensionam colunas — a largura de
-//!   um `<col>` é lida do atributo `width`, o resto do seu CSS não.
+//!   um `<col>` é lida do atributo `width`. O `background`/`border` dos dois
+//!   JÁ se pintam (`colunas.rs`, CSS 2.1 §17.5.1/§17.4 — a borda só com
+//!   `border-collapse:collapse`), mas nenhuma outra propriedade visual.
 //! - `rowspan` reserva a célula na grade (nenhuma outra ocupa aquele lugar) e a
 //!   sua altura é cobrada à ÚLTIMA linha que atravessa. É onde o browser a cobra
 //!   quando as linhas não têm altura própria, que é o caso normal.
 
+mod colunas;
+mod flutuantes;
 mod grid;
 pub(in crate::table) mod widths;
 
@@ -32,6 +36,7 @@ mod tests_listas;
 use crate::layout::{DisplayItem, DisplayList, LayoutCtx, Rect};
 use crate::style::{ComputedStyle, DisplayKind};
 use crate::{Dom, NodeIdx};
+use colunas::{pinta_borda_de_coluna, pinta_caixa, pinta_fundo_de_coluna};
 use grid::collect;
 
 /// A largura MÍNIMA de conteúdo (`min-content`) PURA de um nó — a palavra
@@ -94,6 +99,16 @@ struct Grid {
     /// aparecem. Vão empilhados ACIMA da grade.
     outros: Vec<NodeIdx>,
     cols: usize,
+    /// `(coluna inicial, coluna final EXCLUSIVA, nó com o fundo)` — cada
+    /// `table-column-group`/`table-column` visto ANTES das linhas (`<col>`/
+    /// `<colgroup>`, ou qualquer nó com o `display` equivalente), na ordem em
+    /// que aparecem no documento. Um grupo com `<col>` filhos entra duas
+    /// vezes por coluna: uma vez pelo próprio grupo (o intervalo INTEIRO) e
+    /// depois por cada `<col>` (o seu intervalo, mais estreito) — nessa
+    /// ordem, para que a pintura (`pinta_fundo_de_coluna`) desenhe o grupo
+    /// primeiro e a coluna por cima, como a cascata já manda para o resto do
+    /// CSS. Ver `grid.rs::coleta_grupo_de_colunas`.
+    col_bg: Vec<(usize, usize, NodeIdx)>,
 }
 
 /// Os parâmetros da tabela, já resolvidos em pontos: os três valores que
@@ -227,30 +242,11 @@ pub(crate) fn layout_table(
 ) -> f32 {
     let g = collect(dom, id);
     let ts = TableStyle::of(dom, id, css, font_size, ctx);
-    let mut y = content_y;
 
-    // `<caption>` e outros blocos avulsos: empilham acima da grade, à largura da
-    // tabela. Ficam fora do algoritmo de colunas de propósito — não têm coluna.
-    for &o in &g.outros {
-        let (_, h) = crate::layout::layout_block(
-            dom,
-            o,
-            content_x,
-            y,
-            content_w,
-            None,
-            None,
-            None,
-            false,
-            false,
-            // `<caption>`/bloco avulso da tabela: sem float dentro de uma
-            // tabela (a tabela já é BFC), um contexto novo é o mesmo `&[]`.
-            &crate::layout::BlockFormattingContext::new(),
-            ctx,
-            list,
-        );
-        y += h;
-    }
+    // `<caption>` e outros blocos avulsos, incluindo um `float` desviado por
+    // `grid.rs` — ver `flutuantes::pinta_outros`, que devolve o `y` já
+    // descido até à base de qualquer flutuado (CSS 2.1 §9.5).
+    let mut y = flutuantes::pinta_outros(dom, &g.outros, content_x, content_y, content_w, font_size, ctx, list);
     if g.cols == 0 || g.rows.is_empty() {
         return y - content_y;
     }
@@ -348,6 +344,13 @@ pub(crate) fn layout_table(
             let w = largura_de(c.col, c.colspan);
             let fim = (ri + c.rowspan - 1).min(g.rows.len() - 1);
             let h: f32 = alturas[ri..=fim].iter().sum::<f32>() + (fim - ri) as f32 * ts.spacing_v;
+            // Fundo da COLUNA/GRUPO-DE-COLUNAS, atrás da célula: empurrado
+            // ANTES do `layout_block` dela, então tudo o que a célula pinta
+            // (a sua própria caixa, incluída) fica por cima — a mesma regra
+            // de "o fundo vai atrás dos filhos" que um bloco normal já seria,
+            // só que aqui não há bloco nenhum a fazê-lo por si (CSS 2.1
+            // §17.5.1: `<col>`/`<colgroup>` não geram caixa).
+            pinta_fundo_de_coluna(dom, Rect::new(col_x[c.col], y, w, h), c.col, c.colspan, &g.col_bg, list);
             crate::layout::layout_block(
                 dom,
                 c.node,
@@ -403,47 +406,40 @@ pub(crate) fn layout_table(
         crate::layout::record_node_rect(list, node, rect);
         pinta_caixa(dom, node, rect, list.items.len(), list.children.len(), list);
     }
-    y - content_y
-}
 
-/// Pinta fundo e borda de uma caixa que não passou pelo `layout_block` (linha ou
-/// grupo de linhas), inserindo os itens em `at` para ficarem ATRÁS do que já lá
-/// está. Sem isto, um `<tr>` com `background` não pintava nada: a linha nunca é
-/// um bloco, e era o `layout_block` que fazia esta parte para todos os outros.
-fn pinta_caixa(
-    dom: &Dom,
-    id: NodeIdx,
-    rect: Rect,
-    at: usize,
-    filhos_antes: usize,
-    list: &mut DisplayList,
-) {
-    let Some(css) = dom.computed_style_idx(id) else {
-        return;
-    };
-    if !css.has_box() {
-        return;
+    // A BORDA de cada `table-column`/`table-column-group` (CSS 2.1 §17.4): só
+    // tem efeito visível com `border-collapse:collapse` — sem colapso a spec
+    // manda IGNORÁ-LA, por isso o `filter` logo abaixo. Os 28 reftests
+    // `border*-applies-to-005/006` confirmados por nome/assert declaram
+    // `border-collapse:collapse` no `#table`; nenhum testa a versão
+    // `separate` (onde a resposta certa é continuar sem pintar nada, que já é
+    // o comportamento de hoje). Um retângulo por intervalo de colunas — a LARGURA é o
+    // intervalo (`largura_de`, a mesma soma que uma célula com colspan já
+    // usa), a ALTURA é a TABELA INTEIRA (todas as linhas), o espelho por
+    // eixo do que um grupo de LINHAS já faz acima com a largura. Por CIMA de
+    // tudo (`list.items.len()` — mesmo ponto de inserção que os grupos
+    // acima), como qualquer borda pinta por cima do fundo que cobre.
+    //
+    // CORTE dito: isto NÃO é o algoritmo de conflito de bordas da spec — não
+    // funde com a borda de uma célula ou de um `<tr>` adjacente, só desenha o
+    // retângulo do PRÓPRIO grupo/coluna. Idêntico ao corte que `TableStyle`
+    // já documenta para `border-collapse` no topo do módulo ("a fusão é o
+    // caso simples"); os 28 fixtures confirmados não têm bordas competindo
+    // (só o `#test` declara `border` nos 28), então não expõe a diferença.
+    if !g.rows.is_empty() && css.border_collapse == Some(crate::style::BorderCollapse::Collapse) {
+        let topo = row_y[0];
+        let base = row_y[row_y.len() - 1] + alturas[row_y.len() - 1];
+        for &(ini, fim, node) in &g.col_bg {
+            if ini >= g.cols {
+                continue;
+            }
+            let fim_c = fim.min(g.cols);
+            if fim_c <= ini {
+                continue;
+            }
+            let w = largura_de(ini, fim_c - ini);
+            pinta_borda_de_coluna(dom, node, Rect::new(col_x[ini], topo, w, base - topo), list);
+        }
     }
-    let radius = css.corner_radius.unwrap_or(0.0);
-    let mut em = Vec::new();
-    if let Some(bg) = css.bg {
-        em.push(DisplayItem::SolidRect {
-            rect,
-            color: bg,
-            radius: crate::layout::Corners::from_style(&css, 0.0),
-        });
-    }
-    em.extend(crate::layout::border_items(
-        &css,
-        rect,
-        radius,
-        1.0,
-        // A borda de uma célula respeita o `filter` dela como a de qualquer
-        // outra caixa; passar a identidade aqui faria a mesma folha pintar
-        // diferente consoante o elemento fosse ou não uma célula de tabela.
-        crate::painteffects::filtro(css.filter.as_deref().unwrap_or("")),
-    ));
-    for (i, item) in em.into_iter().enumerate() {
-        crate::layout::insert_item(list, at + i, filhos_antes, item);
-    }
+    y - content_y
 }

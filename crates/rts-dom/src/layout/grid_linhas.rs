@@ -94,6 +94,21 @@ fn axis_placement(start: GridLine, end: GridLine, explicit: usize) -> Option<(us
     Some(((a - 1).max(0) as usize, (b - 1).max(0) as usize))
 }
 
+/// O SPAN que um eixo pede quando a sua colocação não é resolúvel sozinha —
+/// `grid-column: span 2`, que é `Span(2)` no início e `Auto` no fim.
+///
+/// Só é consultado quando [`axis_placement`] devolveu `None`, e nessa altura
+/// as únicas formas com um `Span` lá dentro são as que têm a outra ponta
+/// `auto` (as duas com uma `Line` resolvem-se sozinhas). Devolver 1 aqui era o
+/// que fazia o item de `span 2` ocupar UMA célula: o span não se perdia no
+/// parse — perdia-se entre o parse e a colocação.
+fn axis_span(start: GridLine, end: GridLine) -> usize {
+    match (start, end) {
+        (GridLine::Span(n), _) | (_, GridLine::Span(n)) => (n as usize).max(1),
+        _ => 1,
+    }
+}
+
 /// Marca `r0..r1 × c0..c1` como ocupado.
 fn mark(taken: &mut HashSet<(usize, usize)>, r0: usize, c0: usize, r1: usize, c1: usize) {
     for r in r0..r1 {
@@ -103,31 +118,116 @@ fn mark(taken: &mut HashSet<(usize, usize)>, r0: usize, c0: usize, r1: usize, c1
     }
 }
 
-/// Primeira célula livre a partir de `start_idx` (linear, row-major, `ncols`
-/// colunas por linha) — o flow `row` (default).
-fn free_row_major(taken: &HashSet<(usize, usize)>, ncols: usize, start_idx: usize) -> (usize, usize) {
+/// O retângulo `rows × cols` a partir de `(r, c)` está todo livre?
+fn cabe(taken: &HashSet<(usize, usize)>, r: usize, c: usize, rows: usize, cols: usize) -> bool {
+    for rr in r..r + rows {
+        for cc in c..c + cols {
+            if taken.contains(&(rr, cc)) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// A primeira LINHA a partir de `inicio` onde um item de `rows × cols` cabe na
+/// coluna `c0` — para quem tem a coluna presa e a linha por achar (spec §8.5
+/// passo 4).
+///
+/// `inicio` é a linha do CURSOR de auto-colocação e não zero, que é o que
+/// separa o empacotamento esparso (o default) do `dense`: com `dense` a busca
+/// recomeça do topo e o item tapa um buraco deixado para trás; sem ele, não.
+/// Começar sempre em zero dava o comportamento `dense` a quem não o pediu.
+///
+/// Termina sempre: as linhas não têm limite, portanto há sempre uma vazia.
+fn primeira_linha_livre(
+    taken: &HashSet<(usize, usize)>,
+    c0: usize,
+    cols: usize,
+    rows: usize,
+    inicio: usize,
+) -> usize {
+    let mut r = inicio;
+    while !cabe(taken, r, c0, rows, cols) {
+        r += 1;
+    }
+    r
+}
+
+/// A primeira COLUNA da linha `r0` onde um item de `rows × cols` cabe — para
+/// quem tem a linha presa e a coluna por achar (spec §8.5 passo 3).
+///
+/// Sem lugar livre dentro de `ncols`, devolve 0 e o item SOBREPÕE-SE. A spec
+/// mandaria crescer a grelha implícita, e é a mesma recusa da colocação
+/// automática: o número de colunas já foi usado para expandir
+/// `repeat(auto-fill, …)` e para dimensionar as trilhas, e alargá-lo a meio da
+/// colocação invalidaria os índices de quem já está colocado. Sobrepor é legal
+/// em grid (§8.5 permite-o a itens explicitamente colocados); mover as trilhas
+/// não é recuperável.
+fn primeira_coluna_livre(
+    taken: &HashSet<(usize, usize)>,
+    r0: usize,
+    rows: usize,
+    cols: usize,
+    ncols: usize,
+) -> usize {
+    let ncols = ncols.max(1);
+    for c in 0..=ncols.saturating_sub(cols) {
+        if cabe(taken, r0, c, rows, cols) {
+            return c;
+        }
+    }
+    0
+}
+
+/// Primeira posição livre para um item de `col_span × row_span` a partir de
+/// `start_idx` (linear, row-major, `ncols` colunas por linha) — o flow `row`
+/// (default). O span não atravessa a última coluna: a spec (§8.5) manda o
+/// cursor saltar para a linha seguinte em vez de partir o item.
+///
+/// Termina sempre: as LINHAS não têm limite, e `col_span` está limitado a
+/// `ncols` por quem chama, portanto há sempre uma linha vazia onde cabe.
+fn free_row_major(
+    taken: &HashSet<(usize, usize)>,
+    ncols: usize,
+    start_idx: usize,
+    col_span: usize,
+    row_span: usize,
+) -> (usize, usize) {
+    let ncols = ncols.max(1);
+    let col_span = col_span.clamp(1, ncols);
+    let row_span = row_span.max(1);
     let mut idx = start_idx;
     loop {
         let (r, c) = (idx / ncols, idx % ncols);
-        if !taken.contains(&(r, c)) {
+        if c + col_span <= ncols && cabe(taken, r, c, row_span, col_span) {
             return (r, c);
         }
         idx += 1;
     }
 }
 
-/// Primeira célula livre em ordem COLUNA-MAJOR a partir de `start_col` — o
+/// Primeira posição livre em ordem COLUNA-MAJOR a partir de `start_col` — o
 /// flow `column`: preenche uma coluna inteira antes de passar à próxima,
 /// crescendo COLUNAS implícitas. `row_bound` é fixo — as linhas EXPLÍCITAS
 /// (ou 1, quando não há `grid-template-rows`: é o que faz o 2º item de uma
 /// grelha sem linhas declaradas abrir logo uma 2ª coluna, em vez de empilhar
-/// na mesma).
-fn free_col_major(taken: &HashSet<(usize, usize)>, row_bound: usize, start_col: usize) -> (usize, usize) {
+/// na mesma) — e é ele que limita `row_span`, pelo mesmo motivo que `ncols`
+/// limita `col_span` no flow `row`.
+fn free_col_major(
+    taken: &HashSet<(usize, usize)>,
+    row_bound: usize,
+    start_col: usize,
+    col_span: usize,
+    row_span: usize,
+) -> (usize, usize) {
     let row_bound = row_bound.max(1);
+    let row_span = row_span.clamp(1, row_bound);
+    let col_span = col_span.max(1);
     let mut c = start_col;
     loop {
-        for r in 0..row_bound {
-            if !taken.contains(&(r, c)) {
+        for r in 0..=(row_bound - row_span) {
+            if cabe(taken, r, c, row_span, col_span) {
                 return (r, c);
             }
         }
@@ -140,17 +240,17 @@ fn free_col_major(taken: &HashSet<(usize, usize)>, row_bound: usize, start_col: 
     }
 }
 
-/// Coloca os filhos e devolve `(células, nº de colunas final)`. Três fases,
-/// nesta ordem (spec §8.5): nomeados (`grid-area`) primeiro — senão um
-/// automático ocuparia a célula antes de o nomeado a reclamar —, depois os
-/// com colocação NUMÉRICA explícita nos dois eixos, depois os automáticos
+/// Coloca os filhos e devolve `(células, nº de colunas final)`. DUAS fases
+/// (spec §8.5): primeiro quem tem célula própria — nomeada por `grid-area` ou
+/// numérica nos dois eixos —, senão um automático ocuparia a célula antes de o
+/// explícito a reclamar; depois os automáticos, em ordem de DOCUMENTO
 /// (row-major ou column-major conforme `auto_flow`, `dense` reinicia a busca
 /// do início em vez de continuar do cursor).
 ///
 /// `ncols` PODE crescer aqui: um `grid-area`/`grid-column` que aponta para lá
 /// da última coluna explícita cria colunas IMPLÍCITAS — é o que
-/// `grid-auto-columns` dimensiona depois, em `grid.rs`. Só cresce nas duas
-/// primeiras fases: a automática já corre com o `ncols` final, porque o flow
+/// `grid-auto-columns` dimensiona depois, em `grid.rs`. Só cresce na primeira
+/// fase: a automática já corre com o `ncols` final, porque o flow
 /// `column` precisa de um número de colunas fixo para saber quando "acabou"
 /// uma coluna e passa à próxima.
 pub(in crate::layout) fn place_grid_items(
@@ -165,78 +265,148 @@ pub(in crate::layout) fn place_grid_items(
     let mut taken: HashSet<(usize, usize)> = HashSet::new();
     let mut ncols = explicit_cols.max(1);
 
-    let mut numeric: Vec<NodeIdx> = Vec::new();
-    let mut auto: Vec<NodeIdx> = Vec::new();
+    // Uma passagem SÓ, em ordem de documento, a decidir o destino de cada
+    // filho; a colocação em si é que fica em duas fases. As três eram três
+    // laços, e o terceiro recebia os itens que o segundo desistiu de colocar
+    // DEPOIS de todos os automáticos — ou seja, um `grid-column: span 2` no
+    // meio da lista era colocado como se fosse o último filho. A ordem importa
+    // (é ela que decide que célula cada item apanha), e é a de documento.
+    #[derive(Clone, Copy)]
+    enum Plano {
+        /// As quatro linhas já resolvidas (área nomeada ou colocação numérica).
+        Fixa(usize, usize, usize, usize),
+        /// COLUNA resolvida, linha por achar: `(c0, c1, row_span)`.
+        ColunaFixa(usize, usize, usize),
+        /// LINHA resolvida, coluna por achar: `(r0, r1, col_span)`.
+        LinhaFixa(usize, usize, usize),
+        /// Sem colocação resolúvel: automática, com (col_span, row_span).
+        Auto(usize, usize),
+    }
+    let mut planos: Vec<(NodeIdx, Plano)> = Vec::with_capacity(children.len());
     for &child in children {
         let css = dom.computed_style_idx(child);
         let name = css.as_ref().and_then(|s| s.grid_area.clone());
         if let Some(a) = name.and_then(|n| areas.and_then(|ar| ar.area(&n))) {
-            ncols = ncols.max(a.c1);
-            mark(&mut taken, a.r0, a.c0, a.r1, a.c1);
-            cells.push(GridCell { child, r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 });
+            planos.push((child, Plano::Fixa(a.r0, a.c0, a.r1, a.c1)));
             continue;
         }
-        let has_numeric = css
-            .as_ref()
-            .map(|s| {
-                s.grid_column_start.is_some()
-                    || s.grid_column_end.is_some()
-                    || s.grid_row_start.is_some()
-                    || s.grid_row_end.is_some()
-            })
-            .unwrap_or(false);
-        if has_numeric {
-            numeric.push(child);
-        } else {
-            auto.push(child);
-        }
-    }
-
-    for child in numeric {
-        let css = dom.computed_style_idx(child).unwrap_or_default();
-        let colp = axis_placement(
+        let css = css.unwrap_or_default();
+        let (cs, ce) = (
             css.grid_column_start.unwrap_or(GridLine::Auto),
             css.grid_column_end.unwrap_or(GridLine::Auto),
-            explicit_cols,
         );
-        let rowp = axis_placement(
+        let (rs, re) = (
             css.grid_row_start.unwrap_or(GridLine::Auto),
             css.grid_row_end.unwrap_or(GridLine::Auto),
-            explicit_rows,
         );
-        match (colp, rowp) {
-            (Some((c0, c1)), Some((r0, r1))) => {
-                ncols = ncols.max(c1);
-                mark(&mut taken, r0, c0, r1, c1);
-                cells.push(GridCell { child, r0, c0, r1, c1 });
+        match (
+            axis_placement(cs, ce, explicit_cols),
+            axis_placement(rs, re, explicit_rows),
+        ) {
+            (Some((c0, c1)), Some((r0, r1))) => planos.push((child, Plano::Fixa(r0, c0, r1, c1))),
+            // UM eixo só. A spec (§8.5, passos 3 e 4) varre o eixo ABERTO a
+            // partir do início e prende o item na linha dada do outro; este
+            // motor mandava os dois eixos para automático, o que é dizer que
+            // `grid-row: 2` não fazia nada. Seis referências deste corpus
+            // (`row-auto-repeat-001-ref` e as que apontam para ela) são
+            // exactamente isso — e uma referência errada faz o teste falhar
+            // mesmo com o lado do teste certo.
+            (Some((c0, c1)), None) => {
+                planos.push((child, Plano::ColunaFixa(c0, c1, axis_span(rs, re))))
             }
-            // Um eixo só (o outro `auto`/indeterminado): a spec varre o eixo
-            // aberto a partir da linha dada; este motor simplifica para
-            // auto-colocação nos dois eixos — cobre o caso mais comum, que é
-            // o eixo aberto estar mesmo ausente da declaração.
-            _ => auto.push(child),
+            (None, Some((r0, r1))) => {
+                planos.push((child, Plano::LinhaFixa(r0, r1, axis_span(cs, ce))))
+            }
+            (None, None) => planos.push((child, Plano::Auto(axis_span(cs, ce), axis_span(rs, re)))),
         }
     }
 
+    // Fase 1: os que têm célula própria, antes dos automáticos — senão um
+    // automático ocupava a célula antes de o explícito a reclamar (spec §8.5).
+    // Uma coluna DEFINIDA conta para o `ncols` final mesmo quando a linha ainda
+    // está por achar: é ela que cria as colunas implícitas, e a fase 2 precisa
+    // do número já fechado.
+    for (child, plano) in &planos {
+        match *plano {
+            Plano::Fixa(r0, c0, r1, c1) => {
+                ncols = ncols.max(c1);
+                mark(&mut taken, r0, c0, r1, c1);
+                cells.push(GridCell { child: *child, r0, c0, r1, c1 });
+            }
+            Plano::ColunaFixa(_, c1, _) => ncols = ncols.max(c1),
+            Plano::LinhaFixa(..) | Plano::Auto(..) => {}
+        }
+    }
+
+    // Fase 2: os automáticos, em ordem de documento.
     let row_bound = explicit_rows.max(1);
     let mut cursor = 0usize;
     let mut col_cursor = 0usize;
-    for child in auto {
+    for (child, plano) in &planos {
+        let (col_span, row_span) = match *plano {
+            Plano::Fixa(..) => continue, // já colocado na fase 1
+            // Coluna presa: desce pela primeira linha onde o item cabe NAQUELAS
+            // colunas. Move o cursor (spec §8.5 passo 4), ao contrário do caso
+            // de baixo.
+            Plano::ColunaFixa(c0, c1, rs) => {
+                let cs = (c1 - c0).max(1);
+                let rs = rs.max(1);
+                // Onde o cursor está: a sua linha, mais uma se ele já passou a
+                // coluna de início do item (spec §8.5 passo 4 — "if the
+                // cursor's column position is past the item's column-start
+                // line, increment the row position"). `dense` recomeça do topo.
+                let n = ncols.max(1);
+                let inicio = if auto_flow.dense {
+                    0
+                } else if cursor % n > c0 {
+                    cursor / n + 1
+                } else {
+                    cursor / n
+                };
+                let r = primeira_linha_livre(&taken, c0, cs, rs, inicio);
+                mark(&mut taken, r, c0, r + rs, c0 + cs);
+                cells.push(GridCell { child: *child, r0: r, c0, r1: r + rs, c1: c0 + cs });
+                cursor = r * ncols.max(1) + c0 + cs;
+                continue;
+            }
+            // Linha presa: a primeira coluna livre DAQUELA linha. NÃO move o
+            // cursor — a spec só o faz quando a colocação é no eixo do fluxo.
+            Plano::LinhaFixa(r0, r1, cs) => {
+                let rs = (r1 - r0).max(1);
+                let cs = cs.clamp(1, ncols.max(1));
+                let c = primeira_coluna_livre(&taken, r0, rs, cs, ncols);
+                mark(&mut taken, r0, c, r0 + rs, c + cs);
+                cells.push(GridCell { child: *child, r0, c0: c, r1: r0 + rs, c1: c + cs });
+                continue;
+            }
+            Plano::Auto(col_span, row_span) => (col_span, row_span),
+        };
+        // O span é LIMITADO ao eixo fechado (colunas no flow `row`, linhas no
+        // flow `column`) em vez de o fazer crescer: a spec faz crescer a grelha
+        // implícita, mas aqui o eixo fechado já foi contado — é ele que
+        // `grid.rs` usou para expandir `repeat(auto-fill, …)` e para dimensionar
+        // as trilhas — e alargá-lo a meio da colocação invalidaria os índices
+        // dos itens já colocados.
+        let (cs, rs) = if auto_flow.coluna {
+            (col_span, row_span.min(row_bound))
+        } else {
+            (col_span.min(ncols), row_span)
+        };
         let (r, c) = if auto_flow.coluna {
             let start = if auto_flow.dense { 0 } else { col_cursor };
-            free_col_major(&taken, row_bound, start)
+            free_col_major(&taken, row_bound, start, cs, rs)
         } else {
             let start = if auto_flow.dense { 0 } else { cursor };
-            free_row_major(&taken, ncols, start)
+            free_row_major(&taken, ncols, start, cs, rs)
         };
-        mark(&mut taken, r, c, r + 1, c + 1);
-        cells.push(GridCell { child, r0: r, c0: c, r1: r + 1, c1: c + 1 });
-        cursor = r * ncols.max(1) + c + 1;
+        mark(&mut taken, r, c, r + rs, c + cs);
+        cells.push(GridCell { child: *child, r0: r, c0: c, r1: r + rs, c1: c + cs });
+        cursor = r * ncols.max(1) + c + cs;
         col_cursor = c;
         // flow `column`: as colunas implícitas contam para o `ncols` final,
         // que `grid.rs` usa para estender `grid-auto-columns` e dimensionar.
         if auto_flow.coluna {
-            ncols = ncols.max(c + 1);
+            ncols = ncols.max(c + cs);
         }
     }
 

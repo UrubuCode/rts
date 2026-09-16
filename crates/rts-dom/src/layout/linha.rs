@@ -6,6 +6,8 @@
 
 use super::*;
 
+mod atomo_relativo;
+
 /// Um `<canvas>` na linha: a pergunta é da TAG e não do estilo, e aparece em
 /// dois sítios desta função (quem pinta, e quem já gravou a caixa) — ter o
 /// `match` escrito duas vezes era convidar as duas respostas a divergirem.
@@ -29,6 +31,11 @@ pub(in crate::layout) fn layout_inline_flow(
     x: f32,
     y: f32,
     content_w: f32,
+    // A altura do content box do contentor, quando DEFINIDA: a base de uma
+    // `height` em percentagem num replaced desta linha. `None` quando nao ha,
+    // e ai a percentagem computa a `auto` (CSS 2.1 §10.5). Este e o caminho
+    // que o `<canvas>` passou a usar quando deixou de ser bloco.
+    avail_h: Option<f32>,
     parent_css: &ComputedStyle,
     font_size: f32,
     // Os floats abertos que atravessam este fluxo. É a razão de a exclusão
@@ -68,6 +75,11 @@ pub(in crate::layout) fn layout_inline_flow(
         .count()
         == filhos_com_conteudo;
     let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
+    // `InlineRun::preserva_espacos` da caixa gerada do dono.
+    let preserva_base = parent_css
+        .white_space
+        .map(|w| w.preserves_newlines())
+        .unwrap_or(false);
     if dono_inteiro {
         runs.extend(pseudo_run(
             dom,
@@ -76,10 +88,11 @@ pub(in crate::layout) fn layout_inline_flow(
             crate::style::PseudoElement::Before,
             cor_base,
             parent_css.italic.unwrap_or(false),
+            preserva_base,
         ));
     }
     for &id in group {
-        runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
+        runs.extend(collect_runs(dom, id, parent_css, content_w, avail_h, ctx));
     }
     // `tab-size` — só sob `white-space: pre`/`pre-wrap`, onde o `\t` sobrevive
     // ao invés de colapsar como um espaço qualquer (`preserves_spaces`, hoje só
@@ -109,6 +122,7 @@ pub(in crate::layout) fn layout_inline_flow(
             crate::style::PseudoElement::After,
             cor_base,
             parent_css.italic.unwrap_or(false),
+            preserva_base,
         ));
     }
     // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
@@ -175,10 +189,6 @@ pub(in crate::layout) fn layout_inline_flow(
         font_size,
         mono,
         crate::inline_box::quebra_dentro(parent_css),
-        parent_css
-            .white_space
-            .map(|w| w.preserves_newlines())
-            .unwrap_or(false),
         parent_css.word_spacing.unwrap_or(0.0),
         parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
         ahem, ctx.measurer,
@@ -340,6 +350,9 @@ pub(in crate::layout) fn layout_inline_flow(
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
             if let Some((a_idx, kind)) = seg.atomic {
+                // Onde começa a pintura DESTE átomo — `atomo_relativo` (mais
+                // abaixo) precisa disto para deslocar só os itens dele.
+                let box_index_atomo = list.items.len();
                 match kind {
                     AtomicKind::Widget => {
                         // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
@@ -376,10 +389,10 @@ pub(in crate::layout) fn layout_inline_flow(
                             // caixa entretanto — a mesma doutrina que o
                             // `<img>` segue no caminho de bloco.
                             let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_canvas(dom, a_idx, &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
+                            layout_canvas(dom, a_idx, &ccss, seg_x, topo, seg.ww.max(1.0), avail_h, ctx, list);
                         } else if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
+                            layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), avail_h, None, None, ctx, list);
                         }
                     }
                     AtomicKind::Block => {
@@ -481,6 +494,10 @@ pub(in crate::layout) fn layout_inline_flow(
                         ),
                     );
                 }
+
+                // `position:relative` num Widget/Replaced atómico — ver o
+                // módulo para o porquê.
+                atomo_relativo::aplica_a_atomo(dom, a_idx, kind, font_size, content_w, box_index_atomo, ctx, list);
 
                 seg_x += seg.ww;
                 continue;

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: `vertical-align` aceita um COMPRIMENTO ou uma PERCENTAGEM, não só
+     as nove palavras-chave (CSS 2.1 §10.8.1: "length" desloca a caixa dessa
+     distância da posição de `baseline`; positivo sobe). `#alto` e `#baixo`
+     usam `20px`/`-20px` a partir de `#zero` (`vertical-align: 0`, que tem de
+     coincidir com `baseline`); um motor cujo parser só reconhece as palavras
+     alinha os três pelo mesmo `y` (o default), que é o sintoma a testar.
+     27 dos 91 `vertical-align-*.xht` do WPT (CSS2/linebox) declaram um
+     comprimento ou uma percentagem — `vertical-align-004`/`-005` são os mais
+     simples (`-0px`/`0px`, sozinhos). -->
+<html>
+<head>
+<meta name="fixar-estilo-em" content="zero,alto,baixo,percent">
+<meta name="fixar-estilo" content="display">
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha { width: 700px; background: #eee; }
+  #linha span { display: inline-block; width: 30px; height: 20px; background: #fcc; }
+  #zero { vertical-align: 0px; }
+  #alto { vertical-align: 20px; }
+  #baixo { vertical-align: -20px; }
+  #percent { vertical-align: 50%; }
+</style></head>
+<body>
+  <div id="linha"><span id="zero"></span><span id="alto"></span><span id="baixo"></span><span id="percent"></span></div>
+</body>
+</html>

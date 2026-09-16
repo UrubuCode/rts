@@ -1,0 +1,36 @@
+<!--
+  PROVA: a largura INTRÍNSECA (max-content) de um `<pre>` (ou qualquer
+  `white-space: pre`/`pre-wrap`/`pre-line`) tem de ser a largura da LINHA
+  MAIS LARGA entre as quebras explícitas do texto — nunca a largura do
+  texto inteiro medido como uma única corrida.
+
+  Isto é o que decide a largura de uma célula de tabela (`auto`, shrink-to-fit)
+  quando o conteúdo é `pre`: a WPT `white-space-pre-001`/`white-space-pre-002`
+  falham porque o `<td>` fica com a largura TOTAL do viewport em vez de
+  encolher à linha mais larga do `<pre>`.
+
+  `#celula` é o `<td>`: cada linha do `<pre>` tem no máximo 20 caracteres a
+  20px (Ahem, 1em por carácter) = 400px de largura. O `<td>` (e a `<table>`)
+  devem encolher a essa largura mais o padding/borda da célula — nunca
+  espalhar pela largura do body.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  pre { white-space: pre; font: 20px/1 Ahem; margin: 0; }
+  table { border-collapse: collapse; }
+  td { padding: 0; background: yellow; border: 4px solid blue; }
+</style>
+</head>
+<body>
+<table id="tabela">
+ <tr><td id="celula"><pre id="pre">
+xxxx xxxx xxxx xxxx
+x  x x  x x    x
+xxxx xxxx xxxx xxxx
+                    </pre></td></tr>
+</table>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!--
+Causa isolada (3º lote de tabela, mecânica de `float`): `layout_table`
+empilhava TODO `g.outros` (a lista onde `<caption>` e qualquer filho direto
+fora da grade cai) incondicionalmente à largura CHEIA da tabela, sem nunca
+perguntar se o filho tem `float`. Um `<div>` `float:right` filho direto de um
+`display:table` (não envolvido por uma linha/célula) media a largura inteira
+da tabela e empilhava, em vez de encostar ao lado na sua PRÓPRIA largura.
+
+CORRIGIDO EM DUAS VOLTAS, e a primeira estava ERRADA — registado aqui porque
+a régua (medição no Blink) foi o que a apanhou, não uma releitura da spec.
+A primeira versão assumiu CSS 2.1 §9.5.1 ("um flutuado não empurra os
+irmãos") e não avançava `y` nenhum para o flutuado — previa `#celula.y=0`.
+O Blink mede `#celula.y=30`/`#linha.y=30`/`#tabela.h=70`: a GRADE desce até
+à base do flutuado. A razão (CSS 2.1 §9.5): a caixa de um elemento que
+estabelece o SEU PRÓPRIO contexto de formatação — e uma tabela sempre
+estabelece — nunca pode sobrepor a margem de um flutuado; como a grade
+ocupa sempre a largura INTEIRA da tabela, nunca há banda livre ao lado do
+flutuado larga o suficiente, e ela desce sempre até limpar a base dele. A
+regra de "não empurra os irmãos" vale para um `<p>` normal ao lado do
+flutuado (cujo TEXTO pode fluir ao lado); não vale para uma caixa que não
+pode encolher para caber ao lado.
+
+Mesma família que o WPT `float-applies-to-005/006/015` mede
+(`table-column-group`/`table-column`/`table-caption` flutuados, todos
+filhos DIRETOS da tabela, sem envolver as suas próprias linhas — a
+distinção que separa estes três de `float-applies-to-001/002/003/004`, que
+NÃO se corrigem com este lote: aí o flutuado é quem CONTÉM as linhas, um
+caso de geração de tabela anónima por dentro que fica de fora). Nesses três
+o `#cell`/`#row` que se segue não tem fundo próprio, então esta distinção
+de altura não aparece no reftest — só nesta fixture, feita a propósito para
+a expor.
+
+Corrigido em `table/mod.rs` (o laço de `g.outros`, que agora acompanha a
+base do flutuado mais alto e desce `y` até lá antes da grade) +
+`table/flutuantes.rs` (`lado_flutuante`/`largura_flutuante`) +
+`table/grid.rs` (o catch-all que decidia entre célula anónima e `outros`
+passou a desviar também um `float`, não só um `position` fora do fluxo).
+
+- #tabela    : display:table, width:200px.
+- #flutuante : filho DIRETO de #tabela, float:right, width:50px,
+               height:30px. Esperado: x=150 (200-50, encostado à direita),
+               y=0 (topo da tabela — o flutuado em si não desce).
+- #linha/#celula : Esperado y=30 — a BASE do flutuado, não o seu topo.
+               #tabela.h esperado 70 (30 do flutuado + 40 da linha).
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #tabela { display: table; width: 200px; }
+  #flutuante { float: right; width: 50px; height: 30px; background: orange; }
+  #linha { display: table-row; }
+  #celula { display: table-cell; height: 40px; width: 200px; background: #cce; }
+</style></head>
+<body>
+  <div id="tabela">
+    <div id="flutuante"></div>
+    <div id="linha">
+      <div id="celula"></div>
+    </div>
+  </div>
+</body>
+</html>

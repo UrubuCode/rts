@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<!-- Fixa: `grid-template-rows: repeat(auto-fill, <len>)` é EXPANDIDO — quantas
+     LINHAS cabem na altura do container, pela mesma regra §7.2.3.3 que já
+     valia para as colunas.
+
+     `layout::grid_tracks::expand_auto_repeats` era chamada só para o eixo
+     inline. No eixo do bloco a lista chegava ao dimensionamento com um
+     `GridTrack::AutoRepeat` por resolver, que não casa com nenhum braço de
+     `row_track` e caía em "linha pelo conteúdo" — e daí no ramo que reparte a
+     altura do container pelas linhas AUTO em partes iguais.
+
+     Por isso a prova tem MENOS itens do que linhas cabem: com um item por
+     linha as duas respostas coincidem por acidente (três itens em 300px dão
+     100px cada dos dois lados), e uma fixture que não distingue não prova nada.
+
+     `#alto`: 300px, `repeat(auto-fill, 100px)` = 3 linhas de 100, DOIS itens →
+     `#b` em y=100. Sem a expansão eram duas linhas auto a 150 e `#b` ia a 150.
+     `#gap`: 320px com 10px de row-gap → (320+10)/(100+10) = 3 linhas de 100 →
+     `#e` em y=110 (e não 165). É o gap na contagem que distingue esta fórmula
+     de `altura / trilha`. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #alto { display: grid; width: 200px; height: 300px;
+          grid-template-rows: repeat(auto-fill, 100px);
+          background: #eee; }
+  #gap { display: grid; width: 200px; height: 320px; row-gap: 10px;
+         margin-top: 20px;
+         grid-template-rows: repeat(auto-fill, 100px);
+         background: #eef; }
+  div > div { background: #cfc; }
+</style></head>
+<body>
+  <div id="alto">
+    <div id="a">A</div>
+    <div id="b">B</div>
+  </div>
+  <div id="gap">
+    <div id="d">D</div>
+    <div id="e">E</div>
+  </div>
+</body>
+</html>

@@ -367,14 +367,25 @@ pub(crate) fn layout_block(
             // pixels. A caixa vem dos atributos `width`/`height` (ou do CSS), e
             // o desenho aparece quando o programa pinta — antes disso a caixa
             // existe e fica vazia, que é o que o browser também faz.
+            // `None` e nao o `avail_h` desta funcao, e e deliberado: por ESTE
+            // caminho a percentagem de altura de um replaced ja e resolvida
+            // antes de aqui chegar — medido, um `<img height:100%>` dentro de
+            // uma `div` de 120px responde 120 e de 300px responde 300. O
+            // `avail_h` que `layout_block` recebe pode ser um PISO de medicao
+            // (o `min-height` de uma coluna flex, por exemplo) e nao uma
+            // altura CSS definida, e passa-lo aqui troca um acerto por um
+            // numero que nao e o do CSS: foi o que custou dois reftests
+            // (`flex-aspect-ratio-img-column-004`, `replaced-element-015`) na
+            // primeira tentativa, registada na issue #2728. Quem precisa do
+            // valor e o fluxo INLINE, que o recebe por `layout_inline_flow`.
             if tag == "canvas" {
-                if let Some(r) = layout_canvas(dom, id, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) = layout_canvas(dom, id, &css, x, y, avail_w, None, ctx, list) {
                     return r;
                 }
             }
             if tag == "img" {
                 if let Some(img) =
-                    layout_image(dom, id, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
+                    layout_image(dom, id, &css, x, y, avail_w, None, forced_outer_w, forced_outer_h, ctx, list)
                 {
                     return img;
                 }
@@ -560,9 +571,29 @@ pub(crate) fn layout_block(
     // izava o quadrado em vez de o colar no canto superior-esquerdo do
     // container (WPT `floats-clear/float-non-replaced-width-001` e
     // `float-replaced-width-001`, ambos com `n` idêntico — a mesma causa).
+    //
+    // UM `position:absolute`/`fixed` TAMBÉM NÃO ENTRA AQUI, pela mesma razão
+    // que o float não entra, mas por um motivo diferente: `avail_w`, aqui, é a
+    // largura do CONTAINING BLOCK inteiro — este bloco não sabe (nem tem como
+    // saber, `left`/`right` são resolvidos em `posicionado.rs`, um módulo à
+    // parte) quanto desse espaço já foi consumido pelos insets. Centrar contra
+    // `avail_w` inteiro dava um valor errado sempre que `left`/`right` não
+    // fossem 0/0 — WPT `absolute-non-replaced-width-016` (`left:100px` num
+    // containing block de 200px, `margin-left/right:auto`) centrava o quadrado
+    // no meio dos 200px em vez de o colar a `left:100px`, porque nenhum dos
+    // 100px do inset entrava nesta conta.
+    //
+    // A DECISÃO fica UM SÓ SÍTIO (a regra desta casa): quando a margem `auto`
+    // de um `left+width+right` todos dados precisa de se dividir (CSS 2.1
+    // §10.3.7, "solve the equation... the two margins get equal values"),
+    // quem resolve é `posicionado.rs::layout_out_of_flow` — ele já tem `left`
+    // e `right`, o que falta aqui — somando o valor ao `x`/`y` que passa a
+    // `layout_block`. Aqui a margem `auto` de um posicionado cai no default
+    // geral da spec fora desse caso especial: ZERO, a mesma regra do float.
     let is_float = super::float::float_of(dom, id) != crate::style::FloatSide::None;
+    let is_out_of_flow_pos = matches!(css.position, Some(crate::style::Position::Absolute | crate::style::Position::Fixed));
     let has_width = css.width.is_some() || css.max_width.is_some();
-    if is_float {
+    if is_float || is_out_of_flow_pos {
         if m.left.is_auto() {
             margin_left = 0.0;
         }

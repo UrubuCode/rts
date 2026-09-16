@@ -1,0 +1,59 @@
+<!--
+Prova a CAUSA 4 da vaga "largura/altura de um posicionado" (CSS 2.1
+§10.3.7, static position com `direction:rtl`): quando um `position:absolute`
+sem NENHUM inset num eixo precisa da static position, o EIXO X espelha pela
+borda DIREITA do content em vez da esquerda — em `rtl`, `x = content.w - w`
+em vez de `x = 0` — e isto vale IGUAL com ou sem irmão anterior em fluxo: o
+hipotético "como se fosse position:static" é sempre um bloco de largura
+TOTAL do contentor (não muda com o que vem antes), só a caixa REAL de `id`
+(mais estreita) é que faz a borda fixada por `direction` produzir um `x`
+diferente da esquerda. O EIXO Y nunca depende de `direction` — só do irmão
+anterior, como no caso `ltr`.
+
+- #box1/#abs1  : SEM irmão nenhum, rtl. content=200px, #abs1 mede 60px.
+                 Esperado x=140 (200-60), y=0.
+- #box2/#abs2  : SEM irmão, ltr (controlo) — mesma geometria, esperado x=0.
+- #box3/#abs3  : COM um irmão ANTERIOR (`#prev`, height:20px), rtl. content
+                 =100px, #abs3 mede 30px. Esperado x=70 (100-30), y=20 (fim
+                 de `#prev` — o eixo Y é IGUAL ao que seria em `ltr`).
+- #box4/#img4  : o caso que FALTAVA — um elemento SUBSTITUÍDO (`<img>`) SEM
+                 `width`/`height` NENHUM (nem CSS, nem atributo HTML), rtl,
+                 SEM inset nenhum. `css.width` fica `None` (não
+                 `Some(Auto)`) — é exactamente a condição que o mecanismo
+                 ANTIGO (`rtl_bloco::margin_left_usado`, chamado de dentro do
+                 ramo "margin: 0 auto" de `bloco.rs`, que só disparava com
+                 `has_width` = `css.width.is_some()`) NUNCA cobria: sem
+                 `width` declarado, `has_width` era falso e o `<img>` ficava
+                 sempre colado à ESQUERDA em `rtl`, errado. A imagem
+                 (`claude-blue-20x20.png`) mede 20×20 pelo INTRÍNSECO — a
+                 minha implementação usa `w` (a largura MEDIDA, intrínseca
+                 incluída), não `css.width`, e por isso cobre este caso onde
+                 o mecanismo antigo não chegava. `#box4` mede 120px de
+                 content → esperado x=100 (120-20), y=0.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #box1 { position: relative; direction: rtl; width: 200px; height: 40px; background: #eee; }
+  #abs1 { position: absolute; width: 60px; height: 20px; background: blue; }
+
+  #box2 { position: relative; width: 200px; height: 40px; margin-top: 10px; background: #ddd; }
+  #abs2 { position: absolute; width: 60px; height: 20px; background: green; }
+
+  #box3 { position: relative; direction: rtl; width: 100px; height: 60px; margin-top: 10px; background: #ccc; }
+  #prev { height: 20px; background: #111; }
+  #abs3 { position: absolute; width: 30px; height: 10px; background: purple; }
+
+  #box4 { position: relative; direction: rtl; width: 120px; height: 30px; margin-top: 10px; background: #bbb; }
+  #img4 { position: absolute; }
+</style>
+</head>
+<body>
+  <div id="box1"><div id="abs1"></div></div>
+  <div id="box2"><div id="abs2"></div></div>
+  <div id="box3"><div id="prev"></div><div id="abs3"></div></div>
+  <div id="box4"><img id="img4" src="claude-blue-20x20.png" alt="quadrado azul 20x20"></div>
+</body>
+</html>

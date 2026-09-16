@@ -1,11 +1,9 @@
 //! QUEBRA DE LINHA: decidir onde os runs passam para a linha seguinte.
 //!
-//! **Perto do teto de 500.** O `wrap_runs` é a maior parte disto e não é
-//! partido por dentro: partir uma função deixa de ser um movimento de código.
-//! Tem dois `macro_rules!` no corpo
-//! (`fechar_cluster`, `juntar`) que fecham com `    }` a quatro espaços — quem
-//! cortar este ficheiro por blocos em vez de por item de topo fecha blocos
-//! falsos no meio da função, e ali isso não dá erro de compilação.
+//! **No teto de 500.** O `wrap_runs` é a maior parte disto e não é partido
+//! por dentro: tem dois `macro_rules!` no corpo (`fechar_cluster`, `juntar`)
+//! que fecham com `    }` a quatro espaços — cortar por blocos em vez de por
+//! item de topo fecha blocos falsos a meio da função, sem erro de compilação.
 //! O hífen suave (`hyphens`) vive em `hifen.rs` por causa do teto.
 
 use super::*;
@@ -17,17 +15,9 @@ pub(in crate::layout) fn wrap_runs(
     max_w: &mut dyn FnMut(usize) -> f32,
     font_size: f32,
     mono: bool,
-    // Pode partir-se DENTRO de um aglomerado? Vem do elemento que possui o
-    // fluxo, e não de cada run: `word-break`/`overflow-wrap` são herdadas e o
-    // corpus real escreve-as sempre no container (13 folhas, zero excepções).
-    // Guardá-las por run era a alternativa e custava um campo em cada `InlineRun`
-    // para responder o mesmo valor em todos eles.
+    // Pode partir-se DENTRO de um aglomerado? Do elemento dono do fluxo, não
+    // de cada run — ao contrário do `white-space` abaixo, mudado span a span.
     quebra: crate::inline_box::QuebraDentro,
-    // `white-space: pre/pre-wrap/pre-line` — um `\n` LITERAL força aqui uma
-    // quebra em vez de colapsar como espaço comum. Vem de
-    // `WhiteSpace::preserves_newlines`, a mesma decisão de `quebra` acima e
-    // pela mesma razão: é do CONTAINER, não de cada run.
-    preservar_quebras: bool,
     // `word-spacing` (px, pode ser negativo) — soma-se à largura de CADA espaço
     // entre palavras. Entra aqui e não só na pintura porque é o mesmo número
     // que decide ONDE a linha quebra: medir sem ele e pintar com ele (ou
@@ -324,16 +314,24 @@ pub(in crate::layout) fn wrap_runs(
         // devolver " " -- nao-vazio -- e o run deixaria de ser reconhecido como
         // o separador que e.
         if !run.text.is_empty() && so_espaco_css(&run.text) {
-            // Run TODO whitespace com um `\n` dentro (`<div
-            // style="white-space:pre">\n</div>` sem mais texto) — o caso
-            // degenerado do scanner abaixo, sem palavra que o alcance.
-            if preservar_quebras && run.text.contains('\n') {
+            // Run TODO whitespace com um `\n` dentro — caso degenerado do
+            // scanner abaixo, sem palavra que o alcance. A pergunta é do
+            // PRÓPRIO run (`preserva_espacos`, `runs.rs`), não do contentor.
+            if run.preserva_espacos && run.text.contains('\n') {
                 fechar_cluster!();
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
                 at_line_start = true;
                 pending_space = false;
                 espaco_de_fora = false;
+                continue;
+            }
+            // Sem `\n` ainda não colapsa com o vizinho — 3 seguidos assim
+            // mediam 1 espaço em `pending_space` (booleano) em vez de 3. Vira
+            // PEÇA; o espaço pendente do vizinho `normal` é o VÃO antes dela.
+            if run.preserva_espacos {
+                let w = medir(m, &run.text, run.bold, run.italic);
+                juntar!(Peca { run: i, texto: run.text.clone(), largura: w, atomico: None }, w);
                 continue;
             }
             fechar_cluster!();
@@ -359,7 +357,7 @@ pub(in crate::layout) fn wrap_runs(
         // As FAST PATHS abaixo julgam pelo texto APARADO ou por `ends_with`, e
         // um run "tres\n" apara para "tres" (sem whitespace interno) — tomaria
         // o caminho rápido e perderia a quebra que estava na borda apagada.
-        let tem_quebra_forcada = preservar_quebras && run.text.contains('\n');
+        let tem_quebra_forcada = run.preserva_espacos && run.text.contains('\n');
         // FAST PATH: o run inteiro e UMA peca quando nao tem whitespace dentro.
         //
         // Medir a string inteira e o que um browser faz, e e o que evita uma
@@ -437,7 +435,7 @@ pub(in crate::layout) fn wrap_runs(
                 // vez de virar separador pendente (`quebra_forcada_em`,
                 // `inline_box.rs`) — só o PRIMEIRO conta; o resto da corrida,
                 // se sobrar, passa por este braço de novo na iteração seguinte.
-                if preservar_quebras {
+                if run.preserva_espacos {
                     if let Some(apos_nl) = crate::inline_box::quebra_forcada_em(rest) {
                         fechar_cluster!();
                         lines.push(std::mem::take(&mut cur));

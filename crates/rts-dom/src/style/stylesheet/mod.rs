@@ -81,6 +81,14 @@ pub struct Rule {
     /// que numera os retrolinks está num `::before`, e o que numera as
     /// referências está num `<li>` comum.
     pub counters: Option<std::rc::Rc<crate::counters::Ops>>,
+    /// `quotes` declarado, quando o há.
+    ///
+    /// Fora do `decls` pela mesma razão do `counters` acima, mas lido de
+    /// QUALQUER regra e nunca só das de pseudo-elemento — `quotes` declara-se
+    /// no ANCESTRAL (`quotes-applies-to-*` do WPT declara-o num `<div>` sem
+    /// pseudo nenhum) e é o `open-quote`/`close-quote` do `::before`/`::after`
+    /// de um descendente que o lê, por herança (`dom::Dom::effective_quotes`).
+    pub quotes: Option<std::rc::Rc<crate::quotes::Pares>>,
     /// `true` para uma regra da folha de UA (lote I, `style::ua`), `false` para
     /// uma regra de autor. É a chave MAIS FORTE da ordenação da cascade — mais
     /// forte que layer — porque a UA é a origem mais fraca em declarações
@@ -325,6 +333,7 @@ mod revert;
 mod supports;
 mod media;
 mod property;
+mod quotes_lookup;
 
 pub use rules::*;
 pub use media::{MediaContext, MediaQuery, PrefersColorScheme};

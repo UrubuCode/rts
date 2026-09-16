@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!-- Fixa: a CONTAGEM de repetições de `repeat(auto-fill, …)` lê a trilha em
+     qualquer unidade, não só `px`.
+
+     A contribuição de cada trilha do padrão era reduzida a um `f32` no PARSE,
+     e o parse não tem container nem font-size — por isso `%`, `em` e `rem`
+     contavam ZERO, a repetição pesava zero e a contagem caía no mínimo de 1.
+     Uma coluna onde o Blink dá quatro. A contribuição passa a viajar como
+     `TrackBound` e só resolve no layout, onde as duas bases existem.
+
+     `#pc`: 400px, `repeat(auto-fill, 25%)` → 25% de 400 = 100 → 4 colunas de
+     100px; `#b` em x=100, `#d` em x=300.
+     `#em`: font-size 20px, `repeat(auto-fill, 5em)` = 100px, container 300px
+     → 3 colunas; `#g` em x=200.
+
+     A forma INTRÍNSECA (`repeat(auto-fill, auto|min-content|max-content)`) não
+     está aqui de propósito: a Grid 1 §7.2.3.3 proíbe-a e o Blink invalida a
+     declaração inteira. Quem a define é a Grid 3 (`display: grid-lanes`), que
+     este motor não tem. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #pc { display: grid; width: 400px;
+        grid-template-columns: repeat(auto-fill, 25%);
+        background: #eee; }
+  #em { display: grid; width: 300px; font-size: 20px; margin-top: 20px;
+        grid-template-columns: repeat(auto-fill, 5em);
+        background: #eef; }
+  div > div { height: 40px; background: #cfc; }
+</style></head>
+<body>
+  <div id="pc">
+    <div id="a">a</div>
+    <div id="b">b</div>
+    <div id="c">c</div>
+    <div id="d">d</div>
+  </div>
+  <div id="em">
+    <div id="e">e</div>
+    <div id="f">f</div>
+    <div id="g">g</div>
+  </div>
+</body>
+</html>

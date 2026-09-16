@@ -52,8 +52,24 @@ pub(in crate::layout) fn layout_children_grid(
     // google: single-column grid). Com N colunas do grid_columns legado (repeat) →
     // N trilhas 1fr.
     let areas = css.grid_template_areas.clone();
+    // `display: grid-lanes` (CSS Grid 3) com as LANES nas LINHAS — o eixo das
+    // lanes é aquele que tem template, e aqui é o do bloco. Duas consequências,
+    // e são as duas metades do mesmo facto: os itens correm no OUTRO eixo
+    // (coluna a coluna, abaixo) e as colunas são TODAS implícitas.
+    //
+    // A segunda não é um detalhe: sem ela o default de "uma coluna `1fr`" dá a
+    // largura toda à primeira coluna, e as que o fluxo abre a seguir ficam com
+    // zero — `resolve_tracks` entrega todo o espaço livre ao `fr` quando existe
+    // um. Era o que punha os seis itens de `row-auto-repeat-001` empilhados
+    // numa coluna de 300px.
+    let lanes_nas_linhas = css.display == Some(crate::style::DisplayKind::GridLanes)
+        && css.grid_template_rows.is_some()
+        && css.grid_template_columns.is_none();
     let col_tracks: Vec<crate::style::GridTrack> = match &css.grid_template_columns {
         Some(t) => (**t).clone(),
+        // Nenhuma coluna EXPLÍCITA: `grid-auto-columns` dimensiona-as todas
+        // depois da colocação, no laço de colunas implícitas mais abaixo.
+        None if lanes_nas_linhas => Vec::new(),
         // Sem trilhas declaradas mas COM áreas, é a matriz que diz quantas colunas
         // existem — cair no default de 1 coluna empilharia lado e conteúdo, que é
         // exatamente o sintoma que as áreas existem para resolver.
@@ -70,12 +86,30 @@ pub(in crate::layout) fn layout_children_grid(
     // de saber quantas colunas existem (CSS Grid 1 §7.2.3.3, "the number of
     // times to repeat the track list"). Ver `layout::grid_tracks`.
     let (col_tracks, col_collapsible) =
-        grid_tracks::expand_auto_repeats(col_tracks, content_w, col_gap);
+        grid_tracks::expand_auto_repeats(col_tracks, content_w, col_gap, &resolve);
     // O número de colunas vem da LISTA de trilhas e não dos tamanhos: os
     // tamanhos ainda não estão decididos, porque uma trilha intrínseca precisa de
     // saber que itens lhe calham — e para isso é preciso ter colocado os itens.
     // A ordem é: quantas colunas → colocar os itens → medir → dimensionar.
     let ncols = col_tracks.len().max(1);
+
+    // A MESMA pergunta no eixo do bloco, que ninguém fazia: um
+    // `grid-template-rows: repeat(auto-fill, 100px)` chegava ao dimensionamento
+    // de linhas como UM `AutoRepeat` por expandir, que não casa com nenhum braço
+    // de `row_track` e caía em "linha pelo conteúdo" — três linhas de 100px num
+    // container de 300px davam uma linha só. Sem altura definida não há contra
+    // o que contar, e `container` = 0 é exatamente a repetição única que a spec
+    // manda nesse caso.
+    let (explicit_rows, row_collapsible) = grid_tracks::expand_auto_repeats(
+        css.grid_template_rows
+            .as_ref()
+            .map(|t| (**t).clone())
+            .unwrap_or_default(),
+        container_content_h.unwrap_or(0.0),
+        row_gap,
+        &resolve,
+    );
+    let explicit_rows_n = explicit_rows.len();
 
     // ── ITENS: os filhos renderizáveis (auto-placement row-by-row) ───────────────
     let mut children: Vec<NodeIdx> = Vec::new();
@@ -96,11 +130,26 @@ pub(in crate::layout) fn layout_children_grid(
     if children.is_empty() {
         return 0.0;
     }
-    let explicit_rows_n = css.grid_template_rows.as_ref().map(|t| t.len()).unwrap_or(0);
+
     let auto_flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
         coluna: false,
         dense: false,
     });
+    // A outra metade de `lanes_nas_linhas`: o fluxo corre no eixo que NÃO tem
+    // lanes. Com as lanes nas linhas é coluna a coluna — que é exactamente o
+    // `grid-auto-flow: column` que a colocação já sabe fazer, e por isso isto é
+    // uma escolha de eixo e não um segundo colocador.
+    //
+    // O eixo vence um `grid-auto-flow` declarado em vez de o respeitar: em
+    // `grid-lanes` a direcção do fluxo é uma consequência de onde estão as
+    // lanes, não uma escolha independente — as duas em desacordo seriam um
+    // estado que a Grid 3 não representa. Nenhum ficheiro do corpus escreve as
+    // duas coisas, portanto a escolha não é observável hoje; fica dita.
+    let auto_flow = if lanes_nas_linhas {
+        crate::style::grid_lines::GridAutoFlow { coluna: true, ..auto_flow }
+    } else {
+        auto_flow
+    };
     let (cells, ncols_colocados) =
         place_grid_items(dom, &children, areas.as_deref(), ncols, explicit_rows_n, auto_flow);
     // COLUNAS IMPLÍCITAS: um `grid-area`/`grid-column` que aponta lá da última
@@ -162,6 +211,7 @@ pub(in crate::layout) fn layout_children_grid(
     // `auto-fit`: as repetições sem NENHUM item colapsam a 0 (§7.2.3.3) — o
     // que `auto-fill` distingue de `auto-fit` é só isto, e só depois de saber
     // que colunas os itens realmente ocupam.
+    let mut col_colapsadas = vec![false; col_sizes.len()];
     if col_collapsible.iter().any(|&c| c) {
         let mut occupied = vec![false; ncols];
         for cell in &cells {
@@ -169,8 +219,13 @@ pub(in crate::layout) fn layout_children_grid(
                 occupied[c] = true;
             }
         }
-        grid_tracks::collapse_empty_auto_fit_tracks(&mut col_sizes, &col_collapsible, &occupied);
+        col_colapsadas =
+            grid_tracks::collapse_empty_auto_fit_tracks(&mut col_sizes, &col_collapsible, &occupied);
     }
+    // As trilhas que SOBRAM. Não é `ncols`: uma trilha colapsada não conta nem
+    // para o número de gaps nem para a repartição de `justify-content` — ver
+    // `collapse_empty_auto_fit_tracks`. Sem colapso nenhum são a mesma coisa.
+    let col_vivas = grid_tracks::trilhas_vivas(&col_colapsadas);
     // O computed style do Blink pode consultar o LayoutObject para propriedades
     // dependentes de used values. Guardamos a mesma resolução no container para o
     // DOM a serializar sem executar um segundo algoritmo de track sizing.
@@ -188,14 +243,10 @@ pub(in crate::layout) fn layout_children_grid(
         .max(1);
 
     // ── LINHAS: altura de cada linha ─────────────────────────────────────────────
-    // grid-template-rows explícito (px/%/fr/auto), senão grid-auto-rows, senão a
-    // altura do conteúdo mais alto da linha. `fr`/`%` de linha precisam da altura
-    // do container (container_content_h).
-    let explicit_rows: Vec<crate::style::GridTrack> = css
-        .grid_template_rows
-        .as_ref()
-        .map(|t| (**t).clone())
-        .unwrap_or_default();
+    // `explicit_rows` já está em cima, JÁ EXPANDIDO — ver o comentário lá.
+    // Senão grid-auto-rows, senão a altura do conteúdo mais alto da linha.
+    // `fr`/`%` de linha precisam da altura do container (container_content_h).
+    //
     // mede a altura de conteúdo de cada linha (o item mais alto medido em shrink).
     // Um item que ATRAVESSA linhas reparte a sua altura IGUALMENTE pelas linhas do
     // span. O algoritmo da spec (§12.5) distribui pela contribuição de cada trilha;
@@ -249,6 +300,20 @@ pub(in crate::layout) fn layout_children_grid(
             }
         })
         .collect();
+    // `auto-fit` no eixo do bloco: a mesma regra das colunas, e não uma segunda
+    // — as linhas repetidas sem NENHUM item colapsam a 0 (§7.2.3.3).
+    let mut row_colapsadas = vec![false; row_sizes.len()];
+    if row_collapsible.iter().any(|&c| c) {
+        let mut occupied = vec![false; nrows];
+        for cell in &cells {
+            for r in cell.r0..cell.r1.min(nrows) {
+                occupied[r] = true;
+            }
+        }
+        row_colapsadas =
+            grid_tracks::collapse_empty_auto_fit_tracks(&mut row_sizes, &row_collapsible, &occupied);
+    }
+    let row_vivas = grid_tracks::trilhas_vivas(&row_colapsadas);
     // Se o container tem ALTURA definida e as linhas NÃO têm track FIXA, as linhas
     // DIVIDEM a altura do container entre si — uma row `auto` ou `fr` num grid de
     // altura fixa preenche o espaço (dá a track de 240 pro logo centrar, e a de
@@ -265,9 +330,12 @@ pub(in crate::layout) fn layout_children_grid(
     let mut row_align_between = 0.0f32;
     if let Some(v) = css.align_content {
         if let Some(ch) = container_content_h {
-            let used: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
+            // `row_vivas` e não `nrows`: uma linha colapsada por `auto-fit` não
+            // é uma linha para a distribuição, e o gap dela também não existe.
+            let used: f32 =
+                row_sizes.iter().sum::<f32>() + (row_vivas.saturating_sub(1)) as f32 * row_gap;
             let free = (ch - used).max(0.0);
-            let (leading, between) = crate::layout::coluna::justify_offsets(v, free, nrows);
+            let (leading, between) = crate::layout::coluna::justify_offsets(v, free, row_vivas);
             row_align_leading = leading;
             row_align_between = between;
         }
@@ -278,7 +346,7 @@ pub(in crate::layout) fn layout_children_grid(
                 .filter(|r| has_explicit_row_track(*r))
                 .map(|r| row_sizes[r])
                 .sum();
-            let total_gap = (nrows.saturating_sub(1)) as f32 * row_gap;
+            let total_gap = (row_vivas.saturating_sub(1)) as f32 * row_gap;
             let free = (ch - fixed - total_gap).max(0.0);
             let each = free / auto_rows.len() as f32;
             for r in auto_rows {
@@ -296,9 +364,11 @@ pub(in crate::layout) fn layout_children_grid(
     let mut col_justify_leading = 0.0f32;
     let mut col_justify_between = 0.0f32;
     if let Some(j) = css.justify {
-        let used: f32 = col_sizes.iter().sum::<f32>() + (ncols.saturating_sub(1)) as f32 * col_gap;
+        // `col_vivas` e não `ncols` — a mesma razão das linhas acima.
+        let used: f32 =
+            col_sizes.iter().sum::<f32>() + (col_vivas.saturating_sub(1)) as f32 * col_gap;
         let free = (content_w - used).max(0.0);
-        let (leading, between) = crate::layout::coluna::justify_offsets(j, free, ncols);
+        let (leading, between) = crate::layout::coluna::justify_offsets(j, free, col_vivas);
         col_justify_leading = leading;
         col_justify_between = between;
     }
@@ -310,13 +380,29 @@ pub(in crate::layout) fn layout_children_grid(
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     // x acumulado de cada coluna, y de cada linha (com o offset de
     // `justify-content`/`align-content` já embutido).
+    //
+    // Uma trilha COLAPSADA não avança o gap nem o `between` da distribuição: o
+    // §7.2.3.3 colapsa os gutters dos dois lados dela, "including any space
+    // allotted through distributed alignment". Ela mede 0, portanto a linha de
+    // baixo já a atravessa sem custo — o que muda é só não somar o gap depois
+    // dela. Sem `auto-fit` a máscara é toda `false` e isto é o laço de sempre.
     let mut col_x = vec![content_x + col_justify_leading; ncols + 1];
     for c in 0..ncols {
-        col_x[c + 1] = col_x[c] + col_sizes[c.min(col_sizes.len() - 1)] + col_gap + col_justify_between;
+        let avanco = if col_colapsadas.get(c).copied().unwrap_or(false) {
+            0.0
+        } else {
+            col_gap + col_justify_between
+        };
+        col_x[c + 1] = col_x[c] + col_sizes[c.min(col_sizes.len() - 1)] + avanco;
     }
     let mut row_y = vec![content_y + row_align_leading; nrows + 1];
     for r in 0..nrows {
-        row_y[r + 1] = row_y[r] + row_sizes[r] + row_gap + row_align_between;
+        let avanco = if row_colapsadas.get(r).copied().unwrap_or(false) {
+            0.0
+        } else {
+            row_gap + row_align_between
+        };
+        row_y[r + 1] = row_y[r] + row_sizes[r] + avanco;
     }
     for cell in &cells {
         let child = cell.child;
@@ -372,8 +458,10 @@ pub(in crate::layout) fn layout_children_grid(
             list,
         );
     }
-    // altura total = soma das linhas + gaps.
-    let total_h: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
+    // altura total = soma das linhas + gaps das linhas VIVAS (uma colapsada não
+    // tem gap ao lado — ver o laço de `row_y`).
+    let total_h: f32 =
+        row_sizes.iter().sum::<f32>() + (row_vivas.saturating_sub(1)) as f32 * row_gap;
     total_h.max(0.0)
 }
 
@@ -392,6 +480,10 @@ fn span_size(sizes: &[f32], start: usize, end: usize, gap: f32) -> f32 {
 /// Offset de alinhamento de um item de tamanho `item` dentro de uma célula de
 /// tamanho `cell` (start=0, center=(cell-item)/2, end=cell-item; stretch=0).
 fn cell_align_offset(a: crate::style::AlignItems, cell: f32, item: f32) -> f32 {
+    // Sem isto o `_` lá em baixo mandava `flow-end` para o INÍCIO da célula: o
+    // catch-all existe para `FlexStart`/`Stretch` e engole em silêncio qualquer
+    // variante nova. Ver `AlignItems::resolve_flow`.
+    let a = a.resolve_flow();
     match a {
         crate::style::AlignItems::Center => ((cell - item) / 2.0).max(0.0),
         crate::style::AlignItems::FlexEnd => (cell - item).max(0.0),

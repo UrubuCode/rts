@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<!--
+  Prova a causa da issue #2728: `replaced_inline_size` (rts-dom) trata
+  QUALQUER `height` em percentagem de um elemento substituído como `auto`,
+  porque não recebe a altura do containing block — mesmo quando essa altura
+  É EXPLÍCITA e a percentagem deveria resolver (CSS 2.1 §10.5).
+
+  #explicito: o pai (#cb-explicito) tem `height: 120px` (EXPLÍCITA). O
+  `<img>` dentro dele tem `height: 100%` e nenhum `width` declarado, só os
+  atributos HTML `width="200" height="100"` (razão 2:1). Esperado: a altura
+  resolve contra os 120px do pai, e a largura vem da razão -> 240x120.
+  Hoje sai 0x0 (a % de altura vira `auto`, e sem `height` NEM `width`
+  declarados nada restringe a razão a partir de uma dimensão concreta —
+  cai no ramo `(None, None)` do `match` em `replaced_inline_size`, que só
+  olha para o intrínseco quando não há atributos, e aqui o intrínseco (os
+  pixels do `data:` SVG) nunca chega a decodificar).
+
+  #auto: o mesmo `<img>`, mas dentro de um pai SEM altura declarada
+  (`height: auto`). Aqui `height: 100%` deve continuar a resolver para
+  `auto` (CSS 2.1 §10.5 — sem CB de altura conhecida, a percentagem não
+  tem base) e a caixa deve vir do INTRÍNSECO dos atributos (200x100),
+  sem escalar pela largura do pai. Este segundo caso já passa hoje; está
+  aqui para provar que a correção não pode regressar este caminho.
+-->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #cb-explicito { height: 120px; width: 400px; background: #eef; }
+  #cb-auto { width: 400px; background: #efe; }
+</style>
+</head>
+<body>
+<div id="cb-explicito">
+  <img id="alvo-explicito"
+       src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'><rect width='200' height='100' fill='green'/></svg>"
+       width="200" height="100" style="height:100%">
+</div>
+<div id="cb-auto">
+  <img id="alvo-auto"
+       src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'><rect width='200' height='100' fill='blue'/></svg>"
+       width="200" height="100" style="height:100%">
+</div>
+</body>
+</html>

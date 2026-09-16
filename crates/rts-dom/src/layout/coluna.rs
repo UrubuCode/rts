@@ -465,6 +465,9 @@ fn fisico_para_coluna(j: crate::style::JustifyContent, reverse: bool) -> crate::
 
 pub(in crate::layout) fn mirror_justify(j: crate::style::JustifyContent) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
+    // `flow-start`/`flow-end` SÃO espelhados — é o que os separa de
+    // `start`/`end`, e é o que `flow-start-flow-end-wrap-reverse` do WPT mede.
+    let j = j.resolve_flow();
     match j {
         J::FlexStart => J::FlexEnd,
         J::FlexEnd => J::FlexStart,
@@ -480,6 +483,10 @@ pub(in crate::layout) fn mirror_justify(j: crate::style::JustifyContent) -> crat
 /// espelhado no `align-content` hoje, o que fica fora deste lote.
 pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: f32, n: usize) -> (f32, f32) {
     use crate::style::JustifyContent as J;
+    // `flow-start`/`flow-end` valem `flex-start`/`flex-end` daqui para baixo —
+    // ver `JustifyContent::resolve_flow`. Reduzidos à entrada e não em cada um
+    // dos dois `match` abaixo, que é onde um deles ficaria por actualizar.
+    let j = j.resolve_flow();
     if free <= 0.0 {
         return match j {
             J::Center => (free / 2.0, 0.0), // leading negativo = transbordo centrado
@@ -525,6 +532,7 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
 /// `Baseline` cai em `FlexStart` — ver o corte no doc da variante.
 pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
     use crate::style::AlignItems as A;
+    let a = a.resolve_flow();
     let free = line_h - item_h;
     match a {
         A::Stretch | A::FlexStart | A::Baseline => 0.0,

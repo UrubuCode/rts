@@ -1,0 +1,50 @@
+{
+ "elementos": {
+  "alvo": {
+   "estilo": {
+    "align-items": "normal",
+    "background-color": "rgba(0, 0, 0, 0)",
+    "border-spacing": "0px",
+    "box-sizing": "content-box",
+    "clear": "none",
+    "color": "rgb(0, 0, 0)",
+    "display": "inline",
+    "flex-direction": "row",
+    "flex-wrap": "nowrap",
+    "float": "none",
+    "font-size": "16px",
+    "font-weight": "400",
+    "gap": "normal",
+    "grid-template-columns": "none",
+    "grid-template-rows": "none",
+    "justify-content": "normal",
+    "letter-spacing": "normal",
+    "line-height": "16px",
+    "margin-bottom": "0px",
+    "margin-top": "0px",
+    "opacity": "1",
+    "overflow": "visible",
+    "padding-left": "0px",
+    "padding-top": "0px",
+    "position": "static",
+    "text-align": "start",
+    "visibility": "visible",
+    "white-space": "nowrap",
+    "z-index": "auto"
+   },
+   "rect": [
+    0,
+    -2,
+    26.39,
+    19
+   ]
+  }
+ },
+ "fixture": "claude-content-open-close-quote-basic.html",
+ "medido_em": "2026-09-16",
+ "regua": "Edge 153 (Blink) headless, por CDP cru (scripts/css_fixtures_medir_edge.mjs), num iframe de 1280x800",
+ "viewport": [
+  1280,
+  800
+ ]
+}

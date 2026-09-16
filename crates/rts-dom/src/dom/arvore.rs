@@ -62,6 +62,8 @@ impl Dom {
             base_memo_revision: std::cell::Cell::new(u64::MAX),
             counter_memo: std::cell::RefCell::new(None),
             counter_memo_revision: std::cell::Cell::new((u64::MAX, u64::MAX)),
+            quote_memo: std::cell::RefCell::new(None),
+            quote_memo_revision: std::cell::Cell::new((u64::MAX, u64::MAX)),
             base_memo_viewport: std::cell::Cell::new((0, 0)),
             layout_measure_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),
             intrinsic_width_cache: std::cell::RefCell::new(crate::fasthash::FastMap::default()),

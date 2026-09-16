@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!-- Fixa: a forma de DOIS VALORES de `display` (CSS Display 3 §2.1),
+     `<outer> <inner>`, é equivalente ao keyword de um valor.
+
+     `parse_display` casava a string inteira contra uma lista de keywords, por
+     isso qualquer forma com espaço caía em `None` e o elemento ficava com o
+     default da tag — um `<div>`, ou seja bloco. `display: inline flex` dava a
+     MESMA caixa que não declarar nada.
+
+     Entrou por causa de `display: inline grid-lanes`, que três reftests do WPT
+     escrevem; escrever a regra em vez daquele par é o que também conserta estes
+     três, que o Blink já responde hoje e portanto a régua consegue medir.
+
+     `#a`/`#b`: `inline flow-root` = `inline-block` — 60px cada, LADO A LADO na
+     mesma linha (`#b.x` = 60, não 0).
+     `#c`: `block flex` = `flex` — os dois filhos lado a lado, `#c2.x` = 40.
+     `#e`: `inline flex` = `inline-flex` — encolhe ao conteúdo (`#e.w` = 80, não
+     a largura do corpo) e `#f` fica na mesma linha, a seguir. -->
+<html>
+<head><style>
+  body { margin: 0; font-size: 16px; }
+  #a, #b { display: inline flow-root; width: 60px; height: 30px;
+           background: #cfc; }
+  #b { background: #9c9; }
+  #c { display: block flex; width: 200px; margin-top: 10px; background: #eee; }
+  #c > div { width: 40px; height: 20px; background: #ccf; }
+  #e { display: inline flex; margin-top: 10px; background: #fee; }
+  #e > div { width: 40px; height: 20px; background: #fcc; }
+  #f { display: inline flow-root; width: 30px; height: 20px; background: #ffc; }
+</style></head>
+<body>
+  <div id="a"></div><div id="b"></div>
+  <div id="c"><div id="c1"></div><div id="c2"></div></div>
+  <span id="e"><div id="e1"></div><div id="e2"></div></span><span id="f"></span>
+</body>
+</html>

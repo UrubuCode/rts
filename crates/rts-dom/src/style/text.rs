@@ -14,19 +14,27 @@
 //! quando o consumidor existir. O que NÃO se faz é fingir: nenhum deles é mapeado
 //! para um comportamento aproximado que a página não pediu.
 
+use super::values::Dimension;
+
 /// `vertical-align` — alinhamento vertical de uma caixa inline-level dentro da
 /// linha (<https://developer.mozilla.org/en-US/docs/Web/CSS/vertical-align>).
 ///
-/// CONSUMIDO no alinhamento da corrida de inline-blocks (`layout.rs`): `top`,
-/// `middle` e `bottom` posicionam a caixa dentro da altura da linha.
+/// CONSUMIDO no alinhamento da corrida de inline-blocks e no baseline do flex
+/// (`layout::alinhamento_vertical`, via `layout::linha_ib`/`flex_baseline`) —
+/// os oito valores-chave E [`Length`](VerticalAlign::Length), o modelo de
+/// baseline completo de CSS 2.1 §10.8.1. **Ainda não consumido** por uma linha
+/// de texto NORMAL (um `<span>` comum, não `inline-block`, dentro do fluxo
+/// inline de `layout::linha`) — essa rota não pergunta por esta propriedade
+/// hoje; é uma lacuna diferente da que já foi fechada aqui.
 ///
-/// CORTE declarado: `baseline` — o valor INICIAL do CSS — é tratado como `top`,
-/// que é o que o motor sempre fez. Alinhar por baseline exigia guardar a baseline
-/// da última linha de cada inline-block, que o layout não calcula; aproximá-la
-/// pelo fundo da caixa mudaria a posição de todo o texto de toda a página por uma
-/// propriedade que a maioria dos elementos nem declara. `sub`/`super`/`text-top`/
-/// `text-bottom` são aceites e serializados, e alinham como `baseline`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// A forma de COMPRIMENTO/PERCENTAGEM (`vertical-align: 4px`/`50%`) reaproveita
+/// o vocabulário de unidades de qualquer outra dimensão
+/// ([`style::lengths::parse_dimension_signed`] — o sinal importa, um
+/// deslocamento negativo é comum) em vez de o reescrever; `vw`/`vh`/`calc` são
+/// recusados (sem viewport nas funções que resolvem o deslocamento, e `calc`
+/// nunca é usado nesta propriedade nos corpora medidos) — ver
+/// `layout::alinhamento_vertical::resolver_deslocamento`.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum VerticalAlign {
     #[default]
     Baseline,
@@ -37,11 +45,17 @@ pub enum VerticalAlign {
     Super,
     TextTop,
     TextBottom,
+    /// Um comprimento ou uma percentagem — desloca a caixa a partir da
+    /// posição que `baseline` lhe daria (positivo sobe, negativo desce).
+    /// Sem `Eq` no enum por causa deste `f32` por dentro do `Dimension`
+    /// (`PartialEq` chega: nada aqui compara por `HashSet`/chave).
+    Length(Dimension),
 }
 
 impl VerticalAlign {
     pub fn parse(v: &str) -> Option<VerticalAlign> {
-        Some(match v.trim().to_ascii_lowercase().as_str() {
+        let low = v.trim().to_ascii_lowercase();
+        Some(match low.as_str() {
             "baseline" => VerticalAlign::Baseline,
             "top" => VerticalAlign::Top,
             "middle" => VerticalAlign::Middle,
@@ -50,13 +64,36 @@ impl VerticalAlign {
             "super" => VerticalAlign::Super,
             "text-top" => VerticalAlign::TextTop,
             "text-bottom" => VerticalAlign::TextBottom,
-            // A forma de COMPRIMENTO (`vertical-align: 2px`) desloca a caixa da
-            // baseline — sem baseline modelada não há de onde deslocar, então é
-            // recusada em vez de ser aproximada.
-            _ => return None,
+            // Comprimento/percentagem: `auto`/`max-content`/`min-content` não
+            // são valores desta propriedade (rejeitados, não têm keyword
+            // aqui), e `vw`/`vh`/`calc` são aceites pelo parser genérico mas
+            // recusados AQUI — sem viewport disponível onde o deslocamento é
+            // resolvido, fingir um número seria mentir, e nenhum ficheiro do
+            // corpus medido usa `calc()` nesta propriedade.
+            _ => {
+                return super::lengths::parse_dimension_signed(&low)
+                    .filter(|d| {
+                        matches!(
+                            d,
+                            Dimension::Px(_)
+                                | Dimension::Percent(_)
+                                | Dimension::Em(_)
+                                | Dimension::Rem(_)
+                                | Dimension::Ex(_)
+                                | Dimension::Ch(_)
+                        )
+                    })
+                    .map(VerticalAlign::Length);
+            }
         })
     }
 
+    /// A forma CSS de volta — usada pelo `getComputedStyle` (`fmt::caixa_fluxo`).
+    /// `Length` não tem representação `&'static str` (o valor é dinâmico);
+    /// quem serializa filtra esse caso antes e chama
+    /// `style::fmt_values::fmt_dim` — este braço nunca deveria ser lido, mas
+    /// fica um valor honesto (`"0"`, não um comprimento inventado) para o
+    /// `match` continuar exaustivo sem mentir sobre QUAL comprimento seria.
     pub fn css(self) -> &'static str {
         match self {
             VerticalAlign::Baseline => "baseline",
@@ -67,6 +104,7 @@ impl VerticalAlign {
             VerticalAlign::Super => "super",
             VerticalAlign::TextTop => "text-top",
             VerticalAlign::TextBottom => "text-bottom",
+            VerticalAlign::Length(_) => "0",
         }
     }
 }

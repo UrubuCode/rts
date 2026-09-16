@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<!-- CSS 2.1 9.7 / CSS Display 3 §2.7: um `float` diferente de `none` BLOQUIFICA
+     o `display` computado — `effective_display()` (style/props/metodos.rs) já
+     faz isto e responde `Block` para `display:table-row-group` com `float`.
+     O que falta é o CONSUMIDOR: `table::grid.rs::collect` lê exatamente esse
+     valor bloquificado e por isso não junta `#grupo` à grade da tabela (cai no
+     balde `outros`) — até aqui está certo. O defeito está em
+     `table::layout_table` (mod.rs, laço `for &o in &g.outros`): ele empilha
+     cada item de `outros` com `layout_block` normal, na vertical, SEM nunca
+     perguntar pelo `float` do próprio nó — então `#grupo` (flutuado) nasce
+     empilhado a plataforma da tabela, ocupando a largura toda, em vez de
+     flutuar à direita do texto como um bloco comum flutuado faria fora da
+     tabela. Reduzido do WPT `floats-clear/float-applies-to-001.xht`: o
+     quadrado azul (o grupo de linhas flutuado) deve ficar à DIREITA do
+     parágrafo, não abaixo dele. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #antes { width: 300px; height: 40px; background: yellow; }
+  #tabela { display: table; table-layout: fixed; width: 100%; }
+  #grupo { display: table-row-group; float: right; background: blue; }
+  .linha { display: table-row; }
+  .celula { display: table-cell; width: 50px; height: 50px; }
+</style></head>
+<body>
+  <div id="antes"></div>
+  <div id="tabela">
+    <div id="grupo">
+      <div class="linha"><div class="celula"></div><div class="celula"></div></div>
+    </div>
+  </div>
+</body>
+</html>

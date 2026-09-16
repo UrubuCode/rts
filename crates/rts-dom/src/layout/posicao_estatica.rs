@@ -24,6 +24,22 @@
 //! casos medidos usam margem 0, o default); `space-between`/`space-around`/
 //! `space-evenly` degradam para `flex-start` (um único item hipotético não tem
 //! contra quem se distribuir).
+//!
+//! REVERTIDO (2026-09-16): uma tentativa de trocar a prioridade para o irmão
+//! ANTERIOR (e de espelhar o eixo X em `direction:rtl`) custou 62 reftests
+//! medidos em `css-flexbox`, mais outros em `CSS2/abspos`, `css-grid` e
+//! `css-sizing` (`align-items-006/007`, `abspos/static-inside-inline-001/003`,
+//! `abspos/table-caption-is-containing-block-001`,
+//! `abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-003`) — a
+//! régua do WPT, com o resto da árvore intacto e só este ficheiro revertido,
+//! confirmou que a troca é a causa. `posicao_estatica_bloco` volta à fórmula
+//! ORIGINAL (irmão seguinte primeiro); a mirror de `direction:rtl` fica por
+//! implementar — os dois pontos que a motivaram (`absolute-replaced-width`
+//! com margem no irmão seguinte, e a família RTL do CSS2) continuam abertos,
+//! mas a lista de perdidos vazia vale mais do que os ganhos que essa troca
+//! trazia. `claude-static-pos-before-margin.html` e `claude-static-pos-rtl.html`
+//! ficam no corpus com o esperado medido no Blink — hão de voltar a passar
+//! quando a static position for corrigida sem este custo.
 
 use super::*;
 
@@ -121,6 +137,13 @@ fn posicao_estatica_flex(css: &ComputedStyle, parent_css: &ComputedStyle, conten
     let align = css
         .align_self
         .unwrap_or(parent_css.align_items.unwrap_or(crate::style::AlignItems::Stretch));
+    // `resolve_flow` antes dos dois `match`: o `_` de cada um existe para
+    // `flex-start`/`stretch` e engole em silêncio qualquer variante nova — um
+    // `justify-content: flow-end` ia parar ao INÍCIO do eixo. Ver
+    // `JustifyContent::resolve_flow`, e o `flow-start-flow-end-reverse-abspos`
+    // do WPT, que é a posição estática de um absoluto dentro de um flex.
+    let justify = justify.resolve_flow();
+    let align = align.resolve_flow();
     let main = |start: f32, size: f32| match justify {
         crate::style::JustifyContent::FlexEnd => start + size,
         crate::style::JustifyContent::Center => start + size / 2.0,

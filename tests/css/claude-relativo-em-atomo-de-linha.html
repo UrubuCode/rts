@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- Fixa: `position: relative` num átomo REPLACED/WIDGET da linha (um
+     `<img>` ou `<input>` inline, não um bloco) desloca a pintura e o rect —
+     exatamente como já acontece para um `<div>` de bloco. `layout_image`/
+     `layout_canvas`/`layout_input`/`layout_button` não sabiam da propriedade;
+     só `layout_block` a aplicava (via `bloco.rs`). Sem isto, `#imgB` ficava
+     colado a `#imgA` (0px de vão) em vez do vão de 6px que `left:6px` pede, e
+     `#inpB` nunca descia nem avançava. É a mesma causa raiz que fazia 56 dos
+     reftests do WPT `CSS2/linebox/line-height` divergir da sua PRÓPRIA
+     referência: essas referências usam duas imagens lado a lado, a segunda
+     com `position:relative;left:2px`, só para separar visualmente as duas
+     caixas que o teste compara — sem o deslocamento elas colam-se e a
+     referência deixa de bater com o teste (que separa as suas por `left` no
+     fluxo normal, um caminho que já funcionava). -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  img, input { width: 20px; height: 20px; vertical-align: top; }
+  #imgB { position: relative; left: 6px; }
+  #inpB { position: relative; top: 4px; left: 3px; }
+</style></head>
+<body>
+<div><img id="imgA" src="claude-img-6x4.png"><img id="imgB" src="claude-img-6x4.png"></div>
+<div><input id="inpA" type="text"><input id="inpB" type="text"></div>
+</body>
+</html>

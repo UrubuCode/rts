@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- Fixa a computação base de `line-height` (CSS 2.1 §10.8.1) que sustenta a
+     família `CSS2/linebox/line-height` do WPT: NÚMERO (1.5 × font-size do
+     PRÓPRIO elemento), COMPRIMENTO absoluto (24px, não escala com a fonte),
+     PERCENTAGEM (150% do font-size do elemento, resolvida na declaração — não
+     herdada como percentagem), `normal` (sai das MÉTRICAS DO MEDIDOR, não de
+     uma constante fixa — ver `style::text_metrics`) e `0` (a caixa colapsa,
+     o conteúdo continua visível por cima/baixo). Cada `div` tem uma única
+     linha de texto, então a altura AUTO do elemento é exactamente o
+     `line-height` resolvido — `altura_da_linha`/`LineHeight::resolve`. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font-family: monospace; }
+  div { font-size: 20px; }
+  #numero { line-height: 1.5; }
+  #px { line-height: 24px; }
+  #percent { line-height: 150%; }
+  #normal { line-height: normal; }
+  #zero { line-height: 0; }
+</style></head>
+<body>
+<div id="numero">a</div>
+<div id="px">a</div>
+<div id="percent">a</div>
+<div id="normal">a</div>
+<div id="zero">a</div>
+</body>
+</html>

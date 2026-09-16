@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<!-- Fixa: a colocação com UM eixo só definido (`grid-row: 2` sem coluna, ou
+     `grid-column: 3` sem linha) prende esse eixo e varre o outro — CSS Grid 1
+     §8.5, passos 3 e 4.
+
+     O motor mandava os dois eixos para a colocação automática quando um deles
+     não resolvia sozinho, o que é dizer que `grid-row: 2` não fazia NADA: os
+     seis itens abaixo saíam como um preenchimento 2x3 por ordem de documento.
+     Aparece em seis referências do corpus `grid-lanes/track-sizing/auto-repeat`
+     (a `row-auto-repeat-001-ref` e as que apontam para ela), e uma referência
+     errada faz o reftest falhar mesmo com o lado do teste certo.
+
+     `#b` (`grid-row: 2`): linha 2, primeira coluna LIVRE dessa linha → x=0,
+     y=50. `#c` (`grid-row: 3`) → x=0, y=100.
+     `#d` é automático e apanha o cursor, que ficou a seguir a `#a` → x=100, y=0
+     (um item de linha presa NÃO move o cursor, §8.5 passo 3).
+     `#e` (`grid-column: 3`): coluna 3, a partir da linha do CURSOR e não do
+     topo → x=200, y=0. Este move o cursor (passo 4), e por isso
+     `#h` — automático — cai em x=100, y=50 e não em x=100, y=0. -->
+<html>
+<head><style>
+  body { margin: 0; }
+  #g { display: grid; width: 300px;
+       grid-template-columns: 100px 100px 100px;
+       grid-auto-rows: 50px;
+       background: #eee; }
+  /* `#g > …` nos quatro: `#g > div` é (1,0,1) e um `#b` sozinho é (1,0,0),
+     portanto perdia — as cores existem para se LER a imagem, e todas iguais
+     não se lê nada. */
+  #g > div { background: #cfc; }
+  #g > #b, #g > #c { background: #9cf; }
+  #g > #e { background: #fc9; }
+  #g > #h { background: #c9f; }
+</style></head>
+<body>
+  <div id="g">
+    <div id="a">a</div>
+    <div id="b" style="grid-row: 2">b</div>
+    <div id="c" style="grid-row: 3">c</div>
+    <div id="d">d</div>
+    <div id="e" style="grid-column: 3">e</div>
+    <div id="h">h</div>
+  </div>
+</body>
+</html>

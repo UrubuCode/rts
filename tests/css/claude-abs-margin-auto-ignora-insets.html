@@ -1,0 +1,56 @@
+<!--
+Documenta a CAUSA 3 — encontrada E CORRIGIDA (2ª rodada): a decisão ficou em
+`posicionado.rs::layout_out_of_flow` (que já tem `left`/`right`, o que faltava
+a `bloco.rs`), e `bloco.rs` deixou de recentrar margem `auto` de um
+`position:absolute`/`fixed` (guarda `is_out_of_flow_pos` no bloco "margin: 0
+auto", linhas ~561-603) — a `avail_w` que esse bloco usa é a largura do
+CONTAINING BLOCK INTEIRO, sem saber quanto `left`/`right` já consumiram.
+
+Um `position:absolute` com `width` explícito, `left` E `right` dados, e
+`margin-left`/`margin-right: auto` resolve os dois insets JUNTOS com a
+largura para achar as margens (CSS 2.1 §10.3.7, "solve the equation... the
+two margins get equal values, unless this would make them negative").
+
+- #cb    : containing block, width:200px.
+- #box   : left:0; right:0; width:100px; margin-left/right:auto. Espaço livre
+           = 200-0-0-100 = 100, dividido 50/50 → x=50 (aqui coincide com o
+           centro do `#cb` porque os insets são 0/0 — não prova nada sozinho,
+           é o `#box2` que prova a diferença).
+- #box2  : insets ASSIMÉTRICOS (left:20px; right:80px), mesma width:100px,
+           margens auto. Espaço livre = 200-20-80-100 = 0 → margin-left=
+           margin-right=0 → x=20 (colado ao `left`, NÃO ao centro dos 200px
+           do `#cb` — é a diferença que a lógica antiga, cega aos insets,
+           não fazia).
+- #box3  : `left:0; right:0; width:60px; margin-left:20px` (FIXO, não auto);
+           `margin-right:auto`. Só a margem auto entra na conta — a fixa já
+           é aplicada por `bloco.rs` sozinho, sem ajuda — então x=20 (left=0
+           + margin-left=20), independente do que `margin-right` resolvesse.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  #cb { position: relative; width: 200px; height: 200px; background: #eee; }
+  #box {
+    position: absolute; top: 0; left: 0; right: 0; width: 100px; height: 20px;
+    margin-left: auto; margin-right: auto; background: blue;
+  }
+  #box2 {
+    position: absolute; top: 30px; left: 20px; right: 80px; width: 100px; height: 20px;
+    margin-left: auto; margin-right: auto; background: green;
+  }
+  #box3 {
+    position: absolute; top: 60px; left: 0; right: 0; width: 60px; height: 20px;
+    margin-left: 20px; margin-right: auto; background: purple;
+  }
+</style>
+</head>
+<body>
+  <div id="cb">
+    <div id="box"></div>
+    <div id="box2"></div>
+    <div id="box3"></div>
+  </div>
+</body>
+</html>
