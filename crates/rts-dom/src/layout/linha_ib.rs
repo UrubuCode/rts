@@ -47,6 +47,11 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
     // (`claude-ua-form-disabled`).
     let controlo = matches!(&dom.node(id).kind,
         NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select" | "textarea"));
+    if matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == "textarea") {
+        // Blink usa a borda inferior como baseline do textarea replaced, não a
+        // linha de texto interna do controle.
+        return h;
+    }
     if !controlo && !super::caixa::tem_conteudo_para_fragmento(dom, id) {
         return h;
     }
