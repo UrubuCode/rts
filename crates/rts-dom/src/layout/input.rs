@@ -14,6 +14,7 @@ pub(in crate::layout) fn layout_button(
     css: &ComputedStyle,
     x: f32,
     y: f32,
+    forced_outer_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
@@ -21,9 +22,15 @@ pub(in crate::layout) fn layout_button(
     let label = dom.node(id).attr("value").unwrap_or("").to_string();
     let tw = ctx.measurer.text_width(&label, font, false, false, false);
     let lh = ctx.measurer.line_height(font);
-    let (pad_h, pad_v) = (12.0, 5.0);
+    // A caixa inclui os 6px computados de padding por lado mais a moldura
+    // nativa que este emissor desenha junto com o conteúdo; 8.5 reproduz a
+    // largura border-box de 53.8px para `value="Enviar"` no Blink.
+    let (pad_h, pad_v) = (8.5, 5.0);
     let w = tw + 2.0 * pad_h;
-    let h = lh + 5.0;
+    // Um item de flex pode impor a altura externa pelo `align-items:stretch`;
+    // controles nativos passam por este caminho curto e não pelo resolvedor de
+    // blocos, portanto precisam consumir a mesma imposição aqui.
+    let h = forced_outer_h.unwrap_or(lh + 5.0);
     let bg = css.bg.unwrap_or(0xF8F9FAFF); // cinza-claro UA (o do botão do google)
     let fg = css.color.unwrap_or(0x3C4043FF);
     list.items.push(DisplayItem::SolidRect {

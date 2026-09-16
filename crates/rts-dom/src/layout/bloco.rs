@@ -345,7 +345,7 @@ pub(crate) fn layout_block(
                 // `type=submit/button/reset`: BOTÃO — caixa cinza UA com o value
                 // como rótulo (não editável). O suficiente p/ o "Pesquisa Google".
                 if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                    return layout_button(dom, id, &css, x, y, ctx, list);
+                    return layout_button(dom, id, &css, x, y, forced_outer_h, ctx, list);
                 }
                 return layout_input(
                     dom,

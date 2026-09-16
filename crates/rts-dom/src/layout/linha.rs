@@ -343,7 +343,7 @@ pub(in crate::layout) fn layout_inline_flow(
                             .map(|t| t.to_ascii_lowercase())
                             .unwrap_or_default();
                         if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                            layout_button(dom, a_idx, &wcss, seg_x, cy, ctx, list);
+                            layout_button(dom, a_idx, &wcss, seg_x, cy, None, ctx, list);
                         } else {
                             // `None` de altura disponível: uma caixa atómica numa
                             // linha não tem containing block de altura definida, e
