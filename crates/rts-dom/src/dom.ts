@@ -1146,8 +1146,7 @@ class Element {
   // sobre a string de classes separada por espaço (sem objeto vivo — o motor
   // despacha melhor métodos que retornam valor; estado mora no atributo).
   classListContains(cls: string): boolean {
-    const list = this.getAttribute("class");
-    return (" " + list + " ").indexOf(" " + cls + " ") !== __DOM_NONE;
+    return this.classTokens().indexOf(cls) !== __DOM_NONE;
   }
   classTokens(): string[] {
     return this.getAttribute("class").split(/\s+/).filter((x: string) => x.length > 0);
@@ -1159,21 +1158,12 @@ class Element {
     this.setAttribute("class", next);
   }
   classListRemove(cls: string): void {
-    const list = this.getAttribute("class");
+    const list = this.classTokens();
     let out = "";
-    let part = "";
     let i = 0;
     // reconstrói a lista pulando a classe alvo (split manual por espaço).
-    while (i <= list.length) {
-      const ch = i < list.length ? list.charAt(i) : " ";
-      if (ch === " ") {
-        if (part.length > 0 && part !== cls) {
-          out = out.length === 0 ? part : out + " " + part;
-        }
-        part = "";
-      } else {
-        part = part + ch;
-      }
+    while (i < list.length) {
+      if (list[i] !== cls) out = out.length === 0 ? list[i] : out + " " + list[i];
       i = i + 1;
     }
     this.setAttribute("class", out);
