@@ -324,8 +324,12 @@ pub(in crate::layout) fn layout_children_column(
             // inline (Flexbox §4.1 + Writing Modes), então o cross-start
             // passa a ser a borda DIREITA — achado em
             // `claude-flex-column-rtl-cross-start` (WPT `flexbox_rtl-direction`).
-            let stretch = align == crate::style::AlignItems::Stretch;
             let ccss = dom.computed_style_idx(it.node).unwrap_or_default();
+            // `align-self` substitui `align-items` também no eixo cruzado da
+            // coluna. Sem esta leitura a segunda metade do layout ainda usava
+            // o stretch do contentor: `img{align-self:flex-start;height:100px}`
+            // recebia a largura inteira e virava uma faixa em vez de 100×100.
+            let stretch = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
             // Um `<img>` não enche `avail_w` sozinho — precisa do stretch
             // como `forced_outer_w` explícito (`flex-svg-no-intrinsic-
             // column-001`, WPT); o mesmo vale para `<input type=checkbox|
