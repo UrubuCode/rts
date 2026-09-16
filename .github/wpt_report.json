@@ -1,8 +1,8 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 618,
-  "falham": 252,
+  "passam": 617,
+  "falham": 253,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -398,6 +398,18 @@
       "script": false
     },
     {
+      "nome": "flexbox-flex-basis-content-002a",
+      "pct": 1.596875,
+      "n": 16352,
+      "script": false
+    },
+    {
+      "nome": "flexbox-flex-basis-content-002b",
+      "pct": 1.596875,
+      "n": 16352,
+      "script": false
+    },
+    {
       "nome": "balance/balance-percentage-size-001",
       "pct": 1.55859375,
       "n": 15960,
@@ -482,16 +494,16 @@
       "script": false
     },
     {
-      "nome": "align-items-009",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
-    },
-    {
       "nome": "align-items-008",
       "pct": 0.9765625,
       "n": 10000,
       "script": true
+    },
+    {
+      "nome": "align-items-009",
+      "pct": 0.9765625,
+      "n": 10000,
+      "script": false
     },
     {
       "nome": "anonymous-flex-item-restyle",
@@ -1208,18 +1220,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-flex-basis-content-002a",
-      "pct": 0.37187499999999996,
-      "n": 3808,
-      "script": false
-    },
-    {
-      "nome": "flexbox-flex-basis-content-002b",
-      "pct": 0.37187499999999996,
-      "n": 3808,
-      "script": false
-    },
-    {
       "nome": "balance/balance-start-bias-003",
       "pct": 0.3662109375,
       "n": 3750,
@@ -1409,6 +1409,12 @@
       "nome": "flexbox-collapsed-item-horiz-003",
       "pct": 0.05859375,
       "n": 600,
+      "script": false
+    },
+    {
+      "nome": "flexbox-flex-basis-content-004a",
+      "pct": 0.056249999999999994,
+      "n": 576,
       "script": false
     },
     {
@@ -1647,12 +1653,12 @@
       "estado": "passa"
     },
     {
-      "nome": "align-items-009",
+      "nome": "align-items-008",
       "estado": "falha",
       "pct": 0.9765625
     },
     {
-      "nome": "align-items-008",
+      "nome": "align-items-009",
       "estado": "falha",
       "pct": 0.9765625
     },
@@ -2840,14 +2846,14 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-030",
-      "estado": "falha",
-      "pct": 0.634765625
-    },
-    {
       "nome": "flex-minimum-width-flex-items-001",
       "estado": "falha",
       "pct": 0.52734375
+    },
+    {
+      "nome": "flex-minimum-height-flex-items-030",
+      "estado": "falha",
+      "pct": 0.634765625
     },
     {
       "nome": "flex-minimum-width-flex-items-002",
@@ -3191,12 +3197,12 @@
     {
       "nome": "flexbox-flex-basis-content-002a",
       "estado": "falha",
-      "pct": 0.37187499999999996
+      "pct": 1.596875
     },
     {
       "nome": "flexbox-flex-basis-content-002b",
       "estado": "falha",
-      "pct": 0.37187499999999996
+      "pct": 1.596875
     },
     {
       "nome": "flexbox-flex-basis-content-003a",
@@ -3208,7 +3214,8 @@
     },
     {
       "nome": "flexbox-flex-basis-content-004a",
-      "estado": "passa"
+      "estado": "falha",
+      "pct": 0.056249999999999994
     },
     {
       "nome": "flexbox-flex-basis-content-004b",
@@ -3844,11 +3851,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-1-0",
+      "nome": "flexbox_flex-1-0-auto",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-1-0-auto",
+      "nome": "flexbox_flex-1-0",
       "estado": "passa"
     },
     {
@@ -4073,11 +4080,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-natural",
+      "nome": "flexbox_flex-none-wrappable-content",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-none-wrappable-content",
+      "nome": "flexbox_flex-natural",
       "estado": "passa"
     },
     {
@@ -4276,11 +4283,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_rowspan",
+      "nome": "flexbox_rtl-direction",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_rtl-direction",
+      "nome": "flexbox_rowspan",
       "estado": "passa"
     },
     {
