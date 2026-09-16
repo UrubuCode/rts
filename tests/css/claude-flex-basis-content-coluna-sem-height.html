@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- flex-basis:content sem height declarado: a medida natural do item JA e a do
+     conteudo, e o conteudo nao empilha. Tres inline-blocks ficam numa linha e
+     tres floats ficam lado a lado — somar os filhos daria 40 aos dois.
+     Os seis casos de flexbox-flex-basis-content-004a (WPT), reduzidos aos dois
+     que distinguem as duas vias. -->
+<style>
+body { margin: 0; }
+.container { display:flex; flex-direction:column; align-items:flex-start; height:1px; margin-bottom:49px; }
+.item { flex:0 0 content; min-height:0; border:2px solid teal; }
+ib { display:inline-block; background:blue; border:1px solid gray; width:15px; height:10px; }
+float { float:left; background:fuchsia; border:1px solid gray; width:15px; height:10px; }
+</style>
+<div class="container"><div class="item" id="linha"><ib></ib><ib></ib><ib></ib></div></div>
+<div class="container"><div class="item" id="flutuantes"><float></float><float></float><float></float></div></div>
