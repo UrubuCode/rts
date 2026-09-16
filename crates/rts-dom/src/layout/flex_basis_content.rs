@@ -8,11 +8,22 @@
 //! (`child_outer_width`, que olha para `width` primeiro) — um
 //! `flex-basis:content` com `width` declarado usava o `width`, quando a
 //! spec pede que a keyword `content` o IGNORE sempre. Módulo próprio (e não
-//! mais uma função em `flex_limites.rs`) porque a resposta é por EIXO: o
-//! espelho para COLUNA (`height` em vez de `width`) fica por fazer — pedia
-//! medir o item ignorando a sua PRÓPRIA `height` declarada, que exigiria uma
-//! segunda passada de layout (o mesmo corte já aceite em
-//! `coluna_shrink::min_main_auto`, que documenta a falta da mesma medição).
+//! mais uma função em `flex_limites.rs`) porque a resposta é por EIXO.
+//!
+//! O espelho para COLUNA **não vive aqui**: está em `layout_children_column`,
+//! onde o item já é montado, e usa `coluna_shrink::altura_conteudo_sem_height`
+//! — a mesma aproximação que `min_main_auto` documenta, e com o mesmo limite.
+//! Ela soma cada filho pela SUA própria altura, um modelo de blocos
+//! EMPILHADOS, por isso só é consultada quando há um `height` declarado para
+//! ignorar. Sem `height`, a medida natural do item já É a do conteúdo e é
+//! mais fiel: inline-blocks na mesma linha e floats lado a lado não empilham,
+//! e a soma dava-lhes o triplo da altura (os seis casos de
+//! `flexbox-flex-basis-content-004a`, medidos no Blink).
+//!
+//! O que continua por fazer é a segunda passada de layout que mediria o item
+//! ignorando a `height` sem somar filhos — só ela cobre os dois casos que
+//! ambas as vias erram: um elemento SUBSTITUÍDO como item (Blink 14, motor
+//! 10) e inline replaced dentro do item (Blink 22, motor 34).
 
 use super::*;
 

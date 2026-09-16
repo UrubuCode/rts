@@ -192,7 +192,22 @@ pub(in crate::layout) fn layout_children_column(
         // vira `content`, não usa o `height` declarado do próprio item.
         // `measure_block` acima preserva esse height para a geometria normal;
         // a base flex precisa da contribuição intrínseca dos filhos.
-        let basis_pelo_conteudo = ccss.flex_basis == Some(crate::style::Dimension::MaxContent)
+        // `flex-basis: content` (e `max-content`) IGNORA o `height` do proprio
+        // item — mas so ha o que ignorar quando ele foi declarado. Sem
+        // `height`, o `natural_h` medido acima JA e a altura do conteudo, e e
+        // a boa: `altura_conteudo_sem_height` soma cada filho pela sua propria
+        // altura, um modelo de blocos EMPILHADOS que erra sempre que o
+        // conteudo nao empilha. Medido no Blink com os seis casos de
+        // `flexbox-flex-basis-content-004a` (WPT): tres inline-blocks ficam na
+        // MESMA linha (22px, nao 40) e tres floats lado a lado idem (16px, nao
+        // 40). Aplicar a soma a todos custava esses dois reftests para ganhar
+        // um — o oposto do que o lote queria.
+        let height_declarado = !matches!(
+            ccss.height,
+            None | Some(crate::style::Dimension::Auto)
+        );
+        let basis_pelo_conteudo = (ccss.flex_basis == Some(crate::style::Dimension::MaxContent)
+            && height_declarado)
             || (matches!(ccss.flex_basis, Some(crate::style::Dimension::Percent(_)))
                 && container_content_h.is_none());
         let base_natural_h = if basis_pelo_conteudo
