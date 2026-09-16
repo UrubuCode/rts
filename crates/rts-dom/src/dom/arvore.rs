@@ -60,6 +60,7 @@ impl Dom {
             memo_style_epoch: std::cell::Cell::new(crate::style::props::style_epoch()),
             base_memo: std::cell::RefCell::new(Vec::new()),
             base_memo_revision: std::cell::Cell::new(u64::MAX),
+            box_tree_builds: std::cell::Cell::new(0),
             box_tree_memo: std::cell::RefCell::new(None),
             box_tree_memo_revision: std::cell::Cell::new((u64::MAX, u64::MAX)),
             counter_memo: std::cell::RefCell::new(None),

@@ -14,6 +14,26 @@ use crate::boxes::{build_mirror, BoxTree};
 use std::rc::Rc;
 
 impl Dom {
+    /// The revision, as the box tree generation.
+    ///
+    /// Exposed only for that: `crate::boxes` needs a number that changes
+    /// whenever the tree is rebuilt, so an id kept across a rebuild is refused
+    /// rather than read against the wrong arena. Truncated to `u32` because a
+    /// `BoxId` carries it and stays one register wide; a document that wrapped
+    /// four billion revisions would alias one generation, and at that rate it
+    /// would take years of animation frames.
+    /// A geracao para a PROXIMA construcao da arvore, incrementando o contador.
+    ///
+    /// Nao e a `revision`: a arvore e reconstruida por `(revision,
+    /// style_epoch)`, e uma mudanca so de estilo daria uma arvore nova com a
+    /// mesma revisao — um `BoxId` antigo passaria a verificacao e leria a arena
+    /// errada, que e exactamente o que a geracao existe para impedir.
+    pub(crate) fn next_box_generation(&self) -> u32 {
+        let g = self.box_tree_builds.get().wrapping_add(1);
+        self.box_tree_builds.set(g);
+        g
+    }
+
     /// The box tree for this document, keyed by `(revision, style_epoch)`.
     ///
     /// **The `Rc` is what makes it safe to hold across a layout pass.** A caller

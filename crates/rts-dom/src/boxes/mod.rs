@@ -35,18 +35,38 @@ pub use build::build_mirror;
 #[cfg(test)]
 mod tests;
 
-/// An index into a contiguous arena, the way `NodeIdx` already is for nodes.
+/// An index into a contiguous arena, the way `NodeIdx` already is for nodes —
+/// **plus the generation of the tree that issued it**.
 ///
-/// Not `Rc<RefCell<LayoutBox>>`: the tree is built in one pass, read many
-/// times, and dropped whole. It is also what lets the cache key stay `Copy` and
-/// cheap to compare, which is what `FragmentKey` needs.
+/// The generation is not decoration. A `BoxId` is only ever valid in the tree
+/// that made it: the tree is rebuilt whole when the document revision changes,
+/// and every index then points somewhere else. That is not a hypothesis — it
+/// was an out-of-bounds read in `node_of`, caught by the cache-equivalence
+/// tests, because cached fragments outlive a rebuild by design.
 ///
-/// `u32` rather than `usize`: a real page has tens of thousands of boxes, not
-/// billions, and the cache key is compared millions of times per frame — half
-/// the size is half the cache line.
+/// Without this field the same mistake compiles and, when the new arena happens
+/// to be at least as long, answers the geometry of an unrelated box in silence.
+/// With it, every accessor refuses. The cost is one comparison and four bytes.
+///
+/// `u32` for each half rather than `usize`: a real page has tens of thousands
+/// of boxes, not billions, and the pair still fits in one register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct BoxId(pub u32);
+pub struct BoxId {
+    generation: u32,
+    index: u32,
+}
 
+impl BoxId {
+    /// The position in the arena. Only meaningful together with the generation,
+    /// which is why the fields are private and this is the only way out.
+    pub fn index(self) -> u32 {
+        self.index
+    }
+
+    pub fn generation(self) -> u32 {
+        self.generation
+    }
+}
 /// Where a box came from — and, with it, where its STYLE comes from.
 ///
 /// **A box does not store a style; it stores the node whose style is its own.**
@@ -76,6 +96,18 @@ pub enum BoxKind {
     /// asks for: an anonymous box has no declarations of its own and takes the
     /// inherited properties of its generating element.
     Anonymous { inherits_from: NodeIdx },
+    /// A run of text. Its style is the enclosing inline element's, which is
+    /// also what `collect_runs` already threads down as parameters.
+    ///
+    /// The text node itself is named so the layout can reach the string, and
+    /// `inherits_from` is named separately because a text node HAS NO STYLE of
+    /// its own: `computed_style_idx` answers `None` for one, matching only
+    /// elements. Storing both is what lets a text box answer the style question
+    /// without a special case at every reader.
+    Text {
+        node: NodeIdx,
+        inherits_from: NodeIdx,
+    },
 }
 
 /// Named `LayoutBox` and not `Box` because `Box` is `std::boxed::Box` — a name
@@ -88,6 +120,9 @@ pub struct LayoutBox {
 }
 #[derive(Debug, Default)]
 pub struct BoxTree {
+    /// Which build of the tree this is. Every `BoxId` it hands out carries it,
+    /// and every accessor refuses one that does not match — see `BoxId`.
+    generation: u32,
     arena: Vec<LayoutBox>,
     /// The translation, and the only place it lives.
     ///
@@ -115,15 +150,58 @@ impl BoxTree {
         self.push(BoxKind::Anonymous { inherits_from }, Some(parent))
     }
 
+    /// A tree for a given build. `build_mirror` passes the document revision,
+    /// so two trees of the same document at different revisions never share a
+    /// generation, and an id from one is refused by the other.
+    pub fn with_generation(generation: u32) -> Self {
+        BoxTree {
+            generation,
+            ..Default::default()
+        }
+    }
+
+    /// The box behind an id, refusing one issued by another build of the tree.
+    ///
+    /// Panics rather than answering wrongly: a stale id is a bug at the call
+    /// site, and the alternative — reading whatever now sits at that index — is
+    /// the silent class this repository refuses. The message names both
+    /// generations so the caller knows which tree it kept.
+    fn get(&self, id: BoxId) -> &LayoutBox {
+        assert_eq!(
+            id.generation, self.generation,
+            "BoxId from generation {} used on a tree of generation {}: the tree was rebuilt and this id points elsewhere now",
+            id.generation, self.generation
+        );
+        &self.arena[id.index as usize]
+    }
+
+    /// A run of text, which inherits the style of the inline element that
+    /// encloses it. Enters `by_node` like an element: a text node is a real
+    /// node and its geometry is a legitimate question.
+    pub fn push_text(&mut self, node: NodeIdx, inherits_from: NodeIdx, parent: BoxId) -> BoxId {
+        let id = self.push(
+            BoxKind::Text {
+                node,
+                inherits_from,
+            },
+            Some(parent),
+        );
+        self.by_node.entry(node).or_default().push(id);
+        id
+    }
+
     fn push(&mut self, kind: BoxKind, parent: Option<BoxId>) -> BoxId {
-        let id = BoxId(self.arena.len() as u32);
+        let id = BoxId {
+            generation: self.generation,
+            index: self.arena.len() as u32,
+        };
         self.arena.push(LayoutBox {
             kind,
             parent,
             children: Vec::new(),
         });
         if let Some(p) = parent {
-            self.arena[p.0 as usize].children.push(id);
+            self.arena[p.index as usize].children.push(id);
         }
         id
     }
@@ -138,8 +216,12 @@ impl BoxTree {
 
     /// The node a box belongs to, or `None` when the box is anonymous.
     pub fn node_of(&self, id: BoxId) -> Option<NodeIdx> {
-        match self.arena[id.0 as usize].kind {
+        match self.get(id).kind {
             BoxKind::Element(n) => Some(n),
+            // Uma caixa de TEXTO nomeia o seu no, e por isso e consultavel:
+            // `getBoundingClientRect` de um no de texto e uma pergunta legitima
+            // do DOM, e responde-la precisa de saber que caixas ele gerou.
+            BoxKind::Text { node, .. } => Some(node),
             BoxKind::Anonymous { .. } => None,
         }
     }
@@ -147,9 +229,11 @@ impl BoxTree {
     /// The node this box takes its style from: the element itself, or — for an
     /// anonymous box — the element whose box the CSS rules split to make it.
     pub fn style_source(&self, id: BoxId) -> NodeIdx {
-        match self.arena[id.0 as usize].kind {
+        match self.get(id).kind {
             BoxKind::Element(n) => n,
-            BoxKind::Anonymous { inherits_from } => inherits_from,
+            BoxKind::Anonymous { inherits_from } | BoxKind::Text { inherits_from, .. } => {
+                inherits_from
+            }
         }
     }
 
@@ -168,11 +252,11 @@ impl BoxTree {
     }
 
     pub fn children(&self, id: BoxId) -> &[BoxId] {
-        &self.arena[id.0 as usize].children
+        &self.get(id).children
     }
 
     pub fn parent(&self, id: BoxId) -> Option<BoxId> {
-        self.arena[id.0 as usize].parent
+        self.get(id).parent
     }
 
     /// The top-level boxes — those with no parent. They are the document's
@@ -183,7 +267,10 @@ impl BoxTree {
             .iter()
             .enumerate()
             .filter(|(_, b)| b.parent.is_none())
-            .map(|(i, _)| BoxId(i as u32))
+            .map(|(i, _)| BoxId {
+                generation: self.generation,
+                index: i as u32,
+            })
     }
 
     pub fn len(&self) -> usize {

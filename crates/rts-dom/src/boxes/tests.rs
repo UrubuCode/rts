@@ -47,30 +47,40 @@ fn one_node_can_own_several_boxes_and_the_map_keeps_the_order() {
     assert_eq!(tree.node_of(second), Some(7));
 }
 
-/// The mirror has exactly one box per ELEMENT, and none for a text or comment
-/// node. A text node generates no box in this lot: its style is the enclosing
-/// inline's and what lays it out is `collect_runs`, which still reads the DOM.
-/// Giving text a box of its own is BT-3.
+/// The mirror gives one box to each ELEMENT and one to each TEXT node, and
+/// none to a comment. Text earned its box when the tree stopped being able to
+/// answer "what is in this line" without walking back into the DOM; a comment
+/// never generates one, and neither does what the cascade refuses.
+///
+/// This test asserted the opposite until text got a box, and the assertion it
+/// used to make — "a non-element node generates no box" — is why the change
+/// was visible instead of silent.
 #[test]
-fn the_mirror_has_one_box_per_element_and_none_for_text() {
+fn the_mirror_gives_a_box_to_each_element_and_each_text_node() {
     let dom = crate::parse_html_to_dom("<div><p>a</p><!--c--><span></span></div>");
     let tree = build_mirror(&dom);
 
     let mut elements = 0;
+    let mut texts = 0;
     for idx in 0..dom.node_count() {
-        let is_element = matches!(&dom.node(idx).kind, NodeKind::Element { .. });
         let boxes = tree.boxes_of(idx).len();
-        if is_element {
-            elements += 1;
-            assert!(
-                boxes <= 1,
-                "element {idx} has {boxes} boxes; the mirror allows at most one"
-            );
-        } else {
-            assert_eq!(boxes, 0, "a non-element node generates no box in the mirror");
+        match &dom.node(idx).kind {
+            NodeKind::Element { .. } => {
+                elements += 1;
+                assert!(
+                    boxes <= 1,
+                    "element {idx} has {boxes} boxes; the mirror allows at most one"
+                );
+            }
+            NodeKind::Text(_) => {
+                texts += 1;
+                assert_eq!(boxes, 1, "text node {idx} has {boxes} boxes; it should have one");
+            }
+            _ => assert_eq!(boxes, 0, "a comment generates no box"),
         }
     }
     assert!(elements >= 3, "the fixture has div, p and span");
+    assert_eq!(texts, 1, "the fixture has one text node");
 }
 
 /// Every box in the mirror is reachable from a root by following children, and
@@ -86,8 +96,8 @@ fn the_mirror_is_a_tree_whose_two_directions_agree() {
     let mut seen = vec![false; tree.len()];
     let mut stack: Vec<BoxId> = tree.roots().collect();
     while let Some(id) = stack.pop() {
-        assert!(!seen[id.0 as usize], "box {id:?} reached twice");
-        seen[id.0 as usize] = true;
+        assert!(!seen[id.index() as usize], "box {id:?} reached twice");
+        seen[id.index() as usize] = true;
         for &child in tree.children(id) {
             assert_eq!(
                 tree.parent(child),
@@ -372,5 +382,46 @@ fn a_box_reads_its_style_fresh_and_never_from_a_capture() {
     assert_ne!(
         antes, depois,
         "the box must read the style now, not the one captured when the tree was built"
+    );
+}
+
+/// A `BoxId` from one build of the tree is REFUSED by another, loudly.
+///
+/// This is the hole the fragment cache fell into: cached fragments outlive a
+/// rebuild by design, so they held indices into an arena that no longer
+/// existed. Without the generation it compiled and, whenever the new arena was
+/// at least as long, answered the geometry of an unrelated box in silence.
+///
+/// The generation counts BUILDS and not revisions on purpose: the tree is
+/// rebuilt on a style-only change too, and that leaves the revision untouched.
+#[test]
+#[should_panic(expected = "was rebuilt")]
+fn a_box_id_from_an_older_tree_is_refused() {
+    let mut dom = crate::parse_html_to_dom("<div><p></p></div>");
+    let antiga = dom.box_tree();
+    let caixa = antiga.roots().next().expect("the document has a root box");
+
+    // Any structural change rebuilds the tree on the next ask.
+    let raiz = dom.id_of_idx(dom.root);
+    let novo = dom.create_element("span");
+    dom.append_child(raiz, novo);
+    let nova = dom.box_tree();
+
+    // The id belongs to `antiga`. Reading it against `nova` must refuse.
+    let _ = nova.node_of(caixa);
+}
+
+/// Two builds of the same document never share a generation, even when nothing
+/// structural changed — which is what makes the check above trustworthy rather
+/// than accidental.
+#[test]
+fn every_build_gets_its_own_generation() {
+    let dom = crate::parse_html_to_dom("<div></div>");
+    let a = build_mirror(&dom);
+    let b = build_mirror(&dom);
+    assert_ne!(
+        a.roots().next().unwrap().generation(),
+        b.roots().next().unwrap().generation(),
+        "two builds must not share a generation"
     );
 }

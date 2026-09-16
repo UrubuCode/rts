@@ -255,20 +255,28 @@ pub(in crate::layout) fn layout_children_vertical(
         // cabeçalho de [`SeguidorDeCaixas`].
         let caixa_do_filho = seguidor.as_mut().and_then(|s| s.seguinte(child));
         let e_elemento = matches!(dom.node(child).kind, NodeKind::Element { .. });
-        // Enquanto a árvore é um espelho, "tem caixa" e "é elemento" são a MESMA
-        // pergunta: `build_mirror` empurra uma caixa por elemento e
-        // `computed_style_idx` responde `Some` a todo elemento — só devolve
-        // `None` para o que não é elemento. As duas respostas só podem divergir
-        // se o espelho deixou de o ser, e é isso que esta linha apanha antes de
-        // uma página ficar sem metade das suas caixas.
+        // A árvore dá caixa a um ELEMENTO e a um nó de TEXTO; não dá a um
+        // comentário nem ao que a cascade recusa. Esta linha apanha uma
+        // divergência antes de uma página ficar sem metade das suas caixas — e
+        // já apanhou: quando o texto ganhou caixa, disparou em 322 testes de
+        // uma vez, que é o que ela existe para fazer.
+        let e_texto = matches!(dom.node(child).kind, NodeKind::Text(_));
         debug_assert!(
-            seguidor.is_none() || caixa_do_filho.is_some() == e_elemento,
-            "a arvore deixou de espelhar o DOM em {child:?}: caixa={caixa_do_filho:?}, elemento={e_elemento}"
+            seguidor.is_none() || caixa_do_filho.is_some() == (e_elemento || e_texto),
+            "a arvore divergiu do DOM em {child:?}: caixa={caixa_do_filho:?}, elemento={e_elemento}, texto={e_texto}"
         );
+        // **O agrupamento continua a ser do DOM, e `e_caixa` só fala de
+        // ELEMENTOS.** Um nó de texto tem caixa desde que o texto entrou na
+        // árvore, mas quem o dispõe continua a ser `collect_runs`, que o agrupa
+        // com os irmãos inline. Responder `true` aqui para texto mandá-lo-ia
+        // pelo caminho de bloco e partia cada palavra numa linha própria.
+        //
+        // Migrar a ORDEM para a árvore é o lote que fecha isto; enquanto não
+        // for, a árvore entra como IDENTIDADE e o DOM continua a dar a ordem.
         // A resposta da ÁRVORE quando há árvore. É a linha que o lote existe
         // para virar: quem decide se este filho é uma caixa deixou de ser o DOM.
         let e_caixa = match &seguidor {
-            Some(_) => caixa_do_filho.is_some(),
+            Some(_) => caixa_do_filho.is_some() && !e_texto,
             None => e_elemento,
         };
         // CAMINHO RÁPIDO: se existe fragmento para este filho com estas

@@ -351,6 +351,14 @@ pub struct Dom {
     /// mecanicas em codigo que nao tem nada a ver com caixas. Aqui segue o
     /// padrao que `counter_memo` e `computed_memo` ja usam, e herda a mesma
     /// invalidacao.
+    /// Quantas vezes a arvore de caixas foi CONSTRUIDA neste documento.
+    ///
+    /// E a geracao que cada `BoxId` carrega, e nao a `revision`: a arvore e
+    /// reconstruida por `(revision, style_epoch)`, portanto uma mudanca so de
+    /// estilo produz uma arvore nova com a MESMA revisao — e um id antigo
+    /// passaria a verificacao e leria a arena errada. Um contador de
+    /// construcoes nao tem esse buraco por definicao.
+    box_tree_builds: std::cell::Cell<u32>,
     box_tree_memo: std::cell::RefCell<Option<std::rc::Rc<crate::boxes::BoxTree>>>,
     box_tree_memo_revision: std::cell::Cell<(u64, u64)>,
     counter_memo: std::cell::RefCell<Option<std::rc::Rc<crate::counters::Tabela>>>,

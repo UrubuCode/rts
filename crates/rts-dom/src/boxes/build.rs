@@ -29,7 +29,11 @@ use crate::style::DisplayKind;
 /// `layout_block` asks for the style and gives up without it. It is not a new
 /// decision taken by this module.
 pub fn build_mirror(dom: &Dom) -> BoxTree {
-    let mut tree = BoxTree::default();
+    // The generation counts BUILDS, not revisions: the tree is memoised by
+    // `(revision, style_epoch)`, so a style-only change yields a new tree at the
+    // same revision — and an id from the old one would pass the check and read
+    // the wrong arena. A build counter has no such hole.
+    let mut tree = BoxTree::with_generation(dom.next_box_generation());
     // The document root is not an element and generates no box; entry is
     // through its children, the way `layout_document` does it.
     let roots: Vec<NodeIdx> = dom.node(dom.root).children.clone();
@@ -40,9 +44,24 @@ pub fn build_mirror(dom: &Dom) -> BoxTree {
 }
 
 fn descend(dom: &Dom, node: NodeIdx, parent: Option<BoxId>, tree: &mut BoxTree) {
-    let NodeKind::Element { .. } = &dom.node(node).kind else {
+    // A TEXT node gets a box, and it inherits the style of the element that
+    // encloses it — text has no style of its own, `computed_style_idx` answers
+    // `None` for one. Without a box, text could not appear in a tree traversal
+    // at all, and the layout would have to keep walking the DOM to find it:
+    // that is why the child loop still takes its ORDER from the DOM today.
+    //
+    // Whitespace that collapses away is NOT filtered here. Which whitespace
+    // survives is a question about `white-space` and about the neighbours in a
+    // line, and `quebra.rs` owns it — deciding it twice, once here on the tree
+    // and once there on the runs, is the second-truth failure this module was
+    // built to avoid.
+    if let NodeKind::Text(_) = &dom.node(node).kind {
+        let (Some(p), Some(source)) = (parent, tree_style_source(tree, parent)) else {
+            return;
+        };
+        tree.push_text(node, source, p);
         return;
-    };
+    }
     let Some(style) = dom.computed_style_idx(node) else {
         return;
     };
@@ -154,4 +173,11 @@ fn flush_inline_run(
         descend(dom, child, Some(anon), tree);
     }
     run.clear();
+}
+
+/// The node whose style a child box inherits: the style source of the parent
+/// box. For an element parent that is the element; for an anonymous box it is
+/// the inline that was split, which is the same answer the CSS rules give.
+fn tree_style_source(tree: &BoxTree, parent: Option<BoxId>) -> Option<NodeIdx> {
+    parent.map(|p| tree.style_source(p))
 }
