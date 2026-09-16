@@ -5,6 +5,7 @@
 
 mod animacao;
 mod cascade;
+mod css_url;
 mod consulta;
 mod eventos;
 mod freelist;

@@ -253,10 +253,11 @@ extern "C" fn set_style(_e: u64, _t: u64, doc: u64, n: u64, slot: u64, val: u64)
 
 /// `computedProperty(doc, node, nome)` — o valor COMPUTADO de uma propriedade
 /// CSS, no formato do browser (`getComputedStyle(el).color`).
-extern "C" fn computed_property(_e: u64, _t: u64, doc: u64, n: u64, name: u64, _c: u64) -> u64 {
+extern "C" fn computed_property(_e: u64, _t: u64, doc: u64, n: u64, name: u64, base: u64) -> u64 {
     let name = text(name);
+    let base = text(base);
     let Some(id) = node(n) else { return string("") };
-    let out = rts_dom::store::with_dom(handle(doc), |d| d.computed_property(id, &name))
+    let out = rts_dom::store::with_dom(handle(doc), |d| d.computed_property_at(id, &name, &base))
         .unwrap_or_default();
     string(&out)
 }

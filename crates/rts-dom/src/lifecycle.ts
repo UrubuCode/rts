@@ -119,12 +119,17 @@ const __urlKeys: i64[] = [];
 const __urlVals: string[] = [];
 
 function __urlOf(h: i64): string {
+  const base = __baseUrlOf(h);
+  return base.length > 0 ? base : "https://localhost/";
+}
+
+function __baseUrlOf(h: i64): string {
   let i = 0;
   while (i < __urlKeys.length) {
     if (__urlKeys[i] === h) return __urlVals[i];
     i = i + 1;
   }
-  return "https://localhost/";
+  return "";
 }
 
 function __setUrlOf(h: i64, url: string): void {

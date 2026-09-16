@@ -451,6 +451,8 @@ interface DOMRectLike {
 // do browser (textContent, id, className, tagName) são accessors.
 class Element {
   _dom: number; // handle do DOM dono
+  private _classListCache: any = null;
+  private _datasetCache: any = null;
   _node: number; // NodeId versionado deste nó
 
   constructor(dom: number, node: number) {
@@ -751,7 +753,7 @@ class Element {
   }
   // `getComputedStyle(el).<name>` — valor COMPUTADO (após cascade), formato browser.
   getComputedProp(name: string): string {
-    return dom.computedProperty(this._dom, this._node, __camelToKebab(name));
+    return dom.computedProperty(this._dom, this._node, __camelToKebab(name), __baseUrlOf(this._dom));
   }
 
   // ── Eventos — callbacks REAIS + polling legado (#1760) ───────────────────────
@@ -991,6 +993,16 @@ class Element {
   datasetSet(key: string, value: string): void {
     dom.setAttr(this._dom, this._node, "data-" + __camelToKebab(key), value);
   }
+  get dataset(): any {
+    if (this._datasetCache !== null) return this._datasetCache;
+    const eu = this;
+    this._datasetCache = new Proxy({}, {
+      get(_t: any, key: any): any { return dom.getAttribute(eu._dom, eu._node, "data-" + __camelToKebab("" + key)); },
+      set(_t: any, key: any, value: any): boolean { dom.setAttr(eu._dom, eu._node, "data-" + __camelToKebab("" + key), "" + value); return true; },
+      deleteProperty(_t: any, key: any): boolean { dom.removeAttr(eu._dom, eu._node, "data-" + __camelToKebab("" + key)); return true; },
+    });
+    return this._datasetCache;
+  }
 
   // `el.nodeType` — Element=1, Text=3, Comment=8, Document=9.
   get nodeType(): number {
@@ -1102,13 +1114,23 @@ class Element {
   // nao `el.classListAdd(...)`. O estado continua no atributo `class`, por isso
   // nao ha nada a manter em dia.
   get classList(): any {
+    if (this._classListCache !== null) return this._classListCache;
     const eu = this;
-    return {
-      add(c: string): void { eu.classListAdd(c); },
-      remove(c: string): void { eu.classListRemove(c); },
-      toggle(c: string): boolean { return eu.classListToggle(c); },
-      contains(c: string): boolean { return eu.classListContains(c); },
-    };
+    this._classListCache = new Proxy({}, {
+      get(_t: any, key: any): any {
+        const name = "" + key;
+        if (name === "value") return eu.getAttribute("class");
+        if (name === "length") return eu.classTokens().length;
+        if (name === "item") return function (i: number) { const a = eu.classTokens(); return i >= 0 && i < a.length ? a[i] : null; };
+        if (name === "contains") return function (c: string) { return eu.classListContains(c); };
+        if (name === "add") return function (...cs: string[]) { for (const c of cs) eu.classListAdd(c); };
+        if (name === "remove") return function (...cs: string[]) { for (const c of cs) eu.classListRemove(c); };
+        if (name === "toggle") return function (c: string, force?: boolean) { return force === undefined ? eu.classListToggle(c) : (force ? (eu.classListAdd(c), true) : (eu.classListRemove(c), false)); };
+        if (name === "replace") return function (oldC: string, newC: string) { if (!eu.classListContains(oldC)) return false; eu.classListRemove(oldC); eu.classListAdd(newC); return true; };
+        return undefined;
+      },
+    });
+    return this._classListCache;
   }
 
   // O namespace de um elemento. Este DOM nao os modela — o parser produz HTML e
@@ -1126,6 +1148,9 @@ class Element {
   classListContains(cls: string): boolean {
     const list = this.getAttribute("class");
     return (" " + list + " ").indexOf(" " + cls + " ") !== __DOM_NONE;
+  }
+  classTokens(): string[] {
+    return this.getAttribute("class").split(/\s+/).filter((x: string) => x.length > 0);
   }
   classListAdd(cls: string): void {
     if (this.classListContains(cls)) return;

@@ -178,7 +178,7 @@ for (const nome of fixtures) {
         continue;
       }
       const querido = String(elementos[id].estilo[p]);
-      const obtido = String(computedProperty(doc, alvo, p));
+      const obtido = String(computedProperty(doc, alvo, p, "http://127.0.0.1:8731/" + nome));
       // Um comprimento em px bate a menos de 0,01px: o Blink imprime o valor
       // usado com 4 decimais e o nosso medidor de texto acumula em f32 —
       // `52.7812px` contra `52.7808px` é o mesmo número para qualquer leitor
