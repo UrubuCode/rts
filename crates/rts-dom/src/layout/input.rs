@@ -23,7 +23,7 @@ pub(in crate::layout) fn layout_button(
     let lh = ctx.measurer.line_height(font);
     let (pad_h, pad_v) = (12.0, 5.0);
     let w = tw + 2.0 * pad_h;
-    let h = lh + 2.0 * pad_v;
+    let h = lh + 5.0;
     let bg = css.bg.unwrap_or(0xF8F9FAFF); // cinza-claro UA (o do botão do google)
     let fg = css.color.unwrap_or(0x3C4043FF);
     list.items.push(DisplayItem::SolidRect {
