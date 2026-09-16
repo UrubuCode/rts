@@ -83,15 +83,30 @@ pub(in crate::layout) fn layout_inline_block_line(
     // 1) mede a largura+altura desejada (shrink) de cada item numa lista descartável,
     //    junto com o `vertical-align` dele — `None` (não declarado) continua a
     //    alinhar pelo TOPO, o corte que o doc do módulo de alinhamento explica.
-    let mut sizes: Vec<(NodeIdx, f32, f32, Option<VerticalAlign>)> = Vec::with_capacity(run.len());
-    for &child in run {
+    let mut sizes: Vec<(NodeIdx, f32, f32, Option<VerticalAlign>, f32)> = Vec::with_capacity(run.len());
+    for (pos, &child) in run.iter().enumerate() {
         let (w, h) = measure_block(dom, child, content_w, avail_h, None, None, true, ctx);
         let valign = dom.computed_style_idx(child).and_then(|c| c.vertical_align);
-        sizes.push((child, w, h, valign));
+        // A corrida de inline-blocks não carrega os nós de texto entre irmãos.
+        // Reconstituir aqui o separador preserva o espaço colapsado do HTML
+        // (`input` `input`, botões do Google) sem afetar flex items, que usam
+        // outro caminho. Elementos adjacentes sem whitespace continuam colados.
+        let gap = if pos == 0 {
+            0.0
+        } else if let (Some(parent), Some(prev_pos)) = (
+            dom.node(child).parent,
+            dom.node(child).parent.and_then(|p| dom.node(p).children.iter().position(|&n| n == run[pos - 1])),
+        ) {
+            let cur_pos = dom.node(parent).children.iter().position(|&n| n == child).unwrap_or(prev_pos + 1);
+            if dom.node(parent).children[prev_pos + 1..cur_pos].iter().any(|&n| matches!(&dom.node(n).kind, NodeKind::Text(t) if t.chars().all(crate::inline_box::e_espaco_css))) {
+                ctx.measurer.text_width(" ", font_size, false, false, false)
+            } else { 0.0 }
+        } else { 0.0 };
+        sizes.push((child, w, h, valign, gap));
     }
     // 2) agrupa em LINHAS (soma das larguras ≤ content_w). Cada linha guarda os
     //    itens + a largura total (p/ o alinhamento).
-    type Item = (NodeIdx, f32, f32, Option<VerticalAlign>);
+    type Item = (NodeIdx, f32, f32, Option<VerticalAlign>, f32);
     let mut lines: Vec<(Vec<Item>, f32)> = Vec::new();
     let mut cur: Vec<Item> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -103,7 +118,7 @@ pub(in crate::layout) fn layout_inline_block_line(
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
     );
     for item in sizes {
-        let w = item.1;
+        let w = item.1 + item.4;
         if quebra && !cur.is_empty() && cur_w + w > content_w {
             lines.push((std::mem::take(&mut cur), cur_w));
             cur_w = 0.0;
@@ -137,12 +152,12 @@ pub(in crate::layout) fn layout_inline_block_line(
         // que punha o caret `::after` do Bootstrap no topo da linha.
         let atomos: Vec<(f32, f32, VerticalAlign)> = items
             .iter()
-            .map(|&(n, _, h, va)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
+            .map(|&(n, _, h, va, _)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
             .collect();
         let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
         let familia = parent_css.font_family.as_deref();
         let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, familia, ctx.measurer);
-        for (&(child, w, h, va), &(_, ascent, _)) in items.iter().zip(&atomos) {
+        for (&(child, w, h, va, gap), &(_, ascent, _)) in items.iter().zip(&atomos) {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
             let item_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, familia, ctx.measurer);
             layout_block(
@@ -162,7 +177,7 @@ pub(in crate::layout) fn layout_inline_block_line(
                 ctx,
                 list,
             );
-            x += w;
+            x += gap + w;
         }
         cy += env.altura();
     }
