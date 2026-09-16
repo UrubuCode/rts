@@ -1,8 +1,8 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 601,
-  "falham": 269,
+  "passam": 598,
+  "falham": 272,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -353,6 +353,12 @@
       "nome": "balance/balance-line-count-intrinsic-002",
       "pct": 2.34375,
       "n": 24000,
+      "script": false
+    },
+    {
+      "nome": "select-element-zero-height-002",
+      "pct": 2.3037109375,
+      "n": 23590,
       "script": false
     },
     {
@@ -1202,6 +1208,12 @@
       "script": false
     },
     {
+      "nome": "select-element-zero-height-001",
+      "pct": 0.49023437499999994,
+      "n": 5020,
+      "script": false
+    },
+    {
       "nome": "alignment/flex-align-baseline-column-vert-lr-rtl-wrap-reverse",
       "pct": 0.48828125,
       "n": 5000,
@@ -1535,6 +1547,12 @@
       "nome": "percentage-heights-009",
       "pct": 0.0390625,
       "n": 400,
+      "script": false
+    },
+    {
+      "nome": "select-element-multiple",
+      "pct": 0.036328125,
+      "n": 372,
       "script": false
     },
     {
@@ -2914,13 +2932,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-020",
-      "estado": "passa"
-    },
-    {
       "nome": "flex-minimum-height-flex-items-019",
       "estado": "falha",
       "pct": 0.68359375
+    },
+    {
+      "nome": "flex-minimum-height-flex-items-020",
+      "estado": "passa"
     },
     {
       "nome": "flex-minimum-height-flex-items-021",
@@ -3356,11 +3374,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-flexing",
+      "nome": "flexbox-flex-wrap-horiz-001",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-horiz-001",
+      "nome": "flexbox-flex-wrap-flexing",
       "estado": "passa"
     },
     {
@@ -5143,15 +5161,18 @@
     },
     {
       "nome": "select-element-multiple",
-      "estado": "passa"
+      "estado": "falha",
+      "pct": 0.036328125
     },
     {
       "nome": "select-element-zero-height-001",
-      "estado": "passa"
+      "estado": "falha",
+      "pct": 0.49023437499999994
     },
     {
       "nome": "select-element-zero-height-002",
-      "estado": "passa"
+      "estado": "falha",
+      "pct": 2.3037109375
     },
     {
       "nome": "stretch-flex-item-checkbox-input",
@@ -5349,11 +5370,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
