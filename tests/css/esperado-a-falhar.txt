@@ -11,7 +11,6 @@ claude-ua-th.html
 
 # cursor: url(x.png) — o Blink resolve a URL contra a base do documento;
 # nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
-claude-cursor-pointer-events.html
 
 # vaga 6 — as três fixtures medidas ANTES do código (`hyphens-manual`,
 # `inline-fragmentos`, `font-unidades-ch-ex`) saíram daqui com os lotes S-hifen,
