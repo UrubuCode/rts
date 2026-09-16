@@ -11,6 +11,7 @@ mod colapso;
 mod dimensoes;
 mod flex;
 mod flex_grow_fractional_corpus;
+mod flex_basis_content_column_corpus;
 mod flex_avancado;
 mod flex_coluna_shrink_corpus;
 mod flex_baseline_corpus;

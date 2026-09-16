@@ -192,8 +192,10 @@ pub(in crate::layout) fn layout_children_column(
         // vira `content`, não usa o `height` declarado do próprio item.
         // `measure_block` acima preserva esse height para a geometria normal;
         // a base flex precisa da contribuição intrínseca dos filhos.
-        let base_natural_h = if matches!(ccss.flex_basis, Some(crate::style::Dimension::Percent(_)))
-            && container_content_h.is_none()
+        let basis_pelo_conteudo = ccss.flex_basis == Some(crate::style::Dimension::MaxContent)
+            || (matches!(ccss.flex_basis, Some(crate::style::Dimension::Percent(_)))
+                && container_content_h.is_none());
+        let base_natural_h = if basis_pelo_conteudo
         {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
             super::coluna_shrink::altura_conteudo_sem_height(
