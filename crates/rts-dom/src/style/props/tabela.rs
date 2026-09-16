@@ -126,6 +126,10 @@ css_props! {
         /// dos itens dentro de cada uma — o `flex_wrap_reverse: bool` que o
         /// lote `flex-column-wrap` acrescentou ao lado foi absorvido aqui.
         [] flex_wrap: FlexWrap;
+        /// Mínimo de linhas pedido por `flex-line-count` (Flexbox Level 2).
+        /// Só participa quando `flex-wrap:balance`; `None` deixa o algoritmo
+        /// usar o número mínimo de linhas que cabe no main axis.
+        [] flex_line_count: i32;
         /// `justify-content` — distribuição no eixo principal do flex. `None` =
         /// FlexStart.
         [] justify: JustifyContent;

@@ -43,8 +43,18 @@ const FILTRO = opt("filtro", "") ? new RegExp(opt("filtro", ""), "i") : null;
 const PARES = opt("pares", "match");
 if (!["match", "sufixo"].includes(PARES)) { console.error(`--pares ${PARES}: use "match" (WPT) ou "sufixo" (Blink)`); process.exit(2); }
 const OUT = resolve(opt("out", join(process.env.TEMP ?? ".", "wpt-reftests")));
-const RASTER = ["target/release/examples/claude-raster.exe", "target/release/examples/claude-raster"].find(existsSync);
-if (!RASTER) { console.error("construa o rasterizador: cargo build --release -p rts-dom --example claude-raster"); process.exit(2); }
+// Release continua a ser a medição oficial; aceitar debug permite iterar no
+// layout sem refazer a ligação optimizada a cada mudança pequena. O raster é
+// determinístico nos dois perfis, e o relatório identifica o mesmo corpus.
+const preferDebug = args.includes("--debug");
+const RASTER = (preferDebug ? [
+  "target/debug/examples/claude-raster.exe", "target/debug/examples/claude-raster",
+  "target/release/examples/claude-raster.exe", "target/release/examples/claude-raster",
+] : [
+  "target/release/examples/claude-raster.exe", "target/release/examples/claude-raster",
+  "target/debug/examples/claude-raster.exe", "target/debug/examples/claude-raster",
+]).find(existsSync);
+if (!RASTER) { console.error("construa o rasterizador: cargo build -p rts-dom --example claude-raster"); process.exit(2); }
 // A pasta de saida e LIMPA no arranque. Sem isto ela acumula os PNG de todas as
 // corridas anteriores — e como o nome de um teste e estavel, uma falha antiga
 // que ja foi corrigida fica la a parecer actual. Uma medicao nova comeca vazia.

@@ -27,6 +27,9 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // `flex-wrap` — combina com display:flex para promover a FlexWrap.
         // `nowrap`/`wrap`/`wrap-reverse`: os três estados de `FlexWrap`.
         "flex-wrap" => set_if(&mut css.flex_wrap, FlexWrap::parse(val)),
+        "flex-line-count" => {
+            css.flex_line_count = val.trim().parse::<i32>().ok().filter(|n| *n > 0);
+        }
         // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
         "justify-content" => set_if(&mut css.justify, JustifyContent::parse(val)),
         "align-items" => set_if(&mut css.align_items, AlignItems::parse(val)),
@@ -145,8 +148,6 @@ fn parse_flex_basis(v: &str) -> Option<Dimension> {
     }
     parse_dimension(v)
 }
-
-
 /// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
 /// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =
 /// grow=N shrink=1 basis=0% (o `.col { flex: 1 0 0% }` já vem com os três).

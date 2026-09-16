@@ -261,6 +261,23 @@ fn flex_wrap_reverse_nao_e_o_mesmo_que_nowrap() {
 }
 
 #[test]
+fn flex_wrap_balance_e_line_count_sao_preservados() {
+    let row = parse_inline("display:flex; flex-wrap: balance; flex-line-count: 3");
+    assert_eq!(row.flex_wrap, Some(crate::style::FlexWrap::Balance));
+    assert_eq!(row.flex_line_count, Some(3));
+    assert_eq!(
+        row.effective_display(),
+        Some(crate::style::DisplayKind::FlexWrap)
+    );
+
+    let reverse = parse_inline("display:flex; flex-wrap: wrap-reverse balance");
+    assert_eq!(
+        reverse.flex_wrap,
+        Some(crate::style::FlexWrap::BalanceReverse)
+    );
+}
+
+#[test]
 fn margin_inline_start_e_end_mapeiam_nos_lados_ltr() {
     let css = parse_inline("margin-inline-start: 8px; margin-inline-end: 4px");
     assert_eq!(css.margin.left.px(), Some(8.0));

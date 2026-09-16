@@ -194,7 +194,10 @@ pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, con
         let font = font_px(&css, DEFAULT_FONT_SIZE);
         let largura = largura_do_proprio(&css, content_w, font, ctx);
         let mut linhas = linhas_por_largura(dom, &em_flex, largura, font, ctx);
-        if css.flex_wrap == Some(crate::style::FlexWrap::WrapReverse) {
+        if matches!(
+            css.flex_wrap,
+            Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)
+        ) {
             linhas.reverse();
         }
         linhas.into_iter().next().unwrap_or_default()

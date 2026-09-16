@@ -95,7 +95,7 @@ pub(in crate::layout) fn wrap_reverse_efetivo(
     } else {
         eixo_y_forward(wm, dir)
     };
-    (wrap == Some(FlexWrap::WrapReverse)) ^ !forward
+    matches!(wrap, Some(FlexWrap::WrapReverse | FlexWrap::BalanceReverse)) ^ !forward
 }
 
 /// `true` quando o eixo físico X corre invertido (RTL) — o que

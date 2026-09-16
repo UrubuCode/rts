@@ -268,10 +268,15 @@ impl AlignItems {
 pub enum FlexWrap {
     NoWrap,
     Wrap,
+    /// Flexbox Level 2: quebra em linhas mas escolhe as fronteiras para que
+    /// as linhas tenham ocupações semelhantes.
+    Balance,
     /// Quebra como `Wrap` (mesmo agrupamento em linhas) mas troca
     /// cross-start/cross-end: a linha que o documento escreve DEPOIS
     /// desenha-se no INÍCIO do eixo cruzado (`layout/flex_baseline.rs`).
     WrapReverse,
+    /// A variante balanceada que também inverte o cross-start.
+    BalanceReverse,
 }
 
 impl FlexWrap {
@@ -279,7 +284,9 @@ impl FlexWrap {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "nowrap" => FlexWrap::NoWrap,
             "wrap" => FlexWrap::Wrap,
+            "balance" => FlexWrap::Balance,
             "wrap-reverse" => FlexWrap::WrapReverse,
+            "wrap-reverse balance" | "balance wrap-reverse" => FlexWrap::BalanceReverse,
             _ => return None,
         })
     }
@@ -287,6 +294,13 @@ impl FlexWrap {
     /// `true` para `Wrap` OU `WrapReverse` — os dois quebram linha; só a
     /// ORDEM delas difere. É a pergunta que `effective_display` faz.
     pub fn wraps(self) -> bool {
-        matches!(self, FlexWrap::Wrap | FlexWrap::WrapReverse)
+        matches!(
+            self,
+            FlexWrap::Wrap | FlexWrap::Balance | FlexWrap::WrapReverse | FlexWrap::BalanceReverse
+        )
+    }
+
+    pub fn balances(self) -> bool {
+        matches!(self, FlexWrap::Balance | FlexWrap::BalanceReverse)
     }
 }

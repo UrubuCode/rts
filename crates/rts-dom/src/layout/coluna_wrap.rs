@@ -208,18 +208,83 @@ pub(in crate::layout) fn layout_children_column_wrap(
 
     // ── PASSO 2: agrupa em COLUNAS pela BASE do eixo principal (o mesmo
     // empacotamento guloso de `flex.rs`, eixo trocado) ──────────────────────
-    let mut columns: Vec<Vec<Item>> = vec![Vec::new()];
-    let mut col_h = 0.0f32;
-    for it in items {
-        let cur = columns.last_mut().unwrap();
-        let with_gap = if cur.is_empty() { 0.0 } else { main_gap };
-        if !cur.is_empty() && col_h + with_gap + it.main > container_content_h {
-            columns.push(Vec::new());
-            col_h = it.main;
+    let balanced = css.flex_wrap.is_some_and(crate::style::FlexWrap::balances);
+    let mains: Vec<f32> = items.iter().map(|it| it.main).collect();
+    let mut minimum = 1usize;
+    let mut used = 0.0f32;
+    let mut first = true;
+    for &main in &mains {
+        let extra = if first { 0.0 } else { main_gap };
+        if !first && used + extra + main > container_content_h {
+            minimum += 1;
+            used = main;
         } else {
-            col_h += with_gap + it.main;
+            used += extra + main;
         }
-        columns.last_mut().unwrap().push(it);
+        first = false;
+    }
+    let wanted = css.flex_line_count.unwrap_or(0).max(0) as usize;
+    let column_count = minimum.max(wanted).min(items.len());
+    let counts = if balanced && column_count > 1 {
+        let target = (mains.iter().sum::<f32>()
+            + main_gap * (items.len().saturating_sub(column_count)) as f32)
+            / column_count as f32;
+        let n = items.len();
+        let mut cost = vec![vec![f32::INFINITY; n + 1]; column_count + 1];
+        let mut previous = vec![vec![0usize; n + 1]; column_count + 1];
+        cost[0][0] = 0.0;
+        for column in 1..=column_count {
+            for end in column..=n {
+                let mut height = 0.0;
+                for start in (column - 1..end).rev() {
+                    height += mains[start] + if start + 1 == end { 0.0 } else { main_gap };
+                    if height > container_content_h {
+                        continue;
+                    }
+                    let candidate = cost[column - 1][start] + (height - target).powi(2);
+                    if candidate < cost[column][end] - 0.0001 {
+                        cost[column][end] = candidate;
+                        previous[column][end] = start;
+                    }
+                }
+            }
+        }
+        if cost[column_count][n].is_finite() {
+            let mut out = Vec::with_capacity(column_count);
+            let mut end = n;
+            for column in (1..=column_count).rev() {
+                let start = previous[column][end];
+                out.push(end - start);
+                end = start;
+            }
+            out.reverse();
+            out
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    let mut columns: Vec<Vec<Item>> = Vec::new();
+    if !counts.is_empty() {
+        let mut source = std::collections::VecDeque::from(items);
+        for count in counts {
+            columns.push(source.drain(..count).collect());
+        }
+    } else {
+        columns.push(Vec::new());
+        let mut col_h = 0.0f32;
+        for it in items {
+            let cur = columns.last_mut().unwrap();
+            let with_gap = if cur.is_empty() { 0.0 } else { main_gap };
+            if !cur.is_empty() && col_h + with_gap + it.main > container_content_h {
+                columns.push(Vec::new());
+                col_h = it.main;
+            } else {
+                col_h += with_gap + it.main;
+            }
+            columns.last_mut().unwrap().push(it);
+        }
     }
 
     // ── PASSO 3: `flex-grow`/`flex-shrink` no eixo principal, POR COLUNA —

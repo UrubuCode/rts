@@ -261,19 +261,102 @@ pub(in crate::layout) fn layout_children_horizontal(
     // `flex:1` (`flex-basis:0%`) com `min-width` declarado tinha base=0 e
     // dois itens que deviam quebrar (100+100 > 150 pelo seu PISO) cabiam
     // juntos na mesma linha (`claude-flex-wrap-quebra-com-min-width`).
-    let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
-    let mut line_w = 0.0f32;
-    for it in items {
-        let hyp = super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols);
-        let cur = lines.last_mut().unwrap();
-        let with_gap = if cur.is_empty() { 0.0 } else { gap };
-        if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
-            lines.push(Vec::new());
-            line_w = hyp;
-        } else {
-            line_w += with_gap + hyp;
+    let balanced = css.flex_wrap.is_some_and(crate::style::FlexWrap::balances);
+    let hypothetical: Vec<f32> = items
+        .iter()
+        .map(|it| {
+            super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols)
+        })
+        .collect();
+    // Primeiro descobre o número mínimo de linhas que o wrap ordinário pede.
+    // `flex-line-count` só pode aumentar esse mínimo; não pode fazer uma linha
+    // conter algo que não cabe. Isto também mantém `balance` idêntico a `wrap`
+    // quando a partição já é a única possível.
+    let mut minimum = usize::from(!items.is_empty());
+    if wrap && !items.is_empty() {
+        minimum = 1;
+        let mut used = 0.0;
+        let mut first = true;
+        for &size in &hypothetical {
+            let extra = if first { 0.0 } else { gap };
+            if !first && used + extra + size > content_w {
+                minimum += 1;
+                used = size;
+                first = false;
+            } else {
+                used += extra + size;
+                first = false;
+            }
         }
-        lines.last_mut().unwrap().push(it);
+    }
+    let wanted = css.flex_line_count.unwrap_or(0).max(0) as usize;
+    let line_count = minimum.max(wanted).min(items.len().max(1));
+    let counts = if balanced && wrap && line_count > 1 {
+        // Procura todas as partições contíguas que cabem e minimiza a soma do
+        // erro quadrático para a ocupação média. Ao percorrer `end` do maior
+        // para o menor, empates escolhem mais itens na primeira linha, como a
+        // regra de start bias do Flexbox 2.
+        let target = (hypothetical.iter().sum::<f32>()
+            + gap * (items.len().saturating_sub(line_count)) as f32)
+            / line_count as f32;
+        let n = items.len();
+        let mut cost = vec![vec![f32::INFINITY; n + 1]; line_count + 1];
+        let mut previous = vec![vec![0usize; n + 1]; line_count + 1];
+        cost[0][0] = 0.0;
+        for line in 1..=line_count {
+            for end in line..=n {
+                let mut used = 0.0;
+                for start in (line - 1..end).rev() {
+                    used += hypothetical[start] + if start + 1 == end { 0.0 } else { gap };
+                    if used > content_w {
+                        continue;
+                    }
+                    let before = cost[line - 1][start];
+                    let candidate = before + (used - target).powi(2);
+                    if candidate < cost[line][end] - 0.0001 {
+                        cost[line][end] = candidate;
+                        previous[line][end] = start;
+                    }
+                }
+            }
+        }
+        if cost[line_count][n].is_finite() {
+            let mut out = Vec::with_capacity(line_count);
+            let mut end = n;
+            for line in (1..=line_count).rev() {
+                let start = previous[line][end];
+                out.push(end - start);
+                end = start;
+            }
+            out.reverse();
+            out
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    let mut lines: Vec<Vec<FlexItem>> = Vec::new();
+    if !counts.is_empty() {
+        let mut source = std::collections::VecDeque::from(items);
+        for count in counts {
+            lines.push(source.drain(..count).collect());
+        }
+    } else {
+        lines.push(Vec::new());
+        let mut line_w = 0.0f32;
+        for it in items {
+            let hyp = super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols);
+            let cur = lines.last_mut().unwrap();
+            let with_gap = if cur.is_empty() { 0.0 } else { gap };
+            if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
+                lines.push(Vec::new());
+                line_w = hyp;
+            } else {
+                line_w += with_gap + hyp;
+            }
+            lines.last_mut().unwrap().push(it);
+        }
     }
     // `row-reverse`: a ordem VISUAL principal inverte DEPOIS de agrupar em
     // linhas, não antes (ACHADO deste lote, `flexbox-writing-mode-001`: o

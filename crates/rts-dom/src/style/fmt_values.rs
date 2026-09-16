@@ -202,7 +202,9 @@ pub(crate) fn fmt_flex_wrap(w: crate::style::FlexWrap) -> String {
     match w {
         crate::style::FlexWrap::NoWrap => "nowrap",
         crate::style::FlexWrap::Wrap => "wrap",
+        crate::style::FlexWrap::Balance => "balance",
         crate::style::FlexWrap::WrapReverse => "wrap-reverse",
+        crate::style::FlexWrap::BalanceReverse => "wrap-reverse balance",
     }
     .into()
 }

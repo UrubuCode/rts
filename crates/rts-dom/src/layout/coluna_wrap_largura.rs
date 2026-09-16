@@ -38,8 +38,7 @@ pub(in crate::layout) fn max_content_width(
 ) -> f32 {
     let fallback = || content_natural_width(dom, id, font_size, ctx);
     let is_column = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
-    let is_wrap = css.flex_wrap == Some(crate::style::FlexWrap::Wrap)
-        || css.flex_wrap == Some(crate::style::FlexWrap::WrapReverse);
+    let is_wrap = css.flex_wrap.is_some_and(crate::style::FlexWrap::wraps);
     if !is_column || !is_wrap {
         return fallback();
     }
