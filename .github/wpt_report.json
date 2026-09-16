@@ -1,8 +1,8 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 598,
-  "falham": 272,
+  "passam": 597,
+  "falham": 273,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -63,8 +63,8 @@
     },
     {
       "nome": "flex-direction-with-element-insert",
-      "pct": 12.570703125,
-      "n": 128724,
+      "pct": 12.331640625,
+      "n": 126276,
       "script": true
     },
     {
@@ -177,8 +177,8 @@
     },
     {
       "nome": "percentage-heights-015",
-      "pct": 8.291015625,
-      "n": 84900,
+      "pct": 8.354199218749999,
+      "n": 85547,
       "script": false
     },
     {
@@ -980,13 +980,13 @@
       "script": false
     },
     {
-      "nome": "flex-minimum-height-flex-items-005",
+      "nome": "flex-minimum-height-flex-items-006",
       "pct": 0.87890625,
       "n": 9000,
       "script": false
     },
     {
-      "nome": "flex-minimum-height-flex-items-006",
+      "nome": "flex-minimum-height-flex-items-005",
       "pct": 0.87890625,
       "n": 9000,
       "script": false
@@ -1370,12 +1370,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-baseline-align-self-baseline-vert-001",
-      "pct": 0.3125,
-      "n": 3200,
-      "script": false
-    },
-    {
       "nome": "percentage-padding-003",
       "pct": 0.29296875,
       "n": 3000,
@@ -1391,6 +1385,12 @@
       "nome": "table-as-item-inflexible-in-row-2",
       "pct": 0.29296875,
       "n": 3000,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-align-self-baseline-vert-001",
+      "pct": 0.26220703125,
+      "n": 2685,
       "script": false
     },
     {
@@ -1439,6 +1439,12 @@
       "nome": "abspos/flex-abspos-staticpos-margin-002",
       "pct": 0.1771484375,
       "n": 1814,
+      "script": false
+    },
+    {
+      "nome": "css-box-justify-content",
+      "pct": 0.17578125,
+      "n": 1800,
       "script": false
     },
     {
@@ -2223,20 +2229,21 @@
     },
     {
       "nome": "css-box-justify-content",
-      "estado": "passa"
+      "estado": "falha",
+      "pct": 0.17578125
     },
     {
       "nome": "css-flexbox-height-animation-stretch",
       "estado": "passa"
     },
     {
-      "nome": "css-flexbox-img-expand-evenly",
-      "estado": "passa"
-    },
-    {
       "nome": "css-flexbox-row-reverse-wrap-reverse",
       "estado": "falha",
       "pct": 1.04296875
+    },
+    {
+      "nome": "css-flexbox-img-expand-evenly",
+      "estado": "passa"
     },
     {
       "nome": "css-flexbox-row-reverse-wrap",
@@ -2677,7 +2684,7 @@
     {
       "nome": "flex-direction-with-element-insert",
       "estado": "falha",
-      "pct": 12.570703125
+      "pct": 12.331640625
     },
     {
       "nome": "flex-direction",
@@ -2886,12 +2893,12 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-005",
+      "nome": "flex-minimum-height-flex-items-006",
       "estado": "falha",
       "pct": 0.87890625
     },
     {
-      "nome": "flex-minimum-height-flex-items-006",
+      "nome": "flex-minimum-height-flex-items-005",
       "estado": "falha",
       "pct": 0.87890625
     },
@@ -3148,7 +3155,7 @@
     {
       "nome": "flexbox-baseline-align-self-baseline-vert-001",
       "estado": "falha",
-      "pct": 0.3125
+      "pct": 0.26220703125
     },
     {
       "nome": "flexbox-baseline-empty-001a",
@@ -3289,11 +3296,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-001",
+      "nome": "flexbox-definite-sizes-002",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-002",
+      "nome": "flexbox-definite-sizes-001",
       "estado": "passa"
     },
     {
@@ -3374,11 +3381,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-horiz-001",
+      "nome": "flexbox-flex-wrap-flexing",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-flexing",
+      "nome": "flexbox-flex-wrap-horiz-001",
       "estado": "passa"
     },
     {
@@ -5029,7 +5036,7 @@
     {
       "nome": "percentage-heights-015",
       "estado": "falha",
-      "pct": 8.291015625
+      "pct": 8.354199218749999
     },
     {
       "nome": "percentage-heights-016",

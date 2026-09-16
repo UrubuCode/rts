@@ -1,20 +1,20 @@
 {
   "date": "2026-09-16",
   "fixtures": {
-    "passing": 142,
+    "passing": 146,
     "total": 146,
-    "pct": 97.3
+    "pct": 100
   },
   "measurements": {
-    "matching": 3298,
+    "matching": 3340,
     "total": 3340,
-    "pct": 98.7
+    "pct": 100
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 598,
+    "passing": 597,
     "total": 870,
-    "pct": 68.7,
+    "pct": 68.6,
     "by_subfolder": {
       "balance": {
         "passing": 5,
@@ -99,7 +99,7 @@
         "total": 24
       },
       "justify": {
-        "passing": 20,
+        "passing": 19,
         "total": 21
       },
       "order": {
@@ -151,10 +151,6 @@
     },
     {
       "fixture": "claude-ua-headings.html",
-      "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
-    },
-    {
-      "fixture": "claude-ua-th.html",
       "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
