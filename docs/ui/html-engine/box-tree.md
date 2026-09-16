@@ -291,3 +291,71 @@ side drawing and the other not). It does not implement subgrid. It does not fix
 the two font metric constants that were calibrated separately, nor the
 containing block that does not know which axis it is on — both are smaller,
 both are independent, and both are worth doing first.
+
+---
+
+## 10. The base, as it stands — the contract to build on
+
+Written 2026-09-16, after the three holes found while building it were closed.
+Anything below is what a lot may ASSUME; anything not below is not there yet.
+The tests that pin each line are in `crates/rts-dom/src/boxes/tests.rs`.
+
+### What the tree holds
+
+One box per ELEMENT the cascade accepts, one per TEXT node, and one anonymous
+block box per inline run the block-in-inline split wraps (CSS 2.1 §9.2.1.1).
+No box for a comment, none for `display: none`, and no table fixups or
+generated content yet — those are BT-4 and BT-5.
+
+### The three rules, and the hole each one closed
+
+**A `BoxId` names a build, not just a slot.** It carries the generation of the
+tree that issued it, and every accessor refuses an id from another build with a
+message naming both. The hole: the tree is memoised by `(revision,
+style_epoch)`, so a style-only change yields a NEW tree at the SAME revision —
+a generation taken from the revision would have let a stale id pass the check
+and read the wrong arena. `Dom::next_box_generation` counts BUILDS for that
+reason. Never store a `BoxId` across a rebuild; if a cache must survive one,
+key it by node and translate on the way in.
+
+**A box stores the SOURCE of its style, never a copy.** `style_source(id)`
+answers the node whose computed style applies — the element itself, or, for an
+anonymous or text box, the element it inherits from — and `style(dom, id)` asks
+the DOM fresh. The hole: a copy taken at build time goes stale the moment a
+style epoch bumps without a DOM revision, which is precisely the case the memo
+key exists to catch. **Any derived value follows the same rule**: compute it on
+demand, do not cache it on the box.
+
+**A box knows what it is by the two-value display model.**
+`formatting_context(dom, id)` answers `outer` (block-level or inline-level to
+its siblings), `inner` (flow, flex, grid or table for its children) and
+`independent` (does it contain its own floats and margins). The hole:
+`layout::caixa::is_block_level` looks like the outer-display question and is
+not — it answers "does this element go through `layout_block`", so an
+`inline-block` or `inline-flex` answers `true` there while being inline-LEVEL.
+**Do not use `is_block_level` to mean outer display.** The two coexist, they
+mean different things, and `boxes/context.rs` carries the divergence in full.
+
+### The one question that needs the tree
+
+`runs_inline_formatting_context(dom, id)` — whether a flow container lays its
+children out as lines or as a stack. CSS decides it by looking at the CHILDREN,
+and after the block-in-inline split a box's children are not its node's
+children. Asking the DOM answers about a shape that no longer exists. Any lot
+that wants to know "is this an inline formatting context" asks the tree.
+
+### What the base does NOT do yet, and must not be assumed
+
+- **Layout does not consume the tree for ORDER.** The child sequence a layout
+  pass walks still comes from the DOM; the tree enters as IDENTITY only. The
+  `debug_assert!` in `layout/vertical.rs` pins the equivalence, and it earns its
+  place: when text gained a box it fired in 322 tests at once.
+- **Fragments are keyed by `NodeIdx`, deliberately.** A cached fragment can
+  outlive the tree that produced it, and a `BoxId` in one would name a slot in
+  an arena that has been rebuilt. Moving them is the fragment-tree wave, not a
+  local edit.
+- **No formatting context is IMPLEMENTED here.** `inner` says which algorithm
+  applies; running it is still `layout`'s.
+- **Whitespace is not decided here.** Which whitespace survives is a question
+  about `white-space` and about the neighbours in a line, and `quebra.rs` owns
+  it. Deciding it twice is the second-truth failure this module exists to avoid.
