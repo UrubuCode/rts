@@ -6,6 +6,14 @@
 
 use super::*;
 
+/// Um `<canvas>` na linha: a pergunta é da TAG e não do estilo, e aparece em
+/// dois sítios desta função (quem pinta, e quem já gravou a caixa) — ter o
+/// `match` escrito duas vezes era convidar as duas respostas a divergirem.
+fn e_canvas(dom: &Dom, id: NodeIdx) -> bool {
+    matches!(&dom.node(id).kind, crate::dom::NodeKind::Element { tag } if tag == "canvas")
+}
+
+
 /// O FLUXO INLINE RICO (P4): um GRUPO de irmãos inline consecutivos (nós de texto
 /// + elementos inline como `<a>`/`<b>`/`<span>`) flui como UM contexto — os runs
 /// de todos concatenam, quebram por palavra na largura, e cada pedaço pinta com a
@@ -361,7 +369,15 @@ pub(in crate::layout) fn layout_inline_flow(
                         // em vez de um segundo emissor de imagem só para o inline.
                         // Replaced inline senta na BASELINE (§10.8; `claude-img-ficheiro`: y=15).
                         let topo = text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh;
-                        if dom.image_dims(a_idx).is_some() {
+                        if e_canvas(dom, a_idx) {
+                            // O `<canvas>` pinta-se SEMPRE que está na linha, e
+                            // não só quando tem desenho: a superfície pode
+                            // chegar depois, e é `layout_canvas` que reserva a
+                            // caixa entretanto — a mesma doutrina que o
+                            // `<img>` segue no caminho de bloco.
+                            let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
+                            layout_canvas(dom, a_idx, &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
+                        } else if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
                             layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
                         }
@@ -421,7 +437,8 @@ pub(in crate::layout) fn layout_inline_flow(
                 let ja_registado = matches!(
                     kind,
                     AtomicKind::Widget | AtomicKind::Block | AtomicKind::ArestaInicio | AtomicKind::ArestaFim
-                ) || (kind == AtomicKind::Replaced && dom.image_dims(a_idx).is_some());
+                ) || (kind == AtomicKind::Replaced
+                    && (dom.image_dims(a_idx).is_some() || e_canvas(dom, a_idx)));
                 if !ja_registado {
                     let propria = match kind {
                         // `Marker`: inline SEM conteúdo (`<span></span>`) —

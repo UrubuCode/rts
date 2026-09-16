@@ -5,6 +5,7 @@
 //! ao nível do `mod tests`, e é o item que o chunker por `    }` não via.
 
 mod bloco;
+mod canvas_corpus;
 mod cache;
 mod cache_flex;
 mod colapso;

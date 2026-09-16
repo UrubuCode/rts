@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- <canvas> e inline por natureza, como <img>: dois irmaos ficam LADO A LADO
+     e a caixa conta a propria borda. Enquanto era forcado a bloco empilhavam-se
+     e a borda desaparecia (15x10 onde o Blink da 17x12).
+     O ultimo caso e a percentagem sem base: um item shrink-to-fit mede o
+     conteudo com largura infinita, e `width:100%` de infinito era infinito — a
+     borda do item saia com w=inf e o rasterizador ficava 65 segundos nela.
+     Esse ultimo caso nao tem id NENHUM e por isso nao entra no esperado: o
+     que este lote garante ali e que a largura e FINITA, e nao um numero.
+     Blink e motor ainda discordam dele (item 22 contra 24) porque o Blink
+     resolve a percentagem uma segunda vez, contra a largura ja decidida do
+     item, e deixa a razao de aspecto transferi-la para a altura. Isso e outro
+     lote. A finitude e pinada em Rust, onde se pode afirmar um LIMITE em vez
+     de um valor (`canvas_corpus.rs`). -->
+<style>
+body { margin: 0; }
+canvas { background: brown; border: 1px solid gray; }
+ib { display:inline-block; background:blue; border:1px solid gray; width:15px; height:10px; }
+#semborda { border: 0; }
+.caixa { box-sizing: border-box; border: 5px solid green; }
+.pct { width: 100%; }
+</style>
+<div id="um"><canvas id="cv" width="15" height="10"></canvas></div>
+<div id="dois"><canvas id="a" width="15" height="10"></canvas><canvas id="b" width="15" height="10"></canvas></div>
+<div id="referencia"><ib></ib></div>
+<div id="nu"><canvas id="semborda" width="15" height="10"></canvas></div>
+<div style="display:flex"><div class="caixa"><canvas class="pct" width="10" height="10"></canvas></div></div>

@@ -270,7 +270,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 // pinta na linha. Tê-lo aqui partia a linha de `abc <img> def`
                 // em três (`claude-img-ficheiro`, `#linha` a 44px onde o Blink
                 // dá 20) assim que a imagem chegava.
-                let replaced = tag == "svg" || tag == "canvas";
+                // `<canvas>` saiu daqui com o `<img>` e pelo mesmo motivo: o
+                // fluxo inline dispõe-no e pinta-o. Só o `<svg>` resta, que
+                // ainda é reservado pelo caminho de bloco.
+                let replaced = tag == "svg";
                 let effective = child_css.as_ref().and_then(|c| c.effective_display());
                 // "é de bloco?" e NÃO "não é inline?" — e o `InlineBlock` é o
                 // valor que as duas leituras separam. Por `d != Inline` um

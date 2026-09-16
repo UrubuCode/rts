@@ -90,13 +90,12 @@ pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // `Replaced` (ver `vertical.rs`, o mesmo comentário). O que o torna
             // bloco é só o `display` — as regras no fim desta função.
             let _ = tag;
-            // `<canvas>` é REPLACED como o `<img>`: a caixa vem dos atributos
-            // `width`/`height` e o conteúdo são pixels. Sem esta linha ele cai no
-            // fluxo inline, onde não há quem emita a superfície — e um canvas
-            // pintado não aparecia na tela, com o resto da página intacto.
-            if tag == "canvas" {
-                return true;
-            }
+            // `<canvas>` também NÃO está aqui, e pela mesma razão do `<img>`:
+            // é inline por natureza, e o fluxo inline dispõe-no como átomo
+            // `Replaced` e pinta-lhe a superfície (`linha.rs`). Forçá-lo a
+            // bloco — o que esta função fazia, para que houvesse quem emitisse
+            // os pixels — empilhava dois canvas irmãos um sobre o outro onde o
+            // Blink os põe lado a lado.
             // `<svg>` é replaced: layout_svg_placeholder reserva a caixa (logo/
             // ícones do google ocupam o espaço certo em vez de colapsar).
             if tag == "svg" {
