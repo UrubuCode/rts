@@ -944,6 +944,16 @@ pub(crate) fn layout_block(
     } else {
         content_h
     };
+    // Botão nativo sem `height`: a linha do texto-filho não herda a altura do
+    // pai (20px), usa a métrica interna do widget (~15px). O frame da UA já
+    // está em `frame_v`; só substituímos o conteúdo natural, deixando o
+    // `forced_outer_h` do flex atuar mais abaixo.
+    let is_button = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button");
+    let content_h = if is_button && css.height.is_none() {
+        content_h.min(15.0)
+    } else {
+        content_h
+    };
     // `height` explícito SOBRESCREVE a altura do conteúdo (a caixa tem essa altura,
     // mesmo que o conteúdo seja menor) — já resolvido antes dos filhos.
     let content_h = explicit_content_h.unwrap_or(content_h);
