@@ -98,6 +98,22 @@ linha aqui não existe.
 | medidor-ahem | a fonte Ahem (WPT: 5 487 testes em `css/`) medida EXATA no `ApproxMeasurer` em vez da aproximação proporcional/mono — sem `@font-face`, sem parser de TTF, só o NOME `font-family: Ahem` (`style::ahem::is_ahem_family`, mesma regra de `is_mono_family`) | 8 | ☑ **ronda 1**: `style::ahem` (nova) + 4 métodos `_family` ADITIVOS no trait `TextMeasurer` (`layout/medidor_texto.rs`, extraído de `medida.rs` — já estava no teto de 500 — porque os métodos novos não cabiam sem o passar), com default que delega no antigo (não arrasta o `EguiMeasurer` de `rts-egui`, que mede pela galley real). Ligado a `intrinsic_content_width` (shrink-to-fit), `inline_box::altura_da_linha` (`line-height:normal`) e `flex_pseudo` — exatamente o gap que `flexbox_flex-natural-mixed-basis-auto` (lote `flex-basis-content-wrap`) já apontava: "a referência usa Ahem e o `ApproxMeasurer` não o emula". `css-flexbox` 475→476/870 (+1, zero perdidos), `css-text` 733/1388 antes E depois (sem mudança — os caminhos ligados não decidem a maioria das fixtures desse corpus). **ronda 2** (pedida pelo coordenador: "a Ahem está ligada onde não decide nada" — o alvo é o WRAP real e a BASELINE): `quebra::wrap_runs` ganha `ahem: bool` + um `medir` local (ponto ÚNICO de medição do ficheiro) que responde pela aritmética exata em vez de pedir ao medidor quando `ahem`; o mesmo parâmetro desce a `hifen.rs` (`emitir_com_hifen`/`maior_prefixo_que_cabe`), `inline_box::prefixo_que_cabe` (a busca binária de quebra dentro de palavra) e `segmento::aplicar_elipse{,_forcada}`/`tabulacao::aplicar_line_clamp`. A BASELINE (`alinhamento_vertical::ascent_com_baseline_propria`/`envelope_com_baseline`/`topo_do_item_com_baseline`) ganha `family: Option<&str>` e chama `font_ascent_family`/`font_descent_family`/`line_height_family` em vez das versões sem família — `linha_ib::ascent_do_item` e `inline_fragmentos::fragmento_do_dono` (baseline de um `<span>`/inline-block) passam a família do PRÓPRIO nó. Nenhum ficheiro cresceu acima do teto: `quebra.rs` e `linha.rs` ficaram nos MESMOS 498 linhas de antes (a consolidação `family`/`mono`/`ahem` numa variável só em `linha.rs` compensou as linhas novas); `altura_do_conteudo` (meia-entrelinha) e o texto solto direto em `child_outer_width`/`child_outer_height` (sem `parent_css` na assinatura) ficam SEM wiring — exigiriam tocar `bloco.rs` (1264, no teto explícito de "não crescer") ou mudar uma assinatura usada por 7 chamadores; parados e ditos, não escondidos. `css-flexbox` (por nome, contra `wpt-baseline-main-870.json`): 477/870, **zero perdidos** contra essa régua — um resíduo achado e explicado, e é PROGRESSO e não regressão: `flexbox_flex-natural-mixed-basis-auto` falhava no main a **2,51%** antes da ronda 1; a ronda 1 levou-o a 0% (passa); a ronda 2 deixa-o a **0,05% — uma faixa de ~1px** (plausível de um nó de texto só-espaço entre `<span>` irmãos, agora medido exato em vez de aproximado). De 2,51% para 1px é a mesma direção que o resto do lote, só que ainda não fechado — não é perda contra o main (que estava em 2,51%), só contra o relatório intermédio da própria ronda 1. `css-text`: **733→754/1388** (28 ganhos, 7 perdidos, líquido +21 — a régua que a ronda 2 visava mover, e moveu). **Os 7 perdidos, investigados por pedido do coordenador** (hipótese testada: "um reftest cujos dois lados dependem da MESMA feature em falta passa por convergência trivial; quando a feature chega, o que se via por baixo era o defeito real" — já tinha acontecido duas vezes na sessão, com `<![CDATA[]]>` e com `writing-mode`), cada um rasterizado nos DOIS lados com o binário do `main` (`origin/main` em `97470ccf0`, sem nenhuma das duas rondas) e com o desta ronda: `text-indent/anonymous-flex-item-001` e `text-indent/anonymous-grid-item-001` (mesma referência, `anonymous-flex-grid-item-001-ref.html`) — **SÓ A REFERÊNCIA muda** (0 px no teste, 660 px na referência): a referência é um bloco comum que agora quebra a linha no sítio EXATO da Ahem; o teste usa `display:flex` (o texto vira item de flex anónimo, um caminho que este lote não tocou) e continua a quebrar onde sempre quebrou — convergência trivial a desfazer-se, aceite, o gap real é o wrap de um item de flex anónimo divergir do de um bloco comum, sem fixture própria ainda. `hanging-punctuation/hanging-punctuation-last` e `-last-rtl` — **os DOIS lados mudam pelo MESMO número** (594 px em cada, o mesmo delta): `hanging-punctuation` não está implementado (busca no crate inteiro, zero ocorrências) — o teste declara todas as caixas a `4em` e a referência varia `4em`/`5em` DE PROPÓSITO para *simular* visualmente o hang; o passe anterior era a aproximação de quebra a pousar por acaso perto do truque de largura da referência, e a medição exata desfez esse acaso nos dois lados por igual — não uma regressão de comportamento correto — a convergência anterior nunca dependeu de `hanging-punctuation` estar implementado, só de duas aproximações a acertar por acaso. `white-space/eol-spaces-bidi-003`, `white-space/white-space-pre-wrap-trailing-spaces-012` e `-015` — os DOIS lados mudam, por números DIFERENTES: as três partilham `width: 4ch`/`5ch` num contentor Ahem, e `Dimension::Ch` (`style/values/dimensao.rs`) resolve `ch` por `MONO_ADVANCE` (0,5498) **sempre**, nunca pela Ahem exata (1,0) — confirmado lendo as DUAS páginas de cada par, a referência declara o MESMO `ch` (`eol-spaces-bidi-003-ref.html`: `width:4ch` idêntico). Um bug REAL e distinto do wrap, pré-existente, que a aproximação global escondia (as duas medições erradas — `ch` e o wrap por PROP_ADVANCE — coincidiam por acaso); a wrap agora exata deixou de coincidir com um `ch` que continua errado. **ronda 3** (pedida pelo coordenador para fechar exatamente estes 3): `Dimension::resolve_family` (novo, `style/values/dimensao.rs`) — aditivo, o MESMO padrão de `text_width_family`: default que delega em `resolve`, só responde diferente para `Ch` quando a família é Ahem (`N×font-size` exato, porque em Ahem `1ch=1em` por construção — o "0" que define `ch` é um glifo igual a todos os outros). NÃO um campo novo em `ResolveCtx` (~50 sítios de construção neste crate, `bloco.rs` incluído) — só o ÚNICO sítio que resolve `width` de um bloco comum (`bloco.rs:494`, uma troca de método na MESMA linha, `bloco.rs` fica no mesmo número de linhas). `css-flexbox`: 477/870, zero perdidos (inalterado — a régua não tem fixture com `ch`+Ahem). `css-text`: **754→759/1388** (5 ganhos, zero perdidos) — fecham os 3 visados (`eol-spaces-bidi-003`, `white-space-pre-wrap-trailing-spaces-012/015`) MAIS 2 de bónus com a mesma causa (`line-break-anywhere-005`, `word-break-break-all-017`, confirmados por leitura a usar `width:4ch`+Ahem também). `cargo test -p rts-dom --lib`: 998→1015 ao todo nas três rondas (17 testes novos: 4 `style::ahem`, 8 `layout::tests::ahem_corpus` — 2 do wrap, 2 do `ch` —, 3 `alinhamento_vertical::tests`), 0 falhas; `cargo test -p rts-dom-bridge`: 4, sem mudança. Achado à parte, investigado e descartado: um "não rasterizou" novo em `white-space/break-spaces-before-first-ideographic-char-001` na corrida completa de `css-text` — reproduzido ISOLADO (o mesmo ficheiro, sozinho) deu a MESMA falha normal de antes (0,98%, sem crash nem hang), então é contenção de recursos de correr várias réguas pesadas em paralelo na mesma máquina, não uma regressão do código. NÃO feito: `child_outer_width`/`altura_do_conteudo` (dito acima); a pintura do glifo Ahem como bloco sólido (`claude-raster.rs` salta `Text` de propósito, dito na ronda 1) | `feat/dom-lote-medidor-ahem` → `cbc6b27b4` (ronda 1), `feat/dom-lote-medidor-ahem-2` → `b41e2817d` (ronda 2) + `4ab96214c` (ronda 3, fecho) (2026-09-05) | `style::ahem` (4), `layout::tests::ahem_corpus` (8), `alinhamento_vertical::tests` (+3) |
 | flex-writing-mode-2 | `writing-mode` troca de verdade o eixo do flex (retrabalho do `414147c88`/`5e9130c65`, nunca merged) — a família WPT `flexbox-writing-mode-*`, `-slr`/`-srl`, `gap-*-{lr,rl,rtl}` | 8 | ◐ `layout/eixos_flex.rs` (novo): `flex-direction:row` é sempre o eixo INLINE e `column` o de BLOCO (Flexbox §3); `writing-mode` decide qual dos dois é X e qual é Y — `bloco.rs` despacha pelo eixo FÍSICO (`main_no_eixo_y`) em vez da keyword crua. Diferente da tentativa anterior (que resolvia as propriedades lógicas ao nível da REGRA do stylesheet): reusa o modelo POR ELEMENTO que o main adotou desde `flex-reverse-order` (`#2689`) — `inline-size`/`block-size` (`style::logical::e_writing_mode_dependente`) e agora TAMBÉM `margin`/`padding`/`border`/`inset` `-block-start`/`-block-end` (`e_bloco_writing_mode_dependente`, achado nesta ronda: `style/parse/caixa.rs` tinha um braço hardcoded para `margin-block-start`/`-end` que escondia `style::logical::try_apply`, a MESMA classe de bug que `#2689` já tinha corrigido do lado `-inline-`) resolvem por elemento em `dom::cascade`, contra o `writing-mode` herdado. `gap`/`row-gap` seguem a KEYWORD (CSS Box Alignment §12.2), não o eixo físico — trocados num clone quando o despacho diverge da keyword. `eixos_flex::reverse_efetivo` teve um corte estreito acrescentado: sem `row-reverse`, `direction` sozinho não reordena uma LINHA (o corte que `dom::direction_herdada` já documentava do lado das margens) — sem ele, todo `flex-direction:row`+`direction:rtl` horizontal (sem `writing-mode` nenhum) passava a reordenar-se, uma regressão pura achada por `gap-001-rtl`. **GENERALIZAÇÃO** (achada ao corrigir `gap-005-rl`/`gap-007-lr`/`gap-007-rl`, e é a MESMA classe que `flex-coluna-wrap-intrinseco` achou do lado do `<![CDATA[]]>`): um reftest cujos DOIS lados dependem da mesma feature em falta passa por CONVERGÊNCIA TRIVIAL — nenhum dos dois lados aplica o `writing-mode`, e dois errados iguais batem. Quando a feature chega, o reftest CAI, e isso é PROGRESSO, não regressão: verificado mecanicamente (rasterizando os dois lados com o binário do main ANTES deste lote, num worktree à parte, e com o binário deste lote) que os três passavam por essa convergência (o main não trocava eixo nenhum, então teste E referência — que também só diferem por SEREM escritas com `writing-mode` — batiam por acidente). A causa CONCRETA que o `writing-mode` real destapa nos três, medida em pixels: a margem do eixo de BLOCO (agora fisicamente X) parece pintar-se DENTRO da caixa cinzenta do item em vez de ficar como espaço transparente por fora dela — ≈19px de diferença de largura contra os ≈20px da margem declarada (`gap-005-rl`, y=65: item1 vai a x=35 no teste contra x=54 na referência). NÃO CORRIGIDO neste lote — não arrisca as correções já aceites; fica como o PRÓXIMO corte desta família, com estes pixels como ponto de partida. `overflow-top-left` fica por mecanismo alheio (âncora de scroll inicial sob RTL/vertical-rl, CSS Overflow — não Flexbox); `flex-aspect-ratio-img-column-008`/`flexbox-vert-lr-with-img` ficam por `align-items:stretch` sobre um `<img>` (replaced element) no eixo cruzado TROCADO — a imagem estica para a largura do contentor em vez do tamanho intrínseco. `cargo test -p rts-dom --lib --no-fail-fast`: 1000 passed, 0 failed. **WPT flexbox (corredor recursivo, 870 reftests — o corredor do repo não descia a subpastas e reportava 489/777): main 475/870 → 488/870 (+18 por nome, 6 perdidos aceites e documentados acima — nenhum da família `gap-*` fechada por `#2689`)**. | `feat/dom-lote-flex-writing-mode-2` → `e59d02e42`+`d1020dae7` (2026-09-05) | WPT `css/css-flexbox` — `flexbox-writing-mode-{001..009}`, `-slr`, `-slr-rtl`, `-srl`, `-srl-rtl`, `flex-lines/multi-line-wrap-{reverse-row-reverse,with-row-reverse}`, `flexbox-flex-wrap-flexing-003`, `flexbox-column-row-gap-002`, `flexbox_writing_mode_vertical_lays_out_contents_from_top_to_bottom` |
 | V–Y | a superfície DOM que as bibliotecas pedem | 4 | ☐ | — | §6 |
+| BT-1 | árvore de caixas: a identidade passa a ser a CAIXA | 9 | ☐ | — | corpus e WPT per file: ZERO perdidos **e zero ganhos** |
+| BT-2 | árvore de caixas: o layout devolve fragmentos | 9 | ☐ | — | corpus e WPT per file: zero perdidos |
+| BT-3 | caixa anónima: bloco dentro de inline | 9 | ☐ | — | `CSS2/normal-flow/block-in-inline-*` (148 a falhar hoje) |
+| BT-4 | caixa anónima: a tabela gerada de fora para dentro | 9 | ☐ | — | `float-applies-to-*` (7), `table-anonymous-objects-*` |
+| BT-5 | caixa gerada: `::before`/`::after` deixam de ser três implementações | 9 | ☐ | — | corpus sem perdidos; os cortes repetidos caem |
+| FM | as metricas de fonte num modelo so | 10 | ☐ | — | corpus: as 4 fixtures que 0,0875xfont-size partiu a 16/09 |
+| PCT | a percentagem sabe em que EIXO esta | 10 | ☐ | — | `css-sizing/intrinsic-percent-replaced-*` (29 a falhar) |
+| REGUA | o corredor deixa de contar vazio como aprovado | 10 | ☐ | — | a propria regua: ~1 369 verdes que nao provam nada (#2729) |
+| TEXTO | pintar glifos (Ahem primeiro) | 10 | ☐ | — | ~541 falhas com um lado a pintar e o outro nao (#2729) |
+| SC | contexto de empilhamento aninhado | 10 | ☐ | — | `opacity`/`transform` a isolar `z-index` |
+| BR | `getBoundingClientRect` deixa de refazer o layout todo | 10 | ☐ | — | `dom_metrics`: 13,7 ms por chamada na Wikipedia |
+| DISP | o `display` para de perder informacao no parse | 10 | ☐ | — | `inline-grid`, `inline-table`, `thead`/`tbody`/`tfoot` |
+| LOG | o layout corre em eixos LOGICOS, nao fisicos | 11 | ☐ | — | `css-writing-modes` (1 085 reftests, por medir) |
+| IFC | a caixa de linha e uma entidade | 11 | ☐ | — | os dois algoritmos de linha passam a um |
+| INTR | min-content/max-content nos DOIS eixos | 11 | ☐ | — | `css-sizing/` (560; 174 passam hoje) |
+| USED | o valor USADO deixa de ser um caso especial | 11 | ☐ | — | `getComputedStyle` de width/height/grid-template |
 | dom-ciclo-de-vida-scripts | `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState` | 7 | ☑ `loadDocument(html,url)` novo (`lifecycle.ts`): parse→loadResources→scripts do parse em ordem→`readyState="interactive"`+`DOMContentLoaded`→drena a fila de tarefas do documento→`readyState="complete"`+`load` na window. Gancho `__afterConnect` em `appendChild`/`insertBefore` (dom.ts, 1 linha cada): com scripting ligado, um `<script>` que liga corre — inline síncrono sem `load`; com `src` (só `data:` — `http(s)` fica fora, dito) agendado na fila do `DomTimers` (a mesma de `setTimeout`), dispara `load` no elemento SEM bubbling (medido: com bubbling um `<script>` filho de `<body>` disparava também o `load` da window). Duas flags novas no `Dom` (Rust, `dom/ciclo.rs`): `scripting_enabled` (falso por omissão — `parseDocument` nunca liga) e `ready_state`. `Element.src` (getter/setter refletido) fechado de passagem: faltava por completo, `el.src=...` gravava uma propriedade solta no wrapper e nunca o atributo. NÃO feito, dito: `http(s)` no `<script src>` ligado por mutação (ficaria a bloquear quem anexou), evento `error` de um `src` que falha, e a régua de corpus/suite CSS (medida no fecho pelo coordenador) | `feat/dom-ciclo-de-vida-scripts` → `ee2ca4b13`+`034aabe39`+`dcaddaff6`+`e196cb924`(fecho) (2026-09-05) | `tests/dom/claude-pagina-eventos.{html,ts}` (byte a byte com o Edge headless: `head-inline,body-inline,dinamico-inline,apos-append,apos-append-externo,DOMContentLoaded,externo-data,externo-load,window-load`; segundo caso prova `parseDocument` inerte); `cargo test -p rts-dom-bridge` (7/7); `cargo test -p rts-dom --lib --features metrics` (943/943, 1 ignorado). Fecho: corpus 141/145, WPT flexbox 373/489 (por nome: 0 perdidos, 0 ganhos), suite 859/888 sem perdidos, 967 testes, paridade 6 páginas 0 movidos, cover 45/57; a fixture em release (`run_fixture`) dá a ordem do Edge byte a byte e `parseDocument` inerte; a app do comparativo por `runScriptsAt` continua a correr os 3 scripts; zero rondas de retrabalho |
 | css2-normal-flow-unidades | `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste | 9 | ☑ `style/unidades_absolutas.rs` (novo módulo irmão — `lengths.rs` já estava exatamente no teto de 500, código novo não podia engordá-lo): `parse_absoluta(low, exige_positivo)` com as quatro unidades fixas a 96px/in (a definição do CSS, não um DPI real — a mesma escolha que `pt`/`pc` já faziam): `in`=96px, `cm`=96/2,54, `mm`=96/25,4, `q`=96/101,6. Chamado por `parse_dimension` (width/height/font-size/inset/grid-track/margin/padding, `exige_positivo=false`) e por `parse_len` (border-width/border-radius, `exige_positivo=true`, zero recusado). Cobertura verificada: os únicos outros 3 parsers de comprimento fora de `lengths.rs` (clip-path em `painteffects/mod.rs`, `transform`/translate e `box-shadow` blur em `style/effects.rs`) recusam unidades não-px POR DESENHO, com comentário explícito no código — não são gap. `line-height` (`style/values/texto.rs`) fica de fora por não ter uso de `in`/`cm` no corpus e por já ter razão documentada própria (em/% dependem da cascade). Medido pelo coordenador em binário ISOLADO (as outras três frentes postas de parte antes de compilar), por ficheiro contra `main`: **positioning 142→182 (+40/−0), normal-flow 306→360 (+55/−1), floats-clear 30→33 (+3/−0), borders 227→218 (+40/−49)** — **+138 líquido**. Os 49 perdidos de `borders` foram classificados um a um pelo coordenador (`scripts/claude_classifica_perdidos.py`, rasterizando os dois lados com o binário do `main` e com este): **45 são convergência trivial** (teste E referência usavam `in`/cm`/`mm` e nenhum funcionava antes — dois erros iguais batiam; a correção desfaz essa coincidência e o defeito real por baixo, aceite, não é regressão desta mudança) — **4 são regressão real**: `border-{left,right,top,bottom}-color-129`, isolados e investigados por dois experimentos com `scripts/claude_bbox_diff.mjs`. HIPÓTESE A (a barra da borda pinta com a altura errada) ELIMINADA por experimento: um `<div style="height:96px;width:96px;border-left:96px solid aqua">` SOZINHO (sem irmão) dá exatamente 9216px (96²) na caixa envolvente certa — `border_items`/`trapezios_dos_lados` em `pintura.rs` estão corretos. HIPÓTESE B CONFIRMADA: a divergência no fixture real dá 96×202 (não 96×96), e 202 = 96(`#test`) + 96(`#reference`) + 10(`margin-top:10px` do `#reference`) — os DOIS elementos empilhados do teste E o vão entre eles caem na mesma caixa envolvente da divergência, o que aponta para colapso/espaçamento de margem ENTRE IRMÃOS (não para a pintura de borda). NÃO CORRIGIDO — decisão do coordenador: fechar o lote das unidades limpo em vez de arrastar uma investigação de margens que pode abrir outra caixa; fica registado aqui com a causa já localizada para quem pegar. Palpite de por onde começar: colapso de margem entre irmãos block-level pode ser a MESMA causa por trás de uma fatia do balde `normal-flow` que continua por trabalhar (a vaga seguinte, ainda não tocada por este lote) | ramo do coordenador (a integrar) | `border-left-color-129`/`border-right-color-129`/`border-top-color-129`/`border-bottom-color-129` (4 regressões documentadas, não corrigidas); experimento isolado `<div height:96px;width:96px;border-left:96px solid aqua>` (9216px, correto) |
 | borda-unidades | `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde) | 9 | ☑ TRÊS causas empilhadas, cada uma escondendo a seguinte: (1) `parse_width_token` (`borders.rs`, usado só pelo SHORTHAND `border-width`/`outline-width`) chamava `lengths::parse_len_pub`, que nunca soube `in`/`cm`/`mm`/`q`/`pt`/`pc` — as LONGHANDS por lado já iam por `parse_width_dim`→`parse_dimension_pub` e estavam bem; só o shorthand ficava de fora. `border-width:0.5in` caía a `None` nos 4 lados. (2) `resolved_sides` tinha `border_color.unwrap_or(0x808080FF)` — um CINZENTO fixo em vez de `currentColor` (CSS Backgrounds 3 §border-color; sem `color` declarado isso é PRETO). (3) o fallback de largura por lado (`uw`) era `unwrap_or(0.0)`; o inicial de `border-*-width` é `medium` (3px) — uma declaração INVÁLIDA (`border-left-width:-1px`) tem de resolver para o inicial, não para zero. Um `unwrap_or(3.0)` aqui já tinha sido tentado e REVERTIDO no mesmo dia por um "quadrado cinzento" — reconstruído com `git log -L`: o cinzento media exatamente 128,128,128 (o bug 2) e a largura "sem nada" vinha do shorthand caindo a `None` (o bug 1); com os dois já mortos, `unwrap_or(3.0)` deixou de regredir e o coordenador confirmou por medição (+9/−6, ver abaixo). QUARTA causa, achada só depois de `uw=3.0` expor o efeito: `ComputedStyle::has_box()` (`props/metodos.rs`) não olhava para `border_{top,right,bottom,left}_style` — um lado com ESTILO declarado e largura invalidada (`border_widths` continua `Unset`, só o campo de estilo é `Some`) não marcava `border_widths.any_set()`, `has_box()` dava falso, e `border_items` nunca era chamado: a borda "existia" em `resolved_sides` mas a função de pintura nem era invocada. Mascarado em metade dos fixtures do WPT porque a metade que testa `border-right`/`border-bottom` usa o truque `width:0` (que entra por `has_box()` via `self.width.is_some()`, por acidente) — só a família SEM esse truque (tipicamente `border-left`/`border-top`, largura `auto`) expunha o bug. Medido pelo coordenador, incremental: **223→274 (+51)** depois de (1)+(2)+(3) tentado; **274→277 (+9/−6)** depois de reinstaurar (3) com (4) por perto — os 9 ganhos incluem `border-color-010` e toda a família `border-right-width-{001,012,023,034,045,056,067,078}`; a família `border-left-width` irmã só fechou com (4). Os 6 PERDIDOS são regressão REAL, causa nomeada e não corrigida por decisão do coordenador (ver linha própria abaixo) — **recusado o corte mínimo** de resolver só esses 6 sem o algoritmo verdadeiro. | `main` (#2709 + os fixes seguintes, a integrar) | `CSS2/borders` por ficheiro; `border-width-001` (shorthand), `border-color-010` (currentColor), `border-left-width-001`/`border-right-width-001` (medium + `has_box`) |
@@ -749,3 +765,295 @@ lente 1 diz onde isso dói). Só depois de I, J e V.
   paridade a provar zero pixels movidos.
 - Se o `#[rtse::class]` chega ao `rts-dom-bridge` antes ou depois da vaga 2 —
   depende da opção `extend` da macro, que é trabalho do `rts-macro`.
+
+---
+
+## 9. Vaga 9 — a árvore de caixas
+
+**O desenho está em `docs/ui/html-engine/box-tree.md` e é vinculativo para
+estes cinco lotes.** Aqui fica só o que se FAZ, na ordem em que se faz. A razão
+de existir, a evidência medida e os nove invariantes que quebram em silêncio
+estão lá e não se repetem aqui.
+
+**O que não se negoceia nesta vaga**, além das regras de §1:
+
+- **BT-1 não pode ganhar um único reftest.** É um espelho 1:1 do DOM e a régua
+  tem de dar zero perdidos E zero ganhos. Um ganho é o sinal de que alguma
+  coisa mudou sem ser a identidade — e é motivo para parar, não para celebrar.
+- **Nenhum lote desta vaga muda a ponte para TypeScript.** `boundingRect` e
+  `boundingRectAll` continuam a responder quatro números por `NodeId`. Dentro
+  pode haver N caixas; naquela fronteira agregam-se, como `union_rect` já faz.
+- **A invalidação passa a subir pela árvore de CAIXAS** (invariante I7). É a
+  peça que não se adia: a falha dela é servir o desenho do frame anterior,
+  internamente consistente e errado, e não há régua que a apanhe.
+
+### BT-1 — a identidade passa a ser a caixa (`layout/caixas/` novo)
+
+Um `BoxId` substitui o `NodeIdx` como chave de `node_rects`, `hit_order`,
+`ScrollRegion`, dos clips, das faixas de grelha e das três chaves de cache
+(`LayoutMeasureKey`, `FragmentKey`, `IntrinsicWidthKey`). Um módulo só é dono
+do mapa `NodeIdx → SmallVec<BoxId>`; ninguém mais o lê.
+
+A árvore é construída como cópia exacta do DOM: uma caixa de elemento por
+elemento, nenhuma anónima, nenhuma gerada. Todo `SmallVec` tem exactamente uma
+entrada, e por isso o comportamento é idêntico por construção e não por sorte.
+
+Os invariantes I1, I4, I7 e I9 caem aqui. I2 e I3 passam de mentira silenciosa
+a erro de compilação, que é o objectivo: `relativo.rs` e `transformacao.rs`
+deixam de andar o DOM para achar o que deslocar, e a costura do cache deixa de
+validar contra a lista de filhos do DOM.
+
+**Cuidado nomeado:** ao consertar a costura (I3), comparar a lista de filhos da
+CAIXA com a da caixa recém-construída. Traduzir caixa→nó para a fazer casar
+outra vez é o remendo que reintroduz o defeito na forma pior — deixa de
+detectar mudanças de estrutura de caixas que não mexem na estrutura de nós.
+
+### BT-2 — o layout devolve fragmentos (`layout/fragmentos/` novo)
+
+O layout deixa de escrever numa lista partilhada e passa a devolver uma árvore
+de fragmentos imutável. A aritmética posicional de `at`/`hit_at`/`filhos_antes`
+/`merge_before` (invariante I5) deixa de ser portada e passa a ser uma passada
+de empilhamento sobre a árvore.
+
+É aqui que os fragmentos de um inline partido passam a existir como tal, em vez
+de serem colapsados à união no momento em que são calculados (I4). A união
+continua a ser o que a ponte devolve, mas passa a ser uma VISTA derivada e não
+o dado guardado. `getClientRects` fica possível; acrescentá-lo é outro lote.
+
+### BT-3 — bloco dentro de inline (`layout/caixas/anonimas.rs`)
+
+O caso central, e o que a camada existe para resolver. Hoje um `<div>` dentro
+de um `<span>` não é mal disposto: é ignorado como caixa, e o laço desce aos
+filhos dele como se o `<div>` fosse transparente. CSS 2.1 §9.2.1.1 pede que o
+inline se parta em três caixas, duas anónimas.
+
+**148 reftests de `CSS2` falham nesta família**, contados a 2026-09-16.
+
+### BT-4 — a tabela anónima gerada de fora para dentro (`table/`)
+
+Linha e célula anónimas já existem em `table/grid.rs`. A TABELA anónima não: um
+`display:table-cell` sem tabela acima vira um bloco comum. CSS 2.1 §17.2.1.
+
+Fecha também os sete `float-applies-to-*` que o lote das tabelas de 2026-09-16
+diagnosticou e não pôde corrigir, precisamente por lhes faltar esta peça.
+
+### BT-5 — a caixa gerada (`pseudo/`, e os três consumidores morrem)
+
+`::before` e `::after` passam a ser caixas de verdade. Hoje a mesma lógica está
+escrita três vezes — bloco, item de flex, run inline — cada uma com os mesmos
+cortes repetidos (sem `border-radius`, sem `flex-basis`, o texto não quebra),
+porque cada capacidade nova teria de ser implementada nos três.
+
+A decisão original de não criar um `NodeIdx` para o pseudo (`pseudo/mod.rs`)
+continua certa e não se inverte: a caixa gerada tem `BoxId` e não tem nó.
+
+---
+
+## 10. Vaga 10 - o que esta errado e nao e a arvore
+
+Levantado a 2026-09-16, ao investigar porque e que dez lotes medidos em
+paralelo custaram reftests que ninguem previu. **Nenhum destes se resolve com
+a arvore de caixas**, e tres deles ja morderam nessa sessao. Estao por ordem
+de razao preco/beneficio, nao de tamanho.
+
+### FM - as metricas de fonte num modelo so
+
+Ha DUAS constantes com a mesma forma (uma fraccao do `font-size`), calibradas
+contra perguntas diferentes, em ficheiros diferentes:
+
+- `ASCENT_RATIO + DESCENT_RATIO = 0,90 + 0,3125 = 1,2125`
+  (`style/text_metrics.rs`), calibrado contra as sete equacoes de
+  `claude-vertical-align.esperado.json`;
+- `line-height: normal = 1,125 x size` (`layout/medidor_texto.rs`), calibrado
+  a parte contra a fonte padrao do Chrome a 16px.
+
+A diferenca e `0,0875 x font-size`. **A 16px sao 1,4px, e foi exactamente o
+que partiu quatro fixtures do corpus a 2026-09-16**: um agente escreveu uma
+prova algebrica que assumia que as duas eram a mesma coisa, e a prova estava
+certa em simbolos e errada em numeros. A licao, que vale mais do que o lote:
+**uma prova simbolica que nunca foi testada com numeros nao prova que duas
+constantes calibradas em separado sejam iguais.**
+
+O lote e um modelo de linha unico que responde a subida, a descida, a
+entrelinha e a base, com UMA calibracao. Enquanto forem duas, qualquer sitio
+que as some esta a somar duas reguas diferentes.
+
+### PCT - a percentagem sabe em que eixo esta
+
+`Dimension::resolve` usa `parent_content_w` para QUALQUER percentagem, altura
+incluida. Por isso existe `resolve_height` como segunda funcao, e uma terceira
+regra dentro de `replaced_inline_size`. E por isso a 2026-09-16 foi preciso
+passar `avail_h` a mao por seis pontos da cadeia - um trabalho que custou duas
+reversoes e uma regressao de 62 reftests.
+
+`caixa_contentora.rs` carrega a confissao por escrito: o padding pode ser
+percentual, e sem o `avail_w` que o layout do PAI usou de verdade para o
+resolver, a funcao aproxima-o com a LARGURA do proprio border-box.
+
+O lote e um **bloco contentor de primeira classe**: os dois eixos, e a
+distincao entre definido e indefinido. E tambem metade do caminho para a
+arvore de caixas, porque e o contexto que a caixa carregaria consigo.
+
+### REGUA - o corredor deixa de contar vazio como aprovado
+
+`scripts/wpt_reftests.mjs` compara os PNG crus. O rasterizador nao pinta
+glifos: escreve a area do texto num `.mask.json` ao lado - **e o corredor
+nunca le essa mascara**. Um reftest cujo conteudo relevante e texto compara
+branco com branco, a diferenca e zero, e conta como PASSA.
+
+Medido por amostra sobre 9 739 reftests: **~1 369 dos 5 615 que passam nao
+desenham nada de nenhum dos lados** (~24 %), e ~541 dos que falham tem um lado
+a pintar e o outro nao (~13 %). Pior em `CSS2` (29 %) e `css-images` (27 %).
+A issue #2729 tem as tabelas por pasta e os limites da extrapolacao.
+
+**Nao e preciso pintar nada para consertar isto**: basta o corredor
+classificar esse caso como INCONCLUSIVO em vez de aprovado. E uma alteracao
+pequena num script, e e a mais barata da lista - sem ela, nenhum numero que
+este projecto publique sobre o WPT quer dizer o que diz.
+
+### TEXTO - pintar glifos, Ahem primeiro
+
+O maior bloqueio isolado. A fonte Ahem tem metricas fixadas por especificacao
+(1em de avanco por glifo, ascent 0,8em, descent 0,2em, glifos como blocos
+solidos): e aritmetica sobre o `font-size`, nao precisa de motor de fontes.
+
+**Mas a leitura simples de que pintar Ahem resolve e FALSA, e foi medida:** em
+`css-images` o uso de Ahem e ZERO e o bloqueio de falhas e 50,7 % - ali o
+gargalo sao imagens e gradientes. Em `css-grid` o Ahem aparece em 21,6 % dos
+testes mas so 6 % das falhas esta bloqueada assim, porque a grelha usa Ahem
+para medir LARGURA e nao depende da cor do glifo. Este lote ataca sobretudo
+`CSS2` e o corredor de falhas de `css-images`.
+
+Descobertas do mesmo dia, da mesma familia: o rasterizador **nao pinta SVG
+nenhum** (um reftest contra SVG passa vazio dos dois lados), nao pinta
+`conic-gradient`, e nao corre JavaScript (um teste que muda o estilo depois do
+primeiro desenho e retratado no estado anterior).
+
+### SC - contexto de empilhamento aninhado
+
+`layout/empilhamento.rs` di-lo por escrito: nao ha stacking context aninhado
+nesta engine, `opacity<1` e `transform` nao isolam um `z-index` filho, e por
+isso so existe UM nivel.
+
+Depende de BT-2: a ordem de pintura e hoje uma posicao num vector, com
+`at`/`hit_at`/`filhos_antes` corrigidos a mao por `merge_before`, e essa
+aritmetica ja custou tres defeitos reais registados nos comentarios. Com a
+arvore de fragmentos o empilhamento e uma travessia, e esses campos
+desaparecem em vez de serem portados.
+
+### BR - `getBoundingClientRect` deixa de refazer o layout todo
+
+`layout::bounding_rect` corre `layout_document` INTEIRO por chamada, e o
+comentario no codigo mede o custo: **13,7 ms por chamada na Wikipedia**.
+`bounding_components_many` ja existe para N nos de uma vez, mas a chamada
+singular continua a pagar o preco inteiro.
+
+`dom/geometria.rs` defende a decisao com uma frase que continua certa - uma
+geometria que nao reflecte o DOM nao e uma medicao mais rapida, e outra
+medicao - e a saida nao e cachear o resultado: e o layout incremental cobrir
+este caminho, o que BT-1 e BT-2 tornam possivel.
+
+### DISP - o `display` para de perder informacao no parse
+
+Cinco pares de valores CSS distintos colapsam no mesmo `DisplayKind`, e onde a
+distincao importa ela sobrevive numa bandeira booleana ao lado do enum
+(`flow_root`, `table_column`, `table_column_group`). Dois colapsam sem
+bandeira nenhuma:
+
+- `inline-grid` para `Grid`, enquanto `inline-flex` tem variante propria;
+- `table` e `inline-table` para `Table`, o que ja mordeu num guarda de `clear`
+  a 2026-09-16;
+- `thead`, `tbody` e `tfoot` para `TableRowGroup`, portanto a ordem de
+  renderizacao que a spec de tabelas pede nao e exprimivel.
+
+A regra que falta: **o parse preserva o que foi declarado e o layout decide o
+que isso significa.** Ha ainda um ponto cego: `layout/grid.rs` compara o campo
+`display` CRU em vez de passar por `effective_display`, que e o unico sitio
+onde a blockificacao vive.
+
+---
+
+## 11. Vaga 11 - a estrutura que falta, alem da arvore
+
+Levantado a 2026-09-16, a pergunta "o CSS so precisa da arvore de caixas?".
+Nao precisa. Estas quatro pecas sao de primeira classe em qualquer motor
+real e nao existem aqui. Estao depois da arvore na ordem porque tres delas
+sao MUITO mais faceis com ela do que sem ela - e a quarta explica-se abaixo.
+
+Uma peca desta familia JA foi paga e serve de modelo: o contexto de
+formatacao de BLOCO e uma entidade a serio, com ficheiro proprio
+(`layout/bfc.rs`, lote E da vaga 1). E exactamente a forma que as quatro
+abaixo deviam ter.
+
+### LOG - o layout corre em eixos logicos
+
+**O layout deste motor e todo FISICO.** As propriedades logicas existem, mas
+so como traducao no parse: `inset-inline-start` vira `left` antes de chegar
+ao layout (`style/logical.rs`). O `writing_mode` aparece 12 vezes no layout
+inteiro, e serve para escolher que eixo fisico e a largura - nao para la
+correr.
+
+Os motores modernos dispoem em eixo de LINHA e eixo de BLOCO e convertem para
+fisico no fim. Este converte a entrada, e por isso cada propriedade que possa
+inverter precisa do seu proprio espelho a mao.
+
+**Ja mordeu, e de forma que quase passou.** A 2026-09-16, ao acrescentar dois
+valores de alinhamento, foram precisos quatro sitios de espelhamento fisico
+(`coluna.rs::mirror_justify`, `grid.rs::cell_align_offset`, duas closures em
+`posicao_estatica.rs`), e TRES deles tinham um `_ =>` que teria engolido o
+valor novo em silencio - respondendo "inicio do eixo" a quem pedia o fim.
+So um era exaustivo e dava erro de compilacao.
+
+Enquanto o eixo for fisico, `writing-mode: vertical-rl` nao e implementavel,
+so imitavel. `css/css-writing-modes` sao 1 085 reftests que este projecto
+ainda nao mediu.
+
+**Porque vem depois da arvore:** numa arvore de caixas cada caixa carrega o
+seu modo de escrita e a conversao acontece num sitio. Em 85 funcoes que
+recebem largura e altura como numeros soltos, acontece em 85.
+
+### IFC - a caixa de linha e uma entidade
+
+O contexto de formatacao INLINE nao existe como coisa. A linha e reconstruida
+em DOIS sitios que nao partilham nada: `layout/linha.rs` para texto corrido e
+`layout/linha_ib.rs` para uma corrida de inline-blocks irmaos. Dois
+algoritmos a responder a mesma pergunta, e por isso uma correccao a um nao
+chega ao outro.
+
+Foi o que aconteceu a 2026-09-16: a formula de baseline de `linha_ib.rs` e
+reusada verbatim por `flex_baseline.rs`, e uma correccao nela arrastou tres
+elementos de um contentor flex - porque a mesma funcao serve dois modelos que
+nao sabem um do outro.
+
+Com a caixa de linha como entidade, o `vertical-align` de um `<span>` comum
+passa a ser possivel: hoje a propriedade so e lida na corrida de
+inline-blocks e no baseline do flex, nunca no texto corrido - diagnostico
+entregue no mesmo dia, com os tres passos que faltam.
+
+### INTR - min-content e max-content nos dois eixos
+
+So existe LARGURA: `intrinsic_content_width` e `intrinsic_outer_width`. Nao ha
+o PAR min-content/max-content como conceito, e nao ha nada disto no eixo de
+bloco - a altura intrinseca e aproximada por `altura_conteudo_sem_height`,
+que soma cada filho pela sua propria altura.
+
+**Essa aproximacao e um modelo de blocos EMPILHADOS, e erra sempre que o
+conteudo nao empilha.** Medido a 2026-09-16 contra o Blink: tres
+inline-blocks ficam na mesma linha (22px, nao 40) e tres floats ficam lado a
+lado (16px, nao 40). Custou dois reftests do WPT antes de a condicao ser
+estreitada.
+
+`css/css-sizing` tem 560 reftests e passam 174.
+
+### USED - o valor usado deixa de ser um caso especial
+
+A cascade distingue declarado e computado. O layout produz o valor USADO e
+nao tem onde o por, por isso ele e devolvido caso a caso: `dom/estilo.rs`
+anota que `getComputedStyle` de um elemento que gera caixa responde o valor
+usado, e `grid.rs` guarda as faixas resolvidas no container so para que
+`computedProperty` as possa ler sem duplicar a resolucao.
+
+E a peca mais pequena das quatro e a unica que **nao** depende da arvore: a
+arvore de FRAGMENTOS (BT-2) e onde o valor usado passa a viver naturalmente,
+porque um fragmento e precisamente o resultado de uma passagem de layout.
+Fazer-se antes seria criar um terceiro sitio para a mesma resposta.
