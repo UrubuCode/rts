@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-1): DOIS blocos seguidos dentro do mesmo inline. Por
+     CSS 2.1 §9.2.1.1 cada `<div>` gera a sua própria caixa de bloco, empilhada
+     uma sobre a outra, com as caixas anónimas do texto antes/entre/depois à
+     volta delas. Hoje nenhum dos dois `<div>`s gera caixa —
+     `target/baseline-raster.exe` mede 0 itens pintados (nem o verde de
+     `#bloco_a` nem o azul de `#bloco_b` aparecem), e o `#seguinte` não desce a
+     altura das duas caixas empilhadas. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; }
+  #bloco_a { background: #0f0; height: 30px; }
+  #bloco_b { background: #00f; height: 30px; }
+  #seguinte { background: #f0f; height: 10px; }
+</style></head>
+<body>
+  <span id="quebra">texto<div id="bloco_a"></div><div id="bloco_b"></div>texto</span>
+  <div id="seguinte"></div>
+</body>
+</html>

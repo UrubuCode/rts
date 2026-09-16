@@ -7,6 +7,17 @@
 //! a dobro e acumula por nível de aninhamento). Mover uma fronteira para
 //! servir um número é escolher o número em vez do desenho.
 //!
+//! **A ÁRVORE DE CAIXAS entrou neste laço, e entrou como identidade.** Era
+//! `dom.node(id).children` que decidia o que é uma caixa, e era essa linha que
+//! impedia uma caixa anónima de existir: uma caixa que o DOM não tem nunca
+//! aparecia aqui, por melhor construída que estivesse na árvore. Agora é
+//! `tree.children(caixa)` que responde — ver [`SeguidorDeCaixas`].
+//!
+//! O que NÃO migrou foi a ORDEM, e é uma recusa deliberada: um nó de texto ainda
+//! não gera caixa (BT-3), logo iterar as caixas em vez dos filhos do DOM deixava
+//! toda a página sem texto nenhum. O laço continua a percorrer o DOM para
+//! agrupar (texto, inline, bloco) e pergunta à árvore quem tem caixa.
+//!
 //! Uma das cinco cópias da pergunta "é de bloco?" vive DENTRO do laço de
 //! `layout_children_vertical`, escrita à mão — ver o cabeçalho de `caixa.rs`.
 //! Não é movível sem extrair uma função, o que deixa de ser um `move`.
@@ -19,6 +30,60 @@
 //! `id` é o BFC responsável — ver `layout/bfc.rs`.
 
 use super::*;
+use crate::boxes::{BoxId, BoxTree};
+
+/// A caixa que um nó gerou, para o chamador que tem uma [`DisplayList`] e não um
+/// [`BoxId`].
+///
+/// Enquanto a árvore é um ESPELHO isto é exacto: `build_mirror` empurra uma
+/// caixa por elemento e a cascata responde `Some` a todo elemento, logo a fatia
+/// tem comprimento um para um elemento e é vazia para tudo o resto. Deixa de ser
+/// exacto no dia em que um nó tem várias caixas — e é por isso que a caixa é um
+/// PARÂMETRO de [`layout_children_vertical`] e esta função é só a ponte para a
+/// entrada que ainda fala `NodeIdx`, a mesma ponte que `record_node_rect` já
+/// atravessa em `itens.rs`.
+///
+/// `None` quando a lista não carrega árvore (`DisplayList::default()`), e o laço
+/// abaixo volta a perguntar ao DOM nesse caso.
+pub(in crate::layout) fn caixa_do_no(list: &DisplayList, id: NodeIdx) -> Option<BoxId> {
+    list.tree.boxes_of(id).first().copied()
+}
+
+/// Anda `tree.children(caixa)` em passo com o laço de filhos do DOM, respondendo
+/// a caixa de cada filho que tem uma.
+///
+/// Casa por IDENTIDADE (`node_of`) e nunca por posição: uma caixa só é entregue
+/// quando é a caixa do filho por quem se perguntou. É isso que o torna seguro
+/// enquanto a árvore é um espelho — a lista de filhos do DOM também tem texto e
+/// comentários, que não geram caixa — e é isso que o fará falhar À VISTA em vez
+/// de em silêncio quando houver caixas anónimas: uma anónima responde `None` a
+/// `node_of`, nenhum filho casa com ela, e o cursor PÁRA em vez de entregar a
+/// caixa errada ao filho errado.
+///
+/// **A árvore entra aqui como identidade, não como ordem.** Quem manda na ordem
+/// e no agrupamento (texto, inline, bloco) continua a ser o DOM, porque um nó de
+/// texto ainda não tem caixa — iterar as caixas hoje era deixar toda a página
+/// sem texto. A ordem migra em BT-3, quando o texto a tiver.
+struct SeguidorDeCaixas {
+    /// Um clone do `Rc` e não um empréstimo de `list.tree`: `list` é escrito ao
+    /// longo do laço inteiro. É a mesma razão pela qual `record_node_rect` o
+    /// clona antes de tocar em `box_rects`.
+    tree: std::rc::Rc<BoxTree>,
+    caixa: BoxId,
+    proximo: usize,
+}
+
+impl SeguidorDeCaixas {
+    fn seguinte(&mut self, filho: NodeIdx) -> Option<BoxId> {
+        let &id = self.tree.children(self.caixa).get(self.proximo)?;
+        if self.tree.node_of(id) != Some(filho) {
+            return None;
+        }
+        self.proximo += 1;
+        Some(id)
+    }
+}
+
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
 /// `avail_h` = altura do content DESTE container quando explícita (containing
@@ -83,6 +148,12 @@ pub(in crate::layout) fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> boo
 pub(in crate::layout) fn layout_children_vertical(
     dom: &Dom,
     id: NodeIdx,
+    // A CAIXA de `id` — ao lado do `NodeIdx`, não em vez dele. É o que dá
+    // identidade aos filhos por [`SeguidorDeCaixas`]: hoje ela concorda sempre
+    // com o DOM (a árvore é um espelho), e é por concordar que a troca não pode
+    // mudar resposta nenhuma. `None` quando a lista não traz árvore, e aí o laço
+    // pergunta ao DOM como sempre perguntou.
+    caixa: Option<BoxId>,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -170,7 +241,36 @@ pub(in crate::layout) fn layout_children_vertical(
     // `::before` de BLOCO com conteúdo — o primeiro do fluxo, antes de
     // qualquer filho real. Ver `pseudo_bloco.rs`.
     super::pseudo_bloco::aplicar(dom, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
+    // O cursor sobre as caixas FILHAS desta caixa. `None` desliga-o e o laço
+    // volta a perguntar ao DOM — ver o parâmetro `caixa`.
+    let mut seguidor = caixa.map(|c| SeguidorDeCaixas {
+        tree: std::rc::Rc::clone(&list.tree),
+        caixa: c,
+        proximo: 0,
+    });
     for &child in &dom.node(id).children {
+        // A caixa deste filho, ou `None` para quem não gera nenhuma (texto,
+        // comentário). É a ÚNICA pergunta que este laço passou a fazer à árvore;
+        // o agrupamento abaixo continua a ser do DOM, pela razão escrita no
+        // cabeçalho de [`SeguidorDeCaixas`].
+        let caixa_do_filho = seguidor.as_mut().and_then(|s| s.seguinte(child));
+        let e_elemento = matches!(dom.node(child).kind, NodeKind::Element { .. });
+        // Enquanto a árvore é um espelho, "tem caixa" e "é elemento" são a MESMA
+        // pergunta: `build_mirror` empurra uma caixa por elemento e
+        // `computed_style_idx` responde `Some` a todo elemento — só devolve
+        // `None` para o que não é elemento. As duas respostas só podem divergir
+        // se o espelho deixou de o ser, e é isso que esta linha apanha antes de
+        // uma página ficar sem metade das suas caixas.
+        debug_assert!(
+            seguidor.is_none() || caixa_do_filho.is_some() == e_elemento,
+            "a arvore deixou de espelhar o DOM em {child:?}: caixa={caixa_do_filho:?}, elemento={e_elemento}"
+        );
+        // A resposta da ÁRVORE quando há árvore. É a linha que o lote existe
+        // para virar: quem decide se este filho é uma caixa deixou de ser o DOM.
+        let e_caixa = match &seguidor {
+            Some(_) => caixa_do_filho.is_some(),
+            None => e_elemento,
+        };
         // CAMINHO RÁPIDO: se existe fragmento para este filho com estas
         // constraints, ele já foi classificado como BLOCO NORMAL quando foi
         // criado — é o único caminho que produz fragmento. Encontrá-lo responde
@@ -181,7 +281,7 @@ pub(in crate::layout) fn layout_children_vertical(
         // pelo fragmento guardado — ele foi medido com a linha inteira e a banda
         // livre não faz parte da chave. É a mesma recusa de
         // `layout_block_reusing`, no caminho rápido que a antecede.
-        if bfc.is_empty() && matches!(dom.node(child).kind, NodeKind::Element { .. }) {
+        if bfc.is_empty() && e_caixa {
             let key = key_base.key(dom, child, None, None, false);
             if let Some(fragment) = dom.fragment_get(key) {
                 crate::bump!(fragment_hits);
@@ -207,10 +307,14 @@ pub(in crate::layout) fn layout_children_vertical(
                 continue;
             }
         }
-        let child_css = match &dom.node(child).kind {
-            NodeKind::Element { .. } => Some(dom.computed_style_idx(child).unwrap_or_default()),
-            _ => None,
-        };
+        // O estilo vem do DOM e NÃO de `tree.style(caixa_do_filho)`, embora seja
+        // o mesmo `Rc` no instante em que a árvore foi construída. `Dom::box_tree`
+        // é chaveada por `(revision, style_epoch)` e deliberadamente NÃO por
+        // `anim_epoch` — "um frame de animação muda valores computados, não que
+        // caixas existem" —, logo a cópia guardada na árvore está ATRASADA
+        // durante uma transição. Quem decide é a caixa; quem vale é o estilo
+        // corrente.
+        let child_css = e_caixa.then(|| dom.computed_style_idx(child).unwrap_or_default());
         let child_out = child_css
             .as_ref()
             .and_then(|c| c.position)

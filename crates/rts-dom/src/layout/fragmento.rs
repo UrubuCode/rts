@@ -215,7 +215,7 @@ fn costurar(
             .iter()
             .map(|(node, _)| *node)
             .collect();
-        let mut own = DisplayList::default();
+        let mut own = DisplayList::for_dom(dom);
         // Onde o filho FOI POSTO: a origem em que o fragmento dele foi calculado
         // mais o deslocamento com que entrou aqui. Somar à origem do PAI daria
         // uma posição sem sentido — foi o que o teste de equivalência mostrou,
@@ -449,7 +449,7 @@ pub(in crate::layout) fn layout_block_reusing(
     let _phase = crate::metrics::phases::scope("fragment-build");
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
     // e a única forma de saber isso é não misturá-los com os dos irmãos.
-    let mut own = DisplayList::default();
+    let mut own = DisplayList::for_dom(dom);
     // `bfc` — a referência AMBIENTE, não uma isolada — porque `id` pode não
     // estabelecer BFC próprio e conter um float que precisa de ESCAPAR para
     // este mesmo `bfc` (ver `layout/bfc.rs`). O comprimento antes/depois é
@@ -482,12 +482,33 @@ pub(in crate::layout) fn layout_block_reusing(
     let fragment = std::rc::Rc::new(Fragment {
         node: id,
         rects: std::rc::Rc::new(
-            own.node_rects
+            // POR NÓ e não por caixa, e é uma decisão com uma razão dura.
+            //
+            // Um `BoxId` só é válido na ÁRVORE QUE O GEROU: a árvore é
+            // reconstruída inteira quando a revisão do documento muda, e os
+            // índices deixam de apontar para o mesmo sítio. Um fragmento em
+            // cache sobrevive a uma mudança noutra subárvore — é essa a razão
+            // de ele existir — e guardaria índices de uma árvore que já não
+            // existe. Não é teoria: era um índice fora dos limites em
+            // `node_of`, apanhado pelos testes de equivalência do cache.
+            //
+            // Guardar o NÓ perde a distinção entre as várias caixas de um
+            // elemento, e no espelho de BT-1 não há nenhuma a perder. É o lote
+            // BT-2 que resolve isto a sério, dando à árvore uma geração e
+            // fazendo o fragmento ser a saída de UMA caixa em vez de uma
+            // subárvore de nós.
+            own.box_rects
                 .iter()
-                .map(|(idx, rect)| (*idx, *rect))
+                .filter_map(|(id, rect)| own.tree.node_of(*id).map(|n| (n, *rect)))
                 .collect(),
         ),
-        hit_order: std::rc::Rc::new(std::mem::take(&mut own.hit_order)),
+        // Traduzido para NÓ pela mesma razão dos rectângulos, acima.
+        hit_order: std::rc::Rc::new(
+            std::mem::take(&mut own.hit_order)
+                .into_iter()
+                .filter_map(|id| own.tree.node_of(id))
+                .collect(),
+        ),
         grid_column_tracks: std::rc::Rc::new(
             std::mem::take(&mut own.grid_column_tracks)
                 .into_iter()

@@ -100,13 +100,24 @@ Three kinds, and three because the evidence above asks for three:
 already uses for nodes. Not `Rc<RefCell<…>>`: the tree is built in one pass,
 read many times, and dropped whole.
 
-**Style enters as `Rc<ComputedStyle>`**, which is what `computed_style_idx`
-already returns — it shares the same `Rc` when there is no animation, and a
-`ComputedStyle` is about a kilobyte. Several boxes of one element therefore
-share one allocation rather than cloning it. An anonymous box inherits the
-`Rc` of the box that generated it, which is exactly what the CSS anonymous-box
-rules ask for: an anonymous box has no declarations of its own.
+**A box does not STORE a style — it stores the node whose style is its own.**
+An element box names its element; an anonymous box names the element whose box
+the CSS rules split to produce it, which is exactly the rule that an anonymous
+box has no declarations of its own and takes the inherited properties of its
+generator.
 
+**This was not the first design, and the reason it changed is worth keeping.**
+The box used to hold an `Rc<ComputedStyle>` captured when the tree was built —
+cheap, shared, and wrong. The tree is memoised by `(revision, style_epoch)` and
+deliberately NOT by `anim_epoch`, because rebuilding it every frame of every
+transition would undo the reason the style memo separates those two. But the
+style accessor DOES include `anim_epoch`. A captured style is therefore one
+frame behind for the whole of an animation, and every reader would be wrong
+with nothing to say so — the silent class this repository exists to refuse.
+
+It was found by an agent migrating the layout, who reached for the captured
+style, saw the mismatch, and stopped. Asking the document each time costs a memo
+hit and an `Rc` clone. It is also smaller: no `Rc` per box.
 **A text box carries the resolved inline properties, not a style pointer.**
 `computed_style_idx` returns `None` for a text node — it matches only
 `NodeKind::Element` — and `collect_runs` already threads colour, weight, italic,

@@ -73,7 +73,12 @@ pub(in crate::layout) fn tem_conteudo_para_fragmento(dom: &Dom, id: NodeIdx) -> 
 /// UA-stylesheet `ua.ts` para div/p/… e pelo autor). Tags inline puras (sem nada
 /// disso) fluem como texto. O motor NÃO nomeia tags HTML — os defaults são dados
 /// do prelude TS.
-pub(in crate::layout) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
+/// `pub(crate)` e nao `pub(in crate::layout)` porque `crate::boxes` precisa da
+/// MESMA resposta ao construir a arvore: se a construcao escrevesse o seu
+/// proprio criterio de "isto e de nivel bloco", passava a haver duas verdades
+/// sobre a pergunta que decide se um inline se parte. A pergunta e de ESTILO e
+/// devia viver em `style/`, nao aqui — mudá-la de casa e um lote proprio.
+pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
             // `<img>` é um elemento REPLACED → precisa de layout_block p/ ter a

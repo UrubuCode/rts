@@ -3,10 +3,11 @@
 //! block is formed by the padding edge of the ancestor"). A borda fica FORA
 //! do container onde `top`/`right`/`bottom`/`left` são medidos.
 //!
-//! `posicionado.rs` só tinha o BORDER-BOX guardado em `node_rects` (é o
-//! mesmo retângulo que `getBoundingClientRect` reporta) e usava-o direto como
-//! origem do containing block — um ancestral com QUALQUER borda deslocava
-//! todo o conteúdo absoluto pela largura dela, nos dois eixos.
+//! `posicionado.rs` só tinha o BORDER-BOX guardado na geometria por nó (era
+//! `node_rects`; hoje `box_rects`, agregado por `DisplayList::rect_of_node` —
+//! o mesmo retângulo que `getBoundingClientRect` reporta) e usava-o direto
+//! como origem do containing block — um ancestral com QUALQUER borda
+//! deslocava todo o conteúdo absoluto pela largura dela, nos dois eixos.
 //!
 //! Achado pelo lote `flex-align-justify-familia`: 31 dos 33 reftests do WPT
 //! do lote comparam um flex container com `align-items`/`justify-content` E
@@ -25,7 +26,7 @@
 
 use super::*;
 
-/// Converte o border-box guardado em `node_rects` (`flow_rects`) para a
+/// Converte o border-box guardado em `flow_rects` (a geometria por nó) para a
 /// padding-box do MESMO nó — a caixa contra a qual `top`/`right`/`bottom`/
 /// `left` de um descendente `position:absolute`/`fixed` são medidos.
 pub(in crate::layout) fn padding_box(border_box: Rect, css: &ComputedStyle) -> Rect {

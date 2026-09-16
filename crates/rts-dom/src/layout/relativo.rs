@@ -10,14 +10,18 @@
 //! O mecanismo de "deslocar uma subárvore já pintada, in-place" já existe
 //! para `transform` (`bloco.rs`, atalho `so_translate`) e é reusado aqui para
 //! a metade da PINTURA (`list.items`/`list.children`). A diferença, e a razão
-//! de não bastar chamar essa função: `transform` nunca toca `list.node_rects`
+//! de não bastar chamar essa função: `transform` nunca toca `list.box_rects`
 //! — é visual, não move o `getBoundingClientRect` (decisão já tomada nesse
 //! módulo) — mas o offset de `relative` TEM de mover, porque é exactamente o
 //! que o Chrome mede em `claude-position-relative.esperado.json`.
-//! `list.node_rects` é um mapa achatado por NÓ, não uma fatia por posição
-//! como `list.items`; a única forma de saber quais entradas são desta
-//! subárvore é andar o DOM a partir de `id` — custa O(tamanho da subárvore),
-//! pago só nos nós `relative` com offset não-nulo.
+//!
+//! `list.box_rects` é um mapa achatado por CAIXA, não uma fatia por posição
+//! como `list.items`. Per the box-tree invariant I2
+//! (`docs/ui/html-engine/box-tree.md` §7), the only way to know which entries
+//! belong to this subtree is walking the box tree from `id` — not the DOM —
+//! so an anonymous box, which has no `NodeIdx`, is still found and shifted.
+//! Cost is O(subtree size), paid only on `relative` nodes with a non-zero
+//! offset.
 //!
 //! Alternativa rejeitada: deslocar a caixa na MEDIÇÃO (somar o offset a
 //! `x`/`y` antes de layoutar `id`), como o `absolute` faz contra o seu
@@ -28,16 +32,20 @@
 //! produzidas, é o que mantém o espaço reservado no fluxo intacto.
 
 use super::*;
+use crate::boxes::{BoxId, BoxTree};
 
 /// Aplica o deslocamento de `position:relative` a um bloco já layoutado.
 /// `box_index` é o mesmo marcador que `bloco.rs` usa para o `transform` — o
 /// início, em `list.items`, da pintura desta caixa e dos seus descendentes.
 /// Sem efeito quando `css.position` não é `Relative`, ou quando os quatro
 /// insets resolvem a deslocamento nulo (não vale andar a subárvore à toa).
+///
+/// `id` is already a `BoxId` — the caller resolves it through
+/// `list.tree.boxes_of(node)` before calling in, which is what lets this
+/// function walk the box tree instead of the DOM (invariant I2).
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn aplica_offset_relativo(
-    dom: &Dom,
-    id: NodeIdx,
+    id: BoxId,
     css: &ComputedStyle,
     avail_w: f32,
     avail_h: Option<f32>,
@@ -84,19 +92,33 @@ pub(in crate::layout) fn aplica_offset_relativo(
         child.dx += dx;
         child.dy += dy;
     }
-    // As subárvores servidas por fragmento (`list.children`, já deslocadas
-    // acima) não têm entrada em `list.node_rects` — o passeio abaixo não as
-    // encontra, e está certo que não encontre: já foram tratadas pelo `dx`/`dy`
-    // do `ChildRef`, que `geometry_now`/`collect_geometry` somam ao ler.
-    desloca_node_rects(dom, id, dx, dy, list);
+    // Subtrees served by a cached fragment (`list.children`, already shifted
+    // above) have no entry in `list.box_rects` — the box-tree walk below does
+    // not find them, and it is correct that it does not: they were already
+    // handled through the `ChildRef`'s `dx`/`dy`, which `geometry_now`/
+    // `collect_geometry` add on read. This is a second source of truth for
+    // the same answer, reconciled by hand; the lot that removes it is later
+    // than this one.
+    let tree = list.tree.clone();
+    shift_box_rects(&tree, id, dx, dy, list);
 }
 
-fn desloca_node_rects(dom: &Dom, id: NodeIdx, dx: f32, dy: f32, list: &mut DisplayList) {
-    if let Some(r) = list.node_rects.get_mut(&id) {
+/// Walks the box tree from `id`, shifting every box's rect by `(dx, dy)`.
+/// `tree` is passed separately from `list` (a cheap `Rc` clone at the call
+/// site) so the recursion can read `tree.children` while `list.box_rects` is
+/// borrowed mutably.
+pub(in crate::layout) fn shift_box_rects(
+    tree: &BoxTree,
+    id: BoxId,
+    dx: f32,
+    dy: f32,
+    list: &mut DisplayList,
+) {
+    if let Some(r) = list.box_rects.get_mut(&id) {
         r.x += dx;
         r.y += dy;
     }
-    for &child in &dom.node(id).children {
-        desloca_node_rects(dom, child, dx, dy, list);
+    for &child in tree.children(id) {
+        shift_box_rects(tree, child, dx, dy, list);
     }
 }

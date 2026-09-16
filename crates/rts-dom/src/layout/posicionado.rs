@@ -6,8 +6,10 @@
 
 use super::*;
 /// O rect do CONTAINING BLOCK de um `position:absolute` = o ancestral mais próximo
-/// com `position != static` (relative/absolute/fixed), lido do `node_rects` do
-/// fluxo. `None` = nenhum ancestral positioned → o containing block é a viewport
+/// com `position != static` (relative/absolute/fixed), lido de `flow_rects` — a
+/// geometria por NÓ do fluxo (`list.geometry_now().rects`; era `list.node_rects`
+/// antes da árvore de caixas, hoje agregada de `box_rects` por `rect_of_node`).
+/// `None` = nenhum ancestral positioned → o containing block é a viewport
 /// (a raiz inicial). Um `fixed` sempre usa a viewport (tratado no caller).
 fn containing_block_rect(
     dom: &Dom,
@@ -24,8 +26,8 @@ fn containing_block_rect(
             .unwrap_or(false);
         if positioned {
             // O containing block é a PADDING BOX do ancestral (CSS 2.1 §10.1),
-            // não a border box guardada em `node_rects` — ver
-            // `caixa_contentora.rs` para o achado (a referência de 31 dos 33
+            // não a border box guardada em `flow_rects` (a geometria por nó) —
+            // ver `caixa_contentora.rs` para o achado (a referência de 31 dos 33
             // reftests `flex-align-justify-familia` tem um `border` no
             // ancestral e desviava 1px nos dois eixos sem esta conversão).
             if let (Some(r), Some(css_p)) = (flow_rects.get(&p), css_p) {

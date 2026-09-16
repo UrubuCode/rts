@@ -272,22 +272,33 @@ pub(in crate::layout) fn matriz_transform(
     tf.ops.resolve(box_rect.w, box_rect.h).around(ox, oy)
 }
 
-/// Aplica `mat` ao retângulo de `id` em `list.node_rects` (se tiver um) e, RECURSIVAMENTE,
-/// ao de cada descendente — os descendentes HERDAM a transformação do pai (CSS
-/// Transforms 1: o "transform target" inclui a subárvore). Mesmo padrão de
-/// `relativo.rs::desloca_node_rects` (percorrer o DOM a partir de `id`), mas a
-/// operação é a matriz inteira (bounding box dos 4 cantos) em vez de uma soma.
-pub(in crate::layout) fn transforma_node_rects(
-    dom: &crate::dom::Dom,
-    id: crate::dom::NodeIdx,
+/// Applies `mat` to the rect of `id` in `list.box_rects` (if it has one) and,
+/// RECURSIVELY, to every descendant's — descendants INHERIT the parent's
+/// transform (CSS Transforms 1: the "transform target" includes the
+/// subtree). Same pattern as `relativo.rs::shift_box_rects` (walk the box
+/// tree from `id`, per invariant I2 in `docs/ui/html-engine/box-tree.md` §7,
+/// rather than the DOM), except the operation is the whole matrix (bounding
+/// box of the 4 corners) instead of a sum.
+///
+/// `id` is already a `BoxId` — the caller resolves it through
+/// `list.tree.boxes_of(node)` before calling in.
+///
+/// Subtrees served by a cached fragment have no entry in `list.box_rects` and
+/// this walk does not find them; they are already handled elsewhere through
+/// the fragment's own offset. This is a second source of truth for the same
+/// answer, reconciled by hand — the lot that removes it is later than this
+/// one.
+pub(in crate::layout) fn transform_box_rects(
+    tree: &crate::boxes::BoxTree,
+    id: crate::boxes::BoxId,
     mat: &Mat2d,
     list: &mut super::DisplayList,
 ) {
-    if let Some(r) = list.node_rects.get_mut(&id) {
+    if let Some(r) = list.box_rects.get_mut(&id) {
         *r = mat.transform_rect_bbox(*r);
     }
-    for &child in &dom.node(id).children {
-        transforma_node_rects(dom, child, mat, list);
+    for &child in tree.children(id) {
+        transform_box_rects(tree, child, mat, list);
     }
 }
 

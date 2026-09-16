@@ -905,19 +905,29 @@ pub(crate) fn layout_block(
             list,
         ),
         // vertical (block): empilha.
-        _ => layout_children_vertical(
-            dom,
-            id,
-            content_x,
-            content_y,
-            children_w,
-            avail_children,
-            &css,
-            font_size,
-            bfc_filhos,
-            ctx,
-            list,
-        ),
+        _ => {
+            // A CAIXA deste nó, recuperada da árvore que a lista já carrega —
+            // a mesma tradução que `record_node_rect` faz em `itens.rs`, e
+            // exacta enquanto a árvore é um ESPELHO. Parâmetro de `layout_block`
+            // seria o certo e são dez ficheiros, a maioria de outra gente: fica
+            // para o dia em que um nó tiver várias caixas. Dentro do braço
+            // porque flex, grid e tabela não a pedem.
+            let caixa_deste = super::vertical::caixa_do_no(list, id);
+            layout_children_vertical(
+                dom,
+                id,
+                caixa_deste,
+                content_x,
+                content_y,
+                children_w,
+                avail_children,
+                &css,
+                font_size,
+                bfc_filhos,
+                ctx,
+                list,
+            )
+        }
     };
     // CSS 2.1 §10.6.7: só o BFC responsável cresce para conter os SEUS
     // floats — `bfc_proprio` só existe quando `id` é ele (senão é `None` e
@@ -1309,7 +1319,12 @@ pub(crate) fn layout_block(
 
     // POSITION:RELATIVE — porquê e o que desloca em `relativo.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    aplica_offset_relativo(dom, id, &css, avail_w, avail_h, font_size, box_index, ctx, list);
+    // O `BoxId` resolve-se aqui, na fronteira: `relativo.rs` trabalha em
+    // caixas e nao conhece o DOM. No espelho de BT-1 a fatia tem comprimento
+    // um; um no sem caixa nao tem nada para deslocar.
+    if let Some(&caixa) = list.tree.boxes_of(id).first() {
+        aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_index, ctx, list);
+    }
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE
@@ -1332,7 +1347,10 @@ pub(crate) fn layout_block(
             // descendente (herdam a transformação do pai). Corre ANTES do
             // atalho abaixo e para os dois ramos: a bbox de um rect só
             // transladado é só transladada, a mesma chamada serve os dois.
-            super::transformacao::transforma_node_rects(dom, id, &mat, list);
+            if let Some(&caixa) = list.tree.boxes_of(id).first() {
+                let arvore = std::rc::Rc::clone(&list.tree);
+                super::transformacao::transform_box_rects(&arvore, caixa, &mat, list);
+            }
 
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo

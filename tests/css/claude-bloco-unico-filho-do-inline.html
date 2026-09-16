@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-1): o mesmo defeito de `claude-bloco-quebra-inline-com-texto-
+     antes-depois.html` no caso mais estreito — o `<div>` é o ÚNICO filho do
+     `<span>`, sem texto nenhum a acompanhá-lo. Por CSS 2.1 §9.2.1.1 o `<span>`
+     ainda gera uma caixa de bloco anónima (vazia, porque não há mais conteúdo
+     inline) e o `<div>` fica com a sua própria caixa de bloco. Hoje o `<div>`
+     não tem caixa nenhuma — `target/baseline-raster.exe` mede 0 itens
+     pintados, o fundo verde do `#bloco` nunca aparece, e o `#seguinte` cola-se
+     ao topo em vez de ficar abaixo da altura do bloco. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; }
+  #bloco { background: #0f0; height: 30px; }
+  #seguinte { background: #00f; height: 10px; }
+</style></head>
+<body>
+  <span id="quebra"><div id="bloco"></div></span>
+  <div id="seguinte"></div>
+</body>
+</html>

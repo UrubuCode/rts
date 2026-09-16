@@ -45,7 +45,7 @@ use crate::style::{ComputedStyle, ResolveCtx};
 
 mod bfc;
 mod bfc_evita_float;
-mod caixa;
+pub(crate) mod caixa;
 mod caixa_contentora;
 mod clearfix;
 mod dimensao_indefinida;
@@ -186,7 +186,7 @@ pub(crate) fn measure_block(
         crate::bump!(measure_hits);
         return size;
     }
-    let mut scratch = DisplayList::default();
+    let mut scratch = DisplayList::for_dom(dom);
     let size = layout_block(
         dom,
         id,
@@ -254,7 +254,10 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // informa o viewport à CASCADE (base de vw/vh no font-size fluido/calc; o
     // memo de estilo do Dom invalida sozinho se mudou).
     dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
-    let mut list = DisplayList::default();
+    let mut list = DisplayList::for_dom(dom);
+    // A árvore de caixas deste documento, memoizada no `Dom`. Vive na lista
+    // para que `record_node_rect`/`reserve_node_order` (em `itens.rs`)
+    // traduzam nó→caixa por dentro, sem que nenhum dos chamadores mude.
     // PROPAGAÇÃO DO FUNDO do <body>/<html> (regra especial do CSS): o background
     // desses dois elementos "vaza" para o VIEWPORT inteiro, não só a caixa deles.
     // Pintamos PRIMEIRO (atrás de tudo) um retângulo do tamanho do viewport com a cor
@@ -345,7 +348,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.
-        let mut atras = DisplayList::default();
+        let mut atras = DisplayList::for_dom(dom);
         for id in &negativos {
             layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut atras);
         }
@@ -364,7 +367,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // acumulá-las entre frames faria a lista de filhos sujos de um container
     // crescer até o teto — e aí a costura desistiria sempre.
     dom.clear_dirty();
-    crate::bump!(node_rects, list.node_rects.len());
+    crate::bump!(node_rects, list.box_rects.len());
     crate::bump!(scroll_regions, list.scroll_regions.len());
     list
 }
@@ -373,7 +376,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
 /// dada — a base de `element.getBoundingClientRect()`. `None` se o nó não é
 /// renderável (texto/`display:none`/metadata não têm rect próprio).
 /// Roda o layout inteiro (O(n)); para várias consultas no mesmo frame, reuse a
-/// `DisplayList` de `layout_document` e leia `node_rects` direto.
+/// `DisplayList` de `layout_document` e leia `box_rects`/`rect_of_node` direto.
 pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> {
     layout_document(dom, ctx).rect_of(node)
 }

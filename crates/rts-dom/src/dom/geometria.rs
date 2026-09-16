@@ -74,6 +74,18 @@ impl Dom {
             let list = crate::layout::layout_document(self, &ctx);
             let mut out = Vec::with_capacity(ids.len() * 4);
             for &id in ids {
+                // `rect_of` e NAO `rect_of_node`, e a diferenca importa: o
+                // primeiro le a `Geometry`, que agrega a lista de topo MAIS a
+                // geometria que vive dentro de cada fragmento em cache; o
+                // segundo le so os rectangulos escritos directamente nesta
+                // lista. Numa pagina com layout incremental a maior parte da
+                // geometria esta nos fragmentos, e ler so a lista devolvia
+                // zero — apanhado pelo teste que pina que a via em lote
+                // responde o mesmo que a singular.
+                //
+                // A agregacao por caixa acontece na mesma, uma camada abaixo:
+                // e `collect_geometry` que une as caixas de um no ao montar a
+                // `Geometry`.
                 match self.resolve(id).and_then(|idx| list.rect_of(idx)) {
                     Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
                     None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
