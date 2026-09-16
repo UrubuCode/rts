@@ -180,7 +180,11 @@ pub(in crate::layout) fn layout_inline_block_line(
         let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, familia, ctx.measurer);
         for (&(child, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atomos) {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
-            let item_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, familia, ctx.measurer);
+            let base_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, familia, ctx.measurer);
+            let line_has_textarea = items.iter().any(|(n, _, _, _, _, _)| matches!(&dom.node(*n).kind, NodeKind::Element { tag } if tag == "textarea"));
+            let is_mark = matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("checkbox" | "radio"));
+            let form_text = matches!(&dom.node(child).kind, NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select")) && !is_mark;
+            let item_y = if line_has_textarea && form_text { base_y + 2.5 } else { base_y };
             x += gap;
             layout_block(
                 dom,
