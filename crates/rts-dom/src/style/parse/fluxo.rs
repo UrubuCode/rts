@@ -19,10 +19,15 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             // caixa de bloco que ESTABELECE um contexto de formatação, e essa é
             // a única coisa que a separa de `block`. O parse aceitava a palavra
             // e deitava fora o significado dela.
-            set_if(
-                &mut css.flow_root,
-                val.trim().eq_ignore_ascii_case("flow-root").then_some(true),
-            );
+            //
+            // `is_flow_root_value` cobre a soletração de uma palavra E a de
+            // duas (`block flow-root`, CSS Display 3 §2) — as duas resolvem
+            // para a MESMA caixa (`Block`) e o MESMO bit. `inline flow-root`
+            // não entra aqui: essa combinação vira `InlineBlock` em
+            // `parse_display`, que já estabelece o seu próprio contexto de
+            // formatação por ser `display_bfc` em `layout::bloco`, sem
+            // precisar deste campo.
+            set_if(&mut css.flow_root, is_flow_root_value(val).then_some(true));
         }
         // `flex-wrap` — combina com display:flex para promover a FlexWrap.
         // `nowrap`/`wrap`/`wrap-reverse`: os três estados de `FlexWrap`.
@@ -216,4 +221,21 @@ fn parse_flex_factor(val: &str) -> Option<f32> {
     } else {
         val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0)
     }
+}
+
+/// `true` para o valor de `display` que computa como `flow-root` NA CAIXA —
+/// a soletração de uma palavra (`flow-root`) e a de duas (`block flow-root`,
+/// em qualquer ordem dos dois tokens). `inline flow-root` fica de fora de
+/// propósito: essa combinação vira `DisplayKind::InlineBlock` em
+/// `parse_display`, e uma caixa `InlineBlock` já estabelece o seu próprio
+/// contexto de formatação por outro caminho (`display_bfc` em
+/// `layout::bloco::establishes_block_formatting_context`) — marcar
+/// `flow_root` aqui também seria um segundo sinal para a mesma resposta.
+fn is_flow_root_value(val: &str) -> bool {
+    let v = val.trim().to_ascii_lowercase();
+    if v == "flow-root" {
+        return true;
+    }
+    let tokens: Vec<&str> = v.split_ascii_whitespace().collect();
+    tokens.len() == 2 && tokens.contains(&"flow-root") && tokens.contains(&"block")
 }

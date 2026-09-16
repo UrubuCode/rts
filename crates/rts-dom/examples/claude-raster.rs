@@ -679,6 +679,17 @@ fn main() {
         std::process::exit(2);
     });
 
+    // `pintados` já existia (só ia para o `eprintln!` de baixo) — expõe-se aqui
+    // como um segundo sidecar, ao lado de `<saida>.mask.json`, para que quem
+    // compara dois lados de uma régua (`scripts/wpt_reftests.mjs`) saiba se ESTE
+    // lado desenhou alguma coisa sem reabrir o PNG: "0" é o sinal barato de
+    // "nada pintado", distinto de "pintou e calhou de dar a mesma cor de fundo".
+    let pintados_path = format!("{saida}.pintados");
+    std::fs::write(&pintados_path, pintados.to_string()).unwrap_or_else(|e| {
+        eprintln!("não escrevi {pintados_path}: {e}");
+        std::process::exit(2);
+    });
+
     eprintln!(
         "rts-raster: {pintados} itens pintados, {saltados_texto} texto (mascarado), \
          {saltados_imagem} imagem (mascaradas, sem handle table aqui)"

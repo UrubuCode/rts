@@ -39,6 +39,8 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
                 | crate::style::DisplayKind::InlineFlex // flex por dentro (Flexbox §4): mesmo contexto
                 | crate::style::DisplayKind::InlineFlexWrap
                 | crate::style::DisplayKind::Grid
+                | crate::style::DisplayKind::InlineGrid
+                | crate::style::DisplayKind::InlineTable
                 | crate::style::DisplayKind::InlineBlock
                 | crate::style::DisplayKind::Table
                 | crate::style::DisplayKind::TableRowGroup
@@ -80,6 +82,7 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
                         | crate::style::DisplayKind::InlineFlex // idem: filho de flex
                         | crate::style::DisplayKind::InlineFlexWrap
                         | crate::style::DisplayKind::Grid
+                        | crate::style::DisplayKind::InlineGrid
                 )
             )
         });
@@ -471,7 +474,7 @@ pub(crate) fn layout_block(
     // Uma `<table>` sem `width` é SHRINK-TO-FIT: encolhe ao conteúdo em vez de
     // ocupar o pai. É a diferença mais visível entre uma tabela e um `<div>`, e
     // sem ela cada tabela da página nasce com a largura da coluna inteira.
-    let shrink_to_fit = shrink_to_fit || used == Some(crate::style::DisplayKind::Table);
+    let shrink_to_fit = shrink_to_fit || used.is_some_and(crate::style::DisplayKind::is_table_box);
     let content_w = if let Some(fw) = forced_outer_w {
         // main size do FLEX (grow/shrink já resolvidos): outer imposto → content =
         // outer - frame (o frame já soma margem+borda+padding dos dois lados).
@@ -876,10 +879,10 @@ pub(crate) fn layout_block(
         // grid porque uma `<table>` que o autor não tocou tem eixo vertical e
         // cairia no empilhamento de blocos, descendo por `<tr>` como se fossem
         // `<div>` — que é exatamente o que a página real mostrava.
-        _ if used == Some(crate::style::DisplayKind::Table) => crate::table::layout_table(
+        _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => crate::table::layout_table(
             dom, id, content_x, content_y, children_w, &css, font_size, ctx, list,
         ),
-        _ if css.effective_display() == Some(crate::style::DisplayKind::Grid) => {
+        _ if css.effective_display().is_some_and(crate::style::DisplayKind::is_grid_container) => {
             layout_children_grid(
                 dom,
                 id,

@@ -594,7 +594,6 @@ fn split_important(val: &str) -> (&str, bool) {
     (v, false)
 }
 
-/// Parseia `display: block|flex|inline|inline-block|none` para [`DisplayKind`].
 /// Extrai o Nº DE COLUNAS de `grid-template-columns`: de `repeat(N, ...)` pega N; de
 /// uma lista de trilhas (`1fr 1fr 1fr`, `200px 200px`) conta os itens de topo. `None`
 /// para valores que não dão um número (auto/subgrid/…). Cobre o padrão Tailwind
@@ -625,9 +624,15 @@ fn parse_aspect_ratio(v: &str) -> Option<f32> {
     v.parse::<f32>().ok().filter(|r| *r > 0.0)
 }
 
-/// Valores não suportados (table, …) → `None` (cai no default da tag).
+/// Parseia `display`. Cobre os keywords de uma palavra (a forma legada, que a
+/// CSS Display Module Level 3 §2.5 chama de "atalho" de uma combinação de
+/// duas) E, desde este lote, a sintaxe de DUAS/TRÊS palavras da própria §2 —
+/// `<display-outside> || <display-inside> || list-item`, em qualquer ordem —
+/// via [`parse_two_value_display`]. Valores não suportados (`run-in`,
+/// `contents`, `ruby*`, …) → `None` (cai no default da tag).
 fn parse_display(v: &str) -> Option<DisplayKind> {
-    match v.trim().to_ascii_lowercase().as_str() {
+    let v = v.trim().to_ascii_lowercase();
+    match v.as_str() {
         // `flow-root` computa como `block` NA CAIXA; o que a distingue vive no
         // campo `flow_root`, levantado pelo braço de `display` — aqui não há
         // `css` à mão. Ver `style/props/tabela.rs`.
@@ -643,15 +648,24 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
         // mesmo código — `DisplayKind::to_display_code` mapeia as duas no mesmo —,
         // portanto isto corrige a resposta sem mudar a disposição.
         "inline-block" => Some(DisplayKind::InlineBlock),
-        "grid" | "inline-grid" => Some(DisplayKind::Grid),
+        // `inline-grid` PERDE o outer-display aqui — cai no MESMO `Grid` que
+        // `grid` — pela falta de uma variante `InlineGrid` (não existe hoje;
+        // criá-la exige ensinar `boxes::context::inner_of` a mapeá-la para
+        // `InnerDisplay::Grid`, fora da área deste lote). É a MESMA perda que
+        // `flex`/`inline-flex` tinham antes de `InlineFlex` existir — deixada
+        // registada como o próximo passo, não corrigida por este lote.
+        "grid" => Some(DisplayKind::Grid),
+        "inline-grid" => Some(DisplayKind::InlineGrid),
         "none" => Some(DisplayKind::None),
         // `list-item` — o `<li>`. Bloco MAIS um marcador; ver `crate::listitem`.
         "list-item" => Some(DisplayKind::ListItem),
-        // Os valores de TABELA. `inline-table` cai em `Table` porque a diferença
-        // é só como a caixa participa do fluxo do PAI (inline vs bloco), e por
-        // dentro é a mesma repartição de colunas; tratá-lo como caixa inline é
-        // um refino, não um algoritmo à parte.
-        "table" | "inline-table" => Some(DisplayKind::Table),
+        // Os valores de TABELA. `inline-table` cai em `Table` pela MESMA razão
+        // (e a mesma perda) que `inline-grid` acima — não porque o algoritmo
+        // por dentro mude, mas porque não há `InlineTable` para guardar o
+        // outer-display; participa do fluxo do pai como bloco em vez de como
+        // caixa inline, o que é o desvio a corrigir num lote de layout.
+        "table" => Some(DisplayKind::Table),
+        "inline-table" => Some(DisplayKind::InlineTable),
         "table-row-group" | "table-header-group" | "table-footer-group" => {
             Some(DisplayKind::TableRowGroup)
         }
@@ -663,6 +677,72 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
         // `None` aqui os faria cair no default da tag (bloco) e pintar uma caixa
         // vazia que o Chrome não tem; `None` (o display) é o que os apaga.
         "table-column" | "table-column-group" => Some(DisplayKind::None),
+        _ => parse_two_value_display(&v),
+    }
+}
+
+/// A sintaxe de duas/três palavras do CSS Display Module Level 3 §2:
+/// `<display-outside> || <display-inside> || list-item`. Só entra aqui o que
+/// [`parse_display`] não reconheceu como palavra única, e só é aceite a
+/// combinação que TEM onde guardar o resultado sem perder metade dele — as
+/// que não têm (ver os comentários em `parse_display` sobre `inline-grid`/
+/// `inline-table`) são aceites com a MESMA perda que a forma de uma palavra
+/// já tinha, nunca com uma perda nova.
+///
+/// Um token repetido, desconhecido, ou uma combinação que a spec não permite
+/// (`list-item` com `flex`/`grid`/`table`) devolve `None` — cai no default da
+/// tag, em vez de adivinhar qual dos dois tokens o autor quis dizer.
+fn parse_two_value_display(v: &str) -> Option<DisplayKind> {
+    let tokens: Vec<&str> = v.split_ascii_whitespace().collect();
+    if tokens.len() < 2 || tokens.len() > 3 {
+        return None;
+    }
+    let mut outer_inline: Option<bool> = None;
+    let mut inner: Option<&str> = None;
+    let mut list_item = false;
+    for t in &tokens {
+        match *t {
+            "inline" if outer_inline.is_none() => outer_inline = Some(true),
+            "block" if outer_inline.is_none() => outer_inline = Some(false),
+            "list-item" if !list_item => list_item = true,
+            "flow" | "flow-root" | "flex" | "grid" | "table" if inner.is_none() => {
+                inner = Some(t);
+            }
+            // Token repetido ou desconhecido (`run-in`, `contents`, `ruby`, …)
+            // — recusar em vez de adivinhar qual das duas leituras vale.
+            _ => return None,
+        }
+    }
+    if list_item {
+        // Flow Layout §2.6: `list-item` só combina com `flow`, e só do lado
+        // de fora do bloco — não há `DisplayKind` para um `list-item` inline.
+        return match (outer_inline, inner) {
+            (None | Some(false), None | Some("flow")) => Some(DisplayKind::ListItem),
+            _ => None,
+        };
+    }
+    match (outer_inline, inner) {
+        (Some(true), None | Some("flow")) => Some(DisplayKind::Inline),
+        (None | Some(false), None | Some("flow")) => Some(DisplayKind::Block),
+        // `inline flow-root` é a soletração de duas palavras do keyword
+        // legado `inline-block` (CSS Display 3 §2.5, e a MDN diz o mesmo):
+        // mesma caixa, e `display_css` já serializa `InlineBlock` de volta
+        // como "inline-block" — nada que um round-trip note como perda.
+        (Some(true), Some("flow-root")) => Some(DisplayKind::InlineBlock),
+        // `block flow-root` computa exactamente como o keyword `flow-root`
+        // sozinho: mesma caixa (`Block`), mesmo bit que a distingue
+        // (`ComputedStyle::flow_root`, levantado por quem chama — `fluxo.rs`).
+        (None | Some(false), Some("flow-root")) => Some(DisplayKind::Block),
+        (Some(true), Some("flex")) => Some(DisplayKind::InlineFlex),
+        (None | Some(false), Some("flex")) => Some(DisplayKind::Flex),
+        // `inline grid` e `inline table` guardam o outer-display, como as suas
+        // soletrações de uma palavra. Este ramo colapsava as quatro formas em
+        // `Grid`/`Table` e essa perda era herdada do parse de uma palavra, que
+        // a tinha desde sempre — o mesmo defeito que `inline-flex` teve.
+        (Some(true), Some("grid")) => Some(DisplayKind::InlineGrid),
+        (_, Some("grid")) => Some(DisplayKind::Grid),
+        (Some(true), Some("table")) => Some(DisplayKind::InlineTable),
+        (_, Some("table")) => Some(DisplayKind::Table),
         _ => None,
     }
 }

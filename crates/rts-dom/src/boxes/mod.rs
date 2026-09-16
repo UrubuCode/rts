@@ -284,6 +284,17 @@ impl BoxTree {
             })
     }
 
+    /// Which BUILD of the tree this is.
+    ///
+    /// Exposed so a consumer can refuse a `BoxId` it kept BEFORE using it, and
+    /// name itself in the message. Every accessor here already refuses one, but
+    /// it refuses from inside the arena — the panic then names `BoxTree::get`
+    /// and not the descent that carried the stale id in, which is the thing a
+    /// reader needs. `layout::sequencia` asserts on it for exactly that.
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
     pub fn len(&self) -> usize {
         self.arena.len()
     }

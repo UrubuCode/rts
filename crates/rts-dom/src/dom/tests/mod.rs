@@ -9,6 +9,7 @@ mod css_url;
 mod consulta;
 mod eventos;
 mod freelist;
+mod geometria_cache;
 mod invalidacao;
 mod medidor_ativo;
 mod mutacao;

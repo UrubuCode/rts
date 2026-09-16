@@ -87,6 +87,8 @@ mod auditoria_lote_a;
 #[cfg(test)]
 mod auditoria_lote_b;
 #[cfg(test)]
+mod disp_two_value_tests;
+#[cfg(test)]
 mod computed_tests;
 #[cfg(test)]
 mod sonda_efetivos;
@@ -133,8 +135,9 @@ pub use text_metrics::{
     SUPER_OFFSET_RATIO, X_HEIGHT_RATIO, normal_line_height, spacing_width,
 };
 pub use values::{
-    AlignItems, BorderStyle, CalcLen, DIM_BASE_EM, DIM_BASE_PERCENT, DIM_BASE_PX, DIM_BASE_REM,
-    DIM_BASE_VH, DIM_BASE_VW, DIM_RANGE, Dimension, DisplayKind, Edges, FlexDirection, FlexWrap,
-    FloatSide, GridTrack, JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign,
+    AlignItems, Axis, BorderStyle, CalcLen, ContainingBlock, DIM_BASE_EM, DIM_BASE_PERCENT,
+    DIM_BASE_PX, DIM_BASE_REM, DIM_BASE_VH, DIM_BASE_VW, DIM_RANGE, Dimension, DisplayKind, Edges,
+    FlexDirection, FlexWrap, FloatSide, GridTrack, JustifyContent, LineHeight, PercentBasis,
+    Position, ResolveCtx, Rgba, Side, TextAlign,
     TrackBound, TextTransform, WhiteSpace, clamp_size, dimensao_absoluta,
 };

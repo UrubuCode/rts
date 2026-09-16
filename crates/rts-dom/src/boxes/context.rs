@@ -126,8 +126,9 @@ fn inner_of(display: DisplayKind) -> InnerDisplay {
         | DisplayKind::FlexWrap
         | DisplayKind::InlineFlex
         | DisplayKind::InlineFlexWrap => InnerDisplay::Flex,
-        DisplayKind::Grid => InnerDisplay::Grid,
+        DisplayKind::Grid | DisplayKind::InlineGrid => InnerDisplay::Grid,
         DisplayKind::Table
+        | DisplayKind::InlineTable
         | DisplayKind::TableRowGroup
         | DisplayKind::TableRow
         | DisplayKind::TableCell

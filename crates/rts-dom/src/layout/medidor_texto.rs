@@ -30,18 +30,19 @@ pub trait TextMeasurer {
     /// Ascent da fonte usado para alinhar texto com a baseline de atoms altos, e
     /// para posicionar `vertical-align: text-top`/`middle` no modelo de baseline
     /// (`layout::alinhamento_vertical`). `0.90×size`, calibrado contra o Chrome
-    /// — ver `style::ASCENT_RATIO` para a derivação. Backends com métricas
-    /// próprias (o `EguiMeasurer` do `rts-egui`) substituem pela ascent REAL da
-    /// fonte carregada.
+    /// — ver `super::fonte_metricas::FontMetricsModel` para a derivação e para
+    /// o porquê de NÃO ser a mesma calibração de `line_height`. Backends com
+    /// métricas próprias (o `EguiMeasurer` do `rts-egui`) substituem pela
+    /// ascent REAL da fonte carregada.
     fn font_ascent(&self, size: f32) -> f32 {
-        size * crate::style::ASCENT_RATIO
+        super::fonte_metricas::FontMetricsModel::ascent(size, None)
     }
 
     /// Descent da fonte usado para fechar a line box depois de um inline-block, e
     /// para `vertical-align: text-bottom`. `0.3125×size` — ver
-    /// `style::DESCENT_RATIO`.
+    /// `super::fonte_metricas::FontMetricsModel`.
     fn font_descent(&self, size: f32) -> f32 {
-        size * crate::style::DESCENT_RATIO
+        super::fonte_metricas::FontMetricsModel::descent(size, None)
     }
 
     /// A MESMA pergunta de [`text_width`](Self::text_width), mas com o
@@ -161,27 +162,18 @@ impl TextMeasurer for ApproxMeasurer {
     }
 
     fn line_height_family(&self, size: f32, family: Option<&str>) -> f32 {
-        // `normal` na Ahem é 1em exato (ascent 0,8 + descent 0,2), não o
-        // `1.125×size` calibrado contra a fonte padrão do Chrome — ver
-        // `style::ahem`.
-        if family.is_some_and(crate::style::is_ahem_family) {
-            return size * (crate::style::AHEM_ASCENT_RATIO + crate::style::AHEM_DESCENT_RATIO);
-        }
-        self.line_height(size)
+        // A escolha "Ahem ou aproximação default" vive num sítio só —
+        // `super::fonte_metricas::FontMetricsModel` — em vez de repetida
+        // aqui e nos dois métodos abaixo; ver o módulo para o porquê.
+        super::fonte_metricas::FontMetricsModel::normal_line_height(size, family)
     }
 
     fn font_ascent_family(&self, size: f32, family: Option<&str>) -> f32 {
-        if family.is_some_and(crate::style::is_ahem_family) {
-            return size * crate::style::AHEM_ASCENT_RATIO;
-        }
-        self.font_ascent(size)
+        super::fonte_metricas::FontMetricsModel::ascent(size, family)
     }
 
     fn font_descent_family(&self, size: f32, family: Option<&str>) -> f32 {
-        if family.is_some_and(crate::style::is_ahem_family) {
-            return size * crate::style::AHEM_DESCENT_RATIO;
-        }
-        self.font_descent(size)
+        super::fonte_metricas::FontMetricsModel::descent(size, family)
     }
 
     fn line_height(&self, size: f32) -> f32 {
@@ -200,7 +192,10 @@ impl TextMeasurer for ApproxMeasurer {
         // porque `normal` é o valor INICIAL de uma propriedade CSS e não uma
         // preferência do medidor — e porque lá está o arredondamento para cima
         // que faz 20px dar 23 e 30px dar 34, os inteiros que o Chrome reporta
-        // (sem ele saíam 22,5 e 33,75).
-        crate::style::normal_line_height(size)
+        // (sem ele saíam 22,5 e 33,75). `FontMetricsModel::normal_line_height`
+        // com `family: None` chama exactamente essa constante — este método
+        // não deixou de existir, passou a ser o mesmo caminho que
+        // `line_height_family` usa quando a família não muda a resposta.
+        super::fonte_metricas::FontMetricsModel::normal_line_height(size, None)
     }
 }

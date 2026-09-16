@@ -346,10 +346,25 @@ that wants to know "is this an inline formatting context" asks the tree.
 
 ### What the base does NOT do yet, and must not be assumed
 
-- **Layout does not consume the tree for ORDER.** The child sequence a layout
-  pass walks still comes from the DOM; the tree enters as IDENTITY only. The
-  `debug_assert!` in `layout/vertical.rs` pins the equivalence, and it earns its
-  place: when text gained a box it fired in 322 tests at once.
+- **Layout takes the child ORDER from the tree, and this line replaces one that
+  said the opposite.** The block flow walks `tree.children(box)`: a text box
+  arrives with its box, and an anonymous box is ENTERED rather than skipped.
+  What still comes from the DOM is a node that generates NO box — today only a
+  comment — spliced back at its DOM position, because letting it fall through
+  closes an inline-block run and breaks margin collapsing between the two
+  blocks around it. That is a refusal with a measured reason, not an omission.
+- **The mirror-equivalence assert is gone, and what replaced it is weaker in
+  one dimension.** Once the order comes from the tree there are no longer two
+  sequences to compare, so the old assertion is not expressible. In its place:
+  a plain `assert_eq!` on the GENERATION, a `debug_assert` that every visited
+  box is a child of the one descended through, and one that no box naming a
+  node was dropped. None of them compares the tree against the DOM child by
+  child. Said plainly rather than dressed up as equivalent.
+- **An anonymous box is not yet laid out as the BLOCK box it is.** It is
+  expanded into its children, each going to the same arm of the loop that
+  already received it — which is why it moves no answer. Laying it out
+  properly needs a block path that accepts a box with no node, and that is
+  what the 148 block-in-inline reftests are still waiting for.
 - **Fragments are keyed by `NodeIdx`, deliberately.** A cached fragment can
   outlive the tree that produced it, and a `BoxId` in one would name a slot in
   an arena that has been rebuilt. Moving them is the fragment-tree wave, not a

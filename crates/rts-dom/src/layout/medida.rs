@@ -136,7 +136,7 @@ pub(in crate::layout) fn intrinsic_content_width(
     // TABELA: a largura que o conteúdo quer é a SOMA das colunas, e nenhuma das
     // duas regras abaixo a dá — o MAX (bloco) devolveria a linha mais larga e a
     // SOMA (flex) somaria linhas inteiras. Quem sabe é o algoritmo de colunas.
-    if used_display(dom, id) == Some(crate::style::DisplayKind::Table) {
+    if used_display(dom, id).is_some_and(crate::style::DisplayKind::is_table_box) {
         let width = crate::table::max_content_width(dom, id, font, ctx);
         dom.intrinsic_width_put(key, width);
         return width;
