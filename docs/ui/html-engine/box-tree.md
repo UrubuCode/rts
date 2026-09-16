@@ -1,0 +1,282 @@
+# The box tree
+
+The layer between the DOM and the paint list, which this engine does not have
+and every other CSS engine does. Gecko calls it the frame tree, WebKit the
+render tree, Blink the layout object tree, Servo the box tree. The names differ
+and the reason does not: **CSS produces boxes that no element owns, and elements
+that own several boxes**, and neither can be expressed while layout runs
+directly over the DOM.
+
+This document is the decision and its shape. `crates/rts-dom/PLAN.md` carries
+the lots that build it, which is where a plan belongs (rule 2 of
+`docs/README.md`: a plan goes stale the moment work starts, and the person who
+fixes it is the person editing the crate).
+
+---
+
+## 1. What is missing, measured
+
+Everything in this section was measured on 2026-09-16, not inferred.
+
+**The central case does not fail — it is absent.** A `<div>` inside a `<span>`
+is not laid out wrongly; it is **ignored as a box**. `layout/runs.rs` walks the
+children of an inline container and tests, in order, for non-rendered metadata,
+`display:none`, form widgets, `<br>`, replaced elements and inline-blocks. It
+never tests for block level. The `<div>` matches none of them, falls into the
+generic inline arm, and the loop descends into *its* children as though the
+`<div>` were a transparent `<span>`. Its `width`, `height`, `background`,
+`padding` and `margin` are discarded. CSS 2.1 §9.2.1.1 asks for the inline to be
+split into three boxes, two of them anonymous. **148 reftests in `CSS2` fail on
+that family**, and there is nowhere to put them.
+
+**Generated content is written three times.** `::before` and `::after` have no
+`NodeIdx` — a deliberate decision recorded in `pseudo/mod.rs`, taken so the
+arena would not gain and lose a node on every re-cascade. The cost is that
+`Dom::pseudo_box` returns a `PseudoBox` that each consumer then re-integrates by
+hand: `layout/pseudo_bloco.rs` as a block with its own margin-collapse
+machinery, `layout/flex_pseudo.rs` as a counterfeit `FlexItem`, `layout/runs.rs`
+as an inline run, `layout/clearfix.rs` for the `clear` effect only. All three of
+the first record the same cuts — no `border-radius`, no `flex-basis`, text does
+not wrap — because each would have to implement them again.
+
+**Five distinct CSS values collapse into one `DisplayKind` at parse time**, and
+where the distinction matters it survives in a boolean beside the enum:
+`flow_root` beside `Block`, `table_column` and `table_column_group` beside
+`None`. `table` and `inline-table` collapse with no flag at all, and so do
+`grid` and `inline-grid` — while `flex` and `inline-flex` keep separate
+variants. `table-header-group`, `table-row-group` and `table-footer-group` are
+one value, so the render order the table spec asks for cannot be expressed.
+
+**Anonymous table rows and cells exist; the anonymous table does not.**
+`table/grid.rs` closes loose cells into a row and wraps a stray child as a cell.
+But a `<div style="display:table-cell">` with no table above it becomes an
+ordinary block: `layout/bloco.rs` only reaches `layout_table` when the node
+itself is `DisplayKind::Table`. CSS 2.1 §17.2.1 asks for the table to be
+generated around it.
+
+**One element with several boxes already happens, and is flattened on the
+spot.** An inline that wraps across lines contributes one rectangle per line,
+and `union_rect` grows a single stored rectangle to their envelope. That is the
+right answer for `getBoundingClientRect`, and the wrong shape for layout: the
+boundary between fragments is lost at the moment it is computed.
+
+---
+
+## 2. The decision: two trees
+
+**A persistent box tree as input, an immutable fragment tree as output.** This
+is the Blink-after-LayoutNG and Servo shape, and it is chosen over the two
+alternatives for reasons that are specific to this engine.
+
+**Not one tree that layout mutates.** That is the Gecko and old-WebKit shape,
+and it is smaller. It was rejected because layout stops being a function:
+`measure_block` and `layout_block_reusing` already cache on a key of
+`(node, constraints, epochs)` and already, in effect, hold two box instances of
+the same node distinguished only by constraints. Writing results back into the
+input makes that cache something to invalidate by hand rather than something
+that is correct by construction.
+
+**Not the existing paint list as output.** It is tempting — `DisplayList` is
+already a tree, with `children: Vec<ChildRef>` holding subtrees by reference for
+incremental reuse, so half the shape exists. It was rejected because it fuses
+layout with painting. The paint list answers *what pixels*, the fragment tree
+answers *what geometry*, and a fragment has to exist for a box that paints
+nothing. Chrome separated exactly these two and the cost of undoing that shows
+up later, not now.
+
+---
+
+## 3. What a box is
+
+Three kinds, and three because the evidence above asks for three:
+
+| kind | owns a `NodeIdx` | where it comes from |
+|---|---|---|
+| element box | yes | an element that generates a box |
+| anonymous box | no | the CSS rules that require one: block-in-inline, table fixups, text in a block container |
+| generated box | no, but names its originator | `::before`, `::after`, `::marker` |
+
+**Storage is a contiguous arena indexed by `BoxId`**, the same shape the DOM
+already uses for nodes. Not `Rc<RefCell<…>>`: the tree is built in one pass,
+read many times, and dropped whole.
+
+**Style enters as `Rc<ComputedStyle>`**, which is what `computed_style_idx`
+already returns — it shares the same `Rc` when there is no animation, and a
+`ComputedStyle` is about a kilobyte. Several boxes of one element therefore
+share one allocation rather than cloning it. An anonymous box inherits the
+`Rc` of the box that generated it, which is exactly what the CSS anonymous-box
+rules ask for: an anonymous box has no declarations of its own.
+
+**A text box carries the resolved inline properties, not a style pointer.**
+`computed_style_idx` returns `None` for a text node — it matches only
+`NodeKind::Element` — and `collect_runs` already threads colour, weight, italic,
+decoration, text transform and white-space down as parameters. The box tree
+keeps that: a text box is built with those values already resolved, which is
+also what makes it shareable across the fragments of one run.
+
+---
+
+## 4. How it is built
+
+One downward pass over the DOM, producing boxes as it goes. The pass is where
+every rule that is today spread across consumers gets to live exactly once:
+
+- **blockification** (CSS 2.1 §9.7), today in `effective_display`, consulted
+  from 16 files at 30 call sites with one known bypass;
+- **the two-value `display` form**, today rewritten inside the parser;
+- **anonymous block boxes** around text and around block-in-inline;
+- **anonymous table boxes**, the whole fixup chain rather than the two thirds
+  that exist;
+- **generated boxes** for `::before` and `::after`, once instead of three times.
+
+The pass reads the DOM and the style and writes only boxes. It does not measure,
+does not position and does not paint.
+
+---
+
+## 5. Invalidation
+
+The engine has four independent signals and the box tree must listen to the same
+ones rather than invent a fifth:
+
+| signal | scope | what it means |
+|---|---|---|
+| `style_epoch` | global, thread-local | per-tag styles changed |
+| `revision` | per document | structure changed (`touch`, `touch_subtree`, `touch_structural`, `touch_attr`) |
+| `anim_epoch` | per document | an animation frame, deliberately without touching structure |
+| `layout_epochs[node]` | per node | this subtree changed |
+
+The scoping already implemented is worth preserving rather than rebuilding: a
+structural change with no position-sensitive selector invalidates only the moved
+subtree; with `:nth-child` or a sibling combinator it invalidates the parent's
+subtree; with `:has()` it falls back to global. A box tree that listened only to
+`revision` would throw that away.
+
+**The cache key changes shape.** `LayoutMeasureKey` and `FragmentKey` are keyed
+on a single `NodeIdx` plus the constraints. With boxes, the key is a `BoxId`
+plus the constraints — which is strictly simpler, because the constraints are
+today doing part of the job of distinguishing box instances of one node.
+
+---
+
+## 6. What does not change
+
+The bridge to TypeScript promises that a `NodeId` yields exactly four numbers,
+through `boundingRect` and `boundingRectAll`. `rts-egui` asks for the whole
+paint list through `layout_cached` and hit-tests through it. The public surface
+is `layout_document`, `layout_cached` and `bounding_rect`; everything else in
+`crate::layout` is crate-private, which is what makes this migration possible at
+all.
+
+**Internally there may be N boxes per element; at that boundary they aggregate**,
+exactly as `union_rect` aggregates the line fragments of an inline today.
+
+---
+
+## 7. The invariants that break silently
+
+Surveyed on 2026-09-16 by reading the layout, the fragment cache, the stacking
+code and both consumers. **Seven of these compile and lie. Two stop the
+compiler, and those are the cheap ones.** Ordered by how invisible the failure
+is.
+
+**I1 — `NodeIdx` *is* the box identity, and there is no other.** Geometry
+(`node_rects`), hit order (`hit_order`), scroll state (`ScrollRegion.node_idx`),
+clips, grid tracks and all three cache keys are indexed by node. `record_node_rect`
+inserts, so two boxes of one node silently keep the last. The decision is
+written down in `pseudo/mod.rs`, which rejects Blink's approach with a reason
+that was true then: *"faz sentido lá, onde a árvore de layout é uma estrutura
+separada da árvore de nós; aqui o layout é indexado por `NodeIdx`"*. It stops
+being true the moment this layer exists. **I1 is the root of I4, I7 and I9.**
+
+**I2 — a box's parent is the node's parent.** `relativo.rs` and
+`transformacao.rs` find what to translate by walking `dom.node(id).children`,
+because — in the file's own words — *"a única forma de saber quais entradas são
+desta subárvore é andar o DOM a partir de `id`"*. With anonymous boxes they
+still find rectangles, just not all of them: half an element moves.
+
+**I3 — the child sequence of a container is the DOM's child list.** The
+incremental stitch validates a cached fragment by comparing its children against
+`dom.node(id).children` filtered to elements. With anonymous wrappers that
+comparison never matches, which merely disables stitching — a performance loss.
+**The danger is fixing it wrongly:** mapping box back to node to make it match
+again would stop it detecting changes in box structure that leave node structure
+alone, and the stitch would then repaint last frame's layout, internally
+consistent and wrong.
+
+**I4 — one node, one rectangle; several fragments collapse to their union.**
+`union_rect` is deliberate and correct for `getBoundingClientRect`. It is also
+why hit-testing a link that wraps across two lines hits the gap at the end of
+the first line. This is the one invariant whose breaking *improves* the answer.
+
+**I5 — paint order is a position in a flat vector.** Subtree references point at
+an index, and "is this child mine" is answered by a counter captured at creation
+time. That arithmetic has already cost three real defects, all recorded in the
+comments. A box tree is the natural place to do stacking by traversal — and
+while both models coexist, any box emitting out of creation order misaligns the
+indices with no way for the list to notice.
+
+**I6 — the style read mid-layout is the box's style.** About 175 sites ask the
+DOM for the computed style of the node they are laying out. An anonymous box has
+no node style: the spec says it inherits the inherited properties and resets the
+rest. Every one of these sites would answer with the parent element's style, and
+none of them has a `None` branch for "this box has no node".
+
+**I7 — invalidation rises through DOM ancestors, and that is enough.** It is
+already documented as not being enough: the fragment key carries the imposed
+constraints because *"o `node_epoch` sozinho não vê essa mudança — ela vem do
+IRMÃO, não do próprio nó"*, and the comment calls it the silent class by name.
+Anonymous boxes multiply exactly that, and they have no node whose epoch could
+rise. **This is the piece that cannot be deferred**, because the failure is
+serving last frame's drawing.
+
+**I8 and I9 — 85 signatures say `(dom, NodeIdx)`, and the fragment types carry a
+node.** Both are compile errors. The compiler enumerates every site. This is the
+cheap part, and the metric "85 functions" overstates the work while understating
+the risk.
+
+**The consequence for the order of work.** The first move is not the mirror by
+itself: it is **replacing the geometry and cache key with a `BoxId`**, with a
+single module owning a `NodeIdx → Vec<BoxId>` map. That makes I1, I4, I7 and
+I9 fall together, and turns I2 and I3 from silent lies into compile errors.
+
+---
+
+## 8. Phases
+
+Each phase has a ruler that must pass before the next begins.
+
+**Phase 1 — the identity swap.** A `BoxId` becomes the key of geometry, hit
+order, scroll state and all three caches, with one module owning the
+`NodeIdx → Vec<BoxId>` map. The tree is built as an exact 1:1 copy of the
+DOM — one element box per element, no anonymous boxes, no generated boxes — so
+every entry has length one and behaviour is identical by
+construction. I1, I4, I7 and I9 fall here; I2 and I3 become compile errors.
+
+> Ruler: **zero lost and zero gained**, per file, on the corpus and on the five
+> WPT folders. A gain here is not good news — it means something changed that
+> was not meant to.
+
+**Phase 2 — fragments.** Layout stops writing into a shared display list and
+starts returning fragments. The cache moves from node keys to box keys.
+
+> Ruler: zero lost. Gains are possible here and must be explained one by one.
+
+**Phase 3 — anonymous boxes, one family per lot.** Block-in-inline first,
+because it is 148 reftests and the case the layer exists for. Then the table
+fixups, then generated content moving from three implementations to one.
+
+> Ruler: per family, per file, against a kept binary — the process this
+> repository already runs.
+
+---
+
+## 9. Out of scope
+
+This layer does not paint glyphs, and painting glyphs is the single largest
+blocker measured on this corpus (issue #2729: around 1 369 of the passing
+reftests draw nothing on either side, and around 541 of the failures have one
+side drawing and the other not). It does not implement subgrid. It does not fix
+the two font metric constants that were calibrated separately, nor the
+containing block that does not know which axis it is on — both are smaller,
+both are independent, and both are worth doing first.
