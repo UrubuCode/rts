@@ -4,6 +4,27 @@
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
 
 use super::*;
+
+/// Cor de um SVG embutido que é deliberadamente só um rectângulo sólido. O
+/// rasterizador ainda não é um motor SVG; este recorte preserva, porém, o caso
+/// comum de fixtures e ícones de estado `data:image/svg+xml,<svg><rect
+/// fill=.../></svg>` sem inventar suporte para paths, transforms ou texto.
+fn cor_do_retangulo_svg_embutido(dom: &Dom, id: NodeIdx) -> Option<u32> {
+    let src = dom.node(id).attr("src")?;
+    let svg = src.strip_prefix("data:image/svg+xml,")?;
+    let rect = svg.get(svg.find("<rect")?..)?;
+    let fim = rect.find('>')?;
+    let tag = &rect[..fim];
+    let marker = "fill=";
+    let at = tag.find(marker)? + marker.len();
+    let quote = *tag.as_bytes().get(at)?;
+    if quote != b'\'' && quote != b'"' {
+        return None;
+    }
+    let value = &tag[at + 1..];
+    let value = &value[..value.find(quote as char)?];
+    crate::style::parse_color(value)
+}
 /// Layout de um `<input>`/`<textarea>` editável: emite a CAIXA (fundo+borda), o
 /// TEXTO (o valor digitado, ou o `placeholder` apagado se vazio) e, se o campo tem
 /// o FOCO, um CURSOR (barrinha) após o texto. Void (sem filhos) — o egui só recebe
@@ -217,6 +238,12 @@ pub(in crate::layout) fn layout_image(
             pixels_off: off,
             img_w: iw,
             img_h: ih,
+        });
+    } else if let Some(color) = cor_do_retangulo_svg_embutido(dom, id) {
+        list.items.push(DisplayItem::SolidRect {
+            rect: content_rect,
+            color,
+            radius: Corners::ZERO,
         });
     }
     Some((

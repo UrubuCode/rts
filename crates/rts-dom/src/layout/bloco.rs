@@ -1100,13 +1100,31 @@ pub(crate) fn layout_block(
         // FUNDO: gradiente (se houver) OU cor sólida — a menos que uma MÁSCARA
         // dê a forma da caixa (ver `deve_suprimir_fundo`).
         let fundo = !deve_suprimir_fundo(&css);
+        // A cor de fundo começa no border-box por omissão, mas `content-box`
+        // exclui padding e borda. O rect já calculado usa a caixa final (após
+        // min/max e flex), portanto não volta a resolver percentagens aqui.
+        let background_rect = match css.background_clip {
+            Some(crate::style::painting::BackgroundClip::ContentBox) => Rect::new(
+                box_rect.x + border_left + pad_left,
+                box_rect.y + border_top + pad_top,
+                content_w,
+                box_content_h,
+            ),
+            Some(crate::style::painting::BackgroundClip::PaddingBox) => Rect::new(
+                box_rect.x + border_left,
+                box_rect.y + border_top,
+                content_w + padding_h,
+                box_content_h + pad_top + pad_bottom,
+            ),
+            _ => box_rect,
+        };
         if let Some(g) = css.gradient.filter(|_| fundo) {
             insert_item(
                 list,
                 at,
                 filhos_antes_da_caixa,
                 DisplayItem::GradientRect {
-                    rect: box_rect,
+                    rect: background_rect,
                     c0: cor(g.c0),
                     c1: cor(g.c1),
                     angle_deg: g.angle_deg,
@@ -1121,7 +1139,7 @@ pub(crate) fn layout_block(
                 at,
                 filhos_antes_da_caixa,
                 DisplayItem::SolidRect {
-                    rect: box_rect,
+                    rect: background_rect,
                     color,
                     radius: cantos,
                 },
