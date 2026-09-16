@@ -30,6 +30,7 @@ mod ib_nowrap_corpus;
 mod justify_fisico_corpus;
 mod clearfix_corpus;
 mod pseudo_flex_corpus;
+mod pseudo_bt5_corpus;
 mod borda_em_corpus;
 mod flex_margens_auto_corpus;
 mod flex_justify_logico_corpus;

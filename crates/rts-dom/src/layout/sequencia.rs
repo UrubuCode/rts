@@ -2,65 +2,71 @@
 //!
 //! Until this module existed, `layout_children_vertical` walked
 //! `dom.node(id).children` and asked the tree only "which box is this child's".
-//! The tree entered as IDENTITY and the DOM kept the ORDER, which is the line
-//! §10 of `docs/ui/html-engine/box-tree.md` names as the first thing the base
-//! does not do. While it held, a box the DOM does not have — an anonymous box,
-//! the whole point of the layer — could not be reached by anyone descending,
-//! however well the build had constructed it.
+//! The tree entered as IDENTITY and the DOM kept the ORDER, so a box the DOM
+//! does not have — an anonymous box, the whole point of the layer — could not be
+//! reached by anyone descending, however well the build had constructed it.
 //!
-//! **Now the sequence is `tree.children(caixa)`, in the tree's order.** A TEXT
-//! box is in it with its box, and an ANONYMOUS box is entered rather than walked
-//! past — see [`expande_anonima`] for what "entered" means in this lot and what
-//! it does not yet mean.
+//! **The sequence is `tree.children(caixa)`, in the tree's order.** A TEXT box
+//! is in it with its box, and an ANONYMOUS box is a STEP OF ITS OWN —
+//! [`PassoDoFluxo::Anonima`] — which the flow lays out through
+//! [`super::bloco_caixa`], as the block box CSS 2.1 §9.2.1.1 says it is.
 //!
-//! **The cursor this replaced STOPPED at the first anonymous box.** It matched a
-//! box to a DOM child by `node_of`, an anonymous box answers `None`, so no child
-//! matched it and the cursor never advanced again: every remaining child of that
-//! container came out with no box, and with it no style — a `<div>` inside a
-//! `<span style="background:red">` lost its margin, its `float` and its `clear`.
-//! That shape is not hypothetical; it is exactly the one the split produces, and
-//! `caixa::is_block_level` routes such a `<span>` through `layout_block`.
+//! **That replaced an `expande_anonima` that poured the box's children into the
+//! sequence one by one.** It was the right thing while the flow had no path
+//! that could lay a box with no `NodeIdx` out — each child reached the same arm
+//! that had received it before the tree existed, and no answer moved. Now there
+//! is such a path, and dissolving the box here would be throwing away the box
+//! the split exists to produce.
 //!
 //! ## The one thing that still comes from the DOM, and why
 //!
-//! A node that generates NO box — today only a comment — is spliced back in at
-//! its DOM position, with `caixa: None`.
+//! A node that generates NO box — a comment, and a whitespace-only run the
+//! split declined to wrap — is spliced back in at its DOM position, with
+//! `caixa: None`.
 //!
-//! That is not tidiness; it is the lot's ruler. A comment reaching
-//! `layout_children_vertical` today falls into the generic inline arm, and two
-//! things happen there that are not nothing: it FLUSHES the run of consecutive
-//! inline-blocks, and it opens an inline group whose flush resets `borda` and
-//! `strut` — so a comment between two block siblings breaks their margin
-//! collapse. Dropping comments from the sequence would therefore CHANGE answers,
-//! in the direction that looks like a fix. BT-1's ruler is **zero lost and zero
-//! gained**, and a gain here is a thing to explain, not to bank. Whether a
-//! comment should stop a margin collapse is its own lot, measured on its own.
+//! That is not tidiness. A comment reaching `layout_children_vertical` falls
+//! into the generic inline arm, and two things happen there that are not
+//! nothing: it FLUSHES the run of consecutive inline-blocks, and it opens an
+//! inline group whose flush resets `borda` and `strut` — so a comment between
+//! two block siblings breaks their margin collapse. Dropping comments from the
+//! sequence would therefore CHANGE answers, in the direction that looks like a
+//! fix, on pages that have nothing to do with this lot. Whether a comment should
+//! stop a margin collapse is its own lot, measured on its own.
 //!
 //! ## What replaced the `debug_assert!` of the mirror
 //!
-//! The old one compared two sequences — the DOM's children against the boxes
-//! the follower handed out — and it earned its keep: it fired in 322 tests at
-//! once when text gained a box. With the order coming from the tree there are
-//! no longer two sequences to compare, so the check it made is not expressible.
+//! The old one compared two sequences — the DOM's children against the boxes the
+//! follower handed out — and it earned its keep: it fired in 322 tests at once
+//! when text gained a box. With the order coming from the tree there are no
+//! longer two sequences to compare, so the check it made is not expressible.
 //!
 //! [`sequencia_do_fluxo`] asserts what remains checkable and is just as silent
 //! when it breaks: that the box being descended into belongs to the tree the
 //! `DisplayList` carries (the GENERATION), that every box emitted is a child of
 //! that box in that tree, and that no box of the tree is dropped on the way.
-//! A stale `BoxId` is the failure this catches, and it is the one the box
-//! generation exists for — see `boxes/mod.rs`.
 
 use super::*;
 use crate::boxes::{BoxId, BoxTree};
 
 /// One step of the block flow's descent over the box tree.
 ///
-/// `caixa` is `None` for a DOM child that generates no box at all — a comment —
-/// and for every child when the list carries no tree. The flow asks
-/// `caixa.is_some()` where it used to ask "is this an element".
-pub(in crate::layout) struct FilhoDoFluxo {
-    pub no: NodeIdx,
-    pub caixa: Option<BoxId>,
+/// **An ENUM and not a struct with an `Option<NodeIdx>`**, which was the other
+/// shape available. A box with no node is the whole point of this layer, and
+/// every reader of the old struct went straight to `dom.node(passo.no)` — with
+/// an optional field the compiler lets that read stay, one `unwrap_or` away from
+/// answering about the SPLIT INLINE instead of about the anonymous box. That is
+/// invariant I6 of `docs/ui/html-engine/box-tree.md` failing in silence. Here
+/// the node is not reachable without matching the variant that has one.
+#[derive(Debug)]
+pub(in crate::layout) enum PassoDoFluxo {
+    /// A step that names a node: an element box, a text box, or — with
+    /// `caixa: None` — a DOM child that generates no box at all (a comment), and
+    /// every child when the list carries no tree.
+    No { no: NodeIdx, caixa: Option<BoxId> },
+    /// An ANONYMOUS block box. It has no node, and nothing in this step may be
+    /// translated back into one: what it needs — its style source, its children
+    /// — it asks the tree for.
+    Anonima(BoxId),
 }
 
 /// The children of `caixa`, in the tree's order, with the no-box DOM children
@@ -74,12 +80,12 @@ pub(in crate::layout) fn sequencia_do_fluxo(
     tree: &BoxTree,
     id: NodeIdx,
     caixa: Option<BoxId>,
-) -> Vec<FilhoDoFluxo> {
+) -> Vec<PassoDoFluxo> {
     let filhos_dom = &dom.node(id).children;
     let Some(caixa) = caixa else {
         return filhos_dom
             .iter()
-            .map(|&no| FilhoDoFluxo { no, caixa: None })
+            .map(|&no| PassoDoFluxo::No { no, caixa: None })
             .collect();
     };
     // The box being descended into must belong to the tree this list was laid
@@ -99,10 +105,9 @@ pub(in crate::layout) fn sequencia_do_fluxo(
         tree.generation()
     );
     let caixas = tree.children(caixa);
-    // The tree's own order, first and on its own. An ANONYMOUS box is EXPANDED
-    // into its children here and does not itself become a step of the flow —
-    // see [`expande_anonima`].
-    let mut da_arvore: Vec<FilhoDoFluxo> = Vec::with_capacity(caixas.len());
+    // The tree's own order, first and on its own. ONE STEP PER BOX, anonymous
+    // included: the flow has a path for a box with no node now.
+    let mut da_arvore: Vec<PassoDoFluxo> = Vec::with_capacity(caixas.len());
     for &b in caixas {
         debug_assert_eq!(
             tree.parent(b),
@@ -110,88 +115,127 @@ pub(in crate::layout) fn sequencia_do_fluxo(
             "a caixa {b:?} nao e filha de {caixa:?}, e a descida chegou a ela na mesma"
         );
         match tree.node_of(b) {
-            Some(no) => da_arvore.push(FilhoDoFluxo { no, caixa: Some(b) }),
-            None => expande_anonima(tree, b, &mut da_arvore),
+            Some(no) => da_arvore.push(PassoDoFluxo::No { no, caixa: Some(b) }),
+            None => da_arvore.push(PassoDoFluxo::Anonima(b)),
         }
     }
-    // Every box that names a node came out the other side. This is the half of
-    // the mirror's `debug_assert!` that survives the order moving: there is no
-    // second sequence to compare against any more, but there is still a tree
-    // whose boxes all have to be visited.
-    //
-    // `>=` and over the boxes that NAME a node, not over all of them: an
-    // anonymous box contributes its children, and an anonymous box can be EMPTY
-    // — `<span><!--c--><div>x</div></span>` builds one around a run whose only
-    // member is a comment, which generates nothing.
-    debug_assert!(
-        da_arvore.len() >= caixas.iter().filter(|&&b| tree.node_of(b).is_some()).count(),
+    // Every box of this container came out the other side, one for one. It is an
+    // EQUALITY and not a `>=`: while an anonymous box was expanded, the count on
+    // the left counted its GRANDCHILDREN and no arithmetic related the two sides.
+    debug_assert_eq!(
+        da_arvore.len(),
+        caixas.len(),
         "a sequencia de {caixa:?} perdeu caixas: {} passos para {} filhas",
         da_arvore.len(),
         caixas.len()
     );
-    emenda_os_sem_caixa(dom, tree, id, da_arvore)
+    // The whole child list belongs to the OWNER alone — see [`emenda_os_sem_caixa`]
+    // for why an anonymous box gets a window over one run instead.
+    let janela = if tree.node_of(caixa) == Some(id) {
+        Janela::TodoOContentor
+    } else {
+        janela_do_run(dom, tree, id, caixas)
+    };
+    emenda_os_sem_caixa(dom, tree, id, da_arvore, janela)
 }
 
-/// Pours an anonymous box's own children into the sequence, recursively.
+/// Which DOM children of `id` a sequence may have spliced into it.
+#[derive(Clone, Copy)]
+enum Janela {
+    /// The box IS `id`'s: every child of it that generates no box belongs.
+    TodoOContentor,
+    /// The box holds one RUN of `id`'s children, between these two DOM
+    /// positions, both excluded.
+    Run(usize, usize),
+    /// The run could not be located in the child list. Nothing is spliced, which
+    /// is the conservative half of the two.
+    Nenhuma,
+}
+
+/// The DOM positions an anonymous box's run COVERS, as an exclusive interval.
 ///
-/// **An anonymous box really does reach this module**, which the first version
-/// of it denied. A `<span style="background:red">` with a `<div>` inside is
-/// split by `boxes::build` — inline-level, flow, not independent — and is ALSO
-/// routed to `layout_block` by `caixa::is_block_level`, which answers "does this
-/// go through `layout_block`" and says yes for an inline with a box to paint.
-///
-/// **Expanding is what keeps this lot's ruler.** The flow has no path that lays
-/// an anonymous box out as the block box it is, and the one thing it could do
-/// instead — pour the content straight into the inline group — would skip the
-/// per-node dispatch of `layout_children_vertical`: collapsing whitespace
-/// between two blocks would stop being skipped and would open a line, resetting
-/// the margin collapse. Expansion hands each child to the same arm that received
-/// it before the tree existed, so no answer moves.
-///
-/// **Laying the anonymous box out as the block it is — the 148 CSS2 reftests of
-/// §9.2.1.1 — is the next lot, and this is the function it replaces.**
-///
-/// Recursive because nothing forbids an anonymous box inside another once the
-/// table fixups land (BT-4): a non-recursive version would drop that subtree in
-/// silence, which is the class this layer was built to stop.
-fn expande_anonima(tree: &BoxTree, anonima: BoxId, seq: &mut Vec<FilhoDoFluxo>) {
-    for &neto in tree.children(anonima) {
-        match tree.node_of(neto) {
-            Some(no) => seq.push(FilhoDoFluxo {
-                no,
-                caixa: Some(neto),
-            }),
-            None => expande_anonima(tree, neto, seq),
-        }
+/// An anonymous box encloses a contiguous run of its container's children (see
+/// `boxes/build.rs`), and which children those are is not recorded anywhere — it
+/// is recoverable, and only recoverable, from where the nodes under it sit in
+/// the DOM child list. [`Janela::Nenhuma`] is the answer when that fails: a box
+/// naming a node that is not a child of `id` at all, which the table fixups of
+/// BT-4 will produce. It means "splice nothing", which is the conservative half
+/// of the two — a comment that was in the sequence stops being in it, never the
+/// reverse.
+fn janela_do_run(dom: &Dom, tree: &BoxTree, id: NodeIdx, caixas: &[BoxId]) -> Janela {
+    let mut menor = usize::MAX;
+    let mut maior = 0usize;
+    for &b in caixas {
+        let Some(pos) = posicao_no_contentor(dom, tree, id, b) else {
+            return Janela::Nenhuma;
+        };
+        menor = menor.min(pos);
+        maior = maior.max(pos);
     }
+    if menor == usize::MAX {
+        return Janela::Nenhuma;
+    }
+    Janela::Run(menor, maior)
 }
 
-/// Splices the DOM children that generated NO box back into a sequence that
-/// came from the tree, each at its own DOM position.
+/// Where the content under `b` sits among the DOM children of `id`.
 ///
-/// Today that is comments and nothing else, and the reason they are here rather
-/// than dropped is the module header's: a comment currently closes the run of
-/// inline-blocks and opens an inline group, which resets the margin collapse
-/// between two block siblings. Dropping them would move answers, and this lot's
-/// ruler is zero lost AND zero gained.
+/// A box that names a node answers directly. An ANONYMOUS box answers with the
+/// FIRST position any box below it reaches, and that recursion is not decoration:
+/// without it an anonymous step has no position, and `emenda_os_sem_caixa` then
+/// lets every pending comment slide past it to the end of the container — where
+/// it stops breaking the margin collapse it used to break. That is an answer
+/// moving for a reason nothing in this lot measured.
+fn posicao_no_contentor(dom: &Dom, tree: &BoxTree, id: NodeIdx, b: BoxId) -> Option<usize> {
+    let filhos = &dom.node(id).children;
+    if let Some(no) = tree.node_of(b) {
+        return filhos.iter().position(|&d| d == no);
+    }
+    tree.children(b)
+        .iter()
+        .filter_map(|&neto| posicao_no_contentor(dom, tree, id, neto))
+        .min()
+}
+
+/// Splices the DOM children that generated NO box back into a sequence that came
+/// from the tree, each at its own DOM position.
+///
+/// Today that is comments and the whitespace-only runs the split declined to
+/// wrap, and the reason they are here rather than dropped is the module
+/// header's.
 ///
 /// The merge is by DOM POSITION and the tree still decides the order among the
-/// boxes: a no-box child is emitted before the first box whose node sits after
-/// it in the DOM. A box whose node is not a DOM child of `id` at all — which a
-/// future fixup may well produce — has no position, sorts last, and therefore
-/// never drags a comment past anything.
+/// boxes: a no-box child is emitted before the first step whose content sits
+/// after it in the DOM. A box whose node is not a DOM child of `id` at all has
+/// no position, sorts last, and therefore never drags a comment past anything.
+///
+/// **`janela` is what an ANONYMOUS box gets instead of the whole child list.**
+/// The children of `id` are not the children of one anonymous box: the box holds
+/// ONE RUN of them. Without the window, every comment anywhere in the container
+/// would be spliced into every anonymous box the split produced — the same
+/// comment several times over, each one closing a run of inline-blocks it is
+/// nowhere near. The window is the DOM span the run covers, and it is EXCLUSIVE
+/// at both ends on purpose: a comment at the edge of a run sits next to the
+/// block-level child that ended it, where the flush it would have caused happens
+/// anyway.
 fn emenda_os_sem_caixa(
     dom: &Dom,
     tree: &BoxTree,
     id: NodeIdx,
-    da_arvore: Vec<FilhoDoFluxo>,
-) -> Vec<FilhoDoFluxo> {
+    da_arvore: Vec<PassoDoFluxo>,
+    janela: Janela,
+) -> Vec<PassoDoFluxo> {
     let filhos_dom = &dom.node(id).children;
+    let dentro = |pos: usize| match janela {
+        Janela::TodoOContentor => true,
+        Janela::Run(menor, maior) => pos > menor && pos < maior,
+        Janela::Nenhuma => false,
+    };
     let sem_caixa: Vec<(usize, NodeIdx)> = filhos_dom
         .iter()
         .copied()
         .enumerate()
-        .filter(|&(_, d)| tree.boxes_of(d).is_empty())
+        .filter(|&(pos, d)| tree.boxes_of(d).is_empty() && dentro(pos))
         .collect();
     if sem_caixa.is_empty() {
         return da_arvore;
@@ -199,9 +243,12 @@ fn emenda_os_sem_caixa(
     let mut out = Vec::with_capacity(da_arvore.len() + sem_caixa.len());
     let mut s = 0usize;
     for f in da_arvore {
-        let posicao = filhos_dom.iter().position(|&d| d == f.no);
+        let posicao = match &f {
+            PassoDoFluxo::No { no, .. } => filhos_dom.iter().position(|d| d == no),
+            PassoDoFluxo::Anonima(b) => posicao_no_contentor(dom, tree, id, *b),
+        };
         while s < sem_caixa.len() && Some(sem_caixa[s].0) < posicao {
-            out.push(FilhoDoFluxo {
+            out.push(PassoDoFluxo::No {
                 no: sem_caixa[s].1,
                 caixa: None,
             });
@@ -210,7 +257,7 @@ fn emenda_os_sem_caixa(
         out.push(f);
     }
     for &(_, d) in &sem_caixa[s..] {
-        out.push(FilhoDoFluxo { no: d, caixa: None });
+        out.push(PassoDoFluxo::No { no: d, caixa: None });
     }
     out
 }
@@ -227,51 +274,108 @@ mod tests {
             .unwrap_or_else(|| panic!("a fixture nao tem <{procurada}>"))
     }
 
-    /// **O caso por que a camada existe, visto de quem DESCE e não de quem
-    /// constrói.** `<span>texto<div>bloco</div>texto</span>`: a árvore parte o
-    /// inline numa anónima, no `<div>` e noutra anónima, e o `<div>` é IRMÃO
-    /// das anónimas em vez de descendente do inline.
-    ///
-    /// **É o teste que não passa enquanto a ordem vier do DOM.** Com o cursor
-    /// que este módulo substituiu, `tree.children(span)[0]` é uma caixa
-    /// ANÓNIMA, `node_of` responde `None`, nenhum filho do DOM casa com ela e o
-    /// cursor PARA — o `<div>` e os dois textos saíam todos com `caixa: None`,
-    /// e com eles o estilo do `<div>` (a margem, o `float`, o `clear`), que é
-    /// lido de `caixa_do_filho`. Aqui os três saem com a sua caixa.
-    #[test]
-    fn a_ordem_de_um_inline_partido_vem_da_arvore_e_nao_do_dom() {
-        let dom = crate::parse_html_to_dom("<p><span>texto<div>bloco</div>texto</span></p>");
-        let tree = dom.box_tree();
-        let span = no_da_tag(&dom, "span");
-        let div = no_da_tag(&dom, "div");
-        let caixa_span = tree.boxes_of(span)[0];
-
-        // A arvore parte mesmo: anonima, div, anonima.
-        let filhas = tree.children(caixa_span);
-        assert_eq!(filhas.len(), 3, "anon, o div, anon: {filhas:?}");
-        assert!(matches!(tree.kind(filhas[0]), BoxKind::Anonymous { .. }));
-        assert_eq!(tree.node_of(filhas[1]), Some(div), "o bloco e irmao das anonimas");
-        assert!(matches!(tree.kind(filhas[2]), BoxKind::Anonymous { .. }));
-
-        let seq = sequencia_do_fluxo(&dom, &tree, span, Some(caixa_span));
-        assert_eq!(seq.len(), 3, "texto, div, texto — as anonimas expandidas");
-        assert!(
-            seq.iter().all(|f| f.caixa.is_some()),
-            "os tres saem COM caixa; com o cursor antigo os tres saiam sem nenhuma"
-        );
-        assert_eq!(seq[1].no, div, "o bloco fica no meio, na ordem da arvore");
-        assert_eq!(
-            tree.parent(seq[0].caixa.unwrap()),
-            Some(filhas[0]),
-            "o texto da frente pertence a anonima, e e por ela que foi alcancado"
-        );
-        assert!(matches!(&dom.node(seq[0].no).kind, NodeKind::Text(t) if t == "texto"));
-        assert_eq!(tree.parent(seq[2].caixa.unwrap()), Some(filhas[2]));
+    /// O nó de um passo, ou `None` quando o passo é uma caixa anónima — que é a
+    /// resposta certa e não uma falha de conversão: essa caixa não tem nó.
+    /// A caixa que um passo traz, anónima ou não. `None` só para um filho do DOM
+    /// que não gera caixa nenhuma.
+    fn caixa_do_passo(p: &PassoDoFluxo) -> Option<BoxId> {
+        match *p {
+            PassoDoFluxo::No { caixa, .. } => caixa,
+            PassoDoFluxo::Anonima(b) => Some(b),
+        }
     }
 
-    /// A nó de TEXTO entra na sequência COM a sua caixa. Antes deste módulo o
-    /// texto aparecia no laço por vir do DOM; agora aparece por estar na
-    /// árvore, e é essa a diferença que faz uma caixa anónima ser alcançável.
+    fn no_do_passo(p: &PassoDoFluxo) -> Option<NodeIdx> {
+        match *p {
+            PassoDoFluxo::No { no, .. } => Some(no),
+            PassoDoFluxo::Anonima(_) => None,
+        }
+    }
+
+    /// **O caso por que a camada existe, visto de quem DESCE.** As caixas
+    /// anónimas e o `<div>` são filhos do `<p>`, e não do `<span>`: é a
+    /// sequência do CONTENTOR que muda, porque é para ele que a partição sobe.
+    #[test]
+    fn a_particao_aparece_na_sequencia_do_contentor_e_nao_na_do_inline() {
+        let dom = crate::parse_html_to_dom("<p><span>texto<div>bloco</div>texto</span></p>");
+        let tree = dom.box_tree();
+        let p = no_da_tag(&dom, "p");
+        let div = no_da_tag(&dom, "div");
+
+        let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
+        assert_eq!(seq.len(), 3, "anonima, o bloco, anonima: {seq:?}");
+        assert!(
+            matches!(seq[0], PassoDoFluxo::Anonima(_)),
+            "a corrida da frente e uma caixa anonima do <p>, nao o texto la dentro"
+        );
+        assert_eq!(
+            no_do_passo(&seq[1]),
+            Some(div),
+            "o bloco e IRMAO das anonimas, na ordem da arvore"
+        );
+        assert!(matches!(seq[2], PassoDoFluxo::Anonima(_)));
+        assert!(seq.iter().all(|p| caixa_do_passo(p).is_some()));
+    }
+
+    /// Dentro da caixa anónima está o FRAGMENTO do `<span>` — um caixa de
+    /// ELEMENTO e não anónima, porque o CSS 2.1 §9.2.1.1 diz que cada metade
+    /// guarda a borda e o fundo do elemento, e uma caixa anónima não tem
+    /// declarações para os carregar.
+    #[test]
+    fn dentro_da_anonima_esta_um_fragmento_do_inline_com_o_estilo_dele() {
+        let dom = crate::parse_html_to_dom(
+            "<p><span style='background:red'>a<div>b</div>c</span></p>",
+        );
+        let tree = dom.box_tree();
+        let p = no_da_tag(&dom, "p");
+        let span = no_da_tag(&dom, "span");
+
+        assert_eq!(
+            tree.boxes_of(span).len(),
+            2,
+            "o inline partido tem DUAS caixas suas, uma por corrida"
+        );
+        let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
+        let PassoDoFluxo::Anonima(anon) = seq[0] else {
+            panic!("o primeiro passo devia ser anonimo: {seq:?}");
+        };
+        assert!(matches!(tree.kind(anon), BoxKind::Anonymous { .. }));
+        // A anónima herda do CONTENTOR, não do inline: §9.2.1.1 manda herdar da
+        // caixa não-anónima que a envolve.
+        assert_eq!(tree.style_source(anon), p);
+
+        let dentro = sequencia_do_fluxo(&dom, &tree, p, Some(anon));
+        assert_eq!(dentro.len(), 1, "a corrida da frente e o fragmento do span");
+        assert_eq!(no_do_passo(&dentro[0]), Some(span));
+        assert_eq!(
+            caixa_do_passo(&dentro[0]),
+            Some(tree.boxes_of(span)[0]),
+            "e e o PRIMEIRO fragmento, nao o segundo"
+        );
+    }
+
+    /// Um irmão inline do inline partido entra na MESMA caixa anónima. Sem isto
+    /// o `x` e o `a` ficavam em linhas diferentes, que é o que nenhum browser
+    /// faz.
+    #[test]
+    fn um_irmao_inline_entra_na_mesma_anonima_que_o_fragmento() {
+        let dom = crate::parse_html_to_dom("<p>x<span>a<div>b</div>c</span>y</p>");
+        let tree = dom.box_tree();
+        let p = no_da_tag(&dom, "p");
+
+        let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
+        assert_eq!(seq.len(), 3, "anonima, bloco, anonima: {seq:?}");
+        let PassoDoFluxo::Anonima(frente) = seq[0] else {
+            panic!("{seq:?}");
+        };
+        let dentro = sequencia_do_fluxo(&dom, &tree, p, Some(frente));
+        assert_eq!(dentro.len(), 2, "o texto 'x' E o fragmento do span");
+        assert!(
+            matches!(&dom.node(no_do_passo(&dentro[0]).unwrap()).kind, NodeKind::Text(t) if t == "x")
+        );
+    }
+
+    /// A nó de TEXTO entra na sequência COM a sua caixa.
     #[test]
     fn um_no_de_texto_entra_na_sequencia_com_a_sua_caixa() {
         let dom = crate::parse_html_to_dom("<div>ola</div>");
@@ -280,19 +384,12 @@ mod tests {
         let seq = sequencia_do_fluxo(&dom, &tree, div, Some(tree.boxes_of(div)[0]));
 
         assert_eq!(seq.len(), 1);
-        assert!(
-            seq[0].caixa.is_some(),
-            "o texto tem caixa desde que a arvore a da"
-        );
-        assert!(matches!(&dom.node(seq[0].no).kind, NodeKind::Text(_)));
+        assert!(caixa_do_passo(&seq[0]).is_some(), "o texto tem caixa desde que a arvore a da");
+        let no = no_do_passo(&seq[0]).expect("um no de texto tem no");
+        assert!(matches!(&dom.node(no).kind, NodeKind::Text(_)));
     }
 
     /// Um COMENTÁRIO não gera caixa e continua na sequência, na posição do DOM.
-    ///
-    /// É a recusa que o cabeçalho deste módulo explica: hoje um comentário
-    /// fecha a corrida de inline-blocks e quebra o colapso de margens entre dois
-    /// blocos. Deixá-lo cair mudava respostas, e a régua deste lote é zero
-    /// perdidos **e zero ganhos**.
     #[test]
     fn um_comentario_nao_tem_caixa_e_fica_na_sequencia_onde_o_dom_o_poe() {
         let dom = crate::parse_html_to_dom("<div><p>a</p><!--c--><p>b</p></div>");
@@ -301,13 +398,43 @@ mod tests {
         let seq = sequencia_do_fluxo(&dom, &tree, div, Some(tree.boxes_of(div)[0]));
 
         assert_eq!(seq.len(), 3, "dois <p> e o comentario entre eles");
-        assert!(seq[1].caixa.is_none(), "um comentario nao gera caixa");
-        assert!(matches!(&dom.node(seq[1].no).kind, NodeKind::Comment(_)));
+        assert!(caixa_do_passo(&seq[1]).is_none(), "um comentario nao gera caixa");
+        let no = no_do_passo(&seq[1]).expect("um comentario e um no, so nao tem caixa");
+        assert!(matches!(&dom.node(no).kind, NodeKind::Comment(_)));
+    }
+
+    /// **Um comentário não é emendado em TODAS as corridas do contentor.** Sem
+    /// a janela, o `<!--c-->` daqui aparecia na corrida da frente E na de trás,
+    /// cada uma a fechar uma corrida de inline-blocks onde não está.
+    #[test]
+    fn a_emenda_de_um_comentario_nao_se_repete_por_corrida() {
+        let dom = crate::parse_html_to_dom("<div>a<!--c-->b<span>s<p>x</p>f</span></div>");
+        let tree = dom.box_tree();
+        let div = no_da_tag(&dom, "div");
+        let seq = sequencia_do_fluxo(&dom, &tree, div, Some(tree.boxes_of(div)[0]));
+        let anonimas: Vec<BoxId> = seq
+            .iter()
+            .filter_map(|p| match *p {
+                PassoDoFluxo::Anonima(b) => Some(b),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(anonimas.len(), 2, "uma corrida de cada lado do <p>: {seq:?}");
+
+        let comentarios = |b: BoxId| {
+            sequencia_do_fluxo(&dom, &tree, div, Some(b))
+                .iter()
+                .filter(|p| {
+                    no_do_passo(p).is_some_and(|n| matches!(&dom.node(n).kind, NodeKind::Comment(_)))
+                })
+                .count()
+        };
+        assert_eq!(comentarios(anonimas[0]), 1, "o comentario esta nesta corrida");
+        assert_eq!(comentarios(anonimas[1]), 0, "e nao na outra");
     }
 
     /// Sem árvore (`DisplayList::default()`), a sequência é a do DOM e nenhuma
-    /// caixa é prometida — o caminho que mantém os cinco sítios que constroem
-    /// uma lista vazia a compilar e a responder como sempre responderam.
+    /// caixa é prometida.
     #[test]
     fn sem_arvore_a_sequencia_e_a_do_dom() {
         let dom = crate::parse_html_to_dom("<div><p>a</p><!--c--><p>b</p></div>");
@@ -315,13 +442,10 @@ mod tests {
         let seq = sequencia_do_fluxo(&dom, &BoxTree::default(), div, None);
 
         assert_eq!(seq.len(), dom.node(div).children.len());
-        assert!(seq.iter().all(|f| f.caixa.is_none()));
+        assert!(seq.iter().all(|p| caixa_do_passo(p).is_none()));
     }
 
-    /// Uma `BoxId` de OUTRA construção da árvore é recusada, e é esta a
-    /// asserção que substituiu a equivalência do espelho: já não há duas
-    /// sequências para comparar, mas há uma árvore a que a caixa tem de
-    /// pertencer.
+    /// Uma `BoxId` de OUTRA construção da árvore é recusada.
     #[test]
     #[should_panic(expected = "nao e desta arvore")]
     fn uma_caixa_de_outra_arvore_e_recusada() {

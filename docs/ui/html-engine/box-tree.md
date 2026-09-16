@@ -302,10 +302,24 @@ The tests that pin each line are in `crates/rts-dom/src/boxes/tests.rs`.
 
 ### What the tree holds
 
-One box per ELEMENT the cascade accepts, one per TEXT node, and one anonymous
-block box per inline run the block-in-inline split wraps (CSS 2.1 §9.2.1.1).
-No box for a comment, none for `display: none`, and no table fixups or
+One box per ELEMENT the cascade accepts, one per TEXT node, and — where CSS 2.1
+§9.2.1.1 applies — **several boxes for the split inline plus one anonymous block
+box per inline run**. No box for a comment, none for `display: none`, none for a
+run of collapsible whitespace the split declined to wrap, and no table fixups or
 generated content yet — those are BT-4 and BT-5.
+
+**The shape of the split, because it is the one place the tree is not a mirror.**
+For `<p><span>a<div>b</div>c</span></p>` the `<p>` box has three children: an
+anonymous block enclosing a FRAGMENT of the span (an element box, which is what
+carries the span's own border and background), the `<div>` as their SIBLING, and
+a second anonymous block with the second fragment. The anonymous boxes rise to
+the CONTAINER — a sibling of boxes nested inside the inline would not be a
+sibling — and they inherit from the container, which is the enclosing
+non-anonymous box. `boxes/build.rs` quotes the rule and draws the tree.
+
+**Two consequences a reader must not assume away.** `boxes_of(node)` may return
+MORE THAN ONE box, so `.first()` is one fragment of several; and an anonymous
+box's children are not its style source's children — they are one RUN of them.
 
 ### The three rules, and the hole each one closed
 
@@ -360,11 +374,20 @@ that wants to know "is this an inline formatting context" asks the tree.
   box is a child of the one descended through, and one that no box naming a
   node was dropped. None of them compares the tree against the DOM child by
   child. Said plainly rather than dressed up as equivalent.
-- **An anonymous box is not yet laid out as the BLOCK box it is.** It is
-  expanded into its children, each going to the same arm of the loop that
-  already received it — which is why it moves no answer. Laying it out
-  properly needs a block path that accepts a box with no node, and that is
-  what the 148 block-in-inline reftests are still waiting for.
+- **An anonymous box IS laid out as the block box it is**, and this line
+  replaces one that said it was expanded into its children instead.
+  `layout/bloco_caixa.rs` is the block path that accepts a box with no node: it
+  takes the container's content box and stacks the run in it, which is all an
+  anonymous box needs — no width to resolve, no margin, no border, no
+  background, no `float`, no `clear`, no generated content. What it does NOT do
+  is named in its own header: no fragment cache (the key is a `NodeIdx` and it
+  has none), no geometry entry, no stacking context.
+- **The inline flow CONSULTS the tree, and only inside the split.**
+  `runs::collect_runs` takes the box of a node with more than one box — a
+  fragment — and then walks `tree.children` instead of the DOM's, which is what
+  stops it descending into the `<div>` that split the inline. Every other node
+  passes `None` and the walk is the DOM's, unchanged. Without this the partition
+  is built and never seen: a plain `<span>` never reaches `layout_block`.
 - **Fragments are keyed by `NodeIdx`, deliberately.** A cached fragment can
   outlive the tree that produced it, and a `BoxId` in one would name a slot in
   an arena that has been rebuilt. Moving them is the fragment-tree wave, not a

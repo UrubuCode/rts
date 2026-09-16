@@ -11,14 +11,15 @@
 //! that translation appears in another consumer, `NodeIdx` becomes the identity
 //! again through a side door, which is exactly what lot BT-1 exists to close.
 //!
-//! In this lot the tree is close to a MIRROR: one box per element, and
-//! `boxes_of` always returns a slice of length one — that part is still exact,
-//! because an anonymous box is never entered into `by_node`. What is no longer
-//! true is "none anonymous": `boxes::build` now splits an inline box around a
-//! block-level child (CSS 2.1 §9.2.1.1, the first anonymous-box family), so the
-//! tree may hold anonymous block boxes a `<div>` inside a `<span>` produces.
-//! No generated boxes yet, and no table fixups. Nothing consumes any of this
-//! yet — layout still runs over the DOM. The next step of BT-1 swaps the
+//! The tree is a mirror of the DOM EXCEPT where CSS 2.1 §9.2.1.1 applies. There
+//! `boxes::build` splits an inline box around a block-level child, and **both
+//! halves of what the tree gains are real**: the split inline gets SEVERAL
+//! element boxes of its own — so `boxes_of` may return a slice longer than one,
+//! and a caller taking `.first()` is taking one fragment of several — and each
+//! run of inline content is enclosed in an ANONYMOUS block box that rises to the
+//! inline's container. `build.rs` draws the shape and quotes the rule.
+//!
+//! No generated boxes yet, and no table fixups. The next step of BT-1 swaps the
 //! geometry and cache keys.
 //!
 //! The design, the measured evidence and the nine invariants that break
@@ -146,9 +147,10 @@ impl BoxTree {
     /// A box CSS generates and the document does not have.
     ///
     /// It does not enter `by_node`: that is what makes `node_of` answer `None`,
-    /// and what tells it apart from an element. `inherits_from` is the element
-    /// whose box was split or wrapped to produce it, and therefore the source
-    /// of its style — not an owner, and not reachable through `boxes_of`.
+    /// and what tells it apart from an element. `inherits_from` is the ENCLOSING
+    /// non-anonymous element — the container this box is a child of — which is
+    /// what CSS 2.1 §9.2.1.1 says an anonymous box takes its inherited
+    /// properties from. Not an owner, and not reachable through `boxes_of`.
     pub fn push_anonymous(&mut self, inherits_from: NodeIdx, parent: BoxId) -> BoxId {
         self.push(BoxKind::Anonymous { inherits_from }, Some(parent))
     }

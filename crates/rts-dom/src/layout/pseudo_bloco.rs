@@ -15,7 +15,13 @@
 //! `vertical.rs` — porque ele PARTICIPA do fluxo como qualquer outro bloco
 //! (CSS 2.1 §12.1: "generated content ... treated ... as if inserted...
 //! immediately before/after the ... content"), só que sem nó DOM próprio para
-//! caches de fragmento ou layout recursivo.
+//! caches de fragmento ou layout recursivo. O colapso de margem é a razão
+//! deste ficheiro EXISTIR separado de `flex_pseudo.rs`, apesar de os dois
+//! partilharem a medição de padding/borda/margem e a pintura inteira —
+//! ver `pseudo_caixa.rs`, que é onde essa parte comum vive agora (lote BT-5,
+//! issue #2731): um item flex nunca colapsa margem (Flexbox §4), um bloco
+//! colapsa sempre, e essa diferença não tem como desaparecer numa função só
+//! sem deixar de ser a diferença que a spec pede.
 //!
 //! CORTE dito (como `flex_pseudo.rs`, o mesmo padrão para o eixo flex): sem
 //! `border-radius`, sem `flex-basis`/min/max no eixo do pseudo, o texto não
@@ -24,22 +30,13 @@
 //! SEUS conteúdos (que hoje é só texto, então não há filhos a dispor).
 
 use super::*;
+use super::pseudo_caixa::{montar, resolve_arestas};
 
 /// A caixa de bloco de um pseudo-elemento, já medida: outer w/h com margens,
 /// as margens por eixo (para o colapso), as arestas (borda+padding) por lado
-/// e o texto a pintar.
-pub(in crate::layout) struct PseudoBlockBox {
-    caixa: crate::pseudo::PseudoBox,
-    w: f32,
-    h: f32,
-    ml: f32,
-    mr: f32,
-    mt: f32,
-    mb: f32,
-    arestas: [f32; 4],
-    texto: String,
-    fonte: f32,
-}
+/// e o texto a pintar. Estrutura partilhada com `flex_pseudo::PseudoItem` —
+/// ver `pseudo_caixa::CaixaGerada`.
+pub(in crate::layout) type PseudoBlockBox = super::pseudo_caixa::CaixaGerada;
 
 /// O pseudo `pe` de `id`, se existe, tem conteúdo NÃO-VAZIO e é de BLOCO — a
 /// mesma pergunta de `clearfix.rs::fundo_do_clearfix`, sem exigir `clear` e
@@ -77,94 +74,21 @@ fn medir(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
-    let p = &css.padding;
-    let (pl, pr) = (p.left.resolve(&r).unwrap_or(0.0), p.right.resolve(&r).unwrap_or(0.0));
-    let (pt, pb) = (p.top.resolve(&r).unwrap_or(0.0), p.bottom.resolve(&r).unwrap_or(0.0));
-    let m = &css.margin;
-    let (ml, mr) = (m.left.resolve(&r).unwrap_or(0.0), m.right.resolve(&r).unwrap_or(0.0));
-    let (mt, mb) = (m.top.resolve(&r).unwrap_or(0.0), m.bottom.resolve(&r).unwrap_or(0.0));
+    let arestas = resolve_arestas(css, &r);
     let texto = super::segmento::collapse_ws(&caixa.texto, false).into_owned();
     // BLOCO: largura AUTO enche o content-box do pai (menos as margens) — o
     // default de qualquer bloco sem `width`. `flex_pseudo.rs::medir` encolhe
     // ao conteúdo porque ali o pseudo é um ITEM flex (shrink-to-fit); este é
-    // o outro papel, o de CONTENTOR de bloco normal.
-    let conteudo_w = css
-        .width
-        .and_then(|d| d.resolve(&r))
-        .unwrap_or((content_w - ml - mr - bl - br - pl - pr).max(0.0));
+    // o outro papel, o de CONTENTOR de bloco normal. É a única conta que os
+    // dois ficheiros não partilham (ver `pseudo_caixa.rs`).
+    let conteudo_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or_else(|| {
+        (content_w - arestas.ml - arestas.mr - arestas.valores[1] - arestas.valores[3]).max(0.0)
+    });
     let conteudo_h = css
         .height
         .and_then(|d| d.resolve(&r))
         .unwrap_or_else(|| crate::inline_box::altura_da_linha(css, fonte, ctx.measurer));
-    let (w, h) = if css.border_box.unwrap_or(false) && (css.width.is_some() || css.height.is_some()) {
-        (
-            css.width.map_or(conteudo_w + pl + pr + bl + br, |_| conteudo_w),
-            css.height.map_or(conteudo_h + pt + pb + bt + bb, |_| conteudo_h),
-        )
-    } else {
-        (conteudo_w + pl + pr + bl + br, conteudo_h + pt + pb + bt + bb)
-    };
-    Some(PseudoBlockBox {
-        caixa,
-        w: w + ml + mr,
-        h: h + mt + mb,
-        ml,
-        mr,
-        mt,
-        mb,
-        arestas: [bt + pt, br + pr, bb + pb, bl + pl],
-        texto,
-        fonte,
-    })
-}
-
-/// Pinta a caixa com o canto superior-esquerdo da margin-box em (`x`,`y`):
-/// fundo, as quatro barras de borda, o texto — o mesmo desenho de
-/// `flex_pseudo::pintar`, sem o eixo de item flex.
-fn pintar(list: &mut DisplayList, caixa: &PseudoBlockBox, x: f32, y: f32, ctx: &LayoutCtx) {
-    let css = &caixa.caixa.css;
-    let r = Rect::new(
-        x + caixa.ml,
-        y + caixa.mt,
-        caixa.w - caixa.ml - caixa.mr,
-        caixa.h - caixa.mt - caixa.mb,
-    );
-    if let Some(bg) = css.bg {
-        list.items.push(DisplayItem::SolidRect { rect: r, color: bg, radius: Corners::ZERO });
-    }
-    let sides = crate::style::borders::resolved_sides(css);
-    let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
-    let barras = [
-        (Rect::new(r.x, r.y, r.w, bt), sides[0]),
-        (Rect::new(r.x + r.w - br, r.y, br, r.h), sides[1]),
-        (Rect::new(r.x, r.y + r.h - bb, r.w, bb), sides[2]),
-        (Rect::new(r.x, r.y, bl, r.h), sides[3]),
-    ];
-    for (rect, side) in barras {
-        if side.paints() && side.color & 0xFF != 0 {
-            list.items.push(DisplayItem::SolidRect { rect, color: side.color, radius: Corners::ZERO });
-        }
-    }
-    if !caixa.texto.is_empty() {
-        let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
-        let is_ahem = super::fonte_metricas::usa_ahem(css.font_family.as_deref());
-        let lh = crate::inline_box::altura_da_linha(css, caixa.fonte, ctx.measurer);
-        let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
-        list.items.push(DisplayItem::Text {
-            x: r.x + caixa.arestas[3],
-            y: r.y + caixa.arestas[0] + (lh - conteudo) / 2.0,
-            text: caixa.texto.clone().into(),
-            color: css.color.unwrap_or(0x000000FF),
-            size: caixa.fonte,
-            mono,
-            is_ahem,
-            bold: css.bold.unwrap_or(false),
-            italic: false,
-            letter_spacing: css.letter_spacing.unwrap_or(0.0),
-            decoration: 0,
-        });
-    }
+    Some(montar(caixa, arestas, conteudo_w, conteudo_h, texto, fonte))
 }
 
 /// Mede, posiciona e pinta o pseudo `pe` de `id` como o próximo (`::before`)
@@ -197,7 +121,7 @@ pub(in crate::layout) fn aplicar(
     let com_topo = junta_ao_strut(*strut, m);
     let aresta = *borda + strut_colapsado(com_topo);
     let y = aresta - m;
-    pintar(list, &caixa, content_x, y, ctx);
+    super::pseudo_caixa::pintar(list, &caixa, content_x, y, ctx);
     if atravessa_se(caixa.h, m, m_baixo) {
         *strut = junta_ao_strut(com_topo, m_baixo);
     } else {

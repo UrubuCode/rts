@@ -113,63 +113,112 @@ fn the_mirror_is_a_tree_whose_two_directions_agree() {
     );
 }
 
-/// The central case the box tree exists for (CSS 2.1 §9.2.1.1, 148 CSS2
-/// reftests): a `<div>` inside a `<span>` splits the inline into an anonymous
-/// block before it, the `<div>` itself, and an anonymous block after —
-/// instead of the block-level `<div>` being descended into as though the
-/// `<span>` were a transparent wrapper.
+/// Finds the first element carrying a given `id` attribute.
+fn no_com_id(dom: &crate::dom::Dom, procurado: &str) -> crate::dom::NodeIdx {
+    (0..dom.node_count())
+        .find(|&i| dom.node(i).attr("id") == Some(procurado))
+        .unwrap_or_else(|| panic!("a fixture nao tem #{procurado}"))
+}
+
+/// Finds the first element with a given tag.
+fn no_da_tag(dom: &crate::dom::Dom, procurada: &str) -> crate::dom::NodeIdx {
+    (0..dom.node_count())
+        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == procurada))
+        .unwrap_or_else(|| panic!("a fixture nao tem <{procurada}>"))
+}
+
+/// **The central case the box tree exists for** (CSS 2.1 section 9.2.1.1, the
+/// CSS2 `block-in-inline-*` reftests), and the FORM is the sum of two readings
+/// of the rule rather than either one of them.
+///
+/// The split inline gets several boxes OF ITS OWN — fragments, which are element
+/// boxes because the rule says each keeps the element's border and background,
+/// and an anonymous box has no declarations to carry them. And each run is
+/// ENCLOSED in an anonymous block box that rises to the inline's CONTAINER,
+/// because the rule says the block-level box becomes a SIBLING of those
+/// anonymous boxes — which it cannot be while they live inside the inline.
 #[test]
-fn a_block_child_of_an_inline_splits_it_around_an_anonymous_block() {
+fn a_block_child_of_an_inline_splits_it_into_fragments_under_anonymous_blocks() {
     let dom = crate::parse_html_to_dom(
-        "<p><span><b>before</b><div>block</div><b>after</b></span></p>",
+        "<div id='w'><span><b>before</b><div id='b'>block</div><b>after</b></span></div>",
     );
     let tree = build_mirror(&dom);
+    let w = no_com_id(&dom, "w");
+    let bloco = no_com_id(&dom, "b");
+    let span = no_da_tag(&dom, "span");
 
-    // The `<span>` is display:inline by the UA stylesheet default.
-    let span_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "span"))
-        .expect("fixture has a span");
-    let span_box = tree.boxes_of(span_node)[0];
-
-    let div_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "div"))
-        .expect("fixture has a div");
-    let div_box = tree.boxes_of(div_node)[0];
-
-    let span_children = tree.children(span_box);
+    let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
+    assert_eq!(filhas.len(), 3, "anonima, o bloco, anonima: {filhas:?}");
+    assert!(matches!(tree.kind(filhas[0]), BoxKind::Anonymous { .. }));
     assert_eq!(
-        span_children.len(),
-        3,
-        "before-anon, the div, after-anon: {span_children:?}"
+        tree.node_of(filhas[1]),
+        Some(bloco),
+        "o bloco e IRMAO das anonimas, e filho do contentor"
     );
+    assert!(matches!(tree.kind(filhas[2]), BoxKind::Anonymous { .. }));
 
-    let before_anon = span_children[0];
-    let middle = span_children[1];
-    let after_anon = span_children[2];
+    // O inline tem DUAS caixas suas, uma por corrida, e cada uma esta DENTRO da
+    // anonima do seu lado.
+    let fragmentos = tree.boxes_of(span).to_vec();
+    assert_eq!(fragmentos.len(), 2, "um fragmento por corrida: {fragmentos:?}");
+    assert_eq!(tree.parent(fragmentos[0]), Some(filhas[0]));
+    assert_eq!(tree.parent(fragmentos[1]), Some(filhas[2]));
 
-    assert!(tree.node_of(before_anon).is_none(), "the before run is anonymous");
-    assert_eq!(middle, div_box, "the block child is a sibling, not nested");
-    assert!(tree.node_of(after_anon).is_none(), "the after run is anonymous");
+    // A anonima herda do CONTENTOR: a regra manda herdar da caixa nao-anonima
+    // que a envolve, e essa e a do `<div id=w>`. O estilo do proprio inline nao
+    // se perde — chega ao conteudo pelo fragmento, que e uma caixa de elemento.
+    assert_eq!(tree.style_source(filhas[0]), w);
+    assert_eq!(tree.style_source(fragmentos[0]), span);
 
-    // The anonymous box takes its style from the element that generated it —
-    // the span. It does not STORE that style: it stores where the style comes
-    // from, so an animation frame is never read one frame late. Asserting on
-    // the source is therefore the assertion that survives.
-    assert_eq!(tree.style_source(before_anon), tree.style_source(span_box));
-    assert_eq!(tree.style_source(after_anon), tree.style_source(span_box));
-    assert_eq!(tree.style_source(span_box), span_node);
+    // O `<b>` da frente esta dentro do fragmento, nao ao lado dele.
+    let b_frente = tree.boxes_of(no_da_tag(&dom, "b"))[0];
+    assert_eq!(tree.parent(b_frente), Some(fragmentos[0]));
+}
 
-    // The `<b>` elements land inside their anonymous wrapper, not as direct
-    // children of the span's box.
-    let b_before = tree
-        .boxes_of(
-            (0..dom.node_count())
-                .find(|&i| {
-                    matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "b")
-                })
-                .unwrap(),
-        )[0];
-    assert_eq!(tree.parent(b_before), Some(before_anon));
+/// A NESTED inline splits at every level it passes through: the block reaches
+/// the outermost splitting ancestor's container, while each inline's fragments
+/// stay nested inside the fragment that encloses them.
+#[test]
+fn a_nested_inline_splits_at_every_level_and_the_block_still_reaches_the_container() {
+    let dom = crate::parse_html_to_dom(
+        "<div id='w'><span><em>a<div id='b'>x</div>c</em></span></div>",
+    );
+    let tree = build_mirror(&dom);
+    let w = no_com_id(&dom, "w");
+    let bloco = no_com_id(&dom, "b");
+    let span = no_da_tag(&dom, "span");
+    let em = no_da_tag(&dom, "em");
+
+    let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
+    assert_eq!(filhas.len(), 3, "anonima, bloco, anonima: {filhas:?}");
+    assert_eq!(tree.node_of(filhas[1]), Some(bloco), "o bloco sobe DOIS niveis");
+
+    assert_eq!(tree.boxes_of(span).len(), 2, "o de fora tambem se parte");
+    assert_eq!(tree.boxes_of(em).len(), 2);
+    // O aninhamento entre os dois inlines sobrevive: cada fragmento do `<em>`
+    // continua dentro do fragmento do `<span>` do mesmo lado.
+    assert_eq!(tree.parent(tree.boxes_of(em)[0]), Some(tree.boxes_of(span)[0]));
+    assert_eq!(tree.parent(tree.boxes_of(em)[1]), Some(tree.boxes_of(span)[1]));
+}
+
+/// An inline-level SIBLING of the split inline joins the anonymous box beside
+/// it. Leaving it out would put `x` and the span's first run on different lines,
+/// which no browser does — the anonymous box encloses a LINE box, and the two
+/// are on the same line.
+#[test]
+fn an_inline_sibling_of_the_split_joins_the_same_anonymous_box() {
+    let dom =
+        crate::parse_html_to_dom("<div id='w'>x<span>a<div id='b'>bl</div>c</span>y</div>");
+    let tree = build_mirror(&dom);
+    let w = no_com_id(&dom, "w");
+    let span = no_da_tag(&dom, "span");
+
+    let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
+    assert_eq!(filhas.len(), 3, "anonima, bloco, anonima: {filhas:?}");
+    let frente = tree.children(filhas[0]).to_vec();
+    assert_eq!(frente.len(), 2, "o texto 'x' E o fragmento do span: {frente:?}");
+    assert!(matches!(tree.kind(frente[0]), BoxKind::Text { .. }));
+    assert_eq!(tree.node_of(frente[1]), Some(span));
 }
 
 /// A block-level child as the FIRST child of an inline: there is no inline
@@ -177,104 +226,104 @@ fn a_block_child_of_an_inline_splits_it_around_an_anonymous_block() {
 /// trailing run gets one.
 #[test]
 fn a_block_as_the_first_child_gets_no_anonymous_box_before_it() {
-    let dom = crate::parse_html_to_dom("<span><div>block</div><b>after</b></span>");
+    let dom = crate::parse_html_to_dom(
+        "<div id='w'><span><div id='b'>block</div><b>after</b></span></div>",
+    );
     let tree = build_mirror(&dom);
+    let w = no_com_id(&dom, "w");
+    let bloco = no_com_id(&dom, "b");
 
-    let span_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "span"))
-        .unwrap();
-    let span_box = tree.boxes_of(span_node)[0];
-    let div_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "div"))
-        .unwrap();
-    let div_box = tree.boxes_of(div_node)[0];
-
-    let children = tree.children(span_box);
-    assert_eq!(children.len(), 2, "the div, then one trailing anon: {children:?}");
-    assert_eq!(children[0], div_box);
-    assert!(tree.node_of(children[1]).is_none());
+    let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
+    assert_eq!(filhas.len(), 2, "o bloco, depois uma anonima: {filhas:?}");
+    assert_eq!(tree.node_of(filhas[0]), Some(bloco));
+    assert!(matches!(tree.kind(filhas[1]), BoxKind::Anonymous { .. }));
 }
 
-/// A block-level child as the LAST child of an inline: the mirror image of
-/// the case above, no anonymous box after it.
+/// A block-level child as the LAST child of an inline: the mirror image of the
+/// case above, no anonymous box after it.
 #[test]
 fn a_block_as_the_last_child_gets_no_anonymous_box_after_it() {
-    let dom = crate::parse_html_to_dom("<span><b>before</b><div>block</div></span>");
+    let dom = crate::parse_html_to_dom(
+        "<div id='w'><span><b>before</b><div id='b'>block</div></span></div>",
+    );
     let tree = build_mirror(&dom);
+    let w = no_com_id(&dom, "w");
+    let bloco = no_com_id(&dom, "b");
 
-    let span_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "span"))
-        .unwrap();
-    let span_box = tree.boxes_of(span_node)[0];
-    let div_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "div"))
-        .unwrap();
-    let div_box = tree.boxes_of(div_node)[0];
-
-    let children = tree.children(span_box);
-    assert_eq!(children.len(), 2, "one leading anon, then the div: {children:?}");
-    assert!(tree.node_of(children[0]).is_none());
-    assert_eq!(children[1], div_box);
+    let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
+    assert_eq!(filhas.len(), 2, "uma anonima, depois o bloco: {filhas:?}");
+    assert!(matches!(tree.kind(filhas[0]), BoxKind::Anonymous { .. }));
+    assert_eq!(tree.node_of(filhas[1]), Some(bloco));
 }
 
 /// Two block-level children in a row: no anonymous box is sandwiched between
-/// them, because there is no inline content between them to enclose.
+/// them, because there is no inline content between them to enclose. The inline
+/// itself then generates NO box at all — it had no run of its own anywhere.
 #[test]
 fn two_consecutive_block_children_get_no_anonymous_box_between_them() {
-    let dom = crate::parse_html_to_dom("<span><div>a</div><div>b</div></span>");
+    let dom =
+        crate::parse_html_to_dom("<div id='w'><span><div>a</div><div>b</div></span></div>");
     let tree = build_mirror(&dom);
+    let w = no_com_id(&dom, "w");
+    let span = no_da_tag(&dom, "span");
 
-    let span_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "span"))
-        .unwrap();
-    let span_box = tree.boxes_of(span_node)[0];
-
-    let children = tree.children(span_box);
-    assert_eq!(children.len(), 2, "no anon box between two blocks: {children:?}");
-    assert!(tree.node_of(children[0]).is_some(), "the first div");
-    assert!(tree.node_of(children[1]).is_some(), "the second div");
+    let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
+    assert_eq!(filhas.len(), 2, "sem anonima entre dois blocos: {filhas:?}");
+    assert!(filhas.iter().all(|&c| tree.node_of(c).is_some()));
+    assert!(
+        tree.boxes_of(span).is_empty(),
+        "o inline nao tem corrida nenhuma, logo nao tem fragmento nenhum"
+    );
 }
 
-/// An inline element with no block-level child at all never splits — the
-/// mirror stays exact for the ordinary case.
+/// An inline element with no block-level child at all never splits — the tree
+/// stays an exact mirror for the ordinary case, which is almost every element on
+/// almost every page.
 #[test]
 fn an_inline_with_no_block_child_is_not_split() {
     let dom = crate::parse_html_to_dom("<span><b>a</b><i>b</i></span>");
     let tree = build_mirror(&dom);
+    let span_box = tree.boxes_of(no_da_tag(&dom, "span"))[0];
 
-    let span_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "span"))
-        .unwrap();
-    let span_box = tree.boxes_of(span_node)[0];
-
-    // Two element children (`<b>`, `<i>`), no anonymous box introduced.
     let children = tree.children(span_box);
     assert_eq!(children.len(), 2);
     assert!(children.iter().all(|&c| tree.node_of(c).is_some()));
 }
 
-/// `display:inline-block` is inline-LEVEL but not an inline BOX: it
-/// establishes its own block-formatting context, so a block-level child
-/// inside it is ordinary content and does not trigger the split. Only plain
-/// `display:inline` does.
+/// `display:inline-block` is inline-LEVEL but not an inline BOX: it establishes
+/// its own block-formatting context, so a block-level child inside it is
+/// ordinary content and does not trigger the split. Only plain `display:inline`
+/// does.
 #[test]
 fn an_inline_block_with_a_block_child_is_not_split() {
     let dom = crate::parse_html_to_dom(
         r#"<span style="display:inline-block"><div>block</div></span>"#,
     );
     let tree = build_mirror(&dom);
+    let span_box = tree.boxes_of(no_da_tag(&dom, "span"))[0];
+    let div_box = tree.boxes_of(no_da_tag(&dom, "div"))[0];
 
-    let span_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "span"))
-        .unwrap();
-    let span_box = tree.boxes_of(span_node)[0];
-    let div_node = (0..dom.node_count())
-        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == "div"))
-        .unwrap();
-    let div_box = tree.boxes_of(div_node)[0];
+    assert_eq!(
+        tree.children(span_box),
+        &[div_box],
+        "o div aninha directamente, sem caixa anonima"
+    );
+}
 
-    let children = tree.children(span_box);
-    assert_eq!(children, &[div_box], "the div nests directly, no anonymous box");
+/// A run made only of collapsible whitespace gets NO anonymous box. CSS 2.1
+/// section 9.2.1.1 is explicit that white space which would collapse away
+/// generates no anonymous box, and wrapping it would put a full empty LINE
+/// between two blocks that the indentation of the source happens to separate.
+#[test]
+fn a_run_of_collapsible_whitespace_alone_gets_no_anonymous_box() {
+    let dom = crate::parse_html_to_dom("<div id='w'><span> <div id='b'>x</div> </span></div>");
+    let tree = build_mirror(&dom);
+    let w = no_com_id(&dom, "w");
+    let bloco = no_com_id(&dom, "b");
+
+    let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
+    assert_eq!(filhas.len(), 1, "so o bloco, sem anonimas de espaco: {filhas:?}");
+    assert_eq!(tree.node_of(filhas[0]), Some(bloco));
 }
 
 /// The tree is memoised on the `Dom`, and the memo survives a second call
@@ -482,16 +531,17 @@ fn a_text_box_is_inline_level_inside_a_block() {
 }
 
 /// An ANONYMOUS box is block-level flow, and NOT the `display:inline` of the
-/// element it inherits style from. Taking the inline's own display here would
-/// rebuild the nesting the block-in-inline split exists to undo.
+/// element beside it. Taking the inline's own display here would rebuild the
+/// nesting the block-in-inline split exists to undo.
 #[test]
-fn an_anonymous_box_is_block_level_even_though_it_inherits_from_an_inline() {
-    let dom = crate::parse_html_to_dom("<span>before<div>block</div></span>");
+fn an_anonymous_box_is_block_level_even_though_it_encloses_an_inline() {
+    let dom = crate::parse_html_to_dom("<div id='w'><span>before<div>block</div></span></div>");
     let tree = build_mirror(&dom);
-    let span_box = box_of_tag(&dom, &tree, "span");
+    let w = no_com_id(&dom, "w");
+    let span_box = tree.boxes_of(no_da_tag(&dom, "span"))[0];
 
     let anon = tree
-        .children(span_box)
+        .children(tree.boxes_of(w)[0])
         .iter()
         .copied()
         .find(|&c| matches!(tree.kind(c), BoxKind::Anonymous { .. }))
@@ -500,7 +550,7 @@ fn an_anonymous_box_is_block_level_even_though_it_inherits_from_an_inline() {
     assert!(tree.formatting_context(&dom, span_box).is_inline_level());
     assert!(
         tree.formatting_context(&dom, anon).is_block_level(),
-        "the anonymous box wrapping the inline run is a BLOCK box"
+        "the anonymous box enclosing the inline run is a BLOCK box"
     );
 }
 

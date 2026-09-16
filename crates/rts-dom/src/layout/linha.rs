@@ -25,7 +25,11 @@ pub(in crate::layout) fn layout_inline_flow(
     // O elemento DONO deste fluxo — de quem são as caixas geradas
     // (`::before`/`::after`) que envolvem o grupo. Ver `pseudo_run`.
     dono: NodeIdx,
-    group: &[NodeIdx],
+    // Cada membro do grupo com a sua CAIXA, quando ela decide por onde se desce.
+    // Ela só é `Some` para um FRAGMENTO de um inline partido (CSS 2.1
+    // §9.2.1.1), e é o que impede `collect_runs` de descer no bloco que partiu
+    // o inline — ver o parâmetro `caixa` lá.
+    group: &[(NodeIdx, Option<crate::boxes::BoxId>)],
     x: f32,
     y: f32,
     content_w: f32,
@@ -64,7 +68,7 @@ pub(in crate::layout) fn layout_inline_flow(
         .count();
     let dono_inteiro = group
         .iter()
-        .filter(|&&c| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
+        .filter(|&&(c, _)| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
         .count()
         == filhos_com_conteudo;
     let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
@@ -78,8 +82,11 @@ pub(in crate::layout) fn layout_inline_flow(
             parent_css.italic.unwrap_or(false),
         ));
     }
-    for &id in group {
-        runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
+    // `Rc` clonado antes do laço: `list` é escrito ao longo da função inteira, e
+    // é a mesma razão pela qual `layout_children_vertical` o clona.
+    let arvore = std::rc::Rc::clone(&list.tree);
+    for &(id, caixa) in group {
+        runs.extend(collect_runs(dom, id, caixa, &arvore, parent_css, content_w, ctx));
     }
     // `tab-size` — só sob `white-space: pre`/`pre-wrap`, onde o `\t` sobrevive
     // ao invés de colapsar como um espaço qualquer (`preserves_spaces`, hoje só
