@@ -1,0 +1,9 @@
+<!doctype html>
+<!-- flex-basis:content ignores the item's own height in a flex column. -->
+<style>
+body { margin: 0; }
+#container { display:flex; flex-direction:column; justify-content:space-between; width:100px; height:100px; }
+#item { flex:0 0 content; height:80px; border:2px solid teal; }
+#child { height:10px; }
+</style>
+<div id="container"><div id="item"><div id="child"></div></div></div>

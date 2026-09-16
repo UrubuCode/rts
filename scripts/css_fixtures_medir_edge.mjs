@@ -16,7 +16,7 @@
 // esperado medido no Chrome foram re-medidas por este script no Edge 152 —
 // 1 104 números, pior desvio 0. Repita essa comparação se o Edge mudar.
 import { spawn } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CHROME = [
@@ -29,6 +29,25 @@ if (!CHROME) { console.error("nem Edge nem Chrome encontrados — defina CHROME_
 const saida = resolve(process.argv[2] ?? "medidas.json");
 const PORTA = Number(process.env.CDP_PORT ?? 9337);
 const perfil = resolve(process.env.TEMP ?? ".", "edge-fixtures-profile");
+
+// As duas precondicoes, verificadas ANTES de lancar o browser. Nao verificar
+// custou uma sessao inteira: sem o servidor, `Page.navigate` responde na
+// mesma e `Page.loadEventFired` NUNCA chega, entao o script fica pendurado
+// num `await` sem mensagem — e quem olha conclui que o CDP travou. Uma
+// pendencia sem causa visivel e um diagnostico errado garantido.
+const RAIZ_FIXTURES = "tests/css";
+const PALCO = RAIZ_FIXTURES + "/__harness.tmp.html";
+const SERVIDOR = `http://127.0.0.1:${process.env.CSS_PORTA ?? 8731}`;
+try { await fetch(SERVIDOR + "/lista", { signal: AbortSignal.timeout(3000) }); }
+catch { console.error(`${SERVIDOR} nao responde — corra primeiro: bun scripts/css_fixtures_serve.ts`); process.exit(2); }
+
+// O palco e deste script e nao do repositorio: e um ficheiro temporario que a
+// receita em scripts/css_fixtures_medir.md mandava gravar a mao, e um passo a
+// mao e um passo que se esquece.
+const palcoJaLaEstava = existsSync(PALCO);
+if (!palcoJaLaEstava) writeFileSync(PALCO, `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;overflow:hidden}
+iframe{width:1280px;height:800px;border:0;display:block}</style></head>
+<body><iframe id="palco"></iframe></body></html>`);
 
 const chrome = spawn(CHROME, [
   "--headless=new", `--remote-debugging-port=${PORTA}`, `--user-data-dir=${perfil}`,
@@ -103,11 +122,12 @@ await c.envia("Page.enable", {}, sessionId);
 await c.envia("Runtime.enable", {}, sessionId);
 await c.envia("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false }, sessionId);
 const carregou = new Promise((r) => c.quando("Page.loadEventFired", (_p, s) => { if (s === sessionId) r(); }));
-await c.envia("Page.navigate", { url: "http://127.0.0.1:8731/__harness.tmp.html" }, sessionId);
-await carregou;
+await c.envia("Page.navigate", { url: SERVIDOR + "/__harness.tmp.html" }, sessionId);
+await Promise.race([carregou, new Promise((_, rej) => setTimeout(() => rej(new Error("o palco nao disparou load em 30s")), 30000))]);
 const { result, exceptionDetails } = await c.envia("Runtime.evaluate", { expression: COLHEITA, awaitPromise: true, returnByValue: true }, sessionId);
 if (exceptionDetails) throw new Error("colheita falhou: " + JSON.stringify(exceptionDetails));
 writeFileSync(saida, result.value);
 const m = JSON.parse(result.value);
 console.log(`pedidas=${m.pedidas} medidas=${m.medidas_n} problemas=${JSON.stringify(m.problemas)} ua=${m.ua}`);
 ws.close(); chrome.kill();
+if (!palcoJaLaEstava) rmSync(PALCO, { force: true });
