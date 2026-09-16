@@ -316,10 +316,14 @@ pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
         viewport_w: 0.0,
         viewport_h: 0.0,
     };
-    let one = |w: Side, s: Option<BorderStyle>, c: Option<Rgba>| SideBorder {
-        width: w.px().or_else(|| w.resolve(&rc)).unwrap_or(uw).max(0.0),
-        style: s.unwrap_or(us),
-        color: c.unwrap_or(uc),
+    let one = |w: Side, s: Option<BorderStyle>, c: Option<Rgba>| {
+        let style = s.unwrap_or(us);
+        let width = if style == BorderStyle::None {
+            0.0
+        } else {
+            w.px().or_else(|| w.resolve(&rc)).unwrap_or(uw).max(0.0)
+        };
+        SideBorder { width, style, color: c.unwrap_or(uc) }
     };
     [
         one(
