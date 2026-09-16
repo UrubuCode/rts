@@ -429,7 +429,10 @@ pub(in crate::layout) fn tamanho_natural_controlo(
                 let bf = font_px(css, DEFAULT_FONT_SIZE - 3.0);
                 let tw = ctx.measurer.text_width(&label, bf, false, false, false);
                 let lh = ctx.measurer.line_height(bf);
-                Some(conteudo_para_outer(css, bf, ctx, tw + 24.0, lh + 10.0))
+                // A largura usada pelo flex é a mesma border-box do emissor
+                // nativo (8.5px por lado), não a margem de avanço de 6px da
+                // corrida inline.
+                Some(conteudo_para_outer(css, bf, ctx, tw + 17.0, lh + 10.0))
             } else {
                 // texto, password, checkbox, radio, range, … — o MESMO
                 // cálculo que já pinta o widget (`medida_do_input`), com
