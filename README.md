@@ -222,9 +222,9 @@ _V8 348a6116c · corpus inteiro · 2026-09-15_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   3340/3340 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   146/146 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 68.6%   597/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   3412/3412 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   147/147 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 71%   618/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -235,7 +235,7 @@ The total alone says nothing about where the work is — it does not tell a bran
 
 ```
 subfolders of css-flexbox
-  [▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  12.8%   5/39      balance
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  38.5%   15/39     balance
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  45.8%   11/24     intrinsic-size
   [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  52.6%   10/19     abspos
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       flex-lines
@@ -244,16 +244,16 @@ subfolders of css-flexbox
 
 the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  85.6%   137/160   outros
-  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.7%   46/77     item
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  91.4%   53/58     align
-  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  37.7%   20/53     aspect-ratio
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  61.0%   47/77     item
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  93.1%   54/58     align
+  [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.6%   38/46     gap
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  48.7%   19/39     percentage
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.5%   22/37     baseline
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  94.6%   35/37     shrink
-  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  61.8%   21/34     min-
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.7%   22/34     min-
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  84.4%   27/32     overflow
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   24/30     basis
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  83.3%   25/30     basis
   [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  41.4%   12/29     table
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.6%   22/28     wrap
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  58.3%   14/24     writing-mode
@@ -261,7 +261,7 @@ the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   12/15     order
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  81.8%   9/11      column
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  88.9%   8/9       anonymous
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.7%   6/9       grow
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   9/9       grow
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  87.5%   7/8       max-
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.7%   4/6       row
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  60.0%   3/5       scrollbar

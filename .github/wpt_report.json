@@ -1,18 +1,12 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 597,
-  "falham": 273,
+  "passam": 618,
+  "falham": 252,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
   "piores": [
-    {
-      "nome": "fit-content-item-001",
-      "pct": 83.2078125,
-      "n": 852048,
-      "script": false
-    },
     {
       "nome": "flexbox-writing-mode-014",
       "pct": 33.124804687499996,
@@ -60,6 +54,12 @@
       "pct": 20.5078125,
       "n": 210000,
       "script": true
+    },
+    {
+      "nome": "percentage-max-height-003",
+      "pct": 14.6484375,
+      "n": 150000,
+      "script": false
     },
     {
       "nome": "flex-direction-with-element-insert",
@@ -123,18 +123,6 @@
     },
     {
       "nome": "baseline-synthesis-vert-lr-line-under",
-      "pct": 11.3671875,
-      "n": 116400,
-      "script": false
-    },
-    {
-      "nome": "flex-aspect-ratio-img-column-002",
-      "pct": 11.3671875,
-      "n": 116400,
-      "script": false
-    },
-    {
-      "nome": "flex-aspect-ratio-img-column-003",
       "pct": 11.3671875,
       "n": 116400,
       "script": false
@@ -260,18 +248,6 @@
       "script": false
     },
     {
-      "nome": "balance/balance-complex",
-      "pct": 3.9257812500000004,
-      "n": 40200,
-      "script": false
-    },
-    {
-      "nome": "flex-basis-010",
-      "pct": 3.90625,
-      "n": 40000,
-      "script": false
-    },
-    {
       "nome": "flex-wrap-006",
       "pct": 3.90625,
       "n": 40000,
@@ -308,19 +284,13 @@
       "script": false
     },
     {
-      "nome": "balance/balance-available-size-002",
-      "pct": 3.515625,
-      "n": 36000,
-      "script": false
-    },
-    {
-      "nome": "flex-aspect-ratio-intrinsic-padding-001",
-      "pct": 3.28125,
-      "n": 33600,
-      "script": false
-    },
-    {
       "nome": "flex-minimum-width-flex-items-016",
+      "pct": 2.9296875,
+      "n": 30000,
+      "script": false
+    },
+    {
+      "nome": "percentage-max-height-002",
       "pct": 2.9296875,
       "n": 30000,
       "script": false
@@ -428,12 +398,6 @@
       "script": false
     },
     {
-      "nome": "flex-aspect-ratio-img-column-010",
-      "pct": 1.5625,
-      "n": 16000,
-      "script": true
-    },
-    {
       "nome": "balance/balance-percentage-size-001",
       "pct": 1.55859375,
       "n": 15960,
@@ -449,18 +413,6 @@
       "nome": "balance/webkit-box-no-balance",
       "pct": 1.46484375,
       "n": 15000,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-start-bias-001",
-      "pct": 1.39208984375,
-      "n": 14255,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-start-bias-002",
-      "pct": 1.39208984375,
-      "n": 14255,
       "script": false
     },
     {
@@ -530,9 +482,9 @@
       "script": false
     },
     {
-      "nome": "balance/balance-005",
-      "pct": 0.98291015625,
-      "n": 10065,
+      "nome": "align-items-009",
+      "pct": 0.9765625,
+      "n": 10000,
       "script": false
     },
     {
@@ -540,12 +492,6 @@
       "pct": 0.9765625,
       "n": 10000,
       "script": true
-    },
-    {
-      "nome": "align-items-009",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
     },
     {
       "nome": "anonymous-flex-item-restyle",
@@ -615,18 +561,6 @@
     },
     {
       "nome": "balance/balance-line-count-intrinsic-007",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-min-line-count-001",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-min-line-count-002",
       "pct": 0.9765625,
       "n": 10000,
       "script": false
@@ -710,12 +644,6 @@
       "script": false
     },
     {
-      "nome": "flex-grow-009",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
-    },
-    {
       "nome": "flex-item-max-height-min-content",
       "pct": 0.9765625,
       "n": 10000,
@@ -735,12 +663,6 @@
     },
     {
       "nome": "flex-minimum-height-flex-items-028",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
-    },
-    {
-      "nome": "flexbox-min-width-auto-006",
       "pct": 0.9765625,
       "n": 10000,
       "script": false
@@ -848,18 +770,6 @@
       "script": false
     },
     {
-      "nome": "percentage-max-height-002",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
-    },
-    {
-      "nome": "percentage-max-height-003",
-      "pct": 0.9765625,
-      "n": 10000,
-      "script": false
-    },
-    {
       "nome": "percentage-max-height-005",
       "pct": 0.9765625,
       "n": 10000,
@@ -962,13 +872,7 @@
       "script": false
     },
     {
-      "nome": "balance/balance-start-bias-003",
-      "pct": 0.89208984375,
-      "n": 9135,
-      "script": false
-    },
-    {
-      "nome": "flex-grow-007",
+      "nome": "balance/balance-complex",
       "pct": 0.87890625,
       "n": 9000,
       "script": false
@@ -980,13 +884,13 @@
       "script": false
     },
     {
-      "nome": "flex-minimum-height-flex-items-006",
+      "nome": "flex-minimum-height-flex-items-005",
       "pct": 0.87890625,
       "n": 9000,
       "script": false
     },
     {
-      "nome": "flex-minimum-height-flex-items-005",
+      "nome": "flex-minimum-height-flex-items-006",
       "pct": 0.87890625,
       "n": 9000,
       "script": false
@@ -1044,12 +948,6 @@
       "pct": 0.7490234375,
       "n": 7670,
       "script": false
-    },
-    {
-      "nome": "balance/balance-dynamic-001",
-      "pct": 0.732421875,
-      "n": 7500,
-      "script": true
     },
     {
       "nome": "balance/balance-dynamic-004",
@@ -1118,12 +1016,6 @@
       "script": false
     },
     {
-      "nome": "balance/balance-min-line-count-005",
-      "pct": 0.625,
-      "n": 6400,
-      "script": false
-    },
-    {
       "nome": "flexbox_generated",
       "pct": 0.625,
       "n": 6400,
@@ -1148,12 +1040,6 @@
       "script": false
     },
     {
-      "nome": "balance/balance-dynamic-003",
-      "pct": 0.5859375,
-      "n": 6000,
-      "script": true
-    },
-    {
       "nome": "balance/balance-line-count-intrinsic-001",
       "pct": 0.5859375,
       "n": 6000,
@@ -1169,18 +1055,6 @@
       "nome": "gap-007-rl",
       "pct": 0.572265625,
       "n": 5860,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-min-line-count-003",
-      "pct": 0.546875,
-      "n": 5600,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-min-line-count-004",
-      "pct": 0.546875,
-      "n": 5600,
       "script": false
     },
     {
@@ -1226,28 +1100,28 @@
       "script": false
     },
     {
+      "nome": "balance/balance-dynamic-001",
+      "pct": 0.48828125,
+      "n": 5000,
+      "script": true
+    },
+    {
+      "nome": "balance/balance-dynamic-003",
+      "pct": 0.48828125,
+      "n": 5000,
+      "script": true
+    },
+    {
       "nome": "balance/balance-dynamic-005",
       "pct": 0.48828125,
       "n": 5000,
       "script": true
     },
     {
-      "nome": "balance/balance-zero-size",
-      "pct": 0.48828125,
-      "n": 5000,
-      "script": false
-    },
-    {
       "nome": "dynamic-isize-change-003",
       "pct": 0.48828125,
       "n": 5000,
       "script": true
-    },
-    {
-      "nome": "flex-grow-008",
-      "pct": 0.48828125,
-      "n": 5000,
-      "script": false
     },
     {
       "nome": "flex-item-transferred-sizes-padding-border-sizing",
@@ -1263,12 +1137,6 @@
     },
     {
       "nome": "flex-minimum-height-flex-items-023",
-      "pct": 0.48828125,
-      "n": 5000,
-      "script": false
-    },
-    {
-      "nome": "flex-shrink-008",
       "pct": 0.48828125,
       "n": 5000,
       "script": false
@@ -1310,13 +1178,13 @@
       "script": false
     },
     {
-      "nome": "balance/balance-003",
-      "pct": 0.41552734375,
-      "n": 4255,
-      "script": false
+      "nome": "dynamic-change-simplified-layout",
+      "pct": 0.390625,
+      "n": 4000,
+      "script": true
     },
     {
-      "nome": "dynamic-change-simplified-layout",
+      "nome": "flex-aspect-ratio-img-column-010",
       "pct": 0.390625,
       "n": 4000,
       "script": true
@@ -1352,21 +1220,9 @@
       "script": false
     },
     {
-      "nome": "balance/balance-001",
-      "pct": 0.3349609375,
-      "n": 3430,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-flex-grow",
-      "pct": 0.33203125,
-      "n": 3400,
-      "script": false
-    },
-    {
-      "nome": "align-content-wrap-004",
-      "pct": 0.3125,
-      "n": 3200,
+      "nome": "balance/balance-start-bias-003",
+      "pct": 0.3662109375,
+      "n": 3750,
       "script": false
     },
     {
@@ -1394,12 +1250,6 @@
       "script": false
     },
     {
-      "nome": "balance/balance-002",
-      "pct": 0.2587890625,
-      "n": 2650,
-      "script": false
-    },
-    {
       "nome": "flex-item-position-relative-001",
       "pct": 0.244140625,
       "n": 2500,
@@ -1421,12 +1271,6 @@
       "nome": "flexbox-safe-overflow-position-004",
       "pct": 0.1953125,
       "n": 2000,
-      "script": false
-    },
-    {
-      "nome": "balance/balance-min-line-count-006",
-      "pct": 0.193359375,
-      "n": 1980,
       "script": false
     },
     {
@@ -1526,10 +1370,40 @@
       "script": false
     },
     {
+      "nome": "balance/balance-min-line-count-003",
+      "pct": 0.078125,
+      "n": 800,
+      "script": false
+    },
+    {
+      "nome": "balance/balance-min-line-count-005",
+      "pct": 0.078125,
+      "n": 800,
+      "script": false
+    },
+    {
+      "nome": "balance/balance-005",
+      "pct": 0.0732421875,
+      "n": 750,
+      "script": false
+    },
+    {
       "nome": "dynamic-isize-change-001",
       "pct": 0.0673828125,
       "n": 690,
       "script": true
+    },
+    {
+      "nome": "balance/balance-start-bias-001",
+      "pct": 0.06103515625,
+      "n": 625,
+      "script": false
+    },
+    {
+      "nome": "balance/balance-start-bias-002",
+      "pct": 0.06103515625,
+      "n": 625,
+      "script": false
     },
     {
       "nome": "flexbox-collapsed-item-horiz-003",
@@ -1738,8 +1612,7 @@
     },
     {
       "nome": "align-content-wrap-004",
-      "estado": "falha",
-      "pct": 0.3125
+      "estado": "passa"
     },
     {
       "nome": "align-content_center",
@@ -1774,12 +1647,12 @@
       "estado": "passa"
     },
     {
-      "nome": "align-items-008",
+      "nome": "align-items-009",
       "estado": "falha",
       "pct": 0.9765625
     },
     {
-      "nome": "align-items-009",
+      "nome": "align-items-008",
       "estado": "falha",
       "pct": 0.9765625
     },
@@ -1983,18 +1856,15 @@
     },
     {
       "nome": "balance/balance-001",
-      "estado": "falha",
-      "pct": 0.3349609375
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-002",
-      "estado": "falha",
-      "pct": 0.2587890625
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-003",
-      "estado": "falha",
-      "pct": 0.41552734375
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-004",
@@ -2003,7 +1873,7 @@
     {
       "nome": "balance/balance-005",
       "estado": "falha",
-      "pct": 0.98291015625
+      "pct": 0.0732421875
     },
     {
       "nome": "balance/balance-available-size-001",
@@ -2012,18 +1882,17 @@
     },
     {
       "nome": "balance/balance-available-size-002",
-      "estado": "falha",
-      "pct": 3.515625
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-complex",
       "estado": "falha",
-      "pct": 3.9257812500000004
+      "pct": 0.87890625
     },
     {
       "nome": "balance/balance-dynamic-001",
       "estado": "falha",
-      "pct": 0.732421875
+      "pct": 0.48828125
     },
     {
       "nome": "balance/balance-dynamic-002",
@@ -2033,7 +1902,7 @@
     {
       "nome": "balance/balance-dynamic-003",
       "estado": "falha",
-      "pct": 0.5859375
+      "pct": 0.48828125
     },
     {
       "nome": "balance/balance-dynamic-004",
@@ -2057,8 +1926,7 @@
     },
     {
       "nome": "balance/balance-flex-grow",
-      "estado": "falha",
-      "pct": 0.33203125
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-line-count-intrinsic-001",
@@ -2097,33 +1965,29 @@
     },
     {
       "nome": "balance/balance-min-line-count-001",
-      "estado": "falha",
-      "pct": 0.9765625
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-min-line-count-002",
-      "estado": "falha",
-      "pct": 0.9765625
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-min-line-count-003",
       "estado": "falha",
-      "pct": 0.546875
+      "pct": 0.078125
     },
     {
       "nome": "balance/balance-min-line-count-004",
-      "estado": "falha",
-      "pct": 0.546875
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-min-line-count-005",
       "estado": "falha",
-      "pct": 0.625
+      "pct": 0.078125
     },
     {
       "nome": "balance/balance-min-line-count-006",
-      "estado": "falha",
-      "pct": 0.193359375
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-min-line-count-007",
@@ -2149,22 +2013,21 @@
     {
       "nome": "balance/balance-start-bias-001",
       "estado": "falha",
-      "pct": 1.39208984375
+      "pct": 0.06103515625
     },
     {
       "nome": "balance/balance-start-bias-002",
       "estado": "falha",
-      "pct": 1.39208984375
+      "pct": 0.06103515625
     },
     {
       "nome": "balance/balance-start-bias-003",
       "estado": "falha",
-      "pct": 0.89208984375
+      "pct": 0.3662109375
     },
     {
       "nome": "balance/balance-zero-size",
-      "estado": "falha",
-      "pct": 0.48828125
+      "estado": "passa"
     },
     {
       "nome": "balance/webkit-box-no-balance",
@@ -2237,13 +2100,13 @@
       "estado": "passa"
     },
     {
+      "nome": "css-flexbox-img-expand-evenly",
+      "estado": "passa"
+    },
+    {
       "nome": "css-flexbox-row-reverse-wrap-reverse",
       "estado": "falha",
       "pct": 1.04296875
-    },
-    {
-      "nome": "css-flexbox-img-expand-evenly",
-      "estado": "passa"
     },
     {
       "nome": "css-flexbox-row-reverse-wrap",
@@ -2348,8 +2211,7 @@
     },
     {
       "nome": "fit-content-item-001",
-      "estado": "falha",
-      "pct": 83.2078125
+      "estado": "passa"
     },
     {
       "nome": "fit-content-item-002",
@@ -2418,13 +2280,11 @@
     },
     {
       "nome": "flex-aspect-ratio-img-column-002",
-      "estado": "falha",
-      "pct": 11.3671875
+      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-column-003",
-      "estado": "falha",
-      "pct": 11.3671875
+      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-column-004",
@@ -2454,7 +2314,7 @@
     {
       "nome": "flex-aspect-ratio-img-column-010",
       "estado": "falha",
-      "pct": 1.5625
+      "pct": 0.390625
     },
     {
       "nome": "flex-aspect-ratio-img-column-012",
@@ -2559,8 +2419,7 @@
     },
     {
       "nome": "flex-aspect-ratio-intrinsic-padding-001",
-      "estado": "falha",
-      "pct": 3.28125
+      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-percentage-height-stale-width",
@@ -2610,8 +2469,7 @@
     },
     {
       "nome": "flex-basis-010",
-      "estado": "falha",
-      "pct": 3.90625
+      "estado": "passa"
     },
     {
       "nome": "flex-basis-011",
@@ -2764,18 +2622,15 @@
     },
     {
       "nome": "flex-grow-007",
-      "estado": "falha",
-      "pct": 0.87890625
+      "estado": "passa"
     },
     {
       "nome": "flex-grow-008",
-      "estado": "falha",
-      "pct": 0.48828125
+      "estado": "passa"
     },
     {
       "nome": "flex-grow-009",
-      "estado": "falha",
-      "pct": 0.9765625
+      "estado": "passa"
     },
     {
       "nome": "flex-height-min-content",
@@ -2893,12 +2748,12 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-006",
+      "nome": "flex-minimum-height-flex-items-005",
       "estado": "falha",
       "pct": 0.87890625
     },
     {
-      "nome": "flex-minimum-height-flex-items-005",
+      "nome": "flex-minimum-height-flex-items-006",
       "estado": "falha",
       "pct": 0.87890625
     },
@@ -3099,8 +2954,7 @@
     },
     {
       "nome": "flex-shrink-008",
-      "estado": "falha",
-      "pct": 0.48828125
+      "estado": "passa"
     },
     {
       "nome": "flex-svg-no-intrinsic-column-001",
@@ -3296,11 +3150,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-002",
+      "nome": "flexbox-definite-sizes-001",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-001",
+      "nome": "flexbox-definite-sizes-002",
       "estado": "passa"
     },
     {
@@ -3464,8 +3318,7 @@
     },
     {
       "nome": "flexbox-min-width-auto-006",
-      "estado": "falha",
-      "pct": 0.9765625
+      "estado": "passa"
     },
     {
       "nome": "flexbox-order-only-flexitems",
@@ -3991,11 +3844,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-1-0-auto",
+      "nome": "flexbox_flex-1-0",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-1-0",
+      "nome": "flexbox_flex-1-0-auto",
       "estado": "passa"
     },
     {
@@ -5084,12 +4937,12 @@
     {
       "nome": "percentage-max-height-002",
       "estado": "falha",
-      "pct": 0.9765625
+      "pct": 2.9296875
     },
     {
       "nome": "percentage-max-height-003",
       "estado": "falha",
-      "pct": 0.9765625
+      "pct": 14.6484375
     },
     {
       "nome": "percentage-max-height-004",

@@ -1,23 +1,23 @@
 {
   "date": "2026-09-16",
   "fixtures": {
-    "passing": 146,
-    "total": 146,
+    "passing": 147,
+    "total": 147,
     "pct": 100
   },
   "measurements": {
-    "matching": 3340,
-    "total": 3340,
+    "matching": 3412,
+    "total": 3412,
     "pct": 100
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 597,
+    "passing": 618,
     "total": 870,
-    "pct": 68.6,
+    "pct": 71,
     "by_subfolder": {
       "balance": {
-        "passing": 5,
+        "passing": 15,
         "total": 39
       },
       "intrinsic-size": {
@@ -47,15 +47,15 @@
         "total": 160
       },
       "item": {
-        "passing": 46,
+        "passing": 47,
         "total": 77
       },
       "align": {
-        "passing": 53,
+        "passing": 54,
         "total": 58
       },
       "aspect-ratio": {
-        "passing": 20,
+        "passing": 23,
         "total": 53
       },
       "gap": {
@@ -71,11 +71,11 @@
         "total": 37
       },
       "shrink": {
-        "passing": 35,
+        "passing": 36,
         "total": 37
       },
       "min-": {
-        "passing": 21,
+        "passing": 22,
         "total": 34
       },
       "overflow": {
@@ -83,7 +83,7 @@
         "total": 32
       },
       "basis": {
-        "passing": 24,
+        "passing": 25,
         "total": 30
       },
       "table": {
@@ -115,7 +115,7 @@
         "total": 9
       },
       "grow": {
-        "passing": 6,
+        "passing": 9,
         "total": 9
       },
       "max-": {
