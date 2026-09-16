@@ -209,6 +209,15 @@ impl Dom {
 
     /// Acesso por índice CRU (interno ao render, que percorre a árvore por
     /// índices). A API pública/ABI usa `NodeId` versionado + `resolve`.
+    /// Quantos nos tem a arena — o limite superior de um `NodeIdx` valido.
+    ///
+    /// O crate ja alcancava `self.nodes.len()` por dentro (`dom/estilo.rs`,
+    /// `dom/caches.rs`, para dimensionar memos); isto torna a mesma pergunta
+    /// disponivel a `crate::boxes` sem expor a arena.
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
     pub fn node(&self, idx: NodeIdx) -> &Node {
         &self.nodes[idx]
     }
