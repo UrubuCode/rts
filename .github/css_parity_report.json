@@ -243,6 +243,22 @@
       "Q — CSSOM",
       "U — composição e pintura",
       "V–Y — a superfície DOM que as bibliotecas pedem",
+      "BT-1 — árvore de caixas: a identidade passa a ser a CAIXA",
+      "BT-2 — árvore de caixas: o layout devolve fragmentos",
+      "BT-3 — caixa anónima: bloco dentro de inline",
+      "BT-4 — caixa anónima: a tabela gerada de fora para dentro",
+      "BT-5 — caixa gerada: `::before`/`::after` deixam de ser três implementações",
+      "FM — as metricas de fonte num modelo so",
+      "PCT — a percentagem sabe em que EIXO esta",
+      "REGUA — o corredor deixa de contar vazio como aprovado",
+      "TEXTO — pintar glifos (Ahem primeiro)",
+      "SC — contexto de empilhamento aninhado",
+      "BR — `getBoundingClientRect` deixa de refazer o layout todo",
+      "DISP — o `display` para de perder informacao no parse",
+      "LOG — o layout corre em eixos LOGICOS, nao fisicos",
+      "IFC — a caixa de linha e uma entidade",
+      "INTR — min-content/max-content nos DOIS eixos",
+      "USED — o valor USADO deixa de ser um caso especial",
       "borda-conflito-hidden — os 6 perdidos de `borda-unidades`: `border-conflict-style-101` a `-106` — `tr{border-color:red;border-style:hidden}`+`td{border:red solid}` sob `border-collapse:collapse` deviam sair SEM vermelho nenhum (CSS 2.1 §17.6.2: `hidden` vence qualquer conflito e apaga a borda, tem prioridade sobre `solid`); o motor pinta vermelho onde devia ficar branco"
     ]
   }
