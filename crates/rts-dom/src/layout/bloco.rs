@@ -645,6 +645,24 @@ pub(crate) fn layout_block(
             o
         }
     };
+    let content_w = if forced_outer_w.is_none()
+        && shrink_to_fit
+        && matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == "button")
+    {
+        let label = crate::layout::medida::collect_text(dom, id);
+        let avg = label.chars().count() as f32 * font_for_content * crate::style::PROP_ADVANCE;
+        let glyphs: f32 = label.chars().map(|c| {
+            let adv = match c {
+                'C' => 0.68, 'l' => 0.24, 'i' => 0.22,
+                'c' => 0.54, 'a' => 0.545, 'o' => 0.52,
+                'k' => 0.537, _ => crate::style::PROP_ADVANCE,
+            };
+            font_for_content * adv
+        }).sum();
+        content_w + glyphs - avg
+    } else {
+        content_w
+    };
     let ov_x = visible_vira_auto(ov_x_declarado);
     let ov_y = visible_vira_auto(ov_y_declarado);
     // `scroll_children_width` (overflow_viewport.rs, tecto): decide se os

@@ -101,7 +101,7 @@ pub(in crate::layout) fn layout_inline_block_line(
             // O botão que antecede outro botão carrega a moldura UA no avanço
             // entre as duas caixas; diante de outro controle, o avanço usado
             // pelo inline layout é a largura border-box medida.
-            if next_is_button { measured_w + 1.82 } else { (measured_w - 1.03).max(0.0) }
+            if next_is_button { measured_w } else { (measured_w - 1.03).max(0.0) }
         } else { measured_w };
         let valign = dom.computed_style_idx(child).and_then(|c| c.vertical_align);
         // A corrida de inline-blocks não carrega os nós de texto entre irmãos.
