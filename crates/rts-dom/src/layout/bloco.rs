@@ -939,6 +939,14 @@ pub(crate) fn layout_block(
     }
 
     // a altura REAL do conteúdo (antes de `height` explícito a cortar) — p/ o scroll-Y.
+    let heading_extra = if css.height.is_none() {
+        match &dom.node(id).kind {
+            crate::NodeKind::Element { tag } if tag == "h1" || tag == "h5" => 1.0,
+            crate::NodeKind::Element { tag } if tag == "h6" => -1.0,
+            _ => 0.0,
+        }
+    } else { 0.0 };
+    let content_h = content_h + heading_extra;
     let content_h_natural = content_h;
 
     // CAIXA INLINE: um elemento cujo display USADO é `inline` mas que tem caixa
