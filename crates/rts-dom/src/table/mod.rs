@@ -369,7 +369,15 @@ pub(crate) fn layout_table(
         // pintar, e forçar um dos dois inventaria geometria para um elemento
         // que não existe no documento.
         if let Some(n) = row.node {
-            let rect = Rect::new(content_x, y, content_w, alturas[ri]);
+            // A caixa da linha ocupa a grelha, não os dois vãos exteriores de
+            // `border-spacing`: o primeiro/último vão ficam entre a moldura e
+            // as células (Blink mede `<tr>` a partir de `content_x + spacing`).
+            let rect = Rect::new(
+                content_x + ts.spacing_h,
+                y,
+                (content_w - 2.0 * ts.spacing_h).max(0.0),
+                alturas[ri],
+            );
             crate::layout::record_node_rect(list, n, rect);
             pinta_caixa(dom, n, rect, idx_fundo, filhos_antes, list);
         }
@@ -386,7 +394,12 @@ pub(crate) fn layout_table(
         }
         let topo = row_y[inicio];
         let base = row_y[inicio + n - 1] + alturas[inicio + n - 1];
-        let rect = Rect::new(content_x, topo, content_w, base - topo);
+        let rect = Rect::new(
+            content_x + ts.spacing_h,
+            topo,
+            (content_w - 2.0 * ts.spacing_h).max(0.0),
+            base - topo,
+        );
         crate::layout::record_node_rect(list, node, rect);
         pinta_caixa(dom, node, rect, list.items.len(), list.children.len(), list);
     }
