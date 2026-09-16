@@ -70,7 +70,7 @@ mod relativo;
 mod fundo_imagem;
 mod replaced;
 mod replaced_transferido;
-mod bloco;
+pub(crate) mod bloco;
 mod fragmento;
 mod rtl_bloco;
 mod vertical;

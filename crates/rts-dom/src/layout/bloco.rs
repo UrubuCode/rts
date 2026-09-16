@@ -24,7 +24,12 @@ enum MarginChildRole {
 /// `layout_block`; ver `layout/bfc.rs` para o porquê da entidade. A raiz do
 /// documento entra por `id` ser filho direto de `dom.root` — o único gatilho
 /// que não está no `ComputedStyle`.
-pub(in crate::layout) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
+/// Raised to `pub(crate)` for `crate::boxes::context`: a box has to be able to
+/// say whether it establishes its own formatting context, and re-deriving the
+/// triggers there would be a second answer to a question this function already
+/// carries with the fixtures that pinned each one. The rule it encodes is a
+/// STYLE question and will move to `style/` with `is_block_level`.
+pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
     let is_root = dom.node(id).parent == Some(dom.root);
     let display_bfc = matches!(
         css.effective_display(),

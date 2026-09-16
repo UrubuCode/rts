@@ -32,6 +32,9 @@ use std::rc::Rc;
 mod build;
 pub use build::build_mirror;
 
+pub(crate) mod context;
+pub use context::{FormattingContext, InnerDisplay, OuterDisplay};
+
 #[cfg(test)]
 mod tests;
 
@@ -212,6 +215,14 @@ impl BoxTree {
     /// and of length one for every element while the tree is the mirror.
     pub fn boxes_of(&self, node: NodeIdx) -> &[BoxId] {
         self.by_node.get(&node).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// What KIND of box this is. The one accessor that does not translate to a
+    /// node, and the reason it exists: a caller that asks "is this anonymous"
+    /// by testing `node_of(id).is_none()` gets the right answer today and the
+    /// wrong one the day a second kind stops naming a node.
+    pub fn kind(&self, id: BoxId) -> BoxKind {
+        self.get(id).kind
     }
 
     /// The node a box belongs to, or `None` when the box is anonymous.

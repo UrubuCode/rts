@@ -62,9 +62,12 @@ fn descend(dom: &Dom, node: NodeIdx, parent: Option<BoxId>, tree: &mut BoxTree) 
         tree.push_text(node, source, p);
         return;
     }
-    let Some(style) = dom.computed_style_idx(node) else {
+    // An element the cascade refuses generates no box. The style itself is not
+    // read here — `context.rs` asks for it fresh when someone needs it — so
+    // this is a presence test and nothing more.
+    if dom.computed_style_idx(node).is_none() {
         return;
-    };
+    }
     let id = tree.push_element(node, parent);
     // `children` is cloned because `descend` re-borrows `dom` immutably while
     // mutating the tree. The cost is one allocation per element with children;
@@ -73,25 +76,23 @@ fn descend(dom: &Dom, node: NodeIdx, parent: Option<BoxId>, tree: &mut BoxTree) 
     // shows up in a profile, it is here. Measure first, which is the house rule.
     let children: Vec<NodeIdx> = dom.node(node).children.clone();
 
-    // The split applies only to an actual inline box — `display: inline` —
-    // and not to `inline-block`/`inline-flex`/…: those are inline-level on
-    // the OUTSIDE but establish their own block-formatting context on the
-    // inside, so a block-level child is ordinary content for them, not a
-    // reason to split. Restricted to that one variant on purpose: a wider
-    // test here would be a second definition of "inline box" beside
-    // `is_inline_level`.
-    // "E uma caixa inline?" nao se pergunta por `effective_display()`: essa
-    // funcao responde ao display DECLARADO, e um `<span>` normal nao declara
-    // nenhum — inline e o default da tag. Medido: `<span>` responde `None`, e
-    // o criterio nunca disparava. `is_block_level` e a pergunta que o motor ja
-    // faz em 46 sitios, e usa-la aqui evita uma segunda verdade sobre a
-    // condicao que decide se um inline se parte.
+    // The split applies to an actual inline BOX and to nothing else: inline-
+    // level to its siblings, flow inside, and not establishing a context of its
+    // own. `inline-block` and `inline-flex` pass the first test and fail the
+    // other two, which is right — a block-level child inside them is ordinary
+    // content, not a reason to split.
     //
-    // `inline-block` e companhia ficam de fora na mesma: sao inline-level por
-    // FORA mas estabelecem contexto proprio por DENTRO, e por isso
-    // `is_block_level` responde `true` a eles — que e o que queremos, porque
-    // um filho de bloco la dentro e conteudo normal, nao motivo para partir.
-    let e_caixa_inline = !crate::layout::caixa::is_block_level(dom, node);
+    // This used to ask `!is_block_level`, which answered the question by
+    // accident: that function routes to `layout_block`, and an `inline-block`
+    // routes there, so it fell out of the criterion for a reason unrelated to
+    // what the criterion means. `context.rs` carries the divergence in full.
+    // Asking `effective_display() == Some(Inline)` was tried before that and
+    // never fired at all — a plain `<span>` declares no display, inline being
+    // the tag default, so the test was against `None` every time.
+    let fc = crate::boxes::context::element_formatting_context(dom, node);
+    let e_caixa_inline = fc.is_inline_level()
+        && fc.inner == crate::boxes::InnerDisplay::Flow
+        && !fc.independent;
     let is_split_inline =
         e_caixa_inline && children.iter().any(|&c| is_block_level_child(dom, c));
 
@@ -104,21 +105,26 @@ fn descend(dom: &Dom, node: NodeIdx, parent: Option<BoxId>, tree: &mut BoxTree) 
     }
 }
 
-/// `true` for an ELEMENT child whose `effective_display` is block-level —
-/// the blockification `ComputedStyle` already computes (float, `position`),
-/// consulted here rather than re-derived: a second criterion for "is this
-/// block-level" would be a second truth about a question the style already
-/// answers. A non-element (text, comment) is never block-level: it has no
-/// style of its own to blockify, and it stays in the inline run.
+/// `true` for an ELEMENT child that is block-level to its siblings — the one
+/// question the split needs about a child, asked through
+/// `element_formatting_context` so that "what is this to its siblings" has a
+/// single answer in this crate. A non-element is never block-level: a text node
+/// stays in the inline run, and a comment generates no box at all.
+///
+/// `display: none` is excluded because it generates no box: a child that does
+/// not exist cannot split anything, and counting it would produce an anonymous
+/// box around nothing.
 fn is_block_level_child(dom: &Dom, node: NodeIdx) -> bool {
     if !matches!(&dom.node(node).kind, NodeKind::Element { .. }) {
         return false;
     }
-    dom.computed_style_idx(node).is_some_and(|style| {
-        style
-            .effective_display()
-            .is_some_and(|d| d != DisplayKind::None && !d.is_inline_level())
-    })
+    let declared = dom
+        .computed_style_idx(node)
+        .and_then(|css| css.effective_display());
+    if declared == Some(DisplayKind::None) {
+        return false;
+    }
+    crate::boxes::context::element_formatting_context(dom, node).is_block_level()
 }
 
 /// Splits an inline box's children around each run of block-level ones (CSS

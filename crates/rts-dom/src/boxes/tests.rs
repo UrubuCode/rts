@@ -425,3 +425,115 @@ fn every_build_gets_its_own_generation() {
         "two builds must not share a generation"
     );
 }
+
+/// Finds the first element with a given tag, and the box the mirror gave it.
+fn box_of_tag(dom: &crate::dom::Dom, tree: &BoxTree, tag: &str) -> BoxId {
+    let node = (0..dom.node_count())
+        .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag: t } if t == tag))
+        .unwrap_or_else(|| panic!("the fixture has no <{tag}>"));
+    tree.boxes_of(node)[0]
+}
+
+/// `inline-flex` is the pair that makes the two-value model necessary:
+/// inline-level to its siblings, flex to its children. One `display` value
+/// answering both questions is what made this engine treat it as a block for
+/// as long as it did.
+#[test]
+fn inline_flex_is_inline_outside_and_flex_inside() {
+    let dom = crate::parse_html_to_dom(r#"<div style="display:inline-flex"></div>"#);
+    let tree = build_mirror(&dom);
+    let fc = tree.formatting_context(&dom, box_of_tag(&dom, &tree, "div"));
+
+    assert_eq!(fc.outer, OuterDisplay::Inline, "inline-level to its siblings");
+    assert_eq!(fc.inner, InnerDisplay::Flex, "flex to its children");
+    assert!(fc.is_atomic_inline(), "a line box never descends into it");
+}
+
+/// `overflow:hidden` establishes an independent formatting context while
+/// leaving BOTH halves of the pair untouched. That is why `independent` is a
+/// field of its own and not something read off `inner`.
+#[test]
+fn overflow_hidden_is_independent_without_changing_the_display_pair() {
+    let dom = crate::parse_html_to_dom(r#"<div style="overflow:hidden"></div>"#);
+    let tree = build_mirror(&dom);
+    let fc = tree.formatting_context(&dom, box_of_tag(&dom, &tree, "div"));
+
+    assert_eq!(fc.outer, OuterDisplay::Block);
+    assert_eq!(fc.inner, InnerDisplay::Flow);
+    assert!(fc.independent, "overflow other than visible establishes a BFC");
+}
+
+/// A TEXT box is inline-level flow whatever encloses it — text has no
+/// `display` of its own, and what it inherits is colour and font, never the
+/// box type. The enclosing `<div>` here is block-level, and the text inside it
+/// is not.
+#[test]
+fn a_text_box_is_inline_level_inside_a_block() {
+    let dom = crate::parse_html_to_dom("<div>hello</div>");
+    let tree = build_mirror(&dom);
+    let div_box = box_of_tag(&dom, &tree, "div");
+    let text_box = tree.children(div_box)[0];
+
+    assert!(tree.formatting_context(&dom, div_box).is_block_level());
+    let fc = tree.formatting_context(&dom, text_box);
+    assert!(fc.is_inline_level(), "text flows in a line, never on its own");
+    assert_eq!(fc.inner, InnerDisplay::Flow);
+    assert!(!fc.is_atomic_inline(), "text is breakable, not an atom");
+}
+
+/// An ANONYMOUS box is block-level flow, and NOT the `display:inline` of the
+/// element it inherits style from. Taking the inline's own display here would
+/// rebuild the nesting the block-in-inline split exists to undo.
+#[test]
+fn an_anonymous_box_is_block_level_even_though_it_inherits_from_an_inline() {
+    let dom = crate::parse_html_to_dom("<span>before<div>block</div></span>");
+    let tree = build_mirror(&dom);
+    let span_box = box_of_tag(&dom, &tree, "span");
+
+    let anon = tree
+        .children(span_box)
+        .iter()
+        .copied()
+        .find(|&c| matches!(tree.kind(c), BoxKind::Anonymous { .. }))
+        .expect("the split produced an anonymous box");
+
+    assert!(tree.formatting_context(&dom, span_box).is_inline_level());
+    assert!(
+        tree.formatting_context(&dom, anon).is_block_level(),
+        "the anonymous box wrapping the inline run is a BLOCK box"
+    );
+}
+
+/// Whether a flow container runs an inline formatting context is decided by
+/// its CHILDREN, and this is the question that needs the tree: a `<div>` of
+/// text runs one, and the same `<div>` with a block child does not.
+#[test]
+fn a_flow_container_runs_an_inline_context_only_when_every_child_is_inline() {
+    let only_text = crate::parse_html_to_dom("<div>hello <span>world</span></div>");
+    let tree = build_mirror(&only_text);
+    let div_box = box_of_tag(&only_text, &tree, "div");
+    assert!(
+        tree.runs_inline_formatting_context(&only_text, div_box),
+        "text and an inline make an inline formatting context"
+    );
+
+    let with_block = crate::parse_html_to_dom("<div>hello <p>para</p></div>");
+    let tree2 = build_mirror(&with_block);
+    let div2 = box_of_tag(&with_block, &tree2, "div");
+    assert!(
+        !tree2.runs_inline_formatting_context(&with_block, div2),
+        "one block-level child turns it into a block formatting context"
+    );
+}
+
+/// A flex container never runs a line box, whatever its children are. Asking
+/// the children there would be the wrong question, and the early return in
+/// `runs_inline_formatting_context` is what makes it not be asked.
+#[test]
+fn a_flex_container_never_runs_an_inline_formatting_context() {
+    let dom = crate::parse_html_to_dom(r#"<div style="display:flex">text</div>"#);
+    let tree = build_mirror(&dom);
+    let div_box = box_of_tag(&dom, &tree, "div");
+
+    assert!(!tree.runs_inline_formatting_context(&dom, div_box));
+}
