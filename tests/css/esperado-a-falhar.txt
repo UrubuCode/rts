@@ -7,7 +7,6 @@
 # aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 claude-ua-form-disabled.html
 claude-ua-headings.html
-claude-ua-th.html
 
 # cursor: url(x.png) — o Blink resolve a URL contra a base do documento;
 # nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)

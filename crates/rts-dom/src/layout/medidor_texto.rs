@@ -130,7 +130,10 @@ impl TextMeasurer for ApproxMeasurer {
         } else {
             crate::style::PROP_ADVANCE
         };
-        if bold {
+        // Em uma família monoespaçada o peso altera o glifo, não o avanço da
+        // célula. Aplicar +6% aqui inflava `<th>` bold e deslocava a tabela
+        // inteira (`claude-ua-th`).
+        if bold && !mono {
             per *= 1.06; // bold ~6% mais largo.
         }
         text.chars().count() as f32 * size * per
