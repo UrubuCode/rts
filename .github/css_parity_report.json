@@ -1,20 +1,20 @@
 {
-  "date": "2026-09-15",
+  "date": "2026-09-16",
   "fixtures": {
-    "passing": 139,
+    "passing": 142,
     "total": 146,
-    "pct": 95.2
+    "pct": 97.3
   },
   "measurements": {
-    "matching": 3292,
+    "matching": 3298,
     "total": 3340,
-    "pct": 98.6
+    "pct": 98.7
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 601,
+    "passing": 598,
     "total": 870,
-    "pct": 69.1,
+    "pct": 68.7,
     "by_subfolder": {
       "balance": {
         "passing": 5,
@@ -43,7 +43,7 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 140,
+        "passing": 137,
         "total": 160
       },
       "item": {
@@ -158,10 +158,6 @@
       "razao": "folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal"
     },
     {
-      "fixture": "claude-cursor-pointer-events.html",
-      "razao": "cursor: url(x.png) — o Blink resolve a URL contra a base do documento; nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)"
-    },
-    {
       "fixture": "claude-controlos-tamanho-natural.html",
       "razao": "lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel` (`<select>` sem opções) não — `<select>` não passa por `layout_input` (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`), por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`). Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a sua própria caixa."
     }
@@ -238,6 +234,9 @@
       "borda-unidades — `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde)"
     ],
     "parciais": [
+      "select-caixa-natural — `<select>` vazio: altura natural e stretch cruzado no flex",
+      "css-url-computado — URLs relativas em valores CSS computados (cursor e imagens; base de folha externa ainda não preservada)",
+      "dom-collections — `classList` vivo/estável e `dataset` DOMStringMap para APIs usadas por frameworks",
       "S-inline — caixa inline por FRAGMENTOS de linha",
       "flex-basis-content-wrap — `flex-basis: content` (Flexbox §7.2.3) ignora `width`/`height` do item; `flex-wrap` em linha e coluna com tamanhos definidos vs indefinidos",
       "flex-reverse-order — `row-reverse`/`column-reverse` com `wrap`/`wrap-reverse` (ordem das linhas E dos itens, `align-content` com linhas invertidas), `order` com `direction:rtl`, `order` com `position:absolute`+`space-around`, a família `css-flexbox-row*`",
