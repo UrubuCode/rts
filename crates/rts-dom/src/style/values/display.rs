@@ -243,8 +243,16 @@ pub enum JustifyContent {
 impl JustifyContent {
     pub fn parse(v: &str) -> Option<JustifyContent> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
-            "flex-start" | "normal" => JustifyContent::FlexStart,
-            "flex-end" => JustifyContent::FlexEnd,
+            // `flow-start`/`flow-end` (CSS Box Alignment): flow-relative
+            // aliases that the spec defines to behave EXACTLY like
+            // `flex-start`/`flex-end` for flex's align-* properties — same
+            // main-start/main-end tracking, same mirroring under
+            // `row-reverse`/`column-reverse`. Unlike `Start`/`End` above,
+            // there is no `getComputedStyle` reftest pinning the literal
+            // keyword back, so they collapse directly instead of getting
+            // their own variant (WPT `flow-start-flow-end-*`).
+            "flex-start" | "normal" | "flow-start" => JustifyContent::FlexStart,
+            "flex-end" | "flow-end" => JustifyContent::FlexEnd,
             "start" => JustifyContent::Start,
             "end" => JustifyContent::End,
             "left" => JustifyContent::Left,
@@ -289,8 +297,10 @@ impl AlignItems {
     pub fn parse(v: &str) -> Option<AlignItems> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "stretch" | "normal" => AlignItems::Stretch,
-            "flex-start" | "start" | "self-start" => AlignItems::FlexStart,
-            "flex-end" | "end" | "self-end" => AlignItems::FlexEnd,
+            // `flow-start`/`flow-end`: see the sibling aliases on
+            // `JustifyContent::parse` — same collapse, same reason.
+            "flex-start" | "start" | "self-start" | "flow-start" => AlignItems::FlexStart,
+            "flex-end" | "end" | "self-end" | "flow-end" => AlignItems::FlexEnd,
             "center" => AlignItems::Center,
             "baseline" | "first baseline" => AlignItems::Baseline,
             "last baseline" => AlignItems::LastBaseline,
@@ -342,5 +352,32 @@ impl FlexWrap {
 
     pub fn balances(self) -> bool {
         matches!(self, FlexWrap::Balance | FlexWrap::BalanceReverse)
+    }
+}
+
+#[cfg(test)]
+mod flow_start_flow_end_tests {
+    use super::*;
+
+    /// WPT `flow-start-flow-end-*` (css-flexbox/alignment): the test file
+    /// declares `justify-content: flow-start`/`flow-end`, its `-ref.html`
+    /// declares `flex-start`/`flex-end`, and the two must resolve the same
+    /// way. Before this fix `JustifyContent::parse` returned `None` for
+    /// `flow-start`/`flow-end`, so the declaration was dropped and the
+    /// container fell back to the property's own initial value instead of
+    /// matching the reference.
+    #[test]
+    fn justify_content_flow_start_end_alias_flex_start_end() {
+        assert_eq!(JustifyContent::parse("flow-start"), Some(JustifyContent::FlexStart));
+        assert_eq!(JustifyContent::parse("flow-end"), Some(JustifyContent::FlexEnd));
+    }
+
+    /// Same alias, for `align-items`/`align-self`/`align-content` — all three
+    /// read through `AlignItems::parse` per `style/props/tabela.rs`
+    /// (`align-content` is the one exception, typed `JustifyContent`).
+    #[test]
+    fn align_items_flow_start_end_alias_flex_start_end() {
+        assert_eq!(AlignItems::parse("flow-start"), Some(AlignItems::FlexStart));
+        assert_eq!(AlignItems::parse("flow-end"), Some(AlignItems::FlexEnd));
     }
 }

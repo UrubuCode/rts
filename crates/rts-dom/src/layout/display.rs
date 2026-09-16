@@ -206,6 +206,19 @@ pub enum DisplayItem {
         color: u32,
         size: f32,
         mono: bool,
+        /// `true` quando a familia computada resolve na fonte de teste Ahem.
+        ///
+        /// Um BIT e nao a lista de familias: quem o le e o rasterizador, e a
+        /// unica pergunta que ele faz e se pode desenhar o glifo como o
+        /// retangulo solido que a Ahem define. Carregar a lista inteira por
+        /// item de texto pagaria uma alocacao por fragmento reusado para
+        /// responder a um booleano.
+        ///
+        /// Fora da Ahem o rasterizador continua a mascarar o texto, e isso e
+        /// deliberado: desenhar uma fonte real precisa de um motor de fontes
+        /// que este crate nao tem, e inventar retangulos para ela faria falhar
+        /// reftests que hoje passam por outra razao.
+        is_ahem: bool,
         bold: bool,
         /// `font-style: italic`/`oblique`. Um bit à parte do `bold` e não um
         /// "peso" — no browser são dois eixos independentes (`<em><strong>` é

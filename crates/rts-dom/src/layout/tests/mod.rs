@@ -147,6 +147,7 @@ mod flex_scroll_overflow_corpus;
                     italic: ia,
                     letter_spacing: la,
                     decoration: dea,
+                    is_ahem: _,
                 },
                 D::Text {
                     x: xb,
@@ -159,6 +160,7 @@ mod flex_scroll_overflow_corpus;
                     italic: ib,
                     letter_spacing: lb,
                     decoration: deb,
+                    is_ahem: _,
                 },
             ) => {
                 (xa - xb).abs() < TOL

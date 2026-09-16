@@ -15,7 +15,15 @@ mod dimensao;
 /// `lengths`/`parse` already draws: whoever adds a UNIT touches `dimensao`,
 /// whoever changes what a percentage is resolved AGAINST touches this.
 mod containing_block;
+/// The map between the LOGICAL axes and the PHYSICAL ones — which physical
+/// axis a writing mode makes the inline one, and which side each logical axis
+/// starts at. It sits beside `containing_block` because the containing block
+/// is where a physical width becomes an inline size; it is not inside it
+/// because `style::logical` and `layout::eixos_flex` ask the same question
+/// with no containing block in hand.
+mod axes;
 
+pub use axes::*;
 pub use texto::*;
 pub use caixa::*;
 pub use display::*;

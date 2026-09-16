@@ -148,6 +148,7 @@ fn pintar(list: &mut DisplayList, caixa: &PseudoBlockBox, x: f32, y: f32, ctx: &
     }
     if !caixa.texto.is_empty() {
         let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
+        let is_ahem = super::fonte_metricas::usa_ahem(css.font_family.as_deref());
         let lh = crate::inline_box::altura_da_linha(css, caixa.fonte, ctx.measurer);
         let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
         list.items.push(DisplayItem::Text {
@@ -157,6 +158,7 @@ fn pintar(list: &mut DisplayList, caixa: &PseudoBlockBox, x: f32, y: f32, ctx: &
             color: css.color.unwrap_or(0x000000FF),
             size: caixa.fonte,
             mono,
+            is_ahem,
             bold: css.bold.unwrap_or(false),
             italic: false,
             letter_spacing: css.letter_spacing.unwrap_or(0.0),

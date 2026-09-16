@@ -204,6 +204,7 @@ fn item_linha(item: &DisplayItem, dx: f32, dy: f32, i: usize) -> Option<String> 
             italic,
             letter_spacing,
             decoration,
+            is_ahem: _,
         } => format!(
             "{pre},\"k\":\"text\",\"x\":{},\"y\":{},\"t\":{},\"color\":{color},\
              \"size\":{},\"mono\":{mono},\"bold\":{bold},\"italic\":{italic},\

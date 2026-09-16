@@ -131,7 +131,9 @@ pub(in crate::layout) fn layout_inline_flow(
     }
     let family = parent_css.font_family.as_deref();
     let mono = family.is_some_and(crate::style::is_mono_family);
-    let ahem = family.is_some_and(crate::style::is_ahem_family); // ver quebra::wrap_runs
+    // A pergunta "e Ahem?" ja vivia aqui para `quebra::wrap_runs`; o item de
+    // texto passa a carregar a MESMA resposta em vez de a fazer outra vez.
+    let ahem = super::fonte_metricas::usa_ahem(family);
     // line-height: do CSS (multiplicador ou px), senão o default do measurer —
     // #1749. O medidor é também quem responde por `line-height: normal`, porque
     // esse valor sai das MÉTRICAS DA FONTE e não de uma constante: sem isto, o
@@ -495,6 +497,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 color: seg.color,
                 size: font_size,
                 mono,
+                is_ahem: ahem,
                 bold: seg.bold,
                 italic: seg.italic,
                 letter_spacing: ls,

@@ -55,6 +55,8 @@ pub(in crate::layout) fn layout_button(
         color: fg,
         size: font,
         mono: false,
+        // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
+        is_ahem: false,
         bold: false,
         italic: false,
         letter_spacing: 0.0,
@@ -339,6 +341,8 @@ pub(in crate::layout) fn layout_input(
             color: tcolor,
             size: font,
             mono: false,
+            // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
+            is_ahem: false,
             bold: false,
             italic: false,
             letter_spacing: 0.0,

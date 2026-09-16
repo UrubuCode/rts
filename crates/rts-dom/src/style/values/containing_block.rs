@@ -32,6 +32,7 @@
 //! exact path produced `w: inf` and a 65-second raster
 //! (`intrinsic-percent-replaced-019`, WPT).
 
+use super::axes::{AxisMap, PhysicalAxis};
 use super::dimensao::{Dimension, ResolveCtx};
 
 /// Which axis a length is being resolved ON.
@@ -39,8 +40,8 @@ use super::dimensao::{Dimension, ResolveCtx};
 /// Named by the writing mode's own vocabulary (CSS Writing Modes 4 §1.2) and
 /// not `Horizontal`/`Vertical`, because the mapping between the two is the
 /// writing mode's to decide and this engine will eventually let it:
-/// [`ContainingBlock::horizontal_tb`] is where that assumption lives, alone,
-/// instead of being spread over every caller that says "width".
+/// [`AxisMap`] is where that mapping lives, alone, instead of being spread over
+/// every caller that says "width".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Axis {
     /// The axis lines are laid along — `width` in `horizontal-tb`.
@@ -106,30 +107,82 @@ impl PercentBasis {
 /// answers where the containing block starts — that is a positioning question —
 /// and this answers what a percentage inside it resolves against. Fusing them
 /// would put an origin on every measurement that has none.
+///
+/// It DOES carry the writing mode, because the mode is what decides which of
+/// its two extents a physical width is. That is the whole of the physical↔
+/// logical conversion for a percentage basis, and having it here is what keeps
+/// it out of the callers.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct ContainingBlock {
     inline: PercentBasis,
     block: PercentBasis,
+    axes: AxisMap,
 }
 
 impl ContainingBlock {
-    /// Both axes, named.
+    /// Both axes, named — for a caller that already thinks logically and has
+    /// nothing physical to convert.
+    ///
+    /// The map is the initial one (`horizontal-tb` + `ltr`), which is right
+    /// for every caller that never asks a physical question. One that does
+    /// says so with [`in_axes`](ContainingBlock::in_axes).
     pub fn new(inline: PercentBasis, block: PercentBasis) -> ContainingBlock {
-        ContainingBlock { inline, block }
+        ContainingBlock { inline, block, axes: AxisMap::horizontal_tb() }
     }
 
-    /// The `horizontal-tb` mapping — width is the inline extent, height the
-    /// block extent — and the ONE place in this type that assumes it.
+    /// Both axes, named, in a stated writing mode.
+    pub fn in_axes(inline: PercentBasis, block: PercentBasis, axes: AxisMap) -> ContainingBlock {
+        ContainingBlock { inline, block, axes }
+    }
+
+    /// From the two PHYSICAL extents — a width and a height, which is how the
+    /// layout holds them — plus the mode that says which is which.
+    ///
+    /// **This is the door.** It is the one place in the crate that turns a
+    /// width into an inline size, and the reason the rest of the type can talk
+    /// only in [`Axis`]. In `horizontal-tb` the width is the inline extent; in
+    /// any vertical mode the two SWAP, and a `50%` inline size then measures
+    /// against the height.
     ///
     /// The height is an `Option` because that is how the layout carries it: a
     /// block of `height: auto` has no block extent to give its children, which
     /// is exactly `Indefinite` and exactly why a `height: 50%` inside it
     /// computes to `auto` (CSS 2.1 §10.5).
+    pub fn physical(width: f32, height: Option<f32>, axes: AxisMap) -> ContainingBlock {
+        let x = PercentBasis::new(width);
+        let y = PercentBasis::from_option(height);
+        let (inline, block) = if axes.physical(Axis::Inline) == PhysicalAxis::X {
+            (x, y)
+        } else {
+            (y, x)
+        };
+        ContainingBlock { inline, block, axes }
+    }
+
+    /// The `horizontal-tb` case of [`physical`](ContainingBlock::physical) —
+    /// width is the inline extent, height the block extent.
+    ///
+    /// Kept as its own name, and not folded into the general one, because it
+    /// is what an unconverted caller means: it states the assumption instead of
+    /// defaulting to it silently, and it is greppable for exactly that reason.
     pub fn horizontal_tb(width: f32, height: Option<f32>) -> ContainingBlock {
-        ContainingBlock {
-            inline: PercentBasis::new(width),
-            block: PercentBasis::from_option(height),
-        }
+        ContainingBlock::physical(width, height, AxisMap::horizontal_tb())
+    }
+
+    /// The writing mode this containing block establishes for what is inside
+    /// it — the piece a box carries.
+    pub fn axes(&self) -> AxisMap {
+        self.axes
+    }
+
+    /// The same two extents under a different writing mode.
+    ///
+    /// The extents are LOGICAL, so changing the map does not move them: an
+    /// inline size stays the inline size. It changes which physical extent
+    /// [`extent`](ContainingBlock::extent) reports it as, which is the only
+    /// thing the map decides here.
+    pub fn with_axes(self, axes: AxisMap) -> ContainingBlock {
+        ContainingBlock { axes, ..self }
     }
 
     /// The basis a percentage on `axis` resolves against.
@@ -138,6 +191,16 @@ impl ContainingBlock {
             Axis::Inline => self.inline,
             Axis::Block => self.block,
         }
+    }
+
+    /// The extent on a PHYSICAL axis — the way back out, for a caller that
+    /// holds a rectangle rather than a pair of logical sizes.
+    ///
+    /// It exists so that such a caller does not re-derive the mapping: the
+    /// inverse is `AxisMap::logical`, asked once here rather than written as
+    /// an `if is_horizontal` at each site.
+    pub fn extent(&self, axis: PhysicalAxis) -> PercentBasis {
+        self.basis(self.axes.logical(axis))
     }
 
     /// Resolve a declared dimension ON a named axis, clamped at ≥ 0.

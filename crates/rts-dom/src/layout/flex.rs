@@ -531,6 +531,8 @@ pub(in crate::layout) fn layout_children_horizontal(
                     color,
                     size: font_size,
                     mono: false,
+                    // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
+                    is_ahem: false,
                     bold: css.bold.unwrap_or(false),
                     italic: italico(Some(&css), tag_de(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),

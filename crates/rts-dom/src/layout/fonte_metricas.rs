@@ -46,7 +46,7 @@
 /// `true` sse a lista de `font-family` computada resolve, pela mesma regra de
 /// `style::is_ahem_family`, na família Ahem. Único sítio desta pergunta —
 /// ver o cabeçalho do módulo.
-fn usa_ahem(family: Option<&str>) -> bool {
+pub(in crate::layout) fn usa_ahem(family: Option<&str>) -> bool {
     family.is_some_and(crate::style::is_ahem_family)
 }
 
