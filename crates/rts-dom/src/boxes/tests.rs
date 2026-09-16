@@ -106,3 +106,21 @@ fn the_mirror_is_a_tree_whose_two_directions_agree() {
         "every box must be reachable from a root"
     );
 }
+
+/// The tree is memoised on the `Dom`, and the memo survives a second call
+/// without rebuilding — two calls on an unchanged document hand back the same
+/// allocation.
+///
+/// It lives on the `Dom` and not in `LayoutCtx` because 111 sites construct a
+/// `LayoutCtx`; the reason is worth a test because the next person to look for
+/// the tree will look in the context first.
+#[test]
+fn the_tree_is_memoised_on_the_document() {
+    let dom = crate::parse_html_to_dom("<div><p>a</p></div>");
+    let first = dom.box_tree();
+    let second = dom.box_tree();
+    assert!(
+        Rc::ptr_eq(&first, &second),
+        "an unchanged document must hand back the same tree, not an equal one"
+    );
+}

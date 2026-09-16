@@ -32,6 +32,7 @@ use crate::html::{Token, tokenize};
 
 mod arvore;
 mod animacao;
+mod box_tree;
 mod caches;
 mod cascade;
 mod css_url;
@@ -342,6 +343,16 @@ pub struct Dom {
     /// `None` = ainda não calculada nesta revisão; uma página sem contadores
     /// calcula uma tabela VAZIA e volta a acertar o memo, em vez de refazer a
     /// pergunta por cada pseudo-elemento.
+    /// A ARVORE DE CAIXAS do documento, memoizada como os outros memos deste
+    /// tipo: por `(revision, style_epoch)`.
+    ///
+    /// Vive aqui e nao no `LayoutCtx` por uma razao medida: 111 sitios
+    /// constroem um `LayoutCtx`, e um campo novo la seriam 111 edicoes
+    /// mecanicas em codigo que nao tem nada a ver com caixas. Aqui segue o
+    /// padrao que `counter_memo` e `computed_memo` ja usam, e herda a mesma
+    /// invalidacao.
+    box_tree_memo: std::cell::RefCell<Option<std::rc::Rc<crate::boxes::BoxTree>>>,
+    box_tree_memo_revision: std::cell::Cell<(u64, u64)>,
     counter_memo: std::cell::RefCell<Option<std::rc::Rc<crate::counters::Tabela>>>,
     counter_memo_revision: std::cell::Cell<(u64, u64)>,
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante
