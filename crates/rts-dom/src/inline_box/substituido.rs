@@ -83,9 +83,16 @@ pub(crate) fn replaced_inline_size(
     let crate::dom::NodeKind::Element { tag } = &dom.node(id).kind else {
         return None;
     };
-    // `<svg>` e `<canvas>` não estão aqui de propósito: `is_block_level` já os
-    // manda para o caminho de bloco, que os pinta. Duplicar a decisão aqui era
-    // criar um segundo sítio onde o tamanho de um replaced se decide.
+    // `<svg>` não está aqui de propósito: `is_block_level` ainda o manda para o
+    // caminho de bloco, que o pinta. Duplicar a decisão era criar um segundo
+    // sítio onde o tamanho de um replaced se decide.
+    //
+    // `<canvas>` ESTÁ, e é o que o tira do caminho de bloco: ele é inline por
+    // natureza como o `<img>`, e forçá-lo a bloco empilhava dois canvas
+    // irmãos um sobre o outro onde o Blink os põe lado a lado, e perdia a
+    // borda (15×10 onde o Blink dá 17×12). 300×150 é o default do HTML para
+    // um canvas sem dimensão nenhuma — ao contrário do `<img>` sem `src`,
+    // aqui não há recurso que possa chegar depois e desmenti-lo.
     // O default de CSS Images §5 quando não há intrínseco NENHUM (nem
     // dimensão, nem razão) é 300×150 para QUALQUER replaced — mas só um
     // `<img>` com `src` (mesmo que o recurso não decodifique dimensão
@@ -100,7 +107,7 @@ pub(crate) fn replaced_inline_size(
     let default_box = match tag.as_str() {
         "img" if has_src => Some((300.0, 150.0)),
         "img" => None,
-        "video" | "iframe" | "embed" | "object" => Some((300.0, 150.0)),
+        "canvas" | "video" | "iframe" | "embed" | "object" => Some((300.0, 150.0)),
         _ => return None,
     };
     let font = crate::layout::font_px(css, crate::layout::DEFAULT_FONT_SIZE);
@@ -129,8 +136,18 @@ pub(crate) fn replaced_inline_size(
     // A alternativa era continuar a ler `Option<f32>`: `Dimension::Auto` resolve
     // `None`, indistinguível de "o autor não disse nada", e é essa perda de
     // informação que o `or_else` transformava em silêncio.
+    // Uma percentagem de LARGURA contra uma base INDEFINIDA computa a `auto`,
+    // e é a mesma regra que a altura logo abaixo já aplicava por não ter base
+    // nenhuma. A base é indefinida sempre que se mede em max-content: um item
+    // shrink-to-fit mede o conteúdo com `avail_w` infinito, e `100%` de
+    // infinito é infinito — a borda do item saía com `w: inf` e o
+    // rasterizador ficava 65 segundos a percorrê-la
+    // (`intrinsic-percent-replaced-019`, WPT). Sem base, o tamanho vem da
+    // razão de aspecto ou do intrínseco, que é o que o Blink usa ali.
+    let base_de_percentagem_definida = avail_w.is_finite();
     let declarado = |d: Option<crate::style::Dimension>, attr: &str| match d {
         Some(crate::style::Dimension::Auto) => None,
+        Some(crate::style::Dimension::Percent(_)) if !base_de_percentagem_definida => None,
         Some(d) => d.resolve(&resolve),
         None => attr_px(attr),
     };

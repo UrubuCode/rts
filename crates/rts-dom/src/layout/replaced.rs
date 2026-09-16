@@ -252,8 +252,15 @@ pub(in crate::layout) fn layout_image(
     ))
 }
 
-/// Layout de um `<canvas>`: a caixa dos atributos `width`/`height` (o padrão do
-/// HTML é 300×150) ou do CSS, e o `DisplayItem::Pixels` quando há desenho.
+/// Layout de um `<canvas>`: a caixa por `replaced_inline_size` — a mesma
+/// função que dimensiona o `<img>` — e o `DisplayItem::Pixels` quando há
+/// desenho.
+///
+/// Media por conta própria e era uma cópia degradada daquela: lia só
+/// `width`/`height` do CSS e dos atributos, portanto ignorava a borda e o
+/// padding (um canvas com `border:1px` respondia 15×10 onde o Blink dá
+/// 17×12), e não tinha `min-`/`max-` nem razão de aspecto. A regra de quanto
+/// mede um replaced passa a ter um sítio só.
 ///
 /// Sem pixels a caixa é reservada e nada é pintado — um canvas em branco é um
 /// canvas em branco, não um buraco no layout. É essa reserva que faz o resto da
@@ -276,28 +283,13 @@ pub(in crate::layout) fn layout_canvas(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let attr_px = |name: &str| -> Option<f32> {
-        dom.node(id)
-            .attr(name)
-            .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
-            .filter(|v| *v >= 0.0)
-    };
-    // 300×150 é o default do HTML para um canvas sem dimensões.
-    let w = css
-        .width
-        .and_then(|d| d.resolve(&resolve))
-        .or_else(|| attr_px("width"))
-        .unwrap_or(300.0);
-    let h = css
-        .height
-        .and_then(|d| d.resolve(&resolve))
-        .or_else(|| attr_px("height"))
-        .unwrap_or(150.0);
     let m = &css.margin;
     let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
     let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    // A caixa devolvida é a BORDER-BOX, como no `<img>`.
+    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (None, None), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_node_rect(list, id, rect);
     if let Some(color) = css.bg {
@@ -307,10 +299,23 @@ pub(in crate::layout) fn layout_canvas(
             radius: Corners::ZERO,
         });
     }
+    // Os PIXELS pintam o CONTENT-BOX e não a border-box: a superfície do
+    // canvas é o seu conteúdo, e desenhá-la por baixo da própria borda era o
+    // que acontecia enquanto a caixa e o desenho eram o mesmo rectângulo.
+    let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
+    let p = &css.padding;
+    let (pl, pr) = (p.left.resolve(&resolve).unwrap_or(0.0), p.right.resolve(&resolve).unwrap_or(0.0));
+    let (pt, pb) = (p.top.resolve(&resolve).unwrap_or(0.0), p.bottom.resolve(&resolve).unwrap_or(0.0));
+    let content_rect = Rect::new(
+        rect.x + bl + pl,
+        rect.y + bt + pt,
+        (rect.w - bl - br - pl - pr).max(0.0),
+        (rect.h - bt - bb - pt - pb).max(0.0),
+    );
     if let Some((data, pw, ph)) = dom.pixel_data_of(id) {
         if pw > 0 && ph > 0 {
             list.items.push(DisplayItem::Pixels {
-                rect,
+                rect: content_rect,
                 data,
                 w: pw,
                 h: ph,
@@ -322,3 +327,4 @@ pub(in crate::layout) fn layout_canvas(
         h + margin_top + margin_bottom,
     ))
 }
+
