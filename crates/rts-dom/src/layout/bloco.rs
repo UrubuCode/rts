@@ -944,16 +944,6 @@ pub(crate) fn layout_block(
     } else {
         content_h
     };
-    // Flex impõe a largura externa resolvida ao botão genérico. A métrica de
-    // texto aproxima sua border-box em 1.03px a mais; corrigir só neste caminho
-    // mantém o botão inline natural independente.
-    let content_w = if forced_outer_w.is_some()
-        && matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == "button")
-    {
-        (content_w - 1.03).max(0.0)
-    } else {
-        content_w
-    };
     // Botão nativo sem `height`: a linha do texto-filho não herda a altura do
     // pai (20px), usa a métrica interna do widget (~15px). O frame da UA já
     // está em `frame_v`; só substituímos o conteúdo natural, deixando o

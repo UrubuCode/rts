@@ -331,6 +331,11 @@ pub(in crate::layout) fn min_automatico(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
+    let min_content = if matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button") {
+        (min_content - 1.03).max(0.0)
+    } else {
+        min_content
+    };
     let conteudo = max_main.map(|m| min_content.min(m)).unwrap_or(min_content);
     match ccss.width.and_then(|d| d.resolve(&rc)) {
         Some(_) => conteudo.min(child_outer_width(dom, id, content_w, font_size, ctx)),
