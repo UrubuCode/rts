@@ -337,12 +337,12 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `2f7e3c1`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `2e482a0`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
 
-_Updated: 2026-09-16 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-09-17 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 
