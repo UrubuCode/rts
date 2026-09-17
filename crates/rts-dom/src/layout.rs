@@ -377,9 +377,10 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     if dom.may_have_out_of_flow() {
         collect_out_of_flow(dom, &list.tree, dom.root, &mut out_of_flow);
     }
-    // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
-    // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
-    // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
+    // STACKING CONTEXTS: ordena pela cadeia de contextos, não pelo `z-index`
+    // isolado. Assim `[0, 100]` (filho 100 dentro de um grupo 0) continua
+    // atrás de `[1]` (irmão do grupo), como no Apêndice E. Sort ESTÁVEL: chaves
+    // iguais preservam a ordem do documento.
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
@@ -396,12 +397,12 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         let mut fragment = DisplayList::for_dom(dom);
         layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
         rects_conhecidos.extend(fragment.geometry_now().rects);
-        positioned.push((empilhamento::z_index_of(dom, alvo.node), fragment));
+        positioned.push((empilhamento::stacking_key(dom, alvo.node), fragment));
     }
-    positioned.sort_by_key(|(z, _)| *z);
+    positioned.sort_by(|(a, _), (b, _)| a.cmp(b));
     let mut negativos = DisplayList::for_dom(dom);
-    for (z, fragment) in positioned {
-        if z < 0 {
+    for (key, fragment) in positioned {
+        if key.first().copied().unwrap_or(0) < 0 {
             empilhamento::merge_after(&mut negativos, fragment);
         } else {
             empilhamento::merge_after(&mut list, fragment);

@@ -19,12 +19,12 @@
 //! mesma disciplina que [`super::fragmento::insert_item`] já aplica a UM
 //! item, generalizada a uma subárvore inteira.
 //!
-//! CORTE dito: não há stacking context aninhado nesta engine (`opacity<1`,
-//! `transform` não isolam um `z-index` filho do contexto do documento), então
-//! só existe UM nível — o que o Apêndice E chama de "root" — e é nele que
-//! este módulo actua. Vários `z-index` negativos entre si já saem na ordem
-//! certa (o `sort_by_key` de `layout_document` cobre isso; o filtro aqui só
-//! separa o grupo, sem reordenar).
+//! Um contexto que `opacity<1`, `transform` ou `z-index` explícito abre não
+//! deixa o `z-index` de um filho escapar para o contexto raiz. A passada de
+//! fora do fluxo ainda monta fragmentos separadamente, por isso ela usa a
+//! chave léxica de TODOS os contextos ancestrais: `[0, 100]` (filho 100 dentro
+//! do contexto 0) pinta antes de `[1]` (irmão no contexto raiz). Vários
+//! negativos continuam na ordem ascendente dentro do mesmo contexto.
 
 use super::*;
 
@@ -41,6 +41,37 @@ pub(in crate::layout) fn z_index_of(dom: &Dom, id: NodeIdx) -> i32 {
     dom.computed_style_idx(id)
         .and_then(|c| c.z_index)
         .unwrap_or(0)
+}
+
+/// Chave de pintura de `id`, do contexto raiz até o contexto que ele próprio
+/// abre. A ordenação léxica mantém uma subárvore inteira contida no lugar do
+/// seu ancestral: um filho `z-index:100` de um pai `z-index:0` não ultrapassa
+/// o irmão raiz `z-index:1`.
+pub(in crate::layout) fn stacking_key(dom: &Dom, id: NodeIdx) -> Vec<i32> {
+    let mut ancestors = Vec::new();
+    let mut current = Some(id);
+    while let Some(node) = current {
+        ancestors.push(node);
+        current = dom.node(node).parent;
+    }
+    ancestors.reverse();
+
+    let mut key = Vec::new();
+    for node in ancestors {
+        let Some(css) = dom.computed_style_idx(node) else {
+            continue;
+        };
+        let positioned = css
+            .position
+            .is_some_and(|position| position != crate::style::Position::Static);
+        let creates_context = css.opacity.is_some_and(|opacity| opacity < 1.0)
+            || css.transform.is_some()
+            || (positioned && css.z_index.is_some());
+        if creates_context {
+            key.push(z_index_of(dom, node));
+        }
+    }
+    key
 }
 
 /// Prepende `antes` a `alvo`: os itens e subárvores de `antes` passam a

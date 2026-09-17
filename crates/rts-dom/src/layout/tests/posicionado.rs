@@ -180,6 +180,48 @@
     }
 
     #[test]
+    fn opacity_context_keeps_child_z_index_below_root_sibling() {
+        let dom = parse_html_to_dom(
+            "<style>body{margin:0} \
+             #group { position:absolute; left:0; top:0; width:100px; height:100px; opacity:.5; z-index:0 } \
+             #child { position:absolute; left:0; top:0; width:100px; height:100px; z-index:100; background:#f00 } \
+             #sibling { position:absolute; left:0; top:0; width:100px; height:100px; z-index:1; background:#00f }</style>\
+             <div id=group><div id=child></div></div><div id=sibling></div>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
+        let list = layout_document(&dom, &ctx);
+        let sibling = dom.resolve(dom.query("#sibling").unwrap()).unwrap();
+        assert_eq!(
+            list.hit_test(50.0, 50.0),
+            Some(sibling),
+            "o filho do grupo opacity não pode escapar pelo z-index próprio"
+        );
+    }
+
+    #[test]
+    fn transform_context_keeps_child_z_index_below_root_sibling() {
+        let dom = parse_html_to_dom(
+            "<style>body{margin:0} \
+             #group { position:absolute; left:0; top:0; width:100px; height:100px; transform:translate(0px,0px); z-index:0 } \
+             #child { position:absolute; left:0; top:0; width:100px; height:100px; z-index:100; background:#f00 } \
+             #sibling { position:absolute; left:0; top:0; width:100px; height:100px; z-index:1; background:#00f }</style>\
+             <div id=group><div id=child></div></div><div id=sibling></div>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
+        let list = layout_document(&dom, &ctx);
+        let sibling = dom.resolve(dom.query("#sibling").unwrap()).unwrap();
+        assert_eq!(list.hit_test(50.0, 50.0), Some(sibling));
+    }
+
+    #[test]
     fn anonymous_block_box_keeps_its_internal_geometry() {
         let dom = parse_html_to_dom("<p>x<span>a<div>b</div>c</span>y</p>");
         let ctx = LayoutCtx {
