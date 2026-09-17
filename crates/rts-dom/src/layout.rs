@@ -316,8 +316,18 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // que os testes de layout usam para nomear o que estão a verificar.
     list.canvas_background = body_background(dom).unwrap_or(0xFFFF_FFFF);
     let mut cursor_y = 0.0f32;
-    let root = dom.node(dom.root);
-    for &child in &root.children {
+    // A entrada do layout é a árvore de caixas, não a lista de filhos do
+    // documento. Isto importa mesmo quando a forma atual coincide: o `BoxId`
+    // concreto percorre o despacho inteiro sem a ponte `NodeIdx -> caixa
+    // única`, e um nó que não gera caixa simplesmente não aparece aqui.
+    let tree = std::rc::Rc::clone(&list.tree);
+    for caixa in tree.roots() {
+        let Some(child) = tree.node_of(caixa) else {
+            // A raiz do documento não deve produzir uma caixa anónima; não
+            // inventamos geometria se uma extensão futura o fizer sem antes
+            // definir o seu formatting context de topo.
+            continue;
+        };
         // position:absolute/fixed não participa do fluxo, inclusive quando é filho
         // direto do documento; será layoutado na passada final por z-index.
         if is_out_of_flow(dom, child) {
@@ -332,7 +342,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         let (_, h) = layout_block(
             dom,
             child,
-            unica_caixa_do_no(dom, child),
+            Some(caixa),
             0.0,
             cursor_y,
             ctx.viewport_w,
