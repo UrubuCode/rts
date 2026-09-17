@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 568,
+    "passing": 573,
     "total": 870,
-    "pct": 65.3,
+    "pct": 65.9,
     "by_subfolder": {
       "balance": {
         "passing": 14,
@@ -25,7 +25,7 @@
         "total": 24
       },
       "abspos": {
-        "passing": 7,
+        "passing": 12,
         "total": 19
       },
       "flex-lines": {

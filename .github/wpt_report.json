@@ -1,9 +1,9 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 568,
+  "passam": 573,
   "passam_vazio": 35,
-  "falham": 237,
+  "falham": 232,
   "falha_parcial": 10,
   "erros": 20,
   "nao_rasterizaram": [
@@ -16,16 +16,16 @@
     "flexbox-baseline-multi-item-horiz-001a",
     "flexbox-baseline-multi-item-horiz-001b",
     "flexbox-baseline-multi-item-vert-001a",
-    "flexbox-baseline-multi-line-horiz-001",
     "flexbox-baseline-multi-item-vert-001b",
-    "flexbox-baseline-multi-line-horiz-003",
+    "flexbox-baseline-multi-line-horiz-001",
     "flexbox-baseline-multi-line-horiz-002",
+    "flexbox-baseline-multi-line-horiz-003",
     "flexbox-baseline-multi-line-horiz-004",
     "flexbox-baseline-multi-line-vert-001",
-    "flexbox-baseline-nested-001",
     "flexbox-baseline-multi-line-vert-002",
-    "flexbox-baseline-single-item-001b",
+    "flexbox-baseline-nested-001",
     "flexbox-baseline-single-item-001a",
+    "flexbox-baseline-single-item-001b",
     "percentage-heights-023"
   ],
   "tol": 8,
@@ -293,18 +293,6 @@
       "script": true
     },
     {
-      "nome": "abspos/flex-abspos-align-self-safe-outer-cb-001.tentative",
-      "pct": 3.807421875,
-      "n": 38988,
-      "script": false
-    },
-    {
-      "nome": "abspos/flex-abspos-align-self-safe-outer-cb-002.tentative",
-      "pct": 3.807421875,
-      "n": 38988,
-      "script": false
-    },
-    {
       "nome": "flexbox-writing-mode-010",
       "pct": 3.5999999999999996,
       "n": 36864,
@@ -359,6 +347,12 @@
       "script": false
     },
     {
+      "nome": "abspos/flex-abspos-align-self-safe-outer-cb-002.tentative",
+      "pct": 2.5162109375,
+      "n": 25766,
+      "script": false
+    },
+    {
       "nome": "balance/balance-line-count-intrinsic-002",
       "pct": 2.34375,
       "n": 24000,
@@ -368,6 +362,12 @@
       "nome": "select-element-zero-height-002",
       "pct": 2.3037109375,
       "n": 23590,
+      "script": false
+    },
+    {
+      "nome": "abspos/flex-abspos-align-self-safe-outer-cb-001.tentative",
+      "pct": 2.292578125,
+      "n": 23476,
       "script": false
     },
     {
@@ -431,18 +431,6 @@
       "script": true
     },
     {
-      "nome": "abspos/position-absolute-containing-block-001",
-      "pct": 1.46484375,
-      "n": 15000,
-      "script": false
-    },
-    {
-      "nome": "abspos/position-absolute-containing-block-002",
-      "pct": 1.46484375,
-      "n": 15000,
-      "script": false
-    },
-    {
       "nome": "balance/webkit-box-no-balance",
       "pct": 1.46484375,
       "n": 15000,
@@ -470,12 +458,6 @@
       "nome": "percentage-padding-002",
       "pct": 1.2177734375,
       "n": 12470,
-      "script": false
-    },
-    {
-      "nome": "abspos/flex-abspos-align-self-safe-outer-cb-003.tentative",
-      "pct": 1.1390624999999999,
-      "n": 11664,
       "script": false
     },
     {
@@ -1024,21 +1006,9 @@
       "script": false
     },
     {
-      "nome": "flexbox-safe-overflow-position-001",
-      "pct": 0.6632812499999999,
-      "n": 6792,
-      "script": false
-    },
-    {
       "nome": "flex-minimum-height-flex-items-030",
       "pct": 0.634765625,
       "n": 6500,
-      "script": false
-    },
-    {
-      "nome": "abspos/flex-abspos-staticpos-align-self-safe-003",
-      "pct": 0.6328125,
-      "n": 6480,
       "script": false
     },
     {
@@ -1294,6 +1264,12 @@
       "script": false
     },
     {
+      "nome": "flexbox-safe-overflow-position-001",
+      "pct": 0.196875,
+      "n": 2016,
+      "script": false
+    },
+    {
       "nome": "flexbox-safe-overflow-position-004",
       "pct": 0.1953125,
       "n": 2000,
@@ -1309,18 +1285,6 @@
       "nome": "flexbox-flex-basis-content-001b",
       "pct": 0.191796875,
       "n": 1964,
-      "script": false
-    },
-    {
-      "nome": "abspos/flex-abspos-staticpos-margin-003",
-      "pct": 0.178125,
-      "n": 1824,
-      "script": false
-    },
-    {
-      "nome": "abspos/flex-abspos-staticpos-margin-002",
-      "pct": 0.1771484375,
-      "n": 1814,
       "script": false
     },
     {
@@ -1415,13 +1379,13 @@
       "script": false
     },
     {
-      "nome": "balance/balance-start-bias-002",
+      "nome": "balance/balance-start-bias-001",
       "pct": 0.06103515625,
       "n": 625,
       "script": false
     },
     {
-      "nome": "balance/balance-start-bias-001",
+      "nome": "balance/balance-start-bias-002",
       "pct": 0.06103515625,
       "n": 625,
       "script": false
@@ -1463,6 +1427,18 @@
       "script": false
     },
     {
+      "nome": "abspos/flex-abspos-staticpos-margin-002",
+      "pct": 0.028124999999999997,
+      "n": 288,
+      "script": false
+    },
+    {
+      "nome": "abspos/flex-abspos-staticpos-margin-003",
+      "pct": 0.028124999999999997,
+      "n": 288,
+      "script": false
+    },
+    {
       "nome": "multiline-shrink-to-fit",
       "pct": 0.0244140625,
       "n": 250,
@@ -1490,12 +1466,6 @@
       "nome": "flexbox_flex-natural-mixed-basis-auto",
       "pct": 0.017187499999999998,
       "n": 176,
-      "script": false
-    },
-    {
-      "nome": "abspos/flex-abspos-staticpos-fallback-justify-content-001",
-      "pct": 0.014062499999999999,
-      "n": 144,
       "script": false
     },
     {
@@ -1532,17 +1502,16 @@
     {
       "nome": "abspos/flex-abspos-align-self-safe-outer-cb-001.tentative",
       "estado": "falha",
-      "pct": 3.807421875
+      "pct": 2.292578125
     },
     {
       "nome": "abspos/flex-abspos-align-self-safe-outer-cb-002.tentative",
       "estado": "falha",
-      "pct": 3.807421875
+      "pct": 2.5162109375
     },
     {
       "nome": "abspos/flex-abspos-align-self-safe-outer-cb-003.tentative",
-      "estado": "falha",
-      "pct": 1.1390624999999999
+      "estado": "passa"
     },
     {
       "nome": "abspos/flex-abspos-staticpos-align-self-safe-001",
@@ -1554,13 +1523,11 @@
     },
     {
       "nome": "abspos/flex-abspos-staticpos-align-self-safe-003",
-      "estado": "falha",
-      "pct": 0.6328125
+      "estado": "passa"
     },
     {
       "nome": "abspos/flex-abspos-staticpos-fallback-justify-content-001",
-      "estado": "falha",
-      "pct": 0.014062499999999999
+      "estado": "passa"
     },
     {
       "nome": "abspos/flex-abspos-staticpos-justify-self-001",
@@ -1574,12 +1541,12 @@
     {
       "nome": "abspos/flex-abspos-staticpos-margin-002",
       "estado": "falha",
-      "pct": 0.1771484375
+      "pct": 0.028124999999999997
     },
     {
       "nome": "abspos/flex-abspos-staticpos-margin-003",
       "estado": "falha",
-      "pct": 0.178125
+      "pct": 0.028124999999999997
     },
     {
       "nome": "abspos/flexbox-abspos-child-001a",
@@ -1603,13 +1570,11 @@
     },
     {
       "nome": "abspos/position-absolute-containing-block-001",
-      "estado": "falha",
-      "pct": 1.46484375
+      "estado": "passa"
     },
     {
       "nome": "abspos/position-absolute-containing-block-002",
-      "estado": "falha",
-      "pct": 1.46484375
+      "estado": "passa"
     },
     {
       "nome": "align-baseline",
@@ -1682,11 +1647,11 @@
       "estado": "passa"
     },
     {
-      "nome": "align-self-007",
+      "nome": "align-self-005",
       "estado": "passa"
     },
     {
-      "nome": "align-self-005",
+      "nome": "align-self-007",
       "estado": "passa"
     },
     {
@@ -2018,12 +1983,12 @@
       "estado": "passa"
     },
     {
-      "nome": "balance/balance-start-bias-002",
+      "nome": "balance/balance-start-bias-001",
       "estado": "falha",
       "pct": 0.06103515625
     },
     {
-      "nome": "balance/balance-start-bias-001",
+      "nome": "balance/balance-start-bias-002",
       "estado": "falha",
       "pct": 0.06103515625
     },
@@ -2075,13 +2040,13 @@
       "estado": "passa"
     },
     {
+      "nome": "break-nested-float-in-flex-item-002-print",
+      "estado": "passa"
+    },
+    {
       "nome": "canvas-contain-size",
       "estado": "falha",
       "pct": 0.78125
-    },
-    {
-      "nome": "break-nested-float-in-flex-item-002-print",
-      "estado": "passa"
     },
     {
       "nome": "column-flex-child-with-max-width",
@@ -2233,11 +2198,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-abspos-inset-nested-002",
+      "nome": "flex-abspos-inset-nested-001",
       "estado": "passa"
     },
     {
-      "nome": "flex-abspos-inset-nested-001",
+      "nome": "flex-abspos-inset-nested-002",
       "estado": "passa"
     },
     {
@@ -2273,11 +2238,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-column-001",
+      "nome": "flex-aspect-ratio-img-column-002",
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-column-002",
+      "nome": "flex-aspect-ratio-img-column-001",
       "estado": "passa"
     },
     {
@@ -2466,11 +2431,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-011",
+      "nome": "flex-basis-010",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-010",
+      "nome": "flex-basis-011",
       "estado": "passa"
     },
     {
@@ -3000,11 +2965,11 @@
       "estado": "passa-vazio"
     },
     {
-      "nome": "flexbox-break-request-horiz-001a",
+      "nome": "flexbox-break-request-horiz-001b",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-break-request-horiz-001b",
+      "nome": "flexbox-break-request-horiz-001a",
       "estado": "passa"
     },
     {
@@ -3312,7 +3277,7 @@
     {
       "nome": "flexbox-safe-overflow-position-001",
       "estado": "falha",
-      "pct": 0.6632812499999999
+      "pct": 0.196875
     },
     {
       "nome": "flexbox-safe-overflow-position-002",
@@ -5208,19 +5173,19 @@
       "estado": "erro"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-001",
-      "estado": "erro"
-    },
-    {
       "nome": "flexbox-baseline-multi-item-vert-001b",
       "estado": "erro"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-003",
+      "nome": "flexbox-baseline-multi-line-horiz-001",
       "estado": "erro"
     },
     {
       "nome": "flexbox-baseline-multi-line-horiz-002",
+      "estado": "erro"
+    },
+    {
+      "nome": "flexbox-baseline-multi-line-horiz-003",
       "estado": "erro"
     },
     {
@@ -5232,19 +5197,19 @@
       "estado": "erro"
     },
     {
-      "nome": "flexbox-baseline-nested-001",
-      "estado": "erro"
-    },
-    {
       "nome": "flexbox-baseline-multi-line-vert-002",
       "estado": "erro"
     },
     {
-      "nome": "flexbox-baseline-single-item-001b",
+      "nome": "flexbox-baseline-nested-001",
       "estado": "erro"
     },
     {
       "nome": "flexbox-baseline-single-item-001a",
+      "estado": "erro"
+    },
+    {
+      "nome": "flexbox-baseline-single-item-001b",
       "estado": "erro"
     },
     {
