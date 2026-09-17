@@ -887,7 +887,16 @@ pub(crate) fn layout_block(
         // cairia no empilhamento de blocos, descendo por `<tr>` como se fossem
         // `<div>` — que é exatamente o que a página real mostrava.
         _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => crate::table::layout_table(
-            dom, id, content_x, content_y, children_w, &css, font_size, ctx, list,
+            dom,
+            id,
+            caixa.expect("uma tabela renderizavel tem uma caixa"),
+            content_x,
+            content_y,
+            children_w,
+            &css,
+            font_size,
+            ctx,
+            list,
         ),
         _ if css.effective_display().is_some_and(crate::style::DisplayKind::is_grid_container) => {
             layout_children_grid(

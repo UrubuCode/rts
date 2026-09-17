@@ -66,7 +66,7 @@ pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) ->
 /// contra os `rowspan` que vêm de cima.
 struct Cell {
     node: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     col: usize,
     colspan: usize,
     rowspan: usize,
@@ -81,7 +81,7 @@ struct Cell {
 /// à largura toda em vez de ficarem lado a lado. Uma linha anónima não recebe
 /// caixa registada nem pinta nada, porque não existe elemento a que pertença.
 struct Row {
-    node: Option<NodeIdx>,
+    node: Option<(NodeIdx, crate::boxes::BoxId)>,
     cells: Vec<Cell>,
 }
 
@@ -90,10 +90,10 @@ struct Grid {
     rows: Vec<Row>,
     /// `(nó do grupo, primeira linha, nº de linhas)` — só os grupos que existem
     /// no markup; linhas soltas dentro do `<table>` não criam grupo.
-    groups: Vec<(NodeIdx, usize, usize)>,
+    groups: Vec<(NodeIdx, crate::boxes::BoxId, usize, usize)>,
     /// Blocos que não são parte da grade (`<caption>` e afins), na ordem em que
     /// aparecem. Vão empilhados ACIMA da grade.
-    outros: Vec<(NodeIdx, Option<crate::boxes::BoxId>)>,
+    outros: Vec<(NodeIdx, crate::boxes::BoxId)>,
     cols: usize,
 }
 
@@ -170,13 +170,19 @@ impl TableStyle {
 /// vez de ocupar o pai, que é a diferença mais visível entre uma tabela e um
 /// `<div>`.
 pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
-    let g = collect(dom, table);
+    let tree = dom.box_tree();
+    let caixa = match tree.boxes_of(table) {
+        [caixa] => *caixa,
+        [] => return 0.0,
+        caixas => panic!("uma tabela gerou {} caixas; a medicao intrinseca precisa receber a caixa exata", caixas.len()),
+    };
+    let g = collect(dom, &tree, caixa);
     if g.cols == 0 {
         return 0.0;
     }
     let css = dom.computed_style_idx(table).unwrap_or_default();
     let ts = TableStyle::of(dom, table, &css, font, ctx);
-    let cols = medir_colunas(dom, &g, font, ctx, ts.spacing_h);
+    let cols = medir_colunas(dom, &tree, &g, font, ctx, ts.spacing_h);
     let vaos = (g.cols + 1) as f32 * ts.spacing_h;
     let soma_maximos = cols.iter().map(|c| c.max).sum::<f32>() + vaos;
     // Uma percentagem de coluna é relativa à largura útil da própria tabela. Se
@@ -194,6 +200,7 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
 
 fn medir_colunas(
     dom: &Dom,
+    tree: &crate::boxes::BoxTree,
     g: &Grid,
     font: f32,
     ctx: &LayoutCtx,
@@ -205,7 +212,7 @@ fn medir_colunas(
             medidas.push((
                 c.col,
                 c.colspan,
-                widths::cell_min_max(dom, c.node, font, ctx),
+                widths::cell_min_max_na_arvore(dom, tree, c.node, c.caixa, font, ctx),
             ));
         }
     }
@@ -218,6 +225,7 @@ fn medir_colunas(
 pub(crate) fn layout_table(
     dom: &Dom,
     id: NodeIdx,
+    caixa: crate::boxes::BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -226,7 +234,8 @@ pub(crate) fn layout_table(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    let g = collect(dom, id);
+    let tree = std::rc::Rc::clone(&list.tree);
+    let g = collect(dom, &tree, caixa);
     let ts = TableStyle::of(dom, id, css, font_size, ctx);
     let mut y = content_y;
 
@@ -236,7 +245,7 @@ pub(crate) fn layout_table(
         let (_, h) = crate::layout::layout_block(
             dom,
             o,
-            caixa,
+            Some(caixa),
             content_x,
             y,
             content_w,
@@ -279,7 +288,7 @@ pub(crate) fn layout_table(
         widths::resolve_fixo(&declaradas, disponivel)
     } else {
         widths::resolve_colunas(
-            &medir_colunas(dom, &g, font_size, ctx, ts.spacing_h),
+            &medir_colunas(dom, &tree, &g, font_size, ctx, ts.spacing_h),
             disponivel,
         )
     };
@@ -310,7 +319,7 @@ pub(crate) fn layout_table(
             }
             let w = largura_de(c.col, c.colspan);
             let (_, h) =
-                crate::layout::measure_block(dom, c.node, c.caixa, w, None, Some(w), None, false, ctx);
+                crate::layout::measure_block(dom, c.node, Some(c.caixa), w, None, Some(w), None, false, ctx);
             if c.rowspan <= 1 {
                 alturas[ri] = alturas[ri].max(h);
             } else {
@@ -340,10 +349,8 @@ pub(crate) fn layout_table(
         let idx_fundo = list.items.len();
         // A fronteira das subárvores que já existem — ver `layout::insert_item`.
         let filhos_antes = list.children.len();
-        if let Some(n) = row.node {
-            if let Some(caixa) = crate::layout::unica_caixa_do_no(dom, n) {
-                crate::layout::reserve_box_order(list, caixa);
-            }
+        if let Some((_, caixa)) = row.node {
+            crate::layout::reserve_box_order(list, caixa);
         }
         for c in &row.cells {
             if c.col >= g.cols {
@@ -355,7 +362,7 @@ pub(crate) fn layout_table(
             crate::layout::layout_block(
                 dom,
                 c.node,
-                c.caixa,
+                Some(c.caixa),
                 col_x[c.col],
                 y,
                 w,
@@ -373,7 +380,7 @@ pub(crate) fn layout_table(
         // Uma linha ANÓNIMA não tem nó: não há caixa a registar nem fundo a
         // pintar, e forçar um dos dois inventaria geometria para um elemento
         // que não existe no documento.
-        if let Some(n) = row.node {
+        if let Some((n, caixa)) = row.node {
             // A caixa da linha ocupa a grelha, não os dois vãos exteriores de
             // `border-spacing`: o primeiro/último vão ficam entre a moldura e
             // as células (Blink mede `<tr>` a partir de `content_x + spacing`).
@@ -383,9 +390,7 @@ pub(crate) fn layout_table(
                 (content_w - 2.0 * ts.spacing_h).max(0.0),
                 alturas[ri],
             );
-            if let Some(caixa) = crate::layout::unica_caixa_do_no(dom, n) {
-                crate::layout::record_box_rect(list, caixa, rect);
-            }
+            crate::layout::record_box_rect(list, caixa, rect);
             pinta_caixa(dom, n, rect, idx_fundo, filhos_antes, list);
         }
         y += alturas[ri] + ts.spacing_v;
@@ -395,7 +400,7 @@ pub(crate) fn layout_table(
     // Vão por último na lista mas com `insert` no índice da primeira linha do
     // grupo, para ficarem atrás dela — um `<thead>` com fundo tapava as células
     // se fosse acrescentado no fim.
-    for &(node, inicio, n) in &g.groups {
+    for &(node, caixa, inicio, n) in &g.groups {
         if n == 0 {
             continue;
         }
@@ -407,9 +412,7 @@ pub(crate) fn layout_table(
             (content_w - 2.0 * ts.spacing_h).max(0.0),
             base - topo,
         );
-        if let Some(caixa) = crate::layout::unica_caixa_do_no(dom, node) {
-            crate::layout::record_box_rect(list, caixa, rect);
-        }
+        crate::layout::record_box_rect(list, caixa, rect);
         pinta_caixa(dom, node, rect, list.items.len(), list.children.len(), list);
     }
     y - content_y

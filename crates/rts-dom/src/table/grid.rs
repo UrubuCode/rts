@@ -9,7 +9,11 @@ fn display_of(dom: &Dom, id: NodeIdx) -> Option<DisplayKind> {
 /// Constrói a grade a partir da árvore. Um `<tbody>` implícito não existe no
 /// nosso DOM (o parser não o cria), por isso as linhas podem estar tanto dentro
 /// de um grupo como soltas — os dois casos caem no mesmo laço.
-pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
+pub(in crate::table) fn collect(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    table: crate::boxes::BoxId,
+) -> Grid {
     let mut g = Grid {
         rows: Vec::new(),
         groups: Vec::new(),
@@ -26,7 +30,7 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
     // ANÓNIMA que as vai conter. Só células CONSECUTIVAS entram na mesma linha:
     // é o que a spec manda, e é o que faz `célula, linha, célula` dar três
     // linhas em vez de duas células na mesma.
-    let mut soltas: Vec<NodeIdx> = Vec::new();
+    let mut soltas: Vec<(NodeIdx, crate::boxes::BoxId)> = Vec::new();
     macro_rules! fechar_anonima {
         () => {
             if !soltas.is_empty() {
@@ -36,7 +40,10 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
         };
     }
 
-    for &child in &dom.node(table).children {
+    for &caixa in tree.children(table) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         // Um filho que não é elemento é o whitespace entre `<tr>` — nada — OU
         // texto a sério (`<div style="display:table">abc</div>`), que a spec
         // embrulha numa célula anónima como a qualquer elemento solto; o nó da
@@ -47,23 +54,23 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
         match &dom.node(child).kind {
             crate::NodeKind::Element { .. } => {}
             crate::NodeKind::Text(t) if !t.trim().is_empty() => {
-                soltas.push(child);
+                soltas.push((child, caixa));
                 continue;
             }
             _ => continue,
         }
         match display_of(dom, child) {
-            Some(DisplayKind::TableCell) => soltas.push(child),
+            Some(DisplayKind::TableCell) => soltas.push((child, caixa)),
             Some(DisplayKind::TableCaption) => {
                 fechar_anonima!();
-                g.outros.push((child, crate::layout::unica_caixa_do_no(dom, child)));
+                g.outros.push((child, caixa));
             }
             Some(DisplayKind::TableRow) => {
                 fechar_anonima!();
                 add_row(
                     dom,
-                    Some(child),
-                    &celulas_de(dom, child),
+                    Some((child, caixa)),
+                    &celulas_de(dom, tree, caixa),
                     &mut g,
                     &mut ocupado,
                 );
@@ -75,19 +82,20 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
                 // mesmo motivo de a resolver aqui dentro em vez de achatar a
                 // árvore antes: achatar perderia a fronteira do grupo, que é o
                 // que dá a caixa ao `<tbody>`.
-                let mut soltas_g: Vec<NodeIdx> = Vec::new();
-                for &r in &dom.node(child).children {
-                    if !matches!(dom.node(r).kind, crate::NodeKind::Element { .. }) {
+                let mut soltas_g: Vec<(NodeIdx, crate::boxes::BoxId)> = Vec::new();
+                for &caixa_linha in tree.children(caixa) {
+                    let Some(r) = tree.node_of(caixa_linha) else {
                         continue;
-                    }
+                    };
+                    if !matches!(dom.node(r).kind, crate::NodeKind::Element { .. }) { continue; }
                     match display_of(dom, r) {
-                        Some(DisplayKind::TableCell) => soltas_g.push(r),
+                        Some(DisplayKind::TableCell) => soltas_g.push((r, caixa_linha)),
                         Some(DisplayKind::TableRow) => {
                             if !soltas_g.is_empty() {
                                 add_row(dom, None, &soltas_g, &mut g, &mut ocupado);
                                 soltas_g.clear();
                             }
-                            add_row(dom, Some(r), &celulas_de(dom, r), &mut g, &mut ocupado);
+                            add_row(dom, Some((r, caixa_linha)), &celulas_de(dom, tree, caixa_linha), &mut g, &mut ocupado);
                         }
                         _ => {}
                     }
@@ -95,7 +103,7 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
                 if !soltas_g.is_empty() {
                     add_row(dom, None, &soltas_g, &mut g, &mut ocupado);
                 }
-                g.groups.push((child, inicio, g.rows.len() - inicio));
+                g.groups.push((child, caixa, inicio, g.rows.len() - inicio));
             }
             Some(DisplayKind::None) => {}
             // QUALQUER outro filho — um `<div>` solto, a `<a><img></a>` de uma
@@ -113,7 +121,7 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
             // um nó para ela só acrescentaria uma caixa que o documento não tem.
             _ => {
                 if !crate::layout::is_out_of_flow(dom, child) {
-                    soltas.push(child);
+                    soltas.push((child, caixa));
                 }
             }
         }
@@ -127,8 +135,8 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
 /// grade precisa de saber de uma linha são as suas células.
 fn add_row(
     dom: &Dom,
-    node: Option<NodeIdx>,
-    celulas: &[NodeIdx],
+    node: Option<(NodeIdx, crate::boxes::BoxId)>,
+    celulas: &[(NodeIdx, crate::boxes::BoxId)],
     g: &mut Grid,
     ocupado: &mut Vec<usize>,
 ) {
@@ -138,7 +146,7 @@ fn add_row(
     }
     let mut cells = Vec::new();
     let mut col = 0usize;
-    for &c in celulas {
+    for &(c, caixa) in celulas {
         while ocupado.get(col).copied().unwrap_or(0) > 0 {
             col += 1;
         }
@@ -152,7 +160,7 @@ fn add_row(
         }
         cells.push(Cell {
             node: c,
-            caixa: crate::layout::unica_caixa_do_no(dom, c),
+            caixa,
             col,
             colspan,
             rowspan,
@@ -164,12 +172,15 @@ fn add_row(
 }
 
 /// As células FILHAS de um nó, na ordem do documento.
-fn celulas_de(dom: &Dom, pai: NodeIdx) -> Vec<NodeIdx> {
-    dom.node(pai)
-        .children
+fn celulas_de(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    pai: crate::boxes::BoxId,
+) -> Vec<(NodeIdx, crate::boxes::BoxId)> {
+    tree.children(pai)
         .iter()
-        .copied()
-        .filter(|&c| display_of(dom, c) == Some(DisplayKind::TableCell))
+        .filter_map(|&caixa| tree.node_of(caixa).map(|no| (no, caixa)))
+        .filter(|&(no, _)| display_of(dom, no) == Some(DisplayKind::TableCell))
         .collect()
 }
 
