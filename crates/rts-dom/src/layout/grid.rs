@@ -18,6 +18,7 @@ use super::grid_tracks;
 pub(in crate::layout) fn layout_children_grid(
     dom: &Dom,
     id: NodeIdx,
+    container: crate::boxes::BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -79,7 +80,14 @@ pub(in crate::layout) fn layout_children_grid(
 
     // ── ITENS: os filhos renderizáveis (auto-placement row-by-row) ───────────────
     let mut children: Vec<GridItem> = Vec::new();
-    for &child in &dom.node(id).children {
+    // Grid não cria caixas anónimas para os filhos: o filho de grid é
+    // blockificado. A sequência, porém, continua a pertencer à BoxTree; assim
+    // cada item recebe o `BoxId` desta construção sem voltar por `NodeIdx`.
+    let tree = std::rc::Rc::clone(&list.tree);
+    for &caixa in tree.children(container) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
                 continue;
@@ -91,8 +99,6 @@ pub(in crate::layout) fn layout_children_grid(
         if !is_block_level(dom, child) && collect_text(dom, child).trim().is_empty() {
             continue;
         }
-        let caixa = super::unica_caixa_do_no(dom, child)
-            .expect("item grid deve ter uma unica caixa");
         children.push(GridItem { node: child, caixa });
     }
     if children.is_empty() {

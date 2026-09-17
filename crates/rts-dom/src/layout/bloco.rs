@@ -892,6 +892,7 @@ pub(crate) fn layout_block(
             layout_children_grid(
                 dom,
                 id,
+                caixa.expect("um contentor grid renderizável tem uma caixa"),
                 content_x,
                 content_y,
                 children_w,
