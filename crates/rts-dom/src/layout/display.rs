@@ -410,8 +410,8 @@ fn collect_geometry(
     out: &mut Geometry,
 ) {
     let moved = dx != 0.0 || dy != 0.0;
-    for (node, rect) in fragment.rects.iter() {
-        let node = *node;
+    for (box_id, rect) in fragment.rects.iter() {
+        let Some(node) = tree.node_of(*box_id) else { continue };
         let mut rect = *rect;
         if moved {
             rect.x += dx;
@@ -425,13 +425,18 @@ fn collect_geometry(
     let mut next = 0usize;
     for child in &fragment.children {
         while next < child.hit_at && next < fragment.hit_order.len() {
-            out.hit_order.push(fragment.hit_order[next]);
+            if let Some(node) = tree.node_of(fragment.hit_order[next]) {
+                out.hit_order.push(node);
+            }
             next += 1;
         }
         collect_geometry(tree, &child.fragment, dx + child.dx, dy + child.dy, out);
     }
-    out.hit_order
-        .extend_from_slice(&fragment.hit_order[next.min(fragment.hit_order.len())..]);
+    for &box_id in &fragment.hit_order[next.min(fragment.hit_order.len())..] {
+        if let Some(node) = tree.node_of(box_id) {
+            out.hit_order.push(node);
+        }
+    }
     for region in fragment.scroll_regions.iter() {
         let mut region = *region;
         if moved {

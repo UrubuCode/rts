@@ -10,6 +10,9 @@ use super::*;
 /// fatores de flexibilidade lidos do estilo.
 pub(in crate::layout) struct FlexItem {
     pub(in crate::layout) node: NodeIdx,
+    /// A caixa exata do item. Pseudo-elementos não têm BoxId e texto solto é
+    /// pintado direto; itens de elemento levam esta identidade até o cache.
+    pub(in crate::layout) caixa: Option<crate::boxes::BoxId>,
     /// tamanho BASE outer no eixo principal (antes de grow/shrink).
     pub(in crate::layout) base: f32,
     /// main size FINAL outer (após grow/shrink) — começa igual à base.
@@ -149,6 +152,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             let h = crate::inline_box::altura_da_linha(css, font_size, ctx.measurer);
             items.push(FlexItem {
                 node: child,
+                caixa: None,
                 base: w,
                 main: w,
                 h,
@@ -213,6 +217,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         let auto = |s: crate::style::Side| s == crate::style::Side::Auto;
         items.push(FlexItem {
             node: child,
+            caixa: super::unica_caixa_do_no(dom, child),
             base,
             main: base,
             h,
@@ -441,6 +446,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                 let (_, h) = measure_block(
                     dom,
                     it.node,
+                    it.caixa,
                     content_w,
                     container_content_h,
                     Some(it.main),
@@ -552,6 +558,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                 layout_block_reusing(
                     dom,
                     it.node,
+                    it.caixa.expect("item flex deve ter a caixa recolhida no pre-passe"),
                     x,
                     item_y,
                     avail,

@@ -39,7 +39,7 @@
 //!   fatia futura generaliza `layout_children_horizontal` por eixo (`column` =
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
-use crate::dom::{Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
+use crate::dom::{BoxCacheTarget, Dom, IntrinsicWidthKey, LayoutMeasureKey, LayoutMeasureTarget, NodeIdx, NodeKind};
 use crate::inline_box::{AtomicKind, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
@@ -128,7 +128,7 @@ pub use self::transformacao::{Mat2d, TransformList, TransformOp, MAX_TRANSFORM_O
 pub(crate) use self::bfc::BlockFormattingContext;
 pub(crate) use self::caixa::{font_px, is_non_rendered_tag, used_display};
 pub(crate) use self::float::Exclusao;
-pub(crate) use self::itens::{record_node_rect, reserve_node_order};
+pub(crate) use self::itens::{record_box_rect, record_node_rect, reserve_box_order, reserve_node_order};
 pub(crate) use self::medida::intrinsic_outer_width;
 pub(crate) use self::pintura::border_items;
 pub(crate) use self::posicionado::is_out_of_flow;
@@ -141,6 +141,39 @@ use self::medida::{child_outer_height, child_outer_width, collect_text, content_
 use self::pintura::{apply_opacity, body_background, cor_visivel, decoration_code, deve_suprimir_fundo, is_text_input_tag, italico, tag_de};
 use self::posicionado::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
 use self::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
+
+/// The one-box bridge for legacy callers that still begin at a DOM node.
+///
+/// A layout path that can name the box must pass it through instead. Refusing a
+/// split inline here is intentional: choosing `.first()` would make one half
+/// of the element silently stand in for the other.
+pub(crate) fn unica_caixa_do_no(dom: &Dom, no: NodeIdx) -> Option<crate::boxes::BoxId> {
+    match dom.box_tree().boxes_of(no) {
+        [caixa] => Some(*caixa),
+        [] => None,
+        caixas => panic!(
+            "o layout de bloco recebeu o no {no} com {} caixas; o chamador tem de levar o BoxId exacto",
+            caixas.len()
+        ),
+    }
+}
+
+/// Endereço estável de uma caixa para caches que sobrevivem à reconstrução da
+/// árvore. O `BoxId` é a identidade operacional dentro de uma passada; o par
+/// `(nó, ordinal)` é usado somente na fronteira persistente do cache.
+pub(crate) fn caixa_cache_target(
+    dom: &Dom,
+    no: NodeIdx,
+    caixa: crate::boxes::BoxId,
+) -> BoxCacheTarget {
+    let tree = dom.box_tree();
+    let ordinal = tree
+        .boxes_of(no)
+        .iter()
+        .position(|&candidate| candidate == caixa)
+        .expect("o cache recebeu uma caixa que não pertence ao nó") as u32;
+    BoxCacheTarget { node: no, ordinal }
+}
 
 /// Tamanho de fonte default (pontos) quando o estilo não especifica — base de
 /// `em`/`rem` e do texto sem `font-size`. **16px, o default de todo browser**
@@ -164,6 +197,7 @@ pub struct LayoutCtx<'a> {
 pub(crate) fn measure_block(
     dom: &Dom,
     id: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
     avail_w: f32,
     avail_h: Option<f32>,
     forced_outer_w: Option<f32>,
@@ -176,7 +210,9 @@ pub(crate) fn measure_block(
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),
         style_epoch: crate::style::props::style_epoch(),
-        node: id,
+        target: caixa
+            .map(|caixa| LayoutMeasureTarget::Caixa(caixa_cache_target(dom, id, caixa)))
+            .unwrap_or(LayoutMeasureTarget::No(id)),
         avail_w: avail_w.to_bits(),
         avail_h: avail_h.map(f32::to_bits),
         forced_outer_w: forced_outer_w.map(f32::to_bits),
@@ -195,6 +231,7 @@ pub(crate) fn measure_block(
     let size = layout_block(
         dom,
         id,
+        caixa,
         0.0,
         0.0,
         avail_w,
@@ -295,6 +332,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         let (_, h) = layout_block(
             dom,
             child,
+            unica_caixa_do_no(dom, child),
             0.0,
             cursor_y,
             ctx.viewport_w,

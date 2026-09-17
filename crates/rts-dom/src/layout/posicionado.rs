@@ -138,6 +138,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     let (w, h) = measure_block(
         dom,
         id,
+        super::unica_caixa_do_no(dom, id),
         cb.w,
         Some(cb.h),
         forced_outer_w,
@@ -168,6 +169,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     layout_block(
         dom,
         id,
+        super::unica_caixa_do_no(dom, id),
         x,
         y,
         cb.w,

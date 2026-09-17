@@ -5,6 +5,7 @@
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
 
 use super::*;
+use crate::boxes::BoxId;
 /// Percorre itens próprios e subárvores na ordem de pintura, acumulando o
 /// deslocamento. Recursivo pela mesma razão que a estrutura é uma árvore: um
 /// fragmento pode ter reusado outro.
@@ -119,10 +120,16 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
 pub(crate) fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
     let tree = std::rc::Rc::clone(&list.tree);
     for &box_id in tree.boxes_of(idx) {
-        if !list.box_rects.contains_key(&box_id) {
-            list.box_rects.insert(box_id, Rect::new(0.0, 0.0, 0.0, 0.0));
-            list.hit_order.push(box_id);
-        }
+        reserve_box_order(list, box_id);
+    }
+}
+
+/// Reserva uma posição de pintura para UMA caixa já conhecida. Os caminhos que
+/// atravessam a BoxTree devem preferir esta variante à tradução por nó.
+pub(crate) fn reserve_box_order(list: &mut DisplayList, box_id: BoxId) {
+    if !list.box_rects.contains_key(&box_id) {
+        list.box_rects.insert(box_id, Rect::new(0.0, 0.0, 0.0, 0.0));
+        list.hit_order.push(box_id);
     }
 }
 
@@ -134,8 +141,14 @@ pub(crate) fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
 pub(crate) fn record_node_rect(list: &mut DisplayList, idx: NodeIdx, rect: Rect) {
     let tree = std::rc::Rc::clone(&list.tree);
     for &box_id in tree.boxes_of(idx) {
-        if list.box_rects.insert(box_id, rect).is_none() {
-            list.hit_order.push(box_id);
-        }
+        record_box_rect(list, box_id, rect);
+    }
+}
+
+/// Registra a geometria de UMA caixa. É a única variante correta quando um
+/// nó pode ter produzido fragmentos distintos na BoxTree.
+pub(crate) fn record_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect) {
+    if list.box_rects.insert(box_id, rect).is_none() {
+        list.hit_order.push(box_id);
     }
 }

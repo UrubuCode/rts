@@ -81,6 +81,14 @@ struct ListenerRecord {
     options: ListenerOptions,
 }
 
+/// A identidade medida pelo cache. A caixa é a resposta normal; `No` existe
+/// somente para caminhos legados que medem texto ou outro nó sem caixa.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum LayoutMeasureTarget {
+    Caixa(BoxCacheTarget),
+    No(NodeIdx),
+}
+
 /// Chave de uma medição de layout descartável. O cache guarda apenas `(outer_w,
 /// outer_h)`, nunca itens de pintura; por isso a posição `(x,y)` não participa.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -88,7 +96,7 @@ pub(crate) struct LayoutMeasureKey {
     pub(crate) tree: u64,
     pub(crate) node_epoch: u64,
     pub(crate) style_epoch: u64,
-    pub(crate) node: NodeIdx,
+    pub(crate) target: LayoutMeasureTarget,
     pub(crate) avail_w: u32,
     pub(crate) avail_h: Option<u32>,
     pub(crate) forced_outer_w: Option<u32>,
@@ -116,12 +124,22 @@ pub(crate) struct LayoutMeasureKey {
 /// imposta: a classe silenciosa que `CLAUDE.md` pede para nomear. A posição
 /// continua de fora — é a costura/emissão que a desloca, não a chave.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct BoxCacheTarget {
+    /// O nó continua estável entre reconstruções da árvore.
+    pub(crate) node: NodeIdx,
+    /// A posição da caixa entre as caixas que esse nó gerou. Junto do nó, é a
+    /// identidade semântica da caixa; o `BoxId` concreto só vale na árvore que
+    /// o produziu.
+    pub(crate) ordinal: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct FragmentKey {
     pub(crate) tree: u64,
     pub(crate) node_epoch: u64,
     pub(crate) style_epoch: u64,
     pub(crate) anim_epoch: u64,
-    pub(crate) node: NodeIdx,
+    pub(crate) target: BoxCacheTarget,
     pub(crate) avail_w: u32,
     pub(crate) avail_h: Option<u32>,
     pub(crate) forced_outer_w: Option<u32>,
@@ -364,8 +382,9 @@ pub struct Dom {
     counter_memo: std::cell::RefCell<Option<std::rc::Rc<crate::counters::Tabela>>>,
     counter_memo_revision: std::cell::Cell<(u64, u64)>,
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante
-    /// flex/grid/inline-block/out-of-flow. É limpo em qualquer mutação visual para
-    /// não reutilizar tamanho sob estilo ou conteúdo stale.
+    /// flex/grid/inline-block/out-of-flow. As chaves incluem o epoch local do nó;
+    /// por isso uma mutação visual localizada preserva com segurança as entradas
+    /// de ramos irmãos e só deixa de casar as que ficaram stale.
     layout_measure_cache:
         std::cell::RefCell<crate::fasthash::FastMap<LayoutMeasureKey, (f32, f32)>>,
     /// Cache derivado de largura intrínseca (max-content), usada pelos pré-passos
@@ -415,10 +434,11 @@ pub struct Dom {
     /// Os nós que foram ALVO DIRETO de uma invalidação. O desenho deles não pode
     /// ser aproveitado do anterior; o dos ancestrais pode.
     dirty_self: std::cell::RefCell<std::collections::HashSet<NodeIdx>>,
-    /// O ÚLTIMO fragmento de cada nó, com a chave que o validava — a pergunta
-    /// "o que este nó desenhou da última vez?", que o cache por chave não responde.
+    /// O ÚLTIMO fragmento de cada endereço semântico de caixa, com a chave que
+    /// o validava. `BoxId` não pode ser a chave: ele expira quando a árvore é
+    /// reconstruída por uma alteração em outro ramo.
     last_fragment: std::cell::RefCell<
-        crate::fasthash::FastMap<NodeIdx, (FragmentKey, std::rc::Rc<crate::layout::Fragment>)>,
+        crate::fasthash::FastMap<BoxCacheTarget, (FragmentKey, std::rc::Rc<crate::layout::Fragment>)>,
     >,
     /// FRAGMENTOS de layout por subárvore — o desenho de um bloco com certas
     /// constraints, guardado em coordenadas relativas à origem em que foi posto.

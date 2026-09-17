@@ -20,6 +20,14 @@
         crate::metrics::counters::snapshot().fragment_hits
     }
 
+    #[cfg(feature = "metrics")]
+    fn measure_metricas_em(f: impl FnOnce()) -> (u64, u64) {
+        crate::metrics::counters::reset();
+        f();
+        let metricas = crate::metrics::counters::snapshot();
+        (metricas.measure_calls, metricas.measure_hits)
+    }
+
     /// `flex-direction: row`: mutar o texto de UM item não pode mudar a
     /// geometria de ninguém — nem a do item mutado (comparado ao cálculo do
     /// zero) nem a dos outros dois (que devem ser servidos do fragmento
@@ -170,6 +178,39 @@
         assert!(
             hits > 0,
             "os dois itens intactos deviam bater no cache de fragmentos; hits={hits}"
+        );
+    }
+
+    /// Medidas guardam apenas dois escalares, portanto podem sobreviver a uma
+    /// árvore nova quando a caixa ainda é o mesmo `(nó, ordinal)`. A chave não
+    /// pode reter o `BoxId` da árvore antiga: isso transformava uma alteração
+    /// em outro ramo em cache-miss de todos os itens do flex.
+    #[test]
+    #[cfg(feature = "metrics")]
+    fn medidas_de_itens_flex_intactos_sobrevivem_a_reconstrucao_da_arvore() {
+        let mut dom = parse_html_to_dom(
+            "<div style='display:flex;width:600px'><div style='flex:1'>um</div><div style='flex:1'>dois</div></div><p id='mutado'>curto</p>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
+        let (first_calls, _) = measure_metricas_em(|| {
+            let _ = layout_document(&dom, &ctx);
+        });
+        assert!(first_calls > 0, "o cenário precisa executar o pré-passo de medição");
+        dom.set_text(dom.query("#mutado").unwrap(), "texto que obriga uma árvore nova");
+        // Isola o cache de medidas: sem isto o fragmento inteiro do flex é
+        // reutilizado, corretamente, antes que o pré-passo seja chamado.
+        dom.clear_fragment_cache();
+
+        let (calls, hits) = measure_metricas_em(|| {
+            let _ = layout_document(&dom, &ctx);
+        });
+        assert!(
+            hits > 0,
+            "as pré-medidas dos itens flex intactos deviam ser reaproveitadas; calls={calls}; hits={hits}"
         );
     }
 

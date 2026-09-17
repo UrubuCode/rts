@@ -35,6 +35,7 @@ use crate::layout::coluna::{align_offset, justify_e_align, justify_offsets};
 /// saber a largura da coluna).
 struct Item {
     node: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
     main: f32,
     cross: f32,
     is_text: bool,
@@ -126,6 +127,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 .text_width(&text, font_size, false, false, false);
             items.push(Item {
                 node: child,
+                caixa: None,
                 main: h,
                 cross: w,
                 is_text: true,
@@ -143,7 +145,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, content_w, Some(container_content_h), None, None, false, ctx).1
+            measure_block(dom, child, super::unica_caixa_do_no(dom, child), content_w, Some(container_content_h), None, None, false, ctx).1
         } else {
             child_outer_height(dom, child, content_w, Some(container_content_h), css, font_size, ctx)
         };
@@ -176,6 +178,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let (cross, _) = measure_block(
             dom,
             child,
+            super::unica_caixa_do_no(dom, child),
             content_w,
             Some(container_content_h),
             None,
@@ -185,6 +188,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         );
         items.push(Item {
             node: child,
+            caixa: super::unica_caixa_do_no(dom, child),
             main,
             cross,
             is_text: false,
@@ -485,6 +489,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 layout_block_reusing(
                     dom,
                     it.node,
+                    it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
                     child_x,
                     y,
                     avail_w,

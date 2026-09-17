@@ -47,23 +47,6 @@ use super::*;
 use crate::boxes::BoxId;
 use super::sequencia::{sequencia_do_fluxo, PassoDoFluxo};
 
-/// A caixa que um nó gerou, para o chamador que tem uma [`DisplayList`] e não um
-/// [`BoxId`].
-///
-/// Enquanto a árvore é um ESPELHO isto é exacto: `build_mirror` empurra uma
-/// caixa por elemento e a cascata responde `Some` a todo elemento, logo a fatia
-/// tem comprimento um para um elemento e é vazia para tudo o resto. Deixa de ser
-/// exacto no dia em que um nó tem várias caixas — e é por isso que a caixa é um
-/// PARÂMETRO de [`layout_children_vertical`] e esta função é só a ponte para a
-/// entrada que ainda fala `NodeIdx`, a mesma ponte que `record_node_rect` já
-/// atravessa em `itens.rs`.
-///
-/// `None` quando a lista não carrega árvore (`DisplayList::default()`), e o laço
-/// abaixo volta a perguntar ao DOM nesse caso.
-pub(in crate::layout) fn caixa_do_no(list: &DisplayList, id: NodeIdx) -> Option<BoxId> {
-    list.tree.boxes_of(id).first().copied()
-}
-
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
 /// `avail_h` = altura do content DESTE container quando explícita (containing
@@ -313,8 +296,19 @@ pub(in crate::layout) fn layout_children_vertical(
         // do inline uma vez por metade. Um nó com uma caixa só não é afectado,
         // que é toda a gente menos o inline que se partiu.
         if bfc.is_empty() && e_caixa && fragmento_do_filho.is_none() {
-            let key = key_base.key(dom, child, None, None, false);
-            if let Some(fragment) = dom.fragment_get(key) {
+            let key = key_base.key(
+                dom,
+                child,
+                caixa_do_filho.expect("um filho-cacheado tem uma caixa"),
+                None,
+                None,
+                false,
+            );
+            let tree = dom.box_tree();
+            if let Some(fragment) = dom
+                .fragment_get(key)
+                .and_then(|fragment| fragment.remapped_to(&tree))
+            {
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
                 let (topo, baixo) = (fragment.margin_top, fragment.margin_bottom);
@@ -512,9 +506,8 @@ pub(in crate::layout) fn layout_children_vertical(
         // partição do CSS 2.1 §9.2.1.1 só acontece a uma caixa inline, logo cada
         // metade dela continua inline-level — e a classificação acima responde
         // outra coisa: um `<span style="background:red;height:20px">` cai em
-        // `child_block` por declarar `height`, e `layout_block` resolve a caixa
-        // pelo NÓ (`caixa_do_no`, que devolve o PRIMEIRO fragmento). As duas
-        // corridas pintavam então o conteúdo da primeira, duas vezes.
+        // `child_block` por declarar `height`. A classificação precisa mantê-lo
+        // no fluxo inline; um caminho de bloco só aceita agora o `BoxId` exato.
         let (child_block, child_inline_block) = match fragmento_do_filho {
             Some(_) => (false, false),
             None => (child_block, child_inline_block),
@@ -584,6 +577,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 layout_block(
                     dom,
                     child,
+                    Some(caixa_do_filho.expect("um float tem uma caixa")),
                     x,
                     top,
                     content_w,
@@ -692,6 +686,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 let ((_, h), _) = layout_block_reusing(
                     dom,
                     child,
+                    caixa_do_filho.expect("um filho de bloco tem uma caixa"),
                     content_x,
                     child_y,
                     content_w,

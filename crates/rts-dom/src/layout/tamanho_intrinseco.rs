@@ -95,7 +95,7 @@ pub(in crate::layout) fn intrinsic_size(
         }),
         Axis::Block => {
             let w = inline_size?;
-            let (_, outer_h) = super::measure_block(dom, id, w, None, None, None, true, ctx);
+            let (_, outer_h) = super::measure_block(dom, id, super::unica_caixa_do_no(dom, id), w, None, None, None, true, ctx);
             Some(outer_h)
         }
     }

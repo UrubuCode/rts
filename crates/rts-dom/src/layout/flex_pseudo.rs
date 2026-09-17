@@ -99,6 +99,7 @@ pub(in crate::layout) fn item_flex(dom: &Dom, id: NodeIdx, pe: crate::style::Pse
     let css = &p.caixa.css;
     Some(super::flex::FlexItem {
         node: id,
+        caixa: None,
         base: p.w,
         main: p.w,
         h: p.h,

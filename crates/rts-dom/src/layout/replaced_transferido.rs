@@ -114,6 +114,7 @@ pub(in crate::layout) fn base_e_altura_do_item(
             let (_, h) = measure_block(
                 dom,
                 child,
+                super::unica_caixa_do_no(dom, child),
                 content_w,
                 container_content_h,
                 Some(base),

@@ -116,6 +116,7 @@ pub(in crate::layout) fn layout_children_column(
     // no eixo principal, + margens auto e os fatores de flex-shrink/grow ──────
     struct ColItem {
         node: NodeIdx,
+        caixa: Option<crate::boxes::BoxId>,
         /// tamanho BASE outer no eixo principal — antes de grow/shrink; após o
         /// PASSO 2 é o MAIN final (mesmo campo, mesmo papel que `FlexItem::h`
         /// tinha antes deste lote: cresce OU encolhe nele, nunca os dois).
@@ -156,6 +157,7 @@ pub(in crate::layout) fn layout_children_column(
             }
             items.push(ColItem {
                 node: child,
+                caixa: None,
                 h: crate::inline_box::altura_da_linha(css, font_size, ctx.measurer),
                 is_text: true,
                 mt_auto: false,
@@ -175,7 +177,7 @@ pub(in crate::layout) fn layout_children_column(
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, content_w, container_content_h, None, None, false, ctx).1
+            measure_block(dom, child, super::unica_caixa_do_no(dom, child), content_w, container_content_h, None, None, false, ctx).1
         } else {
             child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
         };
@@ -234,6 +236,7 @@ pub(in crate::layout) fn layout_children_column(
         let order = ccss.order.unwrap_or(0);
         items.push(ColItem {
             node: child,
+            caixa: super::unica_caixa_do_no(dom, child),
             h,
             is_text: false,
             mt_auto,
@@ -385,6 +388,7 @@ pub(in crate::layout) fn layout_children_column(
                 let (w, _) = measure_block(
                     dom,
                     it.node,
+                    it.caixa,
                     content_w,
                     container_content_h,
                     None,
@@ -420,6 +424,7 @@ pub(in crate::layout) fn layout_children_column(
             layout_block_reusing(
                 dom,
                 it.node,
+                it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
                 child_x,
                 y,
                 content_w,

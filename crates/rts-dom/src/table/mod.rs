@@ -66,6 +66,7 @@ pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) ->
 /// contra os `rowspan` que vêm de cima.
 struct Cell {
     node: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
     col: usize,
     colspan: usize,
     rowspan: usize,
@@ -92,7 +93,7 @@ struct Grid {
     groups: Vec<(NodeIdx, usize, usize)>,
     /// Blocos que não são parte da grade (`<caption>` e afins), na ordem em que
     /// aparecem. Vão empilhados ACIMA da grade.
-    outros: Vec<NodeIdx>,
+    outros: Vec<(NodeIdx, Option<crate::boxes::BoxId>)>,
     cols: usize,
 }
 
@@ -231,10 +232,11 @@ pub(crate) fn layout_table(
 
     // `<caption>` e outros blocos avulsos: empilham acima da grade, à largura da
     // tabela. Ficam fora do algoritmo de colunas de propósito — não têm coluna.
-    for &o in &g.outros {
+    for &(o, caixa) in &g.outros {
         let (_, h) = crate::layout::layout_block(
             dom,
             o,
+            caixa,
             content_x,
             y,
             content_w,
@@ -308,7 +310,7 @@ pub(crate) fn layout_table(
             }
             let w = largura_de(c.col, c.colspan);
             let (_, h) =
-                crate::layout::measure_block(dom, c.node, w, None, Some(w), None, false, ctx);
+                crate::layout::measure_block(dom, c.node, c.caixa, w, None, Some(w), None, false, ctx);
             if c.rowspan <= 1 {
                 alturas[ri] = alturas[ri].max(h);
             } else {
@@ -339,7 +341,9 @@ pub(crate) fn layout_table(
         // A fronteira das subárvores que já existem — ver `layout::insert_item`.
         let filhos_antes = list.children.len();
         if let Some(n) = row.node {
-            crate::layout::reserve_node_order(list, n);
+            if let Some(caixa) = crate::layout::unica_caixa_do_no(dom, n) {
+                crate::layout::reserve_box_order(list, caixa);
+            }
         }
         for c in &row.cells {
             if c.col >= g.cols {
@@ -351,6 +355,7 @@ pub(crate) fn layout_table(
             crate::layout::layout_block(
                 dom,
                 c.node,
+                c.caixa,
                 col_x[c.col],
                 y,
                 w,
@@ -378,7 +383,9 @@ pub(crate) fn layout_table(
                 (content_w - 2.0 * ts.spacing_h).max(0.0),
                 alturas[ri],
             );
-            crate::layout::record_node_rect(list, n, rect);
+            if let Some(caixa) = crate::layout::unica_caixa_do_no(dom, n) {
+                crate::layout::record_box_rect(list, caixa, rect);
+            }
             pinta_caixa(dom, n, rect, idx_fundo, filhos_antes, list);
         }
         y += alturas[ri] + ts.spacing_v;
@@ -400,7 +407,9 @@ pub(crate) fn layout_table(
             (content_w - 2.0 * ts.spacing_h).max(0.0),
             base - topo,
         );
-        crate::layout::record_node_rect(list, node, rect);
+        if let Some(caixa) = crate::layout::unica_caixa_do_no(dom, node) {
+            crate::layout::record_box_rect(list, caixa, rect);
+        }
         pinta_caixa(dom, node, rect, list.items.len(), list.children.len(), list);
     }
     y - content_y

@@ -25,16 +25,13 @@
 //!
 //! ## What it does NOT do, said plainly
 //!
-//! - **No fragment cache.** `FragmentKey` is keyed by `NodeIdx` and deliberately
-//!   so (§10 of `box-tree.md`: a cached fragment outlives the tree that produced
-//!   it, and a `BoxId` inside one would name a slot in an arena that has been
-//!   rebuilt). An anonymous box has no key to be cached under, so it is laid out
-//!   every pass. That is the same cost the expansion had.
-//! - **No geometry entry.** `record_node_rect` is indexed by node and this box
-//!   has none. Nothing asks for the rectangle of an anonymous box — it is not
-//!   reachable from `getBoundingClientRect`, which is the whole of the public
-//!   surface. It becomes a question when geometry moves to `BoxId`, which is the
-//!   rest of BT-1.
+//! - **No fragment cache.** The fragment cache is now keyed by `BoxId` plus the
+//!   tree generation, but its invalidation and stitching still start from a DOM
+//!   node. An anonymous box has no independent dirty root, so it is laid out on
+//!   every pass until that boundary is made box-native too.
+//! - **No public geometry entry.** Its internal rectangle is keyed by `BoxId`,
+//!   but `Geometry` deliberately translates only boxes with a DOM node. An
+//!   anonymous box therefore remains unreachable from `getBoundingClientRect`.
 //! - **No stacking context and no relative offset.** Same reason: both walk the
 //!   DOM from a node (invariant I2).
 

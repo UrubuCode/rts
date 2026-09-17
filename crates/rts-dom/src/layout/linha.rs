@@ -360,14 +360,24 @@ pub(in crate::layout) fn layout_inline_flow(
                             .map(|t| t.to_ascii_lowercase())
                             .unwrap_or_default();
                         if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                            layout_button(dom, a_idx, &wcss, seg_x, cy, None, ctx, list);
+                            layout_button(
+                                dom,
+                                a_idx,
+                                super::unica_caixa_do_no(dom, a_idx),
+                                &wcss,
+                                seg_x,
+                                cy,
+                                None,
+                                ctx,
+                                list,
+                            );
                         } else {
                             // `None` de altura disponível: uma caixa atómica numa
                             // linha não tem containing block de altura definida, e
                             // é isso que faz `height:%` valer `auto` — como no
                             // browser.
                             layout_input(
-                                dom, a_idx, &wcss, seg_x, cy, seg.ww, None, None, None, ctx, list,
+                                dom, a_idx, super::unica_caixa_do_no(dom, a_idx), &wcss, seg_x, cy, seg.ww, None, None, None, ctx, list,
                             );
                         }
                     }
@@ -385,10 +395,10 @@ pub(in crate::layout) fn layout_inline_flow(
                             // caixa entretanto — a mesma doutrina que o
                             // `<img>` segue no caminho de bloco.
                             let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_canvas(dom, a_idx, &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
+                            layout_canvas(dom, a_idx, super::unica_caixa_do_no(dom, a_idx), &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
                         } else if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
+                            layout_image(dom, a_idx, super::unica_caixa_do_no(dom, a_idx), &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
                         }
                     }
                     AtomicKind::Block => {
@@ -402,6 +412,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         layout_block(
                             dom,
                             a_idx,
+                            super::unica_caixa_do_no(dom, a_idx),
                             seg_x,
                             topo,
                             seg.ww.max(1.0),

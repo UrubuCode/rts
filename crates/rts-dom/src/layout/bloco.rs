@@ -276,6 +276,7 @@ pub(in crate::layout) fn escaped_margins_for_box(
 pub(crate) fn layout_block(
     dom: &Dom,
     id: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
     x: f32,
     y: f32,
     avail_w: f32,
@@ -332,7 +333,7 @@ pub(crate) fn layout_block(
             }
             if tag == "select" {
                 return layout_select(
-                    id, &css, x, y, avail_w, avail_h, forced_outer_w,
+                    id, caixa, &css, x, y, avail_w, avail_h, forced_outer_w,
                     forced_outer_h, ctx, list,
                 );
             }
@@ -353,11 +354,12 @@ pub(crate) fn layout_block(
                 // `type=submit/button/reset`: BOTÃO — caixa cinza UA com o value
                 // como rótulo (não editável). O suficiente p/ o "Pesquisa Google".
                 if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                    return layout_button(dom, id, &css, x, y, forced_outer_h, ctx, list);
+                    return layout_button(dom, id, caixa, &css, x, y, forced_outer_h, ctx, list);
                 }
                 return layout_input(
                     dom,
                     id,
+                    caixa,
                     &css,
                     x,
                     y,
@@ -376,13 +378,13 @@ pub(crate) fn layout_block(
             // o desenho aparece quando o programa pinta — antes disso a caixa
             // existe e fica vazia, que é o que o browser também faz.
             if tag == "canvas" {
-                if let Some(r) = layout_canvas(dom, id, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) = layout_canvas(dom, id, caixa, &css, x, y, avail_w, ctx, list) {
                     return r;
                 }
             }
             if tag == "img" {
                 if let Some(img) =
-                    layout_image(dom, id, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
+                    layout_image(dom, id, caixa, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
                 {
                     return img;
                 }
@@ -394,7 +396,7 @@ pub(crate) fn layout_block(
             // página fica correta mesmo sem o SVG (logo/ícones do google ocupam o
             // espaço certo em vez de colapsar pra 0×0).
             if tag == "svg" {
-                if let Some(r) = layout_svg_placeholder(dom, id, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) = layout_svg_placeholder(dom, id, caixa, &css, x, y, avail_w, ctx, list) {
                     return r;
                 }
             }
@@ -619,7 +621,11 @@ pub(crate) fn layout_block(
     let filhos_antes_da_caixa = list.children.len();
     // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
     // depois que a altura natural do conteúdo for conhecida.
-    reserve_node_order(list, id);
+    if let Some(caixa) = caixa {
+        reserve_box_order(list, caixa);
+    } else {
+        reserve_node_order(list, id);
+    }
 
     // ── Filhos: o EIXO depende do `display` do bloco ─────────────────────────────
     // vertical (default): cada filho ABAIXO do anterior, ocupando a largura.
@@ -914,17 +920,12 @@ pub(crate) fn layout_block(
         ),
         // vertical (block): empilha.
         _ => {
-            // A CAIXA deste nó, recuperada da árvore que a lista já carrega —
-            // a mesma tradução que `record_node_rect` faz em `itens.rs`, e
-            // exacta enquanto a árvore é um ESPELHO. Parâmetro de `layout_block`
-            // seria o certo e são dez ficheiros, a maioria de outra gente: fica
-            // para o dia em que um nó tiver várias caixas. Dentro do braço
-            // porque flex, grid e tabela não a pedem.
-            let caixa_deste = super::vertical::caixa_do_no(list, id);
+            // A caixa chegou do chamador. O fluxo vertical precisa dela para
+            // cortar a sequência da árvore quando o nó gerou vários fragmentos.
             layout_children_vertical(
                 dom,
                 id,
-                caixa_deste,
+                caixa,
                 content_x,
                 content_y,
                 children_w,
@@ -1053,8 +1054,13 @@ pub(crate) fn layout_block(
         content_w + padding_h + border_h,
         box_content_h + pad_top + pad_bottom + border_v,
     );
-    // Registra a geometria deste nó (base do getBoundingClientRect/offsetWidth).
-    record_node_rect(list, id, box_rect);
+    // A fronteira pública agrega por nó, mas este bloco conhece a caixa exata:
+    // não pode preencher com o mesmo rect os demais fragmentos do inline.
+    if let Some(caixa) = caixa {
+        record_box_rect(list, caixa, box_rect);
+    } else {
+        record_node_rect(list, id, box_rect);
+    }
 
     // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_index` põe o
     // fundo antes dos itens dos filhos (z-order).
@@ -1327,10 +1333,9 @@ pub(crate) fn layout_block(
 
     // POSITION:RELATIVE — porquê e o que desloca em `relativo.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    // O `BoxId` resolve-se aqui, na fronteira: `relativo.rs` trabalha em
-    // caixas e nao conhece o DOM. No espelho de BT-1 a fatia tem comprimento
-    // um; um no sem caixa nao tem nada para deslocar.
-    if let Some(&caixa) = list.tree.boxes_of(id).first() {
+    // Caminhos legados de texto podem não ter caixa; quem chegou por uma caixa
+    // leva a identidade exata até esta fronteira de geometria.
+    if let Some(caixa) = caixa {
         aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_index, ctx, list);
     }
 
@@ -1355,7 +1360,7 @@ pub(crate) fn layout_block(
             // descendente (herdam a transformação do pai). Corre ANTES do
             // atalho abaixo e para os dois ramos: a bbox de um rect só
             // transladado é só transladada, a mesma chamada serve os dois.
-            if let Some(&caixa) = list.tree.boxes_of(id).first() {
+            if let Some(caixa) = caixa {
                 let arvore = std::rc::Rc::clone(&list.tree);
                 super::transformacao::transform_box_rects(&arvore, caixa, &mat, list);
             }

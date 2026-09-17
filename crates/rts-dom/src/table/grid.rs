@@ -56,7 +56,7 @@ pub(in crate::table) fn collect(dom: &Dom, table: NodeIdx) -> Grid {
             Some(DisplayKind::TableCell) => soltas.push(child),
             Some(DisplayKind::TableCaption) => {
                 fechar_anonima!();
-                g.outros.push(child);
+                g.outros.push((child, crate::layout::unica_caixa_do_no(dom, child)));
             }
             Some(DisplayKind::TableRow) => {
                 fechar_anonima!();
@@ -152,6 +152,7 @@ fn add_row(
         }
         cells.push(Cell {
             node: c,
+            caixa: crate::layout::unica_caixa_do_no(dom, c),
             col,
             colspan,
             rowspan,
