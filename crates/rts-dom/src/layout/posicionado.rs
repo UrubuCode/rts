@@ -182,7 +182,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     // resolve o eixo que falta: o outro já veio de um inset declarado.
     let precisa_estatica = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
     let estatica = precisa_estatica.then(|| {
-        super::posicao_estatica::posicao_estatica(dom, id, &css, flow_rects, ctx, w, h)
+        super::posicao_estatica::posicao_estatica(dom, id, &css, flow_rects, ctx, w, h, cb)
     });
     let x = match (left, right) {
         (Some(l), _) => cb.x + l,

@@ -275,6 +275,9 @@ pub enum AlignItems {
     FlexStart,
     FlexEnd,
     Center,
+    /// `safe center`: center unless the item would overflow its containing
+    /// block, then fall back to the start edge.
+    SafeCenter,
     /// Alinha pela BASELINE do conteúdo do item, POR LINHA (Flexbox §8.5): o
     /// item de maior ascent fica encostado ao início da linha; os outros
     /// descem para partilhar essa baseline. Resolvido em
@@ -302,6 +305,7 @@ impl AlignItems {
             "flex-start" | "start" | "self-start" | "flow-start" => AlignItems::FlexStart,
             "flex-end" | "end" | "self-end" | "flow-end" => AlignItems::FlexEnd,
             "center" => AlignItems::Center,
+            "safe center" => AlignItems::SafeCenter,
             "baseline" | "first baseline" => AlignItems::Baseline,
             "last baseline" => AlignItems::LastBaseline,
             _ => return None,

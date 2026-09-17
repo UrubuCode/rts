@@ -38,6 +38,7 @@ pub(in crate::layout) fn posicao_estatica(
     ctx: &LayoutCtx,
     outer_w: f32,
     outer_h: f32,
+    containing_block: Rect,
 ) -> (f32, f32) {
     let Some(parent) = dom.node(id).parent else {
         return (0.0, 0.0);
@@ -57,7 +58,7 @@ pub(in crate::layout) fn posicao_estatica(
                 | crate::style::DisplayKind::InlineFlexWrap
         )
     ) {
-        return posicao_estatica_flex(css, &parent_css, content, outer_w, outer_h);
+        return posicao_estatica_flex(css, &parent_css, content, outer_w, outer_h, containing_block);
     }
     posicao_estatica_bloco(dom, id, parent, content, flow_rects)
 }
@@ -110,6 +111,7 @@ fn posicao_estatica_flex(
     content: Rect,
     outer_w: f32,
     outer_h: f32,
+    containing_block: Rect,
 ) -> (f32, f32) {
     let fd = parent_css
         .flex_direction
@@ -133,15 +135,17 @@ fn posicao_estatica_flex(
         crate::style::JustifyContent::Center => start + (size - item) / 2.0,
         _ => start,
     };
-    let cross = |start: f32, size: f32, item: f32| match align {
+    let cross = |start: f32, size: f32, item: f32, cb_start: f32, cb_size: f32| match align {
         crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => start + size - item,
         crate::style::AlignItems::Center => start + (size - item) / 2.0,
+        crate::style::AlignItems::SafeCenter if item > cb_size => cb_start,
+        crate::style::AlignItems::SafeCenter => start + (size - item) / 2.0,
         _ => start,
     };
     if fd.is_column() {
-        (cross(content.x, content.w, outer_w), main(content.y, content.h, outer_h))
+        (cross(content.x, content.w, outer_w, containing_block.x, containing_block.w), main(content.y, content.h, outer_h))
     } else {
-        (main(content.x, content.w, outer_w), cross(content.y, content.h, outer_h))
+        (main(content.x, content.w, outer_w), cross(content.y, content.h, outer_h, containing_block.y, containing_block.h))
     }
 }
 
@@ -164,7 +168,7 @@ mod tests {
         parent_css.justify = Some(crate::style::JustifyContent::Center);
         parent_css.align_items = Some(crate::style::AlignItems::FlexEnd);
         let content = Rect::new(10.0, 20.0, 200.0, 100.0);
-        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0);
+        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0, content);
         assert_eq!(x, 10.0 + 80.0);
         assert_eq!(y, 20.0 + 80.0);
     }
@@ -179,7 +183,7 @@ mod tests {
         parent_css.justify = Some(crate::style::JustifyContent::FlexEnd);
         parent_css.align_items = Some(crate::style::AlignItems::Center);
         let content = Rect::new(0.0, 0.0, 200.0, 100.0);
-        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0);
+        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0, content);
         assert_eq!(x, 80.0, "align-items:center on the horizontal cross axis");
         assert_eq!(y, 80.0, "justify-content:flex-end on the vertical main axis");
     }
