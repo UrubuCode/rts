@@ -1,109 +1,108 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-<style>
-  * { box-sizing: border-box }
-  body { margin: 0; background: #0b1020; color: #e8ecf4; text-align: center }
-  .wrap { max-width: 56em; margin: 0 auto; padding: 1.5rem 1rem }
-
-  @keyframes titlecolor {
-    0%   { color: #4f8cff }
-    50%  { color: #ef6a8b }
-    100% { color: #4f8cff }
-  }
-  h1 { font-size: calc(1.6rem + 1vw); margin: 0; animation: titlecolor 4s ease-in-out infinite }
-  .sub { color: #8fa0bd; margin: 0.25rem 0 0 0 }
-
-  /* ── LUA pulsando (canto sup. direito) ── */
-  @keyframes moon {
-    0%   { width: 70px; height: 70px; background: #f4edd8 }
-    50%  { width: 84px; height: 84px; background: #fff7dd }
-    100% { width: 70px; height: 70px; background: #f4edd8 }
-  }
-  .moon { position: fixed; top: 40px; right: 60px; border-radius: 999px;
-          animation: moon 5s ease-in-out infinite }
-
-  /* ── NUVENS passando (margin-left anima = desloca) ── */
-  @keyframes drift1 { 0% { margin-left: -140px } 100% { margin-left: 900px } }
-  @keyframes drift2 { 0% { margin-left: 940px } 100% { margin-left: -220px } }
-  .cloudlane { height: 34px; margin: 6px 0 }
-  .cloud { width: 130px; height: 30px; background: #232c44; border-radius: 999px }
-  .c1 { animation: drift1 11s linear infinite }
-  .c2 { animation: drift2 15s linear infinite; width: 180px }
-
-  /* ── O URUBU ─────────────────────────────────────────────── */
-  .fly-zone { margin-top: 1rem }
-  /* o voo: o pássaro inteiro sobe/desce (margin-top oscila) */
-  @keyframes hover-fly {
-    0%   { margin-top: 34px }
-    50%  { margin-top: 0px }
-    100% { margin-top: 34px }
-  }
-  .bird { animation: hover-fly 2.4s ease-in-out infinite }
-
-  /* cabeça: urubu-de-cabeça-vermelha 🙂 — círculo + olho aninhado + bico */
-  .head-row { display: flex; justify-content: center; align-items: center }
-  .head { width: 74px; height: 74px; background: #c0392b; border-radius: 999px;
-          display: flex; justify-content: center; align-items: center }
-  .eye { width: 26px; height: 26px; background: #ffffff; border-radius: 999px;
-         display: flex; justify-content: center; align-items: center }
-  @keyframes blink {
-    0%   { height: 12px }
-    92%  { height: 12px }
-    96%  { height: 3px }
-    100% { height: 12px }
-  }
-  .pupil { width: 12px; background: #10131c; border-radius: 999px;
-           animation: blink 3.5s linear infinite }
-  .beak { width: 30px; height: 14px; background: #e8b13f;
-          border-radius: 0px 8px 8px 0px; margin-left: -6px }
-
-  /* asas + corpo: row central; as asas BATEM (height anima, ancoradas no topo) */
-  .body-row { display: flex; justify-content: center; align-items: flex-start;
-              margin-top: -10px }
-  @keyframes flap {
-    0%   { height: 26px; margin-top: 48px; background: #232c44 }
-    50%  { height: 96px; margin-top: 2px;  background: #2e3a5c }
-    100% { height: 26px; margin-top: 48px; background: #232c44 }
-  }
-  .wing { width: 74px; border-radius: 18px; animation: flap 0.6s ease-in-out infinite }
-  .wing-l { margin-right: -14px }
-  .wing-r { margin-left: -14px }
-  .torso { width: 104px; height: 128px; background: #1a2233; border-radius: 52px;
-           border: 2px solid #2e3a5c }
-
-  /* pernas */
-  .legs { display: flex; justify-content: center; gap: 22px; margin-top: -6px }
-  .leg { width: 7px; height: 30px; background: #e8b13f; border-radius: 4px }
-
-  .foot-note { color: #66748f; margin-top: 2.2rem }
-</style>
+  <meta charset="utf-8">
+  <title>Urubu Flight - RTS</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #08111f; color: #eff7ff; font-family: Arial, sans-serif; }
+    .shell { width: 1000px; margin: 0 auto; padding: 28px 40px 34px; }
+    .top { height: 74px; padding: 14px 18px; background: #101e32; border: 1px solid #25415e; border-radius: 14px; }
+    .brand { float: left; font-size: 27px; font-weight: bold; letter-spacing: 1px; color: #f3c969; }
+    .brand small { display: block; margin-top: 4px; color: #8eabc7; font-size: 11px; letter-spacing: 2px; }
+    .status { float: right; margin-top: 9px; color: #8eabc7; font-size: 13px; }
+    .status b { color: #79dcac; }
+    .game-card { margin-top: 18px; padding: 16px; background: #101e32; border: 1px solid #25415e; border-radius: 14px; }
+    #stage { position: relative; width: 888px; height: 430px; overflow: hidden; background: #173757; border: 2px solid #315d82; border-radius: 9px; }
+    .moon { position: absolute; top: 38px; right: 68px; width: 64px; height: 64px; background: #f9e5a7; border-radius: 40px; }
+    .moon-dot { position: absolute; width: 10px; height: 10px; background: #e4c87c; border-radius: 8px; }
+    .d1 { left: 14px; top: 18px; } .d2 { left: 36px; top: 35px; } .d3 { left: 43px; top: 12px; }
+    .star { position: absolute; color: #f7f3c2; font-size: 18px; }
+    .s1 { left: 84px; top: 62px; } .s2 { left: 300px; top: 42px; } .s3 { left: 530px; top: 104px; } .s4 { left: 735px; top: 72px; }
+    .cloud { position: absolute; height: 18px; background: #315777; border-radius: 14px; opacity: 0.8; }
+    .cloud:before { content: ""; position: absolute; left: 18px; top: -10px; width: 27px; height: 27px; background: #315777; border-radius: 20px; }
+    .cloud:after { content: ""; position: absolute; left: 43px; top: -6px; width: 21px; height: 21px; background: #315777; border-radius: 18px; }
+    .c1 { left: 170px; top: 115px; width: 79px; } .c2 { left: 610px; top: 148px; width: 91px; opacity: 0.55; }
+    .mountain { position: absolute; bottom: 62px; width: 0; height: 0; border-left: 110px solid transparent; border-right: 110px solid transparent; border-bottom: 150px solid #214765; }
+    .m1 { left: 285px; } .m2 { left: 520px; border-bottom-color: #1d405e; border-left-width: 145px; border-right-width: 145px; }
+    .ground { position: absolute; left: 0; bottom: 0; width: 100%; height: 64px; background: #142a31; border-top: 4px solid #d2a94c; }
+    .ground-line { position: absolute; left: 0; bottom: 20px; width: 100%; height: 3px; background: #26434a; }
+    .ground-mark { position: absolute; bottom: 13px; width: 32px; height: 4px; background: #3a5a5b; border-radius: 3px; }
+    .g1 { left: 62px; } .g2 { left: 245px; } .g3 { left: 475px; } .g4 { left: 720px; }
+    #urubu { position: absolute; left: 146px; top: 268px; width: 92px; height: 86px; }
+    .wing { position: absolute; left: 5px; top: 31px; width: 45px; height: 31px; background: #27344a; border-radius: 28px 8px 28px 8px; transform: rotate(-24deg); }
+    .body { position: absolute; left: 27px; top: 24px; width: 52px; height: 57px; background: #202a39; border: 2px solid #3d5068; border-radius: 28px 28px 20px 20px; }
+    .head { position: absolute; left: 52px; top: 8px; width: 35px; height: 36px; background: #c95245; border-radius: 22px; }
+    .eye { position: absolute; left: 20px; top: 9px; width: 9px; height: 9px; background: #ffffff; border-radius: 8px; }
+    .pupil { position: absolute; left: 3px; top: 3px; width: 4px; height: 4px; background: #15202f; border-radius: 4px; }
+    .beak { position: absolute; left: 82px; top: 22px; width: 18px; height: 12px; background: #efbd48; border-radius: 3px 9px 9px 3px; }
+    .tail { position: absolute; left: 11px; top: 57px; width: 26px; height: 20px; background: #27344a; transform: rotate(24deg); border-radius: 3px 0 13px 3px; }
+    .leg { position: absolute; top: 77px; width: 4px; height: 12px; background: #efbd48; } .l1 { left: 45px; } .l2 { left: 63px; }
+    .obstacle { position: absolute; bottom: 62px; width: 36px; background: #cf6546; border: 2px solid #f1a55b; border-radius: 9px 9px 3px 3px; }
+    .obstacle:before { content: ""; position: absolute; left: 7px; top: 12px; width: 18px; height: 4px; background: #f1a55b; border-radius: 3px; }
+    .obstacle:after { content: ""; position: absolute; left: 7px; top: 26px; width: 18px; height: 4px; background: #f1a55b; border-radius: 3px; }
+    .bird-wing-back { position: absolute; left: 132px; width: 71px; height: 45px; background: #1d2634; border: 3px solid #60738b; border-radius: 34px 12px 30px 12px; }
+    .bird-wing { position: absolute; left: 148px; width: 68px; height: 39px; background: #34465d; border: 3px solid #8799af; border-radius: 30px 9px 30px 9px; }
+    .bird-feather { position: absolute; left: 145px; width: 42px; height: 7px; background: #aebdcb; border-radius: 6px; }
+    .bird-tail { position: absolute; left: 145px; width: 45px; height: 26px; background: #1d2634; border: 3px solid #60738b; border-radius: 7px 4px 21px 7px; }
+    .bird-body { position: absolute; left: 172px; width: 69px; height: 65px; background: #263343; border: 3px solid #8d9dae; border-radius: 37px 37px 23px 23px; }
+    .bird-chest { position: absolute; left: 194px; width: 36px; height: 42px; background: #c9d2d7; border-radius: 21px 21px 14px 14px; }
+    .bird-head { position: absolute; left: 211px; width: 47px; height: 49px; background: #c94e44; border: 3px solid #f28a62; border-radius: 29px; }
+    .bird-eye { position: absolute; left: 236px; width: 14px; height: 14px; background: #ffffff; border: 3px solid #172335; border-radius: 10px; }
+    .bird-beak { position: absolute; left: 255px; width: 28px; height: 17px; background: #f3c969; border: 2px solid #d99f35; border-radius: 4px 13px 13px 4px; }
+    .bird-leg { position: absolute; width: 6px; height: 15px; background: #f3c969; }
+    #hud { position: absolute; left: 20px; top: 18px; color: #eaf5ff; font-size: 15px; font-weight: bold; letter-spacing: 1px; }
+    #hud span { color: #f3c969; }
+    #message { position: absolute; left: 220px; top: 152px; width: 450px; padding: 18px; text-align: center; background: #0b1726; border: 1px solid #42698a; border-radius: 12px; color: #f2f7ff; font-size: 23px; font-weight: bold; }
+    #message small { display: block; margin-top: 9px; color: #98b3ce; font-size: 13px; font-weight: normal; }
+    .controls { height: 66px; padding-top: 15px; }
+    button { height: 40px; margin-right: 10px; padding: 0 20px; background: #f3c969; border: 0; border-radius: 8px; color: #172335; font-size: 14px; font-weight: bold; }
+    .secondary { background: #274763; color: #e7f3ff; border: 1px solid #497392; }
+    .hint { float: right; margin-top: 11px; color: #8eabc7; font-size: 13px; }
+    .footer { margin-top: 12px; text-align: center; color: #6f8ba4; font-size: 12px; }
+  </style>
 </head>
 <body>
-  <div class="moon"></div>
-  <div class="wrap">
-    <h1>UrubuCode</h1>
-    <p class="sub">o mascote, desenhado só com caixas CSS e animado pelo motor do RTS</p>
-
-    <div class="cloudlane"><div class="cloud c1"></div></div>
-    <div class="cloudlane"><div class="cloud c2"></div></div>
-
-    <div class="fly-zone">
-      <div class="bird">
-        <div class="head-row">
-          <div class="head"><div class="eye"><div class="pupil"></div></div></div>
-          <div class="beak"></div>
+  <div class="shell">
+    <div class="top"><div class="brand">URUBU FLIGHT<small>RTS DOM + CSS + JAVASCRIPT</small></div><div class="status">ENGINE <b>ONLINE</b> &nbsp; / &nbsp; BUILD 2731</div></div>
+    <div class="game-card">
+      <div id="stage">
+        <div class="moon"><div class="moon-dot d1"></div><div class="moon-dot d2"></div><div class="moon-dot d3"></div></div>
+        <div class="star s1">*</div><div class="star s2">*</div><div class="star s3">*</div><div class="star s4">*</div>
+        <div class="cloud c1"></div><div class="cloud c2"></div><div class="mountain m1"></div><div class="mountain m2"></div>
+        <div id="hud">SCORE <span id="score">000</span> &nbsp; BEST <span id="best">000</span></div>
+        <div id="urubu" style="display:none;position:absolute;left:146px;top:268px;width:112px;height:92px;z-index:4">
+          <div style="position:absolute;left:0px;top:34px;width:54px;height:34px;background:#41536b;border-radius:24px"></div>
+          <div style="position:absolute;left:24px;top:26px;width:62px;height:60px;background:#202a39;border:3px solid #627893;border-radius:32px 32px 20px 20px"></div>
+          <div style="position:absolute;left:56px;top:4px;width:43px;height:44px;background:#d75c4d;border:3px solid #f28a62;border-radius:26px"></div>
+          <div style="position:absolute;left:80px;top:15px;width:12px;height:12px;background:#ffffff;border-radius:9px"><div style="position:absolute;left:4px;top:4px;width:5px;height:5px;background:#111b2b;border-radius:4px"></div></div>
+          <div style="position:absolute;left:96px;top:24px;width:22px;height:14px;background:#f3c969;border-radius:3px 10px 10px 3px"></div>
+          <div style="position:absolute;left:7px;top:59px;width:28px;height:20px;background:#41536b;border-radius:4px"></div>
+          <div style="position:absolute;left:45px;top:82px;width:5px;height:12px;background:#f3c969"></div><div style="position:absolute;left:67px;top:82px;width:5px;height:12px;background:#f3c969"></div>
         </div>
-        <div class="body-row">
-          <div class="wing wing-l"></div>
-          <div class="torso"></div>
-          <div class="wing wing-r"></div>
-        </div>
-        <div class="legs"><div class="leg"></div><div class="leg"></div></div>
+        <div id="rock0" class="obstacle"></div><div id="rock1" class="obstacle"></div><div id="rock2" class="obstacle"></div>
+        <div id="message">PRONTO PARA VOAR?<small>Use ESPACO, SETA PARA CIMA ou o botao BATER ASAS</small></div>
+        <div class="ground"><div class="ground-line"></div><div class="ground-mark g1"></div><div class="ground-mark g2"></div><div class="ground-mark g3"></div><div class="ground-mark g4"></div></div>
+        <div id="birdWingBack" class="bird-wing-back"></div><div id="birdTail" class="bird-tail"></div><div id="birdBody" class="bird-body"></div><div id="birdChest" class="bird-chest"></div><div id="birdWing" class="bird-wing"></div><div id="birdFeather1" class="bird-feather"></div><div id="birdFeather2" class="bird-feather"></div><div id="birdHead" class="bird-head"></div><div id="birdEye" class="bird-eye"></div><div id="birdBeak" class="bird-beak"></div><div id="birdLeg1" class="bird-leg"></div><div id="birdLeg2" class="bird-leg"></div>
       </div>
+      <div class="controls"><button id="flap">BATER ASAS</button><button id="restart" class="secondary">REINICIAR VOO</button><div class="hint">Desvie das rochas e mantenha o urubu no ar.</div></div>
     </div>
-
-    <p class="foot-note">asas: flap 0.6s · voo: 2.4s · piscada: 3.5s · lua: 5s · nuvens: 11s/15s</p>
+    <div class="footer">Pagina interativa executada pelo runtime RTS - sem navegador externo.</div>
   </div>
+  <script>
+    var bird = document.getElementById("birdBody"); var birdWingBack = document.getElementById("birdWingBack"); var birdWing = document.getElementById("birdWing"); var birdFeather1 = document.getElementById("birdFeather1"); var birdFeather2 = document.getElementById("birdFeather2"); var birdTail = document.getElementById("birdTail"); var birdChest = document.getElementById("birdChest"); var birdHead = document.getElementById("birdHead"); var birdEye = document.getElementById("birdEye"); var birdBeak = document.getElementById("birdBeak"); var birdLeg1 = document.getElementById("birdLeg1"); var birdLeg2 = document.getElementById("birdLeg2"); var scoreEl = document.getElementById("score"); var bestEl = document.getElementById("best");
+    var message = document.getElementById("message"); var flapButton = document.getElementById("flap"); var restartButton = document.getElementById("restart");
+    var rocks = [document.getElementById("rock0"), document.getElementById("rock1"), document.getElementById("rock2")];
+    var rockX = [500, 785, 1070]; var rockH = [48, 78, 58]; var y = 190; var velocity = 0; var score = 0; var best = 0; var running = false; var gameOver = false; var frame = 0; var flapFrames = 0;
+    function px(value) { return "" + Math.floor(value) + "px"; }
+    function draw() { var lift = flapFrames > 0 ? -31 + flapFrames * 3 : 0; birdWingBack.setStyleProp("top", px(y + 38 + lift)); birdWing.setStyleProp("top", px(y + 46 + lift / 2)); birdFeather1.setStyleProp("top", px(y + 54 + lift / 2)); birdFeather2.setStyleProp("top", px(y + 66 + lift / 2)); birdTail.setStyleProp("top", px(y + 60)); bird.setStyleProp("top", px(y + 25)); birdChest.setStyleProp("top", px(y + 40)); birdHead.setStyleProp("top", px(y + 4)); birdEye.setStyleProp("top", px(y + 16)); birdBeak.setStyleProp("top", px(y + 25)); birdLeg1.setStyleProp("left", "194px"); birdLeg1.setStyleProp("top", px(y + 86)); birdLeg2.setStyleProp("left", "218px"); birdLeg2.setStyleProp("top", px(y + 86)); var i = 0; while (i < 3) { rocks[i].setStyleProp("left", px(rockX[i])); rocks[i].setStyleProp("height", px(rockH[i])); i = i + 1; } scoreEl.setInnerHTML(("000" + score).slice(-3)); bestEl.setInnerHTML(("000" + best).slice(-3)); }
+    function reset() { y = 190; velocity = 0; score = 0; frame = 0; running = false; gameOver = false; rockX[0] = 500; rockX[1] = 785; rockX[2] = 1070; rockH[0] = 48; rockH[1] = 78; rockH[2] = 58; message.setStyleProp("display", "block"); message.setInnerHTML("PRONTO PARA VOAR?<small>Use ESPACO, SETA PARA CIMA ou o botao BATER ASAS</small>"); draw(); }
+    function flap() { if (gameOver) { reset(); } if (!running) { running = true; message.setStyleProp("display", "none"); } flapFrames = 10; velocity = -10; }
+    function lose() { running = false; gameOver = true; if (score > best) best = score; message.setStyleProp("display", "block"); message.setInnerHTML("VOO ENCERRADO<small>Score " + score + " - aperte ESPACO ou BATER ASAS para tentar de novo</small>"); draw(); }
+    function tick() { if (flapFrames > 0) { flapFrames = flapFrames - 1; } if (!running) { draw(); return; } frame = frame + 1; velocity = velocity + 0.72; y = y + velocity; if (y < 28) { y = 28; velocity = 1; } if (y > 268) { y = 268; lose(); return; } var speed = 5 + Math.floor(score / 12); var i = 0; while (i < 3) { rockX[i] = rockX[i] - speed; if (rockX[i] < -45) { rockX[i] = 900 + i * 165 + Math.floor(Math.random() * 120); rockH[i] = 42 + Math.floor(Math.random() * 62); score = score + 1; } if (146 + 75 > rockX[i] && 146 < rockX[i] + 36 && y + 82 > 366 - rockH[i]) { lose(); return; } i = i + 1; } if (frame % 28 === 0) score = score + 1; draw(); }
+    flapButton.addEventListener("click", flap); restartButton.addEventListener("click", reset);
+    window.addEventListener("keydown", function (event) { var key = event.key || event.code; if (key === " " || key === "Space" || key === "ArrowUp") { flap(); } if (key === "r" || key === "R") { reset(); } });
+    setInterval(tick, 32); reset();
+  </script>
 </body>
 </html>
