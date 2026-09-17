@@ -180,6 +180,29 @@
     }
 
     #[test]
+    fn anonymous_block_box_keeps_its_internal_geometry() {
+        let dom = parse_html_to_dom("<p>x<span>a<div>b</div>c</span>y</p>");
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
+        let list = layout_document(&dom, &ctx);
+        let tree = &list.tree;
+        let p = dom.resolve(dom.query("p").unwrap()).unwrap();
+        let anon = tree
+            .children(tree.boxes_of(p)[0])
+            .iter()
+            .copied()
+            .find(|&box_id| matches!(tree.kind(box_id), crate::boxes::BoxKind::Anonymous { .. }))
+            .expect("the split inline creates an anonymous block box");
+        let rect = list
+            .rect_of_box(anon)
+            .expect("anonymous box geometry survives a cached fragment");
+        assert!(rect.w > 0.0 && rect.h > 0.0, "{rect:?}");
+    }
+
+    #[test]
     fn float_left_right_dividem_a_linha() {
         // O header clássico (brand+nav do Bootstrap cover): float:left e
         // float:right consecutivos dividem a MESMA linha; o irmão não-float

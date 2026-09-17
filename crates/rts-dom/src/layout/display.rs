@@ -447,6 +447,18 @@ fn collect_geometry(
     }
 }
 
+/// Procura a geometria de uma caixa dentro de um fragmento, acumulando os
+/// deslocamentos aplicados quando ele foi reutilizado. Diferente da geometria
+/// pública por nó, esta vista preserva também caixas anônimas.
+fn rect_in_fragment(fragment: &Fragment, box_id: BoxId, dx: f32, dy: f32) -> Option<Rect> {
+    if let Some((_, rect)) = fragment.rects.iter().find(|(id, _)| *id == box_id) {
+        return Some(Rect::new(rect.x + dx, rect.y + dy, rect.w, rect.h));
+    }
+    fragment.children.iter().find_map(|child| {
+        rect_in_fragment(&child.fragment, box_id, dx + child.dx, dy + child.dy)
+    })
+}
+
 impl DisplayList {
     /// An empty list that already carries the document box tree.
     ///
@@ -574,6 +586,21 @@ impl DisplayList {
         self.geometry().rects.get(&node).copied()
     }
 
+    /// Retângulo de uma caixa concreta da BoxTree, inclusive quando ela foi
+    /// emitida dentro de um fragmento reutilizado. Esta é a consulta interna
+    /// para código de layout; a API de DOM continua a usar [`Self::rect_of`],
+    /// pois caixas anônimas não possuem `NodeIdx` para expor.
+    pub(crate) fn rect_of_box(&self, box_id: BoxId) -> Option<Rect> {
+        self.box_rects
+            .get(&box_id)
+            .copied()
+            .or_else(|| {
+                self.children
+                    .iter()
+                    .find_map(|child| rect_in_fragment(&child.fragment, box_id, child.dx, child.dy))
+            })
+    }
+
     /// O retângulo de um NÓ: a união dos retângulos das caixas que ele
     /// gerou. Par de `rect_of`, sem passar por `Geometry` nem pelo cache —
     /// para um chamador que já tem um `NodeIdx` isolado e não quer montar a
@@ -586,10 +613,10 @@ impl DisplayList {
     pub fn rect_of_node(&self, node: NodeIdx) -> Option<Rect> {
         let mut acc: Option<Rect> = None;
         for &box_id in self.tree.boxes_of(node) {
-            if let Some(rect) = self.box_rects.get(&box_id) {
+            if let Some(rect) = self.rect_of_box(box_id) {
                 acc = Some(match acc {
-                    Some(a) => a.union(*rect),
-                    None => *rect,
+                    Some(a) => a.union(rect),
+                    None => rect,
                 });
             }
         }

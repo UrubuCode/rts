@@ -250,6 +250,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 dom, &arvore, anon, content_x, child_y, content_w, avail_h, css, font_size, bfc,
                 ctx, list,
             );
+            // A anônima não tem NodeIdx, mas é uma caixa real da BoxTree. Guardar
+            // sua geometria pelo BoxId mantém transformações e futuras operações
+            // por caixa completas sem expor uma geometria DOM inexistente.
+            super::record_box_rect(list, anon, Rect::new(content_x, child_y, content_w, h));
             if !atravessa_se(h, 0.0, 0.0) {
                 borda = aresta + h;
                 strut = (0.0, 0.0);
