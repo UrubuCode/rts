@@ -540,6 +540,7 @@ pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, 
     match a {
         A::Stretch | A::FlexStart | A::Baseline => 0.0,
         A::FlexEnd | A::LastBaseline => free,
+        A::SafeEnd => free.max(0.0),
         A::Center | A::SafeCenter => free / 2.0,
     }
 }

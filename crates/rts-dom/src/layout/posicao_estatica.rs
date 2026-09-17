@@ -137,6 +137,8 @@ fn posicao_estatica_flex(
     };
     let cross = |start: f32, size: f32, item: f32, cb_start: f32, cb_size: f32| match align {
         crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => start + size - item,
+        crate::style::AlignItems::SafeEnd if item <= cb_size => start + size - item,
+        crate::style::AlignItems::SafeEnd => cb_start,
         crate::style::AlignItems::Center => start + (size - item) / 2.0,
         crate::style::AlignItems::SafeCenter if item > cb_size => cb_start,
         crate::style::AlignItems::SafeCenter => start + (size - item) / 2.0,
@@ -186,5 +188,15 @@ mod tests {
         let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0, content);
         assert_eq!(x, 80.0, "align-items:center on the horizontal cross axis");
         assert_eq!(y, 80.0, "justify-content:flex-end on the vertical main axis");
+    }
+
+    #[test]
+    fn safe_end_uses_end_when_the_item_fits() {
+        let mut css = ComputedStyle::default();
+        css.align_self = Some(crate::style::AlignItems::SafeEnd);
+        let parent_css = ComputedStyle::default();
+        let content = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 20.0, 30.0, content);
+        assert_eq!((x, y), (0.0, 70.0));
     }
 }

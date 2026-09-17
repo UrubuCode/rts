@@ -193,6 +193,7 @@ pub(crate) fn fmt_align(a: AlignItems) -> String {
         AlignItems::FlexEnd => "flex-end",
         AlignItems::Center => "center",
         AlignItems::SafeCenter => "safe center",
+        AlignItems::SafeEnd => "safe end",
         AlignItems::Baseline => "baseline",
         AlignItems::LastBaseline => "last baseline",
     }
