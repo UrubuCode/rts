@@ -20,12 +20,14 @@ pub(in crate::layout) struct OutOfFlowBox {
 /// com `position != static` (relative/absolute/fixed), lido de `flow_rects` — a
 /// geometria por NÓ do fluxo (`list.geometry_now().rects`; era `list.node_rects`
 /// antes da árvore de caixas, hoje agregada de `box_rects` por `rect_of_node`).
-/// `None` = nenhum ancestral positioned → o containing block é a viewport
-/// (a raiz inicial). Um `fixed` sempre usa a viewport (tratado no caller).
+/// `None` = nenhum ancestral que forme containing block → a viewport (a raiz
+/// inicial). `transform` também forma esse bloco; para `fixed`, ele é o ÚNICO
+/// tipo de ancestral desta rotina que captura o elemento.
 fn containing_block_rect(
     dom: &Dom,
     id: NodeIdx,
     flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
+    fixed: bool,
 ) -> Option<Rect> {
     let mut cur = dom.node(id).parent;
     while let Some(p) = cur {
@@ -35,7 +37,11 @@ fn containing_block_rect(
             .and_then(|c| c.position)
             .map(|pos| pos != crate::style::Position::Static)
             .unwrap_or(false);
-        if positioned {
+        let transformed = css_p.as_ref().is_some_and(|css| css.transform.is_some());
+        // Um `fixed` ignora ancestrais somente positioned, mas é capturado por
+        // um transform (CSS Transforms §3). Um `absolute` aceita ambos.
+        let establishes_cb = transformed || (!fixed && positioned);
+        if establishes_cb {
             // O containing block é a PADDING BOX do ancestral (CSS 2.1 §10.1),
             // não a border box guardada em `flow_rects` (a geometria por nó) —
             // ver `caixa_contentora.rs` para o achado (a referência de 31 dos 33
@@ -44,7 +50,7 @@ fn containing_block_rect(
             if let (Some(r), Some(css_p)) = (flow_rects.get(&p), css_p) {
                 return Some(super::caixa_contentora::padding_box(*r, &css_p));
             }
-            // Um ancestral posicionado SEM caixa (não foi layoutado) não serve de
+            // Um ancestral que estabelece o bloco SEM caixa (não foi layoutado) não serve de
             // containing block, e continuar a subir escolhe um contentor que o
             // browser nunca escolheria — foi assim que um elemento de um ramo
             // escondido se ancorou num contentor com a altura do documento.
@@ -122,16 +128,12 @@ pub(in crate::layout) fn layout_out_of_flow(
     let id = alvo.node;
     let css = dom.computed_style_idx(id).unwrap_or_default();
     // CONTAINING BLOCK: `absolute` posiciona contra o ancestral positioned mais
-    // próximo (o Google ancora os ícones no canto direito da CAIXA DE BUSCA, não
-    // da tela); `fixed` sempre contra a viewport. Sem ancestral positioned →
-    // viewport. `cb` = (origem_x, origem_y, largura, altura) do container.
+    // próximo, e `transform` faz o mesmo mesmo no ancestral static; `fixed`
+    // usa a viewport exceto quando um transform o captura. `cb` =
+    // (origem_x, origem_y, largura, altura) do container.
     let is_fixed = matches!(css.position, Some(crate::style::Position::Fixed));
-    let cb = if is_fixed {
-        Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h)
-    } else {
-        containing_block_rect(dom, id, flow_rects)
-            .unwrap_or_else(|| Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h))
-    };
+    let cb = containing_block_rect(dom, id, flow_rects, is_fixed)
+        .unwrap_or_else(|| Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h));
     let resolve = ResolveCtx {
         parent_content_w: cb.w,
         node_font_size: font_px(&css, DEFAULT_FONT_SIZE),

@@ -222,6 +222,28 @@
     }
 
     #[test]
+    fn transform_anchors_absolute_and_fixed_descendants() {
+        let dom = parse_html_to_dom(
+            "<style>body{margin:0} #host { width:200px; height:100px; transform:translate(80px,40px) } \
+             #absolute { position:absolute; left:10px; top:20px; width:20px; height:20px } \
+             #fixed { position:fixed; left:30px; top:40px; width:20px; height:20px }</style>\
+             <div id=host><i id=absolute></i><i id=fixed></i></div>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
+        let list = layout_document(&dom, &ctx);
+        let rect = |selector: &str| {
+            let node = dom.resolve(dom.query(selector).unwrap()).unwrap();
+            list.geometry().rects[&node]
+        };
+        assert_eq!((rect("#absolute").x, rect("#absolute").y), (90.0, 60.0));
+        assert_eq!((rect("#fixed").x, rect("#fixed").y), (110.0, 80.0));
+    }
+
+    #[test]
     fn anonymous_block_box_keeps_its_internal_geometry() {
         let dom = parse_html_to_dom("<p>x<span>a<div>b</div>c</span>y</p>");
         let ctx = LayoutCtx {
