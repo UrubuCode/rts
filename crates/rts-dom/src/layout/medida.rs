@@ -185,7 +185,16 @@ pub(in crate::layout) fn intrinsic_content_width(
     // obriga a olhar para o `<br>`: ele não é de bloco e mesmo assim quebra.
     let mut linha = 0.0f32;
     let mut maior = 0.0f32;
-    for &child in &dom.node(id).children {
+    let tree = dom.box_tree();
+    let filhos: Vec<_> = tree
+        .boxes_of(id)
+        .iter()
+        .flat_map(|&caixa| tree.children(caixa).iter().copied())
+        .collect();
+    for caixa in filhos {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         // fora do fluxo não contribui para a largura intrínseca do container.
         if is_out_of_flow(dom, child) {
             continue;
