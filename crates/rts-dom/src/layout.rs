@@ -370,12 +370,12 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // de cada nó da árvore, e era 78% de um frame de mutação numa página que não
     // tem um único posicionado.
     if dom.may_have_out_of_flow() {
-        collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+        collect_out_of_flow(dom, &list.tree, dom.root, &mut out_of_flow);
     }
     // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
     // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
     // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
-    out_of_flow.sort_by_key(|&id| empilhamento::z_index_of(dom, id));
+    out_of_flow.sort_by_key(|alvo| empilhamento::z_index_of(dom, alvo.node));
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
@@ -387,28 +387,28 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // negativo primeiro) e o filtro preserva essa ordem — a mesma que o
     // Apêndice E pede DENTRO do grupo. `resto` (≥0/auto) segue exatamente o
     // caminho de sempre, por cima do fluxo.
-    let negativos: Vec<NodeIdx> = out_of_flow
+    let negativos: Vec<_> = out_of_flow
         .iter()
+        .filter(|alvo| empilhamento::z_index_of(dom, alvo.node) < 0)
         .copied()
-        .filter(|&id| empilhamento::z_index_of(dom, id) < 0)
         .collect();
-    let resto: Vec<NodeIdx> = out_of_flow
+    let resto: Vec<_> = out_of_flow
         .iter()
         .copied()
-        .filter(|&id| empilhamento::z_index_of(dom, id) >= 0)
+        .filter(|alvo| empilhamento::z_index_of(dom, alvo.node) >= 0)
         .collect();
     if !negativos.is_empty() {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.
         let mut atras = DisplayList::for_dom(dom);
-        for id in &negativos {
-            layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut atras);
+        for alvo in &negativos {
+            layout_out_of_flow(dom, *alvo, ctx, &flow_rects, &mut atras);
         }
         empilhamento::merge_before(&mut list, atras);
     }
-    for id in &resto {
-        layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut list);
+    for alvo in &resto {
+        layout_out_of_flow(dom, *alvo, ctx, &flow_rects, &mut list);
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
     // para o hit-test: fluxo normal em pré-ordem e, depois, posicionados em ordem
