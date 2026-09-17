@@ -865,6 +865,7 @@ pub(crate) fn layout_block(
         d if d == crate::block::DISPLAY_HORIZONTAL => layout_children_horizontal(
             dom,
             id,
+            caixa.expect("um contentor horizontal renderizável tem uma caixa"),
             content_x,
             content_y,
             scroll_children_w,
@@ -907,6 +908,7 @@ pub(crate) fn layout_block(
         d if d == crate::block::DISPLAY_WRAP => layout_children_horizontal(
             dom,
             id,
+            caixa.expect("um contentor wrap renderizável tem uma caixa"),
             content_x,
             content_y,
             scroll_children_w,

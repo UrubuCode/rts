@@ -57,6 +57,7 @@ pub(in crate::layout) struct FlexItem {
 pub(in crate::layout) fn layout_children_horizontal(
     dom: &Dom,
     id: NodeIdx,
+    container: crate::boxes::BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -119,7 +120,14 @@ pub(in crate::layout) fn layout_children_horizontal(
     // ── PRÉ-PASS: coleta cada filho renderável com a BASE flex + fatores ─────────
     let mut items: Vec<FlexItem> = Vec::new();
     items.extend(super::flex_pseudo::item_flex(dom, id, crate::style::PseudoElement::Before, content_w, font_size, ctx));
-    for &child in &dom.node(id).children {
+    // A ordem visual de base de um flex/wrap vem das caixas-filhas desta
+    // construção. O DOM ainda responde às propriedades e ao texto, mas não
+    // volta a escolher uma caixa para cada item.
+    let tree = std::rc::Rc::clone(&list.tree);
+    for &caixa in tree.children(container) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
                 continue;
@@ -217,7 +225,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         let auto = |s: crate::style::Side| s == crate::style::Side::Auto;
         items.push(FlexItem {
             node: child,
-            caixa: super::unica_caixa_do_no(dom, child),
+            caixa: Some(caixa),
             base,
             main: base,
             h,
