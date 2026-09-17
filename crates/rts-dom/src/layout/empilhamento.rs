@@ -51,7 +51,11 @@ pub(in crate::layout) fn z_index_of(dom: &Dom, id: NodeIdx) -> i32 {
 /// correção um clip existente passaria a "conter" as subárvores negativas
 /// que nunca esteve dentro dele.
 pub(in crate::layout) fn merge_before(alvo: &mut DisplayList, mut antes: DisplayList) {
-    if antes.items.is_empty() && antes.children.is_empty() {
+    if antes.items.is_empty()
+        && antes.children.is_empty()
+        && antes.box_rects.is_empty()
+        && antes.hit_order.is_empty()
+    {
         return;
     }
     let n_items = antes.items.len();
@@ -80,4 +84,28 @@ pub(in crate::layout) fn merge_before(alvo: &mut DisplayList, mut antes: Display
     alvo.box_rects.extend(antes.box_rects);
     alvo.grid_column_tracks.extend(antes.grid_column_tracks);
     alvo.scroll_regions.splice(0..0, antes.scroll_regions);
+}
+
+/// Appends a positioned fragment after the current list, translating the
+/// fragment-local item and hit indices on the way.
+pub(in crate::layout) fn merge_after(alvo: &mut DisplayList, mut depois: DisplayList) {
+    if depois.items.is_empty()
+        && depois.children.is_empty()
+        && depois.box_rects.is_empty()
+        && depois.hit_order.is_empty()
+    {
+        return;
+    }
+    let n_items = alvo.items.len();
+    let n_hits = alvo.hit_order.len();
+    for child in depois.children.iter_mut() {
+        child.at += n_items;
+        child.hit_at += n_hits;
+    }
+    alvo.items.append(&mut depois.items);
+    alvo.children.append(&mut depois.children);
+    alvo.hit_order.append(&mut depois.hit_order);
+    alvo.box_rects.extend(depois.box_rects);
+    alvo.grid_column_tracks.extend(depois.grid_column_tracks);
+    alvo.scroll_regions.append(&mut depois.scroll_regions);
 }

@@ -380,7 +380,6 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
     // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
     // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
-    out_of_flow.sort_by_key(|alvo| empilhamento::z_index_of(dom, alvo.node));
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
@@ -391,32 +390,28 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // negativo primeiro) e o filtro preserva essa ordem — a mesma que o
     // Apêndice E pede DENTRO do grupo. `resto` (≥0/auto) segue exatamente o
     // caminho de sempre, por cima do fluxo.
-    let negativos: Vec<_> = out_of_flow
-        .iter()
-        .filter(|alvo| empilhamento::z_index_of(dom, alvo.node) < 0)
-        .copied()
-        .collect();
-    let resto: Vec<_> = out_of_flow
-        .iter()
-        .copied()
-        .filter(|alvo| empilhamento::z_index_of(dom, alvo.node) >= 0)
-        .collect();
-    if !negativos.is_empty() {
+    let mut rects_conhecidos = list.geometry_now().rects;
+    let mut positioned = Vec::with_capacity(out_of_flow.len());
+    for alvo in out_of_flow {
+        let mut fragment = DisplayList::for_dom(dom);
+        layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
+        rects_conhecidos.extend(fragment.geometry_now().rects);
+        positioned.push((empilhamento::z_index_of(dom, alvo.node), fragment));
+    }
+    positioned.sort_by_key(|(z, _)| *z);
+    let mut negativos = DisplayList::for_dom(dom);
+    for (z, fragment) in positioned {
+        if z < 0 {
+            empilhamento::merge_after(&mut negativos, fragment);
+        } else {
+            empilhamento::merge_after(&mut list, fragment);
+        }
+    }
+    if !negativos.items.is_empty() || !negativos.children.is_empty() {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.
-        let mut atras = DisplayList::for_dom(dom);
-        let mut rects_conhecidos = list.geometry_now().rects;
-        for alvo in &negativos {
-            layout_out_of_flow(dom, *alvo, ctx, &rects_conhecidos, &mut atras);
-            rects_conhecidos.extend(atras.geometry_now().rects);
-        }
-        empilhamento::merge_before(&mut list, atras);
-    }
-    let mut rects_conhecidos = list.geometry_now().rects;
-    for alvo in &resto {
-        layout_out_of_flow(dom, *alvo, ctx, &rects_conhecidos, &mut list);
-        rects_conhecidos = list.geometry_now().rects;
+        empilhamento::merge_before(&mut list, negativos);
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
     // para o hit-test: fluxo normal em pré-ordem e, depois, posicionados em ordem
