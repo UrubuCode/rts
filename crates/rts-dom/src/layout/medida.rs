@@ -337,7 +337,7 @@ pub(in crate::layout) fn child_outer_height(
         NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
             let (_, outer_h) =
-                measure_block(dom, id, super::unica_caixa_do_no(dom, id), container_w, container_h, None, None, true, ctx);
+                measure_block(dom, id, None, container_w, container_h, None, None, true, ctx);
             outer_h
         }
         // A MESMA altura que o fluxo dará a esta linha — medir com o default do

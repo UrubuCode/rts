@@ -99,7 +99,7 @@ pub(in crate::layout) fn max_content_width(
             ctx,
         );
         let (cross, _) = measure_block(
-            dom, child, super::unica_caixa_do_no(dom, child), ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
+            dom, child, None, ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
         );
         items.push((main, cross));
     }
