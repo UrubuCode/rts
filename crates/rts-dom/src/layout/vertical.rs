@@ -751,7 +751,15 @@ pub(in crate::layout) fn layout_children_vertical(
                     );
                     inline_group.clear();
                 }
-                ib_run.push((child, fragmento_do_filho));
+                let caixa_do_inline_block = fragmento_do_filho.or_else(|| match list.tree.boxes_of(child) {
+                    [caixa] => Some(*caixa),
+                    [] => None,
+                    caixas => panic!(
+                        "o inline-block {child:?} gerou {} caixas; a sequencia precisa carregar a caixa exata",
+                        caixas.len()
+                    ),
+                });
+                ib_run.push((child, caixa_do_inline_block));
                 borda = child_y;
                 strut = (0.0, 0.0);
             }
