@@ -125,6 +125,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 r.atomic,
                 Some((
                     _,
+                    _,
                     AtomicKind::Widget
                         | AtomicKind::Replaced
                         | AtomicKind::Block
@@ -254,7 +255,8 @@ pub(in crate::layout) fn layout_inline_flow(
                 matches!(
                     s.atomic,
                     Some((
-                        _,
+                    _,
+                    _,
                         AtomicKind::Widget
                             | AtomicKind::Replaced
                             | AtomicKind::Block
@@ -281,7 +283,7 @@ pub(in crate::layout) fn layout_inline_flow(
             && tem_texto
             && line
                 .iter()
-                .any(|segment| matches!(segment.atomic, Some((_, AtomicKind::Block))));
+                .any(|segment| matches!(segment.atomic, Some((_, _, AtomicKind::Block))));
         // Um inline-block vazio alinha pela baseline no seu fundo. Quando ele é
         // mais alto que o strut, o texto mantém o ascent da fonte acima dessa
         // baseline e o descent do strut fica abaixo dela. É o contrato Blink que
@@ -304,7 +306,7 @@ pub(in crate::layout) fn layout_inline_flow(
             && !tem_texto
             && line
                 .iter()
-                .any(|segment| matches!(segment.atomic, Some((_, AtomicKind::Replaced))));
+                .any(|segment| matches!(segment.atomic, Some((_, _, AtomicKind::Replaced))));
         let text_top = if tall_inline_block || imagem_alta_sem_texto {
             cy + line_h - ctx.measurer.font_ascent_family(font_size, family)
         } else {
@@ -348,7 +350,7 @@ pub(in crate::layout) fn layout_inline_flow(
             // O vão que precede o segmento ocupa lugar na linha mas não pertence
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
-            if let Some((a_idx, kind)) = seg.atomic {
+            if let Some((a_idx, caixa, kind)) = seg.atomic {
                 match kind {
                     AtomicKind::Widget => {
                         // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
@@ -363,7 +365,7 @@ pub(in crate::layout) fn layout_inline_flow(
                             layout_button(
                                 dom,
                                 a_idx,
-                                super::unica_caixa_do_no(dom, a_idx),
+                                caixa,
                                 &wcss,
                                 seg_x,
                                 cy,
@@ -377,7 +379,7 @@ pub(in crate::layout) fn layout_inline_flow(
                             // é isso que faz `height:%` valer `auto` — como no
                             // browser.
                             layout_input(
-                                dom, a_idx, super::unica_caixa_do_no(dom, a_idx), &wcss, seg_x, cy, seg.ww, None, None, None, ctx, list,
+                                dom, a_idx, caixa, &wcss, seg_x, cy, seg.ww, None, None, None, ctx, list,
                             );
                         }
                     }
@@ -395,10 +397,10 @@ pub(in crate::layout) fn layout_inline_flow(
                             // caixa entretanto — a mesma doutrina que o
                             // `<img>` segue no caminho de bloco.
                             let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_canvas(dom, a_idx, super::unica_caixa_do_no(dom, a_idx), &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
+                            layout_canvas(dom, a_idx, caixa, &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
                         } else if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_image(dom, a_idx, super::unica_caixa_do_no(dom, a_idx), &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
+                            layout_image(dom, a_idx, caixa, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
                         }
                     }
                     AtomicKind::Block => {
@@ -412,7 +414,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         layout_block(
                             dom,
                             a_idx,
-                            super::unica_caixa_do_no(dom, a_idx),
+                            caixa,
                             seg_x,
                             topo,
                             seg.ww.max(1.0),

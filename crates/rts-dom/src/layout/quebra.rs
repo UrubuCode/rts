@@ -79,7 +79,7 @@ pub(in crate::layout) fn wrap_runs(
         run: usize,
         texto: String,
         largura: f32,
-        atomico: Option<(NodeIdx, AtomicKind, f32, f32)>,
+        atomico: Option<(NodeIdx, Option<crate::boxes::BoxId>, AtomicKind, f32, f32)>,
     }
     let mut cluster: Vec<Peca> = Vec::new();
     let mut cluster_w = 0.0f32;
@@ -146,7 +146,7 @@ pub(in crate::layout) fn wrap_runs(
                     let com_espaco = primeiro && sep;
                     let espaco = if com_espaco { space_w(m) } else { 0.0 };
                     match peca.atomico {
-                        Some((a_idx, kind, ww, wh)) => {
+                        Some((a_idx, caixa, kind, ww, wh)) => {
                             cur.push(Segment {
                                 text: String::new(),
                                 text_width: 0.0,
@@ -155,7 +155,7 @@ pub(in crate::layout) fn wrap_runs(
                                 italic: false,
                                 deco: 0,
                                 owners: run.owners.clone(),
-                                atomic: Some((a_idx, kind)),
+                                atomic: Some((a_idx, caixa, kind)),
                                 ww,
                                 wh,
                                 lead_w: espaco,
@@ -265,7 +265,7 @@ pub(in crate::layout) fn wrap_runs(
 
     for (i, run) in runs.iter().enumerate() {
         // WIDGET: uma "palavra" inquebravel de run.ww pontos, segmento proprio.
-        if let Some((a_idx, kind)) = run.atomic {
+        if let Some((a_idx, caixa, kind)) = run.atomic {
             // BREAK: entra na linha (para receber a sua caixa) e FECHA-A.
             if kind == AtomicKind::Break {
                 fechar_cluster!();
@@ -277,7 +277,7 @@ pub(in crate::layout) fn wrap_runs(
                     italic: false,
                     deco: 0,
                     owners: run.owners.clone(),
-                    atomic: Some((a_idx, AtomicKind::Break)),
+                    atomic: Some((a_idx, caixa, AtomicKind::Break)),
                     ww: 0.0,
                     wh: 0.0,
                     lead_w: 0.0,
@@ -301,7 +301,7 @@ pub(in crate::layout) fn wrap_runs(
                     italic: false,
                     deco: 0,
                     owners: run.owners.clone(),
-                    atomic: Some((a_idx, AtomicKind::Marker)),
+                    atomic: Some((a_idx, caixa, AtomicKind::Marker)),
                     ww: 0.0,
                     wh: 0.0,
                     lead_w: 0.0,
@@ -313,7 +313,7 @@ pub(in crate::layout) fn wrap_runs(
                     run: i,
                     texto: String::new(),
                     largura: run.ww,
-                    atomico: Some((a_idx, kind, run.ww, run.wh)),
+                    atomico: Some((a_idx, caixa, kind, run.ww, run.wh)),
                 },
                 run.ww
             );

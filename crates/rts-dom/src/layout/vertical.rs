@@ -163,7 +163,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // Corrida de INLINE-BLOCKS consecutivos (botões/pills lado a lado). Pintada
     // por `flush_ib` — mede cada um (shrink), põe lado a lado quebrando linha ao
     // encher, e alinha a linha pelo text-align do pai (center do google).
-    let mut ib_run: Vec<NodeIdx> = Vec::new();
+    let mut ib_run: Vec<(NodeIdx, Option<BoxId>)> = Vec::new();
     macro_rules! flush_ib {
         ($y:expr) => {
             if !ib_run.is_empty() {
@@ -751,7 +751,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     );
                     inline_group.clear();
                 }
-                ib_run.push(child);
+                ib_run.push((child, fragmento_do_filho));
                 borda = child_y;
                 strut = (0.0, 0.0);
             }

@@ -6,7 +6,7 @@
 
 use super::*;
 /// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).
-/// `atomic: Some((idx, kind))` = uma CAIXA em vez de texto — um widget de
+/// `atomic: Some((idx, caixa, kind))` = uma CAIXA em vez de texto — um widget de
 /// formulário, um replaced element (`<img>`), ou o marcador de um inline vazio.
 /// As duas primeiras fluem como uma "palavra" inquebrável de `ww × wh` pontos
 /// (item 8 do handoff #1793; os botões 'Pesquisa Google' do google legado vivem
@@ -23,7 +23,7 @@ pub(in crate::layout) struct InlineRun {
     pub(in crate::layout) deco: u8,
     /// Elementos inline ancestrais deste run. Cada um recebe a união dos fragmentos.
     pub(in crate::layout) owners: Vec<NodeIdx>,
-    pub(in crate::layout) atomic: Option<(NodeIdx, AtomicKind)>,
+    pub(in crate::layout) atomic: Option<(NodeIdx, Option<crate::boxes::BoxId>, AtomicKind)>,
     pub(in crate::layout) ww: f32,
     pub(in crate::layout) wh: f32,
 }
@@ -264,7 +264,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Widget)),
+                        atomic: Some((id, caixa, AtomicKind::Widget)),
                         ww,
                         wh,
                     });
@@ -285,7 +285,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Break)),
+                        atomic: Some((id, caixa, AtomicKind::Break)),
                         ww: 0.0,
                         wh: 0.0,
                     });
@@ -309,7 +309,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Replaced)),
+                        atomic: Some((id, caixa, AtomicKind::Replaced)),
                         ww,
                         wh,
                     });
@@ -321,7 +321,7 @@ pub(in crate::layout) fn collect_runs(
                 // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
                 // real isso multiplicava a altura do documento por ~2,7.
                 if is_inline_block(dom, id) {
-                    let (bw, bh) = measure_block(dom, id, super::unica_caixa_do_no(dom, id), avail_w, None, None, None, true, ctx);
+                    let (bw, bh) = measure_block(dom, id, caixa, avail_w, None, None, None, true, ctx);
                     let mut owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
@@ -331,7 +331,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners: std::mem::take(&mut owners),
-                        atomic: Some((id, AtomicKind::Block)),
+                        atomic: Some((id, caixa, AtomicKind::Block)),
                         ww: bw,
                         wh: bh,
                     });
@@ -402,7 +402,7 @@ pub(in crate::layout) fn collect_runs(
                     italic: false,
                     deco: 0,
                     owners: owners.to_vec(),
-                    atomic: Some((id, kind)),
+                    atomic: Some((id, caixa, kind)),
                     ww,
                     wh: 0.0,
                 };
@@ -458,7 +458,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Marker)),
+                        atomic: Some((id, caixa, AtomicKind::Marker)),
                         ww: 0.0,
                         wh: 0.0,
                     });

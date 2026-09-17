@@ -25,7 +25,7 @@ pub(in crate::layout) fn registar_markers_sem_linha(
     runs: &[InlineRun],
 ) {
     for r in runs {
-        if let Some((idx, AtomicKind::Marker)) = r.atomic {
+        if let Some((idx, _, AtomicKind::Marker)) = r.atomic {
             crate::inline_box::union_rect(list, idx, Rect::new(x, y, 0.0, 0.0));
         }
     }

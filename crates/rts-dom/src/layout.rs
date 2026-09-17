@@ -205,6 +205,11 @@ pub(crate) fn measure_block(
     shrink_to_fit: bool,
     ctx: &LayoutCtx,
 ) -> (f32, f32) {
+    // A lista descartavel tambem carrega a BoxTree. Os chamadores novos passam
+    // a identidade exata; os poucos caminhos legados de medida que ainda so
+    // sabem o no entram aqui pela caixa unica do espelho, para que a descida
+    // interna nunca perca a sequencia da arvore.
+    let caixa = caixa.or_else(|| unica_caixa_do_no(dom, id));
     let measurer = ctx.measurer.identity();
     let key = LayoutMeasureKey {
         tree: dom.cache_identity(),
