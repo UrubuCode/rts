@@ -132,7 +132,9 @@ fn posicao_estatica_flex(
         .unwrap_or(parent_css.align_items.unwrap_or(crate::style::AlignItems::Stretch));
     let main = |start: f32, size: f32, item: f32| match justify {
         crate::style::JustifyContent::FlexEnd => start + size - item,
-        crate::style::JustifyContent::Center => start + (size - item) / 2.0,
+        crate::style::JustifyContent::Center
+        | crate::style::JustifyContent::SpaceAround
+        | crate::style::JustifyContent::SpaceEvenly => start + (size - item) / 2.0,
         _ => start,
     };
     let cross = |start: f32, size: f32, item: f32, cb_start: f32, cb_size: f32| match align {
@@ -198,5 +200,16 @@ mod tests {
         let content = Rect::new(0.0, 0.0, 100.0, 100.0);
         let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 20.0, 30.0, content);
         assert_eq!((x, y), (0.0, 70.0));
+    }
+
+    #[test]
+    fn one_abspos_item_uses_distribution_fallbacks() {
+        let css = ComputedStyle::default();
+        let content = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let mut parent_css = ComputedStyle::default();
+        parent_css.justify = Some(crate::style::JustifyContent::SpaceAround);
+        assert_eq!(posicao_estatica_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 40.0);
+        parent_css.justify = Some(crate::style::JustifyContent::SpaceBetween);
+        assert_eq!(posicao_estatica_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 0.0);
     }
 }
