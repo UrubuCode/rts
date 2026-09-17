@@ -15,10 +15,10 @@
 //!   não reserva espaço nenhum, e o irmão já foi layoutado com o colapso de
 //!   margens correcto. Sem um seguinte, usa o fim do ANTERIOR; sem nenhum dos
 //!   dois, o topo do content.
-//! - **contentor flex** (row/column, `wrap` incluído): a posição de um item de
-//!   tamanho ZERO alinhado por `justify-content` (eixo principal) e
-//!   `align-self`/`align-items` (eixo cruzado) — `grid` cai no caminho de
-//!   bloco por agora (corte dito: sem fixture a pedi-lo).
+//! - **flex container** (row/column, including `wrap`): positions the box at
+//!   its MEASURED SIZE, aligned by `justify-content` (main axis) and
+//!   `align-self`/`align-items` (cross axis). `grid` still follows the block
+//!   path because there is no fixture requiring it yet.
 //!
 //! Cortes documentados: a margem PRÓPRIA de `id` não entra na conta (todos os
 //! casos medidos usam margem 0, o default); `space-between`/`space-around`/
@@ -36,6 +36,8 @@ pub(in crate::layout) fn posicao_estatica(
     css: &ComputedStyle,
     flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
     ctx: &LayoutCtx,
+    outer_w: f32,
+    outer_h: f32,
 ) -> (f32, f32) {
     let Some(parent) = dom.node(id).parent else {
         return (0.0, 0.0);
@@ -55,7 +57,7 @@ pub(in crate::layout) fn posicao_estatica(
                 | crate::style::DisplayKind::InlineFlexWrap
         )
     ) {
-        return posicao_estatica_flex(css, &parent_css, content);
+        return posicao_estatica_flex(css, &parent_css, content, outer_w, outer_h);
     }
     posicao_estatica_bloco(dom, id, parent, content, flow_rects)
 }
@@ -99,11 +101,16 @@ fn posicao_estatica_bloco(
     (content.x, y)
 }
 
-/// Caso do contentor flex (Flexbox §4.1): a posição de um item de tamanho
-/// ZERO alinhado por `justify-content`/`align-self` — física, já resolvida
-/// contra `row-reverse`/`column-reverse` pelo mesmo mapa que `coluna.rs` usa
-/// para o eixo real.
-fn posicao_estatica_flex(css: &ComputedStyle, parent_css: &ComputedStyle, content: Rect) -> (f32, f32) {
+/// Flex-container case (Flexbox §4.1): position the measured box using
+/// `justify-content`/`align-self`. The physical axis has already been resolved
+/// for `row-reverse`/`column-reverse` by the same mapping used by `coluna.rs`.
+fn posicao_estatica_flex(
+    css: &ComputedStyle,
+    parent_css: &ComputedStyle,
+    content: Rect,
+    outer_w: f32,
+    outer_h: f32,
+) -> (f32, f32) {
     let fd = parent_css
         .flex_direction
         .unwrap_or(crate::style::FlexDirection::Row);
@@ -121,20 +128,20 @@ fn posicao_estatica_flex(css: &ComputedStyle, parent_css: &ComputedStyle, conten
     let align = css
         .align_self
         .unwrap_or(parent_css.align_items.unwrap_or(crate::style::AlignItems::Stretch));
-    let main = |start: f32, size: f32| match justify {
-        crate::style::JustifyContent::FlexEnd => start + size,
-        crate::style::JustifyContent::Center => start + size / 2.0,
+    let main = |start: f32, size: f32, item: f32| match justify {
+        crate::style::JustifyContent::FlexEnd => start + size - item,
+        crate::style::JustifyContent::Center => start + (size - item) / 2.0,
         _ => start,
     };
-    let cross = |start: f32, size: f32| match align {
-        crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => start + size,
-        crate::style::AlignItems::Center => start + size / 2.0,
+    let cross = |start: f32, size: f32, item: f32| match align {
+        crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => start + size - item,
+        crate::style::AlignItems::Center => start + (size - item) / 2.0,
         _ => start,
     };
     if fd.is_column() {
-        (cross(content.x, content.w), main(content.y, content.h))
+        (cross(content.x, content.w, outer_w), main(content.y, content.h, outer_h))
     } else {
-        (main(content.x, content.w), cross(content.y, content.h))
+        (main(content.x, content.w, outer_w), cross(content.y, content.h, outer_h))
     }
 }
 
@@ -157,9 +164,9 @@ mod tests {
         parent_css.justify = Some(crate::style::JustifyContent::Center);
         parent_css.align_items = Some(crate::style::AlignItems::FlexEnd);
         let content = Rect::new(10.0, 20.0, 200.0, 100.0);
-        let (x, y) = posicao_estatica_flex(&css, &parent_css, content);
-        assert_eq!(x, 10.0 + 100.0);
-        assert_eq!(y, 20.0 + 100.0);
+        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0);
+        assert_eq!(x, 10.0 + 80.0);
+        assert_eq!(y, 20.0 + 80.0);
     }
 
     /// `flex-direction:column`: o eixo principal vira vertical (`justify`
@@ -172,8 +179,8 @@ mod tests {
         parent_css.justify = Some(crate::style::JustifyContent::FlexEnd);
         parent_css.align_items = Some(crate::style::AlignItems::Center);
         let content = Rect::new(0.0, 0.0, 200.0, 100.0);
-        let (x, y) = posicao_estatica_flex(&css, &parent_css, content);
-        assert_eq!(x, 100.0, "align-items:center no eixo cruzado (horizontal)");
-        assert_eq!(y, 100.0, "justify-content:flex-end no eixo principal (vertical)");
+        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0);
+        assert_eq!(x, 80.0, "align-items:center on the horizontal cross axis");
+        assert_eq!(y, 80.0, "justify-content:flex-end on the vertical main axis");
     }
 }
