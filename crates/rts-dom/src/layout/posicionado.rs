@@ -91,9 +91,10 @@ pub(in crate::layout) fn collect_out_of_flow(
                 ),
             };
             out.push(OutOfFlowBox { node: child, caixa });
-        } else {
-            collect_out_of_flow(dom, tree, child, out);
         }
+        // O pai precisa entrar antes do filho: a BoxTree preserva ambos os
+        // BoxIds, e a passada de layout usa o rect do pai como containing block.
+        collect_out_of_flow(dom, tree, child, out);
     }
 }
 

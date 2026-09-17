@@ -386,7 +386,6 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // empréstimo mutável de `list`.
     // A geometria COMPLETA (com as subárvores reusadas): o containing block de
     // um `absolute` pode ser um ancestral cujo retângulo veio de um fragmento.
-    let flow_rects = list.geometry_now().rects;
     crate::bump!(out_of_flow, out_of_flow.len());
     // Separa os NEGATIVOS: o sort acima já os deixa em ordem ascendente (mais
     // negativo primeiro) e o filtro preserva essa ordem — a mesma que o
@@ -407,13 +406,17 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.
         let mut atras = DisplayList::for_dom(dom);
+        let mut rects_conhecidos = list.geometry_now().rects;
         for alvo in &negativos {
-            layout_out_of_flow(dom, *alvo, ctx, &flow_rects, &mut atras);
+            layout_out_of_flow(dom, *alvo, ctx, &rects_conhecidos, &mut atras);
+            rects_conhecidos.extend(atras.geometry_now().rects);
         }
         empilhamento::merge_before(&mut list, atras);
     }
+    let mut rects_conhecidos = list.geometry_now().rects;
     for alvo in &resto {
-        layout_out_of_flow(dom, *alvo, ctx, &flow_rects, &mut list);
+        layout_out_of_flow(dom, *alvo, ctx, &rects_conhecidos, &mut list);
+        rects_conhecidos = list.geometry_now().rects;
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
     // para o hit-test: fluxo normal em pré-ordem e, depois, posicionados em ordem
