@@ -223,8 +223,8 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   3464/3464 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   150/150 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 71%   618/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 96.8%   150/155 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱] 65.3%   568/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -235,36 +235,36 @@ The total alone says nothing about where the work is — it does not tell a bran
 
 ```
 subfolders of css-flexbox
-  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  38.5%   15/39     balance
+  [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  35.9%   14/39     balance
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  45.8%   11/24     intrinsic-size
-  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  52.6%   10/19     abspos
+  [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  36.8%   7/19      abspos
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       flex-lines
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   3/4       order
+  [▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  25.0%   1/4       order
   [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  33.3%   1/3       alignment
 
 the 777 tests at the root, by subject
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  85.6%   137/160   outros
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  83.1%   133/160   outros
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  61.0%   47/77     item
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  93.1%   54/58     align
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.8%   48/58     align
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.6%   38/46     gap
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  48.7%   19/39     percentage
-  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.5%   22/37     baseline
+  [▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  21.6%   8/37      baseline
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.7%   22/34     min-
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  84.4%   27/32     overflow
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  83.3%   25/30     basis
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   24/32     overflow
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   24/30     basis
   [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  41.4%   12/29     table
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.6%   22/28     wrap
-  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  58.3%   14/24     writing-mode
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   21/28     wrap
+  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  54.2%   13/24     writing-mode
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  90.5%   19/21     justify
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   12/15     order
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  81.8%   9/11      column
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  88.9%   8/9       anonymous
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  73.3%   11/15     order
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  72.7%   8/11      column
+  [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/9       anonymous
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   9/9       grow
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  87.5%   7/8       max-
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.7%   4/6       row
-  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  60.0%   3/5       scrollbar
+  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   3/6       row
+  [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/5       scrollbar
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       abspos
   [▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  25.0%   1/4       position
   [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/1       visibility
@@ -277,9 +277,9 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 - `claude-controlos-tamanho-natural.html` — lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel` (`<select>` sem opções) não — `<select>` não passa por `layout_input` (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`), por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`). Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a sua própria caixa.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **68/96 lots done**, 8 partial, pending: Q, U, V–Y, BT-1, BT-2, BT-3, BT-4, BT-5, FM, PCT, REGUA, TEXTO, SC, BR, DISP, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **70/96 lots done**, 11 partial, pending: Q, U, V–Y, BT-3, BT-4, BT-5, TEXTO, SC, BR, DISP, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-09-16 by CI (`dom-rulers`).*
+*Updated 2026-09-17 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->

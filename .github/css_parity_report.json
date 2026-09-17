@@ -1,9 +1,9 @@
 {
-  "date": "2026-09-16",
+  "date": "2026-09-17",
   "fixtures": {
     "passing": 150,
-    "total": 150,
-    "pct": 100
+    "total": 155,
+    "pct": 96.8
   },
   "measurements": {
     "matching": 3464,
@@ -12,12 +12,12 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 618,
+    "passing": 568,
     "total": 870,
-    "pct": 71,
+    "pct": 65.3,
     "by_subfolder": {
       "balance": {
-        "passing": 15,
+        "passing": 14,
         "total": 39
       },
       "intrinsic-size": {
@@ -25,7 +25,7 @@
         "total": 24
       },
       "abspos": {
-        "passing": 10,
+        "passing": 7,
         "total": 19
       },
       "flex-lines": {
@@ -33,7 +33,7 @@
         "total": 4
       },
       "order": {
-        "passing": 3,
+        "passing": 1,
         "total": 4
       },
       "alignment": {
@@ -43,7 +43,7 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 137,
+        "passing": 133,
         "total": 160
       },
       "item": {
@@ -51,7 +51,7 @@
         "total": 77
       },
       "align": {
-        "passing": 54,
+        "passing": 48,
         "total": 58
       },
       "aspect-ratio": {
@@ -67,7 +67,7 @@
         "total": 39
       },
       "baseline": {
-        "passing": 22,
+        "passing": 8,
         "total": 37
       },
       "shrink": {
@@ -79,11 +79,11 @@
         "total": 34
       },
       "overflow": {
-        "passing": 27,
+        "passing": 24,
         "total": 32
       },
       "basis": {
-        "passing": 25,
+        "passing": 24,
         "total": 30
       },
       "table": {
@@ -91,11 +91,11 @@
         "total": 29
       },
       "wrap": {
-        "passing": 22,
+        "passing": 21,
         "total": 28
       },
       "writing-mode": {
-        "passing": 14,
+        "passing": 13,
         "total": 24
       },
       "justify": {
@@ -103,15 +103,15 @@
         "total": 21
       },
       "order": {
-        "passing": 12,
+        "passing": 11,
         "total": 15
       },
       "column": {
-        "passing": 9,
+        "passing": 8,
         "total": 11
       },
       "anonymous": {
-        "passing": 8,
+        "passing": 0,
         "total": 9
       },
       "grow": {
@@ -123,11 +123,11 @@
         "total": 8
       },
       "row": {
-        "passing": 4,
+        "passing": 3,
         "total": 6
       },
       "scrollbar": {
-        "passing": 3,
+        "passing": 0,
         "total": 5
       },
       "abspos": {
@@ -225,6 +225,8 @@
       "largura-intrinseca-de-controlos — tamanho NATURAL (max-content) de um controlo de formulário sem `width`/`height` — `intrinsic_content_width`/`replaced_inline_size` (`layout/medida.rs`) não sabiam medir `input`/`select`/`textarea`/`input[submit/button/reset]`, só texto/tabela/flex/bloco-por-filhos; caíam no ramo de bloco vazio, largura 0 (o achado de `flex-vertical-align-effect`, WPT, diagnosticado antes deste lote)",
       "flex-coluna-wrap-intrinseco — `intrinsic-size/col-wrap-*` e `balance/*` do WPT flexbox — nunca medido (as duas subpastas ficavam fora do corredor de reftests não-recursivo/sparse-checkout)",
       "medidor-ahem — a fonte Ahem (WPT: 5 487 testes em `css/`) medida EXATA no `ApproxMeasurer` em vez da aproximação proporcional/mono — sem `@font-face`, sem parser de TTF, só o NOME `font-family: Ahem` (`style::ahem::is_ahem_family`, mesma regra de `is_mono_family`)",
+      "FM — as metricas de fonte num modelo so",
+      "REGUA — o corredor deixa de contar vazio como aprovado",
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`",
       "css2-normal-flow-unidades — `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste",
       "borda-unidades — `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde)"
@@ -237,20 +239,18 @@
       "flex-basis-content-wrap — `flex-basis: content` (Flexbox §7.2.3) ignora `width`/`height` do item; `flex-wrap` em linha e coluna com tamanhos definidos vs indefinidos",
       "flex-reverse-order — `row-reverse`/`column-reverse` com `wrap`/`wrap-reverse` (ordem das linhas E dos itens, `align-content` com linhas invertidas), `order` com `direction:rtl`, `order` com `position:absolute`+`space-around`, a família `css-flexbox-row*`",
       "flex-aspect-ratio-collapse — aspect-ratio/tamanho intrínseco de substituídos em coluna (o corte deixado por `imagens-no-raster`); `visibility:collapse` horizontal/wrap FICA DE FORA, medido",
-      "flex-writing-mode-2 — `writing-mode` troca de verdade o eixo do flex (retrabalho do `414147c88`/`5e9130c65`, nunca merged) — a família WPT `flexbox-writing-mode-*`, `-slr`/`-srl`, `gap-*-{lr,rl,rtl}`"
+      "flex-writing-mode-2 — `writing-mode` troca de verdade o eixo do flex (retrabalho do `414147c88`/`5e9130c65`, nunca merged) — a família WPT `flexbox-writing-mode-*`, `-slr`/`-srl`, `gap-*-{lr,rl,rtl}`",
+      "BT-1 — árvore de caixas: a identidade passa a ser a CAIXA",
+      "BT-2 — árvore de caixas: o layout devolve fragmentos",
+      "PCT — a percentagem sabe em que EIXO esta"
     ],
     "pendentes": [
       "Q — CSSOM",
       "U — composição e pintura",
       "V–Y — a superfície DOM que as bibliotecas pedem",
-      "BT-1 — árvore de caixas: a identidade passa a ser a CAIXA",
-      "BT-2 — árvore de caixas: o layout devolve fragmentos",
       "BT-3 — caixa anónima: bloco dentro de inline",
       "BT-4 — caixa anónima: a tabela gerada de fora para dentro",
       "BT-5 — caixa gerada: `::before`/`::after` deixam de ser três implementações",
-      "FM — as metricas de fonte num modelo so",
-      "PCT — a percentagem sabe em que EIXO esta",
-      "REGUA — o corredor deixa de contar vazio como aprovado",
       "TEXTO — pintar glifos (Ahem primeiro)",
       "SC — contexto de empilhamento aninhado",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
