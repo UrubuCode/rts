@@ -848,7 +848,7 @@ pub(crate) fn layout_block(
         // ver o comentário no parâmetro `wrap` lá.
         _ if is_flex && is_column => layout_children_column(
             dom,
-            id,
+            caixa.expect("um contentor flex em coluna renderizável tem uma caixa"),
             content_x,
             content_y,
             children_w,

@@ -40,7 +40,7 @@ pub(in crate::layout) fn justify_e_align(
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_column(
     dom: &Dom,
-    id: NodeIdx,
+    container: crate::boxes::BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -80,7 +80,7 @@ pub(in crate::layout) fn layout_children_column(
                 css.writing_mode.unwrap_or_default(), crate::style::Direction::Ltr, true, css.flex_wrap,
             );
             return super::coluna_wrap::layout_children_column_wrap(
-                dom, id, content_x, content_y, content_w, h, css, font_size, reverse, wrap_reverse, ctx, list,
+                dom, container, content_x, content_y, content_w, h, css, font_size, reverse, wrap_reverse, ctx, list,
             );
         }
     }
@@ -134,7 +134,11 @@ pub(in crate::layout) fn layout_children_column(
         order: i32,
     }
     let mut items: Vec<ColItem> = Vec::new();
-    for &child in &dom.node(id).children {
+    let tree = std::rc::Rc::clone(&list.tree);
+    for &caixa in tree.children(container) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
                 continue;
@@ -177,7 +181,7 @@ pub(in crate::layout) fn layout_children_column(
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, super::unica_caixa_do_no(dom, child), content_w, container_content_h, None, None, false, ctx).1
+            measure_block(dom, child, Some(caixa), content_w, container_content_h, None, None, false, ctx).1
         } else {
             child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
         };
@@ -236,7 +240,7 @@ pub(in crate::layout) fn layout_children_column(
         let order = ccss.order.unwrap_or(0);
         items.push(ColItem {
             node: child,
-            caixa: super::unica_caixa_do_no(dom, child),
+            caixa: Some(caixa),
             h,
             is_text: false,
             mt_auto,
