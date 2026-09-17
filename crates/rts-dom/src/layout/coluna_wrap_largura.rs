@@ -57,6 +57,15 @@ pub(in crate::layout) fn max_content_width(
     let Some(container_content_h) = wrap_definite_h else {
         return fallback();
     };
+    let tree = dom.box_tree();
+    let container = match tree.boxes_of(id) {
+        [caixa] => *caixa,
+        [] => return fallback(),
+        caixas => panic!(
+            "o flex column-wrap {id:?} gerou {} caixas; a medicao precisa receber a caixa exata",
+            caixas.len()
+        ),
+    };
     let main_gap = resolve_height(css.row_gap, Some(container_content_h), &resolve)
         .unwrap_or(0.0)
         .max(0.0);
@@ -67,7 +76,10 @@ pub(in crate::layout) fn max_content_width(
         .max(0.0);
 
     let mut items: Vec<(f32, f32)> = Vec::new(); // (altura natural, largura natural)
-    for &child in &dom.node(id).children {
+    for &caixa in tree.children(container) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
                 continue;
@@ -99,7 +111,7 @@ pub(in crate::layout) fn max_content_width(
             ctx,
         );
         let (cross, _) = measure_block(
-            dom, child, None, ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
+            dom, child, Some(caixa), ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
         );
         items.push((main, cross));
     }
