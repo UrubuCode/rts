@@ -71,6 +71,18 @@ pub enum DisplayKind {
     /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
     /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
     Grid,
+    /// `display:inline-grid` — grelha por DENTRO, inline-level por FORA.
+    ///
+    /// Variante separada de [`Grid`](DisplayKind::Grid) pela MESMA razao que
+    /// [`InlineFlex`](DisplayKind::InlineFlex) e separada de
+    /// [`Flex`](DisplayKind::Flex), e o custo de nao existir foi medido nos dois
+    /// casos: enquanto `inline-grid` colapsava em `Grid`, uma grelha inline
+    /// tomava a largura do bloco inteiro e caia numa linha propria.
+    ///
+    /// Quem pergunta "e uma grelha?" usa [`is_grid_container`]; quem pergunta
+    /// "fica na linha?" usa [`is_inline_level`]. Nomear a variante nos dois
+    /// sitios e o que reintroduz o defeito.
+    InlineGrid,
     /// `display:list-item` — é o `<li>`. Uma caixa de BLOCO que, além dos filhos,
     /// gera um MARCADOR (o ponto, o número). O empilhamento é o do bloco: o que
     /// a distingue é o marcador, não o fluxo — por isso é uma variante e não um
@@ -82,6 +94,9 @@ pub enum DisplayKind {
     /// `display:table` — a caixa da tabela: reparte a largura em COLUNAS e
     /// empilha linhas. O algoritmo vive em [`crate::table`].
     Table,
+    /// `display:inline-table` — tabela por DENTRO, inline-level por FORA.
+    /// Mesma separacao e mesma razao que [`InlineGrid`](DisplayKind::InlineGrid).
+    InlineTable,
     /// `display:table-row-group` / `table-header-group` / `table-footer-group` —
     /// `<tbody>`/`<thead>`/`<tfoot>`. Os três são o MESMO layout (uma sequência
     /// de linhas); o que os distingue no CSS é a ORDEM de pintura, que só se
@@ -121,7 +136,8 @@ impl DisplayKind {
             | DisplayKind::TableRowGroup
             | DisplayKind::TableRow
             | DisplayKind::TableCell
-            | DisplayKind::TableCaption => 0,
+            | DisplayKind::TableCaption
+            | DisplayKind::InlineTable => 0,
             // Um `inline`/`inline-block` com filhos é um contexto de formatação
             // de BLOCO (CSS 2.1 §9.4.1): os filhos empilham e fluem como num
             // bloco — e é o fluxo de bloco que dá a corrida de inline-blocks
@@ -129,7 +145,10 @@ impl DisplayKind {
             // horizontal do flex) punha o caret `::after` do Bootstrap no topo
             // da linha e qualquer filho de bloco lado a lado com o irmão.
             DisplayKind::Inline | DisplayKind::InlineBlock => 0,
-            DisplayKind::FlexWrap | DisplayKind::Grid | DisplayKind::InlineFlexWrap => 1, // wrap
+            DisplayKind::FlexWrap
+            | DisplayKind::Grid
+            | DisplayKind::InlineGrid
+            | DisplayKind::InlineFlexWrap => 1, // wrap
             // `InlineFlex` é flex por DENTRO — o mesmo eixo horizontal de
             // `Flex`; só o outer-display muda, e essa pergunta é
             // `is_inline_level`, não o código de eixo dos filhos.
@@ -152,7 +171,27 @@ impl DisplayKind {
                 | DisplayKind::InlineBlock
                 | DisplayKind::InlineFlex
                 | DisplayKind::InlineFlexWrap
+                | DisplayKind::InlineGrid
+                | DisplayKind::InlineTable
         )
+    }
+
+    /// `true` para uma GRELHA, seja ela de bloco ou inline — a pergunta sobre o
+    /// que a caixa faz aos FILHOS, que e independente do que ela e para os
+    /// irmaos.
+    ///
+    /// Existe para que acrescentar `inline-grid` nao obrigue a visitar cada
+    /// sitio que nomeava `Grid` e a decidir de novo. Foi assim que
+    /// `inline-flex` ficou meio ligado durante meses: a variante existia e
+    /// metade das listas nao a nomeava.
+    pub fn is_grid_container(self) -> bool {
+        matches!(self, DisplayKind::Grid | DisplayKind::InlineGrid)
+    }
+
+    /// `true` para a caixa de TABELA em si — `table` ou `inline-table` — e NAO
+    /// para as suas partes internas, que sao [`is_table_part`].
+    pub fn is_table_box(self) -> bool {
+        matches!(self, DisplayKind::Table | DisplayKind::InlineTable)
     }
 
     /// `true` para os quatro valores INTERNOS da tabela (`table`, `table-row`,
@@ -162,6 +201,7 @@ impl DisplayKind {
         matches!(
             self,
             DisplayKind::Table
+                | DisplayKind::InlineTable
                 | DisplayKind::TableRowGroup
                 | DisplayKind::TableRow
                 | DisplayKind::TableCell
@@ -203,8 +243,16 @@ pub enum JustifyContent {
 impl JustifyContent {
     pub fn parse(v: &str) -> Option<JustifyContent> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
-            "flex-start" | "normal" => JustifyContent::FlexStart,
-            "flex-end" => JustifyContent::FlexEnd,
+            // `flow-start`/`flow-end` (CSS Box Alignment): flow-relative
+            // aliases that the spec defines to behave EXACTLY like
+            // `flex-start`/`flex-end` for flex's align-* properties — same
+            // main-start/main-end tracking, same mirroring under
+            // `row-reverse`/`column-reverse`. Unlike `Start`/`End` above,
+            // there is no `getComputedStyle` reftest pinning the literal
+            // keyword back, so they collapse directly instead of getting
+            // their own variant (WPT `flow-start-flow-end-*`).
+            "flex-start" | "normal" | "flow-start" => JustifyContent::FlexStart,
+            "flex-end" | "flow-end" => JustifyContent::FlexEnd,
             "start" => JustifyContent::Start,
             "end" => JustifyContent::End,
             "left" => JustifyContent::Left,
@@ -249,8 +297,10 @@ impl AlignItems {
     pub fn parse(v: &str) -> Option<AlignItems> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "stretch" | "normal" => AlignItems::Stretch,
-            "flex-start" | "start" | "self-start" => AlignItems::FlexStart,
-            "flex-end" | "end" | "self-end" => AlignItems::FlexEnd,
+            // `flow-start`/`flow-end`: see the sibling aliases on
+            // `JustifyContent::parse` — same collapse, same reason.
+            "flex-start" | "start" | "self-start" | "flow-start" => AlignItems::FlexStart,
+            "flex-end" | "end" | "self-end" | "flow-end" => AlignItems::FlexEnd,
             "center" => AlignItems::Center,
             "baseline" | "first baseline" => AlignItems::Baseline,
             "last baseline" => AlignItems::LastBaseline,
@@ -302,5 +352,32 @@ impl FlexWrap {
 
     pub fn balances(self) -> bool {
         matches!(self, FlexWrap::Balance | FlexWrap::BalanceReverse)
+    }
+}
+
+#[cfg(test)]
+mod flow_start_flow_end_tests {
+    use super::*;
+
+    /// WPT `flow-start-flow-end-*` (css-flexbox/alignment): the test file
+    /// declares `justify-content: flow-start`/`flow-end`, its `-ref.html`
+    /// declares `flex-start`/`flex-end`, and the two must resolve the same
+    /// way. Before this fix `JustifyContent::parse` returned `None` for
+    /// `flow-start`/`flow-end`, so the declaration was dropped and the
+    /// container fell back to the property's own initial value instead of
+    /// matching the reference.
+    #[test]
+    fn justify_content_flow_start_end_alias_flex_start_end() {
+        assert_eq!(JustifyContent::parse("flow-start"), Some(JustifyContent::FlexStart));
+        assert_eq!(JustifyContent::parse("flow-end"), Some(JustifyContent::FlexEnd));
+    }
+
+    /// Same alias, for `align-items`/`align-self`/`align-content` — all three
+    /// read through `AlignItems::parse` per `style/props/tabela.rs`
+    /// (`align-content` is the one exception, typed `JustifyContent`).
+    #[test]
+    fn align_items_flow_start_end_alias_flex_start_end() {
+        assert_eq!(AlignItems::parse("flow-start"), Some(AlignItems::FlexStart));
+        assert_eq!(AlignItems::parse("flow-end"), Some(AlignItems::FlexEnd));
     }
 }

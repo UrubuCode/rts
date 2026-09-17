@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-1): o mesmo `<span>` com caixa própria e um `<div>` lá dentro,
+     agora dentro de um `<p>` com texto irmão antes e depois do `<span>`. Por
+     CSS 2.1 §9.2.1.1 o `<p>` fica com TRÊS caixas de bloco anónimas em
+     sequência (o texto/fragmento-do-span "antes", o `<div>`, e o
+     fragmento-do-span+texto "depois"), e a altura do `<p>` cresce para caber
+     as três. Hoje o `<p>` inteiro fica com a altura de UMA linha — o `<div>`
+     não força quebra nenhuma — e `#depois_p` (o parágrafo irmão a seguir)
+     sobe para logo abaixo dessa única linha em vez de ficar abaixo do bloco.
+     Medido com `target/baseline-raster.exe`: o fundo verde de `#bloco` nunca
+     aparece e a caixa de `#quebra` é um retângulo único, sem quebra. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; border: 2px solid #f00; }
+  #bloco { background: #0f0; height: 30px; }
+  #depois_p { background: #00f; height: 10px; }
+</style></head>
+<body>
+  <p id="paragrafo">irmao antes <span id="quebra">antes<div id="bloco"></div>depois</span> irmao depois</p>
+  <div id="depois_p"></div>
+</body>
+</html>

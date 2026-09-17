@@ -238,6 +238,38 @@ pub fn page(html: &str, vw: f32, vh: f32, iters: u32, m: &CountingMeasurer) -> V
     }));
     drop(dom);
 
+    // 3g. getBoundingClientRect (API) REPETIDO, sem mutação — o caminho que o
+    //     lote BR fecha: antes dele, `Dom::bounding_component` rodava um
+    //     `layout_document` inteiro POR CHAMADA (medido a 13,7 ms/chamada na
+    //     Wikipédia, 16 813 elementos); agora reusa o mesmo `layout_cached`
+    //     do cenário "frame parado (cache)" acima. Percorre TODOS os
+    //     elementos da página, quatro componentes cada — o padrão exato do
+    //     extrator de paridade que este lote existe para acelerar.
+    //     NOTA: `bounding_component` lê o medidor ACTIVO da thread
+    //     (`layout::medidor_ativo`), não o `CountingMeasurer` `m` passado
+    //     aqui — sem janela registada, cai sozinho no `ApproxMeasurer`. Por
+    //     isso `text_measures` sai zerado neste cenário: não é um bug do
+    //     cenário, é o mesmo caminho que o `rts:dom` headless percorre.
+    let dom = parse_html_to_dom(html);
+    let ids: Vec<NodeId> = (0..dom.nodes.len())
+        .filter(|&i| matches!(dom.node(i).kind, NodeKind::Element { .. }))
+        .map(|i| dom.id_of_idx(i))
+        .collect();
+    runs.push(run(
+        "getBoundingClientRect repetido (via API)",
+        "página",
+        iters,
+        m,
+        || {
+            for &id in &ids {
+                for k in 0..4i64 {
+                    std::hint::black_box(dom.bounding_component(id, k));
+                }
+            }
+        },
+    ));
+    drop(dom);
+
     // 4. TEXTO de uma folha + relayout — o contador, o relógio, o campo que
     //    digita. Mede o que a invalidação PRESERVA.
     let mut dom = parse_html_to_dom(html);

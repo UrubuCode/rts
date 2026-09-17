@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-1): o `<span>` que envolve o bloco tem a sua PRÓPRIA caixa
+     (fundo+borda). Por CSS 2.1 §9.2.1.1 o `<span>` é fragmentado em DUAS
+     caixas de bloco anónimas (uma para "antes", outra para "depois") e cada
+     fragmento pinta o seu próprio pedaço de fundo/borda — não uma caixa
+     única contínua. Hoje o motor funde tudo numa única caixa: o `<span>`
+     pinta UM retângulo ininterrupto de "antes" a "depois", como se o `<div>`
+     fosse texto do próprio span — medido com `target/baseline-raster.exe`,
+     que reporta os itens do span como um bloco só, sem quebra nenhuma onde
+     o `#bloco` devia estar, e o fundo verde de `#bloco` não aparece em lugar
+     nenhum. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; border: 2px solid #f00; }
+  #bloco { background: #0f0; height: 30px; }
+  #seguinte { background: #00f; height: 10px; }
+</style></head>
+<body>
+  <span id="quebra">antes<div id="bloco"></div>depois</span>
+  <div id="seguinte"></div>
+</body>
+</html>

@@ -132,6 +132,30 @@
     }
 
     #[test]
+    fn absolute_nested_in_absolute_has_its_own_box() {
+        let dom = parse_html_to_dom(
+            "<style>body{margin:0}</style>\
+             <div id='parent' style='position:absolute;left:70px;top:60px;width:300px;height:200px;background:#123'>\
+               <div id='child' style='position:absolute;left:30px;top:20px;width:40px;height:50px;background:#f00'></div>\
+             </div>",
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 800.0,
+            viewport_h: 600.0,
+            measurer: &ApproxMeasurer,
+        };
+        let list = layout_document(&dom, &ctx);
+        let child = dom.resolve(dom.query("#child").unwrap()).unwrap();
+        let rect = list
+            .geometry()
+            .rects
+            .get(&child)
+            .copied()
+            .expect("nested absolute child needs a box");
+        assert_eq!((rect.x, rect.y, rect.w, rect.h), (100.0, 80.0, 40.0, 50.0));
+    }
+
+    #[test]
     fn float_left_right_dividem_a_linha() {
         // O header clássico (brand+nav do Bootstrap cover): float:left e
         // float:right consecutivos dividem a MESMA linha; o irmão não-float

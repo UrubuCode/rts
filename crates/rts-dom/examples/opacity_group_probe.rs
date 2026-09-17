@@ -120,7 +120,7 @@ fn main() {
         }
 
         let mut camadas: Vec<Camada> = Vec::new();
-        let rect_proprio = lista.node_rects.get(&idx).copied();
+        let rect_proprio = lista.rect_of_node(idx);
         if pinta_fundo(&css) {
             camadas.push(Camada { rect: rect_proprio, texto: false });
         }
@@ -137,7 +137,7 @@ fn main() {
                 NodeKind::Element { .. } => {
                     if let Some(dcss) = dom.computed_style_idx(d) {
                         if pinta_fundo(&dcss) || pinta_borda(&dcss) {
-                            camadas.push(Camada { rect: lista.node_rects.get(&d).copied(), texto: false });
+                            camadas.push(Camada { rect: lista.rect_of_node(d), texto: false });
                         }
                     }
                     pilha.extend(dom.node(d).children.iter().copied());

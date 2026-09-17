@@ -181,6 +181,10 @@ pub(crate) fn emit_marker(
                 color,
                 size: font_size,
                 mono: false,
+                // O marcador nao herda a familia do item: `w` acima foi medido
+                // com a fonte por omissao, e mudar uma sem a outra deslocava o
+                // ponto final que alinha "9." com "10.".
+                is_ahem: false,
                 bold: false,
                 // A cor JÁ vem do `::marker` quando a folha o declara (ver
                 // `color` acima); peso/itálico do marcador continuam fixos —

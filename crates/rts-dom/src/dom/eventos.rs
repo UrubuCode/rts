@@ -480,7 +480,9 @@ impl Dom {
     /// BACKEND → DOM: empurra um evento CRU (`(nó, tipo)`) vindo do hit-test do
     /// mouse. Nenhuma expansão aqui — a fachada TS drena com [`Dom::poll_raw_event`]
     /// e faz o dispatch completo (bubbling + callbacks). `idx` é o `NodeIdx` cru
-    /// que o backend tem em mãos (chave de `node_rects`).
+    /// que o backend tem em mãos — o mesmo que `DisplayList::hit_test` devolve e
+    /// que `rect_of_node` aceita (a árvore de caixas agrega por baixo; a chave
+    /// que atravessa esta fronteira continua sendo o nó, nunca a caixa).
     pub fn push_raw_event(&mut self, idx: NodeIdx, event_type: &str) {
         self.raw_event_queue
             .push_back((idx, event_type.to_string()));

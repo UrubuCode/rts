@@ -46,9 +46,9 @@ impl Dom {
 
     pub(crate) fn last_fragment_of(
         &self,
-        node: NodeIdx,
+        target: BoxCacheTarget,
     ) -> Option<(FragmentKey, std::rc::Rc<crate::layout::Fragment>)> {
-        self.last_fragment.borrow().get(&node).cloned()
+        self.last_fragment.borrow().get(&target).cloned()
     }
 
     pub(crate) fn fragment_get(
@@ -65,10 +65,10 @@ impl Dom {
     ) {
         self.last_fragment
             .borrow_mut()
-            .insert(key.node, (key, std::rc::Rc::clone(&fragment)));
+            .insert(key.target, (key, std::rc::Rc::clone(&fragment)));
         let mut cache = self.fragment_cache.borrow_mut();
         // Teto igual ao dos outros caches de layout: uma página que rola muito
-        // acumula fragmentos de nós que já saíram de cena, e o epoch na chave
+        // acumula fragmentos de caixas que já saíram de cena, e o epoch na chave
         // impede que um stale seja SERVIDO, não que ele ocupe memória.
         if cache.len() >= 4096 && !cache.contains_key(&key) {
             if let Some(old) = cache.keys().next().copied() {

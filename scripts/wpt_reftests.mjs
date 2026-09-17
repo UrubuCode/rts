@@ -16,6 +16,13 @@
 // referência troca texto por caixas pode falhar por fonte e não por layout;
 // `rel="mismatch"` fica de fora; testes com `<script>` são corridos SEM JS
 // (o rasterizador não tem motor), e é dito na saída quantos são.
+//
+// QUATRO estados, não dois (issue #2729/#2731). Comparar dois PNG crus deixa
+// passar o par em que NENHUM dos dois lados desenhou nada — branco contra
+// branco — e falhar por engano o par em que só um lado tem conteúdo (um
+// `<script>` que o outro precisa, texto/imagem mascarados). `passam` agora só
+// conta PASSA COM CONTEÚDO; `passam-vazio` e `falha-parcial` são os outros
+// dois, sempre nomeados à parte, nunca somados a `passam`.
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, join } from "node:path";
@@ -170,7 +177,10 @@ function rasterizar(htmlPath, png) {
 // e `piores` (so falhas) daria o numerador sem o denominador. E a mesma
 // razao pela qual `nao_rasterizaram` existe a parte — os tres conjuntos
 // juntos sao a medicao inteira; qualquer um sozinho e uma vista dela.
-let passam = 0, falham = 0, erros = 0; const piores = []; const nao_rasterizaram = []; const resultados = [];
+// `passam` conta só PASSA COM CONTEÚDO agora — o número principal que esta
+// régua publica (issue #2731). `passamVazio` e `falhaParcial` são os outros
+// dois estados novos, impressos ao lado e nomeados, nunca somados a `passam`.
+let passam = 0, passamVazio = 0, falham = 0, falhaParcial = 0, erros = 0; const piores = []; const nao_rasterizaram = []; const resultados = [];
 const paraRepetir = [];
 const guardadas = [];
 // So as PIORES falhas ficam em imagem: ninguem abre 283 pares de PNG, abre-se
@@ -198,7 +208,45 @@ async function paraCada(itens, n, fn) {
 // Cada PNG traz um `.mask.json` ao lado (o raster escreve-o para dizer o que
 // mascarou); apagar so o PNG deixava metade dos ficheiros para tras.
 function apaga(...paths) {
-  for (const f of paths) { try { unlinkSync(f); } catch {} try { unlinkSync(f + ".mask.json"); } catch {} }
+  for (const f of paths) {
+    try { unlinkSync(f); } catch {}
+    try { unlinkSync(f + ".mask.json"); } catch {}
+    try { unlinkSync(f + ".pintados"); } catch {}
+  }
+}
+// QUATRO estados, não dois (issue #2729/#2731): o corredor antigo comparava
+// PNG cru e um reftest em que NENHUM dos dois lados desenha nada (rasterizador
+// sem glifos, ambos os HTML vazios de suporte, etc.) passava — branco contra
+// branco. Medido: ~24% dos "passam" não pintavam nada, e ~13% dos "falham"
+// tinham só um lado a pintar.
+//
+// A resposta a "este lado pintou alguma coisa" é a que `claude-raster` já
+// sabe dar: `pintados` (o número de `DisplayItem` efectivamente desenhados)
+// já existia só para o `eprintln!` de depuração — foi exposto num sidecar
+// `<png>.pintados` (ver `crates/rts-dom/examples/claude-raster.rs`) em vez de
+// inventado aqui. Só quando esse sidecar falta (binário antigo, sem o
+// rebuild) é que se cai na aproximação sobre pixels: "todo o PNG é a mesma
+// cor" — mais barata que decidir por conteúdo real, mas dita como aproximação
+// porque é exactamente isso.
+function contagemPintados(pngPath) {
+  try {
+    const n = Number(readFileSync(pngPath + ".pintados", "utf8").trim());
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+// APROXIMAÇÃO (só usada se o sidecar faltar): um PNG onde todos os pixels são
+// iguais ao primeiro é "nada pintado por cima do fundo" — não distingue um
+// fundo pintado de propósito de um vazio real, mas um reftest cujo fundo é a
+// única coisa lá não é o que esta réqua quer chamar "conteúdo" de qualquer
+// modo.
+function pixelsTodosIguais(dec) {
+  const [r0, g0, b0, a0] = dec.px;
+  for (let i = 4; i < dec.px.length; i += 4) {
+    if (dec.px[i] !== r0 || dec.px[i + 1] !== g0 || dec.px[i + 2] !== b0 || dec.px[i + 3] !== a0) return false;
+  }
+  return true;
 }
 function julga(t, nome, a, b) {
   // ATALHO: dois PNG identicos byte a byte sao a mesma imagem, e nao ha nada a
@@ -212,15 +260,34 @@ function julga(t, nome, a, b) {
   // diferentes (o mesmo raster podia comprimir de duas maneiras), por isso o
   // ramo do else desce ao diff verdadeiro, com a tolerancia por canal.
   const bytesA = readFileSync(a), bytesB = readFileSync(b);
+  let decA = null, decB = null;
+  const getDecA = () => decA ?? (decA = decodePng(bytesA));
+  const getDecB = () => decB ?? (decB = decodePng(bytesB));
+  const nA = contagemPintados(a), nB = contagemPintados(b);
+  const pintouA = nA !== null ? nA > 0 : !pixelsTodosIguais(getDecA());
+  const pintouB = nB !== null ? nB > 0 : !pixelsTodosIguais(getDecB());
+  const algumPinta = pintouA || pintouB;
+
   if (bytesA.equals(bytesB)) {
+    if (!algumPinta) { passamVazio++; resultados.push({ nome, estado: "passa-vazio" }); apaga(a, b); return; }
     passam++; resultados.push({ nome, estado: "passa" });
     apaga(a, b);
     return;
   }
-  const d = diff(decodePng(bytesA), decodePng(bytesB));
+  const d = diff(getDecA(), getDecB());
   if (d.n === 0) {
+    if (!algumPinta) { passamVazio++; resultados.push({ nome, estado: "passa-vazio" }); apaga(a, b); return; }
     passam++; resultados.push({ nome, estado: "passa" });
     apaga(a, b);
+  } else if (pintouA !== pintouB) {
+    // Um lado pintou e o outro não: a diferença de pixels pode ser inteira a
+    // ausência de conteúdo de um lado (texto/imagem mascarados, um `<script>`
+    // que o outro lado precisa) em vez de um desacordo de layout — falha
+    // marcada à parte para não se confundir com uma discordância real.
+    falhaParcial++;
+    piores.push({ nome, pct: d.pct, n: d.n, script: t.script, parcial: true });
+    resultados.push({ nome, estado: "falha-parcial", pct: d.pct });
+    if (SEM_PNG) apaga(a, b); else guardadas.push({ pct: d.pct, a, b });
   } else {
     falham++;
     piores.push({ nome, pct: d.pct, n: d.n, script: t.script });
@@ -267,9 +334,15 @@ if (!SEM_PNG) {
   for (const g of guardadas.slice(PNG_TOP)) apaga(g.a, g.b);
   if (guardadas.length > PNG_TOP) console.log(`imagens: as ${PNG_TOP} piores de ${guardadas.length} falhas (--png-top N para mais, --sem-png para nenhuma)`);
 }
-const total = passam + falham + erros;
-console.log(`\nWPT reftests — ${passam}/${total} passam (${((passam / Math.max(total, 1)) * 100).toFixed(1)}%), ${falham} falham, ${erros} não rasterizaram; tolerância ${TOL}/255 por canal`);
+const total = passam + passamVazio + falham + falhaParcial + erros;
+// LINHA PRINCIPAL — formato mudou (issue #2731): antes dizia
+// "N/total passam (...), F falham, E não rasterizaram"; agora `passam` só
+// conta PASSA COM CONTEÚDO (os dois lados desenharam algo E concordam), e os
+// outros dois estados novos (`passamVazio`, `falhaParcial`) vêm nomeados ao
+// lado, nunca somados a `passam`. Quem faz `grep`/regex a esta linha noutro
+// lote precisa de rever o padrão.
+console.log(`\nWPT reftests — ${passam}/${total} passam COM CONTEÚDO (${((passam / Math.max(total, 1)) * 100).toFixed(1)}%); ${passamVazio} passam VAZIOS (nada pintado dos dois lados), ${falham} falham, ${falhaParcial} falham POR UM LADO SÓ PINTAR, ${erros} não rasterizaram; tolerância ${TOL}/255 por canal`);
 console.log(`\nos 15 piores:`);
-for (const p of piores.slice(0, 15)) console.log(`  ${p.pct.toFixed(2).padStart(6)}%  ${p.n.toString().padStart(7)} px  ${p.nome}${p.script ? "  (tem <script>)" : ""}`);
+for (const p of piores.slice(0, 15)) console.log(`  ${p.pct.toFixed(2).padStart(6)}%  ${p.n.toString().padStart(7)} px  ${p.nome}${p.parcial ? "  (só um lado pinta)" : ""}${p.script ? "  (tem <script>)" : ""}`);
 if (nao_rasterizaram.length > 0) console.log(`NÃO RASTERIZARAM (encravou ou morreu): ${nao_rasterizaram.join(", ")}`);
-writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, falham, erros, nao_rasterizaram, tol: TOL, piores, resultados }, null, 2));
+writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, passam_vazio: passamVazio, falham, falha_parcial: falhaParcial, erros, nao_rasterizaram, tol: TOL, piores, resultados }, null, 2));

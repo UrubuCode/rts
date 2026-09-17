@@ -25,7 +25,11 @@ pub(in crate::layout) fn layout_inline_flow(
     // O elemento DONO deste fluxo — de quem são as caixas geradas
     // (`::before`/`::after`) que envolvem o grupo. Ver `pseudo_run`.
     dono: NodeIdx,
-    group: &[NodeIdx],
+    // Cada membro do grupo com a sua CAIXA, quando ela decide por onde se desce.
+    // Ela só é `Some` para um FRAGMENTO de um inline partido (CSS 2.1
+    // §9.2.1.1), e é o que impede `collect_runs` de descer no bloco que partiu
+    // o inline — ver o parâmetro `caixa` lá.
+    group: &[(NodeIdx, Option<crate::boxes::BoxId>)],
     x: f32,
     y: f32,
     content_w: f32,
@@ -64,7 +68,7 @@ pub(in crate::layout) fn layout_inline_flow(
         .count();
     let dono_inteiro = group
         .iter()
-        .filter(|&&c| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
+        .filter(|&&(c, _)| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
         .count()
         == filhos_com_conteudo;
     let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
@@ -78,8 +82,11 @@ pub(in crate::layout) fn layout_inline_flow(
             parent_css.italic.unwrap_or(false),
         ));
     }
-    for &id in group {
-        runs.extend(collect_runs(dom, id, parent_css, content_w, ctx));
+    // `Rc` clonado antes do laço: `list` é escrito ao longo da função inteira, e
+    // é a mesma razão pela qual `layout_children_vertical` o clona.
+    let arvore = std::rc::Rc::clone(&list.tree);
+    for &(id, caixa) in group {
+        runs.extend(collect_runs(dom, id, caixa, &arvore, parent_css, content_w, ctx));
     }
     // `tab-size` — só sob `white-space: pre`/`pre-wrap`, onde o `\t` sobrevive
     // ao invés de colapsar como um espaço qualquer (`preserves_spaces`, hoje só
@@ -118,6 +125,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 r.atomic,
                 Some((
                     _,
+                    _,
                     AtomicKind::Widget
                         | AtomicKind::Replaced
                         | AtomicKind::Block
@@ -131,7 +139,9 @@ pub(in crate::layout) fn layout_inline_flow(
     }
     let family = parent_css.font_family.as_deref();
     let mono = family.is_some_and(crate::style::is_mono_family);
-    let ahem = family.is_some_and(crate::style::is_ahem_family); // ver quebra::wrap_runs
+    // A pergunta "e Ahem?" ja vivia aqui para `quebra::wrap_runs`; o item de
+    // texto passa a carregar a MESMA resposta em vez de a fazer outra vez.
+    let ahem = super::fonte_metricas::usa_ahem(family);
     // line-height: do CSS (multiplicador ou px), senão o default do measurer —
     // #1749. O medidor é também quem responde por `line-height: normal`, porque
     // esse valor sai das MÉTRICAS DA FONTE e não de uma constante: sem isto, o
@@ -245,7 +255,8 @@ pub(in crate::layout) fn layout_inline_flow(
                 matches!(
                     s.atomic,
                     Some((
-                        _,
+                    _,
+                    _,
                         AtomicKind::Widget
                             | AtomicKind::Replaced
                             | AtomicKind::Block
@@ -272,7 +283,7 @@ pub(in crate::layout) fn layout_inline_flow(
             && tem_texto
             && line
                 .iter()
-                .any(|segment| matches!(segment.atomic, Some((_, AtomicKind::Block))));
+                .any(|segment| matches!(segment.atomic, Some((_, _, AtomicKind::Block))));
         // Um inline-block vazio alinha pela baseline no seu fundo. Quando ele é
         // mais alto que o strut, o texto mantém o ascent da fonte acima dessa
         // baseline e o descent do strut fica abaixo dela. É o contrato Blink que
@@ -295,7 +306,7 @@ pub(in crate::layout) fn layout_inline_flow(
             && !tem_texto
             && line
                 .iter()
-                .any(|segment| matches!(segment.atomic, Some((_, AtomicKind::Replaced))));
+                .any(|segment| matches!(segment.atomic, Some((_, _, AtomicKind::Replaced))));
         let text_top = if tall_inline_block || imagem_alta_sem_texto {
             cy + line_h - ctx.measurer.font_ascent_family(font_size, family)
         } else {
@@ -339,7 +350,7 @@ pub(in crate::layout) fn layout_inline_flow(
             // O vão que precede o segmento ocupa lugar na linha mas não pertence
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
-            if let Some((a_idx, kind)) = seg.atomic {
+            if let Some((a_idx, caixa, kind)) = seg.atomic {
                 match kind {
                     AtomicKind::Widget => {
                         // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
@@ -351,14 +362,24 @@ pub(in crate::layout) fn layout_inline_flow(
                             .map(|t| t.to_ascii_lowercase())
                             .unwrap_or_default();
                         if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                            layout_button(dom, a_idx, &wcss, seg_x, cy, None, ctx, list);
+                            layout_button(
+                                dom,
+                                a_idx,
+                                caixa,
+                                &wcss,
+                                seg_x,
+                                cy,
+                                None,
+                                ctx,
+                                list,
+                            );
                         } else {
                             // `None` de altura disponível: uma caixa atómica numa
                             // linha não tem containing block de altura definida, e
                             // é isso que faz `height:%` valer `auto` — como no
                             // browser.
                             layout_input(
-                                dom, a_idx, &wcss, seg_x, cy, seg.ww, None, None, None, ctx, list,
+                                dom, a_idx, caixa, &wcss, seg_x, cy, seg.ww, None, None, None, ctx, list,
                             );
                         }
                     }
@@ -376,10 +397,10 @@ pub(in crate::layout) fn layout_inline_flow(
                             // caixa entretanto — a mesma doutrina que o
                             // `<img>` segue no caminho de bloco.
                             let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_canvas(dom, a_idx, &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
+                            layout_canvas(dom, a_idx, caixa, &ccss, seg_x, topo, seg.ww.max(1.0), ctx, list);
                         } else if dom.image_dims(a_idx).is_some() {
                             let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                            layout_image(dom, a_idx, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
+                            layout_image(dom, a_idx, caixa, &icss, seg_x, topo, seg.ww.max(1.0), None, None, ctx, list);
                         }
                     }
                     AtomicKind::Block => {
@@ -393,6 +414,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         layout_block(
                             dom,
                             a_idx,
+                            caixa,
                             seg_x,
                             topo,
                             seg.ww.max(1.0),
@@ -495,6 +517,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 color: seg.color,
                 size: font_size,
                 mono,
+                is_ahem: ahem,
                 bold: seg.bold,
                 italic: seg.italic,
                 letter_spacing: ls,

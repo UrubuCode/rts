@@ -327,3 +327,86 @@
             "a largura intrínseca deve acompanhar o novo texto"
         );
     }
+
+    /// A árvore de caixas muda de geração em toda mutação. Um inline partido
+    /// continua com duas caixas na árvore nova; nenhum fragmento cacheado pode
+    /// transportar os `BoxId`s da geração anterior nem escolher só a primeira
+    /// metade pelo nó que as gerou.
+    #[test]
+    fn cache_apos_mutacao_preserva_inline_partido() {
+        let mut dom = parse_html_to_dom(
+            r#"<style>
+                body { margin: 0; font: 16px/20px monospace; }
+                .cx { width: 130px; }
+                span { background: #fc0; padding: 0 4px; border: 2px solid #00c; }
+            </style>
+            <div class="cx"><span id="partido">aaa bbb <b style="display:block">ccc</b> ddd eee</span></div>
+            <div class="cx"><span id="mutado">um texto curto</span></div>"#,
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 400.0,
+            viewport_h: 300.0,
+            measurer: &ApproxMeasurer,
+        };
+        let partido = dom.query("#partido").unwrap();
+        let partido_idx = dom.resolve(partido).unwrap();
+
+        let _primeiro = layout_cached(&dom, &ctx);
+        assert!(
+            dom.box_tree().boxes_of(partido_idx).len() > 1,
+            "a fixture precisa partir o inline em mais de uma caixa"
+        );
+
+        let mutado = dom.query("#mutado").unwrap();
+        dom.set_text(mutado, "um texto bem maior que força uma árvore nova");
+        let reusado = layout_cached(&dom, &ctx);
+        dom.clear_fragment_cache();
+        let zero = layout_document(&dom, &ctx);
+
+        assert_eq!(reusado.materialized().len(), zero.materialized().len());
+        for (a, b) in reusado.materialized().iter().zip(zero.materialized()) {
+            assert!(itens_equivalentes(a, &b), "reuso diverge do cálculo do zero");
+        }
+        let a = reusado.geometry().rects[&partido_idx];
+        let b = zero.geometry().rects[&partido_idx];
+        assert!(rects_equivalentes(&a, &b), "inline partido diverge: {a:?} != {b:?}");
+    }
+
+    /// Controles e elementos substituídos não passam pelo box model genérico:
+    /// cada emissor registra a própria geometria. Quando a árvore é
+    /// reconstruída por uma mutação em outro ramo, eles precisam registrar a
+    /// caixa reidratada, e não expandir o `NodeIdx` para todas as suas caixas.
+    #[test]
+    fn cache_apos_mutacao_preserva_geometria_de_controles_e_substituidos() {
+        let mut dom = parse_html_to_dom(
+            r#"<style>body{margin:0}.linha{display:flex;gap:8px}</style>
+            <div class="linha">
+              <input id="campo" value="abc"><select id="escolha"><option>um</option></select>
+              <canvas id="tela" width="24" height="12"></canvas><svg id="icone" width="18" height="18"></svg>
+            </div><p id="mutado">curto</p>"#,
+        );
+        let ctx = LayoutCtx {
+            viewport_w: 400.0,
+            viewport_h: 300.0,
+            measurer: &ApproxMeasurer,
+        };
+        let ids: Vec<NodeIdx> = ["#campo", "#escolha", "#tela", "#icone"]
+            .into_iter()
+            .map(|selector| dom.resolve(dom.query(selector).unwrap()).unwrap())
+            .collect();
+
+        let _primeiro = layout_cached(&dom, &ctx);
+        dom.set_text(dom.query("#mutado").unwrap(), "texto que reconstrói a árvore de caixas");
+        let reusado = layout_cached(&dom, &ctx).geometry();
+        dom.clear_fragment_cache();
+        let zero = layout_document(&dom, &ctx).geometry();
+
+        for id in ids {
+            let a = reusado.rects[&id];
+            let b = zero.rects[&id];
+            assert!(
+                rects_equivalentes(&a, &b),
+                "a geometria do controle/substituído {id} diverge: {a:?} != {b:?}"
+            );
+        }
+    }

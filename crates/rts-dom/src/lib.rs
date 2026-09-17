@@ -30,6 +30,7 @@ pub mod imagem;
 /// Hasher rápido para as chaves INTERNAS (índices de nó, chaves de cache de
 /// layout): nenhuma delas vem de fora do processo, e o SipHash da `std` cobra
 /// uma resistência que não se usa. Ver as ressalvas no módulo.
+pub mod boxes;
 pub mod fasthash;
 mod html;
 mod inline_box;

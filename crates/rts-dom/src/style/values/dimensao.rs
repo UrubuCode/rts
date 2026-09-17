@@ -7,8 +7,18 @@
 /// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.
 #[derive(Clone, Copy, Debug)]
 pub struct ResolveCtx {
-    /// Largura do content-box do PAI (containing block) — base de `%` e `vw` (este
-    /// usa a largura da viewport, passada aqui como `viewport_w`).
+    /// Content-box width of the PARENT (the containing block) — the basis of
+    /// `%`, on the INLINE axis only.
+    ///
+    /// **This field does not know which axis the question is about**, and a
+    /// `height: 50%` resolved through it reads the containing block's WIDTH.
+    /// That is never the right basis (CSS 2.1 §10.5), and it is why
+    /// [`ContainingBlock`](super::ContainingBlock) exists: it carries both
+    /// extents and is asked by [`Axis`](super::Axis). Resolve through the
+    /// containing block wherever the axis is known; this field remains the
+    /// inline-axis shorthand, which is the right basis for `width`, for
+    /// padding and for margin on BOTH axes (CSS 2.1 §8.3/§8.4 — a vertical
+    /// padding percentage is also against the inline size).
     pub parent_content_w: f32,
     /// `font-size` COMPUTADO deste nó — base de `em`.
     pub node_font_size: f32,
@@ -230,20 +240,58 @@ impl Dimension {
             // vez de inventar um número.
             Dimension::Auto | Dimension::MaxContent | Dimension::MinContent => return None,
             Dimension::Px(v) => v,
-            Dimension::Percent(p) => ctx.parent_content_w * p / 100.0,
+            // A percentage whose basis is not a FINITE number has no basis at
+            // all, and CSS says what that computes to: `auto` (CSS 2.1 §10.2
+            // for the inline axis, §10.5 for the block axis). Answering `None`
+            // is how that is said here — it is the same answer `Auto` gives, so
+            // the caller falls into its own fallback instead of carrying a
+            // number nobody can use.
+            //
+            // The basis is infinite whenever something is measured at
+            // max-content: a shrink-to-fit item is measured with an unbounded
+            // available width, and `100%` of infinity used to be infinity. A
+            // border box then came out with `w: inf` and the rasteriser spent
+            // 65 seconds walking it (`intrinsic-percent-replaced-019`, WPT).
+            // `inline_box/substituido.rs` already refused that case by hand,
+            // for width only and only at that one call site; the rule belongs
+            // to the resolution, which is every call site.
+            Dimension::Percent(p) => {
+                if !ctx.parent_content_w.is_finite() {
+                    return None;
+                }
+                ctx.parent_content_w * p / 100.0
+            }
             Dimension::Em(e) => ctx.node_font_size * e,
             Dimension::Rem(r) => ctx.root_font_size * r,
             Dimension::Vw(v) => ctx.viewport_w * v / 100.0,
             Dimension::Vh(v) => ctx.viewport_h * v / 100.0,
             Dimension::Ex(x) => ctx.node_font_size * crate::style::X_HEIGHT_RATIO * x,
             Dimension::Ch(c) => ctx.node_font_size * crate::style::MONO_ADVANCE * c,
-            // calc linear: cada base resolvida no seu eixo e somada.
+            // Linear calc: each basis resolved on its own axis and summed. The
+            // percentage term is summed SEPARATELY, and only when its
+            // coefficient is non-zero, for two reasons that are one reason:
+            //
+            //  - an infinite basis makes the whole expression infinite, which
+            //    is the case the `Percent` arm above refuses; and
+            //  - `f32::INFINITY * 0.0` is NaN, so a `calc(1rem + 10px)` — a
+            //    calc with NO percentage in it — came out NaN whenever it was
+            //    resolved during a max-content measurement. A NaN propagates
+            //    silently through every `max`/`min` downstream, which is the
+            //    worse half of this defect: infinity at least shows up as a
+            //    65-second raster.
             Dimension::Calc(c) => {
-                c.px + ctx.parent_content_w * c.pct / 100.0
+                let mut v = c.px
                     + ctx.node_font_size * c.em
                     + ctx.root_font_size * c.rem
                     + ctx.viewport_w * c.vw / 100.0
-                    + ctx.viewport_h * c.vh / 100.0
+                    + ctx.viewport_h * c.vh / 100.0;
+                if c.pct != 0.0 {
+                    if !ctx.parent_content_w.is_finite() {
+                        return None;
+                    }
+                    v += ctx.parent_content_w * c.pct / 100.0;
+                }
+                v
             }
         })
     }

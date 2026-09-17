@@ -30,6 +30,7 @@ mod ib_nowrap_corpus;
 mod justify_fisico_corpus;
 mod clearfix_corpus;
 mod pseudo_flex_corpus;
+mod pseudo_bt5_corpus;
 mod borda_em_corpus;
 mod flex_margens_auto_corpus;
 mod flex_justify_logico_corpus;
@@ -147,6 +148,7 @@ mod flex_scroll_overflow_corpus;
                     italic: ia,
                     letter_spacing: la,
                     decoration: dea,
+                    is_ahem: _,
                 },
                 D::Text {
                     x: xb,
@@ -159,6 +161,7 @@ mod flex_scroll_overflow_corpus;
                     italic: ib,
                     letter_spacing: lb,
                     decoration: deb,
+                    is_ahem: _,
                 },
             ) => {
                 (xa - xb).abs() < TOL

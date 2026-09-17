@@ -282,11 +282,13 @@ pub(crate) fn display_css(d: DisplayKind) -> &'static str {
         DisplayKind::Inline => "inline",
         DisplayKind::InlineBlock => "inline-block",
         DisplayKind::Grid => "grid",
+        DisplayKind::InlineGrid => "inline-grid",
         // As caixas de tabela e o `list-item` respondem o keyword que lhes deu
         // origem: `getComputedStyle` devolve o `display` USADO, e um `<li>` que
         // gera marcador é `list-item`, não `block`.
         DisplayKind::ListItem => "list-item",
         DisplayKind::Table => "table",
+        DisplayKind::InlineTable => "inline-table",
         DisplayKind::TableRow => "table-row",
         DisplayKind::TableCell => "table-cell",
         DisplayKind::TableCaption => "table-caption",

@@ -35,6 +35,7 @@ use crate::layout::coluna::{align_offset, justify_e_align, justify_offsets};
 /// saber a largura da coluna).
 struct Item {
     node: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
     main: f32,
     cross: f32,
     is_text: bool,
@@ -61,7 +62,7 @@ struct Item {
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_column_wrap(
     dom: &Dom,
-    id: NodeIdx,
+    container: crate::boxes::BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -103,7 +104,11 @@ pub(in crate::layout) fn layout_children_column_wrap(
     // ── PASSO 1: mede cada filho nos DOIS eixos (mesma base de `coluna.rs`,
     // mais a largura NATURAL para decidir a largura de cada coluna) ─────────
     let mut items: Vec<Item> = Vec::new();
-    for &child in &dom.node(id).children {
+    let tree = std::rc::Rc::clone(&list.tree);
+    for &caixa in tree.children(container) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
                 continue;
@@ -126,6 +131,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 .text_width(&text, font_size, false, false, false);
             items.push(Item {
                 node: child,
+                caixa: None,
                 main: h,
                 cross: w,
                 is_text: true,
@@ -143,7 +149,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, content_w, Some(container_content_h), None, None, false, ctx).1
+            measure_block(dom, child, Some(caixa), content_w, Some(container_content_h), None, None, false, ctx).1
         } else {
             child_outer_height(dom, child, content_w, Some(container_content_h), css, font_size, ctx)
         };
@@ -176,6 +182,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let (cross, _) = measure_block(
             dom,
             child,
+            Some(caixa),
             content_w,
             Some(container_content_h),
             None,
@@ -185,6 +192,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         );
         items.push(Item {
             node: child,
+            caixa: Some(caixa),
             main,
             cross,
             is_text: false,
@@ -434,6 +442,8 @@ pub(in crate::layout) fn layout_children_column_wrap(
                     color: cor_visivel(css, css.color.unwrap_or(0x000000FF)),
                     size: font_size,
                     mono: false,
+                    // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
+                    is_ahem: false,
                     bold: css.bold.unwrap_or(false),
                     italic: italico(Some(css), tag_de(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),
@@ -483,6 +493,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 layout_block_reusing(
                     dom,
                     it.node,
+                    it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
                     child_x,
                     y,
                     avail_w,

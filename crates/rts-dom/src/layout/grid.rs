@@ -5,7 +5,7 @@
 //! alterada — a reconstrução deste ficheiro é byte a byte a do original.
 
 use super::*;
-use super::grid_linhas::place_grid_items;
+use super::grid_linhas::{GridItem, place_grid_items};
 use super::grid_tracks;
 /// GRID real (css-grid track-sizing simplificado): resolve as trilhas de coluna
 /// (px/%/fr/auto) e de linha, faz auto-placement dos itens célula-a-célula
@@ -18,6 +18,7 @@ use super::grid_tracks;
 pub(in crate::layout) fn layout_children_grid(
     dom: &Dom,
     id: NodeIdx,
+    container: crate::boxes::BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -78,8 +79,15 @@ pub(in crate::layout) fn layout_children_grid(
     let ncols = col_tracks.len().max(1);
 
     // ── ITENS: os filhos renderizáveis (auto-placement row-by-row) ───────────────
-    let mut children: Vec<NodeIdx> = Vec::new();
-    for &child in &dom.node(id).children {
+    let mut children: Vec<GridItem> = Vec::new();
+    // Grid não cria caixas anónimas para os filhos: o filho de grid é
+    // blockificado. A sequência, porém, continua a pertencer à BoxTree; assim
+    // cada item recebe o `BoxId` desta construção sem voltar por `NodeIdx`.
+    let tree = std::rc::Rc::clone(&list.tree);
+    for &caixa in tree.children(container) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
                 continue;
@@ -91,7 +99,7 @@ pub(in crate::layout) fn layout_children_grid(
         if !is_block_level(dom, child) && collect_text(dom, child).trim().is_empty() {
             continue;
         }
-        children.push(child);
+        children.push(GridItem { node: child, caixa });
     }
     if children.is_empty() {
         return 0.0;
@@ -207,6 +215,7 @@ pub(in crate::layout) fn layout_children_grid(
         let (_, h) = measure_block(
             dom,
             cell.child,
+            Some(cell.caixa),
             cw,
             container_content_h,
             None,
@@ -342,7 +351,7 @@ pub(in crate::layout) fn layout_children_grid(
         // (30px) — medido pelo orquestrador contra o Chrome.
         let stretch_x = justify == crate::style::AlignItems::Stretch && item_css.width.is_none();
         let stretch_y = align == crate::style::AlignItems::Stretch && item_css.height.is_none();
-        let (nat_w, nat_h) = measure_block(dom, child, cell_w, Some(cell_h), None, None, true, ctx);
+        let (nat_w, nat_h) = measure_block(dom, child, Some(cell.caixa), cell_w, Some(cell_h), None, None, true, ctx);
         let iw = if stretch_x { cell_w } else { nat_w.min(cell_w) };
         let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
         let x = cell_x + cell_align_offset(justify, cell_w, iw);
@@ -357,6 +366,7 @@ pub(in crate::layout) fn layout_children_grid(
         layout_block_reusing(
             dom,
             child,
+            cell.caixa,
             x,
             y,
             cell_w,

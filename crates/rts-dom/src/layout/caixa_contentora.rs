@@ -3,10 +3,11 @@
 //! block is formed by the padding edge of the ancestor"). A borda fica FORA
 //! do container onde `top`/`right`/`bottom`/`left` são medidos.
 //!
-//! `posicionado.rs` só tinha o BORDER-BOX guardado em `node_rects` (é o
-//! mesmo retângulo que `getBoundingClientRect` reporta) e usava-o direto como
-//! origem do containing block — um ancestral com QUALQUER borda deslocava
-//! todo o conteúdo absoluto pela largura dela, nos dois eixos.
+//! `posicionado.rs` só tinha o BORDER-BOX guardado na geometria por nó (era
+//! `node_rects`; hoje `box_rects`, agregado por `DisplayList::rect_of_node` —
+//! o mesmo retângulo que `getBoundingClientRect` reporta) e usava-o direto
+//! como origem do containing block — um ancestral com QUALQUER borda
+//! deslocava todo o conteúdo absoluto pela largura dela, nos dois eixos.
 //!
 //! Achado pelo lote `flex-align-justify-familia`: 31 dos 33 reftests do WPT
 //! do lote comparam um flex container com `align-items`/`justify-content` E
@@ -25,7 +26,7 @@
 
 use super::*;
 
-/// Converte o border-box guardado em `node_rects` (`flow_rects`) para a
+/// Converte o border-box guardado em `flow_rects` (a geometria por nó) para a
 /// padding-box do MESMO nó — a caixa contra a qual `top`/`right`/`bottom`/
 /// `left` de um descendente `position:absolute`/`fixed` são medidos.
 pub(in crate::layout) fn padding_box(border_box: Rect, css: &ComputedStyle) -> Rect {
@@ -49,6 +50,17 @@ pub(in crate::layout) fn padding_box(border_box: Rect, css: &ComputedStyle) -> R
 /// próprio border-box — exacto para `px`/`em`/`rem` (a maioria dos casos, e
 /// os medidos por este lote), e o único caso onde diverge (padding em `%`)
 /// não tem fixture a pedir mais.
+///
+/// A percentagem resolve pela [`ContainingBlock`], no eixo INLINE, e os quatro
+/// lados no MESMO eixo de propósito: um `padding-top` percentual é contra a
+/// largura do bloco contentor, não contra a altura (CSS 2.1 §8.4). É a regra
+/// que faz um `padding-top:56.25%` ser a caixa de 16:9 que toda a web usa, e
+/// escrevê-la aqui é o que impede o próximo a passar por este ficheiro de a
+/// "corrigir" para a altura. O que a entidade acrescenta face ao `ResolveCtx`
+/// solto é o outro meio da regra: um border-box de largura não finita — o que
+/// uma medição em max-content passa — é uma base INDEFINIDA, e a percentagem
+/// computa a `auto`, que aqui é o zero do `unwrap_or`, em vez de um padding
+/// infinito que comia a caixa inteira.
 pub(in crate::layout) fn content_box(border_box: Rect, css: &ComputedStyle, ctx: &LayoutCtx) -> Rect {
     let pb = padding_box(border_box, css);
     let resolve = ResolveCtx {
@@ -58,10 +70,17 @@ pub(in crate::layout) fn content_box(border_box: Rect, css: &ComputedStyle, ctx:
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let pt = css.padding.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
-    let pr = css.padding.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
-    let pbo = css.padding.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);
-    let pl = css.padding.left.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let cb = crate::style::ContainingBlock::horizontal_tb(border_box.w, Some(border_box.h));
+    let padding = |lado: crate::style::Side| match lado {
+        crate::style::Side::Len(d) => cb
+            .resolve(d, crate::style::Axis::Inline, &resolve)
+            .unwrap_or(0.0),
+        _ => 0.0,
+    };
+    let pt = padding(css.padding.top);
+    let pr = padding(css.padding.right);
+    let pbo = padding(css.padding.bottom);
+    let pl = padding(css.padding.left);
     Rect::new(
         pb.x + pl,
         pb.y + pt,
@@ -142,5 +161,42 @@ mod tests {
         assert_eq!(padding_box(border_box, &css), border_box);
         let cb = content_box(border_box, &css, &ctx());
         assert_eq!(cb, Rect::new(20.0, 20.0, 60.0, 260.0));
+    }
+
+    /// Um padding percentual é contra a LARGURA nos quatro lados.
+    ///
+    /// Numa caixa de 100×300, `padding:10%` vale 10 em cima e em baixo também —
+    /// não 30. É a regra que faz um `padding-top:56.25%` ser a caixa de 16:9, e
+    /// está aqui porque a resolução passou a perguntar por EIXO: a pergunta
+    /// existe agora, e o que se pina é a resposta ser `Inline` nos quatro.
+    #[test]
+    fn um_padding_percentual_e_contra_a_largura_nos_quatro_lados() {
+        let mut css = ComputedStyle::default();
+        css.padding = crate::style::Edges::all(crate::style::Side::Len(
+            crate::style::Dimension::Percent(10.0),
+        ));
+        let cb = content_box(Rect::new(0.0, 0.0, 100.0, 300.0), &css, &ctx());
+        assert_eq!(cb, Rect::new(10.0, 10.0, 80.0, 280.0));
+    }
+
+    /// Um padding percentual contra uma largura NÃO FINITA computa a `auto` —
+    /// que aqui é zero — em vez de comer a caixa inteira.
+    ///
+    /// Uma largura infinita é o que uma medição em max-content passa. Antes, os
+    /// quatro lados resolviam para infinito e a altura do content-box saía
+    /// `(300 − ∞ − ∞).max(0)` = 0: uma caixa sem conteúdo nenhum, sem nada a
+    /// dizer porquê. É o mesmo defeito que dava `w: inf` a um item
+    /// shrink-to-fit, visto do outro lado da subtracção — e por isso a régua é
+    /// a altura, que é finita e conhecida, e não a largura, que continua
+    /// infinita porque o border-box o é.
+    #[test]
+    fn um_padding_percentual_sem_base_nao_devora_a_caixa() {
+        let mut css = ComputedStyle::default();
+        css.padding = crate::style::Edges::all(crate::style::Side::Len(
+            crate::style::Dimension::Percent(50.0),
+        ));
+        let cb = content_box(Rect::new(0.0, 0.0, f32::INFINITY, 300.0), &css, &ctx());
+        assert_eq!(cb.y, 0.0, "sem base, o padding de topo é zero e não infinito");
+        assert_eq!(cb.h, 300.0, "a altura do conteúdo sobrevive: {cb:?}");
     }
 }

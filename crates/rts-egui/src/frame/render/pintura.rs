@@ -164,7 +164,7 @@ pub(in crate::frame::render) fn paint_list(
                 });
                 mesh_quad_filled(&painter, corners, rgba_to_color32(*color));
             }
-            DisplayItem::Text { x, y, text, color, size, mono, bold, italic, letter_spacing, decoration } => {
+            DisplayItem::Text { x, y, text, color, size, mono, bold, italic, letter_spacing, decoration, .. } => {
                 // a MESMA escolha que o medidor faz — ver `EguiMeasurer::family`.
                 let font = egui::FontId::new(*size, EguiMeasurer::family(*mono, *bold, *italic));
                 let col = rgba_to_color32(*color);

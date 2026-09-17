@@ -39,7 +39,12 @@ const pastas = readdirSync(raiz, { withFileTypes: true })
   .sort();
 
 const linhas = [];
-let tp = 0, tf = 0, te = 0;
+// `passam` de cada `relatorio.json` já só conta PASSA COM CONTEÚDO desde
+// #2731; `passam_vazio` e `falha_parcial` são os outros dois estados novos —
+// somam-se aqui à parte para o TOTAL continuar a bater (passam + vazio +
+// falham + parcial + erros), e imprimem-se nomeados como o corredor de uma
+// pasta já faz.
+let tp = 0, tpv = 0, tf = 0, tfp = 0, te = 0;
 for (const nome of pastas) {
   const saida = join(OUT, nome);
   let txt = "";
@@ -61,14 +66,16 @@ for (const nome of pastas) {
   // a varredura larga quer o numero, e quem for investigar uma falha corre essa
   // pasta sozinha. Guardados, o `css` inteiro deixou 103 GB numa so pasta e
   // encheu o disco desta maquina a meio de uma medicao (2026-09-05).
-  for (const f of readdirSync(saida)) if (f.endsWith(".png") || f.endsWith(".mask.json")) rmSync(join(saida, f), { force: true });
-  tp += r.passam; tf += r.falham; te += r.erros;
+  for (const f of readdirSync(saida)) if (f.endsWith(".png") || f.endsWith(".mask.json") || f.endsWith(".pintados")) rmSync(join(saida, f), { force: true });
+  // `?? 0`: um `relatorio.json` de antes de #2731 não tem estes dois campos.
+  const passamVazio = r.passam_vazio ?? 0, falhaParcial = r.falha_parcial ?? 0;
+  tp += r.passam; tpv += passamVazio; tf += r.falham; tfp += falhaParcial; te += r.erros;
   const pct = r.total > 0 ? (r.passam / r.total) * 100 : 0;
-  linhas.push({ nome, passam: r.passam, total: r.total, erros: r.erros, pct });
-  console.log(`${nome.padEnd(28)} ${String(r.passam).padStart(5)}/${String(r.total).padEnd(5)} ${pct.toFixed(1).padStart(5)}%${r.erros ? `  (${r.erros} não rasterizaram)` : ""}`);
+  linhas.push({ nome, passam: r.passam, passam_vazio: passamVazio, total: r.total, falha_parcial: falhaParcial, erros: r.erros, pct });
+  console.log(`${nome.padEnd(28)} ${String(r.passam).padStart(5)}/${String(r.total).padEnd(5)} ${pct.toFixed(1).padStart(5)}%${passamVazio ? `  (${passamVazio} vazios)` : ""}${falhaParcial ? `  (${falhaParcial} só um lado pinta)` : ""}${r.erros ? `  (${r.erros} não rasterizaram)` : ""}`);
 }
 
-const total = tp + tf + te;
-console.log(`\nTOTAL ${tp}/${total} (${((tp / Math.max(total, 1)) * 100).toFixed(1)}%), ${tf} falham, ${te} não rasterizaram`);
+const total = tp + tpv + tf + tfp + te;
+console.log(`\nTOTAL ${tp}/${total} passam COM CONTEÚDO (${((tp / Math.max(total, 1)) * 100).toFixed(1)}%); ${tpv} passam vazios, ${tf} falham, ${tfp} falham por um lado só pintar, ${te} não rasterizaram`);
 console.log("A tabela por pasta é o número; o total é a soma dela — uma pasta que este motor não tenta baixa-o sem dizer nada sobre o motor.");
-writeFileSync(join(OUT, "todas.json"), JSON.stringify({ raiz, pastas: linhas, passam: tp, falham: tf, erros: te, total }, null, 2));
+writeFileSync(join(OUT, "todas.json"), JSON.stringify({ raiz, pastas: linhas, passam: tp, passam_vazio: tpv, falham: tf, falha_parcial: tfp, erros: te, total }, null, 2));

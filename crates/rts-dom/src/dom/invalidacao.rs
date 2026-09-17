@@ -26,8 +26,11 @@ impl Dom {
         // marcar nenhum.
         self.dirty_children.borrow_mut().clear();
         self.dirty_self.borrow_mut().clear();
-        self.layout_measure_cache.borrow_mut().clear();
-        self.intrinsic_width_cache.borrow_mut().clear();
+        // As chaves dos dois caches carregam `node_epoch`. Os nós tocados e
+        // seus ancestrais já receberam um novo epoch acima; limpar tudo aqui
+        // descartaria também as medidas intrínsecas de irmãos intactos. As
+        // entradas antigas deixam apenas de casar e os caches têm capacidade
+        // limitada, como no caminho localizado `touch_subtree`.
     }
 
     /// Marca uma mudança que altera pixels/geometria, mas não o estilo computado.
@@ -57,8 +60,11 @@ impl Dom {
             filho = n;
             ancestor = self.nodes[n].parent;
         }
-        self.layout_measure_cache.borrow_mut().clear();
-        self.intrinsic_width_cache.borrow_mut().clear();
+        // As chaves dos dois caches carregam `node_epoch`. Os nós tocados e
+        // seus ancestrais já receberam um novo epoch acima; limpar tudo aqui
+        // descartaria também as medidas intrínsecas de irmãos intactos. As
+        // entradas antigas deixam apenas de casar e os caches têm capacidade
+        // limitada, como no caminho localizado `touch_subtree`.
     }
 
     /// Invalida estilo apenas no nó e em seus descendentes. É seguro para `style=""`

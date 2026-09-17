@@ -326,6 +326,41 @@ impl Canvas {
     }
 }
 
+/// Pinta UM glifo Ahem: um retângulo sólido, exatamente como a fonte é
+/// definida (`style::ahem`, doc no cabeçalho do módulo) — ascent 0,8×size
+/// acima da baseline, descent 0,2×size abaixo, largura = avanço = 1×size. Um
+/// espaço não pinta nada (é o próprio glifo do espaço na Ahem, mas pintar um
+/// quadrado preto onde o Blink deixa em branco falharia todo reftest com
+/// espaços em vez de acertar mais um). `(x, y)` é a ORIGEM da baseline, a
+/// mesma convenção de `DisplayItem::Text::{x,y}` (canto superior-esquerdo da
+/// CAIXA de texto — ver `text_mask_rect`, que soma/subtrai os mesmos termos).
+///
+/// `(x, y)` e a ORIGEM DA BASELINE, e o chamador converte: `DisplayItem::Text`
+/// da o TOPO da caixa de texto, e a baseline e o topo mais o ascent.
+///
+/// Esteve escrita e nao chamada durante um lote inteiro, porque
+/// `DisplayItem::Text` nao carregava a familia — so `mono`, que nunca e `true`
+/// para a Ahem. O campo `is_ahem` fecha isso, e o agente que escreveu esta
+/// funcao recusou-se a adivinhar a familia por posicao ou pela caixa do
+/// elemento, que teria fabricado acertos sem base.
+fn fill_ahem_text(canvas: &mut Canvas, x: f32, y: f32, text: &str, size: f32, color: u32, clip: Option<Rect>) {
+    let ascent = size * rts_dom::style::AHEM_ASCENT_RATIO;
+    let descent = size * rts_dom::style::AHEM_DESCENT_RATIO;
+    let advance = size * rts_dom::style::AHEM_ADVANCE;
+    let mut cursor = x;
+    for ch in text.chars() {
+        // Formas especiais da Ahem (descender de `p`/`g`, acento de `é`, …)
+        // ficam por pintar — di-lo o relatório do lote: um retângulo cheio
+        // por caractere já cobre a maioria dos testes de layout (que usam a
+        // Ahem exatamente para não depender de forma de glifo).
+        if !ch.is_whitespace() {
+            let r = Rect::new(cursor, y - ascent, advance, ascent + descent);
+            canvas.fill_rect(r, color, clip);
+        }
+        cursor += advance;
+    }
+}
+
 /// A inversa de uma matriz afim 2D (`[[a,c,e],[b,d,f],[0,0,1]]`), ou `None`
 /// se o determinante for ~0 (`scale(0)`, degenerada — nada pintável de todo
 /// modo). Fórmula fechada de uma 2×2 mais a translação recomposta.
@@ -592,14 +627,30 @@ fn main() {
                 }
                 pintados += 1;
             }
-            DisplayItem::Text { x, y, text, size, mono, .. } => {
+            DisplayItem::Text { x, y, text, size, mono, is_ahem, color, .. } => {
                 let (mx, my) = match mat {
                     Some(m) => m.apply(*x, *y),
                     None => (*x + dx, *y + dy),
                 };
-                let r = text_mask_rect(mx, my, text, *size, *mono);
-                mask.push([r.x, r.y, r.w, r.h]);
-                saltados_texto += 1;
+                // A Ahem PINTA-SE, e nao entra na mascara. Os seus glifos sao
+                // retangulos solidos por definicao da fonte, logo desenha-los
+                // nao precisa de motor de fontes nenhum — e mascara-los era o
+                // que fazia um reftest de Ahem passar branco contra branco.
+                //
+                // `y` e o topo do texto e `fill_ahem_text` espera a BASELINE,
+                // que e o topo mais o ascent. Confundi-las sobe cada glifo uma
+                // linha inteira, e o reftest ainda passaria se os dois lados
+                // errassem igual — que e a classe de falha que esta regua
+                // acabou de aprender a separar.
+                if *is_ahem {
+                    let baseline = my + *size * rts_dom::style::AHEM_ASCENT_RATIO;
+                    fill_ahem_text(&mut canvas, mx, baseline, text, *size, *color, clip);
+                    pintados += 1;
+                } else {
+                    let r = text_mask_rect(mx, my, text, *size, *mono);
+                    mask.push([r.x, r.y, r.w, r.h]);
+                    saltados_texto += 1;
+                }
             }
             DisplayItem::Quad { pts, color } => {
                 let pts = match mat {
@@ -676,6 +727,17 @@ fn main() {
         .collect();
     std::fs::write(&mask_path, format!("[{}]", mask_json.join(","))).unwrap_or_else(|e| {
         eprintln!("não escrevi {mask_path}: {e}");
+        std::process::exit(2);
+    });
+
+    // `pintados` já existia (só ia para o `eprintln!` de baixo) — expõe-se aqui
+    // como um segundo sidecar, ao lado de `<saida>.mask.json`, para que quem
+    // compara dois lados de uma régua (`scripts/wpt_reftests.mjs`) saiba se ESTE
+    // lado desenhou alguma coisa sem reabrir o PNG: "0" é o sinal barato de
+    // "nada pintado", distinto de "pintou e calhou de dar a mesma cor de fundo".
+    let pintados_path = format!("{saida}.pintados");
+    std::fs::write(&pintados_path, pintados.to_string()).unwrap_or_else(|e| {
+        eprintln!("não escrevi {pintados_path}: {e}");
         std::process::exit(2);
     });
 

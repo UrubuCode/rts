@@ -14,6 +14,15 @@ use std::collections::HashSet;
 use crate::style::grid_lines::{GridAutoFlow, GridLine};
 use crate::style::GridAreas;
 use crate::{Dom, NodeIdx};
+use crate::boxes::BoxId;
+
+/// Item de grid antes da colocação. A geometria usa a caixa, enquanto a
+/// colocação e o estilo continuam a consultar o nó que a gerou.
+#[derive(Clone, Copy)]
+pub(in crate::layout) struct GridItem {
+    pub node: NodeIdx,
+    pub caixa: BoxId,
+}
 
 /// Onde UM item do grid vive: a célula inicial e o span, em índices de trilha
 /// 0-based com o fim EXCLUSIVO. É o único que o resto do layout de grid
@@ -21,6 +30,7 @@ use crate::{Dom, NodeIdx};
 /// coexistirem sem um segundo caminho de posicionamento.
 pub(in crate::layout) struct GridCell {
     pub child: NodeIdx,
+    pub caixa: BoxId,
     pub r0: usize,
     pub c0: usize,
     pub r1: usize,
@@ -155,7 +165,7 @@ fn free_col_major(taken: &HashSet<(usize, usize)>, row_bound: usize, start_col: 
 /// uma coluna e passa à próxima.
 pub(in crate::layout) fn place_grid_items(
     dom: &Dom,
-    children: &[NodeIdx],
+    children: &[GridItem],
     areas: Option<&GridAreas>,
     explicit_cols: usize,
     explicit_rows: usize,
@@ -165,15 +175,15 @@ pub(in crate::layout) fn place_grid_items(
     let mut taken: HashSet<(usize, usize)> = HashSet::new();
     let mut ncols = explicit_cols.max(1);
 
-    let mut numeric: Vec<NodeIdx> = Vec::new();
-    let mut auto: Vec<NodeIdx> = Vec::new();
+    let mut numeric: Vec<GridItem> = Vec::new();
+    let mut auto: Vec<GridItem> = Vec::new();
     for &child in children {
-        let css = dom.computed_style_idx(child);
+        let css = dom.computed_style_idx(child.node);
         let name = css.as_ref().and_then(|s| s.grid_area.clone());
         if let Some(a) = name.and_then(|n| areas.and_then(|ar| ar.area(&n))) {
             ncols = ncols.max(a.c1);
             mark(&mut taken, a.r0, a.c0, a.r1, a.c1);
-            cells.push(GridCell { child, r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 });
+            cells.push(GridCell { child: child.node, caixa: child.caixa, r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 });
             continue;
         }
         let has_numeric = css
@@ -193,7 +203,7 @@ pub(in crate::layout) fn place_grid_items(
     }
 
     for child in numeric {
-        let css = dom.computed_style_idx(child).unwrap_or_default();
+        let css = dom.computed_style_idx(child.node).unwrap_or_default();
         let colp = axis_placement(
             css.grid_column_start.unwrap_or(GridLine::Auto),
             css.grid_column_end.unwrap_or(GridLine::Auto),
@@ -208,7 +218,7 @@ pub(in crate::layout) fn place_grid_items(
             (Some((c0, c1)), Some((r0, r1))) => {
                 ncols = ncols.max(c1);
                 mark(&mut taken, r0, c0, r1, c1);
-                cells.push(GridCell { child, r0, c0, r1, c1 });
+                cells.push(GridCell { child: child.node, caixa: child.caixa, r0, c0, r1, c1 });
             }
             // Um eixo só (o outro `auto`/indeterminado): a spec varre o eixo
             // aberto a partir da linha dada; este motor simplifica para
@@ -230,7 +240,7 @@ pub(in crate::layout) fn place_grid_items(
             free_row_major(&taken, ncols, start)
         };
         mark(&mut taken, r, c, r + 1, c + 1);
-        cells.push(GridCell { child, r0: r, c0: c, r1: r + 1, c1: c + 1 });
+        cells.push(GridCell { child: child.node, caixa: child.caixa, r0: r, c0: c, r1: r + 1, c1: c + 1 });
         cursor = r * ncols.max(1) + c + 1;
         col_cursor = c;
         // flow `column`: as colunas implícitas contam para o `ncols` final,

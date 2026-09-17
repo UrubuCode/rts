@@ -81,6 +81,23 @@ impl Coluna {
 /// a coluna é dimensionada em caixa de BORDA, porque é isso que ocupa espaço na
 /// linha.
 pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutCtx) -> Coluna {
+    let tree = dom.box_tree();
+    let caixa = match tree.boxes_of(id) {
+        [caixa] => *caixa,
+        [] => return Coluna::default(),
+        caixas => panic!("a celula {id:?} gerou {} caixas; a medicao precisa receber a caixa exata", caixas.len()),
+    };
+    cell_min_max_na_arvore(dom, &tree, id, caixa, parent_font, ctx)
+}
+
+pub(crate) fn cell_min_max_na_arvore(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    id: NodeIdx,
+    caixa: crate::boxes::BoxId,
+    parent_font: f32,
+    ctx: &LayoutCtx,
+) -> Coluna {
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let font = crate::layout::font_px(&css, parent_font);
     let resolve = ResolveCtx {
@@ -116,7 +133,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
         // Ainda assim não pode ficar ABAIXO do mínimo do conteúdo: uma largura
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
-        let piso = min_content(dom, id, font, ctx, false, mono, true);
+        let piso = min_content_na_arvore(dom, tree, id, Some(caixa), font, ctx, false, mono, true);
         return Coluna {
             min: w.max(piso),
             max: w.max(piso),
@@ -128,7 +145,7 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
     // e somá-la aqui contava o padding da célula duas vezes. Ficou invisível
     // enquanto uma célula com `width` declarado devolvia a largura e voltava
     // atrás — o caminho que somava duas vezes só era percorrido pelas outras.
-    let min = min_content(dom, id, font, ctx, false, mono, true);
+    let min = min_content_na_arvore(dom, tree, id, Some(caixa), font, ctx, false, mono, true);
     Coluna {
         min,
         percentagem,
@@ -285,6 +302,31 @@ pub(in crate::table) fn min_content(
     // (`claude-flex-min-width-auto-block-child`, Flexbox §4.5 candidato (c)).
     floor_width: bool,
 ) -> f32 {
+    let tree = dom.box_tree();
+    let caixa = match tree.boxes_of(id) {
+        [caixa] => Some(*caixa),
+        [] => None,
+        caixas => {
+            return caixas
+                .iter()
+                .map(|&caixa| min_content_na_arvore(dom, &tree, id, Some(caixa), font, ctx, sem_quebra, mono, floor_width))
+                .fold(0.0, f32::max);
+        }
+    };
+    min_content_na_arvore(dom, &tree, id, caixa, font, ctx, sem_quebra, mono, floor_width)
+}
+
+fn min_content_na_arvore(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    id: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
+    font: f32,
+    ctx: &LayoutCtx,
+    sem_quebra: bool,
+    mono: bool,
+    floor_width: bool,
+) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Text(t) => {
             if sem_quebra {
@@ -379,13 +421,19 @@ pub(in crate::table) fn min_content(
             // empilhar-se, logo entram pelo máximo.
             let mut m = 0.0f32;
             let mut linha = 0.0f32;
-            for &c in &dom.node(id).children {
+            let Some(caixa) = caixa else {
+                return 0.0;
+            };
+            for &caixa_filho in tree.children(caixa) {
+                let Some(c) = tree.node_of(caixa_filho) else {
+                    continue;
+                };
                 if crate::layout::is_out_of_flow(dom, c) {
                     continue;
                 }
                 // SEMPRE `true` para um descendente — só o TOPO usa o
                 // `floor_width` recebido (ver o comentário do parâmetro).
-                let w = min_content(dom, c, f, ctx, sem_quebra, mono, true);
+                let w = min_content_na_arvore(dom, tree, c, Some(caixa_filho), f, ctx, sem_quebra, mono, true);
                 if sem_quebra && em_linha(dom, c) {
                     linha += w;
                 } else {

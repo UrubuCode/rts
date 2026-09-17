@@ -30,6 +30,13 @@ use super::*;
 
 /// O `z-index` computado de um out-of-flow, `0` para `auto`/sem estilo — a
 /// mesma leitura que `layout_document` já fazia inline no `sort_by_key`.
+///
+/// **I6** (`docs/ui/html-engine/box-tree.md` §7): esta função lê o estilo do
+/// NÓ, e uma caixa anónima não tem nó nem estilo próprio. Hoje isso não é
+/// alcançável — este lote (BT-1) não produz caixas anónimas —, mas o dia em
+/// que produzir, esta função responde `0` (a mesma coisa que "auto") em vez
+/// de ter um ramo para "esta caixa não tem nó". Deixado como achado para o
+/// lote das caixas anónimas, e não corrigido aqui.
 pub(in crate::layout) fn z_index_of(dom: &Dom, id: NodeIdx) -> i32 {
     dom.computed_style_idx(id)
         .and_then(|c| c.z_index)
@@ -67,7 +74,10 @@ pub(in crate::layout) fn merge_before(alvo: &mut DisplayList, mut antes: Display
     alvo.children = antes.children;
     antes.hit_order.append(&mut alvo.hit_order);
     alvo.hit_order = antes.hit_order;
-    alvo.node_rects.extend(antes.node_rects);
+    // `box_rects` é a geometria por CAIXA (era `node_rects`, por nó); a
+    // fusão continua sendo uma simples união de mapas — as chaves de `antes`
+    // e `alvo` não colidem, porque vêm de subárvores disjuntas.
+    alvo.box_rects.extend(antes.box_rects);
     alvo.grid_column_tracks.extend(antes.grid_column_tracks);
     alvo.scroll_regions.splice(0..0, antes.scroll_regions);
 }

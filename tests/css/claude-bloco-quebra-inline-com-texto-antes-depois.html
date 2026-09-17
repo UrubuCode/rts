@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-1, motivador da árvore de caixas): CSS 2.1 §9.2.1.1 diz que um
+     elemento de bloco DENTRO de um contexto inline força a geração de caixas
+     de bloco anónimas — o conteúdo inline antes do bloco vira uma caixa
+     anónima, o bloco fica com a SUA própria caixa, e o conteúdo inline depois
+     vira outra. Hoje `crates/rts-dom/src/layout/runs.rs` não testa
+     `is_block_level` no `walk` de `collect_runs`: o `<div>` cai no ramo
+     genérico de inline e o laço desce aos filhos dele como se fosse um
+     `<span>` transparente. Larguras/alturas do `<div>`, e a quebra que ele
+     devia forçar, desaparecem por completo — medido com
+     `target/baseline-raster.exe`: 0 itens pintados (o fundo verde do `#bloco`
+     nunca aparece), e o `#seguinte` sobe para logo abaixo do texto em vez de
+     ficar abaixo da caixa do bloco. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; }
+  #bloco { background: #0f0; height: 30px; }
+  #seguinte { background: #00f; height: 10px; }
+</style></head>
+<body>
+  <span id="quebra">antes<div id="bloco"></div>depois</span>
+  <div id="seguinte"></div>
+</body>
+</html>

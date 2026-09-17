@@ -5,9 +5,22 @@
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
 
 use super::*;
+use crate::boxes::{BoxId, BoxTree};
+
+/// Um elemento fora do fluxo já associado à caixa desta construção da árvore.
+/// A busca ainda começa no DOM porque `display:none` e a relação de
+/// ancestralidade são perguntas do documento; depois dela não se redescobre
+/// uma caixa por `NodeIdx` durante medição ou emissão.
+#[derive(Clone, Copy)]
+pub(in crate::layout) struct OutOfFlowBox {
+    pub(in crate::layout) node: NodeIdx,
+    pub(in crate::layout) caixa: BoxId,
+}
 /// O rect do CONTAINING BLOCK de um `position:absolute` = o ancestral mais próximo
-/// com `position != static` (relative/absolute/fixed), lido do `node_rects` do
-/// fluxo. `None` = nenhum ancestral positioned → o containing block é a viewport
+/// com `position != static` (relative/absolute/fixed), lido de `flow_rects` — a
+/// geometria por NÓ do fluxo (`list.geometry_now().rects`; era `list.node_rects`
+/// antes da árvore de caixas, hoje agregada de `box_rects` por `rect_of_node`).
+/// `None` = nenhum ancestral positioned → o containing block é a viewport
 /// (a raiz inicial). Um `fixed` sempre usa a viewport (tratado no caller).
 fn containing_block_rect(
     dom: &Dom,
@@ -24,8 +37,8 @@ fn containing_block_rect(
             .unwrap_or(false);
         if positioned {
             // O containing block é a PADDING BOX do ancestral (CSS 2.1 §10.1),
-            // não a border box guardada em `node_rects` — ver
-            // `caixa_contentora.rs` para o achado (a referência de 31 dos 33
+            // não a border box guardada em `flow_rects` (a geometria por nó) —
+            // ver `caixa_contentora.rs` para o achado (a referência de 31 dos 33
             // reftests `flex-align-justify-familia` tem um `border` no
             // ancestral e desviava 1px nos dois eixos sem esta conversão).
             if let (Some(r), Some(css_p)) = (flow_rects.get(&p), css_p) {
@@ -49,7 +62,12 @@ fn containing_block_rect(
 
 /// DFS que coleta os nós `position:absolute/fixed`. Não desce DENTRO de um
 /// out-of-flow (os filhos dele pertencem ao layout dele; abs-dentro-de-abs = v2).
-pub(in crate::layout) fn collect_out_of_flow(dom: &Dom, id: NodeIdx, out: &mut Vec<NodeIdx>) {
+pub(in crate::layout) fn collect_out_of_flow(
+    dom: &Dom,
+    tree: &BoxTree,
+    id: NodeIdx,
+    out: &mut Vec<OutOfFlowBox>,
+) {
     for &child in &dom.node(id).children {
         // `display:none` num ANCESTRAL remove a subárvore inteira do layout, e o
         // fora de fluxo não é exceção: um `position:absolute` dentro de um ramo
@@ -64,10 +82,19 @@ pub(in crate::layout) fn collect_out_of_flow(dom: &Dom, id: NodeIdx, out: &mut V
             continue;
         }
         if is_out_of_flow(dom, child) {
-            out.push(child);
-        } else {
-            collect_out_of_flow(dom, child, out);
+            let caixa = match tree.boxes_of(child) {
+                [caixa] => *caixa,
+                [] => continue,
+                caixas => panic!(
+                    "o fora do fluxo {child} gerou {} caixas; a sua blockificação precisa ser representada pela BoxTree",
+                    caixas.len()
+                ),
+            };
+            out.push(OutOfFlowBox { node: child, caixa });
         }
+        // O pai precisa entrar antes do filho: a BoxTree preserva ambos os
+        // BoxIds, e a passada de layout usa o rect do pai como containing block.
+        collect_out_of_flow(dom, tree, child, out);
     }
 }
 
@@ -87,11 +114,12 @@ pub(in crate::layout) fn e_display_none(dom: &Dom, id: NodeIdx) -> bool {
 /// dos dois no eixo → 0).
 pub(in crate::layout) fn layout_out_of_flow(
     dom: &Dom,
-    id: NodeIdx,
+    alvo: OutOfFlowBox,
     ctx: &LayoutCtx,
     flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
     list: &mut DisplayList,
 ) {
+    let id = alvo.node;
     let css = dom.computed_style_idx(id).unwrap_or_default();
     // CONTAINING BLOCK: `absolute` posiciona contra o ancestral positioned mais
     // próximo (o Google ancora os ícones no canto direito da CAIXA DE BUSCA, não
@@ -136,6 +164,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     let (w, h) = measure_block(
         dom,
         id,
+        Some(alvo.caixa),
         cb.w,
         Some(cb.h),
         forced_outer_w,
@@ -166,6 +195,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     layout_block(
         dom,
         id,
+        Some(alvo.caixa),
         x,
         y,
         cb.w,

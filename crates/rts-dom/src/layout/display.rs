@@ -5,6 +5,7 @@
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
 
 use super::*;
+use crate::boxes::{BoxId, BoxTree};
 /// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;
 /// o backend soma seu próprio offset de tela ao pintar). Unidade: pontos (f32).
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -18,6 +19,25 @@ pub struct Rect {
 impl Rect {
     pub fn new(x: f32, y: f32, w: f32, h: f32) -> Rect {
         Rect { x, y, w, h }
+    }
+
+    /// The bounding rectangle of `self` and `other`.
+    ///
+    /// Extracted from `inline_box::union_rect`'s arithmetic — that function
+    /// keeps its own copy for now, so the duplication is real and temporary:
+    /// it closes once `union_rect` itself is rewritten against the box tree,
+    /// which is someone else's lot. Unlike `union_rect`, this has no
+    /// sentinel to skip: a reserved placeholder now lives in a SEPARATE
+    /// `box_rects` entry keyed by `BoxId`, so a box that was never written
+    /// simply has no entry there. The ambiguity a single per-node slot had —
+    /// "empty box at the origin" vs. "no box yet" — cannot arise once each
+    /// box has its own key; it dies by construction, not by a special case.
+    pub fn union(self, other: Rect) -> Rect {
+        let x = self.x.min(other.x);
+        let y = self.y.min(other.y);
+        let right = (self.x + self.w).max(other.x + other.w);
+        let bottom = (self.y + self.h).max(other.y + other.h);
+        Rect::new(x, y, right - x, bottom - y)
     }
 }
 
@@ -186,6 +206,19 @@ pub enum DisplayItem {
         color: u32,
         size: f32,
         mono: bool,
+        /// `true` quando a familia computada resolve na fonte de teste Ahem.
+        ///
+        /// Um BIT e nao a lista de familias: quem o le e o rasterizador, e a
+        /// unica pergunta que ele faz e se pode desenhar o glifo como o
+        /// retangulo solido que a Ahem define. Carregar a lista inteira por
+        /// item de texto pagaria uma alocacao por fragmento reusado para
+        /// responder a um booleano.
+        ///
+        /// Fora da Ahem o rasterizador continua a mascarar o texto, e isso e
+        /// deliberado: desenhar uma fonte real precisa de um motor de fontes
+        /// que este crate nao tem, e inventar retangulos para ela faria falhar
+        /// reftests que hoje passam por outra razao.
+        is_ahem: bool,
         bold: bool,
         /// `font-style: italic`/`oblique`. Um bit à parte do `bold` e não um
         /// "peso" — no browser são dois eixos independentes (`<em><strong>` é
@@ -265,8 +298,24 @@ pub struct ScrollRegion {
 /// A saída do layout: a lista plana de itens de pintura, em z-order. É o ÚNICO
 /// que o backend de render consome. Sem nenhuma referência à árvore — o layout já
 /// consumiu a topologia (herança/cascade/box model) ao produzir esta lista.
-#[derive(Clone, Default, PartialEq, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct DisplayList {
+    /// The box tree this list was laid out against, memoised on the `Dom`
+    /// (`Dom::box_tree`).
+    ///
+    /// This is what lets `record_node_rect`/`reserve_node_order` translate a
+    /// `NodeIdx` to the box(es) it owns from inside `itens.rs`, so none of
+    /// their nine callers has to learn about `BoxId` — the fix for invariant
+    /// I1 in `docs/ui/html-engine/box-tree.md` §7. `Rc` and not a borrow:
+    /// this list can outlive the layout pass that built it (it is cached),
+    /// and cloning the `Rc` guarantees it is always read against the SAME
+    /// tree it was built against, never half of one tree and half of
+    /// another because the memo on the `Dom` moved on in between.
+    ///
+    /// `BoxTree` derives `Default`, so `Rc<BoxTree>` does too — an empty
+    /// tree with no boxes — which is what keeps the five
+    /// `DisplayList::default()` call sites compiling unchanged.
+    pub tree: std::rc::Rc<BoxTree>,
     pub items: Vec<DisplayItem>,
     /// Subárvores emitidas por REFERÊNCIA, com a posição no meio dos itens
     /// próprios e o deslocamento a aplicar.
@@ -284,25 +333,57 @@ pub struct DisplayList {
     pub canvas_background: u32,
     /// Altura total ocupada pelo conteúdo (para o backend dimensionar o scroll).
     pub content_height: f32,
-    /// Geometria por NÓ (border-box, em coordenadas de conteúdo) — a base do
-    /// `element.getBoundingClientRect()`/`offsetWidth`/etc. Preenchido durante o
-    /// layout: cada bloco registra seu retângulo (margin EXCLUÍDA — border-box, como
-    /// o `getBoundingClientRect` do browser); elementos inline recebem a união dos
-    /// fragmentos de linha; nós de texto não entram.
-    pub node_rects: crate::fasthash::FastMap<NodeIdx, Rect>,
+    /// Geometria por CAIXA (border-box, em coordenadas de conteúdo) — a base
+    /// de `element.getBoundingClientRect()`/`offsetWidth`/etc. Preenchido
+    /// durante o layout: cada bloco regista o retângulo da sua caixa (margin
+    /// EXCLUÍDA — border-box, como o `getBoundingClientRect` do browser);
+    /// nós de texto não entram.
+    ///
+    /// Chaveado por `BoxId` e não por `NodeIdx` — a mudança central do lote
+    /// BT-1. Enquanto a árvore for o espelho (uma caixa por elemento) isto é
+    /// indistinguível da forma antiga: é o que faz este lote não mudar
+    /// resposta nenhuma. `rect_of_node` e `geometry_now` são as vistas
+    /// agregadas por nó, para quando um nó vier a ter mais do que uma caixa.
+    pub box_rects: crate::fasthash::FastMap<BoxId, Rect>,
     /// Tracks de coluna de grids explícitos, já resolvidas em px pelo layout. O
     /// `computedProperty` usa esta fonte de used values sem duplicar `resolve_tracks`.
     pub grid_column_tracks: crate::fasthash::FastMap<NodeIdx, Vec<f32>>,
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
     /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,
-    /// Nós em ordem de pintura para hit-test: ancestrais antes de descendentes,
-    /// irmãos na ordem documental e elementos fora do fluxo por `z-index` crescente.
-    /// O último nó que contém o ponto é o que está visualmente no topo.
-    pub hit_order: Vec<NodeIdx>,
+    /// Caixas em ordem de pintura para hit-test: ancestrais antes de
+    /// descendentes, irmãos na ordem documental e elementos fora do fluxo por
+    /// `z-index` crescente. A última caixa que contém o ponto é a que está
+    /// visualmente no topo.
+    ///
+    /// `BoxId` e não `NodeIdx`, pela mesma razão de `box_rects`: é a caixa
+    /// que foi pintada. A pergunta pública continua "que NÓ está sob o
+    /// ponto" — `geometry_now` traduz cada entrada com `tree.node_of` ao
+    /// montar a `Geometry`, e é aí que a resposta volta a ser por nó.
+    pub hit_order: Vec<BoxId>,
     /// A geometria completa, montada sob demanda a partir da árvore. Não entra
     /// no `PartialEq` nem no `Clone` lógico: é derivada.
     geometry_cache: std::cell::RefCell<Option<std::rc::Rc<Geometry>>>,
+}
+
+/// Equal when everything a repaint or a hit-test could observe is equal.
+///
+/// `tree` and `geometry_cache` are excluded on purpose — both, the comment on
+/// `geometry_cache` already said before `tree` existed, are DERIVED from the
+/// same document that produced `box_rects`/`hit_order`. Comparing `tree` would
+/// add nothing and would force `BoxTree`/`LayoutBox` to carry `PartialEq` for
+/// no other reason.
+impl PartialEq for DisplayList {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items
+            && self.children == other.children
+            && self.canvas_background == other.canvas_background
+            && self.content_height == other.content_height
+            && self.box_rects == other.box_rects
+            && self.grid_column_tracks == other.grid_column_tracks
+            && self.scroll_regions == other.scroll_regions
+            && self.hit_order == other.hit_order
+    }
 }
 
 /// A geometria de uma passada de layout, já com as subárvores reusadas somadas.
@@ -314,26 +395,48 @@ pub struct Geometry {
 }
 
 /// Acumula a geometria de um fragmento e das subárvores dele, deslocada.
-fn collect_geometry(fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
+///
+/// O fragmento guarda a geometria por CAIXA e a `Geometry` responde por NÓ —
+/// é aqui que a tradução acontece, e é por isso que a árvore entra. Várias
+/// caixas de um nó unem-se, que é o que `getBoundingClientRect` pede; uma
+/// caixa ANÓNIMA não tem nó e não entra na `Geometry` de todo, o que é a
+/// resposta certa: a ponte promete caixas de elementos, e uma caixa que o
+/// documento não tem não é consultável por `NodeId` nenhum.
+fn collect_geometry(
+    tree: &crate::boxes::BoxTree,
+    fragment: &Fragment,
+    dx: f32,
+    dy: f32,
+    out: &mut Geometry,
+) {
     let moved = dx != 0.0 || dy != 0.0;
-    for (idx, rect) in fragment.rects.iter() {
+    for (box_id, rect) in fragment.rects.iter() {
+        let Some(node) = tree.node_of(*box_id) else { continue };
         let mut rect = *rect;
         if moved {
             rect.x += dx;
             rect.y += dy;
         }
-        out.rects.insert(*idx, rect);
+        out.rects
+            .entry(node)
+            .and_modify(|r| *r = r.union(rect))
+            .or_insert(rect);
     }
     let mut next = 0usize;
     for child in &fragment.children {
         while next < child.hit_at && next < fragment.hit_order.len() {
-            out.hit_order.push(fragment.hit_order[next]);
+            if let Some(node) = tree.node_of(fragment.hit_order[next]) {
+                out.hit_order.push(node);
+            }
             next += 1;
         }
-        collect_geometry(&child.fragment, dx + child.dx, dy + child.dy, out);
+        collect_geometry(tree, &child.fragment, dx + child.dx, dy + child.dy, out);
     }
-    out.hit_order
-        .extend_from_slice(&fragment.hit_order[next.min(fragment.hit_order.len())..]);
+    for &box_id in &fragment.hit_order[next.min(fragment.hit_order.len())..] {
+        if let Some(node) = tree.node_of(box_id) {
+            out.hit_order.push(node);
+        }
+    }
     for region in fragment.scroll_regions.iter() {
         let mut region = *region;
         if moved {
@@ -345,6 +448,23 @@ fn collect_geometry(fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
 }
 
 impl DisplayList {
+    /// An empty list that already carries the document box tree.
+    ///
+    /// **Use this and not `default()` for any list layout writes into.** The
+    /// translation from node to box happens through `tree`, so a list built
+    /// with `default()` has an EMPTY tree, `boxes_of` answers nothing, and
+    /// every rectangle written into it is silently dropped. That is not a
+    /// hypothetical: it is what 322 tests failed with before this existed.
+    ///
+    /// `default()` stays for the callers that never receive geometry — a probe,
+    /// a test that only reads items.
+    pub fn for_dom(dom: &crate::dom::Dom) -> Self {
+        DisplayList {
+            tree: dom.box_tree(),
+            ..Default::default()
+        }
+    }
+
     /// Todos os itens a pintar, em z-order, cada um com o deslocamento a somar.
     ///
     /// Anda a ÁRVORE de fragmentos: um item de uma subárvore reusada sai daqui
@@ -405,29 +525,75 @@ impl DisplayList {
     /// o hit-test lendo uma geometria anterior aos `position:absolute`, que foi
     /// exatamente o que um teste de `z-index` acusou.
     pub fn geometry_now(&self) -> Geometry {
+        // Agrega `box_rects` (por CAIXA) em `rects` (por NÓ) — o limite de
+        // agregação que o §6 do desenho da árvore de caixas pede. Enquanto a
+        // árvore for o espelho, cada nó tem no máximo uma caixa e isto é uma
+        // cópia; deixa de ser quando um nó vier a ter várias.
+        let mut rects: crate::fasthash::FastMap<NodeIdx, Rect> = crate::fasthash::FastMap::default();
+        for (&box_id, rect) in self.box_rects.iter() {
+            if let Some(node) = self.tree.node_of(box_id) {
+                match rects.get_mut(&node) {
+                    Some(existing) => *existing = existing.union(*rect),
+                    None => {
+                        rects.insert(node, *rect);
+                    }
+                }
+            }
+        }
         let mut g = Geometry {
-            rects: self.node_rects.clone(),
+            rects,
             hit_order: Vec::with_capacity(self.hit_order.len()),
             scroll_regions: self.scroll_regions.clone(),
         };
         // Intercala a ordem de hit-test pelo ponto de entrada de cada subárvore:
         // a ordem É o z-order, e concatenar inverteria quem está por cima.
+        // Cada entrada é uma CAIXA (`hit_order` é `Vec<BoxId>`); a `Geometry`
+        // responde por NÓ, então a tradução acontece aqui — uma caixa
+        // anónima (`node_of` devolve `None`) simplesmente não entra.
         let mut next = 0usize;
         for child in &self.children {
             while next < child.hit_at && next < self.hit_order.len() {
-                g.hit_order.push(self.hit_order[next]);
+                if let Some(node) = self.tree.node_of(self.hit_order[next]) {
+                    g.hit_order.push(node);
+                }
                 next += 1;
             }
-            collect_geometry(&child.fragment, child.dx, child.dy, &mut g);
+            collect_geometry(&self.tree, &child.fragment, child.dx, child.dy, &mut g);
         }
-        g.hit_order
-            .extend_from_slice(&self.hit_order[next.min(self.hit_order.len())..]);
+        for &box_id in &self.hit_order[next.min(self.hit_order.len())..] {
+            if let Some(node) = self.tree.node_of(box_id) {
+                g.hit_order.push(node);
+            }
+        }
         g
     }
 
-    /// O retângulo de um nó, se ele foi desenhado.
+    /// O retângulo de um nó, se ele foi desenhado — a união dos das suas
+    /// caixas, via `Geometry` (que já cacheia).
     pub fn rect_of(&self, node: NodeIdx) -> Option<Rect> {
         self.geometry().rects.get(&node).copied()
+    }
+
+    /// O retângulo de um NÓ: a união dos retângulos das caixas que ele
+    /// gerou. Par de `rect_of`, sem passar por `Geometry` nem pelo cache —
+    /// para um chamador que já tem um `NodeIdx` isolado e não quer montar a
+    /// geometria completa da lista.
+    ///
+    /// Enquanto a árvore for o espelho (BT-1 fase 1), `boxes_of` devolve no
+    /// máximo uma caixa, então isto é exatamente o retângulo dela, ou `None`
+    /// para um nó que não gerou caixa nenhuma (texto, `display:none`) ou
+    /// ainda não foi layoutado.
+    pub fn rect_of_node(&self, node: NodeIdx) -> Option<Rect> {
+        let mut acc: Option<Rect> = None;
+        for &box_id in self.tree.boxes_of(node) {
+            if let Some(rect) = self.box_rects.get(&box_id) {
+                acc = Some(match acc {
+                    Some(a) => a.union(*rect),
+                    None => *rect,
+                });
+            }
+        }
+        acc
     }
 
     /// HIT-TEST: o nó sob o ponto `(x, y)` em COORDENADAS DE CONTEÚDO (o backend

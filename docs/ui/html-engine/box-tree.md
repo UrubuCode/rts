@@ -100,13 +100,24 @@ Three kinds, and three because the evidence above asks for three:
 already uses for nodes. Not `Rc<RefCell<…>>`: the tree is built in one pass,
 read many times, and dropped whole.
 
-**Style enters as `Rc<ComputedStyle>`**, which is what `computed_style_idx`
-already returns — it shares the same `Rc` when there is no animation, and a
-`ComputedStyle` is about a kilobyte. Several boxes of one element therefore
-share one allocation rather than cloning it. An anonymous box inherits the
-`Rc` of the box that generated it, which is exactly what the CSS anonymous-box
-rules ask for: an anonymous box has no declarations of its own.
+**A box does not STORE a style — it stores the node whose style is its own.**
+An element box names its element; an anonymous box names the element whose box
+the CSS rules split to produce it, which is exactly the rule that an anonymous
+box has no declarations of its own and takes the inherited properties of its
+generator.
 
+**This was not the first design, and the reason it changed is worth keeping.**
+The box used to hold an `Rc<ComputedStyle>` captured when the tree was built —
+cheap, shared, and wrong. The tree is memoised by `(revision, style_epoch)` and
+deliberately NOT by `anim_epoch`, because rebuilding it every frame of every
+transition would undo the reason the style memo separates those two. But the
+style accessor DOES include `anim_epoch`. A captured style is therefore one
+frame behind for the whole of an animation, and every reader would be wrong
+with nothing to say so — the silent class this repository exists to refuse.
+
+It was found by an agent migrating the layout, who reached for the captured
+style, saw the mismatch, and stopped. Asking the document each time costs a memo
+hit and an `Rc` clone. It is also smaller: no `Rc` per box.
 **A text box carries the resolved inline properties, not a style pointer.**
 `computed_style_idx` returns `None` for a text node — it matches only
 `NodeKind::Element` — and `collect_runs` already threads colour, weight, italic,
@@ -280,3 +291,109 @@ side drawing and the other not). It does not implement subgrid. It does not fix
 the two font metric constants that were calibrated separately, nor the
 containing block that does not know which axis it is on — both are smaller,
 both are independent, and both are worth doing first.
+
+---
+
+## 10. The base, as it stands — the contract to build on
+
+Written 2026-09-16, after the three holes found while building it were closed.
+Anything below is what a lot may ASSUME; anything not below is not there yet.
+The tests that pin each line are in `crates/rts-dom/src/boxes/tests.rs`.
+
+### What the tree holds
+
+One box per ELEMENT the cascade accepts, one per TEXT node, and — where CSS 2.1
+§9.2.1.1 applies — **several boxes for the split inline plus one anonymous block
+box per inline run**. No box for a comment, none for `display: none`, none for a
+run of collapsible whitespace the split declined to wrap, and no table fixups or
+generated content yet — those are BT-4 and BT-5.
+
+**The shape of the split, because it is the one place the tree is not a mirror.**
+For `<p><span>a<div>b</div>c</span></p>` the `<p>` box has three children: an
+anonymous block enclosing a FRAGMENT of the span (an element box, which is what
+carries the span's own border and background), the `<div>` as their SIBLING, and
+a second anonymous block with the second fragment. The anonymous boxes rise to
+the CONTAINER — a sibling of boxes nested inside the inline would not be a
+sibling — and they inherit from the container, which is the enclosing
+non-anonymous box. `boxes/build.rs` quotes the rule and draws the tree.
+
+**Two consequences a reader must not assume away.** `boxes_of(node)` may return
+MORE THAN ONE box, so `.first()` is one fragment of several; and an anonymous
+box's children are not its style source's children — they are one RUN of them.
+
+### The three rules, and the hole each one closed
+
+**A `BoxId` names a build, not just a slot.** It carries the generation of the
+tree that issued it, and every accessor refuses an id from another build with a
+message naming both. The hole: the tree is memoised by `(revision,
+style_epoch)`, so a style-only change yields a NEW tree at the SAME revision —
+a generation taken from the revision would have let a stale id pass the check
+and read the wrong arena. `Dom::next_box_generation` counts BUILDS for that
+reason. Never store a `BoxId` across a rebuild; if a cache must survive one,
+key it by node and translate on the way in.
+
+**A box stores the SOURCE of its style, never a copy.** `style_source(id)`
+answers the node whose computed style applies — the element itself, or, for an
+anonymous or text box, the element it inherits from — and `style(dom, id)` asks
+the DOM fresh. The hole: a copy taken at build time goes stale the moment a
+style epoch bumps without a DOM revision, which is precisely the case the memo
+key exists to catch. **Any derived value follows the same rule**: compute it on
+demand, do not cache it on the box.
+
+**A box knows what it is by the two-value display model.**
+`formatting_context(dom, id)` answers `outer` (block-level or inline-level to
+its siblings), `inner` (flow, flex, grid or table for its children) and
+`independent` (does it contain its own floats and margins). The hole:
+`layout::caixa::is_block_level` looks like the outer-display question and is
+not — it answers "does this element go through `layout_block`", so an
+`inline-block` or `inline-flex` answers `true` there while being inline-LEVEL.
+**Do not use `is_block_level` to mean outer display.** The two coexist, they
+mean different things, and `boxes/context.rs` carries the divergence in full.
+
+### The one question that needs the tree
+
+`runs_inline_formatting_context(dom, id)` — whether a flow container lays its
+children out as lines or as a stack. CSS decides it by looking at the CHILDREN,
+and after the block-in-inline split a box's children are not its node's
+children. Asking the DOM answers about a shape that no longer exists. Any lot
+that wants to know "is this an inline formatting context" asks the tree.
+
+### What the base does NOT do yet, and must not be assumed
+
+- **Layout takes the child ORDER from the tree, and this line replaces one that
+  said the opposite.** The block flow walks `tree.children(box)`: a text box
+  arrives with its box, and an anonymous box is ENTERED rather than skipped.
+  What still comes from the DOM is a node that generates NO box — today only a
+  comment — spliced back at its DOM position, because letting it fall through
+  closes an inline-block run and breaks margin collapsing between the two
+  blocks around it. That is a refusal with a measured reason, not an omission.
+- **The mirror-equivalence assert is gone, and what replaced it is weaker in
+  one dimension.** Once the order comes from the tree there are no longer two
+  sequences to compare, so the old assertion is not expressible. In its place:
+  a plain `assert_eq!` on the GENERATION, a `debug_assert` that every visited
+  box is a child of the one descended through, and one that no box naming a
+  node was dropped. None of them compares the tree against the DOM child by
+  child. Said plainly rather than dressed up as equivalent.
+- **An anonymous box IS laid out as the block box it is**, and this line
+  replaces one that said it was expanded into its children instead.
+  `layout/bloco_caixa.rs` is the block path that accepts a box with no node: it
+  takes the container's content box and stacks the run in it, which is all an
+  anonymous box needs — no width to resolve, no margin, no border, no
+  background, no `float`, no `clear`, no generated content. What it does NOT do
+  is named in its own header: no fragment cache (the key is a `NodeIdx` and it
+  has none), no geometry entry, no stacking context.
+- **The inline flow CONSULTS the tree, and only inside the split.**
+  `runs::collect_runs` takes the box of a node with more than one box — a
+  fragment — and then walks `tree.children` instead of the DOM's, which is what
+  stops it descending into the `<div>` that split the inline. Every other node
+  passes `None` and the walk is the DOM's, unchanged. Without this the partition
+  is built and never seen: a plain `<span>` never reaches `layout_block`.
+- **Fragments are keyed by `NodeIdx`, deliberately.** A cached fragment can
+  outlive the tree that produced it, and a `BoxId` in one would name a slot in
+  an arena that has been rebuilt. Moving them is the fragment-tree wave, not a
+  local edit.
+- **No formatting context is IMPLEMENTED here.** `inner` says which algorithm
+  applies; running it is still `layout`'s.
+- **Whitespace is not decided here.** Which whitespace survives is a question
+  about `white-space` and about the neighbours in a line, and `quebra.rs` owns
+  it. Deciding it twice is the second-truth failure this module exists to avoid.

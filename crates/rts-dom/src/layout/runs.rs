@@ -6,7 +6,7 @@
 
 use super::*;
 /// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).
-/// `atomic: Some((idx, kind))` = uma CAIXA em vez de texto — um widget de
+/// `atomic: Some((idx, caixa, kind))` = uma CAIXA em vez de texto — um widget de
 /// formulário, um replaced element (`<img>`), ou o marcador de um inline vazio.
 /// As duas primeiras fluem como uma "palavra" inquebrável de `ww × wh` pontos
 /// (item 8 do handoff #1793; os botões 'Pesquisa Google' do google legado vivem
@@ -23,7 +23,7 @@ pub(in crate::layout) struct InlineRun {
     pub(in crate::layout) deco: u8,
     /// Elementos inline ancestrais deste run. Cada um recebe a união dos fragmentos.
     pub(in crate::layout) owners: Vec<NodeIdx>,
-    pub(in crate::layout) atomic: Option<(NodeIdx, AtomicKind)>,
+    pub(in crate::layout) atomic: Option<(NodeIdx, Option<crate::boxes::BoxId>, AtomicKind)>,
     pub(in crate::layout) ww: f32,
     pub(in crate::layout) wh: f32,
 }
@@ -110,6 +110,22 @@ pub(in crate::layout) fn pseudo_run(
 pub(in crate::layout) fn collect_runs(
     dom: &Dom,
     id: NodeIdx,
+    // A CAIXA de `id`, quando ela decide por onde se desce.
+    //
+    // **É o que faz o fluxo inline VER a partição do CSS 2.1 §9.2.1.1.** Um
+    // `<span>` com um `<div>` dentro nunca chega a `layout_block` — quem o
+    // dispõe é este varredor, e ele lia `dom.node(span).children`, onde o
+    // `<div>` continua a estar: descia nele como se o `<span>` fosse
+    // transparente, e `width`, `height`, `background`, `padding` e `margin` do
+    // bloco eram deitados fora. Com a caixa, os filhos vêm de
+    // `tree.children(caixa)` — e a caixa de um FRAGMENTO do inline partido só
+    // tem a corrida dela, sem o bloco, que a árvore já pôs como irmão.
+    //
+    // `None` para todos os outros, e aí os filhos voltam a vir do DOM: a
+    // mudança fica dentro da subárvore que a partição criou, e não é uma
+    // segunda travessia a estrear-se em toda a página.
+    caixa: Option<crate::boxes::BoxId>,
+    tree: &crate::boxes::BoxTree,
     parent_css: &ComputedStyle,
     avail_w: f32,
     ctx: &LayoutCtx,
@@ -118,9 +134,11 @@ pub(in crate::layout) fn collect_runs(
     let mut runs = Vec::new();
     walk(
         dom,
+        tree,
         ctx,
         avail_w,
         id,
+        caixa,
         cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF)),
         decoration_code(parent_css),
         parent_css.text_transform,
@@ -131,11 +149,44 @@ pub(in crate::layout) fn collect_runs(
     );
     return runs;
 
+    /// Os filhos por onde este varredor desce, e a caixa de cada um.
+    ///
+    /// Com caixa, a ÁRVORE decide: é o que exclui o filho de bloco que partiu
+    /// este inline, porque ele já não é filho do fragmento. Sem caixa, o DOM,
+    /// como sempre foi. As duas listas são o mesmo conjunto fora da partição —
+    /// um comentário não gera caixa e este varredor já o ignorava, e um
+    /// `display:none` gera caixa e continua a ser recusado por `e_display_none`.
+    fn filhos_do_varrimento(
+        dom: &Dom,
+        tree: &crate::boxes::BoxTree,
+        id: NodeIdx,
+        caixa: Option<crate::boxes::BoxId>,
+    ) -> Vec<(NodeIdx, Option<crate::boxes::BoxId>)> {
+        let Some(b) = caixa else {
+            return dom.node(id).children.iter().map(|&c| (c, None)).collect();
+        };
+        tree.children(b)
+            .iter()
+            .map(|&cb| {
+                // Uma caixa ANÓNIMA aqui seria a partição a criar uma onde não
+                // cria — ela só aparece no CONTENTOR. Deixá-la cair em silêncio
+                // perdia a corrida inteira que ela envolve.
+                let no = tree
+                    .node_of(cb)
+                    .expect("uma caixa anonima dentro de um fragmento inline");
+                (no, Some(cb))
+            })
+            .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn walk(
         dom: &Dom,
+        tree: &crate::boxes::BoxTree,
         ctx: &LayoutCtx,
         avail_w: f32,
         id: NodeIdx,
+        caixa: Option<crate::boxes::BoxId>,
         inherited_color: u32,
         inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
@@ -213,7 +264,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Widget)),
+                        atomic: Some((id, caixa, AtomicKind::Widget)),
                         ww,
                         wh,
                     });
@@ -234,7 +285,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Break)),
+                        atomic: Some((id, caixa, AtomicKind::Break)),
                         ww: 0.0,
                         wh: 0.0,
                     });
@@ -258,7 +309,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Replaced)),
+                        atomic: Some((id, caixa, AtomicKind::Replaced)),
                         ww,
                         wh,
                     });
@@ -270,7 +321,7 @@ pub(in crate::layout) fn collect_runs(
                 // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
                 // real isso multiplicava a altura do documento por ~2,7.
                 if is_inline_block(dom, id) {
-                    let (bw, bh) = measure_block(dom, id, avail_w, None, None, None, true, ctx);
+                    let (bw, bh) = measure_block(dom, id, caixa, avail_w, None, None, None, true, ctx);
                     let mut owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
@@ -280,7 +331,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners: std::mem::take(&mut owners),
-                        atomic: Some((id, AtomicKind::Block)),
+                        atomic: Some((id, caixa, AtomicKind::Block)),
                         ww: bw,
                         wh: bh,
                     });
@@ -351,7 +402,7 @@ pub(in crate::layout) fn collect_runs(
                     italic: false,
                     deco: 0,
                     owners: owners.to_vec(),
-                    atomic: Some((id, kind)),
+                    atomic: Some((id, caixa, kind)),
                     ww,
                     wh: 0.0,
                 };
@@ -377,8 +428,11 @@ pub(in crate::layout) fn collect_runs(
                     color,
                     italic,
                 ));
-                for &c in &dom.node(id).children {
-                    walk(dom, ctx, avail_w, c, color, deco, tt, bold, italic, &owners, out);
+                for (c, cb) in filhos_do_varrimento(dom, tree, id, caixa) {
+                    walk(
+                        dom, tree, ctx, avail_w, c, cb, color, deco, tt, bold, italic, &owners,
+                        out,
+                    );
                 }
                 out.extend(pseudo_run(
                     dom,
@@ -404,7 +458,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, AtomicKind::Marker)),
+                        atomic: Some((id, caixa, AtomicKind::Marker)),
                         ww: 0.0,
                         wh: 0.0,
                     });

@@ -75,7 +75,7 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_inline_block_line(
     dom: &Dom,
-    run: &[NodeIdx],
+    run: &[(NodeIdx, Option<crate::boxes::BoxId>)],
     content_x: f32,
     y: f32,
     content_w: f32,
@@ -88,15 +88,15 @@ pub(in crate::layout) fn layout_inline_block_line(
     // 1) mede a largura+altura desejada (shrink) de cada item numa lista descartável,
     //    junto com o `vertical-align` dele — `None` (não declarado) continua a
     //    alinhar pelo TOPO, o corte que o doc do módulo de alinhamento explica.
-    let mut sizes: Vec<(NodeIdx, f32, f32, Option<VerticalAlign>, f32, f32)> = Vec::with_capacity(run.len());
-    for (pos, &child) in run.iter().enumerate() {
-        let (measured_w, h) = measure_block(dom, child, content_w, avail_h, None, None, true, ctx);
+    let mut sizes: Vec<(NodeIdx, Option<crate::boxes::BoxId>, f32, f32, Option<VerticalAlign>, f32, f32)> = Vec::with_capacity(run.len());
+    for (pos, &(child, caixa)) in run.iter().enumerate() {
+        let (measured_w, h) = measure_block(dom, child, caixa, content_w, avail_h, None, None, true, ctx);
         let is_submit = matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "input")
             && matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("submit" | "button" | "reset"));
         let is_button = matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "button");
         // `measure_block` devolve a margem externa dos widgets nativos. A
         // posição inline usa a border-box, que é o rect exposto ao DOM.
-        let next_is_button = run.get(pos + 1).is_some_and(|next| matches!(&dom.node(*next).kind, NodeKind::Element { tag } if tag == "button"));
+        let next_is_button = run.get(pos + 1).is_some_and(|&(next, _)| matches!(&dom.node(next).kind, NodeKind::Element { tag } if tag == "button"));
         let w = if is_submit { (measured_w - 6.0).max(0.0) } else if is_button {
             // O botão que antecede outro botão carrega a moldura UA no avanço
             // entre as duas caixas; diante de outro controle, o avanço usado
@@ -112,7 +112,7 @@ pub(in crate::layout) fn layout_inline_block_line(
             0.0
         } else if let (Some(parent), Some(prev_pos)) = (
             dom.node(child).parent,
-            dom.node(child).parent.and_then(|p| dom.node(p).children.iter().position(|&n| n == run[pos - 1])),
+            dom.node(child).parent.and_then(|p| dom.node(p).children.iter().position(|&n| n == run[pos - 1].0)),
         ) {
             let cur_pos = dom.node(parent).children.iter().position(|&n| n == child).unwrap_or(prev_pos + 1);
             if dom.node(parent).children[prev_pos + 1..cur_pos].iter().any(|&n| matches!(&dom.node(n).kind, NodeKind::Text(t) if t.chars().all(crate::inline_box::e_espaco_css))) {
@@ -123,11 +123,11 @@ pub(in crate::layout) fn layout_inline_block_line(
             Some("checkbox") | Some("radio") => (4.0, 4.0),
             _ => (0.0, 0.0),
         };
-        sizes.push((child, w, h, valign, gap + ua_left, ua_right));
+        sizes.push((child, caixa, w, h, valign, gap + ua_left, ua_right));
     }
     // 2) agrupa em LINHAS (soma das larguras ≤ content_w). Cada linha guarda os
     //    itens + a largura total (p/ o alinhamento).
-    type Item = (NodeIdx, f32, f32, Option<VerticalAlign>, f32, f32);
+    type Item = (NodeIdx, Option<crate::boxes::BoxId>, f32, f32, Option<VerticalAlign>, f32, f32);
     let mut lines: Vec<(Vec<Item>, f32)> = Vec::new();
     let mut cur: Vec<Item> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -139,7 +139,7 @@ pub(in crate::layout) fn layout_inline_block_line(
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
     );
     for item in sizes {
-        let w = item.1 + item.4 + item.5;
+        let w = item.2 + item.5 + item.6;
         if quebra && !cur.is_empty() && cur_w + w > content_w {
             lines.push((std::mem::take(&mut cur), cur_w));
             cur_w = 0.0;
@@ -173,15 +173,15 @@ pub(in crate::layout) fn layout_inline_block_line(
         // que punha o caret `::after` do Bootstrap no topo da linha.
         let atomos: Vec<(f32, f32, VerticalAlign)> = items
             .iter()
-            .map(|&(n, _, h, va, _, _)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
+            .map(|&(n, _, _, h, va, _, _)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
             .collect();
         let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
         let familia = parent_css.font_family.as_deref();
         let env = super::alinhamento_vertical::envelope_com_baseline(&atomos, font_size, lh, familia, ctx.measurer);
-        for (&(child, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atomos) {
+        for (&(child, caixa, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atomos) {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
             let base_y = super::alinhamento_vertical::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, familia, ctx.measurer);
-            let line_has_textarea = items.iter().any(|(n, _, _, _, _, _)| matches!(&dom.node(*n).kind, NodeKind::Element { tag } if tag == "textarea"));
+            let line_has_textarea = items.iter().any(|(n, _, _, _, _, _, _)| matches!(&dom.node(*n).kind, NodeKind::Element { tag } if tag == "textarea"));
             let is_mark = matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("checkbox" | "radio"));
             let form_text = matches!(&dom.node(child).kind, NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select")) && !is_mark;
             let item_y = if line_has_textarea && form_text { base_y + 2.5 } else { base_y };
@@ -189,6 +189,7 @@ pub(in crate::layout) fn layout_inline_block_line(
             layout_block(
                 dom,
                 child,
+                caixa,
                 x,
                 item_y,
                 content_w,

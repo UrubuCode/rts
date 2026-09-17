@@ -1,0 +1,32 @@
+<!--
+  Fixture minima para o lote TEXTO (pintar Ahem). Nao pertence ao corpus do
+  WPT -- e so para testar o rasterizador isoladamente enquanto o suporte a
+  familia de fonte nao chega ao `DisplayItem::Text` (ver relatorio do lote).
+
+  Quatro caracteres Ahem a 50px: cada glifo e um retangulo solido preto de
+  50x50 (avanco = 1em = font-size, ascent 0.8em, descent 0.2em), lado a lado
+  sem espaco entre eles (nenhum espaco no texto). Uma vez que o rasterizador
+  souber que a familia e Ahem, `saida.png` deve mostrar QUATRO quadrados
+  pretos de 50x50 colados horizontalmente a partir de (10,10)-ish (depende do
+  box model do body), sobre fundo branco. Hoje (sem o campo de familia em
+  DisplayItem::Text) a area fica mascarada e o PNG mostra so o fundo branco.
+
+  Comando:
+    target/release/examples/claude-raster.exe \
+      crates/rts-dom/examples/claude-ahem-fixture.html /tmp/ahem-saida.png
+  Ver tambem /tmp/ahem-saida.png.mask.json (a area de texto entra na mascara
+  ate a pintura ser ligada) e /tmp/ahem-saida.png.pintados (conta de itens
+  pintados -- 0 hoje para o texto, porque cai so na mascara).
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 10px; background: white; }
+  #alvo { font-family: Ahem; font-size: 50px; line-height: 1; color: black; }
+</style>
+</head>
+<body>
+  <div id="alvo">XXXX</div>
+</body>
+</html>

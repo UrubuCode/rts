@@ -69,6 +69,7 @@ pub(in crate::layout) fn margin_left_usado(
                 | crate::style::DisplayKind::InlineFlex
                 | crate::style::DisplayKind::InlineFlexWrap
                 | crate::style::DisplayKind::Grid
+                | crate::style::DisplayKind::InlineGrid
         )
     );
     let horizontal = parent_css.writing_mode.unwrap_or_default().is_horizontal();

@@ -39,13 +39,13 @@
 //!   fatia futura generaliza `layout_children_horizontal` por eixo (`column` =
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
-use crate::dom::{Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
+use crate::dom::{BoxCacheTarget, Dom, IntrinsicWidthKey, LayoutMeasureKey, LayoutMeasureTarget, NodeIdx, NodeKind};
 use crate::inline_box::{AtomicKind, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod bfc;
 mod bfc_evita_float;
-mod caixa;
+pub(crate) mod caixa;
 mod caixa_contentora;
 mod clearfix;
 mod dimensao_indefinida;
@@ -56,7 +56,9 @@ mod inline_fragmentos;
 mod input;
 mod select;
 mod intrinseco_min_max;
+mod tamanho_intrinseco;
 mod itens;
+mod fonte_metricas;
 mod medida;
 pub mod medidor_ativo;
 mod medidor_texto;
@@ -66,13 +68,16 @@ mod overflow_viewport;
 mod posicao_estatica;
 mod posicionado;
 mod pseudo_bloco;
+mod pseudo_caixa;
 mod relativo;
 mod fundo_imagem;
 mod replaced;
 mod replaced_transferido;
-mod bloco;
+pub(crate) mod bloco;
+mod bloco_caixa;
 mod fragmento;
 mod rtl_bloco;
+mod sequencia;
 mod vertical;
 mod linha_ib;
 mod alinhamento_vertical;
@@ -123,7 +128,7 @@ pub use self::transformacao::{Mat2d, TransformList, TransformOp, MAX_TRANSFORM_O
 pub(crate) use self::bfc::BlockFormattingContext;
 pub(crate) use self::caixa::{font_px, is_non_rendered_tag, used_display};
 pub(crate) use self::float::Exclusao;
-pub(crate) use self::itens::{record_node_rect, reserve_node_order};
+pub(crate) use self::itens::{record_box_rect, record_node_rect, reserve_box_order, reserve_node_order};
 pub(crate) use self::medida::intrinsic_outer_width;
 pub(crate) use self::pintura::border_items;
 pub(crate) use self::posicionado::is_out_of_flow;
@@ -136,6 +141,39 @@ use self::medida::{child_outer_height, child_outer_width, collect_text, content_
 use self::pintura::{apply_opacity, body_background, cor_visivel, decoration_code, deve_suprimir_fundo, is_text_input_tag, italico, tag_de};
 use self::posicionado::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
 use self::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
+
+/// The one-box bridge for legacy callers that still begin at a DOM node.
+///
+/// A layout path that can name the box must pass it through instead. Refusing a
+/// split inline here is intentional: choosing `.first()` would make one half
+/// of the element silently stand in for the other.
+pub(crate) fn unica_caixa_do_no(dom: &Dom, no: NodeIdx) -> Option<crate::boxes::BoxId> {
+    match dom.box_tree().boxes_of(no) {
+        [caixa] => Some(*caixa),
+        [] => None,
+        caixas => panic!(
+            "o layout de bloco recebeu o no {no} com {} caixas; o chamador tem de levar o BoxId exacto",
+            caixas.len()
+        ),
+    }
+}
+
+/// Endereço estável de uma caixa para caches que sobrevivem à reconstrução da
+/// árvore. O `BoxId` é a identidade operacional dentro de uma passada; o par
+/// `(nó, ordinal)` é usado somente na fronteira persistente do cache.
+pub(crate) fn caixa_cache_target(
+    dom: &Dom,
+    no: NodeIdx,
+    caixa: crate::boxes::BoxId,
+) -> BoxCacheTarget {
+    let tree = dom.box_tree();
+    let ordinal = tree
+        .boxes_of(no)
+        .iter()
+        .position(|&candidate| candidate == caixa)
+        .expect("o cache recebeu uma caixa que não pertence ao nó") as u32;
+    BoxCacheTarget { node: no, ordinal }
+}
 
 /// Tamanho de fonte default (pontos) quando o estilo não especifica — base de
 /// `em`/`rem` e do texto sem `font-size`. **16px, o default de todo browser**
@@ -159,6 +197,7 @@ pub struct LayoutCtx<'a> {
 pub(crate) fn measure_block(
     dom: &Dom,
     id: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
     avail_w: f32,
     avail_h: Option<f32>,
     forced_outer_w: Option<f32>,
@@ -166,12 +205,19 @@ pub(crate) fn measure_block(
     shrink_to_fit: bool,
     ctx: &LayoutCtx,
 ) -> (f32, f32) {
+    // A lista descartavel tambem carrega a BoxTree. Os chamadores novos passam
+    // a identidade exata; os poucos caminhos legados de medida que ainda so
+    // sabem o no entram aqui pela caixa unica do espelho, para que a descida
+    // interna nunca perca a sequencia da arvore.
+    let caixa = caixa.or_else(|| unica_caixa_do_no(dom, id));
     let measurer = ctx.measurer.identity();
     let key = LayoutMeasureKey {
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),
         style_epoch: crate::style::props::style_epoch(),
-        node: id,
+        target: caixa
+            .map(|caixa| LayoutMeasureTarget::Caixa(caixa_cache_target(dom, id, caixa)))
+            .unwrap_or(LayoutMeasureTarget::No(id)),
         avail_w: avail_w.to_bits(),
         avail_h: avail_h.map(f32::to_bits),
         forced_outer_w: forced_outer_w.map(f32::to_bits),
@@ -186,10 +232,11 @@ pub(crate) fn measure_block(
         crate::bump!(measure_hits);
         return size;
     }
-    let mut scratch = DisplayList::default();
+    let mut scratch = DisplayList::for_dom(dom);
     let size = layout_block(
         dom,
         id,
+        caixa,
         0.0,
         0.0,
         avail_w,
@@ -254,7 +301,10 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // informa o viewport à CASCADE (base de vw/vh no font-size fluido/calc; o
     // memo de estilo do Dom invalida sozinho se mudou).
     dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
-    let mut list = DisplayList::default();
+    let mut list = DisplayList::for_dom(dom);
+    // A árvore de caixas deste documento, memoizada no `Dom`. Vive na lista
+    // para que `record_node_rect`/`reserve_node_order` (em `itens.rs`)
+    // traduzam nó→caixa por dentro, sem que nenhum dos chamadores mude.
     // PROPAGAÇÃO DO FUNDO do <body>/<html> (regra especial do CSS): o background
     // desses dois elementos "vaza" para o VIEWPORT inteiro, não só a caixa deles.
     // Pintamos PRIMEIRO (atrás de tudo) um retângulo do tamanho do viewport com a cor
@@ -271,8 +321,18 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // que os testes de layout usam para nomear o que estão a verificar.
     list.canvas_background = body_background(dom).unwrap_or(0xFFFF_FFFF);
     let mut cursor_y = 0.0f32;
-    let root = dom.node(dom.root);
-    for &child in &root.children {
+    // A entrada do layout é a árvore de caixas, não a lista de filhos do
+    // documento. Isto importa mesmo quando a forma atual coincide: o `BoxId`
+    // concreto percorre o despacho inteiro sem a ponte `NodeIdx -> caixa
+    // única`, e um nó que não gera caixa simplesmente não aparece aqui.
+    let tree = std::rc::Rc::clone(&list.tree);
+    for caixa in tree.roots() {
+        let Some(child) = tree.node_of(caixa) else {
+            // A raiz do documento não deve produzir uma caixa anónima; não
+            // inventamos geometria se uma extensão futura o fizer sem antes
+            // definir o seu formatting context de topo.
+            continue;
+        };
         // position:absolute/fixed não participa do fluxo, inclusive quando é filho
         // direto do documento; será layoutado na passada final por z-index.
         if is_out_of_flow(dom, child) {
@@ -287,6 +347,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         let (_, h) = layout_block(
             dom,
             child,
+            Some(caixa),
             0.0,
             cursor_y,
             ctx.viewport_w,
@@ -314,45 +375,48 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // de cada nó da árvore, e era 78% de um frame de mutação numa página que não
     // tem um único posicionado.
     if dom.may_have_out_of_flow() {
-        collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+        collect_out_of_flow(dom, &list.tree, dom.root, &mut out_of_flow);
     }
     // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
     // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
     // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
-    out_of_flow.sort_by_key(|&id| empilhamento::z_index_of(dom, id));
+    out_of_flow.sort_by_key(|alvo| empilhamento::z_index_of(dom, alvo.node));
     // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
     // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
     // empréstimo mutável de `list`.
     // A geometria COMPLETA (com as subárvores reusadas): o containing block de
     // um `absolute` pode ser um ancestral cujo retângulo veio de um fragmento.
-    let flow_rects = list.geometry_now().rects;
     crate::bump!(out_of_flow, out_of_flow.len());
     // Separa os NEGATIVOS: o sort acima já os deixa em ordem ascendente (mais
     // negativo primeiro) e o filtro preserva essa ordem — a mesma que o
     // Apêndice E pede DENTRO do grupo. `resto` (≥0/auto) segue exatamente o
     // caminho de sempre, por cima do fluxo.
-    let negativos: Vec<NodeIdx> = out_of_flow
+    let negativos: Vec<_> = out_of_flow
         .iter()
+        .filter(|alvo| empilhamento::z_index_of(dom, alvo.node) < 0)
         .copied()
-        .filter(|&id| empilhamento::z_index_of(dom, id) < 0)
         .collect();
-    let resto: Vec<NodeIdx> = out_of_flow
+    let resto: Vec<_> = out_of_flow
         .iter()
         .copied()
-        .filter(|&id| empilhamento::z_index_of(dom, id) >= 0)
+        .filter(|alvo| empilhamento::z_index_of(dom, alvo.node) >= 0)
         .collect();
     if !negativos.is_empty() {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.
-        let mut atras = DisplayList::default();
-        for id in &negativos {
-            layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut atras);
+        let mut atras = DisplayList::for_dom(dom);
+        let mut rects_conhecidos = list.geometry_now().rects;
+        for alvo in &negativos {
+            layout_out_of_flow(dom, *alvo, ctx, &rects_conhecidos, &mut atras);
+            rects_conhecidos.extend(atras.geometry_now().rects);
         }
         empilhamento::merge_before(&mut list, atras);
     }
-    for id in &resto {
-        layout_out_of_flow(dom, *id, ctx, &flow_rects, &mut list);
+    let mut rects_conhecidos = list.geometry_now().rects;
+    for alvo in &resto {
+        layout_out_of_flow(dom, *alvo, ctx, &rects_conhecidos, &mut list);
+        rects_conhecidos = list.geometry_now().rects;
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
     // para o hit-test: fluxo normal em pré-ordem e, depois, posicionados em ordem
@@ -364,7 +428,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // acumulá-las entre frames faria a lista de filhos sujos de um container
     // crescer até o teto — e aí a costura desistiria sempre.
     dom.clear_dirty();
-    crate::bump!(node_rects, list.node_rects.len());
+    crate::bump!(node_rects, list.box_rects.len());
     crate::bump!(scroll_regions, list.scroll_regions.len());
     list
 }
@@ -373,7 +437,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
 /// dada — a base de `element.getBoundingClientRect()`. `None` se o nó não é
 /// renderável (texto/`display:none`/metadata não têm rect próprio).
 /// Roda o layout inteiro (O(n)); para várias consultas no mesmo frame, reuse a
-/// `DisplayList` de `layout_document` e leia `node_rects` direto.
+/// `DisplayList` de `layout_document` e leia `box_rects`/`rect_of_node` direto.
 pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> {
     layout_document(dom, ctx).rect_of(node)
 }

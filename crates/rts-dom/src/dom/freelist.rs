@@ -94,7 +94,12 @@ impl Dom {
         self.anim_start.remove(&idx);
         self.dirty_self.borrow_mut().remove(&idx);
         self.dirty_children.borrow_mut().remove(&idx);
-        self.last_fragment.borrow_mut().remove(&idx);
+        // `last_fragment` is keyed by `BoxId`, not by this raw arena slot. A
+        // released node may already belong to an older box-tree generation, so
+        // translating `idx` here would recreate the identity bug this purge is
+        // meant to prevent. Dropping the small "last" index is safe; the full
+        // cache remains generation-keyed and evicts independently.
+        self.last_fragment.borrow_mut().clear();
         if self.hovered.get() == Some(idx) {
             self.hovered.set(None);
         }

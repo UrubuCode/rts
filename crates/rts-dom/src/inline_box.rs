@@ -276,25 +276,35 @@ pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
 /// box dos border boxes dos seus fragmentos. Um `<a>` que quebra em duas linhas
 /// tem dois fragmentos e um retângulo que os contém aos dois — deliberadamente
 /// mais largo do que qualquer um deles, que é o que o browser também devolve.
+///
+/// **Porque continua a unir, agora que a geometria é por CAIXA.** No espelho de
+/// BT-1 um elemento tem UMA caixa, e os fragmentos de linha dele caem todos
+/// nela — portanto a união é a mesma de sempre, só que a chave passou a ser o
+/// `BoxId`. É quando os fragmentos de um inline forem caixas de verdade (BT-2)
+/// que esta função deixa de unir no momento do cálculo e a união passa a ser
+/// uma VISTA (`DisplayList::rect_of_node`), que é o que `box-tree.md` chama de
+/// invariante I4.
 pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
-    if let Some(old) = list.node_rects.get_mut(&idx) {
-        // Um placeholder reservado (`reserve_node_order`) é 0,0,0,0 e não é um
-        // fragmento: uni-lo puxaria a caixa até à origem do documento.
-        if old.w == 0.0 && old.h == 0.0 && old.x == 0.0 && old.y == 0.0 {
-            *old = fragment;
-            return;
+    // Um nó sem caixa (texto, `display:none`) não tem onde acumular. A fatia
+    // vazia responde a isso sem caso especial.
+    let caixas: Vec<crate::boxes::BoxId> = list.tree.boxes_of(idx).to_vec();
+    for caixa in caixas {
+        if let Some(old) = list.box_rects.get_mut(&caixa) {
+            // Um placeholder reservado (`reserve_node_order`) é 0,0,0,0 e não é
+            // um fragmento: uni-lo puxaria a caixa até à origem do documento. O
+            // sentinela sobrevive a BT-1 porque a reserva de ordem continua a
+            // escrever o placeholder; morre com ela.
+            if old.w == 0.0 && old.h == 0.0 && old.x == 0.0 && old.y == 0.0 {
+                *old = fragment;
+                continue;
+            }
+            *old = old.union(fragment);
+        } else {
+            list.box_rects.insert(caixa, fragment);
+            list.hit_order.push(caixa);
         }
-        let right = (old.x + old.w).max(fragment.x + fragment.w);
-        let bottom = (old.y + old.h).max(fragment.y + fragment.h);
-        let x = old.x.min(fragment.x);
-        let y = old.y.min(fragment.y);
-        *old = Rect::new(x, y, right - x, bottom - y);
-    } else {
-        list.node_rects.insert(idx, fragment);
-        list.hit_order.push(idx);
     }
 }
-
 /// Pode a linha ser partida DENTRO de um aglomerado — isto é, no meio de uma
 /// palavra, onde o texto não oferece oportunidade de quebra?
 ///

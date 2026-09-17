@@ -20,7 +20,7 @@ use super::*;
 /// `shrink_to_fit`. Os outros caminhos dependem de negociação com os irmãos, e
 /// um fragmento que ignorasse isso responderia errado.
 #[allow(clippy::too_many_arguments)]
-/// A chave do fragmento de um nó com certas constraints. Extraída porque o laço
+/// A chave do fragmento de uma caixa com certas constraints. Extraída porque o laço
 /// do fluxo vertical CONSULTA o cache antes de classificar o filho: um fragmento
 /// só existe para bloco-normal, então encontrá-lo já responde o que a
 /// classificação responderia — e a classificação custa estilo computado,
@@ -29,6 +29,7 @@ use super::*;
 fn fragment_key(
     dom: &Dom,
     id: NodeIdx,
+    caixa: crate::boxes::BoxId,
     avail_w: f32,
     avail_h: Option<f32>,
     forced_outer_w: Option<f32>,
@@ -36,7 +37,14 @@ fn fragment_key(
     shrink_to_fit: bool,
     ctx: &LayoutCtx,
 ) -> crate::dom::FragmentKey {
-    KeyBase::new(dom, avail_w, avail_h, ctx).key(dom, id, forced_outer_w, forced_outer_h, shrink_to_fit)
+    KeyBase::new(dom, avail_w, avail_h, ctx).key(
+        dom,
+        id,
+        caixa,
+        forced_outer_w,
+        forced_outer_h,
+        shrink_to_fit,
+    )
 }
 
 /// A parte da chave de fragmento que NÃO varia entre os filhos de um container:
@@ -80,6 +88,7 @@ impl KeyBase {
         &self,
         dom: &Dom,
         id: NodeIdx,
+        caixa: crate::boxes::BoxId,
         forced_outer_w: Option<f32>,
         forced_outer_h: Option<f32>,
         shrink_to_fit: bool,
@@ -89,7 +98,7 @@ impl KeyBase {
             node_epoch: dom.layout_epoch(id),
             style_epoch: self.style_epoch,
             anim_epoch: self.anim_epoch,
-            node: id,
+            target: super::caixa_cache_target(dom, id, caixa),
             avail_w: self.avail_w,
             avail_h: self.avail_h,
             forced_outer_w: forced_outer_w.map(f32::to_bits),
@@ -152,7 +161,7 @@ fn costurar(
     if dom.is_self_dirty(id) {
         return None;
     }
-    let (antiga, anterior) = dom.last_fragment_of(id)?;
+    let (antiga, anterior) = dom.last_fragment_of(key.target)?;
     // Só o epoch do nó pode diferir: viewport, constraints, estilo global e
     // animação mudam o desenho inteiro, não uma parte dele.
     if (
@@ -194,10 +203,14 @@ fn costurar(
         return None;
     }
     let sujos = dom.dirty_children_of(id)?;
+    let tree = dom.box_tree();
+    // O fragmento pode ter sido produzido pela árvore anterior. Reidratar na
+    // entrada é a única fronteira permitida para os `BoxId`s que ele guarda.
+    let anterior = anterior.remapped_to(&tree)?;
     // A SEQUÊNCIA de filhos precisa ser a mesma, não só o tamanho: inserção,
     // remoção e reordenação mudam quem desenha o quê, e trocar uma referência
     // não daria conta. Comparar índice a índice é uma passada de leitura.
-    if !mesma_sequencia_de_filhos(dom, id, &anterior.children) {
+    if !mesma_sequencia_de_filhos(&tree, anterior.caixa, &anterior.children) {
         return None;
     }
     let _phase = crate::metrics::phases::scope("fragment-patch");
@@ -206,7 +219,10 @@ fn costurar(
     let mut grid_column_tracks = (*anterior.grid_column_tracks).clone();
     let mut trocou = false;
     for child in &mut children {
-        if !sujos.contains(&child.node) {
+        let Some(child_node) = tree.node_of(child.caixa) else {
+            return None;
+        };
+        if !sujos.contains(&child_node) {
             continue;
         }
         let previous_grid_nodes: Vec<NodeIdx> = child
@@ -215,7 +231,7 @@ fn costurar(
             .iter()
             .map(|(node, _)| *node)
             .collect();
-        let mut own = DisplayList::default();
+        let mut own = DisplayList::for_dom(dom);
         // Onde o filho FOI POSTO: a origem em que o fragmento dele foi calculado
         // mais o deslocamento com que entrou aqui. Somar à origem do PAI daria
         // uma posição sem sentido — foi o que o teste de equivalência mostrou,
@@ -227,7 +243,8 @@ fn costurar(
         let margem = (child.margin_top, child.margin_bottom);
         let ((_, altura), nova_margem) = layout_block_reusing(
             dom,
-            child.node,
+            child_node,
+            child.caixa,
             origem.0,
             origem.1,
             child.avail_w,
@@ -279,7 +296,8 @@ fn costurar(
         return None;
     }
     let fragment = std::rc::Rc::new(Fragment {
-        node: id,
+        caixa: tree.boxes_of(key.target.node).get(key.target.ordinal as usize).copied()?,
+        tree: std::rc::Rc::clone(&tree),
         // Compartilha o que NÃO mudou — só a lista de subárvores é nova.
         items: std::rc::Rc::clone(&anterior.items),
         children,
@@ -296,24 +314,20 @@ fn costurar(
     Some(fragment)
 }
 
-/// `true` se os filhos-elemento do nó são exatamente os que o desenho anterior
-/// referencia, na mesma ordem. Uma passada de leitura; o que não é barato é o
-/// layout deles.
-fn mesma_sequencia_de_filhos(dom: &Dom, id: NodeIdx, children: &[ChildRef]) -> bool {
-    let mut esperados = children.iter().map(|c| c.node);
-    let mut atuais = dom
-        .node(id)
-        .children
-        .iter()
-        .copied()
-        .filter(|&c| matches!(dom.node(c).kind, NodeKind::Element { .. }));
-    loop {
-        match (esperados.next(), atuais.next()) {
-            (None, None) => return true,
-            (Some(a), Some(b)) if a == b => continue,
-            _ => return false,
-        }
-    }
+/// `true` só quando a sequência de CAIXAS diretas ainda é a que o fragmento
+/// guardou. A comparação por `NodeIdx` aceitava uma reconstrução que inserisse
+/// um wrapper anônimo ou partisse um inline sem mudar a lista de nós do DOM:
+/// repintava a árvore anterior, internamente consistente e errada.
+///
+/// Um filho sem `ChildRef` (texto, wrapper anônimo, ou caminho ainda sem
+/// fragmento) faz esta resposta ser `false`. Recusar a costura perde apenas o
+/// atalho incremental; inventar uma correspondência perde a geometria.
+fn mesma_sequencia_de_filhos(
+    tree: &crate::boxes::BoxTree,
+    pai: crate::boxes::BoxId,
+    children: &[ChildRef],
+) -> bool {
+    tree.children(pai) == children.iter().map(|child| child.caixa).collect::<Vec<_>>()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -353,6 +367,7 @@ pub(in crate::layout) fn emit_fragment(
 pub(in crate::layout) fn layout_block_reusing(
     dom: &Dom,
     id: NodeIdx,
+    caixa: crate::boxes::BoxId,
     x: f32,
     y: f32,
     avail_w: f32,
@@ -384,6 +399,7 @@ pub(in crate::layout) fn layout_block_reusing(
         let size = layout_block(
             dom,
             id,
+            Some(caixa),
             x,
             y,
             avail_w,
@@ -401,6 +417,7 @@ pub(in crate::layout) fn layout_block_reusing(
     let key = fragment_key(
         dom,
         id,
+        caixa,
         avail_w,
         avail_h,
         forced_outer_w,
@@ -408,7 +425,11 @@ pub(in crate::layout) fn layout_block_reusing(
         shrink_to_fit,
         ctx,
     );
-    if let Some(fragment) = dom.fragment_get(key) {
+    let tree = dom.box_tree();
+    if let Some(fragment) = dom
+        .fragment_get(key)
+        .and_then(|fragment| fragment.remapped_to(&tree))
+    {
         crate::bump!(fragment_hits);
         emit_fragment(
             &fragment,
@@ -449,7 +470,7 @@ pub(in crate::layout) fn layout_block_reusing(
     let _phase = crate::metrics::phases::scope("fragment-build");
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
     // e a única forma de saber isso é não misturá-los com os dos irmãos.
-    let mut own = DisplayList::default();
+    let mut own = DisplayList::for_dom(dom);
     // `bfc` — a referência AMBIENTE, não uma isolada — porque `id` pode não
     // estabelecer BFC próprio e conter um float que precisa de ESCAPAR para
     // este mesmo `bfc` (ver `layout/bfc.rs`). O comprimento antes/depois é
@@ -458,6 +479,7 @@ pub(in crate::layout) fn layout_block_reusing(
     let size = layout_block(
         dom,
         id,
+        Some(caixa),
         x,
         y,
         avail_w,
@@ -479,14 +501,15 @@ pub(in crate::layout) fn layout_block_reusing(
     // emissão, mesmo em cache-hit) fica para quando um caso real o pedir —
     // documentado, não escondido, no cabeçalho de `layout/bfc.rs`.
     let floats_escaparam = bfc.len() != floats_antes;
+    // O desenho guardado conserva a identidade que o produziu: `BoxId`. A
+    // chave também a carrega; a passagem seguinte é fazer cada chamador levar
+    // a caixa EXACTA, em vez de este caminho ainda obter a primeira do nó.
+    // Não traduzir estes vetores de volta para `NodeIdx` evita perder a segunda
+    // metade de um inline partido no próprio limite do cache.
     let fragment = std::rc::Rc::new(Fragment {
-        node: id,
-        rects: std::rc::Rc::new(
-            own.node_rects
-                .iter()
-                .map(|(idx, rect)| (*idx, *rect))
-                .collect(),
-        ),
+        caixa,
+        tree: std::rc::Rc::clone(&own.tree),
+        rects: std::rc::Rc::new(std::mem::take(&mut own.box_rects).into_iter().collect()),
         hit_order: std::rc::Rc::new(std::mem::take(&mut own.hit_order)),
         grid_column_tracks: std::rc::Rc::new(
             std::mem::take(&mut own.grid_column_tracks)
@@ -521,8 +544,9 @@ pub(in crate::layout) fn layout_block_reusing(
 /// fragmento.
 #[derive(Clone, Debug)]
 pub struct ChildRef {
-    /// O nó que esta subárvore desenha — a costura precisa saber quem é.
-    pub node: NodeIdx,
+    /// A caixa que esta subárvore desenha. O nó deixa de ser suficiente quando
+    /// um inline partido tem dois fragmentos no mesmo container.
+    pub caixa: crate::boxes::BoxId,
     /// Altura externa que ele ocupou e a margem de topo resolvida: se qualquer
     /// uma mudar ao refazê-lo, tudo abaixo desloca e a costura não serve.
     pub height: f32,
@@ -578,10 +602,14 @@ impl PartialEq for ChildRef {
 /// relativo daria na mesma e custaria uma passada extra na hora de gravar — o
 /// caso comum é justamente reusar na MESMA posição (nada acima dele mudou de
 /// altura), e aí a soma é zero e nem se percorre.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Fragment {
-    /// O nó que este fragmento desenha.
-    pub node: NodeIdx,
+    /// A caixa que este fragmento desenha.
+    pub caixa: crate::boxes::BoxId,
+    /// A árvore que emitiu todos os `BoxId`s deste fragmento. Um fragmento pode
+    /// sobreviver à reconstrução da árvore; nesses casos ele é reidratado para
+    /// a árvore nova antes de voltar à `DisplayList`.
+    pub tree: std::rc::Rc<crate::boxes::BoxTree>,
     /// Itens de pintura PRÓPRIOS desta subárvore.
     ///
     /// Os três vetores grandes são `Rc`: quando um container é COSTURADO, só a
@@ -590,12 +618,13 @@ pub struct Fragment {
     pub items: std::rc::Rc<Vec<DisplayItem>>,
     /// As subárvores que ela reusou, por referência — o desenho é uma árvore.
     pub children: Vec<ChildRef>,
-    /// Geometria por nó (o que alimenta `getBoundingClientRect`).
-    pub rects: std::rc::Rc<Vec<(NodeIdx, Rect)>>,
+    /// Geometria por caixa. A fronteira pública agrega-a por nó somente ao
+    /// construir `Geometry`.
+    pub rects: std::rc::Rc<Vec<(crate::boxes::BoxId, Rect)>>,
     /// Tracks de coluna resolvidas desta subárvore, para `computedProperty`.
     pub grid_column_tracks: std::rc::Rc<Vec<(NodeIdx, Vec<f32>)>>,
     /// Ordem de pintura para o hit-test (ancestral antes de descendente).
-    pub hit_order: std::rc::Rc<Vec<NodeIdx>>,
+    pub hit_order: std::rc::Rc<Vec<crate::boxes::BoxId>>,
     /// Regiões roláveis internas descobertas dentro da subárvore.
     pub scroll_regions: Vec<ScrollRegion>,
     /// Onde este fragmento foi calculado.
@@ -621,6 +650,59 @@ pub struct Fragment {
 }
 
 impl Fragment {
+    /// Traduz os IDs privados deste fragmento para `tree`.
+    ///
+    /// A tradução só aceita uma correspondência um-a-um por `(NodeIdx,
+    /// ordinal)`. Caixas anônimas, ou um nó que passou a gerar outra quantidade
+    /// de caixas, fazem o cache recusar o acerto: escolher uma caixa parecida
+    /// seria precisamente o reaproveitamento silenciosamente errado que a
+    /// geração de `BoxId` existe para impedir.
+    pub(in crate::layout) fn remapped_to(
+        self: &std::rc::Rc<Self>,
+        tree: &std::rc::Rc<crate::boxes::BoxTree>,
+    ) -> Option<std::rc::Rc<Self>> {
+        if std::rc::Rc::ptr_eq(&self.tree, tree) {
+            return Some(std::rc::Rc::clone(self));
+        }
+        let map_box = |old| remap_box_id(&self.tree, tree, old);
+        let caixa = map_box(self.caixa)?;
+        let rects = self
+            .rects
+            .iter()
+            .map(|&(old, rect)| Some((map_box(old)?, rect)))
+            .collect::<Option<Vec<_>>>()?;
+        let hit_order = self
+            .hit_order
+            .iter()
+            .map(|&old| map_box(old))
+            .collect::<Option<Vec<_>>>()?;
+        let children = self
+            .children
+            .iter()
+            .map(|child| {
+                Some(ChildRef {
+                    caixa: map_box(child.caixa)?,
+                    fragment: child.fragment.remapped_to(tree)?,
+                    ..child.clone()
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(std::rc::Rc::new(Fragment {
+            caixa,
+            tree: std::rc::Rc::clone(tree),
+            items: std::rc::Rc::clone(&self.items),
+            children,
+            rects: std::rc::Rc::new(rects),
+            grid_column_tracks: std::rc::Rc::clone(&self.grid_column_tracks),
+            hit_order: std::rc::Rc::new(hit_order),
+            scroll_regions: self.scroll_regions.clone(),
+            origin: self.origin,
+            size: self.size,
+            margin_top: self.margin_top,
+            margin_bottom: self.margin_bottom,
+        }))
+    }
+
     /// Emite este fragmento numa `DisplayList`, deslocado para `(x, y)`.
     #[allow(clippy::too_many_arguments)]
     pub fn emit_at(
@@ -643,7 +725,7 @@ impl Fragment {
             list.grid_column_tracks.insert(*node, tracks.clone());
         }
         list.children.push(ChildRef {
-            node: self.node,
+            caixa: self.caixa,
             height: self.size.1,
             margin_top: self.margin_top,
             margin_bottom: self.margin_bottom,
@@ -664,6 +746,23 @@ impl Fragment {
         // fragmentos. Quem precisa dela chama `geometry()`, que percorre a
         // árvore uma vez e guarda o resultado.
     }
+}
+
+/// Traduz um `BoxId` da árvore antiga pelo seu endereço semântico. Isto fica
+/// deliberadamente junto do fragmento, a única estrutura de cache que mantém
+/// IDs de caixa entre passadas.
+fn remap_box_id(
+    from: &crate::boxes::BoxTree,
+    to: &crate::boxes::BoxTree,
+    old: crate::boxes::BoxId,
+) -> Option<crate::boxes::BoxId> {
+    let node = from.node_of(old)?;
+    let old_boxes = from.boxes_of(node);
+    let ordinal = old_boxes.iter().position(|&candidate| candidate == old)?;
+    let new_boxes = to.boxes_of(node);
+    (old_boxes.len() == new_boxes.len())
+        .then(|| new_boxes.get(ordinal).copied())
+        .flatten()
 }
 
 impl Fragment {

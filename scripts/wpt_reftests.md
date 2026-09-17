@@ -40,6 +40,38 @@ Saída: `passam/total`, os 15 piores por percentagem de pixels diferentes, e
 `relatorio.json` na pasta de saída (`--out`, por omissão `$TEMP/wpt-reftests`)
 com os PNG de teste e referência lado a lado para olhar.
 
+## Quatro estados, não dois (2026-09-16, issue #2729/#2731)
+
+O corredor comparava dois PNG crus. Um reftest em que **nenhum dos dois lados
+desenha nada** — o rasterizador não pinta glifos, um `<script>` que os dois
+precisavam, um par de fixtures de apoio — produzia dois PNG iguais (o mesmo
+fundo) e **passava**: branco contra branco. Medido no corpus completo do
+`css`: **cerca de 24% dos "passam" não pintavam nada dos dois lados**, e
+**cerca de 13% dos "falham" tinham só um lado a pintar** — uma falha real de
+conteúdo ausente, não necessariamente um desacordo de layout.
+
+Por isso cada par cai agora num de quatro estados:
+
+| estado | significado |
+|---|---|
+| `passa` | os dois lados pintaram algo, e concordam — o número **principal** |
+| `passa-vazio` | os dois lados pintaram **nada** (identicos por vazio, não por acordo) |
+| `falha` | os dois lados pintaram (ou os dois não pintaram, mas diferem — ex.: fundos distintos) e os pixels não batem |
+| `falha-parcial` | só UM lado pintou alguma coisa — a diferença pode ser ausência de conteúdo, não layout |
+
+`passam` no `relatorio.json` e na linha impressa conta **só** `passa`;
+`passam_vazio` e `falha_parcial` vêm ao lado, nomeados, e nunca entram na soma
+de `passam`. **A linha principal impressa mudou de formato** — quem faz
+`grep`/regex a ela noutro script precisa de rever o padrão (era
+`"N/total passam (...)"`, passa a nomear os quatro estados).
+
+Como se decide se um lado "pintou": `claude-raster` já contava os
+`DisplayItem` que desenhou (`pintados`, só ia para o `eprintln!` de depuração)
+— foi exposto num sidecar `<png>.pintados` ao lado do PNG, o mesmo padrão do
+`.mask.json`. Só na ausência desse sidecar (binário sem o rebuild deste lote)
+o corredor cai numa aproximação sobre pixels — "o PNG inteiro é uma cor só" —
+documentada como aproximação no próprio código.
+
 ## O número, hoje
 
 **2026-09-05, `css/css-flexbox`, os 870 reftests: 475 passam (54,6 %)**, 394

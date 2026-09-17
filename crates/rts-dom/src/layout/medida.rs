@@ -136,7 +136,7 @@ pub(in crate::layout) fn intrinsic_content_width(
     // TABELA: a largura que o conteúdo quer é a SOMA das colunas, e nenhuma das
     // duas regras abaixo a dá — o MAX (bloco) devolveria a linha mais larga e a
     // SOMA (flex) somaria linhas inteiras. Quem sabe é o algoritmo de colunas.
-    if used_display(dom, id) == Some(crate::style::DisplayKind::Table) {
+    if used_display(dom, id).is_some_and(crate::style::DisplayKind::is_table_box) {
         let width = crate::table::max_content_width(dom, id, font, ctx);
         dom.intrinsic_width_put(key, width);
         return width;
@@ -185,7 +185,16 @@ pub(in crate::layout) fn intrinsic_content_width(
     // obriga a olhar para o `<br>`: ele não é de bloco e mesmo assim quebra.
     let mut linha = 0.0f32;
     let mut maior = 0.0f32;
-    for &child in &dom.node(id).children {
+    let tree = dom.box_tree();
+    let filhos: Vec<_> = tree
+        .boxes_of(id)
+        .iter()
+        .flat_map(|&caixa| tree.children(caixa).iter().copied())
+        .collect();
+    for caixa in filhos {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         // fora do fluxo não contribui para a largura intrínseca do container.
         if is_out_of_flow(dom, child) {
             continue;
@@ -337,7 +346,7 @@ pub(in crate::layout) fn child_outer_height(
         NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
             let (_, outer_h) =
-                measure_block(dom, id, container_w, container_h, None, None, true, ctx);
+                measure_block(dom, id, None, container_w, container_h, None, None, true, ctx);
             outer_h
         }
         // A MESMA altura que o fluxo dará a esta linha — medir com o default do

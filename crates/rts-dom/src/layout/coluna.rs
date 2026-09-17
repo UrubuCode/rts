@@ -40,7 +40,7 @@ pub(in crate::layout) fn justify_e_align(
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_column(
     dom: &Dom,
-    id: NodeIdx,
+    container: crate::boxes::BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -80,7 +80,7 @@ pub(in crate::layout) fn layout_children_column(
                 css.writing_mode.unwrap_or_default(), crate::style::Direction::Ltr, true, css.flex_wrap,
             );
             return super::coluna_wrap::layout_children_column_wrap(
-                dom, id, content_x, content_y, content_w, h, css, font_size, reverse, wrap_reverse, ctx, list,
+                dom, container, content_x, content_y, content_w, h, css, font_size, reverse, wrap_reverse, ctx, list,
             );
         }
     }
@@ -116,6 +116,7 @@ pub(in crate::layout) fn layout_children_column(
     // no eixo principal, + margens auto e os fatores de flex-shrink/grow ──────
     struct ColItem {
         node: NodeIdx,
+        caixa: Option<crate::boxes::BoxId>,
         /// tamanho BASE outer no eixo principal — antes de grow/shrink; após o
         /// PASSO 2 é o MAIN final (mesmo campo, mesmo papel que `FlexItem::h`
         /// tinha antes deste lote: cresce OU encolhe nele, nunca os dois).
@@ -133,7 +134,11 @@ pub(in crate::layout) fn layout_children_column(
         order: i32,
     }
     let mut items: Vec<ColItem> = Vec::new();
-    for &child in &dom.node(id).children {
+    let tree = std::rc::Rc::clone(&list.tree);
+    for &caixa in tree.children(container) {
+        let Some(child) = tree.node_of(caixa) else {
+            continue;
+        };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
                 continue;
@@ -156,6 +161,7 @@ pub(in crate::layout) fn layout_children_column(
             }
             items.push(ColItem {
                 node: child,
+                caixa: None,
                 h: crate::inline_box::altura_da_linha(css, font_size, ctx.measurer),
                 is_text: true,
                 mt_auto: false,
@@ -175,7 +181,7 @@ pub(in crate::layout) fn layout_children_column(
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, content_w, container_content_h, None, None, false, ctx).1
+            measure_block(dom, child, Some(caixa), content_w, container_content_h, None, None, false, ctx).1
         } else {
             child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
         };
@@ -234,6 +240,7 @@ pub(in crate::layout) fn layout_children_column(
         let order = ccss.order.unwrap_or(0);
         items.push(ColItem {
             node: child,
+            caixa: Some(caixa),
             h,
             is_text: false,
             mt_auto,
@@ -340,6 +347,8 @@ pub(in crate::layout) fn layout_children_column(
                 color: cor_visivel(&css, css.color.unwrap_or(0x000000FF)),
                 size: font_size,
                 mono: false,
+                // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
+                is_ahem: false,
                 bold: css.bold.unwrap_or(false),
                 italic: italico(Some(&css), tag_de(dom, it.node), false),
                 letter_spacing: css.letter_spacing.unwrap_or(0.0),
@@ -383,6 +392,7 @@ pub(in crate::layout) fn layout_children_column(
                 let (w, _) = measure_block(
                     dom,
                     it.node,
+                    it.caixa,
                     content_w,
                     container_content_h,
                     None,
@@ -418,6 +428,7 @@ pub(in crate::layout) fn layout_children_column(
             layout_block_reusing(
                 dom,
                 it.node,
+                it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
                 child_x,
                 y,
                 content_w,
