@@ -112,7 +112,7 @@ css_props! {
         /// **A distinção é o único conteúdo da palavra**: `flow-root` existe
         /// para dizer "sou um contexto de formatação", e sem este campo o parse
         /// aceitava-a e deitava fora a única coisa que a separa de `block`.
-        [] flow_root: bool;
+        [] flow_root: bool; [] display_contents: bool; // `contents`: see `parse/fluxo.rs`
         [] border_box: bool;
         /// `display` parseado do CSS (block/flex/inline/none). `None` = não
         /// declarado (o layout usa o default da tag via `block::lookup`). Combina

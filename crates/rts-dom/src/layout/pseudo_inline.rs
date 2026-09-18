@@ -86,12 +86,17 @@ pub(in crate::layout) fn pseudo_run(
         ww,
         wh,
     };
-    if display == Some(DisplayKind::InlineBlock) {
+    // `display: contents` generates no box: the text alone takes its place,
+    // with no edge, border, background or atom (CSS Display 3 §2.5). Painting
+    // the box drew a 100px red border Blink does not draw (WPT
+    // `display-contents-before-after-002`).
+    let sem_caixa = caixa.css.display_contents == Some(true);
+    if display == Some(DisplayKind::InlineBlock) && !sem_caixa {
         let medida = medir_atomo(caixa, base_w, ctx);
         crate::bump!(inline_runs);
         return vec![atomo(ParteGerada::Atomo, medida.w, medida.h)];
     }
-    let bordas = arestas_do_inline_gerado(&caixa.css, base_w, ctx);
+    let bordas = if sem_caixa { None } else { arestas_do_inline_gerado(&caixa.css, base_w, ctx) };
     crate::bump!(inline_runs);
     let texto = InlineRun {
         text: caixa.texto,

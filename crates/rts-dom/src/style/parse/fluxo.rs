@@ -28,6 +28,15 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             // formatação por ser `display_bfc` em `layout::bloco`, sem
             // precisar deste campo.
             set_if(&mut css.flow_root, is_flow_root_value(val).then_some(true));
+            // `display: contents` — no box of its own, its content takes its
+            // place (CSS Display 3 §2.5). A flag beside `display` for the same
+            // reason as `flow_root`: `parse_display` answers `None` for it. Read
+            // today only by the generated box (`layout/pseudo_inline.rs`), which
+            // must not paint a border it does not have; `contents` on a real
+            // element is not implemented, and the flag does not pretend it is.
+            // Always written, `false` included: a later `display` declaration
+            // in the cascade must be able to take `contents` back.
+            css.display_contents = Some(val.trim().eq_ignore_ascii_case("contents"));
         }
         // `flex-wrap` — combina com display:flex para promover a FlexWrap.
         // `nowrap`/`wrap`/`wrap-reverse`: os três estados de `FlexWrap`.
