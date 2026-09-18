@@ -324,7 +324,7 @@ pub(in crate::layout) fn collect_runs(
                 // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
                 // real isso multiplicava a altura do documento por ~2,7.
                 if is_inline_block(dom, id) {
-                    let (bw, bh) = measure_block(dom, id, caixa, avail_w, None, None, None, true, ctx);
+                    let (bw, bh) = measure_block(dom, id, caixa.expect("sem caixa saiu acima"), avail_w, None, None, None, true, ctx);
                     let mut owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {

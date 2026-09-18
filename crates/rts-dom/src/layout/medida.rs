@@ -97,9 +97,14 @@ pub(crate) fn intrinsic_outer_width(
 /// recursão nos filhos, %). Sem aproximação: a verificação adversarial pegou que a
 /// estimativa por "nº de linhas × line-height" divergia da pintura quando o filho
 /// tinha frame próprio ou múltiplas linhas, errando a centralização cross-axis.
+///
+/// `caixa` é a caixa de `id` que o chamador encontrou ao andar a árvore — a
+/// que se mede, e não uma redescoberta pelo nó (ver `measure_block`).
+#[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn child_outer_height(
     dom: &Dom,
     id: NodeIdx,
+    caixa: crate::boxes::BoxId,
     container_w: f32,
     container_h: Option<f32>,
     parent_css: &ComputedStyle,
@@ -112,7 +117,7 @@ pub(in crate::layout) fn child_outer_height(
         NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
             let (_, outer_h) =
-                measure_block(dom, id, None, container_w, container_h, None, None, true, ctx);
+                measure_block(dom, id, caixa, container_w, container_h, None, None, true, ctx);
             outer_h
         }
         // A MESMA altura que o fluxo dará a esta linha — medir com o default do

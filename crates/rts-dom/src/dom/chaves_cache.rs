@@ -7,14 +7,6 @@
 
 use super::NodeIdx;
 
-/// A identidade medida pelo cache. A caixa é a resposta normal; `No` existe
-/// somente para caminhos legados que medem texto ou outro nó sem caixa.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum LayoutMeasureTarget {
-    Caixa(BoxCacheTarget),
-    No(NodeIdx),
-}
-
 /// Chave de uma medição de layout descartável. O cache guarda apenas `(outer_w,
 /// outer_h)`, nunca itens de pintura; por isso a posição `(x,y)` não participa.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -22,7 +14,10 @@ pub(crate) struct LayoutMeasureKey {
     pub(crate) tree: u64,
     pub(crate) node_epoch: u64,
     pub(crate) style_epoch: u64,
-    pub(crate) target: LayoutMeasureTarget,
+    /// A caixa medida. Era um `enum` com um braço `No(NodeIdx)` para os
+    /// chamadores que só sabiam o nó; `measure_block` passou a exigir a
+    /// caixa, e o braço ficou sem quem o construísse.
+    pub(crate) target: BoxCacheTarget,
     pub(crate) avail_w: u32,
     pub(crate) avail_h: Option<u32>,
     pub(crate) forced_outer_w: Option<u32>,

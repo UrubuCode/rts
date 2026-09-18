@@ -219,7 +219,7 @@ pub(in crate::layout) fn layout_children_grid(
         let (_, h) = measure_block(
             dom,
             cell.child,
-            Some(cell.caixa),
+            cell.caixa,
             cw,
             container_content_h,
             None,
@@ -338,7 +338,7 @@ pub(in crate::layout) fn layout_children_grid(
         // (30px) — medido pelo orquestrador contra o Chrome.
         let stretch_x = justify == crate::style::AlignItems::Stretch && item_css.width.is_none();
         let stretch_y = align == crate::style::AlignItems::Stretch && item_css.height.is_none();
-        let (nat_w, nat_h) = measure_block(dom, child, Some(cell.caixa), cell_w, Some(cell_h), None, None, true, ctx);
+        let (nat_w, nat_h) = measure_block(dom, child, cell.caixa, cell_w, Some(cell_h), None, None, true, ctx);
         let iw = if stretch_x { cell_w } else { nat_w.min(cell_w) };
         let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
         let x = cell_x + cell_align_offset(justify, cell_w, iw);

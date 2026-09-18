@@ -181,9 +181,9 @@ pub(in crate::layout) fn layout_children_column(
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, Some(caixa), content_w, container_content_h, None, None, false, ctx).1
+            measure_block(dom, child, caixa, content_w, container_content_h, None, None, false, ctx).1
         } else {
-            child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
+            child_outer_height(dom, child, caixa, content_w, container_content_h, css, font_size, ctx)
         };
         let child_font = font_px(&ccss, font_size);
         let resolve_filho = ResolveCtx {
@@ -193,7 +193,7 @@ pub(in crate::layout) fn layout_children_column(
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
-        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
+        let min_main = super::coluna_shrink::min_main(dom, child, caixa, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
         // Uma percentagem de flex-basis num container de altura indefinida
         // vira `content`, não usa o `height` declarado do próprio item.
         // `measure_block` acima preserva esse height para a geometria normal;
@@ -220,7 +220,7 @@ pub(in crate::layout) fn layout_children_column(
         {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
             super::coluna_shrink::altura_conteudo_sem_height(
-                dom, child, &ccss, content_w, child_font, ctx,
+                dom, caixa, &ccss, content_w, child_font, ctx,
             ) + bt + bb + ccss.padding.resolve_v(&resolve_filho) + ccss.margin.resolve_v(&resolve_filho)
         } else {
             natural_h
@@ -392,7 +392,7 @@ pub(in crate::layout) fn layout_children_column(
                 let (w, _) = measure_block(
                     dom,
                     it.node,
-                    it.caixa,
+                    it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
                     content_w,
                     container_content_h,
                     None,

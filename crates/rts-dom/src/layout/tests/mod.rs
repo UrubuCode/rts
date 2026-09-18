@@ -337,3 +337,4 @@ mod flex_scroll_overflow_corpus;
     /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
     /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
     const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
+mod medida_por_caixa_corpus;

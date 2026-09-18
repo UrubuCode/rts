@@ -39,7 +39,7 @@
 //!   fatia futura generaliza `layout_children_horizontal` por eixo (`column` =
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
-use crate::dom::{BoxCacheTarget, Dom, IntrinsicWidthKey, LayoutMeasureKey, LayoutMeasureTarget, NodeIdx, NodeKind};
+use crate::dom::{BoxCacheTarget, Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
 use crate::inline_box::{AtomicKind, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
@@ -145,22 +145,6 @@ use self::pintura::{apply_opacity, body_background, cor_visivel, decoration_code
 use self::posicionado::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
 use self::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
 
-/// The one-box bridge for legacy callers that still begin at a DOM node.
-///
-/// A layout path that can name the box must pass it through instead. Refusing a
-/// split inline here is intentional: choosing `.first()` would make one half
-/// of the element silently stand in for the other.
-pub(crate) fn unica_caixa_do_no(dom: &Dom, no: NodeIdx) -> Option<crate::boxes::BoxId> {
-    match dom.box_tree().boxes_of(no) {
-        [caixa] => Some(*caixa),
-        [] => None,
-        caixas => panic!(
-            "o layout de bloco recebeu o no {no} com {} caixas; o chamador tem de levar o BoxId exacto",
-            caixas.len()
-        ),
-    }
-}
-
 /// Endereço estável de uma caixa para caches que sobrevivem à reconstrução da
 /// árvore. O `BoxId` é a identidade operacional dentro de uma passada; o par
 /// `(nó, ordinal)` é usado somente na fronteira persistente do cache.
@@ -200,7 +184,15 @@ pub struct LayoutCtx<'a> {
 pub(crate) fn measure_block(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    // A caixa EXACTA de `id` que se mede — nunca redescoberta pelo nó. Um nó
+    // pode ter várias (o inline partido, CSS 2.1 §9.2.1.1) ou nenhuma (o
+    // `<span>` que só envolvia um bloco, cujas caixas subiram ao contentor);
+    // o antigo `Option` com recurso a "a caixa única do nó" corria, no
+    // segundo caso, o layout de bloco SEM árvore sobre um nó que a tem, e o
+    // caminho rápido do cache de fragmentos rebentava no primeiro filho
+    // (WPT `css-flexbox/percentage-heights-023`). Quem só conhece o nó anda
+    // a árvore até à caixa — `coluna_shrink::altura_conteudo_sem_height`.
+    caixa: crate::boxes::BoxId,
     avail_w: f32,
     avail_h: Option<f32>,
     forced_outer_w: Option<f32>,
@@ -208,19 +200,12 @@ pub(crate) fn measure_block(
     shrink_to_fit: bool,
     ctx: &LayoutCtx,
 ) -> (f32, f32) {
-    // A lista descartavel tambem carrega a BoxTree. Os chamadores novos passam
-    // a identidade exata; os poucos caminhos legados de medida que ainda so
-    // sabem o no entram aqui pela caixa unica do espelho, para que a descida
-    // interna nunca perca a sequencia da arvore.
-    let caixa = caixa.or_else(|| unica_caixa_do_no(dom, id));
     let measurer = ctx.measurer.identity();
     let key = LayoutMeasureKey {
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),
         style_epoch: crate::style::props::style_epoch(),
-        target: caixa
-            .map(|caixa| LayoutMeasureTarget::Caixa(caixa_cache_target(dom, id, caixa)))
-            .unwrap_or(LayoutMeasureTarget::No(id)),
+        target: caixa_cache_target(dom, id, caixa),
         avail_w: avail_w.to_bits(),
         avail_h: avail_h.map(f32::to_bits),
         forced_outer_w: forced_outer_w.map(f32::to_bits),
@@ -239,7 +224,7 @@ pub(crate) fn measure_block(
     let size = layout_block(
         dom,
         id,
-        caixa,
+        Some(caixa),
         0.0,
         0.0,
         avail_w,

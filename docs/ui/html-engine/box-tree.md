@@ -411,6 +411,18 @@ that wants to know "is this an inline formatting context" asks the tree.
   intrinsic-width caches: removing that clear served stale widths after a new
   `<style>`. And recycling a node forgets only that node's `last_fragment`
   entries, not the whole map.
+- **A measurement names its box; there is no fallback from a node.**
+  `measure_block` takes a `BoxId`, not an `Option`, and the "sole box of this
+  node" bridge that stood in for callers who only knew the node is gone. It
+  was wrong in both directions the split creates: a node with several boxes
+  panicked by design, and a node with NONE (a `<span>` that only wrapped a
+  block, whose boxes rose to the container) ran `layout_block` with no box
+  over a document that has a tree, and the fragment cache's fast path
+  panicked on the first child (`css-flexbox/percentage-heights-023`). A
+  caller that starts from a node walks `tree.children` to the box instead —
+  `coluna_shrink::altura_conteudo_sem_height` does, entering anonymous boxes
+  rather than skipping them. The measure cache key is therefore a
+  `BoxCacheTarget` and nothing else.
 - **No formatting context is IMPLEMENTED here.** `inner` says which algorithm
   applies; running it is still `layout`'s.
 - **Whitespace is not decided here.** Which whitespace survives is a question

@@ -191,7 +191,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         // wrap`, `flexbox-flex-basis-content-003a/003b`, WPT).
         let align_efetivo = ccss.align_self.unwrap_or(align);
         let (base, h, transferiu) = super::replaced_transferido::base_e_altura_do_item(
-            dom, child, content_w, container_content_h, align_efetivo, font_size, ctx,
+            dom, child, caixa, content_w, container_content_h, align_efetivo, font_size, ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
@@ -453,7 +453,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                 let (_, h) = measure_block(
                     dom,
                     it.node,
-                    it.caixa,
+                    it.caixa.expect("item flex deve ter a caixa recolhida no pre-passe"),
                     content_w,
                     container_content_h,
                     Some(it.main),

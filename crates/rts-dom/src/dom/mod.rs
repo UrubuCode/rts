@@ -60,7 +60,7 @@ pub use self::no::{Attr, Node, NodeId, NodeKind};
 pub use self::eventos::{RawInputEvent, RawKeyboardEvent};
 pub use self::parser::{parse_fragmento, parse_html_to_dom};
 pub(crate) use self::chaves_cache::{
-    BoxCacheTarget, FragmentKey, IntrinsicWidthKey, LayoutMeasureKey, LayoutMeasureTarget,
+    BoxCacheTarget, FragmentKey, IntrinsicWidthKey, LayoutMeasureKey,
 };
 use self::matcher::TargetKey;
 use self::helpers::{memo_forget, memo_put, nth_casa};

@@ -97,6 +97,8 @@ pub(in crate::layout) fn transferido(
 pub(in crate::layout) fn base_e_altura_do_item(
     dom: &Dom,
     child: NodeIdx,
+    // A caixa do item, recolhida pelo pré-passe de `flex.rs` ao andar a árvore.
+    caixa: crate::boxes::BoxId,
     content_w: f32,
     container_content_h: Option<f32>,
     align_efetivo: crate::style::AlignItems,
@@ -114,7 +116,7 @@ pub(in crate::layout) fn base_e_altura_do_item(
             let (_, h) = measure_block(
                 dom,
                 child,
-                None,
+                caixa,
                 content_w,
                 container_content_h,
                 Some(base),

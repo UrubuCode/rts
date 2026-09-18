@@ -555,7 +555,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     ccss.min_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
                     ccss.max_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
                 );
-                let h = child_outer_height(dom, child, content_w, avail_h, css, font_size, ctx);
+                let h = child_outer_height(dom, child, caixa_do_filho.expect("um float tem uma caixa"), content_w, avail_h, css, font_size, ctx);
                 // Onde cabe: tenta o cursor; se a banda livre aí é estreita
                 // demais, desce para o fundo de cada float que a estorva, pela
                 // ordem em que eles acabam. Dois floats do mesmo lado que cabem
