@@ -63,6 +63,43 @@ pub(crate) enum AtomicKind {
     /// exclusions, which is what shortens the line, never through the sum of
     /// the segments.
     Float,
+    /// A piece of the generated box (`::before`/`::after`) of the element the
+    /// run names: the box itself when it is atomic (`inline-block`), or the
+    /// start/end edge of an `inline` one that has a surface. The originating
+    /// element is the run's node, because the generated box has no node of
+    /// its own (`pseudo/mod.rs`); the pseudo-element is what tells it apart
+    /// from that element's own `Block`/`ArestaInicio`/`ArestaFim`, which a
+    /// second meaning on those kinds would have confused.
+    Gerada(crate::style::PseudoElement, ParteGerada),
+}
+
+/// Which piece of a generated box an `AtomicKind::Gerada` run is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ParteGerada {
+    /// The whole box, sized by its own `width`/`height` or its content.
+    Atomo,
+    /// Margin + border + padding before the text of an `inline` pseudo.
+    Inicio,
+    /// The same after it.
+    Fim,
+}
+
+impl AtomicKind {
+    /// Does this atom have a BODY the line must be tall enough for? Asked in
+    /// two places of the line flow (does the group create a line at all, how
+    /// tall is each line); one answer keeps them from drifting apart.
+    pub(crate) fn tem_corpo(self) -> bool {
+        matches!(
+            self,
+            Self::Widget | Self::Replaced | Self::Block | Self::Break | Self::Gerada(_, ParteGerada::Atomo)
+        )
+    }
+
+    /// An inline-level box laid out as a block (an `inline-block` element or
+    /// an atomic generated box): it sits on the baseline by its own rules.
+    pub(crate) fn e_bloco_na_linha(self) -> bool {
+        matches!(self, Self::Block | Self::Gerada(_, ParteGerada::Atomo))
+    }
 }
 
 /// Este carácter é WHITESPACE para o CSS?

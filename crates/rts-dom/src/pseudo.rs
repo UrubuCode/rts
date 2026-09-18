@@ -370,9 +370,9 @@ pub(crate) mod tests {
         // `<p>` de uma única linha dá `["→", "oi"]` tratado como inline OU
         // como bloco, porque a ORDEM calha a ser a mesma. O que distingue é a
         // ALTURA — só uma caixa de bloco RESPEITA o `height` declarado do
-        // pseudo; tratado como inline essa `height` é descartada (o corte
-        // ainda vale para `inline-block`/`position:absolute`, ver
-        // `runs.rs::pseudo_run`) e a única altura que sobra é a da LINHA.
+        // pseudo; tratado como inline essa `height` é descartada (an `inline`
+        // pseudo has no height of its own; `inline-block` does since BT-5, see
+        // `layout/pseudo_inline.rs`) e a única altura que sobra é a da LINHA.
         let t = textos(
             "<style>p{margin:0} p::before{content:\"→\";display:block;height:30px}</style><p>oi</p>",
         );

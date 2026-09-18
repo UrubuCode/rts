@@ -40,7 +40,7 @@
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
 use crate::dom::{BoxCacheTarget, Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
-use crate::inline_box::{AtomicKind, apara_css, e_espaco_css, so_espaco_css};
+use crate::inline_box::{AtomicKind, ParteGerada, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod bfc;
@@ -73,6 +73,7 @@ mod posicao_estatica;
 mod posicionado;
 mod pseudo_bloco;
 mod pseudo_caixa;
+mod pseudo_inline;
 mod relativo;
 mod fundo_imagem;
 mod replaced;
@@ -91,7 +92,8 @@ use self::flex::layout_children_horizontal;
 use self::grid::layout_children_grid;
 use self::linha::layout_inline_flow;
 use self::quebra::wrap_runs;
-use self::runs::{InlineRun, collect_runs, pseudo_run};
+use self::runs::{InlineRun, collect_runs};
+use self::pseudo_inline::pseudo_run;
 use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
 mod coluna;
 mod coluna_rtl;
