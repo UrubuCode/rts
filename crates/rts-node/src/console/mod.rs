@@ -46,9 +46,12 @@
 //! two-space indent is fixed), format specifiers (`%s`/`%d`/…) inside
 //! `log`/`error` — every argument is inspected and space-joined, the same
 //! divergence `crate::util`'s own doc states for `util.format`'s literal-arg
-//! case. A `Console` bound to a stream whose `write` throws or is missing
-//! writes nothing and does not throw itself — `ignoreErrors`'s default
-//! behaviour, made unconditional since the option itself is not read.
+//! case. `table`'s optional `properties` column allow-list (see [`table`]).
+//! A `Console` bound to a stream whose `write` throws or is missing writes
+//! nothing and does not throw itself — `ignoreErrors`'s default behaviour,
+//! made unconditional since the option itself is not read.
+
+mod table;
 
 use rts_core::entry::{self, Context, Provided};
 
@@ -297,11 +300,27 @@ extern "C" fn time_log(_e: u64, this: u64, label: u64, a: u64, b: u64, c: u64) -
     entry::undefined_value()
 }
 
-/// `console.table(tabularData, properties?)` — falls back to [`log`] for
-/// anything that is not array-like (structural check, matching
-/// [`crate::util`]'s own).
+/// `console.table(tabularData, properties?)` — a real box-drawing table for
+/// an object or an array, falling back to [`log`] for anything that is not
+/// (a number, a string, `null`…) — matching Node's own behaviour for e.g.
+/// `console.table(5)`.
+///
+/// The doc this replaced said `table` was unconditionally [`log`] despite its
+/// own doc-comment's claim of a structural branch — `tests/claude-node-
+/// console-class.test.ts`'s `tableHasIndexColumnOk` pinned exactly that gap,
+/// asserted RED on purpose. `crates/rts-std/src/console/table.rs` drew the
+/// same box for the bare global `console.table` first (same brief, same root
+/// cause: neither surface had ever drawn one); this is that shape's second
+/// instance rather than a shared function, because `rts-node` does not depend
+/// on `rts-std` (module doc's own "Reuse-check": the dependency direction is
+/// the other way) and the two crates already keep separate formatters for the
+/// same reason (`console::mod`'s doc: `rts-std`'s prints through `described`,
+/// this module's through `node:util`'s structural walk).
 extern "C" fn table(_e: u64, this: u64, data: u64, _properties: u64, _c: u64, _d: u64) -> u64 {
-    write_line(this, "__stdout", &format_line(&[data]));
+    match table::render(data) {
+        Some(text) => write_line(this, "__stdout", &text),
+        None => write_line(this, "__stdout", &format_line(&[data])),
+    }
     entry::undefined_value()
 }
 

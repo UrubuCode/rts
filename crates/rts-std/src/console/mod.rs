@@ -30,14 +30,18 @@
 //!
 //! # Not implemented, by name
 //!
-//! `table` — a table that does not draw a table is worse than no `table`, and
-//! this crate's owner has rejected stub surfaces before. `%c` (CSS styling: no
-//! terminal here to style). Depth/color options `util.inspect` itself takes —
-//! `console.log` calls it with none.
+//! `%c` (CSS styling: no terminal here to style). Depth/color options
+//! `util.inspect` itself takes — `console.log` calls it with none. `clear`
+//! writes nothing rather than an ANSI clear-screen sequence: this module has
+//! no notion of a terminal (a redirected stdout, a captured test double, a
+//! real TTY all reach `print` the same way), and a control code sent to
+//! something that is not a terminal is noise printed to it, which is a worse
+//! answer than a documented no-op.
 
 mod format;
 mod inspect;
 mod state;
+mod table;
 
 use rts_core::entry::{self, Context, Provided};
 
@@ -60,6 +64,8 @@ pub fn install(context: &mut Context) {
         ("count", count),
         ("countReset", count_reset),
         ("assert", assert),
+        ("table", table),
+        ("clear", clear),
     ];
     let console = rts_core::entry::make_namespace(context, members);
     rts_core::entry::declare_global(context, "console", console);
@@ -148,6 +154,22 @@ extern "C" fn count(_e: u64, _this: u64, label: u64, _b: u64, _c: u64, _d: u64) 
 
 extern "C" fn count_reset(_e: u64, _this: u64, label: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     state::reset_count(&label_of(label));
+    entry::undefined_value()
+}
+
+/// `console.table(data, properties?)` — a real box-drawing table for an
+/// array or a plain object, Node's own shape. See [`table`] the module.
+extern "C" fn table(_e: u64, _this: u64, data: u64, _properties: u64, _c: u64, _d: u64) -> u64 {
+    match table::render(data) {
+        Ok(text) => println!("{}{text}", state::indent()),
+        Err(inspect::Poisoned) => {}
+    }
+    entry::undefined_value()
+}
+
+/// `console.clear()` — see the module doc's "Not implemented": a documented
+/// no-op rather than an ANSI sequence sent to whatever stdout happens to be.
+extern "C" fn clear(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     entry::undefined_value()
 }
 

@@ -1,7 +1,18 @@
 // Cobertura do JSON5 — superset do JSON com comments, trailing commas,
-// unquoted keys, single quotes, hex, NaN/Infinity. Backend via crate
-// `json5` que produz serde_json::Value (mesmo bridge handle-table).
+// unquoted keys, single quotes, hex. Backend via crate `json5`, delegando
+// para o `JSON.parse`/`stringify` globais (ver crates/rts-std/src/json5.rs).
+//
+// `JSON5` NAO e global do JS: nem Node nem Bun o tem (checado diretamente,
+// `typeof JSON5` e "undefined" nos dois). No motor antigo era um global
+// (`crates/rts-shared/src/globals/json5/mod.rs`, apagado em 2026-08-10); esta
+// suite o importava sem `import`, o que contradiz a regua de verdade
+// (CLAUDE.md / BRIEF-SUITE.md: "um teste que afirma algo que o Node nao faz
+// esta ERRADO"). Corrigido para `import { JSON5 } from "rts:json5"` — a
+// excecao que o brief nomeia para "nunca editar um teste pra passar": a
+// asserção original contradizia Node/Bun, entao corrigir o teste É o
+// entregável, nao um jeito de o fazer passar.
 import { describe, test, expect } from "rts:test";
+import { JSON5 } from "rts:json5";
 
 // Comments line + block
 const a: any = JSON5.parse(`// linha
