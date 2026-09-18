@@ -221,6 +221,9 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
         "border-width" => dst.border_width = src.border_width,
         "border-style" => dst.border_style = src.border_style,
         "opacity" => dst.opacity = src.opacity,
+        // WPT `CSS2/zindex/z-index-014`: `z-index:-1; z-index:inherit` sob um
+        // pai `z-index:1` tem de pintar ACIMA de um irmão `auto`.
+        "z-index" => dst.z_index = src.z_index,
         "width" => dst.width = src.width,
         "height" => dst.height = src.height,
         // Uma propriedade fora desta lista não é um erro: `inherit` nela fica sem
@@ -345,5 +348,16 @@ mod tests {
         let mut filho = parse_inline("color:inherit;color:red");
         filho.inherit_from(&pai);
         assert_eq!(filho.color, Some(0xff0000ff));
+    }
+
+    /// `z-index: inherit` copia o valor do pai e vence um `z-index` anterior
+    /// do mesmo bloco (CSS Cascade §7.3; WPT `CSS2/zindex/z-index-014`). Sem
+    /// a linha em `copy_property` o `inherit` era engolido e o `-1` ficava.
+    #[test]
+    fn z_index_inherit_copia_o_do_pai_e_vence_o_anterior() {
+        let pai = parse_inline("position:relative;z-index:1");
+        let mut filho = parse_inline("position:absolute;z-index:-1;z-index:inherit");
+        filho.apply_inherit_keyword(&pai);
+        assert_eq!(filho.z_index, Some(1));
     }
 }
