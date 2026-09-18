@@ -43,6 +43,7 @@ mod pequenos_1_corpus;
 mod float_corpus;
 mod grid;
 mod grid_colocacao;
+mod grid_colapso_corpus;
 mod grid_corpus;
 mod grid_align_safe_corpus;
 mod align_safe_corpus;

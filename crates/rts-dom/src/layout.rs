@@ -107,6 +107,7 @@ mod flex_stretch_replaced;
 mod grid;
 mod grid_linhas;
 mod grid_tracks;
+mod grid_colapso;
 mod hifen;
 mod linha;
 mod quebra;

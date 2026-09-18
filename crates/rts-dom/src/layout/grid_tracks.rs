@@ -69,25 +69,6 @@ pub(in crate::layout) fn expand_auto_repeats(
     (out, collapsible)
 }
 
-/// Zera as trilhas `auto-fit` que não receberam NENHUM item — CSS Grid 1
-/// §7.2.3.3 "the empty repeated tracks are collapsed". Só o TAMANHO colapsa
-/// aqui (o gap ao lado de uma trilha colapsada continua a ser contado): a
-/// spec também suprime esse gap, que ficou por fazer — nenhuma fixture do
-/// corpus mede `auto-fit` com trilhas vazias (só `auto-fill`, onde isto é
-/// sempre `false` e a função não toca em nada), por isso a aproximação fica
-/// documentada em vez de adivinhada.
-pub(in crate::layout) fn collapse_empty_auto_fit_tracks(
-    sizes: &mut [f32],
-    collapsible: &[bool],
-    occupied: &[bool],
-) {
-    for i in 0..sizes.len() {
-        if collapsible.get(i).copied().unwrap_or(false) && !occupied.get(i).copied().unwrap_or(false) {
-            sizes[i] = 0.0;
-        }
-    }
-}
-
 /// A LARGURA (ou altura) de cada trilha de uma grade — CSS Grid 1 §11,
 /// reduzido ao que este motor sustenta: sem itens a atravessar trilhas (essa
 /// repartição é a mesma pergunta do `colspan` de tabela, tratada à parte em
@@ -107,14 +88,14 @@ pub(in crate::layout) fn collapse_empty_auto_fit_tracks(
 pub(in crate::layout) fn resolve_tracks(
     tracks: &[crate::style::GridTrack],
     container: f32,
-    gap: f32,
+    // A soma das calhas, e não o `gap`: com `auto-fit` a calha ao lado de uma
+    // trilha colapsada colapsa com ela (`grid_colapso::calhas`).
+    total_gap: f32,
     conteudo_max: Option<&[f32]>,
     conteudo_min: Option<&[f32]>,
     ctx: &ResolveCtx,
 ) -> Vec<f32> {
     use crate::style::{GridTrack as T, TrackBound as B};
-    let n = tracks.len().max(1);
-    let total_gap = (n.saturating_sub(1)) as f32 * gap;
     let dim = |d: &crate::style::Dimension| -> f32 {
         match d {
             // % de trilha resolve contra o container (largura p/ colunas).
