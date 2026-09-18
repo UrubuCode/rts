@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- Ruler (BT-4): CSS 2.1 §17.2.1 generates the anonymous TABLE from the
+     outside in. Table parts (`table-cell`, `table-row`, row groups) whose
+     parent is not a table get an anonymous table around each run of
+     consecutive siblings, and cells without a row get an anonymous row.
+     The engine made each misparented cell an ordinary block, so cells
+     stacked at full width instead of sitting side by side in a
+     shrink-to-fit table. Five cases: bare cells, a bare row, a floated row
+     (the WPT `float-applies-to-004` shape), cells between text, and
+     `border-spacing` inherited by the anonymous table from its parent. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .caso { margin-bottom: 10px; background: #eee; }
+  .cel { display: table-cell; width: 40px; height: 30px; background: #0a0; }
+  .cel.b { width: 60px; background: #a0a; }
+  .linha { display: table-row; }
+  #flutua { display: table-row; float: right; background: #00f; }
+  #espaco { border-spacing: 10px 4px; }
+</style></head>
+<body>
+  <div class="caso" id="soltas"><div class="cel" id="s1"></div><div class="cel b" id="s2"></div></div>
+  <div class="caso" id="so-linha"><div class="linha" id="l"><div class="cel" id="l1"></div><div class="cel b" id="l2"></div></div></div>
+  <div class="caso" id="com-float"><div id="flutua"><div class="cel" id="f1"></div><div class="cel b" id="f2"></div></div></div>
+  <div class="caso" id="entre-texto">antes<div class="cel" id="t1"></div><div class="cel b" id="t2"></div>depois</div>
+  <div class="caso" id="espaco"><div class="cel" id="e1"></div>
+    <div class="cel b" id="e2"></div></div>
+  <div id="fim" style="height: 10px; background: #00f; clear: both"></div>
+</body>
+</html>
