@@ -351,9 +351,6 @@ the code does, not about nanoseconds. The comparison against `JSON.stringify`/
 
 ## 8. Limits, stated
 
-- A `Map` or `Set` keyed by a **bigint** does not find it again — `new
-  Set([1n]).has(1n)` is false on this engine, pickle or not. A pickled one
-  revives complete and answers the same wrong way.
 - A class declared inside a loop revives as the LAST evaluation of that
   declaration, whichever one wrote it.
 - `v8.serialize` pickles rather than cloning: a class instance stays one and a
