@@ -22,6 +22,37 @@
 //! nothing: [`super::Ctx::module_key`] is `None` there, and a name that only
 //! exists while some other code is running is not one a file can refer to.
 //!
+//! # Only a program that can reach the pickle registers anything
+//!
+//! A registration is a runtime call per declaration, paid at startup by every
+//! program — measured in release on 2026-09-18, medians of three, a program of
+//! N top-level functions that never imports `rts:serde`: 262 ms at N = 4 000
+//! against 385 with the registrations, about 30 µs each, and a bundle declares
+//! thousands. A feature nobody uses may not cost them, so [`reaches_pickle`]
+//! decides ONCE per compilation whether any module can reach the pickle, and
+//! `module_key` is `None` for every module when none can. The whole graph is
+//! one compilation (`emit_modules`), which is what makes the question
+//! answerable: every `import` of every file is in hand before anything is
+//! emitted. It is asked of every module and answered for all of them, because
+//! a class declared in a file that never mentions `rts:serde` is still one the
+//! importing file may serialize.
+//!
+//! What counts as reaching it is the specifier — `rts:serde`, and `node:v8`,
+//! whose `serialize` is the same pickle — written as a static `import`, an
+//! `export … from`, a literal `import("…")` or a literal `require("…")`; and
+//! then the two forms the compiler cannot see through: a COMPUTED specifier,
+//! since `require(x)` resolves at run time against the table every declared
+//! module is in, and `eval` or `Function`, since code compiled while the
+//! program runs can write any of the above. Counted rather than exempted: 9 of
+//! 888 `*.test.ts` and 8 of ~1 516 cross-runtime fixtures use either, so the
+//! gate stays useful. `Storage` is NOT a reason: it pickles texts only
+//! (`pickle_texts`/`texts_of`) and never a class.
+//!
+//! A program the gate did not foresee that still reaches `serialize` is
+//! refused by name — `cannot serialize an instance of Point, which is not a
+//! class this program declared` — and the refusal says when the registry is
+//! empty, which is `pickle/names.rs`'s side of this rule.
+//!
 //! # The module key
 //!
 //! A class is named by its module and its name, so two `class Foo` in two
@@ -33,8 +64,58 @@
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::{Ctx, EmitResult};
+use super::{Ctx, EmitResult, Unit, dynamic};
 use crate::runtime::RuntimeOp;
+use crate::syntax::{ExportKind, Import, ModuleItem, Stmt};
+
+/// Whether a specifier names the pickle: its own module, or `node:v8`, whose
+/// `serialize`/`deserialize` are the same walk and the same registry. The bare
+/// `v8` is what a Node program writes and what `require` resolves to `node:v8`.
+fn names_pickle(specifier: &str) -> bool {
+    matches!(specifier, "rts:serde" | "node:v8" | "v8")
+}
+
+/// The walk's question, with the three names it compares interned once.
+fn wanted(ctx: &mut Ctx) -> dynamic::Wanted {
+    dynamic::Wanted {
+        dynamic_import: true,
+        require: Some(ctx.names.intern("require")),
+        dynamic_code: Some((ctx.names.intern("eval"), ctx.names.intern("Function"))),
+    }
+}
+
+/// Whether one survey found a route to the pickle — see the module header.
+fn reaches_pickle(found: &dynamic::Survey) -> bool {
+    found.computed || found.dynamic_code || found.named.iter().any(|specifier| names_pickle(specifier))
+}
+
+/// Whether any module of a graph can reach the pickle, over the raw items —
+/// static imports, re-exports and the walk of `dynamic` in one pass per unit.
+pub(super) fn program_reaches_pickle(units: &[Unit<'_>], ctx: &mut Ctx) -> bool {
+    let wanted = wanted(ctx);
+    units.iter().any(|unit| {
+        unit.items.iter().any(|item| match item {
+            ModuleItem::Import(import) => names_pickle(&import.source),
+            ModuleItem::Export(export) => match &export.kind {
+                ExportKind::Named {
+                    source: Some(source), ..
+                }
+                | ExportKind::All { source, .. } => names_pickle(source),
+                _ => false,
+            },
+            ModuleItem::Stmt(_) => false,
+        }) || reaches_pickle(&dynamic::survey(unit.items, wanted))
+    })
+}
+
+/// The same question of a script compiled on its own, whose imports were
+/// already split from its body — a re-export from one is refused upstream, so
+/// the two lists are the whole of it.
+pub(super) fn script_reaches_pickle(imports: &[Import], body: &[Stmt], ctx: &mut Ctx) -> bool {
+    let wanted = wanted(ctx);
+    imports.iter().any(|import| names_pickle(&import.source))
+        || reaches_pickle(&dynamic::survey_statements(body, wanted))
+}
 
 /// Registers one declaration, when this compilation registers any.
 ///

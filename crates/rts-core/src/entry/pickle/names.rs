@@ -140,6 +140,23 @@ pub(super) fn declare(context: &mut Context, target: u64, module: &str, name: &s
     }
 }
 
+/// Why a name is not in the registry, when the reason is that NOTHING is: the
+/// compiler fills it only for a program that can reach the pickle
+/// (`emit/serde_names.rs`), so a `serialize` reached by a route it did not
+/// foresee has to say so rather than blame the one class. Empty when the
+/// registry exists — then the name alone is what is missing.
+pub(in crate::entry) fn unregistered_because(context: &mut Context) -> String {
+    match registry(context, false) {
+        Some(_) => String::new(),
+        None => [
+            " (nothing is registered: either no module of this program can reach rts:serde",
+            " or node:v8, so the compiler emitted no registrations, or it declares no named",
+            " class or top-level function — see docs/engine/pickle.md)",
+        ]
+        .concat(),
+    }
+}
+
 /// The registry's key for a declaration: what the stream names it by.
 fn qualified(module: &str, name: &str) -> String {
     format!("{module}\0{name}")
@@ -302,7 +319,8 @@ pub(super) fn version_of(context: &mut Context, cell: u32) -> u64 {
 pub(super) fn resolve(context: &mut Context, module: Option<&Str>, name: &Str) -> Result<u64, String> {
     let spelled = name.to_rust_lossy();
     let Some(registry) = registry(context, false) else {
-        return Err(format!("pickle: '{spelled}' is not declared in this program"));
+        let because = unregistered_because(context);
+        return Err(format!("pickle: '{spelled}' is not declared in this program{because}"));
     };
     // The qualified name is one hash lookup. The key is a fresh string and the
     // table compares keys by text, so it need not be the very cell `declare`

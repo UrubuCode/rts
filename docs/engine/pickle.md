@@ -224,8 +224,9 @@ missing from (`docs/engine/lost-roots.md`). It is **bounded by the source**: a
 loop does not grow it. It adds **nothing to `Context`**. Code compiled by
 `eval`, `new Function` or a page script registers nothing.
 
-It is a `Map` and not a plain object because **every program pays for the
-registry at startup**, whether or not it imports `rts:serde`, and a plain
+It is a `Map` and not a plain object because **every program that can reach
+the pickle pays for the registry at startup** — every program at all, until
+the gate below — and a plain
 object with one property per name made that cost quadratic: each new key was a
 new layout whose index the write built from the whole chain. Measured
 2026-09-18 in release on a program of N top-level functions and one
@@ -243,6 +244,46 @@ the 8.5 s at N = 4 000 in `machine-compile`, before the program ran a line.
 shape a class always had, and `crates/rts-host/tests/serde_declare_order.rs`
 pins the order. Measured on `fast` binaries, medians of five, base → fixed:
 N = 500 142 → 54 ms, 1 000 482 → 87, 2 000 1 979 → 157, **4 000 9 205 → 352**.
+
+**And what is left after both is paid only by a program that can reach the
+pickle.** Linear is still one runtime call per declaration at startup, for
+every program — measured in release, 2026-09-18, medians of three, a program
+of N top-level functions that never imports `rts:serde`: 262 ms at N = 4 000
+against 385 registering (+47 %, about 30 µs a function), 233 against 296 for
+2 000 functions and 300 classes. A bundle declares thousands, and a feature
+nobody uses may not cost them. So the compiler emits `SerdeDeclare` **if and
+only if some module of the program can reach the pickle**, decided once per
+compilation in `emit/serde_names.rs` — possible because `graph.rs` emits every
+file into ONE compilation, so every import of every module is in hand before
+anything is emitted. The answer is for the whole program: a class declared in a
+file that never mentions `rts:serde` is still one the importing file may
+serialize, so one route anywhere registers every module.
+
+A route is any of: `rts:serde` or `node:v8` (whose `serialize` is the same
+pickle over the same registry) named by a static `import`, an `export … from`,
+a literal `import("…")` or a literal `require("…")`; a **computed** `import(x)`
+or `require(x)`, which resolve at run time against the table every declared
+module is in, so the compiler cannot rule the pickle out; or a read of `eval`
+or a call of `Function`, since code compiled while the program runs can write
+any of the above. The last was counted before it was admitted, because it
+would have been a way to make the gate meaningless: 9 of 888 `*.test.ts` and 8
+of ~1 516 cross-runtime fixtures use either, so the gate holds for the rest.
+`Function.prototype.bind` — read on every page by every bundle — is not a
+call and does not count. `Storage` is not a route: it pickles texts only
+(`pickle_texts`/`texts_of`) and never a class. The walk that finds all of this
+is the one `rts-host` already asks for `import("…")` and `require("…")`
+specifiers (`emit/dynamic.rs`), with two flags added rather than a second
+walk. `crates/rts-host/tests/serde_declare_gate.rs` counts the
+`__rts_serde_declare` calls in the IR for each shape.
+
+What the gate cannot do is silently produce a wrong answer. A program it did
+not foresee that still reaches `serialize` on a class instance is refused
+exactly as an undeclared class always was — `TypeError: cannot serialize an
+instance of Point, which is not a class this program declared` — and when the
+registry does not exist at all the refusal says so and why: *nothing is
+registered: no module of this program imports rts:serde or node:v8, so the
+compiler emitted no registrations*. The reader's `is not declared in this
+program` carries the same clause.
 
 ---
 

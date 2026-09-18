@@ -107,7 +107,7 @@ mod unary;
 mod with_scope;
 mod wrap;
 
-pub use dynamic::{Wanted, dynamic_specifiers, specifiers};
+pub use dynamic::{Survey, Wanted, dynamic_specifiers, specifiers, survey, survey_statements};
 pub use eval::emit_eval_program;
 pub use page::emit_page_program;
 pub use expr::emit_expr;
@@ -589,8 +589,7 @@ pub struct Ctx<'a> {
     pub module_paths: Option<(String, String)>,
     /// What the pickle calls the module being emitted — its path relative to
     /// the program's entry, `""` for the entry itself — or `None` where nothing
-    /// may be registered for it (an `eval`, a page script). See
-    /// `serde_names`.
+    /// is registered: an `eval`, a page, a program that cannot reach the pickle.
     pub module_key: Option<String>,
     /// Whether the next body emitted is a module's or a script's own, whose
     /// named top-level functions the pickle may name. Taken by that body.
@@ -1078,8 +1077,8 @@ pub fn emit_program_with_exports(
     // does not exist. An empty scope says exactly that — which is what
     // [`emit_eval_program`] is the one exception to.
     let nothing = Scope::new();
-    // A program compiled on its own is its own entry, whose key is `""`.
-    ctx.module_key.get_or_insert_with(String::new);
+    // Its own entry, key `""` — when it can reach the pickle (`serde_names`).
+    ctx.module_key = serde_names::script_reaches_pickle(imports, body, ctx).then(String::new);
     ctx.names_top_level = true;
     emit_program_into(body, imports, specifier, publications, &nothing, ctx)
 }
@@ -1323,16 +1322,17 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     // this earlier would renumber every map keyed by one.
     whole_program_facts(&program, ctx);
 
+    // ANY module reaching the pickle registers EVERY module — `serde_names`.
+    let registers = serde_names::program_reaches_pickle(units, ctx);
     let mut entries = Vec::with_capacity(lowered.len());
     for (unit, imports, body, publications) in &lowered {
-
         let (imports, body, publications) = (imports, body, publications);
         ctx.module_paths = Some(unit.paths.clone());
         // The entry is the LAST unit — dependencies first — and every key is
         // relative to it, so the same program compiled elsewhere names its
         // classes the same way.
         let entry = units.last().map_or("", |last| last.specifier.as_str());
-        ctx.module_key = Some(serde_names::module_key(&unit.specifier, entry));
+        ctx.module_key = registers.then(|| serde_names::module_key(&unit.specifier, entry));
         ctx.names_top_level = true;
         entries.push(emit_unit(
             body,

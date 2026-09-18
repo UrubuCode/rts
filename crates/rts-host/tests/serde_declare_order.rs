@@ -35,7 +35,10 @@ fn calls(source: &str) -> Vec<&'static str> {
 
 #[test]
 fn each_top_level_function_is_registered_before_the_next_is_made() {
-    let source: String = (0..8).map(|i| format!("function f{i}(x) {{ return x + {i}; }}\n")).collect();
+    // The import is what makes the program register at all — a program with
+    // no route to the pickle emits no registration (`serde_declare_gate.rs`).
+    let mut source = String::from("import { serialize } from \"rts:serde\";\n");
+    source.extend((0..8).map(|i| format!("function f{i}(x) {{ return x + {i}; }}\n")));
     let sequence = calls(&source);
     assert_eq!(sequence.len(), 16, "one closure and one registration per function: {sequence:?}");
     for pair in sequence.chunks(2) {

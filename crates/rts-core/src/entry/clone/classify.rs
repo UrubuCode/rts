@@ -288,7 +288,10 @@ fn object_of_pickle(context: &mut Context, cell: u32, known: &mut Known) -> Resu
     let named = constructor
         .and_then(|constructor| function_name(context, constructor))
         .unwrap_or_else(|| "an unnamed class".to_owned());
-    Err(refuse(&format!("an instance of {named}, which is not a class this program declared")))
+    let because = super::super::pickle::names::unregistered_because(context);
+    Err(refuse(&format!(
+        "an instance of {named}, which is not a class this program declared{because}"
+    )))
 }
 
 /// A plain object, marked for the slow read when it has an accessor.
@@ -311,10 +314,11 @@ fn function(context: &mut Context, cell: u32, known: &mut Known) -> Result<Class
         return Ok(declared);
     }
     let named = function_name(context, cell).filter(|name| !name.is_empty());
+    let because = super::super::pickle::names::unregistered_because(context);
     Err(refuse(&match named {
         Some(name) => format!(
             "function '{name}': only a named function declared at the top level of a module \
-             serializes, by reference"
+             serializes, by reference{because}"
         ),
         None => "an anonymous function or arrow: only a named function declared at the top \
                  level of a module serializes, by reference"
