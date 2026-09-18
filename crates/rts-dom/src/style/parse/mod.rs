@@ -659,16 +659,14 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
         "none" => Some(DisplayKind::None),
         // `list-item` — o `<li>`. Bloco MAIS um marcador; ver `crate::listitem`.
         "list-item" => Some(DisplayKind::ListItem),
-        // Os valores de TABELA. `inline-table` cai em `Table` pela MESMA razão
-        // (e a mesma perda) que `inline-grid` acima — não porque o algoritmo
-        // por dentro mude, mas porque não há `InlineTable` para guardar o
-        // outer-display; participa do fluxo do pai como bloco em vez de como
-        // caixa inline, o que é o desvio a corrigir num lote de layout.
+        // The TABLE values, each kept as declared: the three row groups share
+        // a layout and differ in order, and `table/grid.rs` is where that is
+        // decided — not here.
         "table" => Some(DisplayKind::Table),
         "inline-table" => Some(DisplayKind::InlineTable),
-        "table-row-group" | "table-header-group" | "table-footer-group" => {
-            Some(DisplayKind::TableRowGroup)
-        }
+        "table-row-group" => Some(DisplayKind::TableRowGroup),
+        "table-header-group" => Some(DisplayKind::TableHeaderGroup),
+        "table-footer-group" => Some(DisplayKind::TableFooterGroup),
         "table-row" => Some(DisplayKind::TableRow),
         "table-cell" => Some(DisplayKind::TableCell),
         "table-caption" => Some(DisplayKind::TableCaption),

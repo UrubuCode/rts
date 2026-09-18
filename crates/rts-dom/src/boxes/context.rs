@@ -130,6 +130,8 @@ fn inner_of(display: DisplayKind) -> InnerDisplay {
         DisplayKind::Table
         | DisplayKind::InlineTable
         | DisplayKind::TableRowGroup
+        | DisplayKind::TableHeaderGroup
+        | DisplayKind::TableFooterGroup
         | DisplayKind::TableRow
         | DisplayKind::TableCell
         | DisplayKind::TableCaption => InnerDisplay::Table,

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!-- Ruler (DISP): CSS 2.1 §17.2 — a `table-header-group` is displayed before
+     every other row and row group, and a `table-footer-group` after them,
+     whatever their position in the source. The parser folded `thead`,
+     `tbody` and `tfoot` (and the three `display` values) into one
+     `TableRowGroup`, so the order was not even expressible: a `tfoot`
+     written first rendered first. Two tables: the HTML elements in the order
+     foot, body, head; and the same with `div`s and `display` values. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  table { border-spacing: 0; margin-bottom: 10px; }
+  td, .td { width: 50px; height: 20px; padding: 0; }
+  .t { display: table; border-spacing: 0; margin-bottom: 10px; }
+  .tr { display: table-row; }
+  .td { display: table-cell; }
+  .h { display: table-header-group; }
+  .f { display: table-footer-group; }
+  .b { display: table-row-group; }
+</style></head>
+<body>
+  <table id="t1">
+    <tfoot id="f1"><tr><td id="cf1"></td></tr></tfoot>
+    <tbody id="b1"><tr><td id="cb1"></td></tr><tr><td id="cb1b"></td></tr></tbody>
+    <thead id="h1"><tr><td id="ch1"></td></tr></thead>
+  </table>
+  <div class="t" id="t2">
+    <div class="f" id="f2"><div class="tr"><div class="td" id="cf2"></div></div></div>
+    <div class="b" id="b2"><div class="tr"><div class="td" id="cb2"></div></div></div>
+    <div class="h" id="h2"><div class="tr"><div class="td" id="ch2"></div></div></div>
+  </div>
+  <div id="fim" style="height: 10px; background: #00f"></div>
+</body>
+</html>

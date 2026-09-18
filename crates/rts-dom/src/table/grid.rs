@@ -40,7 +40,7 @@ pub(in crate::table) fn collect(
         };
     }
 
-    for &caixa in tree.children(table) {
+    for caixa in ordem_de_exibicao(dom, tree, table) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };
@@ -75,7 +75,7 @@ pub(in crate::table) fn collect(
                     &mut ocupado,
                 );
             }
-            Some(DisplayKind::TableRowGroup) => {
+            Some(d) if d.is_row_group() => {
                 fechar_anonima!();
                 let inicio = g.rows.len();
                 // O grupo também pode trazer células soltas — mesma regra, e o
@@ -128,6 +128,30 @@ pub(in crate::table) fn collect(
     }
     fechar_anonima!();
     g
+}
+
+/// The table's children in DISPLAY order (CSS 2.1 §17.2): the first
+/// `table-header-group` before everything else, the first
+/// `table-footer-group` after everything else, the rest as written. A second
+/// header or footer is displayed as an ordinary row group, in place — the
+/// spec says so, and it is also what keeps a table with two `<thead>`s from
+/// losing one.
+fn ordem_de_exibicao(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    table: crate::boxes::BoxId,
+) -> Vec<crate::boxes::BoxId> {
+    let filhos = tree.children(table);
+    let primeiro = |alvo: DisplayKind| {
+        filhos
+            .iter()
+            .copied()
+            .find(|&c| tree.node_of(c).and_then(|n| display_of(dom, n)) == Some(alvo))
+    };
+    let cabecalho = primeiro(DisplayKind::TableHeaderGroup);
+    let rodape = primeiro(DisplayKind::TableFooterGroup);
+    let meio = filhos.iter().copied().filter(|&c| Some(c) != cabecalho && Some(c) != rodape);
+    cabecalho.into_iter().chain(meio).chain(rodape).collect()
 }
 
 /// Acrescenta uma linha à grade a partir das CÉLULAS dela. Recebe as células e

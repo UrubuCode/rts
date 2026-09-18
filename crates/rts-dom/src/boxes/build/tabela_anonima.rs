@@ -100,6 +100,8 @@ fn e_parte_de_tabela(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
         dom.computed_style_idx(node).and_then(|c| c.effective_display()),
         Some(
             DisplayKind::TableRowGroup
+            | DisplayKind::TableHeaderGroup
+            | DisplayKind::TableFooterGroup
                 | DisplayKind::TableRow
                 | DisplayKind::TableCell
                 | DisplayKind::TableCaption

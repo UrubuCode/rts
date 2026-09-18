@@ -57,6 +57,7 @@ mod inline_fragmentos_corpus;
 mod inline_partido_rect_corpus;
 mod inline_fora_de_fluxo_corpus;
 mod tabela_anonima_corpus;
+mod tabela_grupos_corpus;
 mod pintura;
 mod pintura_transform_clip;
 mod pintura_juncao;
