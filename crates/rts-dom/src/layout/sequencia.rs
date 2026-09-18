@@ -231,11 +231,22 @@ fn emenda_os_sem_caixa(
         Janela::Run(menor, maior) => pos > menor && pos < maior,
         Janela::Nenhuma => false,
     };
+    // **An ELEMENT with no box is not one of those.** The cascade accepted it,
+    // so the build gave it a box unless the split consumed it: an inline whose
+    // block-level child left no inline content on either side materialises no
+    // fragment at all, and its content is already in the tree as a sibling of
+    // this sequence. Splicing it back made the flow lay the `<span>` out a
+    // second time as an inline atom with no box, and the block inside it then
+    // reached the fragment cache without an identity
+    // (`CSS2/normal-flow/height-inherit-001.xht`).
+    let absorvido = |d: NodeIdx| {
+        matches!(dom.node(d).kind, NodeKind::Element { .. }) && dom.computed_style_idx(d).is_some()
+    };
     let sem_caixa: Vec<(usize, NodeIdx)> = filhos_dom
         .iter()
         .copied()
         .enumerate()
-        .filter(|&(pos, d)| tree.boxes_of(d).is_empty() && dentro(pos))
+        .filter(|&(pos, d)| tree.boxes_of(d).is_empty() && !absorvido(d) && dentro(pos))
         .collect();
     if sem_caixa.is_empty() {
         return da_arvore;

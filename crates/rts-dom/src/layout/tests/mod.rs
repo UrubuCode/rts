@@ -6,6 +6,7 @@
 
 mod atomo_inline_caixa;
 mod bloco;
+mod bloco_em_inline_vazio;
 mod canvas_corpus;
 mod cache;
 mod cache_flex;
