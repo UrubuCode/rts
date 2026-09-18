@@ -324,7 +324,10 @@ symbols that opt an object into operator overloading
 (`[operators.add](other, reversed)`); only an object declaring one is
 overloaded, never a method merely NAMED `add`, and `tsc` still flags the
 operator expression. `docs/engine/operator-overloading.md`. Still wanted from
-what the old engine provided: `io`, `buffer`, `net`, `fs`, `process`.
+what the old engine provided: `io`, `buffer`, `net`, `fs`, `process`. `rts:serde` is
+back — the pickle, RTSP v2, reading v1 saves too: class instances and top-level
+functions by name (AOT included), schema versions. `docs/engine/pickle.md` is the
+stream, the semantics and the cost; `node:v8` and `Storage` write the same bytes.
 
 **GONE by decision, and their tests with them** — `ptr`, `mem`, `alloc`, `ffi`,
 `trace`, `sync`, `thread`, `promise.new_*`, and `RtsePoint`. The first five left
