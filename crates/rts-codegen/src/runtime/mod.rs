@@ -639,6 +639,9 @@ pub enum RuntimeOp {
     /// is why `rts-core` keeps the vector in a `Vec` of its own and pays about
     /// 8 ns per call for the three activation stacks that implies.
     Call,
+    /// `Call` in tail position: recorded, and made by the door once this frame
+    /// is gone. `rts_core::entry::tail_call` says why that is not `return_call`.
+    TailCall,
 
     /// Records the source spelling of the callee about to be called, by its
     /// literal index, so a call that turns out not to be a function can name
@@ -1088,6 +1091,7 @@ impl RuntimeOp {
         RuntimeOp::Construct,
         RuntimeOp::InstanceOf,
         RuntimeOp::Call,
+        RuntimeOp::TailCall,
         RuntimeOp::SetCallName,
         RuntimeOp::RegexNew,
         RuntimeOp::GlobalGet,
@@ -1202,6 +1206,7 @@ impl RuntimeOp {
             RuntimeOp::Construct => "__rts_construct",
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call_counted",
+            RuntimeOp::TailCall => "__rts_tail_call",
             RuntimeOp::SetCallName => "__rts_set_call_name",
             RuntimeOp::RegexNew => "__rts_regex_new",
             RuntimeOp::BigIntNew => "__rts_bigint_new",
@@ -1405,7 +1410,7 @@ impl RuntimeOp {
             RuntimeOp::InstanceOf => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
-            RuntimeOp::Call => {
+            RuntimeOp::Call | RuntimeOp::TailCall => {
                 // The callee, the receiver, HOW MANY arguments were written,
                 // WHICH literal spells the callee, and the four slots. The
                 // count is the operand that lets a callee tell `f(undefined)`

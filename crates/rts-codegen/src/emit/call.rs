@@ -46,6 +46,19 @@ pub fn emit_call(
     callee: &Expr,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
+    emit_call_as(builder, scope, ctx, callee, arguments, RuntimeOp::Call)
+}
+
+/// Emits a call through `op` — `Call`, or `TailCall` where `tail.rs` proved
+/// the call is in tail position. Everything before the jump is the same rule.
+pub(super) fn emit_call_as(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    callee: &Expr,
+    arguments: &[Spreadable],
+    op: RuntimeOp,
+) -> EmitResult<ValueId> {
     // The three paths below prove something about a NAME from the whole
     // program: that `Math` is untouched and unbound, or that a call names one
     // particular function declaration. Inside a `with` neither proof holds —
@@ -80,7 +93,14 @@ pub fn emit_call(
     // that function is one expression. Asked before the callee is emitted:
     // reading the name would be the one piece of the call this removes.
     if scope_is_lexical
-        && let Some(value) = super::inline::emit_substituted(builder, scope, ctx, callee, arguments)?
+        && let Some(value) = super::inline::emit_substituted(
+            builder,
+            scope,
+            ctx,
+            callee,
+            arguments,
+            op == RuntimeOp::TailCall,
+        )?
     {
         return Ok(value);
     }
@@ -89,7 +109,7 @@ pub fn emit_call(
     // the member expression first, then the arguments.
     let (receiver, function) = callee_and_receiver(builder, scope, ctx, callee)?;
     let name = callee_spelling(ctx, callee);
-    emit_call_with_name(builder, scope, ctx, function, receiver, arguments, name)
+    emit_call_with_name_as(builder, scope, ctx, function, receiver, arguments, name, op)
 }
 
 /// `eval(source)` written as exactly that, and nothing else.
@@ -399,6 +419,22 @@ pub(super) fn emit_call_with_name(
     arguments: &[Spreadable],
     name: Option<u32>,
 ) -> EmitResult<ValueId> {
+    emit_call_with_name_as(builder, scope, ctx, function, receiver, arguments, name, RuntimeOp::Call)
+}
+
+/// [`emit_call_with_name`] through `op`. A tail call never takes the vector
+/// path below: `tail.rs` refuses a spread and a fifth argument before this.
+#[allow(clippy::too_many_arguments)]
+fn emit_call_with_name_as(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    function: ValueId,
+    receiver: ValueId,
+    arguments: &[Spreadable],
+    name: Option<u32>,
+    op: RuntimeOp,
+) -> EmitResult<ValueId> {
     // Past what the convention carries, the arguments go in an array and the
     // runtime holds it for the activation. The common call is unchanged and
     // allocates nothing — which is the whole reason this is a second operation
@@ -426,7 +462,7 @@ pub(super) fn emit_call_with_name(
         };
         values.push(emit_expr(builder, scope, ctx, value)?);
     }
-    issue(builder, ctx, function, receiver, &values, name)
+    issue_as(builder, ctx, function, receiver, &values, name, op)
 }
 
 /// Records the callee's spelling for the call about to be issued, if it has
@@ -463,6 +499,19 @@ pub(super) fn issue(
     receiver: ValueId,
     values: &[ValueId],
     name: Option<u32>,
+) -> EmitResult<ValueId> {
+    issue_as(builder, ctx, function, receiver, values, name, RuntimeOp::Call)
+}
+
+/// [`issue`] through `op`, which is `Call` or `TailCall`: same operands.
+fn issue_as(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    function: ValueId,
+    receiver: ValueId,
+    values: &[ValueId],
+    name: Option<u32>,
+    op: RuntimeOp,
 ) -> EmitResult<ValueId> {
     if values.len() > ARGUMENT_SLOTS {
         emit_set_call_name(builder, ctx, name)?;
@@ -509,7 +558,7 @@ pub(super) fn issue(
         passed.push(undefined);
     }
 
-    Ok(expr::call(builder, ctx, RuntimeOp::Call, &passed)?[0])
+    Ok(expr::call(builder, ctx, op, &passed)?[0])
 }
 
 /// Emits `new f(…)`.

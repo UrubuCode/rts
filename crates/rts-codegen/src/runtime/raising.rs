@@ -145,6 +145,10 @@ pub const CANNOT_RAISE: &[RuntimeOp] = &[
     // asked for is not owed here — it is owed by whoever admits the first
     // allocating operation, and this is not one.
     RuntimeOp::TypeOfIs,
+    // `tail_call`: one `Context` field written and `undefined_of`. It records a
+    // call and makes none — the call is made by the door, whose own `Call`
+    // check is what sees a throw from it. `entry/tail_call.rs`. Closed.
+    RuntimeOp::TailCall,
 ];
 
 /// One that was read and deliberately NOT added, so the next audit does not
@@ -241,7 +245,7 @@ mod tests {
         // reason it exists.
         assert_eq!(
             CANNOT_RAISE.len(),
-            12,
+            13,
             "CANNOT_RAISE changed — each entry must name the rts-core body it \
              was read against, and rts-host asserts the symbol still exists"
         );

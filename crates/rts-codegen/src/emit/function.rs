@@ -366,6 +366,8 @@ fn emit_function(
     // same frame could not be told apart from `next()`.
     let outer_parks = ctx.async_parks;
     ctx.async_parks = function.is_async && !function.is_generator;
+    let outer_tail = ctx.tail_calls;
+    ctx.tail_calls = super::tail::permitted(function, late_this.is_some());
     // Strictness, saved and restored like the flag above and set in ONE
     // direction: `"use strict"` makes this body and every function written
     // inside it strict, and nothing makes a body sloppy that was not already.
@@ -395,6 +397,7 @@ fn emit_function(
         &[],
     );
     ctx.async_parks = outer_parks;
+    ctx.tail_calls = outer_tail;
     ctx.sloppy = outer_sloppy;
     let emitted = emitted?;
     // Set on the EMITTED function and not only on the declared signature:

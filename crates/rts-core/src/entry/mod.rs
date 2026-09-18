@@ -106,6 +106,7 @@ mod side_tables;
 pub(super) mod string;
 mod switches;
 mod symbol;
+mod tail_call;
 mod text;
 mod throw;
 pub mod trace;
@@ -131,6 +132,7 @@ pub use functions::{
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
     mark_derived, new_target, set_call_name, super_construct, super_construct_with_args,
 };
+pub use tail_call::tail_call;
 pub use eval::{
     Addition, Agreement, FunctionCompiler, SourceParser, adopt, agreement,
     declare_function_compiler, declare_source_parser,
@@ -805,6 +807,9 @@ pub struct Context {
     /// `None` is an honest "nobody said" — what a native calling another
     /// function pushes, since only a compiled call site knows the number.
     pub pending_counts: Vec<Option<usize>>,
+    /// A call in tail position, recorded and waiting for its door to make it.
+    /// See `tail_call` for why nothing may run between the two.
+    pub(crate) pending_tail: Option<tail_call::TailCall>,
     /// Which callables must ask their parent for the object they build.
     ///
     /// A syntactic fact the compiler knows and this crate cannot see: a derived
@@ -1281,6 +1286,7 @@ impl Context {
             attributes: Aside::in_region(bits),
             pending_arguments: Vec::new(),
             pending_counts: Vec::new(),
+            pending_tail: None,
             new_targets: Vec::new(),
             bound: Aside::in_region(bits),
             callees: Vec::new(),

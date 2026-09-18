@@ -492,11 +492,12 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
         first[2],
         first[3],
     );
-    with_current(|context| {
+    let pending = with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
+        context.pending_tail.take()
     });
-    produced
+    super::tail_call::settle_taken(produced, pending)
 }
 
 /// `function f(a, ...rest)` — the arguments past the declared ones.
@@ -631,7 +632,7 @@ pub const NO_CALL_NAME: i64 = -1;
 /// spelling failed. Every other call — that is, every call a working program
 /// makes — needs the name never to be looked at. So this carries the cheapest
 /// thing each door has and defers the reading to [`Self::resolve`].
-enum Spelling {
+pub(super) enum Spelling {
     /// Nothing to name: a native calling another function has no call site,
     /// and a `[Symbol.iterator]()` the compiler wrote has no source text.
     None,
@@ -740,11 +741,12 @@ fn called(
     // ever asks — so `invoke` resolves it in the branch that raises, and the
     // successful call pays a register.
     let produced = invoke(callee, this, Spelling::Literal(name), a0, a1, a2, a3);
-    with_current(|context| {
+    let pending = with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
+        context.pending_tail.take()
     });
-    produced
+    super::tail_call::settle_taken(produced, pending)
 }
 
 /// The jump itself, with no argument vector of its own.
@@ -752,7 +754,7 @@ fn called(
 /// Split from [`call`] because `call_with_args` has already pushed the vector
 /// this activation reads, and `call`'s marker on top of it would hide that
 /// vector from the one callee it was made for.
-fn invoke(
+pub(super) fn invoke(
     callee: u64,
     this: u64,
     spelling: Spelling,
@@ -1071,6 +1073,7 @@ fn construct_inner(callee: u64, new_target: u64, a0: u64, a1: u64, a2: u64, a3: 
 
     let produced = invoke(callee, this, Spelling::None, a0, a1, a2, a3);
     with_current(|context| context.new_targets.pop());
+    let produced = super::tail_call::settle(produced);
 
     // A constructor that returned an object produced THAT. Anything else — a
     // number, `undefined`, the usual — leaves the fresh object as the answer.
@@ -1194,6 +1197,7 @@ fn super_construct_inner(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64
 
     let produced = invoke(parent, this, Spelling::None, a0, a1, a2, a3);
     with_current(|context| context.new_targets.pop());
+    let produced = super::tail_call::settle(produced);
     // The same question `construct_inner` asks, and for the same reason: a
     // parent constructor that returns a string must not have it become the
     // object the chain is building.
