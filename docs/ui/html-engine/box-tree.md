@@ -380,8 +380,11 @@ that wants to know "is this an inline formatting context" asks the tree.
   takes the container's content box and stacks the run in it, which is all an
   anonymous box needs — no width to resolve, no margin, no border, no
   background, no `float`, no `clear`, no generated content. What it does NOT do
-  is named in its own header: no fragment cache (the key is a `NodeIdx` and it
-  has none), no geometry entry, no stacking context.
+  is named in its own header: no fragment cache of its own and no stacking
+  context. It DOES get a geometry entry since `b867facb5`:
+  `record_box_rect` stores its rect by `BoxId`, and `DisplayList::rect_of_box`
+  finds it even inside a reused fragment. The DOM-facing geometry still only
+  answers for nodes, because an anonymous box has no `NodeIdx` to be asked by.
 - **The inline flow walks the tree, and this line replaces one that said it
   did so only inside the split.** `runs::collect_runs` takes the box every
   inline-group member got from the flow sequence and walks `tree.children`
@@ -393,10 +396,21 @@ that wants to know "is this an inline formatting context" asks the tree.
   reserving the atom's hit order before its children (a link inside an
   inline-block lost the click to the inline-block). Outside the split the two
   walks visit the same nodes: a comment has no box and was already ignored.
-- **Fragments are keyed by `NodeIdx`, deliberately.** A cached fragment can
-  outlive the tree that produced it, and a `BoxId` in one would name a slot in
-  an arena that has been rebuilt. Moving them is the fragment-tree wave, not a
-  local edit.
+- **Fragments are keyed by a box ADDRESS that survives a rebuild, and this
+  line replaces one that said they were keyed by `NodeIdx`.** Since
+  `053ed4f67` the key target is `BoxCacheTarget { node, ordinal }`: the node
+  that generates the box and its position among that node's boxes
+  (`dom/chaves_cache.rs`). A `BoxId` is still never stored across a rebuild.
+  A fragment taken from the cache has its `BoxId`s remapped into the current
+  tree on the way in (`Fragment::remapped_to`), and the hit is refused when
+  the node's box count changed rather than guessing which box it was. The
+  incremental seam compares a box's children in the OLD tree against the NEW
+  one, box against box. It never translates boxes back to nodes, which is the
+  "named care" of BT-1. Two things follow and must not be assumed away. A
+  global `touch()` bumps no epoch, so it must clear the measure and
+  intrinsic-width caches: removing that clear served stale widths after a new
+  `<style>`. And recycling a node forgets only that node's `last_fragment`
+  entries, not the whole map.
 - **No formatting context is IMPLEMENTED here.** `inner` says which algorithm
   applies; running it is still `layout`'s.
 - **Whitespace is not decided here.** Which whitespace survives is a question
