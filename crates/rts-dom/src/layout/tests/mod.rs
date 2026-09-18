@@ -56,6 +56,7 @@ mod pintura_e_caixas_corpus;
 mod replaced_fundo;
 mod replaced_pixels;
 mod posicionado;
+mod empilhamento_camada8;
 mod position_corpus;
 mod texto_lote_s;
 mod transform_corpus;

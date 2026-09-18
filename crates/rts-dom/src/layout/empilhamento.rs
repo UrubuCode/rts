@@ -25,6 +25,23 @@
 //! chave léxica de TODOS os contextos ancestrais: `[0, 100]` (filho 100 dentro
 //! do contexto 0) pinta antes de `[1]` (irmão no contexto raiz). Vários
 //! negativos continuam na ordem ascendente dentro do mesmo contexto.
+//!
+//! **A camada 8 do Apêndice E junta `z-index:0` e `z-index:auto`** — dentro
+//! de UM contexto, os dois pintam na ordem do documento, sem se separar por
+//! terem ou não um `z-index` explícito (só a camada 3, negativos, e a camada
+//! 9, positivos, se separam por número). `4c1d08132` só empurrava um
+//! componente para a chave quando o PRÓPRIO nó abria contexto — um
+//! `position:absolute` com `z-index:0` (abre contexto, chave `[0]`) ficava
+//! mais LONGO que um irmão `z-index:auto` (não abre nada, chave `[]`), e
+//! `Vec<i32>::cmp` ordena um prefixo antes do vector que o estende — `[] <
+//! [0]` sempre, TREE ORDER à parte. Medido: `#atras{z-index:0}` antes de
+//! `#fundo{z-index:auto}` no documento pintava `#fundo` por cima (a chave
+//! vazia "vencia"), o oposto do Chrome e do binário pré-codex. A chave agora
+//! sempre fecha com o `z-index` do PRÓPRIO nó (`auto` lido como `0`, a mesma
+//! leitura de [`z_index_of`]) — os ancestrais que abrem contexto continuam a
+//! prefixar, então `[0, 100]` ainda fica preso atrás de `[1]`, mas dois
+//! irmãos de camada 8 (`0`/`auto`) empatam e o sort ESTÁVEL decide pela
+//! árvore, como a camada pede.
 
 use super::*;
 
@@ -43,13 +60,23 @@ pub(in crate::layout) fn z_index_of(dom: &Dom, id: NodeIdx) -> i32 {
         .unwrap_or(0)
 }
 
-/// Chave de pintura de `id`, do contexto raiz até o contexto que ele próprio
-/// abre. A ordenação léxica mantém uma subárvore inteira contida no lugar do
-/// seu ancestral: um filho `z-index:100` de um pai `z-index:0` não ultrapassa
-/// o irmão raiz `z-index:1`.
+/// Chave de pintura de `id`: um componente por contexto ANCESTRAL que o
+/// isola (o z-index desse contexto), seguido SEMPRE de um último componente
+/// — o `z-index` do próprio `id` (`auto` como `0`) — que é o que mantém
+/// `z-index:0` e `z-index:auto` na mesma camada 8 do Apêndice E: dois nós do
+/// mesmo contexto, um com `0` explícito e outro `auto`, chegam à mesma chave
+/// e o sort ESTÁVEL de `layout_document` desempata pela árvore. Sem esse
+/// último componente, o nó que NÃO abre contexto próprio (`auto`) ficava com
+/// uma chave mais curta que o irmão que abre (`0`), e um vector mais curto
+/// ordena antes do que o estende — sempre, tree order à parte.
+///
+/// A ordenação léxica mantém uma subárvore inteira contida no lugar do seu
+/// ancestral: um filho `z-index:100` de um pai `z-index:0` (`[0, 100]`) não
+/// ultrapassa o irmão raiz `z-index:1` (`[1]`), porque o PRIMEIRO componente
+/// já decide.
 pub(in crate::layout) fn stacking_key(dom: &Dom, id: NodeIdx) -> Vec<i32> {
     let mut ancestors = Vec::new();
-    let mut current = Some(id);
+    let mut current = dom.node(id).parent;
     while let Some(node) = current {
         ancestors.push(node);
         current = dom.node(node).parent;
@@ -58,20 +85,50 @@ pub(in crate::layout) fn stacking_key(dom: &Dom, id: NodeIdx) -> Vec<i32> {
 
     let mut key = Vec::new();
     for node in ancestors {
-        let Some(css) = dom.computed_style_idx(node) else {
-            continue;
-        };
-        let positioned = css
-            .position
-            .is_some_and(|position| position != crate::style::Position::Static);
-        let creates_context = css.opacity.is_some_and(|opacity| opacity < 1.0)
-            || css.transform.is_some()
-            || (positioned && css.z_index.is_some());
-        if creates_context {
+        if creates_context(dom, node) {
             key.push(z_index_of(dom, node));
         }
     }
+    key.push(z_index_of(dom, id));
     key
+}
+
+/// `id` isola um `z-index` filho num contexto próprio: `opacity<1`,
+/// `transform`, um `position` não-`static` com `z-index` explícito (CSS 2.1
+/// Apêndice E), ou — Flexbox §4.3 — um ITEM de contentor flex/grid com
+/// `z-index` não-`auto`, mesmo `position:static` (um filho direto de
+/// `display:flex`/`grid` participa do empilhamento do contentor sem precisar
+/// de `position`). `isolation`/`filter`/`will-change` ficam de fora: nenhum
+/// dos três tem campo no `ComputedStyle` — `style/inert.rs` os declara
+/// INERTES de propósito — e inventar o parse deles não é o corte deste lote.
+fn creates_context(dom: &Dom, node: NodeIdx) -> bool {
+    let Some(css) = dom.computed_style_idx(node) else {
+        return false;
+    };
+    if css.opacity.is_some_and(|opacity| opacity < 1.0) || css.transform.is_some() {
+        return true;
+    }
+    if css.z_index.is_none() {
+        return false;
+    }
+    let positioned = css
+        .position
+        .is_some_and(|position| position != crate::style::Position::Static);
+    if positioned {
+        return true;
+    }
+    dom.node(node)
+        .parent
+        .and_then(|parent| dom.computed_style_idx(parent))
+        .and_then(|parent_css| parent_css.effective_display())
+        .is_some_and(|display| {
+            matches!(
+                display,
+                crate::style::DisplayKind::Flex
+                    | crate::style::DisplayKind::FlexWrap
+                    | crate::style::DisplayKind::Grid
+            )
+        })
 }
 
 /// Prepende `antes` a `alvo`: os itens e subárvores de `antes` passam a
