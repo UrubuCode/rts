@@ -111,6 +111,7 @@ use super::iterate::{
 };
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
+use super::tail_call::TAIL_CALL_ENTRY;
 use super::modules::{MODULE_BINDING_ENTRY, MODULE_NAMESPACE_ENTRY, MODULE_PUBLISH_ENTRY};
 use super::text::{STRING_CONST_ENTRY, TEMPLATE_STRINGS_ENTRY};
 use super::type_of::{TYPE_OF_ENTRY, TYPE_OF_IS_ENTRY};
@@ -727,6 +728,8 @@ pub enum CoreEntry {
     /// may have shadowed, and a step record that is a primitive made the loop
     /// HANG rather than answer wrongly.
     IteratorResult = 100,
+    /// [`super::tail_call`] — a call in tail position, recorded for its door.
+    TailCall = 101,
 }
 
 /// How many entry points exist.
@@ -734,7 +737,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 101;
+pub const CORE_ENTRY_COUNT: usize = 102;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -840,6 +843,7 @@ impl CoreEntry {
         CoreEntry::ForInHas,
         CoreEntry::SetFunctionName,
         CoreEntry::IteratorResult,
+        CoreEntry::TailCall,
     ];
 
     /// The number a call site holds.
@@ -956,6 +960,7 @@ impl CoreEntry {
             CoreEntry::ForInHas => FOR_IN_HAS_ENTRY,
             CoreEntry::SetFunctionName => SET_FUNCTION_NAME_ENTRY,
             CoreEntry::IteratorResult => ITERATOR_RESULT_ENTRY,
+            CoreEntry::TailCall => TAIL_CALL_ENTRY,
         }
     }
 
@@ -1181,12 +1186,12 @@ mod tests {
         // here and answers 6 on node. Copying that guard would have carried the
         // defect into destructuring; one row buys the version that cannot.
         // Raised from 96 to 98 for page_global_get/page_global_set, and to 99
-        // for for_in_has, and to 101 for iterator_result — one entry at a
-        // time, not the order-of-magnitude jump
+        // for for_in_has, to 101 for iterator_result and to 102 for
+        // tail_call — one entry at a time, not the order-of-magnitude jump
         // this ceiling exists to catch (rts-symbol-baker's "thousands" is the
         // shape it refuses).
         assert!(
-            CORE_ENTRY_COUNT <= 101,
+            CORE_ENTRY_COUNT <= 102,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

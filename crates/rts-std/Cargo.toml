@@ -14,3 +14,11 @@ rts-core = { path = "../rts-core" }
 # that document's and is not cosmetic — the `zlib`/`zlib-ng` backends compile C,
 # and `rust_backend` is pure Rust.
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+# `rts:json5` — the old engine's `JSON5` global, ported as a module rather than
+# revived as a global (see `crates/rts-std/src/json5.rs`'s own doc for why).
+# `json5` speaks Serde and this crate has nowhere else that needs a second
+# lenient-JSON parser, so `serde_json::Value` is the one intermediate tree both
+# ends already agree on rather than a bespoke one.
+json5 = "0.4"
+serde_json = "1"

@@ -53,16 +53,16 @@
 //! - **`os.userInfo()` does not throw** either, for the same reason, and
 //!   answers `undefined` where Node raises `SystemError` for a user with no
 //!   resolvable name.
-//! - **`os.cpus()` reports no per-core detail on a Unix that is not Linux.**
-//!   Linux is read from `/proc/cpuinfo` and `/proc/stat`, Windows from the
-//!   kernel's own performance table and the processor registry key; macOS needs
-//!   `host_processor_info`, which is a Mach call this crate has no binding for,
-//!   and it answers the EMPTY array Node documents as the failure result rather
-//!   than an array of zeroed `times` a utilisation calculation would silently
-//!   read as 0%.
-//! - **`os.totalmem()` / `os.freemem()` / `os.uptime()` on a Unix that is not
-//!   Linux** answer `0` for the same reason (`sysctl`/`host_statistics64`); on
-//!   Windows and Linux all three are real.
+//! - **`os.cpus()` reports no per-core detail on a Unix that is neither Linux
+//!   nor macOS.** Linux is read from `/proc/cpuinfo` and `/proc/stat`, Windows
+//!   from the kernel's own performance table and the processor registry key,
+//!   macOS from `host_processor_info` (`darwin.rs`, which also says why its
+//!   `speed` is `0` on Apple Silicon); anywhere else it answers the EMPTY array
+//!   Node documents as the failure result rather than an array of zeroed
+//!   `times` a utilisation calculation would silently read as 0%.
+//! - **`os.totalmem()` / `os.freemem()` / `os.uptime()` on a Unix that is
+//!   neither Linux nor macOS** answer `0` for the same reason; on Windows,
+//!   Linux and macOS all three are real.
 //! - **MAC addresses in `os.networkInterfaces()` off Windows and Linux.** Linux
 //!   publishes them under `/sys/class/net`, Windows reports them with the
 //!   adapter; every other Unix needs the `AF_LINK` pseudo-entry walk, and until
@@ -87,6 +87,8 @@
 // of the errno numbers. See `crate::constants`.
 pub(crate) mod constants;
 mod cpus;
+#[cfg(target_os = "macos")]
+mod darwin;
 pub(crate) mod machine;
 mod netif;
 mod user;

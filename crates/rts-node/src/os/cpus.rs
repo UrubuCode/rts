@@ -6,7 +6,7 @@
 //! model and speed are printed, but `times` is diffed across two calls to get
 //! CPU utilisation, and a field that is always zero makes that answer `0%`
 //! forever — a wrong answer that runs, which this crate refuses. Where the
-//! counters cannot be read (a Unix that is not Linux) `cpus()` says so by
+//! counters cannot be read (a Unix that is neither Linux nor macOS) `cpus()` says so by
 //! answering an EMPTY array, which Node itself documents as the failure answer,
 //! rather than an array of plausible-looking zeros.
 
@@ -131,9 +131,15 @@ fn cpuinfo() -> Vec<(String, f64)> {
     held
 }
 
+/// Every logical core, from `host_processor_info` — see `super::darwin`.
+#[cfg(target_os = "macos")]
+pub(super) fn cpus() -> Vec<Cpu> {
+    super::darwin::cpus()
+}
+
 /// No per-core source on this target — see the module doc for why this is an
 /// empty array rather than an array of zeros.
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 pub(super) fn cpus() -> Vec<Cpu> {
     Vec::new()
 }

@@ -95,6 +95,7 @@ mod stmt;
 mod suspends;
 mod types;
 mod switch;
+mod tail;
 mod template;
 mod omit;
 mod receiver;
@@ -638,6 +639,8 @@ pub struct Ctx<'a> {
     /// Scoped exactly as `thrown_flag` is: saved and restored around every
     /// nested function, because an `await` written inside one parks THAT frame.
     async_parks: bool,
+    /// Whether a `return f(…)` here may be a tail call. See `tail::eligible`.
+    tail_calls: bool,
     /// The one `array[index]` pair a desugaring has PROVEN, while it is being
     /// emitted.
     ///
@@ -695,6 +698,7 @@ impl<'a> Ctx<'a> {
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
             async_parks: false,
+            tail_calls: false,
             proven_element: None,
         }
     }

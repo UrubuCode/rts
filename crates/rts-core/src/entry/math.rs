@@ -109,6 +109,106 @@ fn folded(values: &[u64], identity: f64, better: fn(f64, f64) -> f64) -> f64 {
     numbers.into_iter().fold(identity, better)
 }
 
+/// `f64` -> binary16 bits, round-half-to-even (ties to even), per the
+/// specification's `Number::toBinary16` (ECMA-262, used by `Math.f16round`
+/// and by a `Float16Array` store). No `f16` type is used — it is unstable in
+/// this toolchain (`rustc 1.98`) — so the conversion is the bit manipulation
+/// a `f16` codec does internally, written out once here.
+///
+/// Not verified against a local Node: `node --version` here is v20, and
+/// `Math.f16round` shipped in V8 only for Node 22+ (checked: `typeof
+/// Math.f16round === "undefined"` on this machine). Derived from the
+/// specification and from IEEE 754's binary16 layout (1 sign, 5 exponent
+/// bias 15, 10 fraction) rather than cross-checked against a real engine.
+fn f64_to_f16_bits(f: f64) -> u16 {
+    let bits = f.to_bits();
+    let sign = ((bits >> 48) & 0x8000) as u16;
+    let exp = ((bits >> 52) & 0x7FF) as i64;
+    let mant = bits & 0xF_FFFF_FFFF_FFFF;
+
+    if exp == 0x7FF {
+        return sign | if mant != 0 { 0x7E00 } else { 0x7C00 };
+    }
+    if exp == 0 && mant == 0 {
+        // +0 or -0, exactly representable — the sign bit is the whole answer.
+        return sign;
+    }
+
+    // `full_mant` is the 53-bit significand (implicit leading `1` included
+    // for a normal double; a subnormal double has none, so `lead` is 0 and
+    // its true exponent is the double's minimum, `1 - 1023`).
+    let (lead, unbiased_exp): (u64, i64) = if exp == 0 { (0, 1 - 1023) } else { (1, exp - 1023) };
+    let full_mant = (lead << 52) | mant;
+
+    let half_exp = unbiased_exp + 15; // f16's biased exponent, before rounding
+    if half_exp >= 0x1F {
+        return sign | 0x7C00; // overflow — no finite binary16 is this large
+    }
+
+    // Normal result: drop 42 of the 52 fraction bits (52 - 10). A subnormal
+    // result needs `1 - half_exp` MORE bits dropped, which is the same shift
+    // that turns a normalised significand into a denormalised one.
+    let shift: i64 = if half_exp >= 1 { 42 } else { 42 + (1 - half_exp) };
+    if shift >= 64 {
+        return sign; // magnitude below half the smallest subnormal: rounds to 0
+    }
+    let shift = shift as u32;
+
+    let round_bit = (full_mant >> (shift - 1)) & 1;
+    let sticky = (full_mant & ((1u64 << (shift - 1)) - 1)) != 0;
+    let mut mant16 = ((full_mant >> shift) & 0x3FF) as u16;
+    let mut exp16: u16 = if half_exp >= 1 { half_exp as u16 } else { 0 };
+
+    // Ties to EVEN: round up when the dropped part is more than half, or
+    // exactly half and the kept mantissa is currently odd.
+    if round_bit == 1 && (sticky || (mant16 & 1) == 1) {
+        mant16 += 1;
+        if mant16 == 0x400 {
+            // Carry out of the fraction — 0x3ff -> 0x400 means the value is
+            // now exactly the next power of two, which normal/subnormal
+            // binary16 both spell as "fraction 0, exponent one higher"
+            // (the subnormal-to-normal boundary works the same way).
+            mant16 = 0;
+            exp16 += 1;
+            if exp16 >= 0x1F {
+                return sign | 0x7C00;
+            }
+        }
+    }
+    sign | (exp16 << 10) | mant16
+}
+
+/// binary16 bits -> `f64`. Exact — widening never rounds — so this is the
+/// ordinary "insert zero bits and rebias the exponent" conversion, with the
+/// one non-uniform case being a subnormal input: binary16 has no implicit
+/// leading bit for it, so [`f64_to_f16_bits`]'s inverse has to renormalise
+/// by hand before the exponent means anything.
+fn f16_bits_to_f64(bits: u16) -> f64 {
+    let sign = ((bits as u64 & 0x8000) as u64) << 48;
+    let exp = (bits >> 10) & 0x1F;
+    let mant = (bits & 0x3FF) as u64;
+
+    if exp == 0 {
+        if mant == 0 {
+            return f64::from_bits(sign);
+        }
+        let mut m = mant;
+        let mut e: i64 = -14;
+        while m & 0x400 == 0 {
+            m <<= 1;
+            e -= 1;
+        }
+        m &= 0x3FF;
+        let exp64 = (e + 1023) as u64;
+        return f64::from_bits(sign | (exp64 << 52) | (m << 42));
+    }
+    if exp == 0x1F {
+        return f64::from_bits(sign | (0x7FFu64 << 52) | if mant != 0 { 1u64 << 51 } else { 0 });
+    }
+    let exp64 = (exp as i64 - 15 + 1023) as u64;
+    f64::from_bits(sign | (exp64 << 52) | ((mant as u64) << 42))
+}
+
 /// `Math`.
 #[rtse::class("Math", namespace, tag)]
 impl Math {
@@ -407,6 +507,13 @@ impl Math {
     /// `Math.fround(x)` — the nearest single-precision value.
     fn fround(x: f64) -> f64 {
         x as f32 as f64
+    }
+
+    /// `Math.f16round(x)` — ES2025, the nearest binary16 value, round-half-
+    /// to-even. See [`f64_to_f16_bits`] for the conversion and what it was
+    /// checked against.
+    fn f16round(x: f64) -> f64 {
+        f16_bits_to_f64(f64_to_f16_bits(x))
     }
 
     /// `Math.max(…)`, over however many arguments arrived.

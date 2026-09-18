@@ -5829,3 +5829,20 @@ fn a_for_of_does_not_read_a_run_the_collector_reclaimed() {
         "200 steps, none of them reading a reclaimed run"
     );
 }
+
+#[test]
+fn a_call_in_tail_position_of_strict_code_costs_no_stack() {
+    // A million levels on a test thread's 16 MiB would need under twenty bytes
+    // a level without the tail call, and a level costs hundreds. So this
+    // answers only if the frame is discarded before the callee runs — which
+    // ECMAScript 2015 requires of strict code and Bun does. Node does not, and
+    // throws `RangeError` here.
+    let produced = run(r#"
+        "use strict";
+        function even(n) { if (n === 0) return 1; return odd(n - 1); }
+        function odd(n) { if (n === 0) return 0; return even(n - 1); }
+        function sum(n, acc) { return n <= 0 ? acc : sum(n - 1, acc + n); }
+        return sum(1000000, 0) + even(1000000);
+    "#);
+    assert_eq!(tags::decode_double(produced), 500000500001.0);
+}

@@ -82,6 +82,44 @@ fn is_bare_string(value: u64) -> bool {
     entry::number_of(value).is_none() && entry::described(value).is_some() && as_slot(value).is_some()
 }
 
+/// One value, formatted the way it prints NESTED — a string quoted, unlike
+/// [`top_level`]. What `console.table`'s cells need: a table cell is never
+/// the sole top-level argument `console.log` gives its one bare-string
+/// exception to.
+pub fn cell(value: u64) -> Result<String, Poisoned> {
+    inspect(value, 1, &mut Vec::new())
+}
+
+/// The region index of an object value, or `None` for anything with no cell —
+/// `pub(super)` so [`super::table`] can tell "is this a row/column source" from
+/// "is this a primitive that only has a `Values` cell" without re-deriving the
+/// decoder [`as_slot`] already is.
+pub(super) fn slot_of(value: u64) -> Option<u32> {
+    as_slot(value)
+}
+
+/// Whether `value` is callable — [`super::table`] excludes a function from
+/// "expand into columns" the same way [`inspect`] excludes one from "walk its
+/// own keys": `console.table([Math.max])` has one row and no columns, not a
+/// row of whatever properties a function object happens to carry.
+pub(super) fn is_callable(value: u64) -> bool {
+    with_runtime(|context| entry::is_callable_in(context, value))
+}
+
+/// [`super::table`]'s own read of `Object.keys(value)`, through the same
+/// throw-checked path [`keys_of`] already is — `pub(super)` rather than a
+/// second copy, per `reuse-check`.
+pub(super) fn own_key_texts(value: u64) -> Result<Vec<String>, Poisoned> {
+    keys_of(value)
+}
+
+/// [`super::table`]'s own property read, through the same throw-checked path
+/// every other member of this file uses.
+pub(super) fn property(value: u64, name: &str) -> Result<u64, Poisoned> {
+    let read = get_property(value, well_known(name));
+    if poisoned() { Err(Poisoned) } else { Ok(read) }
+}
+
 /// The formatted text of one value, at `depth` levels of nesting from the
 /// argument that was printed.
 fn inspect(value: u64, depth: u32, ancestors: &mut Vec<u32>) -> Result<String, Poisoned> {

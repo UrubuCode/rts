@@ -184,6 +184,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::call_counted
                 as extern "C" fn(u64, u64, i64, i64, u64, u64, u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::TailCall => (CoreEntry::TailCall, {
+            rts_core::entry::tail_call
+                as extern "C" fn(u64, u64, i64, i64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
         // The argument is which literal, exactly as `StringConst`'s is: an
         // `i64` index into the table the run seeds, not the text itself.
         RuntimeOp::SetCallName => (CoreEntry::SetCallName, {

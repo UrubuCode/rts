@@ -298,6 +298,7 @@ pub(super) fn emit_substituted(
     ctx: &mut Ctx,
     callee: &Expr,
     arguments: &[Spreadable],
+    tail: bool, // the call is in tail position, so its answers are: `tail::emit_answer`
 ) -> EmitResult<Option<ValueId>> {
     // TWO SHAPES OF CALLEE, and the second is why this file grew a receiver.
     //
@@ -545,7 +546,7 @@ pub(super) fn emit_substituted(
                 builder.branch(cond, (taken, &[]), (carried, &[]))?;
 
                 builder.switch_to(taken);
-                let value = super::expr::emit_expr(builder, scope, ctx, answer)?;
+                let value = super::tail::emit_answer(builder, scope, ctx, answer, tail)?;
                 let value = builder.widen(value);
                 let Some(block) = join else {
                     unreachable!("a guard was found, so the join was created")
@@ -567,7 +568,8 @@ pub(super) fn emit_substituted(
         )
         .map(|_| ());
     }
-    let answered = ran.and_then(|()| super::expr::emit_expr(builder, scope, ctx, &candidate.body));
+    let answered =
+        ran.and_then(|()| super::tail::emit_answer(builder, scope, ctx, &candidate.body, tail));
     // Popped before the `?` below, so a body that fails to emit leaves the stack
     // as it found it — an unbalanced push would refuse every later call to the
     // same helper, which is a silent loss rather than a failure.

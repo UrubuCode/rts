@@ -40,19 +40,31 @@ pub fn emit_stmt(
         StmtKind::Empty => Ok(false),
 
         StmtKind::Return(value) => {
+            let at = statement.at;
+            if let Some(rewritten) = value
+                .as_ref()
+                .and_then(|expr| super::tail::conditional_return(builder, ctx, expr, at))
+            {
+                return emit_stmt(builder, scope, ctx, loops, &rewritten);
+            }
             let result = match value {
                 // A function's signature declares a tagged return, because a
                 // caller cannot know what it will get back. Whatever was proved
                 // inside stops being useful at the boundary.
-                Some(expr) => {
-                    let produced = emit_expr(builder, scope, ctx, expr)?;
-                    super::expr::as_value(builder, produced)
-                }
+                Some(expr) => match super::tail::emit_return_call(builder, scope, ctx, expr)? {
+                    Some(recorded) => recorded,
+                    None => {
+                        let produced = emit_expr(builder, scope, ctx, expr)?;
+                        super::expr::as_value(builder, produced)
+                    }
+                },
                 // `return;` yields `undefined`, not "no value". The signature
                 // declares one return, and a JavaScript function always
                 // produces something.
                 None => undefined(builder, ctx),
             };
+            // In a derived constructor an `undefined` answer means `this`.
+            let result = super::binding::derived_return(builder, scope, ctx, result)?;
             // Through the innermost enclosing `finally`, when there is one. See
             // [`Ctx::finally_returns`] for why the machine's cleanup cannot
             // answer this path.

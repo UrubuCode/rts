@@ -454,18 +454,105 @@ pub fn lexical_names(body: &[crate::syntax::Stmt]) -> Vec<Name> {
 /// terminator means.
 fn dead_zone(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> EmitResult<ValueId> {
     let spelling = ctx.names.text(name).to_owned();
-    let reference_error = ctx.names.intern("ReferenceError");
-    let constructor = super::globals::force_read(builder, ctx, reference_error)?;
-    let message = super::expr::string_literal(
-        builder,
-        ctx,
-        &format!("Cannot access '{spelling}' before initialization"),
-    )?;
-    let error = super::call::construct_value(builder, ctx, constructor, &[message])?;
-    builder.throw(super::protect::JS_THROW, error);
+    raise_reference_error(builder, ctx, &format!("Cannot access '{spelling}' before initialization"))?;
     let unreached = builder.create_block();
     builder.switch_to(unreached);
     Ok(super::expr::undefined(builder, ctx))
+}
+
+/// Constructs a `ReferenceError` with `message` and throws it, ending the
+/// current block. Shared by the two reads that owe one — [`dead_zone`] and
+/// [`this_binding`] — so the error is built one way.
+fn raise_reference_error(builder: &mut FuncBuilder, ctx: &mut Ctx, message: &str) -> EmitResult<()> {
+    let reference_error = ctx.names.intern("ReferenceError");
+    let constructor = super::globals::force_read(builder, ctx, reference_error)?;
+    let message = super::expr::string_literal(builder, ctx, message)?;
+    let error = super::call::construct_value(builder, ctx, constructor, &[message])?;
+    builder.throw(super::protect::JS_THROW, error);
+    Ok(())
+}
+
+/// Reads `this` where it is held under a name — `GetThisBinding`.
+///
+/// # Why a check, and only in a derived constructor
+///
+/// A derived constructor's `this` does not exist until `super()` returns
+/// (PLAN.md §5 item 11), and reading it before then is a `ReferenceError` —
+/// whether the read is a written `this`, a `super.x`, or the constructor
+/// falling off its end, which is an implicit `return this`. The slot is seeded
+/// with `undefined` and `super()` only ever writes an object into it, so
+/// `undefined` there means exactly "not initialised". Without the check a
+/// constructor that never called `super()` answered `undefined` from `new`, and
+/// the program failed a line later on a property read of nothing.
+///
+/// Only the constructor itself asks ([`Scope::derived_this`]). An arrow borrows
+/// the same mechanism for an ordinary method's `this`, which is legitimately
+/// `undefined` when the method was called plainly; an arrow inside a derived
+/// constructor reading `this` before `super()` is the case this does not catch.
+///
+/// Not in a cleanup copy, for the reason [`dead_zone`]'s callers give.
+pub fn this_binding(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    held: Name,
+) -> EmitResult<ValueId> {
+    let value = read(builder, scope, ctx, held)?;
+    if scope.derived_this() != Some(held) || ctx.in_cleanup {
+        return Ok(value);
+    }
+    let undefined = ctx.model.singleton(crate::values::Singleton::Undefined);
+    let generic = builder.widen(value);
+    let absent = builder.is_singleton(generic, undefined)?;
+    let raise = builder.create_block();
+    let bound = builder.create_block();
+    builder.branch(absent, (raise, &[]), (bound, &[]))?;
+    builder.switch_to(raise);
+    raise_reference_error(
+        builder,
+        ctx,
+        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor",
+    )?;
+    builder.switch_to(bound);
+    Ok(value)
+}
+
+/// What a `return` in a derived constructor hands `construct`.
+///
+/// The specification's `[[Construct]]` answers `GetThisBinding()` when the body
+/// returned `undefined`, so `return;` — and `return undefined` — after
+/// `super()` produce the instance, and before it the `ReferenceError`. The body
+/// is the only place that can ask: `construct` sees the returned value and
+/// nothing of the callee's environment. Any other value is left for
+/// `construct` to judge (an object wins, a primitive is its `TypeError`).
+///
+/// A branch, because only a run-time `undefined` takes the `this` arm: the
+/// returned expression is arbitrary.
+pub fn derived_return(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    result: ValueId,
+) -> EmitResult<ValueId> {
+    let Some(held) = scope.derived_this() else {
+        return Ok(result);
+    };
+    if ctx.in_cleanup {
+        return Ok(result);
+    }
+    let undefined = ctx.model.singleton(crate::values::Singleton::Undefined);
+    let generic = builder.widen(result);
+    let absent = builder.is_singleton(generic, undefined)?;
+    let fetch = builder.create_block();
+    let join = builder.create_block();
+    let answer = builder.add_block_param(join, super::UNPROVEN);
+    builder.branch(absent, (fetch, &[]), (join, &[generic]))?;
+    builder.switch_to(fetch);
+    let this = this_binding(builder, scope, ctx, held)?;
+    let this = builder.widen(this);
+    builder.jump(join, &[this])?;
+    builder.switch_to(join);
+    Ok(answer)
 }
 
 /// The environment a BLOCK needs, if any of what it declares was captured.

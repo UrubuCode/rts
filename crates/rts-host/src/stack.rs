@@ -32,6 +32,24 @@
 //! hot path. A `/proc/self/maps` lookup would identify the process mapping and
 //! can miss a worker thread's stack, so it is deliberately not used here.
 //!
+//! **macOS — `pthread_get_stackaddr_np`, and it answers the TOP.** Darwin's
+//! "stack address" is the HIGH end, the one the stack grows down from; Rust's
+//! own `std` reads it that way when it places the guard page
+//! (`stackaddr − pthread_get_stacksize_np`). So nothing is added to it, where
+//! Linux's `pthread_attr_getstack` answers the LOW end and needs the size. Same
+//! per-thread property as Linux: it names the calling thread, so a worker of
+//! [`Compiled::run_on`] gets its own stack and not the main thread's.
+//!
+//! **Why macOS mattered more than "one more platform".** Until this arm it
+//! answered `None`, and the contract below turns `None` into a collection
+//! that frees NOTHING — so every program that allocated past the region's
+//! reservation died with `heap exhausted … all of them are in use even after a
+//! collection`, which reads as retention and was the absence of any cycle at
+//! all. `RTS_GC_DEBUG=1` says `rts-gc REFUSED: no stack bound installed` on
+//! every trigger; that line, not the exhaustion message, is the diagnosis. The
+//! three suite files that exercise the collector failed on the macOS runner
+//! only, for exactly this reason.
+//!
 //! **Everything else — deliberately absent, not guessed.** [`current_thread_stack_high`]
 //! answers `None` on platforms whose stack-top mechanism is not implemented, and
 //! [`rts_core::entry::collect_cycle`]'s own contract is to skip the stack half of
@@ -85,8 +103,22 @@ pub fn current_thread_stack_high() -> Option<usize> {
     Some(base as usize + size)
 }
 
+/// The top of the current macOS thread's stack — the HIGH end, which is what
+/// `pthread_get_stackaddr_np` answers on darwin; see the module doc.
+#[cfg(target_os = "macos")]
+pub fn current_thread_stack_high() -> Option<usize> {
+    // SAFETY: `pthread_self` names this thread; the call only reads its
+    // descriptor.
+    let top = unsafe { libc::pthread_get_stackaddr_np(libc::pthread_self()) } as usize;
+    (top != 0).then_some(top)
+}
+
 /// The honest answer on platforms without a verified stack-top mechanism.
-#[cfg(not(any(target_os = "linux", all(target_arch = "x86_64", target_os = "windows"))))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "macos",
+    all(target_arch = "x86_64", target_os = "windows")
+)))]
 pub fn current_thread_stack_high() -> Option<usize> {
     None
 }
@@ -103,7 +135,10 @@ pub fn install(context: &mut Context) {
     context.stack_high = current_thread_stack_high();
 }
 
-#[cfg(all(test, any(target_os = "linux", all(target_arch = "x86_64", target_os = "windows"))))]
+#[cfg(all(
+    test,
+    any(target_os = "linux", target_os = "macos", all(target_arch = "x86_64", target_os = "windows"))
+))]
 mod tests {
     use super::current_thread_stack_high;
 

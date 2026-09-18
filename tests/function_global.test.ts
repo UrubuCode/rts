@@ -69,9 +69,21 @@ const alias = orig;
 print("alias=" + alias.call(0, 41));
 
 describe("Function global (#359)", () => {
+  // `noop.toString()` — `noop` is written BY THIS PROGRAM, not a native, so
+  // Node's own answer is its full source text (`"function noop() { return 100; }"`).
+  // This engine keeps no source past the parse (see
+  // `crates/rts-core/src/entry/function_proto.rs::rendering`'s module docs), so
+  // it cannot reproduce that string either — but it deliberately does NOT print
+  // `[native code]` for it: that phrase is a PROBE bundlers run
+  // (`Function.prototype.toString.call(f).includes("[native code]")`) to detect
+  // a replaced built-in, and a compiled *user* function answering it would lie
+  // to every one of them. `[bytecode]` is the function-shaped answer this
+  // engine picked instead, matching Hermes' spelling for the same gap. This
+  // test used to assert `[native code]`, which is neither what Node prints nor
+  // what this engine's own documented policy allows.
   test("call/apply/toString/new/bind + variadic + getters", () => {
     expect(__rtsCapturedOutput).toBe(
-      "call=7\napply=30\nfunction noop() { [native code] }\nnew=81\nbind=14\nvar0=42\nvar3=6\nsum10=55\nname=anonymous\nlength=2\nchain=19\nnest=105\nbnd_len=2\nbnd_call=115\nalias=42\n"
+      "call=7\napply=30\nfunction noop() { [bytecode] }\nnew=81\nbind=14\nvar0=42\nvar3=6\nsum10=55\nname=anonymous\nlength=2\nchain=19\nnest=105\nbnd_len=2\nbnd_call=115\nalias=42\n"
     );
   });
 });

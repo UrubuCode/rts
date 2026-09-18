@@ -479,8 +479,10 @@ Issue #1793 is the June backlog that the plan replaced.
    labeled break/continue
 
 ✅ **Functions** — declaration, expression, arrow, closures with mutable
-   capture (cells), **tail call optimization** (`return f(x)` becomes
-   `return_call`), first-class function pointers, `call/apply/bind/toString`,
+   capture (cells), **proper tail calls** in strict code (`return f(x)` and
+   either arm of `return c ? f(x) : g(x)` run after the caller's frame is gone,
+   as ES2015 and Bun do — Node does not), first-class function pointers,
+   `call/apply/bind/toString`,
    `new Function` (runtime compile), spread call `f(...args)`
 
 ✅ **Classes** — `constructor`, methods, `this`, `extends`, `super(...)`,

@@ -244,6 +244,31 @@ pub(super) fn locale_string(ms: f64) -> String {
     )
 }
 
+/// `"Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)"` — the
+/// ECMA-262 §21.4.4.41 form `toString` answers.
+///
+/// A real engine's `toString` names the HOST's offset and zone; this runtime
+/// has neither — see the module documentation's "Everything is UTC" — so both
+/// fields are the ones true of every date it can produce: `+0000` and
+/// `Coordinated Universal Time`, the name Node itself prints under `TZ=UTC`.
+/// `date_string` alone is the ISO-friendlier answer `toDateString` gives; this
+/// adds the time and the fixed zone fields the plain spec format also carries.
+pub(super) fn local_string(ms: f64) -> String {
+    let Some(parts) = parts_of(ms) else {
+        return "Invalid Date".to_owned();
+    };
+    format!(
+        "{} {} {:02} {:04} {:02}:{:02}:{:02} GMT+0000 (Coordinated Universal Time)",
+        WEEKDAYS[parts.weekday as usize],
+        MONTHS[parts.month as usize],
+        parts.day,
+        parts.year,
+        parts.hour,
+        parts.minute,
+        parts.second
+    )
+}
+
 /// `"Thu, 01 Jan 1970 00:00:00 GMT"` — the RFC 7231 form `toUTCString` answers.
 ///
 /// Always `GMT`, never an offset: [`super`]'s module documentation is why —

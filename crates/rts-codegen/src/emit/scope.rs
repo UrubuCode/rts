@@ -162,6 +162,13 @@ pub struct Scope {
     /// The name `this` is held under, for a function where it is assigned
     /// partway through rather than handed over — see [`Scope::bind_this_late`].
     late_this: Option<Name>,
+    /// Whether THIS function owns `late_this` as a derived constructor, rather
+    /// than borrowing an enclosing function's as an arrow does.
+    ///
+    /// Only the owner may treat an `undefined` there as "`super()` has not
+    /// run": an arrow in an ordinary method borrows a `this` that is
+    /// legitimately `undefined` whenever the method was called plainly.
+    derived: bool,
 }
 
 impl Default for Scope {
@@ -181,6 +188,7 @@ impl Scope {
             captured: BTreeSet::new(),
             this_value: None,
             late_this: None,
+            derived: false,
         }
     }
 
@@ -269,6 +277,7 @@ impl Scope {
             from_enclosing,
             this_value: None,
             late_this: None,
+            derived: false,
         }
     }
 
@@ -326,8 +335,12 @@ impl Scope {
     /// The environment is where this engine already puts a name whose value
     /// changes and outlives a register, so it is where this goes rather than
     /// into a second mechanism for one construct.
-    pub fn bind_this_late(&mut self, name: Name) {
+    ///
+    /// `derived` is whether this function is that constructor itself — see
+    /// [`Scope::derived_this`] — as against an arrow reaching the same name.
+    pub fn bind_this_late(&mut self, name: Name, derived: bool) {
         self.late_this = Some(name);
+        self.derived = derived;
         // Cleared, so a read that forgot to ask about the late binding fails
         // loudly instead of answering the receiver the caller passed — which
         // for a derived constructor is `undefined` and would silently be the
@@ -338,6 +351,13 @@ impl Scope {
     /// The name `this` is held under, when it is held rather than passed.
     pub fn late_this(&self) -> Option<Name> {
         self.late_this
+    }
+
+    /// The name a DERIVED CONSTRUCTOR holds its `this` under, when this body is
+    /// one — the only body where that binding can still be uninitialised, and
+    /// so the only one that owes `GetThisBinding`'s `ReferenceError`.
+    pub fn derived_this(&self) -> Option<Name> {
+        self.late_this.filter(|_| self.derived)
     }
 
     /// What `this` is here, if this function has an answer.
