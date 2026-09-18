@@ -182,11 +182,18 @@ pub(crate) fn memory() -> Option<(f64, f64)> {
     Some((field("MemTotal:")?, field("MemAvailable:")?))
 }
 
+/// `(total, free)` physical memory in bytes, from `hw.memsize` and
+/// `host_statistics64` — see `super::darwin` for why those two.
+#[cfg(target_os = "macos")]
+pub(crate) fn memory() -> Option<(f64, f64)> {
+    super::darwin::memory()
+}
+
 /// No `std`-only or `libc`-portable path to the figure on this target.
 ///
 /// `None`, which the caller answers as `0`, rather than a number that looks
 /// measured and is not — see the module doc's refusal list.
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 pub(crate) fn memory() -> Option<(f64, f64)> {
     None
 }
@@ -204,8 +211,14 @@ pub(super) fn uptime() -> Option<f64> {
     text.split_whitespace().next()?.parse().ok()
 }
 
+/// System uptime in seconds, from `kern.boottime`.
+#[cfg(target_os = "macos")]
+pub(super) fn uptime() -> Option<f64> {
+    super::darwin::uptime()
+}
+
 /// No boot-time source on this target.
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 pub(super) fn uptime() -> Option<f64> {
     None
 }
