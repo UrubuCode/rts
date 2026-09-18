@@ -222,9 +222,9 @@ _V8 348a6116c · corpus inteiro · 2026-09-15_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   3464/3464 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱] 96.8%   150/155 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱] 65.9%   573/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   3532/3532 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   155/155 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱] 67.2%   585/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -235,7 +235,7 @@ The total alone says nothing about where the work is — it does not tell a bran
 
 ```
 subfolders of css-flexbox
-  [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  35.9%   14/39     balance
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  38.5%   15/39     balance
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  45.8%   11/24     intrinsic-size
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  63.2%   12/19     abspos
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       flex-lines
@@ -249,7 +249,7 @@ the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.6%   38/46     gap
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  48.7%   19/39     percentage
-  [▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  21.6%   8/37      baseline
+  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  51.4%   19/37     baseline
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.7%   22/34     min-
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   24/32     overflow
@@ -277,9 +277,9 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 - `claude-controlos-tamanho-natural.html` — lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel` (`<select>` sem opções) não — `<select>` não passa por `layout_input` (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`), por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`). Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a sua própria caixa.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **70/96 lots done**, 11 partial, pending: Q, U, V–Y, BT-3, BT-4, BT-5, TEXTO, SC, BR, DISP, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **70/96 lots done**, 13 partial, pending: Q, U, V–Y, BT-4, BT-5, TEXTO, BR, DISP, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-09-17 by CI (`dom-rulers`).*
+*Updated 2026-09-18 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->

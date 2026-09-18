@@ -1,33 +1,12 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 573,
-  "passam_vazio": 35,
-  "falham": 232,
+  "passam": 585,
+  "passam_vazio": 36,
+  "falham": 239,
   "falha_parcial": 10,
-  "erros": 20,
-  "nao_rasterizaram": [
-    "dynamic-isize-change-001",
-    "fieldset-baseline-alignment",
-    "flexbox-baseline-align-self-baseline-horiz-001",
-    "flexbox-baseline-align-self-baseline-vert-001",
-    "flexbox-baseline-empty-001a",
-    "flexbox-baseline-empty-001b",
-    "flexbox-baseline-multi-item-horiz-001a",
-    "flexbox-baseline-multi-item-horiz-001b",
-    "flexbox-baseline-multi-item-vert-001a",
-    "flexbox-baseline-multi-item-vert-001b",
-    "flexbox-baseline-multi-line-horiz-001",
-    "flexbox-baseline-multi-line-horiz-002",
-    "flexbox-baseline-multi-line-horiz-003",
-    "flexbox-baseline-multi-line-horiz-004",
-    "flexbox-baseline-multi-line-vert-001",
-    "flexbox-baseline-multi-line-vert-002",
-    "flexbox-baseline-nested-001",
-    "flexbox-baseline-single-item-001a",
-    "flexbox-baseline-single-item-001b",
-    "percentage-heights-023"
-  ],
+  "erros": 0,
+  "nao_rasterizaram": [],
   "tol": 8,
   "piores": [
     {
@@ -108,6 +87,12 @@
     },
     {
       "nome": "percentage-heights-022",
+      "pct": 11.71875,
+      "n": 120000,
+      "script": false
+    },
+    {
+      "nome": "percentage-heights-023",
       "pct": 11.71875,
       "n": 120000,
       "script": false
@@ -1066,6 +1051,12 @@
       "script": false
     },
     {
+      "nome": "flexbox-baseline-align-self-baseline-vert-001",
+      "pct": 0.49462890625000006,
+      "n": 5065,
+      "script": false
+    },
+    {
       "nome": "select-element-zero-height-001",
       "pct": 0.49023437499999994,
       "n": 5020,
@@ -1100,12 +1091,6 @@
       "pct": 0.48828125,
       "n": 5000,
       "script": true
-    },
-    {
-      "nome": "balance/balance-negative-margin-001",
-      "pct": 0.48828125,
-      "n": 5000,
-      "script": false
     },
     {
       "nome": "dynamic-isize-change-003",
@@ -1264,12 +1249,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-safe-overflow-position-001",
-      "pct": 0.196875,
-      "n": 2016,
-      "script": false
-    },
-    {
       "nome": "flexbox-safe-overflow-position-004",
       "pct": 0.1953125,
       "n": 2000,
@@ -1318,6 +1297,12 @@
       "script": false
     },
     {
+      "nome": "flexbox-baseline-align-self-baseline-horiz-001",
+      "pct": 0.13330078125,
+      "n": 1365,
+      "script": false
+    },
+    {
       "nome": "flexbox_object",
       "pct": 0.13007812500000002,
       "n": 1332,
@@ -1341,6 +1326,12 @@
       "n": 1152,
       "script": false,
       "parcial": true
+    },
+    {
+      "nome": "flexbox-safe-overflow-position-001",
+      "pct": 0.10957031250000002,
+      "n": 1122,
+      "script": false
     },
     {
       "nome": "stretch-obeys-min-max-002",
@@ -1377,6 +1368,24 @@
       "pct": 0.0732421875,
       "n": 750,
       "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-vert-001a",
+      "pct": 0.0703125,
+      "n": 720,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-vert-001b",
+      "pct": 0.0703125,
+      "n": 720,
+      "script": false
+    },
+    {
+      "nome": "dynamic-isize-change-001",
+      "pct": 0.0673828125,
+      "n": 690,
+      "script": true
     },
     {
       "nome": "balance/balance-start-bias-001",
@@ -1466,6 +1475,18 @@
       "nome": "flexbox_flex-natural-mixed-basis-auto",
       "pct": 0.017187499999999998,
       "n": 176,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001a",
+      "pct": 0.013671875000000002,
+      "n": 140,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001b",
+      "pct": 0.013671875000000002,
+      "n": 140,
       "script": false
     },
     {
@@ -1970,8 +1991,7 @@
     },
     {
       "nome": "balance/balance-negative-margin-001",
-      "estado": "falha",
-      "pct": 0.48828125
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-percentage-size-001",
@@ -2072,13 +2092,13 @@
       "estado": "passa"
     },
     {
+      "nome": "css-flexbox-img-expand-evenly",
+      "estado": "passa"
+    },
+    {
       "nome": "css-flexbox-row-reverse-wrap-reverse",
       "estado": "falha",
       "pct": 1.04296875
-    },
-    {
-      "nome": "css-flexbox-img-expand-evenly",
-      "estado": "passa"
     },
     {
       "nome": "css-flexbox-row-reverse-wrap",
@@ -2135,6 +2155,11 @@
       "pct": 0.390625
     },
     {
+      "nome": "dynamic-isize-change-001",
+      "estado": "falha",
+      "pct": 0.0673828125
+    },
+    {
       "nome": "dynamic-isize-change-002",
       "estado": "falha",
       "pct": 11.279296875
@@ -2171,6 +2196,10 @@
     {
       "nome": "fieldset-as-item-overflow",
       "estado": "passa"
+    },
+    {
+      "nome": "fieldset-baseline-alignment",
+      "estado": "passa-vazio"
     },
     {
       "nome": "fit-content-item-001",
@@ -2238,11 +2267,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-column-002",
+      "nome": "flex-aspect-ratio-img-column-001",
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-column-001",
+      "nome": "flex-aspect-ratio-img-column-002",
       "estado": "passa"
     },
     {
@@ -2359,13 +2388,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-014",
-      "estado": "passa"
-    },
-    {
       "nome": "flex-aspect-ratio-img-row-015",
       "estado": "falha",
       "pct": 0.9765625
+    },
+    {
+      "nome": "flex-aspect-ratio-img-row-014",
+      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-row-016",
@@ -2560,11 +2589,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-grow-001",
+      "nome": "flex-grow-002",
       "estado": "passa"
     },
     {
-      "nome": "flex-grow-002",
+      "nome": "flex-grow-001",
       "estado": "passa"
     },
     {
@@ -2965,11 +2994,85 @@
       "estado": "passa-vazio"
     },
     {
-      "nome": "flexbox-break-request-horiz-001b",
+      "nome": "flexbox-baseline-align-self-baseline-horiz-001",
+      "estado": "falha",
+      "pct": 0.13330078125
+    },
+    {
+      "nome": "flexbox-baseline-align-self-baseline-vert-001",
+      "estado": "falha",
+      "pct": 0.49462890625000006
+    },
+    {
+      "nome": "flexbox-baseline-empty-001a",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-empty-001b",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001a",
+      "estado": "falha",
+      "pct": 0.013671875000000002
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001b",
+      "estado": "falha",
+      "pct": 0.013671875000000002
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-vert-001a",
+      "estado": "falha",
+      "pct": 0.0703125
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-vert-001b",
+      "estado": "falha",
+      "pct": 0.0703125
+    },
+    {
+      "nome": "flexbox-baseline-multi-line-horiz-001",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-multi-line-horiz-002",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-multi-line-horiz-003",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-multi-line-horiz-004",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-multi-line-vert-001",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-multi-line-vert-002",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-nested-001",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-single-item-001a",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-single-item-001b",
       "estado": "passa"
     },
     {
       "nome": "flexbox-break-request-horiz-001a",
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-break-request-horiz-001b",
       "estado": "passa"
     },
     {
@@ -3277,7 +3380,7 @@
     {
       "nome": "flexbox-safe-overflow-position-001",
       "estado": "falha",
-      "pct": 0.196875
+      "pct": 0.10957031250000002
     },
     {
       "nome": "flexbox-safe-overflow-position-002",
@@ -4814,6 +4917,11 @@
       "pct": 11.71875
     },
     {
+      "nome": "percentage-heights-023",
+      "estado": "falha",
+      "pct": 11.71875
+    },
+    {
       "nome": "percentage-max-height-001",
       "estado": "passa"
     },
@@ -5113,11 +5221,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
@@ -5135,86 +5243,6 @@
     {
       "nome": "whitespace-in-flexitem-001",
       "estado": "passa"
-    },
-    {
-      "nome": "dynamic-isize-change-001",
-      "estado": "erro"
-    },
-    {
-      "nome": "fieldset-baseline-alignment",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-align-self-baseline-horiz-001",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-align-self-baseline-vert-001",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-empty-001a",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-empty-001b",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-horiz-001a",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-horiz-001b",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-vert-001a",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-vert-001b",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-horiz-001",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-horiz-002",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-horiz-003",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-horiz-004",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-vert-001",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-multi-line-vert-002",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-nested-001",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-single-item-001a",
-      "estado": "erro"
-    },
-    {
-      "nome": "flexbox-baseline-single-item-001b",
-      "estado": "erro"
-    },
-    {
-      "nome": "percentage-heights-023",
-      "estado": "erro"
     }
   ]
 }

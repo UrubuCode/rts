@@ -1,23 +1,23 @@
 {
-  "date": "2026-09-17",
+  "date": "2026-09-18",
   "fixtures": {
-    "passing": 150,
+    "passing": 155,
     "total": 155,
-    "pct": 96.8
+    "pct": 100
   },
   "measurements": {
-    "matching": 3464,
-    "total": 3464,
+    "matching": 3532,
+    "total": 3532,
     "pct": 100
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 573,
+    "passing": 585,
     "total": 870,
-    "pct": 65.9,
+    "pct": 67.2,
     "by_subfolder": {
       "balance": {
-        "passing": 14,
+        "passing": 15,
         "total": 39
       },
       "intrinsic-size": {
@@ -67,7 +67,7 @@
         "total": 39
       },
       "baseline": {
-        "passing": 8,
+        "passing": 19,
         "total": 37
       },
       "shrink": {
@@ -242,17 +242,17 @@
       "flex-writing-mode-2 — `writing-mode` troca de verdade o eixo do flex (retrabalho do `414147c88`/`5e9130c65`, nunca merged) — a família WPT `flexbox-writing-mode-*`, `-slr`/`-srl`, `gap-*-{lr,rl,rtl}`",
       "BT-1 — árvore de caixas: a identidade passa a ser a CAIXA",
       "BT-2 — árvore de caixas: o layout devolve fragmentos",
-      "PCT — a percentagem sabe em que EIXO esta"
+      "BT-3 — caixa anónima: bloco dentro de inline",
+      "PCT — a percentagem sabe em que EIXO esta",
+      "SC — contexto de empilhamento aninhado"
     ],
     "pendentes": [
       "Q — CSSOM",
       "U — composição e pintura",
       "V–Y — a superfície DOM que as bibliotecas pedem",
-      "BT-3 — caixa anónima: bloco dentro de inline",
       "BT-4 — caixa anónima: a tabela gerada de fora para dentro",
       "BT-5 — caixa gerada: `::before`/`::after` deixam de ser três implementações",
       "TEXTO — pintar glifos (Ahem primeiro)",
-      "SC — contexto de empilhamento aninhado",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
       "DISP — o `display` para de perder informacao no parse",
       "LOG — o layout corre em eixos LOGICOS, nao fisicos",
