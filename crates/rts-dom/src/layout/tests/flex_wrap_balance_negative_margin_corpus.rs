@@ -9,7 +9,7 @@
 //! soma que decide isso usava o `min_main` de `#b` CRU — a "specified size
 //! suggestion" outer (§4.5), que inclui a margem negativa e por isso é
 //! NEGATIVO de propósito — sem o piso que CSS Flexbox 2 §algo-line-break pede
-//! ("floor the outer hypothetical main size... at zero"), a segunda linha
+//! ("floor the outer hypothetical main size... at zero", só sob `balance`), a segunda linha
 //! saía diferente e `#b` deixava de cobrir o resto do contentor. O fix mora
 //! em `flex_limites::hipotetico_para_quebra`; este teste pina a geometria
 //! (não só "sem vermelho") para não regredir em silêncio de novo.
@@ -61,4 +61,27 @@ fn item_com_margem_negativa_nao_abre_segunda_linha_vazia() {
     // do módulo).
     assert_eq!((ax, ay, aw, ah), (0.0, 0.0, 100.0, 50.0), "#a sozinho na 1a linha cresce até cobri-la");
     assert_eq!((bx, by, bw, bh), (-50.0, 50.0, 200.0, 50.0), "#b sozinho na 2a linha cresce até cobri-la, apesar do min_main negativo");
+}
+
+/// O contraponto: com `wrap` SIMPLES não há piso, e o próprio WPT o diz no
+/// comentário da fixture ("Without clamping this item would fit on the first
+/// line, e.g. see result with just flex-wrap:wrap"). `#b` soma -100 à linha
+/// de `#a` (150 - 100 = 50 <= 100) e fica nela; o espaço livre (50) divide-se
+/// pelos dois `flex-grow:1`. Pisar em zero também aqui mudaria o `wrap`
+/// normal de um lado ao outro para ganhar um teste de `balance`.
+#[test]
+fn wrap_simples_nao_pisa_a_margem_negativa_na_quebra() {
+    const HTML: &str = r#"<style>
+#flex { display: flex; flex-wrap: wrap; width: 100px; height: 100px; }
+#flex > div { height: 50px; flex-grow: 1; }
+</style>
+<div id="flex">
+  <div id="a" style="width: 150px;"></div>
+  <div id="b" style="width: 0px; margin-left: -50px; margin-right: -50px;"></div>
+</div>"#;
+    let (dom, list) = geometria(HTML, 1280.0);
+    let a = rect(&dom, &list, "#a", 0);
+    let b = rect(&dom, &list, "#b", 0);
+    assert_eq!((a.x, a.y, a.w, a.h), (0.0, 0.0, 175.0, 50.0), "#a divide o espaço livre com #b na MESMA linha");
+    assert_eq!((b.y, b.w), (0.0, 25.0), "#b cabe na 1a linha: sem piso, o seu tamanho outer é -100");
 }
