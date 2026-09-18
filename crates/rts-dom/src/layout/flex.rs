@@ -275,9 +275,7 @@ pub(in crate::layout) fn layout_children_horizontal(
     // dois itens que deviam quebrar (100+100 > 150 pelo seu PISO) cabiam
     // juntos na mesma linha (`claude-flex-wrap-quebra-com-min-width`).
     let balanced = css.flex_wrap.is_some_and(crate::style::FlexWrap::balances);
-    // `flex_limites::hipotetico_para_quebra`, não `com_limites_finais`: a
-    // decisão de quebra pisa em zero sob `balance` (ver lá); o MAIN final,
-    // resolvido mais abaixo pelo grow/shrink, continua sem esse piso.
+    // Sob `balance` a quebra pisa em zero (`hipotetico_para_quebra`); o main final não.
     let hypothetical: Vec<f32> = items
         .iter()
         .map(|it| super::flex_limites::hipotetico_para_quebra(it.base, it.min_main, it.max_main, grid_cols, balanced))
@@ -360,8 +358,6 @@ pub(in crate::layout) fn layout_children_horizontal(
         lines.push(Vec::new());
         let mut line_w = 0.0f32;
         for it in items {
-            // Mesmo piso do `hypothetical` acima — este é o fallback do
-            // agrupamento quando a partição balanceada não achou solução.
             let hyp = super::flex_limites::hipotetico_para_quebra(it.base, it.min_main, it.max_main, grid_cols, balanced);
             let cur = lines.last_mut().unwrap();
             let with_gap = if cur.is_empty() { 0.0 } else { gap };
