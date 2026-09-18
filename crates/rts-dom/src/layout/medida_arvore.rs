@@ -424,13 +424,26 @@ pub(in crate::layout) fn intrinsic_outer_width_de(
         // Um nó de texto solto mede-se COLAPSADO (CSS Text §4.1) — o mesmo
         // motivo de `intrinsic_content_width`; `pre` num pai não é visto aqui
         // (corte dito: mede-se colapsado na mesma).
-        NodeKind::Text(t) => ctx.measurer.text_width(
-            &super::segmento::collapse_ws(&super::hifen::sem_shy(t), false),
-            parent_font,
-            false,
-            false,
-            false,
-        ),
+        //
+        // Text has no style of its own: `monospace`, weight and slant are the
+        // parent element's, as they are when the same text is laid out. This
+        // measured every loose text proportional, bold-less and upright, so a
+        // text that is its own anonymous table cell or flex item came out
+        // narrower than it paints — "Some text." at 73.6 where Blink gives
+        // 87.97 (`claude-linha-so-com-texto`).
+        NodeKind::Text(t) => {
+            let pai = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
+            let mono = pai.as_ref().and_then(|c| c.font_family.as_deref()).is_some_and(crate::style::is_mono_family);
+            let bold = pai.as_ref().and_then(|c| c.bold).unwrap_or(false);
+            let italic = pai.as_ref().and_then(|c| c.italic).unwrap_or(false);
+            ctx.measurer.text_width(
+                &super::segmento::collapse_ws(&super::hifen::sem_shy(t), false),
+                parent_font,
+                mono,
+                bold,
+                italic,
+            )
+        }
         _ => 0.0,
     }
 }

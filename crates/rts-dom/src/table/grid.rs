@@ -201,10 +201,25 @@ fn celulas_de(
     tree: &crate::boxes::BoxTree,
     pai: crate::boxes::BoxId,
 ) -> Vec<(NodeIdx, crate::boxes::BoxId)> {
+    // A child of a row that is not a cell — loose text, an ordinary element —
+    // is its own anonymous cell (CSS 2.1 §17.2.1, rule 2), by the same
+    // simplification `collect` already makes at the table level: the cell's
+    // node is the child itself. Keeping only the real cells dropped that
+    // content, and a `display: table-row` holding only text laid out as a row
+    // with no cell and zero height — reachable since misparented rows get an
+    // anonymous table (WPT `run-in-table-row-between-001`).
     tree.children(pai)
         .iter()
         .filter_map(|&caixa| tree.node_of(caixa).map(|no| (no, caixa)))
-        .filter(|&(no, _)| display_of(dom, no) == Some(DisplayKind::TableCell))
+        .filter(|&(no, _)| match &dom.node(no).kind {
+            crate::NodeKind::Text(t) => !t.trim().is_empty(),
+            crate::NodeKind::Element { .. } => match display_of(dom, no) {
+                Some(DisplayKind::TableCell) => true,
+                Some(DisplayKind::None) => false,
+                _ => !crate::layout::is_out_of_flow(dom, no),
+            },
+            _ => false,
+        })
         .collect()
 }
 
