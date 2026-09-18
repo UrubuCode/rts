@@ -162,7 +162,7 @@ impl Table {
     }
 
     /// Which class made it.
-    pub(super) fn brand(&self) -> Brand {
+    pub(in crate::entry) fn brand(&self) -> Brand {
         self.brand
     }
 
@@ -182,7 +182,7 @@ impl Table {
     }
 
     /// Both, paired, in insertion order.
-    pub(super) fn entries(&self) -> Vec<(u64, u64)> {
+    pub(in crate::entry) fn entries(&self) -> Vec<(u64, u64)> {
         self.keys.iter().copied().zip(self.values.iter().copied()).collect()
     }
 

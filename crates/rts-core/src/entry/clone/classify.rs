@@ -1,0 +1,241 @@
+//! What a value IS, decided inside one borrow, for both readers of a graph.
+//!
+//! Split out of the walk because the classification is the part the two
+//! policies share: every question below is asked the same way for a clone and
+//! for a pickle, and only the ANSWER to a few of them differs — a function, a
+//! symbol, an object with a prototype that is not `Object.prototype`. Those are
+//! the `match policy` arms, and they are the whole of the difference.
+
+use super::super::buffers::element::Kind;
+use super::super::Context;
+use super::{ClassName, Policy, Refusal};
+use crate::value::Value;
+
+/// What a value is, decided inside one borrow.
+pub(super) enum Shape {
+    Bits(u64),
+    /// A function or a symbol, for the clone — see the module documentation.
+    Uncloneable,
+    Array(u32),
+    /// A plain object. `true` when reading its members runs user code — an
+    /// accessor, or a proxy's trap — which is what sends it outside the borrow.
+    Object(u32, bool),
+    Instance(u32, ClassName),
+    Map(u32),
+    Set(u32),
+    Date(u32, f64),
+    Regexp(u32),
+    Buffer(u32),
+    View(u32, Kind),
+    NodeBuffer(u32),
+    Error(u32),
+    Boxed(u32, u64),
+    Function(ClassName),
+}
+
+/// Classifies one value.
+///
+/// A refusal carries the text the program is told, which names the kind — the
+/// v1 format's rule, kept: "cannot serialize a Proxy" is actionable where
+/// "cannot serialize" is not.
+pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy) -> Result<Shape, Refusal> {
+    let pickle = policy == Policy::Pickle;
+    let Some(cell) = Value(value).as_slot() else {
+        // A symbol is a primitive and is still not cloneable: the specification
+        // refuses one because its identity is the whole of what it is, and a
+        // copy would be a different symbol wearing the same description.
+        //
+        // A bigint IS copied, by bits, sharing its digits — unobservable for the
+        // same reason sharing a string is: neither can be written to.
+        if super::super::symbol::is_symbol(context, value) {
+            return match pickle {
+                true => Err(refuse("a Symbol")),
+                false => Ok(Shape::Uncloneable),
+            };
+        }
+        return Ok(Shape::Bits(value));
+    };
+    if context.is_text_at(cell) {
+        return Ok(Shape::Bits(value));
+    }
+    // Asked before anything structural, because a function is an object too.
+    // Getting the order wrong clones its members into a plain object that is not
+    // callable — a copy that looks like it worked.
+    if context.callable_at(cell).is_some() {
+        return match pickle {
+            true => function(context, cell).map(Shape::Function),
+            false => Ok(Shape::Uncloneable),
+        };
+    }
+    if pickle && context.proxy_at(cell).is_some() {
+        return Err(refuse("a Proxy"));
+    }
+    // An `ArrayBuffer` owns a byte store directly rather than through any
+    // property a walk would find — checked before `Date`'s property probe and
+    // the element/plain-object fallback, none of which know what a buffer is.
+    if context.bytes_at(cell).is_some() {
+        return Ok(Shape::Buffer(cell));
+    }
+    // A typed array names a view rather than owning bytes directly — checked
+    // here, beside the buffer it is the other half of. `Kind::Raw` is a
+    // `DataView`, which the clone copies as a plain object and the pickle
+    // refuses: a view with no element kind has no bytes-and-kind spelling.
+    if let Some(view) = context.view_at(cell) {
+        if view.kind != Kind::Raw {
+            let buffer = super::super::class_support::prototype(context, "Buffer");
+            if pickle && buffer.is_some() && context.prototype_at(cell) == buffer {
+                return Ok(Shape::NodeBuffer(cell));
+            }
+            return Ok(Shape::View(cell, view.kind));
+        }
+        if pickle {
+            return Err(refuse("a DataView"));
+        }
+    }
+    // Before the plain-object fallback: a regular expression answers
+    // `source`/`flags` through PROTOTYPE accessors, so the member walk would
+    // find no own members and copy it as an empty object.
+    if context.regexp_at(cell).is_some() {
+        return Ok(Shape::Regexp(cell));
+    }
+    if let Some(brand) = context.table_at(cell).map(|table| table.brand()) {
+        return collection(context, cell, brand, pickle);
+    }
+    // A `Date` is recognised by the property its time value lives in, which is
+    // what a `Date` IS here — `date`'s module documentation records why that is
+    // an ordinary property rather than an internal slot.
+    let key = context.well_known(super::super::date::TIME);
+    if let Some(time) = super::super::objects::read_property(context, cell, key)
+        && let Some(ms) = time.as_f64()
+    {
+        return Ok(Shape::Date(cell, ms));
+    }
+    if context.elements_at(cell).is_some() {
+        return Ok(Shape::Array(cell));
+    }
+    // LAST of the structural questions but one, and deliberately: it walks a
+    // prototype chain, so putting it earlier would charge every array, buffer
+    // and collection for a question none of them can answer yes to.
+    if super::super::object_proto::extends_class(context, cell, "Error") {
+        return Ok(Shape::Error(cell));
+    }
+    if pickle {
+        if let Some(inner) = context.boxed_at(cell) {
+            return Ok(Shape::Boxed(cell, inner));
+        }
+        return object_of_pickle(context, cell);
+    }
+    let calls = context.proxy_at(cell).is_some() || !context.ranked_accessors(cell).is_empty();
+    Ok(Shape::Object(cell, calls))
+}
+
+/// A table, which is a `Map`, a `Set` or one of the collections that are not.
+///
+/// Which of the two it is comes from the brand the constructor gave it. The
+/// clone used to decide from the PROTOTYPE, and an unrecognised one — a
+/// subclass — fell to `Map`; that is kept for the clone, because it is what the
+/// clone did. The pickle asks the brand AND the prototype: a `WeakMap` has no
+/// entries to write, and a subclass of `Map` is a class the stream cannot name
+/// alongside its entries — both are refused by name rather than flattened.
+fn collection(
+    context: &mut Context,
+    cell: u32,
+    brand: super::super::collections::Brand,
+    pickle: bool,
+) -> Result<Shape, Refusal> {
+    use super::super::collections::Brand;
+    let prototype = context.prototype_at(cell);
+    let set = super::super::class_support::prototype(context, "Set");
+    if !pickle {
+        return Ok(match prototype.is_some() && prototype == set {
+            true => Shape::Set(cell),
+            false => Shape::Map(cell),
+        });
+    }
+    let map = super::super::class_support::prototype(context, "Map");
+    match brand {
+        Brand::Map if prototype == map => Ok(Shape::Map(cell)),
+        Brand::Set if prototype == set => Ok(Shape::Set(cell)),
+        Brand::Map => Err(refuse("a subclass of Map")),
+        Brand::Set => Err(refuse("a subclass of Set")),
+        Brand::WeakMap => Err(refuse("a WeakMap")),
+        Brand::WeakSet => Err(refuse("a WeakSet")),
+        Brand::Other => Err(refuse("a WeakRef or FinalizationRegistry")),
+    }
+}
+
+/// A plain object or a class instance, for the pickle.
+///
+/// The prototype decides. `Object.prototype` or none at all is a plain object;
+/// a prototype whose `constructor` the program declared as a class is an
+/// instance of it. ANYTHING else is refused, by the constructor's name — which
+/// is how a `Promise`, a generator, a `URL` or a host object is refused without
+/// a list of them: each has a prototype that is neither of the two.
+fn object_of_pickle(context: &mut Context, cell: u32) -> Result<Shape, Refusal> {
+    let plain = || Ok(Shape::Object(cell, false));
+    let Some(prototype) = context.prototype_at(cell) else {
+        return with_calls(context, cell, plain());
+    };
+    let Some(link) = Value(prototype).as_slot() else {
+        // `Object.create(null)` — no prototype at all, which the stream writes
+        // as a plain object. The decoder gives it `Object.prototype` back; the
+        // loss is stated in `docs/engine/pickle.md`.
+        return with_calls(context, cell, plain());
+    };
+    if super::super::object_proto::prototype_of(context) == Some(link) {
+        return with_calls(context, cell, plain());
+    }
+    let key = context.well_known("constructor");
+    let constructor = super::super::objects::own_property(context, link, key)
+        .and_then(|found| found.as_slot());
+    if let Some(constructor) = constructor
+        && let Some(class) = super::super::pickle::names::declared_as(context, constructor)
+    {
+        return Ok(Shape::Instance(cell, class));
+    }
+    let named = constructor
+        .and_then(|constructor| function_name(context, constructor))
+        .unwrap_or_else(|| "an unnamed class".to_owned());
+    Err(refuse(&format!("an instance of {named}, which is not a class this program declared")))
+}
+
+/// A plain object, marked for the slow read when it has an accessor.
+fn with_calls(context: &Context, cell: u32, shape: Result<Shape, Refusal>) -> Result<Shape, Refusal> {
+    match shape {
+        Ok(Shape::Object(cell_at, _)) => Ok(Shape::Object(cell_at, !context.ranked_accessors(cell).is_empty())),
+        other => other,
+    }
+}
+
+/// A function, for the pickle: by reference if the program declared it at
+/// the top level of a module, refused otherwise.
+fn function(context: &mut Context, cell: u32) -> Result<ClassName, Refusal> {
+    if context.bound_at(cell).is_some() {
+        return Err(refuse("a bound function"));
+    }
+    if let Some(declared) = super::super::pickle::names::declared_as(context, cell) {
+        return Ok(declared);
+    }
+    let named = function_name(context, cell).filter(|name| !name.is_empty());
+    Err(refuse(&match named {
+        Some(name) => format!(
+            "function '{name}': only a named function declared at the top level of a module \
+             serializes, by reference"
+        ),
+        None => "an anonymous function or arrow: only a named function declared at the top \
+                 level of a module serializes, by reference"
+            .to_owned(),
+    }))
+}
+
+/// What a function says its name is, for a message.
+fn function_name(context: &mut Context, cell: u32) -> Option<String> {
+    let key = context.well_known("name");
+    let found = super::super::objects::own_property(context, cell, key)?;
+    context.text_at(found.as_slot()?)?.to_rust()
+}
+
+/// The refusal for a kind, spelled the way every one of them is.
+pub(super) fn refuse(what: &str) -> Refusal {
+    Refusal::Unserializable(format!("cannot serialize {what}"))
+}

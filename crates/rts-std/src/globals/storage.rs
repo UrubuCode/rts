@@ -1,34 +1,23 @@
 //! `Storage` (the Web Storage API), persisted as a byte-exact record.
 //!
-//! # Reuse-check: what was searched, and why nothing here reuses it
+//! # Persisted as a pickle
 //!
-//! `crates/rts-std/src/globals/storage/mod.rs` is the OLD engine's `Storage`,
-//! read in full. Its shape — `getItem`/`setItem`/`removeItem`/`clear`/`key`,
-//! string-only, `persistTo(path)` reloading on link and rewriting on every
-//! mutation — is right and is what this module copies. Its **code** is not
-//! reachable: it is written against `rts_engine::heap::pickle` and
-//! `rts_engine::heap::handles::{alloc_entry, Entry}`, which are the OLD value
-//! encoding `rts_cranelift::tags` replaced, and `rts-std` does not and must
-//! not depend on `rts-engine`.
+//! The file is an RTSP stream (`docs/engine/pickle.md`) of one array —
+//! `[key0, value0, key1, value1, …]` — written by `rts_core::entry::pickle_texts`
+//! and read back by `texts_of`. So `deserialize(readFileSync(path))` in a
+//! program answers the same pairs this module holds.
 //!
-//! `rts-core` — the crate this one DOES depend on — has no pickle format at
-//! all; `entry::deep_copy` (`clone.rs`) copies a *live* value graph inside one
-//! run, not a byte stream that survives a process exit, so it answers a
-//! different question. Nothing in this crate's own reach answers "bytes that
-//! round-trip a `Vec<(String, String)>`", so [`encode`]/[`decode`] below are
-//! new, small, and deliberately not called "pickle" — that name is the old
-//! engine's format, and reusing the word for a different one is exactly the
-//! kind of two-answers-one-question this workspace's `CLAUDE.md` warns about.
+//! This module used to say the opposite, and it was right when it said it:
+//! `rts-core` had no pickle, so it wrote a small length-prefixed format of its
+//! own and deliberately did not call it one. Now that the pickle exists, a
+//! second byte format for the same job would be exactly the two-answers-one-
+//! question that note warned about. A pickle survives a newline or any
+//! separator in a value for the same reason the old format did — every string carries its
+//! own byte length — which is what the "valor HOSTIL" case of
+//! `tests/claude-storage-pickle.test.ts` pins.
 //!
-//! # The format: length-prefixed pairs, not text
-//!
-//! `setItem("bruto", "linha1\nlinha2=x\ty|z\r\nfim")` is the case a "key=value
-//! per line" format loses: the value contains the line separator a text format
-//! would use to find the *next* pair. So each string here is a **byte count**
-//! followed by exactly that many bytes — never a delimiter a value could also
-//! contain — which is what makes [`decode`] able to read back
-//! `\n`/`\t`/`\r`/`|` inside a value byte-for-byte, checked by
-//! `tests/claude-storage-pickle.test.ts`'s "valor HOSTIL" case.
+//! A file in the OLD format (`RTSSTOR1`) is still read, so an upgrade does not
+//! empty anybody's storage; the next write replaces it with a pickle.
 //!
 //! # Why availability, not `rts-core`, is why this lives here
 //!
@@ -216,35 +205,45 @@ fn flush(this: u64) {
     }).flatten() else {
         return;
     };
-    let _ = std::fs::write(&path, encode(&keys, &vals));
-}
-
-/// The bytes for `keys`/`vals`: a magic tag, a pair count, then each string as
-/// a little-endian `u32` byte length followed by its raw bytes — see the
-/// module doc for why length-prefixing rather than a text delimiter.
-fn encode(keys: &[String], vals: &[String]) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&(keys.len() as u32).to_le_bytes());
-    for (k, v) in keys.iter().zip(vals.iter()) {
-        push_string(&mut out, k);
-        push_string(&mut out, v);
+    let mut texts: Vec<&str> = Vec::with_capacity(keys.len() * 2);
+    for (key, value) in keys.iter().zip(vals.iter()) {
+        texts.push(key);
+        texts.push(value);
     }
-    out
+    let _ = std::fs::write(&path, entry::pickle_texts(&texts));
 }
 
-/// The inverse of [`encode`]. `None` for anything that is not exactly this
-/// format — including a file some OTHER program wrote — which is what makes a
+/// The pairs a file holds: a pickle of alternating keys and values, or the
+/// format this module wrote before there was a pickle. `None` for anything
+/// else — including a file some OTHER program wrote — which is what makes a
 /// corrupt file answer "empty storage" rather than a panic.
 fn decode(bytes: &[u8]) -> Option<(Vec<String>, Vec<String>)> {
-    if bytes.len() < MAGIC.len() + 4 || &bytes[..MAGIC.len()] != MAGIC {
+    if bytes.starts_with(LEGACY) {
+        return legacy(bytes);
+    }
+    let texts = entry::with_runtime(|context| entry::texts_of(context, bytes))?;
+    if texts.len() % 2 != 0 {
         return None;
     }
-    let mut at = MAGIC.len();
+    let mut keys = Vec::with_capacity(texts.len() / 2);
+    let mut vals = Vec::with_capacity(texts.len() / 2);
+    let mut texts = texts.into_iter();
+    while let (Some(key), Some(value)) = (texts.next(), texts.next()) {
+        keys.push(key);
+        vals.push(value);
+    }
+    Some((keys, vals))
+}
+
+/// The format before the pickle: a magic tag, a pair count, then each string
+/// as a little-endian `u32` byte length followed by its bytes. Read, never
+/// written.
+fn legacy(bytes: &[u8]) -> Option<(Vec<String>, Vec<String>)> {
+    let mut at = LEGACY.len();
     let count = u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
     at += 4;
-    let mut keys = Vec::with_capacity(count);
-    let mut vals = Vec::with_capacity(count);
+    let mut keys = Vec::new();
+    let mut vals = Vec::new();
     for _ in 0..count {
         let (k, next) = pull_string(bytes, at)?;
         at = next;
@@ -256,19 +255,13 @@ fn decode(bytes: &[u8]) -> Option<(Vec<String>, Vec<String>)> {
     Some((keys, vals))
 }
 
-/// This engine's own tag, so a file another program wrote is refused rather
-/// than misread as zero pairs.
-const MAGIC: &[u8; 8] = b"RTSSTOR1";
-
-fn push_string(out: &mut Vec<u8>, text: &str) {
-    out.extend_from_slice(&(text.len() as u32).to_le_bytes());
-    out.extend_from_slice(text.as_bytes());
-}
+/// The old format's tag.
+const LEGACY: &[u8; 8] = b"RTSSTOR1";
 
 fn pull_string(bytes: &[u8], at: usize) -> Option<(String, usize)> {
     let len = u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?) as usize;
     let start = at + 4;
-    let text = std::str::from_utf8(bytes.get(start..start + len)?).ok()?.to_string();
+    let text = std::str::from_utf8(bytes.get(start..start.checked_add(len)?)?).ok()?.to_string();
     Some((text, start + len))
 }
 
