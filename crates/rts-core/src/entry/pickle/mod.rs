@@ -45,19 +45,31 @@ use super::objects::undefined_of;
 use super::{Context, with_current};
 use crate::value::Value;
 
-/// Why a pickle could not be made or read.
-enum Failure {
+/// Why a pickle could not be made or read, as a host sees it.
+#[derive(Debug)]
+pub enum Failure {
     /// What the program should be told, as a `TypeError`.
     Refused(String),
-    /// A getter the walk ran threw; the error is already in flight.
+    /// A getter the walk ran threw; the error is already in flight, and the
+    /// compiled call site above re-raises it.
     Thrown,
+}
+
+/// The bytes a value pickles to — for a host surface built on the pickle,
+/// `node:v8` being the one.
+///
+/// Ambient: it takes its own borrows, because the walk may run a getter, and so
+/// must not be called from inside `with_runtime`.
+pub fn pickle_value(value: u64) -> Result<Vec<u8>, Failure> {
+    let (graph, root) = walk(Policy::Pickle, value).map_err(failure)?;
+    with_current(|context| write::write(context, &graph, root)).map_err(Failure::Refused)
 }
 
 /// The value a stream describes, built on the heap.
 ///
 /// Inside the caller's borrow: reading runs no user code, so nothing here ever
 /// needs to give it back.
-fn unpickle_bytes(context: &mut Context, bytes: &[u8]) -> Result<u64, Failure> {
+pub fn unpickle_bytes(context: &mut Context, bytes: &[u8]) -> Result<u64, Failure> {
     let (graph, root) = read::read(context, bytes).map_err(Failure::Refused)?;
     let made = materialise(context, &graph);
     Ok(resolve(root, &made))

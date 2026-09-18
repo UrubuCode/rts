@@ -205,7 +205,7 @@ pub use cache::{cache_resolve, cache_resolve_indirect, cache_resolve_store, cens
 pub use cache_keyed::cache_resolve_keyed;
 pub use chain::{get_prototype, set_prototype};
 pub use clone::deep_copy;
-pub use pickle::{names::serde_declare, namespace as serde_namespace, pickle_texts, texts_of};
+pub use pickle::{Failure as PickleFailure, names::serde_declare, namespace as serde_namespace, pickle_texts, pickle_value, texts_of, unpickle_bytes};
 pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
