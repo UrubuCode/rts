@@ -73,6 +73,9 @@ pub(super) fn operand_order() -> [crate::coerce::Side; 2] {
 /// `a - b`.
 #[rtse::entry]
 pub fn subtract(left: u64, right: u64) -> u64 {
+    if let Some(answer) = overload::binary(Overload::Sub, left, right) {
+        return answer;
+    }
     let (left, right) = super::primitive::operands(
         left,
         right,
@@ -98,6 +101,15 @@ pub fn subtract(left: u64, right: u64) -> u64 {
 /// `a * b`.
 #[rtse::entry]
 pub fn multiply(left: u64, right: u64) -> u64 {
+    if let Some(answer) = overload::binary(Overload::Mul, left, right) {
+        return answer;
+    }
+    ordinary_multiply(left, right)
+}
+
+/// `a * b` as the specification states it, with no `rts` operator consulted —
+/// what [`multiply`] falls to and what [`unary_plus`] is.
+fn ordinary_multiply(left: u64, right: u64) -> u64 {
     let (left, right) = super::primitive::operands(
         left,
         right,
@@ -122,6 +134,9 @@ pub fn multiply(left: u64, right: u64) -> u64 {
 /// would be replacing the language's answer with a different one.
 #[rtse::entry]
 pub fn divide(left: u64, right: u64) -> u64 {
+    if let Some(answer) = overload::binary(Overload::Div, left, right) {
+        return answer;
+    }
     let (left, right) = super::primitive::operands(
         left,
         right,
@@ -148,6 +163,9 @@ pub fn divide(left: u64, right: u64) -> u64 {
 /// recorded rather than relied on silently.
 #[rtse::entry]
 pub fn remainder(left: u64, right: u64) -> u64 {
+    if let Some(answer) = overload::binary(Overload::Mod, left, right) {
+        return answer;
+    }
     let (left, right) = super::primitive::operands(
         left,
         right,
@@ -207,6 +225,17 @@ pub fn number_remainder(left: f64, right: f64) -> f64 {
 /// the compiler already knows. Four symbols cost four rows in a table that is
 /// read in one screen, and each call site passes only what varies.
 fn compare(op: Relational, left: u64, right: u64) -> bool {
+    // Each operator its own symbol, and no derivation: `>` is never asked as
+    // the negation of an `le` the object happened to declare.
+    let declared = match op {
+        Relational::Less => Overload::Lt,
+        Relational::LessEqual => Overload::Le,
+        Relational::Greater => Overload::Gt,
+        Relational::GreaterEqual => Overload::Ge,
+    };
+    if let Some(answer) = overload::binary(declared, left, right) {
+        return overload::truth(answer);
+    }
     // Outside the borrow, and in the operators own order: `a <= b` is specified
     // as `!(b < a)`, so it converts the RIGHT operand first. That is invisible
     // until an operand has a side-effecting `valueOf`, which is why the order
@@ -281,119 +310,71 @@ pub fn greater_equal(left: u64, right: u64) -> bool {
     compare(Relational::GreaterEqual, left, right)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::entry::{Context, with_context};
-    use crate::text::Str;
-    use crate::value::Singletons;
-    use rts_cranelift::tags;
-
-    fn singletons() -> Singletons {
-        Singletons { undefined: 0, null: 1, hole: 2 }
+/// `-x`.
+///
+/// # Why unary minus is its own entry point
+///
+/// It was emitted as `x * -1`, which is exactly right for a double and exactly
+/// wrong for a bigint: `-1` is a **number**, so a bigint operand made the
+/// multiply a mixed operation — which the language refuses. So `-1n` was `NaN`,
+/// and with it every negative literal, `BigInt.asIntN` reading back, and
+/// `-1n & 3n`. It lived in `bigint_class.rs` for that reason, and moved here
+/// when it became the one unary operator `rts`'s `operators.neg` can answer.
+#[rtse::entry]
+pub fn negate(value: u64) -> u64 {
+    if let Some(answer) = overload::unary(Overload::Neg, value) {
+        return answer;
     }
-
-    /// Runs a body with a context installed, as a compiled program would.
-    fn hosted<T>(body: impl FnOnce() -> T) -> T {
-        let (_context, value) = with_context(Context::new(singletons(), crate::value::Kinds::in_declaration_order()), body);
-        value
+    // Um bigint e um numero ja pronto respondem dentro de UM emprestimo, que e
+    // o caminho de toda a aritmetica compilada.
+    enum Held {
+        Big(crate::bigint::BigInt),
+        Number(f64),
+        /// Um objeto: `ToPrimitive` chama codigo do utilizador, e isso nao pode
+        /// acontecer com o contexto emprestado.
+        Ask,
     }
-
-    fn number(bits: u64) -> f64 {
-        tags::decode_double(bits)
-    }
-
-    #[test]
-    fn subtraction_of_two_numbers_is_arithmetic() {
-        hosted(|| {
-            let a = Value::from_f64(5.0).bits();
-            let b = Value::from_f64(3.0).bits();
-            assert_eq!(number(subtract(a, b)), 2.0);
-        });
-    }
-
-    #[test]
-    fn dividing_by_zero_answers_infinity_rather_than_failing() {
-        // IEEE-754 is the language's arithmetic, so this is the correct answer
-        // and not an edge case to guard. A guard here would replace what
-        // JavaScript says with something else.
-        hosted(|| {
-            let one = Value::from_f64(1.0).bits();
-            let zero = Value::from_f64(0.0).bits();
-            assert_eq!(number(divide(one, zero)), f64::INFINITY);
-            assert!(number(divide(zero, zero)).is_nan());
-        });
-    }
-
-    #[test]
-    fn remainder_takes_the_sign_of_the_dividend() {
-        // `-5 % 3` is `-2`, not `1`. Pinned because the two differ in most
-        // languages and Rust agreeing with JavaScript here is a coincidence
-        // this test is what protects.
-        hosted(|| {
-            let minus_five = Value::from_f64(-5.0).bits();
-            let three = Value::from_f64(3.0).bits();
-            assert_eq!(number(remainder(minus_five, three)), -2.0);
-        });
-    }
-
-    #[test]
-    fn a_boolean_operand_converts_before_the_operator_runs() {
-        // `true - 1` is `0`: ToNumber of `true` is 1. Nothing about this is
-        // special-cased here — it is what `to_number` already answers, and the
-        // test is that this path asks it.
-        hosted(|| {
-            let yes = Value::from_bool(true).bits();
-            let one = Value::from_f64(1.0).bits();
-            assert_eq!(number(subtract(yes, one)), 0.0);
-        });
-    }
-
-    #[test]
-    fn nan_is_unordered_so_every_comparison_with_it_is_false() {
-        // The one that catches an implementation written as negations: if
-        // `a <= b` were `!(a > b)`, this pair would answer true and false
-        // instead of false and false.
-        hosted(|| {
-            let nan = Value::from_f64(f64::NAN).bits();
-            assert!(!less_equal(nan, nan));
-            assert!(!greater_equal(nan, nan));
-            assert!(!less(nan, nan));
-            assert!(!greater(nan, nan));
-        });
-    }
-
-    #[test]
-    fn numbers_compare_numerically() {
-        hosted(|| {
-            let two = Value::from_f64(2.0).bits();
-            let ten = Value::from_f64(10.0).bits();
-            assert!(less(two, ten));
-            assert!(!greater(two, ten));
-            assert!(less_equal(two, two));
-        });
-    }
-
-    #[test]
-    fn two_strings_compare_as_text_and_a_string_and_a_number_do_not() {
-        // The reason `<` cannot be a comparison instruction. `"2" < "10"` is
-        // FALSE — code-unit order puts "10" first — while `2 < 10` is true, and
-        // `"2" < 10` converts and is true again. One operator, three answers,
-        // decided by what the operands turn out to be.
-        hosted(|| {
-            let two = crate::entry::with_current(|context| {
-                context.intern_value(Str::from_str("2")).bits()
-            });
-            let ten = crate::entry::with_current(|context| {
-                context.intern_value(Str::from_str("10")).bits()
-            });
-            assert!(!less(two, ten), "as text, \"2\" comes after \"10\"");
-
-            let ten_number = Value::from_f64(10.0).bits();
-            assert!(less(two, ten_number), "with a number, both convert");
-        });
-    }
+    let held = with_current(|context| {
+        if let Some(held) = super::bigints::digits_of(context, value).map(crate::bigint::BigInt::neg) {
+            return Held::Big(held);
+        }
+        match as_number(context, Value(value)) {
+            Some(number) => Held::Number(number),
+            None => Held::Ask,
+        }
+    });
+    let number = match held {
+        Held::Big(held) => return with_current(|context| context.bigint_value(held)),
+        Held::Number(number) => number,
+        // `-{valueOf(){return 5}}` e `-[]` passam por `ToPrimitive` fora do
+        // emprestimo, como o `+x` unario ja fazia.
+        Held::Ask => super::class_support::to_number(value),
+    };
+    Value::from_f64(-number).bits()
 }
+
+/// `+x`, and the `ToNumeric` read half of `x++` and `x--`.
+///
+/// # Why it exists beside [`multiply`], which answered both
+///
+/// The emitter spelled `+x` as `x * 1` and `x++` as `(x * 1) - -1`, which is
+/// the same observable sequence for every value the language has — and stopped
+/// being so the day `rts`'s `operators.mul` could answer a `*`. `+v` on an
+/// object declaring `mul` would have called it with `1`. So this is the multiply
+/// by one with the overload question left out and nothing else changed: the
+/// same conversion, the same bigint refusal, the same bits.
+#[rtse::entry]
+pub fn unary_plus(value: u64) -> u64 {
+    ordinary_multiply(value, Value::from_f64(1.0).bits())
+}
+
+#[path = "overload.rs"]
+pub(super) mod overload;
+use overload::Overload;
+
+#[cfg(test)]
+#[path = "operators_tests.rs"]
+mod tests;
 
 /// `a == b`.
 ///
@@ -424,6 +405,12 @@ mod tests {
 /// would compare `"[object Object]"` against itself and answer true.
 #[rtse::entry]
 pub fn loose_equals(left: u64, right: u64) -> bool {
+    // Asked of two OBJECTS only, which `binary` enforces for `Eq`: so the
+    // `null`/`undefined` arms below, and the emitter's settled `x == null`, are
+    // untouched by it.
+    if let Some(answer) = overload::binary(Overload::Eq, left, right) {
+        return overload::truth(answer);
+    }
     // Outside the borrow, and before anything else reads the operands: a
     // conversion runs user code. Guarded so the identity rule above survives.
     let (left_object, right_object, left_absent, right_absent) = with_current(|context| {

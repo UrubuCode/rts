@@ -29,6 +29,16 @@ use crate::value::{
 /// states — this cannot do it, because running a `valueOf` is calling.
 #[rtse::entry]
 pub fn add(left: u64, right: u64) -> u64 {
+    // Before `ToPrimitive`, and only for an object operand: `rts`'s
+    // `operators.add` is the object's own answer, which the conversion below
+    // would otherwise replace with `[object Object]`.
+    if let Some(answer) = super::operators::overload::binary(
+        super::operators::overload::Overload::Add,
+        left,
+        right,
+    ) {
+        return answer;
+    }
     // Before the borrow, and left before right — which is what
     // `coerce::add_operand_order` states and the reason it is a function rather
     // than a comment: the left operand's `valueOf` runs to completion before the

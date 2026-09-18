@@ -98,13 +98,7 @@ pub fn emit_unary(
         // path for strings, objects and other values.
         UnaryOp::Plus => {
             let value = emit_expr(builder, scope, ctx, operand)?;
-            match builder.repr_of(value) {
-                rts_cranelift::repr::Repr::F64 => return Ok(value),
-                rts_cranelift::repr::Repr::I32 => return Ok(builder.to_f64(value)?),
-                _ => {}
-            }
-            let one = expr::number_constant(builder, 1.0);
-            expr::emit_binary(builder, ctx, BinaryOp::Mul, value, one)
+            to_number(builder, ctx, value)
         }
 
         // `~` is `ToInt32` then complement.
@@ -323,12 +317,50 @@ fn step_value(
     current: ValueId,
     step: f64,
 ) -> EmitResult<(ValueId, ValueId)> {
-    // `ToNumeric`, spelled as the multiplication that already implements it.
-    let one = expr::number_constant(builder, 1.0);
-    let before = expr::emit_binary(builder, ctx, BinaryOp::Mul, current, one)?;
+    // `ToNumeric`, through the same conversion `+x` is — and NOT through `*`,
+    // which an object may answer through `rts`'s `operators.mul`.
+    let before = to_number(builder, ctx, current)?;
     let step = expr::number_constant(builder, step);
     let after = expr::emit_binary(builder, ctx, BinaryOp::Sub, before, step)?;
     Ok((before, after))
+}
+
+/// `+x`: the value itself where it is proven a number, otherwise a guard that
+/// takes it when it IS one and [`RuntimeOp::UnaryPlus`] when it is not.
+///
+/// # Why not `x * 1`, which this was
+///
+/// Because `*` is an operator an object can now answer — `rts`'s
+/// `operators.mul` — and `+v` must convert `v`, not multiply it. The shape is
+/// the one `x * 1` took through `emit_binary`'s guarded path, minus the
+/// multiply: a double is its own `ToNumber` (including `-0`), so the fast side
+/// is the narrowed value re-tagged, and the slow side is the call that used to
+/// be `Multiply`.
+fn to_number(builder: &mut FuncBuilder, ctx: &mut Ctx, value: ValueId) -> EmitResult<ValueId> {
+    use rts_cranelift::repr::Repr;
+    match builder.repr_of(value) {
+        Repr::F64 => return Ok(value),
+        Repr::I32 => return Ok(builder.to_f64(value)?),
+        _ => {}
+    }
+    let narrowed = builder.create_block();
+    let number = builder.add_block_param(narrowed, Repr::F64);
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, super::UNPROVEN);
+    builder.guard(value, Repr::F64, (narrowed, &[]), (slow, &[]))?;
+
+    builder.switch_to(narrowed);
+    let fast = expr::tagged(builder, number);
+    builder.jump(join, &[fast])?;
+
+    builder.switch_to(slow);
+    let widened = expr::tagged(builder, value);
+    let converted = expr::call(builder, ctx, RuntimeOp::UnaryPlus, &[widened])?[0];
+    builder.jump(join, &[converted])?;
+
+    builder.switch_to(join);
+    Ok(result)
 }
 
 /// `delete a?.b` and `delete a?.[k]` — the delete a nullish object skips.

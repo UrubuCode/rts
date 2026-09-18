@@ -319,8 +319,12 @@ source position per instruction and nothing maps an address back to one at run
 time, which is `rts_cranelift::observe`'s question.
 
 **What the `rts:` surface keeps, and what left.** The bare `rts` specifier
-carries `num`, `math`, `hint`, `time`, `gc` and `atomic`. Still wanted from what
-the old engine provided: `io`, `buffer`, `net`, `fs`, `process`.
+carries `num`, `math`, `hint`, `time`, `gc`, `atomic` and `operators` — the
+symbols that opt an object into operator overloading
+(`[operators.add](other, reversed)`); only an object declaring one is
+overloaded, never a method merely NAMED `add`, and `tsc` still flags the
+operator expression. `docs/engine/operator-overloading.md`. Still wanted from
+what the old engine provided: `io`, `buffer`, `net`, `fs`, `process`.
 
 **GONE by decision, and their tests with them** — `ptr`, `mem`, `alloc`, `ffi`,
 `trace`, `sync`, `thread`, `promise.new_*`, and `RtsePoint`. The first five left

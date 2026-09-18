@@ -255,17 +255,15 @@ fn settle(held: bool, negated: bool, received: u64, expected: u64) -> u64 {
 /// `Number.prototype.valueOf` reached through the wrong spelling of this same
 /// idea recursed until the stack ran out).
 ///
-/// What IS exported is `subtract` — the actual `-` operator, which performs
-/// exactly that conversion on both operands before subtracting. `x - 0` is
-/// `ToNumber(ToPrimitive(x))` for every value this matcher set ever sees: a
-/// string parses, a number passes through, and there is no BigInt case here
-/// to be honest about, since a numeric matcher over a BigInt is not a shape
-/// this corpus asks for. Reached through the operator this crate already has
-/// rather than a second, private copy of the conversion.
+/// What IS exported is `unary_plus` — the `+x` operator, which is that
+/// conversion and nothing else. It was `subtract(x, 0)`, the same conversion
+/// until `rts`'s `operators.sub` let an object answer `-`: a matcher asked to
+/// read a number would then have called the object's method with `0`.
+/// Reached through the operator this crate already has rather than a second,
+/// private copy of the conversion.
 fn to_number(value: u64) -> f64 {
-    let zero = rts_core::entry::make_number(0.0);
-    let difference = rts_core::entry::subtract(value, zero);
-    rts_core::entry::number_of(difference).unwrap_or(f64::NAN)
+    let converted = rts_core::entry::unary_plus(value);
+    rts_core::entry::number_of(converted).unwrap_or(f64::NAN)
 }
 
 /// Pins the eleven matchers `content.rs`/`order.rs` add — independent of

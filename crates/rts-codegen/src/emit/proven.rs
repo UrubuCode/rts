@@ -751,9 +751,8 @@ pub(super) fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
         },
 
         ExprKind::Unary { op, operand } => match op {
-            // `+x` is `x * 1`, through `emit_binary`'s `Mul` — which IS in
-            // `proven_binary`, so a proven `F64` operand keeps its
-            // representation.
+            // `+x` answers a proven `F64` operand unchanged (`unary::to_number`),
+            // so a proven `F64` operand keeps its representation.
             //
             // `-x` was NOT, and this arm said so at length: `emit_unary` always
             // called `RuntimeOp::Negate` and always answered `Repr::Tagged`,

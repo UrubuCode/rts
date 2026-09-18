@@ -93,13 +93,28 @@ pub fn install(context: &mut Context) {
     // the two namespaces beside it that are about the machine rather than about
     // JavaScript. What it does NOT carry is named in `numbers.rs`, and stays
     // absent rather than approximated.
-    let surface = rts_core::entry::make_namespace(context, &[]);
-    numbers::install(context, surface);
-    machine::install(context, surface);
-    rts_core::entry::declare_module(context, "rts", surface);
+    //
+    // LAZY since `operators` joined it: building it is what mints the operator
+    // symbols and arms the runtime's overload check, so a program that never
+    // imports `rts` never pays that check beyond one `None`.
+    rts_core::entry::declare_module_lazy(context, &["rts"], surface);
 
     // Not modules: a program writes `console.log` and `new TextEncoder()` with
     // no import line, so both have to be reachable by name.
     console::install(context);
     globals::install(context);
+}
+
+/// The bare `rts` specifier's namespace, built the first time a program names it.
+///
+/// `operators` is the twelve symbols that opt an object into operator
+/// overloading — `rts_core::entry::operators_namespace` says why they are
+/// symbols and where the runtime asks for them.
+fn surface(context: &mut Context) -> u64 {
+    let surface = rts_core::entry::make_namespace(context, &[]);
+    numbers::install(context, surface);
+    machine::install(context, surface);
+    let operators = rts_core::entry::operators_namespace(context);
+    rts_core::entry::put_member(context, surface, "operators", operators);
+    surface
 }

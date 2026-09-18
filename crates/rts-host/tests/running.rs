@@ -4983,6 +4983,41 @@ fn the_bare_rts_specifier_answers_integer_arithmetic() {
     assert!(failed.is_empty(), "{failed:?}");
 }
 
+/// `rts`'s `operators`: an object declaring a symbol answers the operator,
+/// and `+v` and `v++` — which the emitter spelled as `v * 1` — do NOT reach
+/// `mul`. That second half is `__rts_unary_plus`, and it is the reason the
+/// entry exists.
+#[test]
+fn an_object_declaring_an_rts_operator_answers_it_and_unary_plus_does_not() {
+    use std::io::Write;
+    let dir = std::env::temp_dir().join("rts_operator_overload");
+    std::fs::create_dir_all(&dir).expect("a directory to write a fixture in");
+    let path = dir.join("operators.ts");
+    let mut file = std::fs::File::create(&path).expect("a fixture file");
+    file.write_all(
+        b"import { test, expect } from \"rts:test\";\n\
+          import { operators } from \"rts\";\n\
+          let muls = 0;\n\
+          class V { x: number; constructor(x: number) { this.x = x; }\n\
+            [operators.mul](k: any, r: boolean) { muls++; return r ? -k : k * 100; }\n\
+            valueOf() { return this.x; } }\n\
+          const v: any = new V(3);\n\
+          test(\"mul\", () => expect(v * 2).toBe(200));\n\
+          test(\"reflected\", () => expect(2 * v).toBe(-2));\n\
+          test(\"plus converts\", () => { let w: any = new V(4); w++; expect(+v + w).toBe(8); });\n\
+          test(\"mul ran twice\", () => expect(muls).toBe(2));\n",
+    )
+    .expect("written");
+
+    rts_std::test::reset();
+    let mut program = rts_host::compile_graph(&path).expect("the fixture compiles");
+    program.run();
+    let reported = rts_std::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 4, "the fixture registers four tests");
+    assert!(failed.is_empty(), "{failed:?}");
+}
+
 /// An error carries where it was made, in the `at …` form Node and Bun print.
 ///
 /// This engine reported `Error: boom` and nothing else, so a failure said what

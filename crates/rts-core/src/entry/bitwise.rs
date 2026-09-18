@@ -323,6 +323,13 @@ pub fn number_exponent(base: f64, power: f64) -> f64 {
 /// `a ** b`.
 #[rtse::entry]
 pub fn exponent(left: u64, right: u64) -> u64 {
+    if let Some(answer) = super::operators::overload::binary(
+        super::operators::overload::Overload::Pow,
+        left,
+        right,
+    ) {
+        return answer;
+    }
     let (left, right) = converted(left, right);
     // Asked in a borrow of its own: a refused count becomes a `RangeError`,
     // and building that error borrows the context again, so `settled` has to
