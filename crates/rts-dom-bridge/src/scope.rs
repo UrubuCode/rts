@@ -6,8 +6,14 @@
 //! Cada `<script>` é compilado por `new Function`, ou seja, um PROGRAMA novo.
 //! Um `var` de um programa não é alcançável do seguinte, então uma página cujo
 //! primeiro script define `__d` e cujo segundo o chama não funcionaria: o saco
-//! é o que dá aos dois a mesma superfície. O `.ts` expõe-o como um Proxy cujas
-//! traps `get`/`set` caem aqui.
+//! é o que dá aos dois a mesma superfície.
+//!
+//! Não é mais um Proxy do `.ts`: era assim quando este módulo reescrevia o
+//! texto de cada `<script>` para qualificar nomes livres contra `__G.<nome>`.
+//! Hoje `run` (abaixo) compila o texto ORIGINAL contra o `object` deste saco
+//! como ambiente — `rts_core::entry::evaluate_in_scope_with_receiver`, a porta
+//! que `rts-codegen::emit::page` usa — e é o COMPILADOR que resolve os nomes
+//! livres para esse objeto, sem trap nenhuma no caminho.
 //!
 //! # O que este módulo aprendeu do que veio antes
 //!
@@ -51,19 +57,39 @@
 //! Ao guardar só o objeto, cada `set` passa a ser uma escrita de propriedade
 //! normal — com shape e inline cache — e o punhado volta a ser um punhado.
 //!
-//! # A ordem fica em Rust
+//! # `count`/`nameAt`/`has` leem o OBJETO, não uma lista à parte
 //!
-//! `count`/`nameAt` enumeram os nomes publicados, e um objeto do runtime não
-//! oferece enumeração a este crate. Então a ORDEM é um `Vec<String>` aqui —
-//! texto, sem nada que o coletor precise de ver — e os VALORES ficam no objeto.
-//! É a única coisa que este módulo guarda por si.
+//! Havia um `Vec<String>` aqui, preenchido só por [`set`] (a chamada explícita
+//! `DomScope.set(h, nome, valor)`). Isso ficava vazio para o caminho que
+//! importa: as declarações de topo de um `<script>` (`let`/`const`/`function`)
+//! escrevem no objeto por `rts_core::entry::page_global_set` — a porta que
+//! `rts-codegen::emit::page` usa dentro de `DomScope.run`/
+//! `evaluate_in_scope_with_receiver` — e essa escrita nunca passa por `set`
+//! daqui. Medido: um script com `const publicado = 1; function helper(){}` e
+//! sem UMA chamada a `DomScope.set` fazia `DomScope.count` responder `0` e
+//! `DomScope.has(h, "publicado")` responder `0`, ambos falsos — o nome estava
+//! lá, só que noutra lista.
+//!
+//! `own_keys`/`array_length`/`get_indexed`/`has_property` (`rts-core`) já
+//! perguntam ao objeto directamente, então `count`/`nameAt`/`has` passaram a
+//! usá-los: a resposta reflecte sempre o que o objeto tem, escrito por
+//! qualquer caminho (compilado ou por `DomScope.set`), e não há uma segunda
+//! cópia da verdade para ficar desalinhada dela.
+//!
+//! Só que este objeto, desde `adopt`, É o `window` — e o `window` já chega com
+//! dezenas de propriedades próprias antes do 1º `<script>` correr (interfaces
+//! DOM, construtores ECMAScript, timers). Perguntar ao objeto sem mais nada
+//! respondia a contagem inteira do browser, não a do que a página publicou —
+//! medido: `count` deu 59 para um script com 3 declarações. `Bag::baseline`
+//! (o `own_keys` do objeto no instante do `adopt`, antes de qualquer script)
+//! é o que os três nativos excluem.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use rts_core::entry::{self, Provided};
 
-use crate::value::{handle, int, integer, nothing, string, text};
+use crate::value::{handle, int, integer, nothing, num, string, text};
 
 /// O saco de um documento.
 struct Bag {
@@ -73,12 +99,48 @@ struct Bag {
     hold: u32,
     /// O que o último `<script>` que falhou disse, até alguém o ler.
     last_error: Option<String>,
-    /// Os nomes por ordem de publicação, para `count`/`nameAt`.
-    order: Vec<String>,
-    /// O mesmo conjunto, para decidir em O(1) se um `set` publica um nome novo.
-    /// Sem ele, cada escrita varreria `order` — e uma página que reatribui um
-    /// contador num laço escreve muito mais vezes do que publica.
-    known: HashSet<String>,
+    /// Os nomes já presentes no objeto no momento em que ele virou o escopo
+    /// (`adopt`) — a superfície do `window` ANTES de qualquer `<script>`
+    /// correr: as interfaces DOM (`Node`, `HTMLIFrameElement`, …), os
+    /// construtores ECMAScript instalados por `__instalaInterfaces`, os
+    /// timers, os campos da própria classe `WindowImpl`.
+    ///
+    /// `count`/`nameAt`/`has` respondem sobre o que um SCRIPT publicou, e
+    /// `object` É o `window` (ver `adopt`, mais abaixo) — sem excluir esta
+    /// baseline, `DomScope.count` contava a superfície inteira do browser
+    /// (medido: 59, para um script com 3 declarações).
+    baseline: HashSet<String>,
+}
+
+/// Os nomes das propriedades PRÓPRIAS enumeráveis de `object`, agora, na
+/// ORDEM de `own_keys` (ordem de inserção da shape) — é o que `nameAt` conta.
+fn own_key_list(object: u64) -> Vec<String> {
+    let keys = entry::own_keys(object);
+    let len = entry::array_length(keys) as usize;
+    let mut list = Vec::with_capacity(len);
+    for i in 0..len {
+        list.push(text(entry::get_indexed(keys, num(i as f64))));
+    }
+    list
+}
+
+/// O mesmo conjunto, sem ordem — usado só como filtro de PERTENÇA (a
+/// baseline de `adopt`, e o `count` que não precisa de ordem nenhuma).
+fn own_key_set(object: u64) -> HashSet<String> {
+    own_key_list(object).into_iter().collect()
+}
+
+/// Se `nome` é o próprio motor a marcar o ambiente, não um global de página.
+///
+/// `rts_core::entry::eval_scope::mark_hides_node_globals` escreve
+/// `__rts_hides_node_globals` como propriedade PRÓPRIA do ambiente que
+/// `DomScope.run` compila contra — o mesmo `object` que `count`/`nameAt`/`has`
+/// leem — e fá-lo DEPOIS do `adopt` que capturou a `baseline`, então a
+/// baseline sozinha não o exclui. `eval_scope.rs` já trata `__rts_` como o
+/// prefixo dos seus próprios nomes internos (`environment_names`, mesmo
+/// ficheiro); esta é a mesma regra do lado do DOM.
+fn is_engine_internal(name: &str) -> bool {
+    name.starts_with("__rts_")
 }
 
 /// GLOBAL, e não `thread_local` — ver a nota no topo do módulo. É a única razão
@@ -128,21 +190,12 @@ fn object_for(h: u64) -> u64 {
             object,
             last_error: None,
             hold,
-            order: Vec::new(),
-            known: HashSet::new(),
+            // Objeto recém-criado (`object_new`, acima): 0 propriedades
+            // próprias, então a baseline é vazia por construção.
+            baseline: HashSet::new(),
         },
     );
     object
-}
-
-/// Regista `name` como publicado, se ainda não estava.
-fn remember(h: u64, name: &str) {
-    let mut bags = locked();
-    if let Some(bag) = bags.get_mut(&h)
-        && bag.known.insert(name.to_string())
-    {
-        bag.order.push(name.to_string());
-    }
 }
 
 /// Descarta o saco do documento `h`, e solta o que o mantinha vivo.
@@ -200,6 +253,10 @@ extern "C" fn adopt(_e: u64, _t: u64, doc: u64, object: u64, _b: u64, _c: u64) -
     if locked().get(&h).map(|bag| bag.object) == Some(object) {
         return int(1);
     }
+    // A baseline É LIDA AQUI — antes de qualquer `<script>` ter corrido contra
+    // este objeto —, fora do lock pela mesma razão do `object_new` em
+    // `object_for`: `own_keys` entra no runtime.
+    let baseline = own_key_set(object);
     // O `hold` novo ANTES de largar o antigo: entre os dois há uma alocação
     // possível, e uma coleção nesse intervalo não pode encontrar o documento
     // sem saco nenhum.
@@ -211,13 +268,11 @@ extern "C" fn adopt(_e: u64, _t: u64, doc: u64, object: u64, _b: u64, _c: u64) -
                 let anterior = Some((bag.object, bag.hold));
                 bag.object = object;
                 bag.hold = hold;
+                bag.baseline = baseline;
                 anterior
             }
             None => {
-                bags.insert(
-                    h,
-                    Bag { object, hold, last_error: None, order: Vec::new(), known: HashSet::new() },
-                );
+                bags.insert(h, Bag { object, hold, last_error: None, baseline });
                 None
             }
         }
@@ -339,22 +394,41 @@ extern "C" fn last_error(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) 
 }
 
 /// `DomScope.count(h)` — quantos globais este documento publicou.
+///
+/// Perguntado ao objeto (`own_keys`), não a uma lista à parte — ver o cabeçalho
+/// do módulo: uma declaração de topo do script nunca passa por `DomScope.set`.
+/// A BASELINE (a superfície que `adopt` viu antes do 1º script) fica de fora
+/// — sem isto `count` respondia a contagem inteira do `window` (interfaces
+/// DOM, construtores, timers), não o que um script publicou.
 extern "C" fn count(_e: u64, _t: u64, doc: u64, _a: u64, _b: u64, _c: u64) -> u64 {
-    let n = locked().get(&handle(doc)).map(|bag| bag.order.len()).unwrap_or(0);
+    let n = locked()
+        .get(&handle(doc))
+        .map(|bag| {
+            own_key_set(bag.object)
+                .iter()
+                .filter(|name| !bag.baseline.contains(*name) && !is_engine_internal(name))
+                .count()
+        })
+        .unwrap_or(0);
     int(n as i64)
 }
 
-/// `DomScope.nameAt(h, n)` — o n-ésimo nome publicado (`""` fora de faixa).
+/// `DomScope.nameAt(h, n)` — o n-ésimo nome PUBLICADO (`""` fora de faixa),
+/// pela mesma exclusão de baseline que `count` usa. A ordem vem de `own_keys`
+/// (ordem de inserção da shape), filtrada; não é O(1), mas `nameAt` já não era
+/// — só passou a concordar com o `count` que o mesmo chamador acabou de ler.
 extern "C" fn name_at(_e: u64, _t: u64, doc: u64, index: u64, _b: u64, _c: u64) -> u64 {
     let n = integer(index, -1);
     if n < 0 {
         return string("");
     }
-    let name = locked()
-        .get(&handle(doc))
-        .and_then(|bag| bag.order.get(n as usize).cloned())
-        .unwrap_or_default();
-    string(&name)
+    let name = locked().get(&handle(doc)).and_then(|bag| {
+        own_key_list(bag.object)
+            .into_iter()
+            .filter(|name| !bag.baseline.contains(name) && !is_engine_internal(name))
+            .nth(n as usize)
+    });
+    string(&name.unwrap_or_default())
 }
 
 /// `DomScope.get(h, name)` — o valor, `undefined` se não existe.
@@ -376,21 +450,32 @@ extern "C" fn set(_e: u64, _t: u64, doc: u64, name: u64, value: u64, _c: u64) ->
     let name = text(name);
     let object = object_for(h);
     entry::set_indexed(object, string(&name), value, 0 /* strict: quem escreve a partir do host reporta a recusa */);
-    remember(h, &name);
     nothing()
 }
 
-/// `DomScope.has(h, name)` — `1` se o global existe.
+/// `DomScope.has(h, name)` — `1` se um SCRIPT publicou este global.
 ///
 /// `1`/`0` e não um booleano porque o `.ts` compara com `=== 0`, que é a forma
-/// que o resto desta fronteira usa.
+/// que o resto desta fronteira usa. Perguntado ao objeto (`has_property`), pela
+/// mesma razão de `count`/`nameAt` — e com a mesma exclusão da baseline: sem
+/// ela, `has(h, "Object")` responderia `1` também (é uma propriedade real do
+/// `window`), o que não é a pergunta que este nativo existe para responder.
 extern "C" fn has(_e: u64, _t: u64, doc: u64, name: u64, _b: u64, _c: u64) -> u64 {
     let name = text(name);
-    let known = locked()
+    if is_engine_internal(&name) {
+        return int(0);
+    }
+    let Some((object, is_baseline)) = locked()
         .get(&handle(doc))
-        .map(|bag| bag.known.contains(&name))
-        .unwrap_or(false);
-    int(i64::from(known))
+        .map(|bag| (bag.object, bag.baseline.contains(&name)))
+    else {
+        return int(0);
+    };
+    if is_baseline {
+        return int(0);
+    }
+    let present = entry::has_property(string(&name), object);
+    int(i64::from(present))
 }
 
 /// `DomScope.drop(h)` — descarta o saco deste documento.

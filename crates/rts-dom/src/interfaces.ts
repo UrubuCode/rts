@@ -124,4 +124,38 @@ function __instalaInterfaces(alvo: any): void {
   node.DOCUMENT_TYPE_NODE = 10;
   node.DOCUMENT_FRAGMENT_NODE = 11;
   alvo.MutationObserver = MutationObserver;
+  // Os construtores ECMAScript comuns, como PROPRIEDADES do `window` — não só
+  // como nomes livres. Num browser `window` É o objecto global, então
+  // `window.Object === Object` sempre; aqui `window` é uma instância de
+  // `WindowImpl`, um objecto DIFERENTE do escopo onde `Object` resolve como
+  // nome livre (lote H, `docs`/`PLAN.md` §4.H) — então `obj instanceof
+  // window.Object` lia uma propriedade que a classe nunca tinha e lançava
+  // `TypeError: Right-hand side of 'instanceof' is not an object`, sobre o
+  // MESMO `Object` que um nome livre já resolve certo. `x instanceof
+  // window.C` é a forma que o feature-detect de uma página escreve
+  // (`typeof window.Promise !== 'undefined'`), então window precisa da
+  // propriedade e não só do nome livre. A lista é o núcleo que o motor
+  // implementa hoje (README raiz): a família `Error`, `Math`, `JSON`,
+  // `Map`/`Set`, `Promise`, `Date`, `Symbol` — mais os primitivos e `RegExp`.
+  alvo.Object = Object;
+  alvo.Array = Array;
+  alvo.Function = Function;
+  alvo.String = String;
+  alvo.Number = Number;
+  alvo.Boolean = Boolean;
+  alvo.Symbol = Symbol;
+  alvo.Error = Error;
+  alvo.TypeError = TypeError;
+  alvo.RangeError = RangeError;
+  alvo.ReferenceError = ReferenceError;
+  alvo.SyntaxError = SyntaxError;
+  alvo.EvalError = EvalError;
+  alvo.URIError = URIError;
+  alvo.Date = Date;
+  alvo.RegExp = RegExp;
+  alvo.Map = Map;
+  alvo.Set = Set;
+  alvo.Promise = Promise;
+  alvo.JSON = JSON;
+  alvo.Math = Math;
 }
