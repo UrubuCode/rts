@@ -467,7 +467,7 @@ fn emit_block(
     // A `function` declared in one of these three bodies is bound before the
     // body runs, exactly as it is in an ordinary block — `try { function f() {}
     // f() }` called it and found `undefined`, because nothing hoisted here.
-    super::function::hoist(builder, scope, ctx, body)?;
+    super::function::hoist(builder, scope, ctx, body, false)?;
     let lexical = super::binding::lexical_names(body);
     scope.expect_lexical(&lexical);
     for statement in body {

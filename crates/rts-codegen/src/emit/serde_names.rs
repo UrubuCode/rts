@@ -15,7 +15,8 @@
 //! what bounds the registry by the source text. And every named function
 //! declared at the TOP LEVEL of a module or script — Python's line for pickling
 //! a function by reference: a closure's captured state has no name, and an
-//! arrow has no name of its own.
+//! arrow has no name of its own. `hoist` emits that one, beside the closure it
+//! registers, and says why it is not a pass of its own.
 //!
 //! Code compiled by `eval`, `new Function` or a page `<script>` registers
 //! nothing: [`super::Ctx::module_key`] is `None` there, and a name that only
@@ -32,9 +33,8 @@
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::{Ctx, EmitResult, Scope};
+use super::{Ctx, EmitResult};
 use crate::runtime::RuntimeOp;
-use crate::syntax::{Stmt, StmtKind};
 
 /// Registers one declaration, when this compilation registers any.
 ///
@@ -79,28 +79,6 @@ pub(super) fn private_space(ctx: &Ctx, class: &crate::syntax::Class) -> Option<u
         }
         _ => None,
     })
-}
-
-/// Registers every named function a module's or script's own body declares,
-/// once the hoist has bound them.
-pub(super) fn declare_functions(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    body: &[Stmt],
-) -> EmitResult<()> {
-    for statement in body {
-        let StmtKind::Function(function) = &statement.kind else {
-            continue;
-        };
-        let Some(name) = function.name else {
-            continue;
-        };
-        let value = super::binding::read(builder, scope, ctx, name)?;
-        let spelled = ctx.names.text(name).to_owned();
-        declare(builder, ctx, value, &spelled, None)?;
-    }
-    Ok(())
 }
 
 /// A module's key: its path relative to the entry's directory, with `/`

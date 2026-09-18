@@ -102,7 +102,7 @@ pub fn emit_switch(
     // f(); case 1: function f() {}` calls it, which is what a block hoisting its
     // declarations means and what the per-clause scope made impossible.
     for clause in clauses {
-        super::function::hoist(builder, scope, ctx, &clause.body)?;
+        super::function::hoist(builder, scope, ctx, &clause.body, false)?;
     }
     let mut lexical = Vec::new();
     for clause in clauses {

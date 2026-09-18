@@ -1177,10 +1177,7 @@ fn emit_body_into(
     // statement, which is what makes reading one before its own `var` line
     // answer `undefined` instead of refusing to compile.
     hoist_vars(&mut builder, &mut scope, ctx, body)?;
-    hoist(&mut builder, &mut scope, ctx, body)?;
-    if names_top_level {
-        super::serde_names::declare_functions(&mut builder, &mut scope, ctx, body)?;
-    }
+    hoist(&mut builder, &mut scope, ctx, body, names_top_level)?;
     // The body's own `let`, `const` and `class` names are in their dead zone
     // until their declarations are reached. Armed after both hoists on purpose:
     // a `var` and a hoisted `function` have no dead zone, and binding them first

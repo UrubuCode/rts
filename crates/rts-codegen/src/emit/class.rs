@@ -398,7 +398,7 @@ pub(super) fn emit_class(
             // written before it, because the loop visits the body in source
             // order and does nothing to reorder this case.
             ClassElement::StaticBlock(statements) => {
-                function::hoist(builder, &mut inner, ctx, statements)?;
+                function::hoist(builder, &mut inner, ctx, statements, false)?;
                 let mut loops = Loops::default();
                 let mut terminated = false;
                 for statement in statements {

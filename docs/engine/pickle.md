@@ -215,6 +215,16 @@ new layout whose index the write built from the whole chain. Measured
 pins the mechanism by a count — the shape tree grows by the same number of
 layouts for 1 000 declarations as for 4 000.
 
+That was the runtime half, and it was not the larger one. The compiler
+registered a script's functions in a pass AFTER the hoist, reading every
+hoisted closure back — N SSA values live across N runtime calls, and the
+machine's register allocation is quadratic in that. `RTS_TIMING` put 8.4 of
+the 8.5 s at N = 4 000 in `machine-compile`, before the program ran a line.
+`emit/hoist.rs` now registers each closure where it is made, which is the
+shape a class always had, and `crates/rts-host/tests/serde_declare_order.rs`
+pins the order. Measured on `fast` binaries, medians of five, base → fixed:
+N = 500 142 → 54 ms, 1 000 482 → 87, 2 000 1 979 → 157, **4 000 9 205 → 352**.
+
 ---
 
 ## 4. Functions by reference
