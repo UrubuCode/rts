@@ -35,6 +35,8 @@
 //! declares an `upgrade`, which is the one call a read makes, and is made
 //! outside the borrow (`upgrade`'s module doc).
 
+#[cfg(test)]
+mod fuzz_tests;
 mod format;
 mod kinds;
 mod legacy;
