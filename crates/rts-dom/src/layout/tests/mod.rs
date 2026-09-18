@@ -70,6 +70,7 @@ mod flex_basis_content_wrap_corpus;
 mod flex_align_justify_familia_corpus;
 mod flex_reverse_order_corpus;
 mod flex_gap_2_corpus;
+mod flex_wrap_balance_negative_margin_corpus;
 mod aspect_ratio_replaced_corpus;
 mod posicao_estatica_corpus;
 mod controlo_natural_corpus;
