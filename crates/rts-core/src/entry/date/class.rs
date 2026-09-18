@@ -14,7 +14,8 @@
 //! this folder to find.
 
 use super::civil::{
-    clip, date_string, iso_text, locale_string, locale_time_string, time_string, utc_string,
+    clip, date_string, iso_text, local_string, locale_string, locale_time_string, time_string,
+    utc_string,
 };
 use super::fields;
 use super::parse::parse_iso;
@@ -392,14 +393,19 @@ impl Date {
         }
     }
 
-    /// `date.toString()` — the ISO text.
+    /// `date.toString()` — the ECMA-262 §21.4.4.41 form, e.g.
+    /// `"Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)"`.
     ///
-    /// A real engine answers `"Wed Jan 01 2020 00:00:00 GMT+0000 (…)"`, whose
-    /// last field is a timezone name this runtime does not have. ISO-8601 is
-    /// chosen over inventing one because it round-trips through `Date.parse`,
-    /// which the human-readable form is not required to.
+    /// This used to answer the ISO text instead, on the reasoning that this
+    /// runtime has no timezone name to put in the last field. That reasoning
+    /// does not hold: the module documentation already commits this runtime's
+    /// local time to being UTC unconditionally, so the zone field is not a
+    /// missing fact — it is always `+0000 (Coordinated Universal Time)`, the
+    /// same pair Node itself prints under `TZ=UTC`. `date_to_string_jsspec.test.ts`
+    /// pinned the ISO answer as correct; it was measured against Node with no
+    /// `TZ` set, on a host in a different zone, so it never caught the mismatch.
     fn to_string(this: u64) -> u64 {
-        text_value(iso_text(time_of(this)))
+        text_value(local_string(time_of(this)))
     }
 
     /// `date.toUTCString()` — the RFC 7231 form, e.g.
