@@ -71,6 +71,15 @@ property lookup — a miss — per operand before `ToPrimitive`. Not measured in
 release yet; `docs/codegen/entry-tax.md` part five is why the check sits in
 the object branch and nowhere earlier.
 
+An overloaded operator takes one borrow of the context and then the call: the
+symbol's property key is computed once, when `rts` is built, and the lookup
+(the same chain walk an ordinary Get ends in) and the callable test share the
+borrow that asks whether the operand is an object. Two things leave that path
+for the generic Get, which runs with no borrow held because each is user code:
+a GETTER under the symbol, and any `Proxy` in existence — a proxy anywhere may
+sit in an operand's prototype chain, so once one exists every operand takes the
+generic path. That is correct and costs what the operator cost before.
+
 ## The limitation
 
 `tsc` and every editor report `a + b` between two classes as a type error
