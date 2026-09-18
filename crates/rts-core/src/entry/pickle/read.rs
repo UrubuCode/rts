@@ -69,6 +69,12 @@ pub(super) struct Reader<'a, 'c> {
     pub(super) graph: Graph,
     memo: Vec<Slot>,
     pub(super) table: Vec<super::strings::Entry>,
+    /// Each class the stream names, resolved once: by the table indices of
+    /// its module and name, to the class and its private-name numbers. A
+    /// stream of ten thousand instances of one class names it ten thousand
+    /// times, and a registry lookup and a chain walk per instance was the
+    /// cost of reading one.
+    classes: std::collections::HashMap<(usize, usize), (ClassName, std::rc::Rc<Vec<Option<u32>>>)>,
 }
 
 /// The arena a stream describes, and the slot of its root.
@@ -88,6 +94,7 @@ pub(super) fn read(context: &mut Context, bytes: &[u8]) -> Result<(Graph, Slot),
         graph: Graph::default(),
         memo: Vec::new(),
         table: Vec::new(),
+        classes: std::collections::HashMap::new(),
     };
     let root = reader.run()?;
     if reader.cursor.left() != 0 {
@@ -236,9 +243,9 @@ impl Reader<'_, '_> {
                 Ok(Opened::Open(Frame::Legacy { at, name, values: Vec::with_capacity(keys.len()), keys }))
             }
             OP_CLASS => {
-                let class = self.class()?;
+                let (class, spaces) = self.class()?;
                 let mut keys = self.keys()?;
-                super::names::local(self.context, class.prototype, &mut keys, false);
+                super::names::local(self.context, &spaces, &mut keys, false);
                 let at = self.reserve();
                 Ok(Opened::Open(Frame::Object { at, values: Vec::with_capacity(keys.len()), keys, class: Some(class) }))
             }
@@ -266,7 +273,7 @@ impl Reader<'_, '_> {
                         let name = self.string_text()?;
                         ErrorClass::Builtin(super::legacy::error_class(&name))
                     }
-                    1 => ErrorClass::Declared(self.class()?),
+                    1 => ErrorClass::Declared(self.class()?.0),
                     _ => return Err("pickle: an error with an unknown class tag".into()),
                 };
                 let flags = self.cursor.byte()?;
@@ -402,13 +409,29 @@ impl Reader<'_, '_> {
     }
 
     /// A class a v2 stream names, resolved in this program.
-    fn class(&mut self) -> Result<ClassName, Broken> {
-        let module = self.string_text()?;
-        let name = self.string_text()?;
+    fn class(&mut self) -> Result<(ClassName, std::rc::Rc<Vec<Option<u32>>>), Broken> {
+        let module = self.entry()?;
+        let name = self.entry()?;
         let version = self.cursor.varint()?;
-        let found = super::names::resolve(self.context, Some(&module), &name)?;
-        let prototype = super::legacy::prototype_of(self.context, found, &name)?;
-        Ok(ClassName { module, name, prototype, version })
+        if let Some((class, spaces)) = self.classes.get(&(module, name)) {
+            return Ok((ClassName { version, ..class.clone() }, spaces.clone()));
+        }
+        let (module_text, name_text) = (self.entry_text(module), self.entry_text(name));
+        let found = super::names::resolve(self.context, Some(&module_text), &name_text)?;
+        let prototype = super::legacy::prototype_of(self.context, found, &name_text)?;
+        let spaces = Value(prototype)
+            .as_slot()
+            .map(|prototype| super::names::spaces(self.context, prototype))
+            .unwrap_or_default();
+        let class = ClassName {
+            module: std::rc::Rc::new(module_text),
+            name: std::rc::Rc::new(name_text),
+            prototype,
+            version,
+        };
+        let spaces = std::rc::Rc::new(spaces);
+        self.classes.insert((module, name), (class.clone(), spaces.clone()));
+        Ok((class, spaces))
     }
 
     /// A block of `count` keys, each a string of the table.

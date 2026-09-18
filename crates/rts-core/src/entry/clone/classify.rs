@@ -33,12 +33,93 @@ pub(super) enum Shape {
     Function(ClassName),
 }
 
+/// What the classification compares values against, found once per walk
+/// rather than once per value.
+///
+/// Every one of these was a lookup on each value: the registered classes are a
+/// `Vec` searched by NAME (`class_support`'s own documentation says why that is
+/// right for its callers, which ask once), and asking it for `Error`, `Map`,
+/// `Set`, `Buffer` and `Object.prototype` per object made the classification of
+/// a ten-thousand-object graph fifty thousand string scans. Only a FOUND answer
+/// is kept: a class nothing has registered yet may be registered by a getter
+/// the walk runs, and a remembered absence would then misclassify its
+/// instances.
+#[derive(Default)]
+pub(super) struct Known {
+    time: Option<crate::object::Key>,
+    object: Option<u32>,
+    error: Option<u64>,
+    map: Option<u64>,
+    set: Option<u64>,
+    buffer: Option<u64>,
+    /// What each constructor was declared as — a registry read, a string
+    /// split and two allocations, once per class instead of once per
+    /// instance.
+    declared: std::collections::HashMap<u32, Option<ClassName>>,
+    /// The private-name numbers of each prototype's chain, for the same
+    /// reason.
+    spaces: std::collections::HashMap<u32, std::rc::Rc<Vec<Option<u32>>>>,
+}
+
+impl Known {
+    fn class(held: &mut Option<u64>, context: &mut Context, name: &str) -> Option<u64> {
+        if held.is_none() {
+            *held = super::super::class_support::prototype(context, name);
+        }
+        *held
+    }
+
+    fn declared(&mut self, context: &mut Context, cell: u32) -> Option<ClassName> {
+        if let Some(found) = self.declared.get(&cell) {
+            return found.clone();
+        }
+        let found = super::super::pickle::names::declared_as(context, cell);
+        self.declared.insert(cell, found.clone());
+        found
+    }
+
+    /// The private-name numbers of an instance's class chain.
+    pub(super) fn spaces(&mut self, context: &mut Context, instance: u32) -> std::rc::Rc<Vec<Option<u32>>> {
+        let Some(prototype) = context.prototype_at(instance).and_then(|found| Value(found).as_slot()) else {
+            return std::rc::Rc::default();
+        };
+        if let Some(found) = self.spaces.get(&prototype) {
+            return found.clone();
+        }
+        let found = std::rc::Rc::new(super::super::pickle::names::spaces(context, prototype));
+        self.spaces.insert(prototype, found.clone());
+        found
+    }
+
+    fn object(&mut self, context: &mut Context) -> Option<u32> {
+        if self.object.is_none() {
+            self.object = super::super::object_proto::prototype_of(context);
+        }
+        self.object
+    }
+}
+
+/// Whether `target` is on `cell`'s prototype chain, `cell` itself included —
+/// `object_proto::extends_class` with the target already in hand.
+fn inherits(context: &mut Context, mut cell: u32, target: u32) -> bool {
+    for _ in 0..super::super::objects::CHAIN_LIMIT {
+        if cell == target {
+            return true;
+        }
+        let Some(next) = super::super::objects::inherited_from(context, cell) else {
+            return false;
+        };
+        cell = next;
+    }
+    false
+}
+
 /// Classifies one value.
 ///
 /// A refusal carries the text the program is told, which names the kind — the
 /// v1 format's rule, kept: "cannot serialize a Proxy" is actionable where
 /// "cannot serialize" is not.
-pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy) -> Result<Shape, Refusal> {
+pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy, known: &mut Known) -> Result<Shape, Refusal> {
     let pickle = policy == Policy::Pickle;
     let Some(cell) = Value(value).as_slot() else {
         // A symbol is a primitive and is still not cloneable: the specification
@@ -63,7 +144,7 @@ pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy) -> Res
     // callable — a copy that looks like it worked.
     if context.callable_at(cell).is_some() {
         return match pickle {
-            true => function(context, cell).map(Shape::Function),
+            true => function(context, cell, known).map(Shape::Function),
             false => Ok(Shape::Uncloneable),
         };
     }
@@ -82,7 +163,7 @@ pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy) -> Res
     // refuses: a view with no element kind has no bytes-and-kind spelling.
     if let Some(view) = context.view_at(cell) {
         if view.kind != Kind::Raw {
-            let buffer = super::super::class_support::prototype(context, "Buffer");
+            let buffer = Known::class(&mut known.buffer, context, "Buffer");
             if pickle && buffer.is_some() && context.prototype_at(cell) == buffer {
                 return Ok(Shape::NodeBuffer(cell));
             }
@@ -99,13 +180,18 @@ pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy) -> Res
         return Ok(Shape::Regexp(cell));
     }
     if let Some(brand) = context.table_at(cell).map(|table| table.brand()) {
-        return collection(context, cell, brand, pickle);
+        return collection(context, cell, brand, pickle, known);
     }
     // A `Date` is recognised by the property its time value lives in, which is
     // what a `Date` IS here — `date`'s module documentation records why that is
     // an ordinary property rather than an internal slot.
-    let key = context.well_known(super::super::date::TIME);
-    if let Some(time) = super::super::objects::read_property(context, cell, key)
+    //
+    // OWN, not inherited: a `Date`'s time value is written onto the object by
+    // its constructor, so an object merely inheriting from one is not one — and
+    // an own read is a slot lookup where the chain walk it replaced was one per
+    // prototype, on every object of the graph.
+    let key = *known.time.get_or_insert_with(|| context.well_known(super::super::date::TIME));
+    if let Some(time) = super::super::objects::own_property(context, cell, key)
         && let Some(ms) = time.as_f64()
     {
         return Ok(Shape::Date(cell, ms));
@@ -116,14 +202,15 @@ pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy) -> Res
     // LAST of the structural questions but one, and deliberately: it walks a
     // prototype chain, so putting it earlier would charge every array, buffer
     // and collection for a question none of them can answer yes to.
-    if super::super::object_proto::extends_class(context, cell, "Error") {
+    let error = Known::class(&mut known.error, context, "Error").and_then(|found| Value(found).as_slot());
+    if error.is_some_and(|error| inherits(context, cell, error)) {
         return Ok(Shape::Error(cell));
     }
     if pickle {
         if let Some(inner) = context.boxed_at(cell) {
             return Ok(Shape::Boxed(cell, inner));
         }
-        return object_of_pickle(context, cell);
+        return object_of_pickle(context, cell, known);
     }
     let calls = context.proxy_at(cell).is_some() || !context.ranked_accessors(cell).is_empty();
     Ok(Shape::Object(cell, calls))
@@ -142,17 +229,18 @@ fn collection(
     cell: u32,
     brand: super::super::collections::Brand,
     pickle: bool,
+    known: &mut Known,
 ) -> Result<Shape, Refusal> {
     use super::super::collections::Brand;
     let prototype = context.prototype_at(cell);
-    let set = super::super::class_support::prototype(context, "Set");
+    let set = Known::class(&mut known.set, context, "Set");
     if !pickle {
         return Ok(match prototype.is_some() && prototype == set {
             true => Shape::Set(cell),
             false => Shape::Map(cell),
         });
     }
-    let map = super::super::class_support::prototype(context, "Map");
+    let map = Known::class(&mut known.map, context, "Map");
     match brand {
         Brand::Map if prototype == map => Ok(Shape::Map(cell)),
         Brand::Set if prototype == set => Ok(Shape::Set(cell)),
@@ -171,7 +259,7 @@ fn collection(
 /// instance of it. ANYTHING else is refused, by the constructor's name — which
 /// is how a `Promise`, a generator, a `URL` or a host object is refused without
 /// a list of them: each has a prototype that is neither of the two.
-fn object_of_pickle(context: &mut Context, cell: u32) -> Result<Shape, Refusal> {
+fn object_of_pickle(context: &mut Context, cell: u32, known: &mut Known) -> Result<Shape, Refusal> {
     let plain = || Ok(Shape::Object(cell, false));
     let Some(prototype) = context.prototype_at(cell) else {
         return with_calls(context, cell, plain());
@@ -182,14 +270,14 @@ fn object_of_pickle(context: &mut Context, cell: u32) -> Result<Shape, Refusal> 
         // loss is stated in `docs/engine/pickle.md`.
         return with_calls(context, cell, plain());
     };
-    if super::super::object_proto::prototype_of(context) == Some(link) {
+    if known.object(context) == Some(link) {
         return with_calls(context, cell, plain());
     }
     let key = context.well_known("constructor");
     let constructor = super::super::objects::own_property(context, link, key)
         .and_then(|found| found.as_slot());
     if let Some(constructor) = constructor
-        && let Some(class) = super::super::pickle::names::declared_as(context, constructor)
+        && let Some(class) = known.declared(context, constructor)
     {
         return Ok(Shape::Instance(cell, class));
     }
@@ -209,11 +297,11 @@ fn with_calls(context: &Context, cell: u32, shape: Result<Shape, Refusal>) -> Re
 
 /// A function, for the pickle: by reference if the program declared it at
 /// the top level of a module, refused otherwise.
-fn function(context: &mut Context, cell: u32) -> Result<ClassName, Refusal> {
+fn function(context: &mut Context, cell: u32, known: &mut Known) -> Result<ClassName, Refusal> {
     if context.bound_at(cell).is_some() {
         return Err(refuse("a bound function"));
     }
-    if let Some(declared) = super::super::pickle::names::declared_as(context, cell) {
+    if let Some(declared) = known.declared(context, cell) {
         return Ok(declared);
     }
     let named = function_name(context, cell).filter(|name| !name.is_empty());

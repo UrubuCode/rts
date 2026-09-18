@@ -141,7 +141,12 @@ fn every_kind(context: &mut Context, undeclared: bool) -> Vec<u8> {
         return super::write::write(context, &graph, Slot::At(root)).expect("a well-formed arena writes");
     }
     let instance = graph.push(Node::Instance {
-        class: ClassName { module: Str::from_str("m.ts"), name: Str::from_str("Nope"), prototype: 0, version: 3 },
+        class: ClassName {
+            module: std::rc::Rc::new(Str::from_str("m.ts")),
+            name: std::rc::Rc::new(Str::from_str("Nope")),
+            prototype: 0,
+            version: 3,
+        },
         fields: vec![(a, Slot::At(root))],
     });
     let wrapper = graph.push(Node::Array { elements: vec![Slot::At(root), Slot::At(instance)], extra: Vec::new() });

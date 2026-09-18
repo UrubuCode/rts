@@ -239,8 +239,11 @@ pub(in crate::entry) enum Slot {
 /// because a writer has no use for it.
 #[derive(Clone, Debug)]
 pub(in crate::entry) struct ClassName {
-    pub(in crate::entry) module: Str,
-    pub(in crate::entry) name: Str,
+    /// Shared rather than owned: every instance of a class in a graph names
+    /// the same class, and cloning two strings per instance was two
+    /// allocations per object for text that never changes.
+    pub(in crate::entry) module: std::rc::Rc<Str>,
+    pub(in crate::entry) name: std::rc::Rc<Str>,
     pub(in crate::entry) prototype: u64,
     /// The schema version the class declared, or `0` for none.
     pub(in crate::entry) version: u64,

@@ -138,8 +138,8 @@ pub(in crate::entry) fn declared_as(context: &mut Context, cell: u32) -> Option<
     let mut parts = text.split('\0');
     let (module, name) = (parts.next()?, parts.next()?);
     Some(ClassName {
-        module: Str::from_str(module),
-        name: Str::from_str(name),
+        module: std::rc::Rc::new(Str::from_str(module)),
+        name: std::rc::Rc::new(Str::from_str(name)),
         prototype: 0,
         version: version_of(context, cell),
     })
@@ -155,7 +155,7 @@ fn space_of(context: &mut Context, cell: u32) -> Option<u32> {
 
 /// The private-name number of each class on a prototype chain, nearest first:
 /// the class whose prototype this is, then its parent, up to `Object`.
-fn spaces(context: &mut Context, prototype: u32) -> Vec<Option<u32>> {
+pub(in crate::entry) fn spaces(context: &mut Context, prototype: u32) -> Vec<Option<u32>> {
     let mut found = Vec::new();
     let mut at = Some(prototype);
     let root = super::super::object_proto::prototype_of(context);
@@ -186,11 +186,10 @@ fn spaces(context: &mut Context, prototype: u32) -> Vec<Option<u32>> {
 /// stays true across two versions of a program, which is what a save file
 /// is read by. A private name whose class is not in the chain the registry
 /// knows keeps its memory spelling, and revives only in the same program.
-pub(in crate::entry) fn portable(context: &mut Context, instance: u32, fields: Vec<(Key, u64)>) -> Vec<(Key, u64)> {
-    let Some(prototype) = context.prototype_at(instance).and_then(|found| Value(found).as_slot()) else {
-        return fields;
-    };
-    let spaces = spaces(context, prototype);
+///
+/// `spaces` is [`spaces`] of the instance's prototype, which the caller
+/// computes once per class rather than once per instance.
+pub(in crate::entry) fn portable(context: &mut Context, spaces: &[Option<u32>], fields: Vec<(Key, u64)>) -> Vec<(Key, u64)> {
     fields
         .into_iter()
         .map(|(key, held)| {
@@ -209,11 +208,7 @@ pub(in crate::entry) fn portable(context: &mut Context, instance: u32, fields: V
 /// instance of the class whose prototype this is. A v1 stream spelled a
 /// private field `#name`, with no class to tell two apart; it is read as the
 /// instance's own class's, which is what v1 meant when it wrote one.
-pub(super) fn local(context: &mut Context, prototype: u64, keys: &mut [Key], legacy: bool) {
-    let Some(prototype) = Value(prototype).as_slot() else {
-        return;
-    };
-    let spaces = spaces(context, prototype);
+pub(super) fn local(context: &mut Context, spaces: &[Option<u32>], keys: &mut [Key], legacy: bool) {
     for key in keys.iter_mut() {
         let Key::Name(named_key) = *key else {
             continue;

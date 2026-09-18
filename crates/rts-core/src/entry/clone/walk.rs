@@ -6,7 +6,7 @@
 //! reads those outside it, and takes the borrow again to carry on. The parent
 //! module says why that is the shape; this is the mechanism.
 
-use super::classify::{Shape, refuse, shape_of};
+use super::classify::{Known, Shape, refuse, shape_of};
 use super::errors::Member;
 use super::{DEPTH, Graph, Node, Policy, Refusal, Slot};
 use super::super::objects::undefined_of;
@@ -39,6 +39,7 @@ struct Walker {
     graph: Graph,
     policy: Policy,
     tasks: Vec<Task>,
+    known: Known,
 }
 
 /// Reads one value into an arena, and answers the arena and the slot standing
@@ -48,6 +49,7 @@ pub(in crate::entry) fn walk(policy: Policy, value: u64) -> Result<(Graph, Slot)
         graph: Graph::default(),
         policy,
         tasks: Vec::new(),
+        known: Known::default(),
     };
     let mut root = None;
     let mut resumed: Option<(Task, Vec<(Key, u64)>)> = None;
@@ -84,7 +86,7 @@ impl Walker {
         if self.policy == Policy::Clone && depth >= DEPTH {
             return Ok(Slot::Bits(undefined_of(context)));
         }
-        let (cell, kind) = match shape_of(context, value, self.policy)? {
+        let (cell, kind) = match shape_of(context, value, self.policy, &mut self.known)? {
             Shape::Bits(bits) => return Ok(Slot::Bits(bits)),
             Shape::Uncloneable => return Ok(Slot::Bits(undefined_of(context))),
             // Not memoised: a function by reference resolves to the same
@@ -180,7 +182,8 @@ impl Walker {
                 let Some(read) = super::members::data(context, value, cell, true) else {
                     return Err(refuse("a class instance with an own accessor property"));
                 };
-                let read = super::super::pickle::names::portable(context, cell, read);
+                let spaces = self.known.spaces(context, cell);
+                let read = super::super::pickle::names::portable(context, &spaces, read);
                 Node::Instance { class: class.clone(), fields: self.members(context, read, depth)? }
             }
             Kind::Map | Kind::Set => {

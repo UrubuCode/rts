@@ -110,9 +110,18 @@ pub(super) fn class(reader: &mut Reader, name: Str, keys: Vec<Str>, values: Vec<
                 .iter()
                 .map(|key| Key::Name(reader.context.interner.intern(key, &mut reader.context.keys)))
                 .collect();
-            super::names::local(reader.context, prototype, &mut interned, true);
+            let spaces = Value(prototype)
+                .as_slot()
+                .map(|prototype| super::names::spaces(reader.context, prototype))
+                .unwrap_or_default();
+            super::names::local(reader.context, &spaces, &mut interned, true);
             let fields = interned.into_iter().zip(values).collect();
-            let class = ClassName { module: Str::empty(), name, prototype, version: 0 };
+            let class = ClassName {
+                module: std::rc::Rc::new(Str::empty()),
+                name: std::rc::Rc::new(name),
+                prototype,
+                version: 0,
+            };
             Ok(Node::Instance { class, fields })
         }
     }

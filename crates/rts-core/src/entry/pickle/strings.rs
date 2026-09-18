@@ -55,6 +55,11 @@ impl Reader<'_, '_> {
         Ok(slot)
     }
 
+    /// The text of an entry already read.
+    pub(super) fn entry_text(&self, index: usize) -> Str {
+        self.table[index].text.clone()
+    }
+
     /// A string of the table, as text.
     pub(super) fn string_text(&mut self) -> Result<Str, Broken> {
         let index = self.entry()?;
