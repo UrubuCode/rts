@@ -208,6 +208,12 @@ fn celulas_de(
     // content, and a `display: table-row` holding only text laid out as a row
     // with no cell and zero height — reachable since misparented rows get an
     // anonymous table (WPT `run-in-table-row-between-001`).
+    //
+    // A misparented TABLE PART inside a row (a row group, a row, a caption) is
+    // NOT made its own cell, and is dropped as before. It would need an
+    // anonymous cell AND an anonymous table around it, and taking it as a cell
+    // painted an empty red `table-row-group` that Blink does not paint at all —
+    // a group with no rows has no area (WPT `empty-cells-applies-to-008..017`).
     tree.children(pai)
         .iter()
         .filter_map(|&caixa| tree.node_of(caixa).map(|no| (no, caixa)))
@@ -216,6 +222,7 @@ fn celulas_de(
             crate::NodeKind::Element { .. } => match display_of(dom, no) {
                 Some(DisplayKind::TableCell) => true,
                 Some(DisplayKind::None) => false,
+                Some(d) if d.is_table_part() => false,
                 _ => !crate::layout::is_out_of_flow(dom, no),
             },
             _ => false,
