@@ -1,0 +1,55 @@
+//! `tests/css/claude-tabela-anonima-de-fora.html` against Edge/Blink
+//! (`.esperado.json`, measured 2026-09-18): CSS 2.1 §17.2.1 wraps table parts
+//! whose parent is not a table in an ANONYMOUS table, and cells without a row
+//! in an anonymous row. Each misparented cell used to be an ordinary block, so
+//! the cells stacked at full width instead of sitting side by side in a
+//! shrink-to-fit table.
+
+use super::*;
+use crate::table::tests::geometria;
+
+/// Corpus tolerance (`tests/css/README.md`): 1px.
+const TOL: f32 = 1.0;
+
+fn afirma(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+    let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
+    let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
+    let got = (r.x, r.y, r.w, r.h);
+    let bate = (got.0 - esperado.0).abs() <= TOL
+        && (got.1 - esperado.1).abs() <= TOL
+        && (got.2 - esperado.2).abs() <= TOL
+        && (got.3 - esperado.3).abs() <= TOL;
+    assert!(bate, "{sel}: expected {esperado:?} (Blink), got {got:?}");
+}
+
+#[test]
+fn table_parts_without_a_table_get_an_anonymous_one() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/css/claude-tabela-anonima-de-fora.html"
+    ))
+    .expect("fixture");
+    let (dom, list) = geometria(&src, 1280.0);
+    for (sel, r) in [
+        ("#soltas", (0.0, 0.0, 1280.0, 30.0)),
+        ("#s1", (0.0, 0.0, 40.0, 30.0)),
+        ("#s2", (40.0, 0.0, 60.0, 30.0)),
+        ("#so-linha", (0.0, 40.0, 1280.0, 30.0)),
+        ("#l", (0.0, 40.0, 100.0, 30.0)),
+        ("#l1", (0.0, 40.0, 40.0, 30.0)),
+        ("#l2", (40.0, 40.0, 60.0, 30.0)),
+        ("#com-float", (0.0, 80.0, 1280.0, 0.0)),
+        ("#flutua", (1180.0, 80.0, 100.0, 30.0)),
+        ("#f1", (1180.0, 80.0, 40.0, 30.0)),
+        ("#f2", (1220.0, 80.0, 60.0, 30.0)),
+        ("#entre-texto", (0.0, 80.0, 1280.0, 70.0)),
+        ("#t1", (0.0, 100.0, 40.0, 30.0)),
+        ("#t2", (40.0, 100.0, 60.0, 30.0)),
+        ("#espaco", (0.0, 160.0, 1280.0, 38.0)),
+        ("#e1", (10.0, 164.0, 40.0, 30.0)),
+        ("#e2", (60.0, 164.0, 60.0, 30.0)),
+        ("#fim", (0.0, 208.0, 1280.0, 10.0)),
+    ] {
+        afirma(&dom, &list, sel, r);
+    }
+}

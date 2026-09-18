@@ -211,10 +211,18 @@ impl BoxTree {
                 inner: InnerDisplay::Flow,
                 independent: false,
             },
-            BoxKind::Anonymous { .. } => FormattingContext {
+            BoxKind::Anonymous { role: super::AnonymousRole::Block, .. } => FormattingContext {
                 outer: OuterDisplay::Block,
                 inner: InnerDisplay::Flow,
                 independent: false,
+            },
+            // An anonymous TABLE is `display: table`: block-level (its parent is
+            // a flow container — `build.rs` never wraps inside an inline) and a
+            // table inside, which contains its own floats and margins.
+            BoxKind::Anonymous { role: super::AnonymousRole::Table, .. } => FormattingContext {
+                outer: OuterDisplay::Block,
+                inner: InnerDisplay::Table,
+                independent: true,
             },
             BoxKind::Element(node) => element_formatting_context(dom, node),
         }

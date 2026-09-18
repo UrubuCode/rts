@@ -21,8 +21,11 @@
 //!   sua altura é cobrada à ÚLTIMA linha que atravessa. É onde o browser a cobra
 //!   quando as linhas não têm altura própria, que é o caso normal.
 
+mod anonima;
 mod grid;
 pub(in crate::table) mod widths;
+
+pub(crate) use anonima::{anonymous_table_widths, layout_anonymous_table};
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -114,7 +117,12 @@ struct TableStyle {
 }
 
 impl TableStyle {
-    fn of(dom: &Dom, id: NodeIdx, css: &ComputedStyle, font: f32, ctx: &LayoutCtx) -> TableStyle {
+    /// `id` is `None` for an ANONYMOUS table (`anonima.rs`): it has no HTML
+    /// attributes to read, and `table-layout` is not inherited, so it is
+    /// always `auto`. What it does take from `css` — the style of the element
+    /// it inherits from — is `border-spacing` and `border-collapse`, which ARE
+    /// inherited properties.
+    fn of(dom: &Dom, id: Option<NodeIdx>, css: &ComputedStyle, font: f32, ctx: &LayoutCtx) -> TableStyle {
         let resolve = crate::style::ResolveCtx {
             parent_content_w: ctx.viewport_w,
             node_font_size: font,
@@ -130,7 +138,7 @@ impl TableStyle {
             return TableStyle {
                 spacing_h: 0.0,
                 spacing_v: 0.0,
-                fixed: Self::fixo(css),
+                fixed: id.is_some() && Self::fixo(css),
             };
         }
         let (h, v) = match css.border_spacing {
@@ -143,6 +151,7 @@ impl TableStyle {
             // `div { display: table }`, cujo valor inicial é 0 (Blink mede 20px
             // e não 24 em `claude-table-texto-solto-sem-celula`).
             None => {
+                let Some(id) = id else { return TableStyle { spacing_h: 0.0, spacing_v: 0.0, fixed: false } };
                 let e_table = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "table");
                 let a = dom
                     .node(id)
@@ -156,7 +165,7 @@ impl TableStyle {
         TableStyle {
             spacing_h: h,
             spacing_v: v,
-            fixed: Self::fixo(css),
+            fixed: id.is_some() && Self::fixo(css),
         }
     }
 
@@ -181,7 +190,7 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
         return 0.0;
     }
     let css = dom.computed_style_idx(table).unwrap_or_default();
-    let ts = TableStyle::of(dom, table, &css, font, ctx);
+    let ts = TableStyle::of(dom, Some(table), &css, font, ctx);
     let cols = medir_colunas(dom, &tree, &g, font, ctx, ts.spacing_h);
     let vaos = (g.cols + 1) as f32 * ts.spacing_h;
     let soma_maximos = cols.iter().map(|c| c.max).sum::<f32>() + vaos;
@@ -236,7 +245,27 @@ pub(crate) fn layout_table(
 ) -> f32 {
     let tree = std::rc::Rc::clone(&list.tree);
     let g = collect(dom, &tree, caixa);
-    let ts = TableStyle::of(dom, id, css, font_size, ctx);
+    let ts = TableStyle::of(dom, Some(id), css, font_size, ctx);
+    dispor_grade(dom, &tree, &g, &ts, content_x, content_y, content_w, font_size, ctx, list)
+}
+
+/// Lays out a grid already COLLECTED, inside a content box already sized, and
+/// answers the content height. Shared by the table element (`layout_table`)
+/// and the anonymous table (`anonima.rs`), which differ only in where the grid
+/// and the width come from.
+#[allow(clippy::too_many_arguments)]
+fn dispor_grade(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    g: &Grid,
+    ts: &TableStyle,
+    content_x: f32,
+    content_y: f32,
+    content_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
     let mut y = content_y;
 
     // `<caption>` e outros blocos avulsos: empilham acima da grade, à largura da
@@ -288,7 +317,7 @@ pub(crate) fn layout_table(
         widths::resolve_fixo(&declaradas, disponivel)
     } else {
         widths::resolve_colunas(
-            &medir_colunas(dom, &tree, &g, font_size, ctx, ts.spacing_h),
+            &medir_colunas(dom, tree, g, font_size, ctx, ts.spacing_h),
             disponivel,
         )
     };
