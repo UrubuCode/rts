@@ -201,7 +201,7 @@ impl Table {
     }
 
     /// The value a key holds, if the key is present.
-    pub(super) fn get(&self, context: &Context, key: u64) -> Option<u64> {
+    pub(in crate::entry) fn get(&self, context: &Context, key: u64) -> Option<u64> {
         Some(self.values[self.slot(context, key)?])
     }
 

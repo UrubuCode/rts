@@ -192,16 +192,28 @@ memory spelling, and revives only in the same program.
 The compiler emits one `SerdeDeclare` per named class and per named top-level
 function (`crates/rts-codegen/src/emit/serde_names.rs`). The runtime records it
 on the heap: a hidden `@@serdeName` on the constructor — how the writer names a
-class in one property read — and a hidden `@@serdeNames` object on the global
-object, mapping each plain name to its declarations — how the reader finds one.
+class in one property read — and a hidden `@@serdeNames` **native `Map`** on
+the global object, from `"module\0name"` to the declaration — how the reader
+finds one. The qualified lookup is one hash probe; the plain-name fallback
+(§3, "the name") scans the map, and is taken only for a stream from another
+program.
 
-It is **rooted by construction**: the global object is a root and everything
-else is reached through ordinary properties and elements, so there is no
-hand-written root list for it to be missing from
-(`docs/engine/lost-roots.md`). It is **bounded by the source**: a (module, name)
-declared again replaces its own entry, so a class written in a loop does not
-grow it. It adds **nothing to `Context`**. Code compiled by `eval`,
-`new Function` or a page script registers nothing.
+It is **rooted by construction**: the global object is a root and the map is
+traced as every `Map` is, so there is no hand-written root list for it to be
+missing from (`docs/engine/lost-roots.md`). It is **bounded by the source**: a
+(module, name) declared again replaces its own entry, so a class written in a
+loop does not grow it. It adds **nothing to `Context`**. Code compiled by
+`eval`, `new Function` or a page script registers nothing.
+
+It is a `Map` and not a plain object because **every program pays for the
+registry at startup**, whether or not it imports `rts:serde`, and a plain
+object with one property per name made that cost quadratic: each new key was a
+new layout whose index the write built from the whole chain. Measured
+2026-09-18 in release on a program of N top-level functions and one
+`console.log`: 218 ms at N=500, 523 at 1 000, 1 922 at 2 000, **9 317 at
+4 000**, against 115/145/191/318 without the pickle. `pickle/names_tests.rs`
+pins the mechanism by a count — the shape tree grows by the same number of
+layouts for 1 000 declarations as for 4 000.
 
 ---
 
@@ -295,7 +307,8 @@ to none of its own. Lookups the classification repeated per value — the class
 registry is a list searched by name — are made once per walk: `Error`, `Map`,
 `Set`, `Buffer`, `Object.prototype`, the `Date` key, each constructor's declared
 name and each class chain's private-name numbers. The reader resolves each class
-a stream names once, by its table indices. Left: `key_list` still allocates a
+a stream names once, by its table indices, and each resolution is one hash
+probe of the registry. Left: `key_list` still allocates a
 few small vectors per object, and a class instance's private members are found
 by walking its shape.
 

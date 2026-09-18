@@ -38,6 +38,8 @@
 #[cfg(test)]
 mod fuzz_tests;
 mod format;
+#[cfg(test)]
+mod names_tests;
 mod kinds;
 mod legacy;
 pub(in crate::entry) mod names;

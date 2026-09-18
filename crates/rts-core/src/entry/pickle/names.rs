@@ -7,9 +7,9 @@
 //! - every declared class and top-level function carries its own name as a
 //!   hidden property, [`MARKER`] — `"module\0name"` — which is how the WRITER
 //!   asks "what is this called" in one property read;
-//! - the global object carries [`REGISTRY`], an object keyed by the plain name
-//!   whose value is the list of every declaration of that name, which is how
-//!   the READER asks "what does this name mean here".
+//! - the global object carries [`REGISTRY`], a native `Map` from
+//!   `"module\0name"` to the declaration, which is how the READER asks "what
+//!   does this name mean here".
 //!
 //! Both keys are in the `@@` space, which enumeration, `JSON.stringify` and
 //! `Object.getOwnPropertySymbols` all skip — the same place `@@collectionCursor`
@@ -21,17 +21,38 @@
 //! table holding values is a new entry on a hand-written root list, which is
 //! the class `docs/engine/lost-roots.md` exists to warn about. Here there is no
 //! list to be missing from: the global object is a root, the registry is a
-//! property of it, and each declaration is an element of an array in it. The
-//! collector reaches all of it by the ordinary edges it already follows.
+//! property of it, and each declaration is an entry of a `Map` the collector
+//! already traces through `collections`. It reaches all of it by the ordinary
+//! edges it already follows.
+//!
+//! # Why a `Map` and not a plain object keyed by name
+//!
+//! Because the registry is the one object in a program that grows a property
+//! per DECLARATION, and a plain object pays for that in the shape tree: every
+//! new key is a new layout, and `put` builds that layout's index from the
+//! whole chain (`ShapeTree::index_of`) before it can tell the key is absent. So
+//! the k-th declaration cost k, and startup was quadratic in the number of
+//! top-level functions for every program — measured 2026-09-18 in debug, 4 000
+//! declarations took 1.49 s, of which 1.47 s was `put` of 4 000 distinct keys
+//! on one object; each doubling of N cost ×3.8. The `Map`'s table is a hash
+//! over the key's memoised text hash, so a declaration is O(1), and
+//! `names_tests` pins that no layout is made per declaration.
+//!
+//! Building the name index lazily, on the first `deserialize`, was the other
+//! option and it needs a list of every declaration to build from — which is
+//! this `Map` again, minus the lookup. The lookup is what the reader wants
+//! anyway, so laziness would have saved nothing.
 //!
 //! # Bounded, and by what
 //!
 //! One entry per (module, name) the program DECLARES. A class written inside a
-//! loop replaces its own entry each pass rather than adding one — the bound
-//! `lost-roots.md` asks every root source to state, stated about the right
-//! thing: declarations in the source text, not evaluations.
+//! loop replaces its own entry each pass rather than adding one — `Map.set` on
+//! a key it holds is a reassignment — the bound `lost-roots.md` asks every
+//! root source to state, stated about the right thing: declarations in the
+//! source text, not evaluations.
 
 use super::super::clone::ClassName;
+use super::super::collections::Table;
 use super::super::rooted::Rooted;
 use super::super::{Context, with_current};
 use crate::object::Key;
@@ -58,36 +79,40 @@ const MARKER: &str = "@@serdeName";
 /// program being compiled on another machine or ahead of time.
 ///
 /// An entry point rather than a property write the compiler emits, because the
-/// registry is a structure — a list per name, replaced by module — and an
-/// emitted sequence of reads and writes over it would be the same rule stated
-/// in IR at every declaration.
+/// registry is a structure — a map keyed by module and name — and an emitted
+/// sequence of reads and writes over it would be the same rule stated in IR at
+/// every declaration.
 ///
 /// `space` is the number the class's own `#private` names carry, `-1` for none
 /// — see [`portable`] for what it is for.
 #[rtse::entry]
 pub fn serde_declare(target: u64, module: i64, name: i64, space: i64) -> u64 {
-    with_current(|context| declare(context, target, module, name, space));
+    with_current(|context| {
+        let (Some(module), Some(name)) = (
+            super::super::modules::literal_text(context, module),
+            super::super::modules::literal_text(context, name),
+        ) else {
+            return;
+        };
+        declare(context, target, &module, &name, space);
+    });
     target
 }
 
-fn declare(context: &mut Context, target: u64, module: i64, name: i64, space: i64) {
+pub(super) fn declare(context: &mut Context, target: u64, module: &str, name: &str, space: i64) {
     let Some(cell) = Value(target).as_slot() else {
         return;
     };
-    let (Some(module), Some(name)) = (
-        super::super::modules::literal_text(context, module),
-        super::super::modules::literal_text(context, name),
-    ) else {
-        return;
-    };
     // Every value below is held here until it is reachable from the global
-    // object: each step allocates — the marker's text, the registry, a list,
-    // a spill for a new property — and a value named only by a Rust local is
-    // what `docs/engine/lost-roots.md` records the collector freeing.
+    // object: each step allocates — the marker's text, the registry's key, the
+    // registry itself, a spill for a new property — and a value named only by
+    // a Rust local is what `docs/engine/lost-roots.md` records the collector
+    // freeing.
     let mut held = Rooted::with(vec![target]);
+    let qualified = qualified(module, name);
     let spelled = match space {
-        0.. => format!("{module}\0{name}\0{space}"),
-        _ => format!("{module}\0{name}"),
+        0.. => format!("{qualified}\0{space}"),
+        _ => qualified.clone(),
     };
     let spelled = context.intern_value(Str::from_str(&spelled)).bits();
     held.values().push(spelled);
@@ -98,35 +123,26 @@ fn declare(context: &mut Context, target: u64, module: i64, name: i64, space: i6
         return;
     };
     held.values().push(Value::from_slot(registry).bits());
-    let key = Key::Name(context.interner.intern_str(&name, &mut context.keys));
-    let list = super::super::objects::own_property(context, registry, key).and_then(|list| list.as_slot());
-    let Some(list) = list else {
-        let made = super::super::array::built_in(context, vec![target]);
-        held.values().push(made);
-        super::super::objects::put(context, registry, key, made);
-        return;
+    // The marker's text doubles as the key when there is no private space to
+    // spell; otherwise the key is interned once more, which is one allocation
+    // per CLASS with private fields rather than per declaration.
+    let key = match space {
+        0.. => context.intern_value(Str::from_str(&qualified)).bits(),
+        _ => spelled,
     };
+    held.values().push(key);
     // The same (module, name) declared again — a class written inside a loop,
     // a module evaluated twice — REPLACES its entry, which is what bounds the
     // registry by the declarations in the source rather than by evaluations.
-    let candidates = context.elements_at(list).cloned().unwrap_or_default();
-    for (at, candidate) in candidates.iter().enumerate() {
-        let same = Value(*candidate)
-            .as_slot()
-            .and_then(|candidate| declared_as(context, candidate))
-            .is_some_and(|declared| declared.module.to_rust_lossy() == module);
-        if same {
-            if let Some(elements) = context.elements_at_mut(list) {
-                elements[at] = target;
-            }
-            return;
-        }
+    if let Some(mut table) = super::super::collections::taken(context, registry) {
+        table.set(context, key, target);
+        super::super::collections::restore_sized(context, registry, table);
     }
-    let count = candidates.len() + 1;
-    if let Some(elements) = context.elements_at_mut(list) {
-        elements.push(target);
-    }
-    super::super::array::set_length(context, list, count);
+}
+
+/// The registry's key for a declaration: what the stream names it by.
+fn qualified(module: &str, name: &str) -> String {
+    format!("{module}\0{name}")
 }
 
 /// What a class or function was declared as, if the program declared it where
@@ -285,19 +301,32 @@ pub(super) fn version_of(context: &mut Context, cell: u32) -> u64 {
 /// qualified name to try.
 pub(super) fn resolve(context: &mut Context, module: Option<&Str>, name: &Str) -> Result<u64, String> {
     let spelled = name.to_rust_lossy();
-    let candidates = candidates(context, name);
-    let mut named: Vec<(String, u64)> = Vec::with_capacity(candidates.len());
-    for candidate in candidates {
-        let Some(cell) = Value(candidate).as_slot() else {
-            continue;
-        };
-        let Some(declared) = declared_as(context, cell) else {
-            continue;
-        };
-        if module.is_some_and(|module| module.same_units(&declared.module)) {
-            return Ok(candidate);
+    let Some(registry) = registry(context, false) else {
+        return Err(format!("pickle: '{spelled}' is not declared in this program"));
+    };
+    // The qualified name is one hash lookup. The key is a fresh string and the
+    // table compares keys by text, so it need not be the very cell `declare`
+    // stored — and it is not rooted, because nothing between its allocation
+    // and its use allocates.
+    if let Some(module) = module {
+        let key = context.intern_value(Str::from_str(&qualified(&module.to_rust_lossy(), &spelled))).bits();
+        if let Some(found) = context.table_at(registry).and_then(|table| table.get(context, key)) {
+            return Ok(found);
         }
-        named.push((declared.module.to_rust_lossy(), candidate));
+    }
+    // The plain name is a scan of every declaration — the slow path, taken
+    // only for a stream from another program, and bounded by the source.
+    let entries = context.table_at(registry).map(Table::entries).unwrap_or_default();
+    let mut named: Vec<(String, u64)> = Vec::new();
+    for (key, candidate) in entries {
+        let Some(text) = key_text(context, key) else {
+            continue;
+        };
+        if let Some((declared_module, declared_name)) = text.split_once('\0')
+            && declared_name == spelled
+        {
+            named.push((declared_module.to_owned(), candidate));
+        }
     }
     match named.as_slice() {
         [] => Err(format!("pickle: '{spelled}' is not declared in this program")),
@@ -329,19 +358,12 @@ fn shown(module: &str) -> String {
     }
 }
 
-/// Every declaration of a plain name, newest last.
-fn candidates(context: &mut Context, name: &Str) -> Vec<u64> {
-    let Some(registry) = registry(context, false) else {
-        return Vec::new();
-    };
-    let key = Key::Name(context.interner.intern(name, &mut context.keys));
-    super::super::objects::own_property(context, registry, key)
-        .and_then(|list| list.as_slot())
-        .and_then(|list| context.elements_at(list).cloned())
-        .unwrap_or_default()
+/// A registry key's text, if the key is a string.
+fn key_text(context: &Context, key: u64) -> Option<String> {
+    context.text_at(Value(key).as_slot()?)?.to_rust()
 }
 
-/// The registry object, made on first use when `make` asks for it.
+/// The registry `Map`, made on first use when `make` asks for it.
 fn registry(context: &mut Context, make: bool) -> Option<u32> {
     let holder = super::super::global::holder(context)?;
     let key = context.well_known(REGISTRY);
@@ -351,7 +373,7 @@ fn registry(context: &mut Context, make: bool) -> Option<u32> {
     if !make {
         return None;
     }
-    let made = super::super::native::plain(context)?;
+    let made = Value(super::super::collections::fresh(context, "Map")).as_slot()?;
     super::super::objects::put(context, holder, key, Value::from_slot(made).bits());
     super::super::native::hidden(context, holder, key);
     Some(made)
