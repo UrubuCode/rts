@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4660) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4676) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -2899,16 +2899,16 @@
 ,
 {
   "name": "claude-derived-ctor-this-tdz",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "tdz=read-throws=ReferenceError|base-ctor|after-super=base\ndouble=ReferenceError\ndouble-is-ref=true\nnosuper=ReferenceError\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=TypeError\nprim-is-type=true\nundef-tag=base\nundef-instanceof=true\nbypass-tag=bypass\nbypass-instanceof=false\nretnull=TypeError\nfield-own=own:base\nfield-order=tag,own\nlog-tail=fields-ctor=own:base\nexplicit-len=0\nimplicit-len=0\nimplicit-tag=base\narrow-super=arrow\nearly-method=ReferenceError\nnewtarget-before-super=TargetBeforeSuper\nbase-ctor-count=11",
   "node": "tdz=read-throws=ReferenceError|base-ctor|after-super=base\ndouble=ReferenceError\ndouble-is-ref=true\nnosuper=ReferenceError\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=TypeError\nprim-is-type=true\nundef-tag=base\nundef-instanceof=true\nbypass-tag=bypass\nbypass-instanceof=false\nretnull=TypeError\nfield-own=own:base\nfield-order=tag,own\nlog-tail=fields-ctor=own:base\nexplicit-len=0\nimplicit-len=0\nimplicit-tag=base\narrow-super=arrow\nearly-method=ReferenceError\nnewtarget-before-super=TargetBeforeSuper\nbase-ctor-count=11",
-  "rts": "tdz=read-throws=TypeError|base-ctor|after-super=base\ndouble=no-throw\nnosuper=no-throw\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=TypeError\nprim-is-type=true",
+  "rts": "tdz=read-throws=ReferenceError|base-ctor|after-super=base\ndouble=no-throw\nnosuper=ReferenceError\nret-tag=replacement\nret-extra=1\nret-instanceof=false\nprim=TypeError\nprim-is-type=true\nundef-tag=base\nundef-instanceof=true\nbypass-tag=bypass\nbypass-instanceof=false\nretnull=TypeError\nfield-own=own:base\nfield-order=tag,own\nlog-tail=fields-ctor=own:base\nexplicit-len=0\nimplicit-len=0\nimplicit-tag=base\narrow-super=arrow\nearly-method=ReferenceError\nnewtarget-before-super=TargetBeforeSuper\nbase-ctor-count=11",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'tag')"
+  "rts_error": ""
 }
 ,
 {
@@ -2930,13 +2930,13 @@
   "status": "rts_error",
   "bun": "null-proto-chain=true\nnull-ctor-proto=true\nnull-proto-names=constructor\nnew-null=TypeError\nnew-null-is-type=true\nbare-has-tostring=false\nbare-v=1\nbare-tostring=[object Object]\nheritage-after-define=1\nheritage-after-instances=1\nsub-ping=ping\norder=heritage|key|static-block\nordered-m=m\nbound-has-prototype=false\nbound-is-ctor=true\nextends-bound=TypeError\nbound-x=10\nbound-y=20\nbound-instanceof-point=true\nproxy-tag=base\nproxy-label=ps\nproxy-instanceof-base=true\nproxy-keys=tag,label\nextends-arrow=TypeError\nextends-number=TypeError\nextends-undefined=TypeError\nweird-proto=TypeError",
   "node": "null-proto-chain=true\nnull-ctor-proto=true\nnull-proto-names=constructor\nnew-null=TypeError\nnew-null-is-type=true\nbare-has-tostring=false\nbare-v=1\nbare-tostring=[object Object]\nheritage-after-define=1\nheritage-after-instances=1\nsub-ping=ping\norder=heritage|key|static-block\nordered-m=m\nbound-has-prototype=false\nbound-is-ctor=true\nextends-bound=TypeError\nbound-x=10\nbound-y=20\nbound-instanceof-point=true\nproxy-tag=base\nproxy-label=ps\nproxy-instanceof-base=true\nproxy-keys=tag,label\nextends-arrow=TypeError\nextends-number=TypeError\nextends-undefined=TypeError\nweird-proto=TypeError",
-  "rts": "null-proto-chain=true\nnull-ctor-proto=true\nnull-proto-names=constructor\nnew-null=no-throw\nbare-has-tostring=false\nbare-v=1\nbare-tostring=[object Object]\nheritage-after-define=1\nheritage-after-instances=1\nsub-ping=ping\norder=heritage|key|static-block\nordered-m=m\nbound-has-prototype=false\nbound-is-ctor=true\nextends-bound=no-throw\nbound-x=10\nbound-y=20\nbound-instanceof-point=true",
+  "rts": "null-proto-chain=true\nnull-ctor-proto=true\nnull-proto-names=constructor\nnew-null=ReferenceError\nnew-null-is-type=false\nbare-has-tostring=false\nbare-v=1\nbare-tostring=[object Object]\nheritage-after-define=1\nheritage-after-instances=1\nsub-ping=ping\norder=heritage|key|static-block\nordered-m=m\nbound-has-prototype=false\nbound-is-ctor=true\nextends-bound=no-throw\nbound-x=10\nbound-y=20\nbound-instanceof-point=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'tag')"
+  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: Must call super constructor in derived class before accessing 'this' or returning from derived constructor"
 }
 ,
 {
@@ -5069,10 +5069,10 @@
 ,
 {
   "name": "claude-date-symbol-toprimitive",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
   "node": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
-  "rts": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
+  "rts": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=false\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=false\ntemplate_eq_toString=false\nString_eq_toString=false\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -13604,7 +13604,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot set properties of undefined (reading 'extra')"
+  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: Must call super constructor in derived class before accessing 'this' or returning from derived constructor"
 }
 ,
 {
@@ -18288,7 +18288,7 @@
   "status": "rts_diverge",
   "bun": "null_hook_number=10\nnull_hook_string=five\nnull_hook_default=5\nundef_hook_number=6\nundef_hook_string=seven\nnumber_hint=valueOf=>3\nstring_hint=toString=>three\ndefault_hint=valueOf=>3\nvalueOf_object=fromToString\nboth_objects=TypeError\nboth_objects_number=TypeError\nhook_object_default=TypeError\nhook_object_string=TypeError\nhook_object_number=TypeError\nhook_array_return=TypeError\nhook_symbol_typeof=symbol\nhook_symbol_concat=TypeError\nhook_number=TypeError\nhook_string=TypeError\nhints=default/string/1,string/string/1,number/string/1,default/string/1,number/string/1\ndate_default_is_string=true\ndate_number_is_time=true\ndate_template_is_string=true\ndate_hook_type=function\ndate_hook_name=[Symbol.toPrimitive]\ndate_hook_length=1\ndate_hook_bad_hint=TypeError\ndate_hook_no_hint=TypeError\ndate_hook_plain_receiver=no_throw:[object Object]\nplain_default=9\nplain_relational=true\nplain_loose_eq=true",
   "node": "null_hook_number=10\nnull_hook_string=five\nnull_hook_default=5\nundef_hook_number=6\nundef_hook_string=seven\nnumber_hint=valueOf=>3\nstring_hint=toString=>three\ndefault_hint=valueOf=>3\nvalueOf_object=fromToString\nboth_objects=TypeError\nboth_objects_number=TypeError\nhook_object_default=TypeError\nhook_object_string=TypeError\nhook_object_number=TypeError\nhook_array_return=TypeError\nhook_symbol_typeof=symbol\nhook_symbol_concat=TypeError\nhook_number=TypeError\nhook_string=TypeError\nhints=default/string/1,string/string/1,number/string/1,default/string/1,number/string/1\ndate_default_is_string=true\ndate_number_is_time=true\ndate_template_is_string=true\ndate_hook_type=function\ndate_hook_name=[Symbol.toPrimitive]\ndate_hook_length=1\ndate_hook_bad_hint=TypeError\ndate_hook_no_hint=TypeError\ndate_hook_plain_receiver=no_throw:[object Object]\nplain_default=9\nplain_relational=true\nplain_loose_eq=true",
-  "rts": "null_hook_number=10\nnull_hook_string=five\nnull_hook_default=5\nundef_hook_number=6\nundef_hook_string=seven\nnumber_hint=valueOf=>3\nstring_hint=toString=>three\ndefault_hint=valueOf=>3\nvalueOf_object=fromToString\nboth_objects=TypeError\nboth_objects_number=TypeError\nhook_object_default=TypeError\nhook_object_string=TypeError\nhook_object_number=TypeError\nhook_array_return=TypeError\nhook_symbol_typeof=symbol\nhook_symbol_concat=no_throw:NaN\nhook_number=no_throw:1\nhook_string=no_throw:t\nhints=default/string/1,string/string/1,number/string/1,default/string/1,number/string/1\ndate_default_is_string=true\ndate_number_is_time=true\ndate_template_is_string=true\ndate_hook_type=function\ndate_hook_name=[Symbol.toPrimitive]\ndate_hook_length=1\ndate_hook_bad_hint=TypeError\ndate_hook_no_hint=TypeError\ndate_hook_plain_receiver=no_throw:Invalid Date\nplain_default=9\nplain_relational=true\nplain_loose_eq=true",
+  "rts": "null_hook_number=10\nnull_hook_string=five\nnull_hook_default=5\nundef_hook_number=6\nundef_hook_string=seven\nnumber_hint=valueOf=>3\nstring_hint=toString=>three\ndefault_hint=valueOf=>3\nvalueOf_object=fromToString\nboth_objects=TypeError\nboth_objects_number=TypeError\nhook_object_default=TypeError\nhook_object_string=TypeError\nhook_object_number=TypeError\nhook_array_return=TypeError\nhook_symbol_typeof=symbol\nhook_symbol_concat=no_throw:NaN\nhook_number=no_throw:1\nhook_string=no_throw:t\nhints=default/string/1,string/string/1,number/string/1,default/string/1,number/string/1\ndate_default_is_string=false\ndate_number_is_time=true\ndate_template_is_string=false\ndate_hook_type=function\ndate_hook_name=[Symbol.toPrimitive]\ndate_hook_length=1\ndate_hook_bad_hint=TypeError\ndate_hook_no_hint=TypeError\ndate_hook_plain_receiver=no_throw:Invalid Date\nplain_default=9\nplain_relational=true\nplain_loose_eq=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -18484,7 +18484,7 @@
   "status": "rts_diverge",
   "bun": "Thu Jan 02 2020 03:04:05 GMT+0000 (Coordinated Universal Time)\n1577934245000\ntrue false",
   "node": "Thu Jan 02 2020 03:04:05 GMT+0000 (Coordinated Universal Time)\n1577934245000\ntrue false",
-  "rts": "2020-01-02T03:04:05.000Z\n1577934245000\ntrue false",
+  "rts": "2020-01-02T03:04:05.000Z\n1577934245000\nfalse false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1276,"reachable":1515,"rts_diverge":178,"bun_node_diverge":0,"errors":61,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1275,"reachable":1515,"rts_diverge":180,"bun_node_diverge":0,"errors":60,"rejected":0,"upstream_defect":1}}
