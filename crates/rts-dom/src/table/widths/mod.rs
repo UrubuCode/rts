@@ -20,6 +20,9 @@ mod reparticao;
 pub(crate) use reparticao::{resolve_colunas, resolve_fixo};
 mod max_width_floor;
 use max_width_floor::comprimento_outer;
+mod anonima;
+mod colunas;
+pub(crate) use colunas::colunas_min_max;
 
 use crate::layout::LayoutCtx;
 use crate::style::ResolveCtx;
@@ -66,7 +69,7 @@ impl Coluna {
     /// A percentagem fica com a MAIOR das pedidas, e não com a primeira: duas
     /// células da mesma coluna a pedir 20% e 30% deixam a coluna com 30%, que é
     /// o que satisfaz as duas.
-    fn absorve(&mut self, o: Coluna) {
+    pub(super) fn absorve(&mut self, o: Coluna) {
         self.min = self.min.max(o.min);
         self.max = self.max.max(o.max);
         self.restringida |= o.restringida;
@@ -316,7 +319,7 @@ pub(in crate::table) fn min_content(
     min_content_na_arvore(dom, &tree, id, caixa, font, ctx, sem_quebra, mono, floor_width)
 }
 
-fn min_content_na_arvore(
+pub(super) fn min_content_na_arvore(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     id: NodeIdx,
@@ -426,6 +429,15 @@ fn min_content_na_arvore(
             };
             for &caixa_filho in tree.children(caixa) {
                 let Some(c) = tree.node_of(caixa_filho) else {
+                    // Caixa ANÓNIMA (§9.2.1.1): sem nó, mas o run que ela
+                    // envolve continua a contar para o mínimo — era o mesmo
+                    // `continue` de `intrinsic_content_width` (`medida.rs`),
+                    // herdado de 147cb3e53/02bc7088d ao mudar a travessia
+                    // para a árvore de caixas. Uma caixa anónima é SEMPRE de
+                    // bloco (`boxes::context::formatting_context`), por isso
+                    // entra pelo máximo `m`, nunca pela soma `linha`.
+                    let w = anonima::min_content_anonima(dom, tree, caixa_filho, f, ctx, sem_quebra, mono);
+                    m = m.max(w);
                     continue;
                 };
                 if crate::layout::is_out_of_flow(dom, c) {
@@ -456,7 +468,7 @@ fn min_content_na_arvore(
 /// `display` é de nível inline. Um elemento sem `display` nenhum (um `<a>`, um
 /// `<span>`) também flui na linha, que é o default do browser para as tags que
 /// não estão registadas como bloco.
-fn em_linha(dom: &Dom, id: NodeIdx) -> bool {
+pub(super) fn em_linha(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Text(_) => true,
         NodeKind::Element { .. } => match dom
@@ -470,79 +482,4 @@ fn em_linha(dom: &Dom, id: NodeIdx) -> bool {
     }
 }
 
-/// Junta as células numa lista de colunas: cada coluna fica com o maior mínimo e
-/// o maior máximo das células que a ocupam SOZINHAS (colspan 1).
-///
-/// As células que atravessam colunas entram depois, e só para LEVANTAR o que já
-/// existe — nunca para o baixar. É a regra que evita o efeito mais visível de um
-/// algoritmo ingénuo: um cabeçalho com `colspan=3` a ditar a largura de três
-/// colunas que o corpo da tabela já tinha dimensionado pelos seus dados.
-pub(crate) fn colunas_min_max(
-    cells: &[(usize, usize, Coluna)], // (coluna inicial, colspan, restrição da célula)
-    cols: usize,
-    spacing: f32,
-) -> Vec<Coluna> {
-    let mut out = vec![Coluna::default(); cols];
-    for &(col, _span, mm) in cells.iter().filter(|c| c.1 <= 1) {
-        if col < cols {
-            out[col].absorve(mm);
-        }
-    }
-    // Segunda passada: as que atravessam. O espaço que a célula precisa é o dela
-    // MENOS o `border-spacing` que já existe entre as colunas atravessadas — esse
-    // espaço é dela também.
-    //
-    // A CLASSE de uma célula que atravessa não passa para as colunas, e é de
-    // propósito: no Blink a percentagem de uma célula com `colspan` é repartida
-    // pelas colunas não-percentuais em proporção ao máximo delas, o que é uma
-    // regra à parte e não uma absorção. Marcar as colunas como restringidas aqui
-    // seria mais barato e daria a classe errada a todas.
-    for &(col, span, mm) in cells.iter().filter(|c| c.1 > 1) {
-        let fim = (col + span).min(cols);
-        if col >= cols {
-            continue;
-        }
-        let n = fim - col;
-        let vaos = (n.saturating_sub(1)) as f32 * spacing;
-        let atual_min: f32 = out[col..fim].iter().map(|c| c.min).sum::<f32>() + vaos;
-        let atual_max: f32 = out[col..fim].iter().map(|c| c.max).sum::<f32>() + vaos;
-        distribui_excedente(&mut out[col..fim], mm.min - atual_min, |c| &mut c.min);
-        distribui_excedente(&mut out[col..fim], mm.max - atual_max, |c| &mut c.max);
-        // O máximo nunca fica abaixo do mínimo depois de levantado.
-        for c in &mut out[col..fim] {
-            c.max = c.max.max(c.min);
-        }
-    }
-    out
-}
-
-/// Espalha `extra` (se positivo) igualmente pelas colunas. Igualmente e não em
-/// proporção porque, no ponto em que isto corre, a proporção seria contra
-/// larguras que podem ser todas zero (uma linha inteira de células vazias sob um
-/// cabeçalho com colspan), e uma proporção contra zero não distribui nada.
-fn distribui_excedente(cols: &mut [Coluna], extra: f32, campo: impl Fn(&mut Coluna) -> &mut f32) {
-    if extra <= 0.0 || cols.is_empty() {
-        return;
-    }
-    // Uma célula com colspan não pode elevar uma coluna que já tem uma largura
-    // declarada: essa coluna já foi classificada como restringida pelo conteúdo
-    // da própria coluna e deve ficar congelada neste degrau. O excedente pertence
-    // às colunas automáticas do intervalo. Quando todas são declaradas, não há
-    // uma classe livre; nesse caso mantemos o fallback igualitário para preservar
-    // o comportamento de uma tabela composta só por restrições.
-    let livres: Vec<usize> = cols
-        .iter()
-        .enumerate()
-        .filter_map(|(i, c)| (!c.restringida).then_some(i))
-        .collect();
-    let alvos: Vec<usize> = if livres.is_empty() {
-        (0..cols.len()).collect()
-    } else {
-        livres
-    };
-    let quota = extra / alvos.len() as f32;
-    for i in alvos {
-        *campo(&mut cols[i]) += quota;
-    }
-}
 

@@ -60,6 +60,7 @@ mod tamanho_intrinseco;
 mod itens;
 mod fonte_metricas;
 mod medida;
+mod medida_arvore;
 pub mod medidor_ativo;
 mod medidor_texto;
 mod pintura;
