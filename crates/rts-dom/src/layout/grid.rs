@@ -401,10 +401,57 @@ fn span_size(sizes: &[f32], start: usize, end: usize, gap: f32) -> f32 {
 }
 /// Offset de alinhamento de um item de tamanho `item` dentro de uma célula de
 /// tamanho `cell` (start=0, center=(cell-item)/2, end=cell-item; stretch=0).
+///
+/// `Center`/`FlexEnd` (sem o prefixo `safe`) NÃO recortam em `.max(0.0)` — a
+/// grelha é `unsafe` por omissão (css-align-3 §4.4: só as formas `safe *`
+/// pedem o fallback), e um item maior do que a célula transborda dos DOIS
+/// lados quando `justify-items`/`align-items` é `center` puro. O
+/// `.max(0.0)` que aqui estava antes desta correcção tornava `center`/
+/// `flex-end` sempre seguros, ao contrário do default da spec — `SafeCenter`/
+/// `SafeEnd` (que ANTES caíam no `_ => 0.0`, i.e. start incondicional) são o
+/// lugar certo para esse recorte.
 fn cell_align_offset(a: crate::style::AlignItems, cell: f32, item: f32) -> f32 {
+    let free = cell - item;
     match a {
-        crate::style::AlignItems::Center => ((cell - item) / 2.0).max(0.0),
-        crate::style::AlignItems::FlexEnd => (cell - item).max(0.0),
+        crate::style::AlignItems::Center => free / 2.0,
+        crate::style::AlignItems::FlexEnd => free,
+        crate::style::AlignItems::SafeCenter => (free / 2.0).max(0.0),
+        crate::style::AlignItems::SafeEnd => free.max(0.0),
         _ => 0.0, // FlexStart / Stretch
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cell_align_offset;
+    use crate::style::AlignItems as A;
+
+    /// A cell 100 wide, an item 200 wide (`free = -100`) — the case where
+    /// `safe`/`unsafe` diverge. NOTE: the caller (`layout_children_grid`)
+    /// still shrinks a non-`stretch` item to `nat_w.min(cell_w)` before this
+    /// function ever sees it, so a real page cannot exercise `free < 0`
+    /// through this engine's grid today — this is the function's OWN
+    /// contract, pinned so a future caller (or a fix to that shrink) inherits
+    /// the right answer rather than a silently-clamped one.
+    #[test]
+    fn center_is_unsafe_by_default() {
+        assert_eq!(cell_align_offset(A::Center, 100.0, 200.0), -50.0);
+        assert_eq!(cell_align_offset(A::FlexEnd, 100.0, 200.0), -100.0);
+    }
+
+    #[test]
+    fn safe_falls_back_to_start_when_the_item_overflows() {
+        assert_eq!(cell_align_offset(A::SafeCenter, 100.0, 200.0), 0.0);
+        assert_eq!(cell_align_offset(A::SafeEnd, 100.0, 200.0), 0.0);
+    }
+
+    /// Guard: when the item fits, `safe`/`unsafe` answer the same as their
+    /// unprefixed counterpart.
+    #[test]
+    fn safe_matches_unsafe_when_the_item_fits() {
+        assert_eq!(cell_align_offset(A::Center, 100.0, 40.0), 30.0);
+        assert_eq!(cell_align_offset(A::SafeCenter, 100.0, 40.0), 30.0);
+        assert_eq!(cell_align_offset(A::FlexEnd, 100.0, 40.0), 60.0);
+        assert_eq!(cell_align_offset(A::SafeEnd, 100.0, 40.0), 60.0);
     }
 }

@@ -309,7 +309,18 @@ impl AlignItems {
             "flex-end" | "end" | "self-end" | "flow-end" => AlignItems::FlexEnd,
             "center" => AlignItems::Center,
             "safe center" => AlignItems::SafeCenter,
-            "safe end" => AlignItems::SafeEnd,
+            "safe end" | "safe flex-end" | "safe self-end" => AlignItems::SafeEnd,
+            // `safe start`/`unsafe <x>`: `start` never overflows its OWN
+            // start edge (the direction alignment falls back to), so "safe
+            // start" collapses to plain `start`, and "unsafe <x>" collapses
+            // to plain `<x>` — css-align-3 §4.4 makes overflow-safety a
+            // no-op for `start` and irrelevant for the "unsafe" keyword,
+            // which only spells out the default we already apply to the
+            // unprefixed `center`/`end`.
+            "safe start" | "safe flex-start" | "safe self-start" | "unsafe start" | "unsafe flex-start"
+            | "unsafe self-start" => AlignItems::FlexStart,
+            "unsafe end" | "unsafe flex-end" | "unsafe self-end" => AlignItems::FlexEnd,
+            "unsafe center" => AlignItems::Center,
             "baseline" | "first baseline" => AlignItems::Baseline,
             "last baseline" => AlignItems::LastBaseline,
             _ => return None,
@@ -392,5 +403,21 @@ mod flow_start_flow_end_tests {
     #[test]
     fn align_items_parses_safe_end() {
         assert_eq!(AlignItems::parse("safe end"), Some(AlignItems::SafeEnd));
+    }
+
+    /// css-align-3 §4.4: `safe`/`unsafe` compose with every `<self-position>`
+    /// alias, not just `center`/`end`. `safe start`/`unsafe <x>` collapse to
+    /// the unprefixed keyword (`start` never overflows its own start edge;
+    /// `unsafe` is the default we already give `center`/`end`).
+    #[test]
+    fn align_items_parses_the_rest_of_safe_and_unsafe() {
+        assert_eq!(AlignItems::parse("safe flex-end"), Some(AlignItems::SafeEnd));
+        assert_eq!(AlignItems::parse("safe self-end"), Some(AlignItems::SafeEnd));
+        assert_eq!(AlignItems::parse("safe start"), Some(AlignItems::FlexStart));
+        assert_eq!(AlignItems::parse("safe flex-start"), Some(AlignItems::FlexStart));
+        assert_eq!(AlignItems::parse("unsafe start"), Some(AlignItems::FlexStart));
+        assert_eq!(AlignItems::parse("unsafe flex-end"), Some(AlignItems::FlexEnd));
+        assert_eq!(AlignItems::parse("unsafe self-end"), Some(AlignItems::FlexEnd));
+        assert_eq!(AlignItems::parse("unsafe center"), Some(AlignItems::Center));
     }
 }

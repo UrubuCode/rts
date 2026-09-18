@@ -42,6 +42,8 @@ mod float_corpus;
 mod grid;
 mod grid_colocacao;
 mod grid_corpus;
+mod grid_align_safe_corpus;
+mod align_safe_corpus;
 mod grid_intrinseco_corpus;
 mod hifen_corpus;
 mod fontes_corpus;
