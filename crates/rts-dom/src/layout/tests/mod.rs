@@ -4,6 +4,7 @@
 //! `const FRASE` vive aqui porque dois submódulos o usam — no original estava
 //! ao nível do `mod tests`, e é o item que o chunker por `    }` não via.
 
+mod atomo_inline_caixa;
 mod bloco;
 mod canvas_corpus;
 mod cache;

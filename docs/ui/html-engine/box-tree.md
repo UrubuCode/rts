@@ -382,12 +382,17 @@ that wants to know "is this an inline formatting context" asks the tree.
   background, no `float`, no `clear`, no generated content. What it does NOT do
   is named in its own header: no fragment cache (the key is a `NodeIdx` and it
   has none), no geometry entry, no stacking context.
-- **The inline flow CONSULTS the tree, and only inside the split.**
-  `runs::collect_runs` takes the box of a node with more than one box — a
-  fragment — and then walks `tree.children` instead of the DOM's, which is what
-  stops it descending into the `<div>` that split the inline. Every other node
-  passes `None` and the walk is the DOM's, unchanged. Without this the partition
-  is built and never seen: a plain `<span>` never reaches `layout_block`.
+- **The inline flow walks the tree, and this line replaces one that said it
+  did so only inside the split.** `runs::collect_runs` takes the box every
+  inline-group member got from the flow sequence and walks `tree.children`
+  instead of the DOM's. Inside the split that is what stops it descending into
+  the `<div>` that split the inline. Everywhere else it is what hands an ATOM —
+  an `inline-flex`, an `inline-block`, a widget — its exact box. Walking the DOM
+  there gave the atom `None`, and `layout_block` then had no box for the flex
+  container's `expect` (11 `flexbox-baseline-*` reftests panicked) nor for
+  reserving the atom's hit order before its children (a link inside an
+  inline-block lost the click to the inline-block). Outside the split the two
+  walks visit the same nodes: a comment has no box and was already ignored.
 - **Fragments are keyed by `NodeIdx`, deliberately.** A cached fragment can
   outlive the tree that produced it, and a `BoxId` in one would name a slot in
   an arena that has been rebuilt. Moving them is the fragment-tree wave, not a
