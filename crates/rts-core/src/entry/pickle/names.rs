@@ -32,7 +32,8 @@
 //! thing: declarations in the source text, not evaluations.
 
 use super::super::clone::ClassName;
-use super::super::Context;
+use super::super::rooted::Rooted;
+use super::super::{Context, with_current};
 use crate::object::Key;
 use crate::text::Str;
 use crate::value::Value;
@@ -42,6 +43,84 @@ const REGISTRY: &str = "@@serdeNames";
 
 /// The property on a declared class or function holding its own name.
 const MARKER: &str = "@@serdeName";
+
+/// Records a declaration the compiler saw: a named class, or a named function
+/// at the top level of a module — under the module's key and the name it was
+/// declared with, both literals of the program.
+///
+/// # Why the compiler says so, rather than the runtime noticing
+///
+/// Because only the compiler knows either half. A class is a constructor
+/// function here — `emit/class.rs` says why there is no class in the runtime —
+/// and nothing about a function at run time says which file declared it, or
+/// that it was declared at the top level rather than inside another function.
+/// The module key is the host's (`emit::Ctx::module_key`), so it survives the
+/// program being compiled on another machine or ahead of time.
+///
+/// An entry point rather than a property write the compiler emits, because the
+/// registry is a structure — a list per name, replaced by module — and an
+/// emitted sequence of reads and writes over it would be the same rule stated
+/// in IR at every declaration.
+#[rtse::entry]
+pub fn serde_declare(target: u64, module: i64, name: i64) -> u64 {
+    with_current(|context| declare(context, target, module, name));
+    target
+}
+
+fn declare(context: &mut Context, target: u64, module: i64, name: i64) {
+    let Some(cell) = Value(target).as_slot() else {
+        return;
+    };
+    let (Some(module), Some(name)) = (
+        super::super::modules::literal_text(context, module),
+        super::super::modules::literal_text(context, name),
+    ) else {
+        return;
+    };
+    // Every value below is held here until it is reachable from the global
+    // object: each step allocates — the marker's text, the registry, a list,
+    // a spill for a new property — and a value named only by a Rust local is
+    // what `docs/engine/lost-roots.md` records the collector freeing.
+    let mut held = Rooted::with(vec![target]);
+    let spelled = context.intern_value(Str::from_str(&format!("{module}\0{name}"))).bits();
+    held.values().push(spelled);
+    let marker = context.well_known(MARKER);
+    super::super::objects::put(context, cell, marker, spelled);
+    super::super::native::hidden(context, cell, marker);
+    let Some(registry) = registry(context, true) else {
+        return;
+    };
+    held.values().push(Value::from_slot(registry).bits());
+    let key = Key::Name(context.interner.intern_str(&name, &mut context.keys));
+    let list = super::super::objects::own_property(context, registry, key).and_then(|list| list.as_slot());
+    let Some(list) = list else {
+        let made = super::super::array::built_in(context, vec![target]);
+        held.values().push(made);
+        super::super::objects::put(context, registry, key, made);
+        return;
+    };
+    // The same (module, name) declared again — a class written inside a loop,
+    // a module evaluated twice — REPLACES its entry, which is what bounds the
+    // registry by the declarations in the source rather than by evaluations.
+    let candidates = context.elements_at(list).cloned().unwrap_or_default();
+    for (at, candidate) in candidates.iter().enumerate() {
+        let same = Value(*candidate)
+            .as_slot()
+            .and_then(|candidate| declared_as(context, candidate))
+            .is_some_and(|declared| declared.module.to_rust_lossy() == module);
+        if same {
+            if let Some(elements) = context.elements_at_mut(list) {
+                elements[at] = target;
+            }
+            return;
+        }
+    }
+    let count = candidates.len() + 1;
+    if let Some(elements) = context.elements_at_mut(list) {
+        elements.push(target);
+    }
+    super::super::array::set_length(context, list, count);
+}
 
 /// What a class or function was declared as, if the program declared it where
 /// the pickle can name it.
@@ -90,9 +169,13 @@ pub(super) fn resolve(context: &mut Context, module: Option<&Str>, name: &Str) -
                 .iter()
                 .map(|(module, _)| format!("'{spelled}' in {}", shown(module)))
                 .collect();
+            let why = match module {
+                Some(_) => "the stream's module matches none of",
+                None => "a v1 stream names no module, and it could mean any of",
+            };
             Err(format!(
-                "pickle: '{spelled}' is ambiguous here — the stream's module matches none of \
-                 the {} declarations of that name ({}), and picking one would be a guess",
+                "pickle: '{spelled}' is ambiguous here — {why} the {} declarations of that \
+                 name ({}), and picking one would be a guess",
                 many.len(),
                 listed.join(", ")
             ))

@@ -140,15 +140,14 @@ fn empty(context: &mut Context, node: &Node) -> u64 {
 ///
 /// The globals are made lazily, the first time a program reads one, and a
 /// program decoding a `Date` out of a file may never have written the word —
-/// the clone could assume otherwise, because its source WAS one. Through the
-/// global object's own supply, so the class is recorded where a later read of
-/// the name finds it rather than registered a second time.
+/// the clone could assume otherwise, because its source WAS one. Through
+/// `global::ensure`, so the class is recorded where a later read of the name
+/// finds it rather than registered a second time.
 pub(in crate::entry) fn class_prototype(context: &mut Context, name: &str) -> Option<u64> {
     if let Some(found) = super::super::class_support::prototype(context, name) {
         return Some(found);
     }
-    let key = context.interner.intern_str(name, &mut context.keys);
-    super::super::global::supply(context, key)?;
+    super::super::global::ensure(context, name);
     super::super::class_support::prototype(context, name)
 }
 

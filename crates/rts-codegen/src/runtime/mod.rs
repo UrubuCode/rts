@@ -642,6 +642,11 @@ pub enum RuntimeOp {
     /// `Call` in tail position: recorded, and made by the door once this frame
     /// is gone. `rts_core::entry::tail_call` says why that is not `return_call`.
     TailCall,
+    /// Records a class, or a named function at the top level of a module,
+    /// under the module's key and its name — the two literals the pickle
+    /// writes and reads it by. A call because the registry is a structure on
+    /// the heap (`rts_core::entry::pickle::names` says why there).
+    SerdeDeclare,
 
     /// Records the source spelling of the callee about to be called, by its
     /// literal index, so a call that turns out not to be a function can name
@@ -1101,6 +1106,7 @@ impl RuntimeOp {
         RuntimeOp::InstanceOf,
         RuntimeOp::Call,
         RuntimeOp::TailCall,
+        RuntimeOp::SerdeDeclare,
         RuntimeOp::SetCallName,
         RuntimeOp::RegexNew,
         RuntimeOp::GlobalGet,
@@ -1217,6 +1223,7 @@ impl RuntimeOp {
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call_counted",
             RuntimeOp::TailCall => "__rts_tail_call",
+            RuntimeOp::SerdeDeclare => "__rts_serde_declare",
             RuntimeOp::SetCallName => "__rts_set_call_name",
             RuntimeOp::RegexNew => "__rts_regex_new",
             RuntimeOp::BigIntNew => "__rts_bigint_new",
@@ -1457,6 +1464,8 @@ impl RuntimeOp {
             RuntimeOp::SuperConstruct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),
             RuntimeOp::MarkDerived => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::MarkClassConstructor => (vec![UNPROVEN], vec![UNPROVEN]),
+            // The declaration, and WHICH literals spell its module and name.
+            RuntimeOp::SerdeDeclare => (vec![UNPROVEN, Repr::I64, Repr::I64], vec![UNPROVEN]),
             // The callee, the receiver, and the arguments as one array.
             RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes

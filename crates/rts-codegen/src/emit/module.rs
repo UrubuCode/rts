@@ -285,7 +285,7 @@ pub fn refuse(construct: &'static str) -> EmitError {
 /// Not a tagged value, for the reason a property key is not one: neither is
 /// something the program could compute, and emitting one tagged would claim it
 /// could.
-fn number(builder: &mut FuncBuilder, bits: u64) -> ValueId {
+pub(super) fn number(builder: &mut FuncBuilder, bits: u64) -> ValueId {
     let id = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::I64,
         bits: ScalarBits(bits),
