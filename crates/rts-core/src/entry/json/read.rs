@@ -27,7 +27,7 @@
 /// The variants are the grammar's, not the language's: there is no `undefined`
 /// in JSON and no way to write one, which is why the enum has six arms where
 /// the writer's [`super::write`] classification has seven.
-pub(super) enum Node {
+pub(in crate::entry) enum Node {
     Null,
     Bool(bool),
     Number(f64),
@@ -57,7 +57,7 @@ use crate::text::Str;
 /// the module documentation in the parent. Inventing a richer failure type that
 /// only ever collapses to `undefined` would be detail nothing reads.
 /// Parses directly over a runtime string without copying the complete input.
-pub(super) fn parse_text(text: &Str) -> Option<Node> {
+pub(in crate::entry) fn parse_text(text: &Str) -> Option<Node> {
     let mut reader = Reader { text, at: 0 };
     reader.spaces();
     let node = reader.value(0)?;

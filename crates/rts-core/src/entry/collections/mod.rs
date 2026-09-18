@@ -327,22 +327,6 @@ pub(super) fn nothing_to_fill_from(iterable: u64) -> bool {
     })
 }
 
-/// The entries of a collection, snapshotted.
-///
-/// A COPY, and the one caller left is `structuredClone` — which is copying the
-/// collection anyway, so a cursor would buy it nothing. Everything that walks a
-/// collection while a program can mutate it goes through [`cursor`] instead, for
-/// the reason recorded there.
-pub(in crate::entry) fn entries_of(collection: u64) -> Vec<(u64, u64)> {
-    with_current(|context| {
-        Value(collection)
-            .as_slot()
-            .and_then(|cell| context.table_at(cell))
-            .map(Table::entries)
-            .unwrap_or_default()
-    })
-}
-
 /// The elements an iterable yields.
 ///
 /// Everything [`super::iterate::iterate`] walks: an array, a string, another

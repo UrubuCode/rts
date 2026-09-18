@@ -232,6 +232,22 @@ impl BigInt {
         arith::mag_bit_len(&self.digits)
     }
 
+    /// A bucket number: equal values hash equal, which the one-spelling rule
+    /// makes true of the digits themselves.
+    ///
+    /// FNV-1a over the digits and the sign, as `Str::hash_code` is over the
+    /// code units, rather than the derived [`Hash`] through a `Hasher`: what
+    /// a `Map` keyed by a bigint needs is a number that is the same after a
+    /// rehash, and a standard hasher's keys are that hasher's business.
+    pub fn hash_code(&self) -> u32 {
+        let mut hash: u32 = 2_166_136_261 ^ u32::from(self.negative);
+        for digit in &self.digits {
+            hash ^= *digit;
+            hash = hash.wrapping_mul(16_777_619);
+        }
+        hash & 0x7fff_ffff
+    }
+
     /// Numeric order.
     ///
     /// Delegates to [`Ord`] rather than the other way round, so the two can

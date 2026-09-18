@@ -46,14 +46,32 @@ pub(super) extern "C" fn write_file_sync(_e: u64, _this: u64, path: u64, data: u
     let Some(path) = validate::path("file", path) else {
         return rts_core::entry::undefined_value();
     };
-    if let Some(data) = text(data) {
-        let name = text(encoding_arg).unwrap_or_else(|| "utf8".to_string());
-        match encoding::decode(&name, &data) {
-            Some(bytes) => super::record_io(&std::fs::write(path, bytes)),
-            None => super::record(false),
-        }
+    if let Some(bytes) = payload(data, encoding_arg) {
+        super::record_io(&std::fs::write(path, bytes));
     }
     rts_core::entry::undefined_value()
+}
+
+/// What `writeFileSync`/`appendFileSync` write: a string under its encoding, or
+/// the bytes of a `Buffer`, a typed array, a `DataView` or an `ArrayBuffer`.
+///
+/// The bytes half was missing, and missing silently: `writeFileSync(f, u8)`
+/// wrote nothing and raised nothing, so a program saving binary data — a
+/// pickle from `rts:serde` is one — found the file absent afterwards. Node
+/// takes all four kinds of byte source here, and a file written from one is
+/// exactly its bytes; no encoding applies. `None` for a string an encoding
+/// cannot decode, which is recorded as a failure, as before; a value that is
+/// neither is ignored, as before.
+fn payload(data: u64, encoding_arg: u64) -> Option<Vec<u8>> {
+    if let Some(data) = text(data) {
+        let name = text(encoding_arg).unwrap_or_else(|| "utf8".to_string());
+        let decoded = encoding::decode(&name, &data);
+        if decoded.is_none() {
+            super::record(false);
+        }
+        return decoded;
+    }
+    rts_core::entry::with_runtime(|context| rts_core::entry::buffer_source_bytes(context, data))
 }
 
 /// `fs.appendFileSync(path, data, encoding?)`.
@@ -62,14 +80,10 @@ pub(super) extern "C" fn append_file_sync(_e: u64, _this: u64, path: u64, data: 
     let Some(path) = validate::path("file", path) else {
         return rts_core::entry::undefined_value();
     };
-    if let Some(data) = text(data) {
-        let name = text(encoding_arg).unwrap_or_else(|| "utf8".to_string());
-        match encoding::decode(&name, &data) {
-            Some(bytes) => match std::fs::OpenOptions::new().create(true).append(true).open(path) {
-                Ok(mut file) => super::record_io(&file.write_all(&bytes)),
-                Err(error) => super::record_io::<()>(&Err(error)),
-            },
-            None => super::record(false),
+    if let Some(bytes) = payload(data, encoding_arg) {
+        match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            Ok(mut file) => super::record_io(&file.write_all(&bytes)),
+            Err(error) => super::record_io::<()>(&Err(error)),
         }
     }
     rts_core::entry::undefined_value()

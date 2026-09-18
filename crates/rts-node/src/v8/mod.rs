@@ -21,18 +21,12 @@
 //! one measurement is how the two functions would come to disagree about how
 //! full the heap is.
 //!
-//! `structuredClone`'s deep-clone walk (`rts-core/src/entry/clone.rs`) is
-//! `pub(super)` — still unreachable from here, and still not what
-//! [`serialize`]/[`deserialize`] are built from. What changed is that the
-//! two pieces a WIRE codec actually needs turned out to already be public on
-//! `rts_core::entry::modules`: [`rts_core::entry::make_buffer`] (bytes → a
-//! real `Buffer`) and [`rts_core::entry::bytes_of`] (a `Buffer`/typed array →
-//! its bytes) — both already used by `node:buffer`. Between them sits [`wire`],
-//! a real codec between a `u64` value and `Vec<u8>`, because neither of those
-//! two functions nor the clone walk answers "what are the bytes of an
-//! arbitrary JS value" — that question had no answer anywhere in this crate or
-//! `rts-core` until now, so [`wire`] is new rather than reused, and its own
-//! module doc states which of ITS pieces are copies of an existing recipe.
+//! [`serialize`]/[`deserialize`] are `rts:serde`'s pickle
+//! ([`rts_core::entry::pickle_value`] / [`rts_core::entry::unpickle`]),
+//! with [`rts_core::entry::make_buffer`] and [`rts_core::entry::bytes_of`] at
+//! the byte boundary. This crate had a wire codec of its own until the pickle
+//! existed, written because `structuredClone`'s walk was unreachable from here;
+//! the pickle IS that walk with bytes after it, so the codec went.
 //!
 //! # Not implemented, by name
 //!
@@ -50,11 +44,11 @@
 //! there is no heap-size soft limit and no snapshot walk; both need new
 //! `rts-core` bookkeeping this crate cannot add to itself.
 //! `Serializer`/`Deserializer`/`DefaultSerializer`/`DefaultDeserializer` —
-//! Node's classes wrap the SAME wire walk [`serialize`]/[`deserialize`] now
-//! use, exposed as an incremental `writeUint32`/`writeDouble`/`writeRawBytes`
-//! API a caller can add its own bytes into. Nothing here streams: [`wire`]
-//! always produces the whole buffer in one call, so a class around it would
-//! be four more methods with no incremental behaviour behind them — the
+//! Node's classes wrap the SAME walk [`serialize`]/[`deserialize`] use,
+//! exposed as an incremental `writeUint32`/`writeDouble`/`writeRawBytes`
+//! API a caller can add its own bytes into. Nothing here streams: the pickle
+//! produces the whole buffer in one call, so a class around it would be four
+//! more methods with no incremental behaviour behind them — the
 //! stub-that-looks-implemented shape this crate refuses. `queryObjects` —
 //! needs every live object's originating class walkable by identity; nothing
 //! in `rts_core::entry` enumerates live cells by class. `GCProfiler`,
@@ -80,13 +74,12 @@
 //! instead of throwing `TypeError` for a non-string, because
 //! `rts_core::entry::throw` ends the PROGRAM rather than raising a
 //! catchable error — the divergence every other module in this crate records
-//! for the same reason. [`serialize`]/[`deserialize`] round-trip through
-//! [`wire`], this crate's OWN format — [`wire`]'s own module doc says exactly
-//! how it differs from V8's `ValueSerializer` and what it does not preserve.
+//! for the same reason. [`serialize`]/[`deserialize`] round-trip through the
+//! pickle's format, not V8's — [`serialize`]'s own doc says where the two
+//! differ.
 
 use rts_core::entry::{Context, Provided};
 
-mod wire;
 
 /// The namespace `node:v8` is — what this engine can honestly answer, and
 /// nothing invented beside it.
@@ -315,49 +308,64 @@ extern "C" fn stop_coverage(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: 
     rts_core::entry::undefined_value()
 }
 
-/// `v8.serialize(value)` — real bytes, in this crate's OWN wire format.
+/// `v8.serialize(value)` — the value as bytes, in the pickle's format (RTSP).
 ///
 /// # What this answers and what Node answers
 ///
-/// Node answers a `Buffer` holding V8's own wire format, opaque and versioned,
-/// which another process running the same V8 can read back. This answers a
-/// `Buffer` too, and it is a real one — `.length` is the byte count, and the
-/// bytes are [`wire::encode`]'s output, not a copy of the value dressed up as a
-/// buffer. What it is NOT is V8's format: nothing produced here is readable by
-/// a real V8's `deserialize`, and [`wire`]'s own module doc names exactly what
-/// this format does not preserve (object kind for `Date`/`Map`/`Set`/`BigInt`,
-/// and a cycle).
+/// Node answers a `Buffer` holding V8's own wire format, which another process
+/// running the same V8 can read back. This answers a `Buffer` too, holding an
+/// `rts:serde` stream — `docs/engine/pickle.md` — which another process running
+/// this engine can read back, by this `deserialize` or by `rts:serde`'s: ONE
+/// format, where there were two. Nothing here is readable by a real V8.
 ///
-/// # Why this used to be a copy, and why that was withdrawn
+/// It replaced a codec of this crate's own (`wire.rs`, deleted) that had eight
+/// tags and no back-references: a cycle was cut off at depth 200 into
+/// `undefined`, and a `Date`, `Map`, `Set` or `BigInt` came back as `{}`. The
+/// pickle keeps all of them, and cycles and shared references with them.
 ///
-/// It called `entry::deep_copy` — the same walk `structuredClone` runs — and
-/// called the result correct because `deserialize(serialize(x))` came back
-/// equal to `x`. That is true and it is not what this function is for: Node
-/// callers read `.length`, write the result to a file, send it over a socket.
-/// A copy answered `undefined` for `.length`, which is why
-/// `tests/node_v8_full.test.ts`'s "serialize returns bytes" failed — not on a
-/// round trip, on the ONE assertion that reads the output as what its type
-/// claims it is.
+/// # Where it differs from V8, stated
+///
+/// It is the pickle, so it pickles: a class instance comes back an instance of
+/// its class and a top-level function comes back as itself, where V8 flattens
+/// the first into a plain object and refuses the second with a
+/// `DataCloneError`. What neither can write — a symbol, a closure, a proxy, a
+/// promise — raises a `TypeError` naming it, where V8 raises a
+/// `DataCloneError`.
 extern "C" fn serialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    // `wire::encode` is ambient — ready outside any borrow, matching the old
-    // `deep_copy` call it replaces.
-    let bytes = wire::encode(value);
-    rts_core::entry::with_runtime(|context| rts_core::entry::make_buffer(context, &bytes))
+    // Ambient — the walk takes its own borrows, because a getter it runs cannot
+    // run while one is held.
+    match rts_core::entry::pickle_value(value) {
+        Ok(bytes) => rts_core::entry::with_runtime(|context| rts_core::entry::make_buffer(context, &bytes)),
+        Err(failed) => raised(failed),
+    }
 }
 
-/// `v8.deserialize(value)` — the inverse of [`serialize`]: real bytes in,
-/// [`wire::decode`] back out.
+/// `v8.deserialize(buffer)` — the inverse of [`serialize`].
 ///
-/// `value` is read with [`rts_core::entry::bytes_of`], the same function
-/// `node:buffer` uses to read a `Buffer`/typed-array view — so a `Uint8Array`
-/// works here exactly as it does in Node, not only a `Buffer`. A value that is
-/// neither (nothing to read bytes from) decodes as `undefined`, matching
-/// [`wire::decode`]'s own answer to bytes that stop making sense partway
-/// through.
+/// Any byte view is accepted — a `Buffer`, any typed array, a `DataView` —
+/// as Node accepts one. Bytes that are not a stream raise, as Node's do, where
+/// the old codec answered `undefined` and let the program carry on with it.
 extern "C" fn deserialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let bytes = rts_core::entry::with_runtime(|context| rts_core::entry::bytes_of(context, value));
-    match bytes {
-        Some(bytes) => wire::decode(&bytes),
-        None => rts_core::entry::undefined_value(),
+    // Ambient: a class that declares an `upgrade` is called while reading, and
+    // that is user code, which cannot run inside a borrow.
+    let answered = match rts_core::entry::with_runtime(|context| rts_core::entry::bytes_of(context, value)) {
+        Some(bytes) => rts_core::entry::unpickle(&bytes),
+        None => Err(rts_core::entry::PickleFailure::Refused(
+            "v8.deserialize takes a Buffer, a TypedArray or a DataView".into(),
+        )),
+    };
+    match answered {
+        Ok(value) => value,
+        Err(failed) => raised(failed),
     }
+}
+
+/// Raises a failure as the `TypeError` it is — outside any borrow — or, when
+/// a getter already threw, leaves that error to the call site that re-raises
+/// it.
+fn raised(failed: rts_core::entry::PickleFailure) -> u64 {
+    if let rts_core::entry::PickleFailure::Refused(message) = failed {
+        rts_core::entry::throw_type_error(&message);
+    }
+    rts_core::entry::undefined_value()
 }

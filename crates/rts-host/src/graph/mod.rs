@@ -137,6 +137,7 @@ pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
     let wanted = rts_codegen::emit::Wanted {
         dynamic_import: true,
         require: Some(scratch.intern("require")),
+        dynamic_code: None,
     };
     for specifier in rts_codegen::emit::specifiers(&parsed.body, wanted) {
         if is_relative(&specifier) {

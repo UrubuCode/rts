@@ -162,7 +162,7 @@ impl Table {
     }
 
     /// Which class made it.
-    pub(super) fn brand(&self) -> Brand {
+    pub(in crate::entry) fn brand(&self) -> Brand {
         self.brand
     }
 
@@ -182,7 +182,7 @@ impl Table {
     }
 
     /// Both, paired, in insertion order.
-    pub(super) fn entries(&self) -> Vec<(u64, u64)> {
+    pub(in crate::entry) fn entries(&self) -> Vec<(u64, u64)> {
         self.keys.iter().copied().zip(self.values.iter().copied()).collect()
     }
 
@@ -201,7 +201,7 @@ impl Table {
     }
 
     /// The value a key holds, if the key is present.
-    pub(super) fn get(&self, context: &Context, key: u64) -> Option<u64> {
+    pub(in crate::entry) fn get(&self, context: &Context, key: u64) -> Option<u64> {
         Some(self.values[self.slot(context, key)?])
     }
 
@@ -405,8 +405,15 @@ pub(super) fn canonical(key: u64) -> u64 {
 }
 
 /// SameValueZero over two tagged values.
+///
+/// A bigint FIRST, by its digits, as `===` asks it in `primitives::strict_equals`:
+/// `same_value_zero` compares two non-numbers by bits and then by text, and a
+/// bigint is neither — two `1n`s computed apart live in two slots, so
+/// `new Set([1n]).has(1n)` answered false for as long as this was the value
+/// equality alone.
 fn same_key(context: &Context, left: u64, right: u64) -> bool {
-    same_value_zero(Value(left), Value(right), |a, b| context.same_text(a, b))
+    crate::entry::bigints::same(context, left, right)
+        || same_value_zero(Value(left), Value(right), |a, b| context.same_text(a, b))
 }
 
 /// A bucket number for a key.
@@ -465,6 +472,11 @@ fn hash_of(context: &Context, value: u64) -> u32 {
             return text.hash_code();
         }
         return identity_hash(cell);
+    }
+    // A bigint keys by VALUE, so its bucket comes from its digits and never
+    // from its slot — the one direction [`same_key`] owes.
+    if let Some(digits) = crate::entry::bigints::digits_of(context, value.bits()) {
+        return digits.hash_code();
     }
     0
 }

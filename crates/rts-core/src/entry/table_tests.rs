@@ -193,11 +193,11 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // defect into destructuring; one row buys the version that cannot.
     // Raised from 96 to 98 for page_global_get/page_global_set, and to 99
     // for for_in_has, to 101 for iterator_result, to 102 for tail_call
-    // and to 103 for unary_plus — one entry at a time, not the
+    // to 103 for unary_plus and to 104 for serde_declare — one entry at a time, not the
     // order-of-magnitude jump this ceiling exists to catch (rts-symbol-baker's "thousands" is the
     // shape it refuses).
     assert!(
-        CORE_ENTRY_COUNT <= 103,
+        CORE_ENTRY_COUNT <= 104,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

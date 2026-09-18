@@ -53,6 +53,8 @@ use super::{Ctx, EmitResult, Loops, Scope, UNPROVEN};
 use super::{binding, capture, expr};
 use crate::names::Name;
 use crate::runtime::{ARGUMENT_SLOTS, RuntimeOp};
+
+pub use super::hoist::hoist;
 use crate::syntax::{
     BindingKind, Expr, ExprKind, ForEachTarget, ForInit, Function, FunctionBody, Stmt, StmtKind,
 };
@@ -943,6 +945,9 @@ fn emit_body_into(
     module: Option<&str>,
     publications: &[super::module::Publication],
 ) -> EmitResult<()> {
+    // Taken FIRST: every body emitted from here down — a hoisted closure is
+    // the first — is nested in this one, and none of them is a module's own.
+    let names_top_level = std::mem::take(&mut ctx.names_top_level);
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
 
@@ -1172,7 +1177,7 @@ fn emit_body_into(
     // statement, which is what makes reading one before its own `var` line
     // answer `undefined` instead of refusing to compile.
     hoist_vars(&mut builder, &mut scope, ctx, body)?;
-    hoist(&mut builder, &mut scope, ctx, body)?;
+    hoist(&mut builder, &mut scope, ctx, body, names_top_level)?;
     // The body's own `let`, `const` and `class` names are in their dead zone
     // until their declarations are reached. Armed after both hoists on purpose:
     // a `var` and a hoisted `function` have no dead zone, and binding them first
@@ -1400,50 +1405,6 @@ pub fn hoist_vars(
         if !scope.declared_in_function(name) {
             let value = expr::undefined(builder, ctx);
             binding::declare(builder, scope, ctx, name, value)?;
-        }
-    }
-    Ok(())
-}
-
-/// Binds every function declared directly in a body, before the body runs.
-///
-/// # Why this is not just emitting the declaration where it was written
-///
-/// `function f() { return f(); }` reads `f` inside `f`, and mutual recursion
-/// reads the second function before the first has been written. Both are
-/// ordinary JavaScript, and both are the reason declarations are hoisted rather
-/// than evaluated in order.
-///
-/// Hoisting is done per block rather than to the top of the function, which is
-/// not quite what the specification says for `var`-like function scoping. It is
-/// what makes the cases above work, and the difference shows only for a
-/// declaration inside a nested block referenced before that block — named here
-/// so the gap is a sentence rather than a surprise.
-pub fn hoist(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    body: &[Stmt],
-) -> EmitResult<()> {
-    // Two passes, and the first one is the whole point: every name is bound
-    // before any body is emitted, so a closure made in the second pass can
-    // already see the ones declared after it.
-    for statement in body {
-        if let StmtKind::Function(function) = &statement.kind {
-            let Some(name) = function.name else {
-                continue;
-            };
-            let placeholder = expr::undefined(builder, ctx);
-            binding::declare(builder, scope, ctx, name, placeholder)?;
-        }
-    }
-    for statement in body {
-        if let StmtKind::Function(function) = &statement.kind {
-            let Some(name) = function.name else {
-                continue;
-            };
-            let closure = emit_closure_declared(builder, scope, ctx, function)?;
-            binding::write(builder, scope, ctx, name, closure)?;
         }
     }
     Ok(())

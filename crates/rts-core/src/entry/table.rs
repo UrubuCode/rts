@@ -112,6 +112,7 @@ use super::iterate::{
 use super::bigint_class::BIGINT_NEW_ENTRY;
 use super::regex::REGEX_NEW_ENTRY;
 use super::tail_call::TAIL_CALL_ENTRY;
+use super::pickle::names::SERDE_DECLARE_ENTRY;
 use super::modules::{MODULE_BINDING_ENTRY, MODULE_NAMESPACE_ENTRY, MODULE_PUBLISH_ENTRY};
 use super::text::{STRING_CONST_ENTRY, TEMPLATE_STRINGS_ENTRY};
 use super::type_of::{TYPE_OF_ENTRY, TYPE_OF_IS_ENTRY};
@@ -733,6 +734,9 @@ pub enum CoreEntry {
     /// [`super::unary_plus`] — `+x`, which was `Multiply` by one until `rts`'s
     /// `operators.mul` made the two observably different; its doc says why.
     UnaryPlus = 102,
+    /// [`super::pickle::names::serde_declare`] — a class or top-level
+    /// function the pickle may name, recorded where it is declared.
+    SerdeDeclare = 103,
 }
 
 /// How many entry points exist.
@@ -740,7 +744,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 103;
+pub const CORE_ENTRY_COUNT: usize = 104;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -848,6 +852,7 @@ impl CoreEntry {
         CoreEntry::IteratorResult,
         CoreEntry::TailCall,
         CoreEntry::UnaryPlus,
+        CoreEntry::SerdeDeclare,
     ];
 
     /// The number a call site holds.
@@ -966,6 +971,7 @@ impl CoreEntry {
             CoreEntry::IteratorResult => ITERATOR_RESULT_ENTRY,
             CoreEntry::TailCall => TAIL_CALL_ENTRY,
             CoreEntry::UnaryPlus => UNARY_PLUS_ENTRY,
+            CoreEntry::SerdeDeclare => SERDE_DECLARE_ENTRY,
         }
     }
 

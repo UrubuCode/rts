@@ -20,6 +20,7 @@
 //! | `rts:test` | `describe`/`test`/`expect`, and the record they leave |
 //! | `rts:runtime` | the module table, from inside a running program |
 //! | `rts:json5` | `JSON5.parse`/`stringify` — see `json5.rs`'s own doc for why a module and not the old engine's bare global |
+//! | `rts:serde` | `serialize`/`deserialize`, the pickle — `docs/engine/pickle.md` |
 //! | `rts:egui` | outro crate — `rts-ui`, ver abaixo |
 //!
 //! # `rts:io` is gone, and the measurement that removed it
@@ -85,6 +86,12 @@ pub fn install(context: &mut Context) {
 
     let json5_ns = json5::namespace(context);
     rts_core::entry::declare_module(context, "rts:json5", json5_ns);
+
+    // The pickle. Its natives are `rts-core`'s — they are pure computation over
+    // the heap, present on every target — and the module is declared here
+    // because which modules a program is given is this crate's decision.
+    let serde = rts_core::entry::serde_namespace(context);
+    rts_core::entry::declare_module(context, "rts:serde", serde);
 
     // The BARE `rts` specifier, which 33 files in the suite import and which
     // this engine did not register at all — so every one of them bound nothing

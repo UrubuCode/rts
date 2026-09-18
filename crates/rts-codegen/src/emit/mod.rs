@@ -98,18 +98,22 @@ mod switch;
 mod tail;
 mod template;
 mod omit;
+mod hoist;
+mod program_facts;
+mod serde_names;
 mod receiver;
 mod settled;
 mod unary;
 mod with_scope;
 mod wrap;
 
-pub use dynamic::{Wanted, dynamic_specifiers, specifiers};
+pub use dynamic::{Survey, Wanted, dynamic_specifiers, specifiers, survey, survey_statements};
 pub use eval::emit_eval_program;
 pub use page::emit_page_program;
 pub use expr::emit_expr;
 pub use loops::Loops;
 pub use proven::Numeric;
+use program_facts::whole_program_facts;
 use proven::analyse;
 pub use scope::Scope;
 pub use stmt::emit_stmt;
@@ -583,6 +587,13 @@ pub struct Ctx<'a> {
     /// two names to the empty string rather than refusing: a program reading
     /// `__dirname` where nothing knows one gets an answer it can test.
     pub module_paths: Option<(String, String)>,
+    /// What the pickle calls the module being emitted — its path relative to
+    /// the program's entry, `""` for the entry itself — or `None` where nothing
+    /// is registered: an `eval`, a page, a program that cannot reach the pickle.
+    pub module_key: Option<String>,
+    /// Whether the next body emitted is a module's or a script's own, whose
+    /// named top-level functions the pickle may name. Taken by that body.
+    pub(in crate::emit) names_top_level: bool,
     /// Whether `Math` still refers to the primordial the runtime installed.
     ///
     /// Proved over the whole program before anything is emitted — see
@@ -693,6 +704,8 @@ impl<'a> Ctx<'a> {
             globals: std::collections::BTreeSet::new(),
             module_specifier: None,
             module_paths: None,
+            module_key: None,
+            names_top_level: false,
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             substituting: Vec::new(),
@@ -1064,6 +1077,9 @@ pub fn emit_program_with_exports(
     // does not exist. An empty scope says exactly that — which is what
     // [`emit_eval_program`] is the one exception to.
     let nothing = Scope::new();
+    // Its own entry, key `""` — when it can reach the pickle (`serde_names`).
+    ctx.module_key = serde_names::script_reaches_pickle(imports, body, ctx).then(String::new);
+    ctx.names_top_level = true;
     emit_program_into(body, imports, specifier, publications, &nothing, ctx)
 }
 
@@ -1306,11 +1322,18 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     // this earlier would renumber every map keyed by one.
     whole_program_facts(&program, ctx);
 
+    // ANY module reaching the pickle registers EVERY module — `serde_names`.
+    let registers = serde_names::program_reaches_pickle(units, ctx);
     let mut entries = Vec::with_capacity(lowered.len());
     for (unit, imports, body, publications) in &lowered {
-
         let (imports, body, publications) = (imports, body, publications);
         ctx.module_paths = Some(unit.paths.clone());
+        // The entry is the LAST unit — dependencies first — and every key is
+        // relative to it, so the same program compiled elsewhere names its
+        // classes the same way.
+        let entry = units.last().map_or("", |last| last.specifier.as_str());
+        ctx.module_key = registers.then(|| serde_names::module_key(&unit.specifier, entry));
+        ctx.names_top_level = true;
         entries.push(emit_unit(
             body,
             imports,
@@ -2013,68 +2036,3 @@ mod tests {
     }
 }
 
-/// The facts that are about the MODULE rather than about one body.
-///
-/// One function because there are two doors — a script through
-/// [`emit_program_with_exports`] and a graph through `emit_unit` — and a setup
-/// written at one of them is a setup the other silently does without. That is
-/// not hypothetical: `class_fields` stood at the first door alone, so every
-/// program compiled as a graph was emitted without it, and the receiver
-/// analysis was written the same way — it answered under `rts run` and
-/// answered nothing under `rts ir`, which is how the divergence was found.
-/// `program` is every unit of the compilation, concatenated; `body` is the one
-/// being emitted. At the script door they are the same slice.
-///
-/// The two are separate because the answers below are about the PROGRAM and one
-/// of them was measurably not: `receiver::resolve` asks "is `C` ever read as a
-/// value", and asked of one unit it answered yes for a class an IMPORTER writes
-/// through. `C.prototype.m = f` in the importing module left the exporting
-/// module deciding `o.m`, and the call answered 1 where node answers 2 — while
-/// the identical program in ONE file answers 2, because there the write is a
-/// value read the proof sees.
-///
-/// What stays per BODY is `inline::candidates`, and the reason is that a count
-/// cannot cross a module: `graph::front_end` parses every file into one
-/// `Names`, so two modules that each declare `function helper` share one `Name`
-/// and a program-wide `declarations_of` would count 2 — both losing a
-/// substitution they have today. `receiver::resolve` may go program-wide
-/// precisely because its counts GATE rather than select: counting more refuses
-/// more, which is the safe direction.
-fn whole_program_facts(program: &[Stmt], ctx: &mut Ctx) {
-    let body = program;
-    ctx.class_fields = types::declared(body);
-    // WHICH `o.m` THE PROGRAM ALREADY DECIDES. Whole-program and once, for the
-    // same reason the line above is: every clause it rests on — what `C` is,
-    // whether anything writes through it, whether `o` is ever read as a value —
-    // is about the module rather than about one body.
-    //
-    // A method call is one runtime crossing, measured at 19.00 ns against 6.00
-    // for the property read alone and 1.00 for a substituted call, so what this
-    // removes is the crossing rather than anything about being a method.
-    let length_name = ctx.names.intern("length");
-    let eval_name = ctx.names.intern("eval");
-    let global_this_name = ctx.names.intern("globalThis");
-    let arguments_name = ctx.names.intern("arguments");
-    ctx.static_methods = receiver::resolve(body, ctx.names.intern("constructor"))
-        .methods
-        .into_iter()
-        .filter_map(|((held, method), function)| {
-            // `this_ok` is TRUE here and nowhere else: the receiver was proved,
-            // so a body reading `this` has an answer at every site this
-            // candidate serves.
-            let (mut built, free) =
-                inline::local_candidate(&function, length_name, method, arguments_name, true)?;
-            // THE ORDINARY WHOLE-PROGRAM PROOF, because a static method has no
-            // locality argument to offer: its body is emitted in the caller's
-            // scope like any other, so a free name it reads must mean the same
-            // thing there. `omit` is the only door that may skip this, and it
-            // skips it by proving something stronger.
-            built.free_proved =
-                inline::free_names_proved(body, &free, eval_name, global_this_name, arguments_name);
-            if !built.free_proved {
-                return None;
-            }
-            Some(((held, method), std::rc::Rc::new(built)))
-        })
-        .collect();
-}
