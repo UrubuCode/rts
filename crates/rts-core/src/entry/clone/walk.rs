@@ -171,7 +171,8 @@ impl Walker {
             }
             Kind::Object { calls: true, .. } => return Ok(Some(task)),
             Kind::Object { calls: false, bare } => {
-                let Some(read) = super::members::data(context, value, cell, false) else {
+                let pickle = self.policy == Policy::Pickle;
+                let Some(read) = super::members::data(context, value, cell, false, pickle) else {
                     return Ok(Some(task));
                 };
                 object(*bare, self.members(context, read, depth)?)
@@ -180,7 +181,7 @@ impl Walker {
                 // The slow read cannot see a `#` field — `own_keys` hides them
                 // — so an instance whose own members include an accessor has no
                 // complete reading, and is refused rather than half-written.
-                let Some(read) = super::members::data(context, value, cell, true) else {
+                let Some(read) = super::members::data(context, value, cell, true, true) else {
                     return Err(refuse("a class instance with an own accessor property"));
                 };
                 let spaces = self.known.spaces(context, cell);

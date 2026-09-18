@@ -128,13 +128,16 @@ pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy, known:
         // refuses one because its identity is the whole of what it is, and a
         // copy would be a different symbol wearing the same description.
         //
+        // The pickle WRITES one, because a save file crosses programs where a
+        // clone never does: a shared symbol (`Symbol.for`, the well-known ones)
+        // is the same symbol by its key text, and an unregistered one revives
+        // as a new symbol of the same description with its identity kept
+        // inside the stream — `pickle/symbols.rs`.
+        //
         // A bigint IS copied, by bits, sharing its digits — unobservable for the
         // same reason sharing a string is: neither can be written to.
-        if super::super::symbol::is_symbol(context, value) {
-            return match pickle {
-                true => Err(refuse("a Symbol")),
-                false => Ok(Shape::Uncloneable),
-            };
+        if super::super::symbol::is_symbol(context, value) && !pickle {
+            return Ok(Shape::Uncloneable);
         }
         return Ok(Shape::Bits(value));
     };

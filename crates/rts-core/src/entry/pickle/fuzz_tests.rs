@@ -118,6 +118,18 @@ fn every_kind(context: &mut Context, undeclared: bool) -> Vec<u8> {
     let node_buffer = Slot::At(graph.push(Node::NodeBuffer(vec![4, 5])));
     let boxed = Slot::At(graph.push(Node::Boxed(Slot::Bits(Value::from_bool(true).bits()))));
     let bare = Slot::At(graph.push(Node::Bare(vec![(a, Slot::Bits(Value::from_i32(1).bits()))])));
+    // Three symbols: unregistered with and without a description, and one
+    // registered — as values, and the first also as a key.
+    let unique = super::super::symbol::unique(context, Some("fuzz".to_owned()));
+    let nameless = super::super::symbol::unique(context, None);
+    let registered = super::super::symbol::shared(context, format!("{}for:fz", super::super::symbol::PREFIX), Some("fz".to_owned()));
+    let symbol_key = super::super::symbol::key_of(context, unique).expect("a symbol has a key");
+    let symbols = Slot::At(graph.push(Node::Object(vec![
+        (a, Slot::Bits(unique)),
+        (b, Slot::Bits(nameless)),
+        (c, Slot::Bits(registered)),
+        (symbol_key, Slot::Bits(unique)),
+    ])));
     let error = Slot::At(graph.push(Node::Error {
         class: ErrorClass::Builtin("RangeError"),
         message: Some(hello),
@@ -134,7 +146,20 @@ fn every_kind(context: &mut Context, undeclared: bool) -> Vec<u8> {
     // byte-identical and should not be.
     let negative_zero = Slot::Bits(Value::from_f64(-0.0).bits());
     let array = Slot::At(graph.push(Node::Array {
-        elements: vec![date, regexp, hole, view, buffer, node_buffer, boxed, bare, error, Slot::At(root), negative_zero],
+        elements: vec![
+            date,
+            regexp,
+            hole,
+            view,
+            buffer,
+            node_buffer,
+            boxed,
+            bare,
+            symbols,
+            error,
+            Slot::At(root),
+            negative_zero,
+        ],
         extra: vec![(a, Slot::Bits(Value::from_f64(f64::NAN).bits()))],
     }));
     graph.nodes[root] = Node::Object(vec![(a, array), (b, map), (c, Slot::At(root))]);

@@ -70,6 +70,9 @@ pub(super) struct Reader<'a, 'c> {
     pub(super) graph: Graph,
     memo: Vec<Slot>,
     pub(super) table: Vec<super::strings::Entry>,
+    /// The stream's unregistered symbols, by the number the stream gave each
+    /// — `super::symbols`.
+    pub(super) symbols: Vec<u64>,
     /// Each class the stream names, resolved once: by the table indices of
     /// its module and name, to the class and its private-name numbers. A
     /// stream of ten thousand instances of one class names it ten thousand
@@ -95,6 +98,7 @@ pub(super) fn read(context: &mut Context, bytes: &[u8]) -> Result<(Graph, Slot),
         graph: Graph::default(),
         memo: Vec::new(),
         table: Vec::new(),
+        symbols: Vec::new(),
         classes: std::collections::HashMap::new(),
     };
     let root = reader.run()?;
@@ -222,6 +226,10 @@ impl Reader<'_, '_> {
             OP_REF => {
                 let id = usize::try_from(self.cursor.varint()?).map_err(|_| "pickle: a bad back-reference")?;
                 done(*self.memo.get(id).ok_or("pickle: a back-reference to nothing")?)
+            }
+            OP_SYMBOL => {
+                let text = self.string_text()?;
+                done(Slot::Bits(self.symbol(&text)?))
             }
             OP_ARRAY => {
                 let count = self.cursor.count(1)?;

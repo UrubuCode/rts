@@ -10,6 +10,7 @@
 //! | `write` | an arena to bytes |
 //! | `read` | bytes to an arena, v1 and v2 |
 //! | `strings` | the stream's table of strings, read side |
+//! | `symbols` | a symbol's spelling, as a value and as a key, both sides |
 //! | `legacy` | what v1 wrote that v2 does not, as what it meant |
 //! | `names` | which classes and functions a stream may name |
 //! | `kinds` | a typed array's kind as a byte |
@@ -45,6 +46,7 @@ mod legacy;
 pub(in crate::entry) mod names;
 mod read;
 mod strings;
+mod symbols;
 mod upgrade;
 mod write;
 

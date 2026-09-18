@@ -42,8 +42,8 @@ enum Work {
     Leave,
 }
 
-struct Writer<'a> {
-    context: &'a Context,
+pub(super) struct Writer<'a> {
+    pub(super) context: &'a Context,
     graph: &'a Graph,
     out: Vec<u8>,
     /// Text already written, to its index in the table.
@@ -53,6 +53,9 @@ struct Writer<'a> {
     /// The memo id each node was written under, once it has been.
     memo: Vec<Option<u64>>,
     next_memo: u64,
+    /// Each unregistered symbol the stream has met, to its number in the
+    /// stream — `super::symbols` is the spelling.
+    pub(super) symbols: HashMap<u64, u64>,
 }
 
 /// The stream for one arena.
@@ -65,6 +68,7 @@ pub(super) fn write(context: &Context, graph: &Graph, root: Slot) -> Result<Vec<
         keys: HashMap::new(),
         memo: vec![None; graph.nodes.len()],
         next_memo: 0,
+        symbols: HashMap::new(),
     };
     writer.out.extend_from_slice(&MAGIC);
     writer.out.push(VERSION);
@@ -290,6 +294,11 @@ impl Writer<'_> {
                 self.string(text);
             }
             ValueKind::Client { .. } => {
+                if let Some(spelled) = self.symbol_text(bits) {
+                    self.out.push(OP_SYMBOL);
+                    self.string(&spelled);
+                    return Ok(());
+                }
                 let Some(digits) = super::super::bigints::digits_of(self.context, bits) else {
                     return Err("pickle: cannot serialize a value of this kind".into());
                 };
@@ -352,9 +361,16 @@ impl Writer<'_> {
         let Some(text) = self.context.interner.text(named) else {
             return Err("pickle: a property key with no text".into());
         };
+        // A symbol key is written as the SYMBOL's spelling, not the key's: the
+        // key text of an unregistered symbol numbers it within this program,
+        // and the stream numbers it within itself.
+        let text = match self.symbol_key_text(text) {
+            Some(spelled) => spelled,
+            None => text.clone(),
+        };
         let before = self.strings.len() as u64;
-        self.string(text);
-        let index = self.strings.get(text).copied().unwrap_or(before);
+        self.string(&text);
+        let index = self.strings.get(&text).copied().unwrap_or(before);
         self.keys.insert(named, index);
         Ok(())
     }

@@ -118,11 +118,11 @@ pub(super) const MATCH_ALL: &str = concat!(prefix!(), "matchAll");
 pub(super) const SEARCH: &str = concat!(prefix!(), "search");
 
 /// What a symbol is, beside its number.
-struct SymbolInfo {
+pub(in crate::entry) struct SymbolInfo {
     /// The key text this symbol names a property with.
     key: String,
     /// What `sym.description` and `sym.toString()` answer.
-    description: Option<String>,
+    pub(in crate::entry) description: Option<String>,
     /// The NUMBER that key text interned to, once anything has asked.
     ///
     /// # Why this is not the same fact twice
@@ -215,7 +215,7 @@ const WELL_KNOWN: &[&str] = &[
 
 impl Context {
     /// The symbol a value is, if it is one.
-    fn symbol_of(&self, value: u64) -> Option<&SymbolInfo> {
+    pub(in crate::entry) fn symbol_of(&self, value: u64) -> Option<&SymbolInfo> {
         let number = Value(value).as_client(self.kinds.symbol)?;
         self.symbols.made.get(number as usize)
     }
@@ -591,18 +591,17 @@ extern "C" fn make(_e: u64, _this: u64, description: u64, _a1: u64, _a2: u64, _a
     with_current(|context| {
         let text = match description == undefined_of(context) {
             true => None,
-            false => {
-                super::text::to_text(context, Value(description)).and_then(|text| text.to_rust())
-            }
+            false => super::text::to_text(context, Value(description)).and_then(|text| text.to_rust()),
         };
-        let number = context.symbols.made.len() as u64;
-        context.symbols.made.push(SymbolInfo {
-            key: format!("{PREFIX}sym:{number}"),
-            description: text,
-            key_id: None,
-        });
-        Value::from_client(context.kinds.symbol, number).bits()
+        unique(context, text)
     })
+}
+
+/// What `Symbol(description)` mints, from Rust: the pickle revives an
+/// unregistered symbol as a NEW one of the same description.
+pub(in crate::entry) fn unique(context: &mut Context, description: Option<String>) -> u64 {
+    let number = context.symbols.made.len();
+    mint(context, format!("{PREFIX}sym:{number}"), description)
 }
 
 /// `Symbol.for(key)` — the symbol shared under a key across the program.

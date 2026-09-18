@@ -72,6 +72,20 @@ v1's strings read through the same decoder.
 | 24 | SET | n, n values | ✓ |
 | 25 | VIEW | kind u8, varint byte length + bytes — a typed array | ✓ |
 | 26 | BARE | OBJECT's payload — an `Object.create(null)` object, revived with no prototype | ✓ |
+| 27 | SYMBOL | strref — the symbol's spelling, below | |
+
+### Symbols
+
+One spelling, used for a symbol value (SYMBOL) and for a symbol-keyed
+property's key (an ordinary strref in an OBJECT, BARE, CLASS, ARRAY or ERROR
+key position): a **shared** symbol — well-known or `Symbol.for` — is its key
+text, `@@iterator` or `@@for:x`; an **unregistered** one is `@@sym:<n>`, where
+`<n>` numbers the symbol within the stream in the order it is first met, and
+the first mention carries the description after a second colon (`@@sym:0:x`,
+or `@@sym:0` for `Symbol()`). The reader mints one new symbol per stream
+number, so identity holds inside the graph without a memo id. A program's own
+`@@sym:7` is never written: `7` numbers the program's symbols, not the
+stream's. `pickle/symbols.rs` is both sides.
 
 ERROR's class is `0` + strref (a standard class: `Error`, `TypeError`, …,
 `AggregateError`) or `1` + a CLASS header's three fields (a class the program
@@ -128,12 +142,15 @@ both sides refuse by name. A linked list of that many nodes pickles.
 | a class instance | an instance of the class the READING program declares under that name |
 | a top-level function | that function, in the reading program |
 | a cycle, a shared reference | the same shape |
+| `Symbol.for(k)`, `Symbol.iterator` and the other well-known ones | the same symbol — the reading program's registry answers for the key |
+| `Symbol(desc)` | a NEW symbol with the same description, one per stream symbol: two places that pointed at one point at one |
+| a symbol-keyed property | the same property, under the symbol the rule above revives |
 
 An own **accessor** on a plain object is read through its getter while writing,
-as `structuredClone` reads one; what is written is the value.
-
-A **symbol-keyed** property is not written — a symbol has no spelling a stream
-can carry — and nothing refuses it: the rule `JSON.stringify` has.
+as `structuredClone` reads one; what is written is the value. An object whose
+members are read that way — one with an accessor, or a proxy — has its
+symbol-keyed members skipped, because that read goes through `own_keys`, which
+does not list them.
 
 A typed array is written with its own bytes and revives over a private buffer:
 two views of one `ArrayBuffer` come back as two buffers. `structuredClone` has
@@ -141,7 +158,7 @@ the same limit, for the same reason.
 
 ### Refused, by name
 
-A `TypeError` whose message names the kind: a symbol, a proxy, a closure or
+A `TypeError` whose message names the kind: a proxy, a closure or
 arrow or method, a bound function, a `DataView`, a `WeakMap`/`WeakSet`/
 `WeakRef`, a subclass of `Map` or `Set`, a class instance whose own members
 include an accessor, and any object whose prototype is neither

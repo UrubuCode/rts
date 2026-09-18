@@ -20,11 +20,18 @@ use crate::value::Value;
 /// Every enumerable own member, as a key and the value its slot holds, or
 /// `None` when one of them is an accessor.
 ///
-/// `private` adds the class's `#` fields after the public ones, in the order
-/// the shape holds them: they are an instance's state, which is what the
-/// pickle writes and the clone never does. The ORDER of the public ones is the
-/// runtime's one answer — `key_list` — and not re-derived here.
-pub(super) fn data(context: &mut Context, value: u64, cell: u32, private: bool) -> Option<Vec<(Key, u64)>> {
+/// `private` adds the class's `#` fields after the public ones, and `symbols`
+/// the symbol-keyed members, in the order the shape holds them: both are
+/// state the pickle writes and the clone never does — `key_list` hides the
+/// whole `@@` space, which is where both live. The ORDER of the public ones is
+/// the runtime's one answer — `key_list` — and not re-derived here.
+pub(super) fn data(
+    context: &mut Context,
+    value: u64,
+    cell: u32,
+    private: bool,
+    symbols: bool,
+) -> Option<Vec<(Key, u64)>> {
     let keys = super::super::array::key_list(context, value, true);
     let mut read = Vec::with_capacity(keys.len());
     for key in keys {
@@ -36,16 +43,17 @@ pub(super) fn data(context: &mut Context, value: u64, cell: u32, private: bool) 
         let held = super::super::objects::own_property(context, cell, key)?;
         read.push((key, held.bits()));
     }
-    if private {
+    if private || symbols {
         let Some(shape) = context.region.type_of(cell).and_then(|ty| context.shape_of(ty)) else {
             return Some(read);
         };
         for (named, _) in context.shapes.properties(shape) {
-            let is_private = context
-                .interner
-                .text(named)
-                .is_some_and(super::super::symbol::is_private_key);
-            if !is_private {
+            let Some(text) = context.interner.text(named) else {
+                continue;
+            };
+            let is_private = super::super::symbol::is_private_key(text);
+            let is_symbol = !is_private && super::super::symbol::is_symbol_key(text);
+            if !((private && is_private) || (symbols && is_symbol)) {
                 continue;
             }
             let key = Key::Name(named);

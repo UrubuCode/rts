@@ -72,7 +72,18 @@ impl Reader<'_, '_> {
         if let Some(key) = self.table[index].key {
             return Ok(key);
         }
-        let key = Key::Name(self.context.interner.intern(&self.table[index].text, &mut self.context.keys));
+        // A key in the `@@` space that is not a private name is a SYMBOL's,
+        // and it is the symbol that decides the key — for an unregistered one,
+        // a symbol this program mints here.
+        let text = self.table[index].text.clone();
+        let is_symbol = super::super::symbol::is_symbol_key(&text) && !super::super::symbol::is_private_key(&text);
+        let key = match is_symbol {
+            true => {
+                let symbol = self.symbol(&text)?;
+                super::super::symbol::key_of(self.context, symbol).ok_or("pickle: a symbol with no key")?
+            }
+            false => Key::Name(self.context.interner.intern(&text, &mut self.context.keys)),
+        };
         self.table[index].key = Some(key);
         Ok(key)
     }

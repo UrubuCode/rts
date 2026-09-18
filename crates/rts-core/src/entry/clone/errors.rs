@@ -111,7 +111,7 @@ pub(super) fn read(context: &mut Context, value: u64, cell: u32, policy: Policy)
             let message = own(context, "message").map(Member::Value);
             let stack = own(context, "stack").map(Member::Value);
             let cause = own(context, "cause");
-            let extra = super::members::data(context, value, cell, false)?;
+            let extra = super::members::data(context, value, cell, false, true)?;
             Some(Read {
                 class: class_of(context, cell),
                 message,
