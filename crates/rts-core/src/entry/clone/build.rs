@@ -76,6 +76,14 @@ fn empty(context: &mut Context, node: &Node) -> u64 {
         // real one: `fill` replaces the vector whole, at the size it will have.
         Node::Array { .. } => super::super::array::built_in(context, Vec::new()),
         Node::Object(_) | Node::Boxed(_) => plain(context),
+        Node::Bare(_) => {
+            let made = plain(context);
+            if let Some(cell) = Value(made).as_slot() {
+                let null = Value::from_singleton(context.singletons.null).bits();
+                context.set_prototype(cell, null);
+            }
+            made
+        }
         Node::Instance { class, .. } => {
             let made = plain(context);
             if let Some(cell) = Value(made).as_slot() {
@@ -206,7 +214,7 @@ fn fill(context: &mut Context, node: &Node, value: u64, made: &Made) {
                 super::super::objects::put(context, cell, key, resolve(*slot, made));
             }
         }
-        Node::Object(members) | Node::Instance { fields: members, .. } => {
+        Node::Object(members) | Node::Bare(members) | Node::Instance { fields: members, .. } => {
             let members: Vec<(Key, u64)> = members
                 .iter()
                 .map(|(key, slot)| (named(context, *key), resolve(*slot, made)))

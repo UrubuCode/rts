@@ -60,6 +60,20 @@ const plainBack: any = deserialize(serialize(new Plain()));
 const plainBytes = Array.from(serialize(new Plain()));
 const text = String.fromCharCode(...plainBytes.filter((b) => b >= 32 && b < 127));
 
+// ── 4. Object.create(null) keeps its missing prototype ─────────────────────
+// A dictionary is used BECAUSE it inherits nothing: `"toString" in dict` is
+// false, and a lookup table keyed by user input must not find `constructor`.
+const dict: any = Object.create(null);
+dict.k = 1;
+dict.constructor = "mine";
+const shared: any = Object.create(null);
+shared.n = 2;
+const dictBack: any = deserialize(serialize({ dict, a: shared, b: shared, plain: { p: 1 } }));
+const dictProto = Object.getPrototypeOf(dictBack.dict);
+const plainProto = Object.getPrototypeOf(dictBack.plain);
+const dictHasToString = "toString" in dictBack.dict;
+const sameShared = dictBack.a === dictBack.b;
+
 describe("rts:serde v2", () => {
   test("serialize answers a Uint8Array, and every byte source reads back", () => {
     expect(isU8).toBe(true);
@@ -91,5 +105,16 @@ describe("rts:serde v2", () => {
 
   test("the class name is in the stream", () => {
     expect(text.includes("Plain")).toBe(true);
+  });
+
+  test("Object.create(null) comes back with no prototype, a plain object with Object.prototype", () => {
+    expect(dictProto).toBe(null);
+    expect(plainProto).toBe(Object.prototype);
+    expect(dictHasToString).toBe(false);
+    expect(dictBack.dict.k).toBe(1);
+    expect(dictBack.dict.constructor).toBe("mine");
+    expect(Object.keys(dictBack.dict).length).toBe(2);
+    expect(sameShared).toBe(true);
+    expect(Object.getPrototypeOf(dictBack.a)).toBe(null);
   });
 });

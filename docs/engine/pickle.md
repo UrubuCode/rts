@@ -71,6 +71,7 @@ v1's strings read through the same decoder.
 | 23 | MAP | n, n × (key value, value value) | ✓ |
 | 24 | SET | n, n values | ✓ |
 | 25 | VIEW | kind u8, varint byte length + bytes — a typed array | ✓ |
+| 26 | BARE | OBJECT's payload — an `Object.create(null)` object, revived with no prototype | ✓ |
 
 ERROR's class is `0` + strref (a standard class: `Error`, `TypeError`, …,
 `AggregateError`) or `1` + a CLASS header's three fields (a class the program
@@ -113,7 +114,8 @@ both sides refuse by name. A linked list of that many nodes pickles.
 
 | written | read back as |
 |---|---|
-| a plain object, `Object.create(null)` | a plain object with `Object.prototype` — the null prototype is not kept |
+| a plain object | a plain object with `Object.prototype` |
+| `Object.create(null)` | an object with no prototype (BARE) — a dictionary comes back a dictionary, where `structuredClone` gives it `Object.prototype` |
 | an array | an array; holes stay holes, named members stay |
 | a number | the same number; `-0` and `NaN` survive |
 | a string | the same string, lone surrogates included |
@@ -357,5 +359,4 @@ the code does, not about nanoseconds. The comparison against `JSON.stringify`/
 - `v8.serialize` pickles rather than cloning: a class instance stays one and a
   top-level function is written by name, where V8 flattens the first and throws
   for the second.
-- Fields a class dropped are kept (§3); an `Object.create(null)` object comes
-  back with `Object.prototype`.
+- Fields a class dropped are kept (§3).

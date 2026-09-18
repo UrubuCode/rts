@@ -26,8 +26,9 @@ struct Task {
 /// learned about it.
 enum Kind {
     Array,
-    /// A plain object, and whether reading it runs user code.
-    Object(bool),
+    /// A plain object: whether reading it runs user code, and whether it has
+    /// no prototype (see [`Node::Bare`]).
+    Object { calls: bool, bare: bool },
     Instance(super::ClassName),
     Map,
     Set,
@@ -113,7 +114,7 @@ impl Walker {
                 return Ok(self.leaf(cell, |context| Node::NodeBuffer(window(context, value)), context));
             }
             Shape::Array(cell) => (cell, Kind::Array),
-            Shape::Object(cell, calls) => (cell, Kind::Object(calls)),
+            Shape::Object(cell, calls, bare) => (cell, Kind::Object { calls, bare }),
             Shape::Instance(cell, class) => (cell, Kind::Instance(class)),
             Shape::Map(cell) => (cell, Kind::Map),
             Shape::Set(cell) => (cell, Kind::Set),
@@ -168,12 +169,12 @@ impl Walker {
                 let extra = self.members(context, extra, depth)?;
                 Node::Array { elements, extra }
             }
-            Kind::Object(true) => return Ok(Some(task)),
-            Kind::Object(false) => {
+            Kind::Object { calls: true, .. } => return Ok(Some(task)),
+            Kind::Object { calls: false, bare } => {
                 let Some(read) = super::members::data(context, value, cell, false) else {
                     return Ok(Some(task));
                 };
-                Node::Object(self.members(context, read, depth)?)
+                object(*bare, self.members(context, read, depth)?)
             }
             Kind::Instance(class) => {
                 // The slow read cannot see a `#` field — `own_keys` hides them
@@ -240,6 +241,7 @@ impl Walker {
                 let extra = self.members(context, extra, depth)?;
                 Node::Array { elements, extra }
             }
+            Kind::Object { bare, .. } => object(bare, self.members(context, read, depth)?),
             _ => Node::Object(self.members(context, read, depth)?),
         };
         self.graph.nodes[task.at] = node;
@@ -274,6 +276,14 @@ impl Walker {
 /// A regular expression, as the two texts it is rebuilt from — and, for the
 /// pickle, where its next match starts. The clone leaves `lastIndex` at `0`,
 /// which is the specification's rule for a clone.
+/// A plain object's node: with its prototype implied, or with none.
+fn object(bare: bool, members: Vec<(Key, Slot)>) -> Node {
+    match bare {
+        true => Node::Bare(members),
+        false => Node::Object(members),
+    }
+}
+
 fn regexp(context: &mut Context, cell: u32, pickle: bool) -> Node {
     // The classification saw a pattern under this same borrow, so the absence
     // is unreachable rather than unhandled.

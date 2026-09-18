@@ -117,6 +117,7 @@ fn every_kind(context: &mut Context, undeclared: bool) -> Vec<u8> {
     let buffer = Slot::At(graph.push(Node::Buffer(vec![1, 2, 3])));
     let node_buffer = Slot::At(graph.push(Node::NodeBuffer(vec![4, 5])));
     let boxed = Slot::At(graph.push(Node::Boxed(Slot::Bits(Value::from_bool(true).bits()))));
+    let bare = Slot::At(graph.push(Node::Bare(vec![(a, Slot::Bits(Value::from_i32(1).bits()))])));
     let error = Slot::At(graph.push(Node::Error {
         class: ErrorClass::Builtin("RangeError"),
         message: Some(hello),
@@ -133,7 +134,7 @@ fn every_kind(context: &mut Context, undeclared: bool) -> Vec<u8> {
     // byte-identical and should not be.
     let negative_zero = Slot::Bits(Value::from_f64(-0.0).bits());
     let array = Slot::At(graph.push(Node::Array {
-        elements: vec![date, regexp, hole, view, buffer, node_buffer, boxed, error, Slot::At(root), negative_zero],
+        elements: vec![date, regexp, hole, view, buffer, node_buffer, boxed, bare, error, Slot::At(root), negative_zero],
         extra: vec![(a, Slot::Bits(Value::from_f64(f64::NAN).bits()))],
     }));
     graph.nodes[root] = Node::Object(vec![(a, array), (b, map), (c, Slot::At(root))]);

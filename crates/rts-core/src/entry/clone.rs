@@ -270,6 +270,13 @@ pub(in crate::entry) enum Node {
     /// Members in enumeration order, which is the order they are written back
     /// in — so the clone enumerates the way the original did.
     Object(Vec<(Key, Slot)>),
+    /// `Object.create(null)`: the members of [`Node::Object`] and no prototype
+    /// — the pickle's alone. The clone gives such an object `Object.prototype`
+    /// back, which is what the platform's `structuredClone` does, so the walk
+    /// only produces this under [`Policy::Pickle`], where a dictionary that
+    /// came back inheriting `toString` and `constructor` would be a different
+    /// object from the one written.
+    Bare(Vec<(Key, Slot)>),
     /// An instance of a class the program declared, private fields included —
     /// the pickle's alone.
     Instance { class: ClassName, fields: Vec<(Key, Slot)> },

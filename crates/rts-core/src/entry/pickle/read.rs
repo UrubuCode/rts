@@ -43,8 +43,9 @@ struct Members {
 /// An open container.
 enum Frame {
     Array { at: usize, count: usize, elements: Vec<Slot>, extra: Option<Members> },
-    /// A plain object or, when `class` is present, an instance of it.
-    Object { at: usize, keys: Vec<Key>, values: Vec<Slot>, class: Option<ClassName> },
+    /// A plain object — with no prototype when `bare` — or, when `class` is
+    /// present, an instance of it.
+    Object { at: usize, keys: Vec<Key>, values: Vec<Slot>, class: Option<ClassName>, bare: bool },
     Map { at: usize, count: usize, pairs: Vec<(Slot, Slot)>, key: Option<Slot> },
     Set { at: usize, count: usize, members: Vec<Slot> },
     Error { at: usize, class: ErrorClass, flags: u8, parts: Vec<Slot>, extra: Option<Members> },
@@ -227,10 +228,11 @@ impl Reader<'_, '_> {
                 let at = self.reserve();
                 Ok(Opened::Open(Frame::Array { at, count, elements: Vec::with_capacity(count), extra: None }))
             }
-            OP_OBJECT => {
+            OP_OBJECT | OP_BARE => {
                 let keys = self.keys()?;
                 let at = self.reserve();
-                Ok(Opened::Open(Frame::Object { at, values: Vec::with_capacity(keys.len()), keys, class: None }))
+                let bare = op == OP_BARE;
+                Ok(Opened::Open(Frame::Object { at, values: Vec::with_capacity(keys.len()), keys, class: None, bare }))
             }
             OP_CLASS if self.version == 1 => {
                 let name = self.raw_text()?;
@@ -247,7 +249,13 @@ impl Reader<'_, '_> {
                 let mut keys = self.keys()?;
                 super::names::local(self.context, &spaces, &mut keys, false);
                 let at = self.reserve();
-                Ok(Opened::Open(Frame::Object { at, values: Vec::with_capacity(keys.len()), keys, class: Some(class) }))
+                Ok(Opened::Open(Frame::Object {
+                    at,
+                    values: Vec::with_capacity(keys.len()),
+                    keys,
+                    class: Some(class),
+                    bare: false,
+                }))
             }
             OP_MAP => {
                 let count = self.cursor.count(2)?;
@@ -364,11 +372,12 @@ impl Reader<'_, '_> {
                 let extra = extra.map(|members| members.got).unwrap_or_default();
                 (at, Node::Array { elements, extra })
             }
-            Frame::Object { at, keys, values, class } => {
+            Frame::Object { at, keys, values, class, bare } => {
                 let fields = keys.into_iter().zip(values).collect();
-                match class {
-                    None => (at, Node::Object(fields)),
-                    Some(class) => (at, Node::Instance { class, fields }),
+                match (class, bare) {
+                    (Some(class), _) => (at, Node::Instance { class, fields }),
+                    (None, true) => (at, Node::Bare(fields)),
+                    (None, false) => (at, Node::Object(fields)),
                 }
             }
             Frame::Map { at, pairs, .. } => (at, Node::Map(pairs)),

@@ -40,6 +40,8 @@ pub(super) const OP_FN_REF: u8 = 22;
 pub(super) const OP_MAP: u8 = 23;
 pub(super) const OP_SET: u8 = 24;
 pub(super) const OP_VIEW: u8 = 25;
+/// `Object.create(null)`: OBJECT's payload, and no prototype on the way back.
+pub(super) const OP_BARE: u8 = 26;
 
 /// How deep either direction nests before it refuses.
 ///

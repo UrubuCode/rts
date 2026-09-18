@@ -91,7 +91,9 @@ fn estimate(graph: &Graph) -> usize {
         .iter()
         .map(|node| match node {
             Node::Array { elements, extra } => 4 + elements.len() * 2 + extra.len() * 4,
-            Node::Object(members) | Node::Instance { fields: members, .. } => 4 + members.len() * 4,
+            Node::Object(members) | Node::Bare(members) | Node::Instance { fields: members, .. } => {
+                4 + members.len() * 4
+            }
             Node::Map(entries) => 4 + entries.len() * 4,
             Node::Set(members) => 4 + members.len() * 2,
             Node::Buffer(bytes) | Node::NodeBuffer(bytes) | Node::View { bytes, .. } => 8 + bytes.len(),
@@ -150,8 +152,14 @@ impl Writer<'_> {
                     stack.push(Work::Value(*slot));
                 }
             }
-            Node::Object(members) => {
-                self.out.push(OP_OBJECT);
+            Node::Object(members) | Node::Bare(members) => {
+                // A second opcode rather than a flag byte on OBJECT, so that
+                // every stream written before this existed reads unchanged
+                // and the v2 golden stays what it was.
+                self.out.push(match node {
+                    Node::Bare(_) => OP_BARE,
+                    _ => OP_OBJECT,
+                });
                 varint(&mut self.out, members.len() as u64);
                 for (key, _) in members {
                     self.key(*key)?;

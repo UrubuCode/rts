@@ -17,9 +17,11 @@ pub(super) enum Shape {
     /// A function or a symbol, for the clone — see the module documentation.
     Uncloneable,
     Array(u32),
-    /// A plain object. `true` when reading its members runs user code — an
-    /// accessor, or a proxy's trap — which is what sends it outside the borrow.
-    Object(u32, bool),
+    /// A plain object. The first flag is `true` when reading its members runs
+    /// user code — an accessor, or a proxy's trap — which is what sends it
+    /// outside the borrow; the second when it has NO prototype
+    /// (`Object.create(null)`), which only the pickle keeps.
+    Object(u32, bool, bool),
     Instance(u32, ClassName),
     Map(u32),
     Set(u32),
@@ -213,7 +215,7 @@ pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy, known:
         return object_of_pickle(context, cell, known);
     }
     let calls = context.proxy_at(cell).is_some() || !context.ranked_accessors(cell).is_empty();
-    Ok(Shape::Object(cell, calls))
+    Ok(Shape::Object(cell, calls, false))
 }
 
 /// A table, which is a `Map`, a `Set` or one of the collections that are not.
@@ -260,15 +262,14 @@ fn collection(
 /// is how a `Promise`, a generator, a `URL` or a host object is refused without
 /// a list of them: each has a prototype that is neither of the two.
 fn object_of_pickle(context: &mut Context, cell: u32, known: &mut Known) -> Result<Shape, Refusal> {
-    let plain = || Ok(Shape::Object(cell, false));
+    let plain = || Ok(Shape::Object(cell, false, false));
     let Some(prototype) = context.prototype_at(cell) else {
         return with_calls(context, cell, plain());
     };
     let Some(link) = Value(prototype).as_slot() else {
-        // `Object.create(null)` — no prototype at all, which the stream writes
-        // as a plain object. The decoder gives it `Object.prototype` back; the
-        // loss is stated in `docs/engine/pickle.md`.
-        return with_calls(context, cell, plain());
+        // `Object.create(null)` — no prototype at all, which the stream keeps
+        // (BARE) so that the dictionary comes back as the dictionary it was.
+        return with_calls(context, cell, Ok(Shape::Object(cell, false, true)));
     };
     if known.object(context) == Some(link) {
         return with_calls(context, cell, plain());
@@ -290,7 +291,9 @@ fn object_of_pickle(context: &mut Context, cell: u32, known: &mut Known) -> Resu
 /// A plain object, marked for the slow read when it has an accessor.
 fn with_calls(context: &Context, cell: u32, shape: Result<Shape, Refusal>) -> Result<Shape, Refusal> {
     match shape {
-        Ok(Shape::Object(cell_at, _)) => Ok(Shape::Object(cell_at, !context.ranked_accessors(cell).is_empty())),
+        Ok(Shape::Object(cell_at, _, bare)) => {
+            Ok(Shape::Object(cell_at, !context.ranked_accessors(cell).is_empty(), bare))
+        }
         other => other,
     }
 }
