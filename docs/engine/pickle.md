@@ -400,10 +400,25 @@ way to reserve.
 **5. `Context`.** Nothing was added to it. The registry is on the heap (§3); the
 two symbols live in the shared symbol table that already existed.
 
-What was NOT done: a benchmark. This was built on debug binaries only — the
-brief forbids release builds here — so every sentence above is about the work
-the code does, not about nanoseconds. The comparison against `JSON.stringify`/
-`JSON.parse` and `structuredClone` on one graph is to be measured in release.
+**Measured in release on 2026-09-18**, `rts.exe` from the PR that brought this
+module back. The graph is a tree of 19 531 objects (depth 6, five children per
+node, with strings, numbers and small arrays). Each operation was repeated 20
+times, three runs per binary, and the numbers are per operation:
+
+| | `JSON` | `rts:serde` |
+|---|---:|---:|
+| write (`stringify` / `serialize`) | ~27 ms | ~42 ms |
+| read (`parse` / `deserialize`) | ~57 ms | ~31 ms |
+| size | 941 KB | 453 KB |
+
+`structuredClone` of the same graph: 644 ms on the main before this module,
+~47 ms after it (13x), because the walk the two now share reads each object's
+data inside one borrow (item 2). `JSON.stringify`/`JSON.parse` did not move.
+
+What these numbers do NOT say: the write is 1.5x slower than JSON's, and nothing
+here explains which part of it: a per-opcode breakdown was not taken. Startup is
+covered in §3, "The registry": the first measurement of this module found a
+quadratic cost there, and it is gone.
 
 ---
 
