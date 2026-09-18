@@ -201,7 +201,11 @@ impl Construcao<'_> {
             if e_item_de_bloco(self.dom, &item) {
                 self.fecha_corrida(contentor, id, &mut corrida);
                 match item {
-                    FlowItem::Block(n) | FlowItem::Plain(n) => self.descend(n, Some(id)),
+                    FlowItem::Block(n) => {
+                        self.descend(n, Some(id));
+                        self.tree.record_split(self.dom, n, contentor);
+                    }
+                    FlowItem::Plain(n) => self.descend(n, Some(id)),
                     // A fragment is inline-level by construction, so it never
                     // answers `true` above.
                     FlowItem::Fragment { .. } => unreachable!("a fragment is inline-level"),

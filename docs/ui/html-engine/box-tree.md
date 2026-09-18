@@ -423,6 +423,15 @@ that wants to know "is this an inline formatting context" asks the tree.
   `coluna_shrink::altura_conteudo_sem_height` does, entering anonymous boxes
   rather than skipping them. The measure cache key is therefore a
   `BoxCacheTarget` and nothing else.
+- **The DOM rect of a split inline includes the blocks that split it; the
+  hit-test rect does not.** `DisplayList::rect_of` (what `boundingRect` and
+  `boundingRectAll` read) unions the node's own boxes with
+  `BoxTree::blocks_splitting(node)` — the in-flow blocks the split moved out of
+  it — because Blink's client rects of a split inline include them (four
+  `claude-bloco-*` fixtures, Edge 153). `Geometry::rects` keeps the boxes
+  alone: it is also the hit-test table, and there the second fragment, later
+  in hit order, would steal every click on the block. `layout/rect_cliente.rs`
+  carries the reason; the paint of the inline is untouched.
 - **No formatting context is IMPLEMENTED here.** `inner` says which algorithm
   applies; running it is still `layout`'s.
 - **Whitespace is not decided here.** Which whitespace survives is a question

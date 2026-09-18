@@ -50,6 +50,7 @@ mod caixa_contentora;
 mod clearfix;
 mod dimensao_indefinida;
 mod display;
+mod rect_cliente;
 mod empilhamento;
 mod float;
 mod inline_fragmentos;
