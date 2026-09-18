@@ -241,8 +241,8 @@ pub(in crate::layout) fn collect_runs(
                 if e_display_none(dom, id) {
                     return;
                 }
-                // FLOAT a meio do fluxo: só uma âncora (`float_na_linha.rs`).
-                if let Some(ancora) = super::float_na_linha::ancora(dom, id, caixa, inherited_color) {
+                // A FLOAT in the middle of the flow: only an anchor (`float_in_line.rs`).
+                if let Some(ancora) = super::float_in_line::anchor(dom, id, caixa, inherited_color) {
                     out.push(ancora);
                     return;
                 }

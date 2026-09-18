@@ -31,7 +31,7 @@ fn header_group_first_and_footer_group_last() {
         let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
         let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
         let got = (r.x, r.y, r.w, r.h);
-        let bate = (got.0 - e.0).abs() <= TOL && (got.1 - e.1).abs() <= TOL && (got.2 - e.2).abs() <= TOL && (got.3 - e.3).abs() <= TOL;
-        assert!(bate, "{sel}: expected {e:?} (Blink), got {got:?}");
+        let matches = (got.0 - e.0).abs() <= TOL && (got.1 - e.1).abs() <= TOL && (got.2 - e.2).abs() <= TOL && (got.3 - e.3).abs() <= TOL;
+        assert!(matches, "{sel}: expected {e:?} (Blink), got {got:?}");
     }
 }

@@ -195,7 +195,7 @@ impl Superficies {
 /// indentado põe um antes e outro depois de cada elemento, e compará-los
 /// fazia um `<div>` com o `<span>` numa linha indentada parecer conteúdo
 /// partido, e perdia a caixa gerada em quase toda a página real.
-pub(in crate::layout) fn grupo_e_todo_o_dono(
+pub(in crate::layout) fn group_is_whole_owner(
     dom: &Dom,
     dono: NodeIdx,
     group: &[(NodeIdx, Option<crate::boxes::BoxId>)],

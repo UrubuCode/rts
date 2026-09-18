@@ -71,7 +71,7 @@
 
 use super::{BoxId, BoxTree};
 
-mod tabela_anonima;
+mod anonymous_table;
 use crate::dom::{Dom, NodeIdx, NodeKind};
 use crate::style::DisplayKind;
 
@@ -185,7 +185,7 @@ impl Construcao<'_> {
             || crate::boxes::context::element_formatting_context(self.dom, node).inner
                 != crate::boxes::InnerDisplay::Flow
         {
-            self.desce_filhos(node, id, children);
+            self.descend_children(node, id, children);
             return;
         }
         self.materializa_contentor(node, id, itens);

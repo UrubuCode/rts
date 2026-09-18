@@ -57,7 +57,7 @@ pub(crate) fn layout_anonymous_table(
     let css = tree.style(dom, caixa).unwrap_or_default();
     let ts = TableStyle::of(dom, None, &css, font_size, ctx);
     let g = collect(dom, tree, caixa);
-    let h = dispor_grade(dom, tree, &g, &ts, x, y, w, font_size, ctx, list);
+    let h = lay_out_grid(dom, tree, &g, &ts, x, y, w, font_size, ctx, list);
     crate::layout::record_box_rect(list, caixa, Rect::new(x, y, w, h));
     (w, h)
 }

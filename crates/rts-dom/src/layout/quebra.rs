@@ -291,8 +291,8 @@ pub(in crate::layout) fn wrap_runs(
             }
             // MARKER: largura zero, nao quebra a linha, nao consome o espaco
             // pendente -- so marca uma posicao para quem lhe quiser a caixa.
-            // A ANCORA de um float e o mesmo: ela so diz em que linha o float
-            // apareceu, e a largura dele entra pelas exclusoes, nao pela linha.
+            // A float's ANCHOR is the same: it only says which line the float
+            // appeared on; its width enters through the exclusions, not the line.
             if matches!(kind, AtomicKind::Marker | AtomicKind::Float) {
                 fechar_cluster!();
                 cur.push(Segment {

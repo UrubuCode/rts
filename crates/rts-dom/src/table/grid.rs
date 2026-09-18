@@ -40,7 +40,7 @@ pub(in crate::table) fn collect(
         };
     }
 
-    for caixa in ordem_de_exibicao(dom, tree, table) {
+    for caixa in display_order(dom, tree, table) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };
@@ -136,7 +136,7 @@ pub(in crate::table) fn collect(
 /// header or footer is displayed as an ordinary row group, in place — the
 /// spec says so, and it is also what keeps a table with two `<thead>`s from
 /// losing one.
-fn ordem_de_exibicao(
+fn display_order(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     table: crate::boxes::BoxId,

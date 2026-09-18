@@ -322,7 +322,7 @@ and a float or an absolutely positioned box is block-level (it is blockified)
 but out of flow. Asking only the outer display split
 `<span>a<div style="float:left"></div>b</span>` in three and put `b` on a line
 of its own. Such a child now stays in the inline run: a float becomes an
-ANCHOR there (`AtomicKind::Float`), and `layout/float_na_linha.rs` places it at
+ANCHOR there (`AtomicKind::Float`), and `layout/float_in_line.rs` places it at
 the top of the line it appears in when it fits — CSS 2.1 §9.5.1 — which is
 also what happens to a float that is a DIRECT child in the middle of text,
 since the block flow stopped closing the inline group on it. What an

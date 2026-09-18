@@ -39,7 +39,7 @@ pub use context::{FormattingContext, InnerDisplay, OuterDisplay};
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_tabela;
+mod tests_table;
 
 /// An index into a contiguous arena, the way `NodeIdx` already is for nodes —
 /// **plus the generation of the tree that issued it**.

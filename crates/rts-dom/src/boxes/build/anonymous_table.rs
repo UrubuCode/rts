@@ -35,8 +35,8 @@ impl Construcao<'_> {
     /// Descends into `children` of the container `node` (box `id`), wrapping
     /// every run of table parts in an anonymous table when `node` is a flow
     /// container that needs it — and descending plainly otherwise.
-    pub(super) fn desce_filhos(&mut self, node: NodeIdx, id: BoxId, children: Vec<NodeIdx>) {
-        if !self.embrulha_partes_de_tabela(node) || !children.iter().any(|&c| e_parte_de_tabela(self.dom, c)) {
+    pub(super) fn descend_children(&mut self, node: NodeIdx, id: BoxId, children: Vec<NodeIdx>) {
+        if !self.wraps_table_parts(node) || !children.iter().any(|&c| is_table_part_child(self.dom, c)) {
             for child in children {
                 self.descend(child, Some(id));
             }
@@ -44,7 +44,7 @@ impl Construcao<'_> {
         }
         let mut i = 0;
         while i < children.len() {
-            if !e_parte_de_tabela(self.dom, children[i]) {
+            if !is_table_part_child(self.dom, children[i]) {
                 self.descend(children[i], Some(id));
                 i += 1;
                 continue;
@@ -55,9 +55,9 @@ impl Construcao<'_> {
             let mut fim = i + 1;
             let mut j = i + 1;
             while j < children.len() {
-                if e_parte_de_tabela(self.dom, children[j]) {
+                if is_table_part_child(self.dom, children[j]) {
                     fim = j + 1;
-                } else if !so_espaco(self.dom, children[j]) {
+                } else if !is_collapsible_space(self.dom, children[j]) {
                     break;
                 }
                 j += 1;
@@ -72,7 +72,7 @@ impl Construcao<'_> {
 
     /// Does `node` wrap misparented table parts at all? A flow container that
     /// is not itself a table part, and not an inline box.
-    fn embrulha_partes_de_tabela(&self, node: NodeIdx) -> bool {
+    fn wraps_table_parts(&self, node: NodeIdx) -> bool {
         let Some(css) = self.dom.computed_style_idx(node) else { return false };
         let display = css.effective_display();
         // A table cell is a flow container for its CONTENT, although
@@ -92,7 +92,7 @@ impl Construcao<'_> {
 /// A table part that needs a table above it: a row group, a row, a cell or a
 /// caption. Floats and absolutely positioned boxes are blockified and are none
 /// of these, which `effective_display` already says.
-fn e_parte_de_tabela(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
+fn is_table_part_child(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
     if !matches!(dom.node(node).kind, NodeKind::Element { .. }) {
         return false;
     }
@@ -111,7 +111,7 @@ fn e_parte_de_tabela(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
 
 /// Collapsible whitespace or a comment: what may sit between two table parts
 /// of one run without ending it (§17.2.1 rule 1 drops it inside a table).
-fn so_espaco(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
+fn is_collapsible_space(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
     match &dom.node(node).kind {
         NodeKind::Text(t) => t.trim().is_empty(),
         NodeKind::Comment(_) => true,

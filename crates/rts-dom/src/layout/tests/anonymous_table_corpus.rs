@@ -11,15 +11,15 @@ use crate::table::tests::geometria;
 /// Corpus tolerance (`tests/css/README.md`): 1px.
 const TOL: f32 = 1.0;
 
-fn afirma(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+fn assert_rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, expected: (f32, f32, f32, f32)) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     let got = (r.x, r.y, r.w, r.h);
-    let bate = (got.0 - esperado.0).abs() <= TOL
-        && (got.1 - esperado.1).abs() <= TOL
-        && (got.2 - esperado.2).abs() <= TOL
-        && (got.3 - esperado.3).abs() <= TOL;
-    assert!(bate, "{sel}: expected {esperado:?} (Blink), got {got:?}");
+    let matches = (got.0 - expected.0).abs() <= TOL
+        && (got.1 - expected.1).abs() <= TOL
+        && (got.2 - expected.2).abs() <= TOL
+        && (got.3 - expected.3).abs() <= TOL;
+    assert!(matches, "{sel}: expected {expected:?} (Blink), got {got:?}");
 }
 
 #[test]
@@ -50,6 +50,6 @@ fn table_parts_without_a_table_get_an_anonymous_one() {
         ("#e2", (60.0, 164.0, 60.0, 30.0)),
         ("#fim", (0.0, 208.0, 1280.0, 10.0)),
     ] {
-        afirma(&dom, &list, sel, r);
+        assert_rect(&dom, &list, sel, r);
     }
 }

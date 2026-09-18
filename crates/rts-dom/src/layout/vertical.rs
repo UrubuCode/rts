@@ -183,10 +183,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 flush_ib!($y);
             }
             if !inline_group.is_empty() {
-                // NÃO desce abaixo dos floats: as linhas CONTORNAM-NOS. A
-                // referência e não uma cópia: um float que aparece A MEIO do
-                // grupo é colocado lá dentro (`float_na_linha.rs`) e tem de
-                // chegar aos irmãos que vêm a seguir.
+                // Does NOT move below the floats: the lines go AROUND them. The
+                // reference and not a copy: a float that appears in the MIDDLE
+                // of the group is placed in there (`float_in_line.rs`) and has
+                // to reach the siblings that come after.
                 $y = layout_inline_flow(
                     dom,
                     id,
@@ -519,17 +519,18 @@ pub(in crate::layout) fn layout_children_vertical(
             // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
             // pintado na passada out-of-flow de layout_document.
             NodeKind::Element { .. } if child_out => {}
-            // FLOAT a meio de TEXTO: entra no grupo inline como âncora, e é o
-            // fluxo inline que o põe no topo da linha em que aparece (CSS 2.1
-            // §9.5.1). Fechar o grupo aqui punha-o abaixo da última linha e o
-            // texto de depois numa linha nova — `<div>antes<float/>depois</div>`
-            // em duas linhas onde o Blink dá uma. Sem texto pendente, o ramo de
-            // baixo dá o mesmo sítio, e continua a ser ele a decidir.
+            // A FLOAT in the middle of TEXT joins the inline group as an
+            // anchor, and the inline flow puts it at the top of the line it
+            // appears in (CSS 2.1 §9.5.1). Closing the group here put it below
+            // the last line and the text after it on a new line —
+            // `<div>before<float/>after</div>` in two lines where Blink gives
+            // one. With no text pending, the branch below gives the same place,
+            // and it stays the one deciding.
             NodeKind::Element { .. }
                 if child_float != crate::style::FloatSide::None
                     && caixa_do_filho.is_some()
                     && ib_run.is_empty()
-                    && grupo_tem_conteudo(dom, &inline_group) =>
+                    && group_has_content(dom, &inline_group) =>
             {
                 inline_group.push((child, caixa_do_filho));
             }
@@ -538,8 +539,8 @@ pub(in crate::layout) fn layout_children_vertical(
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
                 let caixa_float = caixa_do_filho.expect("um float tem uma caixa");
-                let medida = super::float_colocar::mede_float(dom, &arvore, child, caixa_float, content_w, avail_h, css, font_size, ctx);
-                super::float_colocar::coloca_float(dom, child, caixa_float, child_float, medida, child_y, content_x, content_w, avail_h, bfc, ctx, list);
+                let medida = super::float_placement::measure_float(dom, &arvore, child, caixa_float, content_w, avail_h, css, font_size, ctx);
+                super::float_placement::place_float(dom, child, caixa_float, child_float, medida, child_y, content_x, content_w, avail_h, bfc, ctx, list);
                 // float quebra a sequência de collapse
                 borda = child_y;
                 strut = (0.0, 0.0);
@@ -719,9 +720,10 @@ pub(in crate::layout) fn layout_children_vertical(
     (child_y - content_y).max(0.0)
 }
 
-/// O grupo inline pendente tem algo além de espaço que colapsa? É a pergunta
-/// que decide se um float a seguir aparece A MEIO de uma linha ou antes dela.
-fn grupo_tem_conteudo(dom: &Dom, grupo: &[(NodeIdx, Option<BoxId>)]) -> bool {
+/// Does the pending inline group hold anything besides collapsible space? The
+/// question that decides whether a following float appears in the MIDDLE of a
+/// line or before it.
+fn group_has_content(dom: &Dom, grupo: &[(NodeIdx, Option<BoxId>)]) -> bool {
     grupo.iter().any(|&(n, _)| match &dom.node(n).kind {
         NodeKind::Text(t) => !t.trim().is_empty(),
         NodeKind::Comment(_) => false,

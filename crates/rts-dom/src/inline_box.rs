@@ -55,12 +55,13 @@ pub(crate) enum AtomicKind {
     /// e nada nas seguintes, como o Blink.
     ArestaInicio,
     ArestaFim,
-    /// A ÂNCORA de um float que aparece a meio do fluxo inline: largura zero,
-    /// sem caixa na linha, e sem pintura nela. Só diz EM QUE LINHA o float
-    /// apareceu — o CSS 2.1 §9.5.1 põe o topo dele no topo dessa linha, se
-    /// couber no que ela ainda tem livre — e é `float_na_linha.rs` quem o
-    /// coloca. A largura entra pelas exclusões do BFC, que é o que encurta a
-    /// linha, e nunca pela soma dos segmentos.
+    /// The ANCHOR of a float that appears in the middle of the inline flow:
+    /// zero width, no box on the line and nothing painted there. It only says
+    /// WHICH LINE the float appeared on — CSS 2.1 §9.5.1 puts its top at that
+    /// line's top when it fits in what the line still has free — and
+    /// `float_in_line.rs` places it. Its width enters through the BFC's
+    /// exclusions, which is what shortens the line, never through the sum of
+    /// the segments.
     Float,
 }
 

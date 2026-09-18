@@ -21,11 +21,11 @@
 //!   sua altura é cobrada à ÚLTIMA linha que atravessa. É onde o browser a cobra
 //!   quando as linhas não têm altura própria, que é o caso normal.
 
-mod anonima;
+mod anonymous;
 mod grid;
 pub(in crate::table) mod widths;
 
-pub(crate) use anonima::{anonymous_table_widths, layout_anonymous_table};
+pub(crate) use anonymous::{anonymous_table_widths, layout_anonymous_table};
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -246,7 +246,7 @@ pub(crate) fn layout_table(
     let tree = std::rc::Rc::clone(&list.tree);
     let g = collect(dom, &tree, caixa);
     let ts = TableStyle::of(dom, Some(id), css, font_size, ctx);
-    dispor_grade(dom, &tree, &g, &ts, content_x, content_y, content_w, font_size, ctx, list)
+    lay_out_grid(dom, &tree, &g, &ts, content_x, content_y, content_w, font_size, ctx, list)
 }
 
 /// Lays out a grid already COLLECTED, inside a content box already sized, and
@@ -254,7 +254,7 @@ pub(crate) fn layout_table(
 /// and the anonymous table (`anonima.rs`), which differ only in where the grid
 /// and the width come from.
 #[allow(clippy::too_many_arguments)]
-fn dispor_grade(
+fn lay_out_grid(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     g: &Grid,

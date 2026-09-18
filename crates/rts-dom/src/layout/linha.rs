@@ -42,9 +42,9 @@ pub(in crate::layout) fn layout_inline_flow(
     // lá dentro. Parar de empurrar o bloco sem encurtar as linhas trocava um
     // erro de posição por texto pintado por baixo da figura. Ver [`Exclusao`].
     //
-    // O BFC e não uma cópia das exclusões: um float que aparece A MEIO deste
-    // fluxo é colocado aqui (`float_na_linha.rs`) e tem de chegar aos irmãos
-    // que vêm depois, como o de um filho directo chega.
+    // The BFC and not a copy of its exclusions: a float that appears in the
+    // MIDDLE of this flow is placed here (`float_in_line.rs`) and has to reach
+    // the siblings that come after, as a direct child's float does.
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -53,7 +53,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
-    let dono_inteiro = inline_fragmentos::grupo_e_todo_o_dono(dom, dono, group);
+    let dono_inteiro = inline_fragmentos::group_is_whole_owner(dom, dono, group);
     let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
     if dono_inteiro {
         runs.extend(pseudo_run(
@@ -159,9 +159,9 @@ pub(in crate::layout) fn layout_inline_flow(
             ahem, ctx.measurer,
         )
     };
-    // Os floats que aparecem A MEIO deste fluxo põem-se ANTES da quebra final:
-    // cada um encurta as linhas que atravessa. Ver `float_na_linha.rs`.
-    super::float_na_linha::coloca_ancorados(dom, &arvore, &runs, &quebrar, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
+    // Floats that appear in the MIDDLE of this flow are placed BEFORE the final
+    // line breaking: each shortens the lines it crosses. See `float_in_line.rs`.
+    super::float_in_line::place_anchored_floats(dom, &arvore, &runs, &quebrar, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
     // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
     if runs.iter().all(|r| {
         r.text.trim().is_empty()
@@ -341,10 +341,10 @@ pub(in crate::layout) fn layout_inline_flow(
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
             if let Some((a_idx, caixa, kind)) = seg.atomic {
-                // A âncora de um float não tem nada na linha: o float já foi
-                // disposto por `float_na_linha`, e nem a caixa dele nem a dos
-                // inlines à volta passam por aqui — o Blink deixa-o fora dos
-                // client rects do inline que o contém.
+                // A float's anchor has nothing on the line: the float was laid
+                // out by `float_in_line`, and neither its box nor the boxes of
+                // the inlines around it pass through here — Blink leaves it out
+                // of the client rects of the inline that contains it.
                 if kind == AtomicKind::Float {
                     continue;
                 }
