@@ -1921,14 +1921,14 @@
       "estado": "passa"
     },
     {
-      "nome": "balance/balance-line-count-intrinsic-002",
-      "estado": "falha",
-      "pct": 2.34375
-    },
-    {
       "nome": "balance/balance-line-count-intrinsic-001",
       "estado": "falha",
       "pct": 0.5859375
+    },
+    {
+      "nome": "balance/balance-line-count-intrinsic-002",
+      "estado": "falha",
+      "pct": 2.34375
     },
     {
       "nome": "balance/balance-line-count-intrinsic-003",
@@ -1973,13 +1973,13 @@
       "estado": "passa"
     },
     {
-      "nome": "balance/balance-min-line-count-006",
-      "estado": "passa"
-    },
-    {
       "nome": "balance/balance-min-line-count-005",
       "estado": "falha",
       "pct": 0.078125
+    },
+    {
+      "nome": "balance/balance-min-line-count-006",
+      "estado": "passa"
     },
     {
       "nome": "balance/balance-min-line-count-007",
@@ -3036,11 +3036,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-003",
+      "nome": "flexbox-baseline-multi-line-horiz-002",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-002",
+      "nome": "flexbox-baseline-multi-line-horiz-003",
       "estado": "passa"
     },
     {
@@ -3150,11 +3150,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-004",
+      "nome": "flexbox-definite-sizes-003",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-definite-sizes-003",
+      "nome": "flexbox-definite-sizes-004",
       "estado": "passa"
     },
     {
@@ -3840,11 +3840,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-1-0",
+      "nome": "flexbox_flex-1-1-0-unitless",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-1-1-0-unitless",
+      "nome": "flexbox_flex-1-0",
       "estado": "passa"
     },
     {
@@ -4127,11 +4127,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_item-clear",
+      "nome": "flexbox_item-float",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_item-float",
+      "nome": "flexbox_item-clear",
       "estado": "passa"
     },
     {
@@ -4453,13 +4453,13 @@
       "estado": "passa"
     },
     {
-      "nome": "gap-005-ltr",
-      "estado": "passa"
-    },
-    {
       "nome": "gap-005-rl",
       "estado": "falha",
       "pct": 0.228515625
+    },
+    {
+      "nome": "gap-005-ltr",
+      "estado": "passa"
     },
     {
       "nome": "gap-005-rtl",
@@ -5221,11 +5221,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
