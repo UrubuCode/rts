@@ -1,13 +1,13 @@
 {
   "date": "2026-09-18",
   "fixtures": {
-    "passing": 155,
-    "total": 155,
-    "pct": 100
+    "passing": 158,
+    "total": 159,
+    "pct": 99.4
   },
   "measurements": {
-    "matching": 3532,
-    "total": 3532,
+    "matching": 3611,
+    "total": 3612,
     "pct": 100
   },
   "wpt": {
@@ -156,6 +156,10 @@
     {
       "fixture": "claude-controlos-tamanho-natural.html",
       "razao": "lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel` (`<select>` sem opções) não — `<select>` não passa por `layout_input` (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`), por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`). Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a sua própria caixa."
+    },
+    {
+      "fixture": "claude-absoluto-dentro-do-inline-nao-parte.html",
+      "razao": "BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não: o Blink põe um absoluto que era de BLOCO a seguir à caixa de linha (y=20); `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e não há caixa de linha guardada que diga onde a linha acaba (lote IFC)."
     }
   ],
   "dom_lots": {

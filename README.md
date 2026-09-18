@@ -222,8 +222,8 @@ _V8 348a6116c · corpus inteiro · 2026-09-15_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   3532/3532 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   155/155 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   3611/3612 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.4%   158/159 fixtures passing
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱] 67.2%   585/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
@@ -276,6 +276,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-ua-form-disabled.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 - `claude-ua-headings.html` — folha de UA (lote I): largura de texto a negrito e de controlos no medidor aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
 - `claude-controlos-tamanho-natural.html` — lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel` (`<select>` sem opções) não — `<select>` não passa por `layout_input` (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`), por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`). Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a sua própria caixa.
+- `claude-absoluto-dentro-do-inline-nao-parte.html` — BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não: o Blink põe um absoluto que era de BLOCO a seguir à caixa de linha (y=20); `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e não há caixa de linha guardada que diga onde a linha acaba (lote IFC).
 
 **DOM engine state** (`crates/rts-dom/PLAN.md` §0): **70/96 lots done**, 13 partial, pending: Q, U, V–Y, BT-4, BT-5, TEXTO, BR, DISP, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
