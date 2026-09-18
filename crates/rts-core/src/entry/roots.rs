@@ -165,7 +165,7 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // A tail call between its record and its door. Nothing allocates in that
     // window today; this is what keeps that a fact about the code and not the
     // collector's safety.
-    words.extend(context.pending_tail.iter().flat_map(|call| call.words()));
+    words.extend(super::tail_call::pending_words().iter().flat_map(|call| call.words()));
     // Only the target half is a value: the number beside it is an activation
     // depth, and offering it here would ask the filter to decide whether a
     // small integer is a reference — which is exactly the question a root scan

@@ -45,10 +45,35 @@
 //! `new.target` to a function that was CALLED. Settling in the door, after its
 //! own pops, is what makes the callee's activation an ordinary call.
 
+use std::cell::Cell;
+
 use super::functions::{Spelling, invoke};
 use super::objects::undefined_of;
 use super::with_current;
 use crate::value::Value;
+
+thread_local! {
+    /// Whether a tail call is recorded: the discriminant of the slot below.
+    ///
+    /// # Why this is not a field of `Context`, where it first lived
+    ///
+    /// Because every door asks it after EVERY call, and the answer is almost
+    /// always no. As an `Option<TailCall>` inside `Context`, the question cost
+    /// a move of the whole record inside the door's borrow, and the eighty
+    /// bytes it added to `Context` moved the fields the call path reads. On
+    /// 2026-09-18 that measured +8–12 % per call through the runtime
+    /// (`bench/analytic.ts`, `call 0 args` 21.8 → 24.4 ns, release, three
+    /// interleaved runs against the tree without it). Here the question is
+    /// one thread-local load, the same move `current.rs` made for the throw
+    /// in flight.
+    ///
+    /// It is not a flag beside a real slot: it IS the slot's `Option`
+    /// discriminant, and [`take`] derives the `Option` from it — one source,
+    /// like `InFlight::live`.
+    static LIVE: Cell<bool> = const { Cell::new(false) };
+    /// The recorded call, meaningful only while [`LIVE`].
+    static CALL: Cell<TailCall> = const { Cell::new(TailCall::NONE) };
+}
 
 /// A tail call recorded and not yet made.
 ///
@@ -64,6 +89,15 @@ pub struct TailCall {
 }
 
 impl TailCall {
+    /// The contents of an empty slot; never read while it is empty.
+    const NONE: Self = TailCall {
+        callee: 0,
+        this: 0,
+        count: 0,
+        name: 0,
+        arguments: [0; super::functions::ARGUMENT_SLOTS],
+    };
+
     /// Every word of this record that may be a reference, for the collector.
     ///
     /// `count` and `name` are numbers the compiler wrote, never values, so
@@ -95,39 +129,61 @@ pub fn tail_call(
     a3: u64,
 ) -> u64 {
     let slots = super::functions::ARGUMENT_SLOTS as i64;
-    with_current(|context| {
-        // Two records at once would mean an activation returned without
-        // its door settling — the one invariant the whole scheme stands on.
-        debug_assert!(context.pending_tail.is_none(), "an unsettled tail call");
-        context.pending_tail = Some(TailCall {
+    // Two records at once would mean an activation returned without its door
+    // settling — the one invariant the whole scheme stands on.
+    debug_assert!(!LIVE.with(Cell::get), "an unsettled tail call");
+    CALL.with(|slot| {
+        slot.set(TailCall {
             callee,
             this,
             count: count.clamp(0, slots) as usize,
             name,
             arguments: [a0, a1, a2, a3],
-        });
-        undefined_of(context)
-    })
+        })
+    });
+    LIVE.with(|live| live.set(true));
+    with_current(|context| undefined_of(context))
+}
+
+/// The recorded call, if any, emptying the slot. One load when there is none.
+#[inline]
+pub(super) fn take() -> Option<TailCall> {
+    if !LIVE.with(Cell::get) {
+        return None;
+    }
+    LIVE.with(|live| live.set(false));
+    Some(CALL.with(Cell::get))
+}
+
+/// Every word of a recorded call that may be a reference, for the collector.
+pub(super) fn pending_words() -> Option<TailCall> {
+    LIVE.with(Cell::get).then(|| CALL.with(Cell::get))
 }
 
 /// What an activation that just returned `produced` REALLY answered.
 ///
 /// `produced` itself when it made no tail call; otherwise the answer of the
 /// call it recorded, and of the one THAT recorded, for as long as the chain
-/// runs — iteratively, so its length costs no stack.
+/// runs — iteratively, so its length costs no stack. Every door calls this
+/// after popping what it pushed, and the common answer is one load.
+#[inline]
 pub(super) fn settle(produced: u64) -> u64 {
-    let pending = with_current(|context| context.pending_tail.take());
-    settle_taken(produced, pending)
+    match take() {
+        None => produced,
+        Some(next) => settle_chain(next),
+    }
 }
 
-/// [`settle`], for a door that already took the record inside the borrow it
-/// pops its own stacks in — which is `called` and `call_with_args`, the two
-/// every call goes through, so that an activation making no tail call pays a
-/// move inside a borrow it was taking anyway rather than a borrow of its own.
+/// The chain itself, out of line so the door's common path stays a load and a
+/// branch.
 ///
 /// Each call pushes the argument vector and count an ordinary call pushes, so
 /// the callee reads its own `arguments` and not the finished activation's.
-pub(super) fn settle_taken(mut produced: u64, mut pending: Option<TailCall>) -> u64 {
+#[cold]
+#[inline(never)]
+fn settle_chain(first: TailCall) -> u64 {
+    let mut pending = Some(first);
+    let mut produced = 0;
     while let Some(next) = pending {
         // The one refusal `called` makes before its jump, made here for the
         // same reason: `return C()` of a class is the `TypeError` it would be
@@ -150,11 +206,11 @@ pub(super) fn settle_taken(mut produced: u64, mut pending: Option<TailCall>) -> 
         let [a0, a1, a2, a3] = next.arguments;
         let spelling = Spelling::Literal(next.name);
         produced = invoke(next.callee, next.this, spelling, a0, a1, a2, a3);
-        pending = with_current(|context| {
+        with_current(|context| {
             context.pending_arguments.pop();
             context.pending_counts.pop();
-            context.pending_tail.take()
         });
+        pending = take();
     }
     produced
 }

@@ -492,12 +492,11 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
         first[2],
         first[3],
     );
-    let pending = with_current(|context| {
+    with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
-        context.pending_tail.take()
     });
-    super::tail_call::settle_taken(produced, pending)
+    super::tail_call::settle(produced)
 }
 
 /// `function f(a, ...rest)` — the arguments past the declared ones.
@@ -741,12 +740,11 @@ fn called(
     // ever asks — so `invoke` resolves it in the branch that raises, and the
     // successful call pays a register.
     let produced = invoke(callee, this, Spelling::Literal(name), a0, a1, a2, a3);
-    let pending = with_current(|context| {
+    with_current(|context| {
         context.pending_arguments.pop();
         context.pending_counts.pop();
-        context.pending_tail.take()
     });
-    super::tail_call::settle_taken(produced, pending)
+    super::tail_call::settle(produced)
 }
 
 /// The jump itself, with no argument vector of its own.
