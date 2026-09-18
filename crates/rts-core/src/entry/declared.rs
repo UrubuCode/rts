@@ -204,9 +204,8 @@ pub fn render() -> String {
          // nothing derives their signatures and they are absent rather than\n\
          // guessed at.\n\n",
     );
-    for class in CLASSES {
-        out.push_str(&declaration(class));
-    }
+    out.extend(CLASSES.iter().map(declaration));
+    out.push_str(&super::operators_declaration());
     out
 }
 

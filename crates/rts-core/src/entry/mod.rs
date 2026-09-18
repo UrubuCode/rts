@@ -169,12 +169,12 @@ pub use objects::{
 };
 pub use promise::{async_start, drain_microtasks, promise_await, promise_new, promise_settle, settled};
 pub use operators::{
-    divide, greater, greater_equal, less, less_equal, loose_equals, multiply, number_remainder,
-    remainder, subtract,
+    divide, greater, greater_equal, less, less_equal, loose_equals, multiply, negate, number_remainder,
+    overload::{operators_declaration, operators_namespace}, remainder, subtract, unary_plus,
 };
 pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
 pub use primitive::string_for_host;
-pub use bigint_class::{bigint_new, negate};
+pub use bigint_class::bigint_new;
 pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
@@ -232,13 +232,6 @@ use crate::heap::{Aside, Slab, Slot};
 use crate::text::{Interner, Str};
 use crate::value::Singletons;
 
-/// The names the runtime asks for BY NAME on a path that runs per operation.
-///
-/// On this list because a measurement put them here, not because they are
-/// special: `Context::well_known` remembers exactly these and interns
-/// everything else, and moving a name on or off changes only the cost.
-/// `length` is asked before every property write, `prototype` by every `new`,
-/// and the last three are stamped onto every typed array as it is built.
 /// Which inline slot of a string's cell holds its length.
 ///
 /// Slot zero is the slab position the text lives at. Slot one is the length,
@@ -253,6 +246,12 @@ use crate::value::Singletons;
 pub const TEXT_LENGTH_SLOT: u32 = 1;
 
 /// The names the runtime asks for BY NAME on a path that runs per operation.
+///
+/// On this list because a measurement put them here, not because they are
+/// special: `Context::well_known` remembers exactly these and interns
+/// everything else, and moving a name on or off changes only the cost.
+/// `length` is asked before every property write, `prototype` by every `new`,
+/// and the last three are stamped onto every typed array as it is built.
 pub const CACHED_KEYS: [&str; 20] = [
     "length",
     "prototype",
@@ -678,6 +677,8 @@ pub struct Context {
     /// means.
     promises: promise::Machine,
     symbols: symbol::Symbols,
+    /// `rts`'s operator symbols; `None` skips every check. Boxed: see `overload.rs`.
+    pub(in crate::entry) operators: Option<Box<operators::overload::Operators>>,
     /// What each declared class registered as, once it has been asked for.
     ///
     /// A list rather than a field per class, and the reason is
@@ -1204,7 +1205,6 @@ pub struct Context {
 }
 
 impl Context {
-    /// A context holding nothing.
     /// A context around a heap that already exists.
     ///
     /// The region has to come from outside, and the reason is the whole of why
@@ -1307,6 +1307,7 @@ impl Context {
             classes: Vec::new(),
             promises: promise::Machine::in_region(region_index),
             symbols: symbol::Symbols::new(),
+            operators: None,
             globals: None,
             string_prototype: None,
             array_prototype: None,
@@ -1387,5 +1388,4 @@ impl Context {
         // against the old one. Growing is the collector's job.
         Self::over(singletons, kinds, crate::heap::Region::with_capacity(1 << 16))
     }
-
 }

@@ -454,50 +454,6 @@ pub(super) fn as_f64(context: &Context, value: u64) -> Option<f64> {
     super::bigints::digits_of(context, value).map(BigInt::to_f64)
 }
 
-/// `-x` where `x` is a bigint.
-///
-/// # Why unary minus is its own entry point
-///
-/// It was emitted as `x * -1`, which is exactly right for a double and exactly
-/// wrong here: `-1` is a **number**, so a bigint operand made the multiply a
-/// mixed operation — which the language refuses and this answers `NaN` for. So
-/// `-1n` was `NaN`, and with it every negative literal, `BigInt.asIntN` reading
-/// back, and `-1n & 3n`.
-///
-/// Negating a double directly is also better than multiplying: `-0.0` comes out
-/// of `0.0 * -1.0` correctly but through a multiply nobody needed.
-#[rtse::entry]
-pub fn negate(value: u64) -> u64 {
-    // Um bigint e um numero ja pronto respondem dentro de UM emprestimo, que e
-    // o caminho de toda a aritmetica compilada.
-    enum Held {
-        Big(BigInt),
-        Number(f64),
-        /// Um objeto: `ToPrimitive` chama codigo do utilizador, e isso nao pode
-        /// acontecer com o contexto emprestado.
-        Ask,
-    }
-    let held = with_current(|context| {
-        if let Some(held) = super::bigints::digits_of(context, value).map(BigInt::neg) {
-            return Held::Big(held);
-        }
-        match super::operators::as_number(context, Value(value)) {
-            Some(number) => Held::Number(number),
-            None => Held::Ask,
-        }
-    });
-    let number = match held {
-        Held::Big(held) => return with_current(|context| context.bigint_value(held)),
-        Held::Number(number) => number,
-        // `as_number` respondia `None` e o `unwrap_or(f64::NAN)` transformava
-        // isso em `NaN` — entao `-{valueOf(){return 5}}` era `NaN` e `-[]` era
-        // `NaN` em vez de `-0`. O `+x` unario ja fazia isto certo pelo caminho
-        // de fora do emprestimo; era so o `-x` que decidia sozinho.
-        Held::Ask => super::class_support::to_number(value),
-    };
-    Value::from_f64(-number).bits()
-}
-
 /// Which operation a caller wants.
 #[derive(Clone, Copy)]
 pub(super) enum Op {

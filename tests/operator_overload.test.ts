@@ -1,69 +1,86 @@
 import { describe, test, expect } from "rts:test";
+import { operators } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
+// Operator overloading is OPT-IN, by symbols only `rts` hands out
+// (docs/engine/operator-overloading.md). The engine this one replaced turned
+// `a + b` into `a.add(b)` whenever a method called `add` existed — which is
+// not JavaScript, and broke `set + ""` for every `Set`. Here a class answers an
+// operator only if it declares `[operators.add]`; one that does not is
+// answered by the specification, exactly as Node answers it.
 class Vec2 {
-  x: i32;
-  y: i32;
-  constructor(x: i32, y: i32) {
+  x: number;
+  y: number;
+  constructor(x: number, y: number) {
     this.x = x;
     this.y = y;
   }
-  add(other: Vec2): Vec2 {
+  [operators.add](other: Vec2, reversed: boolean): Vec2 {
     return new Vec2(this.x + other.x, this.y + other.y);
   }
-  sub(other: Vec2): Vec2 {
-    return new Vec2(this.x - other.x, this.y - other.y);
+  [operators.sub](other: Vec2, reversed: boolean): Vec2 {
+    return reversed
+      ? new Vec2(other.x - this.x, other.y - this.y)
+      : new Vec2(this.x - other.x, this.y - other.y);
   }
-  mul(k: i32): Vec2 {
+  // `a * 5` asks `a` with `reversed = false`; `5 * a` asks `a` with
+  // `reversed = true`, because a number declares nothing.
+  [operators.mul](k: number, reversed: boolean): Vec2 {
     return new Vec2(this.x * k, this.y * k);
   }
-  eq(other: Vec2): i32 {
-    return this.x == other.x && this.y == other.y ? 1 : 0;
+  [operators.eq](other: Vec2, reversed: boolean): boolean {
+    return this.x === other.x && this.y === other.y;
   }
   describe(): void {
     print(`(${this.x}, ${this.y})`);
   }
 }
 
-const a: Vec2 = new Vec2(1, 2);
-const b: Vec2 = new Vec2(3, 4);
+// The same fields and no symbol: the operator is JavaScript's.
+class Plain {
+  x: number;
+  constructor(x: number) {
+    this.x = x;
+  }
+}
 
-// JavaScript has no operator overloading for classes — confirmed against
-// Node v20 (`node -e`): `a + b` for two plain objects never calls a method
-// named `add`, it runs ToPrimitive (no `valueOf`/`Symbol.toPrimitive` here,
-// so the default — string concatenation of "[object Object]" twice) exactly
-// like `a - b` would run `ToNumber` and answer `NaN`. This file used to
-// write `a + b` and assert it returned a `Vec2`, which is not something any
-// JS engine does; the previous "pass" was this engine wrongly special-casing
-// `+`/`-`/`*`/`==` between two class instances into a method dispatch. That
-// was reverted (see class methods below, called explicitly) and this test
-// now pins BOTH the real way to combine two `Vec2`s (an ordinary method) and
-// the real behaviour of the bare operator (default `ToPrimitive`).
-const c: Vec2 = a.add(b);
+const a = new Vec2(1, 2);
+const b = new Vec2(3, 4);
+
+const c: Vec2 = (a as any) + (b as any);
 c.describe();
 
-const d: Vec2 = b.sub(a);
+const d: Vec2 = (b as any) - (a as any);
 d.describe();
 
-const e: Vec2 = a.mul(5);
+const e: Vec2 = (a as any) * 5;
 e.describe();
 
-const f: Vec2 = new Vec2(4, 6);
-print(`c == f: ${c.eq(f)}`);
-print(`c == a: ${c.eq(a)}`);
+const g: Vec2 = 5 * (a as any);
+g.describe();
 
-// The raw operator, unmodified: default `ToPrimitive` string concatenation,
-// same as Node.
-print(`a + b (raw): ${a + b}`);
+const f = new Vec2(4, 6);
+print(`c == f: ${(c as any) == (f as any)}`);
+print(`c == a: ${(c as any) == (a as any)}`);
+print(`c != a: ${(c as any) != (a as any)}`);
+// `===` is identity, never overloaded.
+print(`c === f: ${c === f}`);
+
+// A class WITHOUT the symbol: default `ToPrimitive`, same as Node.
+const p = new Plain(1);
+const q = new Plain(2);
+print(`plain + plain: ${(p as any) + (q as any)}`);
 
 describe("fixture:operator_overload", () => {
-  test("no operator overloading in JS — .add/.sub/.mul/.eq are ordinary methods, `+` is default ToPrimitive", () => {
+  test("[operators.*] answers + - * == for Vec2; a class without it keeps ToPrimitive", () => {
     expect(__rtsCapturedOutput).toBe(
-      "(4, 6)\n(2, 2)\n(5, 10)\nc == f: 1\nc == a: 0\na + b (raw): [object Object][object Object]\n"
+      "(4, 6)\n(2, 2)\n(5, 10)\n(5, 10)\n" +
+        "c == f: true\nc == a: false\nc != a: true\nc === f: false\n" +
+        "plain + plain: [object Object][object Object]\n"
     );
   });
 });
