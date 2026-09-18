@@ -1020,8 +1020,8 @@ fn emit_body_into(
         // DECLARED only where this function owns the name. A derived constructor
         // does: `this` does not exist in one until `super()` returns, so the
         // slot is seeded with what the caller passed — `undefined` — rather than
-        // left absent, so a read before `super()` answers the same `undefined`
-        // the language's ReferenceError would have been about.
+        // left absent: `undefined` is the "not yet" that `binding::this_binding`
+        // turns into the language's ReferenceError.
         //
         // An ARROW does NOT. It borrows the enclosing function's, and declaring
         // here would seed a fresh local from the arrow's own receiver and shadow
@@ -1030,7 +1030,7 @@ fn emit_body_into(
         if !captures_this {
             binding::declare(&mut builder, &mut scope, ctx, name, receiver)?;
         }
-        scope.bind_this_late(name);
+        scope.bind_this_late(name, !captures_this);
     }
 
     // A named function expression binds its OWN name, BEFORE the parameters.
@@ -1205,12 +1205,12 @@ fn emit_body_into(
         super::common_js::emit_epilogue(&mut builder, &scope, ctx, body, specifier, &declared)?;
     }
     if !terminated {
-        // A derived constructor answers its `this`, not `undefined`. That is
-        // what `construct` takes back — it allocated nothing, so what the callee
-        // returns IS the instance — and a body falling off its end is the
-        // ordinary way a constructor is written.
-        let answer = match late_this {
-            Some(name) => binding::read(&mut builder, &scope, ctx, name)?,
+        // A derived constructor answers its `this` (what `construct` takes back
+        // as the instance, having allocated none), and throws if `super()` never
+        // made one. `derived_this`, because an ARROW borrowing the name is not
+        // the constructor: its fall-off is `undefined`.
+        let answer = match scope.derived_this() {
+            Some(name) => binding::this_binding(&mut builder, &scope, ctx, name)?,
             None => expr::undefined(&mut builder, ctx),
         };
         builder.ret(&[answer]);

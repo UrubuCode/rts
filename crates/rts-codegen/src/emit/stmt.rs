@@ -53,6 +53,8 @@ pub fn emit_stmt(
                 // produces something.
                 None => undefined(builder, ctx),
             };
+            // In a derived constructor an `undefined` answer means `this`.
+            let result = super::binding::derived_return(builder, scope, ctx, result)?;
             // Through the innermost enclosing `finally`, when there is one. See
             // [`Ctx::finally_returns`] for why the machine's cleanup cannot
             // answer this path.

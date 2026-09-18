@@ -1005,7 +1005,7 @@ pub(super) fn current_receiver(
     ctx: &mut Ctx,
 ) -> EmitResult<Option<ValueId>> {
     match scope.late_this() {
-        Some(name) => binding::read(builder, scope, ctx, name).map(Some),
+        Some(name) => binding::this_binding(builder, scope, ctx, name).map(Some),
         None => Ok(scope.this_value()),
     }
 }

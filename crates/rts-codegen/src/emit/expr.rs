@@ -316,7 +316,7 @@ pub fn emit_expr(
         // rather than the parameter — which holds `undefined` there and would
         // silently be the wrong object.
         ExprKind::This => match scope.late_this() {
-            Some(name) => super::binding::read(builder, scope, ctx, name),
+            Some(name) => super::binding::this_binding(builder, scope, ctx, name),
             None => scope.this_value().ok_or(EmitError::Unsupported {
                 construct: "`this` inside an arrow function",
             }),
