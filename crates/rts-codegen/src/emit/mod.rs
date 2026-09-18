@@ -98,6 +98,7 @@ mod switch;
 mod tail;
 mod template;
 mod omit;
+mod hoist;
 mod program_facts;
 mod serde_names;
 mod receiver;
@@ -591,6 +592,9 @@ pub struct Ctx<'a> {
     /// may be registered for it (an `eval`, a page script). See
     /// `serde_names`.
     pub module_key: Option<String>,
+    /// Whether the next body emitted is a module's or a script's own, whose
+    /// named top-level functions the pickle may name. Taken by that body.
+    pub(in crate::emit) names_top_level: bool,
     /// Whether `Math` still refers to the primordial the runtime installed.
     ///
     /// Proved over the whole program before anything is emitted — see
@@ -702,6 +706,7 @@ impl<'a> Ctx<'a> {
             module_specifier: None,
             module_paths: None,
             module_key: None,
+            names_top_level: false,
             math_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             substituting: Vec::new(),
@@ -1075,6 +1080,7 @@ pub fn emit_program_with_exports(
     let nothing = Scope::new();
     // A program compiled on its own is its own entry, whose key is `""`.
     ctx.module_key.get_or_insert_with(String::new);
+    ctx.names_top_level = true;
     emit_program_into(body, imports, specifier, publications, &nothing, ctx)
 }
 
@@ -1327,6 +1333,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         // classes the same way.
         let entry = units.last().map_or("", |last| last.specifier.as_str());
         ctx.module_key = Some(serde_names::module_key(&unit.specifier, entry));
+        ctx.names_top_level = true;
         entries.push(emit_unit(
             body,
             imports,

@@ -12,7 +12,10 @@
 //!
 //! Every NAMED class, wherever it is written — a class inside a function is
 //! registered each time the function runs, replacing its own entry, which is
-//! what bounds the registry by the source text.
+//! what bounds the registry by the source text. And every named function
+//! declared at the TOP LEVEL of a module or script — Python's line for pickling
+//! a function by reference: a closure's captured state has no name, and an
+//! arrow has no name of its own.
 //!
 //! Code compiled by `eval`, `new Function` or a page `<script>` registers
 //! nothing: [`super::Ctx::module_key`] is `None` there, and a name that only
@@ -29,8 +32,9 @@
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::{Ctx, EmitResult};
+use super::{Ctx, EmitResult, Scope};
 use crate::runtime::RuntimeOp;
+use crate::syntax::{Stmt, StmtKind};
 
 /// Registers one declaration, when this compilation registers any.
 pub(super) fn declare(builder: &mut FuncBuilder, ctx: &mut Ctx, target: ValueId, name: &str) -> EmitResult<()> {
@@ -43,6 +47,28 @@ pub(super) fn declare(builder: &mut FuncBuilder, ctx: &mut Ctx, target: ValueId,
     let name = super::module::number(builder, u64::from(name));
     let target = super::expr::tagged(builder, target);
     super::expr::call(builder, ctx, RuntimeOp::SerdeDeclare, &[target, module, name])?;
+    Ok(())
+}
+
+/// Registers every named function a module's or script's own body declares,
+/// once the hoist has bound them.
+pub(super) fn declare_functions(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    body: &[Stmt],
+) -> EmitResult<()> {
+    for statement in body {
+        let StmtKind::Function(function) = &statement.kind else {
+            continue;
+        };
+        let Some(name) = function.name else {
+            continue;
+        };
+        let value = super::binding::read(builder, scope, ctx, name)?;
+        let spelled = ctx.names.text(name).to_owned();
+        declare(builder, ctx, value, &spelled)?;
+    }
     Ok(())
 }
 

@@ -117,6 +117,20 @@ jobs:
           if [ -x smoke_graph.exe ]; then ./smoke_graph.exe > aot.txt; else ./smoke_graph > aot.txt; fi
           diff jit.txt aot.txt
 
+      # BLOCKING. `rts:serde` names a class and a function by their declared
+      # name, and the registry that answers the name is filled by compiled
+      # code — so a binary built ahead of time has it too, which v1's pickle
+      # (filled by the JIT after finalize) did not. The fixture prints its own
+      # bytes, so the diff also says both builds WRITE the same stream.
+      - name: Smoke test — rts:serde pickles a class and a function the same way compiled (AOT)
+        shell: bash
+        run: |
+          rm -f smoke_pickle smoke_pickle.exe smoke_pickle.obj smoke_pickle.rtsdata
+          target/release/rts run tests/aot/claude-pickle.ts > jit.txt
+          target/release/rts compile tests/aot/claude-pickle.ts smoke_pickle
+          if [ -x smoke_pickle.exe ]; then ./smoke_pickle.exe > aot.txt; else ./smoke_pickle > aot.txt; fi
+          diff jit.txt aot.txt
+
       # BLOCKING, and the claim is different again: not that the default
       # archive runs a program, but that it makes `eval` work inside a
       # compiled binary at all — plain `rts compile`, no flag, links
