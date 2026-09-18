@@ -304,20 +304,20 @@ mod tests {
     }
 
     /// **O caso por que a camada existe, visto de quem DESCE.** As caixas
-    /// anónimas e o `<div>` são filhos do `<p>`, e não do `<span>`: é a
+    /// anónimas e o `<div>` são filhos do `<section>`, e não do `<span>`: é a
     /// sequência do CONTENTOR que muda, porque é para ele que a partição sobe.
     #[test]
     fn a_particao_aparece_na_sequencia_do_contentor_e_nao_na_do_inline() {
-        let dom = crate::parse_html_to_dom("<p><span>texto<div>bloco</div>texto</span></p>");
+        let dom = crate::parse_html_to_dom("<section><span>texto<div>bloco</div>texto</span></section>");
         let tree = dom.box_tree();
-        let p = no_da_tag(&dom, "p");
+        let p = no_da_tag(&dom, "section");
         let div = no_da_tag(&dom, "div");
 
         let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
         assert_eq!(seq.len(), 3, "anonima, o bloco, anonima: {seq:?}");
         assert!(
             matches!(seq[0], PassoDoFluxo::Anonima(_)),
-            "a corrida da frente e uma caixa anonima do <p>, nao o texto la dentro"
+            "a corrida da frente e uma caixa anonima do <section>, nao o texto la dentro"
         );
         assert_eq!(
             no_do_passo(&seq[1]),
@@ -335,10 +335,10 @@ mod tests {
     #[test]
     fn dentro_da_anonima_esta_um_fragmento_do_inline_com_o_estilo_dele() {
         let dom = crate::parse_html_to_dom(
-            "<p><span style='background:red'>a<div>b</div>c</span></p>",
+            "<section><span style='background:red'>a<div>b</div>c</span></section>",
         );
         let tree = dom.box_tree();
-        let p = no_da_tag(&dom, "p");
+        let p = no_da_tag(&dom, "section");
         let span = no_da_tag(&dom, "span");
 
         assert_eq!(
@@ -370,9 +370,9 @@ mod tests {
     /// faz.
     #[test]
     fn um_irmao_inline_entra_na_mesma_anonima_que_o_fragmento() {
-        let dom = crate::parse_html_to_dom("<p>x<span>a<div>b</div>c</span>y</p>");
+        let dom = crate::parse_html_to_dom("<section>x<span>a<div>b</div>c</span>y</section>");
         let tree = dom.box_tree();
-        let p = no_da_tag(&dom, "p");
+        let p = no_da_tag(&dom, "section");
 
         let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
         assert_eq!(seq.len(), 3, "anonima, bloco, anonima: {seq:?}");
