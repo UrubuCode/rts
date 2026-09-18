@@ -29,11 +29,13 @@ pub(in crate::dom) fn is_void(tag: &str) -> bool {
     )
 }
 
-/// Elementos de BLOCO cuja tag de ABERTURA fecha implicitamente um `<p>` aberto
-/// (HTML5, tag omission do `p`: developer.mozilla.org/docs/Web/HTML/Element/p).
-/// É a regra de fim-omitido que MAIS aparece em páginas reais — `<p>texto<div>`
-/// põe o `div` como IRMÃO do `p`, nunca filho. Tabela como DADOS (uma lista num
-/// único lugar), não um emaranhado de `if`s.
+/// Elementos cuja tag de ABERTURA roda "close a p element" antes de tudo o
+/// resto (WHATWG §13.2.6.4.7 "in body", a lista completa da regra — antes
+/// só tinha um subconjunto de blocos "óbvios" e faltavam `li`/`dd`/`dt`
+/// (cujo próprio algoritmo da spec também fecha um `<p>` em button scope,
+/// além de fechar o `li`/`dd`/`dt` irmão), `center`/`dialog`/`dir`/`search`/
+/// `summary`, e as pré-formatadas `listing`/`plaintext`/`xmp`). Tabela como
+/// DADOS (uma lista num único lugar), não um emaranhado de `if`s.
 fn closes_open_p(tag: &str) -> bool {
     matches!(
         tag,
@@ -41,7 +43,10 @@ fn closes_open_p(tag: &str) -> bool {
             | "article"
             | "aside"
             | "blockquote"
+            | "center"
             | "details"
+            | "dialog"
+            | "dir"
             | "div"
             | "dl"
             | "fieldset"
@@ -58,16 +63,79 @@ fn closes_open_p(tag: &str) -> bool {
             | "header"
             | "hgroup"
             | "hr"
+            | "li"
+            | "dd"
+            | "dt"
+            | "listing"
+            | "plaintext"
+            | "xmp"
             | "main"
             | "menu"
             | "nav"
             | "ol"
             | "p"
             | "pre"
+            | "search"
             | "section"
+            | "summary"
             | "table"
             | "ul"
     )
+}
+
+/// Elementos que BLOQUEIAM a busca de "button scope" (WHATWG "has an element
+/// in scope" + `button` para a variante "in button scope"). Um `<p>` aberto
+/// do OUTRO lado de um destes não fecha: é por isto que `<p><button><div>`
+/// NÃO fecha o `<p>` — o `<button>` em si é o bloqueador — mas
+/// `<p><span><div>` fecha, porque `span` não bloqueia nada e a busca
+/// atravessa-o para achar o `<p>` por baixo.
+fn blocks_button_scope(tag: &str) -> bool {
+    matches!(
+        tag,
+        "applet"
+            | "button"
+            | "caption"
+            | "html"
+            | "table"
+            | "td"
+            | "th"
+            | "marquee"
+            | "object"
+            | "template"
+    )
+}
+
+/// Posição (no vetor `open`) do `<p>` mais próximo do topo, em "button
+/// scope" — `None` se a busca esbarra num bloqueador ou na raiz antes de
+/// achar um.
+fn p_in_button_scope(open: &[(NodeIdx, String)]) -> Option<usize> {
+    for (i, (_, name)) in open.iter().enumerate().rev() {
+        if name == "p" {
+            return Some(i);
+        }
+        if blocks_button_scope(name) {
+            return None;
+        }
+    }
+    None
+}
+
+/// "Close a p element" (WHATWG §13.2.6.4.7): se há um `<p>` em button scope,
+/// fecha-o e tudo o que estiver aberto POR CIMA dele — um `<span>` aberto
+/// dentro do `<p>` fecha junto, porque a regra pop-a-até-o-p não para no
+/// primeiro elemento não-p (só a lista de "generate implied end tags" faria
+/// isso, e `p` está excluído dela). Sem isto, `<p>a<span>b<div>c` deixava o
+/// `<div>` ANINHADO no `<span>` dentro do `<p>` — a checagem antiga só olhava
+/// o TOPO da pilha, então via `span` e nunca casava com a tabela de blocos.
+/// `true` se fechou algo (para o chamador contar a métrica).
+fn close_p_in_button_scope(open: &mut Vec<(NodeIdx, String)>) -> bool {
+    match p_in_button_scope(open) {
+        Some(pos) => {
+            open.truncate(pos);
+            true
+        }
+        None => false,
+    }
 }
 
 /// `true` se a ABERTURA de `new_tag` fecha implicitamente `open_tag` quando este
@@ -99,8 +167,13 @@ fn allowed_in_head(tag: &str) -> bool {
     )
 }
 
+/// Só a regra "mesmo tipo termina o mesmo tipo no TOPO da pilha" — `<li>`
+/// fecha `<li>`, célula de tabela, etc. O fechamento de `<p>` NÃO mora mais
+/// aqui: é `close_p_in_button_scope`, chamado à parte pelo loop principal,
+/// porque a busca de p precisa atravessar elementos inline no meio do
+/// caminho (não só olhar o topo) — ver o comentário dessa função.
 fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
-    let same_kind = match new_tag {
+    match new_tag {
         // um <li> novo termina o <li> corrente (viram irmãos, não aninhados).
         "li" => open_tag == "li",
         // <dt>/<dd> terminam o <dt>/<dd> corrente (termo/definição irmãos).
@@ -114,10 +187,7 @@ fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
         // célula nasce dentro da mesma linha).
         "td" | "th" => matches!(open_tag, "td" | "th"),
         _ => false,
-    };
-    // Regra dos blocos: a abertura de qualquer elemento de bloco fecha um <p>
-    // aberto (inclui `<p>` novo fechando `<p>` corrente — p está na tabela).
-    same_kind || (open_tag == "p" && closes_open_p(new_tag))
+    }
 }
 
 // A herança de CSS (`inherit_from`) e o gatilho de transição (`differs_animated`)
@@ -244,16 +314,41 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
                 close,
             } => {
                 if close {
-                    // Pop até encontrar a tag de nome igual (tolerante).
-                    if let Some(pos) = open.iter().rposition(|(_, n)| *n == name) {
+                    if name == "p" {
+                        // `</p>` é especial (WHATWG §13.2.6.4.7): mesmo SEM
+                        // `<p>` em button scope, a spec insere um `<p>` vazio
+                        // e fecha-o na hora — não é um `</x>` órfão comum, que
+                        // apenas some. Uma página real conta com o `<p>`
+                        // existir depois de um `</p>` solto (ex.: um CSS
+                        // `p + p { … }`).
+                        match p_in_button_scope(&open) {
+                            Some(pos) => {
+                                crate::bump!(
+                                    tags_unclosed_at_eof,
+                                    open.len().saturating_sub(pos + 1)
+                                );
+                                open.truncate(pos);
+                            }
+                            None => {
+                                crate::bump!(tags_orphan_close);
+                                let parent = open.last().unwrap().0;
+                                dom.push(
+                                    NodeKind::Element { tag: "p".to_owned() },
+                                    Vec::new(),
+                                    parent,
+                                );
+                            }
+                        }
+                    } else if let Some(pos) = open.iter().rposition(|(_, n)| *n == name) {
+                        // Pop até encontrar a tag de nome igual (tolerante).
                         // Fecha esse nível e quaisquer filhos mal-fechados acima.
                         crate::bump!(tags_unclosed_at_eof, open.len().saturating_sub(pos + 1));
                         open.truncate(pos);
                     } else {
+                        // `</x>` órfão (sem abertura): ignora, não mexe na pilha.
                         crate::bump!(tags_orphan_close);
                         crate::note!("tag-de-fechamento-orfa", format!("</{name}>"));
                     }
-                    // `</x>` órfão (sem abertura): ignora, não mexe na pilha.
                 } else {
                     // AUTO-FECHAMENTO IMPLÍCITO (HTML5 tag omission, subconjunto):
                     // antes de abrir, fecha a(s) tag(s) do TOPO da pilha que a
@@ -265,6 +360,13 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
                     while open.len() > 1 && implicitly_closes(&name, &open.last().unwrap().1) {
                         crate::bump!(tags_implicitly_closed);
                         open.pop();
+                    }
+                    // "close a p element": roda À PARTE do loop acima porque
+                    // a busca do <p> atravessa elementos inline no caminho
+                    // (button scope), não só o topo da pilha — ver
+                    // `close_p_in_button_scope`.
+                    if closes_open_p(&name) && close_p_in_button_scope(&mut open) {
+                        crate::bump!(tags_implicitly_closed);
                     }
                     if estrutura {
                         open_implicit_body(&mut dom, &mut open, &name);

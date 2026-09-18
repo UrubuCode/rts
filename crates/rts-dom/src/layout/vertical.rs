@@ -154,11 +154,12 @@ pub(in crate::layout) fn layout_children_vertical(
     // ── CONTEXTO INLINE (P4): irmãos inline CONSECUTIVOS (texto + <a>/<b>/<span>)
     // fluem JUNTOS numa sequência de linhas — acumulados aqui e descarregados por
     // `flush_inline!` quando um bloco/float/fim interrompe o fluxo.
-    // Cada membro traz a sua CAIXA quando ela importa. Ela só é `Some` para um
-    // FRAGMENTO de um inline partido — um nó com mais de uma caixa —, e é o que
-    // faz `collect_runs` parar de descer no `<div>` que partiu o inline: sem
-    // ela, o varredor lê `dom.node(span).children` e o bloco lá está, como se o
-    // span fosse transparente. Ver `runs::collect_runs`.
+    // Cada membro traz a SUA caixa, a que a sequência da árvore deu. É por ela
+    // que `collect_runs` desce (o fragmento de um inline partido não vê o
+    // `<div>` que o partiu) e é ela que chega ao ÁTOMO — um inline-flex a meio
+    // de texto é disposto pela caixa exacta, e sem ela `layout_block` não a
+    // tinha para dar ao contentor flex nem à ordem de hit-test. `None` só sem
+    // árvore, ou para um nó que não gera caixa (um comentário).
     let mut inline_group: Vec<(NodeIdx, Option<BoxId>)> = Vec::new();
     // Corrida de INLINE-BLOCKS consecutivos (botões/pills lado a lado). Pintada
     // por `flush_ib` — mede cada um (shrink), põe lado a lado quebrando linha ao
@@ -264,10 +265,8 @@ pub(in crate::layout) fn layout_children_vertical(
         let PassoDoFluxo::No { no: child, caixa: caixa_do_filho } = *item else {
             unreachable!("a anonima ja saiu do laco acima");
         };
-        // A caixa que o fluxo INLINE precisa de receber: só a de um FRAGMENTO de
-        // inline partido, que é o único nó com mais de uma caixa. Para todos os
-        // outros é `None`, e `collect_runs` continua a varrer o DOM — o que
-        // mantém esta mudança dentro da subárvore que a partição criou.
+        // Um FRAGMENTO de inline partido — o único nó com mais de uma caixa — é
+        // conteúdo de linha e nunca serve o fragmento guardado do nó (abaixo).
         let fragmento_do_filho = caixa_do_filho.filter(|_| arvore.boxes_of(child).len() > 1);
         let e_texto = matches!(dom.node(child).kind, NodeKind::Text(_));
         // **O agrupamento é o MESMO algoritmo, e `e_caixa` só fala de caixas
@@ -556,7 +555,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     ccss.min_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
                     ccss.max_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
                 );
-                let h = child_outer_height(dom, child, content_w, avail_h, css, font_size, ctx);
+                let h = child_outer_height(dom, child, caixa_do_filho.expect("um float tem uma caixa"), content_w, avail_h, css, font_size, ctx);
                 // Onde cabe: tenta o cursor; se a banda livre aí é estreita
                 // demais, desce para o fundo de cada float que a estorva, pela
                 // ordem em que eles acabam. Dois floats do mesmo lado que cabem
@@ -734,7 +733,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 if child_inline_block && em_contexto_inline(dom, id, child) =>
             {
                 flush_ib!(child_y);
-                inline_group.push((child, fragmento_do_filho));
+                inline_group.push((child, caixa_do_filho));
             }
             NodeKind::Element { .. } if child_inline_block => {
                 // descarrega só o TEXTO inline pendente (não o ib_run — este b
@@ -755,15 +754,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     );
                     inline_group.clear();
                 }
-                let caixa_do_inline_block = fragmento_do_filho.or_else(|| match list.tree.boxes_of(child) {
-                    [caixa] => Some(*caixa),
-                    [] => None,
-                    caixas => panic!(
-                        "o inline-block {child:?} gerou {} caixas; a sequencia precisa carregar a caixa exata",
-                        caixas.len()
-                    ),
-                });
-                ib_run.push((child, caixa_do_inline_block));
+                ib_run.push((child, caixa_do_filho));
                 borda = child_y;
                 strut = (0.0, 0.0);
             }
@@ -776,7 +767,7 @@ pub(in crate::layout) fn layout_children_vertical(
             // com os irmãos inline adjacentes (o flush pinta o grupo inteiro).
             _ => {
                 flush_ib!(child_y); // fecha a corrida de inline-blocks
-                inline_group.push((child, fragmento_do_filho));
+                inline_group.push((child, caixa_do_filho));
             }
         }
     }

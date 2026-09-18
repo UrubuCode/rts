@@ -135,6 +135,9 @@ pub struct BoxTree {
     /// measurement nobody has taken. The structure admits several so the
     /// anonymous-box lot does not have to come back here.
     by_node: crate::fasthash::FastMap<NodeIdx, Vec<BoxId>>,
+    /// For each inline the §9.2.1.1 split broke, the in-flow block boxes that
+    /// broke it. See [`BoxTree::blocks_splitting`] for why geometry needs it.
+    split_by: crate::fasthash::FastMap<NodeIdx, Vec<BoxId>>,
 }
 
 impl BoxTree {
@@ -217,6 +220,44 @@ impl BoxTree {
     /// and of length one for every element while the tree is the mirror.
     pub fn boxes_of(&self, node: NodeIdx) -> &[BoxId] {
         self.by_node.get(&node).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// The in-flow block boxes that split `node`, an inline, in document order.
+    ///
+    /// Empty for every node the split did not break. The question exists
+    /// because the tree moves such a block OUT of the inline — its box parent
+    /// is the container — while the DOM keeps it a descendant, and CSSOM's
+    /// `getBoundingClientRect` is the union of the client rects, which for a
+    /// split inline Blink answers WITH those blocks (measured: `<span>a<div
+    /// style="height:30px"></div>b</span>` is 1280 wide, not the width of `a`).
+    /// Neither `boxes_of` nor a walk of the box tree from the inline can find
+    /// them any more, and a span the split consumed whole has no box at all.
+    pub fn blocks_splitting(&self, node: NodeIdx) -> &[BoxId] {
+        self.split_by.get(&node).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Records that `block`, promoted to a child of `container`, split every
+    /// inline between its DOM parent and `container`. Called by the split and
+    /// nowhere else.
+    ///
+    /// A float or an absolutely positioned block is blockified and the split
+    /// moves it like any other, but it is out of flow: it breaks no line box,
+    /// and Blink leaves it out of the inline's client rects. So it is not
+    /// recorded, whatever the shape of the tree around it.
+    fn record_split(&mut self, dom: &crate::dom::Dom, block: NodeIdx, container: NodeIdx) {
+        let Some(&id) = self.boxes_of(block).last() else { return };
+        let fora_do_fluxo = dom.computed_style_idx(block).is_some_and(|css| {
+            css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
+                || css.position.is_some_and(|p| p.out_of_flow())
+        });
+        if fora_do_fluxo {
+            return;
+        }
+        let mut cur = dom.node(block).parent;
+        while let Some(inline) = cur.filter(|&a| a != container) {
+            self.split_by.entry(inline).or_default().push(id);
+            cur = dom.node(inline).parent;
+        }
     }
 
     /// What KIND of box this is. The one accessor that does not translate to a

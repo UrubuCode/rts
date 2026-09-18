@@ -5,6 +5,19 @@
 
 use super::*;
 
+/// O último desenho de cada caixa, agrupado pelo NÓ que a gera e depois pelo
+/// ordinal dela entre as caixas desse nó (`BoxCacheTarget` desdobrado).
+///
+/// Agrupado por nó e não chaveado pelo par porque quem apaga só sabe o nó: o
+/// `recycle` devolve um slot à freelist sem árvore de caixas à mão, e com a
+/// chave plana a única saída era varrer o mapa inteiro por nó reciclado —
+/// quadrático ao remover uma lista — ou esvaziá-lo, que desligava a costura da
+/// página toda. `Vec` e não mapa no segundo nível: quase todo nó tem UMA caixa.
+pub(in crate::dom) type UltimosFragmentos = crate::fasthash::FastMap<
+    NodeIdx,
+    Vec<(u32, FragmentKey, std::rc::Rc<crate::layout::Fragment>)>,
+>;
+
 impl Dom {
 
     /// Quantos nós têm estilo memoizado (as duas camadas somadas). É a contagem
@@ -48,7 +61,18 @@ impl Dom {
         &self,
         target: BoxCacheTarget,
     ) -> Option<(FragmentKey, std::rc::Rc<crate::layout::Fragment>)> {
-        self.last_fragment.borrow().get(&target).cloned()
+        let mapa = self.last_fragment.borrow();
+        let (_, key, fragment) = mapa
+            .get(&target.node)?
+            .iter()
+            .find(|(ordinal, _, _)| *ordinal == target.ordinal)?;
+        Some((*key, std::rc::Rc::clone(fragment)))
+    }
+
+    /// Esquece o último desenho de todas as caixas de `node` — o que o
+    /// `recycle` precisa ao devolver o slot à freelist.
+    pub(in crate::dom) fn forget_last_fragments(&self, node: NodeIdx) {
+        self.last_fragment.borrow_mut().remove(&node);
     }
 
     pub(crate) fn fragment_get(
@@ -63,9 +87,15 @@ impl Dom {
         key: FragmentKey,
         fragment: std::rc::Rc<crate::layout::Fragment>,
     ) {
-        self.last_fragment
-            .borrow_mut()
-            .insert(key.target, (key, std::rc::Rc::clone(&fragment)));
+        {
+            let mut mapa = self.last_fragment.borrow_mut();
+            let caixas = mapa.entry(key.target.node).or_default();
+            let novo = (key.target.ordinal, key, std::rc::Rc::clone(&fragment));
+            match caixas.iter_mut().find(|(ordinal, _, _)| *ordinal == key.target.ordinal) {
+                Some(slot) => *slot = novo,
+                None => caixas.push(novo),
+            }
+        }
         let mut cache = self.fragment_cache.borrow_mut();
         // Teto igual ao dos outros caches de layout: uma página que rola muito
         // acumula fragmentos de caixas que já saíram de cena, e o epoch na chave

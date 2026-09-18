@@ -191,7 +191,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         // wrap`, `flexbox-flex-basis-content-003a/003b`, WPT).
         let align_efetivo = ccss.align_self.unwrap_or(align);
         let (base, h, transferiu) = super::replaced_transferido::base_e_altura_do_item(
-            dom, child, content_w, container_content_h, align_efetivo, font_size, ctx,
+            dom, child, caixa, content_w, container_content_h, align_efetivo, font_size, ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
@@ -275,11 +275,10 @@ pub(in crate::layout) fn layout_children_horizontal(
     // dois itens que deviam quebrar (100+100 > 150 pelo seu PISO) cabiam
     // juntos na mesma linha (`claude-flex-wrap-quebra-com-min-width`).
     let balanced = css.flex_wrap.is_some_and(crate::style::FlexWrap::balances);
+    // Sob `balance` a quebra pisa em zero (`hipotetico_para_quebra`); o main final não.
     let hypothetical: Vec<f32> = items
         .iter()
-        .map(|it| {
-            super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols)
-        })
+        .map(|it| super::flex_limites::hipotetico_para_quebra(it.base, it.min_main, it.max_main, grid_cols, balanced))
         .collect();
     // Primeiro descobre o número mínimo de linhas que o wrap ordinário pede.
     // `flex-line-count` só pode aumentar esse mínimo; não pode fazer uma linha
@@ -359,7 +358,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         lines.push(Vec::new());
         let mut line_w = 0.0f32;
         for it in items {
-            let hyp = super::flex_limites::com_limites_finais(it.base, it.min_main, it.max_main, grid_cols);
+            let hyp = super::flex_limites::hipotetico_para_quebra(it.base, it.min_main, it.max_main, grid_cols, balanced);
             let cur = lines.last_mut().unwrap();
             let with_gap = if cur.is_empty() { 0.0 } else { gap };
             if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
@@ -454,7 +453,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                 let (_, h) = measure_block(
                     dom,
                     it.node,
-                    it.caixa,
+                    it.caixa.expect("item flex deve ter a caixa recolhida no pre-passe"),
                     content_w,
                     container_content_h,
                     Some(it.main),

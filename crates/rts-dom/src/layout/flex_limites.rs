@@ -308,6 +308,26 @@ pub(in crate::layout) fn com_limites_finais(
     }
 }
 
+/// A mesma conta de [`com_limites_finais`], mas para a DECISÃO DE QUEBRA de
+/// linha. Com `flex-wrap: balance` o Flexbox 2 (§algo-line-break) manda
+/// "floor the outer hypothetical main size of each flex item at zero": um
+/// item de `width:0` com `margin:-50px` dos dois lados somaria NEGATIVO e
+/// "abriria" espaço fictício para os seguintes
+/// (`balance/balance-negative-margin-001`). Com `wrap` simples NÃO há piso —
+/// o próprio teste diz que sem ele o item "cabe" na primeira linha, e é isso
+/// que o Chrome faz; por isso o piso depende de `balanced` em vez de valer
+/// para toda a quebra.
+pub(in crate::layout) fn hipotetico_para_quebra(
+    main: f32,
+    min_main: f32,
+    max_main: Option<f32>,
+    grid_cols: Option<i32>,
+    balanced: bool,
+) -> f32 {
+    let hyp = com_limites_finais(main, min_main, max_main, grid_cols);
+    if balanced { hyp.max(0.0) } else { hyp }
+}
+
 /// O piso AUTOMÁTICO de min-content (Flexbox §4.5), antes de `min-width`
 /// DECLARADO entrar (esse, quando presente, substitui este resultado por
 /// inteiro — a spec só liga o automático a `min-width:auto`). É o MENOR

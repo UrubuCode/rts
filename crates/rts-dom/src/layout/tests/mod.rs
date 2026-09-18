@@ -4,10 +4,13 @@
 //! `const FRASE` vive aqui porque dois submódulos o usam — no original estava
 //! ao nível do `mod tests`, e é o item que o chunker por `    }` não via.
 
+mod atomo_inline_caixa;
 mod bloco;
+mod bloco_em_inline_vazio;
 mod canvas_corpus;
 mod cache;
 mod cache_flex;
+mod cache_incremental;
 mod colapso;
 mod dimensoes;
 mod flex;
@@ -40,7 +43,10 @@ mod pequenos_1_corpus;
 mod float_corpus;
 mod grid;
 mod grid_colocacao;
+mod grid_colapso_corpus;
 mod grid_corpus;
+mod grid_align_safe_corpus;
+mod align_safe_corpus;
 mod grid_intrinseco_corpus;
 mod hifen_corpus;
 mod fontes_corpus;
@@ -48,6 +54,7 @@ mod imagens_corpus;
 mod inline;
 mod inline_corpus;
 mod inline_fragmentos_corpus;
+mod inline_partido_rect_corpus;
 mod pintura;
 mod pintura_transform_clip;
 mod pintura_juncao;
@@ -55,6 +62,7 @@ mod pintura_e_caixas_corpus;
 mod replaced_fundo;
 mod replaced_pixels;
 mod posicionado;
+mod empilhamento_camada8;
 mod position_corpus;
 mod texto_lote_s;
 mod transform_corpus;
@@ -65,10 +73,13 @@ mod flex_basis_content_wrap_corpus;
 mod flex_align_justify_familia_corpus;
 mod flex_reverse_order_corpus;
 mod flex_gap_2_corpus;
+mod flex_wrap_balance_negative_margin_corpus;
 mod aspect_ratio_replaced_corpus;
 mod posicao_estatica_corpus;
 mod controlo_natural_corpus;
+mod box_tree_anonimas_largura_corpus;
 mod ahem_corpus;
+mod bloco_quebra_paragrafo_corpus;
 mod flex_scroll_overflow_corpus;
     use super::*;
     use crate::dom::parse_html_to_dom;
@@ -328,3 +339,4 @@ mod flex_scroll_overflow_corpus;
     /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
     /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
     const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
+mod medida_por_caixa_corpus;

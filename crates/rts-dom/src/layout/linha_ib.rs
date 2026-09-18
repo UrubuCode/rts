@@ -90,7 +90,17 @@ pub(in crate::layout) fn layout_inline_block_line(
     //    alinhar pelo TOPO, o corte que o doc do módulo de alinhamento explica.
     let mut sizes: Vec<(NodeIdx, Option<crate::boxes::BoxId>, f32, f32, Option<VerticalAlign>, f32, f32)> = Vec::with_capacity(run.len());
     for (pos, &(child, caixa)) in run.iter().enumerate() {
-        let (measured_w, h) = measure_block(dom, child, caixa, content_w, avail_h, None, None, true, ctx);
+        let (measured_w, h) = measure_block(
+            dom,
+            child,
+            caixa.expect("um inline-block da corrida tem a caixa que a sequencia lhe deu"),
+            content_w,
+            avail_h,
+            None,
+            None,
+            true,
+            ctx,
+        );
         let is_submit = matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "input")
             && matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("submit" | "button" | "reset"));
         let is_button = matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "button");

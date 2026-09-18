@@ -149,9 +149,9 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, Some(caixa), content_w, Some(container_content_h), None, None, false, ctx).1
+            measure_block(dom, child, caixa, content_w, Some(container_content_h), None, None, false, ctx).1
         } else {
-            child_outer_height(dom, child, content_w, Some(container_content_h), css, font_size, ctx)
+            child_outer_height(dom, child, caixa, content_w, Some(container_content_h), css, font_size, ctx)
         };
         let child_font = font_px(&ccss, font_size);
         let main = super::coluna_shrink::base_outer(
@@ -173,7 +173,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         // decide entre o declarado, `min-content` (§4.5, não some sob
         // overflow não-visível) e o automático — a mesma pergunta que
         // `coluna.rs` faz, agora numa função só.
-        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, Some(container_content_h), &resolve_filho, ctx);
+        let min_main = super::coluna_shrink::min_main(dom, child, caixa, &ccss, natural_h, Some(container_content_h), &resolve_filho, ctx);
         // Largura NATURAL (shrink-to-fit): para um item de `width` explícito
         // é essa largura, qualquer que seja a coluna — layout_block honra o
         // `width` declarado antes de olhar para o `avail_w`. É o que permite
@@ -182,7 +182,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let (cross, _) = measure_block(
             dom,
             child,
-            Some(caixa),
+            caixa,
             content_w,
             Some(container_content_h),
             None,

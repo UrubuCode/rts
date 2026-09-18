@@ -101,7 +101,7 @@ pub(in crate::layout) fn max_content_width(
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let child_font = font_px(&ccss, font_size);
         let natural_h =
-            child_outer_height(dom, child, ctx.viewport_w, Some(container_content_h), css, font_size, ctx);
+            child_outer_height(dom, child, caixa, ctx.viewport_w, Some(container_content_h), css, font_size, ctx);
         let main = super::coluna_shrink::base_outer(
             &ccss,
             natural_h,
@@ -111,7 +111,7 @@ pub(in crate::layout) fn max_content_width(
             ctx,
         );
         let (cross, _) = measure_block(
-            dom, child, Some(caixa), ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
+            dom, child, caixa, ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
         );
         items.push((main, cross));
     }

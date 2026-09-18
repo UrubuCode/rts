@@ -580,10 +580,9 @@ impl DisplayList {
         g
     }
 
-    /// O retângulo de um nó, se ele foi desenhado — a união dos das suas
-    /// caixas, via `Geometry` (que já cacheia).
+    /// `getBoundingClientRect` — NÃO é só `Geometry::rects`; ver `rect_cliente.rs`.
     pub fn rect_of(&self, node: NodeIdx) -> Option<Rect> {
-        self.geometry().rects.get(&node).copied()
+        super::rect_cliente::rect_cliente(self, node)
     }
 
     /// Retângulo de uma caixa concreta da BoxTree, inclusive quando ela foi

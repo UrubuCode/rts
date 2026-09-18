@@ -14,6 +14,7 @@ mod invalidacao;
 mod medidor_ativo;
 mod mutacao;
 mod parser;
+mod parser_fecha_p;
 mod scroll;
 mod selectores_lote_o;
 

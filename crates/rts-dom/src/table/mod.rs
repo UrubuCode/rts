@@ -319,7 +319,7 @@ pub(crate) fn layout_table(
             }
             let w = largura_de(c.col, c.colspan);
             let (_, h) =
-                crate::layout::measure_block(dom, c.node, Some(c.caixa), w, None, Some(w), None, false, ctx);
+                crate::layout::measure_block(dom, c.node, c.caixa, w, None, Some(w), None, false, ctx);
             if c.rowspan <= 1 {
                 alturas[ri] = alturas[ri].max(h);
             } else {

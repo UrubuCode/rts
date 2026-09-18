@@ -181,9 +181,9 @@ pub(in crate::layout) fn layout_children_column(
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
         let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if estica {
-            measure_block(dom, child, Some(caixa), content_w, container_content_h, None, None, false, ctx).1
+            measure_block(dom, child, caixa, content_w, container_content_h, None, None, false, ctx).1
         } else {
-            child_outer_height(dom, child, content_w, container_content_h, css, font_size, ctx)
+            child_outer_height(dom, child, caixa, content_w, container_content_h, css, font_size, ctx)
         };
         let child_font = font_px(&ccss, font_size);
         let resolve_filho = ResolveCtx {
@@ -193,7 +193,7 @@ pub(in crate::layout) fn layout_children_column(
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
-        let min_main = super::coluna_shrink::min_main(dom, child, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
+        let min_main = super::coluna_shrink::min_main(dom, child, caixa, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
         // Uma percentagem de flex-basis num container de altura indefinida
         // vira `content`, não usa o `height` declarado do próprio item.
         // `measure_block` acima preserva esse height para a geometria normal;
@@ -220,7 +220,7 @@ pub(in crate::layout) fn layout_children_column(
         {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
             super::coluna_shrink::altura_conteudo_sem_height(
-                dom, child, &ccss, content_w, child_font, ctx,
+                dom, caixa, &ccss, content_w, child_font, ctx,
             ) + bt + bb + ccss.padding.resolve_v(&resolve_filho) + ccss.margin.resolve_v(&resolve_filho)
         } else {
             natural_h
@@ -392,7 +392,7 @@ pub(in crate::layout) fn layout_children_column(
                 let (w, _) = measure_block(
                     dom,
                     it.node,
-                    it.caixa,
+                    it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
                     content_w,
                     container_content_h,
                     None,
@@ -532,15 +532,15 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
 /// esta função só vê o `Baseline` de uma coluna, ou de um item cujo grupo não
 /// tinha ninguém para partilhar a baseline). É o fallback que a própria spec
 /// prevê (Flexbox §8.5) quando o eixo cruzado não tem baseline partilhável.
-/// `LastBaseline` cai em `FlexEnd` (a margem INFERIOR) pelo mesmo motivo que
-/// `Baseline` cai em `FlexStart` — ver o corte no doc da variante.
+/// `LastBaseline` cai em `FlexEnd` pelo mesmo motivo (ver o doc da variante).
+/// `safe` (css-align §4.4): um item que transborda cai no início, nunca negativo.
 pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
     use crate::style::AlignItems as A;
     let free = line_h - item_h;
     match a {
         A::Stretch | A::FlexStart | A::Baseline => 0.0,
         A::FlexEnd | A::LastBaseline => free,
-        A::SafeEnd => free.max(0.0),
-        A::Center | A::SafeCenter => free / 2.0,
+        A::SafeEnd | A::SafeCenter => (if a == A::SafeEnd { free } else { free / 2.0 }).max(0.0),
+        A::Center => free / 2.0,
     }
 }

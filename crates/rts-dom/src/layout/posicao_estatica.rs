@@ -137,13 +137,31 @@ fn posicao_estatica_flex(
         | crate::style::JustifyContent::SpaceEvenly => start + (size - item) / 2.0,
         _ => start,
     };
+    // `safe`: fall back to the CB start when the ALIGNED POSITION overflows
+    // the true containing block — not when the item is merely bigger than
+    // the CB. The two diverge whenever the CB (`cb_start`/`cb_size`, from
+    // the nearest positioned ancestor, css-align-3 §4.4 + the WPT
+    // `flex-abspos-align-self-safe-outer-cb-*` fixtures) is wider than the
+    // flex container itself (`start`/`size`, this item's immediate flex
+    // parent): an item that fits inside the outer CB can still be centred
+    // to a position outside it, because centring is computed against the
+    // SMALLER flex container. Measured: CB width 200 at x=0, flex container
+    // width 50 at x=0, item width 100, `align-self: safe center` in a
+    // column flex — naive centre gives `x = 0 + (50-100)/2 = -25`, which is
+    // `< cb_start(0)`, so it falls back to `cb_start`, even though
+    // `item(100) <= cb_size(200)` (the old, wrong test) said it fit.
+    let safe_fallback = |pos: f32, item: f32, cb_start: f32, cb_size: f32| {
+        if pos < cb_start || pos + item > cb_start + cb_size {
+            cb_start
+        } else {
+            pos
+        }
+    };
     let cross = |start: f32, size: f32, item: f32, cb_start: f32, cb_size: f32| match align {
         crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => start + size - item,
-        crate::style::AlignItems::SafeEnd if item <= cb_size => start + size - item,
-        crate::style::AlignItems::SafeEnd => cb_start,
+        crate::style::AlignItems::SafeEnd => safe_fallback(start + size - item, item, cb_start, cb_size),
         crate::style::AlignItems::Center => start + (size - item) / 2.0,
-        crate::style::AlignItems::SafeCenter if item > cb_size => cb_start,
-        crate::style::AlignItems::SafeCenter => start + (size - item) / 2.0,
+        crate::style::AlignItems::SafeCenter => safe_fallback(start + (size - item) / 2.0, item, cb_start, cb_size),
         _ => start,
     };
     if fd.is_column() {
@@ -200,6 +218,40 @@ mod tests {
         let content = Rect::new(0.0, 0.0, 100.0, 100.0);
         let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 20.0, 30.0, content);
         assert_eq!((x, y), (0.0, 70.0));
+    }
+
+    /// Regression: the `safe` fallback was decided by `item.size > cb.size`,
+    /// not by whether the ALIGNED POSITION overflows the CB. CB 200 wide at
+    /// x=0, flex container (the item's `content` param) 50 wide at x=0, item
+    /// 100 wide, `align-self: safe center` in a column flex: naive centring
+    /// gives `x = 0 + (50-100)/2 = -25`, which is outside the CB
+    /// (`< cb_start(0)`) — but `item(100) <= cb_size(200)` used to read as
+    /// "fits", so the old code never fell back. css-align-3 §4.4 + WPT
+    /// `flex-abspos-align-self-safe-outer-cb-*.tentative.html`.
+    #[test]
+    fn safe_center_falls_back_when_centred_position_overflows_the_outer_cb() {
+        let mut css = ComputedStyle::default();
+        css.align_self = Some(crate::style::AlignItems::SafeCenter);
+        let mut parent_css = ComputedStyle::default();
+        parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
+        let content = Rect::new(0.0, 0.0, 50.0, 50.0); // the flex container itself
+        let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0); // the real CB, wider
+        let (x, _y) = posicao_estatica_flex(&css, &parent_css, content, 100.0, 20.0, containing_block);
+        assert_eq!(x, 0.0, "falls back to the CB start, not a negative centred offset");
+    }
+
+    /// Guard: the SAME centring still applies when it fits inside the outer
+    /// CB (fallback must not fire unconditionally).
+    #[test]
+    fn safe_center_centers_when_it_fits_the_outer_cb() {
+        let mut css = ComputedStyle::default();
+        css.align_self = Some(crate::style::AlignItems::SafeCenter);
+        let mut parent_css = ComputedStyle::default();
+        parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
+        let content = Rect::new(0.0, 0.0, 50.0, 50.0);
+        let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0);
+        let (x, _y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0, containing_block);
+        assert_eq!(x, 5.0, "0 + (50-40)/2, fits inside the CB");
     }
 
     #[test]

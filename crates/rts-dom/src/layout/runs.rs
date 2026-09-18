@@ -1,8 +1,5 @@
 //! RUNS: os pedaços de texto e de conteúdo atómico que uma linha vai conter,
 //! recolhidos da árvore antes de se saber onde ela quebra.
-//!
-//! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
-//! alterada — a reconstrução deste ficheiro é byte a byte a do original.
 
 use super::*;
 /// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).
@@ -110,7 +107,7 @@ pub(in crate::layout) fn pseudo_run(
 pub(in crate::layout) fn collect_runs(
     dom: &Dom,
     id: NodeIdx,
-    // A CAIXA de `id`, quando ela decide por onde se desce.
+    // A CAIXA de `id`: por onde se desce, e o que cada ÁTOMO leva consigo.
     //
     // **É o que faz o fluxo inline VER a partição do CSS 2.1 §9.2.1.1.** Um
     // `<span>` com um `<div>` dentro nunca chega a `layout_block` — quem o
@@ -121,9 +118,9 @@ pub(in crate::layout) fn collect_runs(
     // `tree.children(caixa)` — e a caixa de um FRAGMENTO do inline partido só
     // tem a corrida dela, sem o bloco, que a árvore já pôs como irmão.
     //
-    // `None` para todos os outros, e aí os filhos voltam a vir do DOM: a
-    // mudança fica dentro da subárvore que a partição criou, e não é uma
-    // segunda travessia a estrear-se em toda a página.
+    // E dá a um ÁTOMO (inline-flex, inline-block, widget) a sua caixa, pela
+    // qual `layout_block` o dispõe e lhe reserva a ordem de hit-test. `None`
+    // sem árvore (`DisplayList::default()`): os filhos vêm do DOM.
     caixa: Option<crate::boxes::BoxId>,
     tree: &crate::boxes::BoxTree,
     parent_css: &ComputedStyle,
@@ -152,10 +149,10 @@ pub(in crate::layout) fn collect_runs(
     /// Os filhos por onde este varredor desce, e a caixa de cada um.
     ///
     /// Com caixa, a ÁRVORE decide: é o que exclui o filho de bloco que partiu
-    /// este inline, porque ele já não é filho do fragmento. Sem caixa, o DOM,
-    /// como sempre foi. As duas listas são o mesmo conjunto fora da partição —
-    /// um comentário não gera caixa e este varredor já o ignorava, e um
-    /// `display:none` gera caixa e continua a ser recusado por `e_display_none`.
+    /// este inline, porque ele já não é filho do fragmento. Sem caixa (sem
+    /// árvore), o DOM. São os mesmos NÓS fora da partição — um comentário não
+    /// gera caixa e este varredor já o ignorava, e um `display:none` gera
+    /// caixa e continua a ser recusado por `e_display_none`.
     fn filhos_do_varrimento(
         dom: &Dom,
         tree: &crate::boxes::BoxTree,
@@ -215,6 +212,12 @@ pub(in crate::layout) fn collect_runs(
                 });
             }
             NodeKind::Element { tag } => {
+                // Sem caixa COM árvore = inline partido só de espaço: os blocos
+                // dele já são irmãos na árvore (ver `sequencia`); descer aqui
+                // pelo DOM dispunha-os DUAS vezes, e os átomos sem caixa.
+                if caixa.is_none() && !tree.is_empty() {
+                    return;
+                }
                 // `<script>`/`<style>`/head-etc DENTRO de um contexto inline (um
                 // script dentro de <td>/<center> — google.com faz isso): o texto
                 // cru NÃO é conteúdo renderável — sem este skip, o código JS era
@@ -321,7 +324,7 @@ pub(in crate::layout) fn collect_runs(
                 // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
                 // real isso multiplicava a altura do documento por ~2,7.
                 if is_inline_block(dom, id) {
-                    let (bw, bh) = measure_block(dom, id, caixa, avail_w, None, None, None, true, ctx);
+                    let (bw, bh) = measure_block(dom, id, caixa.expect("sem caixa saiu acima"), avail_w, None, None, None, true, ctx);
                     let mut owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {

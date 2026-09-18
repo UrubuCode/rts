@@ -94,12 +94,18 @@ impl Dom {
         self.anim_start.remove(&idx);
         self.dirty_self.borrow_mut().remove(&idx);
         self.dirty_children.borrow_mut().remove(&idx);
-        // `last_fragment` is keyed by `BoxId`, not by this raw arena slot. A
-        // released node may already belong to an older box-tree generation, so
-        // translating `idx` here would recreate the identity bug this purge is
-        // meant to prevent. Dropping the small "last" index is safe; the full
-        // cache remains generation-keyed and evicts independently.
-        self.last_fragment.borrow_mut().clear();
+        // `last_fragment` é agrupado pelo NÓ (ver `UltimosFragmentos`): as
+        // entradas deste slot são as que nomeiam `idx`, sem tradução nenhuma
+        // por uma árvore de caixas que pode já não existir. Esvaziar o mapa
+        // inteiro, como estava, desligava a costura da página toda a cada nó
+        // reciclado (todo `remove()` seguido de `releaseSubtree`).
+        //
+        // Só as deste slot bastam. Um ancestral cujo desenho antigo ainda
+        // referencia `idx` recebeu a sujeira do `remove()` (`touch_structural`):
+        // se o slot voltar ao MESMO lugar, o filho está sujo e é refeito do zero
+        // (o epoch dele sobe logo abaixo); em qualquer outro lugar, a sequência
+        // de caixas muda e `layout::costura_filhos` recusa a costura.
+        self.forget_last_fragments(idx);
         if self.hovered.get() == Some(idx) {
             self.hovered.set(None);
         }

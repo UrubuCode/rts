@@ -166,7 +166,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     let (w, h) = measure_block(
         dom,
         id,
-        Some(alvo.caixa),
+        alvo.caixa,
         cb.w,
         Some(cb.h),
         forced_outer_w,

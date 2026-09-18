@@ -71,6 +71,7 @@ pub(in crate::layout) fn base_outer(
 pub(in crate::layout) fn min_main_auto(
     dom: &Dom,
     id: NodeIdx,
+    caixa: crate::boxes::BoxId,
     ccss: &ComputedStyle,
     natural_h: f32,
     resolve: &ResolveCtx,
@@ -103,7 +104,7 @@ pub(in crate::layout) fn min_main_auto(
         None => {
             let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
             let conteudo = altura_conteudo_sem_height(
-                dom, id, ccss, resolve.parent_content_w, resolve.node_font_size, ctx,
+                dom, caixa, ccss, resolve.parent_content_w, resolve.node_font_size, ctx,
             ) + bt + bb;
             natural_h.min(conteudo)
         }
@@ -126,22 +127,50 @@ pub(in crate::layout) fn min_main_auto(
 /// WPT, do fix de CDATA: dois nós assim ladeando o filho real inflavam o
 /// piso de 100 para 200, igualando o `natural_h` do item — `natural_h.min
 /// (conteudo)` deixava de clampar nada).
+///
+/// **Anda a ÁRVORE DE CAIXAS a partir de `caixa`, não os filhos do DOM.**
+/// Depois da partição bloco-em-inline (CSS 2.1 §9.2.1.1) os dois divergem: um
+/// `<span>` que só envolvia um bloco não tem caixa nenhuma (as do bloco sobem
+/// para aqui) e um com texto dos dois lados tem duas. Medir o filho do DOM
+/// pelo nó corria o layout de bloco sem árvore no primeiro caso — pânico no
+/// cache de fragmentos, WPT `css-flexbox/percentage-heights-023` — e não
+/// sabia qual fragmento medir no segundo.
 pub(in crate::layout) fn altura_conteudo_sem_height(
     dom: &Dom,
-    id: NodeIdx,
+    caixa: crate::boxes::BoxId,
     ccss: &ComputedStyle,
     container_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    dom.node(id)
-        .children
+    let tree = dom.box_tree();
+    empilhados(dom, &tree, caixa, ccss, container_w, font_size, ctx)
+}
+
+/// A soma empilhada dos filhos de UMA caixa. Uma caixa ANÓNIMA não tem
+/// moldura nem declarações suas (§9.2.1.1: herda do contentor, que é quem
+/// deu `ccss`), por isso conta o que envolve pela mesma regra, em vez de ser
+/// saltada — saltá-la apagava a corrida de texto dela, o erro que
+/// `medida_arvore.rs` documenta para a largura.
+fn empilhados(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    caixa: crate::boxes::BoxId,
+    ccss: &ComputedStyle,
+    container_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    tree.children(caixa)
         .iter()
-        .filter(|&&c| !is_out_of_flow(dom, c) && !e_display_none(dom, c))
-        .map(|&c| match &dom.node(c).kind {
-            NodeKind::Text(_) if collect_text(dom, c).trim().is_empty() => 0.0,
-            NodeKind::Text(_) => crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer),
-            _ => child_outer_height(dom, c, container_w, None, ccss, font_size, ctx),
+        .map(|&filho| match tree.node_of(filho) {
+            None => empilhados(dom, tree, filho, ccss, container_w, font_size, ctx),
+            Some(c) if is_out_of_flow(dom, c) || e_display_none(dom, c) => 0.0,
+            Some(c) => match &dom.node(c).kind {
+                NodeKind::Text(_) if collect_text(dom, c).trim().is_empty() => 0.0,
+                NodeKind::Text(_) => crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer),
+                _ => child_outer_height(dom, c, filho, container_w, None, ccss, font_size, ctx),
+            },
         })
         .sum()
 }
@@ -154,9 +183,11 @@ pub(in crate::layout) fn altura_conteudo_sem_height(
 /// inferência (achado ao medir `flex-item-min-height-min-content-overflow`
 /// — a régua contra a fixture anterior, onde `overflow:auto` zera o
 /// automático, tinha zerado este também).
+#[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn min_main(
     dom: &Dom,
     id: NodeIdx,
+    caixa: crate::boxes::BoxId,
     ccss: &ComputedStyle,
     natural_h: f32,
     container_h: Option<f32>,
@@ -167,7 +198,7 @@ pub(in crate::layout) fn min_main(
         return natural_h;
     }
     resolve_height(ccss.min_height, container_h, resolve)
-        .unwrap_or_else(|| min_main_auto(dom, id, ccss, natural_h, resolve, ctx))
+        .unwrap_or_else(|| min_main_auto(dom, id, caixa, ccss, natural_h, resolve, ctx))
 }
 
 

@@ -245,7 +245,7 @@
 
     #[test]
     fn anonymous_block_box_keeps_its_internal_geometry() {
-        let dom = parse_html_to_dom("<p>x<span>a<div>b</div>c</span>y</p>");
+        let dom = parse_html_to_dom("<section>x<span>a<div>b</div>c</span>y</section>");
         let ctx = LayoutCtx {
             viewport_w: 800.0,
             viewport_h: 600.0,
@@ -253,7 +253,7 @@
         };
         let list = layout_document(&dom, &ctx);
         let tree = &list.tree;
-        let p = dom.resolve(dom.query("p").unwrap()).unwrap();
+        let p = dom.resolve(dom.query("section").unwrap()).unwrap();
         let anon = tree
             .children(tree.boxes_of(p)[0])
             .iter()

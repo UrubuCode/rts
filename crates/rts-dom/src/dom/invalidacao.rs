@@ -26,11 +26,19 @@ impl Dom {
         // marcar nenhum.
         self.dirty_children.borrow_mut().clear();
         self.dirty_self.borrow_mut().clear();
-        // As chaves dos dois caches carregam `node_epoch`. Os nós tocados e
-        // seus ancestrais já receberam um novo epoch acima; limpar tudo aqui
-        // descartaria também as medidas intrínsecas de irmãos intactos. As
-        // entradas antigas deixam apenas de casar e os caches têm capacidade
-        // limitada, como no caminho localizado `touch_subtree`.
+        // As medidas pela mesma razão dos fragmentos: as chaves delas carregam
+        // `node_epoch`, e o `touch()` global não sobe epoch NENHUM — é chamado
+        // justamente quando não se sabe quem mudou (uma folha de estilo que
+        // entra, `clear_style_overrides`, `:visited`, estado de formulário).
+        // Sem esta limpeza a chave antiga casa e um item flex, um absoluto ou
+        // uma célula são dispostos com o tamanho de antes da mudança: o layout
+        // fica internamente consistente e errado (I7 de `box-tree.md`).
+        // Rejeitado: pôr a `revision` nas chaves, ou subir o epoch de todos os
+        // nós. Os dois invalidam exatamente o mesmo conjunto — tudo — e a
+        // primeira ainda faria cada `touch_subtree` localizado perder o cache
+        // da página inteira, que é o que o epoch por nó existe para evitar.
+        self.layout_measure_cache.borrow_mut().clear();
+        self.intrinsic_width_cache.borrow_mut().clear();
     }
 
     /// Marca uma mudança que altera pixels/geometria, mas não o estilo computado.
@@ -60,11 +68,13 @@ impl Dom {
             filho = n;
             ancestor = self.nodes[n].parent;
         }
-        // As chaves dos dois caches carregam `node_epoch`. Os nós tocados e
-        // seus ancestrais já receberam um novo epoch acima; limpar tudo aqui
-        // descartaria também as medidas intrínsecas de irmãos intactos. As
-        // entradas antigas deixam apenas de casar e os caches têm capacidade
-        // limitada, como no caminho localizado `touch_subtree`.
+        // Aqui NÃO limpar os caches de medida é seguro, pela mesma conta do
+        // `touch_subtree`: as chaves carregam `node_epoch`, e a subárvore de
+        // `node` e todos os ancestrais acabaram de receber um epoch novo. Um irmão intacto mede o mesmo —
+        // a medida dele depende da própria subárvore e das constraints, que
+        // estão na chave, e não do conteúdo do vizinho. Os nós que o
+        // `set_text` cria depois disto nascem num slot de epoch nunca medido
+        // (arena nova, ou reciclado com o epoch já subido por `recycle`).
     }
 
     /// Invalida estilo apenas no nó e em seus descendentes. É seguro para `style=""`
