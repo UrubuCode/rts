@@ -75,6 +75,7 @@ mod replaced;
 mod replaced_transferido;
 pub(crate) mod bloco;
 mod bloco_caixa;
+mod costura_filhos;
 mod fragmento;
 mod rtl_bloco;
 mod sequencia;

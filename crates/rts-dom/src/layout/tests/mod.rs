@@ -9,6 +9,7 @@ mod bloco;
 mod canvas_corpus;
 mod cache;
 mod cache_flex;
+mod cache_incremental;
 mod colapso;
 mod dimensoes;
 mod flex;

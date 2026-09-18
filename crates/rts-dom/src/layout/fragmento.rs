@@ -204,13 +204,21 @@ fn costurar(
     }
     let sujos = dom.dirty_children_of(id)?;
     let tree = dom.box_tree();
+    // A árvore que emitiu o desenho antigo, guardada ANTES de reidratar: é
+    // contra a caixa dela que a sequência de filhos se compara.
+    let (arvore_antiga, caixa_antiga) = (std::rc::Rc::clone(&anterior.tree), anterior.caixa);
     // O fragmento pode ter sido produzido pela árvore anterior. Reidratar na
     // entrada é a única fronteira permitida para os `BoxId`s que ele guarda.
     let anterior = anterior.remapped_to(&tree)?;
-    // A SEQUÊNCIA de filhos precisa ser a mesma, não só o tamanho: inserção,
-    // remoção e reordenação mudam quem desenha o quê, e trocar uma referência
-    // não daria conta. Comparar índice a índice é uma passada de leitura.
-    if !mesma_sequencia_de_filhos(&tree, anterior.caixa, &anterior.children) {
+    // Inserção, remoção, reordenação ou uma caixa anónima nova mudam quem
+    // desenha o quê, e trocar uma referência não daria conta disso.
+    if !super::costura_filhos::mesma_sequencia_de_filhos(
+        &arvore_antiga,
+        caixa_antiga,
+        &tree,
+        anterior.caixa,
+    ) || !super::costura_filhos::sujeira_coberta(&tree, &sujos, &anterior.children)
+    {
         return None;
     }
     let _phase = crate::metrics::phases::scope("fragment-patch");
@@ -285,11 +293,16 @@ fn costurar(
             return None;
         }
         // O `layout_block_reusing` emitiu numa lista própria; o que interessa é a
-        // referência que ele acabou de registrar para este nó.
-        let novo = own.children.first()?.fragment.clone();
+        // referência que ele acabou de registrar para este nó — com o
+        // deslocamento DELA. O antigo levava o fragmento velho até `origem`; o
+        // novo pode ter sido calculado já em `origem` (deslocamento zero) ou ser
+        // uma costura que herdou a origem do velho. Manter o `dx`/`dy` antigo
+        // aplicava o deslocamento duas vezes a um filho que tinha subido.
+        let novo = own.children.first()?;
         grid_column_tracks.retain(|(node, _)| !previous_grid_nodes.contains(node));
-        grid_column_tracks.extend(novo.grid_column_tracks.iter().cloned());
-        child.fragment = novo;
+        grid_column_tracks.extend(novo.fragment.grid_column_tracks.iter().cloned());
+        (child.dx, child.dy) = (novo.dx, novo.dy);
+        child.fragment = novo.fragment.clone();
         trocou = true;
     }
     if !trocou {
@@ -312,22 +325,6 @@ fn costurar(
     });
     dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     Some(fragment)
-}
-
-/// `true` só quando a sequência de CAIXAS diretas ainda é a que o fragmento
-/// guardou. A comparação por `NodeIdx` aceitava uma reconstrução que inserisse
-/// um wrapper anônimo ou partisse um inline sem mudar a lista de nós do DOM:
-/// repintava a árvore anterior, internamente consistente e errada.
-///
-/// Um filho sem `ChildRef` (texto, wrapper anônimo, ou caminho ainda sem
-/// fragmento) faz esta resposta ser `false`. Recusar a costura perde apenas o
-/// atalho incremental; inventar uma correspondência perde a geometria.
-fn mesma_sequencia_de_filhos(
-    tree: &crate::boxes::BoxTree,
-    pai: crate::boxes::BoxId,
-    children: &[ChildRef],
-) -> bool {
-    tree.children(pai) == children.iter().map(|child| child.caixa).collect::<Vec<_>>()
 }
 
 #[allow(clippy::too_many_arguments)]
