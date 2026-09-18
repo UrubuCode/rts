@@ -89,6 +89,14 @@ const NAMES: [&str; COUNT] = [
 
 /// `rts`'s `operators` namespace, and the moment overloading becomes possible.
 ///
+/// The symbols are kept BOXED in `Context::operators`, so the field is one
+/// word. Inline, the twelve of them added 104 bytes to `Context` and moved the
+/// fields every call reads: `Math.min` measured +26 % for it (2026-09-18,
+/// release, isolated loop), the same cause as the tail-call record
+/// `tail_call.rs` moved out. They stay a FIELD rather than a thread-local
+/// because they live as long as the context, and a context can be installed
+/// more than once.
+///
 /// Called by whatever builds the `rts` module. Filling
 /// [`Context::operators`] is what arms every check in this file, so a host
 /// that never calls this has a runtime in which no operator consults anything.
@@ -101,7 +109,7 @@ pub fn operators_namespace(context: &mut Context) -> u64 {
             Some(format!("rts.operators.{name}")),
         );
     }
-    context.operators = Some(made);
+    context.operators = Some(Box::new(made));
     let namespace = super::super::make_namespace(context, &[]);
     for (name, symbol) in NAMES.iter().zip(made) {
         super::super::put_member(context, namespace, name, symbol);
@@ -146,7 +154,7 @@ pub(in crate::entry) fn binary(op: Overload, left: u64, right: u64) -> Option<u6
         return None;
     }
     let (symbol, left_object, right_object) = with_current(|context| {
-        let symbol = context.operators?[op as usize];
+        let symbol = context.operators.as_deref()?[op as usize];
         Some((symbol, is_object_in(context, left), is_object_in(context, right)))
     })?;
     if op == Overload::Eq && !(left_object && right_object) {
@@ -167,7 +175,7 @@ pub(in crate::entry) fn unary(op: Overload, value: u64) -> Option<u64> {
         return None;
     }
     let symbol = with_current(|context| {
-        let symbol = context.operators?[op as usize];
+        let symbol = context.operators.as_deref()?[op as usize];
         is_object_in(context, value).then_some(symbol)
     })?;
     let method = super::super::get_indexed(value, symbol);

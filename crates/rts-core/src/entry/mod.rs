@@ -677,8 +677,8 @@ pub struct Context {
     /// means.
     promises: promise::Machine,
     symbols: symbol::Symbols,
-    /// `rts`'s operator symbols once that module is built; `None` skips every check.
-    pub(in crate::entry) operators: Option<[u64; operators::overload::COUNT]>,
+    /// `rts`'s operator symbols; `None` skips every check. Boxed: see `overload.rs`.
+    pub(in crate::entry) operators: Option<Box<[u64; operators::overload::COUNT]>>,
     /// What each declared class registered as, once it has been asked for.
     ///
     /// A list rather than a field per class, and the reason is
