@@ -41,7 +41,11 @@ pub(in crate::layout) fn layout_inline_flow(
     // largura e sobrepõe-se ao float —, e quem encolhe são as CAIXAS DE LINHA
     // lá dentro. Parar de empurrar o bloco sem encurtar as linhas trocava um
     // erro de posição por texto pintado por baixo da figura. Ver [`Exclusao`].
-    exclusoes: &[Exclusao],
+    //
+    // O BFC e não uma cópia das exclusões: um float que aparece A MEIO deste
+    // fluxo é colocado aqui (`float_na_linha.rs`) e tem de chegar aos irmãos
+    // que vêm depois, como o de um filho directo chega.
+    bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -49,28 +53,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
-    // A caixa gerada do DONO envolve todo o conteúdo dele — e só existe como run
-    // aqui quando este grupo É todo o conteúdo. Com filhos de bloco pelo meio, o
-    // conteúdo do dono parte-se em vários grupos e a caixa gerada teria de virar
-    // um bloco anónimo, que é maquinaria de árvore de caixas que este layout não
-    // tem; nesse caso não se gera nada, que é o estado anterior, em vez de a pôr
-    // num pedaço arbitrário do conteúdo.
-    // "este grupo é TODO o conteúdo do dono?" — contado sobre os filhos que
-    // geram conteúdo. Os nós de texto só com espaços não contam: um HTML
-    // indentado põe um antes e outro depois de cada elemento, e compará-los
-    // fazia um `<div>` com o `<span>` numa linha indentada parecer conteúdo
-    // partido, e perdia a caixa gerada em quase toda a página real.
-    let filhos_com_conteudo = dom
-        .node(dono)
-        .children
-        .iter()
-        .filter(|&&c| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
-        .count();
-    let dono_inteiro = group
-        .iter()
-        .filter(|&&(c, _)| !matches!(&dom.node(c).kind, NodeKind::Text(t) if t.trim().is_empty()))
-        .count()
-        == filhos_com_conteudo;
+    let dono_inteiro = inline_fragmentos::grupo_e_todo_o_dono(dom, dono, group);
     let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
     if dono_inteiro {
         runs.extend(pseudo_run(
@@ -118,25 +101,6 @@ pub(in crate::layout) fn layout_inline_flow(
             parent_css.italic.unwrap_or(false),
         ));
     }
-    // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
-    if runs.iter().all(|r| {
-        r.text.trim().is_empty()
-            && !matches!(
-                r.atomic,
-                Some((
-                    _,
-                    _,
-                    AtomicKind::Widget
-                        | AtomicKind::Replaced
-                        | AtomicKind::Block
-                        | AtomicKind::Break
-                ))
-            )
-    }) {
-        // Continua sem linha; cada Marker ganha 0×0 (`inline_fragmentos`).
-        inline_fragmentos::registar_markers_sem_linha(list, x, y, &runs);
-        return y;
-    }
     let family = parent_css.font_family.as_deref();
     let mono = family.is_some_and(crate::style::is_mono_family);
     // A pergunta "e Ahem?" ja vivia aqui para `quebra::wrap_runs`; o item de
@@ -169,7 +133,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // avanço do cursor. A PINTURA não usa esta previsão — usa o `cy` verdadeiro
     // (ver a banda recalculada no laço), portanto o erro fica no ponto de
     // quebra e nunca em texto pintado por cima de um float.
-    let mut largura_da_linha = |i: usize| -> f32 {
+    let largura_da_linha = |exclusoes: &[Exclusao], i: usize| -> f32 {
         if nowrap {
             return f32::INFINITY;
         }
@@ -179,20 +143,46 @@ pub(in crate::layout) fn layout_inline_flow(
         banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).1
     };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
-    let lines = wrap_runs(
-        &runs,
-        &mut largura_da_linha,
-        font_size,
-        mono,
-        crate::inline_box::quebra_dentro(parent_css),
-        parent_css
-            .white_space
-            .map(|w| w.preserves_newlines())
-            .unwrap_or(false),
-        parent_css.word_spacing.unwrap_or(0.0),
-        parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
-        ahem, ctx.measurer,
-    );
+    let quebrar = |exclusoes: &[Exclusao]| {
+        wrap_runs(
+            &runs,
+            &mut |i| largura_da_linha(exclusoes, i),
+            font_size,
+            mono,
+            crate::inline_box::quebra_dentro(parent_css),
+            parent_css
+                .white_space
+                .map(|w| w.preserves_newlines())
+                .unwrap_or(false),
+            parent_css.word_spacing.unwrap_or(0.0),
+            parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
+            ahem, ctx.measurer,
+        )
+    };
+    // Os floats que aparecem A MEIO deste fluxo põem-se ANTES da quebra final:
+    // cada um encurta as linhas que atravessa. Ver `float_na_linha.rs`.
+    super::float_na_linha::coloca_ancorados(dom, &arvore, &runs, &quebrar, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
+    // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
+    if runs.iter().all(|r| {
+        r.text.trim().is_empty()
+            && !matches!(
+                r.atomic,
+                Some((
+                    _,
+                    _,
+                    AtomicKind::Widget
+                        | AtomicKind::Replaced
+                        | AtomicKind::Block
+                        | AtomicKind::Break
+                ))
+            )
+    }) {
+        // Continua sem linha; cada Marker ganha 0×0 (`inline_fragmentos`).
+        inline_fragmentos::registar_markers_sem_linha(list, x, y, &runs);
+        return y;
+    }
+    let exclusoes = bfc.snapshot();
+    let lines = quebrar(&exclusoes);
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
     // o que se corta é uma LINHA já formada. Ver [`aplicar_elipse`].
     let lines = match elipse_pedida(parent_css, nowrap) {
@@ -332,7 +322,7 @@ pub(in crate::layout) fn layout_inline_flow(
         let (linha_x, linha_w) = if exclusoes.is_empty() {
             (x, content_w)
         } else {
-            banda_livre(exclusoes, cy, line_h, x, content_w)
+            banda_livre(&exclusoes, cy, line_h, x, content_w)
         };
         let free = (linha_w - line_w).max(0.0);
         let mut seg_x = match parent_css.text_align {
@@ -351,6 +341,13 @@ pub(in crate::layout) fn layout_inline_flow(
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
             if let Some((a_idx, caixa, kind)) = seg.atomic {
+                // A âncora de um float não tem nada na linha: o float já foi
+                // disposto por `float_na_linha`, e nem a caixa dele nem a dos
+                // inlines à volta passam por aqui — o Blink deixa-o fora dos
+                // client rects do inline que o contém.
+                if kind == AtomicKind::Float {
+                    continue;
+                }
                 match kind {
                     AtomicKind::Widget => {
                         // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
@@ -433,7 +430,8 @@ pub(in crate::layout) fn layout_inline_flow(
                     AtomicKind::Marker
                     | AtomicKind::Break
                     | AtomicKind::ArestaInicio
-                    | AtomicKind::ArestaFim => {}
+                    | AtomicKind::ArestaFim
+                    | AtomicKind::Float => {}
                 }
                 superficies.ver(dom, &seg.owners, seg_x, seg_x + seg.ww);
                 match kind {

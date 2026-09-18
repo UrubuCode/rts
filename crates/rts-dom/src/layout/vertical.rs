@@ -183,10 +183,10 @@ pub(in crate::layout) fn layout_children_vertical(
                 flush_ib!($y);
             }
             if !inline_group.is_empty() {
-                // NÃO desce abaixo dos floats: as linhas CONTORNAM-NOS. Uma
-                // CÓPIA (`bfc.snapshot()`) e não a referência: `layout_inline_flow`
-                // só LÊ, nunca escreve, e o tipo que espera é o antigo `&[Exclusao]`
-                // — não há razão para o fazer aprender o `RefCell`.
+                // NÃO desce abaixo dos floats: as linhas CONTORNAM-NOS. A
+                // referência e não uma cópia: um float que aparece A MEIO do
+                // grupo é colocado lá dentro (`float_na_linha.rs`) e tem de
+                // chegar aos irmãos que vêm a seguir.
                 $y = layout_inline_flow(
                     dom,
                     id,
@@ -196,7 +196,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     content_w,
                     css,
                     font_size,
-                    &bfc.snapshot(),
+                    bfc,
                     ctx,
                     list,
                 );
@@ -523,93 +523,27 @@ pub(in crate::layout) fn layout_children_vertical(
             // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
             // pintado na passada out-of-flow de layout_document.
             NodeKind::Element { .. } if child_out => {}
+            // FLOAT a meio de TEXTO: entra no grupo inline como âncora, e é o
+            // fluxo inline que o põe no topo da linha em que aparece (CSS 2.1
+            // §9.5.1). Fechar o grupo aqui punha-o abaixo da última linha e o
+            // texto de depois numa linha nova — `<div>antes<float/>depois</div>`
+            // em duas linhas onde o Blink dá uma. Sem texto pendente, o ramo de
+            // baixo dá o mesmo sítio, e continua a ser ele a decidir.
+            NodeKind::Element { .. }
+                if child_float != crate::style::FloatSide::None
+                    && caixa_do_filho.is_some()
+                    && ib_run.is_empty()
+                    && grupo_tem_conteudo(dom, &inline_group) =>
+            {
+                inline_group.push((child, caixa_do_filho));
+            }
             // FLOAT left/right: encosta ao lado pedido, na primeira faixa a
             // partir do cursor onde CAIBA ao lado dos floats já postos.
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
-                let side = child_float;
-                // `child_outer_width` não clampa por `max-width`/`min-width`
-                // de propósito (é a mesma função da base flex, que a spec
-                // exige NÃO capada) — um float precisa da largura EFETIVA do
-                // PRÓPRIO para se posicionar, senão o irmão seguinte nascia
-                // além de onde o layout real ia desenhar
-                // (WPT `flexbox-min-height-auto-002b`). O clamp é sobre o
-                // limite DESLOCADO pela margem — `max-width`/`min-width` são
-                // do CONTEÚDO, não da caixa outer que `child_outer_width`
-                // devolve, e clampar a outer crua cortava a MARGEM também.
-                // Pela ÁRVORE, como o `child_css` acima e pela mesma razão (I6).
-                let ccss = caixa_do_filho
-                    .and_then(|b| arvore.style(dom, b))
-                    .or_else(|| dom.computed_style_idx(child))
-                    .unwrap_or_default();
-                let rc = ResolveCtx {
-                    parent_content_w: content_w,
-                    node_font_size: font_size,
-                    root_font_size: crate::style::root_font_size(),
-                    viewport_w: ctx.viewport_w,
-                    viewport_h: ctx.viewport_h,
-                };
-                let margin_h = ccss.margin.resolve_h(&rc);
-                let w = crate::style::clamp_size(
-                    child_outer_width(dom, child, content_w, font_size, ctx),
-                    ccss.min_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
-                    ccss.max_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
-                );
-                let h = child_outer_height(dom, child, caixa_do_filho.expect("um float tem uma caixa"), content_w, avail_h, css, font_size, ctx);
-                // Onde cabe: tenta o cursor; se a banda livre aí é estreita
-                // demais, desce para o fundo de cada float que a estorva, pela
-                // ordem em que eles acabam. Dois floats do mesmo lado que cabem
-                // lado a lado continuam lado a lado — é o header brand+nav do
-                // Bootstrap, e é o que a primeira tentativa já responde.
-                let mut top = child_y;
-                let mut fundos = bfc.fundos();
-                fundos.sort_by(f32::total_cmp);
-                let (mut bx, mut bw) = bfc.banda_livre(top, h, content_x, content_w);
-                for f in fundos {
-                    if bw >= w || f <= top {
-                        continue;
-                    }
-                    top = f;
-                    (bx, bw) = bfc.banda_livre(top, h, content_x, content_w);
-                }
-                let x = if side == crate::style::FloatSide::Left {
-                    bx
-                } else {
-                    bx + bw - w
-                };
-                layout_block(
-                    dom,
-                    child,
-                    Some(caixa_do_filho.expect("um float tem uma caixa")),
-                    x,
-                    top,
-                    content_w,
-                    avail_h,
-                    None,
-                    None,
-                    false,
-                    true,
-                    // Um float estabelece o SEU PRÓPRIO BFC (CSS 2.1 §9.4.1) —
-                    // `bloco.rs` cria um novo internamente para o conteúdo dele
-                    // de qualquer forma; este valor nunca chega a ser lido.
-                    &BlockFormattingContext::new(),
-                    ctx,
-                    list,
-                );
-                // Regista no BFC responsável — a referência PARTILHADA, não uma
-                // cópia local: é o que faz este float alcançar os IRMÃOS do
-                // ANTEPASSADO que estabeleceu este BFC, não só os deste
-                // container (ver `layout/bfc.rs` e `claude-float-clear.html`).
-                bfc.push(Exclusao {
-                    top,
-                    bottom: top + h,
-                    side,
-                    edge: if side == crate::style::FloatSide::Left {
-                        x + w
-                    } else {
-                        x
-                    },
-                });
+                let caixa_float = caixa_do_filho.expect("um float tem uma caixa");
+                let medida = super::float_colocar::mede_float(dom, &arvore, child, caixa_float, content_w, avail_h, css, font_size, ctx);
+                super::float_colocar::coloca_float(dom, child, caixa_float, child_float, medida, child_y, content_x, content_w, avail_h, bfc, ctx, list);
                 // float quebra a sequência de collapse
                 borda = child_y;
                 strut = (0.0, 0.0);
@@ -748,7 +682,7 @@ pub(in crate::layout) fn layout_children_vertical(
                         content_w,
                         css,
                         font_size,
-                        &bfc.snapshot(),
+                        bfc,
                         ctx,
                         list,
                     );
@@ -787,4 +721,14 @@ pub(in crate::layout) fn layout_children_vertical(
         }
     }
     (child_y - content_y).max(0.0)
+}
+
+/// O grupo inline pendente tem algo além de espaço que colapsa? É a pergunta
+/// que decide se um float a seguir aparece A MEIO de uma linha ou antes dela.
+fn grupo_tem_conteudo(dom: &Dom, grupo: &[(NodeIdx, Option<BoxId>)]) -> bool {
+    grupo.iter().any(|&(n, _)| match &dom.node(n).kind {
+        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Comment(_) => false,
+        _ => true,
+    })
 }

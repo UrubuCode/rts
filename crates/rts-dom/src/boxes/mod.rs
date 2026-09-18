@@ -240,19 +240,12 @@ impl BoxTree {
     /// inline between its DOM parent and `container`. Called by the split and
     /// nowhere else.
     ///
-    /// A float or an absolutely positioned block is blockified and the split
-    /// moves it like any other, but it is out of flow: it breaks no line box,
-    /// and Blink leaves it out of the inline's client rects. So it is not
-    /// recorded, whatever the shape of the tree around it.
+    /// Only an IN-FLOW block reaches here: a float or an absolutely positioned
+    /// box never splits the inline in the first place (`build.rs`,
+    /// `is_block_level_child`), which is also why Blink leaves it out of the
+    /// inline's client rects.
     fn record_split(&mut self, dom: &crate::dom::Dom, block: NodeIdx, container: NodeIdx) {
         let Some(&id) = self.boxes_of(block).last() else { return };
-        let fora_do_fluxo = dom.computed_style_idx(block).is_some_and(|css| {
-            css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
-                || css.position.is_some_and(|p| p.out_of_flow())
-        });
-        if fora_do_fluxo {
-            return;
-        }
         let mut cur = dom.node(block).parent;
         while let Some(inline) = cur.filter(|&a| a != container) {
             self.split_by.entry(inline).or_default().push(id);

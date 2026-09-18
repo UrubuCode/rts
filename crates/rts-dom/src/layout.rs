@@ -53,6 +53,8 @@ mod display;
 mod rect_cliente;
 mod empilhamento;
 mod float;
+mod float_colocar;
+mod float_na_linha;
 mod inline_fragmentos;
 mod input;
 mod select;

@@ -55,6 +55,13 @@ pub(crate) enum AtomicKind {
     /// e nada nas seguintes, como o Blink.
     ArestaInicio,
     ArestaFim,
+    /// A ÂNCORA de um float que aparece a meio do fluxo inline: largura zero,
+    /// sem caixa na linha, e sem pintura nela. Só diz EM QUE LINHA o float
+    /// apareceu — o CSS 2.1 §9.5.1 põe o topo dele no topo dessa linha, se
+    /// couber no que ela ainda tem livre — e é `float_na_linha.rs` quem o
+    /// coloca. A largura entra pelas exclusões do BFC, que é o que encurta a
+    /// linha, e nunca pela soma dos segmentos.
+    Float,
 }
 
 /// Este carácter é WHITESPACE para o CSS?

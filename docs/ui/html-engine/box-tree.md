@@ -317,6 +317,18 @@ the CONTAINER — a sibling of boxes nested inside the inline would not be a
 sibling — and they inherit from the container, which is the enclosing
 non-anonymous box. `boxes/build.rs` quotes the rule and draws the tree.
 
+**Only an IN-FLOW block splits.** §9.2.1.1 says "an in-flow block-level box",
+and a float or an absolutely positioned box is block-level (it is blockified)
+but out of flow. Asking only the outer display split
+`<span>a<div style="float:left"></div>b</span>` in three and put `b` on a line
+of its own. Such a child now stays in the inline run: a float becomes an
+ANCHOR there (`AtomicKind::Float`), and `layout/float_na_linha.rs` places it at
+the top of the line it appears in when it fits — CSS 2.1 §9.5.1 — which is
+also what happens to a float that is a DIRECT child in the middle of text,
+since the block flow stopped closing the inline group on it. What an
+absolutely positioned child still lacks is its static position after the
+line box: there is no line box kept to ask (the IFC lot).
+
 **Two consequences a reader must not assume away.** `boxes_of(node)` may return
 MORE THAN ONE box, so `.first()` is one fragment of several; and an anonymous
 box's children are not its style source's children — they are one RUN of them.

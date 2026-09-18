@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-3): CSS 2.1 §9.2.1.1 parte um inline à volta de uma caixa de
+     bloco EM FLUXO ("an in-flow block-level box"). Um float não está em
+     fluxo (§9.3), por isso um `<div style="float:left">` dentro de um
+     `<span>` NÃO parte o span: o texto antes e depois fica na mesma linha,
+     que encurta à volta do float, e não há caixas anónimas. A árvore de
+     caixas perguntava só "é de nível de bloco?" (`boxes/build.rs`,
+     `is_block_level_child`) e partia o span em três. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; }
+  #flutua { float: left; width: 50px; height: 30px; background: #0f0; }
+  #seguinte { background: #00f; height: 10px; }
+</style></head>
+<body>
+  <div id="contentor"><span id="quebra">antes<div id="flutua"></div>depois</span></div>
+  <div id="seguinte"></div>
+</body>
+</html>

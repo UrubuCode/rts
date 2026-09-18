@@ -291,7 +291,9 @@ pub(in crate::layout) fn wrap_runs(
             }
             // MARKER: largura zero, nao quebra a linha, nao consome o espaco
             // pendente -- so marca uma posicao para quem lhe quiser a caixa.
-            if kind == AtomicKind::Marker {
+            // A ANCORA de um float e o mesmo: ela so diz em que linha o float
+            // apareceu, e a largura dele entra pelas exclusoes, nao pela linha.
+            if matches!(kind, AtomicKind::Marker | AtomicKind::Float) {
                 fechar_cluster!();
                 cur.push(Segment {
                     text: String::new(),
@@ -301,7 +303,7 @@ pub(in crate::layout) fn wrap_runs(
                     italic: false,
                     deco: 0,
                     owners: run.owners.clone(),
-                    atomic: Some((a_idx, caixa, AtomicKind::Marker)),
+                    atomic: Some((a_idx, caixa, kind)),
                     ww: 0.0,
                     wh: 0.0,
                     lead_w: 0.0,

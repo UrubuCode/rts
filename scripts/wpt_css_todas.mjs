@@ -33,10 +33,18 @@ const CORREDOR = resolve("scripts/wpt_reftests.mjs");
 if (!existsSync(CORREDOR)) { console.error(`não encontrei ${CORREDOR} — corra a partir da raiz do repositório`); process.exit(2); }
 mkdirSync(OUT, { recursive: true });
 
-const pastas = readdirSync(raiz, { withFileTypes: true })
-  .filter((e) => e.isDirectory() && (!SO || SO.includes(e.name)))
-  .map((e) => e.name)
-  .sort();
+// `--pastas` aceita SUBPASTAS (`CSS2/floats`) e RECUSA um nome que não existe.
+// Filtrava os nomes do primeiro nível e deixava cair o resto em silêncio: a
+// 2026-09-18 um varrimento de 14 pastas mediu 3 e imprimiu um TOTAL com ar de
+// medição completa — o corpus menor do que o pedido que o honesty floor do
+// `CLAUDE.md` nomeia.
+if (SO) {
+  const faltam = SO.filter((p) => !existsSync(join(raiz, p)));
+  if (faltam.length) { console.error(`pastas inexistentes em ${raiz}: ${faltam.join(", ")}`); process.exit(2); }
+}
+const pastas = SO
+  ? [...SO].sort()
+  : readdirSync(raiz, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
 
 const linhas = [];
 // `passam` de cada `relatorio.json` já só conta PASSA COM CONTEÚDO desde
