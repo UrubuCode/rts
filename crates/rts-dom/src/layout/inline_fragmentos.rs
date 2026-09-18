@@ -181,3 +181,26 @@ impl Superficies {
         }
     }
 }
+
+/// Este grupo é TODO o conteúdo do dono?
+///
+/// A caixa gerada do DONO envolve todo o conteúdo dele — e só existe como run
+/// aqui quando este grupo É todo o conteúdo. Com filhos de bloco pelo meio, o
+/// conteúdo do dono parte-se em vários grupos e a caixa gerada teria de virar
+/// um bloco anónimo, que é maquinaria de árvore de caixas que este layout não
+/// tem; nesse caso não se gera nada, que é o estado anterior, em vez de a pôr
+/// num pedaço arbitrário do conteúdo.
+///
+/// Contado sobre os filhos que geram conteúdo. Os nós de texto só com espaços não contam: um HTML
+/// indentado põe um antes e outro depois de cada elemento, e compará-los
+/// fazia um `<div>` com o `<span>` numa linha indentada parecer conteúdo
+/// partido, e perdia a caixa gerada em quase toda a página real.
+pub(in crate::layout) fn grupo_e_todo_o_dono(
+    dom: &Dom,
+    dono: NodeIdx,
+    group: &[(NodeIdx, Option<crate::boxes::BoxId>)],
+) -> bool {
+    let conta = |n: NodeIdx| !matches!(&dom.node(n).kind, NodeKind::Text(t) if t.trim().is_empty());
+    let filhos_com_conteudo = dom.node(dono).children.iter().filter(|&&c| conta(c)).count();
+    group.iter().filter(|&&(c, _)| conta(c)).count() == filhos_com_conteudo
+}

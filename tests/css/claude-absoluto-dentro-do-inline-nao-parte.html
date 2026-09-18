@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-3): a mesma regra da fixture do float, para a outra forma de
+     sair do fluxo. Uma caixa `position: absolute` não está em fluxo (CSS 2.1
+     §9.3), por isso um `<div>` absoluto dentro de um `<span>` NÃO parte o
+     span em três: "antes" e "depois" ficam na mesma linha, lado a lado, e o
+     `<div>` posiciona-se pela sua posição estática sem ocupar espaço. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; }
+  #fora { position: absolute; width: 40px; height: 30px; background: #0f0; }
+  #seguinte { background: #00f; height: 10px; }
+</style></head>
+<body>
+  <div id="contentor"><span id="quebra">antes<div id="fora"></div>depois</span></div>
+  <div id="seguinte"></div>
+</body>
+</html>

@@ -112,13 +112,10 @@ fn fundo_do_inline_partido_fica_nos_fragmentos() {
 /// Um FLOAT dentro do inline sai do fluxo: não parte linha nenhuma e o Blink
 /// deixa-o fora dos client rects do inline.
 ///
-/// Afirma-se sobre a ÁRVORE e não sobre o rect, e a razão é um defeito que não
-/// é deste lote: a partição parte hoje o inline também à volta de um float
-/// (ele é blockificado, e `is_block_level_child` não pergunta pelo fluxo), por
-/// isso os próprios fragmentos do span já saem em sítios que o Chrome não dá
-/// — `(0,1,352,38)` aqui, onde o Chrome dá o texto ao lado do float. Um número
-/// sobre o rect pinaria esse defeito; o que este lote garante é não SOMAR o
-/// float por cima dele.
+/// Afirma-se sobre a ÁRVORE: o float nem chega a partir o inline
+/// (`boxes/build.rs`, `is_block_level_child` pergunta pelo fluxo desde o lote
+/// BT-3 fora-de-fluxo). Os números contra o Blink estão em
+/// `inline_fora_de_fluxo_corpus.rs`.
 #[test]
 fn float_dentro_do_inline_nao_conta_como_bloco_que_o_partiu() {
     let dom = parse_html_to_dom(

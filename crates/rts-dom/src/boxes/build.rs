@@ -422,7 +422,7 @@ fn is_inline_flow_box(dom: &Dom, node: NodeIdx) -> bool {
     fc.is_inline_level() && fc.inner == crate::boxes::InnerDisplay::Flow && !fc.independent
 }
 
-/// `true` for an ELEMENT child that is block-level to its siblings — the one
+/// `true` for an ELEMENT child that is an IN-FLOW block-level box — the one
 /// question the split needs about a DIRECT child, asked through
 /// `element_formatting_context` so that "what is this to its siblings" has a
 /// single answer in this crate. A non-element is never block-level: a text node
@@ -431,17 +431,27 @@ fn is_inline_flow_box(dom: &Dom, node: NodeIdx) -> bool {
 /// `display: none` is excluded because it generates no box: a child that does not
 /// exist cannot split anything, and counting it would produce an anonymous box
 /// around nothing.
+///
+/// **A float or an absolutely positioned box is excluded too, although it IS
+/// block-level.** §9.2.1.1 splits around "an in-flow block-level box", and both
+/// are out of flow (§9.3); `effective_display` blockifies them, so asking only
+/// the outer display split `<span>a<div style="float:left"/>b</span>` in three
+/// and put `b` on a line of its own, where Blink keeps one line shortened
+/// around the float. Such a child stays in the inline run as ordinary content —
+/// which is also where the inline flow already knew how to place it.
 fn is_block_level_child(dom: &Dom, node: NodeIdx) -> bool {
     if !matches!(&dom.node(node).kind, NodeKind::Element { .. }) {
         return false;
     }
-    let declared = dom
-        .computed_style_idx(node)
-        .and_then(|css| css.effective_display());
-    if declared == Some(DisplayKind::None) {
+    let Some(css) = dom.computed_style_idx(node) else {
+        return crate::boxes::context::element_formatting_context(dom, node).is_block_level();
+    };
+    if css.effective_display() == Some(DisplayKind::None) {
         return false;
     }
-    crate::boxes::context::element_formatting_context(dom, node).is_block_level()
+    let fora_do_fluxo = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
+        || css.position.is_some_and(|p| p.out_of_flow());
+    !fora_do_fluxo && crate::boxes::context::element_formatting_context(dom, node).is_block_level()
 }
 
 /// One item of the flattened sequence a splitting inline's children resolve to,

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-3): um float que aparece A MEIO de uma linha de texto. CSS 2.1
+     §9.5.1 põe o topo dele no topo da linha em que aparece, se couber no que
+     a linha ainda tem livre, e a linha encurta à volta dele; se não couber,
+     desce para a linha seguinte. O motor fechava o fluxo inline no float
+     (`layout/vertical.rs`) e punha-o abaixo da última linha, com o texto de
+     depois numa linha nova. Três casos: float à esquerda filho directo, float
+     à direita, e um float que não cabe no resto da primeira linha. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  div.caso { margin-bottom: 10px; }
+  #fa { float: left; width: 50px; height: 30px; background: #0f0; }
+  #fb { display: block; float: right; width: 60px; height: 10px; background: #f0f; }
+  #c { width: 120px; }
+  #fc { float: left; width: 80px; height: 10px; background: #0ff; }
+  #fim { height: 10px; background: #00f; clear: both; }
+</style></head>
+<body>
+  <div class="caso" id="a">antes<div id="fa"></div>depois</div>
+  <div class="caso" id="b">antes<span id="fb"></span>depois</div>
+  <div class="caso" id="c">aaaaaaaaaa <div id="fc"></div>bbb</div>
+  <div id="fim"></div>
+</body>
+</html>

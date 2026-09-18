@@ -55,6 +55,7 @@ mod inline;
 mod inline_corpus;
 mod inline_fragmentos_corpus;
 mod inline_partido_rect_corpus;
+mod inline_fora_de_fluxo_corpus;
 mod pintura;
 mod pintura_transform_clip;
 mod pintura_juncao;

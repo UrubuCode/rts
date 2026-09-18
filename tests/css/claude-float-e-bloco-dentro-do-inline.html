@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Fixa (BT-3): um inline com um float E um bloco em fluxo. Só o bloco
+     parte o span (CSS 2.1 §9.2.1.1 — "in-flow block-level box"); o float
+     fica na primeira caixa anónima, junto ao texto que o rodeia, e flutua
+     dentro dela. A primeira linha começa ao lado do float; o bloco vem
+     abaixo da linha e o float, mais alto que ela, invade-o por baixo. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #quebra { background: #ff0; }
+  #flutua { float: left; width: 50px; height: 30px; background: #0f0; }
+  #bloco { height: 25px; background: #f0f; }
+  #seguinte { background: #00f; height: 10px; }
+</style></head>
+<body>
+  <div id="contentor"><span id="quebra">antes<div id="flutua"></div>meio<div id="bloco"></div>depois</span></div>
+  <div id="seguinte"></div>
+</body>
+</html>

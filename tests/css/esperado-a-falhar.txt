@@ -28,3 +28,10 @@ claude-ua-headings.html
 # lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a
 # sua própria caixa.
 claude-controlos-tamanho-natural.html
+
+# BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto
+# (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não:
+# o Blink põe um absoluto que era de BLOCO a seguir à caixa de linha (y=20);
+# `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e
+# não há caixa de linha guardada que diga onde a linha acaba (lote IFC).
+claude-absoluto-dentro-do-inline-nao-parte.html

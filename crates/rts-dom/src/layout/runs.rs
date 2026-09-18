@@ -241,6 +241,11 @@ pub(in crate::layout) fn collect_runs(
                 if e_display_none(dom, id) {
                     return;
                 }
+                // FLOAT a meio do fluxo: só uma âncora (`float_na_linha.rs`).
+                if let Some(ancora) = super::float_na_linha::ancora(dom, id, caixa, inherited_color) {
+                    out.push(ancora);
+                    return;
+                }
                 // WIDGET inline: um `<input>` no meio do fluxo (botão/campo) vira
                 // um run-widget com o tamanho pré-medido — o wrap o trata como
                 // palavra inquebrável e a emissão pinta a caixa no lugar.
@@ -253,7 +258,7 @@ pub(in crate::layout) fn collect_runs(
                     if itype == "hidden" {
                         return;
                     }
-                    let (ww, wh) = inline_widget_size(dom, id, &itype, avail_w, ctx);
+                    let (ww, wh) = super::input::inline_widget_size(dom, id, &itype, avail_w, ctx);
                     // Os ANCESTRAIS inline não engolem a caixa deste widget: no
                     // browser a caixa de um inline tem a largura do que ele
                     // contém e a altura da FONTE. Quem recebe `ww × wh` é só o
@@ -472,29 +477,3 @@ pub(in crate::layout) fn collect_runs(
     }
 }
 
-/// Tamanho OUTER de um widget inline (`<input>`): o MESMO cálculo que a emissão
-/// usa (layout_button / layout_input), para o wrap reservar a largura exata.
-pub(in crate::layout) fn inline_widget_size(
-    dom: &Dom,
-    id: NodeIdx,
-    itype: &str,
-    avail_w: f32,
-    ctx: &LayoutCtx,
-) -> (f32, f32) {
-    let css = dom.computed_style_idx(id).unwrap_or_default();
-    if matches!(itype, "submit" | "button" | "reset") {
-        let font = font_px(&css, DEFAULT_FONT_SIZE - 3.0);
-        let label = dom.node(id).attr("value").unwrap_or("").to_string();
-        let tw = ctx.measurer.text_width(&label, font, false, false, false);
-        let lh = ctx.measurer.line_height(font);
-        return (tw + 24.0 + 6.0, lh + 10.0 + 4.0); // espelha layout_button
-    }
-    // Campo de texto ou marca: a MESMA medida que a emissão vai usar, pedida à
-    // mesma função. Estava aqui uma cópia com números à mão (190 x lh+8) que
-    // dizia espelhar o `layout_input` e não espelhava — um `checkbox` reservava
-    // um campo de texto e pintava um quadrado.
-    //
-    // `None` de altura disponível: uma caixa numa linha não tem containing block
-    // de altura definida, logo `height:%` vale `auto`, como no browser.
-    medida_do_input(dom, id, &css, avail_w, None, None, None, ctx).outer()
-}
