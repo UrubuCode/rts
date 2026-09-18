@@ -251,7 +251,7 @@ pub(super) fn emit_class(
             RuntimeOp::SetFunctionName,
             &[target, name_value],
         )?;
-        super::serde_names::declare(builder, ctx, constructor, &text)?;
+        super::serde_names::declare(builder, ctx, constructor, &text, super::serde_names::private_space(ctx, class))?;
     }
 
     if let Some(parent) = parent {

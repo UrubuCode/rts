@@ -37,7 +37,19 @@ use crate::runtime::RuntimeOp;
 use crate::syntax::{Stmt, StmtKind};
 
 /// Registers one declaration, when this compilation registers any.
-pub(super) fn declare(builder: &mut FuncBuilder, ctx: &mut Ctx, target: ValueId, name: &str) -> EmitResult<()> {
+///
+/// `space` is the number the class's own `#private` names were interned under
+/// ([`private_space`]), so the runtime can write a private field by its depth
+/// in the class chain rather than by a number that depends on where in the
+/// source the class was written. `None` for a function, and for a class
+/// declaring no private member.
+pub(super) fn declare(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    target: ValueId,
+    name: &str,
+    space: Option<u32>,
+) -> EmitResult<()> {
     let Some(module) = ctx.module_key.clone() else {
         return Ok(());
     };
@@ -45,9 +57,28 @@ pub(super) fn declare(builder: &mut FuncBuilder, ctx: &mut Ctx, target: ValueId,
     let module = super::module::number(builder, u64::from(module));
     let name = ctx.literal(name);
     let name = super::module::number(builder, u64::from(name));
+    // `u64::MAX` is the I64 `-1`: no space.
+    let space = super::module::number(builder, space.map_or(u64::MAX, u64::from));
     let target = super::expr::tagged(builder, target);
-    super::expr::call(builder, ctx, RuntimeOp::SerdeDeclare, &[target, module, name])?;
+    super::expr::call(builder, ctx, RuntimeOp::SerdeDeclare, &[target, module, name, space])?;
     Ok(())
+}
+
+/// The number a class's own private names carry — `@@#<n>#name`, the spelling
+/// `parse::Cx::private_name` interns — read off the first private member the
+/// body declares, or `None` when it declares none.
+///
+/// Read from the tree rather than threaded down from the parser because every
+/// private member of one body carries the same number, and the tree already
+/// holds it in the names it interned.
+pub(super) fn private_space(ctx: &Ctx, class: &crate::syntax::Class) -> Option<u32> {
+    class.body.iter().find_map(|element| match element.key()? {
+        crate::syntax::ClassKey::Private(name) => {
+            let text = ctx.names.text(*name).strip_prefix("@@#")?;
+            text.split_once('#')?.0.parse().ok()
+        }
+        _ => None,
+    })
 }
 
 /// Registers every named function a module's or script's own body declares,
@@ -67,7 +98,7 @@ pub(super) fn declare_functions(
         };
         let value = super::binding::read(builder, scope, ctx, name)?;
         let spelled = ctx.names.text(name).to_owned();
-        declare(builder, ctx, value, &spelled)?;
+        declare(builder, ctx, value, &spelled, None)?;
     }
     Ok(())
 }

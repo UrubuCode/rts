@@ -134,6 +134,8 @@ fn a_module_is_declared_under_its_specifier_and_not_on_the_global_scope() {
         text.contains("declare module \"rts:serde\" {")
             && text.contains("export function serialize(")
             && text.contains("export function deserialize(")
+            && text.contains("export const version: unique symbol;")
+            && text.contains("export const upgrade: unique symbol;")
             && !text.contains("declare var serde"),
         "rts:serde must be a module declaration; got:\n{text}"
     );

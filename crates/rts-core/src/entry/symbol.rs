@@ -413,7 +413,7 @@ fn mint(context: &mut Context, key: String, description: Option<String>) -> u64 
 }
 
 /// A symbol shared under a key text, made once.
-pub(super) fn shared(context: &mut Context, key: String, description: Option<String>) -> u64 {
+pub(in crate::entry) fn shared(context: &mut Context, key: String, description: Option<String>) -> u64 {
     if let Some((_, number)) = context.symbols.shared.iter().find(|(held, _)| *held == key) {
         return Value::from_client(context.kinds.symbol, u64::from(*number)).bits();
     }

@@ -1464,8 +1464,9 @@ impl RuntimeOp {
             RuntimeOp::SuperConstruct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),
             RuntimeOp::MarkDerived => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::MarkClassConstructor => (vec![UNPROVEN], vec![UNPROVEN]),
-            // The declaration, and WHICH literals spell its module and name.
-            RuntimeOp::SerdeDeclare => (vec![UNPROVEN, Repr::I64, Repr::I64], vec![UNPROVEN]),
+            // The declaration, WHICH literals spell its module and name, and
+            // the number its private names carry (`-1` for none).
+            RuntimeOp::SerdeDeclare => (vec![UNPROVEN, Repr::I64, Repr::I64, Repr::I64], vec![UNPROVEN]),
             // The callee, the receiver, and the arguments as one array.
             RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes

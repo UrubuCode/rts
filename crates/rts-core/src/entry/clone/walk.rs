@@ -180,6 +180,7 @@ impl Walker {
                 let Some(read) = super::members::data(context, value, cell, true) else {
                     return Err(refuse("a class instance with an own accessor property"));
                 };
+                let read = super::super::pickle::names::portable(context, cell, read);
                 Node::Instance { class: class.clone(), fields: self.members(context, read, depth)? }
             }
             Kind::Map | Kind::Set => {

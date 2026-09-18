@@ -106,11 +106,12 @@ pub(super) fn class(reader: &mut Reader, name: Str, keys: Vec<Str>, values: Vec<
         _ => {
             let found = super::names::resolve(reader.context, None, &name)?;
             let prototype = prototype_of(reader.context, found, &name)?;
-            let fields = keys
+            let mut interned: Vec<Key> = keys
                 .iter()
-                .zip(values)
-                .map(|(key, slot)| (Key::Name(reader.context.interner.intern(key, &mut reader.context.keys)), slot))
+                .map(|key| Key::Name(reader.context.interner.intern(key, &mut reader.context.keys)))
                 .collect();
+            super::names::local(reader.context, prototype, &mut interned, true);
+            let fields = interned.into_iter().zip(values).collect();
             let class = ClassName { module: Str::empty(), name, prototype, version: 0 };
             Ok(Node::Instance { class, fields })
         }

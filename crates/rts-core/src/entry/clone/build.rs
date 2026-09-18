@@ -39,6 +39,14 @@ pub(in crate::entry) struct Made {
 
 /// Makes every node and text of an arena, and fills the containers.
 pub(in crate::entry) fn materialise(context: &mut Context, graph: &Graph) -> Made {
+    materialise_holding(context, graph, &[])
+}
+
+/// The same, leaving the nodes `held` names (sorted) made but EMPTY — the
+/// pickle's class instances whose fields a class's `upgrade` rewrites first.
+/// They exist, so everything pointing at one points at it; they are filled
+/// once the fields they will hold are known.
+pub(in crate::entry) fn materialise_holding(context: &mut Context, graph: &Graph, held: &[usize]) -> Made {
     let mut made = Made {
         values: Rooted::with(Vec::with_capacity(graph.nodes.len() + graph.texts.len())),
         texts: graph.nodes.len(),
@@ -52,6 +60,9 @@ pub(in crate::entry) fn materialise(context: &mut Context, graph: &Graph) -> Mad
         made.values.values().push(value);
     }
     for (at, node) in graph.nodes.iter().enumerate() {
+        if held.binary_search(&at).is_ok() {
+            continue;
+        }
         let value = made.values.as_slice()[at];
         fill(context, node, value, &made);
     }

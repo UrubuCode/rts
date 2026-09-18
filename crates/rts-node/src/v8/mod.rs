@@ -22,7 +22,7 @@
 //! full the heap is.
 //!
 //! [`serialize`]/[`deserialize`] are `rts:serde`'s pickle
-//! ([`rts_core::entry::pickle_value`] / [`rts_core::entry::unpickle_bytes`]),
+//! ([`rts_core::entry::pickle_value`] / [`rts_core::entry::unpickle`]),
 //! with [`rts_core::entry::make_buffer`] and [`rts_core::entry::bytes_of`] at
 //! the byte boundary. This crate had a wire codec of its own until the pickle
 //! existed, written because `structuredClone`'s walk was unreachable from here;
@@ -346,14 +346,14 @@ extern "C" fn serialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3
 /// as Node accepts one. Bytes that are not a stream raise, as Node's do, where
 /// the old codec answered `undefined` and let the program carry on with it.
 extern "C" fn deserialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let answered = rts_core::entry::with_runtime(|context| {
-        match rts_core::entry::bytes_of(context, value) {
-            Some(bytes) => rts_core::entry::unpickle_bytes(context, &bytes),
-            None => Err(rts_core::entry::PickleFailure::Refused(
-                "v8.deserialize takes a Buffer, a TypedArray or a DataView".into(),
-            )),
-        }
-    });
+    // Ambient: a class that declares an `upgrade` is called while reading, and
+    // that is user code, which cannot run inside a borrow.
+    let answered = match rts_core::entry::with_runtime(|context| rts_core::entry::bytes_of(context, value)) {
+        Some(bytes) => rts_core::entry::unpickle(&bytes),
+        None => Err(rts_core::entry::PickleFailure::Refused(
+            "v8.deserialize takes a Buffer, a TypedArray or a DataView".into(),
+        )),
+    };
     match answered {
         Ok(value) => value,
         Err(failed) => raised(failed),

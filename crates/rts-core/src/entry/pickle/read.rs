@@ -237,7 +237,8 @@ impl Reader<'_, '_> {
             }
             OP_CLASS => {
                 let class = self.class()?;
-                let keys = self.keys()?;
+                let mut keys = self.keys()?;
+                super::names::local(self.context, class.prototype, &mut keys, false);
                 let at = self.reserve();
                 Ok(Opened::Open(Frame::Object { at, values: Vec::with_capacity(keys.len()), keys, class: Some(class) }))
             }

@@ -13,6 +13,7 @@
 //! | `legacy` | what v1 wrote that v2 does not, as what it meant |
 //! | `names` | which classes and functions a stream may name |
 //! | `kinds` | a typed array's kind as a byte |
+//! | `upgrade` | a class's schema version, and the migration it declares |
 //!
 //! # What it reuses, and why that is the design rather than a shortcut
 //!
@@ -29,8 +30,10 @@
 //! `serialize` walks — one borrow for a graph of plain data, more only where a
 //! getter must run — and then writes the stream and copies it into a
 //! `Uint8Array` inside one more. `deserialize` is ONE borrow: the input's bytes
-//! are read where they are, the arena is built, and the arena is materialised,
-//! with no call into user code anywhere in it.
+//! are copied out, the arena is built, and the arena is materialised, with no
+//! call into user code anywhere in it — unless a class the stream names
+//! declares an `upgrade`, which is the one call a read makes, and is made
+//! outside the borrow (`upgrade`'s module doc).
 
 mod format;
 mod kinds;
@@ -38,9 +41,10 @@ mod legacy;
 pub(in crate::entry) mod names;
 mod read;
 mod strings;
+mod upgrade;
 mod write;
 
-use super::clone::{Policy, Refusal, materialise, resolve, walk};
+use super::clone::{Graph, Made, Policy, Refusal, Slot, materialise, materialise_holding, resolve, walk};
 use super::objects::undefined_of;
 use super::{Context, with_current};
 use crate::value::Value;
@@ -67,12 +71,38 @@ pub fn pickle_value(value: u64) -> Result<Vec<u8>, Failure> {
 
 /// The value a stream describes, built on the heap.
 ///
-/// Inside the caller's borrow: reading runs no user code, so nothing here ever
-/// needs to give it back.
-pub fn unpickle_bytes(context: &mut Context, bytes: &[u8]) -> Result<u64, Failure> {
+/// Ambient, for the one reason reading ever leaves the borrow: a class that
+/// declares `upgrade` is called to migrate its instances' fields, and that is
+/// user code. A stream with no such instance — nearly all of them — is read,
+/// built and answered inside ONE borrow.
+pub fn unpickle(bytes: &[u8]) -> Result<u64, Failure> {
+    let staged = with_current(|context| stage(context, bytes))?;
+    finish(staged)
+}
+
+/// A stream read and built as far as it can be without running user code.
+enum Staged {
+    Done(u64),
+    Upgrading { graph: Graph, made: Made, pending: Vec<upgrade::Pending>, root: Slot },
+}
+
+fn stage(context: &mut Context, bytes: &[u8]) -> Result<Staged, Failure> {
     let (graph, root) = read::read(context, bytes).map_err(Failure::Refused)?;
-    let made = materialise(context, &graph);
-    Ok(resolve(root, &made))
+    let pending = upgrade::pending(context, &graph);
+    if pending.is_empty() {
+        let made = materialise(context, &graph);
+        return Ok(Staged::Done(resolve(root, &made)));
+    }
+    let held: Vec<usize> = pending.iter().map(upgrade::Pending::at).collect();
+    let made = materialise_holding(context, &graph, &held);
+    Ok(Staged::Upgrading { graph, made, pending, root })
+}
+
+fn finish(staged: Staged) -> Result<u64, Failure> {
+    match staged {
+        Staged::Done(value) => Ok(value),
+        Staged::Upgrading { graph, made, pending, root } => upgrade::run(&graph, made, pending, root),
+    }
 }
 
 /// A list of strings as the stream of the array holding them.
@@ -156,22 +186,32 @@ impl Serde {
     /// setter — a class is re-linked to the prototype this program declared,
     /// and a function is looked up by name among the ones it declared.
     fn deserialize(bytes: u64) -> u64 {
-        let answered = with_current(|context| match input(context, bytes) {
-            Some(input) => unpickle_bytes(context, &input),
+        let staged = with_current(|context| match input(context, bytes) {
+            Some(input) => stage(context, &input),
             None => Err(Failure::Refused(
                 "pickle: deserialize takes a Uint8Array, a Buffer, an ArrayBuffer or an array of bytes".into(),
             )),
         });
-        match answered {
+        match staged.and_then(finish) {
             Ok(value) => value,
             Err(failed) => raised(failed),
         }
     }
 }
 
-/// The module object `rts:serde` names.
+/// The module object `rts:serde` names: the two functions, and the two
+/// symbols a class uses to declare a schema version — `upgrade`'s module doc.
+///
+/// The symbols are SHARED under a key no `Symbol.for` can produce, so every
+/// import of the module answers the same two, and a class's `static
+/// [version]` is the property the reader looks for by that key.
 pub fn namespace(context: &mut Context) -> u64 {
-    register_serde(context)
+    let made = register_serde(context);
+    for (member, key) in [("version", names::VERSION), ("upgrade", names::UPGRADE)] {
+        let symbol = super::symbol::shared(context, key.to_owned(), Some(format!("serde.{member}")));
+        super::modules::put_member(context, made, member, symbol);
+    }
+    made
 }
 
 /// Raises a failure as the `TypeError` it is, outside any borrow, and answers

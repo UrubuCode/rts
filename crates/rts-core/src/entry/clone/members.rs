@@ -57,6 +57,17 @@ pub(super) fn data(context: &mut Context, value: u64, cell: u32, private: bool) 
     Some(read)
 }
 
+/// Every enumerable own DATA member, skipping an accessor rather than giving
+/// up on the object — for a reader that cannot leave the borrow to run one and
+/// would rather have the data than nothing: what a class's `upgrade` answered.
+pub(in crate::entry) fn data_members(context: &mut Context, value: u64, cell: u32) -> Vec<(Key, u64)> {
+    super::super::array::key_list(context, value, true)
+        .into_iter()
+        .filter(|key| matches!(key, Key::Name(_)))
+        .filter_map(|key| Some((key, super::super::objects::own_property(context, cell, key)?.bits())))
+        .collect()
+}
+
 /// The same members, read the way the language reads them: through
 /// `own_keys` and `get_indexed`, outside any borrow, so an accessor runs its
 /// getter and a proxy its traps.

@@ -206,8 +206,8 @@ pub fn render() -> String {
     );
     out.extend(CLASSES.iter().map(declaration));
     out.push_str(&super::operators_declaration());
-    for (specifier, class) in MODULES {
-        out.push_str(&module(specifier, class));
+    for (specifier, class, values) in MODULES {
+        out.push_str(&module(specifier, class, values));
     }
     out
 }
@@ -218,15 +218,31 @@ pub fn render() -> String {
 /// reaches `serialize` through `import { serialize } from "rts:serde"`, and a
 /// declaration putting it on `globalThis` would describe a name the runtime
 /// does not have. The members are the attribute's, as everywhere else here.
-pub const MODULES: &[(&str, Class)] = &[("rts:serde", super::pickle::SERDE_TYPES)];
+///
+/// The third column is what the attribute cannot derive: a value export that is
+/// not a function. `rts:serde`'s `version` and `upgrade` are SYMBOLS, and
+/// `#[rtse::class]` knows two kinds of constant — a number and a string — so
+/// these two lines are written out, beside the code that makes the symbols
+/// (`pickle::namespace`), and pinned by a test that the module answers them.
+pub const MODULES: &[(&str, Class, &[&str])] = &[(
+    "rts:serde",
+    super::pickle::SERDE_TYPES,
+    &[
+        "/** `static [version] = n` on a class: the schema version its instances are written under. */\n  export const version: unique symbol;",
+        "/** `static [upgrade](fields, fromVersion)` on a class: migrates older fields before an instance revives. */\n  export const upgrade: unique symbol;",
+    ],
+)];
 
 /// One module, as an ambient `declare module` whose members are exports.
-fn module(specifier: &str, class: &Class) -> String {
+fn module(specifier: &str, class: &Class, values: &[&str]) -> String {
     let mut out = jsdoc(class.doc, "");
     out.push_str(&format!("declare module \"{specifier}\" {{\n"));
     for member in class.members {
         out.push_str(&jsdoc(member.doc, "  "));
         out.push_str(&format!("  export {}\n", as_namespace_member(member)));
+    }
+    for value in values {
+        out.push_str(&format!("  {value}\n"));
     }
     out.push_str("}\n\n");
     out

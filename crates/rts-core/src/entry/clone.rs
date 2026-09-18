@@ -83,7 +83,8 @@ mod errors;
 mod members;
 mod walk;
 
-pub(in crate::entry) use build::{materialise, populate, resolve};
+pub(in crate::entry) use build::{Made, materialise, materialise_holding, populate, resolve};
+pub(in crate::entry) use members::data_members;
 pub(in crate::entry) use walk::walk;
 
 use super::buffers::element::Kind;
