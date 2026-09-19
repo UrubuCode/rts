@@ -44,6 +44,13 @@ use super::*;
 /// nenhum dos dois tem uma baseline própria que [`ascent_do_contentor`] saiba
 /// medir — o mesmo corte que o doc deste módulo já declara para o GRUPO da
 /// linha ("pseudo-item e texto solto fora do grupo").
+/// Does this flex container have an in-flow ELEMENT item? Without one its
+/// items are anonymous (text) or absent, and `ascent_do_contentor` has no item
+/// to ask.
+pub(in crate::layout) fn tem_itens_elemento(dom: &Dom, id: NodeIdx) -> bool {
+    !filhos_flex_em_fluxo(dom, id).is_empty()
+}
+
 fn filhos_flex_em_fluxo(dom: &Dom, id: NodeIdx) -> Vec<NodeIdx> {
     dom.node(id)
         .children

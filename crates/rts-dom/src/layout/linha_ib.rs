@@ -38,8 +38,29 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
                 | crate::style::DisplayKind::InlineFlex
                 | crate::style::DisplayKind::InlineFlexWrap
         )
-    ) {
-        return super::flex_baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
+    ) && super::flex_baseline::tem_itens_elemento(dom, id)
+    {
+        // The container's baseline seen from OUTSIDE is its first item's,
+        // pushed down by the container's own top border and padding —
+        // `ascent_do_contentor` measures from the content box, and without the
+        // frame an `inline-flex` with `padding: 4px` sat 4px low next to text.
+        // A flex container whose only content is TEXT has that text as its
+        // anonymous item; `ascent_do_contentor` counts only elements and
+        // answered the bottom edge for it, so it falls to the text formula
+        // below, which is the anonymous item's baseline (WPT
+        // `flexbox-baseline-single-item-001a`).
+        let Some(css) = dom.computed_style_idx(id) else { return h };
+        let r = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let [bt, ..] = crate::style::borders::used_widths(&css);
+        let pt = css.padding.top.resolve(&r).unwrap_or(0.0);
+        let dentro = super::flex_baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
+        return if dentro >= h { h } else { (bt + pt + dentro).min(h) };
     }
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
     // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
