@@ -276,10 +276,9 @@ pub(in crate::layout) fn layout_inline_flow(
         let filhos_antes_da_linha = list.children.len();
         let mut superficies = std::mem::take(&mut transporte);
         // A line holding an inline-block is placed by the §10.8.1 envelope
-        // (`linha_baseline.rs`): one baseline, and each item's extent above and
-        // below it. It replaced a special case here ("taller than the strut,
-        // next to text") that sat every inline-block on its bottom edge. Lines
-        // of text and images alone keep the half-leading placement.
+        // (`linha_baseline.rs`): one baseline, each item's extent above and below
+        // it. It replaced a special case that sat every inline-block on its bottom
+        // edge. Lines of text and images alone keep the half-leading placement.
         let ascent = ctx.measurer.font_ascent_family(font_size, family);
         let envelope = super::linha_baseline::envelope_da_linha(dom, &line, font_size, lh, family, content_w, ctx);
         let na_baseline = envelope.is_some();
@@ -476,11 +475,12 @@ pub(in crate::layout) fn layout_inline_flow(
                             dom,
                             owner,
                             seg_x,
-                            cy + meia,
+                            // The text's own anchor: `cy + meia` made the span 5px too tall on a line an atom grew.
+                            text_owner_anchor,
                             seg.ww,
                             conteudo,
                             ctx,
-                            false,
+                            na_baseline,
                         ),
                     );
                 }

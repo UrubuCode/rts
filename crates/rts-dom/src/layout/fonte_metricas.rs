@@ -1,106 +1,123 @@
-//! O modelo ÚNICO de métricas de fonte que o `ApproxMeasurer` consulta:
-//! ascent, descent e a altura de linha quando `line-height` é `normal`, para
-//! as famílias que o motor distingue hoje (a aproximação calibrada contra o
-//! Chrome, e a Ahem, cujas métricas são a definição da fonte).
+//! The ONE model of font metrics the `ApproxMeasurer` asks: ascent, descent
+//! and the line height under `line-height: normal`, per font family.
 //!
-//! ## O defeito que isto fecha
+//! ## What it is now, and what it replaced
 //!
-//! A pergunta "esta família é Ahem?" estava repetida em QUATRO sítios de
-//! `medidor_texto.rs` (`text_width_family`, `line_height_family`,
-//! `font_ascent_family`, `font_descent_family`), cada um com o seu próprio
-//! `if family.is_some_and(is_ahem_family) { ... } else { ... }`. Quatro
-//! cópias da mesma decisão são quatro sítios onde uma quinta família
-//! poderia ter sido esquecida — e é a MESMA classe de defeito que deixou
-//! `NORMAL_RATIO` (1,125) e `ASCENT_RATIO+DESCENT_RATIO` (1,2125) serem
-//! calibrados em separado sem que ninguém notasse que respondiam à mesma
-//! pergunta por ângulos diferentes: duas perguntas sobre a mesma fonte que já
-//! não concordam.
+//! These are the REAL `hhea` tables of the four fonts Blink resolves the
+//! generic families to on Windows, and Blink's own arithmetic over them:
+//! ascent and descent are each rounded to a whole pixel, and the normal line
+//! height is `round(ascent + descent + line-gap)`. Measured in Edge 153 for
+//! four families at seven sizes (`tests/css/claude-fm-metricas-por-familia`):
+//! the formula reproduces all 28 rows exactly.
 //!
-//! Este módulo não move nem recalibra nenhuma das constantes — todas vêm,
-//! sem alteração, de `style::text_metrics` e `style::ahem`. O que ele fecha é
-//! a escolha entre elas: ascent, descent e altura-de-linha-normal passam a
-//! ter UM sítio a decidir "que calibração serve esta família", em vez de
-//! quatro.
+//! It replaced ONE approximation shared by every family — ascent 0.90,
+//! descent 0.3125, normal line height `ceil(1.125 × size)` — calibrated in two
+//! separate sittings against two corpora. The two did not add up (the line
+//! gap they implied was negative), and this module used to carry a test
+//! pinning that contradiction rather than resolving it, because deriving one
+//! from the other had broken four fixtures. It broke them because BOTH numbers
+//! were wrong: a serif 16px has a descent of 3 where 0.3125 gave 5, so every
+//! baseline sat 0.4–2px off and the error grew down the page, one line at a
+//! time. That is what kept a fixture of inline-blocks in the expected-failure
+//! list the day this was written.
 //!
-//! ## O que este módulo NÃO faz, de propósito
+//! Text ADVANCE (the width of a string) is not decided here: it stays the
+//! calibrated average in `style::text_metrics`. Real per-glyph advances need
+//! the font files, which this crate does not read.
 //!
-//! Não deriva `normal_line_height` de `ascent + descent + line-gap`. Essa
-//! prova é algebricamente correcta para uma fonte real (é a definição de
-//! `line-gap` em qualquer tabela `hhea`/`OS/2`) — e FOI tentada aqui, contra
-//! este mesmo par de constantes, e partiu quatro fixtures de baseline: a
-//! suposição escondida é que `ascent + descent` (a soma que `ASCENT_RATIO` e
-//! `DESCENT_RATIO` calibram, contra `tests/css/claude-vertical-align.esperado.json`)
-//! e a altura de linha `normal` (que `NORMAL_RATIO` calibra, contra 62
-//! elementos de outro corpus) são a MESMA medição. Não são: são duas
-//! calibrações independentes contra o Chrome, cada uma honesta na pergunta
-//! que respondeu, e a diferença entre elas — `1,2125 − 1,125 = 0,0875` — é a
-//! prova de que a fonte deste motor não tem tabela `hhea` nenhuma por trás,
-//! só dois números medidos em dois corpora diferentes.
-//!
-//! [`FontMetricsModel::line_gap`] existe para dar um NÚMERO a essa
-//! divergência em vez de deixá-la só num comentário: é o valor que a fórmula
-//! acima exigiria, e é NEGATIVO na aproximação default precisamente porque a
-//! suposição é falsa. Nada no layout o consome — nenhum código depende dele
-//! ser positivo, zero, ou sequer plausível como line-gap de uma fonte real.
+//! The question "is this family Ahem?" still has a single site here — four
+//! copies of it across `medidor_texto.rs` is the defect this module first
+//! closed — and Ahem is NOT rounded: 0.8 + 0.2 is the font's definition.
 
-/// `true` sse a lista de `font-family` computada resolve, pela mesma regra de
-/// `style::is_ahem_family`, na família Ahem. Único sítio desta pergunta —
-/// ver o cabeçalho do módulo.
+/// The `hhea` metrics of one font, as fractions of the em.
+#[derive(Clone, Copy)]
+struct Tabela {
+    ascent: f32,
+    descent: f32,
+    gap: f32,
+}
+
+/// Times New Roman — Blink's `serif`, and its default font.
+const TIMES: Tabela = Tabela { ascent: 1825.0 / 2048.0, descent: 443.0 / 2048.0, gap: 87.0 / 2048.0 };
+/// Arial — `sans-serif`.
+const ARIAL: Tabela = Tabela { ascent: 1854.0 / 2048.0, descent: 434.0 / 2048.0, gap: 67.0 / 2048.0 };
+/// Consolas — `monospace`.
+const CONSOLAS: Tabela = Tabela { ascent: 1884.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0 };
+/// Segoe UI — `system-ui`, which is what Bootstrap's font stack reaches first.
+const SEGOE_UI: Tabela = Tabela { ascent: 2210.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0 };
+
+/// The table of the FIRST family of the list this engine can place, as a
+/// browser walks a `font-family` list to the first font it has. A name it
+/// does not know is skipped, not guessed; with none left — or no `font-family`
+/// at all — the answer is Blink's default font, Times New Roman.
+///
+/// Named fonts map to the table of their class (Georgia to Times, Helvetica
+/// and Verdana to Arial, Courier to Consolas): their own tables differ by a
+/// pixel here and there, and adding one is a row here plus a row in the ruler.
+fn tabela(family: Option<&str>) -> Tabela {
+    for nome in family.unwrap_or("").split(',') {
+        let n = nome.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
+        if n.is_empty() {
+            continue;
+        }
+        if crate::style::is_mono_family(&n) {
+            return CONSOLAS;
+        }
+        if matches!(n.as_str(), "system-ui" | "ui-sans-serif" | "-apple-system" | "blinkmacsystemfont") || n.contains("segoe") {
+            return SEGOE_UI;
+        }
+        if n == "serif" || n == "ui-serif" || ["times", "georgia", "cambria", "garamond", "palatino"].iter().any(|k| n.contains(k)) {
+            return TIMES;
+        }
+        if n == "sans-serif"
+            || ["arial", "helvetica", "verdana", "tahoma", "trebuchet", "roboto", "inter", "open sans", "lato", "noto sans", "ubuntu", "calibri"]
+                .iter()
+                .any(|k| n.contains(k))
+        {
+            return ARIAL;
+        }
+    }
+    TIMES
+}
+
+/// `true` when the computed `font-family` list resolves to Ahem, by the rule of
+/// `style::is_ahem_family`. The single site of this question.
 pub(in crate::layout) fn usa_ahem(family: Option<&str>) -> bool {
     family.is_some_and(crate::style::is_ahem_family)
 }
 
-/// O modelo de métricas de fonte. Sem estado: é só o ponto único onde
-/// `size`/`family` decidem qual calibração usar. Não introduz nenhuma
-/// constante nova.
+/// The font metrics model. Stateless: the one place `size` and `family` decide
+/// the numbers.
 pub(in crate::layout) struct FontMetricsModel;
 
 impl FontMetricsModel {
-    /// Ascent, em pontos, para `size`/`family`.
-    ///
-    /// `family = None` é a mesma resposta que `TextMeasurer::font_ascent`
-    /// sempre deu (a aproximação default, `ASCENT_RATIO`) — este modelo não
-    /// muda esse número, só passa a ser o único sítio que o calcula.
+    /// Ascent in pixels, rounded to a whole pixel as Blink rounds it.
     pub fn ascent(size: f32, family: Option<&str>) -> f32 {
         if usa_ahem(family) {
-            size * crate::style::AHEM_ASCENT_RATIO
-        } else {
-            size * crate::style::ASCENT_RATIO
+            return size * crate::style::AHEM_ASCENT_RATIO;
         }
+        (size * tabela(family).ascent).round()
     }
 
-    /// Descent, em pontos, para `size`/`family`. Ver [`Self::ascent`].
+    /// Descent in pixels, rounded on its own — NOT `content − ascent`: at 10px
+    /// Consolas is 9 + 3 = 12, where rounding the sum would give 12 and
+    /// rounding 11.7 then subtracting would give 3 by luck and 2 elsewhere.
     pub fn descent(size: f32, family: Option<&str>) -> f32 {
         if usa_ahem(family) {
-            size * crate::style::AHEM_DESCENT_RATIO
-        } else {
-            size * crate::style::DESCENT_RATIO
+            return size * crate::style::AHEM_DESCENT_RATIO;
         }
+        (size * tabela(family).descent).round()
     }
 
-    /// Altura de UMA linha quando `line-height` é `normal`, para
-    /// `size`/`family`. Ver [`Self::ascent`].
+    /// The height of one line under `line-height: normal`: the ROUNDED ascent
+    /// and descent plus the font's line gap, rounded again. The order matters
+    /// and is measured: Times 12px is 11 + 3 + 0.51 → 15, where rounding the
+    /// raw sum (13.80) would give 14.
     pub fn normal_line_height(size: f32, family: Option<&str>) -> f32 {
         if usa_ahem(family) {
-            // A Ahem não arredonda: 0,8+0,2 já é 1em exacto, é a DEFINIÇÃO
-            // da fonte e não uma aproximação sujeita ao `ceil` do Chrome.
-            size * (crate::style::AHEM_ASCENT_RATIO + crate::style::AHEM_DESCENT_RATIO)
-        } else {
-            crate::style::normal_line_height(size)
+            return size * (crate::style::AHEM_ASCENT_RATIO + crate::style::AHEM_DESCENT_RATIO);
         }
-    }
-
-    /// O "line-gap" que a fórmula `line_height = ascent + descent + gap`
-    /// exigiria — ver o aviso no cabeçalho do módulo sobre porque este
-    /// número NÃO prova que as duas calibrações concordam. Nada no layout
-    /// consome este valor de propósito; existe para documentar a divergência
-    /// com um número em vez de só um comentário, e os testes deste módulo
-    /// são quem o exercita — daí o `allow` (sem ele, um build sem testes
-    /// acusa-o de morto, e apagá-lo era perder a única prova numérica da
-    /// armadilha).
-    #[allow(dead_code)]
-    pub fn line_gap(size: f32, family: Option<&str>) -> f32 {
-        Self::normal_line_height(size, family) - Self::ascent(size, family) - Self::descent(size, family)
+        (Self::ascent(size, family) + Self::descent(size, family) + size * tabela(family).gap).round()
     }
 }
 
@@ -108,98 +125,47 @@ impl FontMetricsModel {
 mod tests {
     use super::*;
 
-    const FONTE: f32 = 16.0;
-
-    /// Duas perguntas sobre a MESMA fonte, feitas ao mesmo modelo, têm de
-    /// concordar consigo mesmas: pedir ascent duas vezes dá o mesmo número
-    /// (o modelo não tem estado escondido que mude entre chamadas).
-    #[test]
-    fn duas_perguntas_sobre_a_mesma_fonte_concordam() {
-        assert_eq!(
-            FontMetricsModel::ascent(FONTE, None),
-            FontMetricsModel::ascent(FONTE, None)
-        );
-        assert_eq!(
-            FontMetricsModel::normal_line_height(FONTE, Some("Arial")),
-            FontMetricsModel::normal_line_height(FONTE, Some("Arial"))
-        );
-    }
-
-    /// A escolha de família É a única coisa que decide a calibração: duas
-    /// famílias NÃO-Ahem (uma sem nome, outra "Arial") respondem o mesmo,
-    /// porque nenhuma delas é a exceção.
-    #[test]
-    fn familia_desconhecida_e_ausente_dao_a_mesma_aproximacao() {
-        assert_eq!(
-            FontMetricsModel::ascent(FONTE, None),
-            FontMetricsModel::ascent(FONTE, Some("Arial"))
-        );
-        assert_eq!(
-            FontMetricsModel::normal_line_height(FONTE, None),
-            FontMetricsModel::normal_line_height(FONTE, Some("Arial"))
-        );
-    }
-
-    /// A Ahem responde por uma calibração DIFERENTE da aproximação default —
-    /// não é o mesmo modelo escondido atrás de outro nome.
-    #[test]
-    fn ahem_diverge_da_aproximacao_default() {
-        assert_ne!(
-            FontMetricsModel::ascent(FONTE, Some("Ahem")),
-            FontMetricsModel::ascent(FONTE, None)
-        );
-        assert_eq!(FontMetricsModel::ascent(FONTE, Some("Ahem")), FONTE * 0.8);
-        assert_eq!(FontMetricsModel::descent(FONTE, Some("Ahem")), FONTE * 0.2);
-    }
-
-    /// Na Ahem, ascent + descent reproduz a altura de linha normal: ali a soma
-    /// É a definição da fonte, e não há duas calibrações independentes a
-    /// discordar — o contrário exacto da aproximação default, que o teste
-    /// seguinte pina com o seu número.
-    ///
-    /// A tolerância não é uma concessão: `size*0.8 + size*0.2` e `size*1.0` são
-    /// somas de `f32` diferentes e diferem no último bit (medido: -2.4e-7 para
-    /// um corpo de 16px). Exigir igualdade exacta aqui afirmaria uma coisa sobre
-    /// a aritmética de vírgula flutuante em vez de uma sobre a fonte.
-    const RESIDUO_F32: f32 = 1e-5;
+    /// Blink's numbers, measured in Edge 153
+    /// (`tests/css/claude-fm-metricas-por-familia.esperado.json`): for each
+    /// family, `(size, ascent, descent, normal line height)`. The whole table,
+    /// not a sample — the rounding is what is being pinned, and it only shows
+    /// at the sizes where a half lands.
+    const BLINK: [(&str, [(f32, f32, f32, f32); 7]); 4] = [
+        ("serif", [(10.0, 9.0, 2.0, 11.0), (12.0, 11.0, 3.0, 15.0), (14.0, 12.0, 3.0, 16.0), (16.0, 14.0, 3.0, 18.0), (20.0, 18.0, 4.0, 23.0), (24.0, 21.0, 5.0, 27.0), (32.0, 29.0, 7.0, 37.0)]),
+        ("sans-serif", [(10.0, 9.0, 2.0, 11.0), (12.0, 11.0, 3.0, 14.0), (14.0, 13.0, 3.0, 16.0), (16.0, 14.0, 3.0, 18.0), (20.0, 18.0, 4.0, 23.0), (24.0, 22.0, 5.0, 28.0), (32.0, 29.0, 7.0, 37.0)]),
+        ("monospace", [(10.0, 9.0, 3.0, 12.0), (12.0, 11.0, 3.0, 14.0), (14.0, 13.0, 4.0, 17.0), (16.0, 15.0, 4.0, 19.0), (20.0, 18.0, 5.0, 23.0), (24.0, 22.0, 6.0, 28.0), (32.0, 29.0, 8.0, 37.0)]),
+        ("system-ui", [(10.0, 11.0, 3.0, 14.0), (12.0, 13.0, 3.0, 16.0), (14.0, 15.0, 4.0, 19.0), (16.0, 17.0, 4.0, 21.0), (20.0, 22.0, 5.0, 27.0), (24.0, 26.0, 6.0, 32.0), (32.0, 35.0, 8.0, 43.0)]),
+    ];
 
     #[test]
-    fn ahem_line_gap_e_zero() {
-        assert!(FontMetricsModel::line_gap(FONTE, Some("Ahem")).abs() < RESIDUO_F32);
-        let soma = FontMetricsModel::ascent(FONTE, Some("Ahem"))
-            + FontMetricsModel::descent(FONTE, Some("Ahem"));
-        assert!((soma - FontMetricsModel::normal_line_height(FONTE, Some("Ahem"))).abs() < RESIDUO_F32);
-    }
-
-    /// A ARMADILHA que este módulo documenta: na aproximação default,
-    /// ascent + descent NÃO é a altura de linha normal — são duas
-    /// calibrações independentes contra o Chrome, e por isso o "line-gap"
-    /// que a soma exigiria é NEGATIVO. Um teste que assumisse `line_gap >=
-    /// 0` aqui estaria a repetir a prova algébrica que já partiu quatro
-    /// fixtures de baseline.
-    #[test]
-    fn aproximacao_default_line_gap_e_negativo() {
-        let gap = FontMetricsModel::line_gap(FONTE, None);
-        assert!(gap < 0.0, "esperava um gap negativo (a divergência das duas calibrações), obteve {gap}");
-        // 1,125 − (0,90+0,3125) = −0,0875, o número citado no PLAN.md e nesta tarefa.
-        assert!((gap / FONTE - (-0.0875)).abs() < 1e-4, "gap/size devia ser -0.0875, obteve {}", gap / FONTE);
-    }
-
-    /// Dobrar a fonte dobra ascent e a altura de linha normal, para as duas
-    /// famílias — em 16/32px, onde `ceil` (na aproximação default) não
-    /// entra em jogo por os dois produtos já serem inteiros; a linearidade
-    /// geral quebra-se pelo `ceil`, e não é essa a afirmação aqui.
-    #[test]
-    fn escala_linearmente_com_o_tamanho() {
-        for family in [None, Some("Arial"), Some("Ahem")] {
-            assert_eq!(
-                FontMetricsModel::ascent(2.0 * FONTE, family),
-                2.0 * FontMetricsModel::ascent(FONTE, family)
-            );
-            assert_eq!(
-                FontMetricsModel::normal_line_height(2.0 * FONTE, family),
-                2.0 * FontMetricsModel::normal_line_height(FONTE, family)
-            );
+    fn every_measured_row_of_blink_is_reproduced() {
+        for (family, rows) in BLINK {
+            for (size, ascent, descent, line) in rows {
+                let f = Some(family);
+                let got = (FontMetricsModel::ascent(size, f), FontMetricsModel::descent(size, f), FontMetricsModel::normal_line_height(size, f));
+                assert_eq!(got, (ascent, descent, line), "{family} {size}px");
+            }
         }
+    }
+
+    /// No `font-family` at all is Blink's default font, which is the serif one —
+    /// and an unknown name is skipped to the next of the list, not guessed.
+    #[test]
+    fn the_list_is_walked_to_the_first_font_the_engine_can_place() {
+        let serif = FontMetricsModel::normal_line_height(12.0, Some("serif"));
+        assert_eq!(FontMetricsModel::normal_line_height(12.0, None), serif);
+        assert_eq!(FontMetricsModel::normal_line_height(12.0, Some("NoSuchFont")), serif);
+        let mono = FontMetricsModel::ascent(16.0, Some("monospace"));
+        assert_eq!(FontMetricsModel::ascent(16.0, Some("NoSuchFont, monospace")), mono);
+        assert_ne!(mono, FontMetricsModel::ascent(16.0, Some("serif")));
+    }
+
+    /// Ahem is its definition, never rounded: 0.8 and 0.2 of the em.
+    #[test]
+    fn ahem_is_exact_and_not_rounded() {
+        assert_eq!(FontMetricsModel::ascent(15.0, Some("Ahem")), 15.0 * 0.8);
+        assert_eq!(FontMetricsModel::descent(15.0, Some("Ahem")), 15.0 * 0.2);
+        let soma = FontMetricsModel::ascent(15.0, Some("Ahem")) + FontMetricsModel::descent(15.0, Some("Ahem"));
+        assert!((soma - FontMetricsModel::normal_line_height(15.0, Some("Ahem"))).abs() < 1e-5);
     }
 }

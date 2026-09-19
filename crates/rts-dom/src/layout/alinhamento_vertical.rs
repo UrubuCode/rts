@@ -134,8 +134,8 @@ pub(in crate::layout) fn envelope_com_baseline(
     family: Option<&str>,
     m: &dyn TextMeasurer,
 ) -> Envelope {
-    let conteudo = m.line_height_family(font_size, family);
-    let meia = (line_height - conteudo) / 2.0;
+    let conteudo = crate::inline_box::altura_do_conteudo(font_size, family, m);
+    let meia = crate::inline_box::meia_entrelinha(line_height, conteudo);
     let mut acima = meia + m.font_ascent_family(font_size, family);
     let mut abaixo = (line_height - acima).max(0.0);
     for &(altura, ascent, valign) in itens {
@@ -356,10 +356,11 @@ mod tests {
             &ApproxMeasurer,
         );
         assert!((y - 0.0).abs() < 0.01, "y={y}");
-        // a formula por trás: 30 − descent(20) = 30 − 6.25 = 23.75 acima da
-        // baseline, e é maior do que o ascent do strut sozinho (18) — por
-        // isso É este átomo que fecha o lado de cima do envelope.
-        assert!((env.acima - 23.75).abs() < 0.01, "acima={}", env.acima);
+        // The formula behind it: 30 − descent(20px) = 30 − 4 = 26 above the
+        // baseline (a 20px serif has a descent of 4 in Blink, not the 6.25 the
+        // old single approximation gave), more than the strut's own ascent
+        // (18) — so THIS atom closes the top of the envelope.
+        assert!((env.acima - 26.0).abs() < 0.01, "acima={}", env.acima);
     }
 
     /// Um envelope de UM SÓ átomo nunca fica menor do que o strut sozinho —
@@ -387,15 +388,14 @@ mod tests {
         assert!((abaixo_do_topo - (100.0 - FONTE * 0.2)).abs() < 0.01, "{abaixo_do_topo}");
     }
 
-    /// Sem família Ahem, o comportamento é EXATAMENTE o de antes (`None` e
-    /// uma família qualquer respondem o mesmo que sem o parâmetro) — este
-    /// lote não é um efeito colateral geral.
+    /// `text-top` aligns with the ascent of the STRUT's own family — the
+    /// number comes from the font, not from a constant of this module.
     #[test]
-    fn ascent_com_baseline_propria_sem_ahem_nao_muda() {
-        let com_none = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, None, &ApproxMeasurer);
-        let com_arial = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, Some("Arial"), &ApproxMeasurer);
-        assert_eq!(com_none, com_arial);
-        assert!((com_none - FONTE * crate::style::ASCENT_RATIO).abs() < 0.01);
+    fn text_top_uses_the_struts_family_ascent() {
+        for family in [None, Some("Arial"), Some("monospace")] {
+            let got = ascent_com_baseline_propria(VerticalAlign::TextTop, 100.0, 0.0, FONTE, family, &ApproxMeasurer);
+            assert_eq!(got, ApproxMeasurer.font_ascent_family(FONTE, family), "{family:?}");
+        }
     }
 
     /// O STRUT do envelope (linha só de texto Ahem, sem inline-block) fecha
