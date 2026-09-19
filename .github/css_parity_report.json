@@ -2,19 +2,19 @@
   "date": "2026-09-19",
   "fixtures": {
     "passing": 161,
-    "total": 163,
-    "pct": 98.8
+    "total": 164,
+    "pct": 98.2
   },
   "measurements": {
-    "matching": 3803,
-    "total": 3812,
-    "pct": 99.8
+    "matching": 3890,
+    "total": 3900,
+    "pct": 99.7
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 588,
+    "passing": 590,
     "total": 870,
-    "pct": 67.6,
+    "pct": 67.8,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -67,7 +67,7 @@
         "total": 39
       },
       "baseline": {
-        "passing": 19,
+        "passing": 21,
         "total": 37
       },
       "shrink": {
@@ -152,6 +152,10 @@
     {
       "fixture": "claude-pseudo-caixa-gerada.html",
       "razao": "BT-5 caixa gerada (2026-09-18): the generated box now takes its width, padding, border and margin on the line, and a block pseudo's text wraps — `#p1`, `#p2` and every x/w pass. What still fails is VERTICAL, and it is not the pseudo's: an empty inline-block exactly as tall as the line (`#p3`, Blink 25, here 20) and a non-empty one (`#p5`, Blink 32 with the text on its baseline, here 37) are placed by the line flow's inline-block rule, which a real `<span style=display:inline-block>` gets the same numbers from (`alinhamento_vertical.rs`, the default `baseline` not migrated for the text flow). `#p4` and `#p5` start the 5px `#p3` is short of too high, and `#p5`'s 5px too many land `#fim` on Blink's 262 by cancellation."
+    },
+    {
+      "fixture": "claude-inline-block-baseline.html",
+      "razao": "inline-block baseline (2026-09-18): every case sits right INSIDE its line (heights and offsets match Blink — `inline_block_baseline_corpus.rs` pins them relative to each container), but the strut's descent is 0.4px short of Blink's at 16px monospace (Blink rounds ascent/descent to whole pixels), and that accumulates down the page past the 1px tolerance by the fourth case. Rounding the strut alone was tried and reverted (text top disagreed by +0.5px per line). It closes with the FM lot, the font metrics in one model."
     }
   ],
   "dom_lots": {
@@ -225,6 +229,7 @@
       "FM — as metricas de fonte num modelo so",
       "REGUA — o corredor deixa de contar vazio como aprovado",
       "DISP — o `display` para de perder informacao no parse",
+      "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`",
       "css2-normal-flow-unidades — `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste",
       "borda-unidades — `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde)"

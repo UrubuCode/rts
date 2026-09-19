@@ -1,9 +1,9 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 588,
+  "passam": 590,
   "passam_vazio": 37,
-  "falham": 239,
+  "falham": 237,
   "falha_parcial": 6,
   "erros": 0,
   "nao_rasterizaram": [],
@@ -1023,12 +1023,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-baseline-align-self-baseline-vert-001",
-      "pct": 0.49462890625000006,
-      "n": 5065,
-      "script": false
-    },
-    {
       "nome": "select-element-zero-height-001",
       "pct": 0.49023437499999994,
       "n": 5020,
@@ -1152,6 +1146,12 @@
       "nome": "table-as-item-min-height-1",
       "pct": 0.390625,
       "n": 4000,
+      "script": false
+    },
+    {
+      "nome": "flexbox-baseline-align-self-baseline-vert-001",
+      "pct": 0.37548828125,
+      "n": 3845,
       "script": false
     },
     {
@@ -1342,21 +1342,9 @@
       "script": false
     },
     {
-      "nome": "flexbox-baseline-multi-item-vert-001a",
-      "pct": 0.0703125,
-      "n": 720,
-      "script": false
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-vert-001b",
-      "pct": 0.0703125,
-      "n": 720,
-      "script": false
-    },
-    {
       "nome": "dynamic-isize-change-001",
-      "pct": 0.0673828125,
-      "n": 690,
+      "pct": 0.069140625,
+      "n": 708,
       "script": true
     },
     {
@@ -1451,14 +1439,14 @@
     },
     {
       "nome": "flexbox-baseline-multi-item-horiz-001a",
-      "pct": 0.013671875000000002,
-      "n": 140,
+      "pct": 0.014550781249999999,
+      "n": 149,
       "script": false
     },
     {
       "nome": "flexbox-baseline-multi-item-horiz-001b",
-      "pct": 0.013671875000000002,
-      "n": 140,
+      "pct": 0.014550781249999999,
+      "n": 149,
       "script": false
     },
     {
@@ -2129,7 +2117,7 @@
     {
       "nome": "dynamic-isize-change-001",
       "estado": "falha",
-      "pct": 0.0673828125
+      "pct": 0.069140625
     },
     {
       "nome": "dynamic-isize-change-002",
@@ -2444,11 +2432,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-box-wrap",
+      "nome": "flex-basis-item-margins-001",
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-item-margins-001",
+      "nome": "flex-box-wrap",
       "estado": "passa"
     },
     {
@@ -2696,11 +2684,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-001",
+      "nome": "flex-minimum-height-flex-items-002",
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-002",
+      "nome": "flex-minimum-height-flex-items-001",
       "estado": "passa"
     },
     {
@@ -2726,11 +2714,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-008",
+      "nome": "flex-minimum-height-flex-items-011",
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-011",
+      "nome": "flex-minimum-height-flex-items-008",
       "estado": "passa"
     },
     {
@@ -2973,7 +2961,7 @@
     {
       "nome": "flexbox-baseline-align-self-baseline-vert-001",
       "estado": "falha",
-      "pct": 0.49462890625000006
+      "pct": 0.37548828125
     },
     {
       "nome": "flexbox-baseline-empty-001a",
@@ -2986,22 +2974,20 @@
     {
       "nome": "flexbox-baseline-multi-item-horiz-001a",
       "estado": "falha",
-      "pct": 0.013671875000000002
+      "pct": 0.014550781249999999
     },
     {
       "nome": "flexbox-baseline-multi-item-horiz-001b",
       "estado": "falha",
-      "pct": 0.013671875000000002
+      "pct": 0.014550781249999999
     },
     {
       "nome": "flexbox-baseline-multi-item-vert-001a",
-      "estado": "falha",
-      "pct": 0.0703125
+      "estado": "passa"
     },
     {
       "nome": "flexbox-baseline-multi-item-vert-001b",
-      "estado": "falha",
-      "pct": 0.0703125
+      "estado": "passa"
     },
     {
       "nome": "flexbox-baseline-multi-line-horiz-001",
@@ -3207,11 +3193,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-horiz-002",
+      "nome": "flexbox-flex-wrap-vert-001",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-vert-001",
+      "nome": "flexbox-flex-wrap-horiz-002",
       "estado": "passa"
     },
     {
@@ -5189,11 +5175,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
