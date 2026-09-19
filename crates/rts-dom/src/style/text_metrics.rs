@@ -7,37 +7,13 @@
 //! `ApproxMeasurer` do layout chama daqui, em vez de ter a constante embutida —
 //! assim há UM sítio a calibrar quando a medição contra o Chrome mudar.
 //!
-//! ## Isto é uma APROXIMAÇÃO, e aqui está contra o que foi calibrada
+//! ## Vertical metrics are NOT here any more
 //!
-//! No browser, `normal` sai das MÉTRICAS DA FONTE (ascent + descent + line gap),
-//! e por isso não é uma constante: muda com a família. O nosso `TextMeasurer` só
-//! expõe `line_height(size)` — não dá ascent nem descent —, portanto não há de
-//! onde calcular e a aproximação é a resposta honesta. Quando o backend do egui
-//! passar a responder pelas métricas reais da galley, esta função deixa de ser
-//! usada por ele e fica só para o caminho headless.
-//!
-//! **A calibração**: 62 elementos de `tests/css/*.esperado.json` que declaram
-//! `line-height: normal` e têm caixa de uma linha, sem borda nem padding, com o
-//! esperado medido no Chrome real. A altura por tamanho de fonte, contada pela
-//! moda:
-//!
-//! | font-size | Chrome | `ceil(fs × 1.125)` |
-//! |---|---|---|
-//! | 8px  | 9  | 9 ✅ |
-//! | 16px | 18 | 18 ✅ (37 amostras — o caso dominante) |
-//! | 20px | 23 | 23 ✅ |
-//! | 24px | 27 | 27 ✅ |
-//! | 30px | 34 | 34 ✅ |
-//! | 32px | 37 | 36 ❌ (1px a menos; amostra única) |
-//!
-//! O `ceil` não é enfeite: sem ele, 20px dá 22,5 e 30px dá 33,75, e é o
-//! arredondamento para cima que reproduz os inteiros que o Chrome reporta. Cinco
-//! dos seis tamanhos ficam EXATOS; o de 32px erra 1px, dentro da tolerância de
-//! 1px do comparador, e tem uma amostra só — calibrar por ele seria afastar os
-//! outros cinco.
-//!
-//! O valor anterior era `size * 1.3`, que dava 20,8 para 16px onde o Chrome dá
-//! 18: sozinho, era 43 dos 249 desvios do corpus de fixtures.
+//! Ascent, descent and the `normal` line height used to be three constants of
+//! this module (0.90, 0.3125 and `ceil(1.125 × size)`), one approximation for
+//! every family. They are now the real `hhea` tables of the fonts Blink uses,
+//! with Blink's rounding, in `layout/fonte_metricas.rs` — which also fixed the
+//! one row the old table below got wrong (32px: 37, where `ceil` gave 36).
 //!
 //! ## O avanço de um carácter
 //!
@@ -52,12 +28,6 @@
 //! não tem avanço único (cada glifo tem o seu), portanto não há um número para
 //! calibrar — só uma média, e a média certa depende do texto. É a aproximação
 //! que o `ApproxMeasurer` assume no nome.
-
-/// A altura de uma linha de texto de `size` pontos quando o CSS não declara
-/// `line-height` (ou declara `normal`). Ver a calibração no topo do módulo.
-pub fn normal_line_height(size: f32) -> f32 {
-    (size * NORMAL_RATIO).ceil()
-}
 
 /// O avanço de UM carácter monoespaçado, em frações do font-size. Medido no
 /// Chrome (ver o topo do módulo): nove amostras, três fixtures, todas a 0,5498.
@@ -109,14 +79,10 @@ pub fn spacing_width(n_chars: usize, letter_spacing: f32) -> f32 {
     n_chars as f32 * letter_spacing
 }
 
-/// A razão altura-da-linha / font-size do `normal`. Aproximação da fonte padrão
-/// do Chrome — ver a tabela de calibração no topo do módulo.
-pub const NORMAL_RATIO: f32 = 1.125;
-
 /// ## O modelo de baseline de `vertical-align` (2026-09-04)
 ///
-/// As quatro constantes abaixo — `ASCENT_RATIO`, `DESCENT_RATIO`,
-/// `X_HEIGHT_RATIO`, `SUB_OFFSET_RATIO`, `SUPER_OFFSET_RATIO` — calibram o
+/// As constantes abaixo — `X_HEIGHT_RATIO`, `SUB_OFFSET_RATIO`,
+/// `SUPER_OFFSET_RATIO` — calibram o
 /// modelo de linha em `layout::alinhamento_vertical`: cada átomo de uma linha
 /// carrega uma altura e um `vertical-align`, e essas constantes convertem os
 /// dois num deslocamento contra a baseline (CSS 2.1 §10.8.1). Sem elas o motor
@@ -146,19 +112,12 @@ pub const NORMAL_RATIO: f32 = 1.125;
 /// completa (por que a linha acaba com 50px de altura e não os 42.75 que as
 /// seis linhas acima já dariam) vive no doc do módulo que as consome.
 ///
-/// `ASCENT_RATIO` substitui o `0.9375` que `TextMeasurer::font_ascent` tinha:
-/// era uma aproximação sem medição, e a fixture de `display` que dependia dele
-/// (`em-linha.y=55` em `claude-display-basico.html`, via `font_size=16`) move
-/// meio pixel (`55.6`) — dentro da tolerância de 1px do corpus, então fica.
-/// `DESCENT_RATIO` NÃO mudou: `0.3125` já reproduz `depois-do-none.y=75` da
-/// MESMA fixture (`font_size=16`: `75 = 30+40+16×0.3125`), e nada na medição
-/// de 2026-09-04 dá um segundo ponto para recalibrá-lo.
-pub const ASCENT_RATIO: f32 = 0.90;
-/// Ver [`ASCENT_RATIO`] — não mudou nesta calibração.
-pub const DESCENT_RATIO: f32 = 0.3125;
-/// Ver [`ASCENT_RATIO`].
+/// The `text-top` row gave an ascent ratio (0.90) that lived here as a
+/// constant until the vertical metrics became the fonts' own tables
+/// (`layout/fonte_metricas.rs`); at 20px both give the measured 18.
+/// Half the x-height of the strut, which `middle` centres on.
 pub const X_HEIGHT_RATIO: f32 = 0.491;
-/// Ver [`ASCENT_RATIO`]. Fração do font-size que `sub` desce a caixa.
+/// Fração do font-size que `sub` desce a caixa.
 pub const SUB_OFFSET_RATIO: f32 = 0.25;
-/// Ver [`ASCENT_RATIO`]. Fração do font-size que `super` sobe a caixa.
+/// Fração do font-size que `super` sobe a caixa.
 pub const SUPER_OFFSET_RATIO: f32 = 0.383;

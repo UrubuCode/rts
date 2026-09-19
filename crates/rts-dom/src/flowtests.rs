@@ -249,9 +249,11 @@ fn um_inline_que_quebra_em_tres_linhas_da_a_uniao_larga_e_alta() {
     let html = "<p style='width:150px'><a id='t'>aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll mmm nnn</a></p>";
     let (d, l) = geometria(html, 800.0);
     let t = rect(&d, &l, "#t", 0);
-    // Três linhas de 18px: a união vai do topo da primeira ao fundo da terceira.
+    // Three 18px lines, and the box of an inline is its CONTENT AREA (17px for
+    // a 16px serif, measured in Blink — `claude-fm-metricas-por-familia`), not
+    // the line: from the top of the first to the bottom of the third is 36 + 17.
     assert!(
-        (t.h - 54.0).abs() < 0.5,
+        (t.h - 53.0).abs() < 0.5,
         "a união devia cobrir as três linhas, tem {}",
         t.h
     );
@@ -314,9 +316,10 @@ fn um_inline_com_caixa_atomica_dentro_leva_a_largura_dela_mas_nao_a_altura() {
         "a largura devia incluir a imagem: {}",
         t.w
     );
-    // A altura é a da fonte (18), não a da imagem (40).
+    // The font's content area (17: ascent 14 + descent 3 at 16px serif, as
+    // Blink measures it), not the image's 40.
     assert!(
-        (t.h - 18.0).abs() < 0.5,
+        (t.h - 17.0).abs() < 0.5,
         "levou a altura da imagem em vez da fonte: {}",
         t.h
     );

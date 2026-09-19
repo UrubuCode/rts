@@ -300,8 +300,14 @@ pub(crate) fn arestas_do_inline(
 /// via `meia_entrelinha`) media a content area pela fonte PADRÃO (22,5px) em
 /// vez da Ahem (20px), e a diferença aparecia como o quadrado preto da caixa
 /// de fundo alguns pixels mais alto do que a imagem de referência.
+///
+/// The content area is ASCENT + DESCENT, not the normal line height: the two
+/// differ by the font's line gap (Times 16px: 17 against 18), and an inline's
+/// box is the former — Blink reports a 17px `<span>` in an 18px line. This
+/// answered the line height until the metrics became real ones
+/// (`layout/fonte_metricas.rs`), when the gap stopped being zero.
 pub(crate) fn altura_do_conteudo(font_size: f32, family: Option<&str>, m: &dyn TextMeasurer) -> f32 {
-    m.line_height_family(font_size, family)
+    m.font_ascent_family(font_size, family) + m.font_descent_family(font_size, family)
 }
 
 /// Meia-entrelinha: o espaço que sobra da caixa de linha depois da content area
@@ -311,8 +317,14 @@ pub(crate) fn altura_do_conteudo(font_size: f32, family: Option<&str>, m: &dyn T
 ///
 /// Pode ser NEGATIVA (`line-height` menor que a fonte): aí a content area
 /// transborda a linha, que é o que o browser também faz.
+///
+/// FLOORED, as Blink does it: the ascent side takes the whole pixels and the
+/// descent side the remainder. With a 19px content area in a 20px line the
+/// text's box starts AT the line's top (measured: `y = 0`, never `0.5`), and
+/// every fixture of this corpus that has text in a declared `line-height`
+/// depends on which side the odd pixel goes.
 pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
-    (altura_da_linha - conteudo) / 2.0
+    ((altura_da_linha - conteudo) / 2.0).floor()
 }
 
 /// Une um fragmento de linha ao retângulo acumulado de um elemento inline.

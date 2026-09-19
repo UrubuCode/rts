@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<!-- Ruler (FM): the font metrics the whole inline model stands on, per generic
+     family and size, as Blink has them. Each row is one line with
+     `line-height: normal`: the row's height is the normal line height, the
+     span's rect is the content area (ascent + descent), and the empty
+     zero-height inline-block sits its bottom on the BASELINE, so its `y` splits
+     the content area into ascent and descent. The engine had ONE metric for
+     every family (ascent 0.90, descent 0.3125, normal 1.125 of the size),
+     two independent calibrations that do not even add up. -->
+<html>
+<head>
+<style>
+  body { margin: 0; }
+  .r { line-height: normal; }
+  .b { display: inline-block; width: 1px; height: 0; }
+</style></head>
+<body>
+  <div class="r" id="r-se-10" style="font: 10px serif"><span id="s-se-10">xg</span><span class="b" id="b-se-10"></span></div>
+  <div class="r" id="r-se-12" style="font: 12px serif"><span id="s-se-12">xg</span><span class="b" id="b-se-12"></span></div>
+  <div class="r" id="r-se-14" style="font: 14px serif"><span id="s-se-14">xg</span><span class="b" id="b-se-14"></span></div>
+  <div class="r" id="r-se-16" style="font: 16px serif"><span id="s-se-16">xg</span><span class="b" id="b-se-16"></span></div>
+  <div class="r" id="r-se-20" style="font: 20px serif"><span id="s-se-20">xg</span><span class="b" id="b-se-20"></span></div>
+  <div class="r" id="r-se-24" style="font: 24px serif"><span id="s-se-24">xg</span><span class="b" id="b-se-24"></span></div>
+  <div class="r" id="r-se-32" style="font: 32px serif"><span id="s-se-32">xg</span><span class="b" id="b-se-32"></span></div>
+  <div class="r" id="r-sa-10" style="font: 10px sans-serif"><span id="s-sa-10">xg</span><span class="b" id="b-sa-10"></span></div>
+  <div class="r" id="r-sa-12" style="font: 12px sans-serif"><span id="s-sa-12">xg</span><span class="b" id="b-sa-12"></span></div>
+  <div class="r" id="r-sa-14" style="font: 14px sans-serif"><span id="s-sa-14">xg</span><span class="b" id="b-sa-14"></span></div>
+  <div class="r" id="r-sa-16" style="font: 16px sans-serif"><span id="s-sa-16">xg</span><span class="b" id="b-sa-16"></span></div>
+  <div class="r" id="r-sa-20" style="font: 20px sans-serif"><span id="s-sa-20">xg</span><span class="b" id="b-sa-20"></span></div>
+  <div class="r" id="r-sa-24" style="font: 24px sans-serif"><span id="s-sa-24">xg</span><span class="b" id="b-sa-24"></span></div>
+  <div class="r" id="r-sa-32" style="font: 32px sans-serif"><span id="s-sa-32">xg</span><span class="b" id="b-sa-32"></span></div>
+  <div class="r" id="r-mo-10" style="font: 10px monospace"><span id="s-mo-10">xg</span><span class="b" id="b-mo-10"></span></div>
+  <div class="r" id="r-mo-12" style="font: 12px monospace"><span id="s-mo-12">xg</span><span class="b" id="b-mo-12"></span></div>
+  <div class="r" id="r-mo-14" style="font: 14px monospace"><span id="s-mo-14">xg</span><span class="b" id="b-mo-14"></span></div>
+  <div class="r" id="r-mo-16" style="font: 16px monospace"><span id="s-mo-16">xg</span><span class="b" id="b-mo-16"></span></div>
+  <div class="r" id="r-mo-20" style="font: 20px monospace"><span id="s-mo-20">xg</span><span class="b" id="b-mo-20"></span></div>
+  <div class="r" id="r-mo-24" style="font: 24px monospace"><span id="s-mo-24">xg</span><span class="b" id="b-mo-24"></span></div>
+  <div class="r" id="r-mo-32" style="font: 32px monospace"><span id="s-mo-32">xg</span><span class="b" id="b-mo-32"></span></div>
+  <div class="r" id="r-su-10" style="font: 10px system-ui"><span id="s-su-10">xg</span><span class="b" id="b-su-10"></span></div>
+  <div class="r" id="r-su-12" style="font: 12px system-ui"><span id="s-su-12">xg</span><span class="b" id="b-su-12"></span></div>
+  <div class="r" id="r-su-14" style="font: 14px system-ui"><span id="s-su-14">xg</span><span class="b" id="b-su-14"></span></div>
+  <div class="r" id="r-su-16" style="font: 16px system-ui"><span id="s-su-16">xg</span><span class="b" id="b-su-16"></span></div>
+  <div class="r" id="r-su-20" style="font: 20px system-ui"><span id="s-su-20">xg</span><span class="b" id="b-su-20"></span></div>
+  <div class="r" id="r-su-24" style="font: 24px system-ui"><span id="s-su-24">xg</span><span class="b" id="b-su-24"></span></div>
+  <div class="r" id="r-su-32" style="font: 32px system-ui"><span id="s-su-32">xg</span><span class="b" id="b-su-32"></span></div>
+</body>
+</html>

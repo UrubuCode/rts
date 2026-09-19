@@ -131,8 +131,8 @@ pub use syntax::{
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
 pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak, WritingMode};
 pub use text_metrics::{
-    ASCENT_RATIO, DESCENT_RATIO, MONO_ADVANCE, PROP_ADVANCE, SUB_OFFSET_RATIO,
-    SUPER_OFFSET_RATIO, X_HEIGHT_RATIO, normal_line_height, spacing_width,
+    MONO_ADVANCE, PROP_ADVANCE, SUB_OFFSET_RATIO, SUPER_OFFSET_RATIO, X_HEIGHT_RATIO,
+    spacing_width,
 };
 pub use values::{
     AlignItems, Axis, AxisMap, BorderStyle, CalcLen, ContainingBlock, DIM_BASE_EM, DIM_BASE_PERCENT,

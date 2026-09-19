@@ -244,7 +244,7 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
     for (i, linha) in caixa.linhas.iter().enumerate() {
         list.items.push(DisplayItem::Text {
             x: r.x + caixa.arestas[3],
-            y: r.y + caixa.arestas[0] + i as f32 * lh + (lh - conteudo) / 2.0,
+            y: r.y + caixa.arestas[0] + i as f32 * lh + crate::inline_box::meia_entrelinha(lh, conteudo),
             text: linha.clone().into(),
             color: css.color.unwrap_or(0x000000FF),
             size: caixa.fonte,

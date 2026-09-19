@@ -22,7 +22,7 @@ pub(in crate::layout) fn layout_button(
     let font = font_px(css, DEFAULT_FONT_SIZE - 3.0);
     let label = dom.node(id).attr("value").unwrap_or("").to_string();
     let tw = ctx.measurer.text_width(&label, font, false, false, false);
-    let lh = ctx.measurer.line_height(font);
+    let lh = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
     // A caixa inclui os 6px computados de padding por lado mais a moldura
     // nativa que este emissor desenha junto com o conteúdo; 8.5 reproduz a
     // largura border-box de 53.8px para `value="Enviar"` no Blink.
@@ -71,6 +71,12 @@ pub(in crate::layout) fn layout_button(
     }
     (w + 6.0, h + 4.0) // margenzinha UA entre botões
 }
+
+/// Blink lays a form control out in `-webkit-small-control` — 13.33px ARIAL —
+/// whatever the page's font is: a control does not inherit it. The line of a
+/// control is therefore Arial's (15px), not the document default's (Times, 16).
+/// Cut: an author `font-family` ON the control does not reach its metrics.
+const FONTE_DOS_CONTROLOS: Option<&str> = Some("Arial");
 
 /// O lado do quadrado de um `checkbox`/`radio` sem tamanho declarado. 13px é o
 /// intrínseco que os browsers dão a estes controlos; não sai de fonte nenhuma,
@@ -188,9 +194,9 @@ pub(in crate::layout) fn medida_do_input(
     } else if e_textarea {
         // `rows` por omissão de um `<textarea>` é 2 (HTML Standard §4.10.11),
         // não 1 — a mesma altura medida em `#txa` (30 = 2×15).
-        2.0 * ctx.measurer.line_height(font)
+        2.0 * ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS)
     } else {
-        ctx.measurer.line_height(font)
+        ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS)
     });
     MedidaDoInput {
         content_w,
@@ -276,7 +282,7 @@ pub(in crate::layout) fn layout_input(
     let pad_bottom = padding_v - pad_top;
     let margin_right = margin_h - margin_left;
     let margin_bottom = margin_v - margin_top;
-    let line_h = ctx.measurer.line_height(font);
+    let line_h = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
     let _ = (pad_bottom, margin_right, margin_bottom, line_h);
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
@@ -443,7 +449,7 @@ pub(in crate::layout) fn tamanho_natural_controlo(
                 let label = dom.node(id).attr("value").unwrap_or("").to_string();
                 let bf = font_px(css, DEFAULT_FONT_SIZE - 3.0);
                 let tw = ctx.measurer.text_width(&label, bf, false, false, false);
-                let lh = ctx.measurer.line_height(bf);
+                let lh = ctx.measurer.line_height_family(bf, FONTE_DOS_CONTROLOS);
                 // A largura usada pelo flex é a mesma border-box do emissor
                 // nativo (8.5px por lado), não a margem de avanço de 6px da
                 // corrida inline.
@@ -478,7 +484,7 @@ pub(in crate::layout) fn inline_widget_size(
         let font = font_px(&css, DEFAULT_FONT_SIZE - 3.0);
         let label = dom.node(id).attr("value").unwrap_or("").to_string();
         let tw = ctx.measurer.text_width(&label, font, false, false, false);
-        let lh = ctx.measurer.line_height(font);
+        let lh = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
         return (tw + 24.0 + 6.0, lh + 10.0 + 4.0); // espelha layout_button
     }
     // Campo de texto ou marca: a MESMA medida que a emissão vai usar, pedida à

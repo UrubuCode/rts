@@ -90,7 +90,7 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
     let lh = crate::inline_box::altura_da_linha(&css, font, ctx.measurer);
     let conteudo = crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
     let ascent = ctx.measurer.font_ascent_family(font, css.font_family.as_deref());
-    (bt + pt + (lh - conteudo) / 2.0 + ascent).min(h)
+    (bt + pt + crate::inline_box::meia_entrelinha(lh, conteudo) + ascent).min(h)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -392,5 +392,5 @@ fn ascent_do_gerado(caixa: &crate::pseudo::PseudoBox, altura: f32, content_w: f3
     let familia = css.font_family.as_deref();
     let lh = crate::inline_box::altura_da_linha(css, fonte, ctx.measurer);
     let conteudo = crate::inline_box::altura_do_conteudo(fonte, familia, ctx.measurer);
-    (arestas.mt + arestas.valores[0] + (lh - conteudo) / 2.0 + ctx.measurer.font_ascent_family(fonte, familia)).min(altura)
+    (arestas.mt + arestas.valores[0] + crate::inline_box::meia_entrelinha(lh, conteudo) + ctx.measurer.font_ascent_family(fonte, familia)).min(altura)
 }

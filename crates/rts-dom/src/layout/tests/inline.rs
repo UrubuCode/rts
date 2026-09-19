@@ -231,7 +231,9 @@
             viewport_h: 600.0,
             measurer: &ApproxMeasurer,
         };
-        let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        // The box of an inline is the font's CONTENT AREA (ascent + descent,
+        // 17 at 16px serif in Blink), which is not the line height (18).
+        let fonte = crate::inline_box::altura_do_conteudo(DEFAULT_FONT_SIZE, None, &ApproxMeasurer);
         // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
         // afirma y absoluto.
         let dom = parse_html_to_dom(
@@ -245,10 +247,10 @@
             .get(&idx)
             .expect("o <a> devia ter caixa");
         assert_eq!(r.h, fonte, "a altura da FONTE, não os 48 da linha");
-        // meia-entrelinha: (48 − 18) / 2 = 15 acima.
+        // Half-leading, FLOORED as Blink floors it: (48 − 17) / 2 → 15 above.
         assert_eq!(
             r.y,
-            (3.0 * DEFAULT_FONT_SIZE - fonte) / 2.0,
+            crate::inline_box::meia_entrelinha(3.0 * DEFAULT_FONT_SIZE, fonte),
             "centrado na linha: {r:?}"
         );
     }
@@ -289,7 +291,9 @@
             viewport_h: 600.0,
             measurer: &ApproxMeasurer,
         };
-        let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        // The box of an inline is the font's CONTENT AREA (ascent + descent,
+        // 17 at 16px serif in Blink), which is not the line height (18).
+        let fonte = crate::inline_box::altura_do_conteudo(DEFAULT_FONT_SIZE, None, &ApproxMeasurer);
         let dom = parse_html_to_dom(
             "<div style='line-height:2'>t <a id='x' style='border-radius:2px'>link</a> f</div>",
         );
@@ -320,7 +324,9 @@
             viewport_h: 600.0,
             measurer: &ApproxMeasurer,
         };
-        let fonte = ApproxMeasurer.line_height(DEFAULT_FONT_SIZE);
+        // The box of an inline is the font's CONTENT AREA (ascent + descent,
+        // 17 at 16px serif in Blink), which is not the line height (18).
+        let fonte = crate::inline_box::altura_do_conteudo(DEFAULT_FONT_SIZE, None, &ApproxMeasurer);
         // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este teste
         // afirma y absoluto.
         let dom = parse_html_to_dom(
@@ -340,7 +346,7 @@
         assert_eq!(a.w, 300.0, "mas ocupa a largura dela na linha: {a:?}");
         assert_eq!((span.w, span.h), (a.w, a.h), "e o <span> à volta, o mesmo");
         // e fica centrado na linha que a imagem tornou alta.
-        assert_eq!(a.y, (200.0 - fonte) / 2.0, "meia-entrelinha: {a:?}");
+        assert_eq!(a.y, crate::inline_box::meia_entrelinha(200.0, fonte), "meia-entrelinha: {a:?}");
     }
 
     #[test]

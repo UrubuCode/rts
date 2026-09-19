@@ -157,19 +157,19 @@ fn body_implicito_faz_a_regra_do_body_chegar_a_um_fragmento_sem_as_tres_tags() {
 
 #[test]
 fn line_height_normal_bate_com_as_alturas_do_chrome() {
-    // Os números são do corpus `tests/css/*.esperado.json`, medidos no Chrome
-    // real: a altura de uma caixa de uma linha, por tamanho de fonte, quando
-    // `line-height` é `normal`. Cinco tamanhos batem exatamente.
-    use crate::style::normal_line_height as lh;
+    // Chrome's numbers from the corpus `tests/css/*.esperado.json`: the height
+    // of a one-line box per font size under `line-height: normal`, default
+    // (serif) font. All six match since the metrics are Times New Roman's own
+    // table with Blink's rounding (`layout/fonte_metricas.rs`); the single
+    // approximation `ceil(1.125 × size)` that stood here missed 32px by one.
+    use crate::layout::TextMeasurer;
+    let lh = |s: f32| crate::layout::ApproxMeasurer.line_height(s);
     assert_eq!(lh(8.0), 9.0);
-    assert_eq!(lh(16.0), 18.0); // o caso dominante: 37 das 62 amostras
-    assert_eq!(lh(20.0), 23.0); // sem o arredondamento para cima sairia 22,5
+    assert_eq!(lh(16.0), 18.0);
+    assert_eq!(lh(20.0), 23.0);
     assert_eq!(lh(24.0), 27.0);
-    assert_eq!(lh(30.0), 34.0); // idem: 33,75
-    // 32px é o único que erra, por 1px e com uma amostra só — dentro da
-    // tolerância do comparador. Fixado para a divergência ser visível se alguém
-    // recalibrar a constante.
-    assert_eq!(lh(32.0), 36.0);
+    assert_eq!(lh(30.0), 34.0);
+    assert_eq!(lh(32.0), 37.0);
 }
 
 #[test]
