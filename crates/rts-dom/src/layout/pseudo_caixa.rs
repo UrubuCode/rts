@@ -45,6 +45,9 @@ use super::*;
 /// deixou de estar escrita duas vezes.
 pub(in crate::layout) struct CaixaGerada {
     pub(in crate::layout) caixa: crate::pseudo::PseudoBox,
+    /// Its box in the tree (`BoxKind::Generated`), under which [`pintar`]
+    /// records the geometry. `None` only when the list carries no tree.
+    pub(in crate::layout) gerada: Option<crate::boxes::BoxId>,
     pub(in crate::layout) w: f32,
     pub(in crate::layout) h: f32,
     pub(in crate::layout) ml: f32,
@@ -100,6 +103,29 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
         .collect()
 }
 
+/// The generated box `pe` of `id` as the TREE has it: its `BoxId` — the child
+/// of `dono`, the box of `id` being laid out — and its content, asked of the
+/// cascade now (`BoxTree::pseudo_box`), never a copy.
+///
+/// This is where the block and flex roles stopped re-deriving the pseudo from
+/// the node: existence is the tree's answer, and the build asked the same
+/// `Dom::pseudo_box` under the same memo key, so the two cannot disagree
+/// within a pass. `dono: None` is a list with no tree (`DisplayList::default`)
+/// and asks the DOM, the way `sequencia_do_fluxo` does without one.
+pub(in crate::layout) fn da_arvore(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    dono: Option<crate::boxes::BoxId>,
+    id: NodeIdx,
+    pe: crate::style::PseudoElement,
+) -> Option<(Option<crate::boxes::BoxId>, crate::pseudo::PseudoBox)> {
+    let Some(dono) = dono else {
+        return dom.pseudo_box(id, pe).map(|caixa| (None, caixa));
+    };
+    let gerada = tree.generated_child(dono, pe)?;
+    Some((Some(gerada), tree.pseudo_box(dom, gerada)?))
+}
+
 /// The height of `linhas` lines of the pseudo's text: one line box each.
 pub(in crate::layout) fn altura_das_linhas(css: &ComputedStyle, linhas: &[String], fonte: f32, ctx: &LayoutCtx) -> f32 {
     linhas.len() as f32 * crate::inline_box::altura_da_linha(css, fonte, ctx.measurer)
@@ -150,7 +176,7 @@ fn dimensionar(css: &ComputedStyle, arestas: &Arestas, conteudo_w: f32, conteudo
 /// chamador decidiu (ver o cabeçalho do ficheiro: é o único pedaço que os
 /// dois papéis não partilham).
 pub(in crate::layout) fn montar(
-    caixa: crate::pseudo::PseudoBox,
+    (gerada, caixa): (Option<crate::boxes::BoxId>, crate::pseudo::PseudoBox),
     arestas: Arestas,
     conteudo_w: f32,
     conteudo_h: f32,
@@ -160,6 +186,7 @@ pub(in crate::layout) fn montar(
     let (w, h) = dimensionar(&caixa.css, &arestas, conteudo_w, conteudo_h);
     CaixaGerada {
         caixa,
+        gerada,
         w,
         h,
         ml: arestas.ml,
@@ -175,6 +202,14 @@ pub(in crate::layout) fn montar(
 /// Pinta a caixa com o canto superior-esquerdo da margin box em (`x`,`y`):
 /// fundo, as quatro barras de borda, o texto — o desenho que
 /// `pseudo_bloco.rs` e `flex_pseudo.rs` tinham cada um a sua cópia dele.
+///
+/// And records its BORDER box under its `BoxId`, the rect every other box
+/// records (`layout_block`'s `box_rect`), so `DisplayList::rect_of_box`
+/// answers for it. Here and not in each role: this is the one place all three
+/// (block, flex item, `inline-block` atom) pass with their final position.
+/// It reaches no DOM-facing geometry — the box has no node — and it is
+/// shifted with its element by `relativo.rs`/`transformacao.rs`, which walk
+/// the tree's full `children`.
 pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: f32, y: f32, ctx: &LayoutCtx) {
     let css = &caixa.caixa.css;
     let r = Rect::new(
@@ -183,6 +218,9 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
         caixa.w - caixa.ml - caixa.mr,
         caixa.h - caixa.mt - caixa.mb,
     );
+    if let Some(gerada) = caixa.gerada {
+        super::record_box_rect(list, gerada, r);
+    }
     if let Some(bg) = css.bg {
         list.items.push(DisplayItem::SolidRect { rect: r, color: bg, radius: Corners::ZERO });
     }
@@ -289,8 +327,8 @@ mod tests {
         let arestas_item = resolve_arestas(&css, &r);
         let caixa_bloco = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
         let caixa_item = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
-        let bloco = montar(caixa_bloco, arestas_bloco, 50.0, 20.0, vec!["x".into()], 16.0);
-        let item = montar(caixa_item, arestas_item, 50.0, 20.0, vec!["x".into()], 16.0);
+        let bloco = montar((None, caixa_bloco), arestas_bloco, 50.0, 20.0, vec!["x".into()], 16.0);
+        let item = montar((None, caixa_item), arestas_item, 50.0, 20.0, vec!["x".into()], 16.0);
         assert_eq!((bloco.w, bloco.h), (item.w, item.h));
         assert_eq!(bloco.arestas, item.arestas);
     }

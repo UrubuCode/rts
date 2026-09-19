@@ -181,6 +181,39 @@ pub(crate) fn element_formatting_context(dom: &Dom, node: crate::dom::NodeIdx) -
     }
 }
 
+/// The formatting context of a GENERATED box, from the pseudo's OWN style —
+/// `css` — with the ORIGINATING element's style `pai` as its parent box's.
+///
+/// `outer` has no tag to fall back on: a pseudo that declares no `display`
+/// takes the initial value, `inline` (CSS Display 3 §2), which is also what
+/// `layout/pseudo_inline.rs` does with one. `independent` asks the same
+/// style triggers an element asks (`layout::bfc_estilo`), with the parent
+/// being the originating element — a pseudo of a flex container is a flex
+/// item. The two node-only triggers do not apply: a pseudo is never the
+/// document root, and its `overflow` never propagates to the viewport.
+///
+/// A box the cascade stopped generating (`css` is `None`) answers an inline
+/// box, which is what it was by default; the memo key of `dom/box_tree.rs`
+/// keeps that from happening inside one pass.
+fn generated_formatting_context(
+    css: Option<&crate::style::ComputedStyle>,
+    pai: Option<&crate::style::ComputedStyle>,
+) -> FormattingContext {
+    let declared = css.and_then(|c| c.effective_display());
+    let outer = match declared {
+        Some(d) if d != DisplayKind::None && !d.is_inline_level() => OuterDisplay::Block,
+        _ => OuterDisplay::Inline,
+    };
+    let independent = css.is_some_and(|c| {
+        crate::layout::bfc_estilo::pelo_estilo(c, pai) || crate::layout::bfc_estilo::overflow_estabelece(c)
+    });
+    FormattingContext {
+        outer,
+        inner: declared.map_or(InnerDisplay::Flow, inner_of),
+        independent,
+    }
+}
+
 /// The tag's own default: block-level for the tags the HTML default sheet
 /// makes block, inline for everything else. `crate::block::lookup` is that
 /// sheet, and asking it here rather than keeping a list is what stops a second
@@ -206,6 +239,11 @@ impl BoxTree {
     ///   the box it creates to hold the inline run is a block box by
     ///   definition — taking the split inline's `display: inline` here would
     ///   recreate the very nesting the split undid.
+    /// - a GENERATED box answers from the pseudo's own `display`, never from
+    ///   its originating element's — see [`generated_formatting_context`]. It
+    ///   counts in [`Self::runs_inline_formatting_context`] like any child:
+    ///   CSS 2.1 §12.1 inserts it among the element's children, so a
+    ///   `::before { display: block }` does make its container a stack.
     pub fn formatting_context(&self, dom: &Dom, id: BoxId) -> FormattingContext {
         match self.kind(id) {
             BoxKind::Text { .. } => FormattingContext {
@@ -227,6 +265,9 @@ impl BoxTree {
                 independent: true,
             },
             BoxKind::Element(node) => element_formatting_context(dom, node),
+            BoxKind::Generated { originating, .. } => {
+                generated_formatting_context(self.style(dom, id).as_deref(), dom.computed_style_idx(originating).as_deref())
+            }
         }
     }
 

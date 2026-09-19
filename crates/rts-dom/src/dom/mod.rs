@@ -301,7 +301,7 @@ pub struct Dom {
     /// construcoes nao tem esse buraco por definicao.
     box_tree_builds: std::cell::Cell<u32>,
     box_tree_memo: std::cell::RefCell<Option<std::rc::Rc<crate::boxes::BoxTree>>>,
-    box_tree_memo_revision: std::cell::Cell<(u64, u64)>,
+    box_tree_memo_revision: std::cell::Cell<(u64, u64, u64)>,
     counter_memo: std::cell::RefCell<Option<std::rc::Rc<crate::counters::Tabela>>>,
     counter_memo_revision: std::cell::Cell<(u64, u64)>,
     /// Cache derivado de medições de bloco feitas em listas descartáveis durante

@@ -1,10 +1,10 @@
 //! Building the tree: one downward pass over the DOM.
 //!
-//! One box per element, in document order, plus the ONE family of anonymous
-//! box this lot adds — the CSS 2.1 §9.2.1.1 split of an inline box around a
-//! block-level child. No table fixups and no generated boxes; a TEXT node gets
-//! a box of its own, because without one it could not appear in a traversal of
-//! the tree at all.
+//! One box per element, in document order, plus the boxes CSS generates: the
+//! §9.2.1.1 split of an inline around a block-level child (below), the
+//! anonymous table (`anonymous_table.rs`) and `::before`/`::after`
+//! (`generated.rs`). A TEXT node gets a box of its own, because without one
+//! it could not appear in a traversal of the tree at all.
 //!
 //! ## THE FORM, and why it is the sum of two readings and not one of them
 //!
@@ -66,12 +66,10 @@
 //! `a` of `<p>x<span>a<div/>c</span></p>` on different lines, which no browser
 //! does.
 //!
-//! The rules that will live here — the table fixups, generated boxes — are in
-//! section 4 of `docs/ui/html-engine/box-tree.md`, and each has its own lot.
-
 use super::{BoxId, BoxTree};
 
 mod anonymous_table;
+mod generated;
 use crate::dom::{Dom, NodeIdx, NodeKind};
 use crate::style::DisplayKind;
 
@@ -142,7 +140,9 @@ impl Construcao<'_> {
             return;
         }
         let id = self.tree.push_element(node, parent);
+        self.gera(node, crate::style::PseudoElement::Before, id);
         self.constroi_filhos(node, id);
+        self.gera(node, crate::style::PseudoElement::After, id);
     }
 
     /// The children of an element box — the one place the split is decided.
@@ -196,6 +196,7 @@ impl Construcao<'_> {
     /// block-level item becomes a direct child — a sibling of those anonymous
     /// boxes, which is the words of §9.2.1.1.
     fn materializa_contentor(&mut self, contentor: NodeIdx, id: BoxId, itens: Vec<FlowItem>) {
+        let partidos = generated::nos_partidos(&itens);
         let mut corrida: Vec<FlowItem> = Vec::new();
         for item in itens {
             if e_item_de_bloco(self.dom, &item) {
@@ -215,6 +216,7 @@ impl Construcao<'_> {
             corrida.push(item);
         }
         self.fecha_corrida(contentor, id, &mut corrida);
+        self.gera_no_ultimo_fragmento(&partidos);
     }
 
     /// Encloses one accumulated run of inline-level items in a fresh anonymous
@@ -260,6 +262,7 @@ impl Construcao<'_> {
             FlowItem::Block(node) | FlowItem::Plain(node) => self.descend(node, Some(parent)),
             FlowItem::Fragment { node, items } => {
                 let frag = self.tree.push_element(node, Some(parent));
+                self.gera_no_primeiro_fragmento(node, frag);
                 for item in items {
                     self.materializa(item, frag);
                 }

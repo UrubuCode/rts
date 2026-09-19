@@ -224,7 +224,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // `::before` de BLOCO com conteúdo — o primeiro do fluxo, antes de
     // qualquer filho real. Ver `pseudo_bloco.rs`.
     if !e_anonima {
-        super::pseudo_bloco::aplicar(dom, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
+        super::pseudo_bloco::aplicar(dom, caixa, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
     }
     let sequencia = sequencia_do_fluxo(dom, &arvore, id, caixa);
     // `tem_arvore`: sem árvore (`DisplayList::default()`) nenhum filho traz
@@ -710,7 +710,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // Recusado numa caixa anónima pela mesma razão do `::before`: a caixa gerada
     // é do ELEMENTO, e é emitida na descida dele.
     if !e_anonima {
-        super::pseudo_bloco::aplicar(dom, id, crate::style::PseudoElement::After, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
+        super::pseudo_bloco::aplicar(dom, caixa, id, crate::style::PseudoElement::After, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
         // o clearfix (`::after{display:block;clear:both}`) desce o fim do fluxo
         // até ao fundo dos floats — ver `clearfix.rs`.
         if let Some(fundo) = super::clearfix::fundo_do_clearfix(dom, id, bfc) {

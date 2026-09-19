@@ -305,10 +305,38 @@ The tests that pin each line are in `crates/rts-dom/src/boxes/tests.rs`.
 One box per ELEMENT the cascade accepts, one per TEXT node, and — where CSS 2.1
 §9.2.1.1 applies — **several boxes for the split inline plus one anonymous block
 box per inline run**, and — where §17.2.1 rule 3 applies — **one anonymous
-TABLE box per run of table parts whose parent is not a table** (BT-4). No box
-for a comment, none for `display: none`, none for a run of collapsible
-whitespace the split declined to wrap, and no generated content yet (BT-5 made
-the pseudo a box on the inline path, but it has no `BoxId`).
+TABLE box per run of table parts whose parent is not a table** (BT-4), and
+**one GENERATED box per `::before`/`::after` the cascade generates** (BT-5,
+`BoxKind::Generated { originating, pseudo }`). No box for a comment, none for
+a run of collapsible whitespace the split declined to wrap. (An element with
+`display: none` DOES get a box today — the build only refuses an element with
+no computed style — and every walker skips it through `e_display_none`; the
+line that said otherwise here was wrong.)
+
+**A generated box has a `BoxId` and NO node**, as `pseudo.rs` decided: `node_of`
+answers `None`, `boxes_of` never returns it, and its style is the PSEUDO's,
+asked of `Dom::pseudo_box` each time (`BoxTree::style`), never its originating
+element's — `style_source` names that element only as where it inherits from.
+It is the FIRST child (`::before`) or the LAST (`::after`) of the element's
+box — of the first and last FRAGMENT of a split inline — and stays a direct
+child beside an anonymous table or the anonymous blocks of a split container;
+`boxes/build/generated.rs` says why, and the one place that is not CSS's shape.
+The condition is `Dom::pseudo_box(..).is_some()`, the cascade's, so the tree
+holds some generated boxes no layout role lays out yet (the `::before` of an
+`<img>` or a `<br>`), and those get no geometry.
+
+**Layout still lays generated content out through its three roles**
+(`pseudo_bloco`, `flex_pseudo`, `pseudo_inline`), and every walker of the tree
+reads `BoxTree::children_without_generated`: a generated box reaching the
+block flow as a step would be laid out twice. The roles take the box from the
+tree (`pseudo_caixa::da_arvore`) and record its border box under its `BoxId`,
+so `rect_of_box` answers for a block, flex-item, `inline-block` or surfaced
+`inline` pseudo. A bare-text `inline` pseudo records nothing: its runs are
+painted by `linha.rs`, which has no hook for it.
+
+**The memo key is `(revision, style_epoch, viewport)`** since BT-5. `@media`
+makes box existence depend on the viewport, and `set_viewport` bumps no
+revision; the tree kept the boxes of the previous width until then.
 
 **An anonymous box has a ROLE** (`AnonymousRole::Block` or `Table`), and a
 reader that dispatches on anonymous boxes has to ask it: a table sizes itself
@@ -426,7 +454,10 @@ that wants to know "is this an inline formatting context" asks the tree.
   (`dom/chaves_cache.rs`). A `BoxId` is still never stored across a rebuild.
   A fragment taken from the cache has its `BoxId`s remapped into the current
   tree on the way in (`Fragment::remapped_to`), and the hit is refused when
-  the node's box count changed rather than guessing which box it was. The
+  the node's box count changed rather than guessing which box it was. A
+  GENERATED box has no `(node, ordinal)` and is found by its parent's address
+  plus which pseudo it is (`BoxTree::translate_from`); an anonymous box still
+  cannot be translated, so a fragment holding one is recomputed. The
   incremental seam compares a box's children in the OLD tree against the NEW
   one, box against box. It never translates boxes back to nodes, which is the
   "named care" of BT-1. Two things follow and must not be assumed away. A

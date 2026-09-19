@@ -221,7 +221,7 @@ fn intrinsic_content_width_geral(
     // obriga a olhar para o `<br>`: ele não é de bloco e mesmo assim quebra.
     let mut linha = 0.0f32;
     let mut maior = 0.0f32;
-    let filhos: &[crate::boxes::BoxId] = caixa.map(|c| tree.children(c)).unwrap_or(&[]);
+    let filhos: &[crate::boxes::BoxId] = caixa.map(|c| tree.children_without_generated(c)).unwrap_or(&[]);
     for &caixa_filho in filhos {
         let Some(child) = tree.node_of(caixa_filho) else {
             // Caixa ANÓNIMA (CSS 2.1 §9.2.1.1): não tem nó, mas não é
@@ -276,7 +276,7 @@ fn intrinsic_content_width_geral(
     // na largura natural do contentor — o caret do botão do Bootstrap.
     if is_row {
         for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
-            let w = super::flex_pseudo::largura(dom, id, pe, font, ctx);
+            let w = super::flex_pseudo::largura(dom, tree, caixa, id, pe, font, ctx);
             if w > 0.0 {
                 sum += w;
                 count += 1;
@@ -314,7 +314,7 @@ fn largura_anonima(
     }
     let mut linha = 0.0f32;
     let mut maior = 0.0f32;
-    for &filho in tree.children(caixa) {
+    for &filho in tree.children_without_generated(caixa) {
         let Some(child) = tree.node_of(filho) else {
             let w = largura_anonima(dom, tree, filho, font, ctx);
             maior = maior.max(linha).max(w);

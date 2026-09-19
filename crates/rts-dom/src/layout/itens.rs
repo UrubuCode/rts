@@ -152,3 +152,17 @@ pub(crate) fn record_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect)
         list.hit_order.push(box_id);
     }
 }
+
+/// Grows ONE box's rectangle to take in another of its fragments — a box
+/// that breaks across lines, recorded one line at a time.
+///
+/// Not `inline_box::union_rect`, which does this by NODE and so cannot reach
+/// a box with none (a generated inline). Nor its placeholder sentinel: that
+/// guards against `reserve_node_order`, which only ever reserves boxes that
+/// name a node.
+pub(crate) fn union_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect) {
+    match list.box_rects.get_mut(&box_id) {
+        Some(old) => *old = old.union(rect),
+        None => record_box_rect(list, box_id, rect),
+    }
+}

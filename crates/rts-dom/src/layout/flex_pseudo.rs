@@ -38,15 +38,20 @@ fn rc(css: &ComputedStyle, base_w: f32, fonte: f32, ctx: &LayoutCtx) -> ResolveC
 
 /// Mede o pseudo-elemento `pe` do contentor `id` como item flex, se existir
 /// (tem `content`) e não for `display: none`.
+/// `dono` is the container's box, where the tree put the generated box; the
+/// pseudo is taken from there (`pseudo_caixa::da_arvore`), not re-derived.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn medir(
     dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    dono: Option<crate::boxes::BoxId>,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
     base_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> Option<PseudoItem> {
-    let caixa = dom.pseudo_box(id, pe)?;
+    let (gerada, caixa) = super::pseudo_caixa::da_arvore(dom, tree, dono, id, pe)?;
     if caixa.css.effective_display() == Some(crate::style::DisplayKind::None) {
         return None;
     }
@@ -76,19 +81,21 @@ pub(in crate::layout) fn medir(
     // difference between the two measurers (`text_width_family` here,
     // `text_width` in `wrap_runs`) — a line the height above did not count.
     let linhas = if texto.is_empty() { Vec::new() } else { vec![texto] };
-    Some(montar(caixa, arestas, conteudo_w, conteudo_h, linhas, fonte))
+    Some(montar((gerada, caixa), arestas, conteudo_w, conteudo_h, linhas, fonte))
 }
 
 /// A largura OUTER que o pseudo `pe` acrescenta à largura intrínseca de um
 /// contentor flex em linha (zero se não existe).
 pub(in crate::layout) fn largura(
     dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    dono: Option<crate::boxes::BoxId>,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    medir(dom, id, pe, ctx.viewport_w, font_size, ctx).map_or(0.0, |p| p.w)
+    medir(dom, tree, dono, id, pe, ctx.viewport_w, font_size, ctx).map_or(0.0, |p| p.w)
 }
 
 /// Pinta o item gerado com o canto superior esquerdo da sua margin box em
@@ -99,8 +106,14 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, item: &PseudoItem, x: f3
 }
 
 /// O item flex de um pseudo-elemento gerado do contentor, se existir.
-pub(in crate::layout) fn item_flex(dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Option<super::flex::FlexItem> {
-    let p = medir(dom, id, pe, content_w, font_size, ctx)?;
+///
+/// `caixa: None` on the item even though the pseudo has a box: that field is
+/// what `flex.rs` hands to `layout_block` for a REAL item, and a generated one
+/// is painted by `pintar` from `pseudo` instead — its `BoxId` travels there,
+/// in `CaixaGerada::gerada`.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn item_flex(dom: &Dom, tree: &crate::boxes::BoxTree, dono: crate::boxes::BoxId, id: NodeIdx, pe: crate::style::PseudoElement, content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Option<super::flex::FlexItem> {
+    let p = medir(dom, tree, Some(dono), id, pe, content_w, font_size, ctx)?;
     let css = &p.caixa.css;
     Some(super::flex::FlexItem {
         node: id,

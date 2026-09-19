@@ -661,7 +661,9 @@ impl Fragment {
         if std::rc::Rc::ptr_eq(&self.tree, tree) {
             return Some(std::rc::Rc::clone(self));
         }
-        let map_box = |old| remap_box_id(&self.tree, tree, old);
+        // `BoxTree::translate_from` (`boxes/generated.rs`): the address of a box
+        // is the tree's knowledge since a generated box has no `(node, ordinal)`.
+        let map_box = |old| tree.translate_from(&self.tree, old);
         let caixa = map_box(self.caixa)?;
         let rects = self
             .rects
@@ -743,23 +745,6 @@ impl Fragment {
         // fragmentos. Quem precisa dela chama `geometry()`, que percorre a
         // árvore uma vez e guarda o resultado.
     }
-}
-
-/// Traduz um `BoxId` da árvore antiga pelo seu endereço semântico. Isto fica
-/// deliberadamente junto do fragmento, a única estrutura de cache que mantém
-/// IDs de caixa entre passadas.
-fn remap_box_id(
-    from: &crate::boxes::BoxTree,
-    to: &crate::boxes::BoxTree,
-    old: crate::boxes::BoxId,
-) -> Option<crate::boxes::BoxId> {
-    let node = from.node_of(old)?;
-    let old_boxes = from.boxes_of(node);
-    let ordinal = old_boxes.iter().position(|&candidate| candidate == old)?;
-    let new_boxes = to.boxes_of(node);
-    (old_boxes.len() == new_boxes.len())
-        .then(|| new_boxes.get(ordinal).copied())
-        .flatten()
 }
 
 impl Fragment {

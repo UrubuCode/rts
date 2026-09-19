@@ -85,7 +85,7 @@ pub(in crate::layout) fn layout_children_grid(
     // blockificado. A sequência, porém, continua a pertencer à BoxTree; assim
     // cada item recebe o `BoxId` desta construção sem voltar por `NodeIdx`.
     let tree = std::rc::Rc::clone(&list.tree);
-    for &caixa in tree.children(container) {
+    for &caixa in tree.children_without_generated(container) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };

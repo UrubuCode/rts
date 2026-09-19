@@ -43,15 +43,18 @@ pub(in crate::layout) type PseudoBlockBox = super::pseudo_caixa::CaixaGerada;
 /// mesma pergunta de `clearfix.rs::fundo_do_clearfix`, sem exigir `clear` e
 /// exigindo texto (um `content:""` é o caso do clearfix, já coberto por ele;
 /// os dois nunca disputam o mesmo pseudo).
+#[allow(clippy::too_many_arguments)]
 fn medir(
     dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    dono: Option<crate::boxes::BoxId>,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
     content_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> Option<PseudoBlockBox> {
-    let caixa = dom.pseudo_box(id, pe)?;
+    let (gerada, caixa) = super::pseudo_caixa::da_arvore(dom, tree, dono, id, pe)?;
     if caixa.texto.is_empty() {
         return None;
     }
@@ -90,7 +93,7 @@ fn medir(
         .height
         .and_then(|d| d.resolve(&r))
         .unwrap_or_else(|| super::pseudo_caixa::altura_das_linhas(css, &linhas, fonte, ctx));
-    Some(montar(caixa, arestas, conteudo_w, conteudo_h, linhas, fonte))
+    Some(montar((gerada, caixa), arestas, conteudo_w, conteudo_h, linhas, fonte))
 }
 
 /// Mede, posiciona e pinta o pseudo `pe` de `id` como o próximo (`::before`)
@@ -104,6 +107,9 @@ fn medir(
 /// vive aqui.
 pub(in crate::layout) fn aplicar(
     dom: &Dom,
+    // The box of `id` this flow is the children of — where the tree put the
+    // generated box (`boxes/build/generated.rs`). `None` without a tree.
+    dono: Option<crate::boxes::BoxId>,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
     content_x: f32,
@@ -116,7 +122,8 @@ pub(in crate::layout) fn aplicar(
     list: &mut DisplayList,
 ) {
     use super::vertical::{atravessa_se, junta_ao_strut, strut_colapsado};
-    let Some(caixa) = medir(dom, id, pe, content_w, font_size, ctx) else {
+    let arvore = std::rc::Rc::clone(&list.tree);
+    let Some(caixa) = medir(dom, &arvore, dono, id, pe, content_w, font_size, ctx) else {
         return;
     };
     let (m, m_baixo) = (caixa.mt, caixa.mb);
