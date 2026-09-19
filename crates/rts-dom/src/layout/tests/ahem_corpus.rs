@@ -104,10 +104,16 @@ fn wrap_ahem_usa_avanco_exato_para_decidir_onde_quebrar() {
 /// A mesma pergunta com uma família qualquer: as DUAS palavras cabem na
 /// MESMA linha (a régua de que o teste acima depende para provar que Ahem
 /// muda o resultado, e não é sempre assim).
+///
+/// The container width is chosen to fit both words' REAL Arial advance
+/// (since f3ab1ffdc/1cb9ed714) plus the space between them — two 10-"A"
+/// words at 10px Arial measure ~66.7px each and the space ~2.78px, ~136.2px
+/// total; 105px (which relied on `PROP_ADVANCE`'s coarser ~46px/word) no
+/// longer fits either family and stopped isolating this test's claim.
 #[test]
 fn wrap_familia_normal_cabe_as_duas_palavras_na_mesma_linha() {
     let list = layout(
-        "<p style='width:105px;font:10px/1 Arial'>AAAAAAAAAA AAAAAAAAAA</p>",
+        "<p style='width:145px;font:10px/1 Arial'>AAAAAAAAAA AAAAAAAAAA</p>",
         600.0,
     );
     let t = all_texts(&list);

@@ -8,8 +8,9 @@
 //! apagava o texto que sobrou dentro dela ("aaaa"/"cccc" de
 //! `<span>aaaa<div>b</div>cccc</span>`) da largura intrínseca do contentor.
 //!
-//! Os números vêm do `ApproxMeasurer` (`table/tests/mod.rs`: texto = n chars ×
-//! tamanho × `PROP_ADVANCE` = 0.46), não do Chrome — o brief deste lote
+//! Os números vêm do `ApproxMeasurer` — desde f3ab1ffdc/1cb9ed714, a soma dos
+//! avanços reais de cada carácter na fonte resolvida (`layout::fonte_metricas`),
+//! não `n chars × tamanho × PROP_ADVANCE` — não do Chrome: o brief deste lote
 //! permite derivar da spec quando o Chrome não está disponível na sessão, e é
 //! a régua que o resto deste crate já usa para testes unitários de mecânica
 //! CSS (ao contrário do corpus de reftests, que compara contra o Chrome/Edge
@@ -19,6 +20,7 @@
 //! caixa cada (a regra que `intrinsic_content_width` já aplicava a filhos de
 //! bloco normais, ver `flex_basis_content_wrap_corpus.rs`).
 
+use crate::layout::{ApproxMeasurer, TextMeasurer};
 use crate::table::tests::{geometria, rect};
 
 #[test]
@@ -31,17 +33,20 @@ fn float_shrink_to_fit_com_span_partido_conta_o_texto_dos_dois_lados() {
     // dois lados do `<span>` ficam em caixas de bloco ANÓNIMAS, siblings do
     // `<div id="b">` — três "linhas" que o max-content mede pelo MAIOR.
     //
-    // "aaaa"/"cccc" = 4 × 16px × 0.46 = 29.44 cada; o bloco do meio é 10px.
-    // maior(29.44, 10, 29.44) = 29.44 — o número que o `continue` do
-    // 147cb3e53 apagava, ao saltar as duas caixas anónimas: sem este fix a
-    // largura ficava presa aos 10px do `<div id="b">` sozinho.
+    // "aaaa"/"cccc" measure via the MEASURER (default font, no family
+    // declared); o bloco do meio é 10px. maior(aaaa, 10, cccc) = aaaa — o
+    // número que o `continue` do 147cb3e53 apagava, ao saltar as duas caixas
+    // anónimas: sem este fix a largura ficava presa aos 10px do
+    // `<div id="b">` sozinho.
     const HTML: &str = r#"<style>.c { float: left; }</style>
 <div class="c"><span>aaaa<div id="b" style="width:10px;height:10px"></div>cccc</span></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let c = rect(&dom, &list, ".c", 0);
+    let aaaa_w = ApproxMeasurer.text_width("aaaa", 16.0, false, false, false);
     assert!(
-        (c.w - 29.44).abs() < 0.1,
-        "shrink-to-fit do float devia contar o texto dos dois lados do <span> partido (~29.44), não só o <div> do meio (10): w={}",
+        (c.w - aaaa_w).abs() < 0.1,
+        "shrink-to-fit do float devia contar o texto dos dois lados do <span> partido (~{}), não só o <div> do meio (10): w={}",
+        aaaa_w,
         c.w
     );
 }
@@ -84,9 +89,11 @@ fn inline_block_com_span_partido_conta_o_texto_dos_dois_lados() {
 <div class="ib"><span>aaaa<div id="b" style="width:10px;height:10px"></div>cccc</span></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let ib = rect(&dom, &list, ".ib", 0);
+    let aaaa_w = ApproxMeasurer.text_width("aaaa", 16.0, false, false, false);
     assert!(
-        (ib.w - 29.44).abs() < 0.1,
-        "inline-block sem width devia encolher ao maior das três linhas do span partido (~29.44), não ao <div> do meio (10): w={}",
+        (ib.w - aaaa_w).abs() < 0.1,
+        "inline-block sem width devia encolher ao maior das três linhas do span partido (~{}), não ao <div> do meio (10): w={}",
+        aaaa_w,
         ib.w
     );
 }

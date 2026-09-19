@@ -7,6 +7,7 @@
 //! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
+    use crate::layout::TextMeasurer;
 
     #[test]
     fn elemento_inline_recebe_bounding_rect() {
@@ -398,12 +399,17 @@
         // A marcação de referência da Wikipédia: `[`, `135`, `]` em spans
         // separados, SEM espaço entre eles — não há ali oportunidade de quebra
         // nenhuma, logo os três descem juntos em vez de o `[` ficar para trás.
+        //
+        // The container width comes from the MEASURER (default font, no
+        // family declared), since f3ab1ffdc/1cb9ed714: four "aaaa " occupy
+        // ~130px, and the fifth "aaaa" plus the unbreakable "[135]" cluster
+        // add ~63px more (~193px total) — the width sits between the two so
+        // the first four words fit on line one and the fifth-plus-cluster
+        // wraps whole to line two, same shape the old PROP_ADVANCE-based
+        // 200/152/80 numbers pinned.
+        const LARGURA: f32 = 165.0;
         let list = layout(
-            // A 16px/0,5 cada letra mede 8 e o espaço 8: quatro "aaaa" com os
-            // espaços ocupam 152 dos 200. O quinto "aaaa" mais o `[135]` são um
-            // aglomerado de 72 (não há espaço entre a palavra e a referência),
-            // que pede 8+72 e não cabe — desce INTEIRO, como no browser.
-            "<p style='width:200'>aaaa aaaa aaaa aaaa aaaa<span>[</span><span>135</span><span>]</span></p>",
+            "<p style='width:165'>aaaa aaaa aaaa aaaa aaaa<span>[</span><span>135</span><span>]</span></p>",
             600.0,
         );
         let t = all_texts(&list);
@@ -421,7 +427,7 @@
         assert_ne!(abre, primeira, "o conjunto desceu de linha: {t:?}");
         for (_, x, y, _) in &t {
             if Some(*y) == abre {
-                assert!(*x < 200.0, "e não transborda a caixa: {t:?}");
+                assert!(*x < LARGURA, "e não transborda a caixa: {t:?}");
             }
         }
     }

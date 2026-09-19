@@ -14,6 +14,7 @@
 //! fosse um TECTO, encolhendo itens que já a excediam em vez de deixar o
 //! contentor crescer acima dela.
 
+use crate::layout::{ApproxMeasurer, TextMeasurer};
 use crate::table::tests::{geometria, rect};
 
 #[test]
@@ -33,11 +34,13 @@ fn flex_basis_content_ignora_width_declarado_no_item() {
 <div class="f"><div id="a">hello</div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let a = rect(&dom, &list, "#a", 0);
-    // "hello" (5 carateres) no `ApproxMeasurer` a 16px: 5×16×0.46 = 36.8 —
-    // bem mais largo que os 5px declarados, que têm de ser ignorados.
+    // "hello" no `ApproxMeasurer` a 16px, fonte default (Times) — bem mais
+    // largo que os 5px declarados, que têm de ser ignorados.
+    let hello_w = ApproxMeasurer.text_width("hello", 16.0, false, false, false);
     assert!(
-        (a.w - 36.8).abs() < 0.1,
-        "flex-basis:content devia medir o CONTEÚDO (~36.8), não o width declarado (5): w={}",
+        (a.w - hello_w).abs() < 0.1,
+        "flex-basis:content devia medir o CONTEÚDO (~{}), não o width declarado (5): w={}",
+        hello_w,
         a.w
     );
 }
