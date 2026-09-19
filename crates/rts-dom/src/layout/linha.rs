@@ -298,6 +298,17 @@ pub(in crate::layout) fn layout_inline_flow(
         } else {
             line_h
         };
+        // A line holding an inline-block is placed by the §10.8.1 envelope
+        // (`linha_baseline.rs`) and not by the special cases above, which stay
+        // for lines of text and images only.
+        let envelope = super::linha_baseline::envelope_da_linha(dom, &line, font_size, lh, family, content_w, ctx);
+        let (text_top, text_owner_anchor, line_advance, tall_inline_block) = match &envelope {
+            Some(env) => {
+                let baseline = cy + env.acima;
+                (baseline - ctx.measurer.font_ascent_family(font_size, family), baseline, env.altura(), true)
+            }
+            None => (text_top, text_owner_anchor, line_advance, tall_inline_block),
+        };
         // A banda desta linha, no `cy` VERDADEIRO — é aqui que o texto passa a
         // correr ao lado do float em vez de por baixo dele.
         let (linha_x, linha_w) = if exclusoes.is_empty() {
@@ -387,8 +398,10 @@ pub(in crate::layout) fn layout_inline_flow(
                         // `layout_block` da corrida de inline-blocks irmãos —
                         // não um segundo emissor — só que o x/y vem do fluxo.
                         // Inline-block VAZIO senta o fundo na baseline (§10.8.1; caret do Bootstrap a y=9).
-                        let vazio = !super::caixa::tem_conteudo_para_fragmento(dom, a_idx);
-                        let topo = if vazio && seg.wh < line_h { text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh } else { cy };
+                        let topo = match &envelope {
+                            Some(env) => super::linha_baseline::topo_do_atomo(dom, &seg, cy, env, font_size, family, content_w, ctx),
+                            None => cy,
+                        };
                         layout_block(
                             dom,
                             a_idx,
@@ -409,8 +422,11 @@ pub(in crate::layout) fn layout_inline_flow(
                         );
                     }
                     AtomicKind::Gerada(pe, ParteGerada::Atomo) => {
-                        let baseline = text_top + ctx.measurer.font_ascent_family(font_size, family);
-                        super::pseudo_inline::pintar_atomo(dom, a_idx, pe, seg_x, cy, baseline, line_h, content_w, ctx, list);
+                        // A generated inline-block always makes `envelope` Some.
+                        let topo = envelope
+                            .as_ref()
+                            .map_or(cy, |env| super::linha_baseline::topo_do_atomo(dom, &seg, cy, env, font_size, family, content_w, ctx));
+                        super::pseudo_inline::pintar_atomo(dom, a_idx, pe, seg_x, topo, content_w, ctx, list);
                     }
                     AtomicKind::Marker
                     | AtomicKind::Break

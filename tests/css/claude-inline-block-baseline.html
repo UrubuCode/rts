@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!-- Ruler: where an `inline-block` sits on a line of text (CSS 2.1 §10.8.1,
+     `vertical-align: baseline` by default). An inline-block with in-flow
+     line boxes has its LAST line's baseline as its baseline; an empty one
+     (or one with `overflow` other than visible) uses the bottom MARGIN edge.
+     The line box then grows to hold the text's strut AND the box, both
+     aligned on one baseline. The engine gave an empty 20px inline-block a
+     20px line where Blink gives 25 (the text's descent hangs below the
+     box's bottom), and a padded one with text 37 where Blink gives 32. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .caso { margin-bottom: 10px; background: #eee; }
+  .ib { display: inline-block; background: #0a0; }
+  #a1 { width: 20px; height: 20px; }
+  #b1 { padding: 4px 6px; border: 2px solid #000; }
+  #c1 { width: 30px; height: 40px; }
+  #d1 { width: 30px; height: 30px; overflow: hidden; }
+  #d1 span { display: block; }
+  #e1 { vertical-align: middle; width: 20px; height: 30px; }
+  #f1 { vertical-align: top; width: 20px; height: 30px; }
+  #g1 { vertical-align: bottom; width: 20px; height: 30px; }
+</style></head>
+<body>
+  <div class="caso" id="a">x<span class="ib" id="a1"></span><span id="a2">y</span></div>
+  <div class="caso" id="b">x<span class="ib" id="b1">z</span><span id="b2">y</span></div>
+  <div class="caso" id="c">x<span class="ib" id="c1"></span><span id="c2">y</span></div>
+  <div class="caso" id="d">x<span class="ib" id="d1"><span>q</span></span><span id="d2">y</span></div>
+  <div class="caso" id="e">x<span class="ib" id="e1"></span><span id="e2">y</span></div>
+  <div class="caso" id="f">x<span class="ib" id="f1"></span><span id="f2">y</span></div>
+  <div class="caso" id="g">x<span class="ib" id="g1"></span><span id="g2">y</span></div>
+  <div id="fim" style="height: 10px; background: #00f"></div>
+</body>
+</html>

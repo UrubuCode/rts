@@ -172,19 +172,15 @@ fn medir_atomo(caixa: crate::pseudo::PseudoBox, base_w: f32, ctx: &LayoutCtx) ->
 }
 
 /// Paints the `inline-block` pseudo `pe` of `id` at the place the line gave
-/// it. Its vertical place follows the rule the line applies to a real
-/// `inline-block` (`linha.rs`, `AtomicKind::Block`): an empty one shorter
-/// than the line sits its bottom margin edge on the `baseline`; otherwise its
-/// top is the line's top `cy`.
+/// it: `x` and its `topo`, which the line decides by the same §10.8.1
+/// envelope as a real `inline-block` (`linha_baseline.rs`).
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn pintar_atomo(
     dom: &Dom,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
     x: f32,
-    cy: f32,
-    baseline: f32,
-    line_h: f32,
+    topo: f32,
     base_w: f32,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -193,6 +189,5 @@ pub(in crate::layout) fn pintar_atomo(
         return;
     };
     let medida = medir_atomo(caixa, base_w, ctx);
-    let topo = if medida.linhas.is_empty() && medida.h < line_h { baseline - medida.h } else { cy };
     super::pseudo_caixa::pintar(list, &medida, x, topo, ctx);
 }

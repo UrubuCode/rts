@@ -58,6 +58,7 @@ mod inline_partido_rect_corpus;
 mod out_of_flow_in_inline_corpus;
 mod anonymous_table_corpus;
 mod table_groups_corpus;
+mod inline_block_baseline_corpus;
 mod pseudo_caixa_gerada_corpus;
 mod pintura;
 mod pintura_transform_clip;
