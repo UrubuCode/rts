@@ -218,3 +218,47 @@ describe("a primitive written in one borrow is still read when the language read
     expect(JSON.stringify({ boxed })).toBe('{"boxed":"hooked"}');
   });
 });
+
+describe("a token with escapes is assembled in runs, and reads what it always read", () => {
+  // `String.raw` so that what is written here IS the JSON text: one backslash
+  // in the source is one backslash in the document.
+  test("every short escape, and a unit escape that fits a byte", () => {
+    expect(JSON.parse(String.raw`"a\"b\\c\/d\be\ff\ng\rh\ti"`)).toBe('a"b\\c/d\be\ff\ng\rh\ti');
+    expect(JSON.parse(String.raw`"café A\u0000z"`)).toBe("café A\u0000z");
+    expect(JSON.parse(String.raw`"\n"`)).toBe("\n");
+    expect(JSON.parse(String.raw`"\n\n\n"`).length).toBe(3);
+    expect(JSON.parse(String.raw`"ends in one\\"`)).toBe("ends in one\\");
+  });
+
+  test("an escape past a byte hands the whole token to the wide path", () => {
+    expect(JSON.parse(String.raw`"narrow \n then 中文 then \t narrow"`)).toBe(
+      "narrow \n then 中文 then \t narrow",
+    );
+    expect(JSON.parse(String.raw`"😀"`)).toBe("😀");
+    expect(JSON.parse(String.raw`"lone \ud800 stays"`).charCodeAt(5)).toBe(0xd800);
+    expect(JSON.parse(String.raw`{"k\n1":"v\t1","k中":"x"}`)["k\n1"]).toBe("v\t1");
+  });
+
+  test("what is not a string still fails, from either path", () => {
+    const fails = (text: string) => {
+      try {
+        JSON.parse(text);
+      } catch (error) {
+        return (error as Error).constructor.name;
+      }
+      return "parsed";
+    };
+    expect(fails(String.raw`"a\n`)).toBe("SyntaxError");
+    expect(fails('"a' + "\\")).toBe("SyntaxError");
+    expect(fails(String.raw`"a\x"`)).toBe("SyntaxError");
+    expect(fails(String.raw`"a\u12"`)).toBe("SyntaxError");
+    expect(fails('"a' + "\\n" + "\n" + 'b"')).toBe("SyntaxError");
+    expect(fails(String.raw`"a\u00zz"`)).toBe("SyntaxError");
+  });
+
+  test("a long serialised text round-trips", () => {
+    const text = 'he said "hi"\n\tand \\ left\r\n'.repeat(200);
+    expect(JSON.parse(JSON.stringify(text))).toBe(text);
+    expect(JSON.parse(JSON.stringify([text, text]))[1].length).toBe(text.length);
+  });
+});

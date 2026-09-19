@@ -39,6 +39,13 @@ memchr = "2"
 regex = "1"
 fancy-regex = "0.13"
 
+# The shortest digits of a double. Already in the tree through `serde_json`, and
+# named here because `coerce/decimal.rs` was taking them out of `format!("{:e}")`
+# — correct, and about 100 ns a number through `core::fmt`. It decides nothing
+# the machine decides and is pure Rust over no operating system, which is what
+# rules 1 and 5 ask; WHERE the decimal point goes stays this crate's.
+ryu = "1"
+
 # The Unicode decomposition and composition tables `String.prototype.normalize`
 # is defined by. Carried where a collation table is refused, and the two are not
 # the same kind of data: a collation is per-locale — something a program is

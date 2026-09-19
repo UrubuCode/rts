@@ -944,6 +944,9 @@ pub struct Context {
     /// The sweep's scratch list of cells to free, kept across cycles for its
     /// capacity. See `collect_cycle::sweep`.
     doomed: Vec<u32>,
+    /// What one `JSON` call leaves for the next. Numbers and bytes, never a
+    /// reference — see `json::Scratch` for why that is what makes it keepable.
+    json: json::Scratch,
     /// Every cache miss, counted by reason, key and SITE — or `None`, which is
     /// what a run that was not asked for a census pays: no map, no lookup, one
     /// `Option` test per miss.
@@ -1323,6 +1326,7 @@ impl Context {
             array_layout: None,
             array_length_slot: None,
             doomed: Vec::new(),
+            json: json::Scratch::default(),
             census: std::env::var_os("RTS_CACHE_CENSUS")
                 .map(|_| std::collections::BTreeMap::new()),
             barriers: 0,

@@ -64,6 +64,7 @@ mod write;
 use read::Node;
 
 use super::objects::undefined_of;
+use super::rooted::Rooted;
 use super::with_current;
 use crate::text::Str;
 use crate::value::Value;
@@ -146,15 +147,25 @@ fn stringify(value: u64, replacer: u64, space: u64) -> u64 {
         hooks::Replacer::Function(_) => hooks::root_holder(value),
         _ => with_current(|context| undefined_of(context)),
     };
-    let mut writer = write::Writer::new(write::indent_of(space), replacer);
+    let kept = with_current(|context| std::mem::take(&mut context.json.kept));
+    let mut writer = write::Writer::new(write::indent_of(space), replacer, kept);
     let root_key = with_current(|context| context.well_known_text(""));
     let value = writer.hooked(holder, value, super::json::write::HookKey::Given(root_key));
     match writer.write(value, 0) && !super::throw::in_flight() {
         true => {
-            let text = writer.finish();
-            with_current(|context| context.intern_value(text).bits())
+            let (text, kept) = writer.finish();
+            with_current(|context| {
+                context.json.keep(kept);
+                context.intern_value(text).bits()
+            })
         }
-        false => with_current(|context| undefined_of(context)),
+        false => {
+            let kept = writer.abandon();
+            with_current(|context| {
+                context.json.keep(kept);
+                undefined_of(context)
+            })
+        }
     }
 }
 
@@ -205,7 +216,7 @@ fn parse(text: u64, reviver: u64) -> u64 {
     };
     match parsed {
         Some(node) => {
-            let value = materialise(node, 0, false, &mut Vec::new());
+            let value = materialise_document(node);
             match with_current(|context| super::modules::is_callable_in(context, reviver)) {
                 false => value,
                 // The same synthetic holder the writer's root uses, for the
@@ -247,6 +258,55 @@ fn parse(text: u64, reviver: u64) -> u64 {
 /// rather than walking a transition per member to rediscover that.
 type Seen = Vec<Row>;
 
+/// What one call leaves in the [`super::Context`] for the next.
+///
+/// # Why anything outlives a call
+///
+/// Because a program serialises the same shapes again and again, and a call
+/// that starts from nothing pays to learn them every time: the key list of a
+/// shape is a walk up the shape tree into a fresh `Vec`, then per key an
+/// attribute lookup, the interner's text and two scans of it; the path and the
+/// output are two more allocations; and `parse` hashes every key of every
+/// document to be told the number it was told last time. Measured 2026-09-19,
+/// `target/release/rts.exe`: an EMPTY object cost 190 ns more to serialise than
+/// a number did.
+///
+/// # Why it is safe to keep
+///
+/// Nothing here is a reference. A plan is a shape's number, its keys' numbers,
+/// slots and label bytes; a shape never changes and its number is never handed
+/// out twice, so a plan cannot go stale — only unused. A row is key text and
+/// key numbers, and a layout is a type's number. So the collector has nothing
+/// to hear about (rule 10), and what bounds it is the DEPTH of the last
+/// document and the keys at each depth, with [`Scratch::keep`] refusing a buffer
+/// past a megabyte and [`KEY_LIMIT`] refusing a key nobody will repeat.
+///
+/// Taken with `mem::take` and given back, as `collect_cycle::sweep` does with
+/// `doomed`: a `toJSON` that serialises re-enters with an empty one and the
+/// outer call's is what is kept.
+#[derive(Default)]
+pub(in crate::entry) struct Scratch {
+    kept: write::Kept,
+    seen: Seen,
+    /// The stack `materialise` builds on, kept EMPTY and for its capacity: a
+    /// fresh one grows by doubling, which for a sixteen-element array is three
+    /// reallocations to hold what the last document already made room for.
+    stack: Vec<u64>,
+}
+
+impl Scratch {
+    fn keep(&mut self, mut kept: write::Kept) {
+        if kept.2.capacity() > 1 << 20 {
+            kept.2 = Vec::new();
+        }
+        self.kept = kept;
+    }
+}
+
+/// The longest key a [`Row`] remembers. A longer one is data wearing a key's
+/// position — a hash, a path — and keeping it would hold its text for nothing.
+const KEY_LIMIT: usize = 64;
+
 /// What the last object at one depth left behind.
 #[derive(Default)]
 struct Row {
@@ -264,43 +324,40 @@ struct Row {
 /// That ordering is the whole reason the parser answers a tree.
 ///
 /// `seen` is [`Seen`]: what lets a row skip interning its keys.
-fn materialise(node: read::Node, depth: usize, row: bool, seen: &mut Seen) -> u64 {
+fn materialise(node: read::Node, depth: usize, seen: &mut Seen, built: &mut Rooted) -> u64 {
+    let node = match scalar(node) {
+        Ok(value) => return value,
+        Err(composite) => composite,
+    };
     match node {
-        Node::Null => with_current(|context| Value::from_singleton(context.singletons.null).bits()),
-        Node::Bool(flag) => Value::from_bool(flag).bits(),
-        Node::Number(number) => Value::from_f64(number).bits(),
-        // MOVED in: the reader built this `Str` for exactly this cell, and a
-        // clone here was a second copy of every string in the document.
-        Node::Text(text) => with_current(|context| context.intern_value(text).bits()),
+        // Unreachable: `scalar` answered every node that is not a composite.
+        // Answered rather than asserted, because a panic under an `extern "C"`
+        // frame is an abort.
+        Node::Null | Node::Bool(_) | Node::Number(_) | Node::Text(_) => {
+            with_current(|context| undefined_of(context))
+        }
         Node::Array(items) => {
-            // ROOTED, and a loop rather than a `collect`: `materialise` is
-            // recursive and every branch of it ALLOCATES, so the children built
-            // so far are exposed between the steps of the loop that makes them
-            // — named only by a `Vec` on the Rust heap, which no scan of ours
-            // reaches. See `super::rooted`.
-            let mut built = super::rooted::Rooted::new();
+            let from = built.len();
             for item in items {
-                let value = materialise(item, depth + 1, true, seen);
+                let value = materialise(item, depth + 1, seen, built);
                 built.values().push(value);
             }
-            // Allocate the array while the child values remain registered;
-            // only then transfer them into the array side table.
-            with_current(|context| super::array::built_in_rooted(context, built))
+            let made = with_current(|context| super::array::built_in_from(context, &built.as_slice()[from..]));
+            built.values().truncate(from);
+            made
         }
         Node::Object(members) => {
-            // The same, with keys kept beside the guard: `Rooted` holds values,
-            // and a `Str` is not one — it is text this function has not interned
-            // yet, on the Rust heap where nothing can collect it.
-            let mut values = super::rooted::Rooted::new();
-            let mut built: Vec<(Str, u64)> = Vec::with_capacity(members.len());
-            for (key, value) in members {
-                let made = materialise(value, depth + 1, false, seen);
-                values.values().push(made);
-                built.push((key, made));
+            // THE KEYS FIRST, and that order is what makes the rest cheap. A key
+            // is a number and resolving one allocates no cell, so it can happen
+            // before any child exists — and it settles, before a single value is
+            // built, whether this object is the row before it over again.
+            let count = members.len();
+            let fresh = with_current(|context| row_keys(context, &members, seen_at(seen, depth)));
+            let from = built.len();
+            for (_, value) in members {
+                let made = materialise(value, depth + 1, seen, built);
+                built.values().push(made);
             }
-            // The guard stays ALIVE past this line: `native::plain`, interning
-            // keys and every shape transition below may allocate, so the values
-            // remain registered until they land in the new object.
             let made = with_current(|context| {
                 let Some(cell) = super::native::plain(context) else {
                     return undefined_of(context);
@@ -310,98 +367,129 @@ fn materialise(node: read::Node, depth: usize, row: bool, seen: &mut Seen) -> u6
                 // `cell` is a bare `u32` in a Rust frame. The stack scan
                 // recognises an encoded `Value`, and a raw index is not one — so
                 // between this line and the last store the object being built was
-                // named by nothing the collector walks. The fallback arm below
-                // calls `put` once per member, and a `put` that grows the spill
-                // reaches `alloc_or_die`, which may collect; the cell was then
-                // freed and handed out again while the loop went on writing into
-                // it.
-                //
-                // **It is a SILENT WRONG ANSWER before it is a crash, and this
-                // comment said the opposite.** Measured against a kept pre-fix
-                // binary: a TWENTY-key object parsed 60 000 times comes back
-                // twice with `Object.keys(o).length === 0` and the process exits
-                // ZERO. The segfault the first version of this comment described
-                // is what happens further along, once enough recycled cells have
-                // been written through. So the reader of an earlier draft would
-                // have concluded that a small object is safe and that a clean
-                // exit means a clean parse; neither is true.
-                //
-                // The threshold is the SPILL, not eighty keys: the exposed
-                // allocation is `spill_set` -> `alloc_spanning_or_die`, which
-                // both arms reach. The fast arm bounds at `region.width_of`
-                // (fifteen) while `set_slot_value` subtracts `owned_slots`
-                // (fourteen), so the fifteenth property spills with `fallback`
-                // still false.
-                //
-                // An object grown the ordinary way never had this: `const o = {};
-                // o.k = v` holds the object in a machine slot as an encoded
-                // value, which the scan does see. Only a native building a cell
-                // out of a Rust local is exposed, and this is the one that builds
-                // a wide one.
-                values.values().push(Value::from_slot(cell).bits());
-                // The layout is reached ONCE — `clone::populate`, which this
-                // wrote first and which the clone and the pickle now share.
-                //
-                // Interned as a NAME, never as an index, which is what
-                // `computed::property_key` does for every computed key — so
-                // `JSON.parse("{\"0\":1}")[0]` finds what was stored. Routing
-                // `"0"` through `Key::from_str` would file it among the
-                // elements of an object that has none.
-                // Only a ROW — an object that is an array's element — consults
-                // or leaves a memo. An object reached any other way has no
-                // sibling to repeat for, and the memo then costs a `Vec` per
-                // depth and a moved key per member to save nothing: measured,
-                // five nested objects went from 2 036 ns to 4 524 with it on.
-                if !row {
-                    let members: Vec<(crate::object::Key, u64)> = built
-                        .iter()
-                        .map(|(key, value)| {
-                            let named = context.interner.intern(key, &mut context.keys);
-                            (crate::object::Key::Name(named), *value)
-                        })
-                        .collect();
-                    super::clone::populate(context, cell, &members);
-                    return Value::from_slot(cell).bits();
-                }
-                if seen.len() <= depth {
-                    seen.resize_with(depth + 1, Row::default);
-                }
-                let before = &mut seen[depth];
-                let mut same = before.keys.len() == built.len();
-                let members: Vec<(crate::object::Key, u64)> = built
-                    .into_iter()
-                    .enumerate()
-                    .map(|(at, (key, value))| {
-                        let named = match before.keys.get(at) {
-                            Some((text, named)) if *text == key => *named,
-                            _ => {
-                                let named = context.interner.intern(&key, &mut context.keys);
-                                same = false;
-                                before.laid = None;
-                                before.keys.truncate(at);
-                                before.keys.push((key, named));
-                                named
-                            }
-                        };
-                        (crate::object::Key::Name(named), value)
-                    })
-                    .collect();
-                let repeated = same
-                    && before.laid.as_ref().is_some_and(|laid| {
-                        super::clone::populate_as(context, cell, laid, members.iter().map(|(_, value)| *value))
+                // named by nothing the collector walks, and a `put` that grows
+                // the spill may collect. **It is a SILENT WRONG ANSWER before it
+                // is a crash**: measured against a kept pre-fix binary, a
+                // twenty-key object parsed 60 000 times came back twice with no
+                // keys and the process exited zero. `docs/engine/lost-roots.md`.
+                built.values().push(Value::from_slot(cell).bits());
+                let values = &built.as_slice()[from..from + count];
+                let row = seen_at(seen, depth);
+                let repeated = fresh.is_none()
+                    && row.laid.as_ref().is_some_and(|laid| {
+                        super::clone::populate_as(context, cell, laid, values.iter().copied())
                     });
                 if !repeated {
+                    // Interned as a NAME, never as an index, which is what
+                    // `computed::property_key` does for every computed key — so
+                    // an object keyed `"0"` is read back by `[0]`.
+                    let keys = fresh
+                        .unwrap_or_else(|| row.keys.iter().map(|(_, named)| *named).collect());
+                    let members: Vec<(crate::object::Key, u64)> = keys
+                        .iter()
+                        .zip(values)
+                        .map(|(named, value)| (crate::object::Key::Name(*named), *value))
+                        .collect();
                     let laid = super::clone::populate_laid(context, cell, &members);
-                    if before.keys.len() == members.len() {
-                        before.laid = laid;
+                    if row.keys.len() == count {
+                        row.laid = laid;
                     }
                 }
                 Value::from_slot(cell).bits()
             });
-            // Released only now: the object holds every value, so the list has
-            // nothing left to keep alive.
-            drop(values);
+            built.values().truncate(from);
             made
         }
     }
+}
+
+/// A node that is one value, or the node back when it is a composite.
+///
+/// Stated once for the two places that ask: a document that is a scalar, and a
+/// scalar inside one.
+fn scalar(node: read::Node) -> Result<u64, read::Node> {
+    Ok(match node {
+        Node::Null => with_current(|context| Value::from_singleton(context.singletons.null).bits()),
+        Node::Bool(flag) => Value::from_bool(flag).bits(),
+        Node::Number(number) => Value::from_f64(number).bits(),
+        // MOVED in: the reader built this `Str` for exactly this cell, and a
+        // clone here was a second copy of every string in the document.
+        Node::Text(text) => with_current(|context| context.intern_value(text).bits()),
+        composite => return Err(composite),
+    })
+}
+
+/// A whole document. A scalar needs neither the rooted stack nor the rows, and
+/// taking them cost it more than it cost to build: `JSON.parse("42")` went
+/// from 58 ns to 92 the day every parse set both up.
+fn materialise_document(node: read::Node) -> u64 {
+    let node = match scalar(node) {
+        Ok(value) => return value,
+        Err(composite) => composite,
+    };
+    let (mut seen, stack) = with_current(|context| {
+        (std::mem::take(&mut context.json.seen), std::mem::take(&mut context.json.stack))
+    });
+    let mut built = Rooted::with(stack);
+    let value = materialise(node, 0, &mut seen, &mut built);
+    // Un-registered EMPTY: every composite truncated back to where it started,
+    // so there is nothing in it left to keep alive — and `value` is an encoded
+    // word in this frame, which the stack scan reads.
+    let mut stack = built.take();
+    stack.clear();
+    with_current(|context| {
+        context.json.seen = seen;
+        if stack.capacity() <= 1 << 16 {
+            context.json.stack = stack;
+        }
+    });
+    value
+}
+
+/// The row a depth remembers, made if this is the first object that deep.
+fn seen_at(seen: &mut Seen, depth: usize) -> &mut Row {
+    if seen.len() <= depth {
+        seen.resize_with(depth + 1, Row::default);
+    }
+    &mut seen[depth]
+}
+
+/// Resolves an object's keys against the row before it.
+///
+/// `None` when every key, in order and in number, is that row's — the caller
+/// then needs no list at all. Otherwise this object's keys, with the row
+/// rewritten to be them, so the NEXT object can be the one that matches.
+fn row_keys(
+    context: &mut super::Context,
+    members: &[(Str, Node)],
+    row: &mut Row,
+) -> Option<Vec<rts_cranelift::shape::Key>> {
+    let matches = row.keys.len() == members.len()
+        && row.keys.iter().zip(members).all(|((text, _), (key, _))| text == key);
+    if matches {
+        return None;
+    }
+    row.laid = None;
+    let mut keys = Vec::with_capacity(members.len());
+    let mut kept = true;
+    for (at, (key, _)) in members.iter().enumerate() {
+        let named = match row.keys.get(at) {
+            Some((text, named)) if kept && text == key => *named,
+            _ => {
+                let named = context.interner.intern(key, &mut context.keys);
+                if kept {
+                    row.keys.truncate(at);
+                }
+                // A key past the limit ends what this row remembers: the text
+                // after it would be filed at the wrong position.
+                kept = kept && key.len() <= KEY_LIMIT;
+                if kept {
+                    row.keys.push((key.clone(), named));
+                }
+                named
+            }
+        };
+        keys.push(named);
+    }
+    Some(keys)
 }

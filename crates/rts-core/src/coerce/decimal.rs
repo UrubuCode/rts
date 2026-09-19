@@ -103,31 +103,9 @@ fn write(value: f64, out: &mut Decimal) {
         return out.push(&digits[at..]);
     }
 
-    // The shortest round-tripping digits, and the exponent they sit at.
-    //
-    // Rust's `{:e}` produces exactly the shortest form; this only takes it
-    // apart. Reimplementing the digit generation would be reimplementing Ryū,
-    // and getting it subtly wrong is how a program prints a number that reads
-    // back as a different one. Formatted INTO a stack buffer: it was a `String`
-    // from `{:e}`, a second from `replace`, a third from `format!` and the
-    // `Str` itself — four heap allocations for one number.
-    let mut scientific = Decimal::new();
-    let _ = std::fmt::Write::write_fmt(&mut scientific, format_args!("{value:e}"));
-    let written = scientific.bytes();
-    let split = written.iter().position(|byte| *byte == b'e').unwrap_or(written.len());
     let mut held = [0u8; LONGEST];
-    let mut count = 0usize;
-    for byte in &written[..split] {
-        if *byte != b'.' {
-            held[count] = *byte;
-            count += 1;
-        }
-    }
+    let (count, exponent) = shortest(value, &mut held);
     let digits = &held[..count];
-    let exponent: i32 = std::str::from_utf8(written.get(split + 1..).unwrap_or(b"0"))
-        .ok()
-        .and_then(|text| text.parse().ok())
-        .unwrap_or(0);
     // The specification's `n`: the position of the decimal point relative to
     // the digit string. `k` is how many digits there are.
     let n = exponent + 1;
@@ -156,5 +134,123 @@ fn write(value: f64, out: &mut Decimal) {
         }
         out.push(if n >= 1 { b"e+" } else { b"e-" });
         let _ = std::fmt::Write::write_fmt(out, format_args!("{}", (n - 1).abs()));
+    }
+}
+
+/// The shortest digits that read back as `value`, and the power of ten the
+/// FIRST of them sits at. Finite, positive and non-zero by the time it is asked.
+///
+/// # Why `ryu` and not `{:e}`
+///
+/// Both answer the fewest digits that round-trip, and `the_digits_round_trip_and_
+/// are_as_few_as_core_fmt_gives` below holds `ryu` to that over two hundred
+/// thousand doubles.
+///
+/// They DIFFER on a tie, and the test written to prove them equal is what said
+/// so: 1658206780088562.25 is a double, its two seventeen-digit candidates are
+/// equally far from it, and the language says to take the EVEN one — `…562.2`,
+/// which is what node and bun print and what `ryu` answers. `{:e}` answers
+/// `…562.3`. So the path this replaced printed a digit the language does not,
+/// rarely, and nothing had asked.
+///
+/// The other reason is the clock. `{:e}` reaches its digits through
+/// `core::fmt`, which is a formatter, a `Write` and a parse of the exponent
+/// back out of text: measured 2026-09-19, about 100 ns of the 134 a double cost
+/// to serialise.
+///
+/// Its TEXT is not used as text. `ryu` prints `1e21` where the language says
+/// `1e+21` and `1.0` where it says `1`, so only the digits and the exponent are
+/// taken out of it and the rules above place the point.
+fn shortest(value: f64, held: &mut [u8; LONGEST]) -> (usize, i32) {
+    let mut buffer = ryu::Buffer::new();
+    let text = buffer.format_finite(value).as_bytes();
+    let split = text.iter().position(|byte| *byte == b'e').unwrap_or(text.len());
+    let written: i32 = std::str::from_utf8(&text[split.min(text.len() - 1) + 1..])
+        .ok()
+        .filter(|_| split < text.len())
+        .and_then(|exponent| exponent.parse().ok())
+        .unwrap_or(0);
+    let mantissa = &text[..split];
+    let point = mantissa.iter().position(|byte| *byte == b'.').unwrap_or(mantissa.len()) as i32;
+    // Every digit, without the point; then the zeros on either side go, and the
+    // leading ones move the exponent as they do.
+    let mut count = 0usize;
+    let mut leading = 0i32;
+    for byte in mantissa.iter().copied().filter(|byte| *byte != b'.') {
+        if count == 0 && byte == b'0' {
+            leading += 1;
+            continue;
+        }
+        held[count] = byte;
+        count += 1;
+    }
+    while count > 1 && held[count - 1] == b'0' {
+        count -= 1;
+    }
+    (count, point - 1 - leading + written)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `shortest` replaced, kept as the ruler for HOW MANY digits.
+    fn by_core_fmt(value: f64) -> (String, i32) {
+        let scientific = format!("{value:e}");
+        let (mantissa, exponent) = scientific.split_once('e').expect("an exponent");
+        (mantissa.replace('.', ""), exponent.parse().expect("an integer"))
+    }
+
+    #[test]
+    fn the_digits_round_trip_and_are_as_few_as_core_fmt_gives() {
+        // A fixed generator, so a failure names a double anyone can retry.
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut checked = 0;
+        let edges = [5e-324, 1.7976931348623157e308, 0.1, 0.3, 1e21, 1e-7, 123.456, 2.5e-5, 1e22, 4.35];
+        let mut ask = |value: f64| {
+            let mut held = [0u8; LONGEST];
+            let (count, exponent) = shortest(value, &mut held);
+            let digits = std::str::from_utf8(&held[..count]).expect("ascii");
+            let (expected, at) = by_core_fmt(value);
+            assert_eq!((count, exponent), (expected.len(), at), "as few digits, at the same power, for {value:e}");
+            let read: f64 = format!("{}e{}", digits, exponent - (count as i32 - 1)).parse().expect("a number");
+            assert_eq!(read.to_bits(), value.to_bits(), "{digits} reads back as {value:e}");
+        };
+        for value in edges {
+            ask(value);
+            checked += 1;
+        }
+        while checked < 200_000 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let value = f64::from_bits(state).abs();
+            if value.is_finite() && value != 0.0 {
+                ask(value);
+                checked += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn a_tie_between_two_shortest_candidates_takes_the_even_digit() {
+        // Exactly 1658206780088562.25. Node and bun print `.2`; `{:e}` says `.3`.
+        let text = String::from_utf8(decimal_of(1.6582067800885623e15).bytes().to_vec()).expect("ascii");
+        assert_eq!(text, "1658206780088562.2");
+    }
+
+    #[test]
+    fn the_point_lands_where_the_language_puts_it() {
+        let text = |value: f64| String::from_utf8(decimal_of(value).bytes().to_vec()).expect("ascii");
+        assert_eq!(text(0.1 + 0.2), "0.30000000000000004");
+        assert_eq!(text(1e21), "1e+21");
+        assert_eq!(text(1e20), "100000000000000000000");
+        assert_eq!(text(1.2345678901234568e20), "123456789012345680000");
+        assert_eq!(text(1e-7), "1e-7");
+        assert_eq!(text(1.5e-10), "1.5e-10");
+        assert_eq!(text(0.000001234), "0.000001234");
+        assert_eq!(text(-2.25), "-2.25");
+        assert_eq!(text(5e-324), "5e-324");
+        assert_eq!(text(1.7976931348623157e308), "1.7976931348623157e+308");
     }
 }

@@ -163,6 +163,10 @@ fn plain_properties(
     usable.then_some(Lent::Planned)
 }
 
+/// What one walk hands the next: the plans by depth, and two buffers kept for
+/// their capacity. See [`super::Scratch`].
+pub(super) type Kept = (Vec<Option<Plan>>, Vec<u32>, Vec<u8>);
+
 /// Where the members [`plain_properties`] answered are.
 enum Lent {
     /// In the plan the caller handed in.
@@ -337,19 +341,28 @@ pub(super) struct Writer {
 }
 
 impl Writer {
-    pub(super) fn new(indent: Vec<u16>, replacer: Replacer) -> Self {
+    pub(super) fn new(indent: Vec<u16>, replacer: Replacer, kept: Kept) -> Self {
+        let (plans, mut open, out) = kept;
+        // A walk that raised left its path behind; this one starts at the root.
+        open.clear();
         Writer {
-            out: super::out::Out::new(),
-            open: Vec::new(),
+            out: super::out::Out::over(out),
+            open,
             indent,
             replacer,
-            plans: Vec::new(),
+            plans,
         }
     }
 
     /// The text written so far.
-    pub(super) fn finish(self) -> Str {
-        self.out.finish()
+    pub(super) fn finish(self) -> (Str, Kept) {
+        let (text, out) = self.out.finish_keeping();
+        (text, (self.plans, self.open, out))
+    }
+
+    /// What a walk that produced no text still has worth keeping.
+    pub(super) fn abandon(self) -> Kept {
+        self.finish().1
     }
 
     /// Writes one value, and answers whether it had a JSON form at all.
@@ -474,35 +487,26 @@ impl Writer {
                 .map_or(0usize, |number| number.max(0.0) as usize)
         });
         self.ascii("[");
-        for at in 0..length {
+        let mut at = 0;
+        while at < length {
             if super::super::throw::in_flight() {
                 break;
+            }
+            // A RUN of primitive elements in one borrow — see
+            // [`Self::run_of_elements`]. Still a live read of the store at the
+            // moment each index is reached: a run ends at the first element
+            // that could run anything, so a shrink by an element's `toJSON` is
+            // seen by the run after it exactly as the ordinary read sees it.
+            if self.unobserved() {
+                at = with_current(|context| self.run_of_elements(context, cell, at, length, depth));
+                if at >= length {
+                    break;
+                }
             }
             if at > 0 {
                 self.ascii(",");
             }
             self.newline(depth + 1);
-            // A PRIMITIVE element, read and written in one borrow — see
-            // [`Self::direct`]. Still a live read of the store at the moment
-            // this index is reached, so a shrink by an earlier element's
-            // `toJSON` is seen exactly as the ordinary read below sees it. A
-            // hole is not answered here: it reads through the prototype chain.
-            let direct = self.unobserved()
-                && with_current(|context| {
-                    if !context.ranked_accessors(cell).is_empty() {
-                        return false;
-                    }
-                    let held = context.elements_at(cell).and_then(|held| held.get(at)).copied();
-                    match held {
-                        Some(held) if !super::super::array::is_hole(context, held) => {
-                            self.direct(context, held)
-                        }
-                        _ => false,
-                    }
-                });
-            if direct {
-                continue;
-            }
             // The ordinary indexed read: a hole and an `undefined` element
             // both answer `undefined` here exactly as [`super::super::array::visible`]
             // says a compiled `a[k]` does, which is what keeps this agreeing
@@ -516,6 +520,7 @@ impl Writer {
             if !self.write(held, depth + 1) {
                 self.ascii("null");
             }
+            at += 1;
         }
         if length > 0 {
             self.newline(depth);
@@ -736,62 +741,35 @@ impl Writer {
     fn plain(&mut self, value: u64, keys: &[Member], depth: usize) {
         self.ascii("{");
         let mut written = false;
-        let cell = Value(value).as_slot();
-        let shape = with_current(|context| {
-            context.shape_of(context.region.type_of(cell?)?)
-        });
-        for member in keys.iter() {
-            let key = member.key;
+        let Some(cell) = Value(value).as_slot() else {
+            return self.ascii("}");
+        };
+        let shape = with_current(|context| context.shape_of(context.region.type_of(cell)?));
+        let mut at = 0;
+        while at < keys.len() {
             if super::super::throw::in_flight() {
                 break;
             }
-            // Both in ONE borrow: the member is an own data property of an
-            // object `plain_properties` proved has no accessors and no proxy, so
-            // reading it runs nothing and can allocate nothing — which is what
-            // makes taking the text alongside it safe here and not in the
-            // general loop.
-            //
-            // And when the member is a PRIMITIVE and no replacer watches, the
-            // separator, the key and the value are written in that same borrow
-            // — see [`Self::direct`]. It was five borrows a member.
-            let unobserved = self.unobserved();
-            let indented = !self.indent.is_empty();
-            let read = with_current(|context| {
-                // By SLOT while the cell is still the shape the plan was made
-                // for, and by key the moment it is not: a hook earlier in this
-                // loop may have deleted or added a property of the holder.
-                let cell = cell?;
-                let still = context.shape_of(context.region.type_of(cell)?) == shape;
-                let found = match still {
-                    true => super::super::objects::slot_value(context, cell, member.slot)?,
-                    false => super::super::objects::own_property(
-                        context,
-                        cell,
-                        crate::object::Key::Name(key),
-                    )?
-                    .bits(),
-                };
-                if unobserved && is_primitive(context, found) {
-                    if written {
-                        self.ascii(",");
-                    }
-                    self.newline(depth + 1);
-                    self.label(context, member);
-                    self.ascii(if indented { ": " } else { ":" });
-                    self.direct(context, found);
-                    return Some(None);
+            // A RUN of primitive members in one borrow — see
+            // [`Self::run_of_members`]. It stops AT the first member that is
+            // not one, which is the member the rest of this pass is about.
+            if self.unobserved() {
+                at = with_current(|context| {
+                    self.run_of_members(context, cell, shape, keys, at, depth, &mut written)
+                });
+                if at >= keys.len() {
+                    break;
                 }
-                Some(Some(found))
-            });
-            let held = match read {
-                None => continue,
-                Some(None) => {
-                    written = true;
-                    continue;
-                }
-                Some(Some(held)) => held,
+            }
+            let member = &keys[at];
+            at += 1;
+            // The member is an own data property of an object
+            // `plain_properties` proved has no accessors and no proxy, so
+            // reading it runs nothing and can allocate nothing.
+            let Some(held) = with_current(|context| member_value(context, cell, shape, member)) else {
+                continue;
             };
-            let held = self.hooked(value, held, HookKey::Named(key));
+            let held = self.hooked(value, held, HookKey::Named(member.key));
             // CLASSIFIED ONCE, and the answer carried to the write.
             //
             // The test exists to satisfy rule 8 — a `toJSON` or a replacer
@@ -803,8 +781,8 @@ impl Writer {
             if super::super::throw::in_flight() {
                 return;
             }
-            let shape = with_current(|context| shape_of(context, held));
-            if matches!(shape, Shape::Absent) {
+            let classified = with_current(|context| shape_of(context, held));
+            if matches!(classified, Shape::Absent) {
                 continue;
             }
             if written {
@@ -813,16 +791,90 @@ impl Writer {
             written = true;
             self.newline(depth + 1);
             with_current(|context| self.label(context, member));
-            self.ascii(":");
-            if !self.indent.is_empty() {
-                self.ascii(" ");
-            }
-            self.write(held, depth + 1);
+            self.ascii(if self.indent.is_empty() { ":" } else { ": " });
+            self.write_shape(classified, held, depth + 1);
         }
         if written {
             self.newline(depth);
         }
         self.ascii("}");
+    }
+
+    /// Writes members from `at` for as long as they are primitives, and answers
+    /// the index it stopped at.
+    ///
+    /// # Why a run and not a member
+    ///
+    /// Writing a primitive runs no user code and allocates no cell, so nothing
+    /// can change between one member and the next: the borrow that read the
+    /// first is as good for the second. It was a borrow per member — a
+    /// thread-local read and a `RefCell` flag each — and before that five.
+    /// Measured 2026-09-19, `target/release/rts.exe`: eight numeric members
+    /// cost 110 ns each where an array element cost 45.
+    #[allow(clippy::too_many_arguments)]
+    fn run_of_members(
+        &mut self,
+        context: &mut Context,
+        cell: u32,
+        shape: Option<rts_cranelift::shape::ShapeId>,
+        keys: &[Member],
+        mut at: usize,
+        depth: usize,
+        written: &mut bool,
+    ) -> usize {
+        let indented = !self.indent.is_empty();
+        while let Some(member) = keys.get(at) {
+            let Some(found) = member_value(context, cell, shape, member) else {
+                // Gone since the plan was made: skipped, as the ordinary read
+                // skips it.
+                at += 1;
+                continue;
+            };
+            if !is_primitive(context, found) {
+                break;
+            }
+            if *written {
+                self.ascii(",");
+            }
+            *written = true;
+            self.newline(depth + 1);
+            self.label(context, member);
+            self.ascii(if indented { ": " } else { ":" });
+            self.direct(context, found);
+            at += 1;
+        }
+        at
+    }
+
+    /// Writes elements from `at` for as long as they are primitives, and
+    /// answers the index it stopped at. [`Self::run_of_members`] has the
+    /// argument; what is particular to an array is what ends a run.
+    ///
+    /// A HOLE ends it, because a hole reads through the prototype chain and
+    /// that is the ordinary read's to answer. So does an accessor anywhere on
+    /// the cell, asked once per run: nothing in a run can define one.
+    fn run_of_elements(&mut self, context: &Context, cell: u32, mut at: usize, length: usize, depth: usize) -> usize {
+        if !context.ranked_accessors(cell).is_empty() {
+            return at;
+        }
+        let Some(held) = context.elements_at(cell) else {
+            return at;
+        };
+        while at < length {
+            let Some(found) = held.get(at).copied() else {
+                break;
+            };
+            if super::super::array::is_hole(context, found) || !is_primitive(context, found) {
+                break;
+            }
+            if at > 0 {
+                self.ascii(",");
+            }
+            self.newline(depth + 1);
+            self.direct(context, found);
+            at += 1;
+        }
+        at
     }
 
     /// A member's key, from the plan where it is narrow and from the interner
@@ -988,10 +1040,29 @@ impl Writer {
     }
 }
 
+/// A plain member's value: by SLOT while the cell is still the shape the plan
+/// was made for, and by key the moment it is not — a hook earlier in the walk
+/// may have deleted or added a property of the holder.
+fn member_value(
+    context: &mut Context,
+    cell: u32,
+    shape: Option<rts_cranelift::shape::ShapeId>,
+    member: &Member,
+) -> Option<u64> {
+    if context.shape_of(context.region.type_of(cell)?) == shape {
+        return super::super::objects::slot_value(context, cell, member.slot);
+    }
+    super::super::objects::own_property(context, cell, crate::object::Key::Name(member.key))
+        .map(|found| found.bits())
+}
+
 /// Whether [`Writer::direct`] will write this value: text, a number, a boolean
 /// or `null`. Not `undefined`, a symbol or a bigint — each has a rule of its
 /// own (a skipped member, a `TypeError`) that the ordinary path states once.
 fn is_primitive(context: &Context, value: u64) -> bool {
+    if Value(value).numeric().is_some() {
+        return true;
+    }
     match Value(value).as_slot() {
         Some(cell) => context.text_at(cell).is_some(),
         None => matches!(shape_of(context, value), Shape::Null | Shape::Bool(_) | Shape::Number(_)),

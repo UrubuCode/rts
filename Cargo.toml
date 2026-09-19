@@ -197,6 +197,14 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.rts-core]
 opt-level = 3
+# The shortest digits of a double, which `rts-core` takes from it for every
+# `String(n)`, template and `JSON.stringify` of a number that is not an integer.
+# Its whole body is 128-bit multiplies against a table, and at "z" those are not
+# inlined. Measured 2026-09-19, target/release/rts.exe, `String(1.5)` against
+# `String(15)` — the second takes no digit generation at all, so the difference
+# is this crate: +129 ns at "z", +61 at 3.
+[profile.release.package.ryu]
+opt-level = 3
 # The rigid-body solver, for the same REASON as the three above and a different
 # one besides: it is the only crate here whose whole job is a numeric inner loop
 # run thousands of times per frame, and `opt-level = "z"` on it is not a

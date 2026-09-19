@@ -226,15 +226,15 @@ impl Reader<'_> {
                         self.at = at + 1;
                         return Some(Str::from_latin1(&bytes[from..at]));
                     }
-                    // An escape ends the fast path and nothing else does. The
-                    // scan restarts from the opening quote rather than trying to
-                    // splice, because a token with one escape is rare and a
-                    // second code path for it would be the third way this file
-                    // builds a string.
+                    // An escape ends the borrowed path, and the token is then
+                    // ASSEMBLED — but still in bytes, and still in runs.
                     0x5c => break,
                     0x00..=0x1f => return None,
                     _ => at += 1,
                 }
+            }
+            if let Some(text) = self.escaped_narrow(bytes, from, at) {
+                return text;
             }
         }
         let mut units = Vec::new();
@@ -250,6 +250,58 @@ impl Reader<'_> {
                 // instead of absorbing the newline that ended it.
                 0x00..=0x1f => return None,
                 _ => units.push(unit),
+            }
+        }
+    }
+
+    /// A narrow token holding escapes, assembled as bytes in runs.
+    ///
+    /// # Why this exists beside the unit-by-unit loop
+    ///
+    /// "A token with one escape is rare" is what stood here, and it is true of
+    /// keys and false of values: text a program serialised — a log line, a
+    /// paragraph, a path on this platform — is full of newlines, quotes and
+    /// backslashes. The loop below pushed a `u16` per character into a `Vec`
+    /// grown by doubling, and `Str::from_utf16` then walked all of them to learn
+    /// they fit a byte and copied them again. Measured 2026-09-19,
+    /// `target/release/rts.exe`: a 650-character string with a hundred escapes
+    /// cost 2 300 ns to read against 800 for a thousand characters with none.
+    ///
+    /// The outer `Option` is whether this path could finish the token; `None`
+    /// hands it to the general loop, which restarts from the opening quote. One
+    /// thing does that: an escape spelling a unit above 255, where the answer is
+    /// not narrow and the bytes built so far are the wrong layout. The inner one
+    /// is the token, or the document's failure.
+    fn escaped_narrow(&mut self, bytes: &[u8], from: usize, first: usize) -> Option<Option<Str>> {
+        let mut built: Vec<u8> = Vec::with_capacity(bytes.len().saturating_sub(from).min(256));
+        let mut run = from;
+        let mut at = first;
+        loop {
+            let Some(unit) = bytes.get(at).copied() else {
+                return Some(None);
+            };
+            match unit {
+                0x22 => {
+                    built.extend_from_slice(&bytes[run..at]);
+                    self.at = at + 1;
+                    return Some(Some(Str::owning_latin1(built)));
+                }
+                0x5c => {
+                    built.extend_from_slice(&bytes[run..at]);
+                    self.at = at + 1;
+                    let Some(unit) = self.escape() else {
+                        return Some(None);
+                    };
+                    let Ok(byte) = u8::try_from(unit) else {
+                        self.at = from;
+                        return None;
+                    };
+                    built.push(byte);
+                    at = self.at;
+                    run = at;
+                }
+                0x00..=0x1f => return Some(None),
+                _ => at += 1,
             }
         }
     }

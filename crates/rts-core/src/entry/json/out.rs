@@ -30,6 +30,26 @@ impl Out {
         Out::Narrow(Vec::new())
     }
 
+    /// The same, over a buffer kept from the walk before — see
+    /// [`super::Scratch`]. Cleared, and its capacity is the point.
+    pub(super) fn over(mut held: Vec<u8>) -> Self {
+        held.clear();
+        Out::Narrow(held)
+    }
+
+    /// The finished text AND the buffer it was written in, for the next walk.
+    ///
+    /// One exact-size copy instead of handing the buffer to the string: a
+    /// buffer that grew by doubling is up to twice the text, and a string keeps
+    /// what it is given for as long as the program keeps the string. A walk
+    /// that widened has no narrow buffer to give back.
+    pub(super) fn finish_keeping(self) -> (Str, Vec<u8>) {
+        match self {
+            Out::Narrow(held) => (Str::from_latin1(&held), held),
+            Out::Wide(held) => (Str::owning_utf16(held), Vec::new()),
+        }
+    }
+
     /// Bytes that are each one code unit — ASCII this module wrote itself, or a
     /// run of a narrow string that needed no escape.
     pub(super) fn bytes(&mut self, bytes: &[u8]) {
@@ -97,13 +117,4 @@ impl Out {
         }
     }
 
-    /// The finished text, in the layout it was already in.
-    pub(super) fn finish(self) -> Str {
-        match self {
-            Out::Narrow(held) => Str::owning_latin1(held),
-            // Not `from_utf16`: that would scan for a narrowing this buffer has
-            // already ruled out, by being wide at all.
-            Out::Wide(held) => Str::owning_utf16(held),
-        }
-    }
 }
