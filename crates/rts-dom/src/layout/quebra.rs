@@ -37,22 +37,21 @@ pub(in crate::layout) fn wrap_runs(
     // `hyphens` do container: `manual`/`auto` deixam o U+00AD ser oportunidade
     // de quebra (`hifen.rs`); `none` apaga-o antes de medir.
     hifen_manual: bool,
-    // The container's `font-family` list: the measurer resolves it to a font's
-    // advances — Ahem's are exactly 1em (`style::ahem`). See `medir`.
-    family: Option<&str>,
+    // The font of each run — the container's, or its innermost inline's where
+    // that differs (`fonte_do_trecho.rs`). See `medir`.
+    fontes: &super::fonte_do_trecho::Fontes,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
-    let ahem = super::fonte_metricas::usa_ahem(family);
-    let medir = |m: &dyn TextMeasurer, t: &str, bold: bool, italic: bool| -> f32 {
-        if ahem { t.chars().count() as f32 * font_size } else { m.text_width_family(t, font_size, family, mono, bold, italic) }
-    };
+    let ahem = fontes.base_ahem();
+    // `i` is the run the text belongs to; `usize::MAX` is the container's own.
+    let medir = |m: &dyn TextMeasurer, i: usize, t: &str, bold: bool, italic: bool| -> f32 { fontes.largura(m, i, t, bold, italic) };
     // A largura do espaço só interessa ao caminho palavra-a-palavra. Medida
     // sempre, era metade de todas as medições de texto de um relayout — uma por
     // chamada, mesmo quando o fast path respondia sozinho.
-    let mut space_w_memo: Option<f32> = None;
-    let mut space_w =
-        |m: &dyn TextMeasurer| -> f32 { *space_w_memo.get_or_insert_with(|| medir(m, " ", false, false) + word_spacing) };
+    // A space is as wide as the font of the run it is IN: `i` inside run `i`,
+    // `i − 1` when it came from the run before (0 wraps to the container's).
+    let space_w = |m: &dyn TextMeasurer, i: usize| -> f32 { medir(m, i, " ", false, false) + word_spacing };
     let mut lines: Vec<Vec<Segment>> = Vec::new();
     let mut cur: Vec<Segment> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -95,8 +94,9 @@ pub(in crate::layout) fn wrap_runs(
         () => {
             if !cluster.is_empty() {
                 let sep = cluster_espaco && !at_line_start;
+                let de = if cluster_de_fora { cluster[0].run.wrapping_sub(1) } else { cluster[0].run };
                 let need = if sep {
-                    space_w(m) + cluster_w
+                    space_w(m, de) + cluster_w
                 } else {
                     cluster_w
                 };
@@ -119,7 +119,7 @@ pub(in crate::layout) fn wrap_runs(
                     && cur_w + need > max_w(lines.len())
                 {
                     let (sep_w, vao, peca) =
-                        (if sep { space_w(m) } else { 0.0 }, sep && cluster_de_fora, &cluster[0]);
+                        (if sep { space_w(m, de) } else { 0.0 }, sep && cluster_de_fora, &cluster[0]);
                     if hifen::emitir_com_hifen(
                         &mut cur, &mut lines, &mut cur_w, &mut at_line_start,
                         &runs[peca.run], &peca.texto, peca.largura, sep_w, vao,
@@ -144,7 +144,7 @@ pub(in crate::layout) fn wrap_runs(
                 for peca in cluster.drain(..) {
                     let run = &runs[peca.run];
                     let com_espaco = primeiro && sep;
-                    let espaco = if com_espaco { space_w(m) } else { 0.0 };
+                    let espaco = if com_espaco { space_w(m, de) } else { 0.0 };
                     match peca.atomico {
                         Some((a_idx, caixa, kind, ww, wh)) => {
                             cur.push(Segment {
@@ -215,7 +215,7 @@ pub(in crate::layout) fn wrap_runs(
                                         // não termina. Transbordar um carácter é
                                         // o que o browser também faz.
                                         n = resto.chars().next().map_or(0, char::len_utf8);
-                                        w = medir(m, &resto[..n], run.bold, run.italic);
+                                        w = medir(m, peca.run, &resto[..n], run.bold, run.italic);
                                     }
                                     if n == 0 {
                                         lines.push(std::mem::take(&mut cur));
@@ -369,7 +369,7 @@ pub(in crate::layout) fn wrap_runs(
         // grande, com 11 000 `text_width` por frame.
         let miolo = apara_css(&run.text);
         if !miolo.contains(e_espaco_css) && !tem_quebra_forcada {
-            let w = medir(m, &hifen::sem_shy(miolo), run.bold, run.italic);
+            let w = medir(m, i, &hifen::sem_shy(miolo), run.bold, run.italic);
             let terminava_em_espaco = run.text.ends_with(e_espaco_css);
             juntar!(
                 Peca {
@@ -414,10 +414,10 @@ pub(in crate::layout) fn wrap_runs(
         {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
             if !normalizado.is_empty() {
-                let w = medir(m, &normalizado, run.bold, run.italic);
+                let w = medir(m, i, &normalizado, run.bold, run.italic);
                 if !at_line_start && cur_w + w <= max_w(lines.len()) {
                     let vao = if pending_space && espaco_de_fora {
-                        space_w(m)
+                        space_w(m, i.wrapping_sub(1))
                     } else {
                         0.0
                     };
@@ -460,7 +460,7 @@ pub(in crate::layout) fn wrap_runs(
             let end = rest.find(e_espaco_css).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
-            let ww = medir(m, &hifen::sem_shy(word), run.bold, run.italic);
+            let ww = medir(m, i, &hifen::sem_shy(word), run.bold, run.italic);
             juntar!(
                 Peca {
                     run: i,

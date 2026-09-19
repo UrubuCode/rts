@@ -49,19 +49,20 @@ fn ahem_primeira_da_lista_nao_cai_no_fallback_monospace() {
     assert_eq!(r.w, 200.0, "{r:?}");
 }
 
-/// Uma família qualquer não sofre nenhuma mudança: continua na aproximação
-/// proporcional de sempre — este corpus não é um efeito colateral geral.
-/// `PROP_ADVANCE=0.46`: 4 × 50 × 0.46 = 92.
+/// A family that is not Ahem is measured in ITS OWN font, not as Ahem's 1em
+/// blocks: "XXXX" at 50px Arial is four times X's real advance (1366/2048 em,
+/// 133.4px — Blink's number), where Ahem would give 200.
 #[test]
-fn familia_normal_continua_na_aproximacao_de_sempre() {
+fn a_normal_family_is_measured_by_its_own_advances() {
+    use crate::layout::TextMeasurer;
     let list = layout(
-        "<div style='display:flex'>\
-           <div style='font:50px/1 Arial;background:#0f0'>XXXX</div>\
-         </div>",
+        "<div style='display:flex'>           <div style='font:50px/1 Arial;background:#0f0'>XXXX</div>         </div>",
         600.0,
     );
     let r = first_rect(&list);
-    assert_eq!(r.w, 92.0, "{r:?}");
+    let arial = crate::layout::ApproxMeasurer.text_width_family("XXXX", 50.0, Some("Arial"), false, false, false);
+    assert_eq!(r.w, arial, "{r:?}");
+    assert!((arial - 133.4).abs() < 0.01 && arial < 200.0, "{arial}");
 }
 
 /// `line-height: normal` (não declarado) na Ahem é 1em exato

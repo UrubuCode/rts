@@ -147,6 +147,7 @@ pub(in crate::layout) fn layout_inline_flow(
         banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).1
     };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
+    let fontes = super::fonte_do_trecho::Fontes::do_fluxo(dom, &runs, family, font_size, mono);
     let quebrar = |exclusoes: &[Exclusao]| {
         wrap_runs(
             &runs,
@@ -160,7 +161,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 .unwrap_or(false),
             parent_css.word_spacing.unwrap_or(0.0),
             parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
-            family, ctx.measurer,
+            &fontes, ctx.measurer,
         )
     };
     // Floats that appear in the MIDDLE of this flow are placed BEFORE the final
@@ -254,22 +255,7 @@ pub(in crate::layout) fn layout_inline_flow(
         let tem_texto = line
             .iter()
             .any(|s| s.atomic.is_none() && !s.text.trim().is_empty());
-        // Sem TEXTO mas com um `<img>` mais alto do que a linha normal: ele senta
-        // na BASELINE (linha 344, `topo = text_top + ascent - wh`) mas — ao
-        // contrário de texto — não tem DESCIDA nenhuma (CSS 2.1 §10.8): toda a
-        // sua altura fica ACIMA da baseline. A meia-entrelinha simétrica reparte
-        // o excesso de `line_h` (que É a própria altura da imagem, pelo `fold`
-        // acima) igualmente acima/abaixo da content-area do texto — e sobe a
-        // caixa da imagem bem acima de `cy`, mesmo ELA sendo o motivo do
-        // `line_h` ter crescido. `<p>…</p><img/>` (o idioma-padrão de quadrado
-        // de referência do WPT) saía com o quadrado a começar 43px ANTES do fim
-        // do parágrafo — deslocando a REFERÊNCIA de qualquer reftest que o use.
-        // Só toca `text_top`, não `line_advance`/`text_owner_anchor`.
-        let imagem_alta_sem_texto = line_h > lh + 0.001
-            && !tem_texto
-            && line
-                .iter()
-                .any(|segment| matches!(segment.atomic, Some((_, _, AtomicKind::Replaced))));
+        let imagem_alta_sem_texto = super::linha_baseline::imagem_alta_sem_texto(&line, line_h, lh, tem_texto);
         // As superfícies (fundo/borda) dos inlines por fragmentos desta
         // linha: acumulam-se ao longo dos segmentos e inserem-se ATRÁS deles.
         let at_linha = list.items.len();
@@ -491,14 +477,21 @@ pub(in crate::layout) fn layout_inline_flow(
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
             let w = seg.text_width + ls * seg.text.chars().count() as f32;
             superficies.ver(dom, &seg.owners, seg_x, seg_x + w);
+            // A segment with a font of its OWN is painted in it, on the line's
+            // shared baseline (`fonte_do_trecho.rs`); the rest, in the container's.
+            let propria = super::fonte_do_trecho::do_segmento(dom, &seg.owners, family, font_size, ctx.measurer);
+            let (seg_y, seg_size, seg_mono, seg_ahem) = match &propria {
+                Some(f) => (text_top + ascent - f.ascent, f.fonte.size, f.fonte.mono, f.ahem),
+                None => (text_top, font_size, mono, ahem),
+            };
             list.items.push(DisplayItem::Text {
                 x: seg_x,
-                y: text_top,
+                y: seg_y,
                 text: seg.text.into(),
                 color: seg.color,
-                size: font_size,
-                mono,
-                is_ahem: ahem,
+                size: seg_size,
+                mono: seg_mono,
+                is_ahem: seg_ahem,
                 bold: seg.bold,
                 italic: seg.italic,
                 letter_spacing: ls,

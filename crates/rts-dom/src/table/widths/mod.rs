@@ -342,14 +342,18 @@ pub(super) fn min_content_na_arvore(
 ) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Text(t) => {
+            // Text has no style: family, weight and slant are its parent
+            // element's. Measured without them, a min-content floor in Times
+            // (144px for "XXXX" at 50px) beat an Arial item's own width (133).
+            let pai = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
+            let familia = pai.as_ref().and_then(|c| c.font_family.as_deref());
+            let (bold, italic) = (pai.as_ref().and_then(|c| c.bold).unwrap_or(false), pai.as_ref().and_then(|c| c.italic).unwrap_or(false));
+            let medir = |p: &str| ctx.measurer.text_width_family(p, font, familia, mono, bold, italic);
             if sem_quebra {
                 // Espaços colapsados mas nenhuma quebra: mede-se o texto todo.
-                let junto = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                return ctx.measurer.text_width(&junto, font, mono, false, false);
+                return medir(&t.split_whitespace().collect::<Vec<_>>().join(" "));
             }
-            t.split_whitespace()
-                .map(|p| ctx.measurer.text_width(p, font, mono, false, false))
-                .fold(0.0f32, f32::max)
+            t.split_whitespace().map(medir).fold(0.0f32, f32::max)
         }
         NodeKind::Element { tag } => {
             if crate::layout::is_non_rendered_tag(tag) {
