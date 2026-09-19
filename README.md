@@ -27,7 +27,7 @@
 <!-- JSC_BADGE_START -->
 <!-- JSC_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
-[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-99.1%25-brightgreen?style=flat-square)](tests/css/README.md)
+[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-100%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
 
 </div>
@@ -222,9 +222,9 @@ _V8 348a6116c · corpus inteiro · 2026-09-15_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.1%   4197/4236 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   163/165 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 67.8%   590/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100%   4307/4308 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.4%   165/166 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 68.2%   593/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -244,18 +244,18 @@ subfolders of css-flexbox
 
 the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  83.1%   133/160   outros
-  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  61.0%   47/77     item
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  63.6%   49/77     item
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.8%   48/58     align
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.6%   38/46     gap
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.4%   37/46     gap
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  48.7%   19/39     percentage
-  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  56.8%   21/37     baseline
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.5%   22/37     baseline
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.7%   22/34     min-
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   24/32     overflow
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   24/30     basis
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  51.7%   15/29     table
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   21/28     wrap
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.6%   22/28     wrap
   [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  54.2%   13/24     writing-mode
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  90.5%   19/21     justify
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  73.3%   11/15     order
@@ -274,9 +274,8 @@ Subfolders are the WPT's own hierarchy. The subject grouping is **ours**, read o
 
 Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
 - `claude-absoluto-dentro-do-inline-nao-parte.html` — BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não: o Blink põe um absoluto que era de BLOCO a seguir à caixa de linha (y=20); `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e não há caixa de linha guardada que diga onde a linha acaba (lote IFC).
-- `claude-fm-metricas-por-familia.html` — FM (2026-09-18): `claude-pseudo-caixa-gerada` and `claude-inline-block-baseline` left this list when the vertical font metrics became the fonts' own tables (`layout/fonte_metricas.rs`) — both were failing on the strut, not on what they measure.  `claude-fm-metricas-por-familia` is the ruler of those metrics. Every `y` and `h` of its 84 elements matches Blink; its 38 deviations are all `x`/`w` of the text "xg" — the text ADVANCE, which is still one calibrated average per class of font (real advances need the font files). The vertical numbers are pinned exactly by the unit test beside the model.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **73/97 lots done**, 14 partial, pending: Q, U, V–Y, TEXTO, BR, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **74/98 lots done**, 14 partial, pending: Q, U, V–Y, TEXTO, BR, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-19 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->

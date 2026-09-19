@@ -1,20 +1,20 @@
 {
   "date": "2026-09-19",
   "fixtures": {
-    "passing": 163,
-    "total": 165,
-    "pct": 98.8
+    "passing": 165,
+    "total": 166,
+    "pct": 99.4
   },
   "measurements": {
-    "matching": 4197,
-    "total": 4236,
-    "pct": 99.1
+    "matching": 4307,
+    "total": 4308,
+    "pct": 100
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 590,
+    "passing": 593,
     "total": 870,
-    "pct": 67.8,
+    "pct": 68.2,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -47,7 +47,7 @@
         "total": 160
       },
       "item": {
-        "passing": 47,
+        "passing": 49,
         "total": 77
       },
       "align": {
@@ -59,7 +59,7 @@
         "total": 53
       },
       "gap": {
-        "passing": 38,
+        "passing": 37,
         "total": 46
       },
       "percentage": {
@@ -67,7 +67,7 @@
         "total": 39
       },
       "baseline": {
-        "passing": 21,
+        "passing": 22,
         "total": 37
       },
       "shrink": {
@@ -91,7 +91,7 @@
         "total": 29
       },
       "wrap": {
-        "passing": 21,
+        "passing": 22,
         "total": 28
       },
       "writing-mode": {
@@ -148,10 +148,6 @@
     {
       "fixture": "claude-absoluto-dentro-do-inline-nao-parte.html",
       "razao": "BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não: o Blink põe um absoluto que era de BLOCO a seguir à caixa de linha (y=20); `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e não há caixa de linha guardada que diga onde a linha acaba (lote IFC)."
-    },
-    {
-      "fixture": "claude-fm-metricas-por-familia.html",
-      "razao": "FM (2026-09-18): `claude-pseudo-caixa-gerada` and `claude-inline-block-baseline` left this list when the vertical font metrics became the fonts' own tables (`layout/fonte_metricas.rs`) — both were failing on the strut, not on what they measure.  `claude-fm-metricas-por-familia` is the ruler of those metrics. Every `y` and `h` of its 84 elements matches Blink; its 38 deviations are all `x`/`w` of the text \"xg\" — the text ADVANCE, which is still one calibrated average per class of font (real advances need the font files). The vertical numbers are pinned exactly by the unit test beside the model."
     }
   ],
   "dom_lots": {
@@ -226,6 +222,7 @@
       "REGUA — o corredor deixa de contar vazio como aprovado",
       "DISP — o `display` para de perder informacao no parse",
       "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",
+      "FM-H — o AVANCO do texto e a fonte POR TRECHO",
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`",
       "css2-normal-flow-unidades — `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste",
       "borda-unidades — `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde)"
