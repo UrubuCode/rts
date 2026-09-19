@@ -100,12 +100,27 @@ fn report(name: &str, at: Instant, each: u64, sink: u64) -> f64 {
     nanos
 }
 
+/// The bound the collector's stack walk stops at: the address of a local in
+/// `main`, with everything measured running in a frame BELOW it.
+///
+/// It was `&anchor + 4096`, a guess at "somewhere above this frame", and a
+/// guess that holds in a debug build and not in a release one: there `main`'s
+/// frame is small and close to the top of the stack, so the walk read an
+/// unmapped page and the probe died with an access violation — in the only
+/// profile whose numbers count. `rts-host::stack` asks the operating system for
+/// the real bound and this crate may not (rule 1), so the probe arranges its
+/// frames instead: `measure` is never inlined, and nothing above `main`'s own
+/// local is read.
 fn main() {
     if cfg!(debug_assertions) {
         println!("DEBUG BUILD — these are not numbers\n");
     }
     let anchor = 0u64;
-    let stack_high = &anchor as *const u64 as usize + 4096;
+    measure(std::hint::black_box(&anchor) as *const u64 as usize);
+}
+
+#[inline(never)]
+fn measure(stack_high: usize) {
 
     // ---------------------------------------------------------------- sweeping
     let mut context = context_over(CELLS, stack_high);
@@ -214,4 +229,37 @@ fn main() {
         "against the {ALLOC_CLASS_INSTANCE} ns `bench/analytic.ts` reports for `new Callee()`: {:.1}%",
         (sweeping - prefreed) / ALLOC_CLASS_INSTANCE * 100.0
     );
+
+    // ------------------------------------------------------------------ a string
+    //
+    // Added 2026-09-19, because `String(42)` read 133 ns in a loop where `{}`
+    // read 47 and the difference had been explained twice by reasoning — the
+    // allocator, then digit generation — and both explanations were measured
+    // false. A string is a cell AND a slab entry AND a Rust buffer, born and
+    // released together; these rows take them apart in the same sweeping heap.
+    println!();
+    let mut context = context_over(CELLS, stack_high);
+    let _ = a_type(&mut context);
+    let (context_back, _) = with_context(context, || {
+        let mut sink = 0u64;
+        for _ in 0..(CELLS as u64 * 2) {
+            sink = sink.wrapping_add(rts_core::entry::number_to_string(42.0));
+        }
+        let at = Instant::now();
+        for _ in 0..EACH {
+            let text = rts_core::text::Str::from_latin1(std::hint::black_box(b"42"));
+            sink = sink.wrapping_add(text.len() as u64);
+        }
+        let buffer = report("the Rust buffer alone (malloc + free)", at, EACH, sink);
+        let at = Instant::now();
+        for _ in 0..EACH {
+            sink = sink.wrapping_add(rts_core::entry::number_to_string(std::hint::black_box(42.0)));
+        }
+        let whole = report("number_to_string(42), sweeping", at, EACH, sink);
+        println!(
+            "    ... of which the buffer is {buffer:.2}, a plain cell's life is {sweeping:.2}, and {:.2} is neither",
+            whole - buffer - sweeping
+        );
+    });
+    drop(context_back);
 }
