@@ -222,6 +222,13 @@ pub(in crate::layout) fn layout_inline_flow(
     // por passada de layout, uma por segmento, para copiar algo que ninguém mais
     // usaria depois.
     for line in lines {
+        // A line holding nothing but float anchors is not a line box: a float
+        // is out of flow and generates none (CSS 2.1 §9.5). `a<br><float>` made
+        // a phantom second line — a full line of height, and the LAST line box
+        // an enclosing inline-block then took its baseline from.
+        if line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float)))) {
+            continue;
+        }
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.
         let line_w: f32 = line
             .iter()
@@ -244,23 +251,9 @@ pub(in crate::layout) fn layout_inline_flow(
         // decide o espaçamento é o `line-height`, quem decide a caixa é a fonte.
         let conteudo = crate::inline_box::altura_do_conteudo(font_size, family, ctx.measurer);
         let meia = crate::inline_box::meia_entrelinha(line_h, conteudo);
-        // O descent extra abaixo só vale com TEXTO de verdade a partilhar a
-        // baseline com o inline-block — sem texto, `line_h` (a margin box do
-        // átomo) já É o avanço certo. Sem este filtro, `claude-word-spacing.html`
-        // (só `inline-block` + `<br>`, sem texto) ganhava `font_descent` a mais:
-        // pitch 30 onde o Chrome dá 25 (a margin box sozinha).
         let tem_texto = line
             .iter()
             .any(|s| s.atomic.is_none() && !s.text.trim().is_empty());
-        let tall_inline_block = line_h > lh + 0.001
-            && tem_texto
-            && line
-                .iter()
-                .any(|segment| segment.atomic.is_some_and(|(_, _, k)| k.e_bloco_na_linha()));
-        // Um inline-block vazio alinha pela baseline no seu fundo. Quando ele é
-        // mais alto que o strut, o texto mantém o ascent da fonte acima dessa
-        // baseline e o descent do strut fica abaixo dela. É o contrato Blink que
-        // dá, na fixture display, texto em y=55 e o bloco seguinte em y=75.
         // Sem TEXTO mas com um `<img>` mais alto do que a linha normal: ele senta
         // na BASELINE (linha 344, `topo = text_top + ascent - wh`) mas — ao
         // contrário de texto — não tem DESCIDA nenhuma (CSS 2.1 §10.8): toda a
@@ -271,45 +264,29 @@ pub(in crate::layout) fn layout_inline_flow(
         // `line_h` ter crescido. `<p>…</p><img/>` (o idioma-padrão de quadrado
         // de referência do WPT) saía com o quadrado a começar 43px ANTES do fim
         // do parágrafo — deslocando a REFERÊNCIA de qualquer reftest que o use.
-        // `tall_inline_block` já resolve o caso análogo COM texto (acima); esta
-        // é a mesma correção sem exigir `tem_texto`, e só toca `text_top` — não
-        // `line_advance`/`text_owner_anchor`, que são a distinção que aquele
-        // filtro já protege (ver o comentário do `tem_texto` acima).
+        // Só toca `text_top`, não `line_advance`/`text_owner_anchor`.
         let imagem_alta_sem_texto = line_h > lh + 0.001
             && !tem_texto
             && line
                 .iter()
                 .any(|segment| matches!(segment.atomic, Some((_, _, AtomicKind::Replaced))));
-        let text_top = if tall_inline_block || imagem_alta_sem_texto {
-            cy + line_h - ctx.measurer.font_ascent_family(font_size, family)
-        } else {
-            cy + meia
-        };
         // As superfícies (fundo/borda) dos inlines por fragmentos desta
         // linha: acumulam-se ao longo dos segmentos e inserem-se ATRÁS deles.
         let at_linha = list.items.len();
         let filhos_antes_da_linha = list.children.len();
         let mut superficies = std::mem::take(&mut transporte);
-        let text_owner_anchor = if tall_inline_block {
-            cy + line_h
-        } else {
-            cy + meia
-        };
-        let line_advance = if tall_inline_block {
-            line_h + ctx.measurer.font_descent_family(font_size, family)
-        } else {
-            line_h
-        };
         // A line holding an inline-block is placed by the §10.8.1 envelope
-        // (`linha_baseline.rs`) and not by the special cases above, which stay
-        // for lines of text and images only.
+        // (`linha_baseline.rs`): one baseline, and each item's extent above and
+        // below it. It replaced a special case here ("taller than the strut,
+        // next to text") that sat every inline-block on its bottom edge. Lines
+        // of text and images alone keep the half-leading placement.
+        let ascent = ctx.measurer.font_ascent_family(font_size, family);
         let envelope = super::linha_baseline::envelope_da_linha(dom, &line, font_size, lh, family, content_w, ctx);
-        let (text_top, text_owner_anchor, line_advance, tall_inline_block) = match &envelope {
-            Some(env) => {
-                let baseline = cy + env.acima;
-                (baseline - ctx.measurer.font_ascent_family(font_size, family), baseline, env.altura(), true)
-            }
-            None => (text_top, text_owner_anchor, line_advance, tall_inline_block),
+        let na_baseline = envelope.is_some();
+        let (text_top, text_owner_anchor, line_advance) = match &envelope {
+            Some(env) => (cy + env.acima - ascent, cy + env.acima, env.altura()),
+            None if imagem_alta_sem_texto => (cy + line_h - ascent, cy + meia, line_h),
+            None => (cy + meia, cy + meia, line_h),
         };
         // A banda desta linha, no `cy` VERDADEIRO — é aqui que o texto passa a
         // correr ao lado do float em vez de por baixo dele.
@@ -539,7 +516,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         w.max(0.0),
                         conteudo,
                         ctx,
-                        tall_inline_block,
+                        na_baseline,
                     ),
                 );
             }
@@ -552,7 +529,7 @@ pub(in crate::layout) fn layout_inline_flow(
             filhos_antes_da_linha,
             text_owner_anchor,
             conteudo,
-            tall_inline_block,
+            na_baseline,
             ctx,
         );
         ultima_baseline = Some(text_top + ctx.measurer.font_ascent_family(font_size, family));

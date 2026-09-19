@@ -62,3 +62,37 @@ fn inline_block_sits_on_the_baseline_of_the_line() {
 {}", wrong.join("
 "));
 }
+
+/// The silent class this lot could have opened: an inline-block's baseline is
+/// read from the lines its content RECORDS while being laid out, and a block
+/// served from the fragment cache runs no flow. Without the fragment
+/// re-announcing its last line, the second layout pass would find none in the
+/// cached `<div>` and sit the box on its bottom edge — a different answer from
+/// the same document, with nothing to say so.
+#[test]
+fn a_cached_block_inside_an_inline_block_keeps_its_baseline() {
+    let html = r#"<style>body{margin:0;font:16px/20px monospace}
+    #ib{display:inline-block;padding-bottom:30px;background:#0a0}</style>
+    <div id="linha">x<span id="ib"><div>um</div><div id="dois">dois</div></span>y</div>
+    <p id="outro">z</p>"#;
+    let mut dom = crate::parse_html_to_dom(html);
+    let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+    fn topo(dom: &crate::Dom, ctx: &LayoutCtx) -> f32 {
+        let list = layout_document(dom, ctx);
+        let idx = dom.resolve(dom.query("#linha").expect("#linha")).expect("live node");
+        list.rect_of(idx).expect("geometry").h
+    }
+    let primeira = topo(&dom, &ctx);
+    // What is compared is the LINE's height. The 70px box sits on its last
+    // line ("dois"), so it hangs below the baseline and the line is exactly as
+    // tall as the box; sitting on its bottom edge, the text's descent would
+    // hang below the box and the line would be ~4.6px taller.
+    assert!((primeira - 70.0).abs() < 0.5, "the box does not sit on its last line: line h={primeira}");
+    let segunda = topo(&dom, &ctx);
+    assert_eq!(primeira, segunda, "the cached pass changed the line");
+    // A mutation ELSEWHERE stitches the ancestors and keeps this subtree cached.
+    let outro = dom.query("#outro").expect("#outro");
+    dom.set_text(outro, "zz");
+    let terceira = topo(&dom, &ctx);
+    assert_eq!(primeira, terceira, "the stitched pass changed the line");
+}

@@ -399,6 +399,9 @@ pub(in crate::layout) fn layout_children_vertical(
             }
         }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
+            // A `<br>` is a line break whatever `display` says short of `none`
+            // (Blink ignores it): `.c > * { display: inline-block }` made it a box.
+            NodeKind::Element { tag } if tag == "br" => (false, false),
             NodeKind::Element { tag } => {
                 // `<img>` NÃO está aqui: é inline por natureza (o Blink só o
                 // blockifica com `display:block`), e o fluxo inline já o dispõe
@@ -519,13 +522,10 @@ pub(in crate::layout) fn layout_children_vertical(
             // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
             // pintado na passada out-of-flow de layout_document.
             NodeKind::Element { .. } if child_out => {}
-            // A FLOAT in the middle of TEXT joins the inline group as an
-            // anchor, and the inline flow puts it at the top of the line it
-            // appears in (CSS 2.1 §9.5.1). Closing the group here put it below
-            // the last line and the text after it on a new line —
-            // `<div>before<float/>after</div>` in two lines where Blink gives
-            // one. With no text pending, the branch below gives the same place,
-            // and it stays the one deciding.
+            // A FLOAT in the middle of TEXT joins the inline group as an anchor
+            // and the inline flow places it (CSS 2.1 §9.5.1, `float_in_line.rs`);
+            // closing the group here gave `<div>before<float/>after</div>` two
+            // lines. With no text pending the branch below decides, as before.
             NodeKind::Element { .. }
                 if child_float != crate::style::FloatSide::None
                     && caixa_do_filho.is_some()

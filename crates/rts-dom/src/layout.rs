@@ -83,6 +83,7 @@ pub(crate) mod bloco;
 mod bloco_caixa;
 mod costura_filhos;
 mod fragmento;
+mod fragmento_tipos;
 mod rtl_bloco;
 mod sequencia;
 mod vertical;
@@ -124,7 +125,7 @@ mod texto_solto;
 mod tabulacao;
 mod transformacao;
 pub(crate) use self::bloco::layout_block;
-pub use self::fragmento::{ChildRef, Fragment};
+pub use self::fragmento_tipos::{ChildRef, Fragment};
 pub(crate) use self::fragmento::insert_item;
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
 use self::vertical::layout_children_vertical;
@@ -228,6 +229,10 @@ pub(crate) fn measure_block(
         return size;
     }
     let mut scratch = DisplayList::for_dom(dom);
+    // The lines this throwaway layout records are in ITS coordinates: dropped
+    // on the way out, or the fragment being built around this measure would
+    // read them as its own (`linha_baseline.rs`).
+    let linhas_antes = linha_baseline::marca();
     let size = layout_block(
         dom,
         id,
@@ -251,6 +256,7 @@ pub(crate) fn measure_block(
         ctx,
         &mut scratch,
     );
+    linha_baseline::descarta(linhas_antes);
     dom.layout_measure_put(key, size);
     size
 }
@@ -296,6 +302,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // informa o viewport à CASCADE (base de vw/vh no font-size fluido/calc; o
     // memo de estilo do Dom invalida sozinho se mudou).
     dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
+    linha_baseline::limpa();
     let mut list = DisplayList::for_dom(dom);
     // A árvore de caixas deste documento, memoizada no `Dom`. Vive na lista
     // para que `record_node_rect`/`reserve_node_order` (em `itens.rs`)

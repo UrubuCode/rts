@@ -80,6 +80,12 @@ pub(in crate::layout) fn tem_conteudo_para_fragmento(dom: &Dom, id: NodeIdx) -> 
 /// devia viver em `style/`, nao aqui — mudá-la de casa e um lote proprio.
 pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
+        // A `<br>` is a line break whatever `display` says short of `none` —
+        // Blink ignores the property on it. `.c > * { display: inline-block }`
+        // made it a BOX: it stopped counting as inline context, the
+        // inline-block before it became a line of its own and the `<br>` a
+        // second, empty one (WPT `flexbox-baseline-multi-line-vert-001-ref`).
+        NodeKind::Element { tag } if tag == "br" => false,
         NodeKind::Element { tag } => {
             // `<img>` é um elemento REPLACED → precisa de layout_block p/ ter a
             // sua caixa registada e emitir o DisplayItem::Image, mesmo sem CSS de
@@ -166,6 +172,8 @@ pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
 /// block conhecidas (div/p/section…) NÃO são inline-block (ocupam o pai).
 pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
+        // See `is_block_level`: a `<br>` is never a box.
+        NodeKind::Element { tag } if tag == "br" => false,
         NodeKind::Element { tag } => {
             let css = dom.computed_style_idx(id);
             if css.as_deref().is_some_and(ignores_inline_dimensions) {

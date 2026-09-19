@@ -142,8 +142,7 @@ fn ascent_do_bloco(
     content_w: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    let recorta = [css.overflow_x, css.overflow_y].iter().flatten().any(|o| o.clips());
-    if recorta {
+    if recorta(css) {
         return altura;
     }
     let flex = matches!(
@@ -164,6 +163,17 @@ fn ascent_do_bloco(
         viewport_h: ctx.viewport_h,
     };
     let (mt, mb) = (css.margin.top.resolve(&r).unwrap_or(0.0), css.margin.bottom.resolve(&r).unwrap_or(0.0));
+    if let (true, Some(caixa)) = (flex && super::flex_baseline::tem_itens_elemento(dom, id), caixa) {
+        // A flex container's baseline is its first line's item's (Flexbox
+        // §8.5), read where that item really sits once the container is laid out.
+        let inicio = marca();
+        let mut scratch = DisplayList::for_dom(dom);
+        layout_block(dom, id, Some(caixa), 0.0, 0.0, content_w, None, Some(largura), None, false, true, &BlockFormattingContext::new(), ctx, &mut scratch);
+        descarta(inicio);
+        if let Some(b) = super::flex_baseline::baseline_no_layout(dom, id, &scratch, content_w, ctx) {
+            return b.clamp(0.0, altura);
+        }
+    }
     if flex || caixa.is_none() {
         let borda = (altura - mt - mb).max(0.0);
         let dentro = super::linha_ib::ascent_do_item(dom, id, borda, content_w, ctx);
@@ -177,31 +187,131 @@ fn ascent_do_bloco(
     }
 }
 
+/// One recorded line: the flow's owner, the baseline of its last line box in
+/// the coordinates of the list it was laid into, and whether a cached
+/// FRAGMENT re-announced it (its subtree's answer) or a flow pushed it live.
+#[derive(Clone, Copy)]
+struct Linha {
+    dono: NodeIdx,
+    baseline: f32,
+    de_fragmento: bool,
+}
+
 thread_local! {
-    /// The baseline of the LAST line box of each inline flow laid out, with the
-    /// flow's owner, in layout order — pushed by `layout_inline_flow`
-    /// ([`regista_ultima_linha`]) and read by [`baseline_da_ultima_linha`].
+    /// The last line box of every inline flow laid out, in layout order —
+    /// pushed by `layout_inline_flow` and the inline-block run
+    /// ([`regista_ultima_linha`]) and by every emitted fragment
+    /// ([`regista_do_fragmento`]), read by whoever [`colhe`]s.
     ///
     /// A thread-local and not a field of `DisplayList`, whose file is past the
-    /// ceiling: the question is asked only while an atom is measured, and the
-    /// answer never outlives that measure. Used as a STACK: a measure reads
-    /// only what was pushed after it started and truncates on the way out, so
-    /// a nested inline-block measured inside another leaves the outer's reading
-    /// intact.
-    static ULTIMAS_LINHAS: std::cell::RefCell<Vec<(NodeIdx, f32)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// ceiling. Used as a STACK: a reader takes a [`marca`] before laying out,
+    /// reads only what was pushed after it and truncates on the way out, so a
+    /// nested reader leaves the outer's view intact. A fragment build collapses
+    /// its whole subtree to one record, and `layout_document` clears the stack,
+    /// so it never holds more than one pass's top-level records.
+    static LINHAS: std::cell::RefCell<Vec<Linha>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Records the baseline of the last line of the inline flow owned by `dono`.
 pub(in crate::layout) fn regista_ultima_linha(dono: NodeIdx, baseline: f32) {
-    ULTIMAS_LINHAS.with(|v| v.borrow_mut().push((dono, baseline)));
+    LINHAS.with(|v| v.borrow_mut().push(Linha { dono, baseline, de_fragmento: false }));
+}
+
+/// Re-announces a cached fragment's last own line where it is emitted: a
+/// fragment served from the cache runs no flow, and without this an atom
+/// holding a cached block would find no line in it and sit on its bottom edge —
+/// silently, and only on the second layout pass.
+pub(in crate::layout) fn regista_do_fragmento(dono: NodeIdx, baseline: f32) {
+    LINHAS.with(|v| v.borrow_mut().push(Linha { dono, baseline, de_fragmento: true }));
+}
+
+/// Where the stack stands now — what a reader passes back to [`colhe`].
+pub(in crate::layout) fn marca() -> usize {
+    LINHAS.with(|v| v.borrow().len())
+}
+
+/// Drops what was recorded since `marca` unread — a throwaway layout's lines
+/// are in its own coordinates and must not reach the reader around it.
+pub(in crate::layout) fn descarta(marca: usize) {
+    LINHAS.with(|v| v.borrow_mut().truncate(marca));
+}
+
+/// Empties the stack. Called where a document layout starts.
+pub(in crate::layout) fn limpa() {
+    LINHAS.with(|v| v.borrow_mut().clear());
+}
+
+/// The LOWEST own line box of `id` among what was recorded since `marca`, as
+/// `(direct, total)`: `direct` counts only lines pushed live by a flow —
+/// what a stitched fragment keeps when one of its child fragments is replaced
+/// — and `total` counts the re-announced fragments too. Truncates to `marca`.
+///
+/// "Lowest" and not "last pushed": a fragment re-announces its subtree after
+/// its own flows ran, so push order is not document order. In normal flow the
+/// last line box is the lowest one; a negative margin that lifts a later line
+/// above an earlier one is the case this gets wrong.
+///
+/// "Own" is [`fluxo_proprio`]: a line of `id` itself or of a block inside it,
+/// never of an atom nested in it (whose lines are its own, CSS 2.1 §10.8.1).
+pub(in crate::layout) fn colhe(dom: &Dom, id: NodeIdx, marca: usize) -> (Option<f32>, Option<f32>) {
+    LINHAS.with(|v| {
+        let mut v = v.borrow_mut();
+        let maior = |acc: Option<f32>, b: f32| Some(acc.map_or(b, |m: f32| m.max(b)));
+        let (mut directa, mut total) = (None, None);
+        for l in v[marca.min(v.len())..].iter().filter(|l| fluxo_proprio(dom, id, l.dono, l.de_fragmento)) {
+            total = maior(total, l.baseline);
+            if !l.de_fragmento {
+                directa = maior(directa, l.baseline);
+            }
+        }
+        v.truncate(marca);
+        (directa, total)
+    })
+}
+
+/// `overflow` other than `visible` on either axis.
+fn recorta(css: &ComputedStyle) -> bool {
+    [css.overflow_x, css.overflow_y].iter().flatten().any(|o| o.clips())
+}
+
+/// [`colhe`] for the fragment of the BLOCK `id`, laid out at `y` with outer
+/// height `altura`: a block that clips answers its bottom margin edge for both
+/// values instead of its lines (see [`fluxo_proprio`]).
+pub(in crate::layout) fn colhe_do_bloco(dom: &Dom, id: NodeIdx, marca: usize, y: f32, altura: f32) -> (Option<f32>, Option<f32>) {
+    let linhas = colhe(dom, id, marca);
+    if dom.computed_style_idx(id).is_some_and(|c| recorta(&c)) {
+        return (Some(y + altura), Some(y + altura));
+    }
+    linhas
+}
+
+/// The `ultima_linha` of a STITCHED fragment of `id`: its direct lines, which
+/// a stitch never touches, against each child fragment's own answer where the
+/// child now sits (`dy` is the child's offset from where it was computed).
+pub(in crate::layout) fn total_da_costura(
+    dom: &Dom,
+    id: NodeIdx,
+    anterior: &Fragment,
+    children: &[ChildRef],
+    tree: &crate::boxes::BoxTree,
+) -> Option<f32> {
+    // A clipping block stands for its bottom edge, and a stitch keeps its size.
+    if dom.computed_style_idx(id).is_some_and(|c| recorta(&c)) {
+        return anterior.ultima_linha;
+    }
+    let directa = anterior.linha_directa;
+    children
+        .iter()
+        .filter(|c| tree.node_of(c.caixa).is_none_or(|n| fluxo_proprio(dom, id, n, true)))
+        .filter_map(|c| c.fragment.ultima_linha.map(|b| b + c.dy))
+        .chain(directa)
+        .fold(None, |acc: Option<f32>, b| Some(acc.map_or(b, |m| m.max(b))))
 }
 
 /// The baseline of an atom's LAST line box, from the top of its outer box, or
-/// `None` when it has none. The atom is laid out in a throwaway list and the
-/// last line recorded by a flow of its OWN — owned by the atom or by a block
-/// inside it, never by an atom nested in it (whose lines are its own, CSS 2.1
-/// §10.8.1) — is the answer. "The lowest text painted" was tried first and
-/// picked a nested `vertical-align: top` inline-block's text
+/// `None` when it has none: the atom is laid out in a throwaway list and its
+/// lowest own line is the answer. "The lowest text painted" was tried first
+/// and picked a nested `vertical-align: top` inline-block's text
 /// (`flexbox-baseline-multi-line-horiz-001`).
 fn baseline_da_ultima_linha(
     dom: &Dom,
@@ -211,7 +321,7 @@ fn baseline_da_ultima_linha(
     content_w: f32,
     ctx: &LayoutCtx,
 ) -> Option<f32> {
-    let inicio = ULTIMAS_LINHAS.with(|v| v.borrow().len());
+    let inicio = marca();
     let mut scratch = DisplayList::for_dom(dom);
     layout_block(
         dom,
@@ -229,22 +339,20 @@ fn baseline_da_ultima_linha(
         ctx,
         &mut scratch,
     );
-    ULTIMAS_LINHAS.with(|v| {
-        let mut v = v.borrow_mut();
-        let achada = v[inicio.min(v.len())..]
-            .iter()
-            .rev()
-            .find(|&&(dono, _)| fluxo_proprio(dom, id, dono))
-            .map(|&(_, b)| b);
-        v.truncate(inicio);
-        achada
-    })
+    colhe(dom, id, inicio).1
 }
 
-/// Is the flow owned by `dono` one of the atom `id`'s OWN line boxes — `dono`
-/// is `id`, or a block reached from it without crossing another atom or an
-/// out-of-flow box?
-fn fluxo_proprio(dom: &Dom, id: NodeIdx, dono: NodeIdx) -> bool {
+/// Is the line recorded by `dono` one of the atom `id`'s OWN line boxes — `dono`
+/// is `id`, or a block reached from it without crossing another atom, an
+/// out-of-flow box or a box that CLIPS?
+///
+/// A block whose `overflow` is not `visible` hides its lines from the atom
+/// around it and stands for its bottom margin edge instead (what Blink does,
+/// and what WPT `CSS2/linebox/baseline-block-with-overflow-001` pins): its
+/// lines are refused here, and its fragment announces the edge
+/// ([`colhe_do_bloco`]) — a record `de_fragmento`, whose own `dono` is
+/// therefore allowed to clip.
+fn fluxo_proprio(dom: &Dom, id: NodeIdx, dono: NodeIdx, de_fragmento: bool) -> bool {
     let mut cur = dono;
     while cur != id {
         let Some(css) = dom.computed_style_idx(cur) else { return false };
@@ -254,7 +362,7 @@ fn fluxo_proprio(dom: &Dom, id: NodeIdx, dono: NodeIdx) -> bool {
             Some(D::InlineBlock | D::InlineFlex | D::InlineFlexWrap | D::InlineGrid | D::InlineTable | D::Flex | D::FlexWrap | D::Grid | D::Table)
         );
         let fora = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None) || css.position.is_some_and(|p| p.out_of_flow());
-        if atomico || fora {
+        if atomico || fora || (recorta(&css) && !(cur == dono && de_fragmento)) {
             return false;
         }
         match dom.node(cur).parent {
@@ -269,8 +377,7 @@ fn fluxo_proprio(dom: &Dom, id: NodeIdx, dono: NodeIdx) -> bool {
 /// first line baseline, or its bottom margin edge when it has no text.
 fn ascent_do_gerado(caixa: &crate::pseudo::PseudoBox, altura: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
     let css = &caixa.css;
-    let recorta = [css.overflow_x, css.overflow_y].iter().flatten().any(|o| o.clips());
-    if recorta || caixa.texto.trim().is_empty() {
+    if recorta(css) || caixa.texto.trim().is_empty() {
         return altura;
     }
     let fonte = font_px(css, DEFAULT_FONT_SIZE);
