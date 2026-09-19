@@ -44,6 +44,13 @@ use super::*;
 /// nenhum dos dois tem uma baseline própria que [`ascent_do_contentor`] saiba
 /// medir — o mesmo corte que o doc deste módulo já declara para o GRUPO da
 /// linha ("pseudo-item e texto solto fora do grupo").
+/// Does this flex container have an in-flow ELEMENT item? Without one its
+/// items are anonymous (text) or absent, and `ascent_do_contentor` has no item
+/// to ask.
+pub(in crate::layout) fn tem_itens_elemento(dom: &Dom, id: NodeIdx) -> bool {
+    !filhos_flex_em_fluxo(dom, id).is_empty()
+}
+
 fn filhos_flex_em_fluxo(dom: &Dom, id: NodeIdx) -> Vec<NodeIdx> {
     dom.node(id)
         .children
@@ -182,10 +189,23 @@ fn linhas_por_largura(dom: &Dom, filhos: &[NodeIdx], content_w: f32, font_size: 
 /// chega aos NETOS continua a ser o do CONTENTOR ANCESTRAL, não o deste flex
 /// — percentagens de margem num NETO ficam por essa aproximação.
 pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+    item_de_baseline(dom, id, content_w, ctx).map_or(h, |(_, ascent)| ascent.min(h))
+}
+
+/// The item that gives this flex container its baseline (Flexbox §8.5) and
+/// that item's ascent from the top of its MARGIN box: on a row, the highest of
+/// the first line's baseline-aligned items, else the first item of the first
+/// line. `None` when the container has no in-flow element item.
+///
+/// **"First" is PHYSICAL here: the line, or the column item, at the start
+/// edge.** Under `wrap-reverse` that is the LAST line in source order, and
+/// under `column-reverse` the last item. It is what the WPT pair
+/// `flexbox-baseline-multi-line-horiz-002` (baseline from the top line `d e`,
+/// the source's second) and `-horiz-004` (whose reference is a
+/// `column-reverse` container and expects its top item) agree on; reading
+/// "first" as source order satisfied one of them and never both.
+fn item_de_baseline(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> Option<(NodeIdx, f32)> {
     let filhos = filhos_flex_em_fluxo(dom, id);
-    if filhos.is_empty() {
-        return h;
-    }
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     let eixo_de_linha = !css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
@@ -194,30 +214,61 @@ pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, con
         let font = font_px(&css, DEFAULT_FONT_SIZE);
         let largura = largura_do_proprio(&css, content_w, font, ctx);
         let mut linhas = linhas_por_largura(dom, &em_flex, largura, font, ctx);
-        if matches!(
-            css.flex_wrap,
-            Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)
-        ) {
+        if matches!(css.flex_wrap, Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)) {
             linhas.reverse();
         }
         linhas.into_iter().next().unwrap_or_default()
+    } else if css.flex_direction == Some(crate::style::FlexDirection::ColumnReverse) {
+        em_flex.into_iter().rev().collect()
     } else {
         em_flex
     };
-    let Some(&primeiro) = primeira_linha.first() else {
-        return h;
-    };
-    if eixo_de_linha {
-        let max_ascent = primeira_linha
-            .iter()
-            .filter(|&&c| dom.computed_style_idx(c).unwrap_or_default().align_self.unwrap_or(align) == crate::style::AlignItems::Baseline)
-            .map(|&c| ascent_do_item_neto(dom, c, content_w, ctx))
-            .fold(None, |acc: Option<f32>, a| Some(acc.map_or(a, |m| m.max(a))));
-        if let Some(max_ascent) = max_ascent {
-            return max_ascent.min(h);
+    let &primeiro = primeira_linha.first()?;
+    let do_grupo = eixo_de_linha
+        .then(|| {
+            primeira_linha
+                .iter()
+                .filter(|&&c| dom.computed_style_idx(c).unwrap_or_default().align_self.unwrap_or(align) == crate::style::AlignItems::Baseline)
+                .map(|&c| (c, ascent_do_item_neto(dom, c, content_w, ctx)))
+                .fold(None, |acc: Option<(NodeIdx, f32)>, x| Some(acc.map_or(x, |m| if x.1 > m.1 { x } else { m })))
+        })
+        .flatten();
+    do_grupo.or_else(|| Some((primeiro, ascent_do_item_neto(dom, primeiro, content_w, ctx))))
+}
+
+/// The `y` of this flex container's baseline IN A LIST IT WAS LAID OUT INTO:
+/// where its baseline item really sits, plus that item's ascent. What the
+/// structural [`ascent_do_contentor`] cannot see is the item's POSITION — under
+/// `align-content: center` the first line does not start at the container's
+/// top, and a container guessed from structure sat 3.6px off its reference
+/// (WPT `flexbox-baseline-multi-line-horiz-004`).
+pub(in crate::layout) fn baseline_no_layout(dom: &Dom, id: NodeIdx, list: &DisplayList, content_w: f32, ctx: &LayoutCtx) -> Option<f32> {
+    let (mut item, mut ascent) = item_de_baseline(dom, id, content_w, ctx)?;
+    // A COLUMN container that wraps in reverse puts its first column at the far
+    // side: the physically first item is the top of the LEFTMOST column, which
+    // the structural choice cannot name without breaking the columns itself —
+    // here the layout already did (WPT `flexbox-baseline-multi-line-vert-002`).
+    let contentor = dom.computed_style_idx(id).unwrap_or_default();
+    let coluna = contentor.flex_direction.is_some_and(|f| f.is_column());
+    if coluna && matches!(contentor.flex_wrap, Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)) {
+        let primeiro_fisico = filhos_flex_em_fluxo(dom, id)
+            .into_iter()
+            .filter_map(|c| list.rect_of_node(c).map(|r| (c, r)))
+            .min_by(|a, b| a.1.x.total_cmp(&b.1.x).then(a.1.y.total_cmp(&b.1.y)));
+        if let Some((c, _)) = primeiro_fisico {
+            (item, ascent) = (c, ascent_do_item_neto(dom, c, content_w, ctx));
         }
     }
-    ascent_do_item_neto(dom, primeiro, content_w, ctx).min(h)
+    let css = dom.computed_style_idx(item)?;
+    let r = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let mt = css.margin.top.resolve(&r).unwrap_or(0.0);
+    Some(list.rect_of_node(item)?.y - mt + ascent)
 }
 
 /// O ascent de um item de flex — do topo da sua MARGIN-BOX à baseline do seu

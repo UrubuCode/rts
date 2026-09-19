@@ -121,8 +121,11 @@ fn inline_block_com_margem_rect_e_border_box_pitch_e_margin_box() {
     let b = rect(&dom, &list, "#b", 0);
     assert_eq!(a.y, 0.0);
     assert_eq!(a.h, 20.0, "o rect do elemento não inclui a margin-bottom");
-    assert_eq!(b.y, 25.0, "o pitch (20 conteúdo + 5 margem) inclui a margem UMA vez");
-    assert_eq!(b.h, 20.0, "o segundo elemento não herda a margem do primeiro");
+    // Within 0.001 and not exact: since the line of an inline-block is placed
+    // by the §10.8.1 envelope (`linha_baseline.rs`), the pitch is a sum of an
+    // above and a below extent, and `f32` gives 25.000002 for it.
+    assert!((b.y - 25.0).abs() < 1e-3, "o pitch (20 conteúdo + 5 margem) inclui a margem UMA vez: {}", b.y);
+    assert!((b.h - 20.0).abs() < 1e-3, "o segundo elemento não herda a margem do primeiro: {}", b.h);
 }
 
 /// Um rect SEM ÁREA — `w=0` ou `h=0` — que é o que o motor devolve para um

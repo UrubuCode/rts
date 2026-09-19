@@ -199,25 +199,21 @@ fn medir_atomo((gerada, caixa): (Option<crate::boxes::BoxId>, crate::pseudo::Pse
 }
 
 /// Paints the `inline-block` pseudo `pe` of `id` at the place the line gave
-/// it. Its vertical place follows the rule the line applies to a real
-/// `inline-block` (`linha.rs`, `AtomicKind::Block`): an empty one shorter
-/// than the line sits its bottom margin edge on the `baseline`; otherwise its
-/// top is the line's top `cy`.
+/// it: `x` and its `topo`, which the line decides by the same §10.8.1
+/// envelope as a real `inline-block` (`linha_baseline.rs`).
 ///
-/// Its `BoxId` — under which `pseudo_caixa::pintar` records the geometry — is
-/// looked up by node in the list's tree: `linha.rs` has the atom's box in
-/// hand and does not pass it here, and that file belongs to another lot. The
-/// cost is stated: the duplicate atom `runs.rs` emits for each LATER fragment
-/// of a split inline records over the same box, so the last one wins.
+/// `gerada` is the atom's box as the line has it — the exact box of THIS
+/// fragment when the originating inline is split, so each fragment records
+/// its own geometry. Only without it is the box looked up by node, where the
+/// last fragment would record over the others.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn pintar_atomo(
     dom: &Dom,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
+    gerada: Option<crate::boxes::BoxId>,
     x: f32,
-    cy: f32,
-    baseline: f32,
-    line_h: f32,
+    topo: f32,
     base_w: f32,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -225,8 +221,7 @@ pub(in crate::layout) fn pintar_atomo(
     let Some(caixa) = dom.pseudo_box(id, pe) else {
         return;
     };
-    let gerada = list.tree.generated_of(id, pe);
+    let gerada = gerada.or_else(|| list.tree.generated_of(id, pe));
     let medida = medir_atomo((gerada, caixa), base_w, ctx);
-    let topo = if medida.linhas.is_empty() && medida.h < line_h { baseline - medida.h } else { cy };
     super::pseudo_caixa::pintar(list, &medida, x, topo, ctx);
 }

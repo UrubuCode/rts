@@ -38,8 +38,29 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
                 | crate::style::DisplayKind::InlineFlex
                 | crate::style::DisplayKind::InlineFlexWrap
         )
-    ) {
-        return super::flex_baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
+    ) && super::flex_baseline::tem_itens_elemento(dom, id)
+    {
+        // The container's baseline seen from OUTSIDE is its first item's,
+        // pushed down by the container's own top border and padding —
+        // `ascent_do_contentor` measures from the content box, and without the
+        // frame an `inline-flex` with `padding: 4px` sat 4px low next to text.
+        // A flex container whose only content is TEXT has that text as its
+        // anonymous item; `ascent_do_contentor` counts only elements and
+        // answered the bottom edge for it, so it falls to the text formula
+        // below, which is the anonymous item's baseline (WPT
+        // `flexbox-baseline-single-item-001a`).
+        let Some(css) = dom.computed_style_idx(id) else { return h };
+        let r = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let [bt, ..] = crate::style::borders::used_widths(&css);
+        let pt = css.padding.top.resolve(&r).unwrap_or(0.0);
+        let dentro = super::flex_baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
+        return if dentro >= h { h } else { (bt + pt + dentro).min(h) };
     }
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
     // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
@@ -75,6 +96,9 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_inline_block_line(
     dom: &Dom,
+    // The owner of the flow these atoms sit in — whose last line's baseline an
+    // enclosing atom may ask for (`linha_baseline.rs`).
+    dono: NodeIdx,
     run: &[(NodeIdx, Option<crate::boxes::BoxId>)],
     content_x: f32,
     y: f32,
@@ -163,6 +187,7 @@ pub(in crate::layout) fn layout_inline_block_line(
     // 3) pinta cada linha: x inicial pelo text-align do pai, itens lado a lado;
     //    y avança pela ALTURA do envelope (baseline + os que a estendem).
     let mut cy = y;
+    let mut ultima_baseline: Option<f32> = None;
     for (items, line_w) in &lines {
         let free = (content_w - line_w).max(0.0);
         let mut x = match parent_css.text_align {
@@ -216,7 +241,11 @@ pub(in crate::layout) fn layout_inline_block_line(
             );
             x += w + trailing;
         }
+        ultima_baseline = Some(cy + env.acima);
         cy += env.altura();
+    }
+    if let Some(b) = ultima_baseline {
+        super::linha_baseline::regista_ultima_linha(dono, b);
     }
     cy
 }

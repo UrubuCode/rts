@@ -39,3 +39,12 @@ claude-absoluto-dentro-do-inline-nao-parte.html
 # text flow). `#p4` and `#p5` start the 5px `#p3` is short of too high, and
 # `#p5`'s 5px too many land `#fim` on Blink's 262 by cancellation.
 claude-pseudo-caixa-gerada.html
+
+# inline-block baseline (2026-09-18): every case sits right INSIDE its line
+# (heights and offsets match Blink — `inline_block_baseline_corpus.rs` pins
+# them relative to each container), but the strut's descent is 0.4px short of
+# Blink's at 16px monospace (Blink rounds ascent/descent to whole pixels), and
+# that accumulates down the page past the 1px tolerance by the fourth case.
+# Rounding the strut alone was tried and reverted (text top disagreed by
+# +0.5px per line). It closes with the FM lot, the font metrics in one model.
+claude-inline-block-baseline.html
