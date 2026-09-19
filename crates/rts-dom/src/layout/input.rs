@@ -21,12 +21,13 @@ pub(in crate::layout) fn layout_button(
 ) -> (f32, f32) {
     let font = font_px(css, DEFAULT_FONT_SIZE - 3.0);
     let label = dom.node(id).attr("value").unwrap_or("").to_string();
-    let tw = ctx.measurer.text_width(&label, font, false, false, false);
+    let tw = ctx.measurer.text_width_family(&label, font, FONTE_DOS_CONTROLOS, false, false, false);
     let lh = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
-    // A caixa inclui os 6px computados de padding por lado mais a moldura
-    // nativa que este emissor desenha junto com o conteúdo; 8.5 reproduz a
-    // largura border-box de 53.8px para `value="Enviar"` no Blink.
-    let (pad_h, pad_v) = (8.5, 5.0);
+    // Blink's button frame: 6px of padding plus a 2px border per side. It was
+    // 8.5 while text was measured by an average advance, tuned until
+    // `value="Enviar"` gave Blink's 53.8px; with Arial's own advances the text
+    // is 37.79 and the frame is what the UA sheet says, 8.
+    let (pad_h, pad_v) = (8.0, 5.0);
     let w = tw + 2.0 * pad_h;
     // Um item de flex pode impor a altura externa pelo `align-items:stretch`;
     // controles nativos passam por este caminho curto e não pelo resolvedor de
@@ -369,7 +370,7 @@ pub(in crate::layout) fn layout_input(
     // Cursor: barrinha vertical após o texto do VALOR (não do placeholder), só com foco.
     if focused {
         let val = dom.input_value(id);
-        let caret_x = text_x + ctx.measurer.text_width(&val, font, false, false, false) + 1.0;
+        let caret_x = text_x + ctx.measurer.text_width_family(&val, font, FONTE_DOS_CONTROLOS, false, false, false) + 1.0;
         let caret = Rect::new(caret_x, text_y, 1.5, line_h.min(content_h.max(line_h)));
         list.items.push(DisplayItem::SolidRect {
             rect: caret,
@@ -448,12 +449,11 @@ pub(in crate::layout) fn tamanho_natural_controlo(
                 // pintura; reescrevê-la aqui teria as duas a poder divergir.
                 let label = dom.node(id).attr("value").unwrap_or("").to_string();
                 let bf = font_px(css, DEFAULT_FONT_SIZE - 3.0);
-                let tw = ctx.measurer.text_width(&label, bf, false, false, false);
+                let tw = ctx.measurer.text_width_family(&label, bf, FONTE_DOS_CONTROLOS, false, false, false);
                 let lh = ctx.measurer.line_height_family(bf, FONTE_DOS_CONTROLOS);
-                // A largura usada pelo flex é a mesma border-box do emissor
-                // nativo (8.5px por lado), não a margem de avanço de 6px da
-                // corrida inline.
-                Some(conteudo_para_outer(css, bf, ctx, tw + 17.0, lh + 10.0))
+                // The flex uses the same border box the native emitter draws
+                // (8px of frame per side), not the inline run's advance.
+                Some(conteudo_para_outer(css, bf, ctx, tw + 16.0, lh + 10.0))
             } else {
                 // texto, password, checkbox, radio, range, … — o MESMO
                 // cálculo que já pinta o widget (`medida_do_input`), com
@@ -483,7 +483,7 @@ pub(in crate::layout) fn inline_widget_size(
     if matches!(itype, "submit" | "button" | "reset") {
         let font = font_px(&css, DEFAULT_FONT_SIZE - 3.0);
         let label = dom.node(id).attr("value").unwrap_or("").to_string();
-        let tw = ctx.measurer.text_width(&label, font, false, false, false);
+        let tw = ctx.measurer.text_width_family(&label, font, FONTE_DOS_CONTROLOS, false, false, false);
         let lh = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
         return (tw + 24.0 + 6.0, lh + 10.0 + 4.0); // espelha layout_button
     }

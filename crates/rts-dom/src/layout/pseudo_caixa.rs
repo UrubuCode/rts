@@ -93,7 +93,7 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
         css.white_space.is_some_and(|w| w.preserves_newlines()),
         css.word_spacing.unwrap_or(0.0),
         css.hyphens != Some(crate::style::vocab::Hyphens::None),
-        super::fonte_metricas::usa_ahem(familia),
+        familia,
         ctx.measurer,
     );
     linhas

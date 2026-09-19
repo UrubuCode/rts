@@ -160,7 +160,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 .unwrap_or(false),
             parent_css.word_spacing.unwrap_or(0.0),
             parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
-            ahem, ctx.measurer,
+            family, ctx.measurer,
         )
     };
     // Floats that appear in the MIDDLE of this flow are placed BEFORE the final

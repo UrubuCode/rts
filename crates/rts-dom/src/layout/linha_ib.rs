@@ -127,16 +127,9 @@ pub(in crate::layout) fn layout_inline_block_line(
         );
         let is_submit = matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "input")
             && matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("submit" | "button" | "reset"));
-        let is_button = matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "button");
         // `measure_block` devolve a margem externa dos widgets nativos. A
         // posição inline usa a border-box, que é o rect exposto ao DOM.
-        let next_is_button = run.get(pos + 1).is_some_and(|&(next, _)| matches!(&dom.node(next).kind, NodeKind::Element { tag } if tag == "button"));
-        let w = if is_submit { (measured_w - 6.0).max(0.0) } else if is_button {
-            // O botão que antecede outro botão carrega a moldura UA no avanço
-            // entre as duas caixas; diante de outro controle, o avanço usado
-            // pelo inline layout é a largura border-box medida.
-            if next_is_button { measured_w } else { (measured_w - 1.03).max(0.0) }
-        } else { measured_w };
+        let w = if is_submit { (measured_w - 6.0).max(0.0) } else { measured_w };
         let valign = dom.computed_style_idx(child).and_then(|c| c.vertical_align);
         // A corrida de inline-blocks não carrega os nós de texto entre irmãos.
         // Reconstituir aqui o separador preserva o espaço colapsado do HTML

@@ -37,15 +37,15 @@ pub(in crate::layout) fn wrap_runs(
     // `hyphens` do container: `manual`/`auto` deixam o U+00AD ser oportunidade
     // de quebra (`hifen.rs`); `none` apaga-o antes de medir.
     hifen_manual: bool,
-    // `font-family` resolve para Ahem (`style::is_ahem_family`)? Ela tem
-    // avanço EXATO — 1em/carácter — em vez da aproximação de `mono`; ver
-    // `style::ahem` e `medir` (único ponto de medição deste ficheiro).
-    ahem: bool,
+    // The container's `font-family` list: the measurer resolves it to a font's
+    // advances — Ahem's are exactly 1em (`style::ahem`). See `medir`.
+    family: Option<&str>,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
+    let ahem = super::fonte_metricas::usa_ahem(family);
     let medir = |m: &dyn TextMeasurer, t: &str, bold: bool, italic: bool| -> f32 {
-        if ahem { t.chars().count() as f32 * font_size } else { m.text_width(t, font_size, mono, bold, italic) }
+        if ahem { t.chars().count() as f32 * font_size } else { m.text_width_family(t, font_size, family, mono, bold, italic) }
     };
     // A largura do espaço só interessa ao caminho palavra-a-palavra. Medida
     // sempre, era metade de todas as medições de texto de um relayout — uma por

@@ -117,27 +117,11 @@ pub struct ApproxMeasurer;
 
 impl TextMeasurer for ApproxMeasurer {
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, _italic: bool) -> f32 {
-        // `_italic` é IGNORADO de propósito, e a alternativa rejeitada foi
-        // multiplicar por um fator: um itálico real é mais estreito ou mais
-        // largo conforme a fonte, e não há aqui uma única medição contra o
-        // Chrome que diga qual — ao contrário do 1,06 do bold e do 0,5498 do
-        // mono, que o corpus calibrou. Um fator inventado seria um erro com
-        // aparência de precisão. Quando houver medição, o número vai para
-        // `style::text_metrics` ao lado dos outros.
-        // Os avanços vivem em `style::text_metrics`, com a medição contra o
-        // Chrome que os calibrou — o mono era 0.6 e o Chrome mede 0.5498.
-        let mut per = if mono {
-            crate::style::MONO_ADVANCE
-        } else {
-            crate::style::PROP_ADVANCE
-        };
-        // Em uma família monoespaçada o peso altera o glifo, não o avanço da
-        // célula. Aplicar +6% aqui inflava `<th>` bold e deslocava a tabela
-        // inteira (`claude-ua-th`).
-        if bold && !mono {
-            per *= 1.06; // bold ~6% mais largo.
-        }
-        text.chars().count() as f32 * size * per
+        // `_italic` is ignored on purpose: there is no italic table, and the
+        // upright advances stand in (`fonte_metricas.rs` says what else the
+        // tables leave out). A made-up factor would be an error dressed as
+        // precision.
+        super::fonte_metricas::FontMetricsModel::text_width(text, size, None, mono, bold)
     }
 
     fn text_width_family(
@@ -147,18 +131,9 @@ impl TextMeasurer for ApproxMeasurer {
         family: Option<&str>,
         mono: bool,
         bold: bool,
-        italic: bool,
+        _italic: bool,
     ) -> f32 {
-        // A Ahem tem avanço EXATO (1em por glifo, espaço incluído) — não é
-        // uma aproximação a mais no mesmo estilo de `MONO_ADVANCE`, é a
-        // definição da fonte (ver `style::ahem`). `bold`/`italic` não mudam
-        // nada: a Ahem não tem peso nem itálico próprios, todo glifo é o
-        // MESMO bloco a qualquer variante — diferente do mono real, cujo
-        // bold mede 6% mais largo.
-        if family.is_some_and(crate::style::is_ahem_family) {
-            return text.chars().count() as f32 * size * crate::style::AHEM_ADVANCE;
-        }
-        self.text_width(text, size, mono, bold, italic)
+        super::fonte_metricas::FontMetricsModel::text_width(text, size, family, mono, bold)
     }
 
     fn line_height_family(&self, size: f32, family: Option<&str>) -> f32 {
