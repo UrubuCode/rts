@@ -1,10 +1,10 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 585,
-  "passam_vazio": 36,
+  "passam": 588,
+  "passam_vazio": 37,
   "falham": 239,
-  "falha_parcial": 10,
+  "falha_parcial": 6,
   "erros": 0,
   "nao_rasterizaram": [],
   "tol": 8,
@@ -20,34 +20,6 @@
       "pct": 33.3169921875,
       "n": 341166,
       "script": false
-    },
-    {
-      "nome": "flexbox_stf-table-caption",
-      "pct": 23.53515625,
-      "n": 241000,
-      "script": false,
-      "parcial": true
-    },
-    {
-      "nome": "flexbox_stf-table-cell",
-      "pct": 23.53515625,
-      "n": 241000,
-      "script": false,
-      "parcial": true
-    },
-    {
-      "nome": "flexbox_stf-table-row-group",
-      "pct": 23.53515625,
-      "n": 241000,
-      "script": false,
-      "parcial": true
-    },
-    {
-      "nome": "flexbox_stf-table-row",
-      "pct": 23.53515625,
-      "n": 241000,
-      "script": false,
-      "parcial": true
     },
     {
       "nome": "intrinsic-size/auto-min-size-001",
@@ -3036,11 +3008,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-002",
+      "nome": "flexbox-baseline-multi-line-horiz-003",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-003",
+      "nome": "flexbox-baseline-multi-line-horiz-002",
       "estado": "passa"
     },
     {
@@ -4305,23 +4277,19 @@
     },
     {
       "nome": "flexbox_stf-table-caption",
-      "estado": "falha-parcial",
-      "pct": 23.53515625
+      "estado": "passa"
     },
     {
       "nome": "flexbox_stf-table-cell",
-      "estado": "falha-parcial",
-      "pct": 23.53515625
+      "estado": "passa"
     },
     {
       "nome": "flexbox_stf-table-row-group",
-      "estado": "falha-parcial",
-      "pct": 23.53515625
+      "estado": "passa-vazio"
     },
     {
       "nome": "flexbox_stf-table-row",
-      "estado": "falha-parcial",
-      "pct": 23.53515625
+      "estado": "passa"
     },
     {
       "nome": "flexbox_stf-table-singleline-2",
@@ -5221,11 +5189,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
