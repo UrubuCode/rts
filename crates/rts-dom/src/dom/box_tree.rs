@@ -34,7 +34,8 @@ impl Dom {
         g
     }
 
-    /// The box tree for this document, keyed by `(revision, style_epoch)`.
+    /// The box tree for this document, keyed by `(revision, style_epoch,
+    /// viewport)`.
     ///
     /// **The `Rc` is what makes it safe to hold across a layout pass.** A caller
     /// keeps its clone alive even if the memo is replaced underneath, so it
@@ -47,8 +48,21 @@ impl Dom {
     /// transition would undo the reason the style memo splits those two apart.
     /// When a box's existence starts depending on an animated property, this
     /// comment is where to come back to.
+    ///
+    /// **The VIEWPORT is in the key, and it was not until lot BT-5.** Which
+    /// boxes exist is a cascade answer, and `@media` makes the cascade depend
+    /// on the viewport: `Dom::set_viewport` bumps no revision (it takes
+    /// `&self`), and the style memo notices by comparing the viewport itself
+    /// (`computed_style_idx`). A tree keyed without it kept the boxes of the
+    /// OLD width after a resize: an inline split around a child that `@media`
+    /// made a block only at the new width (or no longer does), and — since
+    /// the layout takes a generated box's existence from here — a `::before`
+    /// that `@media` turns on or off, through `Dom::pseudo_box`. The same
+    /// bits the style memo compares; `boxes/tests_generated.rs` pins both.
     pub fn box_tree(&self) -> Rc<BoxTree> {
-        let key = (self.revision, crate::style::props::style_epoch());
+        let (vw, vh) = self.viewport.get();
+        let viewport = (u64::from(vw.to_bits()) << 32) | u64::from(vh.to_bits());
+        let key = (self.revision, crate::style::props::style_epoch(), viewport);
         if self.box_tree_memo_revision.get() == key {
             if let Some(t) = self.box_tree_memo.borrow().as_ref() {
                 return Rc::clone(t);

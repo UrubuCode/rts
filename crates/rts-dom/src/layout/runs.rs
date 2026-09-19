@@ -88,7 +88,9 @@ pub(in crate::layout) fn collect_runs(
         let Some(b) = caixa else {
             return dom.node(id).children.iter().map(|&c| (c, None)).collect();
         };
-        tree.children(b)
+        // Without `::before`/`::after`: their runs come from the two
+        // `pseudo_run` calls around this walk, not from a child box.
+        tree.children_without_generated(b)
             .iter()
             .map(|&cb| {
                 // Uma caixa ANÓNIMA aqui seria a partição a criar uma onde não
@@ -354,9 +356,10 @@ pub(in crate::layout) fn collect_runs(
                     v.push(id);
                     v
                 };
-                out.extend(pseudo_run(
+                out.extend(super::pseudo_inline::pseudo_run_da_caixa(
                     dom,
                     id,
+                    caixa.and_then(|b| tree.generated_child(b, crate::style::PseudoElement::Before)),
                     &donos_do_pseudo,
                     crate::style::PseudoElement::Before,
                     color,
@@ -370,9 +373,10 @@ pub(in crate::layout) fn collect_runs(
                         out,
                     );
                 }
-                out.extend(pseudo_run(
+                out.extend(super::pseudo_inline::pseudo_run_da_caixa(
                     dom,
                     id,
+                    caixa.and_then(|b| tree.generated_child(b, crate::style::PseudoElement::After)),
                     &donos_do_pseudo,
                     crate::style::PseudoElement::After,
                     color,

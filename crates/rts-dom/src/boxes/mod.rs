@@ -19,8 +19,9 @@
 //! run of inline content is enclosed in an ANONYMOUS block box that rises to the
 //! inline's container. `build.rs` draws the shape and quotes the rule.
 //!
-//! No generated boxes yet, and no table fixups. The next step of BT-1 swaps the
-//! geometry and cache keys.
+//! The other boxes the DOM does not have: the anonymous TABLE of CSS 2.1
+//! §17.2.1 (`build/anonymous_table.rs`) and the GENERATED box of `::before` /
+//! `::after` (`generated.rs`), which names its originating element and no node.
 //!
 //! The design, the measured evidence and the nine invariants that break
 //! silently are in `docs/ui/html-engine/box-tree.md`. The executable plan is in
@@ -36,8 +37,12 @@ pub use build::build_mirror;
 pub(crate) mod context;
 pub use context::{FormattingContext, InnerDisplay, OuterDisplay};
 
+mod generated;
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_generated;
 #[cfg(test)]
 mod tests_table;
 
@@ -116,6 +121,14 @@ pub enum BoxKind {
     Text {
         node: NodeIdx,
         inherits_from: NodeIdx,
+    },
+    /// A `::before` or `::after` box (CSS 2.1 §12.1). It has NO node — the
+    /// decision in `pseudo.rs` not to put one in the arena stands — and it
+    /// names the element that ORIGINATES it plus which pseudo it is, the same
+    /// pair the counters table keys it by. `generated.rs` holds the rest.
+    Generated {
+        originating: NodeIdx,
+        pseudo: crate::style::PseudoElement,
     },
 }
 
@@ -286,8 +299,8 @@ impl BoxTree {
 
     /// What KIND of box this is. The one accessor that does not translate to a
     /// node, and the reason it exists: a caller that asks "is this anonymous"
-    /// by testing `node_of(id).is_none()` gets the right answer today and the
-    /// wrong one the day a second kind stops naming a node.
+    /// by testing `node_of(id).is_none()` got the right answer until a second
+    /// kind stopped naming a node — `Generated`, lot BT-5 — and is wrong now.
     pub fn kind(&self, id: BoxId) -> BoxKind {
         self.get(id).kind
     }
@@ -300,18 +313,24 @@ impl BoxTree {
             // `getBoundingClientRect` de um no de texto e uma pergunta legitima
             // do DOM, e responde-la precisa de saber que caixas ele gerou.
             BoxKind::Text { node, .. } => Some(node),
-            BoxKind::Anonymous { .. } => None,
+            BoxKind::Anonymous { .. } | BoxKind::Generated { .. } => None,
         }
     }
 
     /// The node this box takes its style from: the element itself, or — for an
     /// anonymous box — the element whose box the CSS rules split to make it.
+    ///
+    /// **For a GENERATED box this is the element it INHERITS from, and its own
+    /// style is not that element's**: the pseudo's rules sit on top of what it
+    /// inherits. Reading `dom.computed_style_idx(style_source(id))` for one is
+    /// invariant I6 failing in silence; [`BoxTree::style`] is the question.
     pub fn style_source(&self, id: BoxId) -> NodeIdx {
         match self.get(id).kind {
             BoxKind::Element(n) => n,
             BoxKind::Anonymous { inherits_from, .. } | BoxKind::Text { inherits_from, .. } => {
                 inherits_from
             }
+            BoxKind::Generated { originating, .. } => originating,
         }
     }
 
@@ -324,8 +343,17 @@ impl BoxTree {
     ///
     /// `None` only when the source node has no computed style — which the
     /// cascade answers for a non-element, and `build_mirror` already refuses to
-    /// make a box for one.
+    /// make a box for one — or when a generated box is asked about after the
+    /// cascade stopped generating it.
+    ///
+    /// A GENERATED box answers the pseudo's own computed style, asked of
+    /// `Dom::pseudo_box` each time: the originating element's would be the
+    /// wrong box's style, and a copy taken at build time is stale the way
+    /// `BoxKind`'s header says.
     pub fn style(&self, dom: &crate::dom::Dom, id: BoxId) -> Option<Rc<ComputedStyle>> {
+        if let BoxKind::Generated { originating, pseudo } = self.get(id).kind {
+            return dom.pseudo_box(originating, pseudo).map(|b| Rc::new(b.css));
+        }
         dom.computed_style_idx(self.style_source(id))
     }
 

@@ -105,7 +105,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
     // mais a largura NATURAL para decidir a largura de cada coluna) ─────────
     let mut items: Vec<Item> = Vec::new();
     let tree = std::rc::Rc::clone(&list.tree);
-    for &caixa in tree.children(container) {
+    for &caixa in tree.children_without_generated(container) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };

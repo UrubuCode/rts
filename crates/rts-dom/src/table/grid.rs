@@ -83,7 +83,7 @@ pub(in crate::table) fn collect(
                 // árvore antes: achatar perderia a fronteira do grupo, que é o
                 // que dá a caixa ao `<tbody>`.
                 let mut soltas_g: Vec<(NodeIdx, crate::boxes::BoxId)> = Vec::new();
-                for &caixa_linha in tree.children(caixa) {
+                for &caixa_linha in tree.children_without_generated(caixa) {
                     let Some(r) = tree.node_of(caixa_linha) else {
                         continue;
                     };
@@ -141,7 +141,7 @@ fn display_order(
     tree: &crate::boxes::BoxTree,
     table: crate::boxes::BoxId,
 ) -> Vec<crate::boxes::BoxId> {
-    let filhos = tree.children(table);
+    let filhos = tree.children_without_generated(table);
     let primeiro = |alvo: DisplayKind| {
         filhos
             .iter()
@@ -214,7 +214,7 @@ fn celulas_de(
     // anonymous cell AND an anonymous table around it, and taking it as a cell
     // painted an empty red `table-row-group` that Blink does not paint at all —
     // a group with no rows has no area (WPT `empty-cells-applies-to-008..017`).
-    tree.children(pai)
+    tree.children_without_generated(pai)
         .iter()
         .filter_map(|&caixa| tree.node_of(caixa).map(|no| (no, caixa)))
         .filter(|&(no, _)| match &dom.node(no).kind {

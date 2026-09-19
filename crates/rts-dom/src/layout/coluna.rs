@@ -135,7 +135,7 @@ pub(in crate::layout) fn layout_children_column(
     }
     let mut items: Vec<ColItem> = Vec::new();
     let tree = std::rc::Rc::clone(&list.tree);
-    for &caixa in tree.children(container) {
+    for &caixa in tree.children_without_generated(container) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };

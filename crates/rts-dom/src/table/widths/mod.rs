@@ -437,7 +437,7 @@ pub(super) fn min_content_na_arvore(
             let Some(caixa) = caixa else {
                 return 0.0;
             };
-            for &caixa_filho in tree.children(caixa) {
+            for &caixa_filho in tree.children_without_generated(caixa) {
                 let Some(c) = tree.node_of(caixa_filho) else {
                     // Caixa ANÓNIMA (§9.2.1.1): sem nó, mas o run que ela
                     // envolve continua a contar para o mínimo — era o mesmo

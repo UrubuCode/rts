@@ -231,6 +231,15 @@ impl Superficies {
                 Dono::Gerada(n, pe) => {
                     let Some(caixa) = dom.pseudo_box(n, pe) else { continue };
                     let r = fragmento_com_estilo(Some(&caixa.css), true, s.x0, y, s.x1 - s.x0, conteudo_da_linha, ctx, align_to_baseline);
+                    // Each line's fragment of the generated inline joins its
+                    // box's rect, so `rect_of_box` answers the union the way a
+                    // real inline's `union_rect` does. By node, because a
+                    // surface is named by `(node, pseudo)`: the copy of the
+                    // pseudo a LATER fragment of a split inline repeats
+                    // (`runs.rs`) is unioned into the same box.
+                    if let Some(gerada) = list.tree.generated_of(n, pe) {
+                        super::itens::union_box_rect(list, gerada, r);
+                    }
                     (std::rc::Rc::new(caixa.css), r)
                 }
             };

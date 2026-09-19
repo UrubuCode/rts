@@ -84,6 +84,7 @@ mod controlo_natural_corpus;
 mod box_tree_anonimas_largura_corpus;
 mod ahem_corpus;
 mod bloco_quebra_paragrafo_corpus;
+mod caixa_gerada_arvore;
 mod flex_scroll_overflow_corpus;
     use super::*;
     use crate::dom::parse_html_to_dom;

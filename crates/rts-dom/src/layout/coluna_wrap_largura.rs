@@ -76,7 +76,7 @@ pub(in crate::layout) fn max_content_width(
         .max(0.0);
 
     let mut items: Vec<(f32, f32)> = Vec::new(); // (altura natural, largura natural)
-    for &caixa in tree.children(container) {
+    for &caixa in tree.children_without_generated(container) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };
