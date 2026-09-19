@@ -3,10 +3,10 @@
 # do CI fica vermelho se falhar uma fixture que NAO esta aqui, e avisa se uma
 # daqui passar (a lista ficou para tras). Uma linha por ficheiro; # e comentario.
 
-# folha de UA (lote I): largura de texto a negrito e de controlos no medidor
-# aproximado, fonte dos controlos, <tr> sem border-spacing horizontal
-claude-ua-form-disabled.html
-claude-ua-headings.html
+# folha de UA (lote I): `claude-ua-form-disabled` and `claude-ua-headings` left
+# this list — they pass on main `c34c4490d` and after (checked 2026-09-18 by
+# running the corpus with the kept binary; the list had fallen behind, which
+# the CI only WARNS about).
 
 # cursor: url(x.png) — o Blink resolve a URL contra a base do documento;
 # nenhuma propriedade deste motor resolve URLs (lote S-decor, dito no teste)
@@ -18,16 +18,8 @@ claude-ua-headings.html
 # vaga 7 — `claude-img-natural` (medida antes do código) saiu daqui com o lote
 # V-img: o PNG de `data:` chega ao `<img>` pela ponte.
 
-# lote `largura-intrinseca-de-controlos`: a LARGURA natural de todos os
-# controlos bate (é o que o lote resolve); a ALTURA de `sel`/`fsel`
-# (`<select>` sem opções) não — `<select>` não passa por `layout_input`
-# (`is_text_input_tag`, `layout/pintura.rs:255`, só cobre `input`/`textarea`),
-# por isso a sua altura de CONTEÚDO real fica em 0 em vez do natural (19) e não
-# recebe `forced_outer_h` no stretch cruzado do flex (36 esperado em `fsel`).
-# Routear `select` por `layout_input` é uma mudança em `bloco.rs`, que este
-# lote não toca (tecto de linhas). Fica para o lote que der ao `<select>` a
-# sua própria caixa.
-claude-controlos-tamanho-natural.html
+# lote `largura-intrinseca-de-controlos`: `claude-controlos-tamanho-natural`
+# left this list the same way — it passes on main `c34c4490d` and after.
 
 # BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto
 # (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não:
