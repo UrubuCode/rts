@@ -177,8 +177,32 @@ fn ascent_do_bloco(
     }
 }
 
-/// The baseline of the lowest line of text an atom paints, from the top of
-/// its outer box, or `None` when it paints no text.
+thread_local! {
+    /// The baseline of the LAST line box of each inline flow laid out, with the
+    /// flow's owner, in layout order — pushed by `layout_inline_flow`
+    /// ([`regista_ultima_linha`]) and read by [`baseline_da_ultima_linha`].
+    ///
+    /// A thread-local and not a field of `DisplayList`, whose file is past the
+    /// ceiling: the question is asked only while an atom is measured, and the
+    /// answer never outlives that measure. Used as a STACK: a measure reads
+    /// only what was pushed after it started and truncates on the way out, so
+    /// a nested inline-block measured inside another leaves the outer's reading
+    /// intact.
+    static ULTIMAS_LINHAS: std::cell::RefCell<Vec<(NodeIdx, f32)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Records the baseline of the last line of the inline flow owned by `dono`.
+pub(in crate::layout) fn regista_ultima_linha(dono: NodeIdx, baseline: f32) {
+    ULTIMAS_LINHAS.with(|v| v.borrow_mut().push((dono, baseline)));
+}
+
+/// The baseline of an atom's LAST line box, from the top of its outer box, or
+/// `None` when it has none. The atom is laid out in a throwaway list and the
+/// last line recorded by a flow of its OWN — owned by the atom or by a block
+/// inside it, never by an atom nested in it (whose lines are its own, CSS 2.1
+/// §10.8.1) — is the answer. "The lowest text painted" was tried first and
+/// picked a nested `vertical-align: top` inline-block's text
+/// (`flexbox-baseline-multi-line-horiz-001`).
 fn baseline_da_ultima_linha(
     dom: &Dom,
     id: NodeIdx,
@@ -187,6 +211,7 @@ fn baseline_da_ultima_linha(
     content_w: f32,
     ctx: &LayoutCtx,
 ) -> Option<f32> {
+    let inicio = ULTIMAS_LINHAS.with(|v| v.borrow().len());
     let mut scratch = DisplayList::for_dom(dom);
     layout_block(
         dom,
@@ -204,17 +229,40 @@ fn baseline_da_ultima_linha(
         ctx,
         &mut scratch,
     );
-    scratch
-        .materialized()
-        .iter()
-        .filter_map(|item| match item {
-            DisplayItem::Text { y, size, is_ahem, .. } => {
-                let familia = is_ahem.then_some("Ahem");
-                Some(y + ctx.measurer.font_ascent_family(*size, familia))
-            }
-            _ => None,
-        })
-        .fold(None, |acc: Option<f32>, b| Some(acc.map_or(b, |m| m.max(b))))
+    ULTIMAS_LINHAS.with(|v| {
+        let mut v = v.borrow_mut();
+        let achada = v[inicio.min(v.len())..]
+            .iter()
+            .rev()
+            .find(|&&(dono, _)| fluxo_proprio(dom, id, dono))
+            .map(|&(_, b)| b);
+        v.truncate(inicio);
+        achada
+    })
+}
+
+/// Is the flow owned by `dono` one of the atom `id`'s OWN line boxes — `dono`
+/// is `id`, or a block reached from it without crossing another atom or an
+/// out-of-flow box?
+fn fluxo_proprio(dom: &Dom, id: NodeIdx, dono: NodeIdx) -> bool {
+    let mut cur = dono;
+    while cur != id {
+        let Some(css) = dom.computed_style_idx(cur) else { return false };
+        use crate::style::DisplayKind as D;
+        let atomico = matches!(
+            css.effective_display(),
+            Some(D::InlineBlock | D::InlineFlex | D::InlineFlexWrap | D::InlineGrid | D::InlineTable | D::Flex | D::FlexWrap | D::Grid | D::Table)
+        );
+        let fora = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None) || css.position.is_some_and(|p| p.out_of_flow());
+        if atomico || fora {
+            return false;
+        }
+        match dom.node(cur).parent {
+            Some(p) => cur = p,
+            None => return false,
+        }
+    }
+    true
 }
 
 /// The same for a generated `inline-block` (`::before`/`::after`): its text's

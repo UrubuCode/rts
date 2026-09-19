@@ -213,6 +213,8 @@ pub(in crate::layout) fn layout_inline_flow(
         .unwrap_or(0.0);
     let mut first_line = true;
     let mut cy = y;
+    // The last line's baseline, for an atom measuring its own (`linha_baseline.rs`).
+    let mut ultima_baseline: Option<f32> = None;
     // A generated inline broken across lines carries its open surface over.
     let mut transporte = super::inline_fragmentos::Superficies::default();
     // CONSUMINDO as linhas: o texto de cada segmento vai direto para o
@@ -553,7 +555,11 @@ pub(in crate::layout) fn layout_inline_flow(
             tall_inline_block,
             ctx,
         );
+        ultima_baseline = Some(text_top + ctx.measurer.font_ascent_family(font_size, family));
         cy += line_advance;
+    }
+    if let Some(b) = ultima_baseline {
+        super::linha_baseline::regista_ultima_linha(dono, b);
     }
     cy
 }

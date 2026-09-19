@@ -96,6 +96,9 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_inline_block_line(
     dom: &Dom,
+    // The owner of the flow these atoms sit in — whose last line's baseline an
+    // enclosing atom may ask for (`linha_baseline.rs`).
+    dono: NodeIdx,
     run: &[(NodeIdx, Option<crate::boxes::BoxId>)],
     content_x: f32,
     y: f32,
@@ -184,6 +187,7 @@ pub(in crate::layout) fn layout_inline_block_line(
     // 3) pinta cada linha: x inicial pelo text-align do pai, itens lado a lado;
     //    y avança pela ALTURA do envelope (baseline + os que a estendem).
     let mut cy = y;
+    let mut ultima_baseline: Option<f32> = None;
     for (items, line_w) in &lines {
         let free = (content_w - line_w).max(0.0);
         let mut x = match parent_css.text_align {
@@ -237,7 +241,11 @@ pub(in crate::layout) fn layout_inline_block_line(
             );
             x += w + trailing;
         }
+        ultima_baseline = Some(cy + env.acima);
         cy += env.altura();
+    }
+    if let Some(b) = ultima_baseline {
+        super::linha_baseline::regista_ultima_linha(dono, b);
     }
     cy
 }
