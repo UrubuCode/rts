@@ -21,30 +21,42 @@
 //! time. That is what kept a fixture of inline-blocks in the expected-failure
 //! list the day this was written.
 //!
-//! Text ADVANCE (the width of a string) is not decided here: it stays the
-//! calibrated average in `style::text_metrics`. Real per-glyph advances need
-//! the font files, which this crate does not read.
+//! Text ADVANCE (the width of a string) is here too, from the same four
+//! fonts: `fonte_avancos.rs` holds each character's `hmtx` advance, measured in
+//! Blink, and [`FontMetricsModel::text_width`] sums them. Checked against real
+//! `<span>`s at 16px: ordinary sentences match Blink to 0.01px in all eight
+//! faces. What the sum does NOT have is KERNING — "AVATAR Toy To." is 14px
+//! narrower in Blink's Times — nor an italic table (the upright advances
+//! stand in), nor any script past Latin-1 and a few typographic marks: a
+//! character outside the tables falls back to the old calibrated average, and
+//! a wide one (CJK and beyond) to one em.
 //!
 //! The question "is this family Ahem?" still has a single site here — four
 //! copies of it across `medidor_texto.rs` is the defect this module first
 //! closed — and Ahem is NOT rounded: 0.8 + 0.2 is the font's definition.
 
-/// The `hhea` metrics of one font, as fractions of the em.
+use super::fonte_avancos as avancos;
+
+/// The `hhea` metrics of one font, as fractions of the em, and its advances.
 #[derive(Clone, Copy)]
 struct Tabela {
     ascent: f32,
     descent: f32,
     gap: f32,
+    /// `[regular, bold]`, indexed like `fonte_avancos::CHARS`.
+    avancos: &'static [[u16; avancos::CHARS.len()]; 2],
+    /// Fraction of the em for a character the tables do not cover.
+    fora_da_tabela: f32,
 }
 
 /// Times New Roman — Blink's `serif`, and its default font.
-const TIMES: Tabela = Tabela { ascent: 1825.0 / 2048.0, descent: 443.0 / 2048.0, gap: 87.0 / 2048.0 };
+const TIMES: Tabela = Tabela { ascent: 1825.0 / 2048.0, descent: 443.0 / 2048.0, gap: 87.0 / 2048.0, avancos: &avancos::TIMES, fora_da_tabela: crate::style::PROP_ADVANCE };
 /// Arial — `sans-serif`.
-const ARIAL: Tabela = Tabela { ascent: 1854.0 / 2048.0, descent: 434.0 / 2048.0, gap: 67.0 / 2048.0 };
+const ARIAL: Tabela = Tabela { ascent: 1854.0 / 2048.0, descent: 434.0 / 2048.0, gap: 67.0 / 2048.0, avancos: &avancos::ARIAL, fora_da_tabela: crate::style::PROP_ADVANCE };
 /// Consolas — `monospace`.
-const CONSOLAS: Tabela = Tabela { ascent: 1884.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0 };
+const CONSOLAS: Tabela = Tabela { ascent: 1884.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, avancos: &avancos::CONSOLAS, fora_da_tabela: crate::style::MONO_ADVANCE };
 /// Segoe UI — `system-ui`, which is what Bootstrap's font stack reaches first.
-const SEGOE_UI: Tabela = Tabela { ascent: 2210.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0 };
+const SEGOE_UI: Tabela = Tabela { ascent: 2210.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, avancos: &avancos::SEGOE_UI, fora_da_tabela: crate::style::PROP_ADVANCE };
 
 /// The table of the FIRST family of the list this engine can place, as a
 /// browser walks a `font-family` list to the first font it has. A name it
@@ -107,6 +119,27 @@ impl FontMetricsModel {
             return size * crate::style::AHEM_DESCENT_RATIO;
         }
         (size * tabela(family).descent).round()
+    }
+
+    /// The width of `text`: the sum of its characters' advances in the font
+    /// `family` resolves to. With no family, `mono` picks Consolas — the flag is
+    /// what a caller that lost the list still knows — and Times otherwise.
+    /// See the module header for what the sum leaves out.
+    pub fn text_width(text: &str, size: f32, family: Option<&str>, mono: bool, bold: bool) -> f32 {
+        if usa_ahem(family) {
+            return text.chars().count() as f32 * size * crate::style::AHEM_ADVANCE;
+        }
+        let t = if family.is_none() && mono { CONSOLAS } else { tabela(family) };
+        let face = &t.avancos[usize::from(bold)];
+        let unidades: f32 = text
+            .chars()
+            .map(|c| match avancos::CHARS.binary_search(&(c as u32)) {
+                Ok(i) => f32::from(face[i]),
+                Err(_) if (c as u32) >= 0x2E80 => 2048.0,
+                Err(_) => t.fora_da_tabela * 2048.0,
+            })
+            .sum();
+        unidades * size / 2048.0
     }
 
     /// The height of one line under `line-height: normal`: the ROUNDED ascent

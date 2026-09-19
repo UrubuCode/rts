@@ -7,7 +7,7 @@
 //! que partilham com ele são só os ajudantes, que montam um documento e leem a
 //! geometria de um seletor.
 
-use crate::layout::{DisplayItem, Rect};
+use crate::layout::{ApproxMeasurer, DisplayItem, Rect, TextMeasurer};
 use crate::table::tests::{geometria, rect};
 
 /// As três regras do colapso de margens verticais (CSS 2.1 §8.3.1), pelo efeito
@@ -208,8 +208,10 @@ fn um_filho_com_width_percentual_nao_faz_o_item_flex_encher_a_linha() {
 // testes são o que impede que uma tentativa de mexer no número mexa na
 // definição.
 //
-// As medidas são as do `ApproxMeasurer` (n * tamanho * 0,5): a 16px cada
-// carácter mede 8px e a linha 18px.
+// The expected widths come from `ApproxMeasurer::text_width`, which sums each
+// character's real advance in the resolved font (default: Times New Roman) —
+// since f3ab1ffdc, not the `n * size * PROP_ADVANCE` average this comment used
+// to describe.
 
 /// Um inline que cabe numa linha mede o SEU texto — não a largura da linha nem
 /// a do bloco que o contém. É a cara mais simples da regra e a que o relatório
@@ -223,18 +225,20 @@ fn um_inline_de_uma_linha_mede_o_seu_texto_e_nao_a_linha() {
     let p = rect(&d, &l, "p", 0);
     let t = rect(&d, &l, "#t", 0);
     assert!((p.w - 400.0).abs() < 0.5, "o bloco é o bloco: {}", p.w);
-    // "alvo" = 4 caracteres. A largura vem da CONSTANTE e não de um número
-    // escrito à mão: o que este teste afirma é que o inline mede o seu texto,
-    // não quanto mede um carácter — e escrever 32 aqui fazia-o falhar sempre
-    // que o avanço fosse recalibrado, por uma razão que não é a dele.
-    let ch = 16.0 * crate::style::PROP_ADVANCE;
+    // "alvo"'s width comes from the MEASURER and not from a number written by
+    // hand: what this test asserts is that the inline measures its own text,
+    // not how wide a character is — writing a literal here made it fail every
+    // time the advance tables were recalibrated, for a reason that is not its.
+    let alvo_w = ApproxMeasurer.text_width("alvo", 16.0, false, false, false);
     assert!(
-        (t.w - 4.0 * ch).abs() < 0.5,
+        (t.w - alvo_w).abs() < 0.5,
         "o inline devia medir o seu texto, mediu {}",
         t.w
     );
-    // e começa depois de "antes " (6 caracteres), não no início da linha.
-    assert!((t.x - 6.0 * ch).abs() < 0.5, "x do inline: {}", t.x);
+    // e começa depois de "antes " (o espaço colapsado antes do <a>), não no
+    // início da linha.
+    let prefixo_w = ApproxMeasurer.text_width("antes ", 16.0, false, false, false);
+    assert!((t.x - prefixo_w).abs() < 0.5, "x do inline: {}", t.x);
 }
 
 /// Um inline que quebra em três linhas tem UMA caixa que as contém às três:
@@ -275,13 +279,10 @@ fn um_inline_dentro_de_outro_tem_a_sua_propria_caixa_mais_estreita() {
     );
     let t = rect(&d, &l, "#t", 0);
     let s = rect(&d, &l, "#s", 0);
-    let ch = 16.0 * crate::style::PROP_ADVANCE;
-    assert!((t.w - 4.0 * ch).abs() < 0.5, "o <a> mede 'alvo': {}", t.w);
-    assert!(
-        (s.w - 2.0 * ch).abs() < 0.5,
-        "o <span> mede só 'vo': {}",
-        s.w
-    );
+    let alvo_w = ApproxMeasurer.text_width("alvo", 16.0, false, false, false);
+    let vo_w = ApproxMeasurer.text_width("vo", 16.0, false, false, false);
+    assert!((t.w - alvo_w).abs() < 0.5, "o <a> mede 'alvo': {}", t.w);
+    assert!((s.w - vo_w).abs() < 0.5, "o <span> mede só 'vo': {}", s.w);
     // contido: começa depois do pai e acaba com ele.
     assert!(
         s.x >= t.x - 0.5 && s.x + s.w <= t.x + t.w + 0.5,
@@ -309,10 +310,11 @@ fn um_inline_com_caixa_atomica_dentro_leva_a_largura_dela_mas_nao_a_altura() {
     );
     let t = rect(&d, &l, "#t", 0);
     // "x" + 40 da imagem + "y": o que se afirma é que a imagem CONTA, e por
-    // isso os dois caracteres vêm da constante e o 40 é o número do teste.
-    let ch = 16.0 * crate::style::PROP_ADVANCE;
+    // isso os dois caracteres vêm do MEDIDOR e o 40 é o número do teste.
+    let x_w = ApproxMeasurer.text_width("x", 16.0, false, false, false);
+    let y_w = ApproxMeasurer.text_width("y", 16.0, false, false, false);
     assert!(
-        (t.w - (40.0 + 2.0 * ch)).abs() < 0.5,
+        (t.w - (40.0 + x_w + y_w)).abs() < 0.5,
         "a largura devia incluir a imagem: {}",
         t.w
     );

@@ -119,9 +119,7 @@ pub(in crate::layout) fn aplicar_line_clamp(
     mut lines: Vec<Vec<Segment>>,
     n: usize,
     content_w: f32,
-    font_size: f32,
-    mono: bool,
-    ahem: bool,
+    fonte_de: &dyn Fn(&[crate::NodeIdx]) -> (f32, bool, bool),
     m: &dyn crate::layout::TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     if n == 0 || lines.len() <= n {
@@ -133,7 +131,7 @@ pub(in crate::layout) fn aplicar_line_clamp(
     // `aplicar_elipse` sem uma segunda função "corta e junta reticências".
     let ultima = vec![lines.pop().expect("n > 0 e lines.len() > n")];
     let cortada =
-        super::segmento::aplicar_elipse_forcada(ultima, content_w, font_size, mono, ahem, m, true);
+        super::segmento::aplicar_elipse_forcada(ultima, content_w, fonte_de, m, true);
     lines.extend(cortada);
     lines
 }

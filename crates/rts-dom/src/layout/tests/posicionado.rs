@@ -6,6 +6,7 @@
 //! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use super::*;
+    use crate::layout::TextMeasurer;
 
     #[test]
     fn hit_test_escolhe_o_no_mais_profundo() {
@@ -339,7 +340,7 @@
         let cruzam: Vec<_> = t.iter().filter(|(_, _, y, _)| *y < 100.0).collect();
         assert!(cruzam.len() >= 2, "várias linhas ao lado do float: {t:?}");
         for (txt, x, y, _) in &cruzam {
-            let largura = txt.chars().count() as f32 * 16.0 * crate::style::PROP_ADVANCE;
+            let largura = ApproxMeasurer.text_width(txt, 16.0, false, false, false);
             assert!(
                 *x + largura <= 400.5,
                 "linha em y={y} invade o float: {txt:?} x={x}"
@@ -366,9 +367,8 @@
             "linhas dos dois lados: {t:?}"
         );
         let largura = |v: &Vec<&(String, f32, f32, u32)>| {
-            let ch = 16.0 * crate::style::PROP_ADVANCE;
             v.iter()
-                .map(|(s, _, _, _)| s.chars().count() as f32 * ch)
+                .map(|(s, _, _, _)| ApproxMeasurer.text_width(s, 16.0, false, false, false))
                 .fold(0.0, f32::max)
         };
         assert!(

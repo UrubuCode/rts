@@ -156,6 +156,12 @@ fn calc_atom(t: &[char], p: &mut usize) -> Option<CalcVal> {
             vh: num,
             ..Default::default()
         }),
-        _ => return None, // unidade desconhecida (ch/vmin/…): calc inválido
+        // `ch` and `ex` are fractions of the em by the SAME rule the units have
+        // outside `calc()` (`Dimension::Ch`/`Ex`), so they fold into the `em`
+        // term. Refused, `calc(15.1ch / 4)` made the whole declaration invalid
+        // and the box fell to `auto` (WPT `text-wrap-balance-line-clamp-002`).
+        "ch" => CalcVal::Len(CalcLen { em: num * crate::style::MONO_ADVANCE, ..Default::default() }),
+        "ex" => CalcVal::Len(CalcLen { em: num * crate::style::X_HEIGHT_RATIO, ..Default::default() }),
+        _ => return None, // unidade desconhecida (vmin/…): calc inválido
     })
 }

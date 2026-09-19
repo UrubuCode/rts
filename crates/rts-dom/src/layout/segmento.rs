@@ -158,12 +158,13 @@ pub(in crate::layout) fn elipse_pedida(css: &ComputedStyle, nowrap: bool) -> boo
 pub(in crate::layout) fn aplicar_elipse(
     lines: Vec<Vec<Segment>>,
     content_w: f32,
-    font_size: f32,
-    mono: bool,
-    ahem: bool,
+    // `(size, mono, ahem)` of the font a segment's text is in — the container's,
+    // or its innermost inline's (`fonte_do_trecho.rs`). An ellipsis cut in the
+    // container's font mis-cut a 16px span inside a 64px block.
+    fonte_de: &dyn Fn(&[NodeIdx]) -> (f32, bool, bool),
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
-    aplicar_elipse_forcada(lines, content_w, font_size, mono, ahem, m, false)
+    aplicar_elipse_forcada(lines, content_w, fonte_de, m, false)
 }
 
 /// O mesmo corte de [`aplicar_elipse`], mas com um `forcar` que salta a saída
@@ -176,16 +177,18 @@ pub(in crate::layout) fn aplicar_elipse(
 pub(in crate::layout) fn aplicar_elipse_forcada(
     lines: Vec<Vec<Segment>>,
     content_w: f32,
-    font_size: f32,
-    mono: bool,
-    // Ver `quebra::wrap_runs` — Ahem mede pelo avanço exato, não por `mono`.
-    ahem: bool,
+    fonte_de: &dyn Fn(&[NodeIdx]) -> (f32, bool, bool),
     m: &dyn TextMeasurer,
     forcar: bool,
 ) -> Vec<Vec<Segment>> {
     const ELIPSE: &str = "…";
-    let medir = |t: &str| -> f32 {
+    // The ellipsis takes the font of the text it is appended to.
+    let medir = |t: &str, owners: &[NodeIdx]| -> f32 {
+        let (font_size, mono, ahem) = fonte_de(owners);
         if ahem { t.chars().count() as f32 * font_size } else { m.text_width(t, font_size, mono, false, false) }
+    };
+    let do_ultimo = |line: &[Segment]| -> Vec<NodeIdx> {
+        line.iter().rev().find(|s| s.atomic.is_none()).map(|s| s.owners.clone()).unwrap_or_default()
     };
     lines
         .into_iter()
@@ -200,7 +203,7 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
             if total <= content_w && forcar {
                 // cabe, mas a elipse é devida na mesma (linha cortada por
                 // `line-clamp`, não por transbordo): só acrescenta o "…".
-                let w_elipse = medir(ELIPSE);
+                let w_elipse = medir(ELIPSE, &do_ultimo(&line));
                 let mut line = line;
                 match line.last_mut() {
                     Some(last) if last.atomic.is_none() => {
@@ -223,7 +226,7 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
                 }
                 return line;
             }
-            let w_elipse = medir(ELIPSE);
+            let w_elipse = medir(ELIPSE, &do_ultimo(&line));
             let orcamento = content_w - w_elipse;
             let mut out: Vec<Segment> = Vec::with_capacity(line.len());
             let mut acc = 0.0f32;
@@ -240,16 +243,8 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
                 }
                 if seg.atomic.is_none() {
                     let disp = orcamento - acc - seg.lead_w;
-                    let (n, w) = crate::inline_box::prefixo_que_cabe(
-                        &seg.text,
-                        disp,
-                        font_size,
-                        mono,
-                        seg.bold,
-                        seg.italic,
-                        ahem,
-                        m,
-                    );
+                    let (font_size, mono, ahem) = fonte_de(&seg.owners);
+                    let (n, w) = crate::inline_box::prefixo_que_cabe(&seg.text, disp, font_size, mono, seg.bold, seg.italic, ahem, m);
                     seg.text.truncate(n);
                     seg.text.push_str(ELIPSE);
                     seg.text_width = w + w_elipse;

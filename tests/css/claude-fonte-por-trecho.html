@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Ruler: every inline box has ITS OWN font. The inline flow measured and
+     painted all the text of a line with the CONTAINER's family and size — a
+     `<code>` inside a serif paragraph was measured in Times, a 32px span at
+     16px — and the line box never grew for a bigger inline. CSS 2.1 §10.8:
+     each inline box contributes its own ascent/descent and line-height around
+     one shared baseline, and the line box holds them all. Five cases: a
+     monospace run, a smaller run, a bigger run (the line grows and the
+     neighbours drop to the shared baseline), a sans-serif run in a serif line,
+     and a bigger run under a declared line-height. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px serif; }
+  p { margin: 0 0 10px 0; }
+  #p5 { line-height: 20px; }
+</style></head>
+<body>
+  <p id="p1">abc <code id="c1">code here</code><span id="d1">def</span></p>
+  <p id="p2">abc <span id="s2" style="font-size: 10px">small text</span><span id="d2">def</span></p>
+  <p id="p3"><span id="a3">abc</span> <span id="b3" style="font-size: 32px">Big</span><span id="d3">def</span></p>
+  <p id="p4">abc <span id="s4" style="font-family: sans-serif">Wide Words</span><span id="d4">def</span></p>
+  <p id="p5"><span id="a5">abc</span> <span id="b5" style="font-size: 32px">Big</span><span id="d5">def</span></p>
+  <div id="fim" style="height: 10px; background: #00f"></div>
+</body>
+</html>

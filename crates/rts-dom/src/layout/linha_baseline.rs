@@ -44,13 +44,23 @@ pub(in crate::layout) fn envelope_da_linha(
     content_w: f32,
     ctx: &LayoutCtx,
 ) -> Option<Envelope> {
-    if !line.iter().any(|s| e_inline_block(s)) {
+    // A text segment whose font is not the container's is an inline box of
+    // its own height around the same baseline (CSS 2.1 §10.8): a `<code>` in a
+    // serif line, a bigger `<span>` — the line box has to hold it.
+    let proprias: Vec<(f32, f32, VerticalAlign)> = line
+        .iter()
+        .filter(|s| s.atomic.is_none() && !s.text.is_empty())
+        .filter_map(|s| super::fonte_do_trecho::do_segmento(dom, &s.owners, family, font_size, ctx.measurer))
+        .map(|f| (f.altura_da_caixa, f.ascent_da_caixa, VerticalAlign::Baseline))
+        .collect();
+    if proprias.is_empty() && !line.iter().any(|s| e_inline_block(s)) {
         return None;
     }
     let itens: Vec<(f32, f32, VerticalAlign)> = line
         .iter()
         .filter_map(|s| atomo(dom, s, content_w, ctx))
         .map(|a| (a.altura, a.ascent, a.valign))
+        .chain(proprias)
         .collect();
     Some(envelope_com_baseline(&itens, font_size, line_height, family, ctx.measurer))
 }
@@ -71,6 +81,21 @@ pub(in crate::layout) fn topo_do_atomo(
         Some(a) => topo_do_item_com_baseline(a.valign, a.altura, a.ascent, cy, env, font_size, family, ctx.measurer),
         None => cy,
     }
+}
+
+/// Sem TEXTO mas com um `<img>` mais alto do que a linha normal: ele senta
+/// na BASELINE (linha 344, `topo = text_top + ascent - wh`) mas — ao
+/// contrário de texto — não tem DESCIDA nenhuma (CSS 2.1 §10.8): toda a
+/// sua altura fica ACIMA da baseline. A meia-entrelinha simétrica reparte
+/// o excesso de `line_h` (que É a própria altura da imagem, pelo `fold`
+/// acima) igualmente acima/abaixo da content-area do texto — e sobe a
+/// caixa da imagem bem acima de `cy`, mesmo ELA sendo o motivo do
+/// `line_h` ter crescido. `<p>…</p><img/>` (o idioma-padrão de quadrado
+/// de referência do WPT) saía com o quadrado a começar 43px ANTES do fim
+/// do parágrafo — deslocando a REFERÊNCIA de qualquer reftest que o use.
+/// Só toca `text_top`, não `line_advance`/`text_owner_anchor`.
+pub(in crate::layout) fn imagem_alta_sem_texto(line: &[Segment], line_h: f32, lh: f32, tem_texto: bool) -> bool {
+    line_h > lh + 0.001 && !tem_texto && line.iter().any(|s| matches!(s.atomic, Some((_, _, AtomicKind::Replaced))))
 }
 
 fn e_inline_block(seg: &Segment) -> bool {

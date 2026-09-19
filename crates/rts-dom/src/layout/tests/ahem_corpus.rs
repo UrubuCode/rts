@@ -49,19 +49,20 @@ fn ahem_primeira_da_lista_nao_cai_no_fallback_monospace() {
     assert_eq!(r.w, 200.0, "{r:?}");
 }
 
-/// Uma família qualquer não sofre nenhuma mudança: continua na aproximação
-/// proporcional de sempre — este corpus não é um efeito colateral geral.
-/// `PROP_ADVANCE=0.46`: 4 × 50 × 0.46 = 92.
+/// A family that is not Ahem is measured in ITS OWN font, not as Ahem's 1em
+/// blocks: "XXXX" at 50px Arial is four times X's real advance (1366/2048 em,
+/// 133.4px — Blink's number), where Ahem would give 200.
 #[test]
-fn familia_normal_continua_na_aproximacao_de_sempre() {
+fn a_normal_family_is_measured_by_its_own_advances() {
+    use crate::layout::TextMeasurer;
     let list = layout(
-        "<div style='display:flex'>\
-           <div style='font:50px/1 Arial;background:#0f0'>XXXX</div>\
-         </div>",
+        "<div style='display:flex'>           <div style='font:50px/1 Arial;background:#0f0'>XXXX</div>         </div>",
         600.0,
     );
     let r = first_rect(&list);
-    assert_eq!(r.w, 92.0, "{r:?}");
+    let arial = crate::layout::ApproxMeasurer.text_width_family("XXXX", 50.0, Some("Arial"), false, false, false);
+    assert_eq!(r.w, arial, "{r:?}");
+    assert!((arial - 133.4).abs() < 0.01 && arial < 200.0, "{arial}");
 }
 
 /// `line-height: normal` (não declarado) na Ahem é 1em exato
@@ -104,10 +105,16 @@ fn wrap_ahem_usa_avanco_exato_para_decidir_onde_quebrar() {
 /// A mesma pergunta com uma família qualquer: as DUAS palavras cabem na
 /// MESMA linha (a régua de que o teste acima depende para provar que Ahem
 /// muda o resultado, e não é sempre assim).
+///
+/// The container width is chosen to fit both words' REAL Arial advance
+/// (since f3ab1ffdc/1cb9ed714) plus the space between them — two 10-"A"
+/// words at 10px Arial measure ~66.7px each and the space ~2.78px, ~136.2px
+/// total; 105px (which relied on `PROP_ADVANCE`'s coarser ~46px/word) no
+/// longer fits either family and stopped isolating this test's claim.
 #[test]
 fn wrap_familia_normal_cabe_as_duas_palavras_na_mesma_linha() {
     let list = layout(
-        "<p style='width:105px;font:10px/1 Arial'>AAAAAAAAAA AAAAAAAAAA</p>",
+        "<p style='width:145px;font:10px/1 Arial'>AAAAAAAAAA AAAAAAAAAA</p>",
         600.0,
     );
     let t = all_texts(&list);

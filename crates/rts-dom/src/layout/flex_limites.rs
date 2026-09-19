@@ -59,16 +59,7 @@ pub(in crate::layout) fn flex_base_outer(
                 dom, id, &css, container_w, parent_font, ctx,
             );
         }
-        let natural = child_outer_width(dom, id, container_w, parent_font, ctx);
-        // A `<button>` genérico mede 1.03px acima da border-box Blink nesta
-        // aproximação de texto; a base flex deve usar a mesma caixa que será
-        // imposta na pintura, senão os itens seguintes começam deslocados.
-        let is_button = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button");
-        return if is_button && css.width.is_none() {
-            (natural - 1.03).max(0.0)
-        } else {
-            natural
-        };
+        return child_outer_width(dom, id, container_w, parent_font, ctx);
     };
     let margin_h = css.margin.resolve_h(&resolve);
     if css.border_box.unwrap_or(false) {
@@ -386,11 +377,6 @@ pub(in crate::layout) fn min_automatico(
         root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
-    };
-    let min_content = if matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button") {
-        (min_content - 1.03).max(0.0)
-    } else {
-        min_content
     };
     let conteudo = max_main.map(|m| min_content.min(m)).unwrap_or(min_content);
     match ccss.width.and_then(|d| d.resolve(&rc)) {

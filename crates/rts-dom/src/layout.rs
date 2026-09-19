@@ -62,6 +62,8 @@ mod select;
 mod intrinseco_min_max;
 mod tamanho_intrinseco;
 mod itens;
+mod fonte_avancos;
+mod fonte_do_trecho;
 mod fonte_metricas;
 mod medida;
 mod medida_arvore;
