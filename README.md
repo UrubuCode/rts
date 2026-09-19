@@ -27,7 +27,7 @@
 <!-- JSC_BADGE_START -->
 <!-- JSC_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
-[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-99.7%25-brightgreen?style=flat-square)](tests/css/README.md)
+[![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-99.1%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
 
 </div>
@@ -222,8 +222,8 @@ _V8 348a6116c · corpus inteiro · 2026-09-15_
 Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280×800, 1 px tolerance) over the fixtures in `tests/css/`. Two numbers, on purpose: a *fixture* passes only when every measurement in it matches; *measurements* count each x/y/w/h and each computed property one by one. **Read it as "what we implemented is right", not as a share of CSS**: the corpus measures what has a fixture, and each new fixture is written to fail first (`tests/css/README.md`).
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.7%   3890/3900 measurements matching Blink
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.2%   161/164 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.1%   4197/4236 measurements matching Blink
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   163/165 fixtures passing
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 67.8%   590/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
@@ -274,8 +274,7 @@ Subfolders are the WPT's own hierarchy. The subject grouping is **ours**, read o
 
 Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperado-a-falhar.txt`):
 - `claude-absoluto-dentro-do-inline-nao-parte.html` — BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não: o Blink põe um absoluto que era de BLOCO a seguir à caixa de linha (y=20); `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e não há caixa de linha guardada que diga onde a linha acaba (lote IFC).
-- `claude-pseudo-caixa-gerada.html` — BT-5 caixa gerada (2026-09-18): the generated box now takes its width, padding, border and margin on the line, and a block pseudo's text wraps — `#p1`, `#p2` and every x/w pass. What still fails is VERTICAL, and it is not the pseudo's: an empty inline-block exactly as tall as the line (`#p3`, Blink 25, here 20) and a non-empty one (`#p5`, Blink 32 with the text on its baseline, here 37) are placed by the line flow's inline-block rule, which a real `<span style=display:inline-block>` gets the same numbers from (`alinhamento_vertical.rs`, the default `baseline` not migrated for the text flow). `#p4` and `#p5` start the 5px `#p3` is short of too high, and `#p5`'s 5px too many land `#fim` on Blink's 262 by cancellation.
-- `claude-inline-block-baseline.html` — inline-block baseline (2026-09-18): every case sits right INSIDE its line (heights and offsets match Blink — `inline_block_baseline_corpus.rs` pins them relative to each container), but the strut's descent is 0.4px short of Blink's at 16px monospace (Blink rounds ascent/descent to whole pixels), and that accumulates down the page past the 1px tolerance by the fourth case. Rounding the strut alone was tried and reverted (text top disagreed by +0.5px per line). It closes with the FM lot, the font metrics in one model.
+- `claude-fm-metricas-por-familia.html` — FM (2026-09-18): `claude-pseudo-caixa-gerada` and `claude-inline-block-baseline` left this list when the vertical font metrics became the fonts' own tables (`layout/fonte_metricas.rs`) — both were failing on the strut, not on what they measure.  `claude-fm-metricas-por-familia` is the ruler of those metrics. Every `y` and `h` of its 84 elements matches Blink; its 38 deviations are all `x`/`w` of the text "xg" — the text ADVANCE, which is still one calibrated average per class of font (real advances need the font files). The vertical numbers are pinned exactly by the unit test beside the model.
 
 **DOM engine state** (`crates/rts-dom/PLAN.md` §0): **73/97 lots done**, 14 partial, pending: Q, U, V–Y, TEXTO, BR, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 

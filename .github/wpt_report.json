@@ -155,8 +155,8 @@
     },
     {
       "nome": "percentage-heights-015",
-      "pct": 8.354199218749999,
-      "n": 85547,
+      "pct": 8.3642578125,
+      "n": 85650,
       "script": false
     },
     {
@@ -880,8 +880,8 @@
     },
     {
       "nome": "grandchild-span-height",
-      "pct": 0.8007812499999999,
-      "n": 8200,
+      "pct": 0.8105468750000001,
+      "n": 8300,
       "script": false
     },
     {
@@ -946,8 +946,8 @@
     },
     {
       "nome": "flexbox-dyn-resize-001",
-      "pct": 0.726171875,
-      "n": 7436,
+      "pct": 0.723828125,
+      "n": 7412,
       "script": true
     },
     {
@@ -1008,12 +1008,6 @@
       "nome": "gap-007-rl",
       "pct": 0.572265625,
       "n": 5860,
-      "script": false
-    },
-    {
-      "nome": "flexitem-stretch-range",
-      "pct": 0.5318359375,
-      "n": 5446,
       "script": false
     },
     {
@@ -1179,6 +1173,12 @@
       "script": false
     },
     {
+      "nome": "flexitem-stretch-range",
+      "pct": 0.2853515625,
+      "n": 2922,
+      "script": false
+    },
+    {
       "nome": "flex-item-position-relative-001",
       "pct": 0.244140625,
       "n": 2500,
@@ -1319,8 +1319,8 @@
     },
     {
       "nome": "flexbox-collapsed-item-baseline-001",
-      "pct": 0.09140625000000001,
-      "n": 936,
+      "pct": 0.09033203125,
+      "n": 925,
       "script": false
     },
     {
@@ -1340,12 +1340,6 @@
       "pct": 0.0732421875,
       "n": 750,
       "script": false
-    },
-    {
-      "nome": "dynamic-isize-change-001",
-      "pct": 0.069140625,
-      "n": 708,
-      "script": true
     },
     {
       "nome": "balance/balance-start-bias-001",
@@ -1372,6 +1366,12 @@
       "script": false
     },
     {
+      "nome": "dynamic-isize-change-001",
+      "pct": 0.050390625,
+      "n": 516,
+      "script": true
+    },
+    {
       "nome": "flex-aspect-ratio-percentage-height-stale-width",
       "pct": 0.0390625,
       "n": 400,
@@ -1387,6 +1387,12 @@
       "nome": "select-element-multiple",
       "pct": 0.036328125,
       "n": 372,
+      "script": false
+    },
+    {
+      "nome": "flexbox_inline",
+      "pct": 0.028906249999999998,
+      "n": 296,
       "script": false
     },
     {
@@ -1414,21 +1420,15 @@
       "script": false
     },
     {
-      "nome": "flexbox_inline",
-      "pct": 0.0216796875,
-      "n": 222,
-      "script": false
-    },
-    {
       "nome": "dynamic-baseline-change-nested",
-      "pct": 0.021484375,
-      "n": 220,
+      "pct": 0.01953125,
+      "n": 200,
       "script": true
     },
     {
       "nome": "dynamic-baseline-change",
-      "pct": 0.021484375,
-      "n": 220,
+      "pct": 0.01953125,
+      "n": 200,
       "script": true
     },
     {
@@ -1451,8 +1451,8 @@
     },
     {
       "nome": "multiline-reverse-wrap-baseline",
-      "pct": 0.0087890625,
-      "n": 90,
+      "pct": 0.00830078125,
+      "n": 85,
       "script": false
     },
     {
@@ -1982,13 +1982,13 @@
       "estado": "passa"
     },
     {
+      "nome": "baseline-outside-flex-item",
+      "estado": "passa"
+    },
+    {
       "nome": "balance/webkit-box-no-balance",
       "estado": "falha",
       "pct": 1.46484375
-    },
-    {
-      "nome": "baseline-outside-flex-item",
-      "estado": "passa"
     },
     {
       "nome": "baseline-synthesis-001",
@@ -2052,13 +2052,13 @@
       "estado": "passa"
     },
     {
-      "nome": "css-flexbox-img-expand-evenly",
-      "estado": "passa"
-    },
-    {
       "nome": "css-flexbox-row-reverse-wrap-reverse",
       "estado": "falha",
       "pct": 1.04296875
+    },
+    {
+      "nome": "css-flexbox-img-expand-evenly",
+      "estado": "passa"
     },
     {
       "nome": "css-flexbox-row-reverse-wrap",
@@ -2093,12 +2093,12 @@
     {
       "nome": "dynamic-baseline-change-nested",
       "estado": "falha",
-      "pct": 0.021484375
+      "pct": 0.01953125
     },
     {
       "nome": "dynamic-baseline-change",
       "estado": "falha",
-      "pct": 0.021484375
+      "pct": 0.01953125
     },
     {
       "nome": "dynamic-bsize-change",
@@ -2110,14 +2110,14 @@
       "estado": "passa"
     },
     {
+      "nome": "dynamic-isize-change-001",
+      "estado": "falha",
+      "pct": 0.050390625
+    },
+    {
       "nome": "dynamic-change-simplified-layout",
       "estado": "falha",
       "pct": 0.390625
-    },
-    {
-      "nome": "dynamic-isize-change-001",
-      "estado": "falha",
-      "pct": 0.069140625
     },
     {
       "nome": "dynamic-isize-change-002",
@@ -2458,14 +2458,14 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-container-min-content-001",
-      "estado": "falha",
-      "pct": 1.1345703125
-    },
-    {
       "nome": "flex-container-max-content-001",
       "estado": "falha",
       "pct": 1.9079101562499998
+    },
+    {
+      "nome": "flex-container-min-content-001",
+      "estado": "falha",
+      "pct": 1.1345703125
     },
     {
       "nome": "flex-cross-size-border-box-001",
@@ -2501,11 +2501,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-001",
+      "nome": "flex-flow-002",
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-002",
+      "nome": "flex-flow-001",
       "estado": "passa"
     },
     {
@@ -2684,11 +2684,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-002",
+      "nome": "flex-minimum-height-flex-items-001",
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-001",
+      "nome": "flex-minimum-height-flex-items-002",
       "estado": "passa"
     },
     {
@@ -2714,11 +2714,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-011",
+      "nome": "flex-minimum-height-flex-items-008",
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-008",
+      "nome": "flex-minimum-height-flex-items-011",
       "estado": "passa"
     },
     {
@@ -3060,7 +3060,7 @@
     {
       "nome": "flexbox-collapsed-item-baseline-001",
       "estado": "falha",
-      "pct": 0.09140625000000001
+      "pct": 0.09033203125
     },
     {
       "nome": "flexbox-collapsed-item-horiz-001",
@@ -3126,7 +3126,7 @@
     {
       "nome": "flexbox-dyn-resize-001",
       "estado": "falha",
-      "pct": 0.726171875
+      "pct": 0.723828125
     },
     {
       "nome": "flexbox-flex-basis-content-001a",
@@ -3193,11 +3193,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-vert-001",
+      "nome": "flexbox-flex-wrap-horiz-002",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-flex-wrap-horiz-002",
+      "nome": "flexbox-flex-wrap-vert-001",
       "estado": "passa"
     },
     {
@@ -4078,7 +4078,7 @@
     {
       "nome": "flexbox_inline",
       "estado": "falha",
-      "pct": 0.0216796875
+      "pct": 0.028906249999999998
     },
     {
       "nome": "flexbox_item-bottom-float",
@@ -4336,7 +4336,7 @@
     {
       "nome": "flexitem-stretch-range",
       "estado": "falha",
-      "pct": 0.5318359375
+      "pct": 0.2853515625
     },
     {
       "nome": "gap-001-lr",
@@ -4511,7 +4511,7 @@
     {
       "nome": "grandchild-span-height",
       "estado": "falha",
-      "pct": 0.8007812499999999
+      "pct": 0.8105468750000001
     },
     {
       "nome": "grid-flex-item-001",
@@ -4713,7 +4713,7 @@
     {
       "nome": "multiline-reverse-wrap-baseline",
       "estado": "falha",
-      "pct": 0.0087890625
+      "pct": 0.00830078125
     },
     {
       "nome": "multiline-shrink-to-fit",
@@ -4835,7 +4835,7 @@
     {
       "nome": "percentage-heights-015",
       "estado": "falha",
-      "pct": 8.354199218749999
+      "pct": 8.3642578125
     },
     {
       "nome": "percentage-heights-016",
@@ -5175,11 +5175,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
