@@ -187,6 +187,25 @@ mod tests {
     }
 
     #[test]
+    fn the_interior_of_a_spanning_object_is_not_a_cell_with_a_width() {
+        // A conservative stack scan names whatever a stale word decodes to, and
+        // an interior's first word is a VALUE of the object around it. Read as a
+        // header, this one spells a width of billions — and the marker walked
+        // it: 742 ms in one cycle over 2 645 live cells.
+        let mut region = Region::with_capacity(8);
+        let wide = region.alloc_spanning(STRIDE * 2, 1).expect("room");
+        let after = region.alloc(16, 2).expect("room");
+        let interior = wide + (after - wide) / 2;
+
+        region
+            .set_spanning_field(wide, 15, 31, u64::MAX - 1)
+            .expect("the slot that is the second cell's first word");
+        assert_eq!(region.width_of(interior), None, "an interior has no header to read a width from");
+        assert_eq!(region.field(interior, 0), None);
+        assert_eq!(region.width_of(wide), Some(31), "the object itself is unchanged");
+    }
+
+    #[test]
     fn a_field_past_the_seventh_of_a_spanning_object_is_its_own() {
         // The slot the cell form refuses, and the reason this pair of accessors
         // exists: it continues straight through the cells the object covers.
