@@ -50,10 +50,37 @@ use crate::inline_box::ParteGerada;
 ///
 /// Still cut: `position:absolute` on the pseudo is flowed like the inline
 /// most pseudos are.
+///
+/// **The atom's box is looked up by NODE here** (`BoxTree::generated_of`), in
+/// the document's memoised tree — the one every layout list carries — because
+/// `linha.rs` calls this with the owner's node and no box. `runs.rs` has the
+/// box it is walking and calls [`pseudo_run_da_caixa`] with the exact one:
+/// for a split inline, the node's first box is not the fragment being walked.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn pseudo_run(
     dom: &Dom,
     id: NodeIdx,
+    donos: &[NodeIdx],
+    pe: crate::style::PseudoElement,
+    cor_herdada: u32,
+    herdado_italico: bool,
+    base_w: f32,
+    ctx: &LayoutCtx,
+) -> Vec<InlineRun> {
+    let gerada = dom.box_tree().generated_of(id, pe);
+    pseudo_run_da_caixa(dom, id, gerada, donos, pe, cor_herdada, herdado_italico, base_w, ctx)
+}
+
+/// [`pseudo_run`] with the generated box already found: `gerada` is what the
+/// atom carries (`None` where the tree has no generated box under the box
+/// being walked). Existence and content still come from `Dom::pseudo_box`, so
+/// the runs are what they were before the box had an identity — this lot
+/// names the box, it does not move it.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn pseudo_run_da_caixa(
+    dom: &Dom,
+    id: NodeIdx,
+    gerada: Option<crate::boxes::BoxId>,
     // The inline chain around the originating element, it included and last.
     donos: &[NodeIdx],
     pe: crate::style::PseudoElement,
@@ -82,7 +109,7 @@ pub(in crate::layout) fn pseudo_run(
         italic: false,
         deco: 0,
         owners: donos.to_vec(),
-        atomic: Some((id, None, AtomicKind::Gerada(pe, parte))),
+        atomic: Some((id, gerada, AtomicKind::Gerada(pe, parte))),
         ww,
         wh,
     };
@@ -92,7 +119,7 @@ pub(in crate::layout) fn pseudo_run(
     // `display-contents-before-after-002`).
     let sem_caixa = caixa.css.display_contents == Some(true);
     if display == Some(DisplayKind::InlineBlock) && !sem_caixa {
-        let medida = medir_atomo(caixa, base_w, ctx);
+        let medida = medir_atomo((gerada, caixa), base_w, ctx);
         crate::bump!(inline_runs);
         return vec![atomo(ParteGerada::Atomo, medida.w, medida.h)];
     }
@@ -149,7 +176,7 @@ fn contexto(base_w: f32, fonte: f32, ctx: &LayoutCtx) -> ResolveCtx {
 /// `width`/`height`, or shrink-to-fit — the max-content width of its text,
 /// capped by what the line offers (CSS 2.1 §10.3.9) — with its text broken
 /// at that width and one line box per line.
-fn medir_atomo(caixa: crate::pseudo::PseudoBox, base_w: f32, ctx: &LayoutCtx) -> CaixaGerada {
+fn medir_atomo((gerada, caixa): (Option<crate::boxes::BoxId>, crate::pseudo::PseudoBox), base_w: f32, ctx: &LayoutCtx) -> CaixaGerada {
     let css = &caixa.css;
     let fonte = font_px(css, DEFAULT_FONT_SIZE);
     let r = contexto(base_w, fonte, ctx);
@@ -168,17 +195,23 @@ fn medir_atomo(caixa: crate::pseudo::PseudoBox, base_w: f32, ctx: &LayoutCtx) ->
         .height
         .and_then(|d| d.resolve(&r))
         .unwrap_or_else(|| altura_das_linhas(css, &linhas, fonte, ctx));
-    montar(caixa, arestas, conteudo_w, conteudo_h, linhas, fonte)
+    montar((gerada, caixa), arestas, conteudo_w, conteudo_h, linhas, fonte)
 }
 
 /// Paints the `inline-block` pseudo `pe` of `id` at the place the line gave
 /// it: `x` and its `topo`, which the line decides by the same §10.8.1
 /// envelope as a real `inline-block` (`linha_baseline.rs`).
+///
+/// `gerada` is the atom's box as the line has it — the exact box of THIS
+/// fragment when the originating inline is split, so each fragment records
+/// its own geometry. Only without it is the box looked up by node, where the
+/// last fragment would record over the others.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn pintar_atomo(
     dom: &Dom,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
+    gerada: Option<crate::boxes::BoxId>,
     x: f32,
     topo: f32,
     base_w: f32,
@@ -188,6 +221,7 @@ pub(in crate::layout) fn pintar_atomo(
     let Some(caixa) = dom.pseudo_box(id, pe) else {
         return;
     };
-    let medida = medir_atomo(caixa, base_w, ctx);
+    let gerada = gerada.or_else(|| list.tree.generated_of(id, pe));
+    let medida = medir_atomo((gerada, caixa), base_w, ctx);
     super::pseudo_caixa::pintar(list, &medida, x, topo, ctx);
 }

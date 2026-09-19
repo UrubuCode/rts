@@ -119,12 +119,12 @@ pub(in crate::layout) fn layout_children_horizontal(
 
     // ── PRÉ-PASS: coleta cada filho renderável com a BASE flex + fatores ─────────
     let mut items: Vec<FlexItem> = Vec::new();
-    items.extend(super::flex_pseudo::item_flex(dom, id, crate::style::PseudoElement::Before, content_w, font_size, ctx));
+    items.extend(super::flex_pseudo::item_flex(dom, &list.tree, container, id, crate::style::PseudoElement::Before, content_w, font_size, ctx));
     // A ordem visual de base de um flex/wrap vem das caixas-filhas desta
     // construção. O DOM ainda responde às propriedades e ao texto, mas não
     // volta a escolher uma caixa para cada item.
     let tree = std::rc::Rc::clone(&list.tree);
-    for &caixa in tree.children(container) {
+    for &caixa in tree.children_without_generated(container) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };
@@ -247,7 +247,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         });
     }
     // `::after` é o último item; o `::before` entrou antes do laço.
-    items.extend(super::flex_pseudo::item_flex(dom, id, crate::style::PseudoElement::After, content_w, font_size, ctx));
+    items.extend(super::flex_pseudo::item_flex(dom, &tree, container, id, crate::style::PseudoElement::After, content_w, font_size, ctx));
     // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
     items.sort_by_key(|it| it.order);
 

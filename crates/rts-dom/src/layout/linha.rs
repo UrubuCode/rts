@@ -426,7 +426,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         let topo = envelope
                             .as_ref()
                             .map_or(cy, |env| super::linha_baseline::topo_do_atomo(dom, &seg, cy, env, font_size, family, content_w, ctx));
-                        super::pseudo_inline::pintar_atomo(dom, a_idx, pe, seg_x, topo, content_w, ctx, list);
+                        super::pseudo_inline::pintar_atomo(dom, a_idx, pe, caixa, seg_x, topo, content_w, ctx, list);
                     }
                     AtomicKind::Marker
                     | AtomicKind::Break

@@ -161,7 +161,7 @@ fn empilhados(
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    tree.children(caixa)
+    tree.children_without_generated(caixa)
         .iter()
         .map(|&filho| match tree.node_of(filho) {
             None => empilhados(dom, tree, filho, ccss, container_w, font_size, ctx),

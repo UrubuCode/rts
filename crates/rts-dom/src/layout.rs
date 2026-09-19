@@ -44,6 +44,7 @@ use crate::inline_box::{AtomicKind, ParteGerada, apara_css, e_espaco_css, so_esp
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod bfc;
+pub(crate) mod bfc_estilo;
 mod bfc_evita_float;
 pub(crate) mod caixa;
 mod caixa_contentora;

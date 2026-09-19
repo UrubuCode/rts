@@ -104,7 +104,11 @@ pub(in crate::layout) fn sequencia_do_fluxo(
         "a caixa {caixa:?} de {id:?} nao e desta arvore (geracao {}): a lista carrega uma arvore de outra construcao",
         tree.generation()
     );
-    let caixas = tree.children(caixa);
+    // WITHOUT the generated boxes (`::before`/`::after`): `pseudo_bloco` lays a
+    // block-level one out around this very loop, and a generated box here would
+    // be a second, anonymous-looking step for the same box — laid out twice.
+    // The equality below counts what the flow owns, not what the tree holds.
+    let caixas = tree.children_without_generated(caixa);
     // The tree's own order, first and on its own. ONE STEP PER BOX, anonymous
     // included: the flow has a path for a box with no node now.
     let mut da_arvore: Vec<PassoDoFluxo> = Vec::with_capacity(caixas.len());
@@ -191,7 +195,7 @@ fn posicao_no_contentor(dom: &Dom, tree: &BoxTree, id: NodeIdx, b: BoxId) -> Opt
     if let Some(no) = tree.node_of(b) {
         return filhos.iter().position(|&d| d == no);
     }
-    tree.children(b)
+    tree.children_without_generated(b)
         .iter()
         .filter_map(|&neto| posicao_no_contentor(dom, tree, id, neto))
         .min()

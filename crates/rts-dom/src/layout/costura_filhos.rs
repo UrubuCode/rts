@@ -49,6 +49,20 @@ fn mesma_caixa(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
     }
     match tipo {
         BoxKind::Anonymous { .. } => mesma_sequencia_de_filhos(antiga, x, nova, y),
+        // A generated box is named whole by its `BoxKind` — originating element
+        // AND which pseudo — and has no children, so equal kinds at the same
+        // position are the same box. One that appeared or went away changes
+        // the LENGTH of the sequence above and is refused there, which the old
+        // comparison (with no generated boxes in the tree) could not do.
+        //
+        // What this cannot see is a change of its CONTENT: the text is not in
+        // the tree at all, it is asked of the cascade. That is not a structure
+        // question, and the pseudo is painted into its originating element's
+        // own items — which `costurar` never reuses when that element is the
+        // root of the `touch_*` (self-dirty) or inside it (no dirty-children
+        // marks). A `counter()` fed by a DESCENDANT is the case neither covers,
+        // and it predates the tree.
+        BoxKind::Generated { .. } => true,
         BoxKind::Element(no) | BoxKind::Text { node: no, .. } => {
             // Um nó que passou a gerar outra quantidade de caixas (um inline
             // partido, ou que deixou de o estar) mudou de estrutura mesmo com

@@ -41,7 +41,7 @@ pub(super) fn min_content_anonima(
     }
     let mut m = 0.0f32;
     let mut linha = 0.0f32;
-    for &filho in tree.children(caixa) {
+    for &filho in tree.children_without_generated(caixa) {
         let Some(c) = tree.node_of(filho) else {
             let w = min_content_anonima(dom, tree, filho, font, ctx, sem_quebra, mono);
             m = m.max(w);

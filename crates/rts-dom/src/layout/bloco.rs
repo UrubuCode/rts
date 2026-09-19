@@ -30,71 +30,13 @@ enum MarginChildRole {
 /// carries with the fixtures that pinned each one. The rule it encodes is a
 /// STYLE question and will move to `style/` with `is_block_level`.
 pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
-    let is_root = dom.node(id).parent == Some(dom.root);
-    let display_bfc = matches!(
-        css.effective_display(),
-        Some(
-            crate::style::DisplayKind::Flex
-                | crate::style::DisplayKind::FlexWrap
-                | crate::style::DisplayKind::InlineFlex // flex por dentro (Flexbox §4): mesmo contexto
-                | crate::style::DisplayKind::InlineFlexWrap
-                | crate::style::DisplayKind::Grid
-                | crate::style::DisplayKind::InlineGrid
-                | crate::style::DisplayKind::InlineTable
-                | crate::style::DisplayKind::InlineBlock
-                | crate::style::DisplayKind::Table
-                | crate::style::DisplayKind::TableRowGroup
-                | crate::style::DisplayKind::TableHeaderGroup
-                | crate::style::DisplayKind::TableFooterGroup
-                | crate::style::DisplayKind::TableRow
-                | crate::style::DisplayKind::TableCell
-                | crate::style::DisplayKind::TableCaption
-        )
-    );
-    // CSS2.1 §9.4.1: "overflow" outro que não `visible` estabelece um BFC —
-    // `scrollable()` (auto/scroll) OU `clips()` (hidden/clip, CSS Overflow 3;
-    // `clip` entrou no lote `flex-min-auto-content`, retrabalho: antes de
-    // `Overflow::Clip` existir como variante própria, `hidden`/`clip` eram a
-    // MESMA e este `any` já os cobria os dois sem saber).
-    let overflow_bfc = [css.overflow_x, css.overflow_y]
-        .into_iter()
-        .any(|value| value.is_some_and(|o| o.scrollable() || o.clips()));
-    let float_bfc = css
-        .float_side
-        .is_some_and(|side| side != crate::style::FloatSide::None);
-    let positioned_bfc = css
-        .position
-        .map(|position| position.out_of_flow())
-        .unwrap_or(false);
-    // Um ITEM de flex ou de grid estabelece o seu próprio contexto (Flexbox
-    // §4, Grid §6): contém os seus floats como um `flow-root`. Sem isto o
-    // `<header class="mb-auto">` do Bootstrap cover — um `float-md-start` e um
-    // `float-md-end` lá dentro — media 0px onde o Blink dá 36
-    // (`claude-flex-item-contem-floats`).
-    let item_bfc = dom
-        .node(id)
-        .parent
-        .and_then(|p| dom.computed_style_idx(p))
-        .is_some_and(|pc| {
-            matches!(
-                pc.effective_display(),
-                Some(
-                    crate::style::DisplayKind::Flex
-                        | crate::style::DisplayKind::FlexWrap
-                        | crate::style::DisplayKind::InlineFlex // idem: filho de flex
-                        | crate::style::DisplayKind::InlineFlexWrap
-                        | crate::style::DisplayKind::Grid
-                        | crate::style::DisplayKind::InlineGrid
-                )
-            )
-        });
-    css.flow_root.unwrap_or(false)
-        || display_bfc
-        || item_bfc
-        || (overflow_bfc && !super::overflow_viewport::propagado_para_viewport(dom, id))
-        || float_bfc
-        || positioned_bfc
-        || is_root
+    // The style half lives in `bfc_estilo.rs` since BT-5, so a box with no
+    // node — a generated one — can ask it too. What stays is what only a node
+    // answers: being the root, and `overflow` propagating to the viewport.
+    let pai = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
+    super::bfc_estilo::pelo_estilo(css, pai.as_deref())
+        || (super::bfc_estilo::overflow_estabelece(css) && !super::overflow_viewport::propagado_para_viewport(dom, id))
+        || dom.node(id).parent == Some(dom.root)
 }
 
 pub(in crate::layout) fn collapse_margin(first: f32, second: f32) -> f32 {
