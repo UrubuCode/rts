@@ -83,14 +83,14 @@ fn e_inline_block(seg: &Segment) -> bool {
 /// The atom behind a segment, for the atoms that have a body on the line:
 /// inline-blocks (real and generated), replaced elements and form widgets.
 fn atomo(dom: &Dom, seg: &Segment, content_w: f32, ctx: &LayoutCtx) -> Option<Atomo> {
-    let (id, _, kind) = seg.atomic?;
+    let (id, caixa, kind) = seg.atomic?;
     let altura = seg.wh;
     match kind {
         AtomicKind::Block => {
             let css = dom.computed_style_idx(id)?;
             Some(Atomo {
                 altura,
-                ascent: ascent_do_bloco(dom, id, &css, altura, content_w, ctx),
+                ascent: ascent_do_bloco(dom, id, caixa, &css, altura, seg.ww, content_w, ctx),
                 valign: css.vertical_align.unwrap_or(VerticalAlign::Baseline),
             })
         }
@@ -119,15 +119,42 @@ fn atomo(dom: &Dom, seg: &Segment, content_w: f32, ctx: &LayoutCtx) -> Option<At
 }
 
 /// An inline-block's baseline, measured from the top of its OUTER box: its
-/// last line box's baseline, or its bottom margin edge when it has no line
-/// box or its `overflow` is not `visible` (CSS 2.1 §10.8.1). `ascent_do_item`
-/// answers from the border box and does not ask about `overflow`; the margin
-/// on top of it and the `overflow` rule are this module's.
-fn ascent_do_bloco(dom: &Dom, id: NodeIdx, css: &ComputedStyle, altura: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+/// LAST line box's baseline, or its bottom margin edge when it has no line
+/// box or its `overflow` is not `visible` (CSS 2.1 §10.8.1).
+///
+/// The last line box is found by LAYING THE ATOM OUT in a throwaway list, the
+/// way `measure_block` measures a height, and taking the lowest text it
+/// painted. `ascent_do_item` answered with a formula over the box's OWN font,
+/// which is right only when the box holds one line of its own text: a 14px
+/// box holding a 26px line put its baseline 6px high, and the WPT
+/// `flexbox-baseline-*` references (inline-blocks) disagreed with their tests
+/// (inline-flexes). A flex container keeps `ascent_do_item`: its baseline is
+/// its first item's (Flexbox §8.5), not its last line's. The cost is one extra
+/// layout of each inline-block on a line that holds one — stated, not measured.
+#[allow(clippy::too_many_arguments)]
+fn ascent_do_bloco(
+    dom: &Dom,
+    id: NodeIdx,
+    caixa: Option<crate::boxes::BoxId>,
+    css: &ComputedStyle,
+    altura: f32,
+    largura: f32,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     let recorta = [css.overflow_x, css.overflow_y].iter().flatten().any(|o| o.clips());
     if recorta {
         return altura;
     }
+    let flex = matches!(
+        css.effective_display(),
+        Some(
+            crate::style::DisplayKind::Flex
+                | crate::style::DisplayKind::FlexWrap
+                | crate::style::DisplayKind::InlineFlex
+                | crate::style::DisplayKind::InlineFlexWrap
+        )
+    );
     let fonte = font_px(css, DEFAULT_FONT_SIZE);
     let r = ResolveCtx {
         parent_content_w: content_w,
@@ -137,11 +164,57 @@ fn ascent_do_bloco(dom: &Dom, id: NodeIdx, css: &ComputedStyle, altura: f32, con
         viewport_h: ctx.viewport_h,
     };
     let (mt, mb) = (css.margin.top.resolve(&r).unwrap_or(0.0), css.margin.bottom.resolve(&r).unwrap_or(0.0));
-    let borda = (altura - mt - mb).max(0.0);
-    let dentro = super::linha_ib::ascent_do_item(dom, id, borda, content_w, ctx);
-    // `ascent_do_item` answers the whole border box when the box is empty:
-    // then the baseline is the bottom MARGIN edge, which is `altura`.
-    if dentro >= borda { altura } else { mt + dentro }
+    if flex || caixa.is_none() {
+        let borda = (altura - mt - mb).max(0.0);
+        let dentro = super::linha_ib::ascent_do_item(dom, id, borda, content_w, ctx);
+        // `ascent_do_item` answers the whole border box when the box is empty:
+        // then the baseline is the bottom MARGIN edge, which is `altura`.
+        return if dentro >= borda { altura } else { mt + dentro };
+    }
+    match baseline_da_ultima_linha(dom, id, caixa.expect("checked above"), largura, content_w, ctx) {
+        Some(b) => b.min(altura),
+        None => altura,
+    }
+}
+
+/// The baseline of the lowest line of text an atom paints, from the top of
+/// its outer box, or `None` when it paints no text.
+fn baseline_da_ultima_linha(
+    dom: &Dom,
+    id: NodeIdx,
+    caixa: crate::boxes::BoxId,
+    largura: f32,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> Option<f32> {
+    let mut scratch = DisplayList::for_dom(dom);
+    layout_block(
+        dom,
+        id,
+        Some(caixa),
+        0.0,
+        0.0,
+        content_w,
+        None,
+        Some(largura),
+        None,
+        false,
+        true,
+        &BlockFormattingContext::new(),
+        ctx,
+        &mut scratch,
+    );
+    scratch
+        .materialized()
+        .iter()
+        .filter_map(|item| match item {
+            DisplayItem::Text { y, size, is_ahem, .. } => {
+                let familia = is_ahem.then_some("Ahem");
+                Some(y + ctx.measurer.font_ascent_family(*size, familia))
+            }
+            _ => None,
+        })
+        .fold(None, |acc: Option<f32>, b| Some(acc.map_or(b, |m| m.max(b))))
 }
 
 /// The same for a generated `inline-block` (`::before`/`::after`): its text's
