@@ -177,8 +177,12 @@ pub(in crate::layout) fn layout_inline_flow(
     let lines = quebrar(&exclusoes);
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
     // o que se corta é uma LINHA já formada. Ver [`aplicar_elipse`].
+    let fonte_de = |owners: &[NodeIdx]| match super::fonte_do_trecho::do_segmento(dom, owners, family, font_size, ctx.measurer) {
+        Some(f) => (f.fonte.size, f.fonte.mono, f.ahem),
+        None => (font_size, mono, ahem),
+    };
     let lines = match elipse_pedida(parent_css, nowrap) {
-        true => aplicar_elipse(lines, content_w, font_size, mono, ahem, ctx.measurer),
+        true => aplicar_elipse(lines, content_w, &fonte_de, ctx.measurer),
         false => lines,
     };
     // `-webkit-line-clamp`/`line-clamp` — limita a N linhas, com "…" na
@@ -189,8 +193,7 @@ pub(in crate::layout) fn layout_inline_flow(
             lines,
             n as usize,
             content_w,
-            font_size,
-            mono, ahem, ctx.measurer,
+            &fonte_de, ctx.measurer,
         ),
         _ => lines,
     };
