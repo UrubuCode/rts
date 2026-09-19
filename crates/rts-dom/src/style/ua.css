@@ -116,7 +116,9 @@ a { color: #0000ee; text-decoration: underline; }
  * ser lido NUNCA. Descoberto pelo teste
  * `o_border_spacing_existe_tambem_entre_a_borda_e_a_primeira_coluna`. */
 table { display: table; }
-thead, tbody, tfoot { display: table-row-group; }
+tbody { display: table-row-group; }
+thead { display: table-header-group; }
+tfoot { display: table-footer-group; }
 tr { display: table-row; }
 td, th { display: table-cell; padding: 1px; }
 th { font-weight: bold; text-align: center; }

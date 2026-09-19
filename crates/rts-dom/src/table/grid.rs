@@ -40,7 +40,7 @@ pub(in crate::table) fn collect(
         };
     }
 
-    for &caixa in tree.children(table) {
+    for caixa in display_order(dom, tree, table) {
         let Some(child) = tree.node_of(caixa) else {
             continue;
         };
@@ -75,7 +75,7 @@ pub(in crate::table) fn collect(
                     &mut ocupado,
                 );
             }
-            Some(DisplayKind::TableRowGroup) => {
+            Some(d) if d.is_row_group() => {
                 fechar_anonima!();
                 let inicio = g.rows.len();
                 // O grupo também pode trazer células soltas — mesma regra, e o
@@ -130,6 +130,30 @@ pub(in crate::table) fn collect(
     g
 }
 
+/// The table's children in DISPLAY order (CSS 2.1 §17.2): the first
+/// `table-header-group` before everything else, the first
+/// `table-footer-group` after everything else, the rest as written. A second
+/// header or footer is displayed as an ordinary row group, in place — the
+/// spec says so, and it is also what keeps a table with two `<thead>`s from
+/// losing one.
+fn display_order(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    table: crate::boxes::BoxId,
+) -> Vec<crate::boxes::BoxId> {
+    let filhos = tree.children(table);
+    let primeiro = |alvo: DisplayKind| {
+        filhos
+            .iter()
+            .copied()
+            .find(|&c| tree.node_of(c).and_then(|n| display_of(dom, n)) == Some(alvo))
+    };
+    let cabecalho = primeiro(DisplayKind::TableHeaderGroup);
+    let rodape = primeiro(DisplayKind::TableFooterGroup);
+    let meio = filhos.iter().copied().filter(|&c| Some(c) != cabecalho && Some(c) != rodape);
+    cabecalho.into_iter().chain(meio).chain(rodape).collect()
+}
+
 /// Acrescenta uma linha à grade a partir das CÉLULAS dela. Recebe as células e
 /// não o nó da linha porque uma linha anónima não tem nó — e porque o que a
 /// grade precisa de saber de uma linha são as suas células.
@@ -177,10 +201,32 @@ fn celulas_de(
     tree: &crate::boxes::BoxTree,
     pai: crate::boxes::BoxId,
 ) -> Vec<(NodeIdx, crate::boxes::BoxId)> {
+    // A child of a row that is not a cell — loose text, an ordinary element —
+    // is its own anonymous cell (CSS 2.1 §17.2.1, rule 2), by the same
+    // simplification `collect` already makes at the table level: the cell's
+    // node is the child itself. Keeping only the real cells dropped that
+    // content, and a `display: table-row` holding only text laid out as a row
+    // with no cell and zero height — reachable since misparented rows get an
+    // anonymous table (WPT `run-in-table-row-between-001`).
+    //
+    // A misparented TABLE PART inside a row (a row group, a row, a caption) is
+    // NOT made its own cell, and is dropped as before. It would need an
+    // anonymous cell AND an anonymous table around it, and taking it as a cell
+    // painted an empty red `table-row-group` that Blink does not paint at all —
+    // a group with no rows has no area (WPT `empty-cells-applies-to-008..017`).
     tree.children(pai)
         .iter()
         .filter_map(|&caixa| tree.node_of(caixa).map(|no| (no, caixa)))
-        .filter(|&(no, _)| display_of(dom, no) == Some(DisplayKind::TableCell))
+        .filter(|&(no, _)| match &dom.node(no).kind {
+            crate::NodeKind::Text(t) => !t.trim().is_empty(),
+            crate::NodeKind::Element { .. } => match display_of(dom, no) {
+                Some(DisplayKind::TableCell) => true,
+                Some(DisplayKind::None) => false,
+                Some(d) if d.is_table_part() => false,
+                _ => !crate::layout::is_out_of_flow(dom, no),
+            },
+            _ => false,
+        })
         .collect()
 }
 

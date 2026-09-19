@@ -304,9 +304,20 @@ The tests that pin each line are in `crates/rts-dom/src/boxes/tests.rs`.
 
 One box per ELEMENT the cascade accepts, one per TEXT node, and — where CSS 2.1
 §9.2.1.1 applies — **several boxes for the split inline plus one anonymous block
-box per inline run**. No box for a comment, none for `display: none`, none for a
-run of collapsible whitespace the split declined to wrap, and no table fixups or
-generated content yet — those are BT-4 and BT-5.
+box per inline run**, and — where §17.2.1 rule 3 applies — **one anonymous
+TABLE box per run of table parts whose parent is not a table** (BT-4). No box
+for a comment, none for `display: none`, none for a run of collapsible
+whitespace the split declined to wrap, and no generated content yet (BT-5 made
+the pseudo a box on the inline path, but it has no `BoxId`).
+
+**An anonymous box has a ROLE** (`AnonymousRole::Block` or `Table`), and a
+reader that dispatches on anonymous boxes has to ask it: a table sizes itself
+shrink-to-fit and runs the table layout (`table/anonymous.rs`), a block takes
+the content box. The anonymous table wraps ONLY: the rows and cells it may
+still need inside are `table/grid.rs`'s, which already made them for a real
+table. It is generated only in a flow container — never in a flex or grid
+container (their children are blockified items), a table part, an inline (it
+would be an `inline-table`), or a container that also split an inline.
 
 **The shape of the split, because it is the one place the tree is not a mirror.**
 For `<p><span>a<div>b</div>c</span></p>` the `<p>` box has three children: an
@@ -322,7 +333,7 @@ and a float or an absolutely positioned box is block-level (it is blockified)
 but out of flow. Asking only the outer display split
 `<span>a<div style="float:left"></div>b</span>` in three and put `b` on a line
 of its own. Such a child now stays in the inline run: a float becomes an
-ANCHOR there (`AtomicKind::Float`), and `layout/float_na_linha.rs` places it at
+ANCHOR there (`AtomicKind::Float`), and `layout/float_in_line.rs` places it at
 the top of the line it appears in when it fits — CSS 2.1 §9.5.1 — which is
 also what happens to a float that is a DIRECT child in the middle of text,
 since the block flow stopped closing the inline group on it. What an

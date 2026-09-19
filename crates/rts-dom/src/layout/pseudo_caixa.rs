@@ -9,18 +9,17 @@
 //! só chegava a quem a tivesse pedido primeiro; agora chega às duas por ter
 //! um único sítio.
 //!
-//! Esta é a SEGUNDA e a TERCEIRA das três implementações que a issue pedia
-//! unificadas. A PRIMEIRA — `runs.rs::pseudo_run`, o caminho INLINE — fica de
-//! fora por escolha e não por esquecimento: ela entrega a caixa gerada como
-//! um `InlineRun` (texto + cor + peso + decoração, sem padding/borda/margem
-//! nenhuma — ver o corte declarado no cabeçalho desse ficheiro), que é uma
-//! representação diferente da que este módulo produz, e `runs.rs` está fora
-//! da área deste lote (outro agente mexe nele na mesma árvore). Se um dia o
-//! caminho inline ganhar box model, `pseudo_run` (linhas 66–103 de
-//! `layout/runs.rs`) é o sítio a mudar: passaria a montar uma `CaixaGerada`
-//! como aqui e a entregá-la ao fluxo inline como uma caixa atómica em vez de
-//! um `InlineRun` de texto solto — uma mudança de REPRESENTAÇÃO da linha, não
-//! deste ficheiro.
+//! The THIRD role, the inline path, now measures and paints through here too
+//! (`pseudo_inline.rs`): an `inline-block` pseudo is a `CaixaGerada` that the
+//! line carries as an atom, sized by the same [`montar`] and painted by the
+//! same [`pintar`]. An `inline` pseudo does not become a `CaixaGerada` — it
+//! is text that breaks with the line, so its surface is painted per line
+//! fragment by `inline_fragmentos.rs`, the way a real inline's is.
+//!
+//! The text of the box WRAPS at its content width ([`linhas_do_texto`]), by
+//! the same `wrap_runs` the line flow uses. It used to be measured as one
+//! word: a `display:block; width:40px` pseudo with four words stayed one line
+//! tall and overflowed sideways (`claude-pseudo-caixa-gerada`, `#p4`).
 //!
 //! O que fica de fora de propósito, e é divergência de SPEC e não descuido:
 //! - **a largura/altura por omissão** (`width`/`height` ausentes do pseudo):
@@ -54,8 +53,56 @@ pub(in crate::layout) struct CaixaGerada {
     pub(in crate::layout) mb: f32,
     /// borda + padding por lado: cima, direita, baixo, esquerda.
     pub(in crate::layout) arestas: [f32; 4],
-    pub(in crate::layout) texto: String,
+    /// The text already broken into lines at the content width it was
+    /// measured with. Kept broken rather than re-broken when painting: the
+    /// box's height was decided by this count, and breaking twice could give
+    /// two counts for one box.
+    pub(in crate::layout) linhas: Vec<String>,
     pub(in crate::layout) fonte: f32,
+}
+
+/// The text of a generated box broken into lines at `largura` (its content
+/// width), by the line flow's own `wrap_runs`, under the pseudo's own
+/// `white-space`, `word-spacing` and `hyphens`. Empty text gives no line.
+pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largura: f32, fonte: f32, ctx: &LayoutCtx) -> Vec<String> {
+    if texto.is_empty() {
+        return Vec::new();
+    }
+    let nowrap = matches!(css.white_space, Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre));
+    let run = InlineRun {
+        text: texto.to_string(),
+        color: 0,
+        bold: css.bold.unwrap_or(false),
+        italic: css.italic.unwrap_or(false),
+        deco: 0,
+        owners: Vec::new(),
+        atomic: None,
+        ww: 0.0,
+        wh: 0.0,
+    };
+    let familia = css.font_family.as_deref();
+    let linhas = wrap_runs(
+        std::slice::from_ref(&run),
+        &mut |_| if nowrap { f32::INFINITY } else { largura },
+        fonte,
+        familia.is_some_and(crate::style::is_mono_family),
+        crate::inline_box::quebra_dentro(css),
+        css.white_space.is_some_and(|w| w.preserves_newlines()),
+        css.word_spacing.unwrap_or(0.0),
+        css.hyphens != Some(crate::style::vocab::Hyphens::None),
+        super::fonte_metricas::usa_ahem(familia),
+        ctx.measurer,
+    );
+    linhas
+        .into_iter()
+        .map(|l| l.into_iter().map(|s| s.text).collect::<String>())
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+/// The height of `linhas` lines of the pseudo's text: one line box each.
+pub(in crate::layout) fn altura_das_linhas(css: &ComputedStyle, linhas: &[String], fonte: f32, ctx: &LayoutCtx) -> f32 {
+    linhas.len() as f32 * crate::inline_box::altura_da_linha(css, fonte, ctx.measurer)
 }
 
 /// Borda + padding (combinados em `valores`, por lado: cima, direita, baixo,
@@ -107,7 +154,7 @@ pub(in crate::layout) fn montar(
     arestas: Arestas,
     conteudo_w: f32,
     conteudo_h: f32,
-    texto: String,
+    linhas: Vec<String>,
     fonte: f32,
 ) -> CaixaGerada {
     let (w, h) = dimensionar(&caixa.css, &arestas, conteudo_w, conteudo_h);
@@ -120,7 +167,7 @@ pub(in crate::layout) fn montar(
         mt: arestas.mt,
         mb: arestas.mb,
         arestas: arestas.valores,
-        texto,
+        linhas,
         fonte,
     }
 }
@@ -152,21 +199,22 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
             list.items.push(DisplayItem::SolidRect { rect, color: side.color, radius: Corners::ZERO });
         }
     }
-    if !caixa.texto.is_empty() {
-        let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
-        let is_ahem = super::fonte_metricas::usa_ahem(css.font_family.as_deref());
-        let lh = crate::inline_box::altura_da_linha(css, caixa.fonte, ctx.measurer);
-        let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
+    let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
+    let is_ahem = super::fonte_metricas::usa_ahem(css.font_family.as_deref());
+    let lh = crate::inline_box::altura_da_linha(css, caixa.fonte, ctx.measurer);
+    let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
+    for (i, linha) in caixa.linhas.iter().enumerate() {
         list.items.push(DisplayItem::Text {
             x: r.x + caixa.arestas[3],
-            y: r.y + caixa.arestas[0] + (lh - conteudo) / 2.0,
-            text: caixa.texto.clone().into(),
+            y: r.y + caixa.arestas[0] + i as f32 * lh + (lh - conteudo) / 2.0,
+            text: linha.clone().into(),
             color: css.color.unwrap_or(0x000000FF),
             size: caixa.fonte,
             mono,
             is_ahem,
             bold: css.bold.unwrap_or(false),
-            italic: false,
+            // The same `italic` the lines were broken with (`linhas_do_texto`).
+            italic: css.italic.unwrap_or(false),
             letter_spacing: css.letter_spacing.unwrap_or(0.0),
             decoration: 0,
         });
@@ -241,8 +289,8 @@ mod tests {
         let arestas_item = resolve_arestas(&css, &r);
         let caixa_bloco = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
         let caixa_item = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
-        let bloco = montar(caixa_bloco, arestas_bloco, 50.0, 20.0, "x".into(), 16.0);
-        let item = montar(caixa_item, arestas_item, 50.0, 20.0, "x".into(), 16.0);
+        let bloco = montar(caixa_bloco, arestas_bloco, 50.0, 20.0, vec!["x".into()], 16.0);
+        let item = montar(caixa_item, arestas_item, 50.0, 20.0, vec!["x".into()], 16.0);
         assert_eq!((bloco.w, bloco.h), (item.w, item.h));
         assert_eq!(bloco.arestas, item.arestas);
     }

@@ -36,7 +36,38 @@
 //!   DOM from a node (invariant I2).
 
 use super::*;
-use crate::boxes::{BoxId, BoxKind, BoxTree};
+use crate::boxes::{AnonymousRole, BoxId, BoxKind, BoxTree};
+
+/// Lays out ANY anonymous box at `(x, y)` and records its rect by `BoxId`,
+/// answering the height it took. The one entry the block flow calls: it
+/// dispatches on what the anonymous box IS.
+///
+/// A TABLE sizes itself (shrink-to-fit, `table/anonima.rs`) and records its
+/// own rect; a BLOCK takes the content box as it is. The rect is kept by
+/// `BoxId` because the box has no node: that keeps transforms and any later
+/// per-box operation complete without inventing a DOM geometry.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn layout_anonima(
+    dom: &Dom,
+    tree: &BoxTree,
+    anonima: BoxId,
+    x: f32,
+    y: f32,
+    content_w: f32,
+    avail_h: Option<f32>,
+    css_pai: &ComputedStyle,
+    font_size: f32,
+    bfc: &BlockFormattingContext,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    if matches!(tree.kind(anonima), BoxKind::Anonymous { role: AnonymousRole::Table, .. }) {
+        return crate::table::layout_anonymous_table(dom, tree, anonima, x, y, content_w, font_size, ctx, list).1;
+    }
+    let h = layout_caixa_anonima(dom, tree, anonima, x, y, content_w, avail_h, css_pai, font_size, bfc, ctx, list);
+    record_box_rect(list, anonima, Rect::new(x, y, content_w, h));
+    h
+}
 
 /// Lays an ANONYMOUS block box out at `(x, y)` across `content_w`, and answers
 /// the height it took.
@@ -53,7 +84,7 @@ use crate::boxes::{BoxId, BoxKind, BoxTree};
 /// default — which would change the font of the text inside and answer plausibly
 /// while being wrong.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn layout_caixa_anonima(
+fn layout_caixa_anonima(
     dom: &Dom,
     tree: &BoxTree,
     anonima: BoxId,

@@ -117,6 +117,8 @@ impl ComputedStyle {
                 | DisplayKind::InlineBlock
                 | DisplayKind::TableRow
                 | DisplayKind::TableRowGroup
+                | DisplayKind::TableHeaderGroup
+                | DisplayKind::TableFooterGroup
                 | DisplayKind::TableCell
                 | DisplayKind::TableCaption,
             ) => Some(DisplayKind::Block),

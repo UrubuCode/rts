@@ -24,8 +24,9 @@
 //! sem deixar de ser a diferença que a spec pede.
 //!
 //! CORTE dito (como `flex_pseudo.rs`, o mesmo padrão para o eixo flex): sem
-//! `border-radius`, sem `flex-basis`/min/max no eixo do pseudo, o texto não
-//! quebra (mede como uma palavra só), e o papel `display:flex`/`grid` do
+//! `border-radius`, sem `flex-basis`/min/max no eixo do pseudo (the text
+//! does wrap now, at the content width — `pseudo_caixa::linhas_do_texto`),
+//! e o papel `display:flex`/`grid` do
 //! pseudo é tratado como um bloco simples — não faz o layout flex/grid dos
 //! SEUS conteúdos (que hoje é só texto, então não há filhos a dispor).
 
@@ -84,11 +85,12 @@ fn medir(
     let conteudo_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or_else(|| {
         (content_w - arestas.ml - arestas.mr - arestas.valores[1] - arestas.valores[3]).max(0.0)
     });
+    let linhas = super::pseudo_caixa::linhas_do_texto(css, &texto, conteudo_w, fonte, ctx);
     let conteudo_h = css
         .height
         .and_then(|d| d.resolve(&r))
-        .unwrap_or_else(|| crate::inline_box::altura_da_linha(css, fonte, ctx.measurer));
-    Some(montar(caixa, arestas, conteudo_w, conteudo_h, texto, fonte))
+        .unwrap_or_else(|| super::pseudo_caixa::altura_das_linhas(css, &linhas, fonte, ctx));
+    Some(montar(caixa, arestas, conteudo_w, conteudo_h, linhas, fonte))
 }
 
 /// Mede, posiciona e pinta o pseudo `pe` de `id` como o próximo (`::before`)

@@ -34,6 +34,11 @@ pub(super) fn min_content_anonima(
     sem_quebra: bool,
     mono: bool,
 ) -> f32 {
+    // An anonymous TABLE's minimum is its columns' minimum plus the gaps, the
+    // same answer `anonymous_table_widths` gives a parent that shrinks to fit.
+    if matches!(tree.kind(caixa), crate::boxes::BoxKind::Anonymous { role: crate::boxes::AnonymousRole::Table, .. }) {
+        return crate::table::anonymous_table_widths(dom, tree, caixa, font, ctx).0;
+    }
     let mut m = 0.0f32;
     let mut linha = 0.0f32;
     for &filho in tree.children(caixa) {

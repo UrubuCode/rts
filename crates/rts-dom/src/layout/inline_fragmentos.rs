@@ -52,7 +52,27 @@ pub(in crate::layout) fn fragmento_do_dono(
     ctx: &LayoutCtx,
     align_to_baseline: bool,
 ) -> Rect {
-    let Some(css) = dom.computed_style_idx(dono) else {
+    let css = dom.computed_style_idx(dono);
+    let com_arestas = css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
+    fragmento_com_estilo(css.as_deref(), com_arestas, x, y, w, conteudo_da_linha, ctx, align_to_baseline)
+}
+
+/// [`fragmento_do_dono`] for a style that is not a node's — a generated
+/// box's. `com_arestas`: the rect is the border box (vertical padding and
+/// border added), which a node asks through `inline_por_fragmentos` and a
+/// generated inline with a surface always is.
+#[allow(clippy::too_many_arguments)]
+fn fragmento_com_estilo(
+    css: Option<&ComputedStyle>,
+    com_arestas: bool,
+    x: f32,
+    y: f32,
+    w: f32,
+    conteudo_da_linha: f32,
+    ctx: &LayoutCtx,
+    align_to_baseline: bool,
+) -> Rect {
+    let Some(css) = css else {
         return Rect::new(x, y, w, conteudo_da_linha);
     };
     let Some(crate::style::Dimension::Px(fonte)) = css.font_size else {
@@ -64,9 +84,9 @@ pub(in crate::layout) fn fragmento_do_dono(
     } else {
         y + (conteudo_da_linha - conteudo) / 2.0
     };
-    if crate::inline_box::inline_por_fragmentos(&css) {
+    if com_arestas {
         let [_, _, cima, baixo] =
-            crate::inline_box::arestas_do_inline(&css, fonte, ctx.viewport_w, ctx);
+            crate::inline_box::arestas_do_inline(css, fonte, ctx.viewport_w, ctx);
         return Rect::new(x, top - cima, w, conteudo + cima + baixo);
     }
     Rect::new(x, top, w, conteudo)
@@ -82,19 +102,39 @@ pub(in crate::layout) struct Superficies {
     donos: Vec<Superficie>,
 }
 
+/// Whose surface it is. A generated inline (`::before`/`::after`) has no
+/// node, so it is named by its originating element and the pseudo-element —
+/// the same pair `pseudo/mod.rs` keys counters by.
+#[derive(Clone, Copy, PartialEq)]
+enum Dono {
+    No(NodeIdx),
+    Gerada(NodeIdx, crate::style::PseudoElement),
+}
+
 struct Superficie {
-    dono: NodeIdx,
+    dono: Dono,
     x0: f32,
     x1: f32,
     // este fragmento contém a aresta inicial/final do inline? (é o que decide
     // se a borda esquerda/direita se pinta aqui)
     inicio: bool,
     fim: bool,
+    // A generated inline whose end edge has not been seen yet: every segment
+    // until then is its content. A node's surface does not need this — each
+    // segment names its node owners — but a segment cannot name a generated
+    // box (it has no node), and the pseudo's text is by construction exactly
+    // what lies between its two edges in the run order.
+    aberta: bool,
 }
 
 impl Superficies {
-    /// Um segmento de `x0` a `x1` pertence a estes donos.
+    /// Um segmento de `x0` a `x1` pertence a estes donos — and to every
+    /// generated inline still open.
     pub(in crate::layout) fn ver(&mut self, dom: &Dom, owners: &[NodeIdx], x0: f32, x1: f32) {
+        for s in self.donos.iter_mut().filter(|s| s.aberta) {
+            s.x0 = s.x0.min(x0);
+            s.x1 = s.x1.max(x1);
+        }
         for &o in owners {
             let flui = dom
                 .computed_style_idx(o)
@@ -102,19 +142,19 @@ impl Superficies {
             if !flui {
                 continue;
             }
-            match self.donos.iter_mut().find(|s| s.dono == o) {
+            match self.donos.iter_mut().find(|s| s.dono == Dono::No(o)) {
                 Some(s) => {
                     s.x0 = s.x0.min(x0);
                     s.x1 = s.x1.max(x1);
                 }
-                None => self.donos.push(Superficie { dono: o, x0, x1, inicio: false, fim: false }),
+                None => self.donos.push(Superficie { dono: Dono::No(o), x0, x1, inicio: false, fim: false, aberta: false }),
             }
         }
     }
 
     /// A aresta inicial (`inicio == true`) ou final do inline `dono` está nesta linha.
     pub(in crate::layout) fn marca(&mut self, dono: NodeIdx, inicio: bool) {
-        if let Some(s) = self.donos.iter_mut().find(|s| s.dono == dono) {
+        if let Some(s) = self.donos.iter_mut().find(|s| s.dono == Dono::No(dono)) {
             if inicio {
                 s.inicio = true;
             } else {
@@ -123,10 +163,34 @@ impl Superficies {
         }
     }
 
+    /// The start edge of the generated inline `pe` of `id` is the segment at
+    /// `x` of width `ww`: its surface opens after its left margin. `base_w`
+    /// is the line's width, the base the edge was sized against.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::layout) fn abre_gerada(&mut self, dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, x: f32, ww: f32, base_w: f32, ctx: &LayoutCtx) {
+        let (ml, _) = margens_da_gerada(dom, id, pe, base_w, ctx);
+        let dono = Dono::Gerada(id, pe);
+        self.donos.push(Superficie { dono, x0: x + ml, x1: x + ww, inicio: true, fim: false, aberta: true });
+    }
+
+    /// Its end edge was just seen (and [`Self::ver`] already took it in): the
+    /// surface closes before its right margin.
+    pub(in crate::layout) fn fecha_gerada(&mut self, dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, base_w: f32, ctx: &LayoutCtx) {
+        let (_, mr) = margens_da_gerada(dom, id, pe, base_w, ctx);
+        if let Some(s) = self.donos.iter_mut().find(|s| s.aberta && s.dono == Dono::Gerada(id, pe)) {
+            s.x1 -= mr;
+            s.fim = true;
+            s.aberta = false;
+        }
+    }
+
     /// Insere o fundo e as barras de borda de cada dono em `at` (o índice onde
     /// a linha começou), atrás do texto. CORTE dito: as cores saem cruas — sem
     /// `opacity`/`filter` do elemento, que o caminho de bloco aplica por
     /// `cor()` — e sem `border-radius`.
+    ///
+    /// Returns what the NEXT line starts with: a generated inline still open
+    /// here goes on there, with no start edge and no extent yet.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::layout) fn pintar(
         self,
@@ -138,7 +202,7 @@ impl Superficies {
         conteudo_da_linha: f32,
         align_to_baseline: bool,
         ctx: &LayoutCtx,
-    ) {
+    ) -> Superficies {
         let mut at = at;
         let mut poe = |list: &mut DisplayList, rect: Rect, color: u32| {
             insert_item(
@@ -149,18 +213,27 @@ impl Superficies {
             );
             at += 1;
         };
+        let mut seguinte = Superficies::default();
         for s in self.donos {
-            let Some(css) = dom.computed_style_idx(s.dono) else { continue };
-            let r = fragmento_do_dono(
-                dom,
-                s.dono,
-                s.x0,
-                y,
-                s.x1 - s.x0,
-                conteudo_da_linha,
-                ctx,
-                align_to_baseline,
-            );
+            if s.aberta {
+                let (x0, x1) = (f32::INFINITY, f32::NEG_INFINITY);
+                seguinte.donos.push(Superficie { x0, x1, inicio: false, fim: false, ..s });
+            }
+            if s.x1 < s.x0 {
+                continue;
+            }
+            let (css, r) = match s.dono {
+                Dono::No(n) => {
+                    let Some(css) = dom.computed_style_idx(n) else { continue };
+                    let r = fragmento_do_dono(dom, n, s.x0, y, s.x1 - s.x0, conteudo_da_linha, ctx, align_to_baseline);
+                    (css, r)
+                }
+                Dono::Gerada(n, pe) => {
+                    let Some(caixa) = dom.pseudo_box(n, pe) else { continue };
+                    let r = fragmento_com_estilo(Some(&caixa.css), true, s.x0, y, s.x1 - s.x0, conteudo_da_linha, ctx, align_to_baseline);
+                    (std::rc::Rc::new(caixa.css), r)
+                }
+            };
             if let Some(bg) = css.bg.filter(|_| !deve_suprimir_fundo(&css)) {
                 poe(list, r, bg);
             }
@@ -179,7 +252,17 @@ impl Superficies {
                 poe(list, Rect::new(r.x + r.w - rt, r.y, rt, r.h), sides[1].color);
             }
         }
+        seguinte
     }
+}
+
+/// The horizontal margins of the generated box `pe` of `id`, resolved as
+/// `pseudo_inline.rs` resolved them when it sized the edges.
+fn margens_da_gerada(dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, base_w: f32, ctx: &LayoutCtx) -> (f32, f32) {
+    dom.pseudo_box(id, pe).map_or((0.0, 0.0), |caixa| {
+        let fonte = font_px(&caixa.css, DEFAULT_FONT_SIZE);
+        super::pseudo_inline::margens_horizontais(&caixa.css, fonte, base_w, ctx)
+    })
 }
 
 /// Este grupo é TODO o conteúdo do dono?
@@ -195,7 +278,7 @@ impl Superficies {
 /// indentado põe um antes e outro depois de cada elemento, e compará-los
 /// fazia um `<div>` com o `<span>` numa linha indentada parecer conteúdo
 /// partido, e perdia a caixa gerada em quase toda a página real.
-pub(in crate::layout) fn grupo_e_todo_o_dono(
+pub(in crate::layout) fn group_is_whole_owner(
     dom: &Dom,
     dono: NodeIdx,
     group: &[(NodeIdx, Option<crate::boxes::BoxId>)],

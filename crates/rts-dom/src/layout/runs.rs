@@ -25,80 +25,6 @@ pub(in crate::layout) struct InlineRun {
     pub(in crate::layout) wh: f32,
 }
 
-/// O run de texto de uma caixa gerada (`::before`/`::after`) de `id`, ou vazio
-/// se a cascata não manda gerar nenhuma.
-///
-/// Entregar conteúdo gerado como um `InlineRun` é o que faz esta funcionalidade
-/// caber sem reescrever o fluxo: um run é "texto com um estilo, pertencente a
-/// estes elementos inline", e é exatamente o que um `::before` de texto é. Em
-/// particular ele quebra linha, herda e é medido pelo mesmo caminho do resto —
-/// nada disto precisou de um segundo caminho.
-///
-/// `donos` é a CADEIA inline inteira terminada no elemento originante, e não só
-/// ele. No browser a caixa gerada está dentro da caixa do elemento e um clique
-/// nela atinge o elemento — mas também está dentro de cada inline que o
-/// envolve, exatamente como o texto normal está.
-///
-/// Isto já esteve errado, e o sintoma era invisível até o resto ficar certo:
-/// com `owners: vec![id]` um `<span><a></a></span>` em que todo o conteúdo do
-/// `<a>` vem de `a::before` deixava o `<span>` sem geometria NENHUMA, porque
-/// nada lhe chamava `union_rect`. Na Wikipédia eram os 397 retrolinks da lista
-/// de referências. Um fragmento gerado é um fragmento: conta para a união dos
-/// ancestrais como qualquer outro, e é `uniontests.rs` que o fixa.
-///
-/// CORTE DECLARADO: só o texto e as propriedades que um run carrega (cor, peso,
-/// decoração) chegam à pintura. `background`, `padding`, `border` e `width` do
-/// pseudo são ignorados, e `inline-block`/`position:absolute` nele são
-/// tratados como o inline que a maioria é. Medido na folha da Wikipédia: 88
-/// das 100 regras com pseudo-elemento são inline por omissão.
-///
-/// `display:block`/`flex`/`grid` SAIU deste corte (lote `pintura-e-caixas`):
-/// esse pseudo agora gera uma caixa de BLOCO própria — `pseudo_bloco.rs`, só
-/// para o DONO de um fluxo vertical (`<p>`, `<div>`, …) — e não pode ser
-/// entregue aqui também, ou o conteúdo pinta DUAS vezes (uma por caminho). Um
-/// pseudo de bloco de um elemento que NÃO é dono de fluxo vertical (um
-/// `<span>` a meio de uma linha, por exemplo) não tem hoje onde a caixa de
-/// bloco se prenda — fica sem nenhuma das duas, o que é mais estreito do que
-/// "sempre inline" mas nunca duplicado.
-pub(in crate::layout) fn pseudo_run(
-    dom: &Dom,
-    id: NodeIdx,
-    // A cadeia inline que envolve o originante, ele incluído e por último.
-    donos: &[NodeIdx],
-    pe: crate::style::PseudoElement,
-    // A cor já resolvida do contexto — a caixa gerada herda-a quando não
-    // declara `color`.
-    cor_herdada: u32,
-    // idem para o itálico: a caixa gerada herda o estilo do elemento.
-    herdado_italico: bool,
-) -> Option<InlineRun> {
-    let caixa = dom.pseudo_box(id, pe)?;
-    if matches!(
-        caixa.css.effective_display(),
-        Some(
-            crate::style::DisplayKind::Block
-                | crate::style::DisplayKind::Flex
-                | crate::style::DisplayKind::Grid
-        )
-    ) {
-        return None;
-    }
-    crate::bump!(inline_runs);
-    Some(InlineRun {
-        text: caixa.texto,
-        color: cor_visivel(&caixa.css, caixa.css.color.unwrap_or(cor_herdada)),
-        bold: caixa.css.bold.unwrap_or(false),
-        // a caixa gerada é do PRÓPRIO elemento: nenhuma tag nova entra, por isso
-        // a UA não tem aqui nada a dizer — só o CSS do pseudo e o que herdou.
-        italic: caixa.css.italic.unwrap_or(herdado_italico),
-        deco: decoration_code(&caixa.css),
-        owners: donos.to_vec(),
-        atomic: None,
-        ww: 0.0,
-        wh: 0.0,
-    })
-}
-
 /// Coleta os RUNS de texto de `id` em ordem de documento, cada um com a COR efetiva
 /// do elemento inline que o contém (um `<span style=color:x>` muda a cor do seu
 /// texto). Aplica text-transform por run. A cor vem do `computed_style_idx` do nó
@@ -241,8 +167,8 @@ pub(in crate::layout) fn collect_runs(
                 if e_display_none(dom, id) {
                     return;
                 }
-                // FLOAT a meio do fluxo: só uma âncora (`float_na_linha.rs`).
-                if let Some(ancora) = super::float_na_linha::ancora(dom, id, caixa, inherited_color) {
+                // A FLOAT in the middle of the flow: only an anchor (`float_in_line.rs`).
+                if let Some(ancora) = super::float_in_line::anchor(dom, id, caixa, inherited_color) {
                     out.push(ancora);
                     return;
                 }
@@ -435,6 +361,8 @@ pub(in crate::layout) fn collect_runs(
                     crate::style::PseudoElement::Before,
                     color,
                     italic,
+                    avail_w,
+                    ctx,
                 ));
                 for (c, cb) in filhos_do_varrimento(dom, tree, id, caixa) {
                     walk(
@@ -449,6 +377,8 @@ pub(in crate::layout) fn collect_runs(
                     crate::style::PseudoElement::After,
                     color,
                     italic,
+                    avail_w,
+                    ctx,
                 ));
                 if let Some([_, dir, ..]) = arestas {
                     crate::bump!(inline_runs);

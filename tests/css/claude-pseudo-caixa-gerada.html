@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Ruler (BT-5): a `::before`/`::after` is a generated BOX (CSS 2.1 §12.1),
+     not a run of text. The inline path (`layout/runs.rs::pseudo_run`) handed
+     it to the line as bare text, so `width`, `height`, `padding`, `border`
+     and `margin` of an inline or inline-block pseudo were dropped, and the
+     text of a block pseudo never wrapped. A pseudo has no rect of its own to
+     measure, so each case measures what the generated box does to the
+     elements AROUND it: where the next one starts, and how tall the line is. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .caso { margin-bottom: 10px; }
+  #p1::before { content: ""; display: inline-block; width: 50px; height: 30px; background: #0a0; }
+  #p2 span::before { content: "x"; padding: 0 10px; border-left: 3px solid #a00; background: #ff0; }
+  #p3s::after { content: ""; display: inline-block; width: 20px; height: 20px; margin-left: 5px; background: #00f; }
+  #p4::before { content: "aaa bbb ccc ddd"; display: block; width: 40px; background: #0ff; }
+  #p5::before { content: "z"; display: inline-block; padding: 4px 6px; border: 2px solid #000; }
+</style></head>
+<body>
+  <div class="caso" id="p1"><span id="p1t">ab</span></div>
+  <div class="caso" id="p2">a<span id="p2s">b</span><span id="p2n">c</span></div>
+  <div class="caso" id="p3"><span id="p3s">ab</span><span id="p3n">c</span></div>
+  <div class="caso" id="p4"><span id="p4t">fim</span></div>
+  <div class="caso" id="p5"><span id="p5t">ab</span></div>
+  <div id="fim" style="height: 10px; background: #00f"></div>
+</body>
+</html>

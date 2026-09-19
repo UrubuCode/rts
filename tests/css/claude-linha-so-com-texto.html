@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- Ruler (BT-4): a `display: table-row` holding only TEXT, outside a table.
+     The row gets an anonymous table (§17.2.1 rule 3) and its text an
+     anonymous CELL (rule 2). The table layout kept only children that were
+     already cells, so the text was dropped, the row had no cell and zero
+     height, and the block after it moved up over it (WPT
+     `run-in-table-row-between-001`). -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  #linha { display: table-row; background: #ff0; }
+  #depois { height: 10px; background: #00f; }
+</style></head>
+<body>
+  <div id="antes">header</div>
+  <span id="linha">Some text.</span>
+  <div id="depois"></div>
+</body>
+</html>

@@ -295,6 +295,8 @@ pub(crate) fn display_css(d: DisplayKind) -> &'static str {
         DisplayKind::TableCell => "table-cell",
         DisplayKind::TableCaption => "table-caption",
         DisplayKind::TableRowGroup => "table-row-group",
+        DisplayKind::TableHeaderGroup => "table-header-group",
+        DisplayKind::TableFooterGroup => "table-footer-group",
         DisplayKind::None => "none",
     }
 }

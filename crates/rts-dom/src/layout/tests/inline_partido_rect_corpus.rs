@@ -115,7 +115,7 @@ fn fundo_do_inline_partido_fica_nos_fragmentos() {
 /// Afirma-se sobre a ÁRVORE: o float nem chega a partir o inline
 /// (`boxes/build.rs`, `is_block_level_child` pergunta pelo fluxo desde o lote
 /// BT-3 fora-de-fluxo). Os números contra o Blink estão em
-/// `inline_fora_de_fluxo_corpus.rs`.
+/// `out_of_flow_in_inline_corpus.rs`.
 #[test]
 fn float_dentro_do_inline_nao_conta_como_bloco_que_o_partiu() {
     let dom = parse_html_to_dom(

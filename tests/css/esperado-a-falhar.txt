@@ -35,3 +35,15 @@ claude-controlos-tamanho-natural.html
 # `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e
 # não há caixa de linha guardada que diga onde a linha acaba (lote IFC).
 claude-absoluto-dentro-do-inline-nao-parte.html
+
+# BT-5 caixa gerada (2026-09-18): the generated box now takes its width,
+# padding, border and margin on the line, and a block pseudo's text wraps —
+# `#p1`, `#p2` and every x/w pass. What still fails is VERTICAL, and it is
+# not the pseudo's: an empty inline-block exactly as tall as the line (`#p3`,
+# Blink 25, here 20) and a non-empty one (`#p5`, Blink 32 with the text on
+# its baseline, here 37) are placed by the line flow's inline-block rule,
+# which a real `<span style=display:inline-block>` gets the same numbers from
+# (`alinhamento_vertical.rs`, the default `baseline` not migrated for the
+# text flow). `#p4` and `#p5` start the 5px `#p3` is short of too high, and
+# `#p5`'s 5px too many land `#fim` on Blink's 262 by cancellation.
+claude-pseudo-caixa-gerada.html

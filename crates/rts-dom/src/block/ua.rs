@@ -330,7 +330,9 @@ pub fn ua_display(tag: &str) -> Option<crate::style::DisplayKind> {
     Some(match tag {
         "li" => D::ListItem,
         "table" => D::Table,
-        "thead" | "tbody" | "tfoot" => D::TableRowGroup,
+        "tbody" => D::TableRowGroup,
+        "thead" => D::TableHeaderGroup,
+        "tfoot" => D::TableFooterGroup,
         "tr" => D::TableRow,
         "td" | "th" => D::TableCell,
         "caption" => D::TableCaption,

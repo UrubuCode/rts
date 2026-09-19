@@ -97,13 +97,20 @@ pub enum DisplayKind {
     /// `display:inline-table` — tabela por DENTRO, inline-level por FORA.
     /// Mesma separacao e mesma razao que [`InlineGrid`](DisplayKind::InlineGrid).
     InlineTable,
-    /// `display:table-row-group` / `table-header-group` / `table-footer-group` —
-    /// `<tbody>`/`<thead>`/`<tfoot>`. Os três são o MESMO layout (uma sequência
-    /// de linhas); o que os distingue no CSS é a ORDEM de pintura, que só se
-    /// nota quando o `<tfoot>` vem antes do `<tbody>` no markup. Um valor só,
-    /// portanto — três variantes que se comportam igual seriam três nomes para
-    /// uma decisão.
+    /// `display:table-row-group` — `<tbody>`. A run of rows.
     TableRowGroup,
+    /// `display:table-header-group` — `<thead>`. The same layout as a row
+    /// group, and a different ORDER: CSS 2.1 §17.2 displays it before every
+    /// other row and group, wherever it sits in the source. These three were
+    /// one variant, on the argument that three names behaving alike are three
+    /// names for one decision — but they do not behave alike, and with one
+    /// value the order was not expressible: a `<tfoot>` written first rendered
+    /// first (`claude-tabela-cabecalho-rodape`). The parse keeps what was
+    /// declared; `table/grid.rs` decides what it means.
+    TableHeaderGroup,
+    /// `display:table-footer-group` — `<tfoot>`. Displayed after every other
+    /// row and group (CSS 2.1 §17.2). See [`TableHeaderGroup`](Self::TableHeaderGroup).
+    TableFooterGroup,
     /// `display:table-row` — `<tr>`. A altura é a da célula mais alta.
     TableRow,
     /// `display:table-cell` — `<td>`/`<th>`. Recebe a largura da coluna e a
@@ -134,6 +141,8 @@ impl DisplayKind {
             | DisplayKind::ListItem
             | DisplayKind::Table
             | DisplayKind::TableRowGroup
+            | DisplayKind::TableHeaderGroup
+            | DisplayKind::TableFooterGroup
             | DisplayKind::TableRow
             | DisplayKind::TableCell
             | DisplayKind::TableCaption
@@ -197,12 +206,23 @@ impl DisplayKind {
     /// `true` para os quatro valores INTERNOS da tabela (`table`, `table-row`,
     /// `table-cell`, os grupos de linha). Quem pergunta é o fluxo de bloco, para
     /// não descer num `<tr>` como se fosse um `<div>`.
+    /// `true` for the three row-group values, which share one layout and
+    /// differ only in where the table puts them (see [`TableHeaderGroup`](Self::TableHeaderGroup)).
+    pub fn is_row_group(self) -> bool {
+        matches!(
+            self,
+            DisplayKind::TableRowGroup | DisplayKind::TableHeaderGroup | DisplayKind::TableFooterGroup
+        )
+    }
+
     pub fn is_table_part(self) -> bool {
         matches!(
             self,
             DisplayKind::Table
                 | DisplayKind::InlineTable
                 | DisplayKind::TableRowGroup
+                | DisplayKind::TableHeaderGroup
+                | DisplayKind::TableFooterGroup
                 | DisplayKind::TableRow
                 | DisplayKind::TableCell
                 | DisplayKind::TableCaption

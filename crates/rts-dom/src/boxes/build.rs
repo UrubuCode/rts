@@ -70,6 +70,8 @@
 //! section 4 of `docs/ui/html-engine/box-tree.md`, and each has its own lot.
 
 use super::{BoxId, BoxTree};
+
+mod anonymous_table;
 use crate::dom::{Dom, NodeIdx, NodeKind};
 use crate::style::DisplayKind;
 
@@ -183,9 +185,7 @@ impl Construcao<'_> {
             || crate::boxes::context::element_formatting_context(self.dom, node).inner
                 != crate::boxes::InnerDisplay::Flow
         {
-            for child in children {
-                self.descend(child, Some(id));
-            }
+            self.descend_children(node, id, children);
             return;
         }
         self.materializa_contentor(node, id, itens);

@@ -114,7 +114,7 @@ fn the_mirror_is_a_tree_whose_two_directions_agree() {
 }
 
 /// Finds the first element carrying a given `id` attribute.
-fn no_com_id(dom: &crate::dom::Dom, procurado: &str) -> crate::dom::NodeIdx {
+pub(super) fn no_com_id(dom: &crate::dom::Dom, procurado: &str) -> crate::dom::NodeIdx {
     (0..dom.node_count())
         .find(|&i| dom.node(i).attr("id") == Some(procurado))
         .unwrap_or_else(|| panic!("a fixture nao tem #{procurado}"))
@@ -587,3 +587,4 @@ fn a_flex_container_never_runs_an_inline_formatting_context() {
 
     assert!(!tree.runs_inline_formatting_context(&dom, div_box));
 }
+

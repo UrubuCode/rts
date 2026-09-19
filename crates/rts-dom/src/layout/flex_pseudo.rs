@@ -71,7 +71,12 @@ pub(in crate::layout) fn medir(
     } else {
         crate::inline_box::altura_da_linha(css, fonte, ctx.measurer)
     });
-    Some(montar(caixa, arestas, conteudo_w, conteudo_h, texto, fonte))
+    // One line, not `linhas_do_texto`: this item's width IS the text's
+    // max-content width, and breaking at it could split on a rounding
+    // difference between the two measurers (`text_width_family` here,
+    // `text_width` in `wrap_runs`) — a line the height above did not count.
+    let linhas = if texto.is_empty() { Vec::new() } else { vec![texto] };
+    Some(montar(caixa, arestas, conteudo_w, conteudo_h, linhas, fonte))
 }
 
 /// A largura OUTER que o pseudo `pe` acrescenta à largura intrínseca de um

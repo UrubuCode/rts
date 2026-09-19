@@ -38,6 +38,8 @@ pub use context::{FormattingContext, InnerDisplay, OuterDisplay};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_table;
 
 /// An index into a contiguous arena, the way `NodeIdx` already is for nodes —
 /// **plus the generation of the tree that issued it**.
@@ -99,7 +101,10 @@ pub enum BoxKind {
     /// rules split or wrapped to produce it. That is exactly what the spec
     /// asks for: an anonymous box has no declarations of its own and takes the
     /// inherited properties of its generating element.
-    Anonymous { inherits_from: NodeIdx },
+    Anonymous {
+        inherits_from: NodeIdx,
+        role: AnonymousRole,
+    },
     /// A run of text. Its style is the enclosing inline element's, which is
     /// also what `collect_runs` already threads down as parameters.
     ///
@@ -112,6 +117,24 @@ pub enum BoxKind {
         node: NodeIdx,
         inherits_from: NodeIdx,
     },
+}
+
+/// What an anonymous box IS, because CSS generates more than one kind.
+///
+/// A role and not a second variant of [`BoxKind`]: every reader that asks
+/// "does this box have a node" or "where does its style come from" answers
+/// the same for both, and a second variant would make each of them repeat
+/// the arm. Only the formatting context and the layout dispatch differ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnonymousRole {
+    /// The block box CSS 2.1 §9.2.1.1 wraps around a run of inline content
+    /// when an inline is split around an in-flow block.
+    Block,
+    /// The table box CSS 2.1 §17.2.1 (rule 3) wraps around a run of table
+    /// parts whose parent is not a table. The rows and cells it may still
+    /// need INSIDE are the table layout's business (`table/grid.rs`), which
+    /// already generates them for a real table.
+    Table,
 }
 
 /// Named `LayoutBox` and not `Box` because `Box` is `std::boxed::Box` — a name
@@ -155,7 +178,15 @@ impl BoxTree {
     /// what CSS 2.1 §9.2.1.1 says an anonymous box takes its inherited
     /// properties from. Not an owner, and not reachable through `boxes_of`.
     pub fn push_anonymous(&mut self, inherits_from: NodeIdx, parent: BoxId) -> BoxId {
-        self.push(BoxKind::Anonymous { inherits_from }, Some(parent))
+        let role = AnonymousRole::Block;
+        self.push(BoxKind::Anonymous { inherits_from, role }, Some(parent))
+    }
+
+    /// An anonymous TABLE box (CSS 2.1 §17.2.1) under `parent`, inheriting from
+    /// the element whose misparented table parts it wraps.
+    pub fn push_anonymous_table(&mut self, inherits_from: NodeIdx, parent: BoxId) -> BoxId {
+        let role = AnonymousRole::Table;
+        self.push(BoxKind::Anonymous { inherits_from, role }, Some(parent))
     }
 
     /// A tree for a given build. `build_mirror` passes the document revision,
@@ -278,7 +309,7 @@ impl BoxTree {
     pub fn style_source(&self, id: BoxId) -> NodeIdx {
         match self.get(id).kind {
             BoxKind::Element(n) => n,
-            BoxKind::Anonymous { inherits_from } | BoxKind::Text { inherits_from, .. } => {
+            BoxKind::Anonymous { inherits_from, .. } | BoxKind::Text { inherits_from, .. } => {
                 inherits_from
             }
         }

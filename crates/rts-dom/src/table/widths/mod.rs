@@ -102,7 +102,17 @@ pub(crate) fn cell_min_max_na_arvore(
     ctx: &LayoutCtx,
 ) -> Coluna {
     let css = dom.computed_style_idx(id).unwrap_or_default();
-    let font = crate::layout::font_px(&css, parent_font);
+    // A TEXT node that is its own anonymous cell has no style: its font comes
+    // from the element it inherits from, through the tree. Only the INHERITED
+    // half — the anonymous cell has no width, padding or border of its own, so
+    // `css` stays the default for those. Reading the text's missing style lost
+    // `monospace` and measured "Some text." at 73.6 where Blink gives 87.97
+    // (`claude-linha-so-com-texto`).
+    let herdado = matches!(dom.node(id).kind, crate::NodeKind::Text(_))
+        .then(|| tree.style(dom, caixa))
+        .flatten();
+    let fonte = herdado.as_deref().unwrap_or(&css);
+    let font = crate::layout::font_px(fonte, parent_font);
     let resolve = ResolveCtx {
         parent_content_w: ctx.viewport_w,
         node_font_size: font,
@@ -112,7 +122,7 @@ pub(crate) fn cell_min_max_na_arvore(
     };
     let border_box = css.border_box.unwrap_or(false);
     let frame = css.padding.resolve_h(&resolve) + 2.0 * css.border_width.unwrap_or(0.0);
-    let mono = css
+    let mono = fonte
         .font_family
         .as_deref()
         .map(crate::style::is_mono_family)

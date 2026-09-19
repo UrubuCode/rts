@@ -44,6 +44,8 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
                 | crate::style::DisplayKind::InlineBlock
                 | crate::style::DisplayKind::Table
                 | crate::style::DisplayKind::TableRowGroup
+                | crate::style::DisplayKind::TableHeaderGroup
+                | crate::style::DisplayKind::TableFooterGroup
                 | crate::style::DisplayKind::TableRow
                 | crate::style::DisplayKind::TableCell
                 | crate::style::DisplayKind::TableCaption
@@ -139,6 +141,8 @@ fn margin_child_role(
                     | crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
                     | crate::style::DisplayKind::InlineFlexWrap
                     | crate::style::DisplayKind::TableRowGroup
+                    | crate::style::DisplayKind::TableHeaderGroup
+                    | crate::style::DisplayKind::TableFooterGroup
                     | crate::style::DisplayKind::TableRow
                     | crate::style::DisplayKind::TableCell
                     | crate::style::DisplayKind::TableCaption

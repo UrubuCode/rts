@@ -55,13 +55,51 @@ pub(crate) enum AtomicKind {
     /// e nada nas seguintes, como o Blink.
     ArestaInicio,
     ArestaFim,
-    /// A ÂNCORA de um float que aparece a meio do fluxo inline: largura zero,
-    /// sem caixa na linha, e sem pintura nela. Só diz EM QUE LINHA o float
-    /// apareceu — o CSS 2.1 §9.5.1 põe o topo dele no topo dessa linha, se
-    /// couber no que ela ainda tem livre — e é `float_na_linha.rs` quem o
-    /// coloca. A largura entra pelas exclusões do BFC, que é o que encurta a
-    /// linha, e nunca pela soma dos segmentos.
+    /// The ANCHOR of a float that appears in the middle of the inline flow:
+    /// zero width, no box on the line and nothing painted there. It only says
+    /// WHICH LINE the float appeared on — CSS 2.1 §9.5.1 puts its top at that
+    /// line's top when it fits in what the line still has free — and
+    /// `float_in_line.rs` places it. Its width enters through the BFC's
+    /// exclusions, which is what shortens the line, never through the sum of
+    /// the segments.
     Float,
+    /// A piece of the generated box (`::before`/`::after`) of the element the
+    /// run names: the box itself when it is atomic (`inline-block`), or the
+    /// start/end edge of an `inline` one that has a surface. The originating
+    /// element is the run's node, because the generated box has no node of
+    /// its own (`pseudo/mod.rs`); the pseudo-element is what tells it apart
+    /// from that element's own `Block`/`ArestaInicio`/`ArestaFim`, which a
+    /// second meaning on those kinds would have confused.
+    Gerada(crate::style::PseudoElement, ParteGerada),
+}
+
+/// Which piece of a generated box an `AtomicKind::Gerada` run is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ParteGerada {
+    /// The whole box, sized by its own `width`/`height` or its content.
+    Atomo,
+    /// Margin + border + padding before the text of an `inline` pseudo.
+    Inicio,
+    /// The same after it.
+    Fim,
+}
+
+impl AtomicKind {
+    /// Does this atom have a BODY the line must be tall enough for? Asked in
+    /// two places of the line flow (does the group create a line at all, how
+    /// tall is each line); one answer keeps them from drifting apart.
+    pub(crate) fn tem_corpo(self) -> bool {
+        matches!(
+            self,
+            Self::Widget | Self::Replaced | Self::Block | Self::Break | Self::Gerada(_, ParteGerada::Atomo)
+        )
+    }
+
+    /// An inline-level box laid out as a block (an `inline-block` element or
+    /// an atomic generated box): it sits on the baseline by its own rules.
+    pub(crate) fn e_bloco_na_linha(self) -> bool {
+        matches!(self, Self::Block | Self::Gerada(_, ParteGerada::Atomo))
+    }
 }
 
 /// Este carácter é WHITESPACE para o CSS?

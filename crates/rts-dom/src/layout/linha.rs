@@ -42,9 +42,9 @@ pub(in crate::layout) fn layout_inline_flow(
     // lá dentro. Parar de empurrar o bloco sem encurtar as linhas trocava um
     // erro de posição por texto pintado por baixo da figura. Ver [`Exclusao`].
     //
-    // O BFC e não uma cópia das exclusões: um float que aparece A MEIO deste
-    // fluxo é colocado aqui (`float_na_linha.rs`) e tem de chegar aos irmãos
-    // que vêm depois, como o de um filho directo chega.
+    // The BFC and not a copy of its exclusions: a float that appears in the
+    // MIDDLE of this flow is placed here (`float_in_line.rs`) and has to reach
+    // the siblings that come after, as a direct child's float does.
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -53,7 +53,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
-    let dono_inteiro = inline_fragmentos::grupo_e_todo_o_dono(dom, dono, group);
+    let dono_inteiro = inline_fragmentos::group_is_whole_owner(dom, dono, group);
     let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
     if dono_inteiro {
         runs.extend(pseudo_run(
@@ -63,6 +63,8 @@ pub(in crate::layout) fn layout_inline_flow(
             crate::style::PseudoElement::Before,
             cor_base,
             parent_css.italic.unwrap_or(false),
+            content_w,
+            ctx,
         ));
     }
     // `Rc` clonado antes do laço: `list` é escrito ao longo da função inteira, e
@@ -99,6 +101,8 @@ pub(in crate::layout) fn layout_inline_flow(
             crate::style::PseudoElement::After,
             cor_base,
             parent_css.italic.unwrap_or(false),
+            content_w,
+            ctx,
         ));
     }
     let family = parent_css.font_family.as_deref();
@@ -159,24 +163,11 @@ pub(in crate::layout) fn layout_inline_flow(
             ahem, ctx.measurer,
         )
     };
-    // Os floats que aparecem A MEIO deste fluxo põem-se ANTES da quebra final:
-    // cada um encurta as linhas que atravessa. Ver `float_na_linha.rs`.
-    super::float_na_linha::coloca_ancorados(dom, &arvore, &runs, &quebrar, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
+    // Floats that appear in the MIDDLE of this flow are placed BEFORE the final
+    // line breaking: each shortens the lines it crosses. See `float_in_line.rs`.
+    super::float_in_line::place_anchored_floats(dom, &arvore, &runs, &quebrar, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
     // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
-    if runs.iter().all(|r| {
-        r.text.trim().is_empty()
-            && !matches!(
-                r.atomic,
-                Some((
-                    _,
-                    _,
-                    AtomicKind::Widget
-                        | AtomicKind::Replaced
-                        | AtomicKind::Block
-                        | AtomicKind::Break
-                ))
-            )
-    }) {
+    if runs.iter().all(|r| r.text.trim().is_empty() && !r.atomic.is_some_and(|(_, _, k)| k.tem_corpo())) {
         // Continua sem linha; cada Marker ganha 0×0 (`inline_fragmentos`).
         inline_fragmentos::registar_markers_sem_linha(list, x, y, &runs);
         return y;
@@ -222,6 +213,8 @@ pub(in crate::layout) fn layout_inline_flow(
         .unwrap_or(0.0);
     let mut first_line = true;
     let mut cy = y;
+    // A generated inline broken across lines carries its open surface over.
+    let mut transporte = super::inline_fragmentos::Superficies::default();
     // CONSUMINDO as linhas: o texto de cada segmento vai direto para o
     // `DisplayItem`, em vez de ser clonado. Eram milhares de `String` alocadas
     // por passada de layout, uma por segmento, para copiar algo que ninguém mais
@@ -241,19 +234,7 @@ pub(in crate::layout) fn layout_inline_flow(
         // altura da linha: o texto (lh) ou o widget mais alto nela.
         let line_h = line
             .iter()
-            .filter(|s| {
-                matches!(
-                    s.atomic,
-                    Some((
-                    _,
-                    _,
-                        AtomicKind::Widget
-                            | AtomicKind::Replaced
-                            | AtomicKind::Block
-                            | AtomicKind::Break
-                    ))
-                )
-            })
+            .filter(|s| s.atomic.is_some_and(|(_, _, k)| k.tem_corpo()))
             .map(|s| s.wh)
             .fold(lh, f32::max);
         // A CAIXA de cada inline desta linha: a content area da fonte, centrada na
@@ -273,7 +254,7 @@ pub(in crate::layout) fn layout_inline_flow(
             && tem_texto
             && line
                 .iter()
-                .any(|segment| matches!(segment.atomic, Some((_, _, AtomicKind::Block))));
+                .any(|segment| segment.atomic.is_some_and(|(_, _, k)| k.e_bloco_na_linha()));
         // Um inline-block vazio alinha pela baseline no seu fundo. Quando ele é
         // mais alto que o strut, o texto mantém o ascent da fonte acima dessa
         // baseline e o descent do strut fica abaixo dela. É o contrato Blink que
@@ -306,7 +287,7 @@ pub(in crate::layout) fn layout_inline_flow(
         // linha: acumulam-se ao longo dos segmentos e inserem-se ATRÁS deles.
         let at_linha = list.items.len();
         let filhos_antes_da_linha = list.children.len();
-        let mut superficies = super::inline_fragmentos::Superficies::default();
+        let mut superficies = std::mem::take(&mut transporte);
         let text_owner_anchor = if tall_inline_block {
             cy + line_h
         } else {
@@ -341,10 +322,10 @@ pub(in crate::layout) fn layout_inline_flow(
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
             if let Some((a_idx, caixa, kind)) = seg.atomic {
-                // A âncora de um float não tem nada na linha: o float já foi
-                // disposto por `float_na_linha`, e nem a caixa dele nem a dos
-                // inlines à volta passam por aqui — o Blink deixa-o fora dos
-                // client rects do inline que o contém.
+                // A float's anchor has nothing on the line: the float was laid
+                // out by `float_in_line`, and neither its box nor the boxes of
+                // the inlines around it pass through here — Blink leaves it out
+                // of the client rects of the inline that contains it.
                 if kind == AtomicKind::Float {
                     continue;
                 }
@@ -427,16 +408,23 @@ pub(in crate::layout) fn layout_inline_flow(
                             list,
                         );
                     }
+                    AtomicKind::Gerada(pe, ParteGerada::Atomo) => {
+                        let baseline = text_top + ctx.measurer.font_ascent_family(font_size, family);
+                        super::pseudo_inline::pintar_atomo(dom, a_idx, pe, seg_x, cy, baseline, line_h, content_w, ctx, list);
+                    }
                     AtomicKind::Marker
                     | AtomicKind::Break
                     | AtomicKind::ArestaInicio
                     | AtomicKind::ArestaFim
+                    | AtomicKind::Gerada(..)
                     | AtomicKind::Float => {}
                 }
                 superficies.ver(dom, &seg.owners, seg_x, seg_x + seg.ww);
                 match kind {
                     AtomicKind::ArestaInicio => superficies.marca(a_idx, true),
                     AtomicKind::ArestaFim => superficies.marca(a_idx, false),
+                    AtomicKind::Gerada(pe, ParteGerada::Inicio) => superficies.abre_gerada(dom, a_idx, pe, seg_x, seg.ww, content_w, ctx),
+                    AtomicKind::Gerada(pe, ParteGerada::Fim) => superficies.fecha_gerada(dom, a_idx, pe, content_w, ctx),
                     _ => {}
                 }
                 // A CAIXA DO PRÓPRIO: só regista aqui quem NADA mais registou.
@@ -456,7 +444,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 // recebe-a como fragmento no laço abaixo.
                 let ja_registado = matches!(
                     kind,
-                    AtomicKind::Widget | AtomicKind::Block | AtomicKind::ArestaInicio | AtomicKind::ArestaFim
+                    AtomicKind::Widget | AtomicKind::Block | AtomicKind::ArestaInicio | AtomicKind::ArestaFim | AtomicKind::Gerada(..)
                 ) || (kind == AtomicKind::Replaced
                     && (dom.image_dims(a_idx).is_some() || e_canvas(dom, a_idx)));
                 if !ja_registado {
@@ -539,7 +527,7 @@ pub(in crate::layout) fn layout_inline_flow(
             }
             seg_x += w;
         }
-        superficies.pintar(
+        transporte = superficies.pintar(
             dom,
             list,
             at_linha,
