@@ -78,6 +78,7 @@ mod intl;
 mod iterate;
 mod iterator;
 mod json;
+pub use json::{json_parse, json_stringify};
 pub(in crate::entry) mod list_iterator;
 mod loops;
 mod math;

@@ -77,6 +77,7 @@ mod globals;
 mod heritage;
 mod home;
 mod inline;
+mod json_call;
 mod loops;
 mod merge;
 mod module;
@@ -600,6 +601,9 @@ pub struct Ctx<'a> {
     /// `primordial`. False is the safe answer and the default: a program this
     /// has not been computed for gets the call it has always got.
     math_primordial: bool,
+    /// Whether `JSON` is the primordial and never leaves a member base — the
+    /// stricter proof `primordial::only_a_base` states, and `json_call` spends.
+    json_primordial: bool,
     /// Which functions a call site may emit as their own body.
     ///
     /// Whole-program and computed before anything is emitted, like
@@ -707,6 +711,7 @@ impl<'a> Ctx<'a> {
             module_key: None,
             names_top_level: false,
             math_primordial: false,
+            json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
@@ -1122,6 +1127,8 @@ pub(super) fn emit_program_into(
     let math = ctx.names.intern("Math");
     let eval_name = ctx.names.intern("eval");
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
+    let json = ctx.names.intern("JSON");
+    ctx.json_primordial = primordial::only_a_base(body, json, eval_name, global_this);
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");
@@ -1273,6 +1280,10 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     let whole_program_math = lowered
         .iter()
         .all(|(_, _, body, _)| primordial::untouched(body, math, eval_name, global_this));
+    let json = ctx.names.intern("JSON");
+    let whole_program_json = lowered
+        .iter()
+        .all(|(_, _, body, _)| primordial::only_a_base(body, json, eval_name, global_this));
 
     // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the
     // program rather than about a file.
@@ -1339,7 +1350,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             imports,
             Some(&unit.specifier),
             publications,
-            whole_program_math,
+            (whole_program_math, whole_program_json),
             ctx,
         )?);
     }
@@ -1360,7 +1371,7 @@ fn emit_unit(
     publications: &[module::Publication],
     // The one whole-program fact a single unit cannot answer, folded over every
     // lowered body by `emit_modules` before the first is emitted.
-    whole_program_math: bool,
+    (whole_program_math, whole_program_json): (bool, bool),
     ctx: &mut Ctx,
 ) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(function::signature());
@@ -1381,6 +1392,7 @@ fn emit_unit(
     // the first is emitted. See the comment there for the wrong answer that
     // per-unit produced.
     ctx.math_primordial = whole_program_math;
+    ctx.json_primordial = whole_program_json;
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");

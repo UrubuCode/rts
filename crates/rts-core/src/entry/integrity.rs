@@ -104,6 +104,15 @@ impl Default for Attributes {
 }
 
 impl Context {
+    /// Whether ANY key of this cell has attributes of its own recorded.
+    ///
+    /// `false` is the common answer and a useful one: every property is then
+    /// what [`Self::implied_attributes`] says, which for a plain object is
+    /// enumerable, so a walk over many cells of one shape need not ask per key.
+    pub(in crate::entry) fn records_attributes(&self, cell: u32) -> bool {
+        self.attributes.get(cell).is_some_and(|held| !held.is_empty())
+    }
+
     /// What one key of one cell permits.
     pub(in crate::entry) fn attributes_at(&self, cell: u32, key: ShapeKey) -> Attributes {
         self.attributes

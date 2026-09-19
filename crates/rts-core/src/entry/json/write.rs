@@ -105,10 +105,27 @@ pub(super) enum Shape {
 /// path's `external::hold_current` exists for, and which cost 31 wrong results
 /// per 300 000 calls before it did. Each member is read inside its own borrow,
 /// one at a time, exactly as the general path reads it.
+///
+/// # Remembered by shape, for the length of one walk
+///
+/// A hundred rows of one shape asked all of this a hundred times: a `Vec`, and
+/// per key an attribute lookup, the key's text, a symbol test and an index
+/// test. Everything but the attributes is a fact about the SHAPE — a shape
+/// never changes, the tree only grows — so [`Plan`] keeps the last answer and
+/// a cell of the same shape with no attributes recorded takes it whole. One
+/// entry per DEPTH and not a map: the rows of a document are adjacent, and a
+/// row's own children would otherwise overwrite the row's answer between one
+/// row and the next.
+///
+/// The answer is LENT, not shared: the caller takes the depth's plan out,
+/// walks with it, and puts it back. It was an `Rc` for one build, and the clock
+/// said what that cost — an allocation per object, so five nested objects of
+/// five shapes went from 1 755 ns to 2 138.
 fn plain_properties(
     context: &mut Context,
     cell: u32,
-) -> Option<Vec<rts_cranelift::shape::Key>> {
+    plan: &mut Option<Plan>,
+) -> Option<Lent> {
     if context.proxy_at(cell).is_some() {
         return None;
     }
@@ -120,6 +137,72 @@ fn plain_properties(
     }
     let ty = context.region.type_of(cell)?;
     let shape = context.shape_of(ty)?;
+    // Only a cell with nothing recorded may take or leave a remembered answer:
+    // `enumerable` below is then the same for every cell of the shape.
+    let ordinary = !context.records_attributes(cell);
+    if ordinary
+        && let Some((known, keys, labelled)) = plan.as_mut()
+        && *known == shape
+    {
+        // The SECOND cell of a shape is what pays for the labels, and the
+        // first never does. Built eagerly they were two allocations a key for
+        // every lone object ever serialised, and the clock said so: eight
+        // properties went from 1 168 ns to 1 695 the day they were.
+        if !*labelled {
+            *keys = shape_keys(context, cell, shape, true);
+            *labelled = true;
+        }
+        return keys.is_some().then_some(Lent::Planned);
+    }
+    let keys = shape_keys(context, cell, shape, false);
+    if !ordinary {
+        return keys.map(Lent::Own);
+    }
+    let usable = keys.is_some();
+    *plan = Some((shape, keys, false));
+    usable.then_some(Lent::Planned)
+}
+
+/// Where the members [`plain_properties`] answered are.
+enum Lent {
+    /// In the plan the caller handed in.
+    Planned,
+    /// Here: the cell records attributes of its own, so its answer is about
+    /// the cell and must not be left for the next one of its shape.
+    Own(Keys),
+}
+
+/// One member of a shape, with everything about it that is the SHAPE's.
+///
+/// The slot is what `own_property` would find by hashing the key, and the label
+/// is what `quoted` would produce by scanning its text — both asked per member
+/// per object, and both the same for every object of the shape.
+pub(super) struct Member {
+    key: rts_cranelift::shape::Key,
+    /// Where the value sits, WHILE the cell still has this shape. A `toJSON`
+    /// further up the walk may delete a property of the holder, so the reader
+    /// checks the shape before it trusts this — see [`Writer::plain`].
+    slot: u32,
+    /// The key as a JSON string literal, quotes and escapes included. Empty
+    /// until a shape repeats, and for a key with a unit above 255 — both are
+    /// written the long way, from the interner's text.
+    label: Vec<u8>,
+}
+
+/// The members a shape walk serialises, or `None` where it must not be one.
+type Keys = Vec<Member>;
+
+/// The last shape [`plain_properties`] answered for, and its answer — a refusal
+/// included, which is as much a fact about the shape as a key list is. The flag
+/// is whether the labels were built yet.
+pub(super) type Plan = (rts_cranelift::shape::ShapeId, Option<Keys>, bool);
+
+fn shape_keys(
+    context: &mut Context,
+    cell: u32,
+    shape: rts_cranelift::shape::ShapeId,
+    labelled: bool,
+) -> Option<Keys> {
     let mut keys = Vec::new();
     for (key, _) in context.shapes.properties(shape) {
         if !super::super::integrity::enumerable(context, cell, key) {
@@ -128,10 +211,17 @@ fn plain_properties(
         // By reference, and the borrow ends before `enumerable` needs the
         // context again — a clone here would be one per key per call, which is
         // the allocation this path exists to remove.
-        let (symbol, indexed) = match context.interner.text(key) {
+        let (symbol, indexed, label) = match context.interner.text(key) {
             Some(text) => (
                 super::super::symbol::is_symbol_key(text),
                 crate::object::as_array_index(text).is_some(),
+                text.narrow().filter(|_| labelled).map_or_else(Vec::new, |bytes| {
+                    let mut label = super::out::Out::new();
+                    label.bytes(b"\"");
+                    label.escaped(bytes);
+                    label.bytes(b"\"");
+                    label.narrow().to_vec()
+                }),
             ),
             None => return None,
         };
@@ -157,7 +247,8 @@ fn plain_properties(
         if indexed {
             return None;
         }
-        keys.push(key);
+        let slot = context.shapes.slot_of(shape, key)?;
+        keys.push(Member { key, slot, label });
     }
     Some(keys)
 }
@@ -229,7 +320,8 @@ pub(super) fn indent_of(space: u64) -> Vec<u16> {
 
 /// The buffer, the indentation, and the set of cells currently being written.
 pub(super) struct Writer {
-    out: Vec<u16>,
+    /// See [`super::out::Out`] for why this is not a `Vec<u16>`.
+    out: super::out::Out,
     /// The cells on the path from the root to here.
     ///
     /// A vector and a linear scan rather than a set: a JSON document's depth is
@@ -240,21 +332,24 @@ pub(super) struct Writer {
     /// What the second argument to `stringify` was, classified once before the
     /// walk started. See [`super::hooks::Replacer`].
     replacer: Replacer,
+    /// See [`plain_properties`]. Indexed by depth.
+    plans: Vec<Option<Plan>>,
 }
 
 impl Writer {
     pub(super) fn new(indent: Vec<u16>, replacer: Replacer) -> Self {
         Writer {
-            out: Vec::new(),
+            out: super::out::Out::new(),
             open: Vec::new(),
             indent,
             replacer,
+            plans: Vec::new(),
         }
     }
 
     /// The text written so far.
-    pub(super) fn finish(self) -> Vec<u16> {
-        self.out
+    pub(super) fn finish(self) -> Str {
+        self.out.finish()
     }
 
     /// Writes one value, and answers whether it had a JSON form at all.
@@ -328,7 +423,9 @@ impl Writer {
             // decimal comes from the runtime's own conversion, so a number
             // printed here and one printed by `String(n)` cannot disagree.
             Shape::Number(number) => match number.is_finite() {
-                true => self.text(&crate::coerce::number_to_string(number)),
+                // Straight off the stack: a number is text nobody keeps, so it
+                // is never made into a string on the way to the buffer.
+                true => self.out.bytes(crate::coerce::decimal_of(number).bytes()),
                 false => self.ascii("null"),
             },
             Shape::Text(cell) => with_current(|context| {
@@ -385,6 +482,27 @@ impl Writer {
                 self.ascii(",");
             }
             self.newline(depth + 1);
+            // A PRIMITIVE element, read and written in one borrow — see
+            // [`Self::direct`]. Still a live read of the store at the moment
+            // this index is reached, so a shrink by an earlier element's
+            // `toJSON` is seen exactly as the ordinary read below sees it. A
+            // hole is not answered here: it reads through the prototype chain.
+            let direct = self.unobserved()
+                && with_current(|context| {
+                    if !context.ranked_accessors(cell).is_empty() {
+                        return false;
+                    }
+                    let held = context.elements_at(cell).and_then(|held| held.get(at)).copied();
+                    match held {
+                        Some(held) if !super::super::array::is_hole(context, held) => {
+                            self.direct(context, held)
+                        }
+                        _ => false,
+                    }
+                });
+            if direct {
+                continue;
+            }
             // The ordinary indexed read: a hole and an `undefined` element
             // both answer `undefined` here exactly as [`super::super::array::visible`]
             // says a compiled `a[k]` does, which is what keeps this agreeing
@@ -421,12 +539,30 @@ impl Writer {
         // members and their order itself, so the object's own enumeration is not
         // consulted — a fast path over the shape would answer the wrong members
         // rather than the same ones faster.
-        if !matches!(self.replacer, Replacer::List(_))
-            && let Some(keys) = with_current(|context| plain_properties(context, cell))
-        {
-            self.plain(value, keys, depth);
-            self.leave();
-            return;
+        if !matches!(self.replacer, Replacer::List(_)) {
+            if self.plans.len() <= depth {
+                self.plans.resize_with(depth + 1, || None);
+            }
+            // TAKEN OUT for the walk and put back after it: `plain` descends
+            // into `self`, so the members cannot stay borrowed from it.
+            let mut plan = self.plans[depth].take();
+            let lent = with_current(|context| plain_properties(context, cell, &mut plan));
+            let walked = match (&lent, &plan) {
+                (Some(Lent::Own(keys)), _) => {
+                    self.plain(value, keys, depth);
+                    true
+                }
+                (Some(Lent::Planned), Some((_, Some(keys), _))) => {
+                    self.plain(value, keys, depth);
+                    true
+                }
+                _ => false,
+            };
+            self.plans[depth] = plan;
+            if walked {
+                self.leave();
+                return;
+            }
         }
         // The runtime's own enumeration, which is what `Object.keys` and
         // `for-in` walk. A second walk of the layout here would be a second
@@ -597,10 +733,15 @@ impl Writer {
     /// the collector while an allocation happens. That is why the general path's
     /// `external::hold_current` has no counterpart in this one: there is no
     /// heap array to keep alive, because none was made.
-    fn plain(&mut self, value: u64, keys: Vec<rts_cranelift::shape::Key>, depth: usize) {
+    fn plain(&mut self, value: u64, keys: &[Member], depth: usize) {
         self.ascii("{");
         let mut written = false;
-        for key in keys {
+        let cell = Value(value).as_slot();
+        let shape = with_current(|context| {
+            context.shape_of(context.region.type_of(cell?)?)
+        });
+        for member in keys.iter() {
+            let key = member.key;
             if super::super::throw::in_flight() {
                 break;
             }
@@ -609,15 +750,46 @@ impl Writer {
             // reading it runs nothing and can allocate nothing — which is what
             // makes taking the text alongside it safe here and not in the
             // general loop.
-            let Some(held) = with_current(|context| {
-                let found = super::super::objects::own_property(
-                    context,
-                    Value(value).as_slot()?,
-                    crate::object::Key::Name(key),
-                )?;
-                Some(found.bits())
-            }) else {
-                continue;
+            //
+            // And when the member is a PRIMITIVE and no replacer watches, the
+            // separator, the key and the value are written in that same borrow
+            // — see [`Self::direct`]. It was five borrows a member.
+            let unobserved = self.unobserved();
+            let indented = !self.indent.is_empty();
+            let read = with_current(|context| {
+                // By SLOT while the cell is still the shape the plan was made
+                // for, and by key the moment it is not: a hook earlier in this
+                // loop may have deleted or added a property of the holder.
+                let cell = cell?;
+                let still = context.shape_of(context.region.type_of(cell)?) == shape;
+                let found = match still {
+                    true => super::super::objects::slot_value(context, cell, member.slot)?,
+                    false => super::super::objects::own_property(
+                        context,
+                        cell,
+                        crate::object::Key::Name(key),
+                    )?
+                    .bits(),
+                };
+                if unobserved && is_primitive(context, found) {
+                    if written {
+                        self.ascii(",");
+                    }
+                    self.newline(depth + 1);
+                    self.label(context, member);
+                    self.ascii(if indented { ": " } else { ":" });
+                    self.direct(context, found);
+                    return Some(None);
+                }
+                Some(Some(found))
+            });
+            let held = match read {
+                None => continue,
+                Some(None) => {
+                    written = true;
+                    continue;
+                }
+                Some(Some(held)) => held,
             };
             let held = self.hooked(value, held, HookKey::Named(key));
             // CLASSIFIED ONCE, and the answer carried to the write.
@@ -640,11 +812,7 @@ impl Writer {
             }
             written = true;
             self.newline(depth + 1);
-            with_current(|context| {
-                if let Some(text) = context.interner.text(key) {
-                    self.quoted(text);
-                }
-            });
+            with_current(|context| self.label(context, member));
             self.ascii(":");
             if !self.indent.is_empty() {
                 self.ascii(" ");
@@ -655,6 +823,60 @@ impl Writer {
             self.newline(depth);
         }
         self.ascii("}");
+    }
+
+    /// A member's key, from the plan where it is narrow and from the interner
+    /// where it is not.
+    fn label(&mut self, context: &Context, member: &Member) {
+        if !member.label.is_empty() {
+            return self.out.bytes(&member.label);
+        }
+        if let Some(text) = context.interner.text(member.key) {
+            self.quoted(text);
+        }
+    }
+
+    /// Whether nothing but this walk sees a member before it is written.
+    ///
+    /// A function replacer is called for EVERY member, primitive or not, so it
+    /// is the one thing that rules the one-borrow path out. `toJSON` does not:
+    /// the specification reads it off an Object or a BigInt and off nothing
+    /// else, and [`is_primitive`] admits neither.
+    fn unobserved(&self) -> bool {
+        !matches!(self.replacer, Replacer::Function(_))
+    }
+
+    /// Writes a primitive inside the caller's borrow, and answers whether it
+    /// was one.
+    ///
+    /// # What this removes
+    ///
+    /// A member used to cost a borrow to read it, one for `toJSON` to discover
+    /// it was not an object, one to classify it, one to write its key and one
+    /// to classify it AGAIN inside `write` — five `RefCell` borrows and two
+    /// thread-local reads each, to copy a number. Measured 2026-09-19 on
+    /// `target/release/rts.exe`: 95 ns an array element and 230 a member, of
+    /// which the digits are a handful.
+    fn direct(&mut self, context: &Context, value: u64) -> bool {
+        // A double first, and without `shape_of`: that asks about wrappers and
+        // bigints before it asks about numbers, which is the right order for a
+        // value nobody has looked at and two lookups too many for this one.
+        if let Some(number) = Value(value).numeric() {
+            return self.write_shape(Shape::Number(number), value, 0);
+        }
+        if let Some(cell) = Value(value).as_slot() {
+            return match context.text_at(cell) {
+                Some(text) => {
+                    self.quoted(text);
+                    true
+                }
+                None => false,
+            };
+        }
+        match shape_of(context, value) {
+            shape @ (Shape::Null | Shape::Bool(_) | Shape::Number(_)) => self.write_shape(shape, value, 0),
+            _ => false,
+        }
     }
 
     /// Whether this cell may be descended into.
@@ -693,20 +915,17 @@ impl Writer {
         if self.indent.is_empty() {
             return;
         }
-        self.out.push(b'\n' as u16);
+        self.out.bytes(b"\n");
         for _ in 0..depth {
-            self.out.extend_from_slice(&self.indent);
+            for unit in &self.indent {
+                self.out.unit(*unit);
+            }
         }
     }
 
     /// Text this module wrote itself, which is ASCII by construction.
     fn ascii(&mut self, text: &str) {
-        self.out.extend(text.bytes().map(u16::from));
-    }
-
-    /// Text from the heap, unquoted — a number's decimal, and nothing else.
-    fn text(&mut self, text: &Str) {
-        self.out.extend(text.units());
+        self.out.bytes(text.as_bytes());
     }
 
     /// Text from the heap, as a JSON string literal.
@@ -726,13 +945,13 @@ impl Writer {
     /// next one.
     fn quoted(&mut self, text: &Str) {
         if let Some(bytes) = text.narrow() {
-            self.out.push(b'"' as u16);
-            quoted_narrow(&mut self.out, bytes);
-            self.out.push(b'"' as u16);
+            self.out.bytes(b"\"");
+            self.out.escaped(bytes);
+            self.out.bytes(b"\"");
             return;
         }
         let units: Vec<u16> = text.units().collect();
-        self.out.push(b'"' as u16);
+        self.out.bytes(b"\"");
         for (at, unit) in units.iter().copied().enumerate() {
             let lone = match unit {
                 0xd800..=0xdbff => !matches!(units.get(at + 1), Some(0xdc00..=0xdfff)),
@@ -743,7 +962,7 @@ impl Writer {
                 self.ascii("\\u");
                 let digits = b"0123456789abcdef";
                 for shift in [12, 8, 4, 0] {
-                    self.out.push(u16::from(digits[((unit >> shift) & 0xf) as usize]));
+                    self.out.bytes(&[digits[((unit >> shift) & 0xf) as usize]]);
                 }
                 continue;
             }
@@ -760,13 +979,22 @@ impl Writer {
                 0x00..=0x1f => {
                     self.ascii("\\u00");
                     let digits = b"0123456789abcdef";
-                    self.out.push(u16::from(digits[(unit >> 4) as usize]));
-                    self.out.push(u16::from(digits[(unit & 0xf) as usize]));
+                    self.out.bytes(&[digits[(unit >> 4) as usize], digits[(unit & 0xf) as usize]]);
                 }
-                _ => self.out.push(unit),
+                _ => self.out.unit(unit),
             }
         }
-        self.out.push(b'"' as u16);
+        self.out.bytes(b"\"");
+    }
+}
+
+/// Whether [`Writer::direct`] will write this value: text, a number, a boolean
+/// or `null`. Not `undefined`, a symbol or a bigint — each has a rule of its
+/// own (a skipped member, a `TypeError`) that the ordinary path states once.
+fn is_primitive(context: &Context, value: u64) -> bool {
+    match Value(value).as_slot() {
+        Some(cell) => context.text_at(cell).is_some(),
+        None => matches!(shape_of(context, value), Shape::Null | Shape::Bool(_) | Shape::Number(_)),
     }
 }
 
@@ -911,25 +1139,3 @@ impl HookKey {
     }
 }
 
-
-/// Writes a Latin-1 JSON string body directly into the UTF-16 output buffer.
-fn quoted_narrow(out: &mut Vec<u16>, bytes: &[u8]) {
-    for &unit in bytes {
-        match unit {
-            b'"' => out.extend([b'\\' as u16, b'"' as u16]),
-            b'\\' => out.extend([b'\\' as u16, b'\\' as u16]),
-            0x08 => out.extend([b'\\' as u16, b'b' as u16]),
-            0x0c => out.extend([b'\\' as u16, b'f' as u16]),
-            b'\n' => out.extend([b'\\' as u16, b'n' as u16]),
-            b'\r' => out.extend([b'\\' as u16, b'r' as u16]),
-            b'\t' => out.extend([b'\\' as u16, b't' as u16]),
-            0x00..=0x1f => {
-                out.extend([b'\\' as u16, b'u' as u16, b'0' as u16, b'0' as u16]);
-                let digits = b"0123456789abcdef";
-                out.push(u16::from(digits[(unit >> 4) as usize]));
-                out.push(u16::from(digits[(unit & 0xf) as usize]));
-            }
-            _ => out.push(u16::from(unit)),
-        }
-    }
-}

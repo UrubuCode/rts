@@ -16,10 +16,10 @@ use crate::text::Str;
 /// `Number("NaN")` is `NaN` because it IS the number. Same answer, different
 /// reasons, which is why a test asserting `is_nan()` on either proves nothing
 /// alone.
-const NAN: &str = "NaN";
+pub(super) const NAN: &str = "NaN";
 
 /// How `ToString` writes a positive infinity, and what `ToNumber` recognises.
-const INFINITY: &str = "Infinity";
+pub(super) const INFINITY: &str = "Infinity";
 
 /// `Number::toString`, radix 10 — what `String(n)` and a template literal use.
 ///
@@ -51,96 +51,9 @@ const INFINITY: &str = "Infinity";
 /// program printing an array of numbers matches other engines character for
 /// character.
 pub fn number_to_string(value: f64) -> Str {
-    if value.is_nan() {
-        return Str::from_str(NAN);
-    }
-    if value == 0.0 {
-        // Both zeros print "0". The sign is a real distinction everywhere else
-        // — `Object.is(-0, 0)` is false, `1 / -0` is `-Infinity` — and printing
-        // is the one place it is dropped.
-        return Str::from_str("0");
-    }
-    if value < 0.0 {
-        return Str::from_str("-").concat(&number_to_string(-value));
-    }
-    if value.is_infinite() {
-        return Str::from_str(INFINITY);
-    }
-
-    // An INTEGER, written straight into a stack buffer.
-    //
-    // The general path below costs four heap allocations for one number: a
-    // `String` from `{:e}`, a second from `replace`, a third from `format!`,
-    // and the `Str` itself. Measured at 430 ns a call, which for `String(n)` in
-    // a loop is most of what the program does.
-    //
-    // Bounded by 2^53 and not by 1e21, and the difference was a wrong answer:
-    // above 2^53 a double no longer holds every integer, and `as u64` on
-    // 1.2345678901234568e20 saturates — the first version printed
-    // 18446744073709551615 for it. Below 2^53 the conversion is exact by
-    // construction, and everything above falls to the general path, which was
-    // already correct there.
-    if value.fract() == 0.0 && value < 9_007_199_254_740_992.0 {
-        let mut digits = [0u8; 21];
-        let mut at = digits.len();
-        let mut left = value as u64;
-        if left == 0 {
-            at -= 1;
-            digits[at] = b'0';
-        }
-        while left > 0 {
-            at -= 1;
-            digits[at] = b'0' + (left % 10) as u8;
-            left /= 10;
-        }
-        return Str::from_latin1(&digits[at..]);
-    }
-
-    let (digits, exponent) = shortest_digits(value);
-    // The specification's `n`: the position of the decimal point relative to the
-    // digit string. `k` is how many digits there are.
-    let n = exponent + 1;
-    let k = digits.len() as i32;
-
-    let text = if k <= n && n <= 21 {
-        // Digits, then the zeros needed to reach the point.
-        let mut out = digits;
-        out.push_str(&"0".repeat((n - k) as usize));
-        out
-    } else if 0 < n && n <= 21 {
-        // A point inside the digits.
-        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
-    } else if -6 < n && n <= 0 {
-        // Leading zeros, then every digit after the point.
-        format!("0.{}{}", "0".repeat((-n) as usize), digits)
-    } else {
-        // Exponential, and the sign of the exponent is always written.
-        let sign = if n >= 1 { '+' } else { '-' };
-        let magnitude = (n - 1).abs();
-        if k == 1 {
-            format!("{digits}e{sign}{magnitude}")
-        } else {
-            format!("{}.{}e{sign}{magnitude}", &digits[..1], &digits[1..])
-        }
-    };
-
-    Str::from_str(&text)
-}
-
-/// The shortest round-tripping digits, and the exponent they sit at.
-///
-/// Rust's `{:e}` produces exactly the shortest form; this only takes it apart.
-/// Reimplementing the digit generation would be reimplementing Ryū, and getting
-/// it subtly wrong is how a program prints a number that reads back as a
-/// different one.
-fn shortest_digits(value: f64) -> (String, i32) {
-    let scientific = format!("{value:e}");
-    let (mantissa, exponent) = scientific
-        .split_once('e')
-        .expect("`{:e}` always writes an exponent");
-    let digits = mantissa.replace('.', "");
-    let exponent: i32 = exponent.parse().expect("`{:e}` always writes an integer");
-    (digits, exponent)
+    // The rules live in `decimal`, which writes them where a caller wants them;
+    // this is the caller that wants a string.
+    Str::from_latin1(super::decimal::decimal_of(value).bytes())
 }
 
 /// `ToNumber` applied to a string.

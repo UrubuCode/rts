@@ -1030,6 +1030,22 @@ pub enum RuntimeOp {
     /// `ToNumber` of a string reads the heap and of an object runs `valueOf`.
     /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
     UnaryPlus,
+
+    /// `JSON.stringify(value)`, reached without reading the name.
+    ///
+    /// A call because it walks the heap and allocates its answer. What it is
+    /// NOT is the ordinary call: once the whole program proves `JSON` is the
+    /// primordial, the global read, the property read and the generic call
+    /// machinery are a path to a function the compiler already knows — the
+    /// argument [`RuntimeOp::MathRandom`] records, for a larger saving. It can
+    /// raise (a cycle, a bigint, a `toJSON` that throws), so it is deliberately
+    /// absent from `raising::CANNOT_RAISE`.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    JsonStringify,
+
+    /// `JSON.parse(text)`, the same way. Raises a `SyntaxError`.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    JsonParse,
 }
 
 impl RuntimeOp {
@@ -1144,6 +1160,8 @@ impl RuntimeOp {
         RuntimeOp::PageGlobalGet,
         RuntimeOp::PageGlobalSet,
         RuntimeOp::UnaryPlus,
+        RuntimeOp::JsonStringify,
+        RuntimeOp::JsonParse,
     ];
 
     /// The linker name the runtime must define.
@@ -1258,6 +1276,8 @@ impl RuntimeOp {
             RuntimeOp::PageGlobalGet => "__rts_page_global_get",
             RuntimeOp::PageGlobalSet => "__rts_page_global_set",
             RuntimeOp::UnaryPlus => "__rts_unary_plus",
+            RuntimeOp::JsonStringify => "__rts_json_stringify",
+            RuntimeOp::JsonParse => "__rts_json_parse",
         }
     }
 
@@ -1519,6 +1539,7 @@ impl RuntimeOp {
             // pair, with the environment argument `PageGlobalGet` adds.
             RuntimeOp::PageGlobalSet => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::UnaryPlus => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::JsonStringify | RuntimeOp::JsonParse => (vec![UNPROVEN], vec![UNPROVEN]),
         };
         Signature {
             params,

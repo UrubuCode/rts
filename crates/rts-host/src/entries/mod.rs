@@ -408,6 +408,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::PageGlobalSet => (CoreEntry::PageGlobalSet, {
             rts_core::entry::page_global_set as extern "C" fn(u64, i64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::JsonStringify => (CoreEntry::JsonStringify, {
+            rts_core::entry::json_stringify as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::JsonParse => (CoreEntry::JsonParse, {
+            rts_core::entry::json_parse as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::UnaryPlus => (CoreEntry::UnaryPlus, {
             rts_core::entry::unary_plus as extern "C" fn(u64) -> u64 as *const u8
         }),
