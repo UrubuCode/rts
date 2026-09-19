@@ -2444,11 +2444,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-item-margins-001",
+      "nome": "flex-box-wrap",
       "estado": "passa"
     },
     {
-      "nome": "flex-box-wrap",
+      "nome": "flex-basis-item-margins-001",
       "estado": "passa"
     },
     {
@@ -2470,14 +2470,14 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-container-max-content-001",
-      "estado": "falha",
-      "pct": 1.9079101562499998
-    },
-    {
       "nome": "flex-container-min-content-001",
       "estado": "falha",
       "pct": 1.1345703125
+    },
+    {
+      "nome": "flex-container-max-content-001",
+      "estado": "falha",
+      "pct": 1.9079101562499998
     },
     {
       "nome": "flex-cross-size-border-box-001",
@@ -3008,11 +3008,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-003",
+      "nome": "flexbox-baseline-multi-line-horiz-002",
       "estado": "passa"
     },
     {
-      "nome": "flexbox-baseline-multi-line-horiz-002",
+      "nome": "flexbox-baseline-multi-line-horiz-003",
       "estado": "passa"
     },
     {
@@ -5189,11 +5189,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
