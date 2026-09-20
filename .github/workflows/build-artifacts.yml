@@ -87,6 +87,22 @@ jobs:
         run: target/release/rts run bench/pi_machin.ts
         shell: bash
 
+      # BLOCKING, and on one runner only because the answer cannot differ by OS:
+      # the closure is computed over ALL targets from `Cargo.lock`, so three
+      # runners would ask the same question three times.
+      #
+      # It blocks because of what goes stale: `RUNTIME-NOTICE.txt` is embedded in
+      # the binary and is what a user is handed to discharge the attribution for
+      # THEIR program. A dependency added without regenerating it produces a
+      # notice that is silently short — which is the one failure mode here that
+      # matters, and the only one nobody would notice by reading.
+      - name: Attribution notice is current
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo fetch --quiet
+          node scripts/notice/build_notice.mjs --check
+
       # BLOCKING AOT smoke: catches a placeholder runtime archive (staticlib not
       # built / wrong package) in the release binary itself. The ts-suite job's
       # AOT smoke is continue-on-error (#1288) and does not gate the release.
@@ -200,6 +216,11 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/rts.exe "dist/rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}.exe"
+          # Ao lado do binario, alem de embebido nele (`rts notice`). Sao as duas
+          # metades da mesma obrigacao: quem ja tem o compilador imprime-a, quem
+          # so descarrega a release tem de a poder LER antes de compilar o que
+          # quer que seja.
+          cp RUNTIME-NOTICE.txt dist/
 
       - name: Rename artifact (Unix)
         if: runner.os != 'Windows'
@@ -207,6 +228,11 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/rts "dist/rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}"
+          # Ao lado do binario, alem de embebido nele (`rts notice`). Sao as duas
+          # metades da mesma obrigacao: quem ja tem o compilador imprime-a, quem
+          # so descarrega a release tem de a poder LER antes de compilar o que
+          # quer que seja.
+          cp RUNTIME-NOTICE.txt dist/
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
