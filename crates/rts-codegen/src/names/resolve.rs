@@ -133,6 +133,14 @@ pub struct Resolution {
     /// a node the emitter synthesised has no entry, which is the honest answer
     /// since it has no source scope either.
     functions: BTreeMap<Position, ScopeId>,
+    /// The scope a block statement opened, keyed the same way.
+    ///
+    /// Apart from [`Self::functions`] rather than one map over both, because a
+    /// consumer walking the tree asks a different question of each: a function's
+    /// scope is entered when its body is lowered, a block's when the statement is
+    /// reached, and a single map would let a caller ask the wrong one and get an
+    /// answer.
+    blocks: BTreeMap<Position, ScopeId>,
 }
 
 impl Resolution {
@@ -164,6 +172,11 @@ impl Resolution {
     /// The scope the body of the function written at `at` opened.
     pub fn function_scope(&self, at: Position) -> Option<ScopeId> {
         self.functions.get(&at).copied()
+    }
+
+    /// The scope the block statement written at `at` opened.
+    pub fn block_scope(&self, at: Position) -> Option<ScopeId> {
+        self.blocks.get(&at).copied()
     }
 
     /// What `name` resolves to, seen from `scope`: the innermost declaration of
@@ -348,6 +361,7 @@ impl Walker<'_> {
             }
             StmtKind::Block(inner) => {
                 let block = self.out.open(ScopeKind::Block, Some(scope));
+                self.out.blocks.insert(statement.at, block);
                 self.statements(inner, block);
             }
             StmtKind::If {

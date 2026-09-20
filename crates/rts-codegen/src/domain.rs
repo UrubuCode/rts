@@ -110,6 +110,14 @@ pub enum JsPrim {
     FieldRead,
     /// Writing one.
     FieldWrite,
+    /// This language's truth rule, as an operation.
+    ///
+    /// A branch needs a machine boolean and a value of this language is not one,
+    /// so the conversion is an operation rather than something the lowering
+    /// performs on the way past. It calls nothing: `ToBoolean` inspects a value
+    /// and never reaches `valueOf`, which is what separates it from every
+    /// arithmetic row above.
+    Truthy,
 }
 
 /// What a guard of this language asserts.
@@ -155,6 +163,7 @@ impl Js {
         JsPrim::Not,
         JsPrim::FieldRead,
         JsPrim::FieldWrite,
+        JsPrim::Truthy,
     ];
 
     /// An empty domain.
@@ -225,7 +234,7 @@ impl Js {
                 false => Effect::CALLS_USER.and(Effect::THROWS),
             },
             // Neither reads the heap nor coerces.
-            JsPrim::StrictEquals | JsPrim::TypeOf | JsPrim::Not => Effect::PURE,
+            JsPrim::StrictEquals | JsPrim::TypeOf | JsPrim::Not | JsPrim::Truthy => Effect::PURE,
             // A shaped read is a load at a known offset; an unshaped one goes
             // through the runtime, which may run a getter.
             JsPrim::FieldRead => match args.first() {
@@ -349,6 +358,16 @@ impl Domain for Js {
             // `Infinity` rather than a fault.
             JsPrim::Divide => Type::Double,
             JsPrim::LessThan | JsPrim::StrictEquals | JsPrim::Not => Type::Bool(None),
+            // Folded where the type decides it, which is what `truth_of` is for:
+            // an object is always true and `undefined` always false, so a branch
+            // over either is a branch a later pass can remove. A number and a
+            // string are never folded here, because zero, `NaN` and `""` are
+            // values of them — the seven falsy cases, from the one place that
+            // knows about them.
+            JsPrim::Truthy => match args.first().and_then(|held| self.truth_of(held)) {
+                Some(known) => Type::Bool(Some(known)),
+                None => Type::Bool(None),
+            },
             JsPrim::TypeOf => Type::Str,
             JsPrim::FieldRead => Type::Anything,
             // A write answers the value written, which is what makes `a = b = 1`

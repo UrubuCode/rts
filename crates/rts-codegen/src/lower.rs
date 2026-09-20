@@ -39,7 +39,7 @@ use crate::domain::{Js, JsPrim, Type};
 use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
 use crate::syntax::{
-    BinaryOp, Binding, Expr, ExprKind, Function, FunctionBody, Literal, Pattern, Stmt, StmtKind,
+    AssignOp, AssignTarget, BinaryOp, Binding, Expr, ExprKind, Function, FunctionBody, Literal, Pattern, Stmt, StmtKind,
 };
 use crate::values::Singleton;
 
@@ -218,12 +218,24 @@ impl Lowering<'_> {
                 self.builder.end(Terminator::Return(answered));
                 Ok(true)
             }
-            StmtKind::Block(_) => Err(Unsupported::Statement(
-                "a block opens a scope, which needs the scope tree walked in step",
-            )),
-            StmtKind::If { .. } => Err(Unsupported::Statement(
-                "a branch needs a join block and the bindings merged into its parameters",
-            )),
+            StmtKind::Block(inner) => {
+                // The scope tree is walked in step with the statements, keyed by
+                // where the block was written. Nothing about shadowing has to be
+                // decided here: a binding inside is a different `BindingId`, so
+                // the map that tracks what each holds cannot collide.
+                let Some(scope) = self.resolution.block_scope(statement.at) else {
+                    return Err(Unsupported::NoScope);
+                };
+                let outer = std::mem::replace(&mut self.scope, scope);
+                let ended = self.statements(inner)?;
+                self.scope = outer;
+                Ok(ended)
+            }
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => self.branch(condition, then_branch, else_branch.as_deref()),
             StmtKind::While { .. } | StmtKind::DoWhile { .. } | StmtKind::For { .. } => {
                 Err(Unsupported::Statement("a loop needs a back edge"))
             }
@@ -236,6 +248,133 @@ impl Lowering<'_> {
             }
             other => Err(Unsupported::Statement(name_of(other))),
         }
+    }
+
+    /// Lowers an `if`, merging what the two arms disagree about.
+    ///
+    /// # Why the merge is computed and not declared
+    ///
+    /// The join block's parameters are exactly the bindings the two arms leave
+    /// holding different values. Declaring one per live binding instead would be
+    /// correct and would make every `if` in a program carry the whole scope
+    /// through a parameter list, which is the shape `emit/merge.rs` records as the
+    /// cost of not asking.
+    ///
+    /// Asking needs both arms lowered from the SAME starting map, which is why
+    /// `before` is cloned twice rather than mutated through: an arm that rebinds a
+    /// name must not be visible to the other arm, and the two orders would
+    /// otherwise disagree.
+    ///
+    /// # Why an arm that returned contributes nothing
+    ///
+    /// Control does not arrive at the join from it, so its bindings are not a
+    /// second opinion — they are no opinion. Joining them in would widen every
+    /// type at the join for a path that cannot be taken, which is sound and is
+    /// exactly the giving-up a type domain exists to avoid.
+    fn branch(
+        &mut self,
+        condition: &Expr,
+        then_branch: &Stmt,
+        else_branch: Option<&Stmt>,
+    ) -> Result<bool, Unsupported> {
+        let tested = self.expression(condition)?;
+        // A machine branch wants a machine boolean and a value of this language is
+        // not one, so the language's truth rule is an operation. The domain folds
+        // it where the type decides it.
+        let tested = self.prim(JsPrim::Truthy, vec![tested], condition);
+
+        let then_block = self.builder.block();
+        let else_block = self.builder.block();
+        let before = self.values.clone();
+        self.builder.end(Terminator::Branch {
+            condition: tested,
+            then_block,
+            then_args: Vec::new(),
+            else_block,
+            else_args: Vec::new(),
+        });
+
+        self.builder.switch_to(then_block);
+        self.values = before.clone();
+        let then_ended = self.statement(then_branch)?;
+        let then_values = std::mem::replace(&mut self.values, before.clone());
+        let then_exit = self.builder.current();
+
+        self.builder.switch_to(else_block);
+        let else_ended = match else_branch {
+            Some(branch) => self.statement(branch)?,
+            None => false,
+        };
+        let else_values = std::mem::take(&mut self.values);
+        let else_exit = self.builder.current();
+
+        // Both arms left the function, so nothing follows the `if` at all.
+        if then_ended && else_ended {
+            self.values = before;
+            return Ok(true);
+        }
+
+        let join = self.builder.block();
+        // One arm returning leaves the other as the only path, so there is nothing
+        // to merge: its map IS the answer.
+        if then_ended || else_ended {
+            let (surviving, exit) = match then_ended {
+                true => (else_values, else_exit),
+                false => (then_values, then_exit),
+            };
+            self.values = surviving;
+            self.builder.switch_to(exit);
+            self.builder.end(Terminator::Jump {
+                target: join,
+                args: Vec::new(),
+            });
+            self.builder.switch_to(join);
+            return Ok(false);
+        }
+
+        // Every binding the two arms disagree about, in a stable order: the map is
+        // a `BTreeMap`, so this is the same list on every run, which is what keeps
+        // one program compiling to one program.
+        let merged: Vec<BindingId> = then_values
+            .iter()
+            .filter(|(binding, held)| else_values.get(binding).is_some_and(|other| other != *held))
+            .map(|(binding, _)| *binding)
+            .collect();
+
+        let mut params = Vec::with_capacity(merged.len());
+        for binding in &merged {
+            let param = self.builder.param(join);
+            // The type at the join is the join of the two types, which is the
+            // domain doing the one thing a lattice is for. `Int32` from one arm
+            // and `Double` from the other is a `Double` here — and in another
+            // language it is neither.
+            let of = self.domain.join(
+                &self.type_of(then_values[binding]),
+                &self.type_of(else_values[binding]),
+            );
+            self.types.insert(param, of);
+            params.push(param);
+        }
+
+        self.builder.switch_to(then_exit);
+        self.builder.end(Terminator::Jump {
+            target: join,
+            args: merged.iter().map(|held| then_values[held]).collect(),
+        });
+        self.builder.switch_to(else_exit);
+        self.builder.end(Terminator::Jump {
+            target: join,
+            args: merged.iter().map(|held| else_values[held]).collect(),
+        });
+
+        // What each binding holds after the `if`: the parameter where the arms
+        // disagreed, and what both said where they agreed.
+        self.values = then_values;
+        for (binding, param) in merged.iter().zip(params) {
+            self.values.insert(*binding, param);
+        }
+        self.builder.switch_to(join);
+        Ok(false)
     }
 
     fn expression(&mut self, expr: &Expr) -> Result<ValueId, Unsupported> {
@@ -255,6 +394,32 @@ impl Lowering<'_> {
                         "a binding read before its declaration is in its dead zone",
                     )),
                 }
+            }
+            // An assignment to a plain local is a REBIND, which is what SSA makes
+            // of one: the binding now holds a different value and no store
+            // happens. A compound form (`a += b`) is refused rather than rewritten
+            // to `a = a + b`, because the target is evaluated once and rewriting
+            // would evaluate it twice — the tree carries the operator for exactly
+            // that reason.
+            ExprKind::Assign {
+                target,
+                value,
+                op: AssignOp::Plain,
+            } => {
+                let AssignTarget::Place(place) = target else {
+                    return Err(Unsupported::Pattern);
+                };
+                let ExprKind::Ident(name) = &place.kind else {
+                    return Err(Unsupported::Expression(
+                        "an assignment to a property writes the heap",
+                    ));
+                };
+                let held = self.expression(value)?;
+                let of = self.type_of(held);
+                self.bind(*name, held, of)?;
+                // The value of an assignment is what was assigned, which is what
+                // makes `a = b = 1` work.
+                Ok(held)
             }
             ExprKind::Binary { op, left, right } => {
                 let left = self.expression(left)?;
@@ -457,19 +622,6 @@ mod tests {
         assert!(last.effect.has(Effect::THROWS));
     }
 
-    /// What E2 bought, stated as a lowering property: two bindings that spell the
-    /// same thing are two entries, so nothing here needs a shadowing rule.
-    ///
-    /// The inner `let` is in a block, which this subset refuses -- so the case is
-    /// asserted where it can be: the outer binding is read as itself, and the
-    /// refusal names the block rather than answering with the wrong binding.
-    #[test]
-    fn a_block_is_refused_by_name_rather_than_resolved_wrongly() {
-        let refused = only("function f() { let i = 1; { let i = 2; } return i; }")
-            .expect_err("a block is not in the subset");
-        assert!(matches!(refused, Unsupported::Statement(_)));
-    }
-
     #[test]
     fn a_global_is_refused_by_name_and_not_treated_as_a_local() {
         let refused =
@@ -533,5 +685,154 @@ mod tests {
         let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
         let first = lowered.func.insts.first().expect("one constant");
         assert_eq!(*types.of(first.result), Type::Undefined);
+    }
+
+    /// A branch with both arms rebinding one local: the join carries exactly that
+    /// one binding, and the type at the join is the domain's join of the two.
+    #[test]
+    fn a_branch_merges_only_what_the_arms_disagree_about() {
+        let lowered = only(
+            "function f(c) {
+               let a = 1;
+               const kept = 9;
+               if (c) { a = 2; } else { a = 3; }
+               return a;
+             }",
+        )
+        .expect("covered");
+        assert_eq!(verify(&lowered.func), Ok(()));
+
+        // Four blocks: entry, the two arms, the join.
+        assert_eq!(lowered.func.blocks.len(), 4);
+        // And the join declares ONE parameter -- `a`, not `kept` and not `c`.
+        let join = lowered
+            .func
+            .block_ids()
+            .find(|held| lowered.func.predecessors(*held).len() == 2)
+            .expect("a join block");
+        assert_eq!(lowered.func.block(join).params.len(), 1);
+    }
+
+    /// The types the two arms leave are joined by the DOMAIN, which is the one
+    /// thing a lattice is for.
+    #[test]
+    fn the_join_takes_the_domains_answer_and_not_the_irs() {
+        let lowered = only(
+            "function f(c) {
+               let a = 1;
+               if (c) { a = 2; } else { a = 0.5; }
+               return a;
+             }",
+        )
+        .expect("covered");
+        assert_eq!(verify(&lowered.func), Ok(()));
+        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+        let join = lowered
+            .func
+            .block_ids()
+            .find(|held| lowered.func.predecessors(*held).len() == 2)
+            .expect("a join block");
+        let carried = lowered.func.block(join).params[0];
+        // An integer from one arm and a fraction from the other. THIS language has
+        // one numeric type, so the answer is a number; the toy domain's answer for
+        // the same shape is its top.
+        assert_eq!(*types.of(carried), Type::Double);
+    }
+
+    /// An arm that returned contributes nothing to the join, because control does
+    /// not arrive from it.
+    #[test]
+    fn an_arm_that_returned_is_not_a_second_opinion() {
+        let lowered = only(
+            "function f(c) {
+               let a = 1;
+               if (c) { return 0; } else { a = 2; }
+               return a;
+             }",
+        )
+        .expect("covered");
+        assert_eq!(verify(&lowered.func), Ok(()));
+        let join = lowered
+            .func
+            .block_ids()
+            .find(|held| lowered.func.predecessors(*held).len() == 1 && held.0 != 0)
+            .expect("a join reached from one arm only");
+        assert!(lowered.func.block(join).params.is_empty());
+    }
+
+    /// Both arms leaving means nothing follows the `if`, and the function is still
+    /// well formed -- no empty block left behind without a terminator.
+    #[test]
+    fn both_arms_returning_ends_the_statement_run() {
+        let lowered = only("function f(c) { if (c) { return 1; } else { return 2; } }")
+            .expect("covered");
+        assert_eq!(verify(&lowered.func), Ok(()));
+    }
+
+    /// A block is a scope walked in step, and a binding inside it is a different
+    /// `BindingId` -- which is why nothing here decides a shadowing rule.
+    #[test]
+    fn a_block_scope_is_walked_and_its_binding_is_its_own() {
+        let lowered = only(
+            "function f() {
+               let i = 1;
+               { let i = 2; }
+               return i;
+             }",
+        )
+        .expect("covered");
+        assert_eq!(verify(&lowered.func), Ok(()));
+        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+        let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+            Some(Terminator::Return(Some(value))) => *value,
+            other => panic!("expected a returned value, got {other:?}"),
+        };
+        // The OUTER `i` is returned. Both are `Int32`, so the type cannot tell them
+        // apart -- what says it is the right one is the value: it is the constant
+        // `1`, which is the first instruction.
+        assert_eq!(*types.of(returned), Type::Int32);
+        assert_eq!(lowered.func.insts[0].result, returned);
+    }
+
+    /// The compound form is refused rather than rewritten, because `a += b`
+    /// evaluates its target once and `a = a + b` evaluates it twice.
+    #[test]
+    fn a_compound_assignment_is_refused_rather_than_rewritten() {
+        let refused =
+            only("function f(a) { a += 1; return a; }").expect_err("no lowering for compound");
+        assert!(matches!(refused, Unsupported::Expression(_)));
+    }
+
+    /// An assignment answers what was assigned, so a chain works.
+    #[test]
+    fn an_assignment_answers_the_value_it_assigned() {
+        let lowered = only("function f() { let a = 0; let b = 0; a = b = 7; return a; }")
+            .expect("covered");
+        assert_eq!(verify(&lowered.func), Ok(()));
+        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+        let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+            Some(Terminator::Return(Some(value))) => *value,
+            other => panic!("expected a returned value, got {other:?}"),
+        };
+        assert_eq!(*types.of(returned), Type::Int32);
+    }
+
+    /// The truth rule is an operation of the LANGUAGE, and the domain folds it
+    /// where the type decides it.
+    #[test]
+    fn a_branch_over_something_always_true_is_folded_by_the_domain() {
+        let lowered = only("function f() { if (1 === 1) { return 1; } return 2; }")
+            .expect("covered");
+        assert_eq!(verify(&lowered.func), Ok(()));
+        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+        // `===` answers a boolean of unknown value, so the truth of it is unknown
+        // too: nothing is folded here, and that is the honest answer.
+        let tested = lowered
+            .func
+            .insts
+            .iter()
+            .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if *prim == lowered.domain.prim(JsPrim::Truthy)))
+            .expect("a truthiness test");
+        assert_eq!(*types.of(tested.result), Type::Bool(None));
     }
 }
