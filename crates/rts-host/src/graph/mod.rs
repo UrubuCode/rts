@@ -51,7 +51,7 @@ use rts_codegen::syntax::ModuleItem;
 mod resolve;
 mod tsconfig;
 
-use resolve::{extended, file_url, is_relative, plain, resolve};
+use resolve::{file_url, is_relative, plain};
 pub(crate) use resolve::resolve_specifier;
 pub use resolve::{names_the_host, resolve_written};
 pub use tsconfig::Aliases;
@@ -87,20 +87,21 @@ pub struct Loaded {
     pub resolutions: Vec<(String, String)>,
 }
 
-/// The files one module names, in source order, ignoring everything the host
-/// provides by name (`node:`, `rts`, a bare specifier).
+/// The specifiers one module writes that `keep` says name a file, in source
+/// order.
 ///
-/// Public because a second caller reads a module before it is on disk: `rts run
-/// https://…` mirrors a program and its imports into a temp directory, and it
-/// has to know what to fetch next. That caller used to parse with the OLD
-/// engine's parser and walk the OLD engine's AST, which answered a slightly
-/// different question — a specifier this engine would refuse could be mirrored
-/// happily, and vice versa. One answer, from the parser that will compile it.
+/// The predicate is a parameter, and the walk below is written once, for the
+/// same reason the `Wanted` forms are a parameter: two walks over one tree are
+/// two chances for a node to be visited by one and skipped by the other. Two
+/// callers ask two different questions of it — see the two wrappers.
 ///
 /// The tree is thrown away: this wants the specifiers and nothing else, and a
 /// `Name` is an index into a table this parse owns and no other compilation
 /// issued.
-pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
+fn specifiers_naming_files(
+    source: &str,
+    keep: impl Fn(&str) -> bool,
+) -> Result<Vec<String>, String> {
     let mut scratch = Names::default();
     let parsed = parse_module(source, &mut scratch).map_err(|error| format!("{error:?}"))?;
     let mut found = Vec::new();
@@ -116,7 +117,7 @@ pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
             },
             ModuleItem::Stmt(_) => continue,
         };
-        if is_relative(&specifier) {
+        if keep(&specifier) {
             found.push(specifier);
         }
     }
@@ -143,11 +144,34 @@ pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
         dynamic_code: None,
     };
     for specifier in rts_codegen::emit::specifiers(&parsed.body, wanted) {
-        if is_relative(&specifier) {
+        if keep(&specifier) {
             found.push(specifier);
         }
     }
     Ok(found)
+}
+
+/// The RELATIVE specifiers one module writes — and only those.
+///
+/// Deliberately blind to aliases. Its caller is the `rts run https://…`
+/// mirror, which fetches a remote program's files before anything local is
+/// consulted: a remote `@/secret` resolving against THIS machine's
+/// `tsconfig.json` would read local files on a remote program's behalf. The
+/// mirror also holds a URL rather than a path, so there is no referrer to
+/// resolve an alias from even if it were wanted — which is why this keeps its
+/// signature instead of gaining a `from`.
+pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
+    specifiers_naming_files(source, is_relative)
+}
+
+/// Which FILES this module is made of, aliases included.
+///
+/// What the graph walk asks. The answer comes from [`resolve_written`], the
+/// one question, so nothing here learns a second time what a path is.
+pub(crate) fn imported_files(source: &str, from: &Path) -> Result<Vec<String>, String> {
+    specifiers_naming_files(source, |specifier| {
+        tsconfig::with_active(|aliases| resolve_written(from, specifier, aliases)).is_some()
+    })
 }
 
 /// What `import.meta` answers for one module of the graph.
@@ -201,6 +225,10 @@ pub(crate) struct Graph {
 /// running one of the two modules against a namespace that is still empty,
 /// which would answer `undefined` for a name that is genuinely there.
 pub fn load(entry: &Path) -> Result<Vec<Loaded>, HostError> {
+    // The map for this program, found ONCE and installed before the walk
+    // begins. Every resolution below reads this one answer, and so does every
+    // dynamic one while the program runs — spec §5's "one map per program".
+    tsconfig::install(Aliases::discover(entry));
     let start = plain(entry.canonicalize().unwrap_or_else(|_| entry.to_owned()));
     let mut ordered = Vec::new();
     let mut state = HashMap::new();
@@ -240,10 +268,14 @@ fn visit(
     // import specifiers and nothing else. The real parse happens against the
     // `Names` the whole compilation shares.
     let mut resolutions = Vec::new();
-    for specifier in relative_imports(&source)
+    for specifier in imported_files(&source, path)
         .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?
     {
-        let resolved = resolve(path, &specifier);
+        // The answer the PREDICATE accepted, not a second derivation of it:
+        // asking `resolve` again here is how two answers for one written name
+        // drift apart, and the loader keys a module by that answer.
+        let resolved = tsconfig::with_active(|aliases| resolve_written(path, &specifier, aliases))
+            .expect("imported_files kept only what resolves");
         // Kept, not just followed: a `require("./x")` asks again at run time,
         // and the answer is this one. See [`Loaded::resolutions`].
         resolutions.push((specifier.clone(), resolved.display().to_string()));
@@ -290,8 +322,10 @@ pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
     for item in items {
         match item {
             ModuleItem::Import(import) => {
-                if is_relative(&import.source) {
-                    import.source = resolve(from, &import.source).display().to_string();
+                if let Some(found) =
+                    tsconfig::with_active(|aliases| resolve_written(from, &import.source, aliases))
+                {
+                    import.source = found.display().to_string();
                 }
             }
             ModuleItem::Export(export) => match &mut export.kind {
@@ -299,13 +333,17 @@ pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
                     source: Some(source),
                     ..
                 } => {
-                    if is_relative(source) {
-                        *source = resolve(from, source).display().to_string();
+                    if let Some(found) =
+                        tsconfig::with_active(|aliases| resolve_written(from, source, aliases))
+                    {
+                        *source = found.display().to_string();
                     }
                 }
                 rts_codegen::syntax::ExportKind::All { source, .. } => {
-                    if is_relative(source) {
-                        *source = resolve(from, source).display().to_string();
+                    if let Some(found) =
+                        tsconfig::with_active(|aliases| resolve_written(from, source, aliases))
+                    {
+                        *source = found.display().to_string();
                     }
                 }
                 _ => {}

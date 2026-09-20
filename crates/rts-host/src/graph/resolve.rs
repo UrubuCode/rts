@@ -37,14 +37,15 @@ pub(super) fn is_relative(specifier: &str) -> bool {
 /// the same resolution, reached from there: `rts-core` holds the hook and this
 /// fills it, exactly as it does for compiling source.
 ///
-/// `None` for anything that is not a relative path, which leaves the specifier
+/// `None` for anything that does not name a file, which leaves the specifier
 /// as the program wrote it — the rule the loader applies to `node:fs` and to a
 /// bare name, stated once and applied in both directions.
 pub(crate) fn resolve_specifier(from: &str, specifier: &str) -> Option<String> {
-    if !is_relative(specifier) {
-        return None;
-    }
-    Some(resolve(Path::new(from), specifier).display().to_string())
+    // The SAME question the loader's walk asked, through the same map, so a
+    // name that named a file at load time still names that file at run time.
+    let from = Path::new(from);
+    let found = super::tsconfig::with_active(|aliases| resolve_written(from, specifier, aliases))?;
+    Some(found.display().to_string())
 }
 
 /// A path as the `file:` URL `import.meta.url` answers.
@@ -143,6 +144,21 @@ pub(super) fn plain(path: PathBuf) -> PathBuf {
     }
 }
 
+/// One file, one spelling: canonicalised, then stripped of Windows's
+/// verbatim prefix.
+///
+/// Both branches of [`resolve_written`] end here, and that is the point. The
+/// loader keys a module by the string this answers, so two written names for
+/// one file that came back as two strings would be two modules with two
+/// namespaces — the failure the design's §5 exists to prevent. A `paths`
+/// target is allowed to escape the project (`"@lib/*": ["../../shared/*"]`),
+/// so a joined alias path really does keep a `..` that the relative spelling
+/// of the same file does not, and `tests/import_alias.rs` failed on exactly
+/// that before this was shared.
+fn settled(path: PathBuf) -> PathBuf {
+    plain(path.canonicalize().unwrap_or(path))
+}
+
 /// The path a relative specifier names, from the file that wrote it.
 pub(super) fn resolve(from: &Path, specifier: &str) -> PathBuf {
     let base = from.parent().unwrap_or(Path::new("."));
@@ -158,7 +174,7 @@ pub(super) fn resolve(from: &Path, specifier: &str) -> PathBuf {
     // spellings of one file compiled twice would run its side effects twice and
     // give it two namespaces, and `import { x } from` each would answer two
     // different `x`.
-    plain(joined.canonicalize().unwrap_or(joined))
+    settled(joined)
 }
 
 /// Whether a specifier names something the HOST provides rather than a file.
@@ -205,12 +221,12 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
         // exact target is not run through a rule written for an extension-less
         // one.
         if candidate.is_file() {
-            return Some(plain(candidate));
+            return Some(settled(candidate));
         }
         let parent = candidate.parent()?;
         let name = candidate.file_name()?.to_str()?;
         if let Some(found) = extended(parent, name) {
-            return Some(plain(found));
+            return Some(settled(found));
         }
     }
     None

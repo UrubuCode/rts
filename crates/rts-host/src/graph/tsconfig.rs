@@ -242,3 +242,29 @@ fn split(key: &str, targets: Vec<PathBuf>) -> Pattern {
         _ => Pattern { prefix: key.to_string(), suffix: String::new(), wildcard: false, targets },
     }
 }
+
+thread_local! {
+    /// The map for the program this thread is loading or running.
+    ///
+    /// A thread local and not a `OnceLock` because `rts_core::entry::Resolver`
+    /// is `fn(&str, &str) -> Option<String>` — a bare pointer with nowhere to
+    /// carry a map — so the map has to be reachable without being passed, and
+    /// a process-wide one is shared by every test the harness runs in
+    /// parallel. The first test to install would decide for all of them.
+    ///
+    /// What this does NOT survive: a program whose load and whose run are on
+    /// different threads. `import_alias.rs`'s dynamic-import test is what
+    /// fails if that ever becomes true, rather than a program silently
+    /// failing to resolve.
+    static ACTIVE: std::cell::RefCell<Aliases> = std::cell::RefCell::new(Aliases::none());
+}
+
+/// Makes this the map for this thread, replacing any previous one.
+pub(crate) fn install(aliases: Aliases) {
+    ACTIVE.with(|slot| *slot.borrow_mut() = aliases);
+}
+
+/// Asks the current map a question, without cloning it.
+pub(crate) fn with_active<T>(ask: impl FnOnce(&Aliases) -> T) -> T {
+    ACTIVE.with(|slot| ask(&slot.borrow()))
+}
