@@ -569,7 +569,7 @@ fn pattern_exprs(
 /// binding (target pattern plus optional initialiser), a `catch` clause — so a
 /// caller that wants only the nested statements can match one variant and
 /// ignore the rest, the same way [`walk_expr`]'s callers do.
-pub(super) enum StmtChild<'a> {
+pub(crate) enum StmtChild<'a> {
     /// A nested statement, walked by whichever traversal is running.
     Stmt(&'a Stmt),
     /// A sub-expression.
@@ -601,7 +601,7 @@ pub(super) enum StmtChild<'a> {
 /// `referenced_inside_statement`) want different things from them, so folding
 /// them into this enum would not remove a distinction, only hide one two
 /// callers still have to make.
-pub(super) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'a>)) {
+pub(crate) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'a>)) {
     match &statement.kind {
         StmtKind::Expr(expr) | StmtKind::Throw(expr) => on(StmtChild::Expr(expr)),
         StmtKind::Return(value) => {

@@ -29,7 +29,7 @@
 //! a spelling, so two bindings that spell the same thing are two entries. That is
 //! the whole of what E2 bought, and it is why this file needs no shadowing rules.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rts_mir::cfg::{Const, Func, FuncBuilder, Op, Terminator, ValueId};
 use rts_mir::guard::Tier;
@@ -41,6 +41,7 @@ use crate::names::resolve::{BindingId, Resolution, ScopeId};
 use crate::syntax::{
     AssignOp, AssignTarget, BinaryOp, Binding, Expr, ExprKind, Function, FunctionBody, Literal, Pattern, Stmt, StmtKind,
 };
+use crate::emit::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use crate::values::Singleton;
 
 /// What this lowering does not do yet, and where.
@@ -115,6 +116,7 @@ pub fn lower(
         types: BTreeMap::new(),
         resolution,
         scope,
+        loops: Vec::new(),
     };
 
     for parameter in &function.parameters {
@@ -148,6 +150,14 @@ pub fn lower(
     })
 }
 
+/// One loop being lowered: where its test is, where leaving it goes, and which
+/// bindings its header carries.
+struct LoopFrame {
+    header: rts_mir::BlockId,
+    exit: rts_mir::BlockId,
+    carried: Vec<BindingId>,
+}
+
 /// The state one function's lowering carries.
 struct Lowering<'a> {
     builder: FuncBuilder,
@@ -167,6 +177,8 @@ struct Lowering<'a> {
     types: BTreeMap<ValueId, Type>,
     resolution: &'a Resolution,
     scope: ScopeId,
+    /// The loops enclosing what is being lowered, innermost last.
+    loops: Vec<LoopFrame>,
 }
 
 impl Lowering<'_> {
@@ -210,6 +222,8 @@ impl Lowering<'_> {
                 }
                 Ok(false)
             }
+            StmtKind::Break(None) => self.jump_out_of_loop(false),
+            StmtKind::Continue(None) => self.jump_out_of_loop(true),
             StmtKind::Return(value) => {
                 let answered = match value {
                     Some(expr) => Some(self.expression(expr)?),
@@ -236,9 +250,11 @@ impl Lowering<'_> {
                 then_branch,
                 else_branch,
             } => self.branch(condition, then_branch, else_branch.as_deref()),
-            StmtKind::While { .. } | StmtKind::DoWhile { .. } | StmtKind::For { .. } => {
-                Err(Unsupported::Statement("a loop needs a back edge"))
-            }
+            StmtKind::While { condition, body } => self.loop_while(condition, body),
+            StmtKind::DoWhile { .. } | StmtKind::For { .. } => Err(Unsupported::Statement(
+                "a do-while tests after the body and a for has a head; both are the
+                 same shape once the header is decided, and neither is written yet",
+            )),
             StmtKind::ForEach { .. } => Err(Unsupported::Statement("an iteration protocol")),
             StmtKind::Function(_) | StmtKind::Class(_) => {
                 Err(Unsupported::Statement("a nested definition is its own graph"))
@@ -377,6 +393,179 @@ impl Lowering<'_> {
         Ok(false)
     }
 
+
+    /// Lowers a `while`, and every loop is this shape once its header is decided.
+    ///
+    /// # Why the carried set has to be computed BEFORE the body
+    ///
+    /// The header is a block with a predecessor that does not exist yet — the back
+    /// edge — and a block's parameters must be declared before anything jumps to
+    /// it. So the question "which bindings does this loop carry" cannot be answered
+    /// the way the `if` join answers it, by comparing what two finished arms hold.
+    /// It has to be answered from the tree.
+    ///
+    /// That is the whole structural difference between a branch and a loop, and it
+    /// is why one of them needed a pre-pass and the other did not.
+    ///
+    /// # Why over-approximating is the safe direction
+    ///
+    /// [`Self::assigned_in`] resolves each assigned name in the scope the loop is
+    /// written in, so a name the body shadows resolves to the OUTER binding and the
+    /// loop carries one it did not need to. That costs a block parameter and
+    /// nothing else: the value passes through unchanged on every edge.
+    ///
+    /// Under-approximating would be a wrong answer — a binding the body assigns and
+    /// the header does not carry would be read across the back edge as the value
+    /// from before the loop, for ever.
+    ///
+    /// # What the types at the header are, and why they are the domain's top
+    ///
+    /// A header parameter's type is the join of what arrives from before the loop
+    /// and what arrives across the back edge, and the second is not known until the
+    /// body has been lowered — which needs the parameter to exist. The loop is real
+    /// and it is what [`rts_mir::infer`] exists to solve: it iterates to a fixed
+    /// point over the finished graph and answers exactly that join.
+    ///
+    /// So this lowering records `top()` for a header parameter and the effects
+    /// decided inside the body are pessimistic in consequence: arithmetic over a
+    /// carried value is `CALLS_USER` even where inference will prove it numeric.
+    /// That is sound and it is the one place this file knowingly leaves speed on
+    /// the table — recovering it is a pass that recomputes effects from inference's
+    /// answer, which is a pass over a finished graph and not a second traversal of
+    /// the tree.
+    fn loop_while(&mut self, condition: &Expr, body: &Stmt) -> Result<bool, Unsupported> {
+        let carried: Vec<BindingId> = self.assigned_in(body)?.into_iter().collect();
+
+        let header = self.builder.block();
+        let into_body = self.builder.block();
+        let exit = self.builder.block();
+
+        // The values at the top of the loop, in the carried order.
+        let entering: Vec<ValueId> = carried
+            .iter()
+            .map(|binding| self.values[binding])
+            .collect();
+        self.builder.end(Terminator::Jump {
+            target: header,
+            args: entering,
+        });
+
+        self.builder.switch_to(header);
+        let mut params = Vec::with_capacity(carried.len());
+        for binding in &carried {
+            let param = self.builder.param(header);
+            self.types.insert(param, self.domain.top());
+            self.values.insert(*binding, param);
+            params.push(param);
+        }
+        // The test is in the HEADER, which is what makes a `while` check before
+        // each pass including the first, and what makes the value a carried
+        // binding holds after the loop be the header's parameter.
+        let tested = self.expression(condition)?;
+        let tested = self.prim(JsPrim::Truthy, vec![tested], condition);
+        let leaving: Vec<ValueId> = params.clone();
+        self.builder.end(Terminator::Branch {
+            condition: tested,
+            then_block: into_body,
+            then_args: Vec::new(),
+            else_block: exit,
+            else_args: leaving,
+        });
+
+        self.builder.switch_to(into_body);
+        self.loops.push(LoopFrame {
+            header,
+            exit,
+            carried: carried.clone(),
+        });
+        let ended = self.statement(body);
+        self.loops.pop();
+        let ended = ended?;
+        // A body that left through a `return` or a `break` has already terminated
+        // its block, so there is no back edge to write from here.
+        if !ended {
+            let back: Vec<ValueId> = carried
+                .iter()
+                .map(|binding| self.values[binding])
+                .collect();
+            self.builder.end(Terminator::Jump {
+                target: header,
+                args: back,
+            });
+        }
+
+        self.builder.switch_to(exit);
+        // After the loop, a carried binding holds what the exit block received --
+        // which is the header's parameter, because that is where the test decided
+        // to leave.
+        let exiting: Vec<ValueId> = carried
+            .iter()
+            .map(|_| self.builder.param(exit))
+            .collect();
+        for (binding, param) in carried.iter().zip(&exiting) {
+            self.types.insert(*param, self.domain.top());
+            self.values.insert(*binding, *param);
+        }
+        Ok(false)
+    }
+
+    /// Every binding an assignment in `body` may write.
+    ///
+    /// Over-approximating on purpose — see [`Self::loop_while`]. It walks through
+    /// `emit::capture`'s traversal rather than matching statement kinds here, which
+    /// is what keeps a statement added to the tree tomorrow from being silently
+    /// skipped: that file's own header records how a second copy of the tree's
+    /// shape is how a node comes to be walked by one analysis and missed by the
+    /// other.
+    fn assigned_in(&self, body: &Stmt) -> Result<BTreeSet<BindingId>, Unsupported> {
+        let mut names = Vec::new();
+        assigned_names_in_statement(body, &mut names);
+        let mut found = BTreeSet::new();
+        for name in names {
+            // A NAME THIS SCOPE DOES NOT RESOLVE IS SKIPPED, and the first version
+            // of this refused it as a global instead. That was wrong twice over.
+            //
+            // It is wrong about what the name is: a `let` inside the body is
+            // declared in a scope this one cannot see, so a nested loop's own
+            // counter looked like a global and every nested loop was refused.
+            //
+            // And it is wrong about where the refusal belongs. A name that really
+            // is a global has no binding for a block parameter to hold, so there is
+            // nothing to carry and skipping it is the correct answer here — and the
+            // assignment itself is still refused, loudly, when the body reaches it
+            // and asks `bind` for a binding that does not exist. The pre-pass
+            // decides what to CARRY; what a program may do is not its question.
+            if let Some(binding) = self.resolution.binding_in(self.scope, name) {
+                found.insert(binding);
+            }
+        }
+        Ok(found)
+    }
+
+    /// Leaves the innermost loop, or skips to its test.
+    ///
+    /// Both carry the same argument list, because the header and the exit declare
+    /// the same parameters: one list of carried bindings per loop, so a jump from
+    /// anywhere inside it needs no second convention.
+    fn jump_out_of_loop(&mut self, to_header: bool) -> Result<bool, Unsupported> {
+        let Some(frame) = self.loops.last() else {
+            return Err(Unsupported::Statement(
+                "a break or continue outside a loop is a label, which is not lowered",
+            ));
+        };
+        let target = match to_header {
+            true => frame.header,
+            false => frame.exit,
+        };
+        let carried = frame.carried.clone();
+        let args: Vec<ValueId> = carried
+            .iter()
+            .map(|binding| self.values[binding])
+            .collect();
+        self.builder.end(Terminator::Jump { target, args });
+        Ok(true)
+    }
+
     fn expression(&mut self, expr: &Expr) -> Result<ValueId, Unsupported> {
         match &expr.kind {
             ExprKind::Literal(literal) => self.literal(literal, expr),
@@ -506,6 +695,69 @@ impl Lowering<'_> {
     }
 }
 
+/// Every name an assignment or an increment in this statement writes, at any
+/// depth, including inside a nested function.
+///
+/// A nested function is descended into deliberately. It cannot be lowered here
+/// yet, so a body containing one is refused before this matters — but the day one
+/// is, a closure that assigns an outer name across the back edge is exactly the
+/// case a carried set must not miss, and a traversal that stopped at the function
+/// boundary would miss it silently.
+fn assigned_names_in_statement(statement: &Stmt, found: &mut Vec<Name>) {
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => assigned_names_in_statement(inner, found),
+        StmtChild::Expr(expr) => assigned_names_in_expr(expr, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                assigned_names_in_expr(value, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                assigned_names_in_statement(inner, found);
+            }
+        }
+        StmtChild::Function(function) => {
+            if let FunctionBody::Block(statements) = &function.body {
+                for inner in statements {
+                    assigned_names_in_statement(inner, found);
+                }
+            }
+        }
+        StmtChild::Class(_) => {}
+    });
+}
+
+fn assigned_names_in_expr(expr: &Expr, found: &mut Vec<Name>) {
+    match &expr.kind {
+        ExprKind::Assign {
+            target: AssignTarget::Place(place),
+            ..
+        } => {
+            if let ExprKind::Ident(name) = &place.kind {
+                found.push(*name);
+            }
+        }
+        ExprKind::Update { target, .. } => {
+            if let ExprKind::Ident(name) = &target.kind {
+                found.push(*name);
+            }
+        }
+        _ => {}
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => assigned_names_in_expr(inner, found),
+        Child::Function(function) => {
+            if let FunctionBody::Block(statements) = &function.body {
+                for inner in statements {
+                    assigned_names_in_statement(inner, found);
+                }
+            }
+        }
+        Child::Class(_) => {}
+    });
+}
+
 /// The primitive an operator is, or `None` where this language's table has no row
 /// for it yet.
 fn primitive(op: BinaryOp) -> Option<JsPrim> {
@@ -558,281 +810,5 @@ fn expression_name(kind: &ExprKind) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::names::Names;
-    use crate::names::resolve::resolve_module;
-    use crate::parse::parse_script;
-    use crate::syntax::ModuleItem;
-    use rts_mir::verify::verify;
-
-    /// The first function of a script, lowered.
-    fn only(source: &str) -> Result<Lowered, Unsupported> {
-        let mut names = Names::new();
-        let program = parse_script(source, &mut names).expect("the fixture parses");
-        let resolution = resolve_module(&program.body);
-        let function = program
-            .body
-            .iter()
-            .find_map(|item| match item {
-                ModuleItem::Stmt(Stmt {
-                    kind: StmtKind::Function(function),
-                    ..
-                }) => Some(function),
-                _ => None,
-            })
-            .expect("the fixture declares a function");
-        lower(function, &resolution, Tier::Generic)
-    }
-
-    #[test]
-    fn a_straight_line_body_lowers_to_a_well_formed_graph() {
-        let lowered = only("function f(x) { const two = 2; return x - two; }")
-            .expect("the subset covers this");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        assert_eq!(lowered.func.blocks.len(), 1);
-    }
-
-    /// The whole pipeline composing: the tree gives a graph, the graph gives
-    /// types, and the types are this language's answers.
-    #[test]
-    fn the_graph_infers_this_languages_types() {
-        let lowered = only("function f() { const a = 2; const b = 3; return a / b; }")
-            .expect("the subset covers this");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-        let last = lowered.func.insts.last().expect("three instructions");
-        // Division answers a number even of two integers, which is this
-        // language's rule and the toy domain's too -- for different reasons.
-        assert_eq!(*types.of(last.result), Type::Double);
-    }
-
-    /// The effect is decided from what is known where the instruction is pushed,
-    /// which is what makes a proven arithmetic operation movable.
-    #[test]
-    fn an_operation_over_proven_numbers_is_pure_and_one_over_a_parameter_is_not() {
-        let proven =
-            only("function f() { const a = 1; const b = 2; return a + b; }").expect("covered");
-        let last = proven.func.insts.last().expect("an addition");
-        assert!(last.effect.is_pure());
-
-        let unknown = only("function f(x) { const b = 2; return x + b; }").expect("covered");
-        let last = unknown.func.insts.last().expect("an addition");
-        assert!(last.effect.has(Effect::CALLS_USER));
-        assert!(last.effect.has(Effect::THROWS));
-    }
-
-    #[test]
-    fn a_global_is_refused_by_name_and_not_treated_as_a_local() {
-        let refused =
-            only("function f() { return Math; }").expect_err("a global needs an entry point");
-        assert!(matches!(refused, Unsupported::Global(_)));
-    }
-
-    /// Greater-than is NOT less-than with the operands swapped, and the refusal
-    /// records why rather than silently doing it.
-    #[test]
-    fn an_operator_with_no_row_is_refused_by_name() {
-        let refused = only("function f(a, b) { return a > b; }").expect_err("no row for >");
-        assert_eq!(refused, Unsupported::Operator(BinaryOp::Greater));
-    }
-
-    #[test]
-    fn a_parked_frame_is_refused_before_anything_is_built() {
-        let refused = only("async function f() { return 1; }").expect_err("async parks");
-        assert!(matches!(refused, Unsupported::Shape(_)));
-        let refused = only("function* f() { return 1; }").expect_err("a generator parks");
-        assert!(matches!(refused, Unsupported::Shape(_)));
-    }
-
-    #[test]
-    fn a_body_with_no_return_answers_nothing_and_is_still_well_formed() {
-        let lowered = only("function f() { const a = 1; }").expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        assert_eq!(
-            lowered.func.block(lowered.func.entry()).terminator,
-            Some(Terminator::Return(None))
-        );
-    }
-
-    /// The declared-constant numbering is a coupling between two files, so it is
-    /// pinned rather than trusted: `lower` writes a `Singleton`'s discriminant
-    /// into `Const::Declared` and `domain` reads it back.
-    ///
-    /// Reordering the enum would silently make `undefined` mean `null` — and both
-    /// are falsy, both answer `false` to every truth question, and neither is a
-    /// number or a string. So no assertion about behaviour would catch it, which
-    /// is the shape of defect this repository calls silent.
-    #[test]
-    fn the_singleton_numbering_is_the_one_the_domain_reads() {
-        let domain = Js::new();
-        assert_eq!(
-            domain.of_const(&Const::Declared(Singleton::Undefined as u32)),
-            Type::Undefined
-        );
-        assert_eq!(
-            domain.of_const(&Const::Declared(Singleton::Null as u32)),
-            Type::Null
-        );
-    }
-
-    /// A declaration with no initialiser is `undefined`, through that same
-    /// numbering.
-    #[test]
-    fn a_declaration_with_no_value_holds_undefined() {
-        let lowered = only("function f() { let a; return a; }").expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-        let first = lowered.func.insts.first().expect("one constant");
-        assert_eq!(*types.of(first.result), Type::Undefined);
-    }
-
-    /// A branch with both arms rebinding one local: the join carries exactly that
-    /// one binding, and the type at the join is the domain's join of the two.
-    #[test]
-    fn a_branch_merges_only_what_the_arms_disagree_about() {
-        let lowered = only(
-            "function f(c) {
-               let a = 1;
-               const kept = 9;
-               if (c) { a = 2; } else { a = 3; }
-               return a;
-             }",
-        )
-        .expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-
-        // Four blocks: entry, the two arms, the join.
-        assert_eq!(lowered.func.blocks.len(), 4);
-        // And the join declares ONE parameter -- `a`, not `kept` and not `c`.
-        let join = lowered
-            .func
-            .block_ids()
-            .find(|held| lowered.func.predecessors(*held).len() == 2)
-            .expect("a join block");
-        assert_eq!(lowered.func.block(join).params.len(), 1);
-    }
-
-    /// The types the two arms leave are joined by the DOMAIN, which is the one
-    /// thing a lattice is for.
-    #[test]
-    fn the_join_takes_the_domains_answer_and_not_the_irs() {
-        let lowered = only(
-            "function f(c) {
-               let a = 1;
-               if (c) { a = 2; } else { a = 0.5; }
-               return a;
-             }",
-        )
-        .expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-        let join = lowered
-            .func
-            .block_ids()
-            .find(|held| lowered.func.predecessors(*held).len() == 2)
-            .expect("a join block");
-        let carried = lowered.func.block(join).params[0];
-        // An integer from one arm and a fraction from the other. THIS language has
-        // one numeric type, so the answer is a number; the toy domain's answer for
-        // the same shape is its top.
-        assert_eq!(*types.of(carried), Type::Double);
-    }
-
-    /// An arm that returned contributes nothing to the join, because control does
-    /// not arrive from it.
-    #[test]
-    fn an_arm_that_returned_is_not_a_second_opinion() {
-        let lowered = only(
-            "function f(c) {
-               let a = 1;
-               if (c) { return 0; } else { a = 2; }
-               return a;
-             }",
-        )
-        .expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        let join = lowered
-            .func
-            .block_ids()
-            .find(|held| lowered.func.predecessors(*held).len() == 1 && held.0 != 0)
-            .expect("a join reached from one arm only");
-        assert!(lowered.func.block(join).params.is_empty());
-    }
-
-    /// Both arms leaving means nothing follows the `if`, and the function is still
-    /// well formed -- no empty block left behind without a terminator.
-    #[test]
-    fn both_arms_returning_ends_the_statement_run() {
-        let lowered = only("function f(c) { if (c) { return 1; } else { return 2; } }")
-            .expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-    }
-
-    /// A block is a scope walked in step, and a binding inside it is a different
-    /// `BindingId` -- which is why nothing here decides a shadowing rule.
-    #[test]
-    fn a_block_scope_is_walked_and_its_binding_is_its_own() {
-        let lowered = only(
-            "function f() {
-               let i = 1;
-               { let i = 2; }
-               return i;
-             }",
-        )
-        .expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-        let returned = match &lowered.func.block(lowered.func.entry()).terminator {
-            Some(Terminator::Return(Some(value))) => *value,
-            other => panic!("expected a returned value, got {other:?}"),
-        };
-        // The OUTER `i` is returned. Both are `Int32`, so the type cannot tell them
-        // apart -- what says it is the right one is the value: it is the constant
-        // `1`, which is the first instruction.
-        assert_eq!(*types.of(returned), Type::Int32);
-        assert_eq!(lowered.func.insts[0].result, returned);
-    }
-
-    /// The compound form is refused rather than rewritten, because `a += b`
-    /// evaluates its target once and `a = a + b` evaluates it twice.
-    #[test]
-    fn a_compound_assignment_is_refused_rather_than_rewritten() {
-        let refused =
-            only("function f(a) { a += 1; return a; }").expect_err("no lowering for compound");
-        assert!(matches!(refused, Unsupported::Expression(_)));
-    }
-
-    /// An assignment answers what was assigned, so a chain works.
-    #[test]
-    fn an_assignment_answers_the_value_it_assigned() {
-        let lowered = only("function f() { let a = 0; let b = 0; a = b = 7; return a; }")
-            .expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-        let returned = match &lowered.func.block(lowered.func.entry()).terminator {
-            Some(Terminator::Return(Some(value))) => *value,
-            other => panic!("expected a returned value, got {other:?}"),
-        };
-        assert_eq!(*types.of(returned), Type::Int32);
-    }
-
-    /// The truth rule is an operation of the LANGUAGE, and the domain folds it
-    /// where the type decides it.
-    #[test]
-    fn a_branch_over_something_always_true_is_folded_by_the_domain() {
-        let lowered = only("function f() { if (1 === 1) { return 1; } return 2; }")
-            .expect("covered");
-        assert_eq!(verify(&lowered.func), Ok(()));
-        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-        // `===` answers a boolean of unknown value, so the truth of it is unknown
-        // too: nothing is folded here, and that is the honest answer.
-        let tested = lowered
-            .func
-            .insts
-            .iter()
-            .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if *prim == lowered.domain.prim(JsPrim::Truthy)))
-            .expect("a truthiness test");
-        assert_eq!(*types.of(tested.result), Type::Bool(None));
-    }
-}
+#[path = "lower_tests.rs"]
+mod tests;
