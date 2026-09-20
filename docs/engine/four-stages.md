@@ -632,6 +632,54 @@ The two literals that still refuse are now named apart — a regular expression 
 object the runtime builds, a bigint is a second numeric tower — because a survey
 counting them together says neither.
 
+### The table rows and `switch`: 318 → 326 in `bench/`, 1511 → 1536 in `tests/`
+
+Per file, three gains and none lost. Four operators became rows, two became a
+negation, and `switch` became a chain with a merge.
+
+**`!==` and `!=` are a negation, and this is where rewriting IS legal** — which is
+worth stating beside the comparisons, where it was not. `a > b` could not become
+`b < a` because the two coerce in opposite orders and that is observable. `a !== b`
+becoming `!(a === b)` changes nothing: the same operands, in the same order, by the
+same operation, with the negation applied to a boolean it already produced. One costs a
+table row; the other costs two instructions a pass can fold.
+
+`==` is a row apart from `===` rather than a laxer spelling of it: it may call
+`valueOf` where strict equality calls nothing, so the two have different EFFECTS over
+the same operands. `docs/codegen/entry-tax.md` part five is about this operator, and
+the finding travels with the row — `x == null` ran `ToPrimitive` twice per comparison
+where the specification calls it zero times, and answered correctly the whole time at
+180 times the cost.
+
+`instanceof` and `in` both read the heap and both may reach user code: one through
+`Symbol.hasInstance`, which replaces the whole algorithm, the other through a proxy's
+`has` trap.
+
+### A `switch` merges, and skipping that was a wrong answer
+
+The first version carried no bindings, reasoning that a switch has no back edge. It
+has no back edge and it has several paths into one exit, which is a different
+question — and the graph said so at once:
+
+```text
+b2:
+  ; from b1, b5
+  v8 = add(v6, v7)     ← v6 is defined in b1 only
+b4:
+  return v9            ← v9 is the default clause's value, on every path
+```
+
+**`rts_mir::verify` did not catch it**, and its own header says why: within a block it
+checks order, across blocks only existence. Dominance is the real rule, and this is
+the first thing that would have been caught by it — recorded there as the check to add
+when a pass starts reordering blocks.
+
+And one thing the frames had to learn: `break` leaves the innermost loop OR switch,
+while `continue` names a loop. So a frame carries which construct it is, and a
+`continue` inside a `switch` inside a loop walks past the switch. Without that the two
+stacks are one and the `continue` leaves the loop instead of taking its next pass —
+a wrong answer that compiles, with a graph that looks perfectly well formed.
+
 ### What is left, measured 2026-09-20
 
 | `bench/` | | `tests/` | |
@@ -640,11 +688,9 @@ counting them together says neither.
 | 7 | an iteration protocol | 23 | a destructuring target |
 | 7 | a regular expression | 16 | a protected region |
 | 6 | a protected region | 15 | an async function |
-| 5 | a call through neither a name nor a property | 12 | `instanceof` |
-| 4 | `switch` | 11 | `!==` |
+| 5 | a call through neither a name nor a property | 11 | a class declaration |
 
 A generator and an async function park a frame, so both wait on
 `rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs, which makes
 them one piece of work rather than two. A protected region is `try`/`catch`, and the
-machine already has regions for it. `instanceof` and `!==` are table rows. The rest
-are ordinary lowerings.
+machine already has regions for it. The rest are ordinary lowerings.

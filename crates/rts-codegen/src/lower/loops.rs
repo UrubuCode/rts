@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use rts_mir::cfg::{Terminator, ValueId};
 use rts_mir::Domain;
 
-use super::{LoopFrame, Lowering, Unsupported};
+use super::{FrameKind, LoopFrame, Lowering, Unsupported};
 use crate::domain::JsPrim;
 use crate::emit::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use crate::names::Name;
@@ -99,6 +99,7 @@ impl Lowering<'_> {
 
         self.builder.switch_to(into_body);
         self.loops.push(LoopFrame {
+            kind: FrameKind::Loop,
             header,
             exit,
             carried: carried.clone(),
@@ -142,7 +143,7 @@ impl Lowering<'_> {
     /// skipped: that file's own header records how a second copy of the tree's
     /// shape is how a node comes to be walked by one analysis and missed by the
     /// other.
-    fn assigned_in(&self, body: &Stmt) -> Result<BTreeSet<BindingId>, Unsupported> {
+    pub(super) fn assigned_in(&self, body: &Stmt) -> Result<BTreeSet<BindingId>, Unsupported> {
         let mut names = Vec::new();
         assigned_names_in_statement(body, &mut names);
         let mut found = BTreeSet::new();
@@ -167,15 +168,25 @@ impl Lowering<'_> {
         Ok(found)
     }
 
-    /// Leaves the innermost loop, or skips to its test.
+    /// Leaves the innermost loop or switch, or skips to a loop's test.
     ///
-    /// Both carry the same argument list, because the header and the exit declare
-    /// the same parameters: one list of carried bindings per loop, so a jump from
-    /// anywhere inside it needs no second convention.
+    /// `break` takes the innermost frame of either kind. `continue` NAMES a loop, so it
+    /// walks past any switch between here and one -- a `continue` inside a `switch`
+    /// inside a loop takes the loop's next pass, and treating the two stacks as one
+    /// would have it leave the loop instead. That is a wrong answer that compiles, and
+    /// the graph would look perfectly well formed.
     pub(super) fn jump_out_of_loop(&mut self, to_header: bool) -> Result<bool, Unsupported> {
-        let Some(frame) = self.loops.last() else {
+        let frame = match to_header {
+            true => self
+                .loops
+                .iter()
+                .rev()
+                .find(|held| held.kind == FrameKind::Loop),
+            false => self.loops.last(),
+        };
+        let Some(frame) = frame else {
             return Err(Unsupported::Statement(
-                "a break or continue outside a loop is a label, which is not lowered",
+                "a break or continue with nothing to leave",
             ));
         };
         let target = match to_header {
@@ -190,8 +201,6 @@ impl Lowering<'_> {
         self.builder.end(Terminator::Jump { target, args });
         Ok(true)
     }
-
-
 
     /// A classic `for`, which is the `while` shape once its head is accounted for.
     ///
@@ -322,6 +331,7 @@ impl Lowering<'_> {
 
         self.builder.switch_to(into_body);
         self.loops.push(LoopFrame {
+            kind: FrameKind::Loop,
             header,
             exit,
             carried: carried.clone(),
@@ -391,6 +401,7 @@ impl Lowering<'_> {
             params.push(param);
         }
         self.loops.push(LoopFrame {
+            kind: FrameKind::Loop,
             header,
             exit,
             carried: carried.clone(),
@@ -454,7 +465,7 @@ impl Lowering<'_> {
     /// is where the over-approximation is taken back. Filtering is safe in the
     /// direction that matters: a binding that IS live and assigned is bound here, so
     /// it survives the filter.
-    fn carried_now(&self, found: BTreeSet<BindingId>) -> Vec<BindingId> {
+    pub(super) fn carried_now(&self, found: BTreeSet<BindingId>) -> Vec<BindingId> {
         found
             .into_iter()
             .filter(|held| self.values.contains_key(held))

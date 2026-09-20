@@ -135,6 +135,31 @@ pub enum JsPrim {
     /// `a === b`, which coerces nothing. The one comparison that cannot call
     /// user code, which is why it is a row of its own.
     StrictEquals,
+    /// `a == b`, which coerces until the two are comparable.
+    ///
+    /// A row apart from [`JsPrim::StrictEquals`] because it is a different operation
+    /// and not a laxer spelling of the same one: it may call `valueOf` where strict
+    /// equality calls nothing, so the two have different effects over the same
+    /// operands.
+    ///
+    /// `docs/codegen/entry-tax.md` part five is about exactly this operator, and the
+    /// finding is worth carrying here: `x == null` ran `ToPrimitive` on the object —
+    /// two `valueOf` calls per comparison where the specification calls it zero times
+    /// — and answered correctly the whole time, at 180 times the cost. The
+    /// specification puts the cheap arms FIRST, and a lowering that coerces before it
+    /// dispatches is the natural way to lose them.
+    LooseEquals,
+    /// `a instanceof b`.
+    ///
+    /// Reads a prototype chain, and may call user code: a constructor may carry a
+    /// `Symbol.hasInstance` method, which replaces the whole algorithm. So this is
+    /// not a chain walk with a fast path — it is a dispatch whose ordinary case is a
+    /// chain walk.
+    InstanceOf,
+    /// `a in b`.
+    ///
+    /// Reads, and may call user code through a proxy's `has` trap. Answers a boolean.
+    HasProperty,
     /// Whether a value is null or undefined, and nothing else.
     ///
     /// The condition of the coalescing operator, and a row of its own because it is
@@ -397,6 +422,9 @@ impl Js {
         JsPrim::MakeClosure,
         JsPrim::Compare,
         JsPrim::IsNullish,
+        JsPrim::LooseEquals,
+        JsPrim::InstanceOf,
+        JsPrim::HasProperty,
     ];
 
     /// A domain holding only the fixed constants.
@@ -481,6 +509,7 @@ impl Js {
             | JsPrim::Remainder
             | JsPrim::LessThan
             | JsPrim::Compare
+            | JsPrim::LooseEquals
             | JsPrim::BitwiseInt32
             | JsPrim::Negate
             | JsPrim::BitwiseNot => match args.iter().all(Self::needs_no_coercion) {
@@ -528,6 +557,11 @@ impl Js {
             // a FieldRead, and it is a pass rather than something the lowering can
             // see.
             JsPrim::IndexRead => Effect::READS.and(Effect::CALLS_USER).and(Effect::THROWS),
+            // Both read the heap and both may reach code the program wrote:
+            // `instanceof` through Symbol.hasInstance, `in` through a proxy trap.
+            JsPrim::InstanceOf | JsPrim::HasProperty => {
+                Effect::READS.and(Effect::CALLS_USER).and(Effect::THROWS)
+            }
             // A GLOBAL read may run a getter -- the global object is an ordinary
             // object -- and throws where the name is declared nowhere at all.
             JsPrim::GlobalRead => Effect::READS.and(Effect::CALLS_USER).and(Effect::THROWS),
@@ -677,7 +711,10 @@ impl Domain for Js {
             | JsPrim::Compare
             | JsPrim::StrictEquals
             | JsPrim::Not
-            | JsPrim::IsNullish => {
+            | JsPrim::IsNullish
+            | JsPrim::LooseEquals
+            | JsPrim::InstanceOf
+            | JsPrim::HasProperty => {
                 Type::Bool(None)
             }
             // Folded where the type decides it, which is what `truth_of` is for:

@@ -29,6 +29,9 @@ pub(super) fn primitive(op: BinaryOp) -> Option<JsPrim> {
         | BinaryOp::Shl
         | BinaryOp::Shr => Some(JsPrim::BitwiseInt32),
         BinaryOp::StrictEqual => Some(JsPrim::StrictEquals),
+        BinaryOp::LooseEqual => Some(JsPrim::LooseEquals),
+        BinaryOp::InstanceOf => Some(JsPrim::InstanceOf),
+        BinaryOp::In => Some(JsPrim::HasProperty),
         // Every other operator is a row the table does not have.
         //
         // The three comparisons above are rows of their OWN, which is what changed:

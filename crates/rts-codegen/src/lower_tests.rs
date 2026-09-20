@@ -1459,3 +1459,163 @@ fn a_regex_and_a_bigint_are_refused_for_their_own_reasons() {
         Unsupported::Expression("a bigint literal is a second numeric tower")
     );
 }
+
+/// A `switch` merges at its exit, which the first version of the lowering skipped —
+/// on the reasoning that it has no back edge. It has no back edge and several paths
+/// into one exit, which is a different question.
+#[test]
+fn a_switch_merges_what_its_clauses_assign() {
+    let lowered = only(
+        "function f(n) {
+           let out = 0;
+           switch (n) { case 1: out = 10; break; default: out = 99; }
+           return out;
+         }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+
+    // The value returned is the exit's PARAMETER and not any clause's own value: a
+    // clause's value is defined in a block only one path reaches.
+    let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(_) => match lowered
+            .func
+            .block_ids()
+            .filter_map(|block| match &lowered.func.block(block).terminator {
+                Some(Terminator::Return(Some(value))) => Some((block, *value)),
+                _ => None,
+            })
+            .next()
+        {
+            Some(held) => held,
+            None => panic!("a return"),
+        },
+        None => panic!("a terminator"),
+    };
+    let (block, value) = returned;
+    assert!(
+        lowered.func.block(block).params.contains(&value),
+        "the exit answers its own parameter, not a clause's value"
+    );
+    assert!(lowered.func.predecessors(block).len() >= 2);
+}
+
+/// Fall-through is the whole of what makes a switch not an if-chain: a clause that
+/// does not `break` continues into the NEXT clause's statements.
+#[test]
+fn a_clause_without_a_break_falls_into_the_next_one() {
+    let lowered = only(
+        "function f(n) {
+           let out = 0;
+           switch (n) { case 1: out = 1; case 2: out = out + 1; break; }
+           return out;
+         }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // The second clause's body is reached from TWO places: its own test and the first
+    // clause falling through.
+    let merged = lowered
+        .func
+        .block_ids()
+        .filter(|held| lowered.func.predecessors(*held).len() >= 2)
+        .count();
+    assert!(merged >= 2, "a body merge and an exit merge");
+}
+
+/// `default` is matched LAST and executed where it sits, so a switch whose default is
+/// written first still tries every case before it.
+#[test]
+fn a_default_written_first_is_still_matched_last() {
+    let lowered = only(
+        "function f(n) {
+           let out = 0;
+           switch (n) { default: out = 9; break; case 1: out = 1; break; }
+           return out;
+         }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // Exactly one comparison, for the one case -- the default is not a test.
+    let tests = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::StrictEquals)))
+        .count();
+    assert_eq!(tests, 1);
+}
+
+/// A `continue` inside a switch inside a loop reaches the LOOP. Without the frame
+/// kind the two stacks are one and it would leave the loop instead — a wrong answer
+/// that compiles, and a graph that looks perfectly well formed.
+#[test]
+fn a_continue_inside_a_switch_reaches_the_loop_and_not_the_switch() {
+    let lowered = only(
+        "function f(n) {
+           let at = 0;
+           while (at < n) {
+             at = at + 1;
+             switch (at) { case 1: continue; default: break; }
+           }
+           return at;
+         }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // The loop header is reached from more than one place: the entry and the back
+    // edge through the `continue`.
+    let header = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.predecessors(*held).len() >= 2)
+        .expect("a header");
+    assert!(!lowered.func.block(header).params.is_empty());
+}
+
+/// `!==` is a negation of `===`, and this is the case where rewriting is LEGAL —
+/// unlike `a > b`, which could not become `b < a` because the two coerce in opposite
+/// orders.
+#[test]
+fn strict_inequality_is_a_negation_and_not_a_row() {
+    let lowered = only("function f(a, b) { return a !== b; }").expect("covered");
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ops, vec![JsPrim::StrictEquals, JsPrim::Not]);
+}
+
+/// Loose equality is a DIFFERENT operation from strict, not a laxer spelling: it may
+/// call `valueOf` where strict calls nothing, so the two have different effects over
+/// the same operands.
+#[test]
+fn loose_equality_may_call_user_code_where_strict_cannot() {
+    let loose = only("function f(a, b) { return a == b; }").expect("covered");
+    let held = loose.func.insts.last().expect("a comparison");
+    assert!(held.effect.has(Effect::CALLS_USER));
+
+    let strict = only("function f(a, b) { return a === b; }").expect("covered");
+    let held = strict.func.insts.last().expect("a comparison");
+    assert!(held.effect.is_pure());
+}
+
+/// `instanceof` and `in` both read the heap and both may reach user code — one
+/// through `Symbol.hasInstance`, the other through a proxy's `has` trap.
+#[test]
+fn instanceof_and_in_may_both_reach_user_code() {
+    for source in [
+        "function f(a, b) { return a instanceof b; }",
+        "function f(a, b) { return a in b; }",
+    ] {
+        let lowered = only(source).expect("covered");
+        let held = lowered.func.insts.last().expect("a comparison");
+        assert!(held.effect.has(Effect::READS), "{source}");
+        assert!(held.effect.has(Effect::CALLS_USER), "{source}");
+    }
+}

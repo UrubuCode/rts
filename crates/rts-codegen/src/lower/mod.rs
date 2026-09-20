@@ -46,6 +46,7 @@ use crate::values::Singleton;
 
 mod branch;
 mod choice;
+mod switch;
 mod calls;
 mod named;
 mod loops;
@@ -230,12 +231,28 @@ pub fn lower_with(
     Ok(lowering.builder.finish())
 }
 
-/// One loop being lowered: where its test is, where leaving it goes, and which
-/// bindings its header carries.
-struct LoopFrame {
-    header: rts_mir::BlockId,
-    exit: rts_mir::BlockId,
-    carried: Vec<BindingId>,
+/// Which construct a frame belongs to.
+///
+/// `break` leaves the innermost of EITHER, and `continue` names a loop — so a
+/// `continue` inside a `switch` inside a loop must reach the loop. Without this the
+/// two would be one stack and a `continue` would jump to the switch's exit, which is
+/// a wrong answer that compiles: the program would leave the loop instead of taking
+/// its next pass, and nothing about the graph would look malformed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum FrameKind {
+    /// A loop: both `break` and `continue` reach it.
+    Loop,
+    /// A `switch`: `break` reaches it and `continue` passes through.
+    Switch,
+}
+
+/// One loop or switch being lowered: where its test is, where leaving it goes, and
+/// which bindings its header carries.
+pub(super) struct LoopFrame {
+    pub(super) kind: FrameKind,
+    pub(super) header: rts_mir::BlockId,
+    pub(super) exit: rts_mir::BlockId,
+    pub(super) carried: Vec<BindingId>,
 }
 
 /// The state one function's lowering carries.
@@ -259,7 +276,7 @@ struct Lowering<'a> {
     types: BTreeMap<ValueId, Type>,
     resolution: &'a Resolution,
     scope: ScopeId,
-    /// The loops enclosing what is being lowered, innermost last.
+    /// The loops and switches enclosing what is being lowered, innermost last.
     loops: Vec<LoopFrame>,
 }
 
@@ -311,6 +328,10 @@ impl Lowering<'_> {
                 }
                 Ok(false)
             }
+            StmtKind::Switch {
+                discriminant,
+                clauses,
+            } => self.switch(discriminant, clauses),
             StmtKind::Break(None) => self.jump_out_of_loop(false),
             StmtKind::Continue(None) => self.jump_out_of_loop(true),
             StmtKind::Return(value) => {
@@ -759,11 +780,31 @@ impl Lowering<'_> {
             ExprKind::Binary { op, left, right } => {
                 let left = self.expression(left)?;
                 let right = self.expression(right)?;
-                let prim = match primitive(*op) {
-                    Some(prim) => prim,
-                    None => return Err(Unsupported::Operator(*op)),
-                };
-                Ok(self.prim(prim, vec![left, right], expr))
+                match op {
+                    // `!==` AND `!=` ARE A NEGATION, and this is the case where rewriting is
+                    // legal — which is worth stating beside the comparisons, where it was not.
+                    //
+                    // `a > b` could not become `b < a` because the two coerce their operands
+                    // in opposite orders, and that is observable. `a !== b` becoming
+                    // `!(a === b)` changes nothing: the same operands are evaluated in the
+                    // same order by the same operation, and the negation applies to a boolean
+                    // the operation already produced. So one costs a table row and the other
+                    // costs two instructions a pass can fold.
+                    BinaryOp::StrictNotEqual | BinaryOp::LooseNotEqual => {
+                        let which = match op {
+                            BinaryOp::StrictNotEqual => JsPrim::StrictEquals,
+                            _ => JsPrim::LooseEquals,
+                        };
+                        let equal = self.prim(which, vec![left, right], expr);
+                        Ok(self.prim(JsPrim::Not, vec![equal], expr))
+                    }
+                    _ => {
+                        let Some(prim) = primitive(*op) else {
+                            return Err(Unsupported::Operator(*op));
+                        };
+                        Ok(self.prim(prim, vec![left, right], expr))
+                    }
+                }
             }
             other => Err(Unsupported::Expression(expression_name(other))),
         }
