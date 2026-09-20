@@ -181,7 +181,7 @@ matching; a program that imports through an alias, runs, and answers.
 | # | What it proves |
 |---|---|
 | 1 | Static `@/…` import runs and answers, JIT |
-| 2 | The same program through the object destination, and the two answers are **diffed** — the gate rule 4 already has for `tests/aot/graph.ts` |
+| 2 | The object CARRIES the aliased module (its module table counts two), asserted in `cargo test`; and the alias goes into `tests/aot/graph.ts`, so the **diff** of the two destinations is made by the blocking smoke that already runs it |
 | 3 | A project with **no** `tsconfig.json` resolves identically to today |
 | 4 | `node:fs` and `rts:egui` still reach the host with `baseUrl: "."` set and files that would shadow them present — §4 row 2 |
 | 5 | A bare package import still works with `baseUrl` set — §4 row 4's fall-through |
@@ -190,6 +190,16 @@ matching; a program that imports through an alias, runs, and answers.
 | 8 | `extends` resolves targets against the writing file — §9 point 5 |
 | 9 | Computed `import("@/" + n)` runs under JIT and is refused **by name** under AOT — §6 |
 | 10 | A cycle through an alias is refused by name, as a relative cycle is |
+
+### Where a test may be written, and where it may not
+
+`crates/rts-host/tests/aot_object.rs`'s own header states the constraint that
+shapes the row above: running an object file needs a linker and the
+`rts-runtime` staticlib, and `cargo test` builds neither. So a crate test may
+claim what an object CONTAINS, and only the CI smoke may claim what it
+ANSWERS. The first draft of this section asked for a diff in a crate test,
+which cannot be written; it was corrected while planning, not discovered while
+implementing.
 
 ## 11. What this does not do
 
