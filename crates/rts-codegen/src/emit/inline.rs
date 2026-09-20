@@ -105,6 +105,13 @@ pub(super) struct Inlinable {
     /// declarer, and a free name resolves to the binding it was written against
     /// by construction. That is what the count was approximating.
     pub free_proved: bool,
+    /// The names the body declares for itself.
+    ///
+    /// Carried on the candidate rather than only returned beside it, because
+    /// both doors into [`shape_of`] have to ask the same question about them and
+    /// the second one — [`local_candidate`] — had no way to. See
+    /// [`super::omit::omittable`], which counts these in the DECLARING body.
+    pub locals: Vec<Name>,
     /// The statements before the answer, in order. Empty for the one-expression
     /// shape this began as.
     ///
@@ -762,6 +769,7 @@ pub(super) fn shape_of(
                 defaults: Vec::new(),
                 free: Vec::new(),
                 free_proved: true,
+                locals: Vec::new(),
                 statements: Vec::new(),
                 body: answered.clone(),
                 rest_length: Some(*rest),
@@ -886,6 +894,7 @@ pub(super) fn shape_of(
             free: free.clone(),
             // Filled in by the caller, which is where the count is taken.
             free_proved: true,
+            locals: locals.clone(),
             statements,
             body: answered,
             rest_length: None,
