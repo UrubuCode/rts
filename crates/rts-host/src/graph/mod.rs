@@ -11,6 +11,12 @@
 //! when this file passed the crate's 500-line ceiling, along the seam that was
 //! already there: everything in there is about a PATH and reads no program.
 //!
+//! The WALK itself — [`load`], the post-order traversal it drives, and the two
+//! questions a module's source is asked — moved to [`walk`] the second time
+//! this file passed that ceiling, along the same kind of seam: everything
+//! there traverses, and what stays here is what a traversal produced
+//! ([`Loaded`], [`Graph`]) and what is done to it afterwards ([`rewrite`]).
+//!
 //! # Why every module of a program is ONE compilation
 //!
 //! Because a reference belongs to the region that made it. A module compiled and
@@ -41,7 +47,6 @@
 //! engine that cannot compile modules rather than as a resolver that will not
 //! look.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rts_codegen::names::Names;
@@ -50,11 +55,13 @@ use rts_codegen::syntax::ModuleItem;
 
 mod resolve;
 mod tsconfig;
+mod walk;
 
-use resolve::{file_url, is_relative, plain};
+use resolve::file_url;
 pub(crate) use resolve::resolve_specifier;
 pub use resolve::{names_the_host, resolve_written};
 pub use tsconfig::Aliases;
+pub use walk::{load, relative_imports};
 
 use crate::link::HostError;
 
@@ -87,92 +94,6 @@ pub struct Loaded {
     pub resolutions: Vec<(String, String)>,
 }
 
-/// The specifiers one module writes that `keep` says name a file, in source
-/// order.
-///
-/// The predicate is a parameter, and the walk below is written once, for the
-/// same reason the `Wanted` forms are a parameter: two walks over one tree are
-/// two chances for a node to be visited by one and skipped by the other. Two
-/// callers ask two different questions of it — see the two wrappers.
-///
-/// The tree is thrown away: this wants the specifiers and nothing else, and a
-/// `Name` is an index into a table this parse owns and no other compilation
-/// issued.
-fn specifiers_naming_files(
-    source: &str,
-    keep: impl Fn(&str) -> bool,
-) -> Result<Vec<String>, String> {
-    let mut scratch = Names::default();
-    let parsed = parse_module(source, &mut scratch).map_err(|error| format!("{error:?}"))?;
-    let mut found = Vec::new();
-    for item in &parsed.body {
-        let specifier = match item {
-            ModuleItem::Import(import) => import.source.clone(),
-            ModuleItem::Export(export) => match &export.kind {
-                rts_codegen::syntax::ExportKind::Named {
-                    source: Some(from), ..
-                } => from.clone(),
-                rts_codegen::syntax::ExportKind::All { source, .. } => source.clone(),
-                _ => continue,
-            },
-            ModuleItem::Stmt(_) => continue,
-        };
-        if keep(&specifier) {
-            found.push(specifier);
-        }
-    }
-    // And what a `import("./x")` names. It is the same question — which files
-    // is this program made of — and a module reached only that way still has to
-    // be compiled into the one compilation, for the reason at the top of this
-    // file: a namespace built in another region is one the importer cannot
-    // touch. The walk is `rts-codegen`'s because the tree is.
-    //
-    // The divergence this leaves is stated rather than hidden: such a module is
-    // EVALUATED with the rest of the graph, dependencies first, where the
-    // language evaluates it at the `import()` call. A program whose dynamic
-    // import is behind a condition runs its body anyway.
-    //
-    // And a `require("./x")` names one too, for the identical reason: a module
-    // reached only that way is still a file this program is made of, and it has
-    // to be in the ONE compilation or its exports are cells the requiring module
-    // cannot touch. Asked of the SAME walk, which is why the forms are a
-    // parameter rather than a second function — two walks over one tree are two
-    // chances for a node to be visited by one and skipped by the other.
-    let wanted = rts_codegen::emit::Wanted {
-        dynamic_import: true,
-        require: Some(scratch.intern("require")),
-        dynamic_code: None,
-    };
-    for specifier in rts_codegen::emit::specifiers(&parsed.body, wanted) {
-        if keep(&specifier) {
-            found.push(specifier);
-        }
-    }
-    Ok(found)
-}
-
-/// The RELATIVE specifiers one module writes — and only those.
-///
-/// Deliberately blind to aliases. Its caller is the `rts run https://…`
-/// mirror, which fetches a remote program's files before anything local is
-/// consulted: a remote `@/secret` resolving against THIS machine's
-/// `tsconfig.json` would read local files on a remote program's behalf. The
-/// mirror also holds a URL rather than a path, so there is no referrer to
-/// resolve an alias from even if it were wanted — which is why this keeps its
-/// signature instead of gaining a `from`.
-pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
-    specifiers_naming_files(source, is_relative)
-}
-
-/// Which FILES this module is made of, aliases included.
-///
-/// What the graph walk asks. The answer comes from [`resolve_written`], the
-/// one question, so nothing here learns a second time what a path is.
-pub(crate) fn imported_files(source: &str, from: &Path) -> Result<Vec<String>, String> {
-    specifiers_naming_files(source, |specifier| {
-        tsconfig::with_active(|aliases| resolve_written(from, specifier, aliases)).is_some()
-    })
-}
 
 /// What `import.meta` answers for one module of the graph.
 ///
@@ -210,103 +131,16 @@ pub(crate) struct Graph {
     pub resolutions: Vec<(String, String, String)>,
 }
 
-/// Reads the whole graph reachable from `entry`, dependencies first.
+
+/// Drops any alias map this thread holds.
 ///
-/// # Order
-///
-/// Post-order depth first: a module is emitted after everything it imports, so
-/// by the time its body runs, every namespace it reads has been published.
-///
-/// # Cycles
-///
-/// Refused by name. A cycle needs the importing module to see a binding that
-/// does not have a value yet — which is what a live binding and its temporal
-/// dead zone are for, and neither exists here. Detecting it and saying so beats
-/// running one of the two modules against a namespace that is still empty,
-/// which would answer `undefined` for a name that is genuinely there.
-pub fn load(entry: &Path) -> Result<Vec<Loaded>, HostError> {
-    // The map for this program, found ONCE and installed before the walk
-    // begins. Every resolution below reads this one answer, and so does every
-    // dynamic one while the program runs — spec §5's "one map per program".
-    tsconfig::install(Aliases::discover(entry));
-    let start = plain(entry.canonicalize().unwrap_or_else(|_| entry.to_owned()));
-    let mut ordered = Vec::new();
-    let mut state = HashMap::new();
-    visit(&start, &mut ordered, &mut state)?;
-    Ok(ordered)
+/// For the compile path that is handed SOURCE and no entry: no file, no
+/// project, no `tsconfig.json`, and therefore no map — rather than the map of
+/// whatever program this thread loaded last.
+pub(crate) fn forget_aliases() {
+    tsconfig::install(Aliases::none());
 }
 
-/// Where one file is in the walk.
-#[derive(Clone, Copy, PartialEq)]
-enum Mark {
-    /// On the stack — reaching it again is a cycle.
-    Open,
-    /// Finished and already in the order.
-    Done,
-}
-
-fn visit(
-    path: &Path,
-    ordered: &mut Vec<Loaded>,
-    state: &mut HashMap<PathBuf, Mark>,
-) -> Result<(), HostError> {
-    match state.get(path) {
-        Some(Mark::Done) => return Ok(()),
-        Some(Mark::Open) => {
-            return Err(HostError::Parse(format!(
-                "{} is part of an import cycle, which this engine does not link",
-                path.display()
-            )));
-        }
-        None => {}
-    }
-    state.insert(path.to_owned(), Mark::Open);
-
-    let source = std::fs::read_to_string(path)
-        .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?;
-    // Parsed with a `Names` of its own, and thrown away: this pass wants the
-    // import specifiers and nothing else. The real parse happens against the
-    // `Names` the whole compilation shares.
-    let mut resolutions = Vec::new();
-    for specifier in imported_files(&source, path)
-        .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?
-    {
-        // The answer the PREDICATE accepted, not a second derivation of it:
-        // asking `resolve` again here is how two answers for one written name
-        // drift apart, and the loader keys a module by that answer.
-        let resolved = tsconfig::with_active(|aliases| resolve_written(path, &specifier, aliases))
-            .expect("imported_files kept only what resolves");
-        // Kept, not just followed: a `require("./x")` asks again at run time,
-        // and the answer is this one. See [`Loaded::resolutions`].
-        resolutions.push((specifier.clone(), resolved.display().to_string()));
-        visit(&resolved, ordered, state)?;
-    }
-
-    state.insert(path.to_owned(), Mark::Done);
-    ordered.push(Loaded {
-        specifier: path.display().to_string(),
-        path: path.to_owned(),
-        resolutions,
-        // A fachada do DOM entra aqui pelo mesmo critério do caminho de ficheiro
-        // único — `crate::run::with_dom_facade` é o único sítio onde a decisão
-        // está escrita, e este passa a chamá-lo em vez de a repetir.
-        //
-        // Faltava, e o que a falta impedia é maior do que parece: um programa
-        // com UMA linha de `import` compila como GRAFO, e este caminho nunca
-        // injetava o prelude. Ou seja NENHUM programa que importasse seja o que
-        // fosse — `node:fs`, `rts:egui` — podia usar `parseDocument`, e a falha
-        // era `ReferenceError: parseDocument is not defined`, que aponta para o
-        // programa quando o que faltava era o prelude.
-        //
-        // Por FICHEIRO e não só na entrada, que é o mesmo que o outro caminho
-        // faz: quem menciona a fachada recebe-a. Dois módulos que a mencionem
-        // ficam com classes distintas — um `instanceof` entre eles responderia
-        // falso — e isso está por resolver; o que não estava era poder usá-la
-        // de todo.
-        source: crate::run::with_dom_facade(&source),
-    });
-    Ok(())
-}
 
 /// What a module's imports must be rewritten to, so a relative specifier names
 /// the same thing the loader resolved it to.
@@ -319,6 +153,15 @@ fn visit(
 /// export that publishes — keeps the runtime's lookup a plain string comparison
 /// and keeps path resolution in the one place that read the files.
 pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
+    // The same question as the load's, asked again rather than threaded: this
+    // walks the tree at a point the load's answers do not reach — a different
+    // parse, against the compilation's own `Names`, with no pairing to carry
+    // them on. What matters is that it is the same FUNCTION:
+    // `rts_core::entry::dynamic_module`'s header warns about a second
+    // IMPLEMENTATION of what a path is, not a second call of the one
+    // implementation. The two calls agree because `resolve_written` is
+    // deterministic over (referrer, specifier, map, disk), and all four are
+    // fixed for the duration of a load.
     for item in items {
         match item {
             ModuleItem::Import(import) => {

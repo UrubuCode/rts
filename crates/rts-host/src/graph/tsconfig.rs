@@ -260,6 +260,16 @@ thread_local! {
 }
 
 /// Makes this the map for this thread, replacing any previous one.
+///
+/// # How long it lives
+///
+/// From the `load` that installs it until the NEXT `load` on this thread, and
+/// no shorter. It is deliberately not scoped to the load, because the runtime
+/// resolver has to read it while the program runs — which is after `load`
+/// returned. The consequence is that a compile with no entry file has no
+/// project and therefore no map, and must say so instead of inheriting: see
+/// [`crate::run::compile_for`], which installs [`Aliases::none`] through
+/// [`super::forget_aliases`].
 pub(crate) fn install(aliases: Aliases) {
     ACTIVE.with(|slot| *slot.borrow_mut() = aliases);
 }
