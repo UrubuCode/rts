@@ -40,8 +40,8 @@ pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
 }
 
 /// Locates the staticlib `rts compile` links the AOT object against —
-/// `rts-runtime-jit` by default, `rts-runtime` for `--sem-compilador`/
-/// `--no-compiler`. See [`CompileOptions::embed_compiler`]'s own doc for the
+/// `rts-runtime-jit` by default, `rts-runtime` for `--no-embed-compiler`
+/// (also spelled `--no-compiler`, `--sem-compilador`). See [`CompileOptions::embed_compiler`]'s own doc for the
 /// two paths and why the default carries a compiler.
 ///
 /// # `target/` is preferred, the embedded copy is the fallback
@@ -223,7 +223,7 @@ struct CliFlags {
     windows_subsystem: Option<WindowsSubsystem>,
     all_namespaces: bool,
     // `true` by default — see `CompileOptions::embed_compiler`'s own doc for
-    // why: `rts compile` carries a compiler unless `--sem-compilador`/
+    // why: `rts compile` carries a compiler unless `--no-embed-compiler`/
     // `--no-compiler` asks for the small archive instead.
     embed_compiler: bool,
     /// `--html <file>`, repeatable, in the order given — `compile`'s own
@@ -360,7 +360,20 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             // `eval`s and never runs a page `<script>` at run time. Two
             // spellings for the same reason `-p`/`--production` has two:
             // whichever a caller already reaches for.
-            "--sem-compilador" | "--no-compiler" => flags.embed_compiler = false,
+            // A grafia PREFERIDA e `--no-embed-compiler`: a flag que se desliga
+            // chama-se `--embed-compiler`, entao a negacao dela e o nome que o
+            // leitor consegue adivinhar sem consultar o help. `--no-compiler`
+            // diz uma consequencia (o binario fica sem compilador) em vez da
+            // acao, e `--sem-compilador` e a original, em portugues.
+            //
+            // As tres continuam aceitas, e isso NAO e indecisao: o CI deste
+            // repositorio passa `--sem-compilador` em quatro passos, e um
+            // usuario que ja escreveu `--no-compiler` num script nao deve
+            // descobrir a renomeacao por um build vermelho. Um alias custa um
+            // braco de `match`; uma quebra custa o dia de quem depende dela.
+            "--no-embed-compiler" | "--no-compiler" | "--sem-compilador" => {
+                flags.embed_compiler = false
+            }
             "--html" => {
                 let value = raw
                     .get(idx + 1)
@@ -436,7 +449,8 @@ fn print_help(bin_name: &str) {
     println!("  --windows-subsystem <console|windows>   (compile) set PE subsystem on Windows");
     println!("  --all-namespaces                        (compile) keep all runtime symbols (needed for import(variable))");
     println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
-    println!("  --sem-compilador, --no-compiler          (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
+    println!("  --no-embed-compiler                     (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
+    println!("                                          aliases: --no-compiler, --sem-compilador");
     println!("  --html <file>                           (compile) precompile this page's <script> tags into the binary (repeatable)");
     println!();
     println!("An `.html` entry needs no TypeScript at all: `{bin_name} compile pagina.html [out]` writes the");

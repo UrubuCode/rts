@@ -12,7 +12,7 @@
 //! `staticlib` facade, so both preconditions this command was held back for now
 //! exist.
 //!
-//! # The compiler is embedded by DEFAULT — `--sem-compilador`/`--no-compiler`
+//! # The compiler is embedded by DEFAULT — `--no-embed-compiler` opts out
 //! opts out
 //!
 //! `rts compile` links `rts-runtime-jit`, not `rts-runtime`, unless told
@@ -22,7 +22,8 @@
 //! `DomScope::run`) work at run time instead of raising the refusal
 //! `rts-host`'s README states for the small archive.
 //!
-//! `--sem-compilador` (`--no-compiler` also accepted) is the opt-out: it
+//! `--no-embed-compiler` (`--no-compiler` and `--sem-compilador` also
+//! accepted) is the opt-out: it
 //! links `rts-runtime` instead, for a binary that never `eval`s and never
 //! runs a page `<script>` at run time and would rather not carry
 //! `rts-codegen`/`rts-cranelift`'s front end and placement code for a
