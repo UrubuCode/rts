@@ -196,8 +196,16 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // to 103 for unary_plus and to 104 for serde_declare — one entry at a time, not the
     // order-of-magnitude jump this ceiling exists to catch (rts-symbol-baker's "thousands" is the
     // shape it refuses).
+    //
+    // Moved to 106 on 2026-09-19 for `JsonStringify` and `JsonParse`, and the
+    // question was asked again: neither is arithmetic — one walks the heap and
+    // allocates its answer, the other builds a tree of cells — and both are the
+    // `ObjectPair` argument, a row that exists to REMOVE crossings. The call
+    // they replace is a global read, a property read through the chain cache
+    // and the generic call, three crossings for a function the compiler can
+    // name; measured, `JSON.stringify(42)` went from 242 ns to 169.
     assert!(
-        CORE_ENTRY_COUNT <= 104,
+        CORE_ENTRY_COUNT <= 106,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

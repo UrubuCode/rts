@@ -4754,6 +4754,7 @@ dependencies = [
  "regex",
  "rts-cranelift",
  "rts-macro",
+ "ryu",
  "unicode-normalization",
 ]
 

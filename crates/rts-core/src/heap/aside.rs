@@ -53,6 +53,29 @@ pub struct Aside<T> {
     ///
     /// See [`Aside::in_region`] for why this is here rather than nowhere.
     selector_bits: u32,
+    /// How many entries hold something.
+    ///
+    /// # What it is for
+    ///
+    /// A cell that dies is asked for in EVERY table — that is what makes the
+    /// burial total, and `side_tables::release` says why it must be. But most
+    /// tables are empty for most programs: no proxies, no typed-array views, no
+    /// bound functions, no generators. Zero here lets [`Aside::remove`] answer
+    /// from a test inlined at the call site, with no call and no read of
+    /// `entries`. It changes nothing about WHAT is removed: a table holding
+    /// nothing has nothing to give.
+    ///
+    /// # What it is NOT, which is what it was written as
+    ///
+    /// The first version of this comment said the cost was memory — twenty-odd
+    /// cache lines touched to learn nothing was there. That was reasoned, and it
+    /// was wrong: with this count in place and the test NOT inlined the probe
+    /// read the same 36 ns a cell, and again with it inlined while the walk
+    /// over the tables was still a `match` inside a loop. What cost was the
+    /// dispatch in `side_tables::release`, and that file has the measurement.
+    /// This count is what is left in each arm once the dispatch is gone — the
+    /// two were measured together, 36 ns to 11, and not apart.
+    held: usize,
 }
 
 impl<T> Default for Aside<T> {
@@ -92,6 +115,7 @@ impl<T> Aside<T> {
         Aside {
             entries: Vec::new(),
             selector_bits,
+            held: 0,
         }
     }
 
@@ -127,7 +151,9 @@ impl<T> Aside<T> {
         if self.entries.len() <= cell {
             self.entries.resize_with(cell + 1, || None);
         }
-        self.entries[cell] = Some(value);
+        if self.entries[cell].replace(value).is_none() {
+            self.held += 1;
+        }
     }
 
     /// Detaches whatever was attached to a cell, and answers what it was.
@@ -148,9 +174,24 @@ impl<T> Aside<T> {
     /// hold it — growing here would allocate for a cell that never had an
     /// entry, only to immediately hold `None` where it already held one for
     /// free.
+    #[inline]
     pub fn remove(&mut self, reference: u32) -> Option<T> {
+        // INLINED, and the rest is not: this is generic, so twenty-two tables
+        // are twenty-two functions, and the common answer should not be a call.
+        // See `held` for what this did and did not buy on its own.
+        if self.held == 0 {
+            return None;
+        }
+        self.remove_held(reference)
+    }
+
+    /// [`Self::remove`], once something is known to be in the table.
+    #[inline(never)]
+    fn remove_held(&mut self, reference: u32) -> Option<T> {
         let cell = self.cell_of(reference);
-        self.entries.get_mut(cell)?.take()
+        let taken = self.entries.get_mut(cell)?.take()?;
+        self.held -= 1;
+        Some(taken)
     }
 }
 
@@ -168,6 +209,26 @@ impl<T: Copy> Aside<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_emptied_table_still_gives_back_what_is_attached_afterwards() {
+        // The count `remove` short-circuits on must follow every way an entry
+        // comes and goes, or a table that once emptied would refuse to give up
+        // what was attached later — and the free list would hand that cell's
+        // leftovers to a stranger, which is the bug the total burial exists for.
+        let mut aside: Aside<u64> = Aside::new();
+        assert_eq!(aside.remove(3), None, "nothing was ever attached");
+        aside.set(3, 10);
+        aside.set(3, 11);
+        assert_eq!(aside.remove(3), Some(11), "an overwrite is one entry, not two");
+        assert_eq!(aside.remove(3), None, "and it is gone");
+        aside.set(7, 20);
+        aside.set(3, 30);
+        assert_eq!(aside.remove(9), None, "a miss takes nothing off the count");
+        assert_eq!(aside.remove(7), Some(20));
+        assert_eq!(aside.remove(3), Some(30), "still found after the table emptied once");
+        assert_eq!(aside.remove(3), None);
+    }
 
     #[test]
     fn a_cell_nothing_was_attached_to_has_nothing() {

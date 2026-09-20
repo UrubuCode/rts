@@ -89,6 +89,14 @@ pub(super) fn emit_call_as(
         return Ok(value);
     }
 
+    // `JSON.stringify(x)` and `JSON.parse(s)` by their entry points, under the
+    // same kind of proof. See `json_call`.
+    if scope_is_lexical
+        && let Some(value) = super::json_call::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
+
     // No call at all, when the whole program proves which function this is and
     // that function is one expression. Asked before the callee is emitted:
     // reading the name would be the one piece of the call this removes.

@@ -113,6 +113,7 @@ use super::bigint_class::BIGINT_NEW_ENTRY;
 use super::regex::REGEX_NEW_ENTRY;
 use super::tail_call::TAIL_CALL_ENTRY;
 use super::pickle::names::SERDE_DECLARE_ENTRY;
+use super::json::{JSON_PARSE_ENTRY, JSON_STRINGIFY_ENTRY};
 use super::modules::{MODULE_BINDING_ENTRY, MODULE_NAMESPACE_ENTRY, MODULE_PUBLISH_ENTRY};
 use super::text::{STRING_CONST_ENTRY, TEMPLATE_STRINGS_ENTRY};
 use super::type_of::{TYPE_OF_ENTRY, TYPE_OF_IS_ENTRY};
@@ -737,6 +738,11 @@ pub enum CoreEntry {
     /// [`super::pickle::names::serde_declare`] — a class or top-level
     /// function the pickle may name, recorded where it is declared.
     SerdeDeclare = 103,
+    /// [`super::json_stringify`] — `JSON.stringify(value)`, reached without the
+    /// name once the whole program proves the name still means it.
+    JsonStringify = 104,
+    /// [`super::json_parse`] — `JSON.parse(text)`, the same way.
+    JsonParse = 105,
 }
 
 /// How many entry points exist.
@@ -744,7 +750,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 104;
+pub const CORE_ENTRY_COUNT: usize = 106;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -853,6 +859,8 @@ impl CoreEntry {
         CoreEntry::TailCall,
         CoreEntry::UnaryPlus,
         CoreEntry::SerdeDeclare,
+        CoreEntry::JsonStringify,
+        CoreEntry::JsonParse,
     ];
 
     /// The number a call site holds.
@@ -972,6 +980,8 @@ impl CoreEntry {
             CoreEntry::TailCall => TAIL_CALL_ENTRY,
             CoreEntry::UnaryPlus => UNARY_PLUS_ENTRY,
             CoreEntry::SerdeDeclare => SERDE_DECLARE_ENTRY,
+            CoreEntry::JsonStringify => JSON_STRINGIFY_ENTRY,
+            CoreEntry::JsonParse => JSON_PARSE_ENTRY,
         }
     }
 

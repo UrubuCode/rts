@@ -298,6 +298,27 @@ pub(in crate::entry) fn named(context: &mut Context, key: Key) -> Key {
 /// Falls back to `put` for a refused transition or a slot past the cell's
 /// inline width — rare, and the general path is right for both.
 pub(in crate::entry) fn populate(context: &mut Context, cell: u32, members: &[(Key, u64)]) {
+    let _ = populate_laid(context, cell, members);
+}
+
+/// Where [`populate`] put things, for a caller about to build the same object
+/// again: the type it gave the cell, and the slot each member landed in.
+pub(in crate::entry) struct Laid {
+    ty: u32,
+    slots: Vec<u32>,
+}
+
+/// [`populate`], answering the layout it arrived at — or `None` where it took
+/// the general path, which has no layout to repeat.
+///
+/// A document's rows are one shape, and arriving at it costs a transition and a
+/// slot lookup per member — hash lookups, each of them — plus a type per
+/// object. The second row onwards can be told instead: [`populate_as`].
+pub(in crate::entry) fn populate_laid(
+    context: &mut Context,
+    cell: u32,
+    members: &[(Key, u64)],
+) -> Option<Laid> {
     let mut shape = context.shapes.root();
     let mut placed: Vec<(u32, u64)> = Vec::with_capacity(members.len());
     let width = context.region.width_of(cell).unwrap_or(crate::heap::INLINE_SLOTS);
@@ -334,14 +355,41 @@ pub(in crate::entry) fn populate(context: &mut Context, cell: u32, members: &[(K
         for (key, value) in members {
             super::super::objects::put(context, cell, *key, *value);
         }
-        return;
+        return None;
     }
     let link = context.prototype_at(cell);
     let ty = context.typed_as(shape, link).index() as u32;
     context.region.set_type(cell, ty);
+    let mut slots = Vec::with_capacity(placed.len());
     for (at, value) in placed {
         super::super::objects::set_slot_value(context, cell, at, value);
+        slots.push(at);
     }
+    Some(Laid { ty, slots })
+}
+
+/// Writes values into a FRESH plain cell whose keys are, one for one, the keys
+/// `laid` was arrived at with. The caller proves that; this only checks the
+/// count, and answers `false` having written nothing when it differs.
+///
+/// Sound for the reason a shape is: the type names the layout, a fresh plain
+/// cell has the prototype the first one had, and the same keys in the same
+/// order reach the same shape every time. A repeated key repeats its slot and
+/// the later write wins, exactly as it did the first time.
+pub(in crate::entry) fn populate_as(
+    context: &mut Context,
+    cell: u32,
+    laid: &Laid,
+    values: impl ExactSizeIterator<Item = u64>,
+) -> bool {
+    if values.len() != laid.slots.len() {
+        return false;
+    }
+    context.region.set_type(cell, laid.ty);
+    for (at, value) in laid.slots.iter().zip(values) {
+        super::super::objects::set_slot_value(context, cell, *at, value);
+    }
+    true
 }
 
 /// What a slot of the arena became.

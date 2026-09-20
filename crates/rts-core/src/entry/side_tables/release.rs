@@ -15,13 +15,62 @@
 use super::SideTable;
 use crate::entry::Context;
 
-/// Clears every table keyed by a cell that is about to be reclaimed.
+/// States the tables ONCE, and makes two things of the statement: the function
+/// that buries a cell in each of them, and the list a test holds to
+/// [`SideTable::ALL`].
 ///
-/// Called from `collect_cycle::release`, which owns the order around it: the
-/// text payload and the weak watches are cleared before, and the region's own
-/// `free` comes after.
-pub(in crate::entry) fn release_tables(context: &mut Context, cell: u32) {
-    for table in SideTable::ALL {
+/// # Why a straight line and not a loop
+///
+/// It was `for table in SideTable::ALL { match table { … } }`, which reads as a
+/// walk and runs as an interpreter: one indirect jump per table, to twenty-two
+/// different places, for every cell that dies. Measured 2026-09-19 with
+/// `examples/alloc_cost` by visiting only the first N tables — 18.4 ns a cell at
+/// none, 28.2 at six, 37.6 at twelve, 51.1 at eighteen, 62.4 at all of them. A
+/// straight line in N, about two nanoseconds a table, and every table was
+/// EMPTY: what cost was arriving at each arm, not what the arm did. Allocating
+/// the cell is 13 ns, so three quarters of what a short-lived object cost was
+/// this dispatch — and a string is a cell too.
+///
+/// Four explanations were tried before that measurement and each was reasoned,
+/// built and measured at nothing: the allocator, the memory the removes touch,
+/// the loop with the match still inside it, and the call into `Aside::remove`.
+/// Counting tables is what answered.
+///
+/// # How it stays total
+///
+/// [`bury`] holds the one `match`, still exhaustive, so a new table does not
+/// compile until its death is written. Each call passes a CONSTANT, so the match
+/// folds to its arm and no dispatch is left. The list has as many entries as
+/// `ALL` or this file does not compile, and the test at its foot says they are
+/// the same ones — so a table can be neither forgotten nor named twice.
+macro_rules! tables {
+    ($($table:ident),* $(,)?) => {
+        /// What [`release_tables`] buries a cell in, in the order it does.
+        const LISTED: &[SideTable] = &[$(SideTable::$table),*];
+        const _: () = assert!(LISTED.len() == SideTable::ALL.len());
+
+        /// Clears every table keyed by a cell that is about to be reclaimed.
+        ///
+        /// Called from `collect_cycle::release`, which owns the order around it:
+        /// the text payload and the weak watches are cleared before, and the
+        /// region's own `free` comes after.
+        pub(in crate::entry) fn release_tables(context: &mut Context, cell: u32) {
+            $( bury(context, cell, SideTable::$table); )*
+        }
+    };
+}
+
+tables!(
+    SpillOf, ArrayElements, Callables, Proxies, Bound, Views, Collections, Cursors, Generators,
+    Helpers, Prototypes, Accessors, Boxed, ProtoTypes, PendingStacks, BufferOf, Detached, Regexes,
+    Integrity, Attributes, Derived, Foreign,
+);
+
+/// What one table gives up when a cell dies. Inlined with a constant `table`,
+/// so only the named arm survives.
+#[inline(always)]
+fn bury(context: &mut Context, cell: u32, table: SideTable) {
+    {
         match table {
             // The overflow is region cells and it SPANS, so every cell it
             // covers comes back, not only the one its reference names.
@@ -130,6 +179,25 @@ pub(in crate::entry) fn release_tables(context: &mut Context, cell: u32) {
             SideTable::Foreign => {
                 context.foreign.remove(cell);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_table_is_buried_in_and_none_is_named_twice() {
+        // The length is a compile error; this is the other half. A list of the
+        // right LENGTH with one table twice and another missing would compile,
+        // and the missing one is a stranger reading a dead cell's data.
+        for table in SideTable::ALL {
+            assert_eq!(
+                LISTED.iter().filter(|listed| **listed == table).count(),
+                1,
+                "{table:?} is buried exactly once"
+            );
         }
     }
 }

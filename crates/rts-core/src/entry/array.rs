@@ -182,6 +182,22 @@ pub(in crate::entry) fn built_in_rooted(
     Value::from_slot(cell).bits()
 }
 
+/// The same, from values that STAY registered where they are.
+///
+/// [`built_in_rooted`] consumes a guard, which means a guard per array — a
+/// `Box`, a `Vec` and a thread-local registration each. A materialiser that
+/// keeps every value it has built on ONE rooted stack hands a slice of it here
+/// instead: the cell is allocated while the slice is still on the stack, and
+/// the copy into the array's own store is an ordinary Rust allocation, which
+/// cannot collect.
+pub(in crate::entry) fn built_in_from(context: &mut Context, values: &[u64]) -> u64 {
+    let cell = allocate_array_cell(context);
+    let store = context.arrays.insert(values.to_vec()).slot();
+    context.mark_array(cell, store);
+    set_length(context, cell, values.len());
+    Value::from_slot(cell).bits()
+}
+
 /// Allocates the array object at the shared cached layout.
 fn allocate_array_cell(context: &mut Context) -> u32 {
     // Born at the layout an array ARRIVES at, rather than at the empty one and

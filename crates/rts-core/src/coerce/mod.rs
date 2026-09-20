@@ -28,8 +28,10 @@
 //! the operations themselves take primitives — which makes performing them out
 //! of order something a caller has to do deliberately rather than by default.
 
+mod decimal;
 mod number;
 
+pub use decimal::{Decimal, decimal_of};
 pub use number::{number_to_string, string_to_number};
 
 use crate::heap::Slot;

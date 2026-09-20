@@ -680,8 +680,27 @@ impl Region {
     /// object wider than a cell cost nothing to reach: `field` bounds itself by
     /// this, the sweep frees by it, and the collector walks by it, all out of a
     /// word they had already loaded.
+    ///
+    /// # The INTERIOR of a spanning object has no width
+    ///
+    /// Its first word is one of the object's VALUES, not a header, and reading
+    /// it as one answers whatever the high bits of that value happen to spell —
+    /// a width in the hundreds of millions for a boxed value. Nothing the
+    /// runtime builds names an interior, but the conservative stack scan names
+    /// whatever a stale word decodes to, and the marker then walked that many
+    /// slots. Measured 2026-09-19 on `target/release/rts.exe`: a collection
+    /// with 2 645 live cells spent **742 ms in `mark`** against 3 ms for the
+    /// cycle before it, on a program allocating `{}` in a loop; which cycles hit
+    /// it moved with the environment block, because that moves the stack.
+    ///
+    /// `each_live` already asked this of the sweep. It is asked here so that
+    /// `field`, `set_field` and the marker inherit it rather than each
+    /// remembering to.
     pub fn width_of(&self, reference: u32) -> Option<u32> {
         let index = self.decompose(reference)?;
+        if self.is_spanned_interior(index) {
+            return None;
+        }
         let word = *self.words.get(self.word_of(index))?;
         if word == FREE_MARKER {
             return None;

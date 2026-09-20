@@ -47,6 +47,37 @@ pub(super) fn untouched(body: &[Stmt], name: Name, eval: Name, global_this: Name
     disturbed(body, eval, global_this).untouched(name)
 }
 
+/// Whether `name` is untouched AND never leaves the one position a proof can
+/// follow it through: the object of a member expression, `name.member`.
+///
+/// # Why `JSON` asks more than `Math` does
+///
+/// [`untouched`] sees a write spelled through the name. It does not see one
+/// spelled through a COPY of it — `const J = JSON; J.stringify = f`, or
+/// `Object.defineProperty(JSON, "stringify", …)` — because by then the name is
+/// a value in someone else's hands and the walk has no way to follow a value.
+/// Patching a serialiser is a thing programs do (a logger redacting fields, a
+/// polyfill), so for this name the hole is closed rather than accepted: any
+/// appearance of the identifier that is not the base of a member expression
+/// ends the proof. Counted rather than tracked by position — every base is also
+/// visited as an identifier, so the two counts differ exactly when some
+/// appearance was not a base.
+pub(super) fn only_a_base(body: &[Stmt], name: Name, eval: Name, global_this: Name) -> bool {
+    let mut walk = Disturbance {
+        eval,
+        global_this,
+        names: std::collections::BTreeSet::new(),
+        indirect: false,
+        watched: Some(name),
+        seen: 0,
+        bases: 0,
+    };
+    for statement in body {
+        walk.statement(statement);
+    }
+    !walk.indirect && !walk.names.contains(&name) && walk.seen == walk.bases
+}
+
 /// Every name `body` writes to, directly or through a member — and whether it
 /// reaches for `eval` or `globalThis` at all, which disturbs every name at once.
 pub(super) struct Disturbed {
@@ -68,6 +99,9 @@ pub(super) fn disturbed(body: &[Stmt], eval: Name, global_this: Name) -> Disturb
         global_this,
         names: std::collections::BTreeSet::new(),
         indirect: false,
+        watched: None,
+        seen: 0,
+        bases: 0,
     };
     for statement in body {
         walk.statement(statement);
@@ -85,6 +119,11 @@ struct Disturbance {
     global_this: Name,
     names: std::collections::BTreeSet<Name>,
     indirect: bool,
+    /// The one name [`only_a_base`] is asking about, and how often it appeared
+    /// at all against how often as the base of a member expression.
+    watched: Option<Name>,
+    seen: u32,
+    bases: u32,
 }
 
 impl Disturbance {
@@ -125,6 +164,12 @@ impl Disturbance {
             ExprKind::Ident(seen) if *seen == self.eval || *seen == self.global_this => {
                 self.indirect = true;
                 return;
+            }
+            ExprKind::Ident(seen) if Some(*seen) == self.watched => self.seen += 1,
+            ExprKind::Member { object, .. }
+                if matches!(&object.kind, ExprKind::Ident(base) if Some(*base) == self.watched) =>
+            {
+                self.bases += 1;
             }
             ExprKind::Assign {
                 target: AssignTarget::Place(place),

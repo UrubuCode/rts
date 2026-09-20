@@ -956,6 +956,26 @@ fn emit_literal(
 
 /// Whether the guarded form is worth emitting for these operands.
 ///
+/// # A literal is not a claim, and this is where the difference shows
+///
+/// Everything below is about TypeScript annotations, which are evidence: rule 4
+/// says a claim may choose between two legal emissions and may not remove a
+/// check. A LITERAL is not evidence, it is the thing itself — `"n"` is a string
+/// in every run of the program, and no annotation, cast or caller can make it a
+/// double. So a non-numeric literal operand settles the question this function
+/// asks rather than informing it: the guarded form's fast path needs BOTH
+/// operands narrowed to `F64`, and that guard cannot pass.
+///
+/// What was emitted for `"n" + i` before: a guard on the literal, a guard on
+/// `i`, a `FloatArith` nobody can reach, a join, and then the call — every
+/// pass. The guard is not free because it is a branch that always goes one way;
+/// it is `__rts_string_const`'s result, so the machine cannot fold it, having
+/// no idea what that call answers. This crate does.
+///
+/// Measured 2026-09-19, `target/release/rts.exe`, one guard kind at a time in
+/// the IR: `"n"`, `true`, `null`, `undefined`, `/x/` and `1n` each emitted two
+/// guards where a number literal emitted one.
+///
 /// # The one thing a claim is allowed to do here
 ///
 /// Take a guard AWAY that the emitter was going to add. `emit_binary`
@@ -978,6 +998,11 @@ fn emit_literal(
 /// between two already-legal emissions and removes no check, because the path
 /// it selects never had one.
 fn speculation_is_worth_emitting(ctx: &Ctx, left: &Expr, right: &Expr) -> bool {
+    // Asked of BOTH operands and before anything else, because it is a fact
+    // about the program rather than about what the program says.
+    if cannot_be_a_double(left) || cannot_be_a_double(right) {
+        return false;
+    }
     // A body that claims nothing pays one comparison rather than two hash
     // lookups per operator, and most bodies claim nothing: the corpus is
     // JavaScript conformance tests. Measured before this line existed, the
@@ -994,6 +1019,36 @@ fn speculation_is_worth_emitting(ctx: &Ctx, left: &Expr, right: &Expr) -> bool {
         return true;
     };
     a == super::types::Kind::Number || b == super::types::Kind::Number
+}
+
+/// Whether this operand is written as something that is never a double.
+///
+/// A syntactic question with a total answer, which is why it is a `match` over
+/// the literals rather than a test for the one that prompted it: a variant
+/// added to `Literal` has to be classified here, and the wrong classification
+/// is the safe one — `false` only costs the guards that were emitted before.
+///
+/// Anything that is not a literal answers `false`, including a name the type
+/// pass claims is a string: that is a claim, and the block above is where a
+/// claim is allowed to speak.
+fn cannot_be_a_double(operand: &Expr) -> bool {
+    let ExprKind::Literal(literal) = &operand.kind else {
+        return false;
+    };
+    match literal {
+        // The one that can. `5 + i` guards `i` alone, and that guard is the
+        // whole point of the speculation.
+        Literal::Number(_) => false,
+        // A bigint is NOT a double and is not an exception to this: `1n + i`
+        // throws a `TypeError` where `i` is a number, and the throw comes from
+        // `__rts_add` — which the fast path would have skipped, so guarding is
+        // wrong for it twice over.
+        Literal::String(_)
+        | Literal::Boolean(_)
+        | Literal::Singleton(_)
+        | Literal::Regex { .. }
+        | Literal::BigInt(_) => true,
+    }
 }
 
 /// Records that a binary operator's operand carried a claim.
