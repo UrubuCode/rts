@@ -126,8 +126,14 @@ pub(crate) struct Graph {
     /// the disk, which is right there. An object file's destination is a binary
     /// that may run anywhere, so it carries the answers the loader already
     /// found. What that costs is stated in `rts-runtime`'s own resolver: a
-    /// COMPUTED specifier (`require("./" + name)`) is in no table, so it
-    /// resolves in a JIT run and is refused by name in an AOT one.
+    /// COMPUTED specifier (`require("./" + name)`) is in no table, because
+    /// nothing was there to resolve while walking the static tree — and
+    /// `rts_core::entry::module_import`'s own doc says the runtime reads only
+    /// what is already registered rather than loading anything new. So a
+    /// computed specifier is refused, by name, on BOTH destinations — the
+    /// runtime resolver hook answers `None` for it exactly as it does for a
+    /// bare or `node:` specifier, and the module never entered the
+    /// compilation on either path. There is no JIT/AOT divergence here.
     pub resolutions: Vec<(String, String, String)>,
 }
 

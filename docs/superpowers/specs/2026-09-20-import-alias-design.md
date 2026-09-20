@@ -117,10 +117,18 @@ the same program, and any difference is stated and is about the destination.
   the tree at build time. The alias does not survive into the object. Free.
 - **Literal `import("@/x")` / `require("@/x")`** — the walk already resolves
   these and records them in `resolutions`, which the object carries. Free.
-- **Computed `import("@/" + name)`** — in no table. It resolves in a JIT run
-  and is refused by name in an AOT one. This divergence **already exists and is
-  already stated** in `Graph.resolutions`'s own documentation, for relative
-  specifiers. An alias inherits it unchanged; it does not widen it.
+- **Computed `import("@/" + name)`** — in no table, on either destination,
+  because the static walk pre-registers only LITERAL specifiers and
+  `rts_core::entry::module_import` reads only what is already registered
+  rather than loading anything new (`rts-host/README.md`'s own "What it does
+  not do yet"). Under JIT the runtime resolver hook (`resolver.rs:47-52`)
+  still answers `None` for it, exactly as it does a bare or `node:`
+  specifier — the PATH can be resolved, but the IMPORT was never told to
+  compile that module, so it fails with the same ordinary message
+  (`common_js.rs:109-111`) on both destinations. **Both destinations refuse
+  it, identically.** This makes rule 4 STRONGER for aliases than for a plain
+  relative specifier, not weaker: an alias inherits a behaviour that is the
+  SAME everywhere rather than one that differs.
 
 No new table, no new relocation, no map carried into the binary.
 
