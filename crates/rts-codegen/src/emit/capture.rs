@@ -916,7 +916,7 @@ fn referenced_inside_expr(
 /// One callback taking this rather than two callbacks, because two would each
 /// need `&mut` on the same accumulator and the borrow checker is right to
 /// refuse it — the traversal genuinely visits both kinds of child into one set.
-pub(super) enum Child<'a> {
+pub(crate) enum Child<'a> {
     /// A sub-expression, walked by whichever traversal is running.
     Expr(&'a Expr),
     /// A nested function, whose every name counts.
@@ -931,7 +931,7 @@ pub(super) enum Child<'a> {
 /// copies of this match is how a node comes to be walked by one analysis and
 /// silently skipped by the other — and the one that skips it decides a local is
 /// not captured when it is.
-pub(super) fn walk_expr<'a>(expr: &'a Expr, on: &mut impl FnMut(Child<'a>)) {
+pub(crate) fn walk_expr<'a>(expr: &'a Expr, on: &mut impl FnMut(Child<'a>)) {
     match &expr.kind {
         ExprKind::Function(function) => on(Child::Function(function)),
         ExprKind::Class(class) => on(Child::Class(class)),

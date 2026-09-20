@@ -14,6 +14,8 @@ use std::collections::HashMap;
 
 use rts_cranelift::shape::{Key, KeyRegistry};
 
+pub mod resolve;
+
 /// An identifier, interned.
 ///
 /// Two names are the same identifier when their numbers match. Nothing else is

@@ -57,7 +57,7 @@
 mod binding;
 mod body_state;
 mod call;
-mod capture;
+pub(crate) mod capture;
 mod choice;
 mod common_js;
 mod class;
