@@ -497,6 +497,56 @@ impl Lowering<'_> {
                 // makes `a = b = 1` work.
                 Ok(held)
             }
+            // A COMPOUND ASSIGNMENT to a plain local.
+            //
+            // `a += b` is not `a = a + b` and the tree says so by carrying the
+            // operator: the target is evaluated ONCE. For a plain name that
+            // distinction costs nothing — reading a binding has no effect to
+            // duplicate — so the rewrite is legal here and only here. A member
+            // target is refused below for exactly the reason the tree gives:
+            // `a[i()] += 1` calls `i` a single time.
+            ExprKind::Assign {
+                target,
+                value,
+                op: AssignOp::Compound(op),
+            } => {
+                let AssignTarget::Place(place) = target else {
+                    return Err(Unsupported::Pattern);
+                };
+                let ExprKind::Ident(name) = &place.kind else {
+                    return Err(Unsupported::Expression(
+                        "a compound assignment to a property reads and writes the heap, once",
+                    ));
+                };
+                let Some(prim) = primitive(*op) else {
+                    return Err(Unsupported::Operator(*op));
+                };
+                let held = self.expression(place)?;
+                let with = self.expression(value)?;
+                let answered = self.prim(prim, vec![held, with], expr);
+                let of = self.type_of(answered);
+                self.bind(*name, answered, of)?;
+                Ok(answered)
+            }
+            // AN ARRAY LITERAL, which is one primitive over its elements.
+            //
+            // A hole is refused rather than lowered as `undefined`: the two are
+            // different, and the tree's own comment says why — a hole is skipped by
+            // some operations and read as `undefined` by others, so collapsing them
+            // loses that. A spread is refused because the element count would stop
+            // being the count written.
+            ExprKind::Array { elements } => {
+                let mut values = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let Some(crate::syntax::Spreadable::Single(held)) = element else {
+                        return Err(Unsupported::Expression(
+                            "an array literal with a hole or a spread has a run-time length",
+                        ));
+                    };
+                    values.push(self.expression(held)?);
+                }
+                Ok(self.prim(JsPrim::NewArray, values, expr))
+            }
             // A CALL TO A FUNCTION THE MODULE NUMBERED.
             //
             // The callee is resolved through the binding and not through the

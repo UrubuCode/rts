@@ -125,6 +125,12 @@ pub enum JsPrim {
     /// object reaches valueOf and therefore user code; coercing anything else is
     /// total and pure, which is the boundary effect_of already draws.
     ToNumber,
+    /// An array built from its elements, in order.
+    ///
+    /// Variadic: an element per argument. The count is the literal written, which
+    /// a spread would change at run time -- so a spread is refused by the lowering
+    /// rather than represented here.
+    NewArray,
 }
 
 /// What a guard of this language asserts.
@@ -172,6 +178,7 @@ impl Js {
         JsPrim::FieldWrite,
         JsPrim::Truthy,
         JsPrim::ToNumber,
+        JsPrim::NewArray,
     ];
 
     /// An empty domain.
@@ -245,6 +252,9 @@ impl Js {
             JsPrim::StrictEquals | JsPrim::TypeOf | JsPrim::Not | JsPrim::Truthy => Effect::PURE,
             // The same boundary as arithmetic: only an object coerces through code
             // the program wrote.
+            // Building one allocates, whatever it is built from, and it reaches
+            // no code the program wrote: the elements are already values.
+            JsPrim::NewArray => Effect::ALLOCATES,
             JsPrim::ToNumber => match args.first().is_some_and(Self::needs_no_coercion) {
                 true => Effect::PURE,
                 false => Effect::CALLS_USER.and(Effect::THROWS),
@@ -390,6 +400,11 @@ impl Domain for Js {
                 Some(Type::Int32) => Type::Int32,
                 _ => Type::Double,
             },
+            // An object of no known layout. An array HAS a shape in the machine
+            // sense, and saying which one is what the shape registry answers --
+            // this domain does not hold one yet, so the honest answer is the
+            // weaker type rather than a number invented here.
+            JsPrim::NewArray => Type::Object,
             JsPrim::FieldRead => Type::Anything,
             // A write answers the value written, which is what makes `a = b = 1`
             // work.

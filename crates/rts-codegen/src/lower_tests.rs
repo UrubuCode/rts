@@ -240,15 +240,6 @@ fn a_block_scope_is_walked_and_its_binding_is_its_own() {
     assert_eq!(lowered.func.insts[0].result, returned);
 }
 
-/// The compound form is refused rather than rewritten, because `a += b`
-/// evaluates its target once and `a = a + b` evaluates it twice.
-#[test]
-fn a_compound_assignment_is_refused_rather_than_rewritten() {
-    let refused =
-        only("function f(a) { a += 1; return a; }").expect_err("no lowering for compound");
-    assert!(matches!(refused, Unsupported::Expression(_)));
-}
-
 /// An assignment answers what was assigned, so a chain works.
 #[test]
 fn an_assignment_answers_the_value_it_assigned() {
@@ -595,4 +586,109 @@ fn a_var_in_a_loop_head_is_refused_by_name() {
     let refused = only("function f(n) { for (var i = 0; i < n; i++) {} return i; }")
         .expect_err("a var hoists out of the head");
     assert!(matches!(refused, Unsupported::Statement(_)));
+}
+
+/// A compound assignment to a plain local is the rewrite that is legal only there:
+/// reading a binding has no effect to duplicate.
+#[test]
+fn a_compound_assignment_to_a_local_applies_its_operator() {
+    let lowered = only("function f(a) { let b = 1; b += a; return b; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ops, vec![JsPrim::Add]);
+}
+
+/// And it answers the new value, so a chain works.
+#[test]
+fn a_compound_assignment_answers_the_value_it_stored() {
+    let lowered = only("function f() { let a = 1; let b = (a += 2); return b; }")
+        .expect("covered");
+    let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(Terminator::Return(Some(value))) => *value,
+        other => panic!("expected a returned value, got {other:?}"),
+    };
+    let from = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| held.result == returned)
+        .expect("an instruction");
+    assert!(
+        matches!(&from.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::Add))
+    );
+}
+
+/// A member target is refused for the reason the tree carries the operator at all:
+/// `a[i()] += 1` calls `i` once, and the rewrite would call it twice.
+#[test]
+fn a_compound_assignment_to_a_property_is_refused_by_that_reason() {
+    let refused = only("function f(o) { o.x += 1; }").expect_err("a member target");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}
+
+/// An operator with no compound row is refused as an operator, not as a shape.
+#[test]
+fn a_compound_form_of_an_unlowered_operator_is_refused_as_an_operator() {
+    let refused = only("function f(a) { let b = 1; b **= a; return b; }")
+        .expect_err("no row for **");
+    assert!(matches!(refused, Unsupported::Operator(_)));
+}
+
+/// An array literal is one primitive over its elements, and it allocates.
+#[test]
+fn an_array_literal_is_one_allocating_primitive() {
+    let lowered = only("function f(a) { return [1, a]; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let built = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::NewArray)))
+        .expect("a construction");
+    assert!(built.effect.has(Effect::ALLOCATES));
+    assert!(built.effect.may_collect());
+    // Two elements, in the order written.
+    match &built.op {
+        rts_mir::Op::Prim { args, .. } => assert_eq!(args.len(), 2),
+        other => panic!("expected a primitive, got {other:?}"),
+    }
+}
+
+/// A hole is NOT `undefined`, so it is refused rather than lowered as one.
+#[test]
+fn a_hole_is_refused_rather_than_collapsed_into_undefined() {
+    let refused = only("function f() { return [1, , 3]; }").expect_err("a hole");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}
+
+/// A spread makes the length a run-time question, which a fixed argument list
+/// cannot carry.
+#[test]
+fn a_spread_element_is_refused_because_the_length_stops_being_written() {
+    let refused = only("function f(xs) { return [1, ...xs]; }").expect_err("a spread");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}
+
+/// The effect pass must not narrow an allocation away: allocating is what the
+/// operation does, not something its operands decide.
+#[test]
+fn an_array_construction_keeps_allocating_after_the_effect_pass() {
+    let mut lowered = only("function f() { return [1, 2]; }").expect("covered");
+    let refined = rts_mir::passes::refine_effects(&mut lowered.func, &lowered.domain);
+    assert_eq!(refined.narrowed, 0);
+    let built = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::NewArray)))
+        .expect("a construction");
+    assert!(built.effect.may_collect());
 }

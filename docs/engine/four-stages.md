@@ -354,14 +354,27 @@ count moved by five, because a function refused for a `for` is usually also refu
 for an array literal or a property access. That is the ordinary shape of this work
 and the reason the *distribution* is what a survey is read for, never the total.
 
-The refusals that top the table now are what a benchmark is made of:
+The refusals that topped the table next were what a benchmark is made of — a
+compound assignment (64) and an array literal (39) — and both were taken:
+**46 → 54 of 386**, per file one gain of 43 → 51 and none lost.
 
-| refusals | reason |
-|---:|---:|
-| 64 | an assignment (compound, or to a pattern) |
-| 39 | an array literal |
-| 33 | an object literal |
-| 27 | a nested definition |
+### A refusal count that RISES is progress
+
+After those two, the table reads:
+
+| refusals | reason | was |
+|---:|---|---:|
+| 57 | a call through a member | 24 |
+| 51 | a property access | 16 |
+| 38 | an object literal | 33 |
+| 27 | a nested definition | 27 |
+
+The first two more than doubled, and nothing got worse. The survey records **one**
+refusal per function — the first one the lowering hits — so a function that used to
+stop at its `for` now gets as far as `arr[i]`. A row growing means work arriving at
+it, and only the *lowered* count and a per-file comparison can say whether anything
+regressed. Reading these tables as a scoreboard would have this session's best two
+commits looking like its worst.
 
 **And the measurement caught a crash before it was recorded as a result.** The
 first reading after the loops landed said *3 of 37* where the corpus holds 386
