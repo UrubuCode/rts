@@ -127,6 +127,19 @@ pub enum JsPrim {
     TypeOf,
     /// `!a`, which reads this language's truth rule.
     Not,
+    /// `a & b`, `a | b`, `a ^ b`, `a << b`, `a >> b`.
+    ///
+    /// One row for the five, because they agree about everything this table records:
+    /// each coerces both operands with `ToInt32`, each answers a value that fits in
+    /// an `i32`, and none can reach code the program wrote once the operands are
+    /// not objects. What they disagree about is which machine instruction they
+    /// become, and that is the machine lowering's question rather than this table's.
+    ///
+    /// `>>>` is NOT here. It answers `ToUint32`, so `-1 >>> 0` is 4294967295 — a
+    /// number an `i32` cannot hold, and the one bitwise operator whose answer is not
+    /// an `Int32`. Giving it this row would be wrong at exactly the value that
+    /// distinguishes it.
+    BitwiseInt32,
     /// Reading a property whose position a shape decided.
     FieldRead,
     /// Writing one.
@@ -283,6 +296,7 @@ impl Js {
         JsPrim::NewObject,
         JsPrim::OuterRead,
         JsPrim::OuterWrite,
+        JsPrim::BitwiseInt32,
     ];
 
     /// A domain holding only the fixed constants.
@@ -365,7 +379,8 @@ impl Js {
             | JsPrim::Multiply
             | JsPrim::Divide
             | JsPrim::Remainder
-            | JsPrim::LessThan => match args.iter().all(Self::needs_no_coercion) {
+            | JsPrim::LessThan
+            | JsPrim::BitwiseInt32 => match args.iter().all(Self::needs_no_coercion) {
                 true => match which {
                     // Concatenation allocates even when nothing coerces.
                     JsPrim::Add if args.iter().any(|held| *held == Type::Str) => {
@@ -527,6 +542,9 @@ impl Domain for Js {
             // Division answers a double even of two integers, and `1/0` is
             // `Infinity` rather than a fault.
             JsPrim::Divide => Type::Double,
+            // ALWAYS an Int32, whatever it was given, and that is the reason a
+            // program writes one: `x | 0` is how a number becomes provably narrow.
+            JsPrim::BitwiseInt32 => Type::Int32,
             JsPrim::LessThan | JsPrim::StrictEquals | JsPrim::Not => Type::Bool(None),
             // Folded where the type decides it, which is what `truth_of` is for:
             // an object is always true and `undefined` always false, so a branch

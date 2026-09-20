@@ -503,6 +503,39 @@ The effect is `READS|THROWS` and deliberately not `CALLS_USER`: a binding in its
 temporal dead zone throws, and a binding is not a property, so no getter is reachable
 through one. A write is `WRITES|THROWS`.
 
+### Naming the bucket, and the bitwise row: 127 → 161 in `bench/`
+
+Per file, one gain and none lost. Two changes, and the first is not a feature at all.
+
+**`expression_name` had a fall-through arm reading "an expression kind", and it was
+the biggest single bucket in `bench/` — 43 of them.** A refusal that does not name
+itself is worth the same as no refusal: the whole reason `Unsupported` has one variant
+per reason is that the survey IS the work queue, and a bucket cannot be queued. Every
+variant is listed now, so a node added to the tree tomorrow fails to compile there
+rather than joining a bucket. The 43 turned out to be a construction (31), a type
+assertion (8) and a handful of others — none of which anybody would have guessed.
+
+**The bitwise row is one row for five operators**, because they agree about everything
+the table records: each coerces with `ToInt32`, each answers a value that fits in an
+`i32`, and none reaches code the program wrote once the operands are not objects.
+What they disagree about is which machine instruction they become, which is the
+machine lowering's question.
+
+`>>>` is deliberately NOT in it. It answers `ToUint32`, so `-1 >>> 0` is 4294967295 —
+a number an `i32` cannot hold, and the one bitwise operator whose answer is not an
+`Int32`. Giving it the row would be wrong at exactly the value that distinguishes it.
+
+And the row pays for itself twice, visibly:
+
+```text
+v2 = bitwiseint32(v0, v1)   ; calls|throws     ← x | 0, x unknown
+v4 = bitwiseint32(v2, v3)                      ← n & 255, PURE
+```
+
+`x | 0` is how a program makes a number provably narrow, and every bitwise operator
+after it is pure because the first one proved its operand. That is the type domain
+paying for itself on a shape real code writes constantly.
+
 ### What is left, and both corpora agree again
 
 | `bench/` | | `tests/` | |

@@ -1188,3 +1188,60 @@ fn a_dead_zone_read_is_still_refused_after_outer_reads_lower() {
         Unsupported::Expression("a binding read before its declaration is in its dead zone")
     );
 }
+
+/// A bitwise operator answers an `Int32` whatever it was given, which is the reason a
+/// program writes one: `x | 0` is how a number becomes provably narrow.
+#[test]
+fn a_bitwise_operator_answers_an_int32_and_the_next_one_is_therefore_pure() {
+    let lowered = only("function f(x) { let n = x | 0; return n & 255; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+
+    let bitwise: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::BitwiseInt32)))
+        .collect();
+    assert_eq!(bitwise.len(), 2);
+    // Both answer an Int32...
+    assert_eq!(*types.of(bitwise[0].result), Type::Int32);
+    assert_eq!(*types.of(bitwise[1].result), Type::Int32);
+    // ...and the SECOND is pure, because the first proved its operand narrow. The
+    // first is not: its left operand is a parameter, so it may coerce an object.
+    assert!(bitwise[0].effect.has(Effect::CALLS_USER));
+    assert!(bitwise[1].effect.is_pure());
+}
+
+/// `>>>` is NOT a row of that operator: it answers `ToUint32`, so `-1 >>> 0` is
+/// 4294967295 — which an `Int32` cannot hold. Giving it the row would be wrong at
+/// exactly the value that distinguishes it.
+#[test]
+fn unsigned_shift_is_refused_because_its_answer_is_not_an_int32() {
+    let refused = only("function f(x) { return x >>> 0; }").expect_err("no row for >>>");
+    assert_eq!(refused, Unsupported::Operator(BinaryOp::UShr));
+}
+
+/// Every expression kind names itself in a refusal. There was a fall-through arm
+/// reading "an expression kind", and it was the biggest single bucket in `bench/` —
+/// a refusal that does not name itself is worth the same as no refusal, because the
+/// survey is the work queue and a bucket cannot be queued.
+#[test]
+fn a_refused_expression_names_what_it_was() {
+    assert_eq!(
+        only("function f(C) { return new C(); }").expect_err("a construction"),
+        Unsupported::Expression("a construction")
+    );
+    assert_eq!(
+        only("function f(a) { return a as number; }").expect_err("an assertion"),
+        Unsupported::Expression("a type assertion")
+    );
+    assert_eq!(
+        only("function f(a) { return `x${a}`; }").expect_err("a template"),
+        Unsupported::Expression("a template literal")
+    );
+    assert_eq!(
+        only("function f(a) { return a ? 1 : 2; }").expect_err("a conditional"),
+        Unsupported::Expression("a conditional")
+    );
+}
