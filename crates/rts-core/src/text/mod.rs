@@ -49,11 +49,13 @@
 //!   trimmed.
 
 mod intern;
+mod narrow;
 mod normalize;
 mod runs;
 mod space;
 
 pub use intern::Interner;
+pub use narrow::Narrow;
 pub use normalize::{Form, normalized};
 pub use runs::mapped_runs;
 pub use space::is_white_space;
@@ -70,7 +72,7 @@ pub enum Repr {
     /// code units*, which happen to coincide with latin-1. A byte here is a code
     /// unit, so length and indexing are the same operations as in the wide form
     /// at half the memory.
-    Latin1(Vec<u8>),
+    Latin1(Narrow),
     /// Two bytes per code unit.
     ///
     /// Holds anything, including a lone surrogate, which is why the type is
@@ -258,7 +260,7 @@ impl Str {
 
     /// The empty string.
     pub fn empty() -> Self {
-        Str::of(Repr::Latin1(Vec::new()))
+        Str::of(Repr::Latin1(Narrow::new()))
     }
 
     /// A string from Rust text.
@@ -277,10 +279,10 @@ impl Str {
         // This runs on every string a program creates: every piece a `split`
         // produces, every result of a `replace`, every key `JSON.parse` reads.
         if text.is_ascii() {
-            return Str::of(Repr::Latin1(text.as_bytes().to_vec()));
+            return Str::of(Repr::Latin1(Narrow::from_slice(text.as_bytes())));
         }
         if text.chars().all(|c| (c as u32) < 256) {
-            return Str::of(Repr::Latin1(text.chars().map(|c| c as u8).collect()));
+            return Str::of(Repr::Latin1(Narrow::from_vec(text.chars().map(|c| c as u8).collect())));
         }
         Str::of(Repr::Utf16(text.encode_utf16().collect()))
     }
@@ -292,7 +294,7 @@ impl Str {
     /// string already knows it does. Every byte of one is below 256 by
     /// construction, so the question is answered before it is asked.
     pub fn from_latin1(bytes: &[u8]) -> Self {
-        Self::owning_latin1(bytes.to_vec())
+        Str::of(Repr::Latin1(Narrow::from_slice(bytes)))
     }
 
     /// The same, taking bytes the caller already owns.
@@ -303,7 +305,7 @@ impl Str {
     /// same bytes, on every `toUpperCase`, every `slice` and every other
     /// method that builds narrow text.
     pub fn owning_latin1(bytes: Vec<u8>) -> Self {
-        Str::of(Repr::Latin1(bytes))
+        Str::of(Repr::Latin1(Narrow::from_vec(bytes)))
     }
 
     /// A string from an already-owned wide buffer.
@@ -322,7 +324,7 @@ impl Str {
     /// surrogate, and refusing one would refuse a value the language produces.
     pub fn from_utf16(units: &[u16]) -> Self {
         if units.iter().all(|unit| *unit < 256) {
-            return Str::of(Repr::Latin1(units.iter().map(|unit| *unit as u8).collect()));
+            return Str::of(Repr::Latin1(Narrow::from_units(units)));
         }
         Str::of(Repr::Utf16(units.to_vec()))
     }
@@ -372,7 +374,7 @@ impl Str {
     /// that is the trade this representation makes everywhere else too.
     pub fn narrow(&self) -> Option<&[u8]> {
         match &self.repr {
-            Repr::Latin1(bytes) => Some(bytes),
+            Repr::Latin1(bytes) => Some(bytes.as_slice()),
             Repr::Utf16(_) => None,
         }
     }
@@ -487,10 +489,7 @@ impl Str {
     pub fn concat(&self, other: &Str) -> Str {
         match (&self.repr, &other.repr) {
             (Repr::Latin1(left), Repr::Latin1(right)) => {
-                let mut bytes = Vec::with_capacity(left.len() + right.len());
-                bytes.extend_from_slice(left);
-                bytes.extend_from_slice(right);
-                Str::of(Repr::Latin1(bytes))
+                Str::of(Repr::Latin1(Narrow::joined(left, right)))
             }
             _ => {
                 let mut units = Vec::with_capacity(self.len() + other.len());

@@ -58,7 +58,7 @@ use crate::text::Str;
 /// only ever collapses to `undefined` would be detail nothing reads.
 /// Parses directly over a runtime string without copying the complete input.
 pub(in crate::entry) fn parse_text(text: &Str) -> Option<Node> {
-    let mut reader = Reader { text, at: 0 };
+    let mut reader = Reader { narrow: text.narrow().unwrap_or(&[]), text, at: 0 };
     reader.spaces();
     let node = reader.value(0)?;
     reader.spaces();
@@ -73,17 +73,46 @@ pub(in crate::entry) fn parse_text(text: &Str) -> Option<Node> {
 
 /// A cursor over borrowed runtime text.
 struct Reader<'a> {
+    /// The bytes, when the input is narrow — asked ONCE, here.
+    ///
+    /// # Why the answer is carried and not re-asked
+    ///
+    /// Every character of the document goes through [`Self::peek`], and a
+    /// `Str` answers `unit_at` by matching on its representation. That is one
+    /// branch per character, and it became two when the narrow form learned to
+    /// hold short text inline: measured 2026-09-19, `target/release/rts.exe`,
+    /// an array of N integers parsed about a nanosecond a character slower for
+    /// N of 10, 100 and 400 alike.
+    ///
+    /// A document's representation cannot change while it is being read — a
+    /// `Str` is immutable — so the question has one answer for the whole parse.
+    ///
+    /// EMPTY for a wide input rather than `Option`, which is what keeps the
+    /// common character free of a discriminant: an empty slice answers `None`
+    /// to every index, so a wide document falls through to the `Str` on its
+    /// own and a narrow one never asks. An `Option<&[u8]>` here left a third of
+    /// the regression this field removes — sixteen bytes loaded and tested per
+    /// character against eight and a bounds check.
+    narrow: &'a [u8],
     text: &'a Str,
     at: usize,
 }
 
-impl Reader<'_> {
+impl<'a> Reader<'a> {
     fn len(&self) -> usize {
         self.text.len()
     }
 
+    /// The unit at an index, from the bytes where there are any.
+    ///
+    /// The fall-through is also what answers past the END of a narrow
+    /// document, where `Str::unit_at` says `None` too — so the slow line is
+    /// reached once per parse rather than being a case to get right twice.
     fn unit_at(&self, index: usize) -> Option<u16> {
-        self.text.unit_at(index)
+        match self.narrow.get(index) {
+            Some(byte) => Some(u16::from(*byte)),
+            None => self.text.unit_at(index),
+        }
     }
 
     fn peek(&self) -> Option<u16> {
@@ -91,8 +120,8 @@ impl Reader<'_> {
     }
 
     /// Borrows an ASCII number from a narrow runtime string when possible.
-    fn ascii_slice(&self, start: usize, end: usize) -> Option<&str> {
-        let bytes = self.text.narrow()?.get(start..end)?;
+    fn ascii_slice(&self, start: usize, end: usize) -> Option<&'a str> {
+        let bytes = self.narrow.get(start..end)?;
         std::str::from_utf8(bytes).ok()
     }
 
@@ -217,7 +246,11 @@ impl Reader<'_> {
     /// units genuinely have to be assembled rather than pointed at.
     fn string(&mut self) -> Option<Str> {
         let from = self.at;
-        if let Some(bytes) = self.text.narrow() {
+        // A narrow document, which is what `narrow` holding anything means: it
+        // is the WHOLE input's bytes, and only a wide one leaves it empty. An
+        // empty document has no string token in it to reach this line.
+        let bytes = self.narrow;
+        if !bytes.is_empty() {
             let mut at = self.at;
             loop {
                 let unit = *bytes.get(at)?;
