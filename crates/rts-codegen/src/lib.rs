@@ -30,6 +30,7 @@
 #![deny(dead_code)]
 
 mod check;
+pub mod domain;
 pub mod names;
 pub mod parse;
 pub mod syntax;
