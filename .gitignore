@@ -161,3 +161,8 @@ tests/css/pintura/
 __pycache__/
 .mjsunit/
 .jsc/
+
+# RUNTIME-NOTICE.txt, gerado (scripts/notice/build_notice.mjs) e nao commitado:
+# e uma funcao do Cargo.lock, portanto uma copia aqui so podia estar em dia ou
+# mentir. A release gera-o e entrega-o ao lado do binario.
+RUNTIME-NOTICE.txt

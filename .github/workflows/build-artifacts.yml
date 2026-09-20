@@ -87,21 +87,6 @@ jobs:
         run: target/release/rts run bench/pi_machin.ts
         shell: bash
 
-      # BLOCKING, and on one runner only because the answer cannot differ by OS:
-      # the closure is computed over ALL targets from `Cargo.lock`, so three
-      # runners would ask the same question three times.
-      #
-      # It blocks because of what goes stale: `RUNTIME-NOTICE.txt` is embedded in
-      # the binary and is what a user is handed to discharge the attribution for
-      # THEIR program. A dependency added without regenerating it produces a
-      # notice that is silently short — which is the one failure mode here that
-      # matters, and the only one nobody would notice by reading.
-      - name: Attribution notice is current
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          cargo fetch --quiet
-          node scripts/notice/build_notice.mjs --check
 
       # BLOCKING AOT smoke: catches a placeholder runtime archive (staticlib not
       # built / wrong package) in the release binary itself. The ts-suite job's
@@ -216,10 +201,12 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/rts.exe "dist/rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}.exe"
-          # Ao lado do binario, alem de embebido nele (`rts notice`). Sao as duas
-          # metades da mesma obrigacao: quem ja tem o compilador imprime-a, quem
-          # so descarrega a release tem de a poder LER antes de compilar o que
-          # quer que seja.
+          # O aviso agregado do que fica LIGADO ao binario que esta pessoa vai
+          # compilar. Gerado aqui e nao commitado: e uma funcao do Cargo.lock,
+          # portanto um ficheiro no repositorio so podia estar em dia ou
+          # mentir, e manter 838 kB em dia a cada bump de dependencia e custo
+          # sem leitor. THIRD-PARTY-NOTICES.md diz o que ele e.
+          node scripts/notice/build_notice.mjs
           cp RUNTIME-NOTICE.txt dist/
 
       - name: Rename artifact (Unix)
@@ -228,10 +215,12 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/rts "dist/rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}"
-          # Ao lado do binario, alem de embebido nele (`rts notice`). Sao as duas
-          # metades da mesma obrigacao: quem ja tem o compilador imprime-a, quem
-          # so descarrega a release tem de a poder LER antes de compilar o que
-          # quer que seja.
+          # O aviso agregado do que fica LIGADO ao binario que esta pessoa vai
+          # compilar. Gerado aqui e nao commitado: e uma funcao do Cargo.lock,
+          # portanto um ficheiro no repositorio so podia estar em dia ou
+          # mentir, e manter 838 kB em dia a cada bump de dependencia e custo
+          # sem leitor. THIRD-PARTY-NOTICES.md diz o que ele e.
+          node scripts/notice/build_notice.mjs
           cp RUNTIME-NOTICE.txt dist/
 
       - name: Upload artifact (Windows)
@@ -239,7 +228,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-          path: dist/*.exe
+          # O aviso viaja com o binario e nao noutro artefacto: e o binario que
+          # liga o que ele atribui, e um aviso que se descarrega a parte e um
+          # aviso que ninguem descarrega.
+          path: |
+            dist/*.exe
+            dist/RUNTIME-NOTICE.txt
           if-no-files-found: error
 
       # The AOT runtime archives, for the Benchmarks workflow, which downloads
@@ -272,7 +266,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-          path: dist/rts-*
+          # Como no bloco do Windows: o aviso viaja com o binario que liga o
+          # que ele atribui, e nao num artefacto que se descarrega a parte.
+          path: |
+            dist/rts-*
+            dist/RUNTIME-NOTICE.txt
           if-no-files-found: error
 
   # Reuse the binary `build` already compiled — no second toolchain/compile.

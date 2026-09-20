@@ -1,8 +1,7 @@
 // Gera `RUNTIME-NOTICE.txt`: o aviso agregado das licencas que chegam ao
 // binario que o UTILIZADOR compila.
 //
-//   node scripts/notice/build_notice.mjs            # escreve RUNTIME-NOTICE.txt
-//   node scripts/notice/build_notice.mjs --check    # falha se estiver desatualizado
+//   node scripts/notice/build_notice.mjs     # escreve RUNTIME-NOTICE.txt
 //
 // PORQUE existe, que e a parte que um inventario nao diz: o
 // `THIRD-PARTY-LICENSES.txt` lista o workspace inteiro e nao tem os TEXTOS. Mas
@@ -162,7 +161,8 @@ a distribuicao".
 
 Se distribui o binario que compilou, a distribuicao e sua. Entregue este
 ficheiro com ele — ou o texto dele dentro de um "sobre"/"licencas" da sua
-aplicacao — e a obrigacao fica cumprida. \`rts notice\` imprime-o.
+aplicacao — e a obrigacao fica cumprida. Ele vem ao lado do \`rts\` na release;
+para o refazer a partir das fontes, o comando esta no topo deste ficheiro.
 
 O que isto NAO e
 ----------------
@@ -192,21 +192,11 @@ ${inventario}
 
 const saida = `${cabecalho}\n${blocos.join("\n")}`;
 
-if (process.argv.includes("--check")) {
-  const atual = existsSync(OUT) ? readFileSync(OUT, "utf8") : "";
-  // Duas coisas mudam sem serem uma alteracao, e comparar com elas dentro punha
-  // o gate vermelho por nada: a DATA, que muda todas as manhas, e o FIM DE
-  // LINHA — o git entrega este ficheiro com CRLF no Windows e com LF no runner
-  // do Linux, portanto um checkout em Windows falharia o check acabado de fazer.
-  const normal = (s) =>
-    s.replace(/\r\n/g, "\n").replace(/Gerado em \d{4}-\d{2}-\d{2}\./, "Gerado em <data>.");
-  if (normal(atual) !== normal(saida)) {
-    console.error("RUNTIME-NOTICE.txt desatualizado — corra: node scripts/notice/build_notice.mjs");
-    process.exit(1);
-  }
-  console.log(`RUNTIME-NOTICE.txt em dia (${alcancados.length} pacotes)`);
-} else {
-  writeFileSync(OUT, saida, "utf8");
-  console.log(`RUNTIME-NOTICE.txt: ${alcancados.length} pacotes, ${saida.length} bytes`);
-  if (semTexto.length) console.log(`  ${semTexto.length} sem texto local (listados no ficheiro)`);
-}
+// Sem `--check`, e a razao e a mesma que tira o ficheiro do repositorio: este
+// aviso e uma funcao do `Cargo.lock`, portanto uma copia commitada so podia
+// estar em dia ou mentir, e manter 838 kB em dia a cada bump de dependencia e
+// custo sem leitor. Gerado onde e preciso — a release — nao ha nada que
+// envelheca e nao ha check que valha a pena escrever.
+writeFileSync(OUT, saida, "utf8");
+console.log(`RUNTIME-NOTICE.txt: ${alcancados.length} pacotes, ${saida.length} bytes`);
+if (semTexto.length) console.log(`  ${semTexto.length} sem texto local (listados no ficheiro)`);
