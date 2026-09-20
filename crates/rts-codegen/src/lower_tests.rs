@@ -692,3 +692,159 @@ fn an_array_construction_keeps_allocating_after_the_effect_pass() {
         .expect("a construction");
     assert!(built.effect.may_collect());
 }
+
+/// A property read carries its key as a constant of the LANGUAGE's table, so two
+/// reads of one property compare equal by index and a pass never compares names.
+#[test]
+fn two_reads_of_one_property_carry_one_index() {
+    let lowered = only("function f(o) { return o.x + o.x; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let keys: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Const(rts_mir::Const::Declared(index)) => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0], keys[1], "one property, one index");
+
+    // And a DIFFERENT property is a different index.
+    let other = only("function f(o) { return o.x + o.y; }").expect("covered");
+    let keys: Vec<_> = other
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Const(rts_mir::Const::Declared(index)) => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_ne!(keys[0], keys[1]);
+}
+
+/// A read of an unshaped receiver goes through the runtime, where a getter may
+/// run — which is what the effect says and what pins it where it is.
+#[test]
+fn a_read_of_an_unproven_receiver_may_run_a_getter() {
+    let lowered = only("function f(o) { return o.x; }").expect("covered");
+    let read = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::FieldRead)))
+        .expect("a read");
+    assert!(read.effect.has(Effect::READS));
+    assert!(read.effect.has(Effect::CALLS_USER));
+}
+
+/// An INDEXED access is not a field read with a clever argument: the key is a
+/// value, so the runtime turns it into a position even for a shaped receiver.
+#[test]
+fn an_indexed_access_is_its_own_operation() {
+    let lowered = only("function f(a, i) { return a[i]; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ops, vec![JsPrim::IndexRead]);
+}
+
+/// A write to a property is a write to the HEAP and not a rebind, and it answers
+/// the value written.
+#[test]
+fn a_property_write_answers_what_it_stored() {
+    let lowered = only("function f(o) { let a = (o.x = 7); return a; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let write = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::FieldWrite)))
+        .expect("a write");
+    assert!(write.effect.has(Effect::WRITES));
+    // The returned value is the constant 7, not the write's own result.
+    let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(Terminator::Return(Some(value))) => *value,
+        other => panic!("expected a returned value, got {other:?}"),
+    };
+    let from = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| held.result == returned)
+        .expect("an instruction");
+    assert!(matches!(&from.op, rts_mir::Op::Const(rts_mir::Const::Int(7))));
+}
+
+#[test]
+fn an_indexed_write_takes_the_receiver_the_key_and_the_value() {
+    let lowered = only("function f(a, i, v) { a[i] = v; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let write = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::IndexWrite)))
+        .expect("a write");
+    match &write.op {
+        rts_mir::Op::Prim { args, .. } => assert_eq!(args.len(), 3),
+        other => panic!("expected a primitive, got {other:?}"),
+    }
+}
+
+/// A string is a constant of this language's table, and its type is text.
+#[test]
+fn a_string_literal_is_a_declared_constant_of_this_language() {
+    let lowered = only("function f() { return 'hello'; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    let first = lowered.func.insts.first().expect("one constant");
+    assert_eq!(*types.of(first.result), Type::Str);
+    match &first.op {
+        rts_mir::Op::Const(rts_mir::Const::Declared(index)) => {
+            assert!(matches!(
+                lowered.domain.declared(*index),
+                Some(crate::domain::JsConst::Text(_))
+            ));
+        }
+        other => panic!("expected a declared constant, got {other:?}"),
+    }
+}
+
+/// A key and a string are different entries even for the same text, because one
+/// names a position in a layout and the other is a value.
+#[test]
+fn a_key_and_a_string_of_one_spelling_are_two_constants() {
+    let lowered = only("function f(o) { return o.x + 'x'; }").expect("covered");
+    let declared: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Const(rts_mir::Const::Declared(index)) => {
+                lowered.domain.declared(*index).cloned()
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(declared.len(), 2);
+    assert!(matches!(declared[0], crate::domain::JsConst::Key(_)));
+    assert!(matches!(declared[1], crate::domain::JsConst::Text(_)));
+}
+
+/// An optional access short-circuits, which is a branch this stage does not build
+/// — refused by name rather than lowered as an ordinary read.
+#[test]
+fn an_optional_access_is_refused_rather_than_read_unconditionally() {
+    let refused = only("function f(o) { return o?.x; }").expect_err("an optional link");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}

@@ -61,7 +61,7 @@ pub fn describe(source: &str) -> Result<String, String> {
                 let refined = refine_effects(&mut func, &domain);
                 out.push_str(&format!("fn {}
 ", entry.named));
-                out.push_str(&print(&func, &domain));
+                out.push_str(&print(&func, &Spelled((&domain, &names))));
                 if refined.narrowed > 0 || refined.refused > 0 {
                     out.push_str(&format!(
                         "; {} effect{} narrowed by inference{}
@@ -103,6 +103,40 @@ pub fn describe(source: &str) -> Result<String, String> {
         }
     ));
     Ok(out)
+}
+
+/// The domain, plus the interner that can spell a key.
+///
+/// `domain::Js` implements the legend on its own and prints a key as its INDEX,
+/// because it holds a `Name` and the text of a name lives in `Names`. That is the
+/// honest answer for a crate that does not hold the interner, and it is nearly
+/// useless to read: a dump full of `key#2` cannot say which property an access
+/// touches. This wrapper has both, so the command prints the property.
+///
+/// A wrapper rather than putting the interner in the domain: the domain travels
+/// with a graph into passes, and a pass has no business spelling anything.
+struct Spelled<PLACE>(PLACE);
+
+impl rts_mir::text::Legend for Spelled<(&crate::domain::Js, &Names)> {
+    fn prim(&self, prim: rts_mir::Prim) -> String {
+        rts_mir::text::Legend::prim(self.0.0, prim)
+    }
+
+    fn assertion(&self, assertion: rts_mir::Assertion) -> String {
+        rts_mir::text::Legend::assertion(self.0.0, assertion)
+    }
+
+    fn entry(&self, entry: rts_mir::cfg::EntryId) -> String {
+        rts_mir::text::Legend::entry(self.0.0, entry)
+    }
+
+    fn declared(&self, index: u32) -> String {
+        match crate::domain::Js::declared(self.0.0, index) {
+            Some(crate::domain::JsConst::Key(name)) => format!(".{}", self.0.1.text(*name)),
+            Some(crate::domain::JsConst::Text(text)) => format!("{:?}", text.to_string()),
+            _ => rts_mir::text::Legend::declared(self.0.0, index),
+        }
+    }
 }
 
 /// A refusal, as a sentence naming what it was.

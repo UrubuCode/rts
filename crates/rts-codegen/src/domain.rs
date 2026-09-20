@@ -125,12 +125,44 @@ pub enum JsPrim {
     /// object reaches valueOf and therefore user code; coercing anything else is
     /// total and pure, which is the boundary effect_of already draws.
     ToNumber,
+    /// Reading a property by an index this program computed.
+    IndexRead,
+    /// Writing one.
+    IndexWrite,
     /// An array built from its elements, in order.
     ///
     /// Variadic: an element per argument. The count is the literal written, which
     /// a spread would change at run time -- so a spread is refused by the lowering
     /// rather than represented here.
     NewArray,
+}
+
+/// A constant this language declares, by the index an [`rts_mir::Const::Declared`]
+/// carries.
+///
+/// # Why the IR carries an index and not the thing
+///
+/// Rule 4's other half. A property key is an interned name of this front end and a
+/// string is its text; neither is something `rts-mir` could hold without knowing
+/// what a name or a string is here, and the next language's answers are its own.
+/// So the IR carries a number and this table says what the number means.
+///
+/// The first two entries are fixed and the fixing is load-bearing: `lower` writes a
+/// `values::Singleton`'s discriminant straight into `Const::Declared`, and
+/// `lower_tests.rs` pins the agreement. Reordering that enum would make `undefined`
+/// mean `null`, which no assertion about behaviour would catch.
+#[derive(Clone, PartialEq, Debug)]
+pub enum JsConst {
+    /// `undefined` or `null`, by `values::Singleton`'s own numbering.
+    Singleton(crate::values::Singleton),
+    /// A property key, as this front end interned it.
+    Key(crate::names::Name),
+    /// A string the program wrote, as the code units it means.
+    ///
+    /// Apart from [`JsConst::Key`] although both are text: a key names a position
+    /// in a layout and a string is a value, and a pass folding one must not fold
+    /// the other.
+    Text(crate::syntax::Text),
 }
 
 /// What a guard of this language asserts.
@@ -155,6 +187,10 @@ pub enum JsAssertion {
 #[derive(Clone, Debug, Default)]
 pub struct Js {
     assertions: Vec<JsAssertion>,
+    /// What each declared-constant index means. The first two are the singletons,
+    /// put there by [`Js::new`] so the numbering the lowering writes is the one
+    /// this reads.
+    constants: Vec<JsConst>,
 }
 
 impl Js {
@@ -178,12 +214,37 @@ impl Js {
         JsPrim::FieldWrite,
         JsPrim::Truthy,
         JsPrim::ToNumber,
+        JsPrim::IndexRead,
+        JsPrim::IndexWrite,
         JsPrim::NewArray,
     ];
 
-    /// An empty domain.
+    /// A domain holding only the fixed constants.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            assertions: Vec::new(),
+            constants: crate::values::Singleton::ALL.iter().map(|held| JsConst::Singleton(*held)).collect(),
+        }
+    }
+
+    /// Registers a constant, answering the index the IR carries.
+    ///
+    /// Interned, so that two reads of the same property carry the same index -- a
+    /// pass that wants to know whether two accesses touch one field compares the
+    /// numbers rather than the names.
+    pub fn constant(&mut self, what: JsConst) -> u32 {
+        match self.constants.iter().position(|held| *held == what) {
+            Some(at) => at as u32,
+            None => {
+                self.constants.push(what);
+                self.constants.len() as u32 - 1
+            }
+        }
+    }
+
+    /// What a declared-constant index means.
+    pub fn declared(&self, index: u32) -> Option<&JsConst> {
+        self.constants.get(index as usize)
     }
 
     /// The index the IR carries for a primitive.
@@ -265,6 +326,13 @@ impl Js {
                 Some(Type::Shaped(_)) => Effect::READS,
                 _ => Effect::READS.and(Effect::CALLS_USER).and(Effect::THROWS),
             },
+            // An INDEXED access cannot be a known offset: the key is a value, so
+            // even a shaped receiver needs the runtime to turn it into a position.
+            // A pass that proves the index constant is what turns one of these into
+            // a FieldRead, and it is a pass rather than something the lowering can
+            // see.
+            JsPrim::IndexRead => Effect::READS.and(Effect::CALLS_USER).and(Effect::THROWS),
+            JsPrim::IndexWrite => Effect::WRITES.and(Effect::CALLS_USER).and(Effect::THROWS),
             JsPrim::FieldWrite => match args.first() {
                 Some(Type::Shaped(_)) => Effect::WRITES,
                 _ => Effect::WRITES.and(Effect::CALLS_USER).and(Effect::THROWS),
@@ -344,12 +412,15 @@ impl Domain for Js {
             },
             Const::Float(_) => Type::Double,
             Const::Bool(truth) => Type::Bool(Some(*truth)),
-            // The language's own constants: index zero is `undefined` and one is
-            // `null`, which is `values::Singleton`'s numbering and the reason
-            // that numbering is the language's to choose.
-            Const::Declared(0) => Type::Undefined,
-            Const::Declared(1) => Type::Null,
-            Const::Declared(_) => Type::Anything,
+            // The language's own table, which is where a key and a string live
+            // beside the two singletons.
+            Const::Declared(index) => match self.declared(*index) {
+                Some(JsConst::Singleton(crate::values::Singleton::Undefined)) => Type::Undefined,
+                Some(JsConst::Singleton(crate::values::Singleton::Null)) => Type::Null,
+                // A key is a string, and so is a string.
+                Some(JsConst::Key(_) | JsConst::Text(_)) => Type::Str,
+                None => Type::Anything,
+            },
         }
     }
 
@@ -405,7 +476,8 @@ impl Domain for Js {
             // this domain does not hold one yet, so the honest answer is the
             // weaker type rather than a number invented here.
             JsPrim::NewArray => Type::Object,
-            JsPrim::FieldRead => Type::Anything,
+            JsPrim::FieldRead | JsPrim::IndexRead => Type::Anything,
+            JsPrim::IndexWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             // A write answers the value written, which is what makes `a = b = 1`
             // work.
             JsPrim::FieldWrite => args.get(1).cloned().unwrap_or(Type::Anything),
@@ -483,10 +555,11 @@ impl rts_mir::text::Legend for Js {
     }
 
     fn declared(&self, index: u32) -> String {
-        match index {
-            0 => "undefined".to_owned(),
-            1 => "null".to_owned(),
-            _ => format!("const#{index}"),
+        match Js::declared(self, index) {
+            Some(JsConst::Singleton(which)) => format!("{which:?}").to_lowercase(),
+            Some(JsConst::Key(_)) => format!("key#{index}"),
+            Some(JsConst::Text(_)) => format!("str#{index}"),
+            None => format!("const#{index}"),
         }
     }
 }

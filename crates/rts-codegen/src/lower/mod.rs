@@ -35,7 +35,7 @@ use rts_mir::cfg::{Const, Func, FuncBuilder, Op, Terminator, ValueId};
 use rts_mir::guard::Tier;
 use rts_mir::{Domain, Effect};
 
-use crate::domain::{Js, JsPrim, Type};
+use crate::domain::{Js, JsConst, JsPrim, Type};
 use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
 use crate::syntax::{
@@ -485,9 +485,38 @@ impl Lowering<'_> {
                 let AssignTarget::Place(place) = target else {
                     return Err(Unsupported::Pattern);
                 };
+                // A WRITE TO A PROPERTY is a write to the heap and not a rebind, so
+                // it is a primitive rather than an entry in the binding map. Its
+                // answer is the value written, which is what makes `o.x = o.y = 1`
+                // work.
+                if let ExprKind::Member {
+                    object,
+                    property,
+                    optional: false,
+                } = &place.kind
+                {
+                    let receiver = self.expression(object)?;
+                    let key = self.domain.constant(JsConst::Key(*property));
+                    let key = self.declared(key, expr);
+                    let held = self.expression(value)?;
+                    self.prim(JsPrim::FieldWrite, vec![receiver, key, held], expr);
+                    return Ok(held);
+                }
+                if let ExprKind::Index {
+                    object,
+                    index,
+                    optional: false,
+                } = &place.kind
+                {
+                    let receiver = self.expression(object)?;
+                    let at = self.expression(index)?;
+                    let held = self.expression(value)?;
+                    self.prim(JsPrim::IndexWrite, vec![receiver, at, held], expr);
+                    return Ok(held);
+                }
                 let ExprKind::Ident(name) = &place.kind else {
                     return Err(Unsupported::Expression(
-                        "an assignment to a property writes the heap",
+                        "an assignment whose target is neither a name nor a property",
                     ));
                 };
                 let held = self.expression(value)?;
@@ -527,6 +556,44 @@ impl Lowering<'_> {
                 let of = self.type_of(answered);
                 self.bind(*name, answered, of)?;
                 Ok(answered)
+            }
+            // READING A PROPERTY BY NAME.
+            //
+            // The key is a constant of this language's table rather than an operand
+            // of the IR, which is what lets two reads of one property compare equal
+            // by their indices — a pass asking whether two accesses touch the same
+            // field compares numbers, never names.
+            //
+            // The effect comes from the RECEIVER's type: a shaped one is a load at a
+            // position the layout decided, and an unshaped one goes through the
+            // runtime, where a getter may run. Nothing here proves a shape — this
+            // language has no shape source yet, so every receiver is unshaped and
+            // every read carries the wide effect. What changes that is an object
+            // literal minting a layout, which is the next piece and the one that
+            // makes a guard worth emitting at all.
+            ExprKind::Member {
+                object,
+                property,
+                optional: false,
+            } => {
+                let held = self.expression(object)?;
+                let key = self.domain.constant(JsConst::Key(*property));
+                let key = self.declared(key, expr);
+                Ok(self.prim(JsPrim::FieldRead, vec![held, key], expr))
+            }
+            // READING BY A COMPUTED KEY, which is a different operation and not a
+            // `FieldRead` with a clever argument: the key is a VALUE, so even a
+            // shaped receiver needs the runtime to turn it into a position. A pass
+            // that proves the index constant is what merges the two, and it is a
+            // pass rather than something the lowering can see.
+            ExprKind::Index {
+                object,
+                index,
+                optional: false,
+            } => {
+                let held = self.expression(object)?;
+                let at = self.expression(index)?;
+                Ok(self.prim(JsPrim::IndexRead, vec![held, at], expr))
             }
             // AN ARRAY LITERAL, which is one primitive over its elements.
             //
@@ -660,10 +727,13 @@ impl Lowering<'_> {
             },
             Literal::Boolean(held) => Const::Bool(*held),
             Literal::Singleton(which) => Const::Declared(*which as u32),
-            Literal::String(_) => {
-                return Err(Unsupported::Expression(
-                    "a string literal needs the interner the machine holds",
-                ));
+            // A STRING is a constant of the LANGUAGE's table, not of the IR's. The
+            // IR carries the index; `domain::JsConst` says it is text. Nothing here
+            // reaches an interner the machine holds — that is the lowering to the
+            // machine's question, and it is one layer down.
+            Literal::String(text) => {
+                let index = self.domain.constant(JsConst::Text(text.clone()));
+                Const::Declared(index)
             }
             _ => return Err(Unsupported::Expression("a literal of another kind")),
         };
@@ -703,6 +773,19 @@ impl Lowering<'_> {
             at.at,
         );
         self.types.insert(held, answered);
+        held
+    }
+
+    /// A declared constant, as a value.
+    ///
+    /// Here rather than written out at each site because three of them need one and
+    /// the type has to come from the domain: a key is text, and a pass reading the
+    /// graph should see that rather than a bare number.
+    fn declared(&mut self, index: u32, at: &Expr) -> ValueId {
+        let value = Const::Declared(index);
+        let of = self.domain.of_const(&value);
+        let held = self.builder.push(Op::Const(value), Effect::PURE, at.at);
+        self.types.insert(held, of);
         held
     }
 

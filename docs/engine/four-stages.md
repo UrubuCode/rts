@@ -383,6 +383,31 @@ yet, two files died, and a process that dies writes no line at all. A denominato
 that falls by ten times is not a result — `Lowering::carried_now` is the fix and
 carries the account.
 
+### Property access and the string literal: 54 → 66
+
+Per file, two gains and none lost. Reads, writes, indexed access and a string all
+landed on one mechanism: **a constant of the LANGUAGE table**, which the IR carries
+as an index and  interprets. Two reads of one property therefore
+compare equal by number, so a pass asking whether two accesses touch one field
+never compares names.
+
+The table after it:
+
+| refusals | reason |
+|---:|---|
+| 85 | a call through a member |
+| 38 | an object literal |
+| 37 | an expression kind |
+| 32 | a binding read before its declaration |
+
+**And the top item is a design question rather than a construct.**  is now
+expressible as a read and a call -- except that a method call passes  as the
+receiver and  has no receiver. Making argument zero the receiver
+by convention is a decision about the CALLING CONVENTION, which is the machine
+layer, and it is the kind of thing  warns about leaking: a
+convention agreed in two places drifts. It is named here rather than settled in
+passing.
+
 ### What each table asks for next
 
 - `bench/`: the classic `for` and `do`-`while`, which are the `while` shape once the
