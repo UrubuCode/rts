@@ -38,12 +38,14 @@ use rts_mir::{Domain, Effect};
 use crate::domain::{Js, JsConst, JsPrim, Type};
 use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
+use named::{expression_name, name_of, primitive};
 use crate::syntax::{
     AssignOp, AssignTarget, BinaryOp, Binding, UpdateOp, UpdatePosition, Expr, ExprKind, Function, FunctionBody, Literal, Pattern, Stmt, StmtKind,
 };
 use crate::values::Singleton;
 
 mod calls;
+mod named;
 mod loops;
 
 /// What this lowering does not do yet, and where.
@@ -914,93 +916,6 @@ impl Lowering<'_> {
 
     fn type_of(&self, value: ValueId) -> Type {
         self.types.get(&value).cloned().unwrap_or(Type::Anything)
-    }
-}
-
-/// The primitive an operator is, or `None` where this language's table has no row
-/// for it yet.
-fn primitive(op: BinaryOp) -> Option<JsPrim> {
-    match op {
-        BinaryOp::Add => Some(JsPrim::Add),
-        BinaryOp::Sub => Some(JsPrim::Subtract),
-        BinaryOp::Mul => Some(JsPrim::Multiply),
-        BinaryOp::Div => Some(JsPrim::Divide),
-        BinaryOp::Rem => Some(JsPrim::Remainder),
-        BinaryOp::Less => Some(JsPrim::LessThan),
-        BinaryOp::BitAnd
-        | BinaryOp::BitOr
-        | BinaryOp::BitXor
-        | BinaryOp::Shl
-        | BinaryOp::Shr => Some(JsPrim::BitwiseInt32),
-        BinaryOp::StrictEqual => Some(JsPrim::StrictEquals),
-        // Every other operator is a row the table does not have. Deliberately not
-        // expressed as `Greater` being `LessThan` with the operands swapped: the
-        // two evaluate their operands in opposite orders, and `a > b` coercing
-        // `a` first is observable.
-        _ => None,
-    }
-}
-
-/// The name a refusal reports for a statement.
-fn name_of(kind: &StmtKind) -> &'static str {
-    match kind {
-        StmtKind::Break(_) => "break",
-        StmtKind::Continue(_) => "continue",
-        StmtKind::Labelled { .. } => "a label",
-        StmtKind::Switch { .. } => "switch",
-        StmtKind::With { .. } => "with",
-        StmtKind::Using { .. } => "using",
-        StmtKind::Debugger => "debugger",
-        _ => "a statement kind",
-    }
-}
-
-/// The name a refusal reports for an expression.
-///
-/// # Why there is no fall-through arm any more
-///
-/// There was one, and it read "an expression kind" — which is what 43 refusals in
-/// `bench/` and 26 in `tests/` said, the biggest single bucket in one of them. A
-/// refusal that does not name itself is worth the same as no refusal at all: the
-/// whole reason this enum has one variant per reason is that the survey is the work
-/// queue, and a bucket cannot be queued.
-///
-/// So every variant is listed, and a node added to the tree tomorrow fails to
-/// compile here rather than joining a bucket.
-fn expression_name(kind: &ExprKind) -> &'static str {
-    match kind {
-        ExprKind::Call { .. } => "a call",
-        ExprKind::Member { .. } | ExprKind::Index { .. } => "a property access",
-        ExprKind::Assign { .. } => "an assignment",
-        ExprKind::Update { .. } => "an increment",
-        ExprKind::Function(_) => "a function expression",
-        ExprKind::Object { .. } => "an object literal",
-        ExprKind::Array { .. } => "an array literal",
-        ExprKind::This => "this",
-        ExprKind::Unary { .. } => "a unary operator",
-        ExprKind::Logical { .. } => "a short-circuiting operator",
-        ExprKind::Conditional { .. } => "a conditional",
-        ExprKind::New { .. } => "a construction",
-        ExprKind::Await(_) => "await",
-        ExprKind::Yield { .. } => "yield",
-        ExprKind::Template { .. } => "a template literal",
-        ExprKind::TaggedTemplate { .. } => "a tagged template",
-        ExprKind::Chain(_) => "an optional chain",
-        ExprKind::Sequence { .. } => "a comma expression",
-        ExprKind::Class(_) => "a class expression",
-        ExprKind::SuperMember { .. } => "a super property",
-        ExprKind::SuperCall { .. } => "a super call",
-        ExprKind::PrivateName(_) => "a private name",
-        ExprKind::NewTarget => "new.target",
-        ExprKind::ImportMeta => "import.meta",
-        ExprKind::ImportCall { .. } => "a dynamic import",
-        ExprKind::Asserted { .. } => "a type assertion",
-        // Reached only where the arm above refused before naming: a literal and an
-        // identifier both lower, so their names exist for a refusal raised about
-        // something inside them.
-        ExprKind::Literal(_) => "a literal of another kind",
-        ExprKind::Ident(_) => "an identifier",
-        ExprKind::Binary { .. } => "a binary operator",
     }
 }
 
