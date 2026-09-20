@@ -14,9 +14,13 @@ fn a_block_comment_goes() {
 
 /// The case the `//`-only version got wrong, and the reason this moved: a
 /// `tsconfig.json` written by `tsc --init` is full of block comments.
+///
+/// The three newlines are the point: one before the comment, one the
+/// comment spanned, one after it closed. A block comment that swallowed
+/// the line it ended on would shift every line number below it.
 #[test]
 fn a_block_comment_spanning_lines_goes() {
-    assert_eq!(strip("{\n/* a\n b */\n\"x\": 1}"), "{\n\n\"x\": 1}");
+    assert_eq!(strip("{\n/* a\n b */\n\"x\": 1}"), "{\n\n\n\"x\": 1}");
 }
 
 /// A trailing comma is legal in JSONC and fatal to `serde_json`.
