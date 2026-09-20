@@ -23,6 +23,26 @@ at once by `resolve_written(from, specifier) -> Option<PathBuf>` — one
 function, one answer to "does this name a file, and which" — rather than
 teaching a second site what a path is.
 
+A second site had already been taught, in another crate, and the cost came due
+in this work. `rts-cli`'s `imports_a_file` chose between compiling a program as
+a graph and compiling it as one file by scanning the source for `from "./"` and
+its three spellings. That predicate was written when a relative specifier was
+the only way to name a file, and it was correct then; the moment a `paths`
+pattern became a second way, it was silently wrong, because an aliased
+specifier contains none of the four. A program whose imports are ALL aliases
+was therefore compiled alone, on the path that deliberately forgets the alias
+map, and died at run time with `cannot resolve module "@/…" — nothing
+registered that specifier`. One relative import anywhere beside the alias hid
+it completely, which is why nothing caught it: every fixture and every test in
+this work had one, and `rts-game`'s own entry has dozens, so the real-project
+proof passed while a two-file program did not run at all. The fix was not to
+extend the scan but to delete it: `names_any_file(source, entry)` exports the
+loader's own resolution, and the CLI and `examples/suite_run.rs` — which held a
+third copy, with the same defect — both call it. The lesson is narrower than
+"do not duplicate": a copy of this rule does not fail when it is written, it
+fails when the rule next grows a case, and by then nobody remembers the copy
+is there.
+
 ## The precedence table
 
 | # | Written form | Resolves to |

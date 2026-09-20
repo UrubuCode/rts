@@ -140,16 +140,44 @@ pub(crate) fn imported_files(source: &str, from: &Path) -> Result<Vec<(String, P
 ///
 /// The question is asked BEFORE [`load`] runs, so nothing has installed this
 /// entry's `Aliases` yet and this has to discover them itself. Having
-/// discovered them it installs them, for two reasons: a discovery thrown away
-/// is one [`load`] immediately repeats — it reads the same `tsconfig.json`
-/// chain off disk — and [`load`] installs unconditionally at its top, so an
-/// install left here can never be read stale by a graph compile.
+/// discovered them it installs them.
 ///
-/// The one path that must NOT inherit it is the entry-less compile, which has
-/// no file and therefore no project; that path already forgets the map by name
-/// ([`super::forget_aliases`], called from [`crate::run::compile_for`]), so it
-/// is unaffected by an install here. That ordering is the whole safety
-/// argument, and it is why this installs rather than restoring what was there.
+/// What makes that SAFE — and this is the whole argument — is two facts about
+/// other functions, both of them the first statement of their body. [`load`]
+/// installs unconditionally at its top, so an install left here can never be
+/// read stale by a graph compile; and the one path that must not inherit a map
+/// is the entry-less compile, which has no file and therefore no project, and
+/// which already forgets by name ([`super::forget_aliases`], called from
+/// [`crate::run::compile_for`]). Nothing else reads `ACTIVE` before one of
+/// those two has run.
+///
+/// What it BUYS depends on the caller, and this is stated rather than claimed
+/// in general, because the general claim is false:
+///
+/// - `rts run`/`rts test` ask this and compile on the SAME thread
+///   (`rts_cli::cli::new_engine::run_path_inner`, inside `on_a_deep_thread`),
+///   so [`load`] finds the map already there and the `tsconfig.json` chain is
+///   read once.
+/// - `rts compile` asks this on the CALLING thread and compiles on a freshly
+///   spawned 64 MB-stack thread (`rts_cli::cli::compile`, the
+///   `imports_a_file` call and the `std::thread::Builder` below it). `ACTIVE`
+///   is a `thread_local!`, so the install lands on a thread the compile never
+///   looks at: the chain IS read twice there, and a map is left behind on the
+///   CLI's main thread that nothing clears. That residue is inert — the new
+///   thread starts at [`Aliases::none`] and `load` installs its own — but it
+///   is real, and a doc that said otherwise would be the same kind of claim
+///   this function exists to stop repeating.
+///
+/// # A structural alternative, considered and deferred
+///
+/// The safety above rests on two first statements in two other functions,
+/// which is an invariant rather than a guarantee. The structural fix is for
+/// this to RETURN the discovered [`Aliases`] beside the `bool` and let the
+/// caller hand them to [`load`] — a parameter instead of an invariant, and no
+/// thread-local residue on any path. It is not taken here because it changes
+/// the signature of the seam this change exists to stabilise, and that
+/// deserves its own review rather than a ride on this one. Recorded so the
+/// argument is found rather than made again.
 ///
 /// `Err` is a parse failure in `source`, reported rather than swallowed: a
 /// caller that cannot parse the program is about to fail compiling it anyway,
