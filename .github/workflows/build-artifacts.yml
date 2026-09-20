@@ -207,7 +207,12 @@ jobs:
           # mentir, e manter 838 kB em dia a cada bump de dependencia e custo
           # sem leitor. THIRD-PARTY-NOTICES.md diz o que ele e.
           node scripts/notice/build_notice.mjs
-          cp RUNTIME-NOTICE.txt dist/
+          # Com o nome da plataforma, e nao `RUNTIME-NOTICE.txt`: o job da
+          # release descarrega os tres artefactos e publica `artifacts/**/*`
+          # como ASSETS, que partilham um espaco de nomes unico. Tres ficheiros
+          # com um nome so colidiam ali — o conteudo e identico (o fecho e sobre
+          # todos os alvos, a partir do Cargo.lock), mas o upload nao e.
+          cp RUNTIME-NOTICE.txt "dist/rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-NOTICE.txt"
 
       - name: Rename artifact (Unix)
         if: runner.os != 'Windows'
@@ -221,7 +226,12 @@ jobs:
           # mentir, e manter 838 kB em dia a cada bump de dependencia e custo
           # sem leitor. THIRD-PARTY-NOTICES.md diz o que ele e.
           node scripts/notice/build_notice.mjs
-          cp RUNTIME-NOTICE.txt dist/
+          # Com o nome da plataforma, e nao `RUNTIME-NOTICE.txt`: o job da
+          # release descarrega os tres artefactos e publica `artifacts/**/*`
+          # como ASSETS, que partilham um espaco de nomes unico. Tres ficheiros
+          # com um nome so colidiam ali — o conteudo e identico (o fecho e sobre
+          # todos os alvos, a partir do Cargo.lock), mas o upload nao e.
+          cp RUNTIME-NOTICE.txt "dist/rts-${{ needs.version.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-NOTICE.txt"
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
@@ -233,7 +243,7 @@ jobs:
           # aviso que ninguem descarrega.
           path: |
             dist/*.exe
-            dist/RUNTIME-NOTICE.txt
+            dist/*-NOTICE.txt
           if-no-files-found: error
 
       # The AOT runtime archives, for the Benchmarks workflow, which downloads
@@ -270,7 +280,6 @@ jobs:
           # que ele atribui, e nao num artefacto que se descarrega a parte.
           path: |
             dist/rts-*
-            dist/RUNTIME-NOTICE.txt
           if-no-files-found: error
 
   # Reuse the binary `build` already compiled — no second toolchain/compile.
@@ -794,6 +803,13 @@ jobs:
             - Linux x64
             - Windows x64
             - macOS ARM64
+
+            Each one comes with a `*-NOTICE.txt`. If you ship a program built
+            with `rts compile`, that file is the attribution for the
+            third-party code statically linked into YOUR binary — send it
+            alongside, or paste it into an "about/licences" screen.
+            `THIRD-PARTY-NOTICES.md` says why it is yours to discharge and not
+            ours.
           files: artifacts/**/*
           fail_on_unmatched_files: true
           generate_release_notes: false
