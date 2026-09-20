@@ -61,7 +61,7 @@ pub fn describe(source: &str) -> Result<String, String> {
                 let refined = refine_effects(&mut func, &domain);
                 out.push_str(&format!("fn {}
 ", entry.named));
-                out.push_str(&print(&func, &Spelled((&domain, &names))));
+                out.push_str(&print(&func, &Spelled((&domain, &names, &resolution))));
                 if refined.narrowed > 0 || refined.refused > 0 {
                     out.push_str(&format!(
                         "; {} effect{} narrowed by inference{}
@@ -117,7 +117,9 @@ pub fn describe(source: &str) -> Result<String, String> {
 /// with a graph into passes, and a pass has no business spelling anything.
 struct Spelled<PLACE>(PLACE);
 
-impl rts_mir::text::Legend for Spelled<(&crate::domain::Js, &Names)> {
+impl rts_mir::text::Legend
+    for Spelled<(&crate::domain::Js, &Names, &crate::names::resolve::Resolution)>
+{
     fn prim(&self, prim: rts_mir::Prim) -> String {
         rts_mir::text::Legend::prim(self.0.0, prim)
     }
@@ -134,6 +136,14 @@ impl rts_mir::text::Legend for Spelled<(&crate::domain::Js, &Names)> {
         match crate::domain::Js::declared(self.0.0, index) {
             Some(crate::domain::JsConst::Key(name)) => format!(".{}", self.0.1.text(*name)),
             Some(crate::domain::JsConst::Text(text)) => format!("{:?}", text.to_string()),
+            Some(crate::domain::JsConst::Binding(held)) => {
+                let binding = crate::names::resolve::BindingId::from_index(*held as usize);
+                match self.0.2.len() > binding.index() {
+                    true => format!("@{}", self.0.1.text(self.0.2.binding(binding).name)),
+                    false => format!("@binding#{held}"),
+                }
+            }
+
             _ => rts_mir::text::Legend::declared(self.0.0, index),
         }
     }

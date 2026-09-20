@@ -13,6 +13,7 @@ use rts_mir::{Domain, Effect};
 use super::{Lowering, Unsupported};
 use crate::names::Name;
 use crate::names::resolve::BindingId;
+use crate::domain::JsPrim;
 use crate::syntax::Expr;
 
 impl Lowering<'_> {
@@ -99,10 +100,43 @@ impl Lowering<'_> {
             true => Err(Unsupported::Expression(
                 "a binding read before its declaration is in its dead zone",
             )),
-            false => Err(Unsupported::Expression(
-                "a binding declared outside this function needs an environment",
-            )),
+            // OUTSIDE THIS FUNCTION: an operation that names the binding, rather
+            // than a refusal.
+            //
+            // It was 912 refusals in `tests/` and 54 in `bench/`, the top of both
+            // tables, and the reason it is expressible after all is rule 2: WHERE a
+            // captured cell lives — a module record, an environment object, a slot
+            // an enclosing activation holds — is a machine question, and this layer
+            // says which binding and stops.
+            //
+            // Closure conversion is the other answer and does not fit yet: it makes
+            // every free binding an extra parameter, and a `Callee::Dynamic` site
+            // does not know the callee's free set, so it would refuse exactly the
+            // calls that most need it.
+            false => Ok(self.outer(binding, JsPrim::OuterRead, None, _at)),
         }
+    }
+
+    /// An outer binding read or written, named by a declared constant.
+    ///
+    /// The name travels as a constant of the language's table so that two accesses
+    /// to one outer binding carry ONE index and compare equal — which is what a pass
+    /// hoisting a load out of a loop needs, and what comparing `BindingId`s inside
+    /// the lowering could not give a pass reading the finished graph.
+    pub(super) fn outer(
+        &mut self,
+        binding: BindingId,
+        which: JsPrim,
+        value: Option<ValueId>,
+        at: &Expr,
+    ) -> ValueId {
+        let index = self
+            .domain
+            .constant(crate::domain::JsConst::Binding(binding.index() as u32));
+        let named = self.declared(index, at);
+        let mut args = vec![named];
+        args.extend(value);
+        self.prim(which, args, at)
     }
 
     /// Whether the declaration belongs to this function rather than to something

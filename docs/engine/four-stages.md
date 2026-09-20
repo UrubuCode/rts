@@ -477,19 +477,46 @@ Told apart, the top of both tables becomes the same real item — **a binding de
 outside this function**, 912 in `tests/` and 54 in `bench/` — which is the
 environment this stage does not build, and it is now the biggest single piece left.
 
-### What each table asks for next
+### The outer binding: 97 → 127 in `bench/`, 167 → 1017 in `tests/`
 
-Both corpora now ask for the same thing, which they did not when this section was
-first written:
+The dominant item taken, and the largest move of the campaign by a wide margin —
+59% of the `tests/` corpus now lowers, from 10%. Per file in `bench/`: five gains,
+none lost.
 
-- **a call through a member** — 90 in `bench/`, the top of both tables. It needs the
-  receiver decision named above, which is a calling-convention question.
-- `tests/` also wants an imported binding, which needs an entry point.
+**And it was expressible all along, because of rule 2.** A binding declared outside
+the function is a cell somewhere — a module record, an environment object, a slot an
+enclosing activation holds — and *where it lives* is a machine question, which
+`rts-codegen`'s rule 2 says is never decided in the language layer. So the lowering
+says **which binding** and stops: `outerread(@total)`, with the binding named by a
+constant of the language's own table.
 
-The rows that were here — the classic `for`, `do`-`while`, a member proof through
-`emit/receiver.rs` — have all been taken or answered, and the history of them is
-above rather than deleted, because the *order* the measurements chose is the part
-worth keeping.
+That also makes two accesses to one outer binding carry ONE index, which is what a
+pass hoisting a load out of a loop compares — comparing `BindingId`s inside the
+lowering would have given a pass reading the finished graph nothing.
+
+Closure conversion is the other answer and was rejected for now: making every free
+binding an extra parameter needs each call site to supply it, and a `Callee::Dynamic`
+site does not know the callee's free set — so it would refuse exactly the calls that
+most need it.
+
+The effect is `READS|THROWS` and deliberately not `CALLS_USER`: a binding in its
+temporal dead zone throws, and a binding is not a property, so no getter is reachable
+through one. A write is `WRITES|THROWS`.
+
+### What is left, and both corpora agree again
+
+| `bench/` | | `tests/` | |
+|---:|---|---:|---|
+| 43 | an expression kind | 276 | a function expression |
+| 27 | a nested definition | 61 | a generator |
+| 19 | a bitwise operator | 56 | a global |
+| 19 | a function expression | 54 | a nested definition |
+| 19 | a global | 54 | `this` |
+
+A **function expression** and a **nested definition** are the same request from two
+sides: a function value, which needs a closure — the piece deferred above. A
+**global** needs an entry point. A bitwise operator is four table rows.
+
 
 **And the top item of that table was not a statement kind to lower — it was a
 structural change.** A call needs to name a callee, `Callee::Func(FuncId)` means a

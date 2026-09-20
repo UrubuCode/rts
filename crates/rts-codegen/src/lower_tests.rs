@@ -1007,15 +1007,18 @@ fn a_call_through_a_parameter_is_a_dynamic_call_with_no_receiver() {
     }
 }
 
-/// The three reasons a binding holds no value here are told apart, because the
-/// survey named the wrong work while they were one.
+/// The three reasons a binding holds no value here are told apart, and this test
+/// followed the work: one commit ago it asserted that a module binding is REFUSED as
+/// needing an environment, which was the honest answer then. It lowers now, through
+/// an operation that names it, so what the test pins is the distinction rather than
+/// the refusal — a dead zone is still a dead zone.
 #[test]
 fn a_binding_outside_this_function_is_not_reported_as_a_dead_zone() {
-    let outside = only("function f() { return outer; } let outer = 1;");
-    // `outer` is a module binding: not this function's, and not a dead zone.
-    assert_eq!(
-        outside.expect_err("a module binding"),
-        Unsupported::Expression("a binding declared outside this function needs an environment")
+    let outside = only("function f() { return outer; } let outer = 1;")
+        .expect("a module binding is an outer read now");
+    assert!(
+        outside.func.insts.iter().any(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if outside.domain.meaning(*prim) == Some(JsPrim::OuterRead))),
+        "it reads the binding by name rather than being refused"
     );
 
     let inside = only("function f() { const a = later; const later = 1; return a; }");
@@ -1046,4 +1049,142 @@ fn a_call_carries_the_effect_a_call_has() {
 fn a_spread_argument_is_refused() {
     let refused = only("function f(o, xs) { return o.m(...xs); }").expect_err("a spread");
     assert!(matches!(refused, Unsupported::Expression(_)));
+}
+
+/// A binding outside this function is an OPERATION that names it, not a refusal —
+/// and where its cell lives is the machine question this layer leaves below.
+#[test]
+fn an_outer_binding_is_read_by_an_operation_that_names_it() {
+    let mut names = Names::new();
+    let program = parse_script("let total = 0; function add(n) { return total + n; }", &mut names)
+        .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let function = program
+        .body
+        .iter()
+        .find_map(|item| match item {
+            ModuleItem::Stmt(Stmt {
+                kind: StmtKind::Function(function),
+                ..
+            }) => Some(function),
+            _ => None,
+        })
+        .expect("a function");
+    let lowered = lower(function, &resolution, Tier::Generic).expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+
+    let read = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::OuterRead)))
+        .expect("an outer read");
+    // It READS and may THROW -- a binding in its dead zone throws -- and it calls
+    // nothing, because a binding is not a property and no getter is reachable.
+    assert!(read.effect.has(Effect::READS));
+    assert!(read.effect.has(Effect::THROWS));
+    assert!(!read.effect.has(Effect::CALLS_USER));
+
+    // Its one argument names the binding, and the name is a constant of this
+    // language's table rather than anything the IR interprets.
+    let named = match &read.op {
+        rts_mir::Op::Prim { args, .. } => args[0],
+        other => panic!("expected a primitive, got {other:?}"),
+    };
+    let held = lowered
+        .func
+        .insts
+        .iter()
+        .find(|inst| inst.result == named)
+        .expect("the naming constant");
+    match &held.op {
+        rts_mir::Op::Const(rts_mir::Const::Declared(index)) => assert!(matches!(
+            lowered.domain.declared(*index),
+            Some(crate::domain::JsConst::Binding(_))
+        )),
+        other => panic!("expected a declared constant, got {other:?}"),
+    }
+}
+
+/// Two accesses to ONE outer binding carry one index, which is what a pass hoisting
+/// a load out of a loop compares.
+#[test]
+fn two_reads_of_one_outer_binding_name_it_once() {
+    let mut names = Names::new();
+    let program =
+        parse_script("let a = 0; let b = 0; function f() { return a + a + b; }", &mut names)
+            .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let function = program
+        .body
+        .iter()
+        .find_map(|item| match item {
+            ModuleItem::Stmt(Stmt {
+                kind: StmtKind::Function(function),
+                ..
+            }) => Some(function),
+            _ => None,
+        })
+        .expect("a function");
+    let lowered = lower(function, &resolution, Tier::Generic).expect("covered");
+
+    let indices: Vec<u32> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Const(rts_mir::Const::Declared(index)) => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(indices.len(), 3, "three named reads");
+    assert_eq!(indices[0], indices[1], "the same binding, the same index");
+    assert_ne!(indices[1], indices[2], "a different binding, another index");
+}
+
+/// A write to an outer binding is an operation too, not a rebind: SSA rebinding is
+/// for a value this function holds, and an outer binding is a cell somewhere.
+#[test]
+fn a_write_to_an_outer_binding_is_an_operation() {
+    let mut names = Names::new();
+    let program =
+        parse_script("let total = 0; function add(n) { total = n; }", &mut names).expect("parses");
+    let resolution = resolve_module(&program.body);
+    let function = program
+        .body
+        .iter()
+        .find_map(|item| match item {
+            ModuleItem::Stmt(Stmt {
+                kind: StmtKind::Function(function),
+                ..
+            }) => Some(function),
+            _ => None,
+        })
+        .expect("a function");
+    let lowered = lower(function, &resolution, Tier::Generic).expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+
+    let write = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::OuterWrite)))
+        .expect("an outer write");
+    assert!(write.effect.has(Effect::WRITES));
+    match &write.op {
+        rts_mir::Op::Prim { args, .. } => assert_eq!(args.len(), 2, "the name and the value"),
+        other => panic!("expected a primitive, got {other:?}"),
+    }
+}
+
+/// A local read before its declaration is still a dead zone, and still refused —
+/// which is what keeps the two apart now that one of them lowers.
+#[test]
+fn a_dead_zone_read_is_still_refused_after_outer_reads_lower() {
+    let refused = only("function f() { const a = later; const later = 1; return a; }")
+        .expect_err("read before its declaration");
+    assert_eq!(
+        refused,
+        Unsupported::Expression("a binding read before its declaration is in its dead zone")
+    );
 }

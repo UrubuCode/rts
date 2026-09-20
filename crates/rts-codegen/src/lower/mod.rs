@@ -185,7 +185,13 @@ pub fn lower_with(
         };
         let entry = lowering.builder.current();
         let value = lowering.builder.param(entry);
-        lowering.bind(*name, value, Type::Anything)?;
+        // A parameter is this function's by definition, so the `at` is only ever
+        // read if the binding were outer -- which it cannot be.
+        let at = Expr {
+            kind: ExprKind::Ident(*name),
+            at: function.at,
+        };
+        lowering.bind(*name, value, Type::Anything, &at)?;
     }
 
     match &function.body {
@@ -274,7 +280,14 @@ impl Lowering<'_> {
                             (held, Type::Undefined)
                         }
                     };
-                    self.bind(*name, held, of)?;
+                    // A DECLARATION is always this function's -- a `let` binds
+                    // here -- so the position is only carried for the arm that
+                    // cannot be reached from one.
+                    let at = Expr {
+                        kind: ExprKind::Ident(*name),
+                        at: statement.at,
+                    };
+                    self.bind(*name, held, of, &at)?;
                 }
                 Ok(false)
             }
@@ -513,7 +526,7 @@ impl Lowering<'_> {
                 };
                 let held = self.expression(value)?;
                 let of = self.type_of(held);
-                self.bind(*name, held, of)?;
+                self.bind(*name, held, of, expr)?;
                 // The value of an assignment is what was assigned, which is what
                 // makes `a = b = 1` work.
                 Ok(held)
@@ -546,7 +559,7 @@ impl Lowering<'_> {
                 let with = self.expression(value)?;
                 let answered = self.prim(prim, vec![held, with], expr);
                 let of = self.type_of(answered);
-                self.bind(*name, answered, of)?;
+                self.bind(*name, answered, of, expr)?;
                 Ok(answered)
             }
             // READING A PROPERTY BY NAME.
@@ -729,7 +742,7 @@ impl Lowering<'_> {
                     UpdateOp::Decrement => self.prim(JsPrim::Subtract, vec![before, one], expr),
                 };
                 let of = self.type_of(after);
-                self.bind(*name, after, of)?;
+                self.bind(*name, after, of, expr)?;
                 Ok(match position {
                     UpdatePosition::Prefix => after,
                     UpdatePosition::Postfix => before,
@@ -822,10 +835,19 @@ impl Lowering<'_> {
     }
 
     /// Records what a declaration now holds.
-    fn bind(&mut self, name: Name, value: ValueId, of: Type) -> Result<(), Unsupported> {
+    ///
+    /// A binding of THIS function is a rebind — SSA makes a write into a new value
+    /// and no store happens. A binding outside it is a cell somewhere, so the write
+    /// is an operation; which cell, and where it lives, is the machine question rule
+    /// 2 leaves below.
+    fn bind(&mut self, name: Name, value: ValueId, of: Type, at: &Expr) -> Result<(), Unsupported> {
         let Some(binding) = self.resolution.binding_in(self.scope, name) else {
             return Err(Unsupported::Global(name));
         };
+        if !self.declared_in_this_function(binding) {
+            self.outer(binding, JsPrim::OuterWrite, Some(value), at);
+            return Ok(());
+        }
         self.values.insert(binding, value);
         self.types.insert(value, of);
         Ok(())

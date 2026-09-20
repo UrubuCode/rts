@@ -264,7 +264,7 @@ impl Lowering<'_> {
                     };
                     let held = self.expression(value)?;
                     let of = self.type_of(held);
-                    self.bind(*name, held, of)?;
+                    self.bind(*name, held, of, value)?;
                 }
             }
             Some(ForInit::Expr(expr)) => {

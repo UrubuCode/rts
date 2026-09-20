@@ -150,6 +150,28 @@ pub enum JsPrim {
     IndexRead,
     /// Writing one.
     IndexWrite,
+    /// Reading a binding declared outside the function being lowered.
+    ///
+    /// # Why this is an operation and not a parameter
+    ///
+    /// Closure conversion is the other answer: make every free binding an extra
+    /// parameter and have each call site supply it. It is the standard move and it
+    /// does not fit yet — a `Callee::Dynamic` site does not know the callee's free
+    /// set, so the conversion would have to refuse exactly the calls that most need
+    /// it.
+    ///
+    /// What this does instead is say *which binding* and stop. WHERE its cell lives
+    /// — a module record, an environment object, a slot some enclosing activation
+    /// holds — is a machine question, and this crate's rule 2 is that a machine
+    /// question is never decided here. The front end's `MachineOps` answers it when
+    /// there is one.
+    ///
+    /// Takes one argument: a declared constant naming the binding. So two reads of
+    /// one outer binding carry one index and compare equal, which is what a pass
+    /// hoisting a load out of a loop needs.
+    OuterRead,
+    /// Writing one.
+    OuterWrite,
     /// An object built from its written properties, in order.
     ///
     /// Variadic and in PAIRS: a declared key, then its value, repeated. The pairs
@@ -195,7 +217,16 @@ pub enum JsConst {
     /// in a layout and a string is a value, and a pass folding one must not fold
     /// the other.
     Text(crate::syntax::Text),
+    /// A declaration of this program, by its [`crate::names::resolve::BindingId`]
+    /// index.
+    ///
+    /// Not a value the program can hold: it names a binding, so that an operation
+    /// reading or writing one outside the function being lowered can say WHICH
+    /// without this layer deciding where the binding's cell lives. See
+    /// [`JsPrim::OuterRead`].
+    Binding(u32),
 }
+
 
 /// What a guard of this language asserts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -250,6 +281,8 @@ impl Js {
         JsPrim::IndexWrite,
         JsPrim::NewArray,
         JsPrim::NewObject,
+        JsPrim::OuterRead,
+        JsPrim::OuterWrite,
     ];
 
     /// A domain holding only the fixed constants.
@@ -349,6 +382,11 @@ impl Js {
             // Building one allocates, whatever it is built from, and it reaches
             // no code the program wrote: the elements are already values.
             JsPrim::NewArray | JsPrim::NewObject => Effect::ALLOCATES,
+            // A READ of an outer binding loads a cell and may find it in its
+            // temporal dead zone, which throws. It calls nothing: a binding is not
+            // a property, so no getter is reachable through one.
+            JsPrim::OuterRead => Effect::READS.and(Effect::THROWS),
+            JsPrim::OuterWrite => Effect::WRITES.and(Effect::THROWS),
             JsPrim::ToNumber => match args.first().is_some_and(Self::needs_no_coercion) {
                 true => Effect::PURE,
                 false => Effect::CALLS_USER.and(Effect::THROWS),
@@ -452,6 +490,10 @@ impl Domain for Js {
                 Some(JsConst::Singleton(crate::values::Singleton::Null)) => Type::Null,
                 // A key is a string, and so is a string.
                 Some(JsConst::Key(_) | JsConst::Text(_)) => Type::Str,
+                // A binding NAME is not a value of the language, so it has no type
+                // in this lattice. Nothing reads one as a value: it is only ever an
+                // operand of an outer read or write.
+                Some(JsConst::Binding(_)) => Type::Nothing,
                 None => Type::Anything,
             },
         }
@@ -509,7 +551,8 @@ impl Domain for Js {
             // this domain does not hold one yet, so the honest answer is the
             // weaker type rather than a number invented here.
             JsPrim::NewArray | JsPrim::NewObject => Type::Object,
-            JsPrim::FieldRead | JsPrim::IndexRead => Type::Anything,
+            JsPrim::FieldRead | JsPrim::IndexRead | JsPrim::OuterRead => Type::Anything,
+            JsPrim::OuterWrite => args.get(1).cloned().unwrap_or(Type::Anything),
             JsPrim::IndexWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             // A write answers the value written, which is what makes `a = b = 1`
             // work.
@@ -591,6 +634,10 @@ impl rts_mir::text::Legend for Js {
         match Js::declared(self, index) {
             Some(JsConst::Singleton(which)) => format!("{which:?}").to_lowercase(),
             Some(JsConst::Key(_)) => format!("key#{index}"),
+            // A binding, printed as its index. The NAME lives in the interner, so
+            // this crate can honestly say only which declaration it is --
+            // `mir_dump::Spelled` is what turns it into a name.
+            Some(JsConst::Binding(held)) => format!("binding#{held}"),
             Some(JsConst::Text(_)) => format!("str#{index}"),
             None => format!("const#{index}"),
         }
