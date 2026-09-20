@@ -295,6 +295,10 @@ reference is invisible to a collector that recognises references by bit pattern.
 
 ## What the stage covers, measured
 
+**SUPERSEDED by the table near the end of this document, taken the same day after the
+frame block.** Kept because the prose under it is about the finding it produced, not
+about the counts.
+
 **2026-09-20, `rts mir` over every fifth file of `tests/`: 182 files, 1 725
 functions, 127 lowered.** Not a share to be proud of and not the point — what the
 measurement is for is the *shape* of what is missing, and that turned out to
@@ -800,15 +804,38 @@ An index nothing implements yet is honest: the graph says which operation it wan
 the machine boundary refuses until the entry exists. `rts-host/src/entries.rs` is where
 the name and the ABI shape get agreed.
 
-### What is left, measured 2026-09-20
+### What is left, re-measured after the frame block
 
-| `bench/` | | `tests/` | |
+**The corpora are named because the two columns do not share one.** `bench/` is every
+file, 14 of them, 397 functions. `tests/` is every FIFTH file — 491 files, 3 473
+functions, 2 978 lowered — because `rts mir` over 2 451 files one process at a time is
+an hour and the shape of what is missing does not need the hour. A share taken from a
+sample is not comparable with one taken from the whole, which is why neither is quoted
+here as a share.
+
+| `bench/` | | `tests/`, every fifth file | |
 |---:|---|---:|---|
-| 8 | an iteration protocol | 61 | a generator |
-| 6 | a class field | 15 | an async function |
-| 5 | a call through neither a name nor a property | 15 | an array pattern |
-| 4 | an object literal with a method | 10 | a rest parameter |
-| 4 | a template literal | 8 | an object literal with a method |
+| 8 | an iteration protocol | 67 | a bigint literal |
+| 6 | a class field | 61 | a throw |
+| 5 | a call through neither a name nor a property | 45 | a `finally` |
+| 4 | a template literal | 34 | a template literal |
+| 4 | an object literal with a method | 31 | an object literal with a method |
+| 3 | a class with no constructor written | 30 | a call through neither a name nor a property |
+| 2 | an optional chain | 27 | an iteration protocol |
+| 2 | a throw | 22 | a rest parameter |
+
+**A generator and an async function do not appear at all**, which is what the block
+above did: they were the first and second rows of the `tests/` column and they are gone
+rather than reduced.
+
+**What moved to the top instead is worth reading as a redirection.** A bigint literal
+is a second numeric tower and is nobody's next hour. A `throw` and a `finally` are one
+piece — raising is an entry point and a cleanup chain is what runs on every way out —
+and together they are 106 of this sample, which makes them the largest thing on the
+list by a distance. The iteration-protocol group (`for`-`of`, an array pattern, a rest
+parameter, and now `yield*`) is the other one, and it owes the iterator its `return()`
+on an early exit, which is the SAME cleanup chain. So two of the three biggest entries
+are one mechanism.
 
 **A generator and an async function were one piece, and that entry is DONE** — both
 rows are off this list. The section at the end of this document has it; what the entry
