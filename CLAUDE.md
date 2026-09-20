@@ -19,7 +19,7 @@ not background reading, and the rules in it are binding for changes inside it.
 | Editing | Read first |
 |---|---|
 | `crates/rts-cranelift/` | its `README.md` (13 rules) |
-| `crates/rts-mir/` | its `README.md` (11 rules). Two of them are checked by a command rather than by reading, and the README says which |
+| `crates/rts-mir/` | its `README.md` (12 rules). Two of them are checked by a command rather than by reading, and the README says which |
 | `crates/rts-codegen/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-core/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-host/` | its `README.md` (6 rules) + `PLAN.md` |

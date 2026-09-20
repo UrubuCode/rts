@@ -810,8 +810,12 @@ the name and the ABI shape get agreed.
 | 4 | an object literal with a method | 10 | a rest parameter |
 | 4 | a template literal | 8 | an object literal with a method |
 
-**A generator and an async function are one piece**: both park a frame, so both wait
-on `rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs.
+**A generator and an async function were one piece, and that entry is DONE** — both
+rows are off this list. The section at the end of this document has it; what the entry
+got wrong is worth keeping, because it said both were waiting on
+`rts_cranelift::frame` and only the CALLER's half was. The body of either lowers, and
+`yield*` turned out to belong to the iteration-protocol row below rather than to this
+one.
 
 **An array pattern, `for`-`of` and a rest parameter are one piece**: all three step the
 iteration protocol, and all three owe the iterator its `return()` on an early exit —
@@ -877,3 +881,114 @@ and the substitution is legal. That is what `names::resolve` answers and what th
 stage is built on — so the 5× is not a trade this design makes, it is a trade the OLD
 stage cannot avoid.
 
+
+---
+
+## The frame block: a generator and an asynchronous function are ONE thing
+
+This was on the list as the architectural piece, and the piece turned out to be
+smaller than the entry beside it said — because the entry was wrong about where
+the missing part was.
+
+Both kinds used to be turned away at the function, each with its own line: *"an
+async function parks its frame"*, *"a generator parks its frame"*. Both lines are
+gone, and not because parking got approximated. **The body of one was never the
+missing piece.** A generator's body is a graph with a suspension in it; so is an
+asynchronous function's. What neither body contains is the thing that is actually
+absent: *calling* one runs no body — it answers a generator object or a promise —
+and that is the CALLER's sequence, which follows from the callee's flag. Rule 2
+puts it on the machine, and the machine refuses it there by name.
+
+### What the shared IR gained, and what it deliberately did not
+
+One instruction and one effect flag. `Op::Suspend { value }` hands a value out
+and answers what comes back; `Effect::SUSPENDS` says the frame may be parked.
+
+The flag is where the design decision is. Parking could have been a primitive the
+language declares, and that is the wrong place for exactly the reason rule 2
+draws the line by: **a language's table is what a consumer is allowed not to
+understand**, and every consumer has to respect a suspension. Nothing may cross
+one in either direction — between its two halves, whoever resumes decides when,
+and the program keeps going meanwhile — and nothing may be placed after one on the
+assumption control arrives, because `gen.throw(e)` and a rejected promise both
+resume the frame *by raising at that point*.
+
+`Func::may_suspend` is **derived by the builder from the effect**, never passed
+in. The alternative — asking a lowering to push the suspension and also set the
+flag — is one fact in two places, and the drift it produces is not a compile
+error: it is a function the machine compiles with an ordinary frame and then
+tries to leave. `verify` checks the agreement anyway, which is only reachable for
+a `Func` assembled by hand, and that is what it is for.
+
+Reading it from the EFFECT rather than from `Op::Suspend` is the part worth
+keeping written down. A language that parks inside a primitive of its own is
+covered without this crate naming that primitive — which is rule 1 holding under
+a feature that looks like it needs an exception.
+
+### Why it is an instruction and not a terminator
+
+Because the CFG does not have to split. `rts_cranelift::frame` transforms the
+whole function into a resumable form from **liveness** — it spills what is live
+across each suspension into a record with a resume position — so a graph that
+split its blocks at every suspension would be doing that transform's work badly,
+and twice. The graph's job is to say that control leaves, and the effect says it.
+
+### What a suspension answers, which is the one unsound narrowing available here
+
+The top of the lattice. `next(x)` chooses what comes back, and so does a promise
+settling; this function computed neither. The natural mistake is to narrow the
+result from the operand, because the operand is right there and the types look
+like they should agree — and what that produces is a type a later pass trusts
+with nothing checking it. `yield 1` answers `Anything`, and a test pins it.
+
+### The reuse-check finding: an entry point that exists and is not called
+
+`rts-core` already has the entry point a compiled `await` calls —
+`entry::promise::promise_await`, `RtEntry::PromiseAwait` — and this lowering does
+not name it. Its own callers say why.
+`crates/rts-core/src/entry/array_proto/more/from_async.rs` records that *"`await`
+here DRAINS rather than suspending — the awaiting frame keeps the stack"*, and
+that *"when `Inst::Suspend` lands, this changes with every other `await`"*.
+
+So the existing entry point is today's shape, and today's shape is the one this
+stage exists to replace. Calling it from the new graph would have compiled, would
+have passed, and would have written "await means drain" into the IR whose reason
+for existing is that await means park. The suspension is emitted instead, and the
+machine refuses it by name until `frame::resumable_form` is wired.
+
+**`Unlowerable::NeedsFrameTransform` is the only refusal in `lower/` that is
+about the MACHINE** rather than about something the language has not declared.
+Every other one names a missing declaration; this one names a graph that is
+entirely well formed and a capability the machine has not been asked for. Worth
+distinguishing, because the two are fixed by different people doing different
+work.
+
+### What stays refused, and it is not what it looks like
+
+`yield*`. It is not a suspension — it is a loop around one, forwarding `next`,
+`throw` and `return` to an inner iterator and yielding whatever that yields. So
+it needs the **iteration protocol**, which is the same piece the array pattern,
+`for`-`of` and the rest parameter are all waiting on, and it joins that group
+rather than this one. A `yield*` lowered as one suspension of the inner *iterable*
+would compile and hand out the wrong value.
+
+That regrouping is the useful part of the finding: what looked like one gap
+("generators and async") was two, and the halves belong to different blocks.
+
+### Measured, per file, same denominators
+
+A debug binary of `a4f030ca0` against the tree with the block in it, one process
+per file, `rts mir` counting functions lowered:
+
+| corpus | before | after | of | files | LOST |
+|---|---:|---:|---:|---:|---:|
+| `bench/` | 345 | 347 | 397 | 14 | **0** |
+| `tests/` | 14 323 | 14 778 | 17 194 | 2 451 | **0** |
+
+455 functions gained across 163 files, the denominator unmoved on both sides, and
+the LOST list empty — which is the only form the claim "no regression" takes here.
+The baseline was a separate `git worktree` at `HEAD` rather than a stash, so the
+working tree never moved to produce it.
+
+**No number about speed is claimed, and the section above says why**: nothing that
+runs reaches this stage. `run`, `test` and `compile` do not call it.

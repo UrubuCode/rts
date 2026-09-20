@@ -108,3 +108,34 @@ The root `CLAUDE.md` gives the two engine crates 1000 and everything else 500.
 This crate takes 500 — it is new, so there is nothing to grandfather, and the
 ceiling is easiest to hold from the start. A file that would pass it becomes a
 folder of cohesive modules.
+
+## 12. A suspension is a fact about the graph, and the flag is derived
+
+Parking a frame belongs here and not in a language's table, for the reason rule 2
+draws the line by: a table is exactly what a consumer is allowed not to
+understand, and every consumer has to respect a suspension. So `Effect::SUSPENDS`
+carries it, `commutes_with` answers `false` against anything in either direction,
+and `falls_through` answers `false` — `gen.throw(e)` and a rejected promise both
+resume the frame **by raising at that point**.
+
+`Func::may_suspend` is **derived by `FuncBuilder` from the effect** and never
+passed in. One fact in two places drifts, and the drift here is a function the
+machine compiles with an ordinary frame and then tries to leave; `verify` checks
+the agreement anyway, for a `Func` assembled by hand. Read from the effect and
+not from `Op::Suspend`, so a language that parks inside a primitive of its own is
+covered without this crate naming it.
+
+It is an instruction and not a terminator, because `frame::resumable_form`
+transforms the whole function from liveness. A graph that split its blocks at
+every suspension would be doing that transform's work badly, and twice.
+
+What it **answers** is the top of the lattice. `next(x)` chooses it and so does a
+promise settling, so this function computed neither; narrowing it from the
+operand is the natural mistake — the operand is right there — and it hands a
+later pass a type nothing checks.
+
+**Why this is rule 12 and not rule 9.** It belongs beside rule 8, and the rules
+after it are referred to by number from elsewhere — `CLAUDE.md` and
+`docs/engine/four-stages.md` both name rule 10 by its number. Renumbering to put
+this in its logical place would silently repoint those, which is a worse cost
+than a rule sitting at the end.
