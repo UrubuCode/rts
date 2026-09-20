@@ -212,17 +212,20 @@ mod tests {
     fn a_refusal_is_printed_as_a_work_queue_and_counted() {
         let printed = describe(
             "function ok() { return 1; }
-             function nope(a, b) { return a > b; }",
+             function nope(a, b) { return a ** b; }",
         )
         .expect("parses");
         assert!(printed.contains("fn nope — NOT LOWERED: operator"), "{printed}");
         assert!(printed.contains("1 of 2 functions lowered"), "{printed}");
     }
 
+    /// A refusal names what it was, and a GENERATOR is one that will stay refused
+    /// until the frame transform exists -- which is why it replaced the global here:
+    /// a global used to be the example and now lowers.
     #[test]
-    fn a_global_is_named_in_its_refusal() {
-        let printed = describe("function f() { return Math; }").expect("parses");
-        assert!(printed.contains("`Math` is a global"), "{printed}");
+    fn a_refusal_is_named_in_the_dump() {
+        let printed = describe("function* g() { yield 1; }").expect("parses");
+        assert!(printed.contains("parks its frame"), "{printed}");
     }
 
     #[test]

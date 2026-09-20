@@ -565,60 +565,59 @@ Three of the unary operators are rows, and each of the other four is a decision:
   `TypeError` needs no binding a program could shadow. Refusing it silently would
   refuse `for`-`of`; lowering it as a no-op would drop the check.
 
-### What is left, and both corpora agree again
+### The list, worked through: 188 → 309 in `bench/`, 1082 → 1489 in `tests/`
+
+Five items planned together rather than one per session, each measured, none losing a
+file. `bench/` is 80% and `tests/` is 86%, from 49% and 63%.
+
+| item | refusals it closed | what it decided |
+|---|---:|---|
+| a type assertion | 8 | an annotation is evidence, not proof |
+| a global read | 75 | resolved through the global object, like the language does |
+| a construction | 31 | not a call: it allocates and runs a body |
+| a function value | 376 | names which function; the environment stays below |
+| three comparisons | 15+ | rows of their own, never a swap |
+
+**Four of the five are the same answer**, and it is rule 2 each time: where a thing
+lives is a machine question, so the lowering says WHICH and stops. A global is a
+property of an object nobody named; a receiver is a slot the convention picked; an
+outer binding is a cell somewhere; a closure is code plus an environment. In every
+case the operation carries an identity and the storage decision stays below.
+
+The closure is the one worth reading twice. `makeclosure(f1)` takes one argument — the
+function — and no captured list, because the callee's OWN graph reads its free
+bindings through `outerread`. So the captured set is derivable from the graph, which
+is the one place it cannot drift from:
+
+```text
+fn outer                        fn step
+  v1 = f1                         v1 = @n
+  v2 = makeclosure(v1)            v2 = outerread(v1)
+  v6 = call f1(v5)                v3 = add(v0, v2)
+```
+
+**And the comparisons are a refusal that was right about the wrong thing.** They were
+refused for three commits because `a > b` is not `b < a` — the two coerce their
+operands in opposite orders, which is observable. That argument refuses the REWRITE
+and never the operation, and giving each its own table row costs one entry and keeps
+the order the program wrote.
+
+Six tests were replaced rather than relaxed, and two of them had already followed the
+work once: a global call was asserted refused, then asserted refused while the member
+call lowered, and now both lower — so what it pins is that they lower to DIFFERENT
+shapes, one with a receiver and one without.
+
+### What is left, measured 2026-09-20
 
 | `bench/` | | `tests/` | |
 |---:|---|---:|---|
-| 43 | an expression kind | 276 | a function expression |
-| 27 | a nested definition | 61 | a generator |
-| 19 | a bitwise operator | 56 | a global |
-| 19 | a function expression | 54 | a nested definition |
-| 19 | a global | 54 | `this` |
+| 11 | a class declaration | 61 | a generator |
+| 8 | a literal of another kind | 23 | a destructuring target |
+| 7 | an iteration protocol | 16 | a protected region |
+| 7 | a conditional | 15 | an async function |
+| 6 | a protected region | | |
 
-A **function expression** and a **nested definition** are the same request from two
-sides: a function value, which needs a closure — the piece deferred above. A
-**global** needs an entry point. A bitwise operator is four table rows.
-
-
-**And the top item of that table was not a statement kind to lower — it was a
-structural change.** A call needs to name a callee, `Callee::Func(FuncId)` means a
-registry of the program's functions with ids, and a lowering that takes one function
-at a time has nothing for a call to name. `lower_module` is that registry, and it is
-built: functions numbered in source order, one domain shared, a callee map keyed by
-`BindingId` so that two functions spelled alike are two entries.
-
-**What it yielded on `tests/` was nothing, and that is stated rather than buried:
-127 of 1 725 before and 127 of 1 725 after.** What changed is that the 1 074 calls
-split into 844 through a member and 218 to a binding holding no function of this
-module — which is what named the next two pieces of work. A function refused for one
-call is usually refused for several, so resolving one kind of callee moved no
-function into the lowered column.
-
-Two defects in the instrument were found by running it, and both had made it
-measure nothing:
-
-- it parsed a **script**, and every file of the corpus imports `rts:test` — so the
-  first survey answered `PARSE_FAIL` for 182 of 182;
-- it looked only at **top-level declarations**, and a corpus file puts its code
-  inside `describe(…, () => { … })` — so what it could parse, it reported as
-  holding no functions.
-
-That is the honesty floor's "verify the input, not just the output" landing on a
-tool built in this same session: a 0% coverage reading and a 7% one look equally
-plausible, and only the input said which was real.
-
-## What this does not buy
-
-It does not give JavaScript machine speed. It gives near-native speed to
-**monomorphic** code — which is the shape well-typed TypeScript tends to have —
-and everything else falls to the generic tier and stays where it is. Genuinely
-polymorphic code, `eval`, and an object that changes shape at run time have no
-fast version in a compiler without a deoptimiser, and no amount of analysis
-changes that. `deopt-lateral.md` is how much of that ceiling is recoverable and
-what it costs.
-
-What the architecture does guarantee is that the **boundary** between the two
-cases is visible and measurable, instead of being a surprise in a benchmark.
-
-Every step of it is measured with `release`, per file against a kept binary. A
-`fast` binary answers "is it correct", never "how fast".
+A generator and an async function park a frame, so both wait on
+`rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs, which makes
+them one piece of work rather than two. A protected region is `try`/`catch`, which
+the machine already has regions for. The rest are ordinary lowerings.

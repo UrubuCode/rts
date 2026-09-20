@@ -118,34 +118,35 @@ fn a_function_expression_bound_to_a_name_is_callable() {
     );
 }
 
-/// A method call lowers now, and a GLOBAL still does not — which is the pair worth
-/// keeping, because the two were one refusal before the receiver existed.
+/// A method call and a call to a GLOBAL both lower now, and this test has followed
+/// the work twice: it first asserted both were refused, then that the member call
+/// lowered and the global did not. Both do.
 ///
-/// The previous version of this test asserted that both were refused. The member
-/// call now lowers, so the assertion was replaced rather than relaxed: what is still
-/// missing is the global, and saying so is what the survey reads.
+/// What it pins is that they lower to DIFFERENT shapes — the member call carries a
+/// receiver, the global call reads the global object and carries none.
 #[test]
-fn a_method_call_lowers_and_a_global_call_still_names_its_global() {
+fn a_method_call_carries_a_receiver_and_a_global_call_does_not() {
     let (lowered, _) = module(
         "function viaMember(o) { return o.m(); }
          function viaGlobal() { return parseInt('2'); }",
     );
-    let member = lowered
-        .functions
-        .iter()
-        .find(|held| held.named == "viaMember")
-        .expect("in the module");
-    assert!(member.result.is_ok(), "{:?}", member.result);
-
-    let global = lowered
-        .functions
-        .iter()
-        .find(|held| held.named == "viaGlobal")
-        .expect("in the module");
-    assert!(matches!(
-        global.result.as_ref().err(),
-        Some(Unsupported::Global(_))
-    ));
+    let receiver_of = |named: &str| {
+        let entry = lowered
+            .functions
+            .iter()
+            .find(|held| held.named == named)
+            .expect("in the module");
+        let func = entry.result.as_ref().expect("it lowers");
+        func.insts
+            .iter()
+            .find_map(|held| match &held.op {
+                rts_mir::Op::Call { receiver, .. } => Some(*receiver),
+                _ => None,
+            })
+            .expect("a call")
+    };
+    assert!(receiver_of("viaMember").is_some());
+    assert!(receiver_of("viaGlobal").is_none());
 }
 
 /// A call through a parameter is a DYNAMIC call, which is what the receiver field

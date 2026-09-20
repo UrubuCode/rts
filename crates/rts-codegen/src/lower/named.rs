@@ -22,16 +22,21 @@ pub(super) fn primitive(op: BinaryOp) -> Option<JsPrim> {
         BinaryOp::Div => Some(JsPrim::Divide),
         BinaryOp::Rem => Some(JsPrim::Remainder),
         BinaryOp::Less => Some(JsPrim::LessThan),
+        BinaryOp::Greater | BinaryOp::LessEqual | BinaryOp::GreaterEqual => Some(JsPrim::Compare),
         BinaryOp::BitAnd
         | BinaryOp::BitOr
         | BinaryOp::BitXor
         | BinaryOp::Shl
         | BinaryOp::Shr => Some(JsPrim::BitwiseInt32),
         BinaryOp::StrictEqual => Some(JsPrim::StrictEquals),
-        // Every other operator is a row the table does not have. Deliberately not
-        // expressed as `Greater` being `LessThan` with the operands swapped: the
-        // two evaluate their operands in opposite orders, and `a > b` coercing
-        // `a` first is observable.
+        // Every other operator is a row the table does not have.
+        //
+        // The three comparisons above are rows of their OWN, which is what changed:
+        // they were refused because `Greater` is not `LessThan` with the operands
+        // swapped -- `a > b` coerces `a` first and `b < a` coerces `b` first, which
+        // is observable -- and that argument refuses the REWRITE, never the
+        // operation. Giving each its own row costs one table entry and keeps the
+        // order the program wrote.
         _ => None,
     }
 }

@@ -139,6 +139,31 @@ impl Lowering<'_> {
         self.prim(which, args, at)
     }
 
+    /// A closure value for a function the module numbered.
+    pub(super) fn closure(&mut self, id: rts_mir::cfg::FuncId, at: &Expr) -> ValueId {
+        let index = self
+            .domain
+            .constant(crate::domain::JsConst::Function(id.0));
+        let named = self.declared(index, at);
+        self.prim(JsPrim::MakeClosure, vec![named], at)
+    }
+
+    /// A name no scope declares, read through the global object.
+    ///
+    /// The key is the same declared constant a property read takes, because that is
+    /// what this is: `emit/inline.rs` already states that a name the whole program
+    /// declares nowhere is resolved through the global object at every site there is.
+    ///
+    /// A WRITE to one is still refused. `undeclared = 1` in sloppy code creates a
+    /// global property, in strict code it throws, and which of the two a module is in
+    /// is a fact `check/` holds and this stage does not ask for. Guessing either way
+    /// would be wrong in half the programs.
+    pub(super) fn global(&mut self, name: Name, at: &Expr) -> ValueId {
+        let index = self.domain.constant(crate::domain::JsConst::Key(name));
+        let key = self.declared(index, at);
+        self.prim(JsPrim::GlobalRead, vec![key], at)
+    }
+
     /// Whether the declaration belongs to this function rather than to something
     /// around it.
     ///

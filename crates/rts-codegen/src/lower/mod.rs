@@ -44,6 +44,7 @@ use crate::syntax::{
 };
 use crate::values::Singleton;
 
+mod branch;
 mod calls;
 mod named;
 mod loops;
@@ -87,7 +88,16 @@ pub enum Unsupported {
 /// a map and not a search: two functions may be called `step` in one module, and
 /// the binding says which one a given call reaches.
 #[derive(Debug, Default)]
-pub struct Callees(std::collections::BTreeMap<BindingId, rts_mir::cfg::FuncId>);
+pub struct Callees {
+    by_binding: std::collections::BTreeMap<BindingId, rts_mir::cfg::FuncId>,
+    /// Which function was written at which position.
+    ///
+    /// A function EXPRESSION usually binds no name, so the binding map cannot reach
+    /// it — and a function VALUE has to be nameable whether or not anything holds
+    /// it. The position is what the two views share, which `bound_expressions`
+    /// already relied on.
+    by_position: std::collections::BTreeMap<rts_cranelift::fault::Position, rts_mir::cfg::FuncId>,
+}
 
 impl Callees {
     /// The map for one module.
@@ -98,17 +108,24 @@ impl Callees {
     ) -> Self {
         let mut held = crate::lower_module::callee_map(functions, resolution);
         held.extend(crate::lower_module::bound_expressions(items, functions, resolution));
-        Self(held)
+        Self {
+            by_binding: held,
+            by_position: functions
+                .iter()
+                .enumerate()
+                .map(|(at, function)| (function.at, rts_mir::cfg::FuncId(at as u32)))
+                .collect(),
+        }
     }
 
-    /// The map, given one already built.
-    pub fn from_map(held: std::collections::BTreeMap<BindingId, rts_mir::cfg::FuncId>) -> Self {
-        Self(held)
+    /// Which function was written at that position, if the module numbered one.
+    pub fn of_position(&self, at: rts_cranelift::fault::Position) -> Option<rts_mir::cfg::FuncId> {
+        self.by_position.get(&at).copied()
     }
 
     /// Which function that binding is, if it is one.
     pub fn of_binding(&self, binding: BindingId) -> Option<rts_mir::cfg::FuncId> {
-        self.0.get(&binding).copied()
+        self.by_binding.get(&binding).copied()
     }
 }
 
@@ -331,8 +348,34 @@ impl Lowering<'_> {
                 body,
             ),
             StmtKind::ForEach { .. } => Err(Unsupported::Statement("an iteration protocol")),
-            StmtKind::Function(_) | StmtKind::Class(_) => {
-                Err(Unsupported::Statement("a nested definition is its own graph"))
+            // A NESTED DEFINITION is a closure bound to a name, and the name is this
+            // function's -- so it is an ordinary rebind and no environment is written.
+            //
+            // It was refused as "its own graph", which was true and was not the whole
+            // truth: the graph is lowered by `lower_module` like every other, and what
+            // this statement does is make a VALUE of it.
+            StmtKind::Function(function) => {
+                let Some(name) = function.name else {
+                    return Err(Unsupported::Statement(
+                        "a function declaration with no name",
+                    ));
+                };
+                let Some(id) = self.callees.of_position(function.at) else {
+                    return Err(Unsupported::Statement(
+                        "a nested definition needs the module's numbering",
+                    ));
+                };
+                let at = Expr {
+                    kind: ExprKind::Ident(name),
+                    at: function.at,
+                };
+                let held = self.closure(id, &at);
+                let of = self.type_of(held);
+                self.bind(name, held, of, &at)?;
+                Ok(false)
+            }
+            StmtKind::Class(_) => {
+                Err(Unsupported::Statement("a class declaration is its own graph"))
             }
             StmtKind::Try { .. } | StmtKind::Throw(_) => {
                 Err(Unsupported::Statement("a protected region"))
@@ -341,142 +384,16 @@ impl Lowering<'_> {
         }
     }
 
-    /// Lowers an `if`, merging what the two arms disagree about.
-    ///
-    /// # Why the merge is computed and not declared
-    ///
-    /// The join block's parameters are exactly the bindings the two arms leave
-    /// holding different values. Declaring one per live binding instead would be
-    /// correct and would make every `if` in a program carry the whole scope
-    /// through a parameter list, which is the shape `emit/merge.rs` records as the
-    /// cost of not asking.
-    ///
-    /// Asking needs both arms lowered from the SAME starting map, which is why
-    /// `before` is cloned twice rather than mutated through: an arm that rebinds a
-    /// name must not be visible to the other arm, and the two orders would
-    /// otherwise disagree.
-    ///
-    /// # Why an arm that returned contributes nothing
-    ///
-    /// Control does not arrive at the join from it, so its bindings are not a
-    /// second opinion — they are no opinion. Joining them in would widen every
-    /// type at the join for a path that cannot be taken, which is sound and is
-    /// exactly the giving-up a type domain exists to avoid.
-    fn branch(
-        &mut self,
-        condition: &Expr,
-        then_branch: &Stmt,
-        else_branch: Option<&Stmt>,
-    ) -> Result<bool, Unsupported> {
-        let tested = self.expression(condition)?;
-        // A machine branch wants a machine boolean and a value of this language is
-        // not one, so the language's truth rule is an operation. The domain folds
-        // it where the type decides it.
-        let tested = self.prim(JsPrim::Truthy, vec![tested], condition);
-
-        let then_block = self.builder.block();
-        let else_block = self.builder.block();
-        let before = self.values.clone();
-        self.builder.end(Terminator::Branch {
-            condition: tested,
-            then_block,
-            then_args: Vec::new(),
-            else_block,
-            else_args: Vec::new(),
-        });
-
-        self.builder.switch_to(then_block);
-        self.values = before.clone();
-        let then_ended = self.statement(then_branch)?;
-        let then_values = std::mem::replace(&mut self.values, before.clone());
-        let then_exit = self.builder.current();
-
-        self.builder.switch_to(else_block);
-        let else_ended = match else_branch {
-            Some(branch) => self.statement(branch)?,
-            None => false,
-        };
-        let else_values = std::mem::take(&mut self.values);
-        let else_exit = self.builder.current();
-
-        // Both arms left the function, so nothing follows the `if` at all.
-        if then_ended && else_ended {
-            self.values = before;
-            return Ok(true);
-        }
-
-        let join = self.builder.block();
-        // One arm returning leaves the other as the only path, so there is nothing
-        // to merge: its map IS the answer.
-        if then_ended || else_ended {
-            let (surviving, exit) = match then_ended {
-                true => (else_values, else_exit),
-                false => (then_values, then_exit),
-            };
-            self.values = surviving;
-            self.builder.switch_to(exit);
-            self.builder.end(Terminator::Jump {
-                target: join,
-                args: Vec::new(),
-            });
-            self.builder.switch_to(join);
-            return Ok(false);
-        }
-
-        // Every binding the two arms disagree about, in a stable order: the map is
-        // a `BTreeMap`, so this is the same list on every run, which is what keeps
-        // one program compiling to one program.
-        let merged: Vec<BindingId> = then_values
-            .iter()
-            .filter(|(binding, held)| else_values.get(binding).is_some_and(|other| other != *held))
-            .map(|(binding, _)| *binding)
-            .collect();
-
-        let mut params = Vec::with_capacity(merged.len());
-        for binding in &merged {
-            let param = self.builder.param(join);
-            // The type at the join is the join of the two types, which is the
-            // domain doing the one thing a lattice is for. `Int32` from one arm
-            // and `Double` from the other is a `Double` here — and in another
-            // language it is neither.
-            let of = self.domain.join(
-                &self.type_of(then_values[binding]),
-                &self.type_of(else_values[binding]),
-            );
-            self.types.insert(param, of);
-            params.push(param);
-        }
-
-        self.builder.switch_to(then_exit);
-        self.builder.end(Terminator::Jump {
-            target: join,
-            args: merged.iter().map(|held| then_values[held]).collect(),
-        });
-        self.builder.switch_to(else_exit);
-        self.builder.end(Terminator::Jump {
-            target: join,
-            args: merged.iter().map(|held| else_values[held]).collect(),
-        });
-
-        // What each binding holds after the `if`: the parameter where the arms
-        // disagreed, and what both said where they agreed.
-        self.values = then_values;
-        for (binding, param) in merged.iter().zip(params) {
-            self.values.insert(*binding, param);
-        }
-        self.builder.switch_to(join);
-        Ok(false)
-    }
-
-
     fn expression(&mut self, expr: &Expr) -> Result<ValueId, Unsupported> {
         match &expr.kind {
             ExprKind::Literal(literal) => self.literal(literal, expr),
             ExprKind::Ident(name) => {
-                let Some(binding) = self.resolution.binding_in(self.scope, *name) else {
-                    return Err(Unsupported::Global(*name));
-                };
-                self.read_binding(binding, *name, expr)
+                match self.resolution.binding_in(self.scope, *name) {
+                    Some(binding) => self.read_binding(binding, *name, expr),
+                    // NO SCOPE DECLARES IT, so it is a global -- read through the
+                    // global object, which is what the language does with one.
+                    None => Ok(self.global(*name, expr)),
+                }
             }
             // An assignment to a plain local is a REBIND, which is what SSA makes
             // of one: the binding now holds a different value and no store
@@ -648,6 +565,37 @@ impl Lowering<'_> {
                 };
                 Ok(self.prim(which, vec![held], expr))
             }
+            // A FUNCTION EXPRESSION is a closure value naming which function it is.
+            ExprKind::Function(function) => match self.callees.of_position(function.at) {
+                Some(id) => Ok(self.closure(id, expr)),
+                // Unreachable through `lower_module`, which numbers every function of
+                // the module before lowering any of it. Reachable through the
+                // single-function door, where there is no numbering at all -- so it
+                // says that rather than pretending a number.
+                None => Err(Unsupported::Expression(
+                    "a function value needs the module's numbering",
+                )),
+            },
+            // A TYPE ASSERTION is the operand and nothing else.
+            //
+            // `a as number` narrows nothing in the domain, and that is rule 4 of this
+            // crate rather than laziness: a type annotation is EVIDENCE, not proof.
+            // TypeScript's assertion is unchecked — a program may assert what is
+            // false, and the standard says the value is unchanged — so narrowing on
+            // one would make a guard that asserts nothing and a fast path that is
+            // wrong whenever the program lied.
+            //
+            // What an annotation IS good for is choosing which specialisation to
+            // build, where the guard still checks. That is a pass reading the claim,
+            // not a lowering trusting it.
+            ExprKind::Asserted { value, .. } => self.expression(value),
+            // A CONSTRUCTION, with the constructor as the first argument.
+            ExprKind::New { callee, arguments } => {
+                let held = self.expression(callee)?;
+                let mut args = vec![held];
+                args.extend(self.arguments(arguments)?);
+                Ok(self.prim(JsPrim::Construct, args, expr))
+            }
             // AN OBJECT LITERAL, as pairs of a declared key and a value.
             //
             // In SOURCE ORDER, and that is load-bearing rather than tidy: the order
@@ -741,10 +689,15 @@ impl Lowering<'_> {
                         "a call whose callee is neither a name nor a property",
                     ));
                 };
-                let Some(binding) = self.resolution.binding_in(self.scope, *name) else {
-                    return Err(Unsupported::Global(*name));
-                };
+                let binding = self.resolution.binding_in(self.scope, *name);
                 let args = self.arguments(arguments)?;
+                // A CALL TO A GLOBAL: read it, then call what it held. No receiver
+                // travels -- parseInt(x) passes none, and the global object is not
+                // a receiver.
+                let Some(binding) = binding else {
+                    let held = self.global(*name, expr);
+                    return Ok(self.call(rts_mir::cfg::Callee::Dynamic(held), None, args, expr));
+                };
                 // A NAME THAT HOLDS NO FUNCTION OF THIS MODULE is still a call — an
                 // imported binding, or a parameter holding a function. It reaches
                 // whatever the value is, which is exactly `Callee::Dynamic`, and it

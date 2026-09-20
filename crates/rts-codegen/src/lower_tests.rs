@@ -68,19 +68,31 @@ fn an_operation_over_proven_numbers_is_pure_and_one_over_a_parameter_is_not() {
     assert!(last.effect.has(Effect::THROWS));
 }
 
+/// A name no scope declares is read through the global object, which is what the
+/// language does with one — it was a refusal until the read became an operation.
 #[test]
-fn a_global_is_refused_by_name_and_not_treated_as_a_local() {
-    let refused =
-        only("function f() { return Math; }").expect_err("a global needs an entry point");
-    assert!(matches!(refused, Unsupported::Global(_)));
+fn a_global_is_read_through_the_global_object() {
+    let lowered = only("function f() { return Math; }").expect("a global read");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let held = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::GlobalRead)))
+        .expect("a global read");
+    // It may run a getter -- the global object is an ordinary object -- and throws
+    // where the name is declared nowhere at all.
+    assert!(held.effect.has(Effect::READS));
+    assert!(held.effect.has(Effect::CALLS_USER));
+    assert!(held.effect.has(Effect::THROWS));
 }
 
-/// Greater-than is NOT less-than with the operands swapped, and the refusal
-/// records why rather than silently doing it.
+/// An operator with no row is refused as an operator, and `**` is one: it is not
+/// `Multiply` repeated, and nothing in the table answers it.
 #[test]
 fn an_operator_with_no_row_is_refused_by_name() {
-    let refused = only("function f(a, b) { return a > b; }").expect_err("no row for >");
-    assert_eq!(refused, Unsupported::Operator(BinaryOp::Greater));
+    let refused = only("function f(a, b) { return a ** b; }").expect_err("no row for **");
+    assert_eq!(refused, Unsupported::Operator(BinaryOp::Exponent));
 }
 
 #[test]
@@ -1226,16 +1238,12 @@ fn unsigned_shift_is_refused_because_its_answer_is_not_an_int32() {
 /// reading "an expression kind", and it was the biggest single bucket in `bench/` —
 /// a refusal that does not name itself is worth the same as no refusal, because the
 /// survey is the work queue and a bucket cannot be queued.
+///
+/// The kinds asserted here are the ones still refused: a construction and a type
+/// assertion were in this list and both lower now, which is why the list moved
+/// rather than the test being deleted.
 #[test]
 fn a_refused_expression_names_what_it_was() {
-    assert_eq!(
-        only("function f(C) { return new C(); }").expect_err("a construction"),
-        Unsupported::Expression("a construction")
-    );
-    assert_eq!(
-        only("function f(a) { return a as number; }").expect_err("an assertion"),
-        Unsupported::Expression("a type assertion")
-    );
     assert_eq!(
         only("function f(a) { return `x${a}`; }").expect_err("a template"),
         Unsupported::Expression("a template literal")
@@ -1243,6 +1251,14 @@ fn a_refused_expression_names_what_it_was() {
     assert_eq!(
         only("function f(a) { return a ? 1 : 2; }").expect_err("a conditional"),
         Unsupported::Expression("a conditional")
+    );
+    assert_eq!(
+        only("function f(a, b) { return (a, b); }").expect_err("a comma expression"),
+        Unsupported::Expression("a comma expression")
+    );
+    assert_eq!(
+        only("function f() { return class {}; }").expect_err("a class expression"),
+        Unsupported::Expression("a class expression")
     );
 }
 

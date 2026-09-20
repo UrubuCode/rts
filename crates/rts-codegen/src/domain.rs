@@ -120,6 +120,18 @@ pub enum JsPrim {
     Remainder,
     /// `a < b`, which also coerces and also answers a boolean.
     LessThan,
+    /// `a > b`, `a <= b`, `a >= b`.
+    ///
+    /// Rows of their own rather than `LessThan` with the operands swapped, which is
+    /// the rewrite this table refused for three commits and the refusal was right:
+    /// `a > b` coerces `a` FIRST and `b < a` coerces `b` first, so the swap changes
+    /// which `valueOf` runs first and that is observable.
+    ///
+    /// One row for the three because they agree about everything recorded here — each
+    /// coerces both operands, each answers a boolean, each calls user code only where
+    /// an operand is an object. Which comparison they are is the machine lowering's
+    /// question.
+    Compare,
     /// `a === b`, which coerces nothing. The one comparison that cannot call
     /// user code, which is why it is a row of its own.
     StrictEquals,
@@ -163,6 +175,48 @@ pub enum JsPrim {
     /// into an argument list. The two are refused together in `rts-mir/lower` under
     /// `NeedsReceiverConvention`, which is the honest place for the decision.
     ThisValue,
+    /// Reading a name no scope declares, through the global object.
+    ///
+    /// # Why this is not a refusal and not an entry point either
+    ///
+    /// A name the whole program declares nowhere is resolved through the global
+    /// object at run time — which `emit/inline.rs` already states as the reason zero
+    /// declarations is a STRONGER proof than one. So it is an operation like any
+    /// other read, and it takes a key: the same declared constant a property read
+    /// takes, because that is what it is.
+    ///
+    /// Naming an entry point instead would be the wrong shape. `Math` is not a
+    /// runtime operation, it is a property of an object, and `rts-host`'s entry table
+    /// is for operations. The day a lowering wants `Math.abs` as one instruction, the
+    /// thing that earns it is a proof that nobody reassigned `Math` — which is
+    /// `primordial`'s question and a pass, not a table row.
+    GlobalRead,
+    /// Constructing, with the constructor as the first argument.
+    ///
+    /// NOT a call, and the difference is what it does rather than how it is written:
+    /// it allocates an object, runs a body against it, and answers the object unless
+    /// the body answered another one. `Op::Call` cannot say that — its result is
+    /// whatever the callee returned — and giving construction a flag on the call
+    /// would make every pass reading a call ask which kind it was.
+    Construct,
+    /// A function value, naming which function of the module it is.
+    ///
+    /// # Why this is an operation and not a refusal
+    ///
+    /// The third time rule 2 answers the same shape. A function value is a closure:
+    /// code plus whatever its free bindings resolve to. The CODE is known — the
+    /// module numbered it — and the environment is where its free bindings live,
+    /// which is the machine question `OuterRead` already leaves below.
+    ///
+    /// So this says WHICH FUNCTION and stops. A machine lowering decides what a
+    /// closure is made of, and it already has everything it needs to: the function's
+    /// own graph reads its free bindings through `OuterRead`, so the set is derivable
+    /// from the graph rather than something this operation has to carry.
+    ///
+    /// That is what makes it one argument instead of a captured list — and why a pass
+    /// that wants the captured set reads the callee's graph, which is the one place
+    /// the answer cannot drift from.
+    MakeClosure,
     /// Reading a property whose position a shape decided.
     FieldRead,
     /// Writing one.
@@ -261,6 +315,12 @@ pub enum JsConst {
     /// without this layer deciding where the binding's cell lives. See
     /// [`JsPrim::OuterRead`].
     Binding(u32),
+    /// A function of this program, by its `rts_mir::cfg::FuncId` index.
+    ///
+    /// Beside [`JsConst::Binding`] and for the same reason: it names something rather
+    /// than being a value, so that an operation can say WHICH without this layer
+    /// deciding how the thing is represented.
+    Function(u32),
 }
 
 
@@ -323,6 +383,10 @@ impl Js {
         JsPrim::Negate,
         JsPrim::BitwiseNot,
         JsPrim::ThisValue,
+        JsPrim::GlobalRead,
+        JsPrim::Construct,
+        JsPrim::MakeClosure,
+        JsPrim::Compare,
     ];
 
     /// A domain holding only the fixed constants.
@@ -406,6 +470,7 @@ impl Js {
             | JsPrim::Divide
             | JsPrim::Remainder
             | JsPrim::LessThan
+            | JsPrim::Compare
             | JsPrim::BitwiseInt32
             | JsPrim::Negate
             | JsPrim::BitwiseNot => match args.iter().all(Self::needs_no_coercion) {
@@ -452,6 +517,18 @@ impl Js {
             // a FieldRead, and it is a pass rather than something the lowering can
             // see.
             JsPrim::IndexRead => Effect::READS.and(Effect::CALLS_USER).and(Effect::THROWS),
+            // A GLOBAL read may run a getter -- the global object is an ordinary
+            // object -- and throws where the name is declared nowhere at all.
+            JsPrim::GlobalRead => Effect::READS.and(Effect::CALLS_USER).and(Effect::THROWS),
+            // Constructing allocates, runs a body that is user code, and throws
+            // where the callee is not a constructor.
+            // Building a closure allocates and nothing else: the code is already
+            // compiled and the environment is read, not run.
+            JsPrim::MakeClosure => Effect::ALLOCATES,
+            JsPrim::Construct => Effect::ALLOCATES
+                .and(Effect::CALLS_USER)
+                .and(Effect::THROWS)
+                .and(Effect::WRITES),
             JsPrim::IndexWrite => Effect::WRITES.and(Effect::CALLS_USER).and(Effect::THROWS),
             JsPrim::FieldWrite => match args.first() {
                 Some(Type::Shaped(_)) => Effect::WRITES,
@@ -542,7 +619,7 @@ impl Domain for Js {
                 // A binding NAME is not a value of the language, so it has no type
                 // in this lattice. Nothing reads one as a value: it is only ever an
                 // operand of an outer read or write.
-                Some(JsConst::Binding(_)) => Type::Nothing,
+                Some(JsConst::Binding(_) | JsConst::Function(_)) => Type::Nothing,
                 None => Type::Anything,
             },
         }
@@ -585,7 +662,9 @@ impl Domain for Js {
             JsPrim::Negate => Type::Double,
             // Nothing is known about a receiver without a proof about the call site.
             JsPrim::ThisValue => Type::Anything,
-            JsPrim::LessThan | JsPrim::StrictEquals | JsPrim::Not => Type::Bool(None),
+            JsPrim::LessThan | JsPrim::Compare | JsPrim::StrictEquals | JsPrim::Not => {
+                Type::Bool(None)
+            }
             // Folded where the type decides it, which is what `truth_of` is for:
             // an object is always true and `undefined` always false, so a branch
             // over either is a branch a later pass can remove. A number and a
@@ -609,7 +688,13 @@ impl Domain for Js {
             // this domain does not hold one yet, so the honest answer is the
             // weaker type rather than a number invented here.
             JsPrim::NewArray | JsPrim::NewObject => Type::Object,
-            JsPrim::FieldRead | JsPrim::IndexRead | JsPrim::OuterRead => Type::Anything,
+            JsPrim::FieldRead | JsPrim::IndexRead | JsPrim::OuterRead | JsPrim::GlobalRead => {
+                Type::Anything
+            }
+            // An object, and never a shaped one: which layout a constructor arrives
+            // at is the runtime shape tree's answer. See [`Type::Shaped`].
+            JsPrim::Construct => Type::Object,
+            JsPrim::MakeClosure => Type::Callable,
             JsPrim::OuterWrite => args.get(1).cloned().unwrap_or(Type::Anything),
             JsPrim::IndexWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             // A write answers the value written, which is what makes `a = b = 1`
@@ -696,6 +781,7 @@ impl rts_mir::text::Legend for Js {
             // this crate can honestly say only which declaration it is --
             // `mir_dump::Spelled` is what turns it into a name.
             Some(JsConst::Binding(held)) => format!("binding#{held}"),
+            Some(JsConst::Function(held)) => format!("f{held}"),
             Some(JsConst::Text(_)) => format!("str#{index}"),
             None => format!("const#{index}"),
         }
