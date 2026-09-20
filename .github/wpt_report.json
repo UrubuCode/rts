@@ -1324,13 +1324,13 @@
       "script": false
     },
     {
-      "nome": "balance/balance-start-bias-002",
+      "nome": "balance/balance-start-bias-001",
       "pct": 0.06103515625,
       "n": 625,
       "script": false
     },
     {
-      "nome": "balance/balance-start-bias-001",
+      "nome": "balance/balance-start-bias-002",
       "pct": 0.06103515625,
       "n": 625,
       "script": false
@@ -1951,12 +1951,12 @@
       "estado": "passa"
     },
     {
-      "nome": "balance/balance-start-bias-002",
+      "nome": "balance/balance-start-bias-001",
       "estado": "falha",
       "pct": 0.06103515625
     },
     {
-      "nome": "balance/balance-start-bias-001",
+      "nome": "balance/balance-start-bias-002",
       "estado": "falha",
       "pct": 0.06103515625
     },
@@ -1970,13 +1970,13 @@
       "estado": "passa"
     },
     {
-      "nome": "baseline-outside-flex-item",
-      "estado": "passa"
-    },
-    {
       "nome": "balance/webkit-box-no-balance",
       "estado": "falha",
       "pct": 1.46484375
+    },
+    {
+      "nome": "baseline-outside-flex-item",
+      "estado": "passa"
     },
     {
       "nome": "baseline-synthesis-001",
@@ -2298,13 +2298,13 @@
       "estado": "passa"
     },
     {
+      "nome": "flex-aspect-ratio-img-row-006",
+      "estado": "passa"
+    },
+    {
       "nome": "flex-aspect-ratio-img-row-004",
       "estado": "falha",
       "pct": 0.390625
-    },
-    {
-      "nome": "flex-aspect-ratio-img-row-006",
-      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-row-007",
@@ -3522,11 +3522,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_align-items-flexend-2",
+      "nome": "flexbox_align-items-flexend",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_align-items-flexend",
+      "nome": "flexbox_align-items-flexend-2",
       "estado": "passa"
     },
     {
@@ -3559,11 +3559,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_align-self-baseline",
+      "nome": "flexbox_align-self-center",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_align-self-center",
+      "nome": "flexbox_align-self-baseline",
       "estado": "passa"
     },
     {
@@ -4251,12 +4251,12 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_stf-table-cell",
-      "estado": "passa"
-    },
-    {
       "nome": "flexbox_stf-table-row-group",
       "estado": "passa-vazio"
+    },
+    {
+      "nome": "flexbox_stf-table-cell",
+      "estado": "passa"
     },
     {
       "nome": "flexbox_stf-table-row",
@@ -4295,11 +4295,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_wrap-long",
+      "nome": "flexbox_wrap-reverse",
       "estado": "passa"
     },
     {
-      "nome": "flexbox_wrap-reverse",
+      "nome": "flexbox_wrap-long",
       "estado": "passa"
     },
     {
@@ -4319,13 +4319,13 @@
       "estado": "passa"
     },
     {
-      "nome": "gap-001-lr",
-      "estado": "passa"
-    },
-    {
       "nome": "flexitem-stretch-range",
       "estado": "falha",
       "pct": 0.2853515625
+    },
+    {
+      "nome": "gap-001-lr",
+      "estado": "passa"
     },
     {
       "nome": "gap-001-ltr",
@@ -4352,11 +4352,11 @@
       "estado": "passa"
     },
     {
-      "nome": "gap-002-rtl",
+      "nome": "gap-003-lr",
       "estado": "passa"
     },
     {
-      "nome": "gap-003-lr",
+      "nome": "gap-002-rtl",
       "estado": "passa"
     },
     {
@@ -4514,13 +4514,13 @@
       "estado": "passa"
     },
     {
-      "nome": "grid-flex-item-004",
-      "estado": "passa"
-    },
-    {
       "nome": "grid-flex-item-005",
       "estado": "falha",
       "pct": 0.9765625
+    },
+    {
+      "nome": "grid-flex-item-004",
+      "estado": "passa"
     },
     {
       "nome": "grid-flex-item-006",
@@ -5161,11 +5161,11 @@
       "estado": "passa"
     },
     {
-      "nome": "table-with-float-paint",
+      "nome": "table-item-flex-percentage-width",
       "estado": "passa"
     },
     {
-      "nome": "table-item-flex-percentage-width",
+      "nome": "table-with-float-paint",
       "estado": "passa"
     },
     {
