@@ -1245,3 +1245,100 @@ fn a_refused_expression_names_what_it_was() {
         Unsupported::Expression("a conditional")
     );
 }
+
+/// `this` is an operation that reads the receiver of this activation. It is pure --
+/// the value is already there -- and nothing is known about it without a proof about
+/// the call site.
+#[test]
+fn this_is_an_operation_that_reads_the_receiver() {
+    let lowered = only("function f() { return this; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let held = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::ThisValue)))
+        .expect("a receiver read");
+    assert!(held.effect.is_pure());
+    match &held.op {
+        rts_mir::Op::Prim { args, .. } => assert!(args.is_empty()),
+        other => panic!("expected a primitive, got {other:?}"),
+    }
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    assert_eq!(*types.of(held.result), Type::Anything);
+}
+
+/// Unary plus IS `ToNumber` and gets no row of its own: `+a` and the coercion an
+/// increment performs are the same operation, and two rows would let a pass fold one
+/// and miss the other.
+#[test]
+fn unary_plus_is_the_same_operation_an_increment_coerces_with() {
+    let lowered = only("function f(a) { return +a; }").expect("covered");
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ops, vec![JsPrim::ToNumber]);
+}
+
+/// `-a` answers a number and never an `Int32`: negating the most negative one does
+/// not fit, and negative zero is not a value this lattice names apart from zero.
+/// `~a` does answer an `Int32`, which is the difference worth pinning.
+#[test]
+fn negation_is_a_number_and_a_bitwise_not_is_an_int32() {
+    let negated = only("function f() { return -1; }").expect("covered");
+    let types = rts_mir::infer::infer(&negated.func, &negated.domain);
+    let held = negated
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if negated.domain.meaning(*prim) == Some(JsPrim::Negate)))
+        .expect("a negation");
+    assert_eq!(*types.of(held.result), Type::Double);
+
+    let flipped = only("function f() { return ~1; }").expect("covered");
+    let types = rts_mir::infer::infer(&flipped.func, &flipped.domain);
+    let held = flipped
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if flipped.domain.meaning(*prim) == Some(JsPrim::BitwiseNot)))
+        .expect("a bitwise not");
+    assert_eq!(*types.of(held.result), Type::Int32);
+}
+
+/// `void a` evaluates its operand and answers `undefined` -- both halves, because
+/// dropping the operand would drop its effects.
+#[test]
+fn void_evaluates_its_operand_and_answers_undefined() {
+    let lowered = only("function f(o) { return void o.x; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // The property read happened...
+    assert!(
+        lowered.func.insts.iter().any(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::FieldRead))),
+        "the operand is evaluated"
+    );
+    // ...and the answer is `undefined`.
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(Terminator::Return(Some(value))) => *value,
+        other => panic!("expected a returned value, got {other:?}"),
+    };
+    assert_eq!(*types.of(returned), Type::Undefined);
+}
+
+/// `delete` removes a property, so its operand is a PLACE: lowering the operand
+/// first would evaluate what is about to be deleted.
+#[test]
+fn delete_is_refused_because_its_operand_is_a_place() {
+    let refused = only("function f(o) { return delete o.x; }").expect_err("delete");
+    assert_eq!(
+        refused,
+        Unsupported::Expression("delete removes a property, so its operand is a place")
+    );
+}

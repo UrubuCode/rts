@@ -536,6 +536,35 @@ v4 = bitwiseint32(v2, v3)                      ← n & 255, PURE
 after it is pure because the first one proved its operand. That is the type domain
 paying for itself on a shape real code writes constantly.
 
+### `this` and the unary operators: 161 → 188 in `bench/`, 1021 → 1082 in `tests/`
+
+Per file in `bench/`: five gains, none lost.
+
+**`this` got the same answer the outer binding did, for the same reason.** Where the
+receiver of an activation lives — an extra parameter, a register the convention
+reserves, a slot the frame holds — is the machine's calling convention, so the
+lowering emits `thisvalue()` and stops. It is also the other end of the receiver
+field on a call: one says a receiver travels, the other says the callee reads it, and
+neither packs it into an argument list. `rts-mir/lower` refuses both under the same
+`NeedsReceiverConvention`, which is where that decision belongs.
+
+Three of the unary operators are rows, and each of the other four is a decision:
+
+- **unary plus is `ToNumber`** and gets no row. `+a` and the coercion an increment
+  performs are the same operation; two rows would let a pass fold one and miss the
+  other.
+- **`-a` is not a subtraction from zero.** `-0` is `-0` and `0 - 0` is `+0`, and the
+  two are distinguishable by `Object.is` and by division. It also answers a number
+  and never an `Int32`, because negating the most negative one does not fit.
+- **`void a` evaluates its operand** and answers `undefined`. Dropping the operand
+  would drop its effects.
+- **`delete` keeps its refusal**: it removes a property, so its operand is a PLACE,
+  and lowering the operand first would evaluate what is about to be deleted.
+- **`UnaryOp::IteratorResult` keeps its own refusal**, named. It is not an operator a
+  program can write — a `for`-`of` expansion mints it so that raising the loop's
+  `TypeError` needs no binding a program could shadow. Refusing it silently would
+  refuse `for`-`of`; lowering it as a no-op would drop the check.
+
 ### What is left, and both corpora agree again
 
 | `bench/` | | `tests/` | |

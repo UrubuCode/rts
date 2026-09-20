@@ -600,6 +600,52 @@ impl Lowering<'_> {
                 let at = self.expression(index)?;
                 Ok(self.prim(JsPrim::IndexRead, vec![held, at], expr))
             }
+            // `this` is an operation that reads the receiver of this activation.
+            //
+            // Where that receiver lives is the calling convention, which the machine
+            // decides -- the same answer the outer binding got, and the other end of
+            // the receiver field on a call.
+            ExprKind::This => Ok(self.prim(JsPrim::ThisValue, Vec::new(), expr)),
+            ExprKind::Unary { op, operand } => {
+                // `delete` REMOVES a property, so its operand is a place and not a
+                // value: lowering the operand first would evaluate what is about to
+                // be deleted. It keeps its refusal by name.
+                if matches!(op, crate::syntax::UnaryOp::Delete) {
+                    return Err(Unsupported::Expression(
+                        "delete removes a property, so its operand is a place",
+                    ));
+                }
+                let held = self.expression(operand)?;
+                let which = match op {
+                    crate::syntax::UnaryOp::Negate => JsPrim::Negate,
+                    // Unary plus IS `ToNumber` and nothing else, which is why it has
+                    // no row of its own: `+a` and the coercion an increment performs
+                    // are the same operation, and two rows would let a pass fold one
+                    // and miss the other.
+                    crate::syntax::UnaryOp::Plus => JsPrim::ToNumber,
+                    crate::syntax::UnaryOp::Not => JsPrim::Not,
+                    crate::syntax::UnaryOp::BitNot => JsPrim::BitwiseNot,
+                    crate::syntax::UnaryOp::TypeOf => JsPrim::TypeOf,
+                    // `void a` evaluates its operand and answers `undefined`. The
+                    // operand was lowered above, which is the whole of what it does.
+                    crate::syntax::UnaryOp::Void => {
+                        return Ok(self.singleton_at(Singleton::Undefined, expr));
+                    }
+                    // A CHECK a loop expansion mints, not an operator a program can
+                    // write. It answers its operand unchanged and exists so that
+                    // raising the loop's `TypeError` needs no binding a program could
+                    // shadow -- so refusing it here would refuse `for`-`of`, and
+                    // lowering it as a no-op would drop the check. Named, and left
+                    // for the entry point that raises.
+                    crate::syntax::UnaryOp::IteratorResult => {
+                        return Err(Unsupported::Expression(
+                            "the iterator-result check a loop expansion mints",
+                        ));
+                    }
+                    crate::syntax::UnaryOp::Delete => unreachable!("refused above"),
+                };
+                Ok(self.prim(which, vec![held], expr))
+            }
             // AN OBJECT LITERAL, as pairs of a declared key and a value.
             //
             // In SOURCE ORDER, and that is load-bearing rather than tidy: the order
@@ -791,6 +837,19 @@ impl Lowering<'_> {
     }
 
     fn singleton(&mut self, which: Singleton, at: &Stmt) -> ValueId {
+        let value = Const::Declared(which as u32);
+        let of = self.domain.of_const(&value);
+        let held = self.builder.push(Op::Const(value), Effect::PURE, at.at);
+        self.types.insert(held, of);
+        held
+    }
+
+    /// A singleton, at an expression's position.
+    ///
+    /// Beside the statement-positioned one because `void a` needs it and holds an
+    /// `Expr`; keeping one function taking a `Position` would have been the third
+    /// shape of the same three lines.
+    fn singleton_at(&mut self, which: Singleton, at: &Expr) -> ValueId {
         let value = Const::Declared(which as u32);
         let of = self.domain.of_const(&value);
         let held = self.builder.push(Op::Const(value), Effect::PURE, at.at);

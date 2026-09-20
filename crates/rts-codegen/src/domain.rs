@@ -140,6 +140,29 @@ pub enum JsPrim {
     /// an `Int32`. Giving it this row would be wrong at exactly the value that
     /// distinguishes it.
     BitwiseInt32,
+    /// `-a`, which coerces and then negates.
+    ///
+    /// Apart from a subtraction from zero: `-0` is `-0` and `0 - 0` is `+0`, and the
+    /// two are distinguishable by `Object.is` and by division. Lowering one as the
+    /// other would be wrong at the value that names the difference.
+    Negate,
+    /// `~a`, which answers an `Int32` like the binary bitwise row.
+    BitwiseNot,
+    /// The receiver of this activation.
+    ///
+    /// # Why an operation and not a parameter
+    ///
+    /// The same answer the outer binding got, for the same reason. WHERE the
+    /// receiver of an activation lives — an extra parameter, a register the
+    /// convention reserves, a slot the frame holds — is the machine's calling
+    /// convention, and this crate's rule 2 says a machine question is never decided
+    /// here.
+    ///
+    /// It is also the other end of `rts_mir::cfg::Op::Call`'s receiver field: one
+    /// says a receiver travels, this says the callee reads it, and neither packs it
+    /// into an argument list. The two are refused together in `rts-mir/lower` under
+    /// `NeedsReceiverConvention`, which is the honest place for the decision.
+    ThisValue,
     /// Reading a property whose position a shape decided.
     FieldRead,
     /// Writing one.
@@ -297,6 +320,9 @@ impl Js {
         JsPrim::OuterRead,
         JsPrim::OuterWrite,
         JsPrim::BitwiseInt32,
+        JsPrim::Negate,
+        JsPrim::BitwiseNot,
+        JsPrim::ThisValue,
     ];
 
     /// A domain holding only the fixed constants.
@@ -380,7 +406,9 @@ impl Js {
             | JsPrim::Divide
             | JsPrim::Remainder
             | JsPrim::LessThan
-            | JsPrim::BitwiseInt32 => match args.iter().all(Self::needs_no_coercion) {
+            | JsPrim::BitwiseInt32
+            | JsPrim::Negate
+            | JsPrim::BitwiseNot => match args.iter().all(Self::needs_no_coercion) {
                 true => match which {
                     // Concatenation allocates even when nothing coerces.
                     JsPrim::Add if args.iter().any(|held| *held == Type::Str) => {
@@ -391,7 +419,13 @@ impl Js {
                 false => Effect::CALLS_USER.and(Effect::THROWS),
             },
             // Neither reads the heap nor coerces.
-            JsPrim::StrictEquals | JsPrim::TypeOf | JsPrim::Not | JsPrim::Truthy => Effect::PURE,
+            JsPrim::StrictEquals
+            | JsPrim::TypeOf
+            | JsPrim::Not
+            | JsPrim::Truthy
+            // Reading the receiver reads a slot the convention decided. It cannot
+            // fail and it cannot call anything: the value is already there.
+            | JsPrim::ThisValue => Effect::PURE,
             // The same boundary as arithmetic: only an object coerces through code
             // the program wrote.
             // Building one allocates, whatever it is built from, and it reaches
@@ -544,7 +578,13 @@ impl Domain for Js {
             JsPrim::Divide => Type::Double,
             // ALWAYS an Int32, whatever it was given, and that is the reason a
             // program writes one: `x | 0` is how a number becomes provably narrow.
-            JsPrim::BitwiseInt32 => Type::Int32,
+            JsPrim::BitwiseInt32 | JsPrim::BitwiseNot => Type::Int32,
+            // A negation answers a number, and never an Int32: negating the most
+            // negative one does not fit, and negative zero is not a value this
+            // lattice can name apart from zero.
+            JsPrim::Negate => Type::Double,
+            // Nothing is known about a receiver without a proof about the call site.
+            JsPrim::ThisValue => Type::Anything,
             JsPrim::LessThan | JsPrim::StrictEquals | JsPrim::Not => Type::Bool(None),
             // Folded where the type decides it, which is what `truth_of` is for:
             // an object is always true and `undefined` always false, so a branch
