@@ -39,7 +39,7 @@ fn a_config_beside_the_entry_is_found() {
         found,
         vec![
             dir.join("src").join("engine").join("scene"),
-            dir.join(".").join("@/engine/scene"),
+            dir.join("@/engine/scene"),
         ],
         "the paths hit comes first; the baseUrl candidate follows it and is \
          what a matched-but-missing pattern falls through to"
@@ -62,6 +62,30 @@ fn a_matched_pattern_whose_targets_all_miss_still_offers_base_url() {
     let found = aliases.candidates("@/thing");
     assert_eq!(found.len(), 2, "the missing paths target, then baseUrl: {found:?}");
     assert!(found[1].starts_with(&dir), "the second candidate is the baseUrl one");
+}
+
+/// One file must have ONE spelling. `./src/*` and `baseUrl: "."` both
+/// grow a `.` component when joined, and a module keyed by its resolved
+/// path would then exist twice — spec §5's two-copies-of-one-module.
+#[test]
+fn no_candidate_carries_a_current_dir_component() {
+    use std::path::Component;
+    let dir = fixture(
+        "nodot",
+        &[
+            ("tsconfig.json", "{\"compilerOptions\":{\"baseUrl\":\".\",\"paths\":{\"@/*\":[\"./src/*\"]}}}"),
+            ("src/app.ts", "export const x = 1;\n"),
+        ],
+    );
+    let aliases = Aliases::discover(&dir.join("src/app.ts"));
+    let found = aliases.candidates("@/engine/scene");
+    assert_eq!(found.len(), 2, "the paths hit and the baseUrl fall-through");
+    for candidate in &found {
+        assert!(
+            !candidate.components().any(|part| part == Component::CurDir),
+            "a `.` component survived into {candidate:?}"
+        );
+    }
 }
 
 /// Upward, like node and bun and tsc: the entry is deep and the config is not.

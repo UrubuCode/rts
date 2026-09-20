@@ -84,7 +84,7 @@ impl Aliases {
         if let Some(pattern) = self.best_match(specifier) {
             let stem = &specifier[pattern.prefix.len()..specifier.len() - pattern.suffix.len()];
             for target in &pattern.targets {
-                found.push(substitute(target, stem, pattern.wildcard));
+                found.push(without_current_dir(substitute(target, stem, pattern.wildcard)));
             }
         }
         // `baseUrl` is tried AFTER every `paths` target, never instead of them:
@@ -92,7 +92,7 @@ impl Aliases {
         // through to here, which is `tsc`'s order. The caller walks this list and
         // stops at the first that exists, so an extra candidate costs one probe.
         if let Some(base) = &self.base_url {
-            found.push(base.join(specifier));
+            found.push(without_current_dir(base.join(specifier)));
         }
         found
     }
@@ -137,6 +137,31 @@ fn substitute(target: &Path, stem: &str, wildcard: bool) -> PathBuf {
     }
     let text = target.to_string_lossy().replace('*', stem);
     PathBuf::from(text)
+}
+
+/// A path with its `.` components removed.
+///
+/// `directory.join("./src/x")` and `directory.join(".")` both KEEP a
+/// literal `CurDir`, so `dir/./x.ts` and `dir/x.ts` are two strings
+/// naming one file. The loader keys a module by its resolved path, so
+/// leaving them would make a module reached through an alias and the
+/// same module reached relatively into two modules with two namespaces.
+///
+/// Not `canonicalize`: that answers a `\\?\` path on Windows — the
+/// reason `resolve::plain` exists — and resolves symlinks, and the
+/// relative path does neither. Normalising only this side would create
+/// the divergence it is meant to remove. A `.` is a no-op component by
+/// definition, so dropping it cannot change which file is named.
+fn without_current_dir(path: PathBuf) -> PathBuf {
+    use std::path::Component;
+    let mut built = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            other => built.push(other),
+        }
+    }
+    built
 }
 
 /// Reads one file and everything it extends.
