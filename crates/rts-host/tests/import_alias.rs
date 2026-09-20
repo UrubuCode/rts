@@ -220,3 +220,37 @@ fn a_paths_target_that_walks_out_and_back_is_still_one_module() {
     assert_eq!(count, 1);
     assert!(failed.is_empty(), "a `..` in the target must not make a second module: {failed:?}");
 }
+
+/// A remote program must not resolve `@/…` against THIS machine's project.
+///
+/// The mirror (`rts run https://…`, `rts-cli/src/url_entry.rs`) asks
+/// `relative_imports`, which is blind to aliases. The fixture installs a map
+/// that WOULD match, so a pass means the blindness held rather than that
+/// nothing matched.
+#[test]
+fn the_remote_mirror_does_not_resolve_an_alias() {
+    let dir = fixture(
+        "remote",
+        &[
+            ("tsconfig.json", "{\"compilerOptions\":{\"paths\":{\"@/*\":[\"./src/*\"]}}}"),
+            ("src/secret.ts", "export const value = 1;\n"),
+            ("src/app.ts", "export const x = 1;\n"),
+        ],
+    );
+    // Make the local map ACTIVE, exactly as loading a local program would.
+    let entry = dir.join("src/app.ts");
+    rts_host::compile_graph(&entry).expect("the local program compiles, installing the map");
+
+    let remote = "import { value } from \"@/secret\";\nexport const y = value;\n";
+    let found = rts_host::graph::relative_imports(remote).expect("it parses");
+    assert!(
+        found.is_empty(),
+        "a remote program's `@/secret` must not become this machine's file: {found:?}"
+    );
+
+    // And the control: a relative one IS still fetched, so the test above is
+    // not passing because the walk answers nothing at all.
+    let relative = "import { value } from \"./secret\";\nexport const y = value;\n";
+    let found = rts_host::graph::relative_imports(relative).expect("it parses");
+    assert_eq!(found, vec!["./secret".to_string()]);
+}
