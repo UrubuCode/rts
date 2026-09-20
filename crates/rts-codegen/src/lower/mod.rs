@@ -43,6 +43,7 @@ use crate::syntax::{
 };
 use crate::values::Singleton;
 
+mod calls;
 mod loops;
 
 /// What this lowering does not do yet, and where.
@@ -460,16 +461,7 @@ impl Lowering<'_> {
                 let Some(binding) = self.resolution.binding_in(self.scope, *name) else {
                     return Err(Unsupported::Global(*name));
                 };
-                match self.values.get(&binding) {
-                    Some(value) => Ok(*value),
-                    // Declared in this function and not yet reached: reading one
-                    // before its declaration is the temporal dead zone, which
-                    // needs a sentinel and a throw. `emit/scope.rs` records the
-                    // same gap.
-                    None => Err(Unsupported::Expression(
-                        "a binding read before its declaration is in its dead zone",
-                    )),
-                }
+                self.read_binding(binding, *name, expr)
             }
             // An assignment to a plain local is a REBIND, which is what SSA makes
             // of one: the binding now holds a different value and no store
@@ -649,60 +641,65 @@ impl Lowering<'_> {
                 }
                 Ok(self.prim(JsPrim::NewArray, values, expr))
             }
-            // A CALL TO A FUNCTION THE MODULE NUMBERED.
-            //
-            // The callee is resolved through the binding and not through the
-            // spelling, which is what makes this correct in a module that declares
-            // `step` twice: `binding_in` answers which of the two this site reaches,
-            // and the map answers which function that binding is.
-            //
-            // What is refused is everything else — a method, a call through a
-            // parameter, a global. Each needs something this stage does not have: a
-            // receiver proof, an indirect call with a signature, an entry point. The
-            // refusals are separate so the survey can count them apart, which is how
-            // this arm came to be written at all.
             ExprKind::Call {
                 callee,
                 arguments,
                 optional: false,
             } => {
+                // A METHOD CALL: the receiver is read once, the callee is read from
+                // it, and the receiver travels as itself.
+                //
+                // Once is the whole point. `o.m()` evaluates `o` a single time, so
+                // lowering it as "read o, read o.m, call with o" would evaluate it
+                // twice and call a getter twice — which is observable and is the
+                // same mistake `a[i()] += 1` is refused for one arm up.
+                //
+                // The receiver is a FIELD of the call and not its first argument.
+                // `rts_mir::cfg::Op::Call` carries the reason: a convention held in
+                // two places drifts, and a field cannot.
+                if let ExprKind::Member {
+                    object,
+                    property,
+                    optional: false,
+                } = &callee.kind
+                {
+                    let receiver = self.expression(object)?;
+                    let key = self.domain.constant(JsConst::Key(*property));
+                    let key = self.declared(key, expr);
+                    let held = self.prim(JsPrim::FieldRead, vec![receiver, key], expr);
+                    let args = self.arguments(arguments)?;
+                    return Ok(self.call(
+                        rts_mir::cfg::Callee::Dynamic(held),
+                        Some(receiver),
+                        args,
+                        expr,
+                    ));
+                }
                 let ExprKind::Ident(name) = &callee.kind else {
                     return Err(Unsupported::Expression(
-                        "a call whose callee is not a plain name needs a receiver proof",
+                        "a call whose callee is neither a name nor a property",
                     ));
                 };
                 let Some(binding) = self.resolution.binding_in(self.scope, *name) else {
                     return Err(Unsupported::Global(*name));
                 };
-                let Some(id) = self.callees.of_binding(binding) else {
-                    return Err(Unsupported::Expression(
-                        "a call to a binding that holds no function of this module",
-                    ));
+                let args = self.arguments(arguments)?;
+                // A NAME THAT HOLDS NO FUNCTION OF THIS MODULE is still a call — an
+                // imported binding, or a parameter holding a function. It reaches
+                // whatever the value is, which is exactly `Callee::Dynamic`, and it
+                // passes no receiver.
+                //
+                // It was refused before this, and the refusal was about the MIR not
+                // having a receiver rather than about this shape: a dynamic call was
+                // already expressible. 218 refusals in `tests/` said so.
+                let callee = match self.callees.of_binding(binding) {
+                    Some(id) => rts_mir::cfg::Callee::Func(id),
+                    None => {
+                        let held = self.read_binding(binding, *name, expr)?;
+                        rts_mir::cfg::Callee::Dynamic(held)
+                    }
                 };
-                let mut args = Vec::with_capacity(arguments.len());
-                for argument in arguments {
-                    let crate::syntax::Spreadable::Single(value) = argument else {
-                        return Err(Unsupported::Expression(
-                            "a spread argument has a run-time count",
-                        ));
-                    };
-                    args.push(self.expression(value)?);
-                }
-                // CALLS_USER and THROWS, because what the callee does is not known
-                // here. An interprocedural pass is what narrows this — and
-                // `passes::refine_effects` is already the shape that would apply the
-                // answer, which is why the summary is on the instruction rather than
-                // derived at every use.
-                let held = self.builder.push(
-                    Op::Call {
-                        callee: rts_mir::cfg::Callee::Func(id),
-                        args,
-                    },
-                    Effect::CALLS_USER.and(Effect::THROWS),
-                    expr.at,
-                );
-                self.types.insert(held, self.domain.top());
-                Ok(held)
+                Ok(self.call(callee, None, args, expr))
             }
             // AN INCREMENT of a local, which a `for` header needs and which is not
             // `x = x + 1`.

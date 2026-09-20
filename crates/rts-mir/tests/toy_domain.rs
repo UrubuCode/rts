@@ -274,6 +274,7 @@ fn a_guard_narrows_what_the_domain_says_it_narrows() {
     let unknown = build.push(
         Op::Call {
             callee: Callee::Entry(EntryId(0)),
+            receiver: None,
             args: Vec::new(),
         },
         Effect::CALLS_USER,

@@ -79,7 +79,33 @@ pub enum Op {
     Prim { prim: Prim, args: Vec<ValueId> },
     /// A call to a named entry point, or to a function of this program, or to
     /// whatever a value holds.
-    Call { callee: Callee, args: Vec<ValueId> },
+    Call {
+        /// What is reached.
+        callee: Callee,
+        /// The receiver, where the language passes one.
+        ///
+        /// # Why a field and not argument zero
+        ///
+        /// Passing it as the first argument is the convention every real calling
+        /// convention uses, and it is the wrong shape HERE. A convention is an
+        /// agreement held in two places — the front end that packs it and the
+        /// lowering that unpacks it — and `docs/engine/deopt-lateral.md` records
+        /// what those do: they drift, and the drift compiles.
+        ///
+        /// A field cannot drift. A lowering that forgets the receiver fails to
+        /// compile instead of passing a receiver as the first argument to a
+        /// function that declares none, and a pass that counts arguments counts
+        /// what the program wrote.
+        ///
+        /// It is also the honest place for the machine question to be ASKED rather
+        /// than answered: how a receiver reaches a callee is the machine's
+        /// convention, and `lower/` is where that is decided — with the receiver
+        /// still visible as itself when it gets there.
+        receiver: Option<ValueId>,
+        /// The arguments the program wrote, in order.
+        args: Vec<ValueId>,
+    },
+
     /// An assertion about a value, checked, with somewhere to fall when it fails.
     ///
     /// Its result is the same value with a narrowed type — which is what makes a
@@ -262,11 +288,16 @@ impl Func {
         match &self.inst(inst).op {
             Op::Const(_) => Vec::new(),
             Op::Prim { args, .. } => args.clone(),
-            Op::Call { callee, args } => {
+            Op::Call {
+                callee,
+                receiver,
+                args,
+            } => {
                 let mut all = match callee {
                     Callee::Dynamic(value) => vec![*value],
                     Callee::Entry(_) | Callee::Func(_) => Vec::new(),
                 };
+                all.extend(receiver.iter().copied());
                 all.extend(args.iter().copied());
                 all
             }

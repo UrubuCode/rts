@@ -118,38 +118,60 @@ fn a_function_expression_bound_to_a_name_is_callable() {
     );
 }
 
-/// What is still refused, and apart from each other so a survey counts them apart.
+/// A method call lowers now, and a GLOBAL still does not — which is the pair worth
+/// keeping, because the two were one refusal before the receiver existed.
+///
+/// The previous version of this test asserted that both were refused. The member
+/// call now lowers, so the assertion was replaced rather than relaxed: what is still
+/// missing is the global, and saying so is what the survey reads.
 #[test]
-fn a_method_call_and_a_global_call_are_refused_for_different_reasons() {
+fn a_method_call_lowers_and_a_global_call_still_names_its_global() {
     let (lowered, _) = module(
         "function viaMember(o) { return o.m(); }
          function viaGlobal() { return parseInt('2'); }",
     );
-    let member = lowered.functions.iter().find(|held| held.named == "viaMember");
-    let global = lowered.functions.iter().find(|held| held.named == "viaGlobal");
+    let member = lowered
+        .functions
+        .iter()
+        .find(|held| held.named == "viaMember")
+        .expect("in the module");
+    assert!(member.result.is_ok(), "{:?}", member.result);
+
+    let global = lowered
+        .functions
+        .iter()
+        .find(|held| held.named == "viaGlobal")
+        .expect("in the module");
     assert!(matches!(
-        member.and_then(|held| held.result.as_ref().err()),
-        Some(Unsupported::Expression(_))
-    ));
-    assert!(matches!(
-        global.and_then(|held| held.result.as_ref().err()),
+        global.result.as_ref().err(),
         Some(Unsupported::Global(_))
     ));
 }
 
-/// A call through a parameter is refused by its own reason: the binding exists and
-/// holds no function of this module.
+/// A call through a parameter is a DYNAMIC call, which is what the receiver field
+/// made expressible: the callee is the parameter's value and no receiver travels.
 #[test]
-fn a_call_through_a_parameter_is_refused_as_holding_no_function() {
+fn a_call_through_a_parameter_reaches_the_value_the_parameter_holds() {
     let (lowered, _) = module("function apply(f) { return f(1); }");
-    let held = lowered.functions[0]
+    let func = lowered.functions[0]
         .result
         .as_ref()
-        .expect_err("a parameter is not a numbered function");
-    assert_eq!(
-        *held,
-        Unsupported::Expression("a call to a binding that holds no function of this module")
-    );
+        .expect("a dynamic call lowers");
+    let call = func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Call { .. }))
+        .expect("a call");
+    match &call.op {
+        rts_mir::Op::Call {
+            callee, receiver, ..
+        } => {
+            assert_eq!(*callee, rts_mir::cfg::Callee::Dynamic(rts_mir::ValueId(0)));
+            assert!(receiver.is_none());
+        }
+        other => panic!("expected a call, got {other:?}"),
+    }
+
 }
 
 /// Every graph in a module shares one domain, which is what makes an index mean the

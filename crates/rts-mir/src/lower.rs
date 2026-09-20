@@ -80,6 +80,13 @@ pub trait MachineOps {
 pub enum Unlowerable {
     /// A guard or a fall, which needs the side exit of `deopt-lateral.md` D3.
     NeedsSideExit(PointId),
+    /// A receiver, which needs the machine to decide how one reaches a callee.
+    ///
+    /// Named apart from [`Self::NeedsCallee`] because it is a different missing
+    /// thing: a callee needs a registry and a signature, a receiver needs a
+    /// CONVENTION. Counting the two together would hide which of them a corpus is
+    /// actually waiting on.
+    NeedsReceiverConvention,
     /// A call to a function of this program, or to a value.
     ///
     /// Both need a function registry and a signature, which a caller holds and
@@ -157,13 +164,24 @@ pub fn lower(
                     ops.prim(into, *prim, &of_args)
                         .map_err(Unlowerable::Language)?
                 }
-                Op::Call { callee, args } => match callee {
-                    Callee::Entry(entry) => {
+                Op::Call {
+                    callee,
+                    receiver,
+                    args,
+                } => match (callee, receiver) {
+                    // A RECEIVER IS REFUSED, and this is where the machine question
+                    // gets asked rather than answered. How a receiver reaches a
+                    // callee is a calling convention, and no entry point takes one
+                    // today — so packing it into the argument list here would be
+                    // inventing the convention in the module that is supposed to
+                    // implement whatever the machine decides.
+                    (_, Some(_)) => return Err(Unlowerable::NeedsReceiverConvention),
+                    (Callee::Entry(entry), None) => {
                         let of_args = read(args, &values)?;
                         ops.entry(into, *entry, &of_args)
                             .map_err(Unlowerable::Language)?
                     }
-                    Callee::Func(_) | Callee::Dynamic(_) => {
+                    (Callee::Func(_) | Callee::Dynamic(_), None) => {
                         return Err(Unlowerable::NeedsCallee);
                     }
                 },

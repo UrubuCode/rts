@@ -436,6 +436,47 @@ the same way would give both sides one numbering. That is a design change across
 three crates — `docs/engine/deopt-lateral.md` D1 has nothing to assert about until it
 exists, so **the first guard is waiting on this and not on the guard machinery.**
 
+### The receiver: 76 → 97 in `bench/`, 127 → 167 in `tests/`
+
+The biggest single step of the campaign, and the decision it rested on is one word:
+**the receiver is a FIELD of `Op::Call`, not its first argument.**
+
+Every real calling convention passes it as argument zero, and that is the wrong shape
+at this layer. A convention is an agreement held in two places — the front end that
+packs it, the lowering that unpacks it — and this document's sibling records what
+those do: they drift, and the drift compiles. A field cannot drift, and the proof
+arrived immediately: adding it broke two `match` arms that had not mentioned it, in
+the two modules that would have silently passed a receiver as an argument.
+
+It also puts the machine question where it belongs. How a receiver reaches a callee
+IS the calling convention, so `rts-mir/lower/` refuses one by name —
+`NeedsReceiverConvention`, apart from `NeedsCallee` because a callee needs a registry
+and a receiver needs a convention, and counting them together would hide which a
+corpus waits on.
+
+`o.m(x)` therefore lowers as: read the receiver **once**, read the callee from it,
+call with the receiver travelling as itself. Once is the semantic — `o.m()` evaluates
+`o` a single time, so reading it twice would run a getter twice, which is the same
+mistake `a[i()] += 1` is refused for.
+
+**And a call through a binding that holds no function of the module is no longer a
+refusal either.** It reaches whatever the value is, which is `Callee::Dynamic` and
+was expressible all along: the 218 refusals in `tests/` were about the MIR having no
+receiver, not about that shape.
+
+### A refusal that named the wrong work
+
+`read_binding` reported three different things as a temporal dead zone: a binding
+declared later in the function (which is one), a binding declared OUTSIDE it (a
+module binding or a captured one — not a dead zone at all), and a function of the
+module read as a value (which needs a closure). 66 refusals across both corpora wore
+the wrong name, so the surveys were pointing at a sentinel-and-throw that almost none
+of them needed.
+
+Told apart, the top of both tables becomes the same real item — **a binding declared
+outside this function**, 912 in `tests/` and 54 in `bench/` — which is the
+environment this stage does not build, and it is now the biggest single piece left.
+
 ### What each table asks for next
 
 Both corpora now ask for the same thing, which they did not when this section was

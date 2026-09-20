@@ -105,13 +105,23 @@ fn operation(op: &Op, legend: &impl Legend) -> String {
         Op::Const(Const::Bool(held)) => format!("{held}"),
         Op::Const(Const::Declared(index)) => legend.declared(*index),
         Op::Prim { prim, args } => format!("{}({})", legend.prim(*prim), values(args)),
-        Op::Call { callee, args } => {
+        Op::Call {
+            callee,
+            receiver,
+            args,
+        } => {
             let callee = match callee {
                 Callee::Entry(entry) => legend.entry(*entry),
                 Callee::Func(func) => format!("f{}", func.0),
                 Callee::Dynamic(value) => value_of(*value),
             };
-            format!("call {callee}({})", values(args))
+            // The receiver is printed as part of the callee -- `v3.call` reads the
+            // way the program was written, and a reader who sees no dot knows there
+            // is no receiver rather than having to count arguments.
+            match receiver {
+                Some(held) => format!("call {}.{callee}({})", value_of(*held), values(args)),
+                None => format!("call {callee}({})", values(args)),
+            }
         }
         Op::Guard {
             assertion,

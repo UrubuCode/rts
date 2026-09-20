@@ -945,3 +945,105 @@ fn a_shorthand_property_lowers_like_the_long_form() {
         lowered.func.insts.iter().any(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::NewObject)))
     );
 }
+
+/// A method call reads its receiver ONCE, reads the callee from it, and passes the
+/// receiver as a field rather than as an argument.
+#[test]
+fn a_method_call_reads_its_receiver_once_and_passes_it_as_itself() {
+    let lowered = only("function f(o, n) { return o.scale(n); }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+
+    let call = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Call { .. }))
+        .expect("a call");
+    let (callee, receiver, args) = match &call.op {
+        rts_mir::Op::Call {
+            callee,
+            receiver,
+            args,
+        } => (*callee, *receiver, args.clone()),
+        other => panic!("expected a call, got {other:?}"),
+    };
+    // The receiver is the function's first parameter, read once -- there is exactly
+    // one field read and its object is that same value.
+    let receiver = receiver.expect("a method call passes a receiver");
+    assert_eq!(receiver, rts_mir::ValueId(0), "the parameter itself");
+    // The arguments are what the program wrote, and the receiver is NOT among them.
+    assert_eq!(args.len(), 1);
+    assert_ne!(args[0], receiver);
+    // The callee is the value the field read produced.
+    let read = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::FieldRead)))
+        .expect("a field read");
+    assert_eq!(callee, rts_mir::cfg::Callee::Dynamic(read.result));
+}
+
+/// A call to a binding that holds no function of this module is a DYNAMIC call and
+/// no longer a refusal — it reaches whatever the value is, and passes no receiver.
+#[test]
+fn a_call_through_a_parameter_is_a_dynamic_call_with_no_receiver() {
+    let lowered = only("function apply(g, n) { return g(n); }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let call = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Call { .. }))
+        .expect("a call");
+    match &call.op {
+        rts_mir::Op::Call {
+            callee, receiver, ..
+        } => {
+            assert_eq!(*callee, rts_mir::cfg::Callee::Dynamic(rts_mir::ValueId(0)));
+            assert!(receiver.is_none(), "a bare name passes no receiver");
+        }
+        other => panic!("expected a call, got {other:?}"),
+    }
+}
+
+/// The three reasons a binding holds no value here are told apart, because the
+/// survey named the wrong work while they were one.
+#[test]
+fn a_binding_outside_this_function_is_not_reported_as_a_dead_zone() {
+    let outside = only("function f() { return outer; } let outer = 1;");
+    // `outer` is a module binding: not this function's, and not a dead zone.
+    assert_eq!(
+        outside.expect_err("a module binding"),
+        Unsupported::Expression("a binding declared outside this function needs an environment")
+    );
+
+    let inside = only("function f() { const a = later; const later = 1; return a; }");
+    assert_eq!(
+        inside.expect_err("read before its declaration"),
+        Unsupported::Expression("a binding read before its declaration is in its dead zone")
+    );
+}
+
+/// A call always calls user code and may throw, because what the callee does is not
+/// known here.
+#[test]
+fn a_call_carries_the_effect_a_call_has() {
+    let lowered = only("function f(o) { return o.m(); }").expect("covered");
+    let call = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Call { .. }))
+        .expect("a call");
+    assert!(call.effect.has(Effect::CALLS_USER));
+    assert!(call.effect.has(Effect::THROWS));
+    assert!(!call.effect.falls_through());
+}
+
+/// A spread argument is refused: the count would stop being the count written.
+#[test]
+fn a_spread_argument_is_refused() {
+    let refused = only("function f(o, xs) { return o.m(...xs); }").expect_err("a spread");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}
