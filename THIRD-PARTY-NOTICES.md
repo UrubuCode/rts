@@ -234,6 +234,8 @@ claim endorsement, certification, or affiliation.
   licence before reproducing any of its material here.
 - **test262** — no longer "consulted". It is measured against, and it has a
   section of its own below.
+- **V8 `mjsunit`, WebKit `JSTests/stress`, Node's `test/`** — likewise measured
+  against rather than consulted, each with a section below.
 
 ---
 
@@ -322,3 +324,117 @@ rights. Reading a corpus grants us no patent licence and we claim none.
 **If the corpus is ever vendored** — into `vendor/`, into a container image, into
 a release artefact — conditions 1 and 2 start applying and this section is not
 enough on its own: the `LICENSE` file must travel with the copied material.
+
+---
+
+## The other corpora we measure against
+
+**This section is late in exactly the way the one above it is, and that is the
+first thing it has to say.** The test262 section was written to record that a
+measurement had been built, run and published before its licence was read, and
+it closes with the rule that follows from it. Then three more corpora were
+imported — V8's `mjsunit`, WebKit's `JSTests/stress` and Node's `test/` — each
+run, each given a number in the `README.md`, and **none of them recorded here**.
+The confession did not prevent the repeat. It is written down rather than
+quietly fixed, because the interesting fact is not that the rule was broken once
+but that writing it down was not enough.
+
+What is now in place instead of a promise: the block generator,
+`scripts/suites/common.py`, emits the non-endorsement notice into **every**
+suite block, so a fourth corpus cannot be published without it.
+
+### What is true of all four, so it is said once
+
+- **Nothing is vendored.** Each `scripts/*/fetch.sh` makes a shallow, sparse
+  clone into a directory the `.gitignore` covers (`.test262/`, `.mjsunit/`,
+  `.jsc/`, `.node-suite/`). No file from any of them is committed to this
+  repository, copied into an artefact, or linked into a binary. Conditions of
+  the "redistribution" kind therefore do not attach, because there is no
+  redistribution.
+- **Each clone is pinned** to a SHA or a tag, and the pin is an argument about
+  measurement rather than about licensing: a percentage against a moving target
+  is not comparable with itself next week.
+- **Each `fetch.sh` also checks out the upstream `LICENSE`**, even though
+  nothing here requires it. It costs one path in the sparse-checkout, and it
+  means the terms are beside the corpus on the developer's disk at the pinned
+  revision — which is the only copy that can be authoritative, since a licence
+  quoted from memory is a claim rather than a notice.
+- **The harness file runs unmodified, in front of the test**, as every engine
+  runs these suites: `sta.js`/`assert.js` for test262, `mjsunit.js` for V8,
+  `test/common` for Node. It is read from the clone at run time. It is not
+  copied, not rewritten, and not committed.
+- **What our documents carry is measurements, file paths and error messages** —
+  never file content. A path and a count are facts *about* a corpus; the
+  reasoning is the same one the test262 section makes.
+- **No endorsement, in any of the four.** BSD-3-Clause condition 3 and its
+  equivalents forbid using the authors' names to promote what derives from the
+  software. So: no badge carries a suite's name and a score — that is why the
+  `README.md` has none, and why `scripts/suites/common.py` no longer emits one —
+  and every block states that the number is a measurement this project made
+  about itself, not a result, a conformance rate, a certification or an
+  endorsement.
+- **None of these projects has endorsed, certified, reviewed or is affiliated
+  with RTS**, and RTS claims none of those things.
+
+### V8 — `test/mjsunit`
+
+**What we use.** `test/mjsunit` from <https://github.com/v8/v8>, cloned by
+`scripts/mjsunit/fetch.sh` into `.mjsunit/`. Each test runs with V8's own
+`mjsunit.js` concatenated ahead of it. `scripts/mjsunit/README.md` is the
+harness.
+
+**Terms.** V8 is **BSD-3-Clause**, in the `LICENSE` file at the repository root.
+That file is an *aggregate*: it carries notices for third-party components of
+the engine source beside V8's own. None of those components is the test corpus,
+and none of them is read by this repository — but that is a reason to read the
+file at the pinned revision before copying anything, not a reason to summarise
+it here. Copyright is the V8 project authors'.
+
+**Condition 3 applies** in the same words as test262's: the authors' names may
+not be used to endorse or promote. The `README.md` block says what the number is.
+
+### WebKit — `JSTests/stress`
+
+**What we use.** `JSTests/stress` from <https://github.com/WebKit/WebKit>,
+cloned by `scripts/jsc/fetch.sh` into `.jsc/`. `scripts/jsc/README.md` is the
+harness.
+
+**Terms, and the reason this one needs care.** The WebKit tree is **not under a
+single licence**. JavaScriptCore's test files generally carry a per-file
+BSD-2-Clause header naming Apple Inc. or another contributor; other parts of the
+repository are LGPL-2.1. We read neither engine source nor anything we link, so
+nothing attaches today. **But a mixed tree is the case where "we already checked"
+is worth the least**: if any file from here is ever copied into this repository,
+it is checked *per file*, at the pinned revision, and recorded here before it
+lands — not classified from the directory it came out of.
+
+**LGPL is a refusal rather than a review** in this repository, and the Cargo
+section above states it for `alsa-sys`: static linking of any LGPL library has no
+compliant version here. Reading a test file is not linking, and this corpus is
+never linked.
+
+### Node.js — `test/parallel`, `test/common`, `test/fixtures`
+
+**What we use.** Those three trees from <https://github.com/nodejs/node>, at a
+release **tag** rather than a SHA, cloned by `scripts/node_tests/fetch.sh` into
+`.node-suite/`. `scripts/node_tests/README.md` is the harness.
+
+**Terms.** Node.js is **MIT**, in the `LICENSE` file at the repository root —
+itself an aggregate carrying the notices of everything Node bundles (V8, OpenSSL,
+zlib, c-ares and the rest). Those cover Node's own sources, which we do not read;
+the three trees we do read are Node's test corpus and its fixtures. The MIT terms
+attach on redistribution, and there is none.
+
+**The fixtures are the part to watch on any future change.**
+`test/fixtures` holds certificates, keys, binary files and sample data, some of
+it third-party. It is read from the clone and never copied — and that is the
+sentence that has to stay true, because a fixture copied into this repository
+brings terms that the root `LICENSE` may not be the right one for.
+
+### The rule, in the form that can be checked
+
+**A corpus is recorded here before the first number it produces is published,
+not after.** One subsection: what we use, where it comes from, what it is under,
+and what our use of it is. The same rule the Cargo section states for a
+dependency, applied to a ruler — and it now has a mechanical half, in that the
+block generator emits the non-endorsement notice for any suite that uses it.

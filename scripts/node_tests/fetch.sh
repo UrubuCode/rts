@@ -21,7 +21,11 @@ mkdir -p "$DEST"
 git -C "$DEST" init -q
 git -C "$DEST" remote add origin https://github.com/nodejs/node.git
 git -C "$DEST" config core.sparseCheckout true
-git -C "$DEST" sparse-checkout set --no-cone 'test/parallel' 'test/common' 'test/fixtures'
+# O LICENSE vem com o corpus de proposito: nada daqui e copiado para este
+# repositorio, portanto nada obriga a isto — mas assim os termos estao ao lado
+# dos ficheiros na revisao fixada, que e a unica copia que pode ser autoritativa.
+# Uma licenca citada de memoria e uma afirmacao, nao um aviso.
+git -C "$DEST" sparse-checkout set --no-cone 'test/parallel' 'test/common' 'test/fixtures' 'LICENSE'
 echo "a buscar $TAG (raso, so test/)..."
 git -C "$DEST" fetch -q --depth 1 origin "refs/tags/$TAG:refs/tags/$TAG"
 git -C "$DEST" checkout -q "$TAG"

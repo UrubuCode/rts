@@ -83,8 +83,6 @@ def collect(prefixes):
 
 README = dict(
     marker="MJSUNIT",
-    badge_label="V8 mjsunit",
-    badge_href="scripts/mjsunit/README.md",
     heading="## 🧪 V8 `mjsunit` — as regressões de um motor de produção",
     intro=("O test262 mede o que a **norma exige**. Esta régua mede o que um motor de\n"
            "produção **aprendeu a não errar**: cada `regress-*.js` é um bug que alguém\n"

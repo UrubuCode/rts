@@ -179,7 +179,13 @@ program as the standard says and nothing there runs; `scripts/test262/` asks the
 other half — whether the engine DOES what the program says. First measurement,
 against the `v0.0-202609120208` release binary: **1411 of 2568 = 54.9%**, on a
 deterministic one-in-twenty sample, which is what `STRIDE` is for and which the
-generated README block states beside the number. `scripts/test262/README.md` is
+generated README block states beside the number. **That figure is a measurement
+this project made about itself over a public corpus** — not a test262 result,
+not a conformance rate and not a badge anybody granted us; the licence forbids
+using the authors' names to promote what derives from them, which is why no
+badge carries it. `THIRD-PARTY-NOTICES.md` is binding here, and it covers the
+other three imported corpora — V8 `mjsunit`, WebKit `JSTests/stress` and Node's
+`test/` — under the same terms. `scripts/test262/README.md` is
 the harness and `docs/engine/importable-suites.md` is what else could be
 imported and what each one would cost.
 

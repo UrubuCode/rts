@@ -80,8 +80,6 @@ def collect(prefixes):
 
 README = dict(
     marker="JSC",
-    badge_label="JSC stress",
-    badge_href="scripts/jsc/README.md",
     heading="## 🧯 JavaScriptCore `stress` — as regressões do motor do Safari",
     intro=("A mesma pergunta que o `mjsunit` faz, a outro motor de produção. A\n"
            "sobreposição é pequena de propósito: um bug de motor é descoberto por quem\n"

@@ -20,7 +20,11 @@ mkdir -p "$DEST"
 git -C "$DEST" init -q
 git -C "$DEST" remote add origin https://github.com/v8/v8.git
 git -C "$DEST" config core.sparseCheckout true
-git -C "$DEST" sparse-checkout set --no-cone 'test/mjsunit'
+# O LICENSE vem com o corpus de proposito: nada daqui e copiado para este
+# repositorio, portanto nada obriga a isto — mas assim os termos estao ao lado
+# dos ficheiros na revisao fixada, que e a unica copia que pode ser autoritativa.
+# Uma licenca citada de memoria e uma afirmacao, nao um aviso.
+git -C "$DEST" sparse-checkout set --no-cone 'test/mjsunit' 'LICENSE'
 echo "a buscar $SHA (raso, so test/mjsunit)..."
 if [ "$SHA" = "main" ]; then
   git -C "$DEST" fetch -q --depth 1 --filter=blob:none origin main

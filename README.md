@@ -15,17 +15,6 @@
 <!-- CROSS_RUNTIME_BADGE_START -->
 [![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-84.2%25-yellowgreen?style=flat-square)](the spec removed 2026-08-03 (see git history))
 <!-- CROSS_RUNTIME_BADGE_END -->
-<!-- NODE_SUITE_BADGE_START -->
-[![Node test suite](https://img.shields.io/badge/Node%20test%20suite-52.4%25-yellow?style=flat-square)](scripts/node_tests/README.md)
-<!-- NODE_SUITE_BADGE_END -->
-<!-- TEST262_BADGE_START -->
-[![test262 (executado)](https://img.shields.io/badge/test262%20%28executado%29-54.9%25-yellow?style=flat-square)](scripts/test262/README.md)
-<!-- TEST262_BADGE_END -->
-<!-- MJSUNIT_BADGE_START -->
-[![V8 mjsunit](https://img.shields.io/badge/V8%20mjsunit-54.4%25-yellow?style=flat-square)](scripts/mjsunit/README.md)
-<!-- MJSUNIT_BADGE_END -->
-<!-- JSC_BADGE_START -->
-<!-- JSC_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
 [![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-100%25-brightgreen?style=flat-square)](tests/css/README.md)
 <!-- CSS_PARITY_BADGE_END -->
@@ -67,7 +56,7 @@ As bibliotecas `node:` medidas contra **a suíte de testes do próprio Node** (`
 
 | Metric | Value |
 |---|---|
-| **Compatibilidade** | **52.4%** (1659/3168) |
+| **Ficheiros que passam** | **1659/3168** (52.4%) |
 | ✅ Sai com 0 | 1659 |
 | ❌ Asserção falhou | 668 |
 | 💥 Exceção não apanhada | 829 |
@@ -101,6 +90,12 @@ Os 374 de fora leem os módulos **internos** do Node (`internal/…`, `_http_com
 | 59 | `rts: uncaught '…' event: an object` |
 | 48 | `AssertionError [ok] #N: The expression evaluated to a falsy value: fal` |
 
+> Medição feita por este projeto sobre si próprio, correndo um corpus
+> público sem o modificar. **Não é um resultado da suíte, não é uma taxa
+> de conformidade e não é uma certificação, aprovação ou endosso de
+> ninguém.** As licenças e as condições de atribuição estão em
+> [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
 _Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
 <!-- NODE_SUITE_STATS_END -->
 
@@ -118,7 +113,7 @@ tradução nenhuma — o arnês do test262 corre como está.
 
 | Metric | Value |
 |---|---|
-| **Conformidade** | **54.9%** (1411/2568) |
+| **Ficheiros que passam** | **1411/2568** (54.9%) |
 | ✅ A norma ficou satisfeita | 1411 |
 | ❌ Resposta errada | 398 |
 | 💥 Exceção não apanhada | 756 |
@@ -155,6 +150,12 @@ tradução nenhuma — o arnês do test262 corre como está.
 | 17 | `Test262Error: Expected a ReferenceError to be thrown but no exception was thrown at all` |
 | 12 | `TypeError: undefined is not a function` |
 
+> Medição feita por este projeto sobre si próprio, correndo um corpus
+> público sem o modificar. **Não é um resultado da suíte, não é uma taxa
+> de conformidade e não é uma certificação, aprovação ou endosso de
+> ninguém.** As licenças e as condições de atribuição estão em
+> [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
 _SHA 90dd8d865 · amostra determinista de 1 em 20 — os mesmos ficheiros em cada corrida · 2026-09-15_
 
 <!-- TEST262_STATS_END -->
@@ -172,7 +173,7 @@ teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução.
 
 | Metric | Value |
 |---|---|
-| **Conformidade** | **54.4%** (1645/3025) |
+| **Ficheiros que passam** | **1645/3025** (54.4%) |
 | ✅ Passou — saiu com 0, que é o que o V8 conta | 1645 |
 | ❌ Resposta errada | 627 |
 | 💥 Exceção não apanhada | 709 |
@@ -208,6 +209,12 @@ teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução.
 | 19 | `TypeError: Cannot read properties of undefined (reading 'return')` |
 | 17 | `TypeError: undefined is not a function` |
 | 15 | `TypeError: (intermediate value).__defineSetter__ is not a function` |
+
+> Medição feita por este projeto sobre si próprio, correndo um corpus
+> público sem o modificar. **Não é um resultado da suíte, não é uma taxa
+> de conformidade e não é uma certificação, aprovação ou endosso de
+> ninguém.** As licenças e as condições de atribuição estão em
+> [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
 _V8 348a6116c · corpus inteiro · 2026-09-15_
 

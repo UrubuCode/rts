@@ -152,17 +152,12 @@ jobs:
             // formatada e uma string, e `"5.0" >= 95` compara com coercao — a
             // cor sairia certa por acidente e errada no dia em que alguem
             // acrescentasse um limiar.
-            const value = t.pct;
-            const pct = value.toFixed(1);
-            let color = 'red';
-            if (value >= 95) color = 'brightgreen';
-            else if (value >= 85) color = 'green';
-            else if (value >= 70) color = 'yellowgreen';
-            else if (value >= 50) color = 'yellow';
-            else if (value >= 30) color = 'orange';
+            const pct = t.pct.toFixed(1);
 
-            const badge = `[![Node test suite](https://img.shields.io/badge/Node%20test%20suite-${pct}%25-${color}?style=flat-square)](scripts/node_tests/README.md)`;
-
+            // Sem badge, e isto e uma decisao. Um badge no topo do README tem a
+            // forma de uma nota ATRIBUIDA — leva o nome da suite e uma
+            // percentagem, e nao tem onde caber a ressalva que a licenca do
+            // corpus obriga. O bloco abaixo leva-a; um badge nao levava.
             const segs = 20;
             const filled = Math.round((t.ok / t.ran) * segs);
             const bar = '▰'.repeat(filled) + '▱'.repeat(segs - filled);
@@ -197,7 +192,7 @@ jobs:
               `[${bar}] ${pct}%   ${t.ok}/${t.ran} ficheiros passando\n` +
               `\`\`\`\n\n` +
               `| Metric | Value |\n|---|---|\n` +
-              `| **Compatibilidade** | **${pct}%** (${t.ok}/${t.ran}) |\n` +
+              `| **Ficheiros que passam** | **${t.ok}/${t.ran}** (${pct}%) |\n` +
               `| ✅ Sai com 0 | ${t.ok} |\n` +
               `| ❌ Asserção falhou | ${t.fail} |\n` +
               `| 💥 Exceção não apanhada | ${t.error} |\n` +
@@ -215,14 +210,15 @@ jobs:
               `| Grupo | % | ok/total |\n|---|---|---|\n${top}\n\n` +
               `**As causas mais frequentes** — uma mensagem repetida é um nome em falta, não N problemas\n\n` +
               `| Ficheiros | Mensagem |\n|---|---|\n${causes}\n\n` +
+              `> Medição feita por este projeto sobre si próprio, correndo um corpus\n` +
+              `> público sem o modificar. **Não é um resultado da suíte, não é uma taxa\n` +
+              `> de conformidade e não é uma certificação, aprovação ou endosso de\n` +
+              `> ninguém.** As licenças e as condições de atribuição estão em\n` +
+              `> [\`THIRD-PARTY-NOTICES.md\`](THIRD-PARTY-NOTICES.md).\n\n` +
               `_Updated: ${today} — [como isto é medido](scripts/node_tests/README.md)_\n`;
 
             let readme = fs.readFileSync('README.md', 'utf8');
             const before = readme;
-            readme = readme.replace(
-              /<!-- NODE_SUITE_BADGE_START -->[\s\S]*?<!-- NODE_SUITE_BADGE_END -->/,
-              `<!-- NODE_SUITE_BADGE_START -->\n${badge}\n<!-- NODE_SUITE_BADGE_END -->`,
-            );
             readme = readme.replace(
               /<!-- NODE_SUITE_STATS_START -->[\s\S]*?<!-- NODE_SUITE_STATS_END -->/,
               `<!-- NODE_SUITE_STATS_START -->\n${stats}\n<!-- NODE_SUITE_STATS_END -->`,

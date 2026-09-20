@@ -51,3 +51,28 @@ pronta do que uma que não responde — a suíte do Node exige as duas coisas.
 lib.** A suíte do Node faz isso em bom número de ficheiros; não são excluídos,
 porque excluir por causa do que um teste usa é escolher o corpus depois de ver
 o resultado. O que a tabela dá é o número por módulo, onde isso fica visível.
+
+
+## A licença, e o que este arnês faz com ela
+
+O corpus é **test/parallel, test/common e test/fixtures** de <https://github.com/nodejs/node>, clonado por `fetch.sh` para um diretório
+que o `.gitignore` cobre. **Nada dele entra neste repositório**, em nenhum
+artefacto e em nenhum binário: é lido do clone no momento em que corre. Não há
+redistribuição, portanto as condições de redistribuição não se aplicam.
+
+O Node é **MIT**, no `LICENSE` da raiz — também ele um agregado, com os avisos
+de tudo o que o Node embrulha (V8, OpenSSL, zlib, c-ares). Esses cobrem as
+fontes do Node, que não lemos.
+
+**As `fixtures` são a parte a vigiar.** `test/fixtures` tem certificados,
+chaves, ficheiros binários e dados de exemplo, alguns de terceiros. São lidos do
+clone e nunca copiados — e essa frase tem de continuar verdadeira, porque uma
+fixture copiada para cá traz termos para os quais o `LICENSE` da raiz pode não
+ser o certo.
+
+E o número: é uma medição que **este projeto fez sobre si próprio**, correndo um
+corpus público sem o modificar. Não é um resultado do Node, não é uma taxa de
+conformidade, e não é uma certificação, aprovação ou endosso de ninguém — o
+`LICENSE` proíbe usar o nome dos autores para promover o que deriva dele, e é
+por isso que nenhum badge no `README.md` leva o nome desta suíte ao lado de uma
+percentagem. `THIRD-PARTY-NOTICES.md` tem a secção inteira.

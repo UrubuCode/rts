@@ -200,14 +200,22 @@ def bar(pct, segs=20):
     return "▰" * filled + "▱" * (segs - filled)
 
 
-def badge_color(pct):
-    """De um NÚMERO e nunca da percentagem já formatada: `"5.0" >= 95` compara
-    com coerção e sairia certa por acidente. A régua do Node tem a mesma nota."""
-    return ("red" if pct < 30 else "orange" if pct < 50 else "yellow" if pct < 70
-            else "yellowgreen" if pct < 85 else "green" if pct < 95 else "brightgreen")
+# A ressalva não é decoração e não é opcional: vai em TODOS os blocos, porque a
+# licença de cada um destes corpus tem a mesma condição 3 — o nome dos autores
+# não pode ser usado para promover o que deriva deles. Um número destes é uma
+# medição que ESTE projeto fez sobre si próprio, com um corpus público; não é um
+# resultado da suíte, não é conformidade e ninguém no-lo atribuiu. Fica no
+# gerador e não em cada arnês exatamente para não poder ser esquecida num deles.
+DISCLAIMER = (
+    "> Medição feita por este projeto sobre si próprio, correndo um corpus\n"
+    "> público sem o modificar. **Não é um resultado da suíte, não é uma taxa\n"
+    "> de conformidade e não é uma certificação, aprovação ou endosso de\n"
+    "> ninguém.** As licenças e as condições de atribuição estão em\n"
+    "> [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)."
+)
 
 
-def update_readme(tot, den, pct, by, causes, marker, badge_label, badge_href,
+def update_readme(tot, den, pct, by, causes, marker,
                   heading, intro, group_label, footer, rows_label="ficheiros",
                   ok_label="A norma ficou satisfeita"):
     """Reescreve o bloco em vez de o deixar escrever à mão.
@@ -240,7 +248,7 @@ def update_readme(tot, den, pct, by, causes, marker, badge_label, badge_href,
 
 | Metric | Value |
 |---|---|
-| **Conformidade** | **%(pct).1f%%** (%(ok)d/%(den)d) |
+| **Ficheiros que passam** | **%(ok)d/%(den)d** (%(pct).1f%%) |
 | ✅ %(ok_label)s | %(ok)d |
 | ❌ Resposta errada | %(fail)d |
 | 💥 Exceção não apanhada | %(error)d |
@@ -259,10 +267,12 @@ def update_readme(tot, den, pct, by, causes, marker, badge_label, badge_href,
 |---|---|
 %(causerows)s
 
+%(disclaimer)s
+
 _%(footer)s · %(hoje)s_
 
 <!-- %(m)s_STATS_END -->""" % {
-        "m": marker, "heading": heading, "intro": intro,
+        "m": marker, "heading": heading, "intro": intro, "disclaimer": DISCLAIMER,
         "bar": bar(pct), "pct": pct, "ok": tot["ok"], "den": den,
         "rows_label": rows_label, "ok_label": ok_label, "fail": tot["fail"], "error": tot["error"],
         "timeout": tot["timeout"], "skipped": tot["skipped"],
@@ -270,19 +280,17 @@ _%(footer)s · %(hoje)s_
         "footer": footer, "hoje": datetime.date.today().isoformat(),
     }
 
-    badge = ("<!-- %s_BADGE_START -->\n"
-             "[![%s](https://img.shields.io/badge/%s-%.1f%%25-%s?style=flat-square)](%s)\n"
-             "<!-- %s_BADGE_END -->" % (
-                 marker, badge_label, badge_label.replace(" ", "%20").replace("(", "%28")
-                 .replace(")", "%29").replace("-", "--"),
-                 pct, badge_color(pct), badge_href, marker))
-
+    # Nenhum badge, e isto é uma decisão e não uma omissão. Um badge no topo do
+    # README é a forma de uma nota ATRIBUÍDA: leva o nome da suíte, leva uma
+    # percentagem, e não tem onde caber a ressalva que a condição 3 da licença
+    # obriga. `THIRD-PARTY-NOTICES.md` compromete este repositório a que o número
+    # diga, onde quer que apareça, o que é — e um badge não diz. O bloco abaixo
+    # diz, e é por isso que o número vive só lá.
     path = ROOT / "README.md"
     txt = path.read_text(encoding="utf-8")
     if "<!-- %s_STATS_START -->" % marker not in txt:
         sys.exit("README.md não tem os marcadores %s" % marker)
-    for start, end, new in ((marker + "_BADGE_START", marker + "_BADGE_END", badge),
-                            (marker + "_STATS_START", marker + "_STATS_END", block)):
-        txt = re.sub("<!-- %s -->.*?<!-- %s -->" % (start, end), lambda _: new, txt, flags=re.S)
+    txt = re.sub("<!-- %s_STATS_START -->.*?<!-- %s_STATS_END -->" % (marker, marker),
+                 lambda _: block, txt, flags=re.S)
     path.write_text(txt, encoding="utf-8")
     print("README.md: bloco %s reescrito" % marker)

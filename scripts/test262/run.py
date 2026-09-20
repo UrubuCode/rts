@@ -144,8 +144,6 @@ def collect(prefixes):
 
 README = dict(
     marker="TEST262",
-    badge_label="test262 (executado)",
-    badge_href="scripts/test262/README.md",
     heading="## 📏 test262 — a suíte da própria norma, EXECUTADA",
     intro=("`crates/rts-codegen/tests/test262.rs` pergunta se o front end **lê** cada\n"
            "programa como a norma diz. Esta régua pergunta a outra metade: se o motor **faz\n"

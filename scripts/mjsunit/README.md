@@ -59,3 +59,24 @@ distinção sloppy/strict na frontmatter, cada ficheiro diz o que é.
 `.github/workflows/mjsunit.yml`, oito fatias e um `merge`, no `schedule`
 semanal — a mesma forma que `test262.yml`, e `scripts/suites/common.py` é o
 código que as duas partilham. Reporta e não bloqueia, como as outras quatro.
+
+
+## A licença, e o que este arnês faz com ela
+
+O corpus é **test/mjsunit** de <https://github.com/v8/v8>, clonado por `fetch.sh` para um diretório
+que o `.gitignore` cobre. **Nada dele entra neste repositório**, em nenhum
+artefacto e em nenhum binário: é lido do clone no momento em que corre. Não há
+redistribuição, portanto as condições de redistribuição não se aplicam.
+
+O V8 é **BSD-3-Clause**, no `LICENSE` da raiz do repositório — que o `fetch.sh`
+traz junto com o corpus, de propósito: os termos ficam ao lado dos ficheiros na
+revisão fixada, e uma licença citada de memória é uma afirmação e não um aviso.
+Esse ficheiro é um agregado e carrega avisos de componentes do **motor**, que
+não são o corpus e que não lemos.
+
+E o número: é uma medição que **este projeto fez sobre si próprio**, correndo um
+corpus público sem o modificar. Não é um resultado do V8, não é uma taxa de
+conformidade, e não é uma certificação, aprovação ou endosso de ninguém — o
+`LICENSE` proíbe usar o nome dos autores para promover o que deriva dele, e é
+por isso que nenhum badge no `README.md` leva o nome desta suíte ao lado de uma
+percentagem. `THIRD-PARTY-NOTICES.md` tem a secção inteira.

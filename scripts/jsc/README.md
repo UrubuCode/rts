@@ -51,3 +51,28 @@ igual.
 `.github/workflows/jsc.yml`, oito fatias e um `merge`, no `schedule` semanal —
 a mesma forma que `test262.yml` e `mjsunit.yml`, sobre o mesmo
 `scripts/suites/common.py`. Reporta e não bloqueia.
+
+
+## A licença, e o que este arnês faz com ela
+
+O corpus é **JSTests/stress** de <https://github.com/WebKit/WebKit>, clonado por `fetch.sh` para um diretório
+que o `.gitignore` cobre. **Nada dele entra neste repositório**, em nenhum
+artefacto e em nenhum binário: é lido do clone no momento em que corre. Não há
+redistribuição, portanto as condições de redistribuição não se aplicam.
+
+A árvore do WebKit **não tem uma licença só**. Os ficheiros de teste do
+JavaScriptCore trazem tipicamente um cabeçalho BSD-2-Clause por ficheiro; outras
+partes do repositório são LGPL-2.1. Não lemos código do motor nem ligamos nada,
+portanto nada disso se aplica hoje.
+
+**Mas uma árvore mista é o caso em que «já verificámos» vale menos.** Se alguma
+vez algum ficheiro daqui for copiado para este repositório, verifica-se **por
+ficheiro**, na revisão fixada, e regista-se antes de aterrar — nunca se
+classifica pelo diretório de onde saiu.
+
+E o número: é uma medição que **este projeto fez sobre si próprio**, correndo um
+corpus público sem o modificar. Não é um resultado do JavaScriptCore, não é uma taxa de
+conformidade, e não é uma certificação, aprovação ou endosso de ninguém — o
+`LICENSE` proíbe usar o nome dos autores para promover o que deriva dele, e é
+por isso que nenhum badge no `README.md` leva o nome desta suíte ao lado de uma
+percentagem. `THIRD-PARTY-NOTICES.md` tem a secção inteira.
