@@ -820,3 +820,60 @@ which is the cleanup chain a `finally` needs, so it is really the same piece as 
 **A method in an object literal and a class field are one piece**: both are installed
 rather than assigned — a method with a home object, a field per instance as the
 constructor runs.
+
+---
+
+## Has any of this changed how fast RTS runs?
+
+Asked on 2026-09-20, and the answer has two halves.
+
+### The MIR: nothing, and that is verifiable rather than argued
+
+The only path into the stage is `rts mir` → `rts_host::describe::describe_mir` →
+`rts_codegen::mir_dump`. `run`, `test` and `compile` never reach it — checked by
+searching the workspace for callers of `lower_module`, `lower_with` and `rts_mir::`
+outside the stage itself and its tests. So no program compiles differently because the
+MIR exists, and no benchmark can have moved.
+
+What did change is the build: one crate and some thousands of lines more to compile.
+That is a cost paid by whoever builds, not by anything that runs.
+
+### One commit DID touch the running path, and it costs speed on one shape
+
+`fix(codegen): an omitted helper's free name could resolve to a block of its own
+declarer` changed `emit/omit.rs`, which is the old emitter — the one every program goes
+through. It refuses strictly more, and the commit said so and said the clock had not
+been read.
+
+The decision it changes is now named exactly. `rts prove` over the two programs below
+differs in whether the helper exists as a compiled function at all:
+
+```js
+let i = 7;   const q = (x) => x + i;     for (let i = 0; …) s = q(s) | 0;   // q EXISTS
+let zwq = 7; const q = (x) => x + zwq;   for (let i = 0; …) s = q(s) | 0;   // q is gone
+```
+
+In the second the call is substituted and the closure omitted, so `q` is not in the
+report. In the first the guard refuses the omission, so `q` is compiled, its closure is
+built, and the loop makes a real call. **The only difference is the spelling** — which
+is the same sentence the 233.67-against-46.33 ns measurement of 2026-08-30 carries,
+about this same shape.
+
+**What is NOT claimed: a fresh number.** That would need a release build and a kept
+baseline, and neither was taken. What is established is the structural change, which a
+debug binary answers honestly, plus the repository's own earlier measurement of the
+identical shape.
+
+### And this is the argument for E2 in one paragraph
+
+The guard is the correct answer available to a compiler that identifies bindings by
+SPELLING: it must refuse whenever two declarations share one, because it cannot tell
+which the helper read. The cost is real and it is the price of the wrong answer it
+removed — `11,110,100` where node says `11,11,100`.
+
+A compiler that identifies bindings by IDENTITY has neither the cost nor the wrong
+answer: the two `i`s are two bindings, the helper reads the one it was written against,
+and the substitution is legal. That is what `names::resolve` answers and what the MIR
+stage is built on — so the 5× is not a trade this design makes, it is a trade the OLD
+stage cannot avoid.
+
