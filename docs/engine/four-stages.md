@@ -386,8 +386,8 @@ carries the account.
 ### Property access and the string literal: 54 → 66
 
 Per file, two gains and none lost. Reads, writes, indexed access and a string all
-landed on one mechanism: **a constant of the LANGUAGE table**, which the IR carries
-as an index and  interprets. Two reads of one property therefore
+landed on one mechanism: **a constant of the LANGUAGE's table**, which the IR carries
+as an index and `domain::JsConst` interprets. Two reads of one property therefore
 compare equal by number, so a pass asking whether two accesses touch one field
 never compares names.
 
@@ -400,13 +400,12 @@ The table after it:
 | 37 | an expression kind |
 | 32 | a binding read before its declaration |
 
-**And the top item is a design question rather than a construct.**  is now
-expressible as a read and a call -- except that a method call passes  as the
-receiver and  has no receiver. Making argument zero the receiver
-by convention is a decision about the CALLING CONVENTION, which is the machine
-layer, and it is the kind of thing  warns about leaking: a
-convention agreed in two places drifts. It is named here rather than settled in
-passing.
+**And the top item is a design question rather than a construct.** `o.m(x)` is now
+expressible as a read and a call — except that a method call passes `o` as the
+receiver and `rts_mir::cfg::Call` has no receiver. Making argument zero the receiver
+by convention is a decision about the CALLING CONVENTION, which belongs to the
+machine layer, and it is the kind of agreement `deopt-lateral.md` warns about: a
+convention held in two places drifts. Named here rather than settled in passing.
 
 ### What each table asks for next
 
