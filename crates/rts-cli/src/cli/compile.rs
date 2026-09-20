@@ -124,7 +124,7 @@ pub fn command(
     // is enough to fool the textual scan below and send the graph compiler to
     // read the `.html` off disk as TypeScript ("Unexpected token `!`" on
     // `<!DOCTYPE`, measured on `scripts/rts_vs_electron/app/index.html`).
-    let graph = !is_html_entry && super::new_engine::imports_a_file(&source);
+    let graph = !is_html_entry && super::new_engine::imports_a_file(&source, &entry);
 
     // Read and extracted on the SAME wide-stack thread as the compile below,
     // rather than on this one: `html_scripts::window_base` runs a throwaway

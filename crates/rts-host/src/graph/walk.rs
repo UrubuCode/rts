@@ -123,6 +123,43 @@ pub(crate) fn imported_files(source: &str, from: &Path) -> Result<Vec<(String, P
     })
 }
 
+/// Whether this source names any FILE: a relative specifier, or one an ALIAS
+/// resolves — the question [`load`] would answer by walking, asked before any
+/// walking happens.
+///
+/// It exists because the answer was being GUESSED elsewhere. A caller that has
+/// to choose between compiling a graph and compiling one file alone used a
+/// substring test for `from "./"` and its three spellings; an aliased
+/// specifier contains none of them, so a program whose every import is an
+/// alias was compiled alone and died at run time on `cannot resolve module
+/// "@/…"`. `rts_core::entry::dynamic_module`'s header records what a second
+/// implementation of "what is a path" costs; this is the first implementation,
+/// exported so there need not be a second.
+///
+/// # It INSTALLS the map, and does not merely borrow it
+///
+/// The question is asked BEFORE [`load`] runs, so nothing has installed this
+/// entry's `Aliases` yet and this has to discover them itself. Having
+/// discovered them it installs them, for two reasons: a discovery thrown away
+/// is one [`load`] immediately repeats — it reads the same `tsconfig.json`
+/// chain off disk — and [`load`] installs unconditionally at its top, so an
+/// install left here can never be read stale by a graph compile.
+///
+/// The one path that must NOT inherit it is the entry-less compile, which has
+/// no file and therefore no project; that path already forgets the map by name
+/// ([`super::forget_aliases`], called from [`crate::run::compile_for`]), so it
+/// is unaffected by an install here. That ordering is the whole safety
+/// argument, and it is why this installs rather than restoring what was there.
+///
+/// `Err` is a parse failure in `source`, reported rather than swallowed: a
+/// caller that cannot parse the program is about to fail compiling it anyway,
+/// and a silent `false` would send it down the single-file path and rename the
+/// failure.
+pub fn names_any_file(source: &str, entry: &Path) -> Result<bool, String> {
+    tsconfig::install(Aliases::discover(entry));
+    Ok(!imported_files(source, entry)?.is_empty())
+}
+
 /// Reads the whole graph reachable from `entry`, dependencies first.
 ///
 /// # Order

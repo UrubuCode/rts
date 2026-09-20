@@ -254,3 +254,76 @@ fn the_remote_mirror_does_not_resolve_an_alias() {
     let found = rts_host::graph::relative_imports(relative).expect("it parses");
     assert_eq!(found, vec!["./secret".to_string()]);
 }
+
+/// The defect task 9 fixes, at the level where it was decided.
+///
+/// A program whose ONLY file-naming import is an ALIAS. Before the fix, the
+/// caller that chooses between a graph compile and a single-file compile asked
+/// a substring test for `./`/`../`, so this source answered "names no file",
+/// was compiled alone, and died at run time on
+/// `cannot resolve module "@/..." — nothing registered that specifier`.
+///
+/// `rts_host::names_any_file` is the one answer, and it must say yes here.
+#[test]
+fn an_alias_only_program_names_a_file() {
+    let dir = fixture(
+        "aliasonly_decide",
+        &[
+            ("tsconfig.json", "{\"compilerOptions\":{\"paths\":{\"@/*\":[\"./src/*\"]}}}"),
+            ("src/compat/io.ts", "export const value = 7;\n"),
+            (
+                "app.ts",
+                "import { test, expect } from \"rts:test\";\n\
+                 import { value } from \"@/compat/io.ts\";\n\
+                 test(\"aliased\", () => expect(value).toBe(7));\n",
+            ),
+        ],
+    );
+    let entry = dir.join("app.ts");
+    let source = std::fs::read_to_string(&entry).expect("the fixture reads");
+    assert!(
+        rts_host::names_any_file(&source, &entry).expect("it parses"),
+        "an alias names a file exactly as `./` does"
+    );
+
+    // And the control: the same program with the alias removed names nothing,
+    // so the assertion above is not passing because the answer is always yes.
+    let alone = "import { test, expect } from \"rts:test\";\ntest(\"x\", () => expect(1).toBe(1));\n";
+    assert!(
+        !rts_host::names_any_file(alone, &entry).expect("it parses"),
+        "`rts:test` is answered by the runtime and names no file"
+    );
+}
+
+/// The same program, RUN — rule 5. The decision above is taken the way
+/// `rts run` takes it, so this fails end to end if the decision regresses.
+#[test]
+fn an_alias_only_program_runs() {
+    let dir = fixture(
+        "aliasonly_run",
+        &[
+            ("tsconfig.json", "{\"compilerOptions\":{\"paths\":{\"@/*\":[\"./src/*\"]}}}"),
+            ("src/compat/io.ts", "export const value = 7;\n"),
+            (
+                "app.ts",
+                "import { test, expect } from \"rts:test\";\n\
+                 import { value } from \"@/compat/io.ts\";\n\
+                 test(\"aliased\", () => expect(value).toBe(7));\n",
+            ),
+        ],
+    );
+    let entry = dir.join("app.ts");
+    let source = std::fs::read_to_string(&entry).expect("the fixture reads");
+
+    rts_std::test::reset();
+    let compiled = match rts_host::names_any_file(&source, &entry).expect("it parses") {
+        true => rts_host::compile_graph(&entry),
+        false => rts_host::compile(&source),
+    };
+    let mut program = compiled.expect("the program compiles");
+    program.run();
+    let reported = rts_std::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 1, "the fixture registers one test");
+    assert!(failed.is_empty(), "the alias resolved with no relative import beside it: {failed:?}");
+}
