@@ -52,6 +52,11 @@
 //! | `ext` | half-extent | inverse mass (0 is immovable) |
 //! | `world` | `[0]` = dt, static count, cell size; then static (centre, half-extent) pairs |
 //!
+//! A static's centre carries its ROUNDNESS in `w`: 0 is a box, 1 is a sphere of
+//! radius `min(half-extent)`. Inverted from a body's shape field on purpose —
+//! every writer before the field existed wrote 0 there and meant a box. What
+//! bodies and statics are made of rides at the tail of `world`; see `material`.
+//!
 //! Unchanged on purpose: a program can hand the same three `Float32Array`s to
 //! either backend, and a conversion step between them would be one more place for
 //! the two to disagree.
@@ -60,15 +65,17 @@ pub mod contact;
 pub mod grid;
 
 mod adapter;
+mod material;
+mod step;
 pub use adapter::GatherBackend;
 
 use contact::{V3, add, contact as narrow, dot, length, scale, sub};
 use grid::Grid;
+use material::{Body, Materials, bounce, friction_loss};
 use rayon::prelude::*;
 
-/// Gravity, and the terminal speed that stops a body tunnelling through a floor
-/// in one step. Both the kernel's.
-const GRAVITY: f32 = 9.8;
+/// The terminal speed that stops a body tunnelling through a floor in one step.
+/// The kernel's. Gravity was here too, and is now each body's own (`material`).
 const SPEED_CAP: f32 = 48.0;
 const SPEED_CAP_SQUARED: f32 = SPEED_CAP * SPEED_CAP;
 
@@ -89,9 +96,10 @@ const WAKE_SPEED_SQUARED: f32 = 0.64;
 /// Below this height a body has left the world and is parked.
 const FLOOR: f32 = -18.0;
 
-/// Ground friction on a vertical contact, and how much of a supporting body's
-/// horizontal motion a stacked one takes up.
-const GROUND_FRICTION: f32 = 0.92;
+/// What a vertical contact takes from horizontal motion per step — on the ground,
+/// and from the difference to a supporting body — AT the reference friction.
+/// `material::friction_loss` scales both by the pair's own.
+const GROUND_FRICTION_LOSS: f32 = 0.08;
 const STACK_FRICTION: f32 = 0.10;
 
 /// How steep a normal must be to count as vertical — the branch that separates
@@ -179,6 +187,7 @@ impl Solver {
                 velocities: &self.velocities,
                 extents: ext,
                 world,
+                materials: Materials::of(world, count),
                 grid: &self.grid,
                 broad_phase: self.broad_phase,
                 count,
@@ -218,6 +227,7 @@ struct Scene<'a> {
     velocities: &'a [f32],
     extents: &'a [f32],
     world: &'a [f32],
+    materials: Materials<'a>,
     grid: &'a Grid,
     broad_phase: BroadPhase,
     count: usize,
@@ -269,6 +279,7 @@ impl Scene<'_> {
         let shape = self.shape(body);
         let h = self.extent(body);
         let inverse_mass = self.extents[body * 4 + 3];
+        let mine = self.materials.body(body);
 
         if sleep >= SLEEP_STEPS {
             if !self.disturbed(body, p, h, shape) {
@@ -282,17 +293,21 @@ impl Scene<'_> {
             sleep = 0.0;
         }
 
-        v[1] -= GRAVITY * self.dt;
+        v[1] -= mine.gravity * self.dt;
         let speed = dot(v, v);
         if speed > SPEED_CAP_SQUARED {
             v = scale(v, SPEED_CAP / speed.sqrt());
         }
+        v = scale(v, mine.drag_factor(self.dt));
         p = add(p, scale(v, self.dt));
 
-        self.against_statics(&mut p, &mut v, h, shape);
+        // Whether anything touched this body this step, which is what decides
+        // if it may fall asleep. See the counter below.
+        let mut supported = mine.rest_on_floor(&mut p[1], &mut v[1]);
+        supported |= self.against_statics(&mut p, &mut v, h, shape, mine);
 
         let before = p;
-        self.against_bodies(body, &mut p, &mut v, &mut sleep, h, shape, inverse_mass);
+        supported |= self.against_bodies(body, &mut p, &mut v, &mut sleep, h, shape, inverse_mass, mine);
         // The per-step ceiling on positional correction, which is what keeps a
         // deep pile from exploding: a buried body sums the corrections of dozens
         // of neighbours in one Jacobi pass.
@@ -317,7 +332,20 @@ impl Scene<'_> {
             sleep = SLEEP_STEPS;
         }
 
-        sleep = match dot(v, v) < SLEEP_SPEED_SQUARED {
+        // SLEEP NEEDS SUPPORT, not just a low speed.
+        //
+        // Speed alone puts a body to sleep IN MID-AIR: at the top of a bounce it
+        // is slow for as many steps as the arc is shallow, and ten of them is a
+        // hop of a few centimetres. It then hangs there, because a sleeping body
+        // is only woken by a fast neighbour and empty space is not one.
+        //
+        // This was unreachable while restitution was a constant zero — nothing
+        // bounced, so a body was only ever slow on the ground. The material
+        // region made it reachable and a dropped box with bounce 0.5 hung at
+        // y = 1.135 for as long as anyone watched. Touching something is the
+        // condition that was always meant: a body at rest is resting ON
+        // something.
+        sleep = match supported && dot(v, v) < SLEEP_SPEED_SQUARED {
             true => sleep + 1.0,
             false => 0.0,
         };
@@ -325,129 +353,8 @@ impl Scene<'_> {
         write(out_pos, p, sleep);
         write(out_vel, v, shape);
     }
-
-    /// Whether a sleeping body has a FAST neighbour touching it.
-    ///
-    /// Through the grid, like everything else. Scanning every body instead would
-    /// make a scene at rest — the case sleeping exists to make cheap — the one
-    /// that pays a full n² every step.
-    fn disturbed(&self, body: usize, p: V3, h: V3, shape: f32) -> bool {
-        let mut woken = false;
-        self.near(p, |other| {
-            if woken || other == body {
-                return;
-            }
-            let vj = self.velocity(other);
-            if dot(vj, vj) <= WAKE_SPEED_SQUARED {
-                return;
-            }
-            let hit = narrow(
-                p,
-                h,
-                shape,
-                self.position(other),
-                self.extent(other),
-                self.shape(other),
-            );
-            woken = hit.is_some();
-        });
-        woken
-    }
-
-    /// The immovable geometry of the scene, which does not give: the whole
-    /// correction is the moving body's, and only the velocity component entering
-    /// the static is removed.
-    fn against_statics(&self, p: &mut V3, v: &mut V3, h: V3, shape: f32) {
-        for k in 0..self.statics {
-            let centre = triple(self.world, 1 + k * 2);
-            let half = triple(self.world, 2 + k * 2);
-            // A static is always a box: nothing writes a spherical one. A
-            // dynamic sphere on a floor therefore takes the sphere-box case,
-            // which is the most visible contact there is.
-            let Some((normal, depth)) = narrow(*p, h, shape, centre, half, 1.0) else {
-                continue;
-            };
-            *p = add(*p, scale(normal, (depth - SLOP).max(0.0) * STATIC_RELAXATION));
-            let approach = dot(*v, normal);
-            if approach < 0.0 {
-                *v = sub(*v, scale(normal, approach));
-            }
-            if normal[1] > VERTICAL {
-                v[0] *= GROUND_FRICTION;
-                v[2] *= GROUND_FRICTION;
-            }
-        }
-    }
-
-    /// The dynamic pairs: this body applies only its own half of each.
-    ///
-    /// The cell is recomputed from the position AFTER integration and statics,
-    /// not from the one the grid was built with — a pair the step itself created
-    /// would otherwise be missed until the next one.
-    fn against_bodies(
-        &self,
-        body: usize,
-        p: &mut V3,
-        v: &mut V3,
-        sleep: &mut f32,
-        h: V3,
-        shape: f32,
-        inverse_mass: f32,
-    ) {
-        let mut position = *p;
-        let mut velocity = *v;
-        let mut counter = *sleep;
-        self.near(*p, |other| {
-            if other == body {
-                return;
-            }
-            let Some((normal, depth)) = narrow(
-                position,
-                h,
-                shape,
-                self.position(other),
-                self.extent(other),
-                self.shape(other),
-            ) else {
-                return;
-            };
-            let other_inverse_mass = self.extents[other * 4 + 3];
-            let share = inverse_mass / (inverse_mass + other_inverse_mass).max(0.0001);
-            let theirs = self.velocity(other);
-            // Relative velocity along the normal. Negative is approaching.
-            let approach = dot(sub(velocity, theirs), normal);
-
-            if normal[1] > VERTICAL || normal[1] < -VERTICAL {
-                if approach < -1.0 {
-                    // A real impact: a normal impulse with no restitution —
-                    // stone does not bounce.
-                    velocity = sub(velocity, scale(normal, approach * share));
-                    counter = 0.0;
-                } else if approach < 0.5 && normal[1] > VERTICAL {
-                    // SUPPORT INHERITANCE: resting on something and descending
-                    // slowly, so the support's vertical velocity is taken rather
-                    // than an impulse applied — an impulse here is the limit
-                    // cycle that makes a column vibrate forever.
-                    velocity[1] = theirs[1];
-                    velocity[0] += (theirs[0] - velocity[0]) * STACK_FRICTION;
-                    velocity[2] += (theirs[2] - velocity[2]) * STACK_FRICTION;
-                }
-            } else if approach < 0.0 {
-                velocity = sub(velocity, scale(normal, approach * share));
-                if approach < -1.0 {
-                    counter = 0.0;
-                }
-            }
-            position = add(
-                position,
-                scale(normal, (depth - SLOP).max(0.0) * PAIR_RELAXATION * share),
-            );
-        });
-        *p = position;
-        *v = velocity;
-        *sleep = counter;
-    }
 }
+
 
 /// The xyz of a four-float record.
 #[inline]

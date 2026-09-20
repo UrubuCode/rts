@@ -3,6 +3,10 @@
 use super::*;
 
 /// A world record: fixed step, `statics` static boxes, cells of `size`.
+///
+/// It stops where it always did, at the end of the static block, which makes
+/// every test written before materials existed a test of their ABSENCE too —
+/// the legacy defaults are what all of these assert against.
 fn world(statics: &[([f32; 3], [f32; 3])], size: f32) -> Vec<f32> {
     let mut world = vec![1.0 / 60.0, statics.len() as f32, size, 0.0];
     for (centre, half) in statics {
@@ -10,6 +14,38 @@ fn world(statics: &[([f32; 3], [f32; 3])], size: f32) -> Vec<f32> {
         world.extend_from_slice(&[half[0], half[1], half[2], 0.0]);
     }
     world
+}
+
+/// The same, with room for a material region, and every record at the legacy
+/// value — so a test changes the ONE number it is about and nothing else.
+fn world_with_materials(statics: &[([f32; 3], [f32; 3])], size: f32, bodies: usize) -> Vec<f32> {
+    let mut world = world(statics, size);
+    world.resize(material::MATERIALS_AT, 0.0);
+    for _ in 0..256 {
+        world.extend_from_slice(&[0.0, 0.35, 0.0, 0.0]);
+    }
+    for _ in 0..bodies {
+        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, 0.0, 0.0, 0.0]);
+    }
+    world
+}
+
+/// The five numbers of body `i`'s material, to overwrite in place.
+fn body_material(world: &mut [f32], i: usize) -> &mut [f32] {
+    let at = material::MATERIALS_AT + 256 * 4 + i * 8;
+    &mut world[at..at + 5]
+}
+
+/// The two numbers of static `k`'s material.
+fn static_material(world: &mut [f32], k: usize) -> &mut [f32] {
+    let at = material::MATERIALS_AT + k * 4;
+    &mut world[at..at + 2]
+}
+
+/// Marks static `k` ROUND: `w` of its centre. See the layout note in the
+/// module doc for why 1 is the sphere and 0 the box.
+fn round(world: &mut [f32], k: usize) {
+    world[(1 + k * 2) * 4 + 3] = 1.0;
 }
 
 /// A body: position, half-extent, shape, mass. `mass = 0` is immovable.
@@ -262,4 +298,157 @@ fn a_sleeping_body_is_woken_by_a_fast_one_touching_it_and_not_by_a_slow_one() {
     let mut solver = Solver::new();
     solver.step(&mut pos, &mut vel, &ext, &floor, 1);
     assert!(pos[3] >= SLEEP_STEPS, "a nudge woke it");
+}
+
+// ── materials: what a body and a static are MADE of ────────────────────────
+
+#[test]
+fn a_world_that_stops_at_the_statics_simulates_exactly_as_it_did_before_materials() {
+    // The rule that makes the region safe to add: an older caller's buffer must
+    // produce the SAME trajectory, bit for bit, or every number measured against
+    // the GPU backend stops meaning anything.
+    let start = body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0);
+    let floor = ([0.0, 0.0, 0.0], [10.0, 0.5, 10.0]);
+
+    let (mut short_pos, mut short_vel, ext) = scene(&[start]);
+    Solver::new().step(&mut short_pos, &mut short_vel, &ext, &world(&[floor], 2.0), 120);
+
+    let (mut long_pos, mut long_vel, ext) = scene(&[start]);
+    let long = world_with_materials(&[floor], 2.0, 1);
+    Solver::new().step(&mut long_pos, &mut long_vel, &ext, &long, 120);
+
+    assert_eq!(short_pos, long_pos, "the same scene landed somewhere else");
+    assert_eq!(short_vel, long_vel);
+}
+
+#[test]
+fn a_body_whose_material_says_no_gravity_hangs_where_it_was_put() {
+    // The case with no workaround before this: a floating platform, a scripted
+    // mover, anything the game moves itself. Its only alternative was `stationary`,
+    // which also stops it colliding with what rests on it.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let mut world = world_with_materials(&[], 1.0, 1);
+    body_material(&mut world, 0)[0] = 0.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 120);
+    assert_eq!(pos[1], 6.0, "it moved: y = {}", pos[1]);
+}
+
+#[test]
+fn a_bouncy_body_leaves_the_floor_again_and_a_dead_one_does_not() {
+    // Restitution reaches the solver at all, and reaches it from the BODY: the
+    // two runs differ in one number and nowhere else.
+    let start = body([0.0, 6.0, 0.0], [0.5; 3], SPHERE, 1.0);
+    let floor = ([0.0, 0.0, 0.0], [10.0, 0.5, 10.0]);
+    let mut peak = [0.0f32; 2];
+    for (which, restitution) in [(0usize, 0.0f32), (1, 0.9)] {
+        let (mut pos, mut vel, ext) = scene(&[start]);
+        let mut world = world_with_materials(&[floor], 2.0, 1);
+        body_material(&mut world, 0)[1] = restitution;
+        let mut solver = Solver::new();
+        // One step at a time, and the peak counted only AFTER the first landing:
+        // the body starts at 6, so a peak measured from the beginning is the
+        // drop itself on both runs and the test compares nothing.
+        let mut landed = false;
+        for _ in 0..240 {
+            solver.step(&mut pos, &mut vel, &ext, &world, 1);
+            landed = landed || pos[1] < 1.0;
+            if landed {
+                peak[which] = peak[which].max(pos[1]);
+            }
+        }
+    }
+    assert!(peak[1] > peak[0] + 0.5, "bounce {} vs dead {}", peak[1], peak[0]);
+}
+
+#[test]
+fn drag_takes_the_speed_of_a_body_that_nothing_else_slows() {
+    // Sideways, where gravity does not reach: drag on its own.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 500.0, 0.0], [0.5; 3], SPHERE, 1.0)]);
+    vel[0] = 10.0;
+    let mut world = world_with_materials(&[], 1.0, 1);
+    body_material(&mut world, 0)[0] = 0.0;
+    body_material(&mut world, 0)[2] = 4.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 120);
+    // Under the sleep threshold rather than under zero, and the difference is
+    // the point: drag carries the body down to a crawl, and SLEEP is what ends
+    // the decay there — below 0.45 u/s for ten steps and nothing integrates it
+    // any more. A test demanding 0.0 would be demanding that sleeping not work.
+    assert!(vel[0] < 0.45, "drag did not bite: vx = {}", vel[0]);
+    assert!(vel[0] >= 0.0, "drag reversed the body: vx = {}", vel[0]);
+}
+
+#[test]
+fn a_body_with_its_own_floor_rests_on_it_with_no_static_in_the_scene() {
+    // The Rigidbody's implicit ground, which the game side integrated itself
+    // until this backend took the body over.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let mut world = world_with_materials(&[], 1.0, 1);
+    body_material(&mut world, 0)[4] = 2.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 300);
+    assert!((pos[1] - 2.0).abs() < 1e-3, "it should rest at 2.0: y = {}", pos[1]);
+}
+
+#[test]
+fn ice_lets_a_body_slide_where_rubber_stops_it() {
+    // Friction reaches the solver from BOTH sides of the contact: the two runs
+    // differ only in the floor's number, and the body's is the reference one.
+    let floor = ([0.0, 0.0, 0.0], [40.0, 0.5, 40.0]);
+    let mut travelled = [0.0f32; 2];
+    for (which, friction) in [(0usize, 0.02f32), (1, 1.0)] {
+        let (mut pos, mut vel, ext) = scene(&[body([0.0, 1.0, 0.0], [0.5; 3], BOX, 1.0)]);
+        vel[0] = 12.0;
+        let mut world = world_with_materials(&[floor], 2.0, 1);
+        static_material(&mut world, 0)[1] = friction;
+        Solver::new().step(&mut pos, &mut vel, &ext, &world, 180);
+        travelled[which] = pos[0];
+    }
+    assert!(
+        travelled[0] > travelled[1] * 2.0,
+        "ice {} should carry much further than rubber {}",
+        travelled[0],
+        travelled[1]
+    );
+}
+
+#[test]
+fn a_round_static_is_round_and_a_body_lands_on_top_of_it_rather_than_inside() {
+    // A spherical static was silently a box: a ball dropped on a dome landed on
+    // a flat lid at the dome's full height. The contact is what moves, so the
+    // test is the RESTING HEIGHT — a box of half-extent 2 holds the body at 2.5,
+    // a sphere of radius 2 at the same spot holds it at 2.5 too but only over
+    // the pole, and rejects it sideways. Dropping off-centre is what tells them
+    // apart: on the box the body rests flat, off the sphere it slides away.
+    let dome = ([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+    let mut drift = [0.0f32; 2];
+    for which in 0..2 {
+        let (mut pos, mut vel, ext) = scene(&[body([1.2, 5.0, 0.0], [0.5; 3], SPHERE, 1.0)]);
+        let mut world = world_with_materials(&[dome], 4.0, 1);
+        if which == 1 {
+            round(&mut world, 0);
+        }
+        Solver::new().step(&mut pos, &mut vel, &ext, &world, 180);
+        drift[which] = pos[0];
+    }
+    assert!((drift[0] - 1.2).abs() < 0.05, "on a box it should sit still: x = {}", drift[0]);
+    assert!(drift[1] > 1.6, "off a sphere it should slide: x = {}", drift[1]);
+}
+
+#[test]
+fn a_bouncing_body_does_not_fall_asleep_in_mid_air() {
+    // Sleeping asked only about SPEED, and at the top of a bounce a body is slow
+    // for as many steps as the arc is shallow. Ten of those and it hung there,
+    // awake to nothing — a sleeping body is only woken by a fast neighbour, and
+    // empty space is not one. A dropped box with bounce 0.5 stopped at y = 1.135
+    // and stayed for as long as anyone watched.
+    //
+    // Unreachable while restitution was a constant zero, which is why it arrived
+    // with the material region rather than with the sleep rule.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let floor = ([0.0, 0.0, 0.0], [10.0, 0.5, 10.0]);
+    let mut world = world_with_materials(&[floor], 2.0, 1);
+    body_material(&mut world, 0)[1] = 0.5;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 900);
+    // On the floor (half-extents 0.5 + 0.5), not hanging above it.
+    assert!(pos[1] < 1.1, "it fell asleep in the air at y = {}", pos[1]);
+    assert!(pos[1] > 0.8, "it sank into the floor: y = {}", pos[1]);
 }
