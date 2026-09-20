@@ -92,8 +92,8 @@ fn the_object_carries_a_module_reached_through_an_alias() {
 // BY NAME under AOT while resolving under JIT. Investigating turned up that
 // this premise is wrong, not merely untestable here:
 //
-// `crates/rts-runtime-boot/src/resolver.rs`'s own doc (resolver.rs:47-52)
-// says what the AOT resolver does with a specifier that is not a literal the
+// `crates/rts-runtime-boot/src/resolver.rs`'s own doc, on its `resolve`
+// function, says what the AOT resolver does with a specifier that is not a literal the
 // manifest recorded: "`None` for anything not in it — a bare name, a `node:`
 // specifier, or a computed one — which leaves the specifier as the program
 // wrote it." So on the AOT side a computed specifier is never looked up by
