@@ -45,6 +45,7 @@ use crate::syntax::{
 use crate::values::Singleton;
 
 mod branch;
+mod choice;
 mod calls;
 mod named;
 mod loops;
@@ -576,6 +577,12 @@ impl Lowering<'_> {
                     "a function value needs the module's numbering",
                 )),
             },
+            ExprKind::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+            } => self.conditional(condition, then_branch, else_branch, expr),
+            ExprKind::Logical { op, left, right } => self.logical(*op, left, right, expr),
             // A TYPE ASSERTION is the operand and nothing else.
             //
             // `a as number` narrows nothing in the domain, and that is rule 4 of this
@@ -781,7 +788,19 @@ impl Lowering<'_> {
                 let index = self.domain.constant(JsConst::Text(text.clone()));
                 Const::Declared(index)
             }
-            _ => return Err(Unsupported::Expression("a literal of another kind")),
+            // NAMED APART rather than sharing a bucket. A regular expression is an
+            // object the runtime builds and a bigint is a second numeric tower, and a
+            // survey that counts them together says neither.
+            Literal::Regex { .. } => {
+                return Err(Unsupported::Expression(
+                    "a regular expression literal is an object the runtime builds",
+                ));
+            }
+            _ => {
+                return Err(Unsupported::Expression(
+                    "a bigint literal is a second numeric tower",
+                ));
+            }
         };
         let of = self.domain.of_const(&value);
         let held = self

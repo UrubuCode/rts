@@ -1249,8 +1249,8 @@ fn a_refused_expression_names_what_it_was() {
         Unsupported::Expression("a template literal")
     );
     assert_eq!(
-        only("function f(a) { return a ? 1 : 2; }").expect_err("a conditional"),
-        Unsupported::Expression("a conditional")
+        only("function f(a) { return a?.b; }").expect_err("an optional chain"),
+        Unsupported::Expression("an optional chain")
     );
     assert_eq!(
         only("function f(a, b) { return (a, b); }").expect_err("a comma expression"),
@@ -1356,5 +1356,106 @@ fn delete_is_refused_because_its_operand_is_a_place() {
     assert_eq!(
         refused,
         Unsupported::Expression("delete removes a property, so its operand is a place")
+    );
+}
+
+/// A conditional is a branch whose arms answer a value, joined into one — and the
+/// type at the join is the domain's join of the two.
+#[test]
+fn a_conditional_joins_the_two_arms_types() {
+    let lowered = only("function f(c) { return c ? 1 : 0.5; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    let join = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.predecessors(*held).len() == 2)
+        .expect("a join");
+    let held = lowered.func.block(join).params[0];
+    // An integer from one arm and a fraction from the other: one numeric type here.
+    assert_eq!(*types.of(held), Type::Double);
+}
+
+/// `a && b` answers `a` ITSELF when `a` is falsy, not `false`: `0 && 1` is `0`. Five
+/// of the seven falsy values are not `false`, so answering a boolean would be wrong
+/// for every one of them.
+#[test]
+fn a_short_circuit_answers_the_subject_and_not_a_boolean() {
+    let lowered = only("function f(a, b) { return a && b; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // One arm jumps with the RIGHT side, the other with the left operand itself --
+    // which is parameter zero.
+    let join = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.predecessors(*held).len() == 2)
+        .expect("a join");
+    let carried: Vec<_> = lowered
+        .func
+        .predecessors(join)
+        .iter()
+        .filter_map(|from| match &lowered.func.block(*from).terminator {
+            Some(Terminator::Jump { args, .. }) => args.first().copied(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(carried.len(), 2);
+    assert!(
+        carried.contains(&rts_mir::ValueId(0)),
+        "the falsy arm answers the left operand itself, {carried:?}"
+    );
+}
+
+/// `a ?? b` is NOT a truth test, which is the operator's whole point: `0 ?? 1` is `0`
+/// where `0 || 1` is `1`. Its condition is a row of its own.
+#[test]
+fn coalescing_asks_whether_the_left_is_nullish_and_not_whether_it_is_truthy() {
+    let coalesce = only("function f(a, b) { return a ?? b; }").expect("covered");
+    let ops: Vec<_> = coalesce
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => coalesce.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ops, vec![JsPrim::IsNullish]);
+
+    // Where `||` on the same operands asks about truth.
+    let or = only("function f(a, b) { return a || b; }").expect("covered");
+    let ops: Vec<_> = or
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => or.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ops, vec![JsPrim::Truthy]);
+}
+
+/// A choice nested inside a choice: the jumps are written after both arms are
+/// lowered, because an arm that nests one moves where building is.
+#[test]
+fn a_nested_choice_terminates_the_block_each_arm_actually_ended_in() {
+    let lowered = only("function f(a, b, c) { return a ? (b ? 1 : 2) : c; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+}
+
+/// The two literals that do not lower are named apart, because a survey counting them
+/// together says neither.
+#[test]
+fn a_regex_and_a_bigint_are_refused_for_their_own_reasons() {
+    let regex = only("function f() { return /ab/g; }").expect_err("a regex");
+    assert_eq!(
+        regex,
+        Unsupported::Expression("a regular expression literal is an object the runtime builds")
+    );
+    let bigint = only("function f() { return 1n; }").expect_err("a bigint");
+    assert_eq!(
+        bigint,
+        Unsupported::Expression("a bigint literal is a second numeric tower")
     );
 }

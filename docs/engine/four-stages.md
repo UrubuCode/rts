@@ -607,17 +607,44 @@ work once: a global call was asserted refused, then asserted refused while the m
 call lowered, and now both lower — so what it pins is that they lower to DIFFERENT
 shapes, one with a receiver and one without.
 
+### The choices: 309 → 318 in `bench/`, 1489 → 1511 in `tests/`
+
+Per file, one gain and none lost. `?:`, `&&`, `||` and `??` are **one** shape with two
+knobs — what the condition is, and what the arm that does not evaluate the right side
+answers — so they are one file and one join. Four copies of a join is where three of
+them stop agreeing.
+
+Each knob is a semantic:
+
+- **`a && b` answers `a` ITSELF** when `a` is falsy, not `false`. `0 && 1` is `0` and
+  `"" && 1` is `""`, and five of the seven falsy values are not `false` — so a
+  lowering that answered a boolean would be wrong for every one of them.
+- **`a ?? b` is not a truth test at all.** `0 ?? 1` is `0` where `0 || 1` is `1`, which
+  is the whole reason the operator exists. Its condition is `IsNullish`, a row of its
+  own, because building it on `Truthy` would be wrong for those same five values.
+
+And a detail worth keeping: the jumps into the join are written **after** both arms
+are lowered, from `builder.current()`. An arm that nests another choice moves where
+building is, so terminating the block the arm *started* in would terminate the wrong
+one — which `a ? (b ? 1 : 2) : c` is the test for.
+
+The two literals that still refuse are now named apart — a regular expression is an
+object the runtime builds, a bigint is a second numeric tower — because a survey
+counting them together says neither.
+
 ### What is left, measured 2026-09-20
 
 | `bench/` | | `tests/` | |
 |---:|---|---:|---|
 | 11 | a class declaration | 61 | a generator |
-| 8 | a literal of another kind | 23 | a destructuring target |
-| 7 | an iteration protocol | 16 | a protected region |
-| 7 | a conditional | 15 | an async function |
-| 6 | a protected region | | |
+| 7 | an iteration protocol | 23 | a destructuring target |
+| 7 | a regular expression | 16 | a protected region |
+| 6 | a protected region | 15 | an async function |
+| 5 | a call through neither a name nor a property | 12 | `instanceof` |
+| 4 | `switch` | 11 | `!==` |
 
 A generator and an async function park a frame, so both wait on
 `rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs, which makes
-them one piece of work rather than two. A protected region is `try`/`catch`, which
-the machine already has regions for. The rest are ordinary lowerings.
+them one piece of work rather than two. A protected region is `try`/`catch`, and the
+machine already has regions for it. `instanceof` and `!==` are table rows. The rest
+are ordinary lowerings.

@@ -135,6 +135,15 @@ pub enum JsPrim {
     /// `a === b`, which coerces nothing. The one comparison that cannot call
     /// user code, which is why it is a row of its own.
     StrictEquals,
+    /// Whether a value is null or undefined, and nothing else.
+    ///
+    /// The condition of the coalescing operator, and a row of its own because it is
+    /// NOT a truth test: `0 ?? 1` is `0` where `0 || 1` is `1`. Five of the seven
+    /// falsy values are not nullish, so an operator built on `Truthy` would be wrong
+    /// for every one of them.
+    ///
+    /// Pure: comparing against the two singletons coerces nothing.
+    IsNullish,
     /// `typeof a`, which answers a string and reads nothing.
     TypeOf,
     /// `!a`, which reads this language's truth rule.
@@ -387,6 +396,7 @@ impl Js {
         JsPrim::Construct,
         JsPrim::MakeClosure,
         JsPrim::Compare,
+        JsPrim::IsNullish,
     ];
 
     /// A domain holding only the fixed constants.
@@ -488,6 +498,7 @@ impl Js {
             | JsPrim::TypeOf
             | JsPrim::Not
             | JsPrim::Truthy
+            | JsPrim::IsNullish
             // Reading the receiver reads a slot the convention decided. It cannot
             // fail and it cannot call anything: the value is already there.
             | JsPrim::ThisValue => Effect::PURE,
@@ -662,7 +673,11 @@ impl Domain for Js {
             JsPrim::Negate => Type::Double,
             // Nothing is known about a receiver without a proof about the call site.
             JsPrim::ThisValue => Type::Anything,
-            JsPrim::LessThan | JsPrim::Compare | JsPrim::StrictEquals | JsPrim::Not => {
+            JsPrim::LessThan
+            | JsPrim::Compare
+            | JsPrim::StrictEquals
+            | JsPrim::Not
+            | JsPrim::IsNullish => {
                 Type::Bool(None)
             }
             // Folded where the type decides it, which is what `truth_of` is for:
