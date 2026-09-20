@@ -46,6 +46,7 @@ use crate::values::Singleton;
 
 mod branch;
 mod choice;
+mod destructure;
 mod switch;
 mod calls;
 mod named;
@@ -301,8 +302,21 @@ impl Lowering<'_> {
             }
             StmtKind::Declare { bindings, .. } => {
                 for Binding { target, value, .. } in bindings {
+                    // A PATTERN needs a value to read from, so a declaration with
+                    // no initialiser cannot have one -- and the language agrees: a
+                    // destructuring declaration must be initialised.
+                    if !matches!(target, Pattern::Name(_)) {
+                        let Some(expr) = value else {
+                            return Err(Unsupported::Statement(
+                                "a destructuring declaration with no initialiser",
+                            ));
+                        };
+                        let held = self.expression(expr)?;
+                        self.destructure(target, held, expr)?;
+                        continue;
+                    }
                     let Pattern::Name(name) = target else {
-                        return Err(Unsupported::Pattern);
+                        unreachable!("the arm above took every other shape")
                     };
                     let (held, of) = match value {
                         Some(expr) => {

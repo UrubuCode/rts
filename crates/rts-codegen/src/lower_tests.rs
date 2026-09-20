@@ -1619,3 +1619,83 @@ fn instanceof_and_in_may_both_reach_user_code() {
         assert!(held.effect.has(Effect::CALLS_USER), "{source}");
     }
 }
+
+/// An object pattern is the property reads it is.
+#[test]
+fn an_object_pattern_reads_each_property_it_names() {
+    let lowered = only("function f(o) { const { a, b } = o; return a + b; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let reads = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::FieldRead)))
+        .count();
+    assert_eq!(reads, 2);
+}
+
+/// A default is a BRANCH, because it runs only when the value read was `undefined` —
+/// so `{ a = f() }` over an object that has `a` must not call `f`.
+#[test]
+fn a_pattern_default_is_a_branch_and_not_a_coalesce() {
+    let lowered = only("function f(o) { const { a = 7 } = o; return a; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    // A comparison against `undefined` specifically -- not `IsNullish`, because
+    // `{ a = 1 }` over `{ a: null }` binds `null`: it is a value that was there.
+    assert!(ops.contains(&JsPrim::StrictEquals), "{ops:?}");
+    assert!(!ops.contains(&JsPrim::IsNullish), "{ops:?}");
+    // And it is a branch: there is a join.
+    assert!(
+        lowered
+            .func
+            .block_ids()
+            .any(|held| lowered.func.predecessors(held).len() == 2)
+    );
+}
+
+/// `const [a] = xs` is NOT `a = xs[0]`. Array destructuring steps the iterator
+/// protocol, so it works on a `Set` and fails on an object with numeric keys — a
+/// lowering that indexed would be wrong in both directions at once.
+#[test]
+fn an_array_pattern_is_refused_as_an_iteration_and_not_lowered_as_indexing() {
+    let refused = only("function f(xs) { const [a] = xs; return a; }").expect_err("an array pattern");
+    assert_eq!(
+        refused,
+        Unsupported::Expression(
+            "an array pattern steps the iteration protocol, which is not indexing"
+        )
+    );
+}
+
+/// An object rest collects the own enumerable properties NOT already named, which
+/// needs the key set at run time.
+#[test]
+fn an_object_rest_is_refused_because_it_needs_the_keys() {
+    let refused =
+        only("function f(o) { const { a, ...rest } = o; return rest; }").expect_err("a rest");
+    assert_eq!(
+        refused,
+        Unsupported::Expression("an object rest target needs the own keys at run time")
+    );
+}
+
+/// A nested pattern and a computed key each keep their own refusal, so a survey can
+/// count them apart.
+#[test]
+fn a_nested_pattern_and_a_computed_key_are_refused_apart() {
+    let nested = only("function f(o) { const { a: { b } } = o; return b; }")
+        .expect_err("a nested pattern");
+    assert!(matches!(nested, Unsupported::Expression(_)));
+    let computed =
+        only("function f(o, k) { const { [k]: a } = o; return a; }").expect_err("a computed key");
+    assert!(matches!(computed, Unsupported::Expression(_)));
+}

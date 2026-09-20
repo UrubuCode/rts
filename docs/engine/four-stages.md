@@ -680,17 +680,46 @@ while `continue` names a loop. So a frame carries which construct it is, and a
 stacks are one and the `continue` leaves the loop instead of taking its next pass —
 a wrong answer that compiles, with a graph that looks perfectly well formed.
 
+### Object destructuring: 326 → 327 in `bench/`, 1536 → 1536 in `tests/`
+
+**One file gained and the totals barely moved, which is the honest headline.** What
+the change bought was not coverage but a NAME: the 23 refusals reading "a
+destructuring target" became 15 that say *an array pattern steps the iteration
+protocol*, and the other eight got past the declaration and stopped somewhere else.
+The `tests/` total is unchanged because a function refused for one thing is usually
+refused for the next as well.
+
+**`const [a] = xs` is not `a = xs[0]`**, and that is the finding worth the file. Array
+destructuring steps the iterator protocol — it reads `xs[Symbol.iterator]`, calls it,
+and calls `next()` per element — so it works on a `Set`, on a generator and on
+anything with a `next`, and it does NOT work on an object with numeric keys and no
+iterator. A lowering that indexed would be wrong in both directions at once: accepting
+what the language refuses and refusing what it accepts. So it keeps a refusal, under
+the same name as `for`-`of`, which is the one piece that answers both.
+
+**A pattern default is a branch, not a coalesce.** It runs only when the value read was
+`undefined` — `{ a = 1 }` over `{ a: null }` binds `null`, because `null` is a value
+that was there — and it is evaluated only when needed, so `{ a = f() }` over an object
+that has `a` never calls `f`. `IsNullish` would be wrong for the first and an argument
+would be wrong for the second.
+
+A nested pattern, a computed key and an object rest each keep their own refusal. The
+rest is the interesting one: it collects the own enumerable properties *not already
+named*, which needs the key set at run time and is not something an ordinary read can
+stand in for.
+
 ### What is left, measured 2026-09-20
 
 | `bench/` | | `tests/` | |
 |---:|---|---:|---|
 | 11 | a class declaration | 61 | a generator |
-| 7 | an iteration protocol | 23 | a destructuring target |
-| 7 | a regular expression | 16 | a protected region |
-| 6 | a protected region | 15 | an async function |
-| 5 | a call through neither a name nor a property | 11 | a class declaration |
+| 7 | an iteration protocol | 18 | a protected region |
+| 7 | a regular expression | 15 | an async function |
+| 6 | a protected region | 15 | an array pattern |
+| 5 | a call through neither a name nor a property | 10 | a rest parameter |
 
 A generator and an async function park a frame, so both wait on
 `rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs, which makes
-them one piece of work rather than two. A protected region is `try`/`catch`, and the
-machine already has regions for it. The rest are ordinary lowerings.
+them one piece of work rather than two. An array pattern, `for`-`of` and a rest
+parameter are all the ITERATION PROTOCOL, which makes those one piece as well. A
+protected region is `try`/`catch`, and the machine already has regions for it.

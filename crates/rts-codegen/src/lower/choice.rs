@@ -79,7 +79,7 @@ impl Lowering<'_> {
     /// mechanism [`Lowering::branch`] uses for the bindings two statement arms
     /// disagree about — one join, two shapes of question. Its type is the domain's
     /// join of the two arms, which is the one thing a lattice is for.
-    fn choice(
+    pub(super) fn choice(
         &mut self,
         tested: ValueId,
         when_true: Arm<'_>,
