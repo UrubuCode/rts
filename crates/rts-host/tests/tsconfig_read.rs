@@ -35,7 +35,33 @@ fn a_config_beside_the_entry_is_found() {
     let aliases = Aliases::discover(&dir.join("src/app.ts"));
     assert!(!aliases.is_empty());
     let found = aliases.candidates("@/engine/scene");
-    assert_eq!(found, vec![dir.join("src").join("engine").join("scene")]);
+    assert_eq!(
+        found,
+        vec![
+            dir.join("src").join("engine").join("scene"),
+            dir.join(".").join("@/engine/scene"),
+        ],
+        "the paths hit comes first; the baseUrl candidate follows it and is \
+         what a matched-but-missing pattern falls through to"
+    );
+}
+
+/// Spec §9 point 4: a pattern that MATCHES but whose every target is
+/// missing must still fall through to `baseUrl`. Nothing covered this,
+/// and an earlier fix removed the fall-through without a test failing.
+#[test]
+fn a_matched_pattern_whose_targets_all_miss_still_offers_base_url() {
+    let dir = fixture(
+        "fallthrough_base",
+        &[
+            ("tsconfig.json", "{\"compilerOptions\":{\"baseUrl\":\".\",\"paths\":{\"@/*\":[\"./gone/*\"]}}}"),
+            ("src/app.ts", "export const x = 1;\n"),
+        ],
+    );
+    let aliases = Aliases::discover(&dir.join("src/app.ts"));
+    let found = aliases.candidates("@/thing");
+    assert_eq!(found.len(), 2, "the missing paths target, then baseUrl: {found:?}");
+    assert!(found[1].starts_with(&dir), "the second candidate is the baseUrl one");
 }
 
 /// Upward, like node and bun and tsc: the entry is deep and the config is not.

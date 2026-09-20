@@ -81,22 +81,18 @@ impl Aliases {
     /// a file is — extensions and `index.*` — and that is `resolve::extended`.
     pub fn candidates(&self, specifier: &str) -> Vec<PathBuf> {
         let mut found = Vec::new();
-        match self.best_match(specifier) {
-            Some(pattern) => {
-                let stem =
-                    &specifier[pattern.prefix.len()..specifier.len() - pattern.suffix.len()];
-                for target in &pattern.targets {
-                    found.push(substitute(target, stem, pattern.wildcard));
-                }
+        if let Some(pattern) = self.best_match(specifier) {
+            let stem = &specifier[pattern.prefix.len()..specifier.len() - pattern.suffix.len()];
+            for target in &pattern.targets {
+                found.push(substitute(target, stem, pattern.wildcard));
             }
-            // `baseUrl` is the fallback, tried only when no `paths` pattern
-            // matched at all — a specifier `paths` claims is answered only by
-            // what `paths` lists, never also by `baseUrl`.
-            None => {
-                if let Some(base) = &self.base_url {
-                    found.push(base.join(specifier));
-                }
-            }
+        }
+        // `baseUrl` is tried AFTER every `paths` target, never instead of them:
+        // a pattern that matches but whose targets are all missing still falls
+        // through to here, which is `tsc`'s order. The caller walks this list and
+        // stops at the first that exists, so an extra candidate costs one probe.
+        if let Some(base) = &self.base_url {
+            found.push(base.join(specifier));
         }
         found
     }
