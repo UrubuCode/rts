@@ -17,6 +17,22 @@
 //
 // That distinguishes it from `tests/inline-free-name-block-shadow.test.ts`,
 // where the same ablation answers correctly and the substitution was the cause.
+//
+// The mechanism, located 2026-09-20: a captured local is a PROPERTY of an
+// environment object, and `Binding::InEnvironment { hops, name }`
+// (`emit/scope.rs`) keys the slot by that name. `emit/binding.rs`'s declaration
+// path asks `scope.is_captured(name)` and, when it holds, stores into the
+// environment property of that name. The captured SET is keyed by spelling too,
+// so the loop's own `let i` -- a different binding that merely spells the same
+// thing -- is taken for the captured one and writes the outer binding's slot.
+// The closure then reads what the loop wrote.
+//
+// It is not fixable by a narrower test at that site: whether a block-scoped
+// declaration needs environment storage of its own depends on whether an inner
+// closure captures IT (`catch (c) { const read = () => c; }` is the shape that
+// does, and `Scope::enter_environment` is what serves it). Deciding that needs
+// binding identity, which is E2. A slot keyed by identity instead of by spelling
+// makes the two `i`s two slots and the question disappears.
 import { describe, test, expect } from "rts:test";
 
 describe("a loop target that spells a captured name", () => {

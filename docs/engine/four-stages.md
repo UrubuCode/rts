@@ -106,6 +106,36 @@ Seven documented failures in that one file are the same failure: substitution by
 spelling, with no renaming pass. The header says so outright — *"each of those
 needs a renaming pass this does not have"*.
 
+### And it is not only the inliner
+
+`tests/closure-capture-loop-shadow.test.ts` is pinned and **fails today**. A
+closure over an outer `i` reads a `for (let i …)` of the enclosing function
+instead:
+
+```text
+rts:  0:0 1:1 2:2
+node: 7:0 7:1 7:2
+```
+
+The ablation says it is not the inliner — with the helper read as a value, so
+nothing may be substituted, the answer is unchanged. The mechanism is the same
+root in a second place: a captured local is a **property of an environment
+object**, `Binding::InEnvironment { hops, name }` keys that slot by the name, and
+`emit/binding.rs`'s declaration path stores into it whenever
+`scope.is_captured(name)` holds. The captured set is keyed by spelling as well,
+so the loop's own binding is taken for the captured one and writes the outer
+binding's slot.
+
+That one is not fixable by a narrower test at the site, because whether a
+block-scoped declaration needs environment storage of its own depends on whether
+an inner closure captures *it* — `catch (c) { const read = () => c; }` is the
+shape that does. Deciding it needs binding identity. With slots keyed by
+identity, the two `i`s are two slots and the question does not arise.
+
+`emit/scope.rs::for_function` already carries a filter added 2026-08-21 for the
+mirror image of this bug, where a nested block's captured name shadowed the
+correct outer binding at zero hops. Two bugs, opposite directions, one cause.
+
 ---
 
 ## The defect class, stated once
