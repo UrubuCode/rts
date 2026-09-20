@@ -54,6 +54,23 @@ use crate::syntax::{
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
 pub struct BindingId(u32);
 
+impl BindingId {
+    /// The id of the declaration at an index of the arena.
+    ///
+    /// For a consumer that walks every declaration — a report, or a test asserting
+    /// about the whole program. There is no iterator instead because the arena is
+    /// private and handing out a slice of it would let a caller index it by a
+    /// number from somewhere else.
+    pub fn from_index(held: usize) -> Self {
+        Self(held as u32)
+    }
+
+    /// Which index this is.
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// One scope of the tree.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
 pub struct ScopeId(u32);

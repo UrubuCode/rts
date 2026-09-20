@@ -73,6 +73,41 @@ pub enum Unsupported {
     NoScope,
 }
 
+/// Which binding of a module calls which function.
+///
+/// Built by [`crate::lower_module`] over the whole module before any of it is
+/// lowered, because a call may name a function written later in the file --
+/// `function a() { return b(); } function b() {}` is ordinary code.
+///
+/// Keyed by [`BindingId`] and not by a spelling, which is the whole of why this is
+/// a map and not a search: two functions may be called `step` in one module, and
+/// the binding says which one a given call reaches.
+#[derive(Debug, Default)]
+pub struct Callees(std::collections::BTreeMap<BindingId, rts_mir::cfg::FuncId>);
+
+impl Callees {
+    /// The map for one module.
+    pub fn of(
+        items: &[crate::syntax::ModuleItem],
+        functions: &[&Function],
+        resolution: &Resolution,
+    ) -> Self {
+        let mut held = crate::lower_module::callee_map(functions, resolution);
+        held.extend(crate::lower_module::bound_expressions(items, functions, resolution));
+        Self(held)
+    }
+
+    /// The map, given one already built.
+    pub fn from_map(held: std::collections::BTreeMap<BindingId, rts_mir::cfg::FuncId>) -> Self {
+        Self(held)
+    }
+
+    /// Which function that binding is, if it is one.
+    pub fn of_binding(&self, binding: BindingId) -> Option<rts_mir::cfg::FuncId> {
+        self.0.get(&binding).copied()
+    }
+}
+
 /// One function, lowered.
 ///
 /// The domain travels with it because the graph's `Prim` and `Assertion` indices
@@ -96,6 +131,25 @@ pub fn lower(
     resolution: &Resolution,
     tier: Tier,
 ) -> Result<Lowered, Unsupported> {
+    let mut domain = Js::new();
+    let func = lower_with(function, resolution, &Callees::default(), &mut domain, tier)?;
+    Ok(Lowered { func, domain })
+}
+
+/// The same, against a MODULE's tables.
+///
+/// The domain is the module's rather than this function's, because an assertion
+/// index minted for one function has to mean the same thing in the next -- a guard
+/// hoisted out of a call, later, is one assertion in two graphs. And the callee map
+/// is the module's by definition: a call names something outside the function it
+/// is written in.
+pub fn lower_with(
+    function: &Function,
+    resolution: &Resolution,
+    callees: &Callees,
+    domain: &mut Js,
+    tier: Tier,
+) -> Result<Func, Unsupported> {
     if function.is_async {
         return Err(Unsupported::Shape("an async function parks its frame"));
     }
@@ -111,7 +165,8 @@ pub fn lower(
 
     let mut lowering = Lowering {
         builder: FuncBuilder::new(tier),
-        domain: Js::new(),
+        domain,
+        callees,
         values: BTreeMap::new(),
         types: BTreeMap::new(),
         resolution,
@@ -144,10 +199,7 @@ pub fn lower(
         }
     }
 
-    Ok(Lowered {
-        func: lowering.builder.finish(),
-        domain: lowering.domain,
-    })
+    Ok(lowering.builder.finish())
 }
 
 /// One loop being lowered: where its test is, where leaving it goes, and which
@@ -161,7 +213,9 @@ struct LoopFrame {
 /// The state one function's lowering carries.
 struct Lowering<'a> {
     builder: FuncBuilder,
-    domain: Js,
+    domain: &'a mut Js,
+    /// Which function of the module a name calls, where one does.
+    callees: &'a Callees,
     /// What each binding currently holds. Keyed by IDENTITY, which is why there
     /// are no shadowing rules in this file.
     values: BTreeMap<BindingId, ValueId>,
@@ -608,6 +662,61 @@ impl Lowering<'_> {
                 self.bind(*name, held, of)?;
                 // The value of an assignment is what was assigned, which is what
                 // makes `a = b = 1` work.
+                Ok(held)
+            }
+            // A CALL TO A FUNCTION THE MODULE NUMBERED.
+            //
+            // The callee is resolved through the binding and not through the
+            // spelling, which is what makes this correct in a module that declares
+            // `step` twice: `binding_in` answers which of the two this site reaches,
+            // and the map answers which function that binding is.
+            //
+            // What is refused is everything else — a method, a call through a
+            // parameter, a global. Each needs something this stage does not have: a
+            // receiver proof, an indirect call with a signature, an entry point. The
+            // refusals are separate so the survey can count them apart, which is how
+            // this arm came to be written at all.
+            ExprKind::Call {
+                callee,
+                arguments,
+                optional: false,
+            } => {
+                let ExprKind::Ident(name) = &callee.kind else {
+                    return Err(Unsupported::Expression(
+                        "a call whose callee is not a plain name needs a receiver proof",
+                    ));
+                };
+                let Some(binding) = self.resolution.binding_in(self.scope, *name) else {
+                    return Err(Unsupported::Global(*name));
+                };
+                let Some(id) = self.callees.of_binding(binding) else {
+                    return Err(Unsupported::Expression(
+                        "a call to a binding that holds no function of this module",
+                    ));
+                };
+                let mut args = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    let crate::syntax::Spreadable::Single(value) = argument else {
+                        return Err(Unsupported::Expression(
+                            "a spread argument has a run-time count",
+                        ));
+                    };
+                    args.push(self.expression(value)?);
+                }
+                // CALLS_USER and THROWS, because what the callee does is not known
+                // here. An interprocedural pass is what narrows this — and
+                // `passes::refine_effects` is already the shape that would apply the
+                // answer, which is why the summary is on the instruction rather than
+                // derived at every use.
+                let held = self.builder.push(
+                    Op::Call {
+                        callee: rts_mir::cfg::Callee::Func(id),
+                        args,
+                    },
+                    Effect::CALLS_USER.and(Effect::THROWS),
+                    expr.at,
+                );
+                self.types.insert(held, self.domain.top());
                 Ok(held)
             }
             ExprKind::Binary { op, left, right } => {

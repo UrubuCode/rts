@@ -315,17 +315,56 @@ contradict the plan it replaced.
 | 20 | a destructuring target |
 | 10 | **a `do`-`while` or a `for`** |
 
-A call is **thirteen times** the next item and two thirds of every refusal. The
-list written before this was measured put `do`-`while` and `for` next, and they are
-ten — the intuition was wrong by two orders of magnitude, which is the whole reason
-`lower.rs` names its refusals rather than counting them as one.
+A call is **thirteen times** the next item and two thirds of every refusal — *on
+this corpus*, and that qualifier turned out to be the finding.
 
-**And the top item is not a statement kind to lower — it is a structural change.**
-A call needs to name a callee, and `Callee::Func(FuncId)` means a registry of the
-program's functions with ids. This lowering takes one function at a time, so there
-is nothing for a call to name. Lowering per MODULE, with the functions numbered
-first, is what the measurement actually asks for; the second-biggest group (a
-nested definition, a function expression) is the same request from the other side.
+### The corpus decides the answer, and one corpus is one claim
+
+The same instrument over `bench/` — 386 functions of programs written to be *run*
+rather than to assert — answers something else entirely:
+
+| refusals | reason |
+|---:|---|
+| **131** | a `do`-`while` or a `for` |
+| 36 | an array literal |
+| 27 | a nested definition |
+| 27 | an object literal |
+| 19 | a string literal |
+| 16 | a property access |
+| 14 | a call through a member |
+
+`for` goes from ten to a hundred and thirty-one and from last to first; a call goes
+from first to seventh. Neither table is wrong and neither is the answer: a test file
+is a chain of `expect(…).toBe(…)`, so almost every call in it is a method on a
+value or an import of the harness, while a benchmark is a loop over an array.
+
+So the sentence this section first carried — *"the intuition was wrong by two orders
+of magnitude"* — was itself a claim about `tests/` wearing a measurement's clothes.
+The intuition that put `for` next was right about the programs the engine exists to
+run. **A survey names its corpus or it says nothing**, which is the same rule the
+merge gate states about a suite number and the same one `README.md`'s generated
+block states about a share.
+
+### What each table asks for next
+
+- `bench/`: the classic `for` and `do`-`while`, which are the `while` shape once the
+  header is decided — and the header machinery exists.
+- `tests/`: a member call, which needs a receiver proof (`emit/receiver.rs` is the
+  existing one), and an imported binding, which needs an entry point.
+
+**And the top item of that table was not a statement kind to lower — it was a
+structural change.** A call needs to name a callee, `Callee::Func(FuncId)` means a
+registry of the program's functions with ids, and a lowering that takes one function
+at a time has nothing for a call to name. `lower_module` is that registry, and it is
+built: functions numbered in source order, one domain shared, a callee map keyed by
+`BindingId` so that two functions spelled alike are two entries.
+
+**What it yielded on `tests/` was nothing, and that is stated rather than buried:
+127 of 1 725 before and 127 of 1 725 after.** What changed is that the 1 074 calls
+split into 844 through a member and 218 to a binding holding no function of this
+module — which is what named the next two pieces of work. A function refused for one
+call is usually refused for several, so resolving one kind of callee moved no
+function into the lowered column.
 
 Two defects in the instrument were found by running it, and both had made it
 measure nothing:

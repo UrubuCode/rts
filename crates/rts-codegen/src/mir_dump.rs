@@ -22,10 +22,7 @@ use rts_mir::text::print;
 use crate::lower::{Unsupported, lower};
 use crate::names::Names;
 use crate::names::resolve::resolve_module;
-use crate::emit::capture::{Child, StmtChild, walk_expr, walk_stmt};
-use crate::syntax::{
-    Expr, ExportDefault, ExportKind, Function, ModuleItem, Stmt,
-};
+use crate::syntax::Function;
 
 /// Every function of a module, lowered and printed.
 ///
@@ -48,37 +45,27 @@ pub fn describe(source: &str) -> Result<String, String> {
     };
     let resolution = resolve_module(&program.body);
 
+    let lowered_module = crate::lower_module::lower_module(&program.body, &resolution, &names, Tier::Generic);
+    let found = lowered_module.functions.len();
+    let mut domain = lowered_module.domain;
     let mut out = String::new();
-    let mut refused = Vec::new();
-    // EVERY function in the tree, not only the top-level declarations.
-    //
-    // The second half of the same finding: a corpus file puts its code inside
-    // `describe(…, () => { … })`, so top-level declarations are the rare case and
-    // the dump reported "no top-level function declarations" for almost every file
-    // it could parse. What is interesting is every function a program contains.
-    let functions = every_function(&program.body);
-    let found = functions.len();
-    for function in functions {
-        let named = match function.name {
-            Some(name) => names.text(name).to_owned(),
-            None => format!("<anonymous at {}>", function.at.0),
-        };
-        match lower(function, &resolution, Tier::Generic) {
-            Ok(lowered) => {
-                // The pass runs BEFORE printing, and the count is printed with it.
-                //
-                // The alternative — print the lowering's own answer — was what this
-                // command did first, and reading it is what found the pass worth
-                // writing: every operation of a numeric loop marked as possibly
-                // calling user code. Showing the unrefined form now would be
-                // showing a graph no pass would ever see.
-                let mut lowered = lowered;
-                let refined = refine_effects(&mut lowered.func, &lowered.domain);
-                out.push_str(&format!("fn {named}\n"));
-                out.push_str(&print(&lowered.func, &lowered.domain));
+    let mut refused = 0usize;
+    for entry in lowered_module.functions {
+        match entry.result {
+            Ok(mut func) => {
+                // The pass runs BEFORE printing, and its count is printed with it.
+                // Reading the unrefined form is what found the pass worth writing --
+                // every operation of a numeric loop marked as possibly calling user
+                // code -- but showing it now would be showing a graph no pass will
+                // ever see.
+                let refined = refine_effects(&mut func, &domain);
+                out.push_str(&format!("fn {}
+", entry.named));
+                out.push_str(&print(&func, &domain));
                 if refined.narrowed > 0 || refined.refused > 0 {
                     out.push_str(&format!(
-                        "; {} effect{} narrowed by inference{}\n",
+                        "; {} effect{} narrowed by inference{}
+",
                         refined.narrowed,
                         match refined.narrowed {
                             1 => "",
@@ -90,123 +77,32 @@ pub fn describe(source: &str) -> Result<String, String> {
                         }
                     ));
                 }
-                out.push('\n');
+                out.push(0x0a as char);
             }
             Err(held) => {
-                out.push_str(&format!("fn {named} — NOT LOWERED: {}\n\n", why(&held, &names)));
-                refused.push(held);
+                out.push_str(&format!("fn {} — NOT LOWERED: {}
+
+", entry.named, why(&held, &names)));
+                refused += 1;
             }
         }
     }
+    let _ = &mut domain;
 
     if found == 0 {
-        return Ok("no top-level function declarations; the MIR stage lowers one function at a time\n".to_owned());
+        return Ok("no function in this program; the MIR stage lowers one function at a time
+".to_owned());
     }
     out.push_str(&format!(
-        "{} of {found} function{} lowered\n",
-        found - refused.len(),
+        "{} of {found} function{} lowered
+",
+        found - refused,
         match found {
             1 => "",
             _ => "s",
         }
     ));
     Ok(out)
-}
-
-/// Every function a module contains, at any depth, in source order.
-///
-/// Through `emit::capture`'s traversal rather than a second description of the
-/// tree's shape, for the reason that file's header gives: two copies is how a node
-/// comes to be visited by one analysis and skipped by the other. A method's
-/// function is included — a class body is code like any other.
-fn every_function(items: &[ModuleItem]) -> Vec<&Function> {
-    let mut found = Vec::new();
-    for item in items {
-        match item {
-            ModuleItem::Stmt(statement) => functions_in_statement(statement, &mut found),
-            ModuleItem::Export(export) => match &export.kind {
-                ExportKind::Declaration(statement) => functions_in_statement(statement, &mut found),
-                ExportKind::Default(ExportDefault::Declaration(statement)) => {
-                    functions_in_statement(statement, &mut found)
-                }
-                ExportKind::Default(ExportDefault::Expr(expr)) => {
-                    functions_in_expr(expr, &mut found)
-                }
-                ExportKind::Named { .. } | ExportKind::All { .. } => {}
-            },
-            ModuleItem::Import(_) => {}
-        }
-    }
-    found
-}
-
-fn functions_in_statement<'a>(statement: &'a Stmt, found: &mut Vec<&'a Function>) {
-    // NO explicit arm for `StmtKind::Function` here. `walk_stmt` hands a function
-    // declaration over as `StmtChild::Function` and stops, which `inline.rs`'s own
-    // traversal records — so matching it here as well printed every declared
-    // function TWICE, and the test for the printed graph is what said so.
-    walk_stmt(statement, &mut |child| match child {
-        StmtChild::Stmt(inner) => functions_in_statement(inner, found),
-        StmtChild::Expr(expr) => functions_in_expr(expr, found),
-        StmtChild::Binding(binding) => {
-            if let Some(value) = &binding.value {
-                functions_in_expr(value, found);
-            }
-        }
-        StmtChild::Catch(catch) => {
-            for inner in &catch.body {
-                functions_in_statement(inner, found);
-            }
-        }
-        StmtChild::Function(function) => {
-            found.push(function);
-            body_of(function, found);
-        }
-        StmtChild::Class(class) => class_of(class, found),
-    });
-}
-
-fn functions_in_expr<'a>(expr: &'a Expr, found: &mut Vec<&'a Function>) {
-    walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => functions_in_expr(inner, found),
-        Child::Function(function) => {
-            found.push(function);
-            body_of(function, found);
-        }
-        Child::Class(class) => class_of(class, found),
-    });
-}
-
-fn body_of<'a>(function: &'a Function, found: &mut Vec<&'a Function>) {
-    match &function.body {
-        crate::syntax::FunctionBody::Block(statements) => {
-            for held in statements {
-                functions_in_statement(held, found);
-            }
-        }
-        crate::syntax::FunctionBody::Expression(expr) => functions_in_expr(expr, found),
-    }
-}
-
-fn class_of<'a>(class: &'a crate::syntax::Class, found: &mut Vec<&'a Function>) {
-    for element in &class.body {
-        match element {
-            crate::syntax::ClassElement::Method(method) => {
-                found.push(&method.function);
-                body_of(&method.function, found);
-            }
-            crate::syntax::ClassElement::Field(field) => {
-                if let Some(value) = &field.value {
-                    functions_in_expr(value, found);
-                }
-            }
-            crate::syntax::ClassElement::StaticBlock(statements) => {
-                for held in statements {
-                    functions_in_statement(held, found);
-                }
-            }
-        }
-    }
 }
 
 /// A refusal, as a sentence naming what it was.
@@ -288,7 +184,7 @@ mod tests {
     #[test]
     fn a_program_with_no_function_says_so_rather_than_printing_nothing() {
         let printed = describe("const a = 1;").expect("parses");
-        assert!(printed.contains("no top-level function"), "{printed}");
+        assert!(printed.contains("no function in this program"), "{printed}");
     }
 
     /// A loop's header, its back edge and its exit, all readable -- which is what
