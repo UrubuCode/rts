@@ -4824,6 +4824,7 @@ dependencies = [
  "rts-physics",
  "rts-std",
  "rts-ui",
+ "serde_json",
 ]
 
 [[package]]

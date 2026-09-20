@@ -11,11 +11,15 @@
 //   - `require("./util")`            — asks at run time, and an AOT binary has
 //                                      no disk to ask; the answers ride the
 //                                      manifest instead
+//   - an aliased import          — `@/util`, resolved from tests/aot/tsconfig.json;
+//                                   a static alias is rewritten before either
+//                                   destination sees it, and the diff is what
+//                                   proves that rather than assuming it
 //
 // The CI smoke runs it BOTH ways and compares, which is the claim rule 4 of
 // `crates/rts-host/README.md` makes: one program, two destinations.
 import { Service } from "./service";
-import { LABEL, upto, twice } from "./util";
+import { LABEL, upto, twice } from "@/util";
 
 async function main() {
   const service = new Service();

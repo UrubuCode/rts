@@ -83,6 +83,17 @@ fn mirror_root() -> Result<PathBuf> {
 /// Parse `text` (one fetched module) and collect its RELATIVE import
 /// specifiers (`./`, `../`), in source order. Builtins/bare specifiers are the
 /// engine's job later, on the mirrored files.
+///
+/// **Aliases are deliberately not resolved here.** `rts_host::graph`'s
+/// alias-aware walk is `visit` (`crates/rts-host/src/graph/walk.rs`), reached
+/// through `compile_graph`/`front_end`, and calling it from this function
+/// would resolve a REMOTE program's `@/…` against the local machine's
+/// `tsconfig.json` — reading local files on a remote program's behalf.
+/// `relative_imports` (also `graph/walk.rs`, re-exported at its old
+/// `rts_host::graph` path) is blind to aliases by type, not by a flag: it
+/// only ever collects `./` and `../` text. The test that pins this is
+/// `the_remote_mirror_does_not_resolve_an_alias` in
+/// `crates/rts-host/tests/import_alias.rs`.
 fn relative_imports(text: &str, url: &UrlParts) -> Result<Vec<String>> {
     // The ENGINE's parser, not a second one. This walked the old engine's AST
     // and so answered a slightly different question from the compiler that
