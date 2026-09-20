@@ -55,6 +55,11 @@ rts-dom-bridge = { path = "../rts-dom-bridge" }
 # um tokenizer HTML aqui.
 rts-dom = { path = "../rts-dom" }
 libc = "0.2"
+# `tsconfig.json`, for import aliases. This crate's only other external
+# dependency is `libc`, and that is deliberate — the entry is here because the
+# loader must read a config file and hand-rolling a JSON parser to avoid a
+# dependency already in this workspace's lockfile is the worse trade.
+serde_json = "1.0"
 
 [features]
 # `ui` E PADRAO. A razao de ela ter ficado de fora morreu com o crate que a

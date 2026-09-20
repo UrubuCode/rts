@@ -39,6 +39,7 @@ pub mod describe;
 pub mod prove;
 mod entries;
 pub mod graph;
+pub mod jsonc;
 mod link;
 mod live;
 pub mod object;
