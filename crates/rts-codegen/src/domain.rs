@@ -414,6 +414,43 @@ impl Domain for Js {
     }
 }
 
+/// What this language calls the things `rts-mir` only numbers.
+///
+/// The other half of rule 4: the IR carries indices and refuses to interpret them,
+/// so reading a graph needs the table that minted them — and the table is here,
+/// where it is also what decides effects and transfers. One source for both, which
+/// is why the printer asks rather than carrying names on its instructions.
+impl rts_mir::text::Legend for Js {
+    fn prim(&self, prim: rts_mir::Prim) -> String {
+        match self.meaning(prim) {
+            Some(which) => format!("{which:?}").to_lowercase(),
+            None => format!("prim#{}", prim.0),
+        }
+    }
+
+    fn assertion(&self, assertion: rts_mir::Assertion) -> String {
+        match self.asserted(assertion) {
+            Some(what) => format!("{what:?}"),
+            None => format!("assert#{}", assertion.0),
+        }
+    }
+
+    fn entry(&self, entry: rts_mir::cfg::EntryId) -> String {
+        // The entry table is `rts-host`'s and this crate does not hold it yet, so
+        // the honest answer is the number. Naming it wrongly would be worse than
+        // not naming it: a reader would trust it.
+        format!("entry#{}", entry.0)
+    }
+
+    fn declared(&self, index: u32) -> String {
+        match index {
+            0 => "undefined".to_owned(),
+            1 => "null".to_owned(),
+            _ => format!("const#{index}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

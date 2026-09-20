@@ -7,6 +7,7 @@ pub mod html_entry;
 pub mod init;
 pub mod install;
 pub mod ir;
+pub mod mir;
 pub mod napi;
 pub mod prove;
 pub mod new_engine;
@@ -313,6 +314,7 @@ where
         "test" => test_cmd::command(positional.get(1).cloned()),
         "emit-types" => emit_types::command(positional.get(1).cloned()),
         "ir" => ir::command(positional.get(1).cloned(), flags.as_compile_options()),
+        "mir" => mir::command(positional.get(1).cloned()),
         "prove" => prove::command(positional.get(1).cloned(), flags.as_compile_options()),
         "napi" => napi::command(positional.get(1).cloned()),
         "i" | "install" | "add" => {
@@ -429,6 +431,7 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} test [path]");
     println!("  {bin_name} emit-types [output.d.ts]");
     println!("  {bin_name} ir <input.ts>          dump this engine's own IR to stdout (no execution)");
+    println!("  {bin_name} mir <input.ts>         dump the shared MIR, one stage earlier, with effects and refusals");
     println!("  {bin_name} prove <input.ts>       report where the emitter could not prove, and gave up");
     println!("  {bin_name} i [pkg@version ...]   install packages from package.json or args");
     println!("  {bin_name} help");

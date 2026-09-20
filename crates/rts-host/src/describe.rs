@@ -136,3 +136,17 @@ mod tests {
         );
     }
 }
+
+/// The MIR of one source text, as text.
+///
+/// Apart from [`describe_source`] rather than a flag on it, because the two answer
+/// about different stages and a flag would make one command mean two things. This
+/// one stops before the machine's representation exists at all: `rts_codegen`'s
+/// lowering into `rts_mir` is upstream of everything `front_end` does, so nothing
+/// here compiles or places anything.
+///
+/// Nothing in this crate decides what the text says — rule 1 — and the whole
+/// implementation is `rts_codegen::mir_dump`.
+pub fn describe_mir(source: &str) -> Result<String, HostError> {
+    rts_codegen::mir_dump::describe(source).map_err(HostError::Parse)
+}

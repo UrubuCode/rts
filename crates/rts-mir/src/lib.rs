@@ -28,6 +28,7 @@ pub mod effect;
 pub mod guard;
 pub mod infer;
 pub mod lower;
+pub mod text;
 pub mod verify;
 
 pub use cfg::{BlockId, Const, Func, FuncBuilder, InstId, Op, Prim, Terminator, ValueId};

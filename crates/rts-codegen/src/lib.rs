@@ -32,6 +32,7 @@
 mod check;
 pub mod domain;
 pub mod lower;
+pub mod mir_dump;
 pub mod names;
 pub mod parse;
 pub mod syntax;
