@@ -848,3 +848,100 @@ fn an_optional_access_is_refused_rather_than_read_unconditionally() {
     let refused = only("function f(o) { return o?.x; }").expect_err("an optional link");
     assert!(matches!(refused, Unsupported::Expression(_)));
 }
+
+/// An object literal is pairs of a declared key and a value, in SOURCE ORDER --
+/// which is what decides the layout, so the order is a semantic and not a style.
+#[test]
+fn an_object_literal_is_key_value_pairs_in_the_order_written() {
+    let lowered = only("function f(n) { return { x: 1, y: n }; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let built = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::NewObject)))
+        .expect("a construction");
+    let args = match &built.op {
+        rts_mir::Op::Prim { args, .. } => args.clone(),
+        other => panic!("expected a primitive, got {other:?}"),
+    };
+    assert_eq!(args.len(), 4, "two properties, two arguments each");
+    // Argument zero is the key `x` and argument two is the key `y`, in that order.
+    let key_of = |value: rts_mir::ValueId| {
+        lowered
+            .func
+            .insts
+            .iter()
+            .find(|held| held.result == value)
+            .and_then(|held| match &held.op {
+                rts_mir::Op::Const(rts_mir::Const::Declared(index)) => {
+                    lowered.domain.declared(*index).cloned()
+                }
+                _ => None,
+            })
+    };
+    assert!(matches!(
+        key_of(args[0]),
+        Some(crate::domain::JsConst::Key(_))
+    ));
+    assert!(matches!(
+        key_of(args[2]),
+        Some(crate::domain::JsConst::Key(_))
+    ));
+    assert_ne!(key_of(args[0]), key_of(args[2]));
+}
+
+/// Building one allocates, and no shape is claimed: the type is the weaker one,
+/// because the tree that decides layouts belongs to the runtime.
+#[test]
+fn an_object_literal_allocates_and_claims_no_shape() {
+    let lowered = only("function f() { return { x: 1 }; }").expect("covered");
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    let built = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::NewObject)))
+        .expect("a construction");
+    assert!(built.effect.has(Effect::ALLOCATES));
+    assert_eq!(*types.of(built.result), Type::Object);
+    assert!(
+        !matches!(*types.of(built.result), Type::Shaped(_)),
+        "a shape id here would be a number only the runtime mints"
+    );
+}
+
+/// A method is not a value under a key: it is installed with a home object, which
+/// is what `super.x` inside it reads from. Collapsing the two would compile and
+/// would make `super` mean nothing.
+#[test]
+fn a_method_in_an_object_literal_is_refused_rather_than_stored_as_a_value() {
+    let refused =
+        only("function f() { return { m() { return 1; } }; }").expect_err("a method");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}
+
+#[test]
+fn an_accessor_in_an_object_literal_is_refused() {
+    let refused = only("function f() { return { get k() { return 1; } }; }")
+        .expect_err("a getter");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}
+
+/// A computed key is a value, so the layout is not the one written — refused with
+/// that reason rather than lowered against a key nobody can name.
+#[test]
+fn a_computed_key_is_refused_because_the_layout_is_not_the_one_written() {
+    let refused = only("function f(k) { return { [k]: 1 }; }").expect_err("a computed key");
+    assert!(matches!(refused, Unsupported::Expression(_)));
+}
+
+/// Shorthand is the same thing written shorter, so it lowers.
+#[test]
+fn a_shorthand_property_lowers_like_the_long_form() {
+    let lowered = only("function f(x) { return { x }; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    assert!(
+        lowered.func.insts.iter().any(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::NewObject)))
+    );
+}

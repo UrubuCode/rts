@@ -68,10 +68,31 @@ pub enum Type {
     Str,
     /// An object whose layout is known, by the machine's shape id.
     ///
-    /// Carried as a plain number because a shape id is minted by
-    /// `rts_cranelift::shape` and this type travels into `rts-mir`, which may not
-    /// name a machine type.
+    /// # Unreachable today, and that is the finding rather than an omission
+    ///
+    /// `reuse-check`, run 2026-09-20 before writing the object literal: the machine
+    /// already owns shapes — `rts_cranelift::shape::ShapeTree` has `transition`,
+    /// `slot_of` and `layout`, and `names::Names` already mints its property keys
+    /// from the same `KeyRegistry`. So nothing new was written.
+    ///
+    /// But the `ShapeTree` that decides layouts **lives in `rts-core`'s `Context`**:
+    /// it is a RUN-TIME structure, and a shape is minted as a program adds
+    /// properties. The compiler holds none. So an object literal cannot answer
+    /// "this is shape 7" without the compiler and the runtime agreeing about a
+    /// number only one of them mints — which this crate's rule 1 names as the exact
+    /// failure it was written for, *"a second shape tree disagreeing with the
+    /// compiler's about which slot is which property"*, and rule 2 forbids by saying
+    /// that where a field sits is never decided here.
+    ///
+    /// What would make it reachable is the pattern the keys already use:
+    /// `Names::keyed_texts` exists so the host can install the compiler's keys into
+    /// the runtime. Shapes minted at compile time and installed the same way would
+    /// give both sides one numbering. That is a design change across three crates
+    /// rather than a lowering, and it is the precondition for the first guard —
+    /// `docs/engine/deopt-lateral.md` D1 has nothing to assert about until it
+    /// exists.
     Shaped(u32),
+
     /// An object of unknown layout.
     Object,
     /// Something callable.
@@ -129,6 +150,17 @@ pub enum JsPrim {
     IndexRead,
     /// Writing one.
     IndexWrite,
+    /// An object built from its written properties, in order.
+    ///
+    /// Variadic and in PAIRS: a declared key, then its value, repeated. The pairs
+    /// are in source order because that is the order the properties are added,
+    /// which is what decides the layout — the tree's own comment on the node says
+    /// so, and reordering them here would silently mint a different shape at run
+    /// time.
+    ///
+    /// It does NOT carry a shape. See [`Type::Shaped`] for why that is a finding
+    /// rather than an omission.
+    NewObject,
     /// An array built from its elements, in order.
     ///
     /// Variadic: an element per argument. The count is the literal written, which
@@ -217,6 +249,7 @@ impl Js {
         JsPrim::IndexRead,
         JsPrim::IndexWrite,
         JsPrim::NewArray,
+        JsPrim::NewObject,
     ];
 
     /// A domain holding only the fixed constants.
@@ -315,7 +348,7 @@ impl Js {
             // the program wrote.
             // Building one allocates, whatever it is built from, and it reaches
             // no code the program wrote: the elements are already values.
-            JsPrim::NewArray => Effect::ALLOCATES,
+            JsPrim::NewArray | JsPrim::NewObject => Effect::ALLOCATES,
             JsPrim::ToNumber => match args.first().is_some_and(Self::needs_no_coercion) {
                 true => Effect::PURE,
                 false => Effect::CALLS_USER.and(Effect::THROWS),
@@ -475,7 +508,7 @@ impl Domain for Js {
             // sense, and saying which one is what the shape registry answers --
             // this domain does not hold one yet, so the honest answer is the
             // weaker type rather than a number invented here.
-            JsPrim::NewArray => Type::Object,
+            JsPrim::NewArray | JsPrim::NewObject => Type::Object,
             JsPrim::FieldRead | JsPrim::IndexRead => Type::Anything,
             JsPrim::IndexWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             // A write answers the value written, which is what makes `a = b = 1`

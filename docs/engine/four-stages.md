@@ -407,12 +407,48 @@ by convention is a decision about the CALLING CONVENTION, which belongs to the
 machine layer, and it is the kind of agreement `deopt-lateral.md` warns about: a
 convention held in two places drifts. Named here rather than settled in passing.
 
+### The object literal: 66 → 76, and why it mints no shape
+
+Per file, one gain and none lost. It lowers as pairs of a declared key and a value
+in **source order** — which is a semantic and not tidiness: the order properties are
+added is what decides the layout, so reordering the pairs would mint a different
+shape at run time and nothing would report it.
+
+**It claims no shape, and `reuse-check` is why.** The machine already owns shapes:
+`rts_cranelift::shape::ShapeTree` has `transition`, `slot_of` and `layout`, and
+`names::Names` already mints its property keys from the same `KeyRegistry`. So
+nothing new was written — and the search also found the thing that settles the
+design: **the `ShapeTree` that decides layouts lives in `rts-core`'s `Context`.** It
+is a run-time structure, and a shape is minted as a program adds properties. The
+compiler holds none.
+
+So an object literal cannot answer *"this is shape 7"* without the compiler and the
+runtime agreeing about a number only one of them mints. `rts-codegen`'s rule 1 names
+that as the exact failure it exists for — *"a second shape tree disagreeing with the
+compiler's about which slot is which property"* — and rule 2 forbids it by saying
+where a field sits is never decided there.
+
+`Type::Shaped` therefore stays **unreachable by construction**, with the finding in
+its own doc comment rather than as a hopeful variant. What would make it reachable is
+the pattern the keys already use: `Names::keyed_texts` exists so the host can install
+the compiler's keys into the runtime, and shapes minted at compile time and installed
+the same way would give both sides one numbering. That is a design change across
+three crates — `docs/engine/deopt-lateral.md` D1 has nothing to assert about until it
+exists, so **the first guard is waiting on this and not on the guard machinery.**
+
 ### What each table asks for next
 
-- `bench/`: the classic `for` and `do`-`while`, which are the `while` shape once the
-  header is decided — and the header machinery exists.
-- `tests/`: a member call, which needs a receiver proof (`emit/receiver.rs` is the
-  existing one), and an imported binding, which needs an entry point.
+Both corpora now ask for the same thing, which they did not when this section was
+first written:
+
+- **a call through a member** — 90 in `bench/`, the top of both tables. It needs the
+  receiver decision named above, which is a calling-convention question.
+- `tests/` also wants an imported binding, which needs an entry point.
+
+The rows that were here — the classic `for`, `do`-`while`, a member proof through
+`emit/receiver.rs` — have all been taken or answered, and the history of them is
+above rather than deleted, because the *order* the measurements chose is the part
+worth keeping.
 
 **And the top item of that table was not a statement kind to lower — it was a
 structural change.** A call needs to name a callee, `Callee::Func(FuncId)` means a
