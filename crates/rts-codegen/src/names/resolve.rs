@@ -158,6 +158,8 @@ pub struct Resolution {
     /// reached, and a single map would let a caller ask the wrong one and get an
     /// answer.
     blocks: BTreeMap<Position, ScopeId>,
+    /// The scope a loop head opened, keyed the same way.
+    heads: BTreeMap<Position, ScopeId>,
 }
 
 impl Resolution {
@@ -189,6 +191,14 @@ impl Resolution {
     /// The scope the body of the function written at `at` opened.
     pub fn function_scope(&self, at: Position) -> Option<ScopeId> {
         self.functions.get(&at).copied()
+    }
+
+    /// The scope the loop head written at that position opened.
+    ///
+    /// A head wraps the body, which is what makes a lexical target one binding per
+    /// pass rather than one for the loop.
+    pub fn head_scope(&self, at: Position) -> Option<ScopeId> {
+        self.heads.get(&at).copied()
     }
 
     /// The scope the block statement written at `at` opened.
@@ -410,6 +420,7 @@ impl Walker<'_> {
                 // makes each pass's copy of a lexical target a binding of its
                 // own rather than the body's.
                 let head = self.out.open(ScopeKind::ForHead, Some(scope));
+                self.out.heads.insert(statement.at, head);
                 match init {
                     Some(ForInit::Declare { kind, bindings }) => {
                         let (origin, at) = self.destination(*kind, head);
@@ -433,6 +444,7 @@ impl Walker<'_> {
                 ..
             } => {
                 let head = self.out.open(ScopeKind::ForHead, Some(scope));
+                self.out.heads.insert(statement.at, head);
                 match target {
                     ForEachTarget::Declare { kind, target } => {
                         let (origin, at) = self.destination(*kind, head);

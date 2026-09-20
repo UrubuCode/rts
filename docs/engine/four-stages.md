@@ -345,6 +345,31 @@ run. **A survey names its corpus or it says nothing**, which is the same rule th
 merge gate states about a suite number and the same one `README.md`'s generated
 block states about a share.
 
+### The `for` was taken, and here is what it was worth
+
+**`bench/`: 41 of 386 before, 46 of 386 after** — per file, 11 files both times,
+one gained 38 → 43 of 349 and **none lost**, which is the only form the claim "no
+regression" takes here. The 131 loop refusals are gone from the table entirely; the
+count moved by five, because a function refused for a `for` is usually also refused
+for an array literal or a property access. That is the ordinary shape of this work
+and the reason the *distribution* is what a survey is read for, never the total.
+
+The refusals that top the table now are what a benchmark is made of:
+
+| refusals | reason |
+|---:|---:|
+| 64 | an assignment (compound, or to a pattern) |
+| 39 | an array literal |
+| 33 | an object literal |
+| 27 | a nested definition |
+
+**And the measurement caught a crash before it was recorded as a result.** The
+first reading after the loops landed said *3 of 37* where the corpus holds 386
+functions: `self.values[binding]` panicked on a carried binding that holds nothing
+yet, two files died, and a process that dies writes no line at all. A denominator
+that falls by ten times is not a result — `Lowering::carried_now` is the fix and
+carries the account.
+
 ### What each table asks for next
 
 - `bench/`: the classic `for` and `do`-`while`, which are the `while` shape once the

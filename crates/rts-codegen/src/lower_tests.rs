@@ -1,10 +1,11 @@
 //! What the MIR lowering answers, pinned apart from it.
 //!
 //! A sibling file rather than an inline module, which is the convention
-//!  set: the lowering itself is near the ceiling this crate holds,
+//! `emit/class.rs` set: the lowering itself is near the ceiling this crate holds,
 //! and a test file that grows with coverage should not be what pushes it over.
 
 use super::*;
+use crate::domain::JsPrim;
 use crate::names::Names;
 use crate::names::resolve::resolve_module;
 use crate::parse::parse_script;
@@ -452,4 +453,146 @@ fn nested_loops_keep_their_own_headers() {
         .filter(|held| lowered.func.predecessors(*held).len() == 2)
         .collect();
     assert_eq!(merged.len(), 2, "one header per loop");
+}
+
+/// The shape a classic `for` is: a head that runs once, a header that tests, a
+/// body, an update, and a back edge.
+#[test]
+fn a_classic_for_carries_its_counter_across_the_back_edge() {
+    let lowered = only(
+        "function f(n) {
+           let sum = 0;
+           for (let i = 0; i < n; i++) { sum = sum + i; }
+           return sum;
+         }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let header = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.predecessors(*held).len() == 2)
+        .expect("a header");
+    // `sum` and `i`, and not `n`.
+    assert_eq!(lowered.func.block(header).params.len(), 2);
+}
+
+/// `i++` is not `i = i + 1`: it answers the number the target HELD, coerced. Both
+/// the coercion and the addition are in the graph, and the addition's answer is the
+/// one the binding takes.
+#[test]
+fn an_increment_coerces_and_answers_the_value_from_before() {
+    let lowered = only("function f(a) { let b = a++; return b; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert!(ops.contains(&JsPrim::ToNumber), "{ops:?}");
+    assert!(ops.contains(&JsPrim::Add), "{ops:?}");
+    // The postfix form answers the coerced old value, which is the ToNumber and
+    // not the Add.
+    let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(Terminator::Return(Some(value))) => *value,
+        other => panic!("expected a returned value, got {other:?}"),
+    };
+    let from = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| held.result == returned)
+        .expect("the returned value is an instruction");
+    assert!(
+        matches!(&from.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::ToNumber))
+    );
+}
+
+/// And the prefix form answers the sum instead.
+#[test]
+fn a_prefix_increment_answers_the_sum() {
+    let lowered = only("function f(a) { let b = ++a; return b; }").expect("covered");
+    let returned = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(Terminator::Return(Some(value))) => *value,
+        other => panic!("expected a returned value, got {other:?}"),
+    };
+    let from = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| held.result == returned)
+        .expect("an instruction");
+    assert!(
+        matches!(&from.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::Add))
+    );
+}
+
+/// A head with no test never leaves on its own, so the header jumps straight in —
+/// and the exit still exists, because a `break` needs somewhere to go.
+#[test]
+fn a_for_with_no_test_jumps_straight_into_its_body() {
+    let lowered = only(
+        "function f(c) {
+           let at = 0;
+           for (;;) { at = at + 1; if (c) { break; } }
+           return at;
+         }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+}
+
+/// The update runs after the body and before the test, so its write crosses the
+/// back edge like the body's — which is why it is scanned into the carried set.
+#[test]
+fn an_update_that_writes_is_carried_like_the_body() {
+    let lowered = only(
+        "function f(n) { let seen = 0; for (let i = 0; i < n; i = i + 2) { seen = seen + 1; } return seen; }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let header = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.predecessors(*held).len() == 2)
+        .expect("a header");
+    assert_eq!(lowered.func.block(header).params.len(), 2);
+}
+
+/// A `do`-`while` runs its body before its test, which is one edge different and
+/// observable as the entry going into the BODY rather than into the header.
+#[test]
+fn a_do_while_enters_through_its_body() {
+    let lowered = only(
+        "function f(c) {
+           let at = 0;
+           do { at = at + 1; } while (c);
+           return at;
+         }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // The body block is the one with two predecessors: the entry and the test.
+    let body = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.predecessors(*held).len() == 2)
+        .expect("a body reached from the entry and from the test");
+    assert!(
+        lowered.func.predecessors(body).contains(&lowered.func.entry()),
+        "the entry jumps into the body, which is what a do-while is"
+    );
+}
+
+/// A `var` in a head belongs to the function rather than to the head, so it is
+/// refused by name instead of being bound in the wrong scope.
+#[test]
+fn a_var_in_a_loop_head_is_refused_by_name() {
+    let refused = only("function f(n) { for (var i = 0; i < n; i++) {} return i; }")
+        .expect_err("a var hoists out of the head");
+    assert!(matches!(refused, Unsupported::Statement(_)));
 }

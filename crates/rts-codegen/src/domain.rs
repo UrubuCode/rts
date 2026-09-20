@@ -118,6 +118,13 @@ pub enum JsPrim {
     /// and never reaches `valueOf`, which is what separates it from every
     /// arithmetic row above.
     Truthy,
+    /// This language ToNumber, as an operation.
+    ///
+    /// An increment needs it: i++ answers the NUMBER the target held, not the
+    /// target, so a string target answers 5 rather than the string. Coercing an
+    /// object reaches valueOf and therefore user code; coercing anything else is
+    /// total and pure, which is the boundary effect_of already draws.
+    ToNumber,
 }
 
 /// What a guard of this language asserts.
@@ -164,6 +171,7 @@ impl Js {
         JsPrim::FieldRead,
         JsPrim::FieldWrite,
         JsPrim::Truthy,
+        JsPrim::ToNumber,
     ];
 
     /// An empty domain.
@@ -235,6 +243,12 @@ impl Js {
             },
             // Neither reads the heap nor coerces.
             JsPrim::StrictEquals | JsPrim::TypeOf | JsPrim::Not | JsPrim::Truthy => Effect::PURE,
+            // The same boundary as arithmetic: only an object coerces through code
+            // the program wrote.
+            JsPrim::ToNumber => match args.first().is_some_and(Self::needs_no_coercion) {
+                true => Effect::PURE,
+                false => Effect::CALLS_USER.and(Effect::THROWS),
+            },
             // A shaped read is a load at a known offset; an unshaped one goes
             // through the runtime, which may run a getter.
             JsPrim::FieldRead => match args.first() {
@@ -369,6 +383,13 @@ impl Domain for Js {
                 None => Type::Bool(None),
             },
             JsPrim::TypeOf => Type::Str,
+            // An int32 stays one -- coercing a number answers the same number, so
+            // the proof survives, which is what lets an increment of a proven
+            // counter stay machine arithmetic.
+            JsPrim::ToNumber => match args.first() {
+                Some(Type::Int32) => Type::Int32,
+                _ => Type::Double,
+            },
             JsPrim::FieldRead => Type::Anything,
             // A write answers the value written, which is what makes `a = b = 1`
             // work.

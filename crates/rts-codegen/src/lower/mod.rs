@@ -29,7 +29,7 @@
 //! a spelling, so two bindings that spell the same thing are two entries. That is
 //! the whole of what E2 bought, and it is why this file needs no shadowing rules.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use rts_mir::cfg::{Const, Func, FuncBuilder, Op, Terminator, ValueId};
 use rts_mir::guard::Tier;
@@ -39,10 +39,11 @@ use crate::domain::{Js, JsPrim, Type};
 use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
 use crate::syntax::{
-    AssignOp, AssignTarget, BinaryOp, Binding, Expr, ExprKind, Function, FunctionBody, Literal, Pattern, Stmt, StmtKind,
+    AssignOp, AssignTarget, BinaryOp, Binding, UpdateOp, UpdatePosition, Expr, ExprKind, Function, FunctionBody, Literal, Pattern, Stmt, StmtKind,
 };
-use crate::emit::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use crate::values::Singleton;
+
+mod loops;
 
 /// What this lowering does not do yet, and where.
 ///
@@ -305,10 +306,14 @@ impl Lowering<'_> {
                 else_branch,
             } => self.branch(condition, then_branch, else_branch.as_deref()),
             StmtKind::While { condition, body } => self.loop_while(condition, body),
-            StmtKind::DoWhile { .. } | StmtKind::For { .. } => Err(Unsupported::Statement(
-                "a do-while tests after the body and a for has a head; both are the
-                 same shape once the header is decided, and neither is written yet",
-            )),
+            StmtKind::DoWhile { body, condition } => self.loop_do_while(body, condition),
+            StmtKind::For { init, test, update, body } => self.loop_for(
+                statement.at,
+                init.as_ref(),
+                test.as_ref(),
+                update.as_ref(),
+                body,
+            ),
             StmtKind::ForEach { .. } => Err(Unsupported::Statement("an iteration protocol")),
             StmtKind::Function(_) | StmtKind::Class(_) => {
                 Err(Unsupported::Statement("a nested definition is its own graph"))
@@ -448,178 +453,6 @@ impl Lowering<'_> {
     }
 
 
-    /// Lowers a `while`, and every loop is this shape once its header is decided.
-    ///
-    /// # Why the carried set has to be computed BEFORE the body
-    ///
-    /// The header is a block with a predecessor that does not exist yet — the back
-    /// edge — and a block's parameters must be declared before anything jumps to
-    /// it. So the question "which bindings does this loop carry" cannot be answered
-    /// the way the `if` join answers it, by comparing what two finished arms hold.
-    /// It has to be answered from the tree.
-    ///
-    /// That is the whole structural difference between a branch and a loop, and it
-    /// is why one of them needed a pre-pass and the other did not.
-    ///
-    /// # Why over-approximating is the safe direction
-    ///
-    /// [`Self::assigned_in`] resolves each assigned name in the scope the loop is
-    /// written in, so a name the body shadows resolves to the OUTER binding and the
-    /// loop carries one it did not need to. That costs a block parameter and
-    /// nothing else: the value passes through unchanged on every edge.
-    ///
-    /// Under-approximating would be a wrong answer — a binding the body assigns and
-    /// the header does not carry would be read across the back edge as the value
-    /// from before the loop, for ever.
-    ///
-    /// # What the types at the header are, and why they are the domain's top
-    ///
-    /// A header parameter's type is the join of what arrives from before the loop
-    /// and what arrives across the back edge, and the second is not known until the
-    /// body has been lowered — which needs the parameter to exist. The loop is real
-    /// and it is what [`rts_mir::infer`] exists to solve: it iterates to a fixed
-    /// point over the finished graph and answers exactly that join.
-    ///
-    /// So this lowering records `top()` for a header parameter and the effects
-    /// decided inside the body are pessimistic in consequence: arithmetic over a
-    /// carried value is `CALLS_USER` even where inference will prove it numeric.
-    /// That is sound and it is the one place this file knowingly leaves speed on
-    /// the table — recovering it is a pass that recomputes effects from inference's
-    /// answer, which is a pass over a finished graph and not a second traversal of
-    /// the tree.
-    fn loop_while(&mut self, condition: &Expr, body: &Stmt) -> Result<bool, Unsupported> {
-        let carried: Vec<BindingId> = self.assigned_in(body)?.into_iter().collect();
-
-        let header = self.builder.block();
-        let into_body = self.builder.block();
-        let exit = self.builder.block();
-
-        // The values at the top of the loop, in the carried order.
-        let entering: Vec<ValueId> = carried
-            .iter()
-            .map(|binding| self.values[binding])
-            .collect();
-        self.builder.end(Terminator::Jump {
-            target: header,
-            args: entering,
-        });
-
-        self.builder.switch_to(header);
-        let mut params = Vec::with_capacity(carried.len());
-        for binding in &carried {
-            let param = self.builder.param(header);
-            self.types.insert(param, self.domain.top());
-            self.values.insert(*binding, param);
-            params.push(param);
-        }
-        // The test is in the HEADER, which is what makes a `while` check before
-        // each pass including the first, and what makes the value a carried
-        // binding holds after the loop be the header's parameter.
-        let tested = self.expression(condition)?;
-        let tested = self.prim(JsPrim::Truthy, vec![tested], condition);
-        let leaving: Vec<ValueId> = params.clone();
-        self.builder.end(Terminator::Branch {
-            condition: tested,
-            then_block: into_body,
-            then_args: Vec::new(),
-            else_block: exit,
-            else_args: leaving,
-        });
-
-        self.builder.switch_to(into_body);
-        self.loops.push(LoopFrame {
-            header,
-            exit,
-            carried: carried.clone(),
-        });
-        let ended = self.statement(body);
-        self.loops.pop();
-        let ended = ended?;
-        // A body that left through a `return` or a `break` has already terminated
-        // its block, so there is no back edge to write from here.
-        if !ended {
-            let back: Vec<ValueId> = carried
-                .iter()
-                .map(|binding| self.values[binding])
-                .collect();
-            self.builder.end(Terminator::Jump {
-                target: header,
-                args: back,
-            });
-        }
-
-        self.builder.switch_to(exit);
-        // After the loop, a carried binding holds what the exit block received --
-        // which is the header's parameter, because that is where the test decided
-        // to leave.
-        let exiting: Vec<ValueId> = carried
-            .iter()
-            .map(|_| self.builder.param(exit))
-            .collect();
-        for (binding, param) in carried.iter().zip(&exiting) {
-            self.types.insert(*param, self.domain.top());
-            self.values.insert(*binding, *param);
-        }
-        Ok(false)
-    }
-
-    /// Every binding an assignment in `body` may write.
-    ///
-    /// Over-approximating on purpose — see [`Self::loop_while`]. It walks through
-    /// `emit::capture`'s traversal rather than matching statement kinds here, which
-    /// is what keeps a statement added to the tree tomorrow from being silently
-    /// skipped: that file's own header records how a second copy of the tree's
-    /// shape is how a node comes to be walked by one analysis and missed by the
-    /// other.
-    fn assigned_in(&self, body: &Stmt) -> Result<BTreeSet<BindingId>, Unsupported> {
-        let mut names = Vec::new();
-        assigned_names_in_statement(body, &mut names);
-        let mut found = BTreeSet::new();
-        for name in names {
-            // A NAME THIS SCOPE DOES NOT RESOLVE IS SKIPPED, and the first version
-            // of this refused it as a global instead. That was wrong twice over.
-            //
-            // It is wrong about what the name is: a `let` inside the body is
-            // declared in a scope this one cannot see, so a nested loop's own
-            // counter looked like a global and every nested loop was refused.
-            //
-            // And it is wrong about where the refusal belongs. A name that really
-            // is a global has no binding for a block parameter to hold, so there is
-            // nothing to carry and skipping it is the correct answer here — and the
-            // assignment itself is still refused, loudly, when the body reaches it
-            // and asks `bind` for a binding that does not exist. The pre-pass
-            // decides what to CARRY; what a program may do is not its question.
-            if let Some(binding) = self.resolution.binding_in(self.scope, name) {
-                found.insert(binding);
-            }
-        }
-        Ok(found)
-    }
-
-    /// Leaves the innermost loop, or skips to its test.
-    ///
-    /// Both carry the same argument list, because the header and the exit declare
-    /// the same parameters: one list of carried bindings per loop, so a jump from
-    /// anywhere inside it needs no second convention.
-    fn jump_out_of_loop(&mut self, to_header: bool) -> Result<bool, Unsupported> {
-        let Some(frame) = self.loops.last() else {
-            return Err(Unsupported::Statement(
-                "a break or continue outside a loop is a label, which is not lowered",
-            ));
-        };
-        let target = match to_header {
-            true => frame.header,
-            false => frame.exit,
-        };
-        let carried = frame.carried.clone();
-        let args: Vec<ValueId> = carried
-            .iter()
-            .map(|binding| self.values[binding])
-            .collect();
-        self.builder.end(Terminator::Jump { target, args });
-        Ok(true)
-    }
-
     fn expression(&mut self, expr: &Expr) -> Result<ValueId, Unsupported> {
         match &expr.kind {
             ExprKind::Literal(literal) => self.literal(literal, expr),
@@ -719,6 +552,40 @@ impl Lowering<'_> {
                 self.types.insert(held, self.domain.top());
                 Ok(held)
             }
+            // AN INCREMENT of a local, which a `for` header needs and which is not
+            // `x = x + 1`.
+            //
+            // The difference is what the expression ANSWERS. `i++` answers the
+            // number the target held — coerced, so a string target answers 5 and
+            // not "5" — and `++i` answers the sum. Both rebind. Written with an
+            // explicit `ToNumber` rather than leaving the coercion to the addition,
+            // because the addition's answer is not what a postfix form gives back.
+            ExprKind::Update { op, position, target } => {
+                let ExprKind::Ident(name) = &target.kind else {
+                    return Err(Unsupported::Expression(
+                        "an increment of a property writes the heap",
+                    ));
+                };
+                let held = self.expression(target)?;
+                let before = self.prim(JsPrim::ToNumber, vec![held], expr);
+                let one = {
+                    let value = Const::Int(1);
+                    let of = self.domain.of_const(&value);
+                    let pushed = self.builder.push(Op::Const(value), Effect::PURE, expr.at);
+                    self.types.insert(pushed, of);
+                    pushed
+                };
+                let after = match op {
+                    UpdateOp::Increment => self.prim(JsPrim::Add, vec![before, one], expr),
+                    UpdateOp::Decrement => self.prim(JsPrim::Subtract, vec![before, one], expr),
+                };
+                let of = self.type_of(after);
+                self.bind(*name, after, of)?;
+                Ok(match position {
+                    UpdatePosition::Prefix => after,
+                    UpdatePosition::Postfix => before,
+                })
+            }
             ExprKind::Binary { op, left, right } => {
                 let left = self.expression(left)?;
                 let right = self.expression(right)?;
@@ -804,69 +671,6 @@ impl Lowering<'_> {
     }
 }
 
-/// Every name an assignment or an increment in this statement writes, at any
-/// depth, including inside a nested function.
-///
-/// A nested function is descended into deliberately. It cannot be lowered here
-/// yet, so a body containing one is refused before this matters — but the day one
-/// is, a closure that assigns an outer name across the back edge is exactly the
-/// case a carried set must not miss, and a traversal that stopped at the function
-/// boundary would miss it silently.
-fn assigned_names_in_statement(statement: &Stmt, found: &mut Vec<Name>) {
-    walk_stmt(statement, &mut |child| match child {
-        StmtChild::Stmt(inner) => assigned_names_in_statement(inner, found),
-        StmtChild::Expr(expr) => assigned_names_in_expr(expr, found),
-        StmtChild::Binding(binding) => {
-            if let Some(value) = &binding.value {
-                assigned_names_in_expr(value, found);
-            }
-        }
-        StmtChild::Catch(catch) => {
-            for inner in &catch.body {
-                assigned_names_in_statement(inner, found);
-            }
-        }
-        StmtChild::Function(function) => {
-            if let FunctionBody::Block(statements) = &function.body {
-                for inner in statements {
-                    assigned_names_in_statement(inner, found);
-                }
-            }
-        }
-        StmtChild::Class(_) => {}
-    });
-}
-
-fn assigned_names_in_expr(expr: &Expr, found: &mut Vec<Name>) {
-    match &expr.kind {
-        ExprKind::Assign {
-            target: AssignTarget::Place(place),
-            ..
-        } => {
-            if let ExprKind::Ident(name) = &place.kind {
-                found.push(*name);
-            }
-        }
-        ExprKind::Update { target, .. } => {
-            if let ExprKind::Ident(name) = &target.kind {
-                found.push(*name);
-            }
-        }
-        _ => {}
-    }
-    walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => assigned_names_in_expr(inner, found),
-        Child::Function(function) => {
-            if let FunctionBody::Block(statements) = &function.body {
-                for inner in statements {
-                    assigned_names_in_statement(inner, found);
-                }
-            }
-        }
-        Child::Class(_) => {}
-    });
-}
-
 /// The primitive an operator is, or `None` where this language's table has no row
 /// for it yet.
 fn primitive(op: BinaryOp) -> Option<JsPrim> {
@@ -919,5 +723,5 @@ fn expression_name(kind: &ExprKind) -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "lower_tests.rs"]
+#[path = "../lower_tests.rs"]
 mod tests;
