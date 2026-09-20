@@ -8,8 +8,8 @@
 
 use std::collections::BTreeSet;
 
-use rts_mir::cfg::{Terminator, ValueId};
 use rts_mir::Domain;
+use rts_mir::cfg::{Terminator, ValueId};
 
 use super::{FrameKind, LoopFrame, Lowering, Unsupported};
 use crate::domain::JsPrim;
@@ -58,7 +58,11 @@ impl Lowering<'_> {
     /// the table — recovering it is a pass that recomputes effects from inference's
     /// answer, which is a pass over a finished graph and not a second traversal of
     /// the tree.
-    pub(super) fn loop_while(&mut self, condition: &Expr, body: &Stmt) -> Result<bool, Unsupported> {
+    pub(super) fn loop_while(
+        &mut self,
+        condition: &Expr,
+        body: &Stmt,
+    ) -> Result<bool, Unsupported> {
         let carried = self.carried_now(self.assigned_in(body)?);
 
         let header = self.builder.block();
@@ -66,10 +70,7 @@ impl Lowering<'_> {
         let exit = self.builder.block();
 
         // The values at the top of the loop, in the carried order.
-        let entering: Vec<ValueId> = carried
-            .iter()
-            .map(|binding| self.values[binding])
-            .collect();
+        let entering: Vec<ValueId> = carried.iter().map(|binding| self.values[binding]).collect();
         self.builder.end(Terminator::Jump {
             target: header,
             args: entering,
@@ -110,10 +111,7 @@ impl Lowering<'_> {
         // A body that left through a `return` or a `break` has already terminated
         // its block, so there is no back edge to write from here.
         if !ended {
-            let back: Vec<ValueId> = carried
-                .iter()
-                .map(|binding| self.values[binding])
-                .collect();
+            let back: Vec<ValueId> = carried.iter().map(|binding| self.values[binding]).collect();
             self.builder.end(Terminator::Jump {
                 target: header,
                 args: back,
@@ -124,10 +122,7 @@ impl Lowering<'_> {
         // After the loop, a carried binding holds what the exit block received --
         // which is the header's parameter, because that is where the test decided
         // to leave.
-        let exiting: Vec<ValueId> = carried
-            .iter()
-            .map(|_| self.builder.param(exit))
-            .collect();
+        let exiting: Vec<ValueId> = carried.iter().map(|_| self.builder.param(exit)).collect();
         for (binding, param) in carried.iter().zip(&exiting) {
             self.types.insert(*param, self.domain.top());
             self.values.insert(*binding, *param);
@@ -194,10 +189,7 @@ impl Lowering<'_> {
             false => frame.exit,
         };
         let carried = frame.carried.clone();
-        let args: Vec<ValueId> = carried
-            .iter()
-            .map(|binding| self.values[binding])
-            .collect();
+        let args: Vec<ValueId> = carried.iter().map(|binding| self.values[binding]).collect();
         self.builder.end(Terminator::Jump { target, args });
         Ok(true)
     }
@@ -484,7 +476,6 @@ impl Lowering<'_> {
         }
         Ok(found)
     }
-
 }
 
 /// Every name an assignment or an increment in this statement writes, at any
@@ -549,4 +540,3 @@ fn assigned_names_in_expr(expr: &Expr, found: &mut Vec<Name>) {
         Child::Class(_) => {}
     });
 }
-

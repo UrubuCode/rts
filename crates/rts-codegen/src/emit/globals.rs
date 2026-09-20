@@ -479,5 +479,10 @@ pub(super) fn page_write(
     value: ValueId,
 ) -> EmitResult<ValueId> {
     let key = key_constant(builder, ctx, name);
-    Ok(call(builder, ctx, RuntimeOp::PageGlobalSet, &[environment, key, value])?[0])
+    Ok(call(
+        builder,
+        ctx,
+        RuntimeOp::PageGlobalSet,
+        &[environment, key, value],
+    )?[0])
 }

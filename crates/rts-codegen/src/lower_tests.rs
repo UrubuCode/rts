@@ -33,8 +33,8 @@ fn only(source: &str) -> Result<Lowered, Unsupported> {
 
 #[test]
 fn a_straight_line_body_lowers_to_a_well_formed_graph() {
-    let lowered = only("function f(x) { const two = 2; return x - two; }")
-        .expect("the subset covers this");
+    let lowered =
+        only("function f(x) { const two = 2; return x - two; }").expect("the subset covers this");
     assert_eq!(verify(&lowered.func), Ok(()));
     assert_eq!(lowered.func.blocks.len(), 1);
 }
@@ -57,8 +57,7 @@ fn the_graph_infers_this_languages_types() {
 /// which is what makes a proven arithmetic operation movable.
 #[test]
 fn an_operation_over_proven_numbers_is_pure_and_one_over_a_parameter_is_not() {
-    let proven =
-        only("function f() { const a = 1; const b = 2; return a + b; }").expect("covered");
+    let proven = only("function f() { const a = 1; const b = 2; return a + b; }").expect("covered");
     let last = proven.func.insts.last().expect("an addition");
     assert!(last.effect.is_pure());
 
@@ -95,12 +94,22 @@ fn an_operator_with_no_row_is_refused_by_name() {
     assert_eq!(refused, Unsupported::Operator(BinaryOp::Exponent));
 }
 
+/// Neither kind is turned away at the function any more, and this test replaced one
+/// that asserted they were. What changed is not that parking became expressible by
+/// approximation -- it is that the BODY of one was never the missing piece. Calling
+/// one runs no body, and that is the caller's sequence, which the machine refuses by
+/// name.
 #[test]
-fn a_parked_frame_is_refused_before_anything_is_built() {
-    let refused = only("async function f() { return 1; }").expect_err("async parks");
-    assert!(matches!(refused, Unsupported::Shape(_)));
-    let refused = only("function* f() { return 1; }").expect_err("a generator parks");
-    assert!(matches!(refused, Unsupported::Shape(_)));
+fn neither_a_generator_nor_an_async_function_is_refused_at_the_function() {
+    let generator = only("function* f() { return 1; }").expect("a generator body lowers");
+    let asynchronous = only("async function f() { return 1; }").expect("an async body too");
+    assert_eq!(verify(&generator.func), Ok(()));
+    assert_eq!(verify(&asynchronous.func), Ok(()));
+    // NEITHER BODY PARKS, because neither of these two writes a `yield` or an
+    // `await` -- so the flag is about what the body DOES and not about how it was
+    // declared, which is the whole reason it is derived.
+    assert!(!generator.func.may_suspend);
+    assert!(!asynchronous.func.may_suspend);
 }
 
 #[test]
@@ -222,8 +231,8 @@ fn an_arm_that_returned_is_not_a_second_opinion() {
 /// well formed -- no empty block left behind without a terminator.
 #[test]
 fn both_arms_returning_ends_the_statement_run() {
-    let lowered = only("function f(c) { if (c) { return 1; } else { return 2; } }")
-        .expect("covered");
+    let lowered =
+        only("function f(c) { if (c) { return 1; } else { return 2; } }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
 }
 
@@ -255,8 +264,8 @@ fn a_block_scope_is_walked_and_its_binding_is_its_own() {
 /// An assignment answers what was assigned, so a chain works.
 #[test]
 fn an_assignment_answers_the_value_it_assigned() {
-    let lowered = only("function f() { let a = 0; let b = 0; a = b = 7; return a; }")
-        .expect("covered");
+    let lowered =
+        only("function f() { let a = 0; let b = 0; a = b = 7; return a; }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
     let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
     let returned = match &lowered.func.block(lowered.func.entry()).terminator {
@@ -270,8 +279,7 @@ fn an_assignment_answers_the_value_it_assigned() {
 /// where the type decides it.
 #[test]
 fn a_branch_over_something_always_true_is_folded_by_the_domain() {
-    let lowered = only("function f() { if (1 === 1) { return 1; } return 2; }")
-        .expect("covered");
+    let lowered = only("function f() { if (1 === 1) { return 1; } return 2; }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
     let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
     // `===` answers a boolean of unknown value, so the truth of it is unknown
@@ -586,7 +594,10 @@ fn a_do_while_enters_through_its_body() {
         .find(|held| lowered.func.predecessors(*held).len() == 2)
         .expect("a body reached from the entry and from the test");
     assert!(
-        lowered.func.predecessors(body).contains(&lowered.func.entry()),
+        lowered
+            .func
+            .predecessors(body)
+            .contains(&lowered.func.entry()),
         "the entry jumps into the body, which is what a do-while is"
     );
 }
@@ -621,8 +632,7 @@ fn a_compound_assignment_to_a_local_applies_its_operator() {
 /// And it answers the new value, so a chain works.
 #[test]
 fn a_compound_assignment_answers_the_value_it_stored() {
-    let lowered = only("function f() { let a = 1; let b = (a += 2); return b; }")
-        .expect("covered");
+    let lowered = only("function f() { let a = 1; let b = (a += 2); return b; }").expect("covered");
     let returned = match &lowered.func.block(lowered.func.entry()).terminator {
         Some(Terminator::Return(Some(value))) => *value,
         other => panic!("expected a returned value, got {other:?}"),
@@ -649,8 +659,8 @@ fn a_compound_assignment_to_a_property_is_refused_by_that_reason() {
 /// An operator with no compound row is refused as an operator, not as a shape.
 #[test]
 fn a_compound_form_of_an_unlowered_operator_is_refused_as_an_operator() {
-    let refused = only("function f(a) { let b = 1; b **= a; return b; }")
-        .expect_err("no row for **");
+    let refused =
+        only("function f(a) { let b = 1; b **= a; return b; }").expect_err("no row for **");
     assert!(matches!(refused, Unsupported::Operator(_)));
 }
 
@@ -794,7 +804,10 @@ fn a_property_write_answers_what_it_stored() {
         .iter()
         .find(|held| held.result == returned)
         .expect("an instruction");
-    assert!(matches!(&from.op, rts_mir::Op::Const(rts_mir::Const::Int(7))));
+    assert!(matches!(
+        &from.op,
+        rts_mir::Op::Const(rts_mir::Const::Int(7))
+    ));
 }
 
 #[test]
@@ -928,15 +941,13 @@ fn an_object_literal_allocates_and_claims_no_shape() {
 /// would make `super` mean nothing.
 #[test]
 fn a_method_in_an_object_literal_is_refused_rather_than_stored_as_a_value() {
-    let refused =
-        only("function f() { return { m() { return 1; } }; }").expect_err("a method");
+    let refused = only("function f() { return { m() { return 1; } }; }").expect_err("a method");
     assert!(matches!(refused, Unsupported::Expression(_)));
 }
 
 #[test]
 fn an_accessor_in_an_object_literal_is_refused() {
-    let refused = only("function f() { return { get k() { return 1; } }; }")
-        .expect_err("a getter");
+    let refused = only("function f() { return { get k() { return 1; } }; }").expect_err("a getter");
     assert!(matches!(refused, Unsupported::Expression(_)));
 }
 
@@ -1068,8 +1079,11 @@ fn a_spread_argument_is_refused() {
 #[test]
 fn an_outer_binding_is_read_by_an_operation_that_names_it() {
     let mut names = Names::new();
-    let program = parse_script("let total = 0; function add(n) { return total + n; }", &mut names)
-        .expect("parses");
+    let program = parse_script(
+        "let total = 0; function add(n) { return total + n; }",
+        &mut names,
+    )
+    .expect("parses");
     let resolution = resolve_module(&program.body);
     let function = program
         .body
@@ -1123,9 +1137,11 @@ fn an_outer_binding_is_read_by_an_operation_that_names_it() {
 #[test]
 fn two_reads_of_one_outer_binding_name_it_once() {
     let mut names = Names::new();
-    let program =
-        parse_script("let a = 0; let b = 0; function f() { return a + a + b; }", &mut names)
-            .expect("parses");
+    let program = parse_script(
+        "let a = 0; let b = 0; function f() { return a + a + b; }",
+        &mut names,
+    )
+    .expect("parses");
     let resolution = resolve_module(&program.body);
     let function = program
         .body
@@ -1663,7 +1679,8 @@ fn a_pattern_default_is_a_branch_and_not_a_coalesce() {
 /// lowering that indexed would be wrong in both directions at once.
 #[test]
 fn an_array_pattern_is_refused_as_an_iteration_and_not_lowered_as_indexing() {
-    let refused = only("function f(xs) { const [a] = xs; return a; }").expect_err("an array pattern");
+    let refused =
+        only("function f(xs) { const [a] = xs; return a; }").expect_err("an array pattern");
     assert_eq!(
         refused,
         Unsupported::Expression(
@@ -1688,8 +1705,8 @@ fn an_object_rest_is_refused_because_it_needs_the_keys() {
 /// count them apart.
 #[test]
 fn a_nested_pattern_and_a_computed_key_are_refused_apart() {
-    let nested = only("function f(o) { const { a: { b } } = o; return b; }")
-        .expect_err("a nested pattern");
+    let nested =
+        only("function f(o) { const { a: { b } } = o; return b; }").expect_err("a nested pattern");
     assert!(matches!(nested, Unsupported::Expression(_)));
     let computed =
         only("function f(o, k) { const { [k]: a } = o; return a; }").expect_err("a computed key");
@@ -1754,8 +1771,8 @@ fn the_caught_binding_is_the_handlers_parameter() {
 /// would have to find it somewhere else.
 #[test]
 fn a_catch_with_no_binding_still_receives_the_value() {
-    let lowered =
-        only("function f(o) { try { o.risky(); } catch { return 1; } return 0; }").expect("covered");
+    let lowered = only("function f(o) { try { o.risky(); } catch { return 1; } return 0; }")
+        .expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
     let protected = lowered
         .func
@@ -1820,9 +1837,7 @@ fn a_regex_literal_calls_an_entry_point() {
         .expect("a call");
     match &call.op {
         rts_mir::Op::Call { callee, args, .. } => {
-            let entry = lowered
-                .domain
-                .entry_point(crate::domain::JsEntry::RegexNew);
+            let entry = lowered.domain.entry_point(crate::domain::JsEntry::RegexNew);
             assert_eq!(callee, &rts_mir::cfg::Callee::Entry(entry));
             // The pattern and the flags, both text.
             assert_eq!(args.len(), 2);
@@ -1833,3 +1848,110 @@ fn a_regex_literal_calls_an_entry_point() {
     let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
     assert_eq!(*types.of(call.result), Type::Object);
 }
+
+/// A generator's body is an ordinary graph, and the suspension is one instruction in it.
+/// Both used to be refused at the function for "parking a frame"; parking is now
+/// something the graph SAYS rather than something it cannot express.
+#[test]
+fn a_generator_body_lowers_and_says_it_may_park() {
+    let lowered = only("function* g(a) { yield a; return 1; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    assert!(
+        lowered.func.may_suspend,
+        "the flag is derived from the body, never passed in"
+    );
+    let parked = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(held.op, rts_mir::Op::Suspend { .. }))
+        .expect("one suspension");
+    assert!(parked.effect.may_suspend());
+    // And control does not certainly reach what follows: `gen.throw(e)` resumes the
+    // frame by raising exactly here.
+    assert!(!parked.effect.falls_through());
+}
+
+/// An `await` is the same instruction as a `yield`, which is the finding rather than a
+/// shortcut: `rts_cranelift::frame` owns one capability for both.
+#[test]
+fn an_await_is_the_same_suspension_as_a_yield() {
+    let awaiting = only("async function f(p) { return await p; }").expect("covered");
+    let yielding = only("function* g(p) { yield p; }").expect("covered");
+    let op = |held: &Lowered| {
+        held.func
+            .insts
+            .iter()
+            .filter(|inst| matches!(inst.op, rts_mir::Op::Suspend { .. }))
+            .map(|inst| inst.effect)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(op(&awaiting), op(&yielding));
+    assert!(awaiting.func.may_suspend && yielding.func.may_suspend);
+}
+
+/// What comes back is not what went out. Narrowing the result from the operand is the
+/// natural mistake — the operand is right there — and it would be an unsound type a
+/// later pass trusts with nothing checking it.
+#[test]
+fn what_a_suspension_answers_is_unknown_however_well_known_its_operand_is() {
+    let lowered = only("function* g() { yield 1; }").expect("covered");
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    let parked = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(held.op, rts_mir::Op::Suspend { .. }))
+        .expect("one suspension");
+    assert_eq!(*types.of(parked.result), Type::Anything);
+}
+
+/// A bare `yield` hands out nothing, which is not the same as handing out `undefined`:
+/// no operand in the graph means nothing here decides which singleton stands for
+/// absence, and the resumer's side already says.
+#[test]
+fn a_bare_yield_carries_no_operand() {
+    let lowered = only("function* g() { yield; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let parked = lowered
+        .func
+        .insts
+        .iter()
+        .find_map(|held| match &held.op {
+            rts_mir::Op::Suspend { value } => Some(*value),
+            _ => None,
+        })
+        .expect("one suspension");
+    assert_eq!(parked, None);
+}
+
+/// `yield*` is not a suspension, it is a loop around one — three methods forwarded to an
+/// inner iterator — so it shares the piece the array pattern and `for`-`of` wait on.
+#[test]
+fn a_delegating_yield_is_refused_because_it_is_a_loop() {
+    let refused = only("function* g(i) { yield* i; }").expect_err("a delegating yield");
+    assert_eq!(
+        refused,
+        Unsupported::Expression(
+            "yield* forwards next, throw and return to an inner iterator, which is a loop"
+        )
+    );
+}
+
+/// Nothing may be moved across a suspension — in either direction and whatever the other
+/// operation is. Between the two halves of one, anything at all may run.
+#[test]
+fn nothing_commutes_with_a_suspension() {
+    use rts_mir::Effect;
+    for other in [
+        Effect::PURE,
+        Effect::READS,
+        Effect::WRITES,
+        Effect::ALLOCATES,
+        Effect::SUSPENDS,
+    ] {
+        assert!(!Effect::SUSPENDS.commutes_with(other));
+        assert!(!other.commutes_with(Effect::SUSPENDS));
+    }
+}
+

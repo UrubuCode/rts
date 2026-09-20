@@ -256,17 +256,20 @@ impl Scope {
         //
         // `capture::declared_at_own_level` carries what belongs here and why
         // `var` at any depth is part of it while `let` in a block is not.
-        entries.extend(captured.iter().filter(|name| own_level.contains(name)).map(
-            |name| {
-                (
-                    *name,
-                    Binding::InEnvironment {
-                        hops: 0,
-                        name: *name,
-                    },
-                )
-            },
-        ));
+        entries.extend(
+            captured
+                .iter()
+                .filter(|name| own_level.contains(name))
+                .map(|name| {
+                    (
+                        *name,
+                        Binding::InEnvironment {
+                            hops: 0,
+                            name: *name,
+                        },
+                    )
+                }),
+        );
         Scope {
             layers: vec![Layer {
                 entries,
@@ -841,7 +844,12 @@ mod tests {
         // The shape a `for (let …)` under a `try` produces: an enclosing
         // environment holds `t`, the function's own parameter is also `t`, and
         // the loop opens a record of its own for `w`.
-        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &BTreeSet::new(), &[(t, 1)]);
+        let mut scope = Scope::for_function(
+            Some(environment),
+            BTreeSet::new(),
+            &BTreeSet::new(),
+            &[(t, 1)],
+        );
         scope.declare(t, parameter);
         let w = names.intern("w");
         scope.enter_environment(environment, &[w]);
@@ -863,7 +871,12 @@ mod tests {
         let outer = names.intern("outer");
         let (environment, _) = two_values();
 
-        let mut scope = Scope::for_function(Some(environment), BTreeSet::new(), &BTreeSet::new(), &[(outer, 1)]);
+        let mut scope = Scope::for_function(
+            Some(environment),
+            BTreeSet::new(),
+            &BTreeSet::new(),
+            &[(outer, 1)],
+        );
         let w = names.intern("w");
         scope.enter_environment(environment, &[w]);
 

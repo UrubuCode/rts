@@ -39,8 +39,8 @@ use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::repr::Repr;
 
 use super::{Ctx, EmitError, EmitResult, Scope};
-use crate::runtime::RuntimeOp;
 use crate::names::Name;
+use crate::runtime::RuntimeOp;
 use crate::syntax::{Import, ImportBinding};
 
 /// Binds everything one `import` introduces.
@@ -68,12 +68,9 @@ pub fn emit_import(
             ImportBinding::Named { exported, local } => {
                 let name = ctx.names.intern(exported);
                 let key = number(builder, u64::from(ctx.key_of(name)));
-                let read = super::expr::call(
-                    builder,
-                    ctx,
-                    RuntimeOp::ModuleBinding,
-                    &[specifier, key],
-                )?[0];
+                let read =
+                    super::expr::call(builder, ctx, RuntimeOp::ModuleBinding, &[specifier, key])?
+                        [0];
                 (*local, read)
             }
             // `import d from "m"` is `import { default as d }`, which is what
@@ -83,21 +80,14 @@ pub fn emit_import(
             ImportBinding::Default(local) => {
                 let name = ctx.names.intern("default");
                 let key = number(builder, u64::from(ctx.key_of(name)));
-                let read = super::expr::call(
-                    builder,
-                    ctx,
-                    RuntimeOp::ModuleBinding,
-                    &[specifier, key],
-                )?[0];
+                let read =
+                    super::expr::call(builder, ctx, RuntimeOp::ModuleBinding, &[specifier, key])?
+                        [0];
                 (*local, read)
             }
             ImportBinding::Namespace(local) => {
-                let read = super::expr::call(
-                    builder,
-                    ctx,
-                    RuntimeOp::ModuleNamespace,
-                    &[specifier],
-                )?[0];
+                let read =
+                    super::expr::call(builder, ctx, RuntimeOp::ModuleNamespace, &[specifier])?[0];
                 (*local, read)
             }
         };
@@ -119,10 +109,7 @@ pub fn emit_import(
 /// syntax in the language, and a script given one would be a name with nothing
 /// behind it — the rule this repository states for a surface that cannot do what
 /// its name means.
-pub fn emit_import_meta(
-    builder: &mut FuncBuilder,
-    ctx: &mut Ctx,
-) -> EmitResult<ValueId> {
+pub fn emit_import_meta(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitResult<ValueId> {
     let Some(own) = ctx.module_specifier.clone() else {
         return Err(refuse("`import.meta` outside a module"));
     };

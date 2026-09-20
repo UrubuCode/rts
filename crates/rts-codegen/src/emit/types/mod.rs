@@ -214,7 +214,6 @@ impl Speculation {
     pub(in crate::emit) fn kind(self) -> Kind {
         self.0
     }
-
 }
 
 /// What one function body's annotations claim about its names.

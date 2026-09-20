@@ -6,7 +6,6 @@
 
 use crate::syntax::Directive;
 
-
 /// Whether a word is a keyword in every context.
 ///
 /// `null`, `true` and `false` are in the list because they are literals rather

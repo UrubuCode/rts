@@ -45,7 +45,8 @@ pub fn describe(source: &str) -> Result<String, String> {
     };
     let resolution = resolve_module(&program.body);
 
-    let lowered_module = crate::lower_module::lower_module(&program.body, &resolution, &names, Tier::Generic);
+    let lowered_module =
+        crate::lower_module::lower_module(&program.body, &resolution, &names, Tier::Generic);
     let found = lowered_module.functions.len();
     let mut domain = lowered_module.domain;
     let mut out = String::new();
@@ -59,8 +60,11 @@ pub fn describe(source: &str) -> Result<String, String> {
                 // code -- but showing it now would be showing a graph no pass will
                 // ever see.
                 let refined = refine_effects(&mut func, &domain);
-                out.push_str(&format!("fn {}
-", entry.named));
+                out.push_str(&format!(
+                    "fn {}
+",
+                    entry.named
+                ));
                 out.push_str(&print(&func, &Spelled((&domain, &names, &resolution))));
                 if refined.narrowed > 0 || refined.refused > 0 {
                     out.push_str(&format!(
@@ -80,9 +84,13 @@ pub fn describe(source: &str) -> Result<String, String> {
                 out.push(0x0a as char);
             }
             Err(held) => {
-                out.push_str(&format!("fn {} — NOT LOWERED: {}
+                out.push_str(&format!(
+                    "fn {} — NOT LOWERED: {}
 
-", entry.named, why(&held, &names)));
+",
+                    entry.named,
+                    why(&held, &names)
+                ));
                 refused += 1;
             }
         }
@@ -90,8 +98,11 @@ pub fn describe(source: &str) -> Result<String, String> {
     let _ = &mut domain;
 
     if found == 0 {
-        return Ok("no function in this program; the MIR stage lowers one function at a time
-".to_owned());
+        return Ok(
+            "no function in this program; the MIR stage lowers one function at a time
+"
+            .to_owned(),
+        );
     }
     out.push_str(&format!(
         "{} of {found} function{} lowered
@@ -118,7 +129,11 @@ pub fn describe(source: &str) -> Result<String, String> {
 struct Spelled<PLACE>(PLACE);
 
 impl rts_mir::text::Legend
-    for Spelled<(&crate::domain::Js, &Names, &crate::names::resolve::Resolution)>
+    for Spelled<(
+        &crate::domain::Js,
+        &Names,
+        &crate::names::resolve::Resolution,
+    )>
 {
     fn prim(&self, prim: rts_mir::Prim) -> String {
         rts_mir::text::Legend::prim(self.0.0, prim)
@@ -157,7 +172,10 @@ fn why(held: &Unsupported, names: &Names) -> String {
         Unsupported::Operator(op) => format!("operator — {op:?} has no row in the primitive table"),
         Unsupported::Pattern => "a destructuring target".to_owned(),
         Unsupported::Global(name) => {
-            format!("`{}` is a global, which needs an entry point", names.text(*name))
+            format!(
+                "`{}` is a global, which needs an entry point",
+                names.text(*name)
+            )
         }
         Unsupported::Shape(what) => format!("shape — {what}"),
         Unsupported::NoScope => "no scope was resolved for it".to_owned(),
@@ -215,17 +233,30 @@ mod tests {
              function nope(a, b) { return a ** b; }",
         )
         .expect("parses");
-        assert!(printed.contains("fn nope — NOT LOWERED: operator"), "{printed}");
+        assert!(
+            printed.contains("fn nope — NOT LOWERED: operator"),
+            "{printed}"
+        );
         assert!(printed.contains("1 of 2 functions lowered"), "{printed}");
     }
 
-    /// A refusal names what it was, and a GENERATOR is one that will stay refused
-    /// until the frame transform exists -- which is why it replaced the global here:
-    /// a global used to be the example and now lowers.
+    /// A refusal names what it was, and the example has now moved twice -- a global,
+    /// then a generator, now `yield*`. Each time for the same reason: the previous
+    /// example started lowering. What stays refused is the piece that is a LOOP rather
+    /// than a suspension.
     #[test]
     fn a_refusal_is_named_in_the_dump() {
-        let printed = describe("function* g() { yield 1; }").expect("parses");
-        assert!(printed.contains("parks its frame"), "{printed}");
+        let printed = describe("function* g(i) { yield* i; }").expect("parses");
+        assert!(printed.contains("inner iterator"), "{printed}");
+    }
+
+    /// And a generator that only suspends is PRINTED, which is what the line above
+    /// used to be the counter-example to.
+    #[test]
+    fn a_suspension_is_printed_rather_than_refused() {
+        let printed = describe("function* g(a) { yield a; }").expect("parses");
+        assert!(printed.contains("suspend"), "{printed}");
+        assert!(!printed.contains("NOT LOWERED"), "{printed}");
     }
 
     #[test]
@@ -238,10 +269,9 @@ mod tests {
     /// the command is for.
     #[test]
     fn a_loop_prints_its_header_and_its_back_edge() {
-        let printed = describe(
-            "function f() { let at = 0; while (at < 3) { at = at + 1; } return at; }",
-        )
-        .expect("parses");
+        let printed =
+            describe("function f() { let at = 0; while (at < 3) { at = at + 1; } return at; }")
+                .expect("parses");
         assert!(printed.contains("branch"), "{printed}");
         assert!(printed.contains("lessthan"), "{printed}");
         // The header is jumped to from two places, and the dump says so.
@@ -257,7 +287,10 @@ mod tests {
         )
         .expect("parses");
         assert!(!printed.contains("calls"), "{printed}");
-        assert!(printed.contains("2 effects narrowed by inference"), "{printed}");
+        assert!(
+            printed.contains("2 effects narrowed by inference"),
+            "{printed}"
+        );
     }
 
     /// And an operand that really is unknown keeps its effect, which is what says
@@ -269,7 +302,13 @@ mod tests {
         )
         .expect("parses");
         // The comparison against the parameter stays, the addition does not.
-        assert!(printed.contains("lessthan(v2, v0)   ; calls|throws"), "{printed}");
-        assert!(printed.contains("1 effect narrowed by inference"), "{printed}");
+        assert!(
+            printed.contains("lessthan(v2, v0)   ; calls|throws"),
+            "{printed}"
+        );
+        assert!(
+            printed.contains("1 effect narrowed by inference"),
+            "{printed}"
+        );
     }
 }

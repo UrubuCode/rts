@@ -59,15 +59,14 @@ mod body_state;
 mod call;
 pub(crate) mod capture;
 mod choice;
-mod common_js;
 mod class;
 mod close;
+mod common_js;
 mod delegate;
 mod destructure;
+mod dynamic;
 mod escape;
 mod eval;
-mod page;
-mod dynamic;
 mod expr;
 mod fold;
 mod for_await;
@@ -75,46 +74,47 @@ mod foreach;
 mod function;
 mod globals;
 mod heritage;
+mod hoist;
 mod home;
 mod inline;
+mod int32;
 mod json_call;
 mod loops;
 mod merge;
 mod module;
 mod nonstrict;
 mod object;
+mod omit;
 mod optional;
+mod page;
 mod primordial;
+mod program_facts;
 mod property;
 mod protect;
-mod int32;
 mod proven;
+mod receiver;
 mod regex;
 mod scope;
+mod serde_names;
+mod settled;
 mod sloppy;
 mod stmt;
 mod suspends;
-mod types;
 mod switch;
 mod tail;
 mod template;
-mod omit;
-mod hoist;
-mod program_facts;
-mod serde_names;
-mod receiver;
-mod settled;
+mod types;
 mod unary;
 mod with_scope;
 mod wrap;
 
 pub use dynamic::{Survey, Wanted, dynamic_specifiers, specifiers, survey, survey_statements};
 pub use eval::emit_eval_program;
-pub use page::emit_page_program;
 pub use expr::emit_expr;
 pub use loops::Loops;
-pub use proven::Numeric;
+pub use page::emit_page_program;
 use program_facts::whole_program_facts;
+pub use proven::Numeric;
 use proven::analyse;
 pub use scope::Scope;
 pub use stmt::emit_stmt;
@@ -747,7 +747,10 @@ impl<'a> Ctx<'a> {
         self.static_methods.get(&(receiver, method)).cloned()
     }
 
-    pub(in crate::emit) fn inlinable_here(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
+    pub(in crate::emit) fn inlinable_here(
+        &self,
+        name: Name,
+    ) -> Option<std::rc::Rc<inline::Inlinable>> {
         self.local_inlinable
             .get(&name)
             .cloned()
@@ -973,9 +976,7 @@ impl<'a> Ctx<'a> {
     /// cannot establish, and `false` is the emission that changes nothing.
     pub(super) fn reads_own_field(&self, receiver: Name, member: Name) -> bool {
         match self.claimed(receiver).map(|held| held.kind()) {
-            Some(types::Kind::Instance(class)) => {
-                self.class_fields.declares_field(class, member)
-            }
+            Some(types::Kind::Instance(class)) => self.class_fields.declares_field(class, member),
             _ => false,
         }
     }
@@ -1006,10 +1007,7 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
 /// The split lives here rather than in the host because what an `import` means
 /// for a scope and what an `export` costs are language decisions, and the host
 /// is not where a language decision is taken.
-pub fn emit_module(
-    items: &[crate::syntax::ModuleItem],
-    ctx: &mut Ctx,
-) -> EmitResult<Program> {
+pub fn emit_module(items: &[crate::syntax::ModuleItem], ctx: &mut Ctx) -> EmitResult<Program> {
     emit_module_as(items, None, ctx)
 }
 
@@ -1311,7 +1309,6 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         .flat_map(|(_, _, body, _)| body.iter().cloned())
         .collect();
 
-
     // ONCE, not once per unit. `program` is the same slice on every iteration
     // and `whole_program_facts` is a pure function of it, so calling it inside
     // the loop ran the whole-program analysis N times and produced the same two
@@ -1590,8 +1587,8 @@ mod tests {
         // runtime does not have. Written inside a function because the checker
         // refuses one at a script's top level before emission is reached — a
         // different refusal, and pinning it here would be testing the checker.
-        let error = emit_source("function f() { using r = {}; }")
-            .expect_err("`using` is not emitted");
+        let error =
+            emit_source("function f() { using r = {}; }").expect_err("`using` is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
@@ -1797,10 +1794,9 @@ mod tests {
         // between two strings compares their TEXT, which reads the heap. The
         // call is the correct emission, and this is the twin that stops the
         // fold above from being applied where it would be wrong.
-        let func = emit_source(
-            "function f() { return 1; } let s = f(); switch (s) { case 1: break; }",
-        )
-        .expect("emits");
+        let func =
+            emit_source("function f() { return 1; } let s = f(); switch (s) { case 1: break; }")
+                .expect("emits");
         let calls = instructions(&func)
             .iter()
             .filter(|inst| matches!(inst, Inst::Call { .. }))
@@ -2047,4 +2043,3 @@ mod tests {
             .expect("emits");
     }
 }
-

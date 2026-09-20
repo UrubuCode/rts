@@ -273,7 +273,6 @@ pub enum JsConst {
     Function(u32),
 }
 
-
 /// A key this language fixes.
 ///
 /// One variant so far. A second is expected — the iterator key a `for`-`of` reads is

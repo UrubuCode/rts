@@ -38,22 +38,24 @@ use rts_mir::{Domain, Effect};
 use crate::domain::{Js, JsConst, JsPrim, Type};
 use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
-use named::{expression_name, name_of, primitive};
 use crate::syntax::{
-    AssignOp, AssignTarget, BinaryOp, Binding, UpdateOp, UpdatePosition, Expr, ExprKind, Function, FunctionBody, Pattern, Stmt, StmtKind,
+    AssignOp, AssignTarget, BinaryOp, Binding, Expr, ExprKind, Function, FunctionBody, Pattern,
+    Stmt, StmtKind, UpdateOp, UpdatePosition,
 };
 use crate::values::Singleton;
+use named::{expression_name, name_of, primitive};
 
 mod branch;
-mod class;
-mod choice;
-mod destructure;
-mod switch;
 mod calls;
-mod named;
-mod push;
-mod protect;
+mod choice;
+mod class;
+mod destructure;
 mod loops;
+mod named;
+mod protect;
+mod push;
+mod suspend;
+mod switch;
 
 /// What this lowering does not do yet, and where.
 ///
@@ -113,7 +115,9 @@ impl Callees {
         resolution: &Resolution,
     ) -> Self {
         let mut held = crate::lower_module::callee_map(functions, resolution);
-        held.extend(crate::lower_module::bound_expressions(items, functions, resolution));
+        held.extend(crate::lower_module::bound_expressions(
+            items, functions, resolution,
+        ));
         Self {
             by_binding: held,
             by_position: functions
@@ -189,12 +193,15 @@ pub fn lower_with(
     names: &crate::names::Names,
     tier: Tier,
 ) -> Result<Func, Unsupported> {
-    if function.is_async {
-        return Err(Unsupported::Shape("an async function parks its frame"));
-    }
-    if function.is_generator {
-        return Err(Unsupported::Shape("a generator parks its frame"));
-    }
+    // NEITHER KIND IS REFUSED HERE ANY MORE, and what changed is where the missing
+    // piece is. Both used to be turned away for parking a frame; parking is now a
+    // fact the graph carries (`Effect::SUSPENDS`, derived into `Func::may_suspend`),
+    // and the BODY of either is an ordinary graph over it.
+    //
+    // What is still missing is the CALLER's sequence -- calling one of these runs no
+    // body, it answers a generator object or a promise -- and that follows from the
+    // callee's flag, which rule 2 puts on the machine. It refuses by name there:
+    // `rts_mir::lower::Unlowerable::NeedsFrameTransform`.
     if function.rest_parameter.is_some() {
         return Err(Unsupported::Shape("a rest parameter gathers at run time"));
     }
@@ -397,7 +404,12 @@ impl Lowering<'_> {
             } => self.branch(condition, then_branch, else_branch.as_deref()),
             StmtKind::While { condition, body } => self.loop_while(condition, body),
             StmtKind::DoWhile { body, condition } => self.loop_do_while(body, condition),
-            StmtKind::For { init, test, update, body } => self.loop_for(
+            StmtKind::For {
+                init,
+                test,
+                update,
+                body,
+            } => self.loop_for(
                 statement.at,
                 init.as_ref(),
                 test.as_ref(),
@@ -799,7 +811,11 @@ impl Lowering<'_> {
             // not "5" — and `++i` answers the sum. Both rebind. Written with an
             // explicit `ToNumber` rather than leaving the coercion to the addition,
             // because the addition's answer is not what a postfix form gives back.
-            ExprKind::Update { op, position, target } => {
+            ExprKind::Update {
+                op,
+                position,
+                target,
+            } => {
                 let ExprKind::Ident(name) = &target.kind else {
                     return Err(Unsupported::Expression(
                         "an increment of a property writes the heap",
@@ -853,6 +869,10 @@ impl Lowering<'_> {
                         Ok(self.prim(prim, vec![left, right], expr))
                     }
                 }
+            }
+            ExprKind::Await(operand) => self.await_on(operand),
+            ExprKind::Yield { value, delegate } => {
+                self.yield_from(value.as_deref(), *delegate, expr)
             }
             other => Err(Unsupported::Expression(expression_name(other))),
         }

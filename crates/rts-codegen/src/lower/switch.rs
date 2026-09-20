@@ -155,8 +155,7 @@ impl Lowering<'_> {
                     // FALL THROUGH into the next clause, or out — the whole of what
                     // makes a switch not an if-chain, and why the bodies were created
                     // before any of them was filled.
-                    let args: Vec<ValueId> =
-                        carried.iter().map(|held| self.values[held]).collect();
+                    let args: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
                     let next = bodies.get(at_clause + 1).copied().unwrap_or(exit);
                     self.builder.end(Terminator::Jump { target: next, args });
                 }

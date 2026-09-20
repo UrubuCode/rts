@@ -41,6 +41,21 @@ impl Effect {
     pub const CALLS_USER: Self = Self(1 << 3);
     /// May raise, so control does not necessarily reach the next instruction.
     pub const THROWS: Self = Self(1 << 4);
+    /// Parks the frame: control leaves here and may come back.
+    ///
+    /// # Why this is a flag and not a primitive
+    ///
+    /// Because every consumer has to respect it, and a language table is exactly what a
+    /// consumer is allowed not to understand. Nothing may be moved across a suspension,
+    /// and everything live across one has to survive a frame that is no longer on the
+    /// stack — those are facts about MOTION and about LIVENESS, which is what this set
+    /// exists to carry.
+    ///
+    /// A `yield` and an `await` are the same fact here, and that is the finding rather
+    /// than a convenience: `rts_cranelift::frame`'s own header says a generator and an
+    /// asynchronous function are the same capability, which is why it owns the frame
+    /// transform instead of each of them having one.
+    pub const SUSPENDS: Self = Self(1 << 5);
 
     /// The union: what doing both amounts to.
     pub const fn and(self, other: Self) -> Self {
@@ -68,7 +83,18 @@ impl Effect {
 
     /// Whether control certainly reaches the next instruction.
     pub const fn falls_through(self) -> bool {
-        !self.has(Self::THROWS) && !self.has(Self::CALLS_USER)
+        !self.has(Self::THROWS) && !self.has(Self::CALLS_USER) && !self.has(Self::SUSPENDS)
+    }
+
+    /// Whether the frame may be parked here.
+    ///
+    /// Asked apart from [`Self::may_collect`] although a parked frame is also a place a
+    /// collection can happen: what a caller does about the two is different. A
+    /// collection needs the roots described; a suspension needs the live set to survive
+    /// a frame that has left the stack, which is a stronger requirement and a different
+    /// mechanism.
+    pub const fn may_suspend(self) -> bool {
+        self.has(Self::SUSPENDS)
     }
 
     /// Whether two operations may be swapped, judged from their summaries alone.
@@ -79,6 +105,12 @@ impl Effect {
     pub const fn commutes_with(self, other: Self) -> bool {
         if self.is_pure() && other.is_pure() {
             return true;
+        }
+        // NOTHING crosses a suspension. Not a read, not an allocation, not another
+        // suspension: between the two halves of one, anything at all may run --
+        // whoever resumes the frame decides when, and the program keeps going meanwhile.
+        if self.has(Self::SUSPENDS) || other.has(Self::SUSPENDS) {
+            return false;
         }
         // A write on either side orders everything that touches the heap, and
         // calling user code is a write of unknown extent.
@@ -91,8 +123,7 @@ impl Effect {
         }
         // Raising orders against anything observable, because which of the two
         // happened is observable when only one of them runs.
-        !(self.has(Self::THROWS) && other_touches)
-            && !(other.has(Self::THROWS) && self_touches)
+        !(self.has(Self::THROWS) && other_touches) && !(other.has(Self::THROWS) && self_touches)
     }
 }
 

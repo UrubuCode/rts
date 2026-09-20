@@ -38,8 +38,8 @@
 //! create blocks and nothing else in this file does, and because this file is
 //! within sight of the thousand-line ceiling rule 8 sets.
 
-use rts_cranelift::ir::inst::{CmpOp, NumOp};
 use rts_cranelift::ir::BitOp;
+use rts_cranelift::ir::inst::{CmpOp, NumOp};
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::repr::Repr;
 use rts_cranelift::tags;
@@ -253,7 +253,9 @@ pub fn emit_expr(
             // answered differently — only faster when the key repeats.
             super::property::emit_read_keyed(builder, ctx, receiver, key)
         }
-        ExprKind::Object { properties } => super::object::emit_object(builder, scope, ctx, properties),
+        ExprKind::Object { properties } => {
+            super::object::emit_object(builder, scope, ctx, properties)
+        }
         ExprKind::Array { elements } => emit_array(builder, scope, ctx, elements),
         ExprKind::Function(function) => {
             // A field initialiser's `new.target` is `undefined`; a plain
@@ -1850,7 +1852,12 @@ pub(super) fn value_list(
         let value = tagged(builder, *value);
         let at = number_constant(builder, position as f64);
         let estrito = super::property::estrito(builder, ctx);
-        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value, estrito])?;
+        call(
+            builder,
+            ctx,
+            RuntimeOp::SetIndexed,
+            &[array, at, value, estrito],
+        )?;
     }
     Ok(array)
 }
@@ -2004,7 +2011,6 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
     })
 }
 
-
 /// What a [`Proven`] operator becomes over two operands already in `Repr::F64`.
 ///
 /// # Why this is a function and not written at each of its two call sites
@@ -2087,9 +2093,7 @@ fn proven_instruction(
         //
         // Caught by `running.rs::exponent_is_right_associative`, which asserts
         // `2 ** 3 ** 2 == 512` and got 2.
-        Proven::NumberCall(RuntimeOp::NumberRemainder) => {
-            builder.arith(NumOp::Rem, left, right)?
-        }
+        Proven::NumberCall(RuntimeOp::NumberRemainder) => builder.arith(NumOp::Rem, left, right)?,
         // Everything else in this variant is a call and nothing but a call.
         // `**` has no instruction on any target here — `powf` is a library
         // function — so there is no machine attempt to make, and offering one
@@ -2245,15 +2249,16 @@ fn emit_guarded(
         param
     };
 
-    let fast = proven_instruction(builder, instruction, left, right)
-        .or_else(|_| -> EmitResult<ValueId> {
+    let fast = proven_instruction(builder, instruction, left, right).or_else(
+        |_| -> EmitResult<ValueId> {
             // Only `NumberCall` can refuse — a remainder whose divisor the
             // machine cannot answer exactly — and the call is what is left.
             let Proven::NumberCall(op) = instruction else {
                 unreachable!("only a remainder can be refused by the machine")
             };
             Ok(call(builder, ctx, op, &[left, right])?[0])
-        })?;
+        },
+    )?;
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a
     // única prova que este bloco produziu.
     let fast = match boolean_join {
@@ -2599,7 +2604,11 @@ fn emit_array(
     // and a fifth would be a fifth register. A hole sends the literal down the
     // path below, which is what keeps an absent position absent: this entry
     // point writes exactly the elements it is given.
-    if elements.len() <= 4 && elements.iter().all(|e| matches!(e, Some(crate::syntax::Spreadable::Single(_)))) {
+    if elements.len() <= 4
+        && elements
+            .iter()
+            .all(|e| matches!(e, Some(crate::syntax::Spreadable::Single(_))))
+    {
         let count = builder.declare_const(ConstDecl::Scalar {
             repr: Repr::I64,
             bits: ScalarBits(elements.len() as u64),
@@ -2655,7 +2664,12 @@ fn emit_array(
         let value = tagged(builder, value);
         let at = number_constant(builder, position as f64);
         let estrito = super::property::estrito(builder, ctx);
-        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value, estrito])?;
+        call(
+            builder,
+            ctx,
+            RuntimeOp::SetIndexed,
+            &[array, at, value, estrito],
+        )?;
     }
     Ok(array)
 }

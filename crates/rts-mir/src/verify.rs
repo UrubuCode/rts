@@ -21,7 +21,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::cfg::{BlockId, Func, InstId, Terminator, ValueId};
+use crate::cfg::{BlockId, Func, InstId, Op, Terminator, ValueId};
 use crate::guard::PointId;
 
 /// A function that is not well formed.
@@ -70,6 +70,14 @@ pub enum Malformed {
     /// not receive the value would have to find it somewhere else, and somewhere else
     /// is a side channel that outlives the frame it belongs to.
     HandlerTakesNoValue(BlockId),
+    /// An instruction parks the frame in a function that does not say it may.
+    ///
+    /// `FuncBuilder` derives the flag, so this is unreachable through it and is here
+    /// for a `Func` assembled by hand -- a test, or a pass that rebuilds one. What it
+    /// protects is the machine's reading of the flag: `frame::resumable_form` is asked
+    /// for once per function, from that flag, so a function that lied about it would
+    /// get an ordinary frame and then try to leave it.
+    SuspendsWithoutSaying(InstId),
     /// A region names a parent that does not exist.
     NoSuchRegion(crate::region::RegionId),
 }
@@ -92,6 +100,18 @@ pub fn verify(func: &Func) -> Result<(), Malformed> {
             let result = func.inst(*inst).result;
             if !defined.insert(result) {
                 return Err(Malformed::DefinedTwice(result));
+            }
+        }
+    }
+
+    // WHAT THE FUNCTION CLAIMS ABOUT ITSELF, against what its body does.
+    if !func.may_suspend {
+        for block in func.block_ids() {
+            for inst in &func.block(block).insts {
+                let held = func.inst(*inst);
+                if matches!(held.op, Op::Suspend { .. }) || held.effect.may_suspend() {
+                    return Err(Malformed::SuspendsWithoutSaying(*inst));
+                }
             }
         }
     }
@@ -192,12 +212,7 @@ fn check_read(
     Err(Malformed::ReadBeforeDefined { value, at: block })
 }
 
-fn arity(
-    from: BlockId,
-    to: BlockId,
-    supplied: usize,
-    expected: usize,
-) -> Result<(), Malformed> {
+fn arity(from: BlockId, to: BlockId, supplied: usize, expected: usize) -> Result<(), Malformed> {
     match supplied == expected {
         true => Ok(()),
         false => Err(Malformed::Arity {

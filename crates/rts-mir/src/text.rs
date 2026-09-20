@@ -63,7 +63,11 @@ pub fn print(func: &Func, legend: &impl Legend) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{:?} tier, {} values", func.tier, func.values);
     if !func.points.is_empty() {
-        let points: Vec<String> = func.points.iter().map(|held| format!("p{}", held.0)).collect();
+        let points: Vec<String> = func
+            .points
+            .iter()
+            .map(|held| format!("p{}", held.0))
+            .collect();
         let _ = writeln!(out, "deopt points: {}", points.join(" "));
     }
     for block in func.block_ids() {
@@ -116,6 +120,10 @@ fn operation(op: &Op, legend: &impl Legend) -> String {
         Op::Const(Const::Bool(held)) => format!("{held}"),
         Op::Const(Const::Declared(index)) => legend.declared(*index),
         Op::Prim { prim, args } => format!("{}({})", legend.prim(*prim), values(args)),
+        Op::Suspend { value } => match value {
+            Some(held) => format!("suspend v{}", held.0),
+            None => "suspend".to_string(),
+        },
         Op::Call {
             callee,
             receiver,
@@ -254,7 +262,10 @@ mod tests {
         build.end(Terminator::Return(Some(pure)));
 
         let printed = print(&build.finish(), &Indices);
-        assert!(printed.contains("v1 = prim#2(v0)   ; calls|throws"), "{printed}");
+        assert!(
+            printed.contains("v1 = prim#2(v0)   ; calls|throws"),
+            "{printed}"
+        );
         assert!(printed.contains("v0 = 1\n"), "{printed}");
     }
 
@@ -276,7 +287,10 @@ mod tests {
 
         let printed = print(&build.finish(), &Indices);
         assert!(printed.contains("deopt points: p5"), "{printed}");
-        assert!(printed.contains("guard assert#1 of v0 else p5"), "{printed}");
+        assert!(
+            printed.contains("guard assert#1 of v0 else p5"),
+            "{printed}"
+        );
         assert!(printed.contains("fall p5"), "{printed}");
     }
 }

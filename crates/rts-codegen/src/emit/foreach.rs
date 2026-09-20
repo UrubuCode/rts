@@ -98,7 +98,10 @@
 use rts_cranelift::fault::Position;
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::close::{always, assign_stmt, close_iterator_stmt, ident, member_expr, still_open, text_expr, undefined_expr};
+use super::close::{
+    always, assign_stmt, close_iterator_stmt, ident, member_expr, still_open, text_expr,
+    undefined_expr,
+};
 use super::loops::{Loops, emit_for};
 use super::{Ctx, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
@@ -717,7 +720,9 @@ fn open_sequence(
         builder,
         ctx,
         RuntimeOp::Call,
-        &[method, source, written, unnamed, absent, absent, absent, absent],
+        &[
+            method, source, written, unnamed, absent, absent, absent, absent,
+        ],
     )?[0];
     let it = builder.widen(it);
     // The walk gets nothing to walk: `len` is 0, so the arm that reads the array
@@ -848,11 +853,7 @@ fn fetch_element(
                         op: UnaryOp::IteratorResult,
                         operand: Box::new(Expr {
                             kind: ExprKind::Call {
-                                callee: Box::new(member_expr(
-                                    ident(iterator, at),
-                                    next_name,
-                                    at,
-                                )),
+                                callee: Box::new(member_expr(ident(iterator, at), next_name, at)),
                                 arguments: Vec::new(),
                                 optional: false,
                             },

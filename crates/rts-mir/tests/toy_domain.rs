@@ -132,7 +132,10 @@ impl Domain for ToyDomain {
                 [Toy::Integer, Toy::Integer] => Effect::PURE,
                 _ => Effect::CALLS_USER.and(Effect::THROWS),
             },
-            DIVIDE => match args.iter().all(|held| matches!(held, Toy::Integer | Toy::Float)) {
+            DIVIDE => match args
+                .iter()
+                .all(|held| matches!(held, Toy::Integer | Toy::Float))
+            {
                 true => Effect::PURE,
                 false => Effect::CALLS_USER.and(Effect::THROWS),
             },

@@ -54,10 +54,10 @@ pub struct Region {
 
 #[cfg(test)]
 mod tests {
+    use crate::Effect;
     use crate::cfg::{Const, FuncBuilder, Op, Terminator};
     use crate::guard::Tier;
     use crate::verify::{Malformed, verify};
-    use crate::Effect;
 
     #[test]
     fn a_block_inside_a_region_says_which_one() {

@@ -317,9 +317,7 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
                 ExportKind::Default(ExportDefault::Declaration(statement)) => {
                     walker.statement(statement, module)
                 }
-                ExportKind::Default(ExportDefault::Expr(expr)) => {
-                    walker.expression(expr, module)
-                }
+                ExportKind::Default(ExportDefault::Expr(expr)) => walker.expression(expr, module),
                 ExportKind::Named { .. } | ExportKind::All { .. } => {}
             },
         }
@@ -522,13 +520,12 @@ impl Walker<'_> {
             | StmtKind::Break(_)
             | StmtKind::Continue(_)
             | StmtKind::Debugger
-            | StmtKind::Empty => {}
-            // NO fall-through arm. The match above is exhaustive, so a statement
-            // kind added to the tree tomorrow fails to compile here instead of
-            // being silently skipped -- which is how a whole class of binding
-            // went missing from the counters this replaces. A wildcard with a
-            // debug assertion was written first and the compiler reported it
-            // unreachable, which is the stronger guarantee arriving for free.
+            | StmtKind::Empty => {} // NO fall-through arm. The match above is exhaustive, so a statement
+                                    // kind added to the tree tomorrow fails to compile here instead of
+                                    // being silently skipped -- which is how a whole class of binding
+                                    // went missing from the counters this replaces. A wildcard with a
+                                    // debug assertion was written first and the compiler reported it
+                                    // unreachable, which is the stronger guarantee arriving for free.
         }
     }
 
@@ -639,9 +636,7 @@ impl Walker<'_> {
         }
         crate::emit::capture::walk_expr(expr, &mut |child| match child {
             crate::emit::capture::Child::Expr(inner) => self.expression(inner, scope),
-            crate::emit::capture::Child::Function(function) => {
-                self.function(function, scope, true)
-            }
+            crate::emit::capture::Child::Function(function) => self.function(function, scope, true),
             crate::emit::capture::Child::Class(class) => self.class(class, scope),
         });
     }

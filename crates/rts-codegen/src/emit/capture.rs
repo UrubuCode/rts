@@ -33,8 +33,8 @@ use super::loops::assigned_in_stmt as writes_of;
 
 use crate::names::Name;
 use crate::syntax::{
-    AssignTarget, Binding, Catch, Class, Expr, ExprKind, ForInit, Function, FunctionBody,
-    Pattern, Property, PropertyKey, Stmt, StmtKind,
+    AssignTarget, Binding, Catch, Class, Expr, ExprKind, ForInit, Function, FunctionBody, Pattern,
+    Property, PropertyKey, Stmt, StmtKind,
 };
 
 /// The names a function declares that some nested function could still see.
@@ -862,7 +862,9 @@ fn own_function_scoped(statement: &Stmt, found: &mut BTreeSet<Name>) {
                 own_function_scoped(inner, found);
             }
         }
-        StmtChild::Binding(_) | StmtChild::Expr(_) | StmtChild::Function(_)
+        StmtChild::Binding(_)
+        | StmtChild::Expr(_)
+        | StmtChild::Function(_)
         | StmtChild::Class(_) => {}
     });
 }
@@ -1254,10 +1256,7 @@ pub(super) fn children(expr: &Expr, on: &mut impl FnMut(Child)) {
 /// The statement-side pair of [`children`], exposed for the reason that one is:
 /// [`walk_stmt`] is the single description of the tree's shape on this side, and
 /// a second copy is a node one analysis walks and another silently skips.
-pub(super) fn statement_children<'a>(
-    statement: &'a Stmt,
-    on: &mut impl FnMut(StmtChild<'a>),
-) {
+pub(super) fn statement_children<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'a>)) {
     walk_stmt(statement, on);
 }
 

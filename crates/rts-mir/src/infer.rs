@@ -86,10 +86,18 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
             let computed = match &held.op {
                 Op::Const(value) => domain.of_const(value),
                 Op::Prim { prim, args } => {
-                    let of_args: Vec<_> =
-                        args.iter().map(|held| of[held.0 as usize].clone()).collect();
+                    let of_args: Vec<_> = args
+                        .iter()
+                        .map(|held| of[held.0 as usize].clone())
+                        .collect();
                     domain.transfer(*prim, &of_args)
                 }
+                // WHAT WAS SENT IN, which nothing in this function decides: whoever
+                // resumed the frame chose it. So it is the top of the lattice and not
+                // the type of what was handed out -- a yield answers the argument of
+                // the NEXT resumption, never its own operand, and reading the operand
+                // here would be an unsound narrowing rather than a missing one.
+                Op::Suspend { .. } => domain.top(),
                 Op::Call { callee, .. } => match callee {
                     crate::cfg::Callee::Entry(entry) => domain.of_entry(*entry),
                     // A call to a function of this program or to whatever a value
@@ -97,9 +105,7 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
                     // so, and answering `top` is the sound half of not knowing.
                     crate::cfg::Callee::Func(_) | crate::cfg::Callee::Dynamic(_) => domain.top(),
                 },
-                Op::Guard { assertion, on, .. } => {
-                    domain.narrow(*assertion, &of[on.0 as usize])
-                }
+                Op::Guard { assertion, on, .. } => domain.narrow(*assertion, &of[on.0 as usize]),
             };
             if computed != of[held.result.0 as usize] {
                 of[held.result.0 as usize] = computed;

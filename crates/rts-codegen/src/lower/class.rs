@@ -52,11 +52,7 @@ impl Lowering<'_> {
     }
 
     /// The class itself: a constructor, a prototype, and the link.
-    pub(super) fn class_value(
-        &mut self,
-        class: &Class,
-        at: &Expr,
-    ) -> Result<ValueId, Unsupported> {
+    pub(super) fn class_value(&mut self, class: &Class, at: &Expr) -> Result<ValueId, Unsupported> {
         if class.heritage.is_some() {
             return Err(Unsupported::Expression(
                 "extends brings super, a home object and a second prototype link",

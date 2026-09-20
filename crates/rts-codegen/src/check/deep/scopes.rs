@@ -184,7 +184,6 @@ impl Scan<'_> {
         self.scope(&catch.body, ScopeKind::Block, context);
         self.stmts(&catch.body, context);
     }
-
 }
 
 /// What Annex B permits in a position that otherwise takes a Statement.

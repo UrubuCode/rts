@@ -1,8 +1,8 @@
 //! What lowering a whole module answers, pinned apart from it.
 
 use super::*;
-use crate::parse::parse_module;
 use crate::names::resolve::resolve_module;
+use crate::parse::parse_module;
 use rts_mir::verify::verify;
 
 /// A module, lowered, with the interner that read it.
@@ -172,7 +172,6 @@ fn a_call_through_a_parameter_reaches_the_value_the_parameter_holds() {
         }
         other => panic!("expected a call, got {other:?}"),
     }
-
 }
 
 /// Every graph in a module shares one domain, which is what makes an index mean the
@@ -303,7 +302,11 @@ fn a_class_with_extends_is_refused_with_its_three_reasons() {
     let resolution = resolve_module(&program.body);
     let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
     assert!(matches!(
-        lowered.functions.iter().find(|held| held.named == "make").and_then(|held| held.result.as_ref().err()),
+        lowered
+            .functions
+            .iter()
+            .find(|held| held.named == "make")
+            .and_then(|held| held.result.as_ref().err()),
         Some(Unsupported::Expression(_))
     ));
 }

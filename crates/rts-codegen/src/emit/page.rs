@@ -118,7 +118,9 @@ pub fn emit_page_program(
     // thing its author wrote and not the last one this moved.
     if let Some(last) = statements.pop() {
         let last = match last.kind {
-            StmtKind::Expr(value) => Stmt::new(crate::syntax::StmtKind::Return(Some(value)), last.at),
+            StmtKind::Expr(value) => {
+                Stmt::new(crate::syntax::StmtKind::Return(Some(value)), last.at)
+            }
             other => Stmt::new(other, last.at),
         };
         statements.push(last);
@@ -199,7 +201,10 @@ fn lower_statement(
         // needs no statement because the name is published either way and an
         // unwritten global reads `undefined`, which is exactly what a `var`
         // holds before its initialiser runs.
-        StmtKind::Declare { kind: BindingKind::Var, bindings } => {
+        StmtKind::Declare {
+            kind: BindingKind::Var,
+            bindings,
+        } => {
             for binding in bindings {
                 names_of(&binding.target, published);
                 let Some(value) = binding.value.clone() else {
@@ -217,7 +222,11 @@ fn lower_statement(
                 };
                 out.push(Stmt::new(
                     StmtKind::Expr(Expr::new(
-                        ExprKind::Assign { target, value: Box::new(value), op: AssignOp::Plain },
+                        ExprKind::Assign {
+                            target,
+                            value: Box::new(value),
+                            op: AssignOp::Plain,
+                        },
                         statement.at,
                     )),
                     statement.at,

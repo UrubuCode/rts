@@ -10,12 +10,12 @@
 //! point of the trait — the amount a front end must write to reach the machine is
 //! four methods, and the rest of the lowering is neutral.
 
-use rts_cranelift::ir::{Function, FuncRegistry, NumOp, Signature, ValueId as MachineValue};
+use rts_cranelift::ir::{FuncRegistry, Function, NumOp, Signature, ValueId as MachineValue};
 use rts_cranelift::repr::Repr;
 use rts_cranelift::types::TypeRegistry;
 use rts_mir::cfg::{Const, EntryId, FuncBuilder, Op, Prim, Terminator};
 use rts_mir::lower::{MachineOps, Unlowerable, lower};
-use rts_mir::{Assertion, Effect, PointId, Tier, verify};
+use rts_mir::{Assertion, Effect, Malformed, PointId, Tier, verify};
 
 /// The only primitive this language has.
 const ADD: Prim = Prim(0);
@@ -35,7 +35,9 @@ impl MachineOps for Integers {
         _into: &mut rts_cranelift::ir::FuncBuilder,
         index: u32,
     ) -> Result<MachineValue, String> {
-        Err(format!("this language declares no constants, and {index} was asked for"))
+        Err(format!(
+            "this language declares no constants, and {index} was asked for"
+        ))
     }
 
     fn prim(
@@ -48,7 +50,10 @@ impl MachineOps for Integers {
             (ADD, [left, right]) => into
                 .arith(NumOp::Add, *left, *right)
                 .map_err(|held| format!("{held:?}")),
-            _ => Err(format!("no lowering for {prim:?} over {} operands", args.len())),
+            _ => Err(format!(
+                "no lowering for {prim:?} over {} operands",
+                args.len()
+            )),
         }
     }
 
@@ -58,7 +63,9 @@ impl MachineOps for Integers {
         entry: EntryId,
         _args: &[MachineValue],
     ) -> Result<MachineValue, String> {
-        Err(format!("this language names no entry point, and {entry:?} was asked for"))
+        Err(format!(
+            "this language names no entry point, and {entry:?} was asked for"
+        ))
     }
 }
 
@@ -96,7 +103,11 @@ fn a_straight_line_graph_reaches_the_machine_and_verifies() {
     assert_eq!(verify(&graph), Ok(()));
 
     let (mut func, types, funcs) = machine(1);
-    let params = func.block(func.entry).expect("an entry block").params.clone();
+    let params = func
+        .block(func.entry)
+        .expect("an entry block")
+        .params
+        .clone();
     let start = func.entry;
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, start);
     lower(&graph, &mut into, &mut Integers, &params).expect("the subset lowers");
@@ -155,7 +166,11 @@ fn a_branch_with_a_join_block_carries_its_parameter_through() {
     let mut func = Function::new(signature);
     let types = TypeRegistry::new();
     let funcs = FuncRegistry::new();
-    let params = func.block(func.entry).expect("an entry block").params.clone();
+    let params = func
+        .block(func.entry)
+        .expect("an entry block")
+        .params
+        .clone();
     let start = func.entry;
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, start);
     lower(&graph, &mut into, &mut Integers, &params).expect("the subset lowers");
@@ -185,7 +200,11 @@ fn a_guard_is_refused_and_says_which_point_it_was() {
     assert_eq!(verify(&graph), Ok(()));
 
     let (mut func, types, _funcs) = machine(1);
-    let params = func.block(func.entry).expect("an entry block").params.clone();
+    let params = func
+        .block(func.entry)
+        .expect("an entry block")
+        .params
+        .clone();
     let start = func.entry;
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, start);
     assert_eq!(
@@ -219,3 +238,82 @@ fn a_primitive_the_language_cannot_lower_reports_the_languages_reason() {
     }
 }
 
+/// A suspension is refused by name, and it is the one refusal here that is not about
+/// something the LANGUAGE has not declared: the graph is entirely well formed and the
+/// machine has not been asked for `frame::resumable_form` yet.
+#[test]
+fn a_suspension_is_refused_because_the_frame_transform_is_not_wired() {
+    let mut build = FuncBuilder::new(Tier::Generic);
+    let entry = build.current();
+    let x = build.param(entry);
+    let back = build.push(
+        Op::Suspend { value: Some(x) },
+        Effect::SUSPENDS,
+        Default::default(),
+    );
+    build.end(Terminator::Return(Some(back)));
+    let graph = build.finish();
+    assert_eq!(verify(&graph), Ok(()));
+
+    let (mut func, types, _funcs) = machine(1);
+    let params = func
+        .block(func.entry)
+        .expect("an entry block")
+        .params
+        .clone();
+    let start = func.entry;
+    let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, start);
+    assert_eq!(
+        lower(&graph, &mut into, &mut Integers, &params),
+        Err(Unlowerable::NeedsFrameTransform)
+    );
+}
+
+/// The flag is DERIVED from what the body does and never passed in, so a lowering that
+/// grew a parking path cannot forget to mark it — which would be a function the machine
+/// compiles with an ordinary frame and then tries to leave.
+#[test]
+fn the_builder_derives_the_flag_from_the_effect_alone() {
+    let mut build = FuncBuilder::new(Tier::Generic);
+    build.end(Terminator::Return(None));
+    assert!(!build.finish().may_suspend, "nothing has parked");
+
+    let mut build = FuncBuilder::new(Tier::Generic);
+    let entry = build.current();
+    let x2 = build.param(entry);
+    // NOT an `Op::Suspend`: a primitive of the language whose effect table says it
+    // parks. The flag follows the effect, which is where the fact lives.
+    build.push(
+        Op::Prim {
+            prim: Prim(7),
+            args: vec![x2],
+        },
+        Effect::SUSPENDS,
+        Default::default(),
+    );
+    build.end(Terminator::Return(None));
+    assert!(build.finish().may_suspend);
+}
+
+/// A hand-assembled function that parks without saying so is malformed, and the check
+/// exists for exactly that: the machine asks the flag once per function, so one that
+/// lied would get an ordinary frame.
+#[test]
+fn a_function_that_parks_without_saying_so_is_malformed() {
+    let mut build = FuncBuilder::new(Tier::Generic);
+    let entry = build.current();
+    let x = build.param(entry);
+    build.push(
+        Op::Suspend { value: Some(x) },
+        Effect::SUSPENDS,
+        Default::default(),
+    );
+    build.end(Terminator::Return(None));
+    let mut graph = build.finish();
+    assert_eq!(verify(&graph), Ok(()));
+    graph.may_suspend = false;
+    assert!(matches!(
+        verify(&graph),
+        Err(Malformed::SuspendsWithoutSaying(_))
+    ));
+}

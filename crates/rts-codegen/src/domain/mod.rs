@@ -185,7 +185,10 @@ impl Js {
     pub fn new() -> Self {
         Self {
             assertions: Vec::new(),
-            constants: crate::values::Singleton::ALL.iter().map(|held| JsConst::Singleton(*held)).collect(),
+            constants: crate::values::Singleton::ALL
+                .iter()
+                .map(|held| JsConst::Singleton(*held))
+                .collect(),
         }
     }
 
@@ -355,12 +358,7 @@ impl Js {
     fn needs_no_coercion(of: &Type) -> bool {
         matches!(
             of,
-            Type::Int32
-                | Type::Double
-                | Type::Bool(_)
-                | Type::Str
-                | Type::Undefined
-                | Type::Null
+            Type::Int32 | Type::Double | Type::Bool(_) | Type::Str | Type::Undefined | Type::Null
         )
     }
 
@@ -470,9 +468,7 @@ impl Domain for Js {
             | JsPrim::IsNullish
             | JsPrim::LooseEquals
             | JsPrim::InstanceOf
-            | JsPrim::HasProperty => {
-                Type::Bool(None)
-            }
+            | JsPrim::HasProperty => Type::Bool(None),
             // Folded where the type decides it, which is what `truth_of` is for:
             // an object is always true and `undefined` always false, so a branch
             // over either is a branch a later pass can remove. A number and a

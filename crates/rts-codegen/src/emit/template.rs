@@ -24,8 +24,8 @@ use rts_cranelift::ir::{ConstDecl, ScalarBits};
 use rts_cranelift::repr::Repr;
 
 use super::expr::{emit_binary, emit_expr, gap, string_literal_units};
-use crate::runtime::RuntimeOp;
 use super::{Ctx, EmitError, EmitResult, Scope};
+use crate::runtime::RuntimeOp;
 use crate::syntax::{BinaryOp, Expr, TemplatePart, Text};
 
 /// Emits a template literal.

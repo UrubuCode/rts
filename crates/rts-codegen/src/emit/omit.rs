@@ -180,10 +180,12 @@ pub(super) fn omittable(
         // same spelling. `inline::local_candidate` builds the candidate from it.
         let candidate = match ctx.inlinable(name) {
             Some(shared) => shared,
-            None => match super::inline::local_candidate(function, length, name, arguments, false) {
-                Some((built, _)) => Rc::new(built),
-                None => continue,
-            },
+            None => {
+                match super::inline::local_candidate(function, length, name, arguments, false) {
+                    Some((built, _)) => Rc::new(built),
+                    None => continue,
+                }
+            }
         };
         // NO NAME THE BODY READS OR DECLARES MAY BE SPELLED TWICE IN **THIS**
         // BODY, and this is the clause that makes the omission a proof rather

@@ -257,7 +257,15 @@ fn emit_closure_with(
         }
         false => late_this,
     };
-    let id = emit_function(ctx, scope, function, late_this, definition, has_prototype, constructs)?;
+    let id = emit_function(
+        ctx,
+        scope,
+        function,
+        late_this,
+        definition,
+        has_prototype,
+        constructs,
+    )?;
 
     // The address is not a number known here — it is a relocation the
     // destination fills in, which is the whole reason the machine had to grow
@@ -440,7 +448,8 @@ fn emit_function(
         .or(lent)
         .map(|name| ctx.names.text(name).to_owned())
         .unwrap_or_default();
-    ctx.function_names.push((id, text.clone(), arity, has_prototype, constructs));
+    ctx.function_names
+        .push((id, text.clone(), arity, has_prototype, constructs));
     ctx.pending.push((id, emitted));
     // The id recorded above is the BODY's, and for a generator or an `async`
     // function that is not the one a closure is made from: both return a
@@ -460,7 +469,8 @@ fn emit_function(
     // `trace`.
     let named = |ctx: &mut Ctx, wrapper: FuncId| {
         if wrapper != id {
-            ctx.function_names.push((wrapper, text, arity, has_prototype, constructs));
+            ctx.function_names
+                .push((wrapper, text, arity, has_prototype, constructs));
         }
         wrapper
     };
@@ -797,8 +807,7 @@ pub(super) fn emit_body(
     // flattening that was available, never an answer.
     let length = ctx.names.intern("length");
     let held_arguments = ctx.names.intern("arguments");
-    let omission =
-        super::omit::omittable(ctx, body, &captured, &flattened, length, held_arguments);
+    let omission = super::omit::omittable(ctx, body, &captured, &flattened, length, held_arguments);
     // AND THE SECOND CAPTURE ANSWER, which is not a correction of the first.
     //
     // A name reached an environment because some nested function mentioned it.
@@ -1087,7 +1096,6 @@ fn emit_body_into(
         }
     }
 
-
     // Before the first statement, and after the parameters: an import is a
     // declaration in this scope, so it is bound where a declaration would be.
     for import in imports {
@@ -1202,9 +1210,7 @@ fn emit_body_into(
     // a syntax error in a module — so this guard is unreachable for a real
     // module and is here because "unreachable" is a claim the emitter should not
     // have to make about IR it is building.
-    if !terminated
-        && let Some(specifier) = module
-    {
+    if !terminated && let Some(specifier) = module {
         super::module::emit_publications(&mut builder, &scope, ctx, specifier, publications)?;
         // And what the body left in `module.exports`, in the same place and for
         // the same reason: a module that assigns it on its last line publishes
@@ -1446,7 +1452,8 @@ fn bind_parameters(
         // A plain name with no default is already what the convention wants, so
         // it costs nothing: no synthetic name, no prologue statement, and the
         // common case stays exactly the code it was before this existed.
-        if let (crate::syntax::Pattern::Name(name), None) = (&parameter.target, &parameter.default) {
+        if let (crate::syntax::Pattern::Name(name), None) = (&parameter.target, &parameter.default)
+        {
             names.push(*name);
             if let Some(claim) = &parameter.claim {
                 claims.push((*name, claim.clone()));

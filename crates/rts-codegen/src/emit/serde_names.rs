@@ -86,7 +86,9 @@ fn wanted(ctx: &mut Ctx) -> dynamic::Wanted {
 
 /// Whether one survey found a route to the pickle — see the module header.
 fn reaches_pickle(found: &dynamic::Survey) -> bool {
-    found.computed || found.dynamic_code || found.named.iter().any(|specifier| names_pickle(specifier))
+    found.computed
+        || found.dynamic_code
+        || found.named.iter().any(|specifier| names_pickle(specifier))
 }
 
 /// Whether any module of a graph can reach the pickle, over the raw items —
@@ -98,7 +100,8 @@ pub(super) fn program_reaches_pickle(units: &[Unit<'_>], ctx: &mut Ctx) -> bool 
             ModuleItem::Import(import) => names_pickle(&import.source),
             ModuleItem::Export(export) => match &export.kind {
                 ExportKind::Named {
-                    source: Some(source), ..
+                    source: Some(source),
+                    ..
                 }
                 | ExportKind::All { source, .. } => names_pickle(source),
                 _ => false,
@@ -141,7 +144,12 @@ pub(super) fn declare(
     // `u64::MAX` is the I64 `-1`: no space.
     let space = super::module::number(builder, space.map_or(u64::MAX, u64::from));
     let target = super::expr::tagged(builder, target);
-    super::expr::call(builder, ctx, RuntimeOp::SerdeDeclare, &[target, module, name, space])?;
+    super::expr::call(
+        builder,
+        ctx,
+        RuntimeOp::SerdeDeclare,
+        &[target, module, name, space],
+    )?;
     Ok(())
 }
 

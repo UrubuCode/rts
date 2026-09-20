@@ -79,8 +79,7 @@ pub(super) fn duplicate_attribute(program: &Program) -> Option<String> {
         let attributes = match item {
             ModuleItem::Import(import) => &import.attributes,
             ModuleItem::Export(Export {
-                kind:
-                    ExportKind::Named { attributes, .. } | ExportKind::All { attributes, .. },
+                kind: ExportKind::Named { attributes, .. } | ExportKind::All { attributes, .. },
                 ..
             }) => attributes,
             _ => continue,

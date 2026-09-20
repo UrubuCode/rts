@@ -11,8 +11,8 @@
 //! an instruction is settled here, from what is known here.
 
 use rts_mir::Domain;
-use rts_mir::cfg::{Const, Op, ValueId};
 use rts_mir::Effect;
+use rts_mir::cfg::{Const, Op, ValueId};
 
 use super::{Lowering, Unsupported};
 use crate::domain::{JsConst, JsPrim, Type};
@@ -24,11 +24,12 @@ impl Lowering<'_> {
         let value = match literal {
             // An integral number that fits is an `Int::Int`, so the domain can
             // answer `Int32` for it and an addition of two of them can be proved.
-            Literal::Number(held) => match held.fract() == 0.0 && i32::try_from(*held as i64).is_ok()
-            {
-                true => Const::Int(*held as i64),
-                false => Const::Float(*held),
-            },
+            Literal::Number(held) => {
+                match held.fract() == 0.0 && i32::try_from(*held as i64).is_ok() {
+                    true => Const::Int(*held as i64),
+                    false => Const::Float(*held),
+                }
+            }
             Literal::Boolean(held) => Const::Bool(*held),
             Literal::Singleton(which) => Const::Declared(*which as u32),
             // A STRING is a constant of the LANGUAGE's table, not of the IR's. The
@@ -48,13 +49,12 @@ impl Lowering<'_> {
             // are one thing the runtime does, which is what an entry point is.
             //
             // Two evaluations of one literal are two objects, because the object
-             // carries `lastIndex`. So the call is emitted where the literal is written
+            // carries `lastIndex`. So the call is emitted where the literal is written
             // rather than hoisted to the top of the function, and a pass that wants to
             // hoist it has to prove the state is never read.
             Literal::Regex { pattern, flags } => {
-                let pattern = crate::syntax::Text::from_units(
-                    pattern.encode_utf16().collect::<Vec<u16>>(),
-                );
+                let pattern =
+                    crate::syntax::Text::from_units(pattern.encode_utf16().collect::<Vec<u16>>());
                 let flags =
                     crate::syntax::Text::from_units(flags.encode_utf16().collect::<Vec<u16>>());
                 let pattern = self.domain.constant(JsConst::Text(pattern));
@@ -76,9 +76,7 @@ impl Lowering<'_> {
             }
         };
         let of = self.domain.of_const(&value);
-        let held = self
-            .builder
-            .push(Op::Const(value), Effect::PURE, at.at);
+        let held = self.builder.push(Op::Const(value), Effect::PURE, at.at);
         self.types.insert(held, of);
         Ok(held)
     }
@@ -115,14 +113,7 @@ impl Lowering<'_> {
         let prim = self.domain.prim(which);
         let effect = self.domain.effect_of(prim, &of_args);
         let answered = self.domain.transfer(prim, &of_args);
-        let held = self.builder.push(
-            Op::Prim {
-                prim,
-                args,
-            },
-            effect,
-            at.at,
-        );
+        let held = self.builder.push(Op::Prim { prim, args }, effect, at.at);
         self.types.insert(held, answered);
         held
     }

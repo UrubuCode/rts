@@ -6,8 +6,8 @@
 //! merges too and lives in `loops.rs`, for the reason its header gives -- it cannot
 //! compare two finished arms, because one of its predecessors does not exist yet.
 
-use rts_mir::cfg::Terminator;
 use rts_mir::Domain;
+use rts_mir::cfg::Terminator;
 
 use super::{Lowering, Unsupported};
 use crate::domain::JsPrim;

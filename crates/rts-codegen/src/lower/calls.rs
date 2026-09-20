@@ -11,9 +11,9 @@ use rts_mir::cfg::{Op, ValueId};
 use rts_mir::{Domain, Effect};
 
 use super::{Lowering, Unsupported};
+use crate::domain::JsPrim;
 use crate::names::Name;
 use crate::names::resolve::BindingId;
-use crate::domain::JsPrim;
 use crate::syntax::Expr;
 
 impl Lowering<'_> {
@@ -141,9 +141,7 @@ impl Lowering<'_> {
 
     /// A closure value for a function the module numbered.
     pub(super) fn closure(&mut self, id: rts_mir::cfg::FuncId, at: &Expr) -> ValueId {
-        let index = self
-            .domain
-            .constant(crate::domain::JsConst::Function(id.0));
+        let index = self.domain.constant(crate::domain::JsConst::Function(id.0));
         let named = self.declared(index, at);
         self.prim(JsPrim::MakeClosure, vec![named], at)
     }

@@ -106,6 +106,27 @@ pub enum Op {
         args: Vec<ValueId>,
     },
 
+    /// Hands a value out and answers what comes back.
+    ///
+    /// The neutral form of `yield` and of `await`: the frame parks, something outside
+    /// decides what to send in, and the instruction's result is that. What the two
+    /// differ about — a value versus a promise, who resumes and when — is the
+    /// language's, and it declares that by which entry point it calls around this.
+    ///
+    /// # Why it is an instruction and not a terminator
+    ///
+    /// Because the CFG does not have to split here. `rts_cranelift::frame` transforms
+    /// the whole function into a resumable form from LIVENESS — it spills what is live
+    /// across each suspension into a record with a resume position — so a graph that
+    /// split its blocks at every suspension would be doing that transform's work
+    /// badly, and twice.
+    ///
+    /// What the graph must carry is that control leaves, and it carries it in the
+    /// [`Effect::SUSPENDS`] flag where every pass already looks.
+    Suspend {
+        /// What is handed out, if anything. `yield` with no value hands out nothing.
+        value: Option<ValueId>,
+    },
     /// An assertion about a value, checked, with somewhere to fall when it fails.
     ///
     /// Its result is the same value with a narrowed type — which is what makes a
@@ -232,6 +253,12 @@ pub struct Block {
 pub struct Func {
     /// Which tier this is.
     pub tier: Tier,
+    /// Whether the frame may be parked in it.
+    ///
+    /// A property of the FUNCTION and not of the call site, which is the same shape
+    /// `rts_cranelift::ir::Signature` gives it and for the same reason: whether a call
+    /// parks the caller follows from what the callee is, so a site does not choose it.
+    pub may_suspend: bool,
     /// Its blocks. `BlockId(0)` is the entry.
     pub blocks: Vec<Block>,
     /// Its instructions, flat, referenced by the blocks in order.
@@ -319,6 +346,7 @@ impl Func {
                 all
             }
             Op::Guard { on, .. } => vec![*on],
+            Op::Suspend { value } => value.iter().copied().collect(),
         }
     }
 }
@@ -344,6 +372,7 @@ impl FuncBuilder {
         Self {
             func: Func {
                 tier,
+                may_suspend: false,
                 blocks: vec![Block {
                     params: Vec::new(),
                     insts: Vec::new(),
@@ -433,6 +462,18 @@ impl FuncBuilder {
         let result = self.mint();
         if let Op::Guard { point, .. } = &op {
             self.declare(*point);
+        }
+        // THE FUNCTION'S FLAG IS DERIVED AND NEVER PASSED IN. A builder that asked
+        // its client to set `may_suspend` as well as to push the suspension would be
+        // holding one fact in two places, and the two would drift the first time a
+        // lowering grew a path it forgot to mark -- which is a function the machine
+        // would compile with an ordinary frame and then park.
+        //
+        // Read from the EFFECT rather than from the operation, because that is where
+        // the fact lives: a language that parks inside a primitive of its own says so
+        // in its effect table, and this stays true without naming its primitives.
+        if effect.may_suspend() {
+            self.func.may_suspend = true;
         }
         self.func.insts.push(Inst {
             op,

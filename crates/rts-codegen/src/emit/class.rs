@@ -205,7 +205,12 @@ pub(super) fn emit_class(
     // fact is syntactic (this IS a class) and the runtime cannot see it any
     // other way, which is the same shape `MarkDerived` already answers for
     // `extends`.
-    expr::call(builder, ctx, RuntimeOp::MarkClassConstructor, &[constructor])?;
+    expr::call(
+        builder,
+        ctx,
+        RuntimeOp::MarkClassConstructor,
+        &[constructor],
+    )?;
 
     // `ClosureNew` already made a `prototype` object, because a function that
     // could not be constructed with would be a different kind of function. So
@@ -223,7 +228,12 @@ pub(super) fn emit_class(
     // `for`-`in` over an instance sees the moment it walks the chain.
     let link = super::property::key_constant(builder, ctx, constructor_key);
     let held = expr::tagged(builder, constructor);
-    expr::call(builder, ctx, RuntimeOp::DefineMethod, &[prototype, link, held])?;
+    expr::call(
+        builder,
+        ctx,
+        RuntimeOp::DefineMethod,
+        &[prototype, link, held],
+    )?;
 
     // `C.name` — the class's own name, or the one a binding lent it. An
     // anonymous `class {}` written as the initialiser of `const X` is called
@@ -251,20 +261,19 @@ pub(super) fn emit_class(
             RuntimeOp::SetFunctionName,
             &[target, name_value],
         )?;
-        super::serde_names::declare(builder, ctx, constructor, &text, super::serde_names::private_space(ctx, class))?;
+        super::serde_names::declare(
+            builder,
+            ctx,
+            constructor,
+            &text,
+            super::serde_names::private_space(ctx, class),
+        )?;
     }
 
     if let Some(parent) = parent {
         // Both links, or the one a `null` heritage makes — see `heritage.rs`
         // for why `extends null` is a shape rather than a refusal.
-        super::heritage::link(
-            builder,
-            ctx,
-            constructor,
-            prototype,
-            parent,
-            prototype_name,
-        )?;
+        super::heritage::link(builder, ctx, constructor, prototype, parent, prototype_name)?;
     }
 
     // Written now rather than with the parent, because the prototype did not
@@ -348,15 +357,28 @@ pub(super) fn emit_class(
                     };
                     ctx.lend_name(spelled);
                 }
-                let closure = function::emit_closure_method(builder, &inner, ctx, &method.function)?;
+                let closure =
+                    function::emit_closure_method(builder, &inner, ctx, &method.function)?;
                 ctx.in_static_method = enclosing;
-                let target = if method.is_static { constructor } else { prototype };
+                let target = if method.is_static {
+                    constructor
+                } else {
+                    prototype
+                };
                 // An accessor is not written as a property: it is a pair of
                 // functions the read has to CALL, and a getter stored in the
                 // layout would be returned by the cache instead of run.
                 match method.kind {
                     MethodKind::Normal => {
-                        write_member(builder, ctx, target, &method.key, computed[index], closure, true)?;
+                        write_member(
+                            builder,
+                            ctx,
+                            target,
+                            &method.key,
+                            computed[index],
+                            closure,
+                            true,
+                        )?;
                     }
                     MethodKind::Getter | MethodKind::Setter => {
                         let is_getter = matches!(method.kind, MethodKind::Getter);
@@ -391,7 +413,15 @@ pub(super) fn emit_class(
                     Some(value) => super::emit_expr(builder, &mut inner, ctx, value)?,
                     None => expr::undefined(builder, ctx),
                 };
-                write_member(builder, ctx, constructor, &field.key, computed[index], value, false)?;
+                write_member(
+                    builder,
+                    ctx,
+                    constructor,
+                    &field.key,
+                    computed[index],
+                    value,
+                    false,
+                )?;
             }
             // `static { … }` — statements run once, in this same activation,
             // with `this` already bound above and after every static element
@@ -494,12 +524,15 @@ fn write_member(
             // number `DefineMethod` takes — the same conversion `super[e]` uses
             // rather than a fourth entry point.
             if !hidden {
-                return Ok(
-                    {
-                        let estrito = super::property::estrito(builder, ctx);
-                        expr::call(builder, ctx, RuntimeOp::SetIndexed, &[target, key_value, value, estrito])?[0]
-                    },
-                );
+                return Ok({
+                    let estrito = super::property::estrito(builder, ctx);
+                    expr::call(
+                        builder,
+                        ctx,
+                        RuntimeOp::SetIndexed,
+                        &[target, key_value, value, estrito],
+                    )?[0]
+                });
             }
             let key = expr::call(builder, ctx, RuntimeOp::KeyNumber, &[key_value])?[0];
             Ok(expr::call(builder, ctx, RuntimeOp::DefineMethod, &[target, key, value])?[0])

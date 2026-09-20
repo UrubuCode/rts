@@ -189,4 +189,3 @@ impl BodyState {
         *self = outer;
     }
 }
-

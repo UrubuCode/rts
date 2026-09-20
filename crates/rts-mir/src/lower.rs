@@ -78,6 +78,20 @@ pub trait MachineOps {
 /// Why a function could not be lowered.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Unlowerable {
+    /// A suspension, which needs the frame transform of `rts_cranelift::frame`.
+    ///
+    /// # Why the transform is the machine's and not expressible here
+    ///
+    /// Because it is decided by LIVENESS and spends STACK. Turning a function into a
+    /// resumable one means finding what is live across each suspension, choosing a
+    /// record to hold it, and choosing a resume position to re-enter at — three
+    /// answers rule 3 of this crate's README puts on the machine's side, and
+    /// `frame::resumable_form` already holds all three.
+    ///
+    /// So this is the one place a graph that is entirely well formed is refused for
+    /// something the MACHINE has not been asked for yet, rather than for something the
+    /// language has not declared.
+    NeedsFrameTransform,
     /// A guard or a fall, which needs the side exit of `deopt-lateral.md` D3.
     NeedsSideExit(PointId),
     /// A protected region, which needs the language to say what a handler catches.
@@ -160,7 +174,7 @@ pub fn lower(
 
     // A REGION IS REFUSED before anything is emitted, because protection is a property
     // of a block and emitting the blocks first would produce a function whose
-     // instructions are right and whose exception edges are absent.
+    // instructions are right and whose exception edges are absent.
     if let Some(region) = func.regions.first() {
         let _ = region;
         return Err(Unlowerable::NeedsHandlerTag(crate::region::RegionId(0)));
@@ -202,6 +216,7 @@ pub fn lower(
                     }
                 },
                 Op::Guard { point, .. } => return Err(Unlowerable::NeedsSideExit(*point)),
+                Op::Suspend { .. } => return Err(Unlowerable::NeedsFrameTransform),
             };
             values.insert(held.result, lowered);
         }

@@ -112,10 +112,22 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
             super::inline::declarations_of(program, **name) == 1
                 && !class.body.iter().any(|element| match element {
                     ClassElement::Method(method) => {
-                        method.is_static && !matches!(&method.key, crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(_)))
+                        method.is_static
+                            && !matches!(
+                                &method.key,
+                                crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(
+                                    _
+                                ))
+                            )
                     }
                     ClassElement::Field(field) => {
-                        field.is_static && !matches!(&field.key, crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(_)))
+                        field.is_static
+                            && !matches!(
+                                &field.key,
+                                crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(
+                                    _
+                                ))
+                            )
                     }
                     // A static block is arbitrary code and may write anything,
                     // including a `Symbol.hasInstance` on the class it is in.
@@ -130,7 +142,6 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
     for statement in program {
         value_reads_in_statement(statement, &mut read_as_value, ordinary);
     }
-
 
     for (receiver, class_name) in constructed {
         if read_as_value.contains(&receiver) || read_as_value.contains(&class_name) {
@@ -250,7 +261,9 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
         }
         for (name, answer) in settled {
             if let Some(function) = answer {
-                methods.entry((receiver, name)).or_insert_with(|| function.clone());
+                methods
+                    .entry((receiver, name))
+                    .or_insert_with(|| function.clone());
             }
         }
     }
@@ -312,10 +325,7 @@ fn class_declarations<'a>(statement: &'a Stmt, classes: &mut BTreeMap<Name, &'a 
                 }
             }
         }
-        StmtKind::Function(function) => {
-            if let Some(name) = function.name {
-            }
-        }
+        StmtKind::Function(function) => if let Some(name) = function.name {},
         _ => {}
     }
     walk_stmt(statement, &mut |child| match child {
@@ -557,7 +567,9 @@ mod tests {
     #[test]
     fn the_chain_is_walked_so_an_inherited_method_counts() {
         assert_eq!(
-            decided("class B { bp() { return 1; } } class D extends B {} const d = new D(); d.bp();"),
+            decided(
+                "class B { bp() { return 1; } } class D extends B {} const d = new D(); d.bp();"
+            ),
             ["d.bp"]
         );
     }
@@ -587,10 +599,8 @@ mod tests {
         // Two classes of one spelling: the receiver could be either, so the
         // method it names is not decided.
         assert!(
-            decided(
-                "class C { m() {} } const o = new C(); function g() { class C {} } o.m();"
-            )
-            .is_empty()
+            decided("class C { m() {} } const o = new C(); function g() { class C {} } o.m();")
+                .is_empty()
         );
     }
 
@@ -797,9 +807,7 @@ fn returns_a_value(statement: &Stmt, found: &mut bool) {
 /// Whether `this` appears in a function only as the object of a member READ.
 fn this_is_only_read(function: &Function) -> bool {
     match &function.body {
-        crate::syntax::FunctionBody::Block(body) => {
-            body.iter().all(this_read_only_in_statement)
-        }
+        crate::syntax::FunctionBody::Block(body) => body.iter().all(this_read_only_in_statement),
         crate::syntax::FunctionBody::Expression(expr) => this_read_only_in_expr(expr),
     }
 }

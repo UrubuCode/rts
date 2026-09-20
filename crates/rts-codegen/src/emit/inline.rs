@@ -45,12 +45,11 @@ use rts_cranelift::ir::{FuncBuilder, ValueId};
 
 use crate::Name;
 use crate::syntax::Literal;
-use crate::values::Singleton;
 use crate::syntax::{
     AssignTarget, Binding, BindingKind, Class, ClassElement, Expr, ExprKind, ForEachTarget,
-    Function,
-    FunctionBody, Pattern, Spreadable, Stmt, StmtKind,
+    Function, FunctionBody, Pattern, Spreadable, Stmt, StmtKind,
 };
+use crate::values::Singleton;
 
 use super::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use super::{Ctx, EmitResult, Scope, UNPROVEN};
@@ -243,7 +242,6 @@ pub(super) fn candidates(
         });
         candidate.free_proved = free_proved;
 
-
         // AND THE BODY'S OWN LOCALS, which is the guard that lets a declaring
         // body be substituted at all.
         //
@@ -408,7 +406,10 @@ pub(super) fn emit_substituted(
         // A spread has a runtime-dependent count, so it cannot use the exact
         // written-argument proof. Still emit every non-spread argument in source
         // order so side effects happen before the constant result.
-        if arguments.iter().any(|argument| matches!(argument, Spreadable::Spread(_))) {
+        if arguments
+            .iter()
+            .any(|argument| matches!(argument, Spreadable::Spread(_)))
+        {
             return Ok(None);
         }
         for argument in arguments {
@@ -499,7 +500,10 @@ pub(super) fn emit_substituted(
     // long before here: it is a free name the program declares nowhere, so
     // `declarations_of` answers zero and the candidate never forms.
     for (at, parameter) in candidate.parameters.iter().enumerate() {
-        let value = match (values.get(at), candidate.defaults.get(at).and_then(Option::as_ref)) {
+        let value = match (
+            values.get(at),
+            candidate.defaults.get(at).and_then(Option::as_ref),
+        ) {
             // Written, and the parameter has no default: the argument.
             (Some(value), None) => *value,
             // Not written, and no default: `undefined`.
@@ -512,7 +516,9 @@ pub(super) fn emit_substituted(
             // Written, and a default. Refused at the top of this function, so
             // this arm cannot run; it is written out rather than left to a
             // wildcard so that admitting the case later has one place to change.
-            (Some(_), Some(_)) => unreachable!("a written argument for a defaulted parameter is refused above"),
+            (Some(_), Some(_)) => {
+                unreachable!("a written argument for a defaulted parameter is refused above")
+            }
         };
         scope.declare(*parameter, value);
     }
@@ -597,7 +603,6 @@ pub(super) fn emit_substituted(
     scope.leave();
     Ok(Some(result))
 }
-
 
 /// Every `function f(…)` and `const f = …` in a statement and everything under
 /// it, however deep.
@@ -703,11 +708,13 @@ fn declared_function(statement: &Stmt) -> Option<(Name, &Function)> {
             kind: BindingKind::Const,
             bindings,
         } => {
-            let [Binding {
-                target: Pattern::Name(name),
-                value: Some(value),
-                ..
-            }] = &bindings[..]
+            let [
+                Binding {
+                    target: Pattern::Name(name),
+                    value: Some(value),
+                    ..
+                },
+            ] = &bindings[..]
             else {
                 return None;
             };
@@ -822,7 +829,11 @@ pub(super) fn shape_of(
     // A body that declares one name twice is refused rather than reasoned
     // about: `const a = 1; { const a = 2; }` is legal JavaScript and the
     // substitution has no way to keep the two apart in one scope.
-    if locals.iter().enumerate().any(|(at, name)| locals[..at].contains(name)) {
+    if locals
+        .iter()
+        .enumerate()
+        .any(|(at, name)| locals[..at].contains(name))
+    {
         return None;
     }
 
@@ -1188,7 +1199,8 @@ fn closed_over_statement(
             let Some((condition, answer)) = guard_return(statement) else {
                 unreachable!("the arm's own guard just answered")
             };
-            closed_over(condition, bound, free, this_ok) && closed_over(answer, bound, free, this_ok)
+            closed_over(condition, bound, free, this_ok)
+                && closed_over(answer, bound, free, this_ok)
         }
         StmtKind::If {
             condition,
@@ -1291,7 +1303,8 @@ fn closed_over(expr: &Expr, bound: &[Name], free: &mut Vec<Name>, this_ok: bool)
                 &place.kind,
                 ExprKind::Member { .. } | ExprKind::Index { .. }
             ) {
-                return closed_over(place, bound, free, this_ok) && closed_over(value, bound, free, this_ok);
+                return closed_over(place, bound, free, this_ok)
+                    && closed_over(value, bound, free, this_ok);
             }
             let ExprKind::Ident(name) = &place.kind else {
                 return false;
@@ -1356,15 +1369,16 @@ fn returned_expression(function: &Function) -> Option<&Expr> {
     match &function.body {
         FunctionBody::Expression(expr) => Some(expr),
         FunctionBody::Block(statements) => match &statements[..] {
-            [Stmt {
-                kind: StmtKind::Return(Some(expr)),
-                ..
-            }] => Some(expr),
+            [
+                Stmt {
+                    kind: StmtKind::Return(Some(expr)),
+                    ..
+                },
+            ] => Some(expr),
             _ => None,
         },
     }
 }
-
 
 /// How many declarations anywhere in the program spell `name`.
 ///
