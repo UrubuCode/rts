@@ -31,6 +31,7 @@
 
 mod check;
 pub mod domain;
+pub mod lower;
 pub mod names;
 pub mod parse;
 pub mod syntax;
