@@ -49,9 +49,11 @@ use rts_codegen::parse::parse_module;
 use rts_codegen::syntax::ModuleItem;
 
 mod resolve;
+mod tsconfig;
 
 use resolve::{extended, file_url, is_relative, plain, resolve};
 pub(crate) use resolve::resolve_specifier;
+pub use tsconfig::Aliases;
 
 use crate::link::HostError;
 
