@@ -1405,7 +1405,7 @@ Leave the `require("./util")` on line 32 relative on purpose: the two forms of t
 - [ ] **Step 5: Run the smoke locally, exactly as CI does**
 
 ```bash
-cargo build --release -p rts-cli
+cargo build --release -p rts   # o binario e do pacote RAIZ do workspace; `rts-cli` e biblioteca
 target/release/rts run tests/aot/graph.ts > /tmp/jit.txt
 target/release/rts compile tests/aot/graph.ts /tmp/smoke_graph
 if [ -x /tmp/smoke_graph.exe ]; then /tmp/smoke_graph.exe > /tmp/aot.txt; else /tmp/smoke_graph > /tmp/aot.txt; fi
