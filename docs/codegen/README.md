@@ -118,6 +118,32 @@ can still be slow in a program that reaches it once. Never ship a change on an
 `analytic.ts` row alone — a program ruler has to move too, or the document has to
 say why it did not.
 
+### 4a. A row that ALLOCATES is measured in a process of its own
+
+Added 2026-09-19, because a session nearly published three wrong numbers from
+one file. A hand-written bench with several rows, each looping hundreds of
+thousands of allocations, measures the HEAP'S GROWTH as much as the code:
+`grow_if_the_cycle_barely_helped` doubles the region when a cycle reclaims too
+little, so every row after the first runs against a different heap from the one
+it would meet alone.
+
+How far apart the two answers are, same binary, same machine, same minute:
+
+| | in a file of seven rows | alone in a file |
+|---|---:|---:|
+| `String(42)` | 332 ns | **127** |
+| `JSON.parse` of a 1000-char string | 1 535 | **993** |
+| `JSON.parse` of eight floats | 824 | **600** |
+
+The first column reported a 72% regression that the second shows as 3%. A/B
+between two binaries over the *same* multi-row file is still readable, because
+both pay it — but the absolute numbers are not the cost of the operation, and
+a row that moves in one column and not the other is the file talking.
+
+`analytic.ts` avoids this by construction: its harness calibrates per case and
+the cases are mostly non-allocating. Anything written by hand to time `new`,
+a string, or `JSON` does not, and belongs in one process per row.
+
 ### 5. Compared per row, never net
 
 `CLAUDE.md` states this for the test suite and it is the same rule for speed:
