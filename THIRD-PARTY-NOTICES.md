@@ -234,8 +234,8 @@ claim endorsement, certification, or affiliation.
   licence before reproducing any of its material here.
 - **test262** — no longer "consulted". It is measured against, and it has a
   section of its own below.
-- **V8 `mjsunit`, WebKit `JSTests/stress`, Node's `test/`** — likewise measured
-  against rather than consulted, each with a section below.
+- **V8 `mjsunit`, WebKit `JSTests/stress`, Node's `test/`, web-platform-tests**
+  — likewise measured against rather than consulted, each with a section below.
 
 ---
 
@@ -343,7 +343,11 @@ What is now in place instead of a promise: the block generator,
 `scripts/suites/common.py`, emits the non-endorsement notice into **every**
 suite block, so a fourth corpus cannot be published without it.
 
-### What is true of all four, so it is said once
+### What is true of all of them, so it is said once
+
+The four with a `fetch.sh` — test262, V8, WebKit, Node — satisfy every bullet
+below. The fifth, web-platform-tests, has no `fetch.sh` at all and its section
+says what that changes.
 
 - **Nothing is vendored.** Each `scripts/*/fetch.sh` makes a shallow, sparse
   clone into a directory the `.gitignore` covers (`.test262/`, `.mjsunit/`,
@@ -366,7 +370,7 @@ suite block, so a fourth corpus cannot be published without it.
 - **What our documents carry is measurements, file paths and error messages** —
   never file content. A path and a count are facts *about* a corpus; the
   reasoning is the same one the test262 section makes.
-- **No endorsement, in any of the four.** BSD-3-Clause condition 3 and its
+- **No endorsement, in any of them.** BSD-3-Clause condition 3 and its
   equivalents forbid using the authors' names to promote what derives from the
   software. So: no badge carries a suite's name and a score — that is why the
   `README.md` has none, and why `scripts/suites/common.py` no longer emits one —
@@ -430,6 +434,42 @@ attach on redistribution, and there is none.
 it third-party. It is read from the clone and never copied — and that is the
 sentence that has to stay true, because a fixture copied into this repository
 brings terms that the root `LICENSE` may not be the right one for.
+
+### web-platform-tests — `css/` reftests
+
+**This one was found while writing the three sections above, which is the point
+of writing them.** The `README.md` carries a WPT number — reftests of
+`css/css-flexbox`, rendered and compared pixel by pixel — and it was published
+under the same silence as the other three.
+
+**What we use.** Reftests from <https://github.com/web-platform-tests/wpt>,
+read by `scripts/wpt_reftests.mjs` and `scripts/wpt_css_todas.mjs`. Unlike the
+four above there is **no `fetch.sh`**: the harness takes the path to a checkout
+as an argument, so the corpus never has a location inside this repository to be
+committed from. Nothing from it is copied; `tests/css/` is entirely our own
+fixtures, written here.
+
+**Terms.** The WPT corpus is dual-licensed **BSD-3-Clause** and the **W3C
+Document Licence**, in the `LICENSE.md` at its root. Redistribution conditions
+do not attach, because there is no redistribution.
+
+**What the number is, which matters more here than anywhere else.** It is
+*self-consistency*: both the test and its reference are rendered by **our**
+engine and compared to each other. A browser is never involved and no upstream
+expectation is consulted. So it is not a WPT result in any sense — it is not
+even the same question `wptrunner` answers against a browser — and calling it
+one would be false before it was an endorsement problem. The README block says
+so in its own words and now carries the notice as well.
+
+### `javascript-obfuscator` — a tool, not a corpus
+
+`tests/cross-runtime/obfuscated/` holds 54 committed `.ts` files that are the
+**output** of running <https://github.com/javascript-obfuscator/javascript-obfuscator>
+(BSD-2-Clause) over seed programs written here. The tool is invoked through
+`npx`, is not vendored, and is not a dependency of anything this project builds
+or ships. The committed files derive from our own sources; what is third-party
+is the transformation, not the input. Recorded because the rule below says a
+thing is recorded when it is noticed, not when it turns out to matter.
 
 ### The rule, in the form that can be checked
 

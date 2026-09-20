@@ -131,7 +131,9 @@ ${barra(pctFix)} ${pctFix}%   ${passam}/${fixtures} fixtures passing${wpt ? `
 ${barra(pctWpt)} ${pctWpt}%   ${wpt.passam}/${wpt.total} WPT reftests (css-flexbox) rendering test == reference` : ""}
 \`\`\`${wpt ? `
 
-The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (\`scripts/wpt_reftests.md\`). It measures coherence, not Blink parity.` : ""}${arv ? `
+The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (\`scripts/wpt_reftests.md\`). It measures coherence, not Blink parity.
+
+> The WPT figure is a measurement this project made about itself, running a public corpus it does not modify and does not copy. **It is not a web-platform-tests result, not a conformance rate, and not a certification, approval or endorsement by anyone.** Licences and attribution conditions are in [\`THIRD-PARTY-NOTICES.md\`](THIRD-PARTY-NOTICES.md).` : ""}${arv ? `
 
 ### Every checkpoint, with its own percentage
 

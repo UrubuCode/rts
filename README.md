@@ -236,6 +236,8 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
 
+> The WPT figure is a measurement this project made about itself, running a public corpus it does not modify and does not copy. **It is not a web-platform-tests result, not a conformance rate, and not a certification, approval or endorsement by anyone.** Licences and attribution conditions are in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
 ### Every checkpoint, with its own percentage
 
 The total alone says nothing about where the work is — it does not tell a branch this engine does well from one it does not attempt.
