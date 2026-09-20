@@ -195,14 +195,24 @@ fn read(path: &Path, depth: usize) -> Option<Aliases> {
         aliases.base_url = Some(directory.join(base));
     }
     if let Some(paths) = options.and_then(|one| one.get("paths")).and_then(|one| one.as_object()) {
+        // Spec §9 point 5: `baseUrl` is the base a relative target resolves
+        // against, and the directory of the config that WROTE the entry is the
+        // base only when there is no `baseUrl`. Read after the assignment
+        // above, so this file's own `baseUrl` — or the one it inherited
+        // through `extends` — is the one in force. Invisible while `baseUrl`
+        // is `"."`, which is what every fixture writes; wrong for
+        // `"baseUrl": "./src"` with `"paths": {"@/*": ["lib/*"]}`, where the
+        // targets belong at `<proj>/src/lib/*` and used to land at
+        // `<proj>/lib/*`.
+        let base = match &aliases.base_url {
+            Some(url) => url.clone(),
+            None => directory.to_path_buf(),
+        };
         for (key, targets) in paths {
             let listed: Vec<PathBuf> = targets
                 .as_array()
                 .map(|all| {
-                    all.iter()
-                        .filter_map(|one| one.as_str())
-                        .map(|one| directory.join(one))
-                        .collect()
+                    all.iter().filter_map(|one| one.as_str()).map(|one| base.join(one)).collect()
                 })
                 .unwrap_or_default();
             // A key the child redefines replaces the parent's entirely, which

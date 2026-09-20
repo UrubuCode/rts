@@ -182,3 +182,58 @@ fn base_url_alone_makes_a_bare_name_a_candidate() {
     let aliases = Aliases::discover(&dir.join("src/app.ts"));
     assert_eq!(aliases.candidates("engine/scene"), vec![dir.join("src").join("engine").join("scene")]);
 }
+
+/// The other half of §9 point 5, which the test above cannot see: with a
+/// `baseUrl` set, the BASE URL is what a relative target resolves against —
+/// not the config's directory. Invisible while `baseUrl` is `"."`, because
+/// the two bases are then the same directory.
+#[test]
+fn base_url_is_the_base_a_relative_target_resolves_against() {
+    let dir = fixture(
+        "baseurl_targets",
+        &[
+            (
+                "tsconfig.json",
+                "{\"compilerOptions\":{\"baseUrl\":\"./src\",\"paths\":{\"@/*\":[\"lib/*\"]}}}",
+            ),
+            ("src/app.ts", "export const x = 1;\n"),
+        ],
+    );
+    let aliases = Aliases::discover(&dir.join("src/app.ts"));
+    assert_eq!(
+        aliases.candidates("@/thing"),
+        vec![
+            dir.join("src").join("lib").join("thing"),
+            // Row 4's fall-through, also from the base URL.
+            dir.join("src").join("@").join("thing"),
+        ],
+        "baseUrl is ./src, so lib/* is src/lib/* and not the project root's"
+    );
+}
+
+/// `extends` and `baseUrl` together: the inherited base URL is what the
+/// child's targets resolve against, and a base URL is itself relative to the
+/// file that wrote IT.
+#[test]
+fn an_inherited_base_url_is_the_base_for_a_childs_targets() {
+    let dir = fixture(
+        "baseurl_extends",
+        &[
+            ("base/tsconfig.base.json", "{\"compilerOptions\":{\"baseUrl\":\"../src\"}}"),
+            (
+                "tsconfig.json",
+                "{\"extends\":\"./base/tsconfig.base.json\",\
+                 \"compilerOptions\":{\"paths\":{\"@/*\":[\"lib/*\"]}}}",
+            ),
+            ("src/app.ts", "export const x = 1;\n"),
+        ],
+    );
+    let aliases = Aliases::discover(&dir.join("src/app.ts"));
+    assert_eq!(
+        aliases.candidates("@/thing")[0],
+        // The `..` survives here and is collapsed by `resolve::settled` on the
+        // way to a module key, the same as any other target that walks out.
+        dir.join("base").join("..").join("src").join("lib").join("thing"),
+        "the base URL came from base/, and ../src from there is the root's src"
+    );
+}
