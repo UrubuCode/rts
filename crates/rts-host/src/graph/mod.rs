@@ -53,6 +53,7 @@ mod tsconfig;
 
 use resolve::{extended, file_url, is_relative, plain, resolve};
 pub(crate) use resolve::resolve_specifier;
+pub use resolve::{names_the_host, resolve_written};
 pub use tsconfig::Aliases;
 
 use crate::link::HostError;

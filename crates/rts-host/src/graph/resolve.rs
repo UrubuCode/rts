@@ -160,3 +160,58 @@ pub(super) fn resolve(from: &Path, specifier: &str) -> PathBuf {
     // different `x`.
     plain(joined.canonicalize().unwrap_or(joined))
 }
+
+/// Whether a specifier names something the HOST provides rather than a file.
+///
+/// A `:` before any `/` is a scheme: `node:fs`, `rts:egui`. Such a name is
+/// never a path, and asking the disk about it is not merely wasteful — with a
+/// `baseUrl` set, a directory called `node` beside the config would answer,
+/// and `node:fs` would silently become a user's file. That failure compiles
+/// and lies, which is the one this crate's rule 1 names.
+///
+/// A Windows absolute specifier (`C:/x`) has the same shape and gets the same
+/// answer, which is also what it gets today: [`is_relative`] is false for it.
+pub fn names_the_host(specifier: &str) -> bool {
+    match specifier.find(':') {
+        None => false,
+        Some(colon) => !specifier[..colon].contains('/'),
+    }
+}
+
+/// Whether this specifier names a FILE, and which.
+///
+/// The one question, asked by the loader's walk, by `rewrite`, and by the
+/// runtime resolver. It replaced a bare [`is_relative`] at each of those sites
+/// so that a second thing never learns what a path is — the header of
+/// `rts_core::entry::dynamic_module` records what the last copy cost.
+///
+/// `None` keeps its established meaning: not a file, so the text is used as
+/// written and the host provides it by name.
+pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -> Option<PathBuf> {
+    if is_relative(specifier) {
+        return Some(resolve(from, specifier));
+    }
+    if names_the_host(specifier) {
+        return None;
+    }
+    // Every candidate the map offers, in the map's order, and the first that
+    // is a real file. `extended` is what "a real file" means here — extension
+    // and `index.*` — and it is called rather than reproduced.
+    for candidate in aliases.candidates(specifier) {
+        // A target may already be written with its extension
+        // (`"@/one": ["./exact/one.ts"]`), and `extended` assumes the opposite
+        // — handed "one.ts" it tries "one.ts.ts" next. Checked literally FIRST,
+        // the same order `resolve` already uses for a relative specifier, so an
+        // exact target is not run through a rule written for an extension-less
+        // one.
+        if candidate.is_file() {
+            return Some(plain(candidate));
+        }
+        let parent = candidate.parent()?;
+        let name = candidate.file_name()?.to_str()?;
+        if let Some(found) = extended(parent, name) {
+            return Some(plain(found));
+        }
+    }
+    None
+}
