@@ -327,3 +327,43 @@ fn an_alias_only_program_runs() {
     assert_eq!(reported.len(), 1, "the fixture registers one test");
     assert!(failed.is_empty(), "the alias resolved with no relative import beside it: {failed:?}");
 }
+
+/// A `paths` key for a BARE host name, with the target file actually there.
+///
+/// The shape `rts init` scaffolds and this repository's own `tsconfig.json`
+/// writes: `"rts": ["./rts-types/rts.d.ts"]`, next to a real `rts.d.ts`. It is
+/// a TYPE mapping — what `tsc` reads to type check an import the host answers
+/// at run time — and nothing about it says the host stops providing `rts`.
+///
+/// `a_host_module_still_wins_with_base_url_set` does NOT cover this: it uses
+/// `rts:test`, which `names_the_host` catches before `paths` is ever asked.
+/// A bare name has no colon, so it reaches the map, and before the `.d.ts`
+/// ruling the declaration file was compiled as an ordinary module — every
+/// `import { … } from "rts"` in the suite then bound nothing.
+#[test]
+fn a_declaration_target_never_shadows_a_bare_host_name() {
+    let dir = fixture(
+        "dts_shadow",
+        &[
+            (
+                "tsconfig.json",
+                "{\"compilerOptions\":{\"baseUrl\":\".\",\"paths\":{\
+                 \"rts\":[\"./rts-types/rts.d.ts\"],\
+                 \"rts:*\":[\"./rts-types/*.d.ts\"]}}}",
+            ),
+            // A real declaration file, as `rts emit-types` writes one. It
+            // declares; it exports no value, so reaching it fails loudly.
+            ("rts-types/rts.d.ts", "export declare const num: unknown;\n"),
+            ("rts-types/test.d.ts", "export declare const test: unknown;\n"),
+            (
+                "src/app.ts",
+                "import { test, expect } from \"rts:test\";\n\
+                 import { num } from \"rts\";\n\
+                 test(\"the host, not the declaration\", () => expect(typeof num).toBe(\"object\"));\n",
+            ),
+        ],
+    );
+    let (count, failed) = run(&dir.join("src/app.ts"));
+    assert_eq!(count, 1, "reaching rts.d.ts instead would register nothing");
+    assert!(failed.is_empty(), "{failed:?}");
+}

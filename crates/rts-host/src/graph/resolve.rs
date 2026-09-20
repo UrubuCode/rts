@@ -214,6 +214,20 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
     // is a real file. `extended` is what "a real file" means here — extension
     // and `index.*` — and it is called rather than reproduced.
     for candidate in aliases.candidates(specifier) {
+        // A declaration file is a TYPE mapping and names no module. `tsc` reads
+        // such a target to type check an import the HOST answers at run time,
+        // which is exactly what `rts init` scaffolds and what this repository's
+        // own `tsconfig.json` writes: `"rts": ["./rts-types/rts.d.ts"]`, beside
+        // a real `rts.d.ts`. Taken as a module it wins over the bare `rts` the
+        // runtime provides — `names_the_host` cannot catch a name with no
+        // colon — and every `import { … } from "rts"` binds nothing. Skipped
+        // rather than refused, so the next target and the `baseUrl`
+        // fall-through still get their turn: the mapping is not an error, it is
+        // simply not about modules. This closes the whole `typeRoots` class,
+        // not one key.
+        if is_declaration(&candidate) {
+            continue;
+        }
         // A target may already be written with its extension
         // (`"@/one": ["./exact/one.ts"]`), and `extended` assumes the opposite
         // — handed "one.ts" it tries "one.ts.ts" next. Checked literally FIRST,
@@ -225,9 +239,20 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
         }
         let parent = candidate.parent()?;
         let name = candidate.file_name()?.to_str()?;
-        if let Some(found) = extended(parent, name) {
-            return Some(settled(found));
+        match extended(parent, name) {
+            Some(found) if !is_declaration(&found) => return Some(settled(found)),
+            _ => continue,
         }
     }
     None
+}
+
+/// Whether a path is a TypeScript DECLARATION file.
+///
+/// `Path::extension` answers `ts` for both `x.ts` and `x.d.ts`, so the whole
+/// file name is what carries the difference.
+fn is_declaration(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts"))
 }
