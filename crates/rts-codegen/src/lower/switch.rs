@@ -53,7 +53,7 @@ use rts_mir::cfg::{BlockId, Terminator, ValueId};
 use super::{FrameKind, LoopFrame, Lowering, Unsupported};
 use crate::domain::JsPrim;
 use crate::names::resolve::BindingId;
-use crate::syntax::{Expr, Stmt, SwitchClause};
+use crate::syntax::{Expr, SwitchClause};
 
 impl Lowering<'_> {
     /// Lowers a `switch`.

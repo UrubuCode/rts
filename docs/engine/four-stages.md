@@ -753,22 +753,70 @@ And `rts mir` prints which region protects a block, because an exception edge ha
 to print: without that line a protected block looks as though nothing can leave it except
 through its terminator, which is the one thing it does not do.
 
+### The class and the first entry point: 328 → 334 in `bench/`, 1541 → 1551 in `tests/`
+
+Per file, six gains and none lost. Two independent items, and each one settled a
+question rather than adding a case.
+
+**A class is three things once the sugar is gone**: a constructor function, an object to
+hold the methods, and the link between them. All three were already expressible — a
+closure, an object, a property write — so nothing new was needed:
+
+```text
+v1 = makeclosure(f1)        ← the constructor
+v2 = newobject()            ← the prototype
+v5 = makeclosure(f2)        ← the method
+v6 = fieldwrite(v2, .twice, v5)
+v8 = fieldwrite(v1, .prototype, v2)
+```
+
+`extends` is refused with its three reasons: `super()` must run before `this` exists in
+a derived constructor, `super.m()` reads from the home object rather than from the
+receiver, and the chain has two links to set rather than one. A class that inherited
+without them would compile and would get `super` wrong.
+
+The constructor test goes through `Method::is_constructor`, which is the tree's own — it
+already says that a static member and an accessor are never the constructor however they
+are spelled, and a second copy of that rule is a second place for it to drift. That is
+why the lowering now carries `&Names`: the question is about TEXT, not about a binding.
+
+And the prototype key is a `JsConst::WellKnown` rather than an interned name, because
+the program never wrote the string `prototype` — asking the interner for it would need a
+mutable interner in the lowering for text that is not the program's.
+
+**And the regular expression made `Callee::Entry` reachable for the first time.**
+Compiling a pattern, allocating the object and installing its `lastIndex` are not things
+a lowering can express as instructions, and they are one thing the runtime *does* —
+which is what an entry point is. So `domain` has an entry table beside its primitive
+table, for the same reason and with the same rule: the index is opaque to the IR.
+
+```text
+v0 = "ab+c"
+v1 = "gi"
+v2 = call regexnew(v0, v1)   ; calls|throws
+```
+
+An index nothing implements yet is honest: the graph says which operation it wants, and
+the machine boundary refuses until the entry exists. `rts-host/src/entries.rs` is where
+the name and the ABI shape get agreed.
+
 ### What is left, measured 2026-09-20
 
 | `bench/` | | `tests/` | |
 |---:|---|---:|---|
-| 11 | a class declaration | 61 | a generator |
-| 7 | an iteration protocol | 15 | an async function |
-| 7 | a regular expression | 15 | an array pattern |
-| 5 | a call through neither a name nor a property | 13 | a finally |
-| 4 | a finally | 11 | a class declaration |
+| 8 | an iteration protocol | 61 | a generator |
+| 6 | a class field | 15 | an async function |
+| 5 | a call through neither a name nor a property | 15 | an array pattern |
+| 4 | an object literal with a method | 10 | a rest parameter |
+| 4 | a template literal | 8 | an object literal with a method |
 
 **A generator and an async function are one piece**: both park a frame, so both wait
 on `rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs.
 
-**An array pattern, `for`-`of` and a rest parameter are one piece**: all three step
-the iteration protocol.
+**An array pattern, `for`-`of` and a rest parameter are one piece**: all three step the
+iteration protocol, and all three owe the iterator its `return()` on an early exit —
+which is the cleanup chain a `finally` needs, so it is really the same piece as that.
 
-**A `finally` and an assignment inside a protected body are one piece**: both need
-something the body leaves behind to survive a path that does not jump — a cleanup
-chain for the first, a cell for the second.
+**A method in an object literal and a class field are one piece**: both are installed
+rather than assigned — a method with a home object, a field per instance as the
+constructor runs.

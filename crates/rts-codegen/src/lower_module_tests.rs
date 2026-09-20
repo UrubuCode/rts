@@ -210,3 +210,100 @@ fn a_method_is_numbered_and_lowered_like_any_other_function() {
     assert_eq!(lowered.functions.len(), 1);
     assert!(lowered.functions[0].result.is_ok());
 }
+
+/// A class is three things: a constructor, an object to hold the methods, and the link
+/// between them. Every one was already expressible.
+#[test]
+fn a_class_is_a_constructor_a_prototype_and_a_link() {
+    let mut names = Names::new();
+    let program = parse_module(
+        "function make() {
+           class P { constructor(x) { this.x = x; } twice() { return this.x * 2; } }
+           return P;
+         }",
+        &mut names,
+    )
+    .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+    let make = lowered
+        .functions
+        .iter()
+        .find(|held| held.named == "make")
+        .expect("the outer function");
+    let func = make.result.as_ref().expect("it lowers");
+    assert_eq!(verify(func), Ok(()));
+
+    let ops: Vec<_> = func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    // A closure for the constructor, an object for the prototype, a closure for the
+    // method, and two writes: the method into the prototype and the prototype into the
+    // constructor.
+    assert_eq!(
+        ops,
+        vec![
+            crate::domain::JsPrim::MakeClosure,
+            crate::domain::JsPrim::NewObject,
+            crate::domain::JsPrim::MakeClosure,
+            crate::domain::JsPrim::FieldWrite,
+            crate::domain::JsPrim::FieldWrite,
+        ]
+    );
+}
+
+/// The prototype link is written under a key the LANGUAGE fixes, not one from the
+/// program's text — asking the interner for it would need a mutable interner in the
+/// lowering for a string the program never wrote.
+#[test]
+fn the_prototype_link_uses_a_well_known_key() {
+    let mut names = Names::new();
+    let program = parse_module(
+        "function make() { class P { constructor() {} } return P; }",
+        &mut names,
+    )
+    .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+    let func = lowered.functions[0].result.as_ref().expect("lowers");
+    let well_known = func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Const(rts_mir::Const::Declared(index)) => {
+                lowered.domain.declared(*index).cloned()
+            }
+            _ => None,
+        })
+        .any(|held| {
+            matches!(
+                held,
+                crate::domain::JsConst::WellKnown(crate::domain::WellKnown::Prototype)
+            )
+        });
+    assert!(well_known, "the link is a well-known key");
+}
+
+/// `extends` brings three decisions with it — `super()` before `this` exists, a home
+/// object for `super.m()`, and a second prototype link — so a class that inherited
+/// without them would compile and get `super` wrong.
+#[test]
+fn a_class_with_extends_is_refused_with_its_three_reasons() {
+    let mut names = Names::new();
+    let program = parse_module(
+        "function make(B) { class P extends B { constructor() {} } return P; }",
+        &mut names,
+    )
+    .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+    assert!(matches!(
+        lowered.functions.iter().find(|held| held.named == "make").and_then(|held| held.result.as_ref().err()),
+        Some(Unsupported::Expression(_))
+    ));
+}

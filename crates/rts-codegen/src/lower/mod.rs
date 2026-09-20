@@ -40,16 +40,18 @@ use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
 use named::{expression_name, name_of, primitive};
 use crate::syntax::{
-    AssignOp, AssignTarget, BinaryOp, Binding, UpdateOp, UpdatePosition, Expr, ExprKind, Function, FunctionBody, Literal, Pattern, Stmt, StmtKind,
+    AssignOp, AssignTarget, BinaryOp, Binding, UpdateOp, UpdatePosition, Expr, ExprKind, Function, FunctionBody, Pattern, Stmt, StmtKind,
 };
 use crate::values::Singleton;
 
 mod branch;
+mod class;
 mod choice;
 mod destructure;
 mod switch;
 mod calls;
 mod named;
+mod push;
 mod protect;
 mod loops;
 
@@ -157,7 +159,18 @@ pub fn lower(
     tier: Tier,
 ) -> Result<Lowered, Unsupported> {
     let mut domain = Js::new();
-    let func = lower_with(function, resolution, &Callees::default(), &mut domain, tier)?;
+    // A door with no module behind it, so no numbering and no interner of its own: the
+    // empty one answers every text question with nothing, which is what a caller that
+    // lowers ONE function out of context is entitled to.
+    let names = crate::names::Names::new();
+    let func = lower_with(
+        function,
+        resolution,
+        &Callees::default(),
+        &mut domain,
+        &names,
+        tier,
+    )?;
     Ok(Lowered { func, domain })
 }
 
@@ -173,6 +186,7 @@ pub fn lower_with(
     resolution: &Resolution,
     callees: &Callees,
     domain: &mut Js,
+    names: &crate::names::Names,
     tier: Tier,
 ) -> Result<Func, Unsupported> {
     if function.is_async {
@@ -195,6 +209,7 @@ pub fn lower_with(
         values: BTreeMap::new(),
         types: BTreeMap::new(),
         resolution,
+        names,
         scope,
         loops: Vec::new(),
     };
@@ -277,6 +292,11 @@ struct Lowering<'a> {
     /// and knowing less only ever makes an effect wider.
     types: BTreeMap<ValueId, Type>,
     resolution: &'a Resolution,
+    /// The interner, for the two questions that are about TEXT rather than about a
+    /// binding: whether a class member is the constructor, and what a name is called in
+    /// a report. Immutable, so nothing here can mint a name -- which is why a key the
+    /// language fixes is a `JsConst::WellKnown` and not an interned string.
+    names: &'a crate::names::Names,
     scope: ScopeId,
     /// The loops and switches enclosing what is being lowered, innermost last.
     loops: Vec<LoopFrame>,
@@ -411,8 +431,12 @@ impl Lowering<'_> {
                 self.bind(name, held, of, &at)?;
                 Ok(false)
             }
-            StmtKind::Class(_) => {
-                Err(Unsupported::Statement("a class declaration is its own graph"))
+            StmtKind::Class(class) => {
+                let at = Expr {
+                    kind: ExprKind::This,
+                    at: statement.at,
+                };
+                self.class(class, &at)
             }
             StmtKind::Try {
                 body,
@@ -832,104 +856,6 @@ impl Lowering<'_> {
             }
             other => Err(Unsupported::Expression(expression_name(other))),
         }
-    }
-
-    fn literal(&mut self, literal: &Literal, at: &Expr) -> Result<ValueId, Unsupported> {
-        let value = match literal {
-            // An integral number that fits is an `Int::Int`, so the domain can
-            // answer `Int32` for it and an addition of two of them can be proved.
-            Literal::Number(held) => match held.fract() == 0.0 && i32::try_from(*held as i64).is_ok()
-            {
-                true => Const::Int(*held as i64),
-                false => Const::Float(*held),
-            },
-            Literal::Boolean(held) => Const::Bool(*held),
-            Literal::Singleton(which) => Const::Declared(*which as u32),
-            // A STRING is a constant of the LANGUAGE's table, not of the IR's. The
-            // IR carries the index; `domain::JsConst` says it is text. Nothing here
-            // reaches an interner the machine holds — that is the lowering to the
-            // machine's question, and it is one layer down.
-            Literal::String(text) => {
-                let index = self.domain.constant(JsConst::Text(text.clone()));
-                Const::Declared(index)
-            }
-            // NAMED APART rather than sharing a bucket. A regular expression is an
-            // object the runtime builds and a bigint is a second numeric tower, and a
-            // survey that counts them together says neither.
-            Literal::Regex { .. } => {
-                return Err(Unsupported::Expression(
-                    "a regular expression literal is an object the runtime builds",
-                ));
-            }
-            _ => {
-                return Err(Unsupported::Expression(
-                    "a bigint literal is a second numeric tower",
-                ));
-            }
-        };
-        let of = self.domain.of_const(&value);
-        let held = self
-            .builder
-            .push(Op::Const(value), Effect::PURE, at.at);
-        self.types.insert(held, of);
-        Ok(held)
-    }
-
-    fn singleton(&mut self, which: Singleton, at: &Stmt) -> ValueId {
-        let value = Const::Declared(which as u32);
-        let of = self.domain.of_const(&value);
-        let held = self.builder.push(Op::Const(value), Effect::PURE, at.at);
-        self.types.insert(held, of);
-        held
-    }
-
-    /// A singleton, at an expression's position.
-    ///
-    /// Beside the statement-positioned one because `void a` needs it and holds an
-    /// `Expr`; keeping one function taking a `Position` would have been the third
-    /// shape of the same three lines.
-    fn singleton_at(&mut self, which: Singleton, at: &Expr) -> ValueId {
-        let value = Const::Declared(which as u32);
-        let of = self.domain.of_const(&value);
-        let held = self.builder.push(Op::Const(value), Effect::PURE, at.at);
-        self.types.insert(held, of);
-        held
-    }
-
-    /// Pushes a primitive, with the effect its operand types imply.
-    ///
-    /// This is where `domain::Js::effect_of` earns its shape: the same operator
-    /// is `PURE` over two proven numbers and `CALLS_USER|THROWS` over two
-    /// unknowns, so what a pass may later do with this instruction is decided
-    /// here, from what is known here.
-    fn prim(&mut self, which: JsPrim, args: Vec<ValueId>, at: &Expr) -> ValueId {
-        let of_args: Vec<Type> = args.iter().map(|held| self.type_of(*held)).collect();
-        let prim = self.domain.prim(which);
-        let effect = self.domain.effect_of(prim, &of_args);
-        let answered = self.domain.transfer(prim, &of_args);
-        let held = self.builder.push(
-            Op::Prim {
-                prim,
-                args,
-            },
-            effect,
-            at.at,
-        );
-        self.types.insert(held, answered);
-        held
-    }
-
-    /// A declared constant, as a value.
-    ///
-    /// Here rather than written out at each site because three of them need one and
-    /// the type has to come from the domain: a key is text, and a pass reading the
-    /// graph should see that rather than a bare number.
-    fn declared(&mut self, index: u32, at: &Expr) -> ValueId {
-        let value = Const::Declared(index);
-        let of = self.domain.of_const(&value);
-        let held = self.builder.push(Op::Const(value), Effect::PURE, at.at);
-        self.types.insert(held, of);
-        held
     }
 
     /// Records what a declaration now holds.

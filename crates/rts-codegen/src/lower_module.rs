@@ -87,7 +87,7 @@ pub fn lower_module(
             Some(name) => names.text(name).to_owned(),
             None => format!("<anonymous at {}>", function.at.0),
         };
-        let result = lower_with(function, resolution, &callees, &mut domain, tier);
+        let result = lower_with(function, resolution, &callees, &mut domain, names, tier);
         out.push(Entry { named, result });
     }
     Module {

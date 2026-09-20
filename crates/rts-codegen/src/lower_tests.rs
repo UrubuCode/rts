@@ -1444,15 +1444,11 @@ fn a_nested_choice_terminates_the_block_each_arm_actually_ended_in() {
     assert_eq!(verify(&lowered.func), Ok(()));
 }
 
-/// The two literals that do not lower are named apart, because a survey counting them
-/// together says neither.
+/// A bigint is still refused, and this test followed the work: the regex beside it was
+/// refused for being "an object the runtime builds", which is exactly what an entry
+/// point is for -- so it lowers now and the bigint keeps the assertion.
 #[test]
-fn a_regex_and_a_bigint_are_refused_for_their_own_reasons() {
-    let regex = only("function f() { return /ab/g; }").expect_err("a regex");
-    assert_eq!(
-        regex,
-        Unsupported::Expression("a regular expression literal is an object the runtime builds")
-    );
+fn a_bigint_is_refused_as_a_second_numeric_tower() {
     let bigint = only("function f() { return 1n; }").expect_err("a bigint");
     assert_eq!(
         bigint,
@@ -1808,4 +1804,32 @@ fn a_throw_is_refused_apart_from_the_region() {
         refused,
         Unsupported::Statement("a throw raises, which is an entry point rather than control flow")
     );
+}
+
+/// A regular expression is an ENTRY POINT, and the first one this lowering names:
+/// compiling a pattern and installing the object's state are things the runtime does.
+#[test]
+fn a_regex_literal_calls_an_entry_point() {
+    let lowered = only("function f() { return /ab+c/gi; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let call = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Call { .. }))
+        .expect("a call");
+    match &call.op {
+        rts_mir::Op::Call { callee, args, .. } => {
+            let entry = lowered
+                .domain
+                .entry_point(crate::domain::JsEntry::RegexNew);
+            assert_eq!(callee, &rts_mir::cfg::Callee::Entry(entry));
+            // The pattern and the flags, both text.
+            assert_eq!(args.len(), 2);
+        }
+        other => panic!("expected a call, got {other:?}"),
+    }
+    // And the domain knows what it answers, which is what an entry table is for.
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    assert_eq!(*types.of(call.result), Type::Object);
 }
