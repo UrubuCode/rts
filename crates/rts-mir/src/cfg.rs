@@ -197,7 +197,35 @@ pub enum Terminator {
     /// Not a call and not an unwind: the generic body of the same function has a
     /// resume label at this `PointId`, in the same binary. README rule 8.
     Fall(PointId),
+    /// Raising: control leaves along the enclosing region's exception edge.
+    ///
+    /// # Why it is a terminator and has no successor
+    ///
+    /// Because an exception edge is not a jump, which is the same thing
+    /// [`crate::region`] already says about a handler: nothing jumps to one, so
+    /// nothing carries arguments to one, so a handler's predecessors are empty. A
+    /// `Raise` naming its handler as a successor would make that false, and every
+    /// pass reading the graph as a CFG would then expect an argument list nothing
+    /// can supply.
+    ///
+    /// Where it lands is [`Func::region_of`] over the block it sits in, and out
+    /// along [`crate::region::Region::parent`] from there — the search
+    /// `rts_cranelift::unwind::plan_unwind` computes, which is why the region tree
+    /// is what this carries instead of a target.
+    ///
+    /// # Why no tag
+    ///
+    /// A tag says which handlers match, and *what may be thrown* is the one thing
+    /// the machine's own header refuses to decide. So the value travels and the
+    /// language declares the tag; until it does, the machine refuses this by name
+    /// with [`crate::lower::Unlowerable::NeedsHandlerTag`] — the same refusal a
+    /// protected region already gets, because it is the same missing declaration.
+    Raise(ValueId),
     /// Control does not reach here. A verifier error if it does.
+    ///
+    /// NOT a raise. This is a trap: the machine's way of saying a point is
+    /// unreachable. A language that lowered `throw` to it would get an abort where
+    /// the program expects a catchable value.
     Unreachable,
 }
 
@@ -211,7 +239,12 @@ impl Terminator {
                 else_block,
                 ..
             } => vec![*then_block, *else_block],
-            Terminator::Return(_) | Terminator::Fall(_) | Terminator::Unreachable => Vec::new(),
+            // A RAISE HAS NONE, and that is the claim rather than an omission: see its
+            // own doc for why an exception edge is not an edge here.
+            Terminator::Return(_)
+            | Terminator::Fall(_)
+            | Terminator::Raise(_)
+            | Terminator::Unreachable => Vec::new(),
         }
     }
 
@@ -231,6 +264,7 @@ impl Terminator {
                 all
             }
             Terminator::Return(Some(value)) => vec![*value],
+            Terminator::Raise(value) => vec![*value],
             Terminator::Return(None) | Terminator::Fall(_) | Terminator::Unreachable => Vec::new(),
         }
     }

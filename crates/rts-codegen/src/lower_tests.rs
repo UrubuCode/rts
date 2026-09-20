@@ -1812,15 +1812,64 @@ fn a_finally_is_refused_because_it_runs_on_every_exit() {
     assert!(matches!(bare, Unsupported::Statement(_)));
 }
 
-/// A `throw` is refused apart from the region that catches one: raising is an operation
-/// the runtime performs, and a region is control flow this lowering builds.
+/// A `throw` is a TERMINATOR, and this test replaced one asserting it was refused for
+/// being an entry point. That reason was true of the runtime and false of the graph:
+/// recording the value is an entry point, and where control goes next is the region
+/// tree, which is control flow. Turning the statement away needed the first half to
+/// stand for the whole, which is a machine answer given in a language file.
 #[test]
-fn a_throw_is_refused_apart_from_the_region() {
-    let refused = only("function f() { throw 1; }").expect_err("a throw");
+fn a_throw_ends_its_block_by_raising() {
+    let lowered = only("function f() { throw 1; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let entry = lowered.func.entry();
+    let raised = match lowered.func.block(entry).terminator {
+        Some(Terminator::Raise(held)) => held,
+        ref other => panic!("expected a raise, got {other:?}"),
+    };
+    // IT READS THE VALUE, which is what makes the operand live up to this point --
+    // a terminator that did not report reading it would let a pass drop the
+    // instruction that computed what is being thrown.
     assert_eq!(
-        refused,
-        Unsupported::Statement("a throw raises, which is an entry point rather than control flow")
+        lowered
+            .func
+            .block(entry)
+            .terminator
+            .as_ref()
+            .unwrap()
+            .reads(),
+        vec![raised]
     );
+}
+
+/// And it names no successor. An exception edge is not a jump, which is the same thing
+/// the handler side already says: nothing jumps to one, so nothing carries arguments.
+#[test]
+fn a_raise_names_no_successor_because_an_exception_edge_is_not_a_jump() {
+    let lowered =
+        only("function f(o) { try { throw 1; } catch (e) { return e; } }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let raising = lowered
+        .func
+        .block_ids()
+        .find(|held| {
+            matches!(
+                lowered.func.block(*held).terminator,
+                Some(Terminator::Raise(_))
+            )
+        })
+        .expect("a raising block");
+    assert!(
+        lowered
+            .func
+            .block(raising)
+            .terminator
+            .as_ref()
+            .unwrap()
+            .successors()
+            .is_empty()
+    );
+    // And it sits INSIDE the region, which is what says where it lands.
+    assert!(lowered.func.region_of(raising).is_some());
 }
 
 /// A regular expression is an ENTRY POINT, and the first one this lowering names:
@@ -1954,4 +2003,3 @@ fn nothing_commutes_with_a_suspension() {
         assert!(!other.commutes_with(Effect::SUSPENDS));
     }
 }
-

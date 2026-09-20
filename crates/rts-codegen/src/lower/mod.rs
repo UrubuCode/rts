@@ -455,13 +455,18 @@ impl Lowering<'_> {
                 catch,
                 finally,
             } => self.protect(body, catch.as_ref(), finally.as_ref(), statement),
-            // A THROW is a raise, and it is refused apart from the region that catches
-            // one: the region is control flow this lowering builds, and raising is an
-            // operation the runtime performs -- an entry point, which this stage does
-            // not call yet.
-            StmtKind::Throw(_) => Err(Unsupported::Statement(
-                "a throw raises, which is an entry point rather than control flow",
-            )),
+            // A THROW IS A TERMINATOR, and the refusal that stood here called it an
+            // entry point. Both are true of the runtime and only one is true of the
+            // GRAPH: `rts_core::entry::throw` records the value, and where control
+            // goes afterwards is the region tree, which is control flow this lowering
+            // already builds. So the graph says `raise` and the machine decides which
+            // of the two it emits -- rule 2, and the reason the refusal was wrong is
+            // that it answered a machine question in order to turn the statement away.
+            StmtKind::Throw(value) => {
+                let held = self.expression(value)?;
+                self.builder.end(Terminator::Raise(held));
+                Ok(true)
+            }
             other => Err(Unsupported::Statement(name_of(other))),
         }
     }

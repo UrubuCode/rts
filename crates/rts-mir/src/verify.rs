@@ -166,6 +166,11 @@ pub fn verify(func: &Func) -> Result<(), Malformed> {
             }
         }
         match end {
+            // A RAISE NAMES NO BLOCK, so there is no arity to check. What WOULD be
+            // worth checking -- that a region encloses it, or that one does not -- is
+            // not an error either way: a raise with no enclosing region leaves the
+            // function, which is what an uncaught throw does.
+            Terminator::Raise(_) => {}
             Terminator::Jump { target, args } => {
                 arity(block, *target, args.len(), func.block(*target).params.len())?;
             }

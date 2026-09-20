@@ -228,6 +228,13 @@ pub fn lower(
             )));
         };
         match end {
+            // THE SAME MISSING DECLARATION A PROTECTED REGION WAITS ON, and named as
+            // that rather than as a second thing: which handlers a raise matches is
+            // decided by its tag, and a tag is what may be thrown, which is the one
+            // question `unwind`'s own header refuses to answer for a language.
+            Terminator::Raise(_) => {
+                return Err(Unlowerable::NeedsHandlerTag(crate::region::RegionId(0)));
+            }
             Terminator::Jump { target, args } => {
                 let of_args = read(args, &values)?;
                 into.jump(blocks[target], &of_args)
