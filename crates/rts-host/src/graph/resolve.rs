@@ -263,5 +263,7 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
 fn is_declaration(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts"))
+        .is_some_and(|name| {
+            name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts")
+        })
 }
