@@ -73,6 +73,17 @@ pub fn print(func: &Func, legend: &impl Legend) -> String {
             true => writeln!(out, "\nb{}:", block.0),
             false => writeln!(out, "\nb{}({}):", block.0, params.join(", ")),
         };
+        // WHICH REGION PROTECTS IT, because an exception edge has no jump to print --
+        // a graph without this line looks as though nothing can leave the block except
+        // through its terminator, which is the one thing a protected block does not do.
+        if let Some(region) = func.region_of(block) {
+            let held = func.region(region);
+            let handler = match held.handler {
+                Some(block) => format!("b{}", block.0),
+                None => "none".to_owned(),
+            };
+            let _ = writeln!(out, "  ; protected by r{} -> {handler}", region.0);
+        }
         // The predecessors, because reading a join means knowing what arrives and
         // a graph printed without them has to be read twice to find out.
         let from = func.predecessors(block);

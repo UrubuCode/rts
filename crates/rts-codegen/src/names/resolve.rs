@@ -160,6 +160,12 @@ pub struct Resolution {
     blocks: BTreeMap<Position, ScopeId>,
     /// The scope a loop head opened, keyed the same way.
     heads: BTreeMap<Position, ScopeId>,
+    /// The scope a `catch` clause opened, keyed by the `try` it belongs to.
+    ///
+    /// Keyed by the STATEMENT rather than by the clause, because a clause has no
+    /// position of its own in the tree — and the `try` is what a consumer holds when it
+    /// wants to know where the caught value is bound.
+    catches: BTreeMap<Position, ScopeId>,
 }
 
 impl Resolution {
@@ -191,6 +197,11 @@ impl Resolution {
     /// The scope the body of the function written at `at` opened.
     pub fn function_scope(&self, at: Position) -> Option<ScopeId> {
         self.functions.get(&at).copied()
+    }
+
+    /// The scope the `catch` clause of the `try` at that position opened.
+    pub fn catch_scope(&self, at: Position) -> Option<ScopeId> {
+        self.catches.get(&at).copied()
     }
 
     /// The scope the loop head written at that position opened.
@@ -488,6 +499,7 @@ impl Walker<'_> {
                 }) = catch
                 {
                     let clause = self.out.open(ScopeKind::CatchClause, Some(scope));
+                    self.out.catches.insert(statement.at, clause);
                     if let Some(pattern) = binding {
                         self.pattern(pattern, Origin::Caught, clause);
                     }

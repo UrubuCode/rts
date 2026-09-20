@@ -1699,3 +1699,113 @@ fn a_nested_pattern_and_a_computed_key_are_refused_apart() {
         only("function f(o, k) { const { [k]: a } = o; return a; }").expect_err("a computed key");
     assert!(matches!(computed, Unsupported::Expression(_)));
 }
+
+/// A `try`/`catch` is a protected region with one handler, and the handler receives
+/// the raised value as its first block parameter.
+#[test]
+fn a_try_protects_its_body_and_the_handler_receives_the_value() {
+    let lowered = only("function f(o) { try { o.risky(); } catch (e) { return e; } return 0; }")
+        .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+
+    let protected = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.region_of(*held).is_some())
+        .expect("a protected block");
+    let region = lowered
+        .func
+        .region_of(protected)
+        .expect("the block says which");
+    let handler = lowered
+        .func
+        .region(region)
+        .handler
+        .expect("a catch is a handler");
+    // The handler takes exactly one parameter: exactly one thing arrives with the
+    // exception, and nothing jumps to it to carry anything else.
+    assert_eq!(lowered.func.block(handler).params.len(), 1);
+    // And nothing jumps to it -- an exception edge is not a jump.
+    assert!(lowered.func.predecessors(handler).is_empty());
+}
+
+/// `catch (e)` binds the handler's parameter, which means entering the clause's own
+/// scope: without that the name is not found at all and reads as a global, which is
+/// what the first run of this reported.
+#[test]
+fn the_caught_binding_is_the_handlers_parameter() {
+    let lowered = only("function f(o) { try { o.risky(); } catch (e) { return e; } return 0; }")
+        .expect("covered");
+    let protected = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.region_of(*held).is_some())
+        .expect("a protected block");
+    let handler = lowered
+        .func
+        .region(lowered.func.region_of(protected).unwrap())
+        .handler
+        .unwrap();
+    let param = lowered.func.block(handler).params[0];
+    assert_eq!(
+        lowered.func.block(handler).terminator,
+        Some(Terminator::Return(Some(param))),
+        "the clause returns what it caught"
+    );
+}
+
+/// `catch {}` with no binding still receives the value, because a handler that did not
+/// would have to find it somewhere else.
+#[test]
+fn a_catch_with_no_binding_still_receives_the_value() {
+    let lowered =
+        only("function f(o) { try { o.risky(); } catch { return 1; } return 0; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let protected = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.region_of(*held).is_some())
+        .expect("a protected block");
+    let handler = lowered
+        .func
+        .region(lowered.func.region_of(protected).unwrap())
+        .handler
+        .unwrap();
+    assert_eq!(lowered.func.block(handler).params.len(), 1);
+}
+
+/// An assignment in a protected body cannot reach the handler as an SSA value: nothing
+/// jumps to a handler, so there is no edge to carry an argument and no single value to
+/// carry. The first draft passed one as a block parameter, which compiles and is wrong.
+#[test]
+fn an_assignment_in_a_protected_body_is_refused_with_its_reason() {
+    let refused = only("function f(o) { let x = 1; try { x = 2; } catch (e) { } return x; }")
+        .expect_err("an assignment in the body");
+    assert_eq!(
+        refused,
+        Unsupported::Statement(
+            "an assignment in a protected body is not visible to the handler without a cell"
+        )
+    );
+}
+
+/// `finally` runs on every way out, so it is not a block reached from one place.
+#[test]
+fn a_finally_is_refused_because_it_runs_on_every_exit() {
+    let refused = only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }")
+        .expect_err("a finally");
+    assert!(matches!(refused, Unsupported::Statement(_)));
+    let bare = only("function f(o) { try { o.m(); } finally { o.n(); } }").expect_err("no catch");
+    assert!(matches!(bare, Unsupported::Statement(_)));
+}
+
+/// A `throw` is refused apart from the region that catches one: raising is an operation
+/// the runtime performs, and a region is control flow this lowering builds.
+#[test]
+fn a_throw_is_refused_apart_from_the_region() {
+    let refused = only("function f() { throw 1; }").expect_err("a throw");
+    assert_eq!(
+        refused,
+        Unsupported::Statement("a throw raises, which is an entry point rather than control flow")
+    );
+}

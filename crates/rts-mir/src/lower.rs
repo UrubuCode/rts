@@ -80,6 +80,14 @@ pub trait MachineOps {
 pub enum Unlowerable {
     /// A guard or a fall, which needs the side exit of `deopt-lateral.md` D3.
     NeedsSideExit(PointId),
+    /// A protected region, which needs the language to say what a handler catches.
+    ///
+    /// The region itself is neutral and this crate holds it. What a handler CATCHES is
+    /// not: one language catches everything with one clause, another matches on a
+    /// type, a third has a tag per raise site -- and `rts_cranelift::unwind::Handler`
+    /// carries a `Tag` for exactly that reason. So the tag arrives through
+    /// `MachineOps`, and until it does this refuses by name rather than inventing one.
+    NeedsHandlerTag(crate::region::RegionId),
     /// A receiver, which needs the machine to decide how one reaches a callee.
     ///
     /// Named apart from [`Self::NeedsCallee`] because it is a different missing
@@ -148,6 +156,14 @@ pub fn lower(
             let repr = ops.param_repr(*param);
             values.insert(*param, into.add_block_param(machine, repr));
         }
+    }
+
+    // A REGION IS REFUSED before anything is emitted, because protection is a property
+    // of a block and emitting the blocks first would produce a function whose
+     // instructions are right and whose exception edges are absent.
+    if let Some(region) = func.regions.first() {
+        let _ = region;
+        return Err(Unlowerable::NeedsHandlerTag(crate::region::RegionId(0)));
     }
 
     for block in func.block_ids() {

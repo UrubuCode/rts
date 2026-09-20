@@ -708,18 +708,67 @@ rest is the interesting one: it collects the own enumerable properties *not alre
 named*, which needs the key set at run time and is not something an ordinary read can
 stand in for.
 
+### The protected region: 327 → 328 in `bench/`, 1536 → 1541 in `tests/`
+
+Per file, one gain and none lost. A small move for a large piece, and the piece is the
+point: **`rts-mir` has regions now**, which is the first structural addition to the
+shared IR since it was written.
+
+A region is neutral and belongs there. Every language with exceptions needs to say
+*these instructions are protected, and control goes THERE when one raises*, and none of
+them needs it said differently. What is NOT neutral is what a handler catches — one
+language catches everything with one clause, another matches a type, a third has a tag
+per raise site — so the tag is the language's and arrives through `MachineOps`, which is
+why the machine lowering refuses a region by name (`NeedsHandlerTag`) rather than
+inventing one.
+
+Membership is per BLOCK, not per instruction: a region is a span of control, and a block
+is either inside the `try` or it is not. Marking instructions would let one block hold
+two answers, and the first thing that breaks is a call in the middle of one.
+
+### The restriction, which is a finding rather than a shortcut
+
+**A binding the protected body assigns cannot reach the handler as an SSA value**, and
+the first draft of the lowering tried to pass one as a block parameter. That is wrong in
+a way that compiles: *nothing jumps to a handler*. Control arrives along an exception
+edge from an unknown point of the body, so there is no jump to carry an argument and no
+single value to carry — the raise may happen before the assignment or after it.
+
+```js
+let x = 1;
+try { x = 2; mayThrow(); } catch { use(x); }   // x is 2 here
+```
+
+The answer real compilers give is memory: such a binding lives in a cell and the handler
+reads it. That is the machinery an outer binding already uses, so what this waits on is
+a LOCAL MOVED INTO A CELL — escape analysis in reverse, and a pass rather than a
+lowering. Until then the shape is refused by name.
+
+`finally` is refused for its own reason: it runs on every way out — falling off the end,
+`return`, a raise the handler did not take, a `break` leaving the region — so it is not a
+block reached from one place. A block placed after the `try` would run it on the
+falling-off path and silently skip it on the other three.
+
+And `rts mir` prints which region protects a block, because an exception edge has no jump
+to print: without that line a protected block looks as though nothing can leave it except
+through its terminator, which is the one thing it does not do.
+
 ### What is left, measured 2026-09-20
 
 | `bench/` | | `tests/` | |
 |---:|---|---:|---|
 | 11 | a class declaration | 61 | a generator |
-| 7 | an iteration protocol | 18 | a protected region |
-| 7 | a regular expression | 15 | an async function |
-| 6 | a protected region | 15 | an array pattern |
-| 5 | a call through neither a name nor a property | 10 | a rest parameter |
+| 7 | an iteration protocol | 15 | an async function |
+| 7 | a regular expression | 15 | an array pattern |
+| 5 | a call through neither a name nor a property | 13 | a finally |
+| 4 | a finally | 11 | a class declaration |
 
-A generator and an async function park a frame, so both wait on
-`rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs, which makes
-them one piece of work rather than two. An array pattern, `for`-`of` and a rest
-parameter are all the ITERATION PROTOCOL, which makes those one piece as well. A
-protected region is `try`/`catch`, and the machine already has regions for it.
+**A generator and an async function are one piece**: both park a frame, so both wait
+on `rts_cranelift::frame` — the same machinery `deopt-lateral.md` D3 needs.
+
+**An array pattern, `for`-`of` and a rest parameter are one piece**: all three step
+the iteration protocol.
+
+**A `finally` and an assignment inside a protected body are one piece**: both need
+something the body leaves behind to survive a path that does not jump — a cleanup
+chain for the first, a cell for the second.

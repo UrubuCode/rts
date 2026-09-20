@@ -64,6 +64,14 @@ pub enum Malformed {
     /// An entry block with a predecessor is a loop back to the function's own
     /// parameters, which would make them mean two things.
     EntryHasPredecessor(BlockId),
+    /// A handler block declares no parameter, so it cannot receive what was raised.
+    ///
+    /// `region.rs` carries the reason, which is the machine's own: a handler that did
+    /// not receive the value would have to find it somewhere else, and somewhere else
+    /// is a side channel that outlives the frame it belongs to.
+    HandlerTakesNoValue(BlockId),
+    /// A region names a parent that does not exist.
+    NoSuchRegion(crate::region::RegionId),
 }
 
 /// Whether `func` is well formed, and what is wrong if it is not.
@@ -90,6 +98,27 @@ pub fn verify(func: &Func) -> Result<(), Malformed> {
 
     if !func.predecessors(func.entry()).is_empty() {
         return Err(Malformed::EntryHasPredecessor(func.entry()));
+    }
+
+    // THE REGIONS, before the blocks are walked: a handler must be able to receive
+    // what was raised, and a parent must exist for the chain a raise walks out along.
+    for (at, region) in func.regions.iter().enumerate() {
+        if let Some(parent) = region.parent
+            && parent.0 as usize >= func.regions.len()
+        {
+            return Err(Malformed::NoSuchRegion(parent));
+        }
+        let _ = at;
+        for block in [region.handler, region.cleanup].into_iter().flatten() {
+            if block.0 >= blocks {
+                return Err(Malformed::NoSuchBlock(block));
+            }
+        }
+        if let Some(handler) = region.handler
+            && func.block(handler).params.is_empty()
+        {
+            return Err(Malformed::HandlerTakesNoValue(handler));
+        }
     }
 
     for block in func.block_ids() {

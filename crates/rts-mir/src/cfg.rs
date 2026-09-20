@@ -238,6 +238,13 @@ pub struct Func {
     pub insts: Vec<Inst>,
     /// How many values it defines.
     pub values: u32,
+    /// Its protected regions.
+    pub regions: Vec<crate::region::Region>,
+    /// Which region each block belongs to, parallel to [`Self::blocks`].
+    ///
+    /// A parallel vector rather than a field on `Block`, because a pass that rewrites
+    /// a block body has no business touching its protection and a field invites it to.
+    pub block_regions: Vec<Option<crate::region::RegionId>>,
     /// Every deoptimisation point it declares, in ascending order.
     ///
     /// Held on the function so that `guard::pair` can compare two tiers without
@@ -260,6 +267,16 @@ impl Func {
     /// One instruction.
     pub fn inst(&self, inst: InstId) -> &Inst {
         &self.insts[inst.0 as usize]
+    }
+
+    /// One region.
+    pub fn region(&self, region: crate::region::RegionId) -> &crate::region::Region {
+        &self.regions[region.0 as usize]
+    }
+
+    /// Which region a block is protected by, if any.
+    pub fn region_of(&self, block: BlockId) -> Option<crate::region::RegionId> {
+        self.block_regions.get(block.0 as usize).copied().flatten()
     }
 
     /// Every block, by id.
@@ -317,6 +334,8 @@ impl Func {
 pub struct FuncBuilder {
     func: Func,
     current: BlockId,
+    /// The regions open where building is, innermost last.
+    open: Vec<crate::region::RegionId>,
 }
 
 impl FuncBuilder {
@@ -332,9 +351,12 @@ impl FuncBuilder {
                 }],
                 insts: Vec::new(),
                 values: 0,
+                regions: Vec::new(),
+                block_regions: vec![None],
                 points: Vec::new(),
             },
             current: BlockId(0),
+            open: Vec::new(),
         }
     }
 
@@ -345,6 +367,9 @@ impl FuncBuilder {
             insts: Vec::new(),
             terminator: None,
         });
+        // A block made while a region is open is INSIDE it. Anything else would make
+        // protection depend on the order a lowering happens to create blocks in.
+        self.func.block_regions.push(self.open.last().copied());
         BlockId(self.func.blocks.len() as u32 - 1)
     }
 
@@ -363,6 +388,44 @@ impl FuncBuilder {
         let value = self.mint();
         self.func.blocks[block.0 as usize].params.push(value);
         value
+    }
+
+    /// Opens a protected region, which every block made until it closes belongs to.
+    ///
+    /// The block being built joins it too, and that is not an accident: a raise emitted
+    /// before any new block is created would otherwise be planned as if it were
+    /// outside, and "the first statement of a `try`" is not a corner case.
+    /// `rts_cranelift::ir::FuncBuilder::open_region` states the same thing about its
+    /// own regions, which is where this discipline comes from.
+    pub fn open_region(
+        &mut self,
+        handler: Option<BlockId>,
+        cleanup: Option<BlockId>,
+    ) -> crate::region::RegionId {
+        let parent = self.open.last().copied();
+        self.func.regions.push(crate::region::Region {
+            parent,
+            handler,
+            cleanup,
+        });
+        let region = crate::region::RegionId(self.func.regions.len() as u32 - 1);
+        let held = self.current;
+        self.func.block_regions[held.0 as usize] = Some(region);
+        self.open.push(region);
+        region
+    }
+
+    /// Closes the innermost open region.
+    ///
+    /// Takes no argument for the reason the machine's own does not: a client that could
+    /// name a region could name one that does not enclose the block it is building.
+    pub fn close_region(&mut self) {
+        self.open.pop();
+    }
+
+    /// The entry block, for a client that switched away from it.
+    pub fn entry_block(&self) -> BlockId {
+        BlockId(0)
     }
 
     /// Appends an instruction to the current block and answers its result.

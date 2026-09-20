@@ -50,6 +50,7 @@ mod destructure;
 mod switch;
 mod calls;
 mod named;
+mod protect;
 mod loops;
 
 /// What this lowering does not do yet, and where.
@@ -413,9 +414,18 @@ impl Lowering<'_> {
             StmtKind::Class(_) => {
                 Err(Unsupported::Statement("a class declaration is its own graph"))
             }
-            StmtKind::Try { .. } | StmtKind::Throw(_) => {
-                Err(Unsupported::Statement("a protected region"))
-            }
+            StmtKind::Try {
+                body,
+                catch,
+                finally,
+            } => self.protect(body, catch.as_ref(), finally.as_ref(), statement),
+            // A THROW is a raise, and it is refused apart from the region that catches
+            // one: the region is control flow this lowering builds, and raising is an
+            // operation the runtime performs -- an entry point, which this stage does
+            // not call yet.
+            StmtKind::Throw(_) => Err(Unsupported::Statement(
+                "a throw raises, which is an entry point rather than control flow",
+            )),
             other => Err(Unsupported::Statement(name_of(other))),
         }
     }
