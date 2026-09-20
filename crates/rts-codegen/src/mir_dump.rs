@@ -22,7 +22,10 @@ use rts_mir::text::print;
 use crate::lower::{Unsupported, lower};
 use crate::names::Names;
 use crate::names::resolve::resolve_module;
-use crate::syntax::{Function, ModuleItem, Stmt, StmtKind};
+use crate::emit::capture::{Child, StmtChild, walk_expr, walk_stmt};
+use crate::syntax::{
+    Expr, ExportDefault, ExportKind, Function, ModuleItem, Stmt,
+};
 
 /// Every function of a module, lowered and printed.
 ///
@@ -31,24 +34,34 @@ use crate::syntax::{Function, ModuleItem, Stmt, StmtKind};
 /// an empty file.
 pub fn describe(source: &str) -> Result<String, String> {
     let mut names = Names::new();
-    let program = crate::parse::parse_script(source, &mut names).map_err(|held| format!("{held}"))?;
+    // AS A MODULE FIRST, and this order was a finding rather than a choice.
+    //
+    // The first version parsed a script, and running it over the corpus answered
+    // `PARSE_FAIL` for 182 of 182 files: every one of them imports `rts:test`, so
+    // the instrument measured nothing at all. A snippet typed at the command line
+    // is usually a script, which is why the fallback exists — but a FILE is
+    // usually a module, and the dump is for files.
+    let program = match crate::parse::parse_module(source, &mut names) {
+        Ok(program) => program,
+        Err(module) => crate::parse::parse_script(source, &mut names)
+            .map_err(|script| format!("as a module: {module}\nas a script: {script}"))?,
+    };
     let resolution = resolve_module(&program.body);
 
     let mut out = String::new();
-    let mut found = 0usize;
     let mut refused = Vec::new();
-    for item in &program.body {
-        let ModuleItem::Stmt(Stmt {
-            kind: StmtKind::Function(function),
-            ..
-        }) = item
-        else {
-            continue;
-        };
-        found += 1;
+    // EVERY function in the tree, not only the top-level declarations.
+    //
+    // The second half of the same finding: a corpus file puts its code inside
+    // `describe(…, () => { … })`, so top-level declarations are the rare case and
+    // the dump reported "no top-level function declarations" for almost every file
+    // it could parse. What is interesting is every function a program contains.
+    let functions = every_function(&program.body);
+    let found = functions.len();
+    for function in functions {
         let named = match function.name {
             Some(name) => names.text(name).to_owned(),
-            None => "<anonymous>".to_owned(),
+            None => format!("<anonymous at {}>", function.at.0),
         };
         match lower(function, &resolution, Tier::Generic) {
             Ok(lowered) => {
@@ -98,6 +111,102 @@ pub fn describe(source: &str) -> Result<String, String> {
         }
     ));
     Ok(out)
+}
+
+/// Every function a module contains, at any depth, in source order.
+///
+/// Through `emit::capture`'s traversal rather than a second description of the
+/// tree's shape, for the reason that file's header gives: two copies is how a node
+/// comes to be visited by one analysis and skipped by the other. A method's
+/// function is included — a class body is code like any other.
+fn every_function(items: &[ModuleItem]) -> Vec<&Function> {
+    let mut found = Vec::new();
+    for item in items {
+        match item {
+            ModuleItem::Stmt(statement) => functions_in_statement(statement, &mut found),
+            ModuleItem::Export(export) => match &export.kind {
+                ExportKind::Declaration(statement) => functions_in_statement(statement, &mut found),
+                ExportKind::Default(ExportDefault::Declaration(statement)) => {
+                    functions_in_statement(statement, &mut found)
+                }
+                ExportKind::Default(ExportDefault::Expr(expr)) => {
+                    functions_in_expr(expr, &mut found)
+                }
+                ExportKind::Named { .. } | ExportKind::All { .. } => {}
+            },
+            ModuleItem::Import(_) => {}
+        }
+    }
+    found
+}
+
+fn functions_in_statement<'a>(statement: &'a Stmt, found: &mut Vec<&'a Function>) {
+    // NO explicit arm for `StmtKind::Function` here. `walk_stmt` hands a function
+    // declaration over as `StmtChild::Function` and stops, which `inline.rs`'s own
+    // traversal records — so matching it here as well printed every declared
+    // function TWICE, and the test for the printed graph is what said so.
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => functions_in_statement(inner, found),
+        StmtChild::Expr(expr) => functions_in_expr(expr, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                functions_in_expr(value, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                functions_in_statement(inner, found);
+            }
+        }
+        StmtChild::Function(function) => {
+            found.push(function);
+            body_of(function, found);
+        }
+        StmtChild::Class(class) => class_of(class, found),
+    });
+}
+
+fn functions_in_expr<'a>(expr: &'a Expr, found: &mut Vec<&'a Function>) {
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => functions_in_expr(inner, found),
+        Child::Function(function) => {
+            found.push(function);
+            body_of(function, found);
+        }
+        Child::Class(class) => class_of(class, found),
+    });
+}
+
+fn body_of<'a>(function: &'a Function, found: &mut Vec<&'a Function>) {
+    match &function.body {
+        crate::syntax::FunctionBody::Block(statements) => {
+            for held in statements {
+                functions_in_statement(held, found);
+            }
+        }
+        crate::syntax::FunctionBody::Expression(expr) => functions_in_expr(expr, found),
+    }
+}
+
+fn class_of<'a>(class: &'a crate::syntax::Class, found: &mut Vec<&'a Function>) {
+    for element in &class.body {
+        match element {
+            crate::syntax::ClassElement::Method(method) => {
+                found.push(&method.function);
+                body_of(&method.function, found);
+            }
+            crate::syntax::ClassElement::Field(field) => {
+                if let Some(value) = &field.value {
+                    functions_in_expr(value, found);
+                }
+            }
+            crate::syntax::ClassElement::StaticBlock(statements) => {
+                for held in statements {
+                    functions_in_statement(held, found);
+                }
+            }
+        }
+    }
 }
 
 /// A refusal, as a sentence naming what it was.

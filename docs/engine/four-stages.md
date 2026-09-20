@@ -293,6 +293,53 @@ reference is invisible to a collector that recognises references by bit pattern.
 
 ---
 
+## What the stage covers, measured
+
+**2026-09-20, `rts mir` over every fifth file of `tests/`: 182 files, 1 725
+functions, 127 lowered.** Not a share to be proud of and not the point — what the
+measurement is for is the *shape* of what is missing, and that turned out to
+contradict the plan it replaced.
+
+| refusals | reason |
+|---:|---|
+| **1 074** | a call |
+| 82 | an assignment (compound, or to a pattern) |
+| 61 | a generator |
+| 52 | a nested definition |
+| 41 | a function expression |
+| 38 | a binding read before its declaration |
+| 35 | a property access |
+| 34 | an assignment to a property |
+| 23 | a string literal |
+| 21 | an object literal |
+| 20 | a destructuring target |
+| 10 | **a `do`-`while` or a `for`** |
+
+A call is **thirteen times** the next item and two thirds of every refusal. The
+list written before this was measured put `do`-`while` and `for` next, and they are
+ten — the intuition was wrong by two orders of magnitude, which is the whole reason
+`lower.rs` names its refusals rather than counting them as one.
+
+**And the top item is not a statement kind to lower — it is a structural change.**
+A call needs to name a callee, and `Callee::Func(FuncId)` means a registry of the
+program's functions with ids. This lowering takes one function at a time, so there
+is nothing for a call to name. Lowering per MODULE, with the functions numbered
+first, is what the measurement actually asks for; the second-biggest group (a
+nested definition, a function expression) is the same request from the other side.
+
+Two defects in the instrument were found by running it, and both had made it
+measure nothing:
+
+- it parsed a **script**, and every file of the corpus imports `rts:test` — so the
+  first survey answered `PARSE_FAIL` for 182 of 182;
+- it looked only at **top-level declarations**, and a corpus file puts its code
+  inside `describe(…, () => { … })` — so what it could parse, it reported as
+  holding no functions.
+
+That is the honesty floor's "verify the input, not just the output" landing on a
+tool built in this same session: a 0% coverage reading and a 7% one look equally
+plausible, and only the input said which was real.
+
 ## What this does not buy
 
 It does not give JavaScript machine speed. It gives near-native speed to
