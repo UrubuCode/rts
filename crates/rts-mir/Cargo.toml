@@ -1,0 +1,16 @@
+[package]
+name = "rts-mir"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "The shared mid-level IR: a CFG in SSA form, effects, guards and two tiers, parameterised by a type domain the language declares."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# Source positions, so a guard and a deoptimisation point can say where they came
+# from. The whole dependency, deliberately: nothing in this crate touches a
+# machine representation, a layout or a register. `lower/` will, and it does not
+# exist yet -- see README rule 3 for why that module is the only one that may.
+rts-cranelift = { path = "../rts-cranelift" }

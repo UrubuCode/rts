@@ -1,0 +1,387 @@
+//! The graph: blocks, values, and the four things an instruction can be.
+//!
+//! SSA with block parameters rather than phi nodes, which is what the machine
+//! layer underneath already does — two representations of the same idea, one of
+//! them translated at every boundary, is the cost this avoids.
+//!
+//! # Why the operation set is this small
+//!
+//! Five operations, and none of them is arithmetic. Arithmetic is not neutral:
+//! one language's `+` adds numbers or concatenates depending on its own coercion
+//! rules, another's `..` concatenates and its `+` never does, and a third
+//! distinguishes integer addition from float addition as separate operations over
+//! separate types. An IR shared by two languages that named `Add` would be
+//! naming one of them.
+//!
+//! So every operation a language performs is a [`Prim`] — an opaque index into a
+//! table the language registered, carrying an [`Effect`] and a transfer function.
+//! This crate composes primitives; it does not know what any of them compute.
+//! README rule 4.
+
+use rts_cranelift::fault::Position;
+
+use crate::effect::Effect;
+use crate::guard::{Assertion, PointId, Tier};
+
+/// A block of the graph.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub struct BlockId(pub u32);
+
+/// A value, defined exactly once.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub struct ValueId(pub u32);
+
+/// An instruction, in the function's flat list.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub struct InstId(pub u32);
+
+/// An operation the language declared: opaque here, by rule 4.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub struct Prim(pub u32);
+
+/// An entry point the language names, called rather than emitted.
+///
+/// The counterpart of `rts-core`'s entry points, and the reason a `ToBoolean` is
+/// not an operation here: two languages have the same ABI shape for it and
+/// different answers, so the name is the interface and the language owns it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub struct EntryId(pub u32);
+
+/// A function of the program, by index.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub struct FuncId(pub u32);
+
+/// A constant, in the few shapes every language has.
+///
+/// Deliberately not "every constant a language has": a language's own singletons,
+/// symbols and interned strings are constants of ITS domain, reached through a
+/// [`Prim`] with no arguments or through a declared constant index. What is here
+/// is what the *structure* needs — a number to index with, a truth value to
+/// branch on.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Const {
+    /// A signed integer.
+    Int(i64),
+    /// A double.
+    Float(f64),
+    /// A truth value, for the condition of a branch.
+    Bool(bool),
+    /// A constant the language declared, by index into its own table.
+    Declared(u32),
+}
+
+/// What an instruction is.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Op {
+    /// A constant.
+    Const(Const),
+    /// A language operation, with its arguments.
+    Prim { prim: Prim, args: Vec<ValueId> },
+    /// A call to a named entry point, or to a function of this program, or to
+    /// whatever a value holds.
+    Call { callee: Callee, args: Vec<ValueId> },
+    /// An assertion about a value, checked, with somewhere to fall when it fails.
+    ///
+    /// Its result is the same value with a narrowed type — which is what makes a
+    /// guard visible to CSE, hoisting and LICM instead of being emission. README
+    /// rule 6.
+    Guard {
+        /// What is asserted.
+        assertion: Assertion,
+        /// About which value.
+        on: ValueId,
+        /// Where the fall lands, in the other tier.
+        point: PointId,
+    },
+}
+
+/// What a call reaches.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Callee {
+    /// A named entry point of the runtime.
+    Entry(EntryId),
+    /// Another function of this program.
+    Func(FuncId),
+    /// Whatever the value holds, which is everything a program can do.
+    Dynamic(ValueId),
+}
+
+/// An instruction: what it does, where it came from, and what it does besides
+/// answer.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Inst {
+    /// The operation.
+    pub op: Op,
+    /// The value it defines.
+    pub result: ValueId,
+    /// Where it was written.
+    pub at: Position,
+    /// What it does besides answer.
+    ///
+    /// Carried on the instruction rather than looked up from the primitive table
+    /// at every use, because a pass asks this of every instruction it considers
+    /// moving and the table is the language's, not this crate's.
+    pub effect: Effect,
+}
+
+/// How a block ends. Exactly one per block, and rule 9's verifier says so.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Terminator {
+    /// To one block, with arguments for its parameters.
+    Jump { target: BlockId, args: Vec<ValueId> },
+    /// To one of two, on a truth value.
+    Branch {
+        /// The condition. A language's own notion of truth is a [`Prim`] that
+        /// produced this, never something this crate decides.
+        condition: ValueId,
+        /// Taken when true.
+        then_block: BlockId,
+        /// Arguments for it.
+        then_args: Vec<ValueId>,
+        /// Taken when false.
+        else_block: BlockId,
+        /// Arguments for it.
+        else_args: Vec<ValueId>,
+    },
+    /// Leaving the function.
+    Return(Option<ValueId>),
+    /// Leaving this tier for the other one, at a paired point.
+    ///
+    /// Not a call and not an unwind: the generic body of the same function has a
+    /// resume label at this `PointId`, in the same binary. README rule 8.
+    Fall(PointId),
+    /// Control does not reach here. A verifier error if it does.
+    Unreachable,
+}
+
+impl Terminator {
+    /// Every block this one may reach.
+    pub fn successors(&self) -> Vec<BlockId> {
+        match self {
+            Terminator::Jump { target, .. } => vec![*target],
+            Terminator::Branch {
+                then_block,
+                else_block,
+                ..
+            } => vec![*then_block, *else_block],
+            Terminator::Return(_) | Terminator::Fall(_) | Terminator::Unreachable => Vec::new(),
+        }
+    }
+
+    /// Every value it reads.
+    pub fn reads(&self) -> Vec<ValueId> {
+        match self {
+            Terminator::Jump { args, .. } => args.clone(),
+            Terminator::Branch {
+                condition,
+                then_args,
+                else_args,
+                ..
+            } => {
+                let mut all = vec![*condition];
+                all.extend(then_args.iter().copied());
+                all.extend(else_args.iter().copied());
+                all
+            }
+            Terminator::Return(Some(value)) => vec![*value],
+            Terminator::Return(None) | Terminator::Fall(_) | Terminator::Unreachable => Vec::new(),
+        }
+    }
+}
+
+/// A block: its parameters, its instructions, and how it ends.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Block {
+    /// The values its predecessors supply, in order.
+    pub params: Vec<ValueId>,
+    /// Its instructions, in order.
+    pub insts: Vec<InstId>,
+    /// How it ends. `None` while it is still being built, which `verify`
+    /// refuses.
+    pub terminator: Option<Terminator>,
+}
+
+/// A function in MIR form.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Func {
+    /// Which tier this is.
+    pub tier: Tier,
+    /// Its blocks. `BlockId(0)` is the entry.
+    pub blocks: Vec<Block>,
+    /// Its instructions, flat, referenced by the blocks in order.
+    pub insts: Vec<Inst>,
+    /// How many values it defines.
+    pub values: u32,
+    /// Every deoptimisation point it declares, in ascending order.
+    ///
+    /// Held on the function so that `guard::pair` can compare two tiers without
+    /// walking either one's blocks — the check runs on every lowering and the
+    /// walk would be the expensive part of it.
+    pub points: Vec<PointId>,
+}
+
+impl Func {
+    /// The entry block, which every function has.
+    pub fn entry(&self) -> BlockId {
+        BlockId(0)
+    }
+
+    /// One block.
+    pub fn block(&self, block: BlockId) -> &Block {
+        &self.blocks[block.0 as usize]
+    }
+
+    /// One instruction.
+    pub fn inst(&self, inst: InstId) -> &Inst {
+        &self.insts[inst.0 as usize]
+    }
+
+    /// Every block, by id.
+    pub fn block_ids(&self) -> impl Iterator<Item = BlockId> + use<> {
+        (0..self.blocks.len() as u32).map(BlockId)
+    }
+
+    /// Which blocks jump to this one.
+    ///
+    /// Computed rather than stored, because a stored predecessor list is a second
+    /// statement of the same fact and the failure mode is a pass that updates the
+    /// terminator and not the list.
+    pub fn predecessors(&self, block: BlockId) -> Vec<BlockId> {
+        self.block_ids()
+            .filter(|held| {
+                self.block(*held)
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|end| end.successors().contains(&block))
+            })
+            .collect()
+    }
+
+    /// The values an instruction reads.
+    pub fn reads(&self, inst: InstId) -> Vec<ValueId> {
+        match &self.inst(inst).op {
+            Op::Const(_) => Vec::new(),
+            Op::Prim { args, .. } => args.clone(),
+            Op::Call { callee, args } => {
+                let mut all = match callee {
+                    Callee::Dynamic(value) => vec![*value],
+                    Callee::Entry(_) | Callee::Func(_) => Vec::new(),
+                };
+                all.extend(args.iter().copied());
+                all
+            }
+            Op::Guard { on, .. } => vec![*on],
+        }
+    }
+}
+
+/// Builds one function, minting values and blocks.
+///
+/// # Why a builder rather than public fields
+///
+/// Because SSA's one property — a value defined exactly once — is the kind of
+/// invariant that a caller assembling `Vec`s by hand breaks in a way that
+/// compiles. The builder mints every value, so defining one twice is not
+/// expressible; `verify` then checks what the builder cannot, which is order.
+pub struct FuncBuilder {
+    func: Func,
+    current: BlockId,
+}
+
+impl FuncBuilder {
+    /// A function with an empty entry block.
+    pub fn new(tier: Tier) -> Self {
+        Self {
+            func: Func {
+                tier,
+                blocks: vec![Block {
+                    params: Vec::new(),
+                    insts: Vec::new(),
+                    terminator: None,
+                }],
+                insts: Vec::new(),
+                values: 0,
+                points: Vec::new(),
+            },
+            current: BlockId(0),
+        }
+    }
+
+    /// A new, empty block.
+    pub fn block(&mut self) -> BlockId {
+        self.func.blocks.push(Block {
+            params: Vec::new(),
+            insts: Vec::new(),
+            terminator: None,
+        });
+        BlockId(self.func.blocks.len() as u32 - 1)
+    }
+
+    /// Where instructions are appended.
+    pub fn switch_to(&mut self, block: BlockId) {
+        self.current = block;
+    }
+
+    /// The block being appended to.
+    pub fn current(&self) -> BlockId {
+        self.current
+    }
+
+    /// A parameter of a block, which its predecessors supply.
+    pub fn param(&mut self, block: BlockId) -> ValueId {
+        let value = self.mint();
+        self.func.blocks[block.0 as usize].params.push(value);
+        value
+    }
+
+    /// Appends an instruction to the current block and answers its result.
+    pub fn push(&mut self, op: Op, effect: Effect, at: Position) -> ValueId {
+        let result = self.mint();
+        if let Op::Guard { point, .. } = &op {
+            self.declare(*point);
+        }
+        self.func.insts.push(Inst {
+            op,
+            result,
+            at,
+            effect,
+        });
+        let inst = InstId(self.func.insts.len() as u32 - 1);
+        self.func.blocks[self.current.0 as usize].insts.push(inst);
+        result
+    }
+
+    /// Ends the current block.
+    ///
+    /// Terminating one twice is refused rather than overwritten: the second call
+    /// is a bug in the lowering, and silently keeping one of the two would make
+    /// which one arbitrary.
+    pub fn end(&mut self, terminator: Terminator) {
+        if let Terminator::Fall(point) = &terminator {
+            self.declare(*point);
+        }
+        let block = &mut self.func.blocks[self.current.0 as usize];
+        assert!(
+            block.terminator.is_none(),
+            "a block was terminated twice, which makes which terminator survives arbitrary"
+        );
+        block.terminator = Some(terminator);
+    }
+
+    /// The finished function. `verify` is what says it is well formed.
+    pub fn finish(self) -> Func {
+        self.func
+    }
+
+    fn mint(&mut self) -> ValueId {
+        let value = ValueId(self.func.values);
+        self.func.values += 1;
+        value
+    }
+
+    fn declare(&mut self, point: PointId) {
+        if let Err(at) = self.func.points.binary_search(&point) {
+            self.func.points.insert(at, point);
+        }
+    }
+}
