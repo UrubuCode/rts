@@ -80,6 +80,24 @@ pub trait Domain {
     /// specialised tier know more than the generic one.
     fn narrow(&self, assertion: Assertion, of: &Self::Type) -> Self::Type;
 
+    /// What an operation does besides answer, given what its operands are.
+    ///
+    /// # Why the effect is asked of the domain and not carried by the primitive
+    ///
+    /// Because it depends on the operands, and that dependence is the whole
+    /// mechanism a guard exists to exploit. An addition of two values a pass has
+    /// proved numeric reads nothing, allocates nothing and cannot fail; the same
+    /// addition over two unknowns may reach code the program wrote. One primitive,
+    /// two effects, and which one applies is a fact about types.
+    ///
+    /// [`crate::passes::refine_effects`] is what that buys: an instruction lowered
+    /// before inference ran carries the pessimistic answer, and asking again with
+    /// the inferred types narrows it. A domain must therefore be consistent —
+    /// asking about narrower types may not answer a WIDER effect — and the pass
+    /// checks rather than trusts, because an inconsistent domain would otherwise
+    /// silently make a program's operations movable when they are not.
+    fn effect_of(&self, prim: Prim, args: &[Self::Type]) -> crate::Effect;
+
     /// Whether this type's values are all true, all false, or not decidable.
     ///
     /// On the domain because truth is not neutral — one language has seven false

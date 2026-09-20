@@ -16,6 +16,7 @@
 //! wearing a measurement's clothes.
 
 use rts_mir::guard::Tier;
+use rts_mir::passes::refine_effects;
 use rts_mir::text::print;
 
 use crate::lower::{Unsupported, lower};
@@ -51,8 +52,31 @@ pub fn describe(source: &str) -> Result<String, String> {
         };
         match lower(function, &resolution, Tier::Generic) {
             Ok(lowered) => {
+                // The pass runs BEFORE printing, and the count is printed with it.
+                //
+                // The alternative — print the lowering's own answer — was what this
+                // command did first, and reading it is what found the pass worth
+                // writing: every operation of a numeric loop marked as possibly
+                // calling user code. Showing the unrefined form now would be
+                // showing a graph no pass would ever see.
+                let mut lowered = lowered;
+                let refined = refine_effects(&mut lowered.func, &lowered.domain);
                 out.push_str(&format!("fn {named}\n"));
                 out.push_str(&print(&lowered.func, &lowered.domain));
+                if refined.narrowed > 0 || refined.refused > 0 {
+                    out.push_str(&format!(
+                        "; {} effect{} narrowed by inference{}\n",
+                        refined.narrowed,
+                        match refined.narrowed {
+                            1 => "",
+                            _ => "s",
+                        },
+                        match refined.refused {
+                            0 => String::new(),
+                            held => format!(", {held} refused as wider"),
+                        }
+                    ));
+                }
                 out.push('\n');
             }
             Err(held) => {
@@ -170,5 +194,30 @@ mod tests {
         assert!(printed.contains("lessthan"), "{printed}");
         // The header is jumped to from two places, and the dump says so.
         assert!(printed.contains("; from b0, b"), "{printed}");
+    }
+    /// The pass, end to end and in the form a reader sees. Before it existed this
+    /// same loop printed three operations marked as possibly calling user code, on
+    /// a program whose values are all numbers.
+    #[test]
+    fn a_numeric_loop_comes_out_with_no_pessimistic_effects_left() {
+        let printed = describe(
+            "function count() { let at = 0; while (at < 10) { at = at + 1; } return at; }",
+        )
+        .expect("parses");
+        assert!(!printed.contains("calls"), "{printed}");
+        assert!(printed.contains("2 effects narrowed by inference"), "{printed}");
+    }
+
+    /// And an operand that really is unknown keeps its effect, which is what says
+    /// the pass narrows from evidence rather than by assumption.
+    #[test]
+    fn a_loop_over_a_parameter_keeps_the_effect_the_parameter_forces() {
+        let printed = describe(
+            "function total(n) { let at = 0; while (at < n) { at = at + 1; } return at; }",
+        )
+        .expect("parses");
+        // The comparison against the parameter stays, the addition does not.
+        assert!(printed.contains("lessthan(v2, v0)   ; calls|throws"), "{printed}");
+        assert!(printed.contains("1 effect narrowed by inference"), "{printed}");
     }
 }

@@ -209,7 +209,7 @@ impl Js {
     /// The header of this module says why this takes the operand types. The short
     /// of it: coercion is what calls user code, and a proof that no coercion is
     /// needed is what makes the operation movable.
-    pub fn effect_of(&self, prim: Prim, args: &[Type]) -> Effect {
+    fn effect_of_inner(&self, prim: Prim, args: &[Type]) -> Effect {
         let Some(which) = self.meaning(prim) else {
             // An index this table does not hold: assume the worst, which is the
             // only safe answer and is unreachable through `Self::prim`.
@@ -381,6 +381,10 @@ impl Domain for Js {
         // sound half of not knowing, and the entry table is where the other half
         // will come from — `rts-host/src/entries.rs` already holds the shapes.
         Type::Anything
+    }
+
+    fn effect_of(&self, prim: Prim, args: &[Type]) -> Effect {
+        self.effect_of_inner(prim, args)
     }
 
     fn narrow(&self, assertion: Assertion, of: &Type) -> Type {

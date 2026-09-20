@@ -120,6 +120,29 @@ impl Domain for ToyDomain {
         }
     }
 
+    /// This language's coercion rule, which is not the other's.
+    ///
+    /// Adding two integers is arithmetic and nothing else. Adding anything else
+    /// reaches this language's metatable, which is code a program wrote — so the
+    /// boundary between pure and not is drawn at a DIFFERENT place here, and that
+    /// is the point of the method being on the domain.
+    fn effect_of(&self, prim: Prim, args: &[Toy]) -> Effect {
+        match prim {
+            ADD_INTEGERS => match args {
+                [Toy::Integer, Toy::Integer] => Effect::PURE,
+                _ => Effect::CALLS_USER.and(Effect::THROWS),
+            },
+            DIVIDE => match args.iter().all(|held| matches!(held, Toy::Integer | Toy::Float)) {
+                true => Effect::PURE,
+                false => Effect::CALLS_USER.and(Effect::THROWS),
+            },
+            // Building a string allocates however it is reached.
+            CONCATENATE => Effect::ALLOCATES,
+            EQUALS => Effect::PURE,
+            _ => Effect::CALLS_USER.and(Effect::THROWS).and(Effect::WRITES),
+        }
+    }
+
     fn truth_of(&self, of: &Toy) -> Option<bool> {
         match of {
             Toy::Nil => Some(false),
@@ -316,5 +339,67 @@ fn a_primitive_is_an_index_and_the_ir_never_interprets_it() {
     assert_eq!(*types.of(compared), Toy::Bool(None));
     // The effect summary travels with the instruction, and allocating is what
     // stops a pass hoisting this out of a loop.
+    assert!(func.inst(rts_mir::InstId(0)).effect.may_collect());
+}
+
+/// The effect-refining pass over THIS language, which is what makes it a pass and
+/// not a JavaScript feature living in a shared crate.
+///
+/// The loop is the same shape the other language's is, and the answer comes from
+/// this language's own coercion boundary: adding two integers is arithmetic, and
+/// the lowering could not know the carried value was one.
+#[test]
+fn the_effect_pass_narrows_through_this_languages_own_rule() {
+    let mut build = FuncBuilder::new(Tier::Generic);
+    let header = build.block();
+    let carried = build.param(header);
+    let start = build.push(Op::Const(Const::Int(0)), Effect::PURE, at());
+    build.end(Terminator::Jump {
+        target: header,
+        args: vec![start],
+    });
+    build.switch_to(header);
+    let one = build.push(Op::Const(Const::Int(1)), Effect::PURE, at());
+    // As a lowering would record it: the header's type was unknown at this point.
+    let next = build.push(
+        Op::Prim {
+            prim: ADD_INTEGERS,
+            args: vec![carried, one],
+        },
+        Effect::CALLS_USER.and(Effect::THROWS),
+        at(),
+    );
+    build.end(Terminator::Jump {
+        target: header,
+        args: vec![next],
+    });
+    let mut func = build.finish();
+    assert_eq!(verify(&func), Ok(()));
+
+    let refined = rts_mir::passes::refine_effects(&mut func, &ToyDomain);
+    assert_eq!(refined.narrowed, 1);
+    assert_eq!(refined.refused, 0);
+    assert!(func.inst(rts_mir::InstId(2)).effect.is_pure());
+    assert_eq!(verify(&func), Ok(()));
+}
+
+/// And an allocation is NOT narrowed away, because allocating is what the operation
+/// does rather than something its operands decide.
+#[test]
+fn an_allocation_survives_the_pass() {
+    let mut build = FuncBuilder::new(Tier::Generic);
+    let text = build.push(
+        Op::Prim {
+            prim: CONCATENATE,
+            args: Vec::new(),
+        },
+        Effect::ALLOCATES,
+        at(),
+    );
+    build.end(Terminator::Return(Some(text)));
+    let mut func = build.finish();
+
+    let refined = rts_mir::passes::refine_effects(&mut func, &ToyDomain);
+    assert_eq!(refined.narrowed, 0);
     assert!(func.inst(rts_mir::InstId(0)).effect.may_collect());
 }

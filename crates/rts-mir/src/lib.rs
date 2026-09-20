@@ -28,6 +28,7 @@ pub mod effect;
 pub mod guard;
 pub mod infer;
 pub mod lower;
+pub mod passes;
 pub mod text;
 pub mod verify;
 
