@@ -149,10 +149,19 @@ was in the last step everyone assumed was already shared.
 
 ## Cost
 
-One `is_file` probe per bare specifier per load, and only in projects that set
-`baseUrl` — row 4's fall-through has to know whether a candidate exists before
-falling through. It is paid once, at load time, never in a hot path: nothing
-about a compiled program's running behaviour reads `tsconfig.json` again.
+Up to six filesystem probes per CANDIDATE, and a bare specifier has one
+candidate per `paths` target plus one more when `baseUrl` is set. The six:
+one `is_file` on the candidate as written, and then `resolve::extended` —
+one `is_dir`, and up to four `is_file`s (`index.ts`, `.js`, `.cjs`, `.mjs`
+inside a directory, or the same four extensions beside the name). The walk
+stops at the first candidate that exists, so a target that hits costs one
+probe and only a full miss pays the whole list.
+
+This paragraph used to say "one `is_file` probe per bare specifier per load",
+which counted the fall-through and none of the extension rule it calls. The
+conclusion is unchanged and is the part that matters: it is paid once, at
+load time, never in a hot path — nothing about a compiled program's running
+behaviour reads `tsconfig.json` again.
 
 ## Reproducing the AOT smoke locally
 

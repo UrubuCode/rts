@@ -169,3 +169,27 @@ fn an_exact_key_beats_a_wildcard() {
     let found = resolve_written(&entry, "@/one", &aliases).expect("resolved");
     assert_eq!(found, dir.join("exact").join("one.ts"));
 }
+
+/// Spec §9 point 4: the list is tried IN ORDER, to the end. A target that has
+/// no file name — one ending in `..`, which `tsc` accepts and this engine
+/// does not refuse — used to answer `None` from the whole function, throwing
+/// away every later target and the `baseUrl` fall-through with it.
+#[test]
+fn a_target_with_no_file_name_does_not_abort_the_list() {
+    let dir = fixture(
+        "malformed",
+        &[
+            (
+                "tsconfig.json",
+                "{\"compilerOptions\":{\"baseUrl\":\".\",\
+                 \"paths\":{\"@/*\":[\"./nowhere/..\",\"./real/*\"]}}}",
+            ),
+            ("src/app.ts", "export const x = 1;\n"),
+            ("real/thing.ts", "export const y = 2;\n"),
+        ],
+    );
+    let entry = dir.join("src/app.ts");
+    let aliases = Aliases::discover(&entry);
+    let found = resolve_written(&entry, "@/thing", &aliases).expect("the later target still wins");
+    assert_eq!(found, dir.join("real").join("thing.ts"));
+}

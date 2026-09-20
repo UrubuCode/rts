@@ -237,8 +237,17 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
         if candidate.is_file() {
             return Some(settled(candidate));
         }
-        let parent = candidate.parent()?;
-        let name = candidate.file_name()?.to_str()?;
+        // `continue`, never `?`. Spec §9 point 4 says the list is "tried in
+        // order", and a `?` here answered `None` from the FUNCTION: one
+        // candidate nobody can take apart — a target ending in `..`, a name
+        // that is not UTF-8 — silently discarded every LATER target and the
+        // `baseUrl` fall-through with it. A candidate that cannot be split is
+        // a candidate that does not match, which is all it ever meant.
+        let (Some(parent), Some(name)) =
+            (candidate.parent(), candidate.file_name().and_then(|one| one.to_str()))
+        else {
+            continue;
+        };
         match extended(parent, name) {
             Some(found) if !is_declaration(&found) => return Some(settled(found)),
             _ => continue,
