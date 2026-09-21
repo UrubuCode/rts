@@ -47,6 +47,7 @@ const RIGID: &[(&str, Provided)] = &[
     ("threads", threads),
     ("backends", backends),
     ("supports", supports),
+    ("overflows", overflows),
 ];
 
 thread_local! {
@@ -160,6 +161,12 @@ extern "C" fn supports(_e: u64, _this: u64, need: u64, _a1: u64, _a2: u64, _a3: 
 /// guess what `rayon` decided.
 extern "C" fn threads(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     entry::make_number(rayon::current_num_threads() as f64)
+}
+
+/// `rigid.overflows()` — answers the number of grid bucket overflows detected in the last step.
+extern "C" fn overflows(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let count = SOLVER.with(|solver| solver.borrow().grid_overflows());
+    entry::make_number(count as f64)
 }
 
 /// Where each argument's bytes are, once every one of them has been checked.

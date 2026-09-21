@@ -16,9 +16,14 @@ impl Scene<'_> {
     /// make a scene at rest — the case sleeping exists to make cheap — the one
     /// that pays a full n² every step.
     pub(super) fn disturbed(&self, body: usize, p: V3, h: V3, shape: f32) -> bool {
+        let mine = self.materials.body(body);
         let mut woken = false;
         self.near(p, |other| {
             if woken || other == body {
+                return;
+            }
+            let other_mat = self.materials.body(other);
+            if (mine.mask & other_mat.layer) == 0 || (other_mat.mask & mine.layer) == 0 {
                 return;
             }
             let vj = self.velocity(other);
@@ -45,6 +50,10 @@ impl Scene<'_> {
     pub(super) fn against_statics(&self, p: &mut V3, v: &mut V3, h: V3, shape: f32, mine: Body) -> bool {
         let mut touched = false;
         for k in 0..self.statics {
+            let made_of = self.materials.fixed(k);
+            if (mine.mask & made_of.layer) == 0 || (made_of.mask & mine.layer) == 0 {
+                continue;
+            }
             let centre = triple(self.world, 1 + k * 2);
             let half = triple(self.world, 2 + k * 2);
             // Roundness, not shape: see the layout note in the module doc.
@@ -55,7 +64,6 @@ impl Scene<'_> {
             let Some((normal, depth)) = narrow(*p, h, shape, centre, half, fixed_shape) else {
                 continue;
             };
-            let made_of = self.materials.fixed(k);
             *p = add(*p, scale(normal, (depth - SLOP).max(0.0) * STATIC_RELAXATION));
             let approach = dot(*v, normal);
             if approach < 0.0 {
@@ -97,6 +105,10 @@ impl Scene<'_> {
             if other == body {
                 return;
             }
+            let made_of = self.materials.body(other);
+            if (mine.mask & made_of.layer) == 0 || (made_of.mask & mine.layer) == 0 {
+                return;
+            }
             let Some((normal, depth)) = narrow(
                 position,
                 h,
@@ -110,7 +122,6 @@ impl Scene<'_> {
             let other_inverse_mass = self.extents[other * 4 + 3];
             let share = inverse_mass / (inverse_mass + other_inverse_mass).max(0.0001);
             let theirs = self.velocity(other);
-            let made_of = self.materials.body(other);
             // Relative velocity along the normal. Negative is approaching.
             let approach = dot(sub(velocity, theirs), normal);
             let back = 1.0 + bounce(approach, mine.restitution, made_of.restitution);

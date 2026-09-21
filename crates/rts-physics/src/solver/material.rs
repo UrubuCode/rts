@@ -43,6 +43,17 @@ const BODY_RECORD: usize = 8;
 /// they are scaled by.
 const REFERENCE_FRICTION: f32 = 0.35;
 
+/// The unassigned body type (0.0). Defaults to dynamic.
+pub const BODY_UNASSIGNED: f32 = 0.0;
+/// Static body type: does not move and is not moved.
+pub const BODY_STATIC: f32 = 1.0;
+/// Kinematic body type: moves purely by velocity, ignores forces and impulses.
+pub const BODY_KINEMATIC: f32 = 2.0;
+/// Dynamic body type: fully simulated under gravity, contacts and impulses.
+pub const BODY_DYNAMIC: f32 = 3.0;
+/// Canonical version of the physics world layout.
+pub const PHYSICS_LAYOUT_VERSION: f32 = 1.0;
+
 /// One body's material.
 #[derive(Clone, Copy)]
 pub(super) struct Body {
@@ -57,8 +68,10 @@ pub(super) struct Body {
     /// The height the body's CENTRE rests at on the implicit floor. Anything at
     /// or below `NO_FLOOR` switches it off.
     pub floor: f32,
-    /// 0.0 = static, 1.0 = kinematic, 2.0 = dynamic.
+    /// 1.0 = static, 2.0 = kinematic, 3.0 = dynamic (0.0 unassigned maps to 3.0).
     pub body_type: f32,
+    pub layer: u32,
+    pub mask: u32,
 }
 
 /// One static's material.
@@ -66,6 +79,8 @@ pub(super) struct Body {
 pub(super) struct Fixed {
     pub restitution: f32,
     pub friction: f32,
+    pub layer: u32,
+    pub mask: u32,
 }
 
 const NO_FLOOR: f32 = -1.0e8;
@@ -76,9 +91,17 @@ const LEGACY_BODY: Body = Body {
     drag: 0.0,
     friction: REFERENCE_FRICTION,
     floor: -1.0e30,
-    body_type: 2.0,
+    body_type: BODY_DYNAMIC,
+    layer: 1,
+    mask: 0xFFFF_FFFF,
 };
-const LEGACY_FIXED: Fixed = Fixed { restitution: 0.0, friction: REFERENCE_FRICTION };
+
+const LEGACY_FIXED: Fixed = Fixed {
+    restitution: 0.0,
+    friction: REFERENCE_FRICTION,
+    layer: 1,
+    mask: 0xFFFF_FFFF,
+};
 
 /// The material region of one step's `world`, or its absence.
 #[derive(Clone, Copy)]
@@ -98,14 +121,19 @@ impl<'a> Materials<'a> {
     pub fn body(&self, body: usize) -> Body {
         let Some(region) = self.region else { return LEGACY_BODY };
         let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
-        let raw_type = if region.len() > at + 5 { region[at + 5] } else { 2.0 };
-        // 0.0 = static, 1.0 = kinematic, 2.0 = dynamic.
-        // If 0.0 is found but gravity > 0.0, it came from legacy matFillDefaults where slots 5..7 were 0.0.
-        let body_type = if raw_type == 0.0 && region[at] > 0.0 {
-            2.0
-        } else {
-            raw_type
+        let raw_type = if region.len() > at + 5 { region[at + 5] } else { BODY_UNASSIGNED };
+        // 0.0 = unassigned (default => dynamic, 3.0)
+        // 1.0 = static
+        // 2.0 = kinematic
+        // 3.0 = dynamic
+        let body_type = match raw_type as u32 {
+            x if x == BODY_STATIC as u32 => BODY_STATIC,
+            x if x == BODY_KINEMATIC as u32 => BODY_KINEMATIC,
+            x if x == BODY_UNASSIGNED as u32 => BODY_DYNAMIC,
+            _ => BODY_DYNAMIC,
         };
+        let layer = if region.len() > at + 6 { region[at + 6].to_bits() } else { 1 };
+        let mask = if region.len() > at + 7 { region[at + 7].to_bits() } else { 0xFFFF_FFFF };
         Body {
             gravity: region[at],
             restitution: region[at + 1],
@@ -113,13 +141,22 @@ impl<'a> Materials<'a> {
             friction: region[at + 3],
             floor: region[at + 4],
             body_type,
+            layer: if layer == 0 { 1 } else { layer },
+            mask,
         }
     }
 
     pub fn fixed(&self, fixed: usize) -> Fixed {
         let Some(region) = self.region else { return LEGACY_FIXED };
         let at = fixed.min(STATIC_CAPACITY - 1) * STATIC_RECORD;
-        Fixed { restitution: region[at], friction: region[at + 1] }
+        let layer = if region.len() > at + 2 { region[at + 2].to_bits() } else { 1 };
+        let mask = if region.len() > at + 3 { region[at + 3].to_bits() } else { 0xFFFF_FFFF };
+        Fixed {
+            restitution: region[at],
+            friction: region[at + 1],
+            layer: if layer == 0 { 1 } else { layer },
+            mask,
+        }
     }
 }
 

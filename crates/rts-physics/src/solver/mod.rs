@@ -154,6 +154,11 @@ impl Solver {
         self
     }
 
+    /// Total bodies dropped due to grid cell capacity overflow in the most recent step.
+    pub fn grid_overflows(&self) -> usize {
+        self.grid.overflows()
+    }
+
     /// Advances `substeps` fixed steps in place.
     ///
     /// The three body buffers are four floats per body and must agree about how
@@ -171,6 +176,11 @@ impl Solver {
         if count == 0 || world.len() < 4 {
             return;
         }
+        let _layout_ver = if world.len() >= 4 && world[3] > 0.0 {
+            world[3]
+        } else {
+            material::PHYSICS_LAYOUT_VERSION
+        };
         let dt = world[0];
         let statics = (world[1].max(0.0) as usize).min((world.len().saturating_sub(4)) / 8);
         let size = cell_size(world);
@@ -281,14 +291,14 @@ impl Scene<'_> {
         let inverse_mass = self.extents[body * 4 + 3];
         let mine = self.materials.body(body);
 
-        if mine.body_type == 0.0 {
+        if mine.body_type == material::BODY_STATIC {
             // Static: does not move at all, zero velocity
             write(out_pos, p, SLEEP_STEPS);
             write(out_vel, [0.0; 3], shape);
             return;
         }
 
-        if mine.body_type == 1.0 {
+        if mine.body_type == material::BODY_KINEMATIC {
             // Kinematic: moves purely by its velocity, ignores gravity, drag, floor, statics and impulses
             p = add(p, scale(v, self.dt));
             write(out_pos, p, 0.0);

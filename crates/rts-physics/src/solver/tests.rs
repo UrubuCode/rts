@@ -21,11 +21,13 @@ fn world(statics: &[([f32; 3], [f32; 3])], size: f32) -> Vec<f32> {
 fn world_with_materials(statics: &[([f32; 3], [f32; 3])], size: f32, bodies: usize) -> Vec<f32> {
     let mut world = world(statics, size);
     world.resize(material::MATERIALS_AT, 0.0);
+    let def_layer = f32::from_bits(1);
+    let def_mask = f32::from_bits(0xFFFF_FFFF);
     for _ in 0..256 {
-        world.extend_from_slice(&[0.0, 0.35, 0.0, 0.0]);
+        world.extend_from_slice(&[0.0, 0.35, def_layer, def_mask]);
     }
     for _ in 0..bodies {
-        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, 2.0, 0.0, 0.0]);
+        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, material::BODY_DYNAMIC, def_layer, def_mask]);
     }
     world
 }
@@ -455,18 +457,18 @@ fn a_bouncing_body_does_not_fall_asleep_in_mid_air() {
 
 #[test]
 fn a_kinematic_body_moves_by_velocity_with_no_gravity_or_drag_and_never_sleeps() {
-    // Kinematic (body_type = 1.0): moves strictly by p += v * dt.
+    // Kinematic (body_type = 2.0): moves strictly by p += v * dt.
     // Velocity must be preserved exactly, position must advance linearly,
     // gravity and drag must not affect it.
     let (mut pos, mut vel, ext) = scene(&[body([0.0, 10.0, 0.0], [1.0; 3], BOX, 0.0)]);
     vel[0] = 5.0; // vx = 5.0
     vel[1] = 0.0; // vy = 0.0
     let mut world = world_with_materials(&[], 4.0, 1);
-    // Set body_type = 1.0 (kinematic)
+    // Set body_type = 2.0 (kinematic)
     body_material(&mut world, 0)[0] = 9.8; // gravity declared
     body_material(&mut world, 0)[2] = 0.5; // drag declared
     let at = material::MATERIALS_AT + 256 * 4;
-    world[at + 5] = 1.0; // kinematic!
+    world[at + 5] = material::BODY_KINEMATIC; // 2.0!
 
     let dt = world[0];
     let steps = 60;
@@ -491,12 +493,12 @@ fn a_dynamic_body_resting_on_a_moving_kinematic_platform_is_carried_along() {
     vel[0] = 3.0; // platform moves at vx = 3.0
 
     let mut world = world_with_materials(&[], 10.0, 2);
-    // Body 0 is kinematic (tipo = 1.0)
+    // Body 0 is kinematic (tipo = 2.0)
     let at0 = material::MATERIALS_AT + 256 * 4;
-    world[at0 + 5] = 1.0;
-    // Body 1 is dynamic (tipo = 2.0)
+    world[at0 + 5] = material::BODY_KINEMATIC;
+    // Body 1 is dynamic (tipo = 3.0)
     let at1 = material::MATERIALS_AT + 256 * 4 + 8;
-    world[at1 + 5] = 2.0;
+    world[at1 + 5] = material::BODY_DYNAMIC;
 
     let mut solver = Solver::new();
     // Step 120 steps (~2 seconds)
@@ -510,5 +512,51 @@ fn a_dynamic_body_resting_on_a_moving_kinematic_platform_is_carried_along() {
     assert!((pos[5] - 1.0).abs() < 0.2, "dynamic body y = {}, expected ~1.0", pos[5]);
     // Dynamic body must have been carried horizontally along with platform
     assert!(pos[4] > 4.0, "dynamic body x = {} was not carried by platform", pos[4]);
+}
+
+#[test]
+fn unassigned_body_type_0_defaults_to_dynamic() {
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 10.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let mut world = world_with_materials(&[], 4.0, 1);
+    let at = material::MATERIALS_AT + 256 * 4;
+    world[at + 5] = 0.0; // unassigned
+    body_material(&mut world, 0)[0] = 9.8; // gravity
+
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 60);
+    // Body should fall under gravity because 0.0 defaults to dynamic
+    assert!(pos[1] < 9.0, "unassigned body type 0.0 did not fall under gravity: y = {}", pos[1]);
+}
+
+#[test]
+fn layer_and_mask_filters_collision_pairs() {
+    // Two overlapping bodies: body 0 at x=0, body 1 at x=0.5 (both h=0.5)
+    let (mut pos, mut vel, ext) = scene(&[
+        body([0.0, 0.0, 0.0], [0.5; 3], BOX, 1.0),
+        body([0.5, 0.0, 0.0], [0.5; 3], BOX, 1.0),
+    ]);
+    let mut world = world_with_materials(&[], 4.0, 2);
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    let at1 = material::MATERIALS_AT + 256 * 4 + 8;
+
+    // Set body 0: layer = 1, mask = 2 (only collides with layer 2)
+    world[at0 + 6] = f32::from_bits(1);
+    world[at0 + 7] = f32::from_bits(2);
+
+    // Set body 1: layer = 4, mask = 1 (only collides with layer 1, but body 0 is layer 1 and body 1 is layer 4 != mask 2)
+    world[at1 + 6] = f32::from_bits(4);
+    world[at1 + 7] = f32::from_bits(1);
+
+    // Because (body0.mask & body1.layer) == (2 & 4) == 0, they should NOT collide or separate!
+    let initial_x0 = pos[0];
+    let initial_x1 = pos[4];
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert_eq!(pos[0], initial_x0, "body 0 was moved despite mask mismatch");
+    assert_eq!(pos[4], initial_x1, "body 1 was moved despite mask mismatch");
+
+    // Now change body 1 layer to 2 (so body 0 mask 2 matches body 1 layer 2, AND body 1 mask 1 matches body 0 layer 1)
+    world[at1 + 6] = f32::from_bits(2);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert!(pos[0] < initial_x0, "body 0 did not separate when masks matched");
+    assert!(pos[4] > initial_x1, "body 1 did not separate when masks matched");
 }
 

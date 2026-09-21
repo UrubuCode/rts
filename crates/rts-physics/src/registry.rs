@@ -165,7 +165,7 @@ fn describe(needs: &Needs) -> &'static str {
     if needs.angular {
         return "angular velocity and torque";
     }
-    if (needs.joints) {
+    if needs.joints {
         return "joints";
     }
     if needs.deterministic {
