@@ -232,6 +232,13 @@ pub fn lower(
             // that rather than as a second thing: which handlers a raise matches is
             // decided by its tag, and a tag is what may be thrown, which is the one
             // question `unwind`'s own header refuses to answer for a language.
+            // A CLEANUP IS COPIED, and copying it is the machine's business: which
+            // paths need it is `unwind::plan_unwind` and `plan_normal_exit`, computed
+            // from the region tree. So this waits on the same declaration a region
+            // does -- without a tag there is no plan to copy it into.
+            Terminator::CleanupDone => {
+                return Err(Unlowerable::NeedsHandlerTag(crate::region::RegionId(0)));
+            }
             Terminator::Raise(_) => {
                 return Err(Unlowerable::NeedsHandlerTag(crate::region::RegionId(0)));
             }

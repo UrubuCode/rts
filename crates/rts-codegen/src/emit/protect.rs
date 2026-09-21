@@ -110,7 +110,7 @@ pub fn emit_throw(
 /// Does not descend into a nested function or class, for the reason
 /// [`super::suspends`] gives about the same boundary: a `return` written inside
 /// one leaves THAT function.
-fn leaves_abruptly(body: &[Stmt]) -> bool {
+pub(crate) fn leaves_abruptly(body: &[Stmt]) -> bool {
     // A `yield` or an `await` counts, and the reason is one step downstream: a
     // suspending body is rewritten by `frame::resumable_form`, which turns each
     // `Suspend` into a RETURN with a resume label. So `finally { yield "fin" }`

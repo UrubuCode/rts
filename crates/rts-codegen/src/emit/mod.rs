@@ -90,7 +90,7 @@ mod page;
 mod primordial;
 mod program_facts;
 mod property;
-mod protect;
+pub(crate) mod protect;
 mod proven;
 mod receiver;
 mod regex;

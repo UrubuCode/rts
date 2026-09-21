@@ -1802,14 +1802,106 @@ fn an_assignment_in_a_protected_body_is_refused_with_its_reason() {
     );
 }
 
-/// `finally` runs on every way out, so it is not a block reached from one place.
+/// A `finally` is a CLEANUP PIECE, and this test replaced one asserting it was refused
+/// for running on every way out. It does run on every way out, and routing those paths
+/// was never this lowering's job: `unwind::plan_unwind` computes which need it and the
+/// cleanup is COPIED into each. What is built here is one piece with one exit.
 #[test]
-fn a_finally_is_refused_because_it_runs_on_every_exit() {
-    let refused = only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }")
-        .expect_err("a finally");
-    assert!(matches!(refused, Unsupported::Statement(_)));
-    let bare = only("function f(o) { try { o.m(); } finally { o.n(); } }").expect_err("no catch");
-    assert!(matches!(bare, Unsupported::Statement(_)));
+fn a_finally_is_a_cleanup_piece_on_its_region() {
+    let lowered =
+        only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let protected = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.region_of(*held).is_some())
+        .expect("a protected block");
+    let region = lowered
+        .func
+        .region(lowered.func.region_of(protected).unwrap());
+    let entry = region.cleanup.expect("the region carries a cleanup");
+    // ONE ENTRY AND NO PARAMETER: nothing jumps to a cleanup, so no edge could carry
+    // one -- the same argument the handler's single parameter rests on, reaching the
+    // opposite answer because a cleanup is not handed a value.
+    assert!(lowered.func.block(entry).params.is_empty());
+    assert!(lowered.func.predecessors(entry).is_empty());
+    assert_eq!(
+        lowered.func.block(entry).terminator,
+        Some(Terminator::CleanupDone)
+    );
+}
+
+/// A `try` with no `catch` is now ordinary, and the refusal that stood here called it
+/// "only a finally". `Region::handler` is an Option precisely so that a region can
+/// protect nothing and still clean up.
+#[test]
+fn a_try_with_only_a_finally_is_a_region_with_no_handler() {
+    let lowered = only("function f(o) { try { o.m(); } finally { o.n(); } }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let protected = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.region_of(*held).is_some())
+        .expect("a protected block");
+    let region = lowered
+        .func
+        .region(lowered.func.region_of(protected).unwrap());
+    assert_eq!(region.handler, None);
+    assert!(region.cleanup.is_some());
+}
+
+/// The cleanup block is created BEFORE the region opens, which is what puts it outside
+/// the region it cleans up after. Inside its own region, a `finally` that threw would
+/// re-enter its own `catch`.
+#[test]
+fn a_cleanup_is_outside_the_region_it_cleans_up_after() {
+    let lowered =
+        only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }").expect("covered");
+    let protected = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.region_of(*held).is_some())
+        .expect("a protected block");
+    let of = lowered.func.region_of(protected).unwrap();
+    let entry = lowered.func.region(of).cleanup.unwrap();
+    assert_ne!(lowered.func.region_of(entry), Some(of));
+}
+
+/// A `finally` that can complete ABRUPTLY is a different shape, not a missing feature:
+/// `try { return "t" } finally { return "f" }` answers "f", and a return inside a
+/// copied cleanup is a terminator with no successor -- a copy left through a path the
+/// unwind knows nothing about, which the machine's verifier names.
+#[test]
+fn a_finally_that_can_complete_abruptly_is_refused_as_the_wrong_shape() {
+    let refused = only("function f(o) { try { return 1; } finally { return 2; } }")
+        .expect_err("an abrupt finally");
+    assert_eq!(
+        refused,
+        Unsupported::Statement(
+            "a finally that can complete abruptly is a handler rather than a cleanup"
+        )
+    );
+}
+
+/// A cleanup BESIDE a handler that assigns is refused for a reason neither half has
+/// alone: the cleanup is copied into the body's exit and the handler's, and those two
+/// disagree about what the binding holds.
+#[test]
+fn a_cleanup_beside_an_assigning_handler_is_refused_because_the_copies_disagree() {
+    let refused =
+        only("function f(o) { let x = 1; try { o.m(); } catch (e) { x = 2; } finally { o.n(); } return x; }")
+            .expect_err("the copies disagree");
+    assert_eq!(
+        refused,
+        Unsupported::Statement(
+            "a cleanup beside a handler that assigns needs a cell, because the copies disagree"
+        )
+    );
+    // Each half ALONE is fine, which is what makes this a combination and not either.
+    only("function f(o) { let x = 1; try { o.m(); } catch (e) { x = 2; } return x; }")
+        .expect("a handler that assigns, with no cleanup");
+    only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }")
+        .expect("a cleanup, with a handler that assigns nothing");
 }
 
 /// A `throw` is a TERMINATOR, and this test replaced one asserting it was refused for

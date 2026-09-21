@@ -179,6 +179,7 @@ fn terminator(end: &Terminator) -> String {
         Terminator::Return(None) => "return".to_owned(),
         Terminator::Fall(point) => format!("fall p{}", point.0),
         Terminator::Raise(held) => format!("raise {}", value_of(*held)),
+        Terminator::CleanupDone => "cleanup done".to_owned(),
         Terminator::Unreachable => "unreachable".to_owned(),
     }
 }

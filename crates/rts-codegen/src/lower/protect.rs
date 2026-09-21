@@ -36,14 +36,41 @@
 //! refused, by name. What lowers is the shape that needs no cell: a body that reads and
 //! calls, and a handler that does what it likes.
 //!
-//! # Why `finally` is refused
+//! # `finally` is a CLEANUP PIECE, and the graph does not route the paths
 //!
-//! It runs on EVERY way out — falling off the end, `return`, a raise the handler did
-//! not take, a `break` that leaves the region — so it is not a block reached from one
-//! place. Each of those paths has to route through it and then carry on to where it was
-//! going, which is the cleanup CHAIN the machine's regions carry and this lowering does
-//! not build. A block placed after the `try` would run it on the falling-off path and
-//! silently skip it on the other three.
+//! The refusal that stood here said a `finally` *"is not a block reached from one
+//! place"* and that each path out has to route through it — true, and it made the
+//! wrong thing this lowering's problem. Which paths need a cleanup is
+//! `rts_cranelift::unwind::plan_unwind` and `plan_normal_exit`, computed from the
+//! region tree; a cleanup is then COPIED into each of them. So what this builds is
+//! one piece with one entry and one exit, and `Terminator::CleanupDone` is what says
+//! structurally that it has one exit.
+//!
+//! The cleanup block is created BEFORE the region is opened, which is what puts it
+//! outside the region it cleans up after. That is not a detail: a cleanup inside its
+//! own region would be protected by the handler it runs on the way out of, so a
+//! `finally` that threw would re-enter its own `catch`.
+//!
+//! # What is refused, and it is a different shape rather than a missing feature
+//!
+//! **A `finally` that can complete ABRUPTLY.** `try { return "t" } finally { return
+//! "f" }` answers `"f"`: the language says an abrupt completion in the `finally`
+//! REPLACES the pending one, so the return happens and the unwind is abandoned. A
+//! `return` inside a copied cleanup is a terminator with no successor, which is a
+//! copy left through a path the unwind knows nothing about — the machine's verifier
+//! names it, `CleanupDoesNotEnd`.
+//!
+//! The shape that IS correct for it is a catch-all handler rather than a cleanup: a
+//! `return` in a handler is an ordinary return, and re-raising when the body falls
+//! off its end is what puts the pending throw back. `emit/protect.rs` already builds
+//! both shapes and chooses between them, and this lowering builds one of the two.
+//!
+//! **The predicate is SHARED with that file rather than written again here.**
+//! `emit::protect::leaves_abruptly` over-approximates in the safe direction — a
+//! `break` belonging to a loop written inside the `finally` counts although it never
+//! leaves — and a second copy of a rule whose safe direction is stated in prose is a
+//! second place for the direction to be got backwards. Its home is `syntax/` rather
+//! than either emitter, which is where it goes when the walkers move there.
 
 use rts_mir::Domain;
 use rts_mir::cfg::{Terminator, ValueId};
@@ -61,16 +88,32 @@ impl Lowering<'_> {
         finally: Option<&Vec<Stmt>>,
         at: &Stmt,
     ) -> Result<bool, Unsupported> {
-        if finally.is_some() {
+        if let Some(cleanup) = finally {
+            if crate::emit::protect::leaves_abruptly(cleanup) {
+                return Err(Unsupported::Statement(
+                    "a finally that can complete abruptly is a handler rather than a cleanup",
+                ));
+            }
+            // THE SAME CELL THE PROTECTED BODY WAITS ON. A cleanup is copied into
+            // each path that needs it, so a binding it assigns is assigned in every
+            // copy -- and what each copy leaves has to merge somewhere the copies do
+            // not share. That is memory, not an SSA value.
+            for statement in cleanup.iter() {
+                if !self.carried_now(self.assigned_in(statement)?).is_empty() {
+                    return Err(Unsupported::Statement(
+                        "an assignment in a cleanup is assigned once per copy, which needs a cell",
+                    ));
+                }
+            }
+        }
+        // A `try` WITH NO CATCH IS NOW ORDINARY, and the refusal that stood here
+        // called it "only a finally". `Region::handler` is an `Option` precisely so
+        // that a region can protect nothing and still clean up.
+        if catch.is_none() && finally.is_none() {
             return Err(Unsupported::Statement(
-                "a finally runs on every way out, which needs the cleanup chain",
+                "a try with neither a catch nor a finally protects nothing",
             ));
         }
-        let Some(catch) = catch else {
-            return Err(Unsupported::Statement(
-                "a try with no catch is only a finally, which needs the cleanup chain",
-            ));
-        };
 
         // THE BODY MAY NOT ASSIGN A CARRIED BINDING. The header carries the reason: an
         // exception edge has no jump, so there is nothing to carry an argument along
@@ -86,16 +129,37 @@ impl Lowering<'_> {
         // What the HANDLER assigns is another matter: it is reached by one edge and
         // leaves by one, so its writes merge at the join like any other arm's.
         let mut assigned = std::collections::BTreeSet::new();
-        for statement in &catch.body {
+        for statement in catch.iter().flat_map(|held| held.body.iter()) {
             assigned.extend(self.assigned_in(statement)?);
         }
         let carried: Vec<BindingId> = self.carried_now(assigned);
+        // A CLEANUP BESIDE A HANDLER THAT ASSIGNS is the one combination refused for a
+        // reason neither half has alone. The cleanup is copied into the path out of the
+        // body AND the path out of the handler, and those two disagree about what the
+        // binding holds -- so one copy would read a value the other's path defined.
+        // Each half is fine on its own; together they need the cell.
+        if finally.is_some() && !carried.is_empty() {
+            return Err(Unsupported::Statement(
+                "a cleanup beside a handler that assigns needs a cell, because the copies disagree",
+            ));
+        }
 
-        let handler = self.builder.block();
-        // The raised value, and nothing else. A handler takes exactly one parameter
-        // because exactly one thing arrives with the exception.
-        let raised = self.builder.param(handler);
-        self.types.insert(raised, self.domain.top());
+        // BOTH BLOCKS BEFORE THE REGION OPENS, which is what puts them outside it. For
+        // the cleanup that is load-bearing and the header says why: inside its own
+        // region, a `finally` that threw would re-enter its own `catch`.
+        let handler = catch.map(|_| {
+            let block = self.builder.block();
+            // The raised value, and nothing else. A handler takes exactly one
+            // parameter because exactly one thing arrives with the exception.
+            let raised = self.builder.param(block);
+            self.types.insert(raised, self.domain.top());
+            (block, raised)
+        });
+        // A cleanup takes NO parameter. Nothing jumps to it either -- it is copied --
+        // so there is no edge to carry one, which is the same argument the handler's
+        // single parameter rests on, reaching the opposite answer because a cleanup is
+        // not handed a value.
+        let cleanup = finally.map(|_| self.builder.block());
 
         let join = self.builder.block();
         let joined: Vec<ValueId> = carried
@@ -116,7 +180,8 @@ impl Lowering<'_> {
             args: Vec::new(),
         });
         self.builder.switch_to(protected);
-        self.builder.open_region(Some(handler), None);
+        self.builder
+            .open_region(handler.map(|(block, _)| block), cleanup);
         let ended = self.statements(body)?;
         if !ended {
             self.builder.end(Terminator::Jump {
@@ -126,43 +191,62 @@ impl Lowering<'_> {
         }
         self.builder.close_region();
 
+        // THE CLEANUP PIECE. One entry, and `CleanupDone` is what makes its single exit
+        // structural -- a piece that fell off its end would be a copy the unwind never
+        // finishes. Lowered from the values as they stood BEFORE the `try`, which is
+        // sound here only because of the two refusals above: neither the body nor the
+        // cleanup assigns a carried binding, and a handler that does is refused beside
+        // a cleanup.
+        if let (Some(entry), Some(statements)) = (cleanup, finally) {
+            self.builder.switch_to(entry);
+            for (binding, held) in carried.iter().zip(&before) {
+                self.values.insert(*binding, *held);
+            }
+            let ended = self.statements(statements)?;
+            if !ended {
+                self.builder.end(Terminator::CleanupDone);
+            }
+        }
+
         // THE HANDLER, outside the region it handles — a raise inside a `catch` is not
         // caught by its own `try`, which is what closing the region before switching
         // here says.
-        self.builder.switch_to(handler);
-        // THE CLAUSE HAS ITS OWN SCOPE, which is where the caught value is bound. Without
-        // entering it the binding is not found at all and the name reads as a global --
-        // which is exactly what the first run of this reported.
-        let Some(clause) = self.resolution.catch_scope(at.at) else {
-            return Err(Unsupported::NoScope);
-        };
-        let outer = std::mem::replace(&mut self.scope, clause);
-        match &catch.binding {
-            Some(Pattern::Name(name)) => {
-                let target = Expr {
-                    kind: ExprKind::Ident(*name),
-                    at: at.at,
-                };
-                let of = self.type_of(raised);
-                self.bind(*name, raised, of, &target)?;
+        if let (Some((block, raised)), Some(catch)) = (handler, catch) {
+            self.builder.switch_to(block);
+            // THE CLAUSE HAS ITS OWN SCOPE, which is where the caught value is bound.
+            // Without entering it the binding is not found at all and the name reads as
+            // a global -- which is exactly what the first run of this reported.
+            let Some(clause) = self.resolution.catch_scope(at.at) else {
+                return Err(Unsupported::NoScope);
+            };
+            let outer = std::mem::replace(&mut self.scope, clause);
+            match &catch.binding {
+                Some(Pattern::Name(name)) => {
+                    let target = Expr {
+                        kind: ExprKind::Ident(*name),
+                        at: at.at,
+                    };
+                    let of = self.type_of(raised);
+                    self.bind(*name, raised, of, &target)?;
+                }
+                // A pattern binding destructures what was raised, which is the same
+                // question a declaration asks and gets the same answer.
+                Some(other) => {
+                    let target = Expr {
+                        kind: ExprKind::This,
+                        at: at.at,
+                    };
+                    self.destructure(other, raised, &target)?;
+                }
+                // `catch {}` receives the value and ignores it.
+                None => {}
             }
-            // A pattern binding destructures what was raised, which is the same
-            // question a declaration asks and gets the same answer.
-            Some(other) => {
-                let target = Expr {
-                    kind: ExprKind::This,
-                    at: at.at,
-                };
-                self.destructure(other, raised, &target)?;
+            let ended = self.statements(&catch.body);
+            self.scope = outer;
+            if !ended? {
+                let args: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
+                self.builder.end(Terminator::Jump { target: join, args });
             }
-            // `catch {}` receives the value and ignores it.
-            None => {}
-        }
-        let ended = self.statements(&catch.body);
-        self.scope = outer;
-        if !ended? {
-            let args: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
-            self.builder.end(Terminator::Jump { target: join, args });
         }
 
         self.builder.switch_to(join);

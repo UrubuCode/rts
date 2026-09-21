@@ -70,6 +70,12 @@ pub enum Malformed {
     /// not receive the value would have to find it somewhere else, and somewhere else
     /// is a side channel that outlives the frame it belongs to.
     HandlerTakesNoValue(BlockId),
+    /// A block ends a cleanup, and is in no region's cleanup piece.
+    ///
+    /// The machine copies a cleanup into each path that needs it, and finds those
+    /// paths from the region tree. A `CleanupDone` nothing owns is a piece that is
+    /// never copied anywhere -- dead in a way that looks like an exit.
+    CleanupOutsideARegion(BlockId),
     /// An instruction parks the frame in a function that does not say it may.
     ///
     /// `FuncBuilder` derives the flag, so this is unreachable through it and is here
@@ -105,6 +111,25 @@ pub fn verify(func: &Func) -> Result<(), Malformed> {
     }
 
     // WHAT THE FUNCTION CLAIMS ABOUT ITSELF, against what its body does.
+    // EVERY BLOCK OF EVERY CLEANUP PIECE, reachable from the entry each region
+    // names. A piece may branch and merge inside itself and may end in several
+    // blocks, which is what `Terminator::CleanupDone`'s own doc states, so a
+    // one-block test would reject a cleanup that does anything at all.
+    let mut in_a_cleanup: BTreeSet<BlockId> = BTreeSet::new();
+    let mut walk: Vec<BlockId> = func
+        .regions
+        .iter()
+        .filter_map(|region| region.cleanup)
+        .collect();
+    while let Some(held) = walk.pop() {
+        if held.0 >= blocks || !in_a_cleanup.insert(held) {
+            continue;
+        }
+        if let Some(end) = &func.block(held).terminator {
+            walk.extend(end.successors());
+        }
+    }
+
     if !func.may_suspend {
         for block in func.block_ids() {
             for inst in &func.block(block).insts {
@@ -171,6 +196,17 @@ pub fn verify(func: &Func) -> Result<(), Malformed> {
             // not an error either way: a raise with no enclosing region leaves the
             // function, which is what an uncaught throw does.
             Terminator::Raise(_) => {}
+            // A CLEANUP ENDS IN A PIECE SOMETHING OWNS, and which piece is found by
+            // walking out from each region's cleanup entry -- not by asking
+            // `region_of`, because a cleanup block is created BEFORE its region is
+            // opened and therefore belongs to whatever encloses it, never to the
+            // region whose cleanup it is. Asking the wrong one of those two would
+            // reject every correct cleanup.
+            Terminator::CleanupDone => {
+                if !in_a_cleanup.contains(&block) {
+                    return Err(Malformed::CleanupOutsideARegion(block));
+                }
+            }
             Terminator::Jump { target, args } => {
                 arity(block, *target, args.len(), func.block(*target).params.len())?;
             }

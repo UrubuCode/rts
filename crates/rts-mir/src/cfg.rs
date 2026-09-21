@@ -197,6 +197,24 @@ pub enum Terminator {
     /// Not a call and not an unwind: the generic body of the same function has a
     /// resume label at this `PointId`, in the same binary. README rule 8.
     Fall(PointId),
+    /// Ends a cleanup, handing control back to whatever brought us into it.
+    ///
+    /// # Why a cleanup has one exit and no continuation parameter
+    ///
+    /// Because it is COPIED into each path that needs it rather than jumped to, and
+    /// `rts_cranelift::ir::Terminator::CleanupDone` -- which this is the neutral form
+    /// of -- says why the alternative lost: a parameter naming where to continue
+    /// *"would make every cleanup able to reach every continuation, which is an edge
+    /// in the graph for every pair and no useful analysis afterwards"*, and the
+    /// representation has no indirect branch to lower it to anyway.
+    ///
+    /// A cleanup is a PIECE and not a block. It may branch and merge inside itself,
+    /// and more than one of its blocks may end this way: several are still one exit,
+    /// because they all leave to the same place.
+    ///
+    /// This is what makes "one entry, one exit" structural instead of hoped for, and
+    /// `verify` refuses it outside a cleanup piece for that reason.
+    CleanupDone,
     /// Raising: control leaves along the enclosing region's exception edge.
     ///
     /// # Why it is a terminator and has no successor
@@ -244,6 +262,7 @@ impl Terminator {
             Terminator::Return(_)
             | Terminator::Fall(_)
             | Terminator::Raise(_)
+            | Terminator::CleanupDone
             | Terminator::Unreachable => Vec::new(),
         }
     }
@@ -265,7 +284,10 @@ impl Terminator {
             }
             Terminator::Return(Some(value)) => vec![*value],
             Terminator::Raise(value) => vec![*value],
-            Terminator::Return(None) | Terminator::Fall(_) | Terminator::Unreachable => Vec::new(),
+            Terminator::Return(None)
+            | Terminator::Fall(_)
+            | Terminator::CleanupDone
+            | Terminator::Unreachable => Vec::new(),
         }
     }
 }
