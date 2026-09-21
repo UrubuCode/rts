@@ -824,6 +824,12 @@ here as a share.
 | 1 | `**` has no row | 20 | a super call |
 | 1 | `>>>` has no row | 18 | a `finally` that completes abruptly |
 
+**Re-measured after the gathering half: `bench/` 357 of 397, `tests/` 3 089 of 3 473.**
+The two columns above are unchanged row for row — what left was `an array literal with
+a hole or a spread`, which was the ninth row of the right-hand column and is not in the
+eight shown. Recorded rather than silently dropped, because a table that only ever
+loses its visible rows would make the work look like it had stopped.
+
 **`an iteration protocol` was the TOP row of the left-hand column and is gone from both**
 — 8 of 14 files in `bench/` and 27 of the sample. The section at the end of this
 document has it. `a throw` and a plain `finally` left the same way one block earlier.
@@ -847,12 +853,18 @@ rather than reduced.
 on every way out — and together they were 106 of this sample, the largest thing on the
 list by a distance. Both are done; the section at the end has them.
 
-**That redirection was taken too.** `for`-`of` and the array pattern step the iterator
-and close it, on the cleanup chain the block before built. What is LEFT of the group is
-the half that gathers rather than steps — a rest parameter at 22, an array literal with
-a spread at 12, and an array rest target — and they share one missing operation rather
-than the protocol: each drains from the CURRENT position into an array, which needs an
-append. `yield*` is still in this group.
+**That redirection was taken too, and it contained an error of mine.** `for`-`of` and
+the array pattern step the iterator and close it, on the cleanup chain the block before
+built. The gathering half — an array literal with a spread, and an array rest target —
+is done as well, on `array_append` and `array_append_all`.
+
+**A rest PARAMETER was in that list and does not belong to it.** `function f(...r)`
+gathers the call's ARGUMENTS, not an iterable: it needs the argument count at run time,
+which is a calling convention and therefore the machine's. It is refused as a function
+SHAPE and always was; what was wrong is the grouping, not the refusal. 22 of the sample
+sat under the wrong heading because two things both use the word "rest".
+
+`yield*` is still in the stepping group.
 
 A bigint literal is a second numeric tower and is nobody's next hour, whatever its
 count says.
@@ -1307,3 +1319,77 @@ and inventing a row for them from the full-corpus delta would be a number nobody
 And per file against a kept binary at every step, on both corpora, with the
 denominator unmoved: `bench/` 345 → **356** of 397, `tests/` 14 323 → **15 170** of
 17 194. **The LOST list is empty at each of the five.**
+
+---
+
+## The gathering half, and the word that grouped two different things
+
+Two entry points already existed — `array_append` and `array_append_all`, both
+answering the array so calls chain — so this half was declaring them in the
+language's table and using them.
+
+### A literal with a spread is BUILT, not counted
+
+The refusal said *"the element count would stop being the count written"*. True,
+and the count is not what `NewArray` has to be given: it needs the **elements**.
+So one empty array and an append per element, in source order.
+
+A literal with no spread is unchanged, and a test pins that it emits **no call at
+all** — `[a, b, c]` must not start paying for a feature it does not use. Keeping
+both shapes is not two answers to one question: it is one answer whose input
+differs, and which one applies is settled by the syntax rather than guessed from
+the graph.
+
+A **hole** is still refused, now under its own name rather than sharing the
+spread's. `[, 1]` has a hole some operations skip and others read as `undefined`,
+and collapsing them loses that.
+
+### A rest target is a LOOP, and the drain that looks right is not
+
+`ArrayAppendAll` drains an iterable from the **start**; a rest target gathers what
+this iterator has **left**, and the two differ by however many slots came before
+it.
+
+Handing the iterator to the drain would have compiled, and would be right for every
+**built-in** iterator — those answer themselves from `Symbol.iterator`. A
+hand-written one need not, and then the drain restarts the source or raises. That is
+the same class of defect as reading `value` past `done`: **correct until someone
+writes their own iterator**, which is the second time this block has met it.
+
+So the loop is built, from the same step the slots use and one `ArrayAppend` per
+pass. It carries one value across its back edge — the array — and it carries the
+**append's answer** rather than the array it was handed. They are the same object
+today and the entry point answers one deliberately, so passing the operand instead
+would be reading a value whose definition does not dominate the next pass.
+
+Gathering **cannot close**, and that is not an omission: it runs until the iterator
+reports `done`, which is the one way out that owes nothing. A test pins it by
+counting the nullish test — one for a pattern that stops early, zero for one with a
+rest target.
+
+### The error in the entry above, which was mine
+
+A rest **parameter** was grouped with these. It does not belong: `function f(...r)`
+gathers the call's **arguments**, not an iterable. It needs the argument count at
+run time, which is a calling convention and therefore the machine's, and it is
+refused as a function SHAPE — as it always was. The refusal was right and the
+grouping was wrong.
+
+22 of the sample sat under the wrong heading because two different things are both
+spelled "rest". Worth recording as its own kind of mistake: every other correction
+in this document is a refusal that turned out to be answerable, and this one is a
+**work list that pointed at the wrong crate**. A plan can be wrong in that
+direction too, and nothing measured would have caught it — the count was real, the
+grouping was not.
+
+### Where it stands
+
+| measured after | `bench/` | `tests/`, every fifth file |
+|---|---:|---:|
+| the suspension | 347 of 397 | 2 978 of 3 473 |
+| `CleanupDone` | 349 | 3 053 |
+| the array pattern | 356 | 3 078 |
+| the gathering half | **357** | **3 089** |
+
+Per file against a kept binary at every step, both corpora, denominator unmoved,
+**LOST empty at all six**.
