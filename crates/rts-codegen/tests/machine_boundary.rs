@@ -860,3 +860,48 @@ fn a_call_with_more_arguments_than_slots_is_refused_and_not_truncated() {
     .expect_err("five arguments, four slots");
     assert!(said(refused).contains("needs the vector form"));
 }
+
+/// **A `: string` claim earns no guard**, and that is rule 4 applied strictly rather than a
+/// gap. Nothing can check it: a string is a reference to a heap value whose layout is the
+/// runtime's, no `TypeId` for text is declared anywhere — `rts-host` builds its
+/// `TypeRegistry` empty — and `guard_type` has no caller in this crate at all.
+///
+/// So the machine had no way to verify it and the lattice was claiming `Str` after a guard
+/// that checked nothing. An annotation is evidence and a guard makes it proof; where no
+/// guard can check it, there is no proof to be had.
+///
+/// `Type::Str` is not lost, which is the half that makes this safe to do: a string LITERAL
+/// narrows to it soundly and with no guard, and that is what keeps the `Add`-over-a-string
+/// row of the lattice earning its keep.
+#[test]
+fn a_string_claim_earns_no_guard_because_nothing_can_check_it() {
+    assert_eq!(guards("function f(a: string) { return a; }"), 0);
+    // And the number claim still does, which is what says this is about `string` and not
+    // about claims.
+    assert_eq!(guards("function f(a: number) { return a; }"), 1);
+}
+
+/// A string LITERAL still narrows to `Str`, with no guard, because the value is known rather
+/// than claimed — so the lattice keeps the fact and loses only the unverified claim.
+#[test]
+fn a_string_literal_still_narrows_without_a_guard() {
+    let mut names = Names::new();
+    let program = parse_script("function f() { return \"a\"; }", &mut names).expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Specialised);
+    let graph = lowered.functions[0].result.as_ref().expect("it lowers");
+    let types = rts_mir::infer::infer(graph, &lowered.domain);
+    let text = graph
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Const(rts_mir::Const::Declared(_))))
+        .expect("the literal is a declared constant");
+    assert_eq!(*types.of(text.result), Type::Str);
+    assert!(
+        !graph
+            .insts
+            .iter()
+            .any(|held| matches!(&held.op, rts_mir::Op::Guard { .. })),
+        "nothing was guarded: the value is known"
+    );
+}

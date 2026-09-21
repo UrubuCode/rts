@@ -73,7 +73,26 @@ fn asserted(claim: &Claim) -> Option<JsAssertion> {
     match claim {
         // A JavaScript number is a double. See the header for why this is not `IsInt32`.
         Claim::Number => Some(JsAssertion::IsDouble),
-        Claim::Str => Some(JsAssertion::IsStr),
+        // `string` DOES NOT EARN A GUARD, and this is rule 4 applied strictly rather than
+        // a gap. It used to answer `IsStr`, and nothing could check it: a string is a
+        // reference to a heap value whose layout is the runtime's, no `TypeId` for text is
+        // declared anywhere -- `rts-host` builds its `TypeRegistry` empty -- and
+        // `guard_type` has no caller in this crate at all.
+        //
+        // So the machine had no way to verify it, and the lattice was claiming `Str` after
+        // a guard that checked nothing. An annotation is evidence and a guard makes it
+        // proof; where no guard can check it, there is no proof to be had and the honest
+        // answer is to claim nothing. 46 functions of the `tests/` sample were refused at
+        // the boundary for a guard that bought them nothing.
+        //
+        // `Type::Str` is not lost: a string LITERAL narrows to it, soundly and with no
+        // guard, which is what keeps the `Add`-over-a-string row of the lattice earning
+        // its keep. What went is the claim nothing verified.
+        //
+        // It earns its place back the day text has a declared layout to `guard_type`
+        // against -- and `JsAssertion::IsStr` stays in the table for that, because the
+        // ASSERTION is a fact about this language whether or not a machine can check it.
+        Claim::Str => None,
         _ => None,
     }
 }
