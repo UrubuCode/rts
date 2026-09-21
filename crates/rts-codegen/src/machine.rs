@@ -138,6 +138,23 @@ pub struct JsMachine<'a> {
     /// arriving at the number the compiler chose -- so a second numbering would make
     /// `o[k]` reach a different property from `o.k`.
     names: Option<&'a mut crate::names::Names>,
+    /// The block this function re-raises through, built the first time one is needed.
+    ///
+    /// SHARED among every check, which `emit/expr.rs` measured the cost of not doing: one
+    /// copy per site was 1 069 copies of the identical three lines in `bench/analytic.ts`,
+    /// 20% of every basic block in the file.
+    ///
+    /// Sound because the block reads NOTHING from the site that branches to it -- no
+    /// parameters, and its only instruction is a call with no arguments -- so there is no
+    /// value that has to dominate anything and two sites reaching one copy cannot disagree
+    /// about what it computes.
+    ///
+    /// One per FUNCTION here and not one per region, and that is correct only because this
+    /// boundary refuses a region: where a `Throw` lands is decided by the region its block
+    /// is in, so sharing between a site inside a `try` and one outside would route the
+    /// outer one into a handler that never protected it. When regions arrive this becomes a
+    /// map keyed by region, which is what `BodyState::reraise_in` already is.
+    reraise: Option<rts_cranelift::ir::BlockId>,
 }
 
 /// The machine's own failures travel out as the machine's words.
@@ -199,6 +216,7 @@ impl<'a> JsMachine<'a> {
             receiver: None,
             incoming: Vec::new(),
             names: None,
+            reraise: None,
         }
     }
 
@@ -219,6 +237,7 @@ impl<'a> JsMachine<'a> {
             receiver: None,
             incoming: Vec::new(),
             names: None,
+            reraise: None,
         }
     }
 
@@ -309,6 +328,117 @@ impl<'a> JsMachine<'a> {
     }
 }
 
+impl JsMachine<'_> {
+    /// Calls a runtime operation, coercing each argument and rechecking a throw.
+    ///
+    /// Shared by the entry-point arm and by the primitives that are really calls, because
+    /// those differ only in which table named the operation -- and a second copy of the
+    /// widening rule, the arity check and the throw check is three chances to get one of
+    /// them wrong in one of the two.
+    fn call_runtime(
+        &mut self,
+        into: &mut FuncBuilder,
+        which: crate::runtime::RuntimeOp,
+        args: &[MachineValue],
+    ) -> Result<MachineValue, String> {
+        let declared = which.signature().params;
+        if args.len() != declared.len() {
+            return Err(format!(
+                "{which:?} declares {} parameters and the graph supplied {}",
+                declared.len(),
+                args.len()
+            ));
+        }
+        let mut of_args = Vec::with_capacity(args.len());
+        for (held, want) in args.iter().zip(&declared) {
+            of_args.push(match into.repr_of(*held) == *want {
+                true => *held,
+                false => coerced(into, *held, *want)?,
+            });
+        }
+        let Some(shared) = self.shared.as_deref_mut() else {
+            return Err(format!(
+                "calling {which:?} needs somewhere to declare it, which is the host's agreement"
+            ));
+        };
+        let callee = shared.calls.declare(&mut shared.funcs, which);
+        let produced = into
+            .call(&shared.funcs, callee, &of_args)
+            .map_err(machine)?;
+        let answered = produced
+            .first()
+            .copied()
+            .ok_or_else(|| format!("{which:?} answered nothing, and the graph reads its result"))?;
+        if which.can_raise() {
+            self.recheck_throw(into)?;
+        }
+        Ok(answered)
+    }
+
+    /// Emits, after a call that can raise, the branch a throw in the callee takes.
+    ///
+    /// # Why every such call pays this
+    ///
+    /// A throw leaves ONE frame. The machine records it and returns rather than ending the
+    /// program, so the frame above only learns what happened by asking -- which
+    /// `emit/expr.rs` states and which this boundary did not do, and therefore refused
+    /// every raising call rather than emitting one that ignored the answer.
+    ///
+    /// Re-raising puts the value back into the machine's own hands, which routes it to a
+    /// handler in THIS function through the region tree, or finding none returns and lets
+    /// the frame above ask in turn. That is the whole of cross-frame unwinding here.
+    ///
+    /// Leaves the builder in the block that CARRIES ON, so a caller's next instruction
+    /// lands on the path where nothing was thrown.
+    fn recheck_throw(&mut self, into: &mut FuncBuilder) -> Result<(), String> {
+        let Some(shared) = self.shared.as_deref_mut() else {
+            return Err(
+                "a raising call needs the throw check, which needs somewhere to declare two calls"
+                    .to_owned(),
+            );
+        };
+        let asked = shared
+            .calls
+            .declare(&mut shared.funcs, crate::runtime::RuntimeOp::Thrown);
+        let flag = into.call(&shared.funcs, asked, &[]).map_err(machine)?;
+        let flag = *flag.first().ok_or("Thrown answered nothing")?;
+        let zero = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(0),
+        });
+        let zero = into.use_const(zero);
+        let raised = into
+            .compare(rts_cranelift::ir::CmpOp::Ne, flag, zero)
+            .map_err(machine)?;
+
+        // TERMINATE FIRST, THEN FILL, and the order is not incidental: `emit/expr.rs`
+        // records an earlier draft that created the block, filled it, and only then
+        // terminated the one it had left -- which compiled and reached Cranelift's
+        // verifier with "uses value from non-dominating inst" on a real program.
+        let carrying_on = into.create_block();
+        match self.reraise {
+            Some(built) => into
+                .branch(raised, (built, &[]), (carrying_on, &[]))
+                .map_err(machine)?,
+            None => {
+                let made = into.create_block();
+                into.branch(raised, (made, &[]), (carrying_on, &[]))
+                    .map_err(machine)?;
+                into.switch_to(made);
+                let taken = shared
+                    .calls
+                    .declare(&mut shared.funcs, crate::runtime::RuntimeOp::TakeThrown);
+                let value = into.call(&shared.funcs, taken, &[]).map_err(machine)?;
+                let value = *value.first().ok_or("TakeThrown answered nothing")?;
+                into.throw(crate::emit::protect::JS_THROW, value);
+                self.reraise = Some(made);
+            }
+        }
+        into.switch_to(carrying_on);
+        Ok(())
+    }
+}
+
 impl MachineOps for JsMachine<'_> {
     fn param_repr(&mut self, value: ValueId) -> Repr {
         // A PARAMETER CANNOT REFUSE, because the signature is built before any
@@ -351,6 +481,9 @@ impl MachineOps for JsMachine<'_> {
             });
             let held = into.use_const(held);
             let produced = into.call(&shared.funcs, callee, &[held]).map_err(machine)?;
+            // NO THROW CHECK, and that is `CANNOT_RAISE` being load-bearing rather than
+            // an omission: `StringConst` reads a table the host installed, which is why
+            // it is on that list and why this call is the one a text constant can be.
             return produced.first().copied().ok_or_else(|| {
                 "StringConst answered nothing, and the graph reads its result".to_owned()
             });
@@ -434,6 +567,23 @@ impl MachineOps for JsMachine<'_> {
             return self.receiver.ok_or_else(|| {
                 "the signature declared no receiver, and `this` is one of its parameters".to_owned()
             });
+        }
+
+        // SOME ROWS ARE RUNTIME CALLS WEARING AN OPERATION'S CLOTHES, and this is the
+        // first: `GlobalRead` reads a name no scope declares, through the global object,
+        // and `RuntimeOp::GlobalGet` is what does it. It takes the key and answers the
+        // value, so the graph's operand passes straight through.
+        //
+        // It became the largest single refusal the moment property keys started lowering --
+        // 62 of `bench/` and 66 of `tests/` -- and was invisible before that, because
+        // reading a global takes a key and every one of those functions stopped at the key.
+        //
+        // A PRIM and not an entry in the table, deliberately: the domain's own note says an
+        // entry point would be the wrong shape for it, because what earns `Math.abs` one
+        // instruction is a proof that nobody reassigned `Math`, which is a pass. So the
+        // operation stays an operation in the graph and becomes a call here.
+        if which == JsPrim::GlobalRead {
+            return self.call_runtime(into, crate::runtime::RuntimeOp::GlobalGet, args);
         }
 
         // ARITY FIRST, because it is the accurate reason for a row this slice has no
@@ -594,11 +744,7 @@ impl MachineOps for JsMachine<'_> {
         // `can_raise` is the inverse of a list of eight that `runtime::raising` holds,
         // each naming the `rts-core` body it was read against -- so this is not a guess
         // about which operations throw.
-        if which.can_raise() {
-            return Err(format!(
-                "{which:?} can raise, and this boundary emits no branch-and-reraise after a call"
-            ));
-        }
+
         let Some(Shared { funcs, calls, .. }) = self.shared.as_deref_mut() else {
             return Err(format!(
                 "calling {which:?} needs somewhere to declare it, which is the host's agreement"
@@ -630,10 +776,17 @@ impl MachineOps for JsMachine<'_> {
         // ONE RESULT, because that is what every row of this catalogue answers. A row that
         // answered none would leave the graph with a value nothing defines, which is a
         // different shape and not a missing case.
-        produced
+        let answered = produced
             .first()
             .copied()
-            .ok_or_else(|| format!("{which:?} answered nothing, and the graph reads its result"))
+            .ok_or_else(|| format!("{which:?} answered nothing, and the graph reads its result"))?;
+        // THE CHECK, where the operation can raise. `can_raise` is the inverse of a list of
+        // eight that `runtime::raising` holds, each naming the `rts-core` body it was read
+        // against -- so this is not a guess about which operations throw.
+        if which.can_raise() {
+            self.recheck_throw(into)?;
+        }
+        Ok(answered)
     }
 }
 

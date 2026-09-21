@@ -534,16 +534,17 @@ fn an_entry_point_call_reaches_the_machine() {
     );
 }
 
-/// **A call that can RAISE is refused**, and this is the discipline that comes with the
-/// pattern rather than the pattern itself. `emit/expr.rs` emits a branch-and-reraise after
-/// every runtime call that can throw, because a throw leaves one frame and the frame above
-/// only learns by asking. This boundary does not ask — so emitting the call would let a
-/// program carry on with a garbage value after an exception that should have propagated.
+/// **A call that can raise PAYS the branch-and-reraise**, and this replaced a test that
+/// asserted such a call was refused. The refusal was the right answer while the check did
+/// not exist -- a call emitted without it lets a program carry on with a garbage value
+/// after an exception that should have propagated, which is invisible: the call returns,
+/// the types line up, the verifier is content.
 ///
-/// Refusing was the answer rather than emitting, because that defect is invisible: the
-/// call returns, the types line up, the verifier is content, and the program is wrong.
+/// Now it is emitted. A throw leaves ONE frame, so the frame above only learns by asking,
+/// and re-raising puts the value back in the machine's hands to route through the region
+/// tree — or, finding no handler, to return and let the frame above ask in turn.
 #[test]
-fn a_call_that_can_raise_is_refused_because_nothing_rechecks_the_throw() {
+fn a_call_that_can_raise_emits_the_throw_check() {
     use rts_mir::cfg::{Callee, FuncBuilder as MirBuilder, Op, Terminator};
 
     let mut domain = rts_codegen::domain::Js::new();
@@ -551,13 +552,14 @@ fn a_call_that_can_raise_is_refused_because_nothing_rechecks_the_throw() {
     let mut build = MirBuilder::new(Tier::Generic);
     let block = build.current();
     let array = build.param(block);
+    let iterable = build.param(block);
     let grown = build.push(
         Op::Call {
             callee: Callee::Entry(entry_id),
             receiver: None,
-            args: vec![array],
+            args: vec![array, iterable],
         },
-        rts_mir::Effect::ALLOCATES,
+        rts_mir::Effect::ALLOCATES.and(rts_mir::Effect::THROWS),
         Default::default(),
     );
     build.end(Terminator::Return(Some(grown)));
@@ -565,8 +567,9 @@ fn a_call_that_can_raise_is_refused_because_nothing_rechecks_the_throw() {
 
     let inferred = rts_mir::infer::infer(&graph, &domain);
     let types = TypeRegistry::new();
+    let mut shared = rts_codegen::machine::Shared::default();
     let signature = Signature {
-        params: vec![Repr::Tagged],
+        params: vec![Repr::Tagged, Repr::Tagged],
         returns: vec![Repr::Tagged],
         ..Signature::default()
     };
@@ -578,12 +581,37 @@ fn a_call_that_can_raise_is_refused_because_nothing_rechecks_the_throw() {
         .params
         .clone();
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, machine_entry);
-    let mut ops = JsMachine::new(&domain, inferred);
-    let words = said(
-        lower(&graph, &mut into, &mut ops, &start).expect_err("it can raise, nothing rechecks"),
+    let mut ops = JsMachine::new(&domain, inferred).declaring_in(&mut shared);
+    lower(&graph, &mut into, &mut ops, &start).expect("the call and its check are emitted");
+    drop(into);
+
+    // THE SHAPE, and each part of it is the check: a call to `Thrown`, a comparison, and a
+    // block that takes the value and THROWS. A call emitted without the last one is the
+    // defect this replaced a refusal with.
+    let throws = func.blocks().any(|(_, held)| {
+        matches!(
+            held.terminator,
+            Some(rts_cranelift::ir::Terminator::Throw { .. })
+        )
+    });
+    assert!(throws, "the re-raise block throws");
+    let calls = func
+        .blocks()
+        .flat_map(|(_, held)| held.insts.clone())
+        .filter(|held| {
+            matches!(
+                func.inst(*held).map(|data| &data.inst),
+                Some(rts_cranelift::ir::Inst::Call { .. })
+            )
+        })
+        .count();
+    // THREE: the append, `Thrown`, and `TakeThrown`.
+    assert_eq!(calls, 3, "the append plus the two the check asks");
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new(),
+        "a branch into a throwing block verifies"
     );
-    assert!(words.contains("can raise"), "{words}");
-    assert!(words.contains("ArrayAppendAll"), "which one: {words}");
 }
 
 /// And a boundary with nowhere to declare a call refuses by NAME rather than inventing an
