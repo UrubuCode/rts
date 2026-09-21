@@ -148,6 +148,9 @@ extern "C" fn supports(_e: u64, _this: u64, need: u64, _a1: u64, _a2: u64, _a3: 
         6 => needs.raycast = true,
         7 => needs.overlap = true,
         8 => needs.contact_events = true,
+        9 => needs.level = crate::backend::Level::Simples,
+        10 => needs.level = crate::backend::Level::Orientada,
+        11 => needs.level = crate::backend::Level::Completa,
         // An unknown need answers 0, which is the conservative direction: a
         // program asking about something this build has never heard of is told
         // "no" rather than "yes" by omission.

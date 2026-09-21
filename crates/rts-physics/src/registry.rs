@@ -180,6 +180,11 @@ fn describe(needs: &Needs) -> &'static str {
     if needs.contact_events {
         return "contact events";
     }
+    match needs.level {
+        crate::backend::Level::Simples => {}
+        crate::backend::Level::Orientada => return "orientada physics level",
+        crate::backend::Level::Completa => return "completa physics level",
+    }
     "nothing in particular"
 }
 
@@ -235,6 +240,21 @@ mod tests {
         assert!(matches!(
             select(&backends, &Selection::Any, &needs),
             Err(SelectionError::NoneCapable { .. })
+        ));
+    }
+
+    #[test]
+    fn higher_physics_levels_are_refused_when_unsupported() {
+        let backends = all();
+        let needs_orientada = Needs { level: crate::backend::Level::Orientada, ..Needs::default() };
+        assert!(matches!(
+            select(&backends, &Selection::Any, &needs_orientada),
+            Err(SelectionError::NoneCapable { needs: "orientada physics level" })
+        ));
+        let needs_completa = Needs { level: crate::backend::Level::Completa, ..Needs::default() };
+        assert!(matches!(
+            select(&backends, &Selection::Any, &needs_completa),
+            Err(SelectionError::NoneCapable { needs: "completa physics level" })
         ));
     }
 }
