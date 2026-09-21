@@ -139,6 +139,10 @@ extern "C" fn supports(_e: u64, _this: u64, need: u64, _a1: u64, _a2: u64, _a3: 
         2 => needs.continuous = true,
         3 => needs.angular = true,
         4 => needs.joints = true,
+        5 => needs.deterministic = true,
+        6 => needs.raycast = true,
+        7 => needs.overlap = true,
+        8 => needs.contact_events = true,
         // An unknown need answers 0, which is the conservative direction: a
         // program asking about something this build has never heard of is told
         // "no" rather than "yes" by omission.
