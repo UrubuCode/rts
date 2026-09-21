@@ -131,6 +131,11 @@ impl Js {
         RuntimeOp::RegexNew,
         RuntimeOp::ArrayAppend,
         RuntimeOp::ArrayAppendAll,
+        // THE VALUE A TEXT CONSTANT IS, and the row that makes a declared constant
+        // reachable at all: `runtime::raising::CANNOT_RAISE` holds it, so it is the first
+        // entry point this boundary can actually emit -- every other row it named raises,
+        // and a call that raises is refused for want of a branch-and-reraise.
+        RuntimeOp::StringConst,
     ];
 
     /// The index the IR carries for an entry point.

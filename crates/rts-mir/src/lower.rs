@@ -447,9 +447,24 @@ pub fn lower(
 fn constant(into: &mut FuncBuilder, value: &Const) -> MachineValue {
     use rts_cranelift::ir::{ConstDecl, ScalarBits};
     let decl = match value {
-        Const::Int(held) => ConstDecl::Scalar {
-            repr: Repr::I32,
-            bits: ScalarBits(*held as i32 as u32 as u64),
+        // THE REPRESENTATION COMES FROM THE VALUE, and the version that did not was a
+        // silent wrong answer: `Const::Int` holds an `i64` and this declared every one of
+        // them `I32`, truncating through `as i32`. `Const::Int(5_000_000_000)` became
+        // 705_032_704 with nothing said.
+        //
+        // `I32` WHERE IT FITS and not `I64` always, because the narrow form is the one the
+        // rest of the machine wants: `to_f64` accepts `I32` and refuses `I64`, so a
+        // literal widened here would stop being usable in the double domain every
+        // arithmetic row answers.
+        Const::Int(held) => match i32::try_from(*held) {
+            Ok(fits) => ConstDecl::Scalar {
+                repr: Repr::I32,
+                bits: ScalarBits(fits as u32 as u64),
+            },
+            Err(_) => ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: ScalarBits(*held as u64),
+            },
         },
         Const::Float(held) => ConstDecl::Scalar {
             repr: Repr::F64,

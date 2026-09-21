@@ -406,3 +406,48 @@ fn a_function_that_parks_without_saying_so_is_malformed() {
         Err(Malformed::SuspendsWithoutSaying(_))
     ));
 }
+
+/// **A constant's representation comes from its value**, and the version that did not was a
+/// silent wrong answer: `Const::Int` holds an `i64` and every one was declared `I32` through
+/// an `as i32` cast, so `5_000_000_000` became `705_032_704` with nothing said.
+///
+/// `I32` where it fits and not `I64` always, because the narrow form is the one the rest of
+/// the machine wants — `to_f64` accepts `I32` and refuses `I64`, so a literal widened here
+/// would stop being usable in the double domain every arithmetic row answers.
+#[test]
+fn a_constant_too_large_for_an_i32_is_not_truncated() {
+    for (value, want) in [
+        (0_i64, Repr::I32),
+        (i64::from(i32::MAX), Repr::I32),
+        (i64::from(i32::MIN), Repr::I32),
+        (i64::from(i32::MAX) + 1, Repr::I64),
+        (5_000_000_000, Repr::I64),
+    ] {
+        let mut build = FuncBuilder::new(Tier::Generic);
+        let held = build.push(
+            Op::Const(Const::Int(value)),
+            Effect::PURE,
+            Default::default(),
+        );
+        build.end(Terminator::Return(Some(held)));
+        let graph = build.finish();
+
+        let (mut func, types, funcs) = machine(0);
+        let start = func.entry;
+        let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, start);
+        lower(&graph, &mut into, &mut Integers, &[]).expect("a constant always lowers");
+        drop(into);
+        // THE VERIFIER IS THE JUDGE, and it is the right one: the signature says `I32`, so
+        // a constant that landed as `I64` is a `ReturnRepr` complaint and one that landed
+        // as `I32` is silence. `lower` itself does not check a return's representation --
+        // asking it to was this test's first mechanism and it reported nothing.
+        let found = rts_cranelift::verify(&func, &types, &funcs);
+        match want {
+            Repr::I32 => assert_eq!(found, Vec::new(), "{value} fits and stays an i32"),
+            _ => assert!(
+                !found.is_empty(),
+                "{value} does not fit, so it is an i64 the i32 signature refuses: {found:?}"
+            ),
+        }
+    }
+}

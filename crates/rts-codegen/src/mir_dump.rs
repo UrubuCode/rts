@@ -355,6 +355,9 @@ pub fn describe_machine(source: &str) -> Result<String, String> {
     );
     let found = lowered.functions.len();
     let mut out = String::new();
+    // ONE REGISTRY FOR THE MODULE, shared across every function, which is what a real
+    // build does and what makes this instrument measure the same thing.
+    let mut shared = crate::machine::Shared::default();
     let mut reached = 0usize;
     let mut no_graph = 0usize;
     for (at, entry) in lowered.functions.iter().enumerate() {
@@ -372,7 +375,12 @@ pub fn describe_machine(source: &str) -> Result<String, String> {
                 // the generic body of the same function. A real build declares it; here it
                 // only has to exist for the fall to name something.
                 let twin = rts_mir::cfg::FuncId(at as u32);
-                match crate::machine::reaches_machine(func, &lowered.domain, Some(twin)) {
+                match crate::machine::reaches_machine(
+                    func,
+                    &lowered.domain,
+                    Some(twin),
+                    &mut shared,
+                ) {
                     Ok(()) => {
                         reached += 1;
                         out.push_str(&format!("fn {} — REACHES THE MACHINE\n", entry.named));

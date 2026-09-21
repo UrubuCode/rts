@@ -460,22 +460,27 @@ fn an_entry_point_call_reaches_the_machine() {
     use rts_mir::cfg::{Callee, FuncBuilder as MirBuilder, Op, Terminator};
 
     let mut domain = rts_codegen::domain::Js::new();
-    let entry_id = domain.entry_point(rts_codegen::runtime::RuntimeOp::ArrayAppendAll);
+    let entry_id = domain.entry_point(rts_codegen::runtime::RuntimeOp::StringConst);
     let mut build = MirBuilder::new(Tier::Generic);
     let block = build.current();
-    let array = build.param(block);
-    let iterable = build.param(block);
+    // ONE i64 INDEX, which is `StringConst`'s declared shape: it answers the value a
+    // text constant of that index is. Chosen because it is on `CANNOT_RAISE` -- the two
+    // array appends both raise, and this boundary refuses those by name.
+    //
+    // A PARAMETER and not a literal, because a literal that fits in an `i32` is declared
+    // `I32` -- deliberately, so the double domain can use it -- and the machine has no
+    // integer widening to reach `I64` with. The signature is this test's to choose.
+    let index = build.param(block);
     let grown = build.push(
         Op::Call {
             callee: Callee::Entry(entry_id),
             receiver: None,
-            args: vec![array, iterable],
+            args: vec![index],
         },
-        rts_mir::Effect::ALLOCATES
-            .and(rts_mir::Effect::CALLS_USER)
-            .and(rts_mir::Effect::THROWS),
+        rts_mir::Effect::ALLOCATES,
         Default::default(),
     );
+    let _ = block;
     build.end(Terminator::Return(Some(grown)));
     let graph = build.finish();
     assert_eq!(rts_mir::verify(&graph), Ok(()));
@@ -485,7 +490,7 @@ fn an_entry_point_call_reaches_the_machine() {
     let mut funcs = FuncRegistry::new();
     let mut calls = rts_codegen::runtime::RuntimeCalls::new();
     let signature = Signature {
-        params: vec![Repr::Tagged, Repr::Tagged],
+        params: vec![Repr::I64],
         returns: vec![Repr::Tagged],
         ..Signature::default()
     };
@@ -509,15 +514,20 @@ fn an_entry_point_call_reaches_the_machine() {
     );
 }
 
-/// And a boundary with nowhere to declare one refuses by NAME rather than inventing an id,
-/// which is the case that would otherwise emit a call to a function nobody supplied — a
-/// crash inside compiled code rather than a refusal.
+/// **A call that can RAISE is refused**, and this is the discipline that comes with the
+/// pattern rather than the pattern itself. `emit/expr.rs` emits a branch-and-reraise after
+/// every runtime call that can throw, because a throw leaves one frame and the frame above
+/// only learns by asking. This boundary does not ask — so emitting the call would let a
+/// program carry on with a garbage value after an exception that should have propagated.
+///
+/// Refusing was the answer rather than emitting, because that defect is invisible: the
+/// call returns, the types line up, the verifier is content, and the program is wrong.
 #[test]
-fn a_boundary_with_nowhere_to_declare_refuses_the_call() {
+fn a_call_that_can_raise_is_refused_because_nothing_rechecks_the_throw() {
     use rts_mir::cfg::{Callee, FuncBuilder as MirBuilder, Op, Terminator};
 
     let mut domain = rts_codegen::domain::Js::new();
-    let entry_id = domain.entry_point(rts_codegen::runtime::RuntimeOp::ArrayAppend);
+    let entry_id = domain.entry_point(rts_codegen::runtime::RuntimeOp::ArrayAppendAll);
     let mut build = MirBuilder::new(Tier::Generic);
     let block = build.current();
     let array = build.param(block);
@@ -549,8 +559,62 @@ fn a_boundary_with_nowhere_to_declare_refuses_the_call() {
         .clone();
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, machine_entry);
     let mut ops = JsMachine::new(&domain, inferred);
+    let words = said(
+        lower(&graph, &mut into, &mut ops, &start).expect_err("it can raise, nothing rechecks"),
+    );
+    assert!(words.contains("can raise"), "{words}");
+    assert!(words.contains("ArrayAppendAll"), "which one: {words}");
+}
+
+/// And a boundary with nowhere to declare a call refuses by NAME rather than inventing an
+/// id, which is the case that would otherwise emit a call to a function nobody supplied — a
+/// crash inside compiled code rather than a refusal.
+///
+/// Reachable only for an entry point that cannot raise, because the raising check comes
+/// first — which is the right order: a call this boundary must not emit at all is refused
+/// before asking where it would have been declared.
+#[test]
+fn a_boundary_with_nowhere_to_declare_refuses_the_call() {
+    use rts_mir::cfg::{Callee, FuncBuilder as MirBuilder, Op, Terminator};
+
+    let mut domain = rts_codegen::domain::Js::new();
+    let entry_id = domain.entry_point(rts_codegen::runtime::RuntimeOp::StringConst);
+    let mut build = MirBuilder::new(Tier::Generic);
+    let index = build.push(
+        Op::Const(rts_mir::Const::Int(0)),
+        rts_mir::Effect::PURE,
+        Default::default(),
+    );
+    let held = build.push(
+        Op::Call {
+            callee: Callee::Entry(entry_id),
+            receiver: None,
+            args: vec![index],
+        },
+        rts_mir::Effect::ALLOCATES,
+        Default::default(),
+    );
+    build.end(Terminator::Return(Some(held)));
+    let graph = build.finish();
+
+    let inferred = rts_mir::infer::infer(&graph, &domain);
+    let types = TypeRegistry::new();
+    let signature = Signature {
+        params: vec![],
+        returns: vec![Repr::Tagged],
+        ..Signature::default()
+    };
+    let mut func = Function::new(signature);
+    let machine_entry = func.entry;
+    let start: Vec<_> = func
+        .block(machine_entry)
+        .expect("an entry block")
+        .params
+        .clone();
+    let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, machine_entry);
+    let mut ops = JsMachine::new(&domain, inferred);
     let words =
         said(lower(&graph, &mut into, &mut ops, &start).expect_err("nowhere to declare it"));
     assert!(words.contains("somewhere to declare it"), "{words}");
-    assert!(words.contains("ArrayAppend"), "which one: {words}");
+    assert!(words.contains("StringConst"), "which one: {words}");
 }

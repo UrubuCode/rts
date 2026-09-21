@@ -119,6 +119,15 @@ fn coerced(
         // ANYTHING INTO THE GENERIC FORM is always available: widening is what the
         // tagged representation is for.
         (_, Repr::Tagged) => Ok(into.widen(value)),
+        // AN INTEGER INTO THE WIDER INTEGER is sound -- every `i32` is an `i64` -- and
+        // the machine has no instruction for it. Refused with that as the reason rather
+        // than as a narrowing, which is what this arm answered before and is the wrong
+        // thing to tell a reader: one of those is a missing capability and the other is a
+        // check nobody wrote.
+        (Repr::I32, Repr::I64) => Err(
+            "an integer into the wider integer is sound and the machine has no instruction for it"
+                .to_owned(),
+        ),
         // AND THE OTHER DIRECTION IS REFUSED, which is the half worth stating. Going
         // from a double to an integer loses values, and going from the generic form to
         // anything is a NARROWING -- the machine's rule 11 says narrowing is never
@@ -420,6 +429,26 @@ impl MachineOps for JsMachine<'_> {
         let Some(which) = self.domain.entry_meaning(entry) else {
             return Err(format!("{entry:?} is no row of this language's catalogue"));
         };
+        // A CALL THAT CAN RAISE IS REFUSED, and this is the discipline that comes with
+        // the pattern rather than the pattern itself. `emit/expr.rs` emits a
+        // BRANCH-AND-RERAISE after every runtime call that can throw, and its own doc
+        // says why every call site pays it: "a throw leaves ONE frame -- the machine
+        // records it and returns rather than ending the program, so the frame above only
+        // learns what happened by asking".
+        //
+        // This boundary does not ask. Emitting the call without the check would let a
+        // program carry on with a garbage value after an exception that should have
+        // propagated, which is the silent-wrong-answer class the honesty floor calls the
+        // worst failure here. So it refuses, and the refusal names the operation.
+        //
+        // `can_raise` is the inverse of a list of eight that `runtime::raising` holds,
+        // each naming the `rts-core` body it was read against -- so this is not a guess
+        // about which operations throw.
+        if which.can_raise() {
+            return Err(format!(
+                "{which:?} can raise, and this boundary emits no branch-and-reraise after a call"
+            ));
+        }
         let Some((calls, funcs)) = self.calls.as_mut() else {
             return Err(format!(
                 "calling {which:?} needs somewhere to declare it, which is the host's agreement"
@@ -458,6 +487,20 @@ impl MachineOps for JsMachine<'_> {
     }
 }
 
+/// What every function of one module shares.
+///
+/// A `FuncId` is an agreement about a symbol, so it belongs to the PROGRAM and not to a
+/// function -- which is how `rts-host::graph` builds a real one: `FuncRegistry` and
+/// `RuntimeCalls` are created once and every file shares them. A registry per function
+/// would hand each its own id for one symbol and nothing would notice.
+#[derive(Default)]
+pub struct Shared {
+    /// Every function a call may name.
+    pub funcs: rts_cranelift::ir::FuncRegistry,
+    /// Which runtime operations have been declared, so each is declared once.
+    pub calls: crate::runtime::RuntimeCalls,
+}
+
 /// Does this graph reach the machine, and what stopped it if not?
 ///
 /// # Why this is here and not only in a test
@@ -482,12 +525,13 @@ pub fn reaches_machine(
     func: &rts_mir::cfg::Func,
     domain: &Js,
     generic: Option<rts_mir::cfg::FuncId>,
+    shared: &mut Shared,
 ) -> Result<(), rts_mir::lower::Unlowerable> {
-    use rts_cranelift::ir::{FuncRegistry, Function, Signature};
+    use rts_cranelift::ir::{Function, Signature};
     use rts_cranelift::types::TypeRegistry;
 
     let types = TypeRegistry::new();
-    let mut funcs = FuncRegistry::new();
+    let Shared { funcs, calls } = shared;
     let inferred = rts_mir::infer::infer(func, domain);
     let params: Vec<Repr> = func
         .block(func.entry())
@@ -528,9 +572,14 @@ pub fn reaches_machine(
         .params
         .clone();
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut machine, &types, entry);
+    // ONE REGISTRY FOR THE WHOLE MODULE, which is how `rts-host::graph` builds a real
+    // program: `funcs` and `calls` are created once and every file and function share
+    // them. A registry per function would give each one its own `FuncId` for one symbol,
+    // and the instrument would never notice two functions failing to agree.
     let mut ops = match twin {
-        Some(twin) => JsMachine::falling_to(domain, inferred, twin, &funcs),
+        Some(twin) => JsMachine::falling_to(domain, inferred, twin, funcs),
         None => JsMachine::new(domain, inferred),
     };
+    let _ = calls;
     rts_mir::lower::lower(func, &mut into, &mut ops, &start)
 }
