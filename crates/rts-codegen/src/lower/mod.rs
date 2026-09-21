@@ -48,6 +48,7 @@ use named::{expression_name, name_of, primitive};
 mod branch;
 mod calls;
 mod choice;
+mod claim;
 mod class;
 mod destructure;
 mod iterate;
@@ -220,6 +221,7 @@ pub fn lower_with(
         names,
         scope,
         loops: Vec::new(),
+        points: 0,
     };
 
     for parameter in &function.parameters {
@@ -238,6 +240,17 @@ pub fn lower_with(
             at: function.at,
         };
         lowering.bind(*name, value, Type::Anything, &at)?;
+        // AND WHAT THE PROGRAM CLAIMED IT HOLDS, as a guard. Rule 4: an annotation is
+        // evidence that assuming something is worth checking, never that it is true,
+        // so the check stands between the claim and the proof. In the generic tier
+        // this does nothing -- that tier is where a fall LANDS.
+        if let Some(claim) = &parameter.claim {
+            let Some(binding) = lowering.resolution.binding_in(scope, *name) else {
+                return Err(Unsupported::NoScope);
+            };
+            let at = lowering.at_parameter(*name, function.at);
+            lowering.guard_claim(*name, binding, claim, &at);
+        }
     }
 
     match &function.body {
@@ -308,6 +321,13 @@ struct Lowering<'a> {
     scope: ScopeId,
     /// The loops and switches enclosing what is being lowered, innermost last.
     loops: Vec<LoopFrame>,
+    /// How many deoptimisation points this body has declared.
+    ///
+    /// Counted here because the number has to be the SAME in both tiers: a fall from
+    /// point three of the specialised body lands at point three of the generic one, so
+    /// the two are numbered by one rule applied to one traversal rather than by two
+    /// counters that happen to agree.
+    points: u32,
 }
 
 impl Lowering<'_> {

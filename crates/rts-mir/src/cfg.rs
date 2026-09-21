@@ -508,6 +508,16 @@ impl FuncBuilder {
         self.open.pop();
     }
 
+    /// Which tier this builder is building.
+    ///
+    /// Asked rather than remembered by the client, because the one decision that
+    /// turns on it -- whether a guard may exist at all -- is taken in a different
+    /// crate from the one that chose the tier. A client keeping its own copy is two
+    /// places for the answer, and the drift is a guard with nowhere to fall.
+    pub fn tier(&self) -> Tier {
+        self.func.tier
+    }
+
     /// The entry block, for a client that switched away from it.
     pub fn entry_block(&self) -> BlockId {
         BlockId(0)
