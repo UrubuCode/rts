@@ -39,16 +39,15 @@ impl LockFile {
         if !path.exists() {
             return Ok(Self::new());
         }
-        let raw = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let raw =
+            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))
     }
 
     pub fn save(&self, dir: &Path) -> Result<()> {
         let path = dir.join(LOCK_FILE);
         let content = serde_json::to_string_pretty(self).context("serialize lock")?;
-        std::fs::write(&path, content)
-            .with_context(|| format!("write {}", path.display()))
+        std::fs::write(&path, content).with_context(|| format!("write {}", path.display()))
     }
 
     pub fn insert_npm(

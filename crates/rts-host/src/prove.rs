@@ -52,7 +52,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use rts_cranelift::ir::{BlockId, Function, FuncId, Inst, Terminator};
+use rts_cranelift::ir::{BlockId, FuncId, Function, Inst, Terminator};
 
 use crate::link::HostError;
 use crate::run::{FrontEnd, front_end};
@@ -176,7 +176,9 @@ fn settled_blocks(function: &Function) -> HashSet<BlockId> {
 /// does work before throwing, and that work is on a path the program chose.
 fn throws_immediately(function: &Function, block: BlockId) -> bool {
     matches!(
-        function.block(block).and_then(|data| data.terminator.as_ref()),
+        function
+            .block(block)
+            .and_then(|data| data.terminator.as_ref()),
         Some(Terminator::Throw { .. })
     )
 }
@@ -258,10 +260,7 @@ fn render(front: &FrontEnd) -> String {
             "  settled   {:>5} instructions, {} widened, {} guarded, {} cached\n",
             settled.insts, settled.widens, settled.guards, settled.caches
         ));
-        out.push_str(&format!(
-            "  fallback  {:>5} instructions\n",
-            fallback.insts
-        ));
+        out.push_str(&format!("  fallback  {:>5} instructions\n", fallback.insts));
         out.push_str(&format!(
             "  calls     {} direct, {} through a value\n",
             settled.direct + fallback.direct,
@@ -273,10 +272,7 @@ fn render(front: &FrontEnd) -> String {
     }
 
     out.push_str("; the whole program\n");
-    out.push_str(&format!(
-        ";   {} functions\n",
-        rows.len()
-    ));
+    out.push_str(&format!(";   {} functions\n", rows.len()));
     out.push_str(&format!(
         ";   settled   {} instructions, {} widened, {} guarded, {} cached, {} runtime operations\n",
         settled_total.insts,
@@ -340,8 +336,9 @@ mod tests {
         // Counted rather than asserted exactly: what must hold is the
         // direction, not a number this test would then pin against every future
         // improvement.
-        let proven = prove_source("let a = 1; for (let i = 0; i < 9; i++) { a = a + i } console.log(a)")
-            .expect("compiles");
+        let proven =
+            prove_source("let a = 1; for (let i = 0; i < 9; i++) { a = a + i } console.log(a)")
+                .expect("compiles");
         let unproven =
             prove_source("let a = 1; for (let i = 0; i < 9; i++) { a = a + (globalThis as any).x } console.log(a)")
                 .expect("compiles");

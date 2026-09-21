@@ -44,7 +44,10 @@ fn compile_shell_embeds_the_html_escaped_the_title_and_the_frame_loop() {
         program.contains(&escaped),
         "HTML embutido nao esta json-escaped no programa gerado:\n{program}"
     );
-    assert!(!program.contains("readFileSync"), "compile NUNCA le o HTML do disco em runtime:\n{program}");
+    assert!(
+        !program.contains("readFileSync"),
+        "compile NUNCA le o HTML do disco em runtime:\n{program}"
+    );
 
     // O <title> da própria página, não o nome do ficheiro — a fixture tem um.
     assert!(
@@ -67,7 +70,10 @@ fn compile_shell_embeds_the_html_escaped_the_title_and_the_frame_loop() {
         "loadDocumentFrom(html, scriptUrl, resourceBase)",
         "pagina carregada: ",
     ] {
-        assert!(program.contains(needle), "faltou `{needle}` no programa gerado:\n{program}");
+        assert!(
+            program.contains(needle),
+            "faltou `{needle}` no programa gerado:\n{program}"
+        );
     }
 }
 
@@ -80,8 +86,17 @@ fn compile_shell_has_no_relative_import_so_it_never_compiles_as_a_graph() {
     // `rts_cli::cli::new_engine::imports_a_file` decide grafo por estas
     // mesmas substrings — o programa gerado não deve acionar nenhuma, senão
     // um `.html` de entrada passaria a compilar como grafo por engano.
-    for needle in ["from \"./", "from \"../", "require(", "module.exports", "import.meta"] {
-        assert!(!program.contains(needle), "casca de compile parece um grafo (`{needle}`):\n{program}");
+    for needle in [
+        "from \"./",
+        "from \"../",
+        "require(",
+        "module.exports",
+        "import.meta",
+    ] {
+        assert!(
+            !program.contains(needle),
+            "casca de compile parece um grafo (`{needle}`):\n{program}"
+        );
     }
 }
 
@@ -91,17 +106,32 @@ fn run_shell_reads_the_page_from_disk_instead_of_embedding_it() {
     let entry = fixture_path();
     let program = html_entry::for_run(&html, &entry);
 
-    assert!(program.contains("readFileSync"), "run deve ler o HTML do disco:\n{program}");
-    let path_literal =
-        serde_json::to_string(&entry.to_string_lossy()).expect("caminho serializa como string JSON");
-    assert!(program.contains(&path_literal), "caminho da pagina nao apareceu no programa gerado:\n{program}");
+    assert!(
+        program.contains("readFileSync"),
+        "run deve ler o HTML do disco:\n{program}"
+    );
+    let path_literal = serde_json::to_string(&entry.to_string_lossy())
+        .expect("caminho serializa como string JSON");
+    assert!(
+        program.contains(&path_literal),
+        "caminho da pagina nao apareceu no programa gerado:\n{program}"
+    );
 
     // O HTML NAO entra como literal aqui — só o caminho para o ler em runtime.
     let raw_html_literal = serde_json::to_string(&html).expect("html serializa como string JSON");
-    assert!(!program.contains(&raw_html_literal), "run nao deveria embutir o HTML:\n{program}");
+    assert!(
+        !program.contains(&raw_html_literal),
+        "run nao deveria embutir o HTML:\n{program}"
+    );
 
-    assert!(program.contains("\"Pagina de Entrada\""), "titulo da pagina nao apareceu:\n{program}");
-    assert!(program.contains("egui.render(win, doc._dom)"), "laco de frame nao apareceu:\n{program}");
+    assert!(
+        program.contains("\"Pagina de Entrada\""),
+        "titulo da pagina nao apareceu:\n{program}"
+    );
+    assert!(
+        program.contains("egui.render(win, doc._dom)"),
+        "laco de frame nao apareceu:\n{program}"
+    );
 }
 
 #[test]

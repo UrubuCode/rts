@@ -177,13 +177,15 @@ pub fn command(path: Option<String>) -> Result<()> {
     if total_files > 1 {
         let sep = format!("\x1b[2m{}\x1b[0m", "─".repeat(40));
         eprintln!("\n{sep}");
-        eprintln!(" Files  {} passed, {} failed, {} total",
+        eprintln!(
+            " Files  {} passed, {} failed, {} total",
             grand_passed_label(failed_files == 0, total_files - failed_files),
             failed_label(failed_files),
             total_files,
         );
         let total_tests = grand_passed + grand_failed;
-        eprintln!(" Tests  {} passed, {} failed, {} total",
+        eprintln!(
+            " Tests  {} passed, {} failed, {} total",
             grand_passed_label(grand_failed == 0, grand_passed),
             failed_label(grand_failed),
             total_tests,
@@ -244,18 +246,13 @@ fn test_jobs(file_count: usize) -> usize {
 /// child's captured output INDEXED BY THE INPUT ORDER (slot `i` belongs to
 /// `files[i]` no matter which worker ran it, so the caller's report order does
 /// not depend on scheduling).
-fn run_children_parallel(
-    files: &[PathBuf],
-    exe: &Path,
-    jobs: usize,
-) -> Vec<ChildRun> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+fn run_children_parallel(files: &[PathBuf], exe: &Path, jobs: usize) -> Vec<ChildRun> {
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // One slot per file. `Mutex<Vec<Option<_>>>` rather than channels so a
     // worker writes straight into its file's slot — no reordering step.
-    let slots: Mutex<Vec<Option<ChildRun>>> =
-        Mutex::new((0..files.len()).map(|_| None).collect());
+    let slots: Mutex<Vec<Option<ChildRun>>> = Mutex::new((0..files.len()).map(|_| None).collect());
     let next = AtomicUsize::new(0);
     // Inherited by every child: `RUST_BACKTRACE` gives a native backtrace on a
     // codegen/runtime crash (without it a segfault is a bare exit code), and
@@ -266,13 +263,15 @@ fn run_children_parallel(
 
     std::thread::scope(|scope| {
         for _ in 0..jobs {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                let Some(file) = files.get(i) else {
-                    break;
-                };
-                let run = run_child(exe, file, &backtrace, timeout);
-                slots.lock().expect("test slots mutex").ordered_put(i, run);
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(file) = files.get(i) else {
+                        break;
+                    };
+                    let run = run_child(exe, file, &backtrace, timeout);
+                    slots.lock().expect("test slots mutex").ordered_put(i, run);
+                }
             });
         }
     });
@@ -345,7 +344,7 @@ fn run_child(
             return ChildRun {
                 output: Err(e),
                 timed_out: false,
-            }
+            };
         }
     };
 
@@ -371,7 +370,7 @@ fn run_child(
                 return ChildRun {
                     output: Err(e),
                     timed_out: false,
-                }
+                };
             }
             Ok(None) => {}
         }
@@ -386,7 +385,7 @@ fn run_child(
                     return ChildRun {
                         output: Err(e),
                         timed_out: true,
-                    }
+                    };
                 }
             }
         }
@@ -418,7 +417,11 @@ fn run_child(
 /// the files that FAILED in parallel but PASSED alone — i.e. the ones whose
 /// result depended on machine load, which the summary names so the flakiness is
 /// reported rather than hidden.
-fn retry_failures_serially(files: &[PathBuf], exe: &Path, outputs: &mut [ChildRun]) -> Vec<PathBuf> {
+fn retry_failures_serially(
+    files: &[PathBuf],
+    exe: &Path,
+    outputs: &mut [ChildRun],
+) -> Vec<PathBuf> {
     let backtrace = std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string());
     let timeout = child_timeout();
     let mut flaky = Vec::new();
@@ -518,8 +521,10 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
 /// "N test(s) passed"/"N test(s) failed") keeps working unchanged across the
 /// cutover, and so does a human reading either engine's output.
 fn print_summary(reported: &[rts_std::test::Reported]) {
-    let failed: Vec<&rts_std::test::Reported> =
-        reported.iter().filter(|one| one.failure.is_some()).collect();
+    let failed: Vec<&rts_std::test::Reported> = reported
+        .iter()
+        .filter(|one| one.failure.is_some())
+        .collect();
     let passed = reported.len() - failed.len();
     let total = reported.len();
 
@@ -531,11 +536,27 @@ fn print_summary(reported: &[rts_std::test::Reported]) {
         }
     }
     if failed.is_empty() {
-        eprintln!(" {} {}", green("✓"), green(&format!("{total} test{} passed", plural(total))));
+        eprintln!(
+            " {} {}",
+            green("✓"),
+            green(&format!("{total} test{} passed", plural(total)))
+        );
     } else {
-        eprintln!(" {} {}", red("✗"), red(&format!("{} test{} failed", failed.len(), plural(failed.len()))));
+        eprintln!(
+            " {} {}",
+            red("✗"),
+            red(&format!(
+                "{} test{} failed",
+                failed.len(),
+                plural(failed.len())
+            ))
+        );
         if passed > 0 {
-            eprintln!(" {} {}", green("✓"), green(&format!("{passed} test{} passed", plural(passed))));
+            eprintln!(
+                " {} {}",
+                green("✓"),
+                green(&format!("{passed} test{} passed", plural(passed)))
+            );
         }
         eprintln!(" {} {total} total", dim("·"));
     }
@@ -608,7 +629,9 @@ fn find_count_with_suffix(line: &str, suffix: &str) -> Option<usize> {
         return None;
     }
     let prefix = &line[..pos];
-    let last_token = prefix.rsplit_terminator(|c: char| !c.is_ascii_digit()).next()?;
+    let last_token = prefix
+        .rsplit_terminator(|c: char| !c.is_ascii_digit())
+        .next()?;
     last_token.parse::<usize>().ok()
 }
 
@@ -641,7 +664,9 @@ fn discover_test_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
@@ -689,5 +714,9 @@ fn grand_passed_label(all_ok: bool, n: usize) -> String {
 }
 
 fn failed_label(n: usize) -> String {
-    if n > 0 { red(&n.to_string()) } else { n.to_string() }
+    if n > 0 {
+        red(&n.to_string())
+    } else {
+        n.to_string()
+    }
 }

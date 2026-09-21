@@ -137,7 +137,11 @@ pub fn install(context: &mut Context) {
 
 #[cfg(all(
     test,
-    any(target_os = "linux", target_os = "macos", all(target_arch = "x86_64", target_os = "windows"))
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        all(target_arch = "x86_64", target_os = "windows")
+    )
 ))]
 mod tests {
     use super::current_thread_stack_high;
@@ -147,6 +151,9 @@ mod tests {
         let anchor = 0u8;
         let frame = &anchor as *const u8 as usize;
         let high = current_thread_stack_high().expect("the current platform has a stack bound");
-        assert!(high > frame, "stack high {high:#x} is not above frame {frame:#x}");
+        assert!(
+            high > frame,
+            "stack high {high:#x} is not above frame {frame:#x}"
+        );
     }
 }

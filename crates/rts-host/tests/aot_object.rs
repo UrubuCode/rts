@@ -55,7 +55,10 @@ fn entries_in(bytes: &[u8], symbol: &str, expected: usize) -> usize {
         .symbols()
         .find(|found| found.name() == Ok(symbol))
         .unwrap_or_else(|| panic!("`{symbol}` is not in the object — the archive would not link"));
-    assert!(!table.is_undefined(), "`{symbol}` is defined by this object");
+    assert!(
+        !table.is_undefined(),
+        "`{symbol}` is defined by this object"
+    );
     // Past the COUNT word, which is a plain number this compilation wrote and
     // therefore carries no relocation — see
     // `rts_cranelift::target::AddressTable` for why the length travels inside
@@ -76,7 +79,11 @@ fn entries_in(bytes: &[u8], symbol: &str, expected: usize) -> usize {
 /// says the runtime should read.
 fn tables_agree_with(program: &ObjectProgram) {
     assert_eq!(
-        entries_in(&program.bytes, MODULE_TABLE_SYMBOL, program.modules as usize),
+        entries_in(
+            &program.bytes,
+            MODULE_TABLE_SYMBOL,
+            program.modules as usize
+        ),
         program.modules as usize,
         "the module table has one relocation per module the manifest counts"
     );
@@ -101,7 +108,10 @@ fn a_program_that_imports_a_file_compiles_to_one_object() {
     let entry = graph(
         "imports",
         &[
-            ("lib.ts", "export function twice(n: number) { return n * 2; }\n"),
+            (
+                "lib.ts",
+                "export function twice(n: number) { return n * 2; }\n",
+            ),
             (
                 "main.ts",
                 "import { twice } from \"./lib\";\nconsole.log(twice(21));\n",
@@ -236,7 +246,10 @@ fn a_require_of_a_sibling_file_carries_its_resolved_name() {
     let entry = graph(
         "commonjs",
         &[
-            ("helper.js", "module.exports.shout = (s) => s.toUpperCase();\n"),
+            (
+                "helper.js",
+                "module.exports.shout = (s) => s.toUpperCase();\n",
+            ),
             (
                 "main.ts",
                 "const { shout } = require(\"./helper\");\nconsole.log(shout(\"hi\"));\n",
@@ -343,7 +356,9 @@ fn two_page_scripts_and_the_main_program_share_one_key_numbering() {
     // that three bodies number the property alike. Routing it through an
     // opaque function parameter keeps the object real.
     let wrapping = |letter: &str, value: &str| {
-        format!("function f{letter}(x: number) {{ return {{ shared: x }}; }}\nconsole.log(f{letter}({value}).shared);\n")
+        format!(
+            "function f{letter}(x: number) {{ return {{ shared: x }}; }}\nconsole.log(f{letter}({value}).shared);\n"
+        )
     };
     let scripts = vec![wrapping("a", "1"), wrapping("b", "2")];
     let program = compile_to_object_with_html(&wrapping("c", "3"), &scripts)
@@ -379,12 +394,11 @@ fn two_page_scripts_and_the_main_program_share_one_key_numbering() {
 fn a_name_a_sibling_script_writes_only_as_a_property_of_this_still_compiles() {
     let bundle = "(function (global) { global.React = {}; })(this);\n".to_owned();
     let app = "console.log(React);\n".to_owned();
-    let program = compile_to_object_with_html("console.log(1);\n", &[bundle, app])
-        .expect(
-            "a page script reading a name only a SIBLING wrote as a property \
+    let program = compile_to_object_with_html("console.log(1);\n", &[bundle, app]).expect(
+        "a page script reading a name only a SIBLING wrote as a property \
              of `this` must still compile — the language resolves it at run \
              time against the SAME window, not refuse it at build time",
-        );
+    );
     assert_eq!(program.page_scripts.len(), 2);
     tables_agree_with(&program);
 }

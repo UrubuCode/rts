@@ -25,8 +25,7 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
         // refuses to be written. Same signature, and deliberately not the same
         // function: a READ of a frozen object still resolves to its offset.
         RtEntry::CacheResolveStore => {
-            rts_core::entry::cache_resolve_store as extern "C" fn(u64, i64, i64) -> i64
-                as *const u8
+            rts_core::entry::cache_resolve_store as extern "C" fn(u64, i64, i64) -> i64 as *const u8
         }
         // A third, for a site whose answer may live in the cell its receiver
         // inherits from. The same three operands and the same return, and a
@@ -60,9 +59,7 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
         // the runtime half existed, so a compiled `await` called address zero —
         // which is why the language layer refused an async function rather than
         // emitting one. The casts are the shape check, written out.
-        RtEntry::PromiseNew => {
-            rts_core::entry::promise_new as extern "C" fn() -> u64 as *const u8
-        }
+        RtEntry::PromiseNew => rts_core::entry::promise_new as extern "C" fn() -> u64 as *const u8,
         RtEntry::PromiseSettle => {
             rts_core::entry::promise_settle as extern "C" fn(u64, u64, i64) as *const u8
         }

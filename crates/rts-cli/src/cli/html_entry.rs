@@ -153,10 +153,12 @@ pub fn for_run(html: &str, entry: &Path) -> String {
 /// can open and re-run by hand, the same reasoning `aot_object.rs`'s test
 /// helper states for its own temp files.
 pub fn write_shell(source: &str, entry: &Path) -> Result<PathBuf> {
-    let stem = entry.file_stem().and_then(|s| s.to_str()).unwrap_or("pagina");
+    let stem = entry
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("pagina");
     let dir = std::env::temp_dir().join("rts-html-run");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let path = dir.join(format!("{stem}.rts-shell.ts"));
     std::fs::write(&path, source).with_context(|| format!("write {}", path.display()))?;
     Ok(path)

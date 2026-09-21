@@ -44,7 +44,9 @@ fn of_source(source: &str) -> usize {
 /// the last file. Named after the test rather than randomised, so a failing
 /// run leaves something a person can re-compile by hand.
 fn graph(named: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join("rts-serde-declare-gate").join(named);
+    let dir = std::env::temp_dir()
+        .join("rts-serde-declare-gate")
+        .join(named);
     std::fs::create_dir_all(&dir).expect("a directory to write the graph into");
     let mut entry = PathBuf::new();
     for (name, source) in files {
@@ -64,7 +66,11 @@ const DECLARES_THREE: &str = "function f(x) { return x; }\nfunction g() {}\nclas
 
 #[test]
 fn a_program_that_cannot_reach_the_pickle_registers_nothing() {
-    assert_eq!(of_source(DECLARES_THREE), 0, "two functions and a class, and no route to rts:serde");
+    assert_eq!(
+        of_source(DECLARES_THREE),
+        0,
+        "two functions and a class, and no route to rts:serde"
+    );
 }
 
 #[test]
@@ -97,7 +103,10 @@ fn an_import_in_another_module_registers_every_module_of_the_program() {
             ),
         ],
     );
-    assert_eq!(count, 3, "make, Point and show — the two of model.ts included");
+    assert_eq!(
+        count, 3,
+        "make, Point and show — the two of model.ts included"
+    );
 }
 
 #[test]
@@ -105,8 +114,14 @@ fn a_graph_with_no_route_registers_nothing_in_any_module() {
     let count = of_graph(
         "no-route",
         &[
-            ("model.ts", "export class Point { constructor(x) { this.x = x; } }\n"),
-            ("main.ts", "import { Point } from \"./model\";\nfunction show(p) { return p.x; }\nconsole.log(show(new Point(1)));\n"),
+            (
+                "model.ts",
+                "export class Point { constructor(x) { this.x = x; } }\n",
+            ),
+            (
+                "main.ts",
+                "import { Point } from \"./model\";\nfunction show(p) { return p.x; }\nconsole.log(show(new Point(1)));\n",
+            ),
         ],
     );
     assert_eq!(count, 0);
@@ -116,7 +131,8 @@ fn a_graph_with_no_route_registers_nothing_in_any_module() {
 fn a_computed_require_can_reach_anything_and_so_registers() {
     // `require(x)` resolves at run time against the table every declared
     // module is in, `rts:serde` included, so the compiler cannot rule it out.
-    let source = format!("const name = process.argv[2];\nconst m = require(name);\n{DECLARES_THREE}");
+    let source =
+        format!("const name = process.argv[2];\nconst m = require(name);\n{DECLARES_THREE}");
     assert_eq!(of_source(&source), 3);
 }
 
@@ -135,7 +151,15 @@ fn eval_can_write_an_import_and_so_registers() {
 #[test]
 fn a_call_of_function_registers_but_its_prototype_does_not() {
     let called = format!("{DECLARES_THREE}const h = new Function(\"return 1\");\n");
-    assert_eq!(of_source(&called), 3, "`new Function` compiles code that may import the pickle");
+    assert_eq!(
+        of_source(&called),
+        3,
+        "`new Function` compiles code that may import the pickle"
+    );
     let read = format!("{DECLARES_THREE}const bind = Function.prototype.bind;\n");
-    assert_eq!(of_source(&read), 0, "reading `Function.prototype` compiles nothing");
+    assert_eq!(
+        of_source(&read),
+        0,
+        "reading `Function.prototype` compiles nothing"
+    );
 }

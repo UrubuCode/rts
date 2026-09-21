@@ -30,6 +30,19 @@ use crate::syntax::Function;
 /// goes — `rts ir` printed to stderr once, which made redirecting its output write
 /// an empty file.
 pub fn describe(source: &str) -> Result<String, String> {
+    describe_tier(source, Tier::Generic)
+}
+
+/// The same, for a named tier.
+///
+/// # Why the tier is a parameter and not always the generic one
+///
+/// Because it was always the generic one, and the instrument therefore could not see
+/// the work: a guard exists only in the specialised body, so the survey that measures
+/// this stage reported an effect profile with no speculation in it at all. An
+/// instrument that cannot show the thing being built is the honesty floor's "verify the
+/// input" applied to a tool rather than to a corpus.
+pub fn describe_tier(source: &str, tier: Tier) -> Result<String, String> {
     let mut names = Names::new();
     // AS A MODULE FIRST, and this order was a finding rather than a choice.
     //
@@ -46,7 +59,7 @@ pub fn describe(source: &str) -> Result<String, String> {
     let resolution = resolve_module(&program.body);
 
     let lowered_module =
-        crate::lower_module::lower_module(&program.body, &resolution, &names, Tier::Generic);
+        crate::lower_module::lower_module(&program.body, &resolution, &names, tier);
     let found = lowered_module.functions.len();
     let mut domain = lowered_module.domain;
     let mut out = String::new();

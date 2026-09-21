@@ -62,7 +62,10 @@ fn main() {
         }
     }
 
-    println!("\n=== {} arquivos, {ok} compilam inteiros ===\n", arquivos.len());
+    println!(
+        "\n=== {} arquivos, {ok} compilam inteiros ===\n",
+        arquivos.len()
+    );
     let mut ordenado: Vec<_> = motivos.iter().collect();
     ordenado.sort_by_key(|(_, arqs)| std::cmp::Reverse(arqs.len()));
     for (motivo, arqs) in ordenado {
@@ -97,7 +100,9 @@ fn resumir(bruto: &str) -> String {
 }
 
 fn colher(dir: &std::path::Path, saida: &mut Vec<std::path::PathBuf>) {
-    let Ok(entradas) = std::fs::read_dir(dir) else { return };
+    let Ok(entradas) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entrada in entradas.flatten() {
         let caminho = entrada.path();
         let nome = caminho.file_name().and_then(|n| n.to_str()).unwrap_or("");

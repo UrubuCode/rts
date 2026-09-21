@@ -14,8 +14,7 @@ use rts_cranelift::tags;
 use rts_host::compile;
 
 fn number(source: &str) -> f64 {
-    let mut program =
-        compile(source).unwrap_or_else(|error| panic!("compiling failed: {error:?}"));
+    let mut program = compile(source).unwrap_or_else(|error| panic!("compiling failed: {error:?}"));
     tags::decode_double(program.run())
 }
 

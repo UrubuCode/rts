@@ -239,11 +239,20 @@ impl Compiled {
                 .into_iter()
                 .map(|region| {
                     scope.spawn(move || {
-                        let outcome =
-                            run_region(
-                                entry, &[], nothing, singletons, kinds, keys, literals,
-                                templates, frames, function_names, &[], region,
-                            );
+                        let outcome = run_region(
+                            entry,
+                            &[],
+                            nothing,
+                            singletons,
+                            kinds,
+                            keys,
+                            literals,
+                            templates,
+                            frames,
+                            function_names,
+                            &[],
+                            region,
+                        );
                         (outcome.value, outcome.region)
                     })
                 })
@@ -620,8 +629,12 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
 /// programa que importasse o que quer que fosse ficava sem `parseDocument`.
 pub(crate) fn with_dom_facade(source: &str) -> String {
     if uses_dom_facade(source) {
-        format!("{}
-{}", rts_dom_bridge::PRELUDE_TS, source)
+        format!(
+            "{}
+{}",
+            rts_dom_bridge::PRELUDE_TS,
+            source
+        )
     } else {
         source.to_owned()
     }
@@ -679,7 +692,10 @@ pub(crate) enum Scoped<'a> {
     /// `Ctx` of the scope that called `eval` to inherit the fact from
     /// directly. See `rts-codegen`'s `emit::globals::NODE_ONLY` for what it
     /// closes.
-    Eval { enclosing: &'a [(String, u32)], hide_node_globals: bool },
+    Eval {
+        enclosing: &'a [(String, u32)],
+        hide_node_globals: bool,
+    },
     /// A `<script>` of a page: reads what earlier scripts left, and its
     /// top-level `var` and `function` become properties the next one reads.
     ///
@@ -687,7 +703,10 @@ pub(crate) enum Scoped<'a> {
     /// shared process global object — a DOM `window`, an ordinary `vm`
     /// sandbox — and `false` only for `vm.runInThisContext`, which shares
     /// that object and so shares what is on it. `live.rs` decides which.
-    Page { enclosing: &'a [(String, u32)], hide_node_globals: bool },
+    Page {
+        enclosing: &'a [(String, u32)],
+        hide_node_globals: bool,
+    },
 }
 
 pub(crate) fn front_end_agreeing(
@@ -796,19 +815,36 @@ pub(crate) fn front_end_agreeing(
             // reuses the number each name already has: they came out of the
             // running interner, and `reserve_keys` put every one of those in
             // above.
-            (None, Scoped::Eval { enclosing, hide_node_globals }) => {
+            (
+                None,
+                Scoped::Eval {
+                    enclosing,
+                    hide_node_globals,
+                },
+            ) => {
                 let enclosing: Vec<_> = enclosing
                     .iter()
                     .map(|(text, hops)| (ctx.names.intern(text), *hops))
                     .collect();
-                rts_codegen::emit::emit_eval_program(&body, &enclosing, *hide_node_globals, &mut ctx)
+                rts_codegen::emit::emit_eval_program(
+                    &body,
+                    &enclosing,
+                    *hide_node_globals,
+                    &mut ctx,
+                )
             }
             // A page script, which both reads that scope and DECLARES into it.
             // The difference from the arm above is one the caller has to state
             // rather than one this can read off the text: the same source is a
             // legal `eval` fragment and a legal `<script>`, and only the door
             // it came through says which set of rules it is under.
-            (None, Scoped::Page { enclosing, hide_node_globals }) => {
+            (
+                None,
+                Scoped::Page {
+                    enclosing,
+                    hide_node_globals,
+                },
+            ) => {
                 let enclosing: Vec<_> = enclosing
                     .iter()
                     .map(|(text, hops)| (ctx.names.intern(text), *hops))
@@ -817,8 +853,13 @@ pub(crate) fn front_end_agreeing(
                 // batching several page scripts into ONE compilation — see
                 // `crate::object::page`. A single `<script>` compiled here, on
                 // its own, has nothing to chain it into.
-                rts_codegen::emit::emit_page_program(&body, &enclosing, *hide_node_globals, &mut ctx)
-                    .map(|(program, _published)| program)
+                rts_codegen::emit::emit_page_program(
+                    &body,
+                    &enclosing,
+                    *hide_node_globals,
+                    &mut ctx,
+                )
+                .map(|(program, _published)| program)
             }
             (None, Scoped::Nothing) => emit_program(&body, &mut ctx),
         };
@@ -957,7 +998,13 @@ pub(crate) fn place(
     // compiler was told about.
     let _timing = rts_cranelift::probe::Phase::start("place");
     Ok(unsafe {
-        place_in_memory(&placing, &outside, &prepared.funcs, &prepared.types, Some(bases))?
+        place_in_memory(
+            &placing,
+            &outside,
+            &prepared.funcs,
+            &prepared.types,
+            Some(bases),
+        )?
     })
 }
 
@@ -970,7 +1017,10 @@ pub(crate) fn place(
 pub(crate) fn addressed(
     prepared: &Prepared,
     placed: &InMemory,
-) -> (Vec<(u64, String, u32, bool, bool)>, Vec<rts_core::entry::FrameShape>) {
+) -> (
+    Vec<(u64, String, u32, bool, bool)>,
+    Vec<rts_core::entry::FrameShape>,
+) {
     let function_names = prepared
         .emitted
         .function_names

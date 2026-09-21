@@ -186,7 +186,13 @@ pub struct ObjectProgram {
 /// so it has no `import.meta` to answer and no directory to resolve `"./x"`
 /// against.
 pub fn compile_to_object(source: &str) -> Result<ObjectProgram, HostError> {
-    place(crate::run::front_end(source)?, &[], Vec::new(), Vec::new(), &[])
+    place(
+        crate::run::front_end(source)?,
+        &[],
+        Vec::new(),
+        Vec::new(),
+        &[],
+    )
 }
 
 /// The same, plus every page `<script>` `extract_files` found in the caller's
@@ -230,7 +236,13 @@ pub fn compile_to_object_with_html(
 /// where an in-memory run reads them straight out of the placement.
 pub fn compile_graph_to_object(entry: &std::path::Path) -> Result<ObjectProgram, HostError> {
     let graph = crate::graph::front_end(entry)?;
-    place(graph.front, &graph.before, graph.metas, graph.resolutions, &[])
+    place(
+        graph.front,
+        &graph.before,
+        graph.metas,
+        graph.resolutions,
+        &[],
+    )
 }
 
 /// The same, plus `--html` page scripts — see [`compile_to_object_with_html`],
@@ -302,7 +314,11 @@ fn place(
     // `crate::run::addressed` applies through `address_of` returning `None`,
     // asked of the other destination.
     let placed: HashSet<FuncId> = emitted.functions.iter().map(|(id, _)| *id).collect();
-    let module_ids: Vec<FuncId> = before.iter().copied().filter(|id| placed.contains(id)).collect();
+    let module_ids: Vec<FuncId> = before
+        .iter()
+        .copied()
+        .filter(|id| placed.contains(id))
+        .collect();
     let frame_ids: Vec<FuncId> = frames
         .iter()
         .map(|(id, _)| *id)
@@ -380,11 +396,7 @@ fn place(
         bytes: Vec::new(),
         singletons: [singletons.undefined, singletons.null, singletons.hole],
         kinds: [kinds.symbol, kinds.bigint],
-        keys: names
-            .keyed_texts()
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
+        keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
         literals: emitted.literals,
         templates: emitted.templates,
         modules: module_ids.len() as u32,

@@ -126,15 +126,15 @@ pub(crate) fn extend(
         }
 
         let body = wrap_and_parse_script(source, ctx.names)?;
-        let (program, published) =
-            rts_codegen::emit::emit_page_program(&body, &enclosing, true, &mut ctx).map_err(
-                |error| match error {
-                    rts_codegen::emit::EmitError::UnboundName(name) => {
-                        HostError::Unbound(ctx.names.text(name).to_owned())
-                    }
-                    other => HostError::from(other),
-                },
-            )?;
+        let (program, published) = rts_codegen::emit::emit_page_program(
+            &body, &enclosing, true, &mut ctx,
+        )
+        .map_err(|error| match error {
+            rts_codegen::emit::EmitError::UnboundName(name) => {
+                HostError::Unbound(ctx.names.text(name).to_owned())
+            }
+            other => HostError::from(other),
+        })?;
 
         hashes.push((rts_core::entry::source_hash(source), program.entry));
 

@@ -12,16 +12,16 @@
 
 pub mod errors;
 pub mod linker {
-    pub use rts_linker::*;
     pub use rts_linker::object_linker;
     pub use rts_linker::system_linker;
     pub use rts_linker::toolchain;
+    pub use rts_linker::*;
 }
+pub mod cli;
 pub mod compile_options;
+pub mod dotenv;
 pub mod manifest;
 pub mod registers;
-pub mod dotenv;
 pub mod url_entry;
-pub mod cli;
 
 pub use compile_options::{CompilationProfile, CompileOptions, opt_level};

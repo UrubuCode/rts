@@ -153,9 +153,8 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
         "return function anonymous({}) {{\n{body}\n}};",
         parameters.join(", ")
     );
-            let nothing = rts_core::entry::undefined_value();
-        place_and_enter(&source, crate::run::Scoped::Nothing, nothing, nothing)
-
+    let nothing = rts_core::entry::undefined_value();
+    place_and_enter(&source, crate::run::Scoped::Nothing, nothing, nothing)
 }
 
 /// Runs `eval` source in the scope the running program handed over.
@@ -182,7 +181,10 @@ pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
     let nothing = rts_core::entry::undefined_value();
     place_and_enter(
         source,
-        crate::run::Scoped::Eval { enclosing: &enclosing, hide_node_globals },
+        crate::run::Scoped::Eval {
+            enclosing: &enclosing,
+            hide_node_globals,
+        },
         environment,
         nothing,
     )
@@ -220,7 +222,10 @@ pub(crate) fn evaluate_in_scope_with_receiver(
     }
     place_and_enter(
         source,
-        crate::run::Scoped::Page { enclosing: &enclosing, hide_node_globals },
+        crate::run::Scoped::Page {
+            enclosing: &enclosing,
+            hide_node_globals,
+        },
         environment,
         receiver,
     )
@@ -324,5 +329,12 @@ fn place_and_enter(
     // and Function-built code. The context is already installed: this is reached
     // from inside a native, which runs with no outstanding context borrow.
     let nothing = rts_core::entry::undefined_value();
-    Some(entry(environment, receiver, nothing, nothing, nothing, nothing))
+    Some(entry(
+        environment,
+        receiver,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+    ))
 }

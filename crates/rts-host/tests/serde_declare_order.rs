@@ -40,7 +40,11 @@ fn each_top_level_function_is_registered_before_the_next_is_made() {
     let mut source = String::from("import { serialize } from \"rts:serde\";\n");
     source.extend((0..8).map(|i| format!("function f{i}(x) {{ return x + {i}; }}\n")));
     let sequence = calls(&source);
-    assert_eq!(sequence.len(), 16, "one closure and one registration per function: {sequence:?}");
+    assert_eq!(
+        sequence.len(),
+        16,
+        "one closure and one registration per function: {sequence:?}"
+    );
     for pair in sequence.chunks(2) {
         assert_eq!(
             pair,

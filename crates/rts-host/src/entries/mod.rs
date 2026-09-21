@@ -102,8 +102,8 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::greater_equal as extern "C" fn(u64, u64) -> bool as *const u8
         }),
         RuntimeOp::TemplateJoin => (CoreEntry::TemplateJoin, {
-            rts_core::entry::template_join
-                as extern "C" fn(i64, i64, u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::template_join as extern "C" fn(i64, i64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::MathRandom => (CoreEntry::MathRandom, {
             rts_core::entry::math_random as extern "C" fn() -> f64 as *const u8
@@ -112,8 +112,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::string_of as extern "C" fn(u64) -> u64 as *const u8
         }),
         RuntimeOp::ArrayOf => (CoreEntry::ArrayOf, {
-            rts_core::entry::array_of
-                as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::array_of as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::ObjectNew => (CoreEntry::ObjectNew, {
             rts_core::entry::object_new as extern "C" fn(i64) -> u64 as *const u8
@@ -132,8 +131,8 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
                 as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::AsyncStart => (CoreEntry::AsyncStart, {
-            rts_core::entry::async_start
-                as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::async_start as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::GeneratorYield => (CoreEntry::GeneratorYield, {
             rts_core::entry::generator_yield as extern "C" fn(u64) -> u64 as *const u8
@@ -181,11 +180,13 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         // the sentence cannot.
         RuntimeOp::Call => (CoreEntry::Call, {
             rts_core::entry::call_counted
-                as extern "C" fn(u64, u64, i64, i64, u64, u64, u64, u64) -> u64 as *const u8
+                as extern "C" fn(u64, u64, i64, i64, u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::TailCall => (CoreEntry::TailCall, {
             rts_core::entry::tail_call
-                as extern "C" fn(u64, u64, i64, i64, u64, u64, u64, u64) -> u64 as *const u8
+                as extern "C" fn(u64, u64, i64, i64, u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         // The declaration, which literals spell its module and name, and the
         // number its private names carry.
@@ -318,8 +319,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::new_target as extern "C" fn() -> u64 as *const u8
         }),
         RuntimeOp::Construct => (CoreEntry::Construct, {
-            rts_core::entry::construct as extern "C" fn(u64, u64, u64, u64, u64) -> u64
-                as *const u8
+            rts_core::entry::construct as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::InstanceOf => (CoreEntry::InstanceOf, {
             rts_core::entry::instance_of as extern "C" fn(u64, u64) -> bool as *const u8
@@ -334,12 +334,11 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::negate as extern "C" fn(u64) -> u64 as *const u8
         }),
         RuntimeOp::GetSuperProperty => (CoreEntry::GetSuperProperty, {
-            rts_core::entry::get_super_property
-                as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+            rts_core::entry::get_super_property as extern "C" fn(u64, u64, i64) -> u64 as *const u8
         }),
         RuntimeOp::SetSuperProperty => (CoreEntry::SetSuperProperty, {
-            rts_core::entry::set_super_property
-                as extern "C" fn(u64, u64, i64, u64) -> u64 as *const u8
+            rts_core::entry::set_super_property as extern "C" fn(u64, u64, i64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::GetPrototype => (CoreEntry::GetPrototype, {
             rts_core::entry::get_prototype as extern "C" fn(u64) -> u64 as *const u8
@@ -348,8 +347,8 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::set_prototype as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::SuperConstruct => (CoreEntry::SuperConstruct, {
-            rts_core::entry::super_construct
-                as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::super_construct as extern "C" fn(u64, u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::Iterate => (CoreEntry::Iterate, {
             rts_core::entry::iterate as extern "C" fn(u64) -> u64 as *const u8
@@ -364,19 +363,19 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::construct_with_args as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::SuperConstructWithArgs => (CoreEntry::SuperConstructWithArgs, {
-            rts_core::entry::super_construct_with_args
-                as extern "C" fn(u64, u64) -> u64 as *const u8
+            rts_core::entry::super_construct_with_args as extern "C" fn(u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::CallWithArgs => (CoreEntry::CallWithArgs, {
             rts_core::entry::call_with_args as extern "C" fn(u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::RestArguments => (CoreEntry::RestArguments, {
-            rts_core::entry::rest_arguments
-                as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::rest_arguments as extern "C" fn(i64, u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::ArgumentsObject => (CoreEntry::ArgumentsObject, {
-            rts_core::entry::arguments_object
-                as extern "C" fn(u64, u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::arguments_object as extern "C" fn(u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8

@@ -37,11 +37,16 @@ fn narrowings(source: &str) -> usize {
 /// across the back edge and neither program converts at all.
 #[test]
 fn a_bitwise_accumulator_narrows_nothing() {
-    let one = narrowings("function t(n){ let a = 0; for (let i = 0; i < n; i++) a = a ^ 3; return a; }");
+    let one =
+        narrowings("function t(n){ let a = 0; for (let i = 0; i < n; i++) a = a ^ 3; return a; }");
     let two = narrowings(
         "function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a ^ 3; a = a & 255; } return a; }",
     );
-    assert_eq!((one, two), (0, 0), "an integer binding stays one across the loop");
+    assert_eq!(
+        (one, two),
+        (0, 0),
+        "an integer binding stays one across the loop"
+    );
 }
 
 /// A binding an arithmetic store can reach keeps the double representation, so
@@ -76,11 +81,16 @@ fn an_arithmetic_store_keeps_the_binding_a_double() {
 /// binding as an integer and the `&` would stop converting.
 #[test]
 fn an_unsigned_shift_leaves_the_binding_a_double() {
-    let signed =
-        narrowings("function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a >> 1; a = a & 255; } return a; }");
-    let unsigned =
-        narrowings("function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a >>> 1; a = a & 255; } return a; }");
-    assert_eq!(signed, 0, "`>>` keeps the binding in the integer representation");
+    let signed = narrowings(
+        "function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a >> 1; a = a & 255; } return a; }",
+    );
+    let unsigned = narrowings(
+        "function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a >>> 1; a = a & 255; } return a; }",
+    );
+    assert_eq!(
+        signed, 0,
+        "`>>` keeps the binding in the integer representation"
+    );
     assert!(
         unsigned > signed,
         "`>>>` must not preserve the integer representation — its native path \

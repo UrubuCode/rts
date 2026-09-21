@@ -21,8 +21,9 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 
-pub fn command(input: Option<String>) -> Result<()> {
-    let input = input.ok_or_else(|| anyhow!("usage: rts mir <input.ts | inline-source>"))?;
+pub fn command(input: Option<String>, specialised: bool) -> Result<()> {
+    let input = input
+        .ok_or_else(|| anyhow!("usage: rts mir [--specialised] <input.ts | inline-source>"))?;
     let path = PathBuf::from(&input);
     let source = if path.exists() {
         std::fs::read_to_string(&path)
@@ -34,7 +35,13 @@ pub fn command(input: Option<String>) -> Result<()> {
         // `eval` both accept.
         input.clone()
     };
-    let text = rts_host::describe::describe_mir(&source).map_err(|held| anyhow!("{held:?}"))?;
+    // THE SPECIALISED TIER ON REQUEST, because it is the one a guard exists in and the
+    // command could not show it. `rts mir --specialised file.ts`.
+    let text = match specialised {
+        true => rts_host::describe::describe_mir_specialised(&source),
+        false => rts_host::describe::describe_mir(&source),
+    }
+    .map_err(|held| anyhow!("{held:?}"))?;
     print!("{text}");
     Ok(())
 }

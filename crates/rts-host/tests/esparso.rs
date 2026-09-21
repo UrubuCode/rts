@@ -25,7 +25,10 @@ fn um_buraco_le_como_undefined_mas_nao_existe() {
     // O par inteiro da mudança, em quatro linhas.
     assert_eq!(numero("return [,1][0] === undefined ? 1 : 0;"), 1.0);
     assert!(!verdade("0 in [,1]"), "um buraco não existe");
-    assert!(verdade("0 in [undefined,1]"), "um undefined GUARDADO existe");
+    assert!(
+        verdade("0 in [undefined,1]"),
+        "um undefined GUARDADO existe"
+    );
     assert!(!verdade("[,1].hasOwnProperty(0)"));
 }
 
@@ -59,7 +62,10 @@ fn object_keys_lista_so_o_que_existe() {
     // Deste ponto saem também `for-in`, `Object.values/entries`, `assign` e o
     // `JSON.stringify` de objeto.
     assert_eq!(numero("return Object.keys([1,,3]).length;"), 2.0);
-    assert_eq!(numero("const a=[]; a[2]=1; return Object.keys(a).length;"), 1.0);
+    assert_eq!(
+        numero("const a=[]; a[2]=1; return Object.keys(a).length;"),
+        1.0
+    );
     assert_eq!(numero("return Object.keys([1,2,3]).length;"), 3.0);
 }
 
@@ -70,10 +76,16 @@ fn a_iteracao_pula_buracos_menos_onde_a_especificacao_manda_visitar() {
         2.0,
         "forEach percorre as chaves que existem"
     );
-    assert_eq!(numero("return [1,,3].filter(function(){return true;}).length;"), 2.0);
+    assert_eq!(
+        numero("return [1,,3].filter(function(){return true;}).length;"),
+        2.0
+    );
     // `map` é o caso especial: preserva comprimento E esparsidade, sem chamar
     // a callback no buraco.
-    assert_eq!(numero("return [1,,3].map(function(){return 9;}).length;"), 3.0);
+    assert_eq!(
+        numero("return [1,,3].map(function(){return 9;}).length;"),
+        3.0
+    );
     assert_eq!(
         numero("const m = [1,,3].map(function(){return 9;}); return (1 in m) ? 1 : 0;"),
         0.0
@@ -132,9 +144,18 @@ fn um_array_denso_nao_muda_em_nada() {
     // A rede de segurança: nada acima pode ter custado o caso comum.
     assert_eq!(numero("const a=[1,2,3]; return a.length;"), 3.0);
     assert!(verdade("0 in [1,2,3]"));
-    assert_eq!(numero("let n=0; [1,2,3].forEach(function(){n=n+1;}); return n;"), 3.0);
-    assert_eq!(numero("return [1,2].map(function(x){return x*2;})[1];"), 4.0);
-    assert_eq!(numero("return [1,2,3].filter(function(x){return x>1;}).length;"), 2.0);
+    assert_eq!(
+        numero("let n=0; [1,2,3].forEach(function(){n=n+1;}); return n;"),
+        3.0
+    );
+    assert_eq!(
+        numero("return [1,2].map(function(x){return x*2;})[1];"),
+        4.0
+    );
+    assert_eq!(
+        numero("return [1,2,3].filter(function(x){return x>1;}).length;"),
+        2.0
+    );
     assert_eq!(numero("const a=[1]; a.push(2); return a.length;"), 2.0);
     assert_eq!(numero("return [1,2,3].pop();"), 3.0);
     assert_eq!(numero("return [1,2,3].shift();"), 1.0);
@@ -148,8 +169,14 @@ fn os_pontos_que_devolvem_o_valor_cru_nao_vazam_o_marcador() {
     assert_eq!(numero("return [1,].pop() === 1 ? 1 : 0;"), 1.0);
     assert_eq!(numero("return [,1].shift() === undefined ? 1 : 0;"), 1.0);
     assert_eq!(numero("return [,1].at(0) === undefined ? 1 : 0;"), 1.0);
-    assert_eq!(numero("return typeof [,1].at(0) === 'undefined' ? 1 : 0;"), 1.0);
-    assert_eq!(numero("return typeof [,1][0] === 'undefined' ? 1 : 0;"), 1.0);
+    assert_eq!(
+        numero("return typeof [,1].at(0) === 'undefined' ? 1 : 0;"),
+        1.0
+    );
+    assert_eq!(
+        numero("return typeof [,1][0] === 'undefined' ? 1 : 0;"),
+        1.0
+    );
 }
 
 #[test]
@@ -162,11 +189,28 @@ fn delete_de_um_elemento_deixa_um_buraco() {
     // É o único caminho que cria um buraco num array que já existe — os outros
     // dois (o literal e o crescimento por índice) o criam ao nascer.
     assert_eq!(numero("const a=[1,2]; return (delete a[0]) ? 1 : 0;"), 1.0);
-    assert_eq!(numero("const a=[1,2]; delete a[0]; return (0 in a) ? 1 : 0;"), 0.0);
-    assert_eq!(numero("const a=[1,2]; delete a[0]; return a.length;"), 2.0, "delete não encolhe");
-    assert_eq!(numero("const a=[1,2]; delete a[0]; return a[0] === undefined ? 1 : 0;"), 1.0);
-    assert_eq!(numero("const a=[1,2]; delete a[0]; return a[1];"), 2.0, "o vizinho fica");
-    assert_eq!(numero("const a=[1,2]; delete a[0]; return Object.keys(a).length;"), 1.0);
+    assert_eq!(
+        numero("const a=[1,2]; delete a[0]; return (0 in a) ? 1 : 0;"),
+        0.0
+    );
+    assert_eq!(
+        numero("const a=[1,2]; delete a[0]; return a.length;"),
+        2.0,
+        "delete não encolhe"
+    );
+    assert_eq!(
+        numero("const a=[1,2]; delete a[0]; return a[0] === undefined ? 1 : 0;"),
+        1.0
+    );
+    assert_eq!(
+        numero("const a=[1,2]; delete a[0]; return a[1];"),
+        2.0,
+        "o vizinho fica"
+    );
+    assert_eq!(
+        numero("const a=[1,2]; delete a[0]; return Object.keys(a).length;"),
+        1.0
+    );
     assert_eq!(
         numero("const a=[1,2]; delete a[0]; let n=0; a.forEach(function(){n=n+1;}); return n;"),
         1.0
@@ -175,7 +219,10 @@ fn delete_de_um_elemento_deixa_um_buraco() {
     // existir — a mesma leitura que o caminho de propriedade faz.
     assert_eq!(numero("const a=[1]; return (delete a[9]) ? 1 : 0;"), 1.0);
     // E o caminho de propriedade continua intacto.
-    assert_eq!(numero("const o={x:1}; delete o.x; return ('x' in o) ? 1 : 0;"), 0.0);
+    assert_eq!(
+        numero("const o={x:1}; delete o.x; return ('x' in o) ? 1 : 0;"),
+        0.0
+    );
 }
 
 #[test]
@@ -186,7 +233,11 @@ fn math_clz32_e_imul_respeitam_os_32_bits() {
     // e `clz32(2**32)` responderia 0 em vez de 32.
     assert_eq!(numero("return Math.clz32(1);"), 31.0);
     assert_eq!(numero("return Math.clz32(0);"), 32.0);
-    assert_eq!(numero("return Math.clz32(4294967296);"), 32.0, "2**32 envolve para 0");
+    assert_eq!(
+        numero("return Math.clz32(4294967296);"),
+        32.0,
+        "2**32 envolve para 0"
+    );
     assert_eq!(numero("return Math.clz32(-1);"), 0.0);
     // `imul` existe justamente porque `a * b` é um double: este é o produto que
     // TRANSBORDA, e é o que um programa portado de C espera.

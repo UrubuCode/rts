@@ -91,7 +91,6 @@ impl fmt::Display for CompilationProfile {
     }
 }
 
-
 #[derive(Debug, Clone, Copy)]
 pub struct CompileOptions {
     pub profile: CompilationProfile,

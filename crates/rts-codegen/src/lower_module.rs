@@ -31,6 +31,13 @@ use rts_mir::guard::Tier;
 use crate::domain::Js;
 use crate::emit::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use crate::lower::{Callees, Unsupported, lower_with};
+
+/// The tier a type claim's guard exists in.
+///
+/// Re-exported as a constant so a caller can ask for it without depending on
+/// `rts-mir` itself. `rts-host` is the crate that may name every layer and even it
+/// should not have to reach past this one to name a tier.
+pub const SPECIALISED: Tier = Tier::Specialised;
 use crate::names::Names;
 use crate::names::resolve::Resolution;
 use crate::syntax::{

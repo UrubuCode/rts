@@ -19,7 +19,10 @@ fn escrever_dentro_do_array_nao_mexe_no_length() {
     // A otimização que isto pina: `set_length` só é chamado quando o array
     // CRESCE. Se alguém voltar a chamá-lo sempre, o teste continua passando —
     // mas se alguém parar de chamá-lo AO CRESCER, os dois de baixo quebram.
-    assert_eq!(numero("const a=[1.0,2.0,3.0]; a[0]=9.0; return a.length;"), 3.0);
+    assert_eq!(
+        numero("const a=[1.0,2.0,3.0]; a[0]=9.0; return a.length;"),
+        3.0
+    );
     assert_eq!(numero("const a=[1.0,2.0,3.0]; a[0]=9.0; return a[0];"), 9.0);
     assert_eq!(numero("const a=[1.0,2.0]; a[1]=7.0; return a.length;"), 2.0);
 }
@@ -29,8 +32,14 @@ fn escrever_alem_do_fim_cresce_o_array() {
     assert_eq!(numero("const a=[1.0,2.0]; a[2]=7.0; return a.length;"), 3.0);
     assert_eq!(numero("const a=[]; a[2]=1.0; return a.length;"), 3.0);
     // `let a = []; a[2] = 1` deixa length 3 e os dois primeiros `undefined`.
-    assert_eq!(numero("const a=[]; a[2]=1.0; return a[0]===undefined?1.0:0.0;"), 1.0);
-    assert_eq!(numero("const a=[1.0,2.0]; a[4]=9.0; return a[0]+a[1]+a[4];"), 12.0);
+    assert_eq!(
+        numero("const a=[]; a[2]=1.0; return a[0]===undefined?1.0:0.0;"),
+        1.0
+    );
+    assert_eq!(
+        numero("const a=[1.0,2.0]; a[4]=9.0; return a[0]+a[1]+a[4];"),
+        12.0
+    );
 }
 
 #[test]
@@ -39,7 +48,10 @@ fn um_zero_armazenado_sobrevive_a_um_crescimento() {
     // resize preenchia com `0`, e `0` é o padrão de bits de `+0.0`, então uma
     // varredura trocava zeros genuínos por `undefined`. Um valor destruído por
     // uma escrita em OUTRO lugar é a pior forma de resposta errada.
-    assert_eq!(numero("const a=[]; a[0]=0.0; a[2]=1.0; return a[0]===0.0?1.0:0.0;"), 1.0);
+    assert_eq!(
+        numero("const a=[]; a[0]=0.0; a[2]=1.0; return a[0]===0.0?1.0:0.0;"),
+        1.0
+    );
 }
 
 #[test]
@@ -62,7 +74,10 @@ fn um_typed_array_nao_cresce_e_a_escrita_fora_some() {
     // Diferença real com o array comum, e o motivo de os dois caminhos serem
     // separados no runtime: um typed array tem tamanho fixo, então `a[9] = 1`
     // numa view de dois elementos não guarda nada que alguém possa reler.
-    assert_eq!(numero("const a=new Float32Array(2); a[5]=1.0; return a.length;"), 2.0);
+    assert_eq!(
+        numero("const a=new Float32Array(2); a[5]=1.0; return a.length;"),
+        2.0
+    );
     assert_eq!(
         numero("const a=new Float32Array(2); a[5]=1.0; return a[5]===undefined?1.0:0.0;"),
         1.0

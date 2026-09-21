@@ -33,7 +33,10 @@ fn calls(ir: &str, symbol: &str) -> usize {
 /// `(stringify, parse)` calls by entry point in one source.
 fn direct(source: &str) -> (usize, usize) {
     let ir = rts_host::describe::describe_source(source).expect("compiles");
-    (calls(&ir, "__rts_json_stringify"), calls(&ir, "__rts_json_parse"))
+    (
+        calls(&ir, "__rts_json_stringify"),
+        calls(&ir, "__rts_json_parse"),
+    )
 }
 
 #[test]
@@ -52,7 +55,10 @@ fn a_call_inside_a_nested_function_and_a_class_method_counts_too() {
     // declared and again where it was substituted. Both are the entry point,
     // which is the claim; how many copies the inliner makes is not this test's.
     let (stringify, parse) = direct(source);
-    assert!(stringify >= 1, "a nested function's call is direct: {stringify}");
+    assert!(
+        stringify >= 1,
+        "a nested function's call is direct: {stringify}"
+    );
     assert_eq!(parse, 1, "and so is a class method's");
 }
 
@@ -81,15 +87,25 @@ fn a_copy_of_the_object_ends_it_too_because_a_write_may_go_through_the_copy() {
 
 #[test]
 fn reaching_for_eval_or_globalthis_ends_every_proof_about_a_name() {
-    assert_eq!(direct("eval(\"1\");\nconsole.log(JSON.stringify(1));\n"), (0, 0));
-    assert_eq!(direct("globalThis.x = 1;\nconsole.log(JSON.parse(\"1\"));\n"), (0, 0));
+    assert_eq!(
+        direct("eval(\"1\");\nconsole.log(JSON.stringify(1));\n"),
+        (0, 0)
+    );
+    assert_eq!(
+        direct("globalThis.x = 1;\nconsole.log(JSON.parse(\"1\"));\n"),
+        (0, 0)
+    );
 }
 
 #[test]
 fn a_binding_named_json_is_the_scopes_and_only_that_call_is_left_alone() {
     let source = "function through(JSON) { return JSON.stringify(1); }\n\
                   console.log(through({ stringify: () => \"mine\" }), JSON.stringify(2));\n";
-    assert_eq!(direct(source), (1, 0), "the parameter's call is ordinary, the global's is direct");
+    assert_eq!(
+        direct(source),
+        (1, 0),
+        "the parameter's call is ordinary, the global's is direct"
+    );
 }
 
 #[test]
@@ -103,7 +119,9 @@ fn reading_the_function_without_calling_it_disturbs_nothing() {
 /// Writes a graph into a directory named after the test and answers the entry,
 /// which is the last file.
 fn graph(named: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join("rts-json-direct-gate").join(named);
+    let dir = std::env::temp_dir()
+        .join("rts-json-direct-gate")
+        .join(named);
     std::fs::create_dir_all(&dir).expect("a directory to write the graph into");
     let mut entry = PathBuf::new();
     for (name, source) in files {
@@ -121,8 +139,14 @@ fn one_module_holding_a_copy_ends_the_proof_in_every_module() {
     let entry = graph(
         "copy-in-another-module",
         &[
-            ("patch.ts", "const held = JSON;\nexport function patch() { held.stringify = () => \"patched\"; }\n"),
-            ("main.ts", "import { patch } from \"./patch.ts\";\npatch();\nconsole.log(JSON.stringify({ a: 1 }));\n"),
+            (
+                "patch.ts",
+                "const held = JSON;\nexport function patch() { held.stringify = () => \"patched\"; }\n",
+            ),
+            (
+                "main.ts",
+                "import { patch } from \"./patch.ts\";\npatch();\nconsole.log(JSON.stringify({ a: 1 }));\n",
+            ),
         ],
     );
     let ir = rts_host::describe::describe_path(&entry).expect("compiles");

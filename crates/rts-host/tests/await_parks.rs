@@ -55,7 +55,10 @@ fn a_then_attached_after_the_await_runs_after_the_resumption() {
          await p;
          return log;",
     );
-    assert_eq!(order, 12.0, "the `await` attached first, so it resumes first");
+    assert_eq!(
+        order, 12.0,
+        "the `await` attached first, so it resumes first"
+    );
 }
 
 #[test]

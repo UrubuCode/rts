@@ -12,6 +12,7 @@
 //! words. This crate is where they can meet: it is the only one allowed to name
 //! the machine and the runtime at once.
 
+use rts_core::heap::{INLINE_SLOTS, Region, STRIDE};
 use rts_cranelift::frame::resumable_form;
 use rts_cranelift::ir::{FuncBuilder, FuncRegistry, Function, Signature, ValueId};
 use rts_cranelift::mem::{ObjectLayout, RegionBase, RegionBases};
@@ -19,7 +20,6 @@ use rts_cranelift::repr::Repr;
 use rts_cranelift::symbols::RtEntry;
 use rts_cranelift::target::{Placing, Visibility, place_in_memory};
 use rts_cranelift::types::TypeRegistry;
-use rts_core::heap::{INLINE_SLOTS, Region, STRIDE};
 
 /// What a resumption that unwinds leaves with.
 ///

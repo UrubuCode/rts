@@ -146,7 +146,11 @@ pub fn title(html: &str) -> Option<String> {
     let id = dom.query_all("title").into_iter().next()?;
     let text = dom.text_content(id)?;
     let trimmed = text.trim();
-    if trimmed.is_empty() { None } else { Some(trimmed.to_owned()) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
 
 /// Reads and extracts every `<script>` `rts compile --html` was pointed at,
@@ -211,7 +215,10 @@ pub fn window_base() -> Result<Vec<String>, HostError> {
         &source_with_dom,
         None,
         false,
-        Scoped::Eval { enclosing: &[], hide_node_globals: false },
+        Scoped::Eval {
+            enclosing: &[],
+            hide_node_globals: false,
+        },
     )?;
     let mut compiled = crate::run::assemble(
         front.emitted,

@@ -124,7 +124,11 @@ fn measure(files: &[(PathBuf, String)], strip: bool) -> (usize, BTreeMap<String,
             Outcome::Unbound(name) => {
                 *reasons.entry(format!("<unbound> {name}")).or_default() += 1;
             }
-            Outcome::Refused => *reasons.entry("<the front end refused it>".into()).or_default() += 1,
+            Outcome::Refused => {
+                *reasons
+                    .entry("<the front end refused it>".into())
+                    .or_default() += 1
+            }
             Outcome::Build(what) => *reasons.entry(format!("<BUILD> {what}")).or_default() += 1,
         }
     }
@@ -185,7 +189,8 @@ fn what_the_new_engine_compiles_of_the_suite() {
 fn a_module_binds_what_it_imports() {
     // The smallest program the corpus's first two lines are: an import, then a
     // call of what it bound. If this refuses, every file in the suite does.
-    let source = "import { describe } from \"rts:test\";\ndescribe(\"a\", function () { return 1; });\n";
+    let source =
+        "import { describe } from \"rts:test\";\ndescribe(\"a\", function () { return 1; });\n";
     rts_host::compile(source).expect("a module that imports what it calls");
 }
 
