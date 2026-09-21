@@ -321,6 +321,7 @@ fn costurar(
         scroll_regions: anterior.scroll_regions.clone(),
         linha_directa: anterior.linha_directa,
         ultima_linha,
+        ancoras_estaticas: std::rc::Rc::clone(&anterior.ancoras_estaticas),
         origin: anterior.origin,
         size: anterior.size,
         margin_top: anterior.margin_top,
@@ -448,10 +449,8 @@ pub(in crate::layout) fn layout_block_reusing(
     // que a saída é uma ÁRVORE, costurar é substituir uma REFERÊNCIA num vetor
     // de mil entradas de 48 bytes — a primeira versão disto (revertida) copiava
     // 3000 itens com String e por isso não ganhava nada.
-    // The stitch re-lays the dirty children into lists of its own; what those
-    // record is already folded into the stitched fragment's `ultima_linha`.
-    let linhas_antes = super::linha_baseline::marca();
-    let costurado = costurar(dom, id, key, ctx);
+    // The stitch re-lays dirty children into its own lists; their lines are already in `ultima_linha`.
+    let (linhas_antes, costurado) = (super::linha_baseline::marca(), costurar(dom, id, key, ctx));
     super::linha_baseline::descarta(linhas_antes);
     if let Some(fragment) = costurado {
         crate::bump!(fragment_patches);
@@ -528,6 +527,7 @@ pub(in crate::layout) fn layout_block_reusing(
         children: std::mem::take(&mut own.children),
         linha_directa,
         ultima_linha,
+        ancoras_estaticas: std::rc::Rc::new(std::mem::take(&mut own.ancoras_estaticas)),
         origin: (x, y),
         size,
         margin_top: margens_resolvidas.0,

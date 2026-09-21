@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Ruler (IFC): the STATIC POSITION of an absolutely positioned box that
+     appears in the middle of a line (CSS 2.1 §10.3.7 / §10.6.4: where it would
+     be had it been in flow). A box that was BLOCK-level before `position`
+     blockified it goes below the line it appears in, at the container's start
+     edge; one that was INLINE-level stays where it appears on the line, at the
+     line's top. The engine had no line to ask and put both at the top of the
+     enclosing element. Five cases: block-level inside a span, inline-level
+     inside a span, block-level as a direct child between text, block-level on
+     the SECOND line of wrapped text, and inline-level after an inline-block
+     that makes the line tall. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .caso { position: relative; margin-bottom: 40px; background: #eee; }
+  .abs { position: absolute; width: 30px; height: 10px; background: #0a0; }
+  #c4 { width: 100px; }
+  .ib { display: inline-block; width: 10px; height: 40px; background: #00f; }
+</style></head>
+<body>
+  <div class="caso" id="c1"><span id="s1">antes<div class="abs" id="a1"></div>depois</span></div>
+  <div class="caso" id="c2"><span id="s2">antes<span class="abs" id="a2"></span>depois</span></div>
+  <div class="caso" id="c3">antes<div class="abs" id="a3"></div>depois</div>
+  <div class="caso" id="c4">aaaa bbbb cccc<div class="abs" id="a4"></div> dddd</div>
+  <div class="caso" id="c5">x<span class="ib"></span>y<span class="abs" id="a5"></span>z</div>
+</body>
+</html>

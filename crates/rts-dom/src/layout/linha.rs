@@ -300,11 +300,9 @@ pub(in crate::layout) fn layout_inline_flow(
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
             if let Some((a_idx, caixa, kind)) = seg.atomic {
-                // A float's anchor has nothing on the line: the float was laid
-                // out by `float_in_line`, and neither its box nor the boxes of
-                // the inlines around it pass through here — Blink leaves it out
-                // of the client rects of the inline that contains it.
-                if kind == AtomicKind::Float {
+                // A float's anchor and a static-position anchor have nothing on
+                // the line; the latter records where it landed (`ancora_estatica.rs`).
+                if super::ancora_estatica::fora_da_linha(dom, (a_idx, caixa, kind), seg_x, x, cy, cy + line_advance, list) {
                     continue;
                 }
                 match kind {
@@ -400,7 +398,8 @@ pub(in crate::layout) fn layout_inline_flow(
                     | AtomicKind::ArestaInicio
                     | AtomicKind::ArestaFim
                     | AtomicKind::Gerada(..)
-                    | AtomicKind::Float => {}
+                    | AtomicKind::Float
+                    | AtomicKind::Estatica => {}
                 }
                 superficies.ver(dom, &seg.owners, seg_x, seg_x + seg.ww);
                 match kind {

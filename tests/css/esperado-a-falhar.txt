@@ -21,12 +21,9 @@
 # lote `largura-intrinseca-de-controlos`: `claude-controlos-tamanho-natural`
 # left this list the same way — it passes on main `c34c4490d` and after.
 
-# BT-3 fora-de-fluxo (2026-09-18): o span já não se parte à volta do absoluto
-# (contentor a 20px, como o Blink), mas a POSIÇÃO ESTÁTICA do `#fora` não:
-# o Blink põe um absoluto que era de BLOCO a seguir à caixa de linha (y=20);
-# `posicao_estatica_bloco` toma o `<span>` do DOM como contentor e dá y≈1, e
-# não há caixa de linha guardada que diga onde a linha acaba (lote IFC).
-claude-absoluto-dentro-do-inline-nao-parte.html
+# `claude-absoluto-dentro-do-inline-nao-parte` left this list on 2026-09-21: the
+# inline flow records the static position of an absolute box that appears in
+# the middle of a line (`layout/ancora_estatica.rs`). The list is EMPTY now.
 
 
 # FM (2026-09-18): `claude-pseudo-caixa-gerada` and `claude-inline-block-baseline`

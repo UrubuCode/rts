@@ -312,9 +312,8 @@ pub struct DisplayList {
     /// tree it was built against, never half of one tree and half of
     /// another because the memo on the `Dom` moved on in between.
     ///
-    /// `BoxTree` derives `Default`, so `Rc<BoxTree>` does too — an empty
-    /// tree with no boxes — which is what keeps the five
-    /// `DisplayList::default()` call sites compiling unchanged.
+    /// `BoxTree` derives `Default`, so `Rc<BoxTree>` does too (an empty tree):
+    /// the five `DisplayList::default()` call sites compile unchanged.
     pub tree: std::rc::Rc<BoxTree>,
     pub items: Vec<DisplayItem>,
     /// Subárvores emitidas por REFERÊNCIA, com a posição no meio dos itens
@@ -345,6 +344,7 @@ pub struct DisplayList {
     /// resposta nenhuma. `rect_of_node` e `geometry_now` são as vistas
     /// agregadas por nó, para quando um nó vier a ter mais do que uma caixa.
     pub box_rects: crate::fasthash::FastMap<BoxId, Rect>,
+    pub ancoras_estaticas: Vec<(BoxId, f32, f32)>, // static positions, `ancora_estatica.rs`
     /// Tracks de coluna de grids explícitos, já resolvidas em px pelo layout. O
     /// `computedProperty` usa esta fonte de used values sem duplicar `resolve_tracks`.
     pub grid_column_tracks: crate::fasthash::FastMap<NodeIdx, Vec<f32>>,

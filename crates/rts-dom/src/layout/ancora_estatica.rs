@@ -1,0 +1,103 @@
+//! The STATIC POSITION of an absolutely positioned box that appears in the
+//! middle of a LINE (CSS 2.1 §10.3.7 / §10.6.4: where the box would be had it
+//! stayed in flow).
+//!
+//! Measured in Blink (`claude-absoluto-posicao-estatica-na-linha`): a box that
+//! was BLOCK-level before `position` blockified it goes below the line it
+//! appears in, at the flow's start edge; one that was INLINE-level stays where
+//! it appears on the line, at the line's top. `posicao_estatica.rs` could
+//! answer neither: it looks at the box's DOM siblings, and inside a line the
+//! "sibling" is text, which has no rectangle — every such box landed at the
+//! top of the enclosing element.
+//!
+//! So the inline flow says where the box WOULD be. The walk leaves a
+//! zero-width ANCHOR for it (`AtomicKind::Estatica`, as a float leaves one),
+//! and when the line places the anchor, the position is recorded in
+//! `DisplayList::ancoras_estaticas`.
+//!
+//! **Not in `box_rects`, and the alternative was measured against the code,
+//! not guessed:** `geometry_now` UNIONS every rect recorded for a node, so a
+//! zero-size rect at the static position would stretch the element's real
+//! rectangle whenever an inset moved it away from there. The anchors are a
+//! table of their own, and — because a block served from the FRAGMENT CACHE
+//! runs no flow — a fragment carries the anchors recorded while it was built
+//! and [`todas`] finds them through the tree of reused fragments, the way
+//! `rect_of_box` finds a rectangle. Without that the second layout pass would
+//! silently fall back to the old position: the class `lost-roots.md` names.
+
+use super::*;
+use crate::boxes::BoxId;
+
+/// The anchor of `id` in the inline flow when `id` is absolutely positioned;
+/// `None` when it is not. Zero width, no owners: the box takes no room on the
+/// line and the inlines around it do not count it as content. Returning early
+/// here is also what keeps the walk from descending into the box and leaking
+/// its text into the line.
+pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: Option<BoxId>, color: u32) -> Option<InlineRun> {
+    (caixa.is_some() && is_out_of_flow(dom, id)).then(|| InlineRun {
+        text: String::new(),
+        color,
+        bold: false,
+        italic: false,
+        deco: 0,
+        owners: Vec::new(),
+        atomic: Some((id, caixa, AtomicKind::Estatica)),
+        ww: 0.0,
+        wh: 0.0,
+    })
+}
+
+/// Handles the atoms that have NOTHING on the line — a float's anchor and a
+/// static-position anchor — and answers `true` for them, so the caller skips
+/// the segment. For the latter it records where the box would have been:
+/// `(seg_x, line_top)` if it was inline-level, `(flow_x, line_bottom)` if it
+/// was block-level.
+pub(in crate::layout) fn fora_da_linha(
+    dom: &Dom,
+    atomic: (NodeIdx, Option<BoxId>, AtomicKind),
+    seg_x: f32,
+    flow_x: f32,
+    line_top: f32,
+    line_bottom: f32,
+    list: &mut DisplayList,
+) -> bool {
+    match atomic {
+        // The float was laid out by `float_in_line`, and neither its box nor
+        // the boxes of the inlines around it pass through the line — Blink
+        // leaves it out of the client rects of the inline that contains it.
+        (_, _, AtomicKind::Float) => true,
+        (id, Some(caixa), AtomicKind::Estatica) => {
+            let (x, y) = if era_de_bloco(dom, id) { (flow_x, line_bottom) } else { (seg_x, line_top) };
+            list.ancoras_estaticas.push((caixa, x, y));
+            true
+        }
+        (_, None, AtomicKind::Estatica) => true,
+        _ => false,
+    }
+}
+
+/// Was this box block-level BEFORE `position: absolute` blockified it? The
+/// declared `display` decides, and the tag's default when none is declared —
+/// `effective_display` cannot be asked, since it answers after blockification.
+fn era_de_bloco(dom: &Dom, id: NodeIdx) -> bool {
+    match dom.computed_style_idx(id).and_then(|c| c.display) {
+        Some(d) => !d.is_inline_level(),
+        None => matches!(&dom.node(id).kind, NodeKind::Element { tag } if crate::block::lookup(tag).is_some()),
+    }
+}
+
+/// Every static-position anchor of `list`, by NODE and in the list's own
+/// coordinates, including those inside the fragments it reuses.
+pub(in crate::layout) fn todas(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
+    let mut out = Vec::new();
+    let mut por = |tree: &crate::boxes::BoxTree, a: &[(BoxId, f32, f32)], dx: f32, dy: f32| {
+        out.extend(a.iter().filter_map(|&(b, x, y)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, 0.0, 0.0)))));
+    };
+    por(&list.tree, &list.ancoras_estaticas, 0.0, 0.0);
+    let mut pilha: Vec<(&ChildRef, f32, f32)> = list.children.iter().map(|c| (c, c.dx, c.dy)).collect();
+    while let Some((c, dx, dy)) = pilha.pop() {
+        por(&c.fragment.tree, &c.fragment.ancoras_estaticas, dx, dy);
+        pilha.extend(c.fragment.children.iter().map(|n| (n, dx + n.dx, dy + n.dy)));
+    }
+    out
+}
