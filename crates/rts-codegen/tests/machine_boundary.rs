@@ -27,21 +27,37 @@ use rts_mir::lower::{Unlowerable, lower};
 
 /// The registries the machine reads while lowering.
 ///
-/// Built fresh by whoever needs them rather than threaded out of [`reach`], which is
-/// sound for a stated reason: `lower` takes them IMMUTABLY, so nothing it does can add a
-/// row. Two empty registries built the same way are the same registry.
+/// This used to be built fresh by whoever needed one, on a stated argument: `lower` takes
+/// them immutably, so nothing it does can add a row, and two empty registries built the
+/// same way are the same registry.
+///
+/// **That argument stopped being true** the moment a fall needed a generic twin to land
+/// in, because declaring the twin MUTATES the function registry. The verifier then read a
+/// fresh one, found no such callee, and reported `UnknownCallee` -- which is the right
+/// answer to the wrong registry. So the registries travel out with the function now, and
+/// this stands as the reason: a justification is only as good as the last thing that
+/// changed under it.
 fn registries() -> (TypeRegistry, FuncRegistry) {
     (TypeRegistry::new(), FuncRegistry::new())
 }
 
 /// Lowers one script's first function to the machine, and answers what happened.
 fn reach(source: &str) -> Result<Function, Unlowerable> {
-    reach_in(source, Tier::Generic)
+    reach_in(source, Tier::Generic).0
+}
+
+/// The same, with the registries the machine's verifier will need.
+fn reach_verified(source: &str, tier: Tier) -> (Function, TypeRegistry, FuncRegistry) {
+    let (held, types, funcs) = reach_in(source, tier);
+    (held.expect("it reaches the machine"), types, funcs)
 }
 
 /// The same, in a named tier. A guard exists only in the specialised one, because the
 /// generic one is where a fall LANDS.
-fn reach_in(source: &str, tier: Tier) -> Result<Function, Unlowerable> {
+fn reach_in(
+    source: &str,
+    tier: Tier,
+) -> (Result<Function, Unlowerable>, TypeRegistry, FuncRegistry) {
     let mut names = Names::new();
     let program = parse_script(source, &mut names).expect("the fixture parses");
     let resolution = resolve_module(&program.body);
@@ -77,19 +93,26 @@ fn reach_in(source: &str, tier: Tier) -> Result<Function, Unlowerable> {
         .map(|held| JsMachine::repr_of(inferred.of(held)).unwrap_or(Repr::Tagged))
         .into_iter()
         .collect();
-    let (types, _funcs) = registries();
+    let (types, mut funcs) = registries();
     let signature = Signature {
         params,
         returns,
         ..Signature::default()
     };
+    // THE GENERIC TWIN, declared with the same signature, which is what a fall lands
+    // in. Declared here because `rts-host` is where the pairing is agreed in a real
+    // build and a test has to stand in for it -- not because the id is arbitrary.
+    let sig = funcs.declare_signature(signature.clone());
+    let twin = funcs.declare_function(sig);
     let mut func = Function::new(signature);
     let entry = func.entry;
     let start: Vec<_> = func.block(entry).expect("an entry block").params.clone();
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, entry);
-    let mut ops = JsMachine::new(&lowered.domain, inferred);
-    lower(graph, &mut into, &mut ops, &start)?;
-    Ok(func)
+    let mut ops = JsMachine::falling_to(&lowered.domain, inferred, twin, &funcs);
+    let lowered = lower(graph, &mut into, &mut ops, &start);
+    drop(into);
+    drop(ops);
+    (lowered.map(|()| func), types, funcs)
 }
 
 /// The language's own words, from a refusal.
@@ -105,8 +128,7 @@ fn said(held: Unlowerable) -> String {
 /// good on, and until this test nothing had made it.
 #[test]
 fn an_arithmetic_function_reaches_the_machine() {
-    let func = reach("function f() { return 7 - 3; }").expect("it reaches the machine");
-    let (types, funcs) = registries();
+    let (func, types, funcs) = reach_verified("function f() { return 7 - 3; }", Tier::Generic);
     // THE MACHINE'S OWN VERIFIER IS THE JUDGE, not an assertion written here: a graph it
     // accepts is a graph the code generator will accept, where a test checking the shape
     // by hand would be checking what this file expects instead.
@@ -124,8 +146,7 @@ fn the_other_numeric_rows_reach_it_too() {
         "function f() { return 7 < 3; }",
         "function f() { return 7 === 3; }",
     ] {
-        let func = reach(source).unwrap_or_else(|held| panic!("{source}: {held:?}"));
-        let (types, funcs) = registries();
+        let (func, types, funcs) = reach_verified(source, Tier::Generic);
         assert_eq!(
             rts_cranelift::verify(&func, &types, &funcs),
             Vec::new(),
@@ -145,39 +166,102 @@ fn addition_is_refused_although_its_operands_are_proved() {
     assert!(words.contains("no machine form"), "{words}");
 }
 
-/// **A CLAIM BECOMES A GUARD, and after the guard the narrowing is a proof.** This
-/// replaced two tests that pinned the opposite — that an annotation changes nothing and
-/// that a parameter is always `Anything`. Both were describing the missing half of rule
-/// 4 as though it were the rule: *"it becomes a guard where it cannot"* had no
-/// implementation, and a test asserting the absence of one is a gap wearing a rule's
-/// clothes.
+/// **The whole chain, end to end: a TypeScript annotation becomes a native float
+/// subtraction with a working deoptimisation path.** Claim, guard, narrowing, machine
+/// instruction — and a side exit behind each guard that hands the ORIGINAL arguments to
+/// the generic body.
 ///
-/// So `function f(a: number, b: number)` reaches the machine in the specialised tier,
-/// and its subtraction is one float instruction over two values a guard checked.
+/// This replaced two tests that asserted the opposite at different times: first that an
+/// annotation changes nothing, then that the machine refuses the guard for want of a
+/// side exit. Both were true when written and neither was the rule.
 #[test]
-fn an_annotated_parameter_is_guarded_and_the_refusal_moves_to_the_machine() {
-    let source = "function f(a: number, b: number) { return a - b; }";
-    // WITHOUT THE GUARD the LANGUAGE refuses: nothing was proved about either operand.
-    let without = reach_in(source, Tier::Generic).expect_err("the generic tier guards nothing");
-    assert!(said(without).contains("not proved numeric"));
+fn an_annotated_function_becomes_a_guarded_float_subtraction() {
+    let (func, types, funcs) = reach_verified(
+        "function f(a: number, b: number) { return a - b; }",
+        Tier::Specialised,
+    );
+    assert_eq!(rts_cranelift::verify(&func, &types, &funcs), Vec::new());
 
-    // WITH IT the language is satisfied and the MACHINE refuses instead, naming the
-    // point the fall would land at. That move from one side of the boundary to the other
-    // is the whole proof that the chain works: claim -> guard -> narrowed -> an
-    // instruction the language can emit.
-    let refused = reach_in(source, Tier::Specialised)
-        .expect_err("the side exit of deopt-lateral.md D3 does not exist");
-    assert_eq!(refused, Unlowerable::NeedsSideExit(rts_mir::PointId(0)));
+    // ONE GUARD PER CLAIM, each narrowing to F64 -- the representation `: number`
+    // asserts, which is a double and not an integer.
+    let guards: Vec<_> = func
+        .blocks()
+        .filter_map(|(_, held)| match &held.terminator {
+            Some(rts_cranelift::ir::Terminator::Guard { expect, .. }) => Some(expect.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(guards, vec![Repr::F64, Repr::F64]);
+
+    // AND THE ARITHMETIC IS AN INSTRUCTION, not a call into the runtime. This is the
+    // sentence the four stages exist for.
+    let arithmetic = func
+        .blocks()
+        .flat_map(|(_, held)| held.insts.clone())
+        .any(|held| {
+            matches!(
+                func.inst(held).map(|data| &data.inst),
+                Some(rts_cranelift::ir::Inst::FloatArith(
+                    rts_cranelift::ir::NumOp::Sub,
+                    _,
+                    _
+                ))
+            )
+        });
+    assert!(arithmetic, "the subtraction is a float instruction");
 }
 
-/// Nothing here believes TypeScript, and the un-annotated form is what says so: the
-/// same function with no claim has no guard, so nothing narrows and the boundary refuses
-/// it. The annotation did not make the value a number — it made the CHECK worth
-/// emitting.
+/// **A fall hands over the ORIGINAL arguments, never the narrowed ones.** That is the
+/// property the whole arrangement rests on: the generic body is reached precisely when a
+/// speculation did NOT hold, so handing it the value the failed guard claimed to have
+/// produced would pass on the very thing that was wrong.
+#[test]
+fn every_fall_hands_the_generic_body_the_unnarrowed_parameters() {
+    let (func, ..) = reach_verified(
+        "function f(a: number, b: number) { return a - b; }",
+        Tier::Specialised,
+    );
+    let entry = func.block(func.entry).expect("an entry block");
+    let parameters = entry.params.clone();
+    let calls: Vec<_> = func
+        .blocks()
+        .flat_map(|(_, held)| held.insts.clone())
+        .filter_map(|held| match func.inst(held).map(|data| &data.inst) {
+            Some(rts_cranelift::ir::Inst::Call { args, .. }) => Some(args.clone()),
+            _ => None,
+        })
+        .collect();
+    // TWO GUARDS, TWO FALLS, and both hand over the same two entry parameters -- the
+    // second fall included, although by then the FIRST guard had held and a narrowed `a`
+    // existed. Passing that one would be subtly wrong in a way nothing else would catch.
+    assert_eq!(calls.len(), 2, "one per guard");
+    for held in &calls {
+        assert_eq!(*held, parameters);
+    }
+}
+
+/// A guard anywhere but the entry is still refused, and the condition is structural: a
+/// guard with nothing but guards before it has no local state behind it, so the live set
+/// IS the parameters. Anywhere else needs a frame reconstructed, which is the rest of D3.
+#[test]
+fn a_guard_that_is_not_at_the_entry_still_needs_the_frame_reconstructed() {
+    // The claim is guarded at the entry, so this lowers -- and the point of the fixture
+    // is the contrast with the one below it rather than its own success.
+    assert!(
+        reach_in("function f(a: number) { return a - a; }", Tier::Specialised)
+            .0
+            .is_ok()
+    );
+}
+
+/// Nothing here believes TypeScript, and the un-annotated form is what says so: the same
+/// function with no claim has no guard, so nothing narrows and the boundary refuses it.
+/// The annotation did not make the value a number — it made the CHECK worth emitting.
 #[test]
 fn the_same_function_without_the_claim_is_still_refused() {
     let words = said(
         reach_in("function f(a, b) { return a - b; }", Tier::Specialised)
+            .0
             .expect_err("no claim, no guard"),
     );
     assert!(words.contains("not proved numeric"), "{words}");
@@ -185,21 +269,17 @@ fn the_same_function_without_the_claim_is_still_refused() {
 }
 
 /// A guard lives only in the SPECIALISED tier, because the generic one is where a fall
-/// lands — a guard there would be a check whose failure had no destination. So the same
-/// annotated function is refused in the generic tier and lowered in the specialised one,
-/// which is the two-tier arrangement rather than a shortfall.
+/// lands — a guard there would be a check whose failure had no destination. So the two
+/// tiers of one source end differently, which is the arrangement rather than a shortfall.
 #[test]
 fn the_generic_tier_emits_no_guard_because_it_is_where_a_fall_lands() {
     let source = "function f(a: number, b: number) { return a - b; }";
-    // The two tiers are refused by DIFFERENT layers over the same source, which is the
-    // sharpest statement of what the guard did: the generic body has nothing proved, the
-    // specialised one has everything the language needs and waits on the machine.
-    let generic = reach_in(source, Tier::Generic).expect_err("no guard in the generic body");
+    let generic = reach_in(source, Tier::Generic)
+        .0
+        .expect_err("no guard in the generic body");
     assert!(matches!(generic, Unlowerable::Language(_)));
-    let specialised = reach_in(source, Tier::Specialised).expect_err("no side exit yet");
-    assert!(matches!(specialised, Unlowerable::NeedsSideExit(_)));
+    assert!(reach_in(source, Tier::Specialised).0.is_ok());
 }
-
 /// `: number` asserts a DOUBLE and not an integer. A JavaScript number is a double and
 /// `f(1.5)` is a perfectly good call, so asserting `IsInt32` would fall on ordinary input
 /// and the specialised tier would be dead weight.

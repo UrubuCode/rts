@@ -39,7 +39,7 @@ use rts_cranelift::ir::{BlockId as MachineBlock, FuncBuilder, ValueId as Machine
 use rts_cranelift::repr::Repr;
 
 use crate::cfg::{BlockId, Callee, Const, EntryId, Func, Op, Prim, Terminator, ValueId};
-use crate::guard::PointId;
+use crate::guard::{Assertion, PointId};
 
 /// What the language has to supply for its own operations.
 ///
@@ -87,6 +87,38 @@ pub trait MachineOps {
         args: &[MachineValue],
         inst: &crate::cfg::Inst,
     ) -> Result<MachineValue, String>;
+
+    /// What an assertion narrows to, in the machine's own vocabulary.
+    ///
+    /// `None` is "this assertion narrows to something no representation names", which
+    /// is honest for a language whose `is a string` means a reference to a heap value
+    /// the machine would have to be told the layout of. The guard is then refused
+    /// rather than approximated.
+    fn asserted_repr(&mut self, assertion: Assertion) -> Option<Repr>;
+
+    /// The side exit: what happens when a guard fails.
+    ///
+    /// # Why the LANGUAGE answers this and the machine does not
+    ///
+    /// Because where a fall LANDS is an arrangement between two bodies of one
+    /// function, and which two bodies those are is not something this crate can know.
+    /// `deopt-lateral.md` states the arrangement -- the tier landed in is the generic
+    /// body of the same function -- and naming that body is the front end's or the
+    /// host's, never a graph's.
+    ///
+    /// It must TERMINATE the block it is given, and the block is one nothing else
+    /// reaches: a guard's failure edge, created for this and entered on no other path.
+    ///
+    /// `live` is every value that existed where the guard stood, in order. For a guard
+    /// at the entry that is exactly the parameters, which is the case this exists for;
+    /// `lower` refuses any other, so an implementation never has to reconstruct state
+    /// it was not handed.
+    fn fall(
+        &mut self,
+        into: &mut FuncBuilder,
+        point: PointId,
+        live: &[MachineValue],
+    ) -> Result<(), String>;
 
     /// A call to a named entry point of the runtime.
     ///
@@ -210,6 +242,9 @@ pub fn lower(
 
     for block in func.block_ids() {
         into.switch_to(blocks[&block]);
+        // HOW MANY GUARDS HAVE BEEN SEEN in this block, and nothing else has. The
+        // condition a side exit needs, made structural: see the `Op::Guard` arm.
+        let mut only_guards_so_far = true;
         for inst in &func.block(block).insts {
             let held = func.inst(*inst);
             let lowered = match &held.op {
@@ -243,9 +278,56 @@ pub fn lower(
                         return Err(Unlowerable::NeedsCallee);
                     }
                 },
-                Op::Guard { point, .. } => return Err(Unlowerable::NeedsSideExit(*point)),
+                Op::Guard {
+                    assertion,
+                    on,
+                    point,
+                } => {
+                    // THE CONDITION THAT MAKES A SIDE EXIT BUILDABLE AT ALL, and it is
+                    // structural rather than analytic: a guard in the ENTRY block with
+                    // nothing but guards before it has no local state behind it, so the
+                    // only live values are the parameters. Falling from there needs no
+                    // frame reconstructed -- it needs the same arguments handed to the
+                    // other tier.
+                    //
+                    // A guard anywhere else does need reconstruction, which is the rest
+                    // of `deopt-lateral.md` D3, and it is refused by the same name it
+                    // always was. Checking the position rather than computing liveness
+                    // is deliberate: this crate has no liveness pass, and a condition it
+                    // can check exactly is worth more than one it would approximate.
+                    if block != func.entry() || !only_guards_so_far {
+                        return Err(Unlowerable::NeedsSideExit(*point));
+                    }
+                    let input = one(*on, &values)?;
+                    let Some(repr) = ops.asserted_repr(*assertion) else {
+                        return Err(Unlowerable::Language(format!(
+                            "{assertion:?} narrows to nothing this machine has a representation for"
+                        )));
+                    };
+                    // THE NARROWED VALUE IS THE OK BLOCK'S FIRST PARAMETER, which is how
+                    // it comes to exist only where the test held -- the machine's own
+                    // words for why its guard is shaped this way. So the parameter is
+                    // declared before the guard is emitted, because the machine checks
+                    // that it is there.
+                    let ok = into.create_block();
+                    let narrowed = into.add_block_param(ok, repr);
+                    let fail = into.create_block();
+                    into.guard(input, repr, (ok, &[]), (fail, &[]))
+                        .map_err(|held| Unlowerable::Machine(format!("{held:?}")))?;
+
+                    // THE SIDE EXIT, which the language builds because which two bodies
+                    // a fall is between is not something a graph knows.
+                    into.switch_to(fail);
+                    ops.fall(into, *point, entry_params)
+                        .map_err(Unlowerable::Language)?;
+
+                    into.switch_to(ok);
+                    values.insert(held.result, narrowed);
+                    continue;
+                }
                 Op::Suspend { .. } => return Err(Unlowerable::NeedsFrameTransform),
             };
+            only_guards_so_far = false;
             values.insert(held.result, lowered);
         }
 

@@ -54,13 +54,14 @@
 //! failures un-triageable for weeks. A refusal here says which operand, and what it was
 //! proved to be instead.
 
-use rts_cranelift::ir::{CmpOp, FuncBuilder, NumOp, ValueId as MachineValue};
+use rts_cranelift::ir::{CmpOp, FuncBuilder, FuncId, FuncRegistry, NumOp, ValueId as MachineValue};
 use rts_cranelift::repr::Repr;
 use rts_mir::cfg::{EntryId, Inst, Op, Prim, ValueId};
+use rts_mir::guard::{Assertion, PointId};
 use rts_mir::infer::Types;
 use rts_mir::lower::MachineOps;
 
-use crate::domain::{Js, JsPrim, Type};
+use crate::domain::{Js, JsAssertion, JsPrim, Type};
 
 /// This language, answering the machine's four questions.
 pub struct JsMachine<'a> {
@@ -72,6 +73,14 @@ pub struct JsMachine<'a> {
     /// whole function, and asking again per instruction is the same answer at a worse
     /// price.
     types: Types<Type>,
+    /// The other tier of this same function, and the registry it was declared in.
+    ///
+    /// `None` is a body compiled with no fall available, which is the generic tier
+    /// itself: it emits no guard, so it is never asked. A specialised body reaching a
+    /// guard without one refuses by name rather than trapping -- a fall that aborted
+    /// would turn a speculation that did not hold into a crashed program, which is
+    /// worse than the speculation never being made.
+    generic: Option<(FuncId, &'a FuncRegistry)>,
 }
 
 /// The machine's own failures travel out as the machine's words.
@@ -83,9 +92,34 @@ fn machine(held: impl std::fmt::Debug) -> String {
 }
 
 impl<'a> JsMachine<'a> {
-    /// A boundary over one function's inferred types.
+    /// A boundary over one function's inferred types, with no fall available.
     pub fn new(domain: &'a Js, types: Types<Type>) -> Self {
-        Self { domain, types }
+        Self {
+            domain,
+            types,
+            generic: None,
+        }
+    }
+
+    /// The same, paired with the generic body a guard falls to.
+    ///
+    /// # Why the pairing is given rather than discovered
+    ///
+    /// Because the two tiers of one function are two machine functions, and which id
+    /// the generic one got is whoever declared it. `rts-host` is the crate that may
+    /// name all three layers at once and is therefore where the pair is agreed --
+    /// exactly as the entry-point symbols and the singleton numbering are.
+    pub fn falling_to(
+        domain: &'a Js,
+        types: Types<Type>,
+        generic: FuncId,
+        funcs: &'a FuncRegistry,
+    ) -> Self {
+        Self {
+            domain,
+            types,
+            generic: Some((generic, funcs)),
+        }
     }
 
     /// What a proved type is held in.
@@ -243,6 +277,48 @@ impl MachineOps for JsMachine<'_> {
                 "{other:?} has no machine form in this slice, over proved numbers or otherwise"
             )),
         }
+    }
+
+    fn asserted_repr(&mut self, assertion: Assertion) -> Option<Repr> {
+        match self.domain.asserted(assertion) {
+            // A JavaScript number is a double, which is why the claim `number` asserts
+            // this one and not the integer.
+            Some(JsAssertion::IsDouble) => Some(Repr::F64),
+            Some(JsAssertion::IsInt32) => Some(Repr::I32),
+            // A STRING IS A REFERENCE to a heap value, and which layout it has is the
+            // runtime's shape tree rather than a representation this can name. Answering
+            // `Ref` of something invented would be a guard that narrowed to the wrong
+            // thing and passed.
+            Some(JsAssertion::IsStr) | Some(JsAssertion::HasShape(_)) | None => None,
+        }
+    }
+
+    fn fall(
+        &mut self,
+        into: &mut FuncBuilder,
+        point: PointId,
+        live: &[MachineValue],
+    ) -> Result<(), String> {
+        let Some((generic, funcs)) = self.generic else {
+            return Err(format!(
+                "the fall at p{} has no generic body to land in, which is the pairing rts-host agrees",
+                point.0
+            ));
+        };
+        // THE WHOLE SIDE EXIT, for a guard at the entry: hand the same arguments to the
+        // other tier and answer what it answers. Nothing is reconstructed because
+        // nothing was built -- `rts_mir::lower` refuses a guard anywhere a local could
+        // exist, so `live` is the parameters and the parameters are all there is.
+        //
+        // A TAIL CALL would be better and is not available here: `unwind`'s header says
+        // a call in tail position discards its frame before control transfers, so it
+        // cannot also be the call a handler is installed around. Until the specialised
+        // body's protected regions are expressible this calls and returns, which costs
+        // one frame on a path that is taken when a speculation failed -- the path whose
+        // cost the whole arrangement is willing to pay.
+        let answered = into.call(funcs, generic, live).map_err(machine)?;
+        into.ret(&answered);
+        Ok(())
     }
 
     fn entry(

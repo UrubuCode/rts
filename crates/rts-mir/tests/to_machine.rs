@@ -40,6 +40,30 @@ impl MachineOps for Integers {
         ))
     }
 
+    fn asserted_repr(&mut self, _assertion: rts_mir::Assertion) -> Option<Repr> {
+        // This language has one type, so its one assertion narrows to it.
+        Some(Repr::I32)
+    }
+
+    fn fall(
+        &mut self,
+        into: &mut rts_cranelift::ir::FuncBuilder,
+        _point: rts_mir::PointId,
+        _live: &[MachineValue],
+    ) -> Result<(), String> {
+        // A TOY WITH NO SECOND TIER answers a fixed value. That is not a model of what
+        // a deoptimiser does -- it is enough to prove the EDGE exists and is terminated,
+        // which is what these tests are for. A real one hands the live set to the other
+        // body; `rts-codegen`'s does exactly that.
+        let id = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::I32,
+            bits: rts_cranelift::ir::ScalarBits(0),
+        });
+        let zero = into.use_const(id);
+        into.ret(&[zero]);
+        Ok(())
+    }
+
     fn prim(
         &mut self,
         into: &mut rts_cranelift::ir::FuncBuilder,
@@ -181,10 +205,12 @@ fn a_branch_with_a_join_block_carries_its_parameter_through() {
     assert!(errors.is_empty(), "the machine refused it: {errors:?}");
 }
 
-/// A guard is refused by name rather than approximated, because the side exit it
-/// needs is D3 of `docs/engine/deopt-lateral.md` and does not exist.
+/// A guard AT THE ENTRY lowers, because the live set there is the parameters and a fall
+/// needs nothing reconstructed. This test asserted the opposite until the side exit
+/// existed, and the assertion it now makes is the structural condition rather than the
+/// absence of a feature.
 #[test]
-fn a_guard_is_refused_and_says_which_point_it_was() {
+fn a_guard_at_the_entry_lowers_with_its_side_exit() {
     let mut build = FuncBuilder::new(Tier::Specialised);
     let entry = build.current();
     let x = build.param(entry);
@@ -209,9 +235,50 @@ fn a_guard_is_refused_and_says_which_point_it_was() {
         .clone();
     let start = func.entry;
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, start);
+    assert_eq!(lower(&graph, &mut into, &mut Integers, &params), Ok(()));
+}
+
+/// A guard that is NOT at the entry is refused, and this is the other half of the same
+/// condition: something stood before it, so a local could exist, so a fall would need a
+/// frame reconstructed -- the rest of `deopt-lateral.md` D3.
+#[test]
+fn a_guard_behind_an_instruction_still_needs_the_frame_reconstructed() {
+    let mut build = FuncBuilder::new(Tier::Specialised);
+    let entry = build.current();
+    let x = build.param(entry);
+    // ONE ORDINARY INSTRUCTION, and that is the whole difference.
+    let doubled = build.push(
+        Op::Prim {
+            prim: ADD,
+            args: vec![x, x],
+        },
+        Effect::PURE,
+        Default::default(),
+    );
+    let proved = build.push(
+        Op::Guard {
+            assertion: Assertion(0),
+            on: doubled,
+            point: PointId(7),
+        },
+        Effect::PURE,
+        Default::default(),
+    );
+    build.end(Terminator::Return(Some(proved)));
+    let graph = build.finish();
+    assert_eq!(verify(&graph), Ok(()));
+
+    let (mut func, types, _funcs) = machine(1);
+    let params = func
+        .block(func.entry)
+        .expect("an entry block")
+        .params
+        .clone();
+    let start = func.entry;
+    let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, start);
     assert_eq!(
         lower(&graph, &mut into, &mut Integers, &params),
-        Err(Unlowerable::NeedsSideExit(PointId(4)))
+        Err(Unlowerable::NeedsSideExit(PointId(7)))
     );
 }
 
