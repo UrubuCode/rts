@@ -380,6 +380,7 @@ pub fn describe_machine(source: &str) -> Result<String, String> {
                     &lowered.domain,
                     Some(twin),
                     &mut shared,
+                    &mut names,
                 ) {
                     Ok(()) => {
                         reached += 1;

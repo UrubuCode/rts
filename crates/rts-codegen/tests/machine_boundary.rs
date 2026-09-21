@@ -663,7 +663,13 @@ fn this_reaches_the_machine_through_the_calling_convention() {
         let graph = lowered.functions[0].result.as_ref().expect("it lowers");
         let mut shared = rts_codegen::machine::Shared::default();
         assert_eq!(
-            rts_codegen::machine::reaches_machine(graph, &lowered.domain, None, &mut shared),
+            rts_codegen::machine::reaches_machine(
+                graph,
+                &lowered.domain,
+                None,
+                &mut shared,
+                &mut names
+            ),
             Ok(()),
             "{source}"
         );
@@ -692,8 +698,52 @@ fn a_fall_hands_over_the_whole_parameter_list_and_not_the_live_set() {
     // A twin to fall to, which is what makes the arity observable at all.
     let twin = rts_mir::cfg::FuncId(0);
     assert_eq!(
-        rts_codegen::machine::reaches_machine(graph, &lowered.domain, Some(twin), &mut shared),
+        rts_codegen::machine::reaches_machine(
+            graph,
+            &lowered.domain,
+            Some(twin),
+            &mut shared,
+            &mut names
+        ),
         Ok(()),
         "the fall's call matches the twin's signature"
     );
+}
+
+/// **A property key reaches the machine as a number**, minted from the program's one
+/// registry — which is what makes `o.k` and `o[k]` reach the same property.
+///
+/// A key is not a call, unlike a text: `rts_cranelift::shape::Key` is opaque to the
+/// machine, which compares keys and does nothing else with them, so the number IS the
+/// whole of it. A text is a heap value the runtime has to build; a key is bits.
+///
+/// The pairing of a name to a key lives on `Names` and mints from
+/// `shape::KeyRegistry` — CLAUDE.md names that as the correct shape, two tables of
+/// different lifetimes minting from ONE registry. A second map here would make a computed
+/// `o[k]` resolve to a different number than the compiler chose for `o.k`, because the
+/// runtime arrives at a computed key by reaching the compiler's number.
+#[test]
+fn a_property_key_is_a_number_from_the_programs_one_registry() {
+    let mut names = Names::new();
+    let program = parse_script("function f(o) { return o.x; }", &mut names).expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+    let graph = lowered.functions[0].result.as_ref().expect("it lowers");
+    let mut shared = rts_codegen::machine::Shared::default();
+    let refused = rts_codegen::machine::reaches_machine(
+        graph,
+        &lowered.domain,
+        None,
+        &mut shared,
+        &mut names,
+    )
+    .expect_err("the access itself has no form yet");
+    let words = said(refused);
+    // THE KEY IS NOT WHAT STOPS IT ANY MORE. `FieldRead` is, and the message naming the
+    // operand as `Str` is the key having become a value the operation could read.
+    assert!(
+        !words.contains("runtime's numbering"),
+        "the key lowered: {words}"
+    );
+    assert!(words.contains("FieldRead"), "{words}");
 }

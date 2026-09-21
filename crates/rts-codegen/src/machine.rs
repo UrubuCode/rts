@@ -127,6 +127,17 @@ pub struct JsMachine<'a> {
     /// Measured rather than reasoned: passing the live set took `bench/` from 12 functions
     /// reaching the machine to 6, with `CallArity { expected: 3, found: 1 }` 287 times.
     incoming: Vec<MachineValue>,
+    /// The program's interner, which holds the pairing of a name to a machine key.
+    ///
+    /// Mutable because a key is minted on FIRST USE: `Names::key` says why -- only names
+    /// used as property keys ever get one, so a program that names a thousand variables
+    /// and two properties should spend two keys.
+    ///
+    /// Given rather than rebuilt, and that is the whole point: a second `Name -> Key` map
+    /// here would be two tables of one number, and the runtime resolves a COMPUTED key by
+    /// arriving at the number the compiler chose -- so a second numbering would make
+    /// `o[k]` reach a different property from `o.k`.
+    names: Option<&'a mut crate::names::Names>,
 }
 
 /// The machine's own failures travel out as the machine's words.
@@ -187,6 +198,7 @@ impl<'a> JsMachine<'a> {
             shared: None,
             receiver: None,
             incoming: Vec::new(),
+            names: None,
         }
     }
 
@@ -206,7 +218,14 @@ impl<'a> JsMachine<'a> {
             shared: None,
             receiver: None,
             incoming: Vec::new(),
+            names: None,
         }
+    }
+
+    /// The program's interner, for the pairing of a name to a machine key.
+    pub fn naming_with(mut self, names: &'a mut crate::names::Names) -> Self {
+        self.names = Some(names);
+        self
     }
 
     /// Where a runtime operation may be declared, so a call to one can be emitted.
@@ -336,7 +355,36 @@ impl MachineOps for JsMachine<'_> {
                 "StringConst answered nothing, and the graph reads its result".to_owned()
             });
         }
-        // EVERY OTHER KIND IS STILL A HEAP VALUE the runtime numbers differently: a key,
+        // A PROPERTY KEY IS A NUMBER THE COMPILER RESOLVED, and the number is the whole of
+        // it: `rts_cranelift::shape::Key` is opaque to the machine, which compares keys and
+        // does nothing else with them. So this is a machine constant and not a call --
+        // unlike a text, which is a heap value the runtime has to build.
+        //
+        // `I64`, because that is what every operation taking a key declares. `emit/` widens
+        // a key only where the signature says `UNPROVEN`, and its own comment records the
+        // call the machine refused when an earlier version widened it unconditionally.
+        if let Some(JsConst::Key(name)) = self.domain.declared(index) {
+            let name = *name;
+            let Some(names) = self.names.as_deref_mut() else {
+                return Err(
+                    "a property key is minted from the program's interner, which this boundary was not given"
+                        .to_owned(),
+                );
+            };
+            let Some(shared) = self.shared.as_deref_mut() else {
+                return Err(
+                    "a property key is minted from the program's key registry, which this boundary was not given"
+                        .to_owned(),
+                );
+            };
+            let key = names.key(name, &mut shared.keys);
+            let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: rts_cranelift::ir::ScalarBits(key.index() as u64),
+            });
+            return Ok(into.use_const(held));
+        }
+        // EVERY OTHER KIND IS STILL A HEAP VALUE the runtime numbers differently: a
         // a singleton, a closure over a function of the module. Each needs its own
         // agreement, and none is a number this slice can produce.
         Err(format!(
@@ -607,6 +655,13 @@ pub struct Shared {
     /// is an agreement with the runtime, which holds ONE table. Two functions numbering
     /// their own would reach the wrong string rather than failing.
     pub literals: crate::runtime::Literals,
+    /// What the machine calls each property, numbered once per program.
+    ///
+    /// `rts_cranelift::shape::KeyRegistry` hands out numbers and records no names, which
+    /// is deliberate on its side: a key it understood would be a key it could be wrong
+    /// about. The PAIRING of a name to a key lives on `Names`, and CLAUDE.md names this as
+    /// the correct shape -- two tables of different lifetimes minting from ONE registry.
+    pub keys: rts_cranelift::shape::KeyRegistry,
 }
 
 /// Does this graph reach the machine, and what stopped it if not?
@@ -634,6 +689,7 @@ pub fn reaches_machine(
     domain: &Js,
     generic: Option<rts_mir::cfg::FuncId>,
     shared: &mut Shared,
+    names: &mut crate::names::Names,
 ) -> Result<(), rts_mir::lower::Unlowerable> {
     use rts_cranelift::ir::{Function, Signature};
     use rts_cranelift::types::TypeRegistry;
@@ -705,6 +761,7 @@ pub fn reaches_machine(
         None => JsMachine::new(domain, inferred),
     }
     .declaring_in(shared)
+    .naming_with(names)
     .with_incoming(&start);
     rts_mir::lower::lower(func, &mut into, &mut ops, &start[2..])
 }
