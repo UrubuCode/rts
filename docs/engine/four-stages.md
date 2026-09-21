@@ -815,14 +815,23 @@ here as a share.
 
 | `bench/` | | `tests/`, every fifth file | |
 |---:|---|---:|---|
-| 8 | an iteration protocol | 67 | a bigint literal |
-| 6 | a class field | 34 | a template literal |
-| 5 | a call through neither a name nor a property | 33 | a call through neither a name nor a property |
-| 4 | a template literal | 31 | an object literal with a method |
-| 4 | an object literal with a method | 27 | an iteration protocol |
+| 6 | a class field | 67 | a bigint literal |
+| 5 | a call through neither a name nor a property | 34 | a template literal |
+| 4 | a template literal | 33 | a call through neither a name nor a property |
+| 4 | an object literal with a method | 31 | an object literal with a method |
 | 3 | a class with no constructor written | 22 | a rest parameter |
 | 2 | an optional chain | 21 | a function of this module read as a value |
-| 2 | a class accessor | 20 | a super call |
+| 1 | `**` has no row | 20 | a super call |
+| 1 | `>>>` has no row | 18 | a `finally` that completes abruptly |
+
+**`an iteration protocol` was the TOP row of the left-hand column and is gone from both**
+— 8 of 14 files in `bench/` and 27 of the sample. The section at the end of this
+document has it. `a throw` and a plain `finally` left the same way one block earlier.
+
+**`bench/` has run out of one-line entries.** Its whole column is now eight rows
+totalling 26 refusals over 397 functions, and the last two are single operators with no
+row in the primitive table. That is a different kind of list from the one this started
+as: no entry in it is a mechanism any more.
 
 **`a throw` and `a finally` were rows two and three of the right-hand column and are
 gone**, which is the cleanup-chain section at the end of this document. What is left of
@@ -838,12 +847,12 @@ rather than reduced.
 on every way out — and together they were 106 of this sample, the largest thing on the
 list by a distance. Both are done; the section at the end has them.
 
-**The redirection the table gives NOW is the iteration protocol**, and it is the same
-mechanism from the other side. `for`-`of` at 27, a rest parameter at 22, a
-destructuring target at 14 and an array literal with a spread at 12 all step an
-iterator, and all of them owe it its `return()` on an early exit — which is the
-cleanup chain that now exists. `yield*` joined this group when it left the frame
-block.
+**That redirection was taken too.** `for`-`of` and the array pattern step the iterator
+and close it, on the cleanup chain the block before built. What is LEFT of the group is
+the half that gathers rather than steps — a rest parameter at 22, an array literal with
+a spread at 12, and an array rest target — and they share one missing operation rather
+than the protocol: each drains from the CURRENT position into an array, which needs an
+append. `yield*` is still in this group.
 
 A bigint literal is a second numeric tower and is nobody's next hour, whatever its
 count says.
@@ -1147,3 +1156,154 @@ the chain it needs is the one that now exists.
 
 Per file against a kept binary at each step, `bench/` and `tests/`, LOST empty
 every time.
+
+---
+
+## The iteration protocol, and the entry point that was right for somebody else
+
+The table pointed here and this is what it found: the operation that looks like the
+answer already exists, and using it would have been wrong.
+
+`rts_core::entry::iterate` turns an iterable into an array, is reached by
+`CoreEntry::Iterate`, and is one call where this is a loop. Its own header says who
+it is for — *"what still arrives here is everything that must consume the WHOLE
+sequence to answer at all"* — and a `for`-`of` is not that. The old emitter measured
+the three costs of pretending otherwise, against Bun, before rewriting itself:
+
+- a `break` never reaches `return()` on the iterator — a leak;
+- a `Map` or `Set` the body mutates is walked as it was BEFORE the body ran — a
+  wrong answer;
+- a source that never reports `done` is drained forever instead of ending the pass
+  it was told to — a program that stops terminating.
+
+So the reuse-check finding here is the *inverse* of the usual one. The usual finding
+is "this exists, call it". This one is "this exists, and calling it is the defect".
+
+### Three ways out, and only one of them is a jump
+
+| leaving by | closes? | how |
+|---|---|---|
+| `done` | **no** | the sequence ended itself; nothing is owed |
+| `break` | yes | a block between the loop and the exit |
+| `return`, or a raise | yes | the region's **cleanup**, copied in by the machine |
+
+`return` and a raise are not jumps out of the loop — they leave the function — so
+no block this lowering writes could be on their path. That is exactly what the
+cleanup piece is for, and it is why the `finally` work had to come first: this
+block consumes it.
+
+**The `done` path must not close**, and that is the reason the close is not simply
+the cleanup for all three. A cleanup runs on every way out of a region, and
+`it.return()` after `done` is an observable extra call on a user's iterator. So the
+region is entered for the BODY and left before the exit, and `break` carries its
+own closing block.
+
+The obligation itself is not decided here. `ForEachSource::owes_iterator_close` was
+already in the tree, stating it once.
+
+### `return` is optional, and that is what `CleanupDone` said it allowed
+
+An iterator need not have one, and calling `undefined` would raise where the
+specification says do nothing. So the close reads the key, asks whether it is
+nullish, and calls only if it is not — a piece that **branches inside itself**,
+which is precisely the shape `Terminator::CleanupDone`'s own doc says a cleanup may
+take. The feature was written for this and used by it two commits later.
+
+### Four well-known keys, which the enum predicted
+
+`WellKnown`'s first version carried one variant and said: *"a second is expected —
+the iterator key a `for`-`of` reads is the same shape of thing"*. It reads four:
+`Symbol.iterator`, `next`, `done`, `value`, plus `return` for the close.
+
+They are here rather than asked of the interner because **the program never wrote
+them**. `for (const x of xs)` contains no `next` and no `done`, so there is no
+spelling in the source to have a `Name` for, and minting one during lowering would
+need a mutable interner here — the same reason `class.rs` gives for `prototype`.
+
+And they are KEYS, not operations. Reading `done` off a step result is an ordinary
+property read; a `Prim` for it would be this language claiming the read is special
+when only the key is. `done` is read with `Truthy` and never compared against
+`true`, because the specification says ToBoolean: an iterator answering `done: 1`
+ends the loop.
+
+### The specialisation that is deliberately absent
+
+`emit/foreach.rs` carries **two arms in one loop** — an indexed walk for an array or
+a string, the stepped protocol for everything else — because stepping costs a
+`{ value, done }` allocation per element, including for `for (const x of anArray)`,
+which is the common case the indexed walk exists to avoid. That is a real cost and
+the dual arm is a real answer to it.
+
+It is not reproduced here, and the reason is about *where the decision belongs*
+rather than whether it is worth making. The old emitter had to decide it while
+emitting, from syntax, which is why it emits both arms and lets one be dead. Here
+the question is *"is this value an array"* — a type and a guard, which is
+`rts_mir`'s own machinery applied by a pass over a graph that already says what it
+is doing. Writing the dual arm into the lowering would spend the thing this stage
+exists to provide.
+
+**So this emits one honest loop, and the specialisation is a pass. What it must not
+do is emit one honest loop and call it fast** — which is why no number about speed
+appears anywhere in this section.
+
+### The array pattern, on the same three helpers
+
+A fixed number of steps rather than a loop over them, and it found one thing worth
+writing down. **A slot past the end binds `undefined`, not the step's own `value`.**
+`{ done: true, value: 42 }` is a legal answer from a hand-written iterator, and the
+specification says the slot is `undefined`. Reading `value` unconditionally is
+correct for every well-behaved iterator and silently wrong for that one — so each
+slot is a step, a truth test, and a join whose two arms are the value and the
+singleton.
+
+A **hole** still takes a step and binds nothing, which is why the tree keeps it as
+an absent element rather than omitting it: dropping one would shift every element
+after it onto the wrong value. A test pins that the hole *costs* a step, by counting
+against the same pattern without it.
+
+The close is owed only when the pattern stopped first, which the last slot's `done`
+test decides. A pattern with no elements at all closes unconditionally, because it
+stepped nothing and so never reached `done`.
+
+### What was refused, and each names a different missing thing
+
+| refused | what it waits on |
+|---|---|
+| `for`-`in` | nothing here — it walks the prototype chain, which is not this protocol |
+| `for await` | every suspension sits inside the region that owes the close, and the frame transform has a measured bug class exactly there |
+| an array **rest** target | it drains from the CURRENT position, so `iterate` is wrong for it too; it needs an append |
+| a nested pattern in a slot | the same refusal the object form gives, under the same name |
+
+The `for await` one is worth reading twice, because it is the frame block and this
+block meeting: `frame/transform.rs` records that a `Return` left inside a region ran
+its `finally` **three times** for `try { yield 1; yield 2 } finally { … }`. A `for
+await` is that shape by construction.
+
+### One real bug, and it was the same bug twice
+
+The per-pass binding lives in the loop head's own scope, and without entering it the
+target is not found at all and reads as a **global**. That is precisely what the
+`catch` clause reported the first time it ran, and it took the same fix. The
+resolver had already opened the scope; only the lowering did not step into it.
+
+Worth noting as a pattern rather than an incident: this stage has now got the same
+thing wrong twice, in two files, because a scope that the resolver opens is invisible
+to a lowering that does not ask for it. Nothing structural prevents a third.
+
+### Where the sample stands
+
+`tests/`, every fifth file — 491 files, 3 473 functions — across this whole stretch:
+
+| measured after | lowered |
+|---|---:|
+| the suspension | 2 978 |
+| `CleanupDone` | 3 053 |
+| the array pattern | **3 078** |
+
+Three rows and not five, because the sample was taken three times. `Raise` and
+`for`-`of` were each measured PER FILE over the whole corpus and not over this sample,
+and inventing a row for them from the full-corpus delta would be a number nobody took.
+
+And per file against a kept binary at every step, on both corpora, with the
+denominator unmoved: `bench/` 345 → **356** of 397, `tests/` 14 323 → **15 170** of
+17 194. **The LOST list is empty at each of the five.**
