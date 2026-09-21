@@ -638,3 +638,62 @@ fn a_boundary_with_nowhere_to_declare_refuses_the_call() {
     assert!(words.contains("somewhere to declare it"), "{words}");
     assert!(words.contains("StringConst"), "which one: {words}");
 }
+
+/// **`this` reaches the machine**, and the convention is what made it possible: parameter 0
+/// is the environment and parameter 1 is the receiver.
+///
+/// The domain's note on `ThisValue` said where a receiver lives is the MACHINE's question.
+/// It is not — `abi::Convention` is about linkage and tail calls and reserves nothing for a
+/// receiver, so the machine layer has no answer to give and asking it would have got one
+/// invented. It is this language's convention, `emit/function.rs` fixes it, and
+/// `rts_core::entry::functions::invoke` calls on those terms.
+///
+/// So the boundary is TOLD the parameters by whoever declared the signature, rather than
+/// looking for them.
+#[test]
+fn this_reaches_the_machine_through_the_calling_convention() {
+    for source in [
+        "function f() { return this; }",
+        "function f(a) { return this; }",
+    ] {
+        let mut names = Names::new();
+        let program = parse_script(source, &mut names).expect("parses");
+        let resolution = resolve_module(&program.body);
+        let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+        let graph = lowered.functions[0].result.as_ref().expect("it lowers");
+        let mut shared = rts_codegen::machine::Shared::default();
+        assert_eq!(
+            rts_codegen::machine::reaches_machine(graph, &lowered.domain, None, &mut shared),
+            Ok(()),
+            "{source}"
+        );
+    }
+}
+
+/// A fall hands over what the activation ARRIVED with, not the live set — and this is pinned
+/// because getting it wrong was measured rather than reasoned about.
+///
+/// The other tier is a function with the same signature, so entering it means handing over
+/// the same parameters, the convention's leading two included. Passing the live set alone
+/// took `bench/` from 12 functions reaching the machine to 6, with `CallArity { expected: 3,
+/// found: 1 }` 287 times.
+#[test]
+fn a_fall_hands_over_the_whole_parameter_list_and_not_the_live_set() {
+    let mut names = Names::new();
+    let program = parse_script(
+        "function f(a: number, b: number) { return a - b; }",
+        &mut names,
+    )
+    .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Specialised);
+    let graph = lowered.functions[0].result.as_ref().expect("it lowers");
+    let mut shared = rts_codegen::machine::Shared::default();
+    // A twin to fall to, which is what makes the arity observable at all.
+    let twin = rts_mir::cfg::FuncId(0);
+    assert_eq!(
+        rts_codegen::machine::reaches_machine(graph, &lowered.domain, Some(twin), &mut shared),
+        Ok(()),
+        "the fall's call matches the twin's signature"
+    );
+}

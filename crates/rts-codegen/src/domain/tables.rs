@@ -106,11 +106,22 @@ pub enum JsPrim {
     ///
     /// # Why an operation and not a parameter
     ///
-    /// The same answer the outer binding got, for the same reason. WHERE the
-    /// receiver of an activation lives — an extra parameter, a register the
-    /// convention reserves, a slot the frame holds — is the machine's calling
-    /// convention, and this crate's rule 2 says a machine question is never decided
-    /// here.
+    /// WHERE the receiver of an activation lives — an extra parameter, a register a
+    /// convention reserves, a slot the frame holds — is a CONVENTION, and this note used
+    /// to say it was the machine's. It is not, and the correction is worth the space:
+    /// `rts_cranelift::abi::Convention` is about linkage and tail calls and reserves
+    /// nothing for a receiver, so the machine layer has no answer to give and asking it
+    /// would have got one invented.
+    ///
+    /// It is this language's, and `emit/function.rs` fixes it: parameter 0 is the
+    /// environment and `THIS_PARAM` is 1. `rts_core::entry::functions::invoke` calls on
+    /// those terms, so the convention is an agreement between a signature and the runtime
+    /// — which is why the boundary is TOLD the receiver by whoever declared the signature
+    /// rather than looking for it.
+    ///
+    /// Still an operation and not a parameter of this graph, for the reason the outer
+    /// binding is one: a lowering that made it a parameter would be choosing the position,
+    /// and the position is the caller's to state.
     ///
     /// It is also the other end of `rts_mir::cfg::Op::Call`'s receiver field: one
     /// says a receiver travels, this says the callee reads it, and neither packs it

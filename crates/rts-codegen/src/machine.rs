@@ -100,6 +100,33 @@ pub struct JsMachine<'a> {
     /// `None` is a boundary asked to lower a call with nowhere to declare it, which
     /// refuses by name rather than inventing an id. A test wants that case.
     shared: Option<&'a mut Shared>,
+    /// The machine value this activation's receiver arrived in.
+    ///
+    /// # Why the CALLER supplies it and this does not find it
+    ///
+    /// Because where a receiver lives is an agreement between a function's SIGNATURE and
+    /// whoever calls it, and whoever declared the signature is the only one that knows.
+    /// `emit/function.rs` fixes the layout for the running engine -- parameter 0 is the
+    /// environment and `THIS_PARAM` is 1 -- and `rts_core::entry::functions::invoke` calls
+    /// on those terms.
+    ///
+    /// The domain's own note on `ThisValue` said this was the MACHINE's question. It is
+    /// not: `abi::Convention` is about linkage and tail calls and reserves nothing for a
+    /// receiver, so the position is a language convention and `rts-cranelift` would have
+    /// no answer to give. Corrected there in the same change as this.
+    receiver: Option<MachineValue>,
+    /// Every parameter this activation arrived with, in the signature's order.
+    ///
+    /// # Why a fall needs ALL of them and not the live set
+    ///
+    /// Because the other tier is a function with the same signature, and entering it means
+    /// handing over what this one was called with -- the convention's leading two
+    /// included. `MachineOps::fall` receives the live set, which for an entry guard is the
+    /// PROGRAM's parameters, and passing those alone is a call of the wrong arity.
+    ///
+    /// Measured rather than reasoned: passing the live set took `bench/` from 12 functions
+    /// reaching the machine to 6, with `CallArity { expected: 3, found: 1 }` 287 times.
+    incoming: Vec<MachineValue>,
 }
 
 /// The machine's own failures travel out as the machine's words.
@@ -158,6 +185,8 @@ impl<'a> JsMachine<'a> {
             types,
             generic: None,
             shared: None,
+            receiver: None,
+            incoming: Vec::new(),
         }
     }
 
@@ -175,6 +204,8 @@ impl<'a> JsMachine<'a> {
             types,
             generic: Some(generic),
             shared: None,
+            receiver: None,
+            incoming: Vec::new(),
         }
     }
 
@@ -184,6 +215,22 @@ impl<'a> JsMachine<'a> {
     /// be given -- a generic twin to fall to and somewhere to declare a call -- are
     /// independent, and a constructor per combination is four constructors for two
     /// questions.
+    /// Every parameter this activation arrived with, in the signature's order.
+    ///
+    /// One method for both facts the boundary needs from them -- which value is the
+    /// receiver, and what a fall hands over -- so the convention is stated once. Parameter
+    /// 0 is the environment and 1 is the receiver, which is what `emit/function.rs` fixes
+    /// and `rts_core::entry::functions::invoke` calls on.
+    pub fn with_incoming(mut self, params: &[MachineValue]) -> Self {
+        self.receiver = params.get(1).copied();
+        self.incoming = params.to_vec();
+        self
+    }
+
+    /// Where a runtime operation may be declared, so a call to one can be emitted.
+    ///
+    /// Taken after construction rather than in it, because the things a boundary may be
+    /// given are independent and a constructor per combination is one per subset.
     pub fn declaring_in(mut self, shared: &'a mut Shared) -> Self {
         self.shared = Some(shared);
         self
@@ -332,6 +379,15 @@ impl MachineOps for JsMachine<'_> {
             return Ok(args[0]);
         }
 
+        // THE RECEIVER, which takes no operands and is not arithmetic, so it goes ahead of
+        // both gates below. Reading it is reading a parameter: the signature declared one
+        // and the caller said which.
+        if which == JsPrim::ThisValue {
+            return self.receiver.ok_or_else(|| {
+                "the signature declared no receiver, and `this` is one of its parameters".to_owned()
+            });
+        }
+
         // ARITY FIRST, because it is the accurate reason for a row this slice has no
         // form for at any arity. Asked second, `NewArray` with no operands was reported
         // as "operands that were not proved numeric" followed by an empty list -- true
@@ -450,7 +506,17 @@ impl MachineOps for JsMachine<'_> {
                 point.0
             ));
         };
-        let answered = into.call(&shared.funcs, generic, live).map_err(machine)?;
+        // WHAT THIS ACTIVATION ARRIVED WITH, and not `live`. The other tier has the same
+        // signature, so entering it means handing over the same parameters -- the
+        // convention's leading two included. `live` is the MIR's live set, which for an
+        // entry guard is the program's parameters alone.
+        let handed: Vec<MachineValue> = match self.incoming.is_empty() {
+            true => live.to_vec(),
+            false => self.incoming.clone(),
+        };
+        let answered = into
+            .call(&shared.funcs, generic, &handed)
+            .map_err(machine)?;
         into.ret(&answered);
         Ok(())
     }
@@ -593,8 +659,17 @@ pub fn reaches_machine(
         .map(|held| JsMachine::repr_of(inferred.of(held)).unwrap_or(Repr::Tagged))
         .into_iter()
         .collect();
+    // THE LANGUAGE'S CALLING CONVENTION, which `emit/function.rs` fixes and
+    // `rts_core::entry::functions::invoke` calls on: parameter 0 is the environment and
+    // parameter 1 is the receiver, both runtime values and therefore tagged. The
+    // program's own parameters follow.
+    //
+    // Adopted here rather than left out, because a signature without them is one nothing
+    // in this engine can call -- and the instrument would be measuring a function shape
+    // that could never run.
+    let leading = vec![Repr::Tagged, Repr::Tagged];
     let signature = Signature {
-        params,
+        params: leading.iter().copied().chain(params).collect(),
         returns,
         ..Signature::default()
     };
@@ -617,15 +692,19 @@ pub fn reaches_machine(
     // program: `funcs` and `calls` are created once and every file and function share
     // them. A registry per function would give each one its own `FuncId` for one symbol,
     // and the instrument would never notice two functions failing to agree.
-    // THE WHOLE SHARED STATE, whether or not there is a twin to fall to. Those were
+    //
+    // Handed over whether or not there is a twin to fall to. Those were
     // mutually exclusive while the twin carried its own reference to the registry, which
     // is a limit nothing but that field imposed -- and it made the instrument measure a
     // falling function without entry points and a non-falling one with them.
+    // THE GRAPH'S PARAMETERS ARE THE PROGRAM'S, so they map onto the TAIL of the
+    // signature. Handing the whole list would bind the program's first parameter to the
+    // environment, which is the kind of off-by-two that compiles.
     let mut ops = match twin {
         Some(twin) => JsMachine::falling_to(domain, inferred, twin),
         None => JsMachine::new(domain, inferred),
     }
-    .declaring_in(shared);
-
-    rts_mir::lower::lower(func, &mut into, &mut ops, &start)
+    .declaring_in(shared)
+    .with_incoming(&start);
+    rts_mir::lower::lower(func, &mut into, &mut ops, &start[2..])
 }
