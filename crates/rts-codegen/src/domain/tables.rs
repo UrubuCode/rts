@@ -275,9 +275,20 @@ pub enum JsConst {
 
 /// A key this language fixes.
 ///
-/// One variant so far. A second is expected — the iterator key a `for`-`of` reads is
-/// the same shape of thing — and the enum exists now so that the second does not
-/// arrive as a magic index.
+/// Five now, and the four that arrived are the ones this enum's first version
+/// predicted: *"a second is expected — the iterator key a `for`-`of` reads is the same
+/// shape of thing"*. It reads four rather than one.
+///
+/// # Why these are here and not asked of the interner
+///
+/// Because the program never wrote them. `for (const x of xs)` contains no `next`, no
+/// `done` and no `value`, so there is no spelling in the source for the interner to
+/// have a `Name` for — and minting one during lowering would need a mutable interner
+/// here, which is the same reason `class.rs` gives for [`Self::Prototype`].
+///
+/// They are KEYS and not operations: reading `done` off a step result is an ordinary
+/// property read, and a `Prim` for it would be this language claiming the read is
+/// special when only the key is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WellKnown {
     /// Where a constructor's prototype object lives.
@@ -286,6 +297,29 @@ pub enum WellKnown {
     /// link an instance gets is a different slot and a machine question, and writing
     /// this one is what a program does when it writes `F.prototype = …`.
     Prototype,
+    /// `Symbol.iterator` — what a `for`-`of` asks a source for.
+    ///
+    /// A SYMBOL and not a string, which is the whole point of it: an object with a
+    /// property literally named "Symbol.iterator" is not iterable, and a lowering that
+    /// read a string key would make it so. What a symbol key IS belongs to the
+    /// runtime's key numbering, which is why this names it rather than describing it.
+    IteratorSymbol,
+    /// `next` — the method one step of the protocol calls.
+    Next,
+    /// `done` — whether the sequence ended, read off the step's result.
+    ///
+    /// Read with `Truthy` rather than compared to `true`, because the specification
+    /// says ToBoolean: an iterator answering `done: 1` ends the loop, and one answering
+    /// `done: ""` does not.
+    Done,
+    /// `value` — the element, read off the step's result.
+    Element,
+    /// `return` — what an iterator is owed when a loop leaves it early.
+    ///
+    /// Named here although nothing calls it yet, because the obligation is stated in
+    /// the tree already: `ForEachSource::owes_iterator_close`. A key with no caller
+    /// would be dead, so this one arrives with the lowering that owes it.
+    Return,
 }
 
 /// An operation of the runtime this language names.

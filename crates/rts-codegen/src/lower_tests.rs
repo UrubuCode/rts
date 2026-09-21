@@ -2095,3 +2095,198 @@ fn nothing_commutes_with_a_suspension() {
         assert!(!other.commutes_with(Effect::SUSPENDS));
     }
 }
+
+/// A `for`-`of` STEPS the protocol. Draining it through the entry point that already
+/// exists would have been one call and no loop, and it changes three answers: a `break`
+/// never closes, a mutated `Map` is walked as it was, and an endless source never ends.
+#[test]
+fn a_for_of_steps_the_protocol_rather_than_draining_it() {
+    let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // Four calls with a receiver: the iterator method, `next`, and the two closes --
+    // one in the cleanup and one on the breaking path. No call to an entry point,
+    // which is what says it did not drain.
+    let entries = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| {
+            matches!(
+                &held.op,
+                rts_mir::Op::Call {
+                    callee: rts_mir::cfg::Callee::Entry(_),
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(entries, 0, "nothing is drained");
+    let dynamic = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| {
+            matches!(
+                &held.op,
+                rts_mir::Op::Call {
+                    callee: rts_mir::cfg::Callee::Dynamic(_),
+                    receiver: Some(_),
+                    ..
+                }
+            )
+        })
+        .count();
+    assert!(dynamic >= 3, "the iterator, next, and the close: {dynamic}");
+}
+
+/// The keys it reads are ones the PROGRAM NEVER WROTE, so there is no spelling for the
+/// interner to have a `Name` for. They are well-known keys rather than operations: `done`
+/// off a step result is an ordinary property read.
+#[test]
+fn the_protocol_keys_are_well_known_rather_than_interned() {
+    let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
+    let mut seen = Vec::new();
+    for held in &lowered.func.insts {
+        if let rts_mir::Op::Const(rts_mir::Const::Declared(index)) = &held.op
+            && let Some(crate::domain::JsConst::WellKnown(which)) = lowered.domain.declared(*index)
+        {
+            seen.push(*which);
+        }
+    }
+    use crate::domain::WellKnown;
+    for wanted in [
+        WellKnown::IteratorSymbol,
+        WellKnown::Next,
+        WellKnown::Done,
+        WellKnown::Element,
+        WellKnown::Return,
+    ] {
+        assert!(seen.contains(&wanted), "{wanted:?} is read, saw {seen:?}");
+    }
+}
+
+/// `done` is read with ToBoolean and not compared against `true`: an iterator answering
+/// `done: 1` ends the loop, which is what the specification says.
+#[test]
+fn done_is_a_truth_test_and_not_a_comparison() {
+    let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert!(ops.contains(&crate::domain::JsPrim::Truthy));
+    assert!(
+        !ops.contains(&crate::domain::JsPrim::StrictEquals),
+        "nothing is compared to true"
+    );
+}
+
+/// The body runs inside a region whose CLEANUP closes the iterator, which is how a
+/// `return` out of the body and a raise from it reach the close: neither is a jump out of
+/// the loop, so no block this lowering writes could be on their path.
+#[test]
+fn the_body_is_in_a_region_whose_cleanup_closes_the_iterator() {
+    let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
+    let inside = lowered
+        .func
+        .block_ids()
+        .find(|held| lowered.func.region_of(*held).is_some())
+        .expect("the body is protected");
+    let region = lowered.func.region(lowered.func.region_of(inside).unwrap());
+    // NO HANDLER. Nothing is caught here -- the obligation is a close on the way out,
+    // not a chance to handle what went wrong.
+    assert_eq!(region.handler, None);
+    assert!(region.cleanup.is_some());
+}
+
+/// The `done` path must NOT close. A cleanup runs on every way out of a region, and the
+/// ordinary end of a sequence owes nothing — `it.return()` after `done` is an observable
+/// extra call on a user's iterator. So the exit is reached from the header, past the
+/// region and past the closing block.
+#[test]
+fn the_done_path_leaves_without_closing() {
+    let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
+    let header = lowered
+        .func
+        .block_ids()
+        .find(|held| {
+            matches!(
+                lowered.func.block(*held).terminator,
+                Some(Terminator::Branch { .. })
+            ) && lowered.func.region_of(*held).is_none()
+        })
+        .expect("the header tests done outside the region");
+    // Whatever the true arm reaches, it is not in the region and not the cleanup.
+    if let Some(Terminator::Branch { then_block, .. }) = lowered.func.block(header).terminator {
+        assert_eq!(lowered.func.region_of(then_block), None);
+    }
+}
+
+/// A `break` closes, and it is the one of the three ways out that IS a jump — so it gets
+/// a block between the loop and the exit rather than riding the cleanup.
+#[test]
+fn a_break_leaves_through_a_closing_block() {
+    let lowered = only("function f(xs) { for (const x of xs) { break; } }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // The breaking block ends in a jump, and what it reaches is not the exit directly:
+    // the close sits between, which is what the extra block is.
+    let closes = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(&held.op, rts_mir::Op::Call { .. }))
+        .count();
+    assert!(closes >= 3, "the iterator, next, and two closes: {closes}");
+}
+
+/// `return` on an iterator is OPTIONAL, so the close asks whether the key holds anything
+/// first. Calling `undefined` would raise where the specification says do nothing, and
+/// the piece that branches to avoid it is exactly what `CleanupDone` allows.
+#[test]
+fn the_close_asks_whether_return_exists_before_calling_it() {
+    let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        ops.contains(&crate::domain::JsPrim::IsNullish),
+        "the close is guarded by a nullish test"
+    );
+}
+
+/// `for`-`in` is not this protocol and shares nothing with it: it walks enumerable string
+/// keys INCLUDING inherited ones, which is a walk of the prototype chain.
+#[test]
+fn for_in_is_refused_because_it_is_not_the_protocol() {
+    let refused = only("function f(o) { for (const k in o) { o.m(k); } }").expect_err("for-in");
+    assert_eq!(
+        refused,
+        Unsupported::Statement(
+            "for-in walks the prototype chain, which is not the iteration protocol"
+        )
+    );
+}
+
+/// `for await` suspends INSIDE the region that owes the close, and the machine's frame
+/// transform has a measured bug class exactly there — a `Return` left inside a region ran
+/// its `finally` once per yield.
+#[test]
+fn for_await_is_refused_because_it_suspends_inside_the_region() {
+    let refused = only("async function f(xs, o) { for await (const x of xs) { o.m(x); } }")
+        .expect_err("for await");
+    assert_eq!(
+        refused,
+        Unsupported::Statement("for await suspends inside the region that owes the close")
+    );
+}

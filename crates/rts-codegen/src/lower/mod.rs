@@ -50,6 +50,7 @@ mod calls;
 mod choice;
 mod class;
 mod destructure;
+mod iterate;
 mod loops;
 mod named;
 mod protect;
@@ -416,7 +417,13 @@ impl Lowering<'_> {
                 update.as_ref(),
                 body,
             ),
-            StmtKind::ForEach { .. } => Err(Unsupported::Statement("an iteration protocol")),
+            StmtKind::ForEach {
+                source,
+                target,
+                subject,
+                body,
+                ..
+            } => self.for_each(*source, target, subject, body, statement),
             // A NESTED DEFINITION is a closure bound to a name, and the name is this
             // function's -- so it is an ordinary rebind and no environment is written.
             //
