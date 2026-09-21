@@ -257,6 +257,12 @@ struct CliFlags {
     /// is where a flag becomes a flag: an argument matched somewhere else would land
     /// in `positional` and be read as a file name.
     specialised: bool,
+    /// `--machine`, which only `mir` reads.
+    ///
+    /// Beside `specialised` and for the same reason: a switch one command understands
+    /// is still a flag, and an argument matched anywhere else lands in `positional` and
+    /// is read as a file name.
+    machine: bool,
 }
 
 impl Default for CliFlags {
@@ -267,6 +273,7 @@ impl Default for CliFlags {
             windows_subsystem: None,
             all_namespaces: false,
             specialised: false,
+            machine: false,
             embed_compiler: true,
             html: Vec::new(),
         }
@@ -341,7 +348,11 @@ where
         // `--specialised` picks the tier a GUARD exists in. A parsed flag and not a
         // string this line digs out of the raw arguments: an argument matched anywhere
         // else lands in `positional` and is read as a file name.
-        "mir" => mir::command(positional.get(1).cloned(), flags.specialised),
+        "mir" => mir::command(
+            positional.get(1).cloned(),
+            flags.specialised,
+            flags.machine,
+        ),
         "prove" => prove::command(positional.get(1).cloned(), flags.as_compile_options()),
         "napi" => napi::command(positional.get(1).cloned()),
         "i" | "install" | "add" => {
@@ -382,6 +393,7 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--all-namespaces" => flags.all_namespaces = true,
             "--specialised" => flags.specialised = true,
+            "--machine" => flags.machine = true,
             // The default already embeds a compiler — kept as an explicit,
             // accepted synonym of it rather than removed, so a caller (this
             // repo's own CI included) that already passes it sees no change.
@@ -481,6 +493,9 @@ fn print_help(bin_name: &str) {
     );
     println!(
         "  {bin_name} mir --specialised <in>  the same, in the tier a type claim's guard exists in"
+    );
+    println!(
+        "  {bin_name} mir --machine <in>       how many functions reach the machine, and what stopped the rest"
     );
     println!(
         "  {bin_name} prove <input.ts>       report where the emitter could not prove, and gave up"

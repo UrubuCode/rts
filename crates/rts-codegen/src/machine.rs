@@ -216,6 +216,23 @@ impl MachineOps for JsMachine<'_> {
             ));
         };
         let of = of.clone();
+
+        // THE ROWS WHOSE REQUIREMENT IS NOT "TWO NUMBERS", ahead of the gate below,
+        // because the gate would refuse them for failing a condition they never had.
+        //
+        // `Truthy` over a proved boolean is the IDENTITY, and that is the whole of it:
+        // this language's truth rule applied to something already a truth value asks
+        // nothing and emits nothing. Getting here mattered more than it looks --
+        // `truthy` is the second most common operation in `bench/` at 362, because every
+        // `if (a < b)` writes one over a comparison's boolean, and refusing it stopped
+        // every branch in the corpus at its condition.
+        if which == JsPrim::Truthy
+            && let [only] = of.as_slice()
+            && matches!(self.types.of(*only), Type::Bool(_))
+        {
+            return Ok(args[0]);
+        }
+
         if !self.all_numeric(&of) {
             // NAMED PER OPERAND, because "not proven" over two values is two different
             // situations and which one failed is the useful half.
@@ -293,6 +310,33 @@ impl MachineOps for JsMachine<'_> {
         }
     }
 
+    fn coerce(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: MachineValue,
+        want: Repr,
+    ) -> Result<MachineValue, String> {
+        let found = into.repr_of(value);
+        match (found, want) {
+            // AN INTEGER JOINING A DOUBLE, which is the case this exists for: `let x = n;
+            // if (c) { x = 2; }` joins a guarded double with a literal, the lattice proves
+            // `Double`, and the literal arrives as an integer. Every value an `i32` holds
+            // is a double exactly, so nothing is lost and no check is needed.
+            (Repr::I32, Repr::F64) => into.to_f64(value).map_err(machine),
+            // ANYTHING INTO THE GENERIC FORM is always available: widening is what the
+            // tagged representation is for.
+            (_, Repr::Tagged) => Ok(into.widen(value)),
+            // AND THE OTHER DIRECTION IS REFUSED, which is the half worth stating. Going
+            // from a double to an integer loses values, and going from the generic form to
+            // anything is a NARROWING -- the machine's rule 11 says narrowing is never
+            // automatic and a tagged value passes a guard first. A coercion that did it
+            // here would be a guard nobody wrote and nobody checks.
+            _ => Err(format!(
+                "{found:?} into {want:?} is a narrowing, which needs a guard rather than a coercion"
+            )),
+        }
+    }
+
     fn fall(
         &mut self,
         into: &mut FuncBuilder,
@@ -339,4 +383,81 @@ impl MachineOps for JsMachine<'_> {
             "calling {named} needs the host's agreement about where it lives"
         ))
     }
+}
+
+/// Does this graph reach the machine, and what stopped it if not?
+///
+/// # Why this is here and not only in a test
+///
+/// Because it is the only honest answer to "how far along is this stage". The share of
+/// functions that lower to a GRAPH is 88% and says nothing about whether any of them
+/// becomes code: a graph is refused at the machine boundary for reasons the graph itself
+/// cannot show — an operand nothing proved, an entry point with no address, a region
+/// with no tag.
+///
+/// So the two numbers are different questions and the second one is the one a reader
+/// wants. Having it in the library rather than in a test is what lets `rts mir` report
+/// it, and an instrument that can only be run by `cargo test` is an instrument nobody
+/// runs.
+///
+/// # The signature comes from the LANGUAGE, one parameter at a time
+///
+/// Whatever the lattice proved about the graph's entry parameters is what the machine
+/// function is declared to take, which is the agreement `param_repr` exists to state. A
+/// caller that supplied its own would be measuring its own guess.
+pub fn reaches_machine(
+    func: &rts_mir::cfg::Func,
+    domain: &Js,
+    generic: Option<rts_mir::cfg::FuncId>,
+) -> Result<(), rts_mir::lower::Unlowerable> {
+    use rts_cranelift::ir::{FuncRegistry, Function, Signature};
+    use rts_cranelift::types::TypeRegistry;
+
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let inferred = rts_mir::infer::infer(func, domain);
+    let params: Vec<Repr> = func
+        .block(func.entry())
+        .params
+        .iter()
+        .map(|held| JsMachine::repr_of(inferred.of(*held)).unwrap_or(Repr::Tagged))
+        .collect();
+    // AND THE RETURN, from the same place. A function with no `Return` carrying a value
+    // returns nothing, which is a signature with no results rather than one with an
+    // invented result.
+    let returns: Vec<Repr> = func
+        .block_ids()
+        .filter_map(|held| match func.block(held).terminator {
+            Some(rts_mir::cfg::Terminator::Return(Some(value))) => Some(value),
+            _ => None,
+        })
+        .next()
+        .map(|held| JsMachine::repr_of(inferred.of(held)).unwrap_or(Repr::Tagged))
+        .into_iter()
+        .collect();
+    let signature = Signature {
+        params,
+        returns,
+        ..Signature::default()
+    };
+    // THE GENERIC TWIN, when the caller has one. Declared with the same signature
+    // because a fall hands over the same arguments and answers what the other tier
+    // answers -- the two bodies of one function agree about their shape by definition.
+    let twin = generic.map(|_| {
+        let sig = funcs.declare_signature(signature.clone());
+        funcs.declare_function(sig)
+    });
+    let mut machine = Function::new(signature);
+    let entry = machine.entry;
+    let start: Vec<_> = machine
+        .block(entry)
+        .expect("a function has an entry block")
+        .params
+        .clone();
+    let mut into = rts_cranelift::ir::FuncBuilder::new(&mut machine, &types, entry);
+    let mut ops = match twin {
+        Some(twin) => JsMachine::falling_to(domain, inferred, twin, &funcs),
+        None => JsMachine::new(domain, inferred),
+    };
+    rts_mir::lower::lower(func, &mut into, &mut ops, &start)
 }

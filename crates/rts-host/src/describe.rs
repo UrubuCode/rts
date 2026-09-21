@@ -150,6 +150,14 @@ pub fn describe_mir(source: &str) -> Result<String, HostError> {
     rts_codegen::mir_dump::describe(source).map_err(HostError::Parse)
 }
 
+/// How many functions reach the MACHINE, and what stopped the rest.
+///
+/// A different question from either of the two above, and the one a reader asking
+/// "how far along is this" wants: a graph is not code.
+pub fn describe_mir_machine(source: &str) -> Result<String, HostError> {
+    rts_codegen::mir_dump::describe_machine(source).map_err(HostError::Parse)
+}
+
 /// The same, for the specialised tier -- the one a guard exists in.
 ///
 /// A second function rather than a parameter on the first, because every caller of

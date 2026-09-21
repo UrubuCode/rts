@@ -325,3 +325,67 @@ mod tests {
         );
     }
 }
+
+/// How many functions reach the MACHINE, and what stopped the rest.
+///
+/// # Why this is a separate report from [`describe`]
+///
+/// Because they answer different questions and the difference is the honest picture of
+/// this stage. `describe` says how many functions produce a GRAPH; this says how many
+/// produce CODE. A graph is refused at the machine boundary for things it cannot itself
+/// show — an operand nothing proved, an entry point with no address, a region with no
+/// tag — so the first number read as the second one would overstate the stage by a long
+/// way.
+///
+/// Reported in the SPECIALISED tier, because that is the one a claim's guard exists in
+/// and therefore the one where anything numeric can reach the machine at all.
+pub fn describe_machine(source: &str) -> Result<String, String> {
+    let mut names = Names::new();
+    let program = match crate::parse::parse_module(source, &mut names) {
+        Ok(program) => program,
+        Err(module) => crate::parse::parse_script(source, &mut names)
+            .map_err(|script| format!("as a module: {module}\nas a script: {script}"))?,
+    };
+    let resolution = resolve_module(&program.body);
+    let lowered = crate::lower_module::lower_module(
+        &program.body,
+        &resolution,
+        &names,
+        crate::lower_module::SPECIALISED,
+    );
+    let found = lowered.functions.len();
+    let mut out = String::new();
+    let mut reached = 0usize;
+    let mut no_graph = 0usize;
+    for (at, entry) in lowered.functions.iter().enumerate() {
+        match &entry.result {
+            Err(held) => {
+                no_graph += 1;
+                out.push_str(&format!(
+                    "fn {} — NO GRAPH: {}\n",
+                    entry.named,
+                    why(held, &names)
+                ));
+            }
+            Ok(func) => {
+                // THE TWIN IS THIS FUNCTION'S OWN INDEX, which is what the pairing means:
+                // the generic body of the same function. A real build declares it; here it
+                // only has to exist for the fall to name something.
+                let twin = rts_mir::cfg::FuncId(at as u32);
+                match crate::machine::reaches_machine(func, &lowered.domain, Some(twin)) {
+                    Ok(()) => {
+                        reached += 1;
+                        out.push_str(&format!("fn {} — REACHES THE MACHINE\n", entry.named));
+                    }
+                    Err(held) => {
+                        out.push_str(&format!("fn {} — STOPPED: {held:?}\n", entry.named));
+                    }
+                }
+            }
+        }
+    }
+    out.push_str(&format!(
+        "{reached} of {found} functions reach the machine ({no_graph} produced no graph)\n"
+    ));
+    Ok(out)
+}

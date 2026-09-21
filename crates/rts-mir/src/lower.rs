@@ -96,6 +96,30 @@ pub trait MachineOps {
     /// rather than approximated.
     fn asserted_repr(&mut self, assertion: Assertion) -> Option<Repr>;
 
+    /// This value in the representation a block parameter declares.
+    ///
+    /// # Why an edge needs this at all
+    ///
+    /// Because the two sides of a jump get their representation from different places. A
+    /// block parameter's comes from [`Self::param_repr`] -- what a pass PROVED about the
+    /// value -- and an argument's comes from whatever instruction produced it. Those
+    /// agree most of the time and not always: a join of a guarded double with an integer
+    /// literal is proved `Double`, while the literal arrives as an integer.
+    ///
+    /// The machine refuses the mismatch by design, and is right to: changing a
+    /// representation is never implicit there. So the LANGUAGE says how to get from one
+    /// to the other, because which conversions are sound is a fact about its lattice and
+    /// not about the graph.
+    ///
+    /// Found by measurement rather than by reading: 133 of the roughly 350 refusals over
+    /// `bench/` were this one error, and every test passed with it in place.
+    fn coerce(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: MachineValue,
+        want: Repr,
+    ) -> Result<MachineValue, String>;
+
     /// The side exit: what happens when a guard fails.
     ///
     /// # Why the LANGUAGE answers this and the machine does not
@@ -354,6 +378,7 @@ pub fn lower(
             }
             Terminator::Jump { target, args } => {
                 let of_args = read(args, &values)?;
+                let of_args = matched(into, ops, func, *target, &blocks, &values, &of_args)?;
                 into.jump(blocks[target], &of_args)
                     .map_err(|held| Unlowerable::Machine(format!("{held:?}")))?;
             }
@@ -366,7 +391,11 @@ pub fn lower(
             } => {
                 let condition = one(*condition, &values)?;
                 let then_args = read(then_args, &values)?;
+                let then_args =
+                    matched(into, ops, func, *then_block, &blocks, &values, &then_args)?;
                 let else_args = read(else_args, &values)?;
+                let else_args =
+                    matched(into, ops, func, *else_block, &blocks, &values, &else_args)?;
                 into.branch(
                     condition,
                     (blocks[then_block], &then_args),
@@ -413,6 +442,46 @@ fn constant(into: &mut FuncBuilder, value: &Const) -> MachineValue {
     };
     let id = into.declare_const(decl);
     into.use_const(id)
+}
+
+/// Each argument in the representation the target block's parameter declares.
+///
+/// Asked of the language per value rather than assumed, and only where the two differ:
+/// a conversion emitted where none was needed is an instruction the program did not
+/// write, which is the other way to get this wrong.
+fn matched(
+    into: &mut FuncBuilder,
+    ops: &mut impl MachineOps,
+    func: &Func,
+    target: BlockId,
+    blocks: &BTreeMap<BlockId, MachineBlock>,
+    values: &BTreeMap<ValueId, MachineValue>,
+    args: &[MachineValue],
+) -> Result<Vec<MachineValue>, Unlowerable> {
+    let _ = blocks;
+    let declared = &func.block(target).params;
+    let mut out = Vec::with_capacity(args.len());
+    for (at, held) in args.iter().enumerate() {
+        let Some(param) = declared.get(at) else {
+            // ARITY IS THE MACHINE'S TO REFUSE, and it does, with the block it was about.
+            // Reporting it here would be a second account of one fact.
+            out.push(*held);
+            continue;
+        };
+        let Some(machine_param) = values.get(param) else {
+            out.push(*held);
+            continue;
+        };
+        let want = into.repr_of(*machine_param);
+        match into.repr_of(*held) == want {
+            true => out.push(*held),
+            false => out.push(
+                ops.coerce(into, *held, want)
+                    .map_err(Unlowerable::Language)?,
+            ),
+        }
+    }
+    Ok(out)
 }
 
 fn read(

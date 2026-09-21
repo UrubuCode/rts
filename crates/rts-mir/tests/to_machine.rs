@@ -45,6 +45,20 @@ impl MachineOps for Integers {
         Some(Repr::I32)
     }
 
+    fn coerce(
+        &mut self,
+        _into: &mut rts_cranelift::ir::FuncBuilder,
+        value: MachineValue,
+        want: Repr,
+    ) -> Result<MachineValue, String> {
+        // ONE TYPE MEANS ONE REPRESENTATION, so nothing here ever needs converting and
+        // being asked at all is a bug in the caller rather than a case to handle. A toy
+        // that widened silently would make the check this method exists for untestable.
+        Err(format!(
+            "this language has one representation, so {value:?} into {want:?} is not a conversion it has"
+        ))
+    }
+
     fn fall(
         &mut self,
         into: &mut rts_cranelift::ir::FuncBuilder,

@@ -21,7 +21,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 
-pub fn command(input: Option<String>, specialised: bool) -> Result<()> {
+pub fn command(input: Option<String>, specialised: bool, machine: bool) -> Result<()> {
     let input = input
         .ok_or_else(|| anyhow!("usage: rts mir [--specialised] <input.ts | inline-source>"))?;
     let path = PathBuf::from(&input);
@@ -37,6 +37,16 @@ pub fn command(input: Option<String>, specialised: bool) -> Result<()> {
     };
     // THE SPECIALISED TIER ON REQUEST, because it is the one a guard exists in and the
     // command could not show it. `rts mir --specialised file.ts`.
+    // `--machine` asks the OTHER question: not what the graph looks like but how much
+    // of it becomes code. A graph is refused at the machine boundary for things the
+    // graph cannot show, so reading the lowering share as the machine share would
+    // overstate the stage by a long way.
+    if machine {
+        let text = rts_host::describe::describe_mir_machine(&source)
+            .map_err(|held| anyhow!("{held:?}"))?;
+        print!("{text}");
+        return Ok(());
+    }
     let text = match specialised {
         true => rts_host::describe::describe_mir_specialised(&source),
         false => rts_host::describe::describe_mir(&source),
