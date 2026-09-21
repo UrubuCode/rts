@@ -113,7 +113,7 @@ impl Lowering<'_> {
         // A guard's result is the same value narrowed, so what follows reads the proved
         // form and the effect below is computed from it -- which is the difference
         // between `PURE` and `CALLS_USER|THROWS` for the same operator.
-        let args = match coerces_to_number(which) {
+        let args = match which.coerces_to_number() {
             true => self.speculate_numeric(&args, at),
             false => args,
         };
@@ -125,29 +125,6 @@ impl Lowering<'_> {
         self.types.insert(held, answered);
         held
     }
-}
-
-/// Whether this operation turns its operands into numbers whatever they were.
-///
-/// The rows worth speculating on, and the test is not "is usually numeric" -- it is that
-/// the specification coerces here, so a number is the case the operation is FOR rather
-/// than a guess about the program.
-///
-/// `Add` is NOT one: over anything but two numbers it may concatenate, so a number is a
-/// guess there and a wrong one for every string in the program. `StrictEquals` is not
-/// either -- it coerces nothing, and `a === b` over two strings is ordinary code that
-/// would fall on every comparison.
-fn coerces_to_number(which: JsPrim) -> bool {
-    matches!(
-        which,
-        JsPrim::Subtract
-            | JsPrim::Multiply
-            | JsPrim::Divide
-            | JsPrim::Remainder
-            | JsPrim::LessThan
-            | JsPrim::Compare
-            | JsPrim::Negate
-    )
 }
 
 impl Lowering<'_> {

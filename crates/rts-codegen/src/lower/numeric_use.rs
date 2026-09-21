@@ -43,30 +43,23 @@
 
 use std::collections::BTreeSet;
 
+use crate::domain::JsPrim;
 use crate::emit::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use crate::names::Name;
 use crate::syntax::{BinaryOp, Expr, ExprKind, Function, FunctionBody, Stmt, UnaryOp};
 
 /// Whether this operator coerces its operands to numbers whatever they are.
 ///
-/// The same list `lower/push.rs` speculates on, and it is stated there as the primitive
-/// rows. Here it is the SYNTAX, because this pass runs before anything is lowered — which
-/// is two spellings of one rule and the place it would drift. Held to by the test that
-/// counts guards on one fixture both ways.
+/// Asked of the PRIMITIVE the operator lowers to, through the mapping `lower/named.rs`
+/// already holds, so this is one rule read twice rather than two rules that agree. It was
+/// two lists, and they had drifted: unary `+` was collected here and never speculated on
+/// there.
+///
+/// An operator with no primitive row answers false, which is the honest reading -- a
+/// lowering that cannot name the operation cannot claim to know what it coerces.
 fn coerces(op: BinaryOp) -> bool {
-    matches!(
-        op,
-        BinaryOp::Sub
-            | BinaryOp::Mul
-            | BinaryOp::Div
-            | BinaryOp::Rem
-            | BinaryOp::Less
-            | BinaryOp::Greater
-            | BinaryOp::LessEqual
-            | BinaryOp::GreaterEqual
-    )
+    super::named::primitive(op).is_some_and(JsPrim::coerces_to_number)
 }
-
 /// Every name this function's body reads where a number is coerced anyway.
 ///
 /// Descends into nested functions, because a name they read is this function's binding and

@@ -223,6 +223,47 @@ pub enum JsPrim {
     NewArray,
 }
 
+impl JsPrim {
+    /// Whether this operation turns its operands into numbers whatever they were.
+    ///
+    /// # Why this is a method here and not a list at each site
+    ///
+    /// Because it was a list at two sites, and the doc comment on the second one said so
+    /// while leaving it: `lower/push.rs` matched on these rows and `lower/numeric_use.rs`
+    /// matched on the `BinaryOp` spellings of them. Rule 3 -- a rule written twice is a
+    /// rule that will be written differently -- with the second writing already done.
+    ///
+    /// They had in fact already drifted. `Negate` is here and the syntax side also
+    /// collected unary `+`, whose row is [`JsPrim::ToNumber`] and which was NOT here -- so
+    /// one side earned a parameter its guard and the other never speculated on the
+    /// operation that motivated it. Harmless, because the guard left the operand proved
+    /// either way, and invisible for exactly that reason.
+    ///
+    /// # What the test is, and why it is not "usually numeric"
+    ///
+    /// The specification coerces here. A number is then the case the operation is FOR
+    /// rather than a guess about the program, which is what makes a guard on its operand
+    /// speculation rather than a wager.
+    ///
+    /// [`JsPrim::Add`] is deliberately absent: over anything but two numbers it may
+    /// concatenate, so a number is a guess there and a wrong one for every string a
+    /// program holds. [`JsPrim::StrictEquals`] is absent too -- it coerces nothing, and
+    /// `a === b` over two strings is ordinary code that would fall on every comparison.
+    pub fn coerces_to_number(self) -> bool {
+        matches!(
+            self,
+            JsPrim::Subtract
+                | JsPrim::Multiply
+                | JsPrim::Divide
+                | JsPrim::Remainder
+                | JsPrim::LessThan
+                | JsPrim::Compare
+                | JsPrim::Negate
+                | JsPrim::ToNumber
+        )
+    }
+}
+
 /// A constant this language declares, by the index an [`rts_mir::Const::Declared`]
 /// carries.
 ///
