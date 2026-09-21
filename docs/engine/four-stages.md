@@ -816,26 +816,37 @@ here as a share.
 | `bench/` | | `tests/`, every fifth file | |
 |---:|---|---:|---|
 | 8 | an iteration protocol | 67 | a bigint literal |
-| 6 | a class field | 61 | a throw |
-| 5 | a call through neither a name nor a property | 45 | a `finally` |
-| 4 | a template literal | 34 | a template literal |
-| 4 | an object literal with a method | 31 | an object literal with a method |
-| 3 | a class with no constructor written | 30 | a call through neither a name nor a property |
-| 2 | an optional chain | 27 | an iteration protocol |
-| 2 | a throw | 22 | a rest parameter |
+| 6 | a class field | 34 | a template literal |
+| 5 | a call through neither a name nor a property | 33 | a call through neither a name nor a property |
+| 4 | a template literal | 31 | an object literal with a method |
+| 4 | an object literal with a method | 27 | an iteration protocol |
+| 3 | a class with no constructor written | 22 | a rest parameter |
+| 2 | an optional chain | 21 | a function of this module read as a value |
+| 2 | a class accessor | 20 | a super call |
+
+**`a throw` and `a finally` were rows two and three of the right-hand column and are
+gone**, which is the cleanup-chain section at the end of this document. What is left of
+that group is 18 `finally` bodies that can complete abruptly, which are a different
+SHAPE rather than a missing feature.
 
 **A generator and an async function do not appear at all**, which is what the block
 above did: they were the first and second rows of the `tests/` column and they are gone
 rather than reduced.
 
-**What moved to the top instead is worth reading as a redirection.** A bigint literal
-is a second numeric tower and is nobody's next hour. A `throw` and a `finally` are one
-piece — raising is an entry point and a cleanup chain is what runs on every way out —
-and together they are 106 of this sample, which makes them the largest thing on the
-list by a distance. The iteration-protocol group (`for`-`of`, an array pattern, a rest
-parameter, and now `yield*`) is the other one, and it owes the iterator its `return()`
-on an early exit, which is the SAME cleanup chain. So two of the three biggest entries
-are one mechanism.
+**What moved to the top was a redirection, and it was taken.** A `throw` and a
+`finally` were one piece — raising is an entry point and a cleanup chain is what runs
+on every way out — and together they were 106 of this sample, the largest thing on the
+list by a distance. Both are done; the section at the end has them.
+
+**The redirection the table gives NOW is the iteration protocol**, and it is the same
+mechanism from the other side. `for`-`of` at 27, a rest parameter at 22, a
+destructuring target at 14 and an array literal with a spread at 12 all step an
+iterator, and all of them owe it its `return()` on an early exit — which is the
+cleanup chain that now exists. `yield*` joined this group when it left the frame
+block.
+
+A bigint literal is a second numeric tower and is nobody's next hour, whatever its
+count says.
 
 **A generator and an async function were one piece, and that entry is DONE** — both
 rows are off this list. The section at the end of this document has it; what the entry
@@ -1019,3 +1030,120 @@ working tree never moved to produce it.
 
 **No number about speed is claimed, and the section above says why**: nothing that
 runs reaches this stage. `run`, `test` and `compile` do not call it.
+
+---
+
+## The cleanup chain: `throw`, then `finally`, and both refusals were machine answers
+
+The measurement above picked this block rather than a plan doing it, and it picked
+it for the right reason: `throw` and `finally` were 106 of a 491-file sample and
+they are one mechanism.
+
+**Both refusals were wrong in the same way, and it is worth naming the shape of
+the mistake.** Each described something true about the RUNTIME and let it stand
+for the graph:
+
+- *"a throw raises, which is an entry point rather than control flow"* — recording
+  the value is an entry point, and where control goes afterwards is the region
+  tree, which is control flow this lowering already built.
+- *"a finally runs on every way out, so it is not a block reached from one
+  place"* — it does run on every way out, and routing those paths was never this
+  lowering's job.
+
+Neither statement was false. Both answered a machine question in order to turn a
+statement away, which is the failure rule 2 exists to prevent read in the other
+direction: a lowering may not decide a machine question, and refusing on the
+strength of one is deciding it.
+
+### What the shared IR gained
+
+Two terminators, and both are neutral forms of something the machine already had.
+
+`Terminator::Raise(value)` **names no successor**, and that is a claim rather than
+an omission. It is the same thing `region.rs` already said about a handler:
+nothing jumps to one, so nothing carries arguments to one, so its predecessors are
+empty. A raise naming its handler as a successor would make that false, and every
+pass reading the graph as a CFG would then expect an argument list nothing can
+supply. Where it lands is `region_of` and `Region::parent` outward from there —
+the search `plan_unwind` computes.
+
+It carries **no tag**, because a tag says which handlers match and *what may be
+thrown* is the one question `unwind`'s own header refuses to answer for a
+language. So it is refused at the machine with `NeedsHandlerTag`, named as the
+same missing declaration a region waits on rather than as a second thing.
+
+`Terminator::CleanupDone` takes **no continuation parameter**, and the machine's
+own doc records why that alternative lost: it *"would make every cleanup able to
+reach every continuation, which is an edge in the graph for every pair and no
+useful analysis afterwards"*, and the representation has no indirect branch to
+lower it to. A cleanup is a **piece** rather than a block — it may branch and
+merge inside itself and end this way in several of its blocks, still one exit
+because they all leave to the same place.
+
+`Unreachable` gained one line saying it is not either of these. It is a trap, and
+a language that lowered `throw` to it would get an abort where the program expects
+a catchable value.
+
+### The trap in checking it, which the checker would have fallen into
+
+`verify` refuses a `CleanupDone` that no region owns, and it finds the piece by
+walking outward from each region's cleanup **entry** — *not* by asking
+`region_of` about the block. That distinction is the whole thing: a cleanup block
+is created BEFORE its region opens, so it belongs to whatever encloses the region
+and never to the region whose cleanup it is. The natural check is the wrong one,
+and it would have rejected every correct cleanup.
+
+The same fact is load-bearing in the lowering for a different reason: inside its
+own region, a `finally` that threw would re-enter its own `catch`.
+
+### Two shapes for one keyword, and only one is built here
+
+A `finally` that can complete **abruptly** is not a cleanup at all. `try { return
+"t" } finally { return "f" }` answers `"f"` — an abrupt completion in the
+`finally` replaces the pending one — and a `return` inside a copied cleanup is a
+terminator with no successor, which is a copy left through a path the unwind knows
+nothing about. The machine's verifier already names it: `CleanupDoesNotEnd`. The
+correct shape for that case is a catch-all **handler**, where a return is an
+ordinary return and re-raising on fall-off puts the pending throw back.
+
+`emit/protect.rs` builds both and chooses. This lowering builds the cleanup and
+refuses the handler shape by name, which is 18 of the sample.
+
+**The predicate is shared with that file rather than written again.**
+`leaves_abruptly` over-approximates in the safe direction, says in prose which
+direction that is, and counts a `yield` for a reason one step downstream — the
+frame transform turns each suspension into a return. A second copy is a second
+place for the safe direction to be got backwards. Its home is `syntax/`, beside
+the walkers, and it goes there when they move.
+
+### One combination refused for a reason neither half has
+
+A cleanup **beside** a handler that assigns. The cleanup is copied into the body's
+exit path and into the handler's, those two disagree about what the binding holds,
+and so one copy would read a value the other path defined. Each half lowers
+alone, and a test pins that it is the combination — because a refusal that names
+a combination is the kind that gets over-generalised into a refusal of both.
+
+### Where the sample stands now
+
+Same instrument, same stride, three measurements of the `tests/` corpus at every
+fifth file — 491 files, 3 473 functions:
+
+| | lowered | `throw` | plain `finally` |
+|---|---:|---:|---:|
+| before the frame block | 2 978 | 61 | 45 |
+| after `Raise` | — | **0** | 45 |
+| after `CleanupDone` | **3 053** | **0** | **0** |
+
+What is left of the group is the 18 abrupt `finally` bodies, which are the handler
+shape.
+
+**And the next mechanism is already named by the same table.** The iteration
+protocol — `for`-`of` at 27, a rest parameter at 22, a destructuring target at 14,
+an array literal with a spread at 12 — is one piece, and it is the piece that owes
+the iterator its `return()` on an early exit. That is the cleanup chain again,
+from the other side: `yield*` joined this group when it left the frame block, and
+the chain it needs is the one that now exists.
+
+Per file against a kept binary at each step, `bench/` and `tests/`, LOST empty
+every time.
