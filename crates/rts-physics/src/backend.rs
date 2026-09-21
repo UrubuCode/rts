@@ -68,7 +68,10 @@ pub enum ParityGroup {
     Independent,
 }
 
-/// Nível de simulação da física (Fase 1, §7.1.1).
+/// Nível de simulação da física.
+///
+/// Variants retain the Portuguese names directly from the normative spec §7.1.1
+/// (`simples`, `orientada`, `completa`) to stay aligned with the design document and the TS API.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Level {
     /// Esfera e caixa alinhada, sem rotação (o solver de hoje).
