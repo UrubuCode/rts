@@ -68,6 +68,18 @@ pub enum ParityGroup {
     Independent,
 }
 
+/// Nível de simulação da física (Fase 1, §7.1.1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Level {
+    /// Esfera e caixa alinhada, sem rotação (o solver de hoje).
+    #[default]
+    Simples,
+    /// Quaternion e OBB, sem torque (Lote C).
+    Orientada,
+    /// Manifold, warm starting, dinâmica angular, sono por ilha (Lotes D–F).
+    Completa,
+}
+
 /// What a caller needs a backend to be able to do.
 ///
 /// Asked BEFORE a step, so that "this backend cannot do what your scene needs"
@@ -75,6 +87,8 @@ pub enum ParityGroup {
 /// backend in this workspace genuinely differs on today.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Needs {
+    /// Nível de simulação pedido.
+    pub level: Level,
     /// A convex hull must collide as a hull against another hull, rather than
     /// degrading to a sphere. The gather solver answers `false`; the reason is
     /// measured and is in `docs/colisores.md` §3.
