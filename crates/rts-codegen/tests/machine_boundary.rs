@@ -905,3 +905,51 @@ fn a_string_literal_still_narrows_without_a_guard() {
         "nothing was guarded: the value is known"
     );
 }
+
+/// **A captured binding is refused for the environment LAYOUT, not for a numbering**, and
+/// the message matters because it is what sends the next reader to the right place.
+///
+/// A captured local is a property of an environment object; an environment is an ordinary
+/// object with one `__rts_outer` link; reading one is `hops` reads of that link followed by a
+/// read of the name — all of which this boundary already emits, through the same cached read
+/// `o.x` uses.
+///
+/// `hops` is the missing input and it cannot be invented here: how many links to walk depends
+/// on which functions BUILD an environment, and one that captures nothing builds none. That
+/// is escape analysis.
+#[test]
+fn a_captured_binding_names_the_environment_layout_as_what_is_missing() {
+    let mut names = Names::new();
+    let program = parse_script(
+        "function outer(a) { function inner() { return a; } return inner; }",
+        &mut names,
+    )
+    .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+    // `inner` reads `a`, which `outer` declares — a captured binding.
+    let inner = lowered
+        .functions
+        .iter()
+        .find(|held| held.named == "inner")
+        .expect("the inner function");
+    let Ok(graph) = inner.result.as_ref() else {
+        return;
+    };
+    let mut shared = rts_codegen::machine::Shared::new();
+    let words = said(
+        rts_codegen::machine::reaches_machine(
+            graph,
+            &lowered.domain,
+            None,
+            &mut shared,
+            &mut names,
+        )
+        .expect_err("hops is not in the graph"),
+    );
+    assert!(words.contains("environment layout"), "{words}");
+    assert!(words.contains("escape analysis"), "{words}");
+    // AND NOT a numbering, which is what it used to say and which would have sent a reader
+    // to the host's entry table for something that needs no entry at all.
+    assert!(!words.contains("runtime's numbering"), "{words}");
+}

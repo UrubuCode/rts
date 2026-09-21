@@ -301,6 +301,24 @@ pub enum JsConst {
     /// in a layout and a string is a value, and a pass folding one must not fold
     /// the other.
     Text(crate::syntax::Text),
+    /// # What this defers, and to whom -- corrected
+    ///
+    /// This said the constant names a binding "without this layer deciding how the thing
+    /// is represented", with the representation implied to be the machine's. It is not.
+    /// A captured local is a property of an environment OBJECT, an environment is an
+    /// ordinary object with one `__rts_outer` link, and that layout is
+    /// `emit/binding.rs`'s -- this language's, decided while compiling.
+    ///
+    /// Third time the same deferral has been wrong in this table: `ThisValue` said the
+    /// receiver's position was the machine's and `abi::Convention` reserves nothing for
+    /// one, and `Op::Call`'s receiver said the same. The pattern is worth naming -- when a
+    /// question is about where something LIVES, the reflex is to call it the machine's,
+    /// and a layout this language invented is not.
+    ///
+    /// What the constant legitimately leaves out is `hops`, and that is not a deferral to
+    /// anybody: it is escape analysis, which the new stage has not got. The graph says
+    /// WHICH binding and nothing yet says how far.
+    ///
     /// A declaration of this program, by its [`crate::names::resolve::BindingId`]
     /// index.
     ///

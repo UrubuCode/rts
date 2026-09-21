@@ -116,6 +116,23 @@ impl MachineOps for JsMachine<'_> {
             self.from_constant.insert(held, index);
             return Ok(held);
         }
+        // A BINDING NEEDS NO NUMBERING AT ALL, and saying it did was sending a reader to
+        // the wrong crate. What it needs is the environment LAYOUT: a captured local is a
+        // property of an environment object, and reading one is `hops` reads of the
+        // `__rts_outer` link followed by a read of the name -- all of which this boundary
+        // already emits, through `cached_read`.
+        //
+        // `hops` is the missing input, and it cannot be invented here: how many links to
+        // walk depends on which functions BUILD an environment, and a function that
+        // captures nothing builds none. That is escape analysis, `emit/escape.rs` does it
+        // for the running engine, and the new lowering has no equivalent -- so the graph
+        // says WHICH binding and nothing says how far.
+        if let Some(JsConst::Binding(_)) = self.domain.declared(index) {
+            return Err(
+                "a captured binding needs the environment layout -- how many `__rts_outer` links to walk -- which is escape analysis"
+                    .to_owned(),
+            );
+        }
         // EVERY OTHER KIND IS STILL A HEAP VALUE the runtime numbers differently: a
         // a singleton, a closure over a function of the module. Each needs its own
         // agreement, and none is a number this slice can produce.
