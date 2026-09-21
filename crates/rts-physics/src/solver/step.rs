@@ -50,9 +50,11 @@ impl Scene<'_> {
     pub(super) fn against_statics(&self, p: &mut V3, v: &mut V3, h: V3, shape: f32, mine: Body) -> bool {
         let mut touched = false;
         for k in 0..self.statics {
-            let (other_layer, other_mask) = self.materials.fixed_layer_mask(k);
-            if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
-                continue;
+            if self.materials.any_mask() {
+                let (other_layer, other_mask) = self.materials.fixed_layer_mask(k);
+                if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
+                    continue;
+                }
             }
             let centre = triple(self.world, 2 + k * 2);
             let half = triple(self.world, 3 + k * 2);
@@ -106,9 +108,11 @@ impl Scene<'_> {
             if other == body {
                 return;
             }
-            let (other_layer, other_mask) = self.materials.layer_mask(other);
-            if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
-                return;
+            if self.materials.any_mask() {
+                let (other_layer, other_mask) = self.materials.layer_mask(other);
+                if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
+                    return;
+                }
             }
             let Some((normal, depth)) = narrow(
                 position,

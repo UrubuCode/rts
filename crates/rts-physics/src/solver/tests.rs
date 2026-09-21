@@ -555,9 +555,20 @@ fn layer_and_mask_filters_collision_pairs() {
     world[at1 + 6] = f32::from_bits(4);
     world[at1 + 7] = f32::from_bits(1);
 
-    // Because (body0.mask & body1.layer) == (2 & 4) == 0, they should NOT collide or separate!
+    // 1. With any_mask = 0.0, the solver skips the mask filter (recurso desligado custa zero):
+    world[material::WORLD_PARAM_ANY_MASK] = 0.0;
     let initial_x0 = pos[0];
     let initial_x1 = pos[4];
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert!(pos[0] < initial_x0, "with any_mask=0 bodies should separate regardless of masks");
+    assert!(pos[4] > initial_x1, "with any_mask=0 bodies should separate regardless of masks");
+
+    // Reset positions
+    pos[0] = initial_x0;
+    pos[4] = initial_x1;
+
+    // 2. With any_mask = 1.0, masks ARE checked: (2 & 4) == 0 -> no collision!
+    world[material::WORLD_PARAM_ANY_MASK] = 1.0;
     Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
     assert_eq!(pos[0], initial_x0, "body 0 was moved despite mask mismatch");
     assert_eq!(pos[4], initial_x1, "body 1 was moved despite mask mismatch");

@@ -35,6 +35,7 @@ pub const WORLD_PARAM_NUM_STATICS: usize = 1;
 pub const WORLD_PARAM_CELL_SIZE: usize = 2;
 pub const WORLD_PARAM_SUBSTEPS: usize = 3;
 pub const WORLD_PARAM_LAYOUT_VERSION: usize = 4;
+pub const WORLD_PARAM_ANY_MASK: usize = 5;
 
 /// Registro de estático no world (pos/round: 4 floats, half/pad: 4 floats = 8 floats / 2 vec4s)
 pub const STATIC_RECORD_FLOATS: usize = 8;
@@ -116,6 +117,7 @@ const LEGACY_FIXED: Fixed = Fixed {
 #[derive(Clone, Copy)]
 pub(super) struct Materials<'a> {
     region: Option<&'a [f32]>,
+    any_mask: bool,
 }
 
 impl<'a> Materials<'a> {
@@ -123,8 +125,21 @@ impl<'a> Materials<'a> {
     /// that is half there would give the first bodies a material and the rest
     /// the legacy one, which runs and is wrong.
     pub fn of(world: &'a [f32], bodies: usize) -> Self {
+        let any_mask = if world.len() > WORLD_PARAM_ANY_MASK {
+            world[WORLD_PARAM_ANY_MASK] > 0.5
+        } else {
+            false
+        };
         let needed = MATERIALS_AT + STATIC_CAPACITY * STATIC_RECORD + bodies * BODY_RECORD;
-        Self { region: (world.len() >= needed).then(|| &world[MATERIALS_AT..]) }
+        Self {
+            region: (world.len() >= needed).then(|| &world[MATERIALS_AT..]),
+            any_mask,
+        }
+    }
+
+    #[inline]
+    pub fn any_mask(&self) -> bool {
+        self.any_mask
     }
 
     #[inline]
