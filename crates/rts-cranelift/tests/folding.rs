@@ -72,7 +72,9 @@ fn a_guard_on_a_value_already_in_the_expected_form_costs_nothing() {
         "an f64 tested for being an f64 cannot fail, so no test is emitted"
     );
     assert!(
-        !insts(&func, entry).iter().any(|i| matches!(i, Inst::Widen(_))),
+        !insts(&func, entry)
+            .iter()
+            .any(|i| matches!(i, Inst::Widen(_))),
         "and the widening the guard would have undone is never emitted either"
     );
 }
@@ -101,7 +103,9 @@ fn a_guard_over_a_widening_of_the_same_form_binds_the_source() {
         "the success path receives what was widened, not the box it was widened into"
     );
     assert!(
-        insts(&func, entry).iter().any(|i| matches!(i, Inst::Widen(_))),
+        insts(&func, entry)
+            .iter()
+            .any(|i| matches!(i, Inst::Widen(_))),
         "the widening itself stays: the client asked for it and may use it elsewhere"
     );
 }
@@ -203,11 +207,13 @@ fn a_value_that_was_never_widened_says_so() {
     let b = FuncBuilder::new(&mut func, &types, entry);
 
     assert_eq!(
-        b.widened_source(generic), None,
+        b.widened_source(generic),
+        None,
         "a generic value that arrived generic hides no proof"
     );
     assert_eq!(
-        b.widened_source(proof), None,
+        b.widened_source(proof),
+        None,
         "and neither does a proof that was never widened"
     );
 }

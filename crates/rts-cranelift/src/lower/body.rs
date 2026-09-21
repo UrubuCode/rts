@@ -464,7 +464,6 @@ impl<'a> Body<'a> {
                 builder.ins().load(types::I64, flags, at, 0)
             }
 
-
             // One comparison against a constant word. A singleton has exactly
             // one encoding, so nothing is loaded and no NaN case arises: the
             // encoded quadrant is disjoint from every double by construction,
@@ -557,9 +556,12 @@ impl<'a> Body<'a> {
                     needs: Capability::Memory,
                 })?;
 
-                let allocate =
-                    self.refs
-                        .entry(outside.machine, outside.entries, builder.func, RtEntry::Alloc);
+                let allocate = self.refs.entry(
+                    outside.machine,
+                    outside.entries,
+                    builder.func,
+                    RtEntry::Alloc,
+                );
                 let size = builder.ins().iconst(types::I64, i64::from(size));
                 let ty_id = builder.ins().iconst(types::I64, ty.index() as i64);
                 let call = builder.ins().call(allocate, &[size, ty_id]);
@@ -842,9 +844,7 @@ impl<'a> Body<'a> {
         let through = builder.create_block();
         let based = builder.create_block();
         let base = builder.append_block_param(based, types::I64);
-        builder
-            .ins()
-            .brif(indirect, through, &[], direct, &[]);
+        builder.ins().brif(indirect, through, &[], direct, &[]);
 
         builder.switch_to_block(direct);
         builder
@@ -1509,6 +1509,10 @@ fn reachable_first(func: &Function) -> Vec<BlockId> {
         }
     }
     order.reverse();
-    order.extend(func.blocks().map(|(id, _)| id).filter(|id| !seen.contains(id)));
+    order.extend(
+        func.blocks()
+            .map(|(id, _)| id)
+            .filter(|id| !seen.contains(id)),
+    );
     order
 }

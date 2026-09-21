@@ -135,7 +135,9 @@ fn materialize(builder: &mut FunctionBuilder, base: &RegionBase, heap: &Heap) ->
                 .unwrap_or_else(|| panic!("symbolic base `{name}` was never declared in a module"));
             let cell = crate::target::data_ref(machine, builder.func, data);
             let address = builder.ins().global_value(types::I64, cell);
-            builder.ins().load(types::I64, MemFlags::trusted(), address, 0)
+            builder
+                .ins()
+                .load(types::I64, MemFlags::trusted(), address, 0)
         }
     }
 }

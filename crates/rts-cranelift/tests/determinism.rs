@@ -20,10 +20,10 @@
 //! The parallel path is taken only past a threshold, so a two-function program
 //! would exercise the serial path twice and prove nothing about the one at risk.
 
+use cranelift_module::Linkage;
 use rts_cranelift::ir::inst::NumOp;
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, FuncRegistry, Function, ScalarBits, Signature};
 use rts_cranelift::repr::Repr;
-use cranelift_module::Linkage;
 use rts_cranelift::target::{MachineModule, executable_memory};
 use rts_cranelift::types::TypeRegistry;
 
@@ -96,7 +96,9 @@ fn compiled(count: usize) -> Vec<(String, usize)> {
         // here rather than assumed.
         let batch: Vec<(rts_cranelift::ir::FuncId, &Function)> =
             bodies.iter().map(|(id, func)| (*id, func)).collect();
-        module.compile_all(&batch, &funcs, &types).expect("compiled");
+        module
+            .compile_all(&batch, &funcs, &types)
+            .expect("compiled");
         module.into_placements()
     };
 

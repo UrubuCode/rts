@@ -30,7 +30,9 @@ mod tables;
 
 pub use blob::DataBlob;
 pub use declare::{Declarations, FunctionRefs, data_ref, func_ref};
-pub use destination::{executable_memory, executable_memory_calling, executable_memory_in_arena, object_file};
+pub use destination::{
+    executable_memory, executable_memory_calling, executable_memory_in_arena, object_file,
+};
 pub use hosted::{InMemory, Placing, Visibility, place_in_memory, place_in_object};
 pub use tables::AddressTable;
 
@@ -809,7 +811,6 @@ impl MachineModule<'_> {
         Ok(declared)
     }
 
-
     /// Records every shape this function's indirect calls expect.
     ///
     /// An indirect call names a shape rather than a callee, and a shape has to
@@ -996,10 +997,7 @@ pub enum Priority {
 
 /// The architecture this process runs on, addressed the way a destination needs
 /// and tuned for what that destination is buying — see [`Priority`].
-pub fn isa_with(
-    addressing: Addressing,
-    priority: Priority,
-) -> Result<OwnedTargetIsa, TargetError> {
+pub fn isa_with(addressing: Addressing, priority: Priority) -> Result<OwnedTargetIsa, TargetError> {
     let mut flags = cranelift_codegen::settings::builder();
     // Frame pointers are what makes a stack walkable, and a stack walk is how
     // the collector finds a frame with no descriptor. Turning them off would

@@ -72,7 +72,11 @@ impl Phase {
     /// finding at 12 functions than at 1200.
     pub fn over(mut self, count: usize) {
         if let Some(started) = self.started.take() {
-            report(self.name, started.elapsed().as_secs_f64() * 1000.0, Some(count));
+            report(
+                self.name,
+                started.elapsed().as_secs_f64() * 1000.0,
+                Some(count),
+            );
         }
     }
 }

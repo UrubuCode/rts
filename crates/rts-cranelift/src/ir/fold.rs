@@ -105,12 +105,7 @@ pub(crate) fn is_constant_singleton(
 ///
 /// Integer multiplication by one is also absent, for a duller reason: nothing
 /// emits it. A fold with no producer is a fold nothing tests.
-pub(crate) fn arith_answer(
-    func: &Function,
-    op: NumOp,
-    a: ValueId,
-    b: ValueId,
-) -> Option<ValueId> {
+pub(crate) fn arith_answer(func: &Function, op: NumOp, a: ValueId, b: ValueId) -> Option<ValueId> {
     if op != NumOp::Mul || func.repr_of(a) != Repr::F64 {
         return None;
     }
@@ -261,9 +256,8 @@ pub(crate) fn power_of_two_reciprocal(func: &Function, divisor: ValueId) -> Opti
     // `>= 1.0` is load-bearing rather than tidy: below one, `x / d` can
     // OVERFLOW, and the sequence would then answer infinity where the true
     // remainder is zero.
-    let power_of_two = magnitude.is_finite()
-        && magnitude >= 1.0
-        && magnitude.to_bits() & ((1u64 << 52) - 1) == 0;
+    let power_of_two =
+        magnitude.is_finite() && magnitude >= 1.0 && magnitude.to_bits() & ((1u64 << 52) - 1) == 0;
     // The DIVISOR's sign is kept, not the magnitude's: `x * (1 / d)` has to be
     // the same number as `x / d`, and the sign of the quotient is part of that.
     // It cancels in the sequence's final multiply, which is why the language's
@@ -390,12 +384,7 @@ fn to_int32_of(x: f64) -> i32 {
 /// absent because nothing emits one over two constants — the count is masked
 /// against `31` by the layer above, so a shift's operands are a variable and the
 /// result of THAT mask, which this fold settles instead.
-pub(crate) fn bitwise_answer(
-    func: &Function,
-    op: BitOp,
-    a: ValueId,
-    b: ValueId,
-) -> Option<i32> {
+pub(crate) fn bitwise_answer(func: &Function, op: BitOp, a: ValueId, b: ValueId) -> Option<i32> {
     let (x, y) = (int32_const(func, a)?, int32_const(func, b)?);
     match op {
         BitOp::And => Some(x & y),

@@ -73,7 +73,10 @@ fn main() {
         );
         // Printed so that an optimizer which deleted the work shows up as a
         // number too good to be true rather than as a fast one.
-        debug_assert!(measurement.checksum != i64::MIN, "the fixture computed nothing");
+        debug_assert!(
+            measurement.checksum != i64::MIN,
+            "the fixture computed nothing"
+        );
     }
 
     println!();

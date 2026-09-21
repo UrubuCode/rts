@@ -71,12 +71,7 @@ impl fmt::Display for Function {
                 };
                 match defines.is_empty() {
                     true => writeln!(f, "    {:?}{origin}", data.inst)?,
-                    false => writeln!(
-                        f,
-                        "    {} = {:?}{origin}",
-                        defines.join(", "),
-                        data.inst
-                    )?,
+                    false => writeln!(f, "    {} = {:?}{origin}", defines.join(", "), data.inst)?,
                 }
             }
             // An absent terminator is printed rather than skipped. A block with
@@ -119,7 +114,9 @@ impl Function {
     /// would have meant the renderer reaching into the table directly, which is
     /// what `constant()` exists to prevent.
     pub fn constants(&self) -> impl Iterator<Item = (ConstId, &super::consts::ConstDecl)> {
-        (0..).map(ConstId).map_while(|id| Some((id, self.constant(id)?)))
+        (0..)
+            .map(ConstId)
+            .map_while(|id| Some((id, self.constant(id)?)))
     }
 }
 

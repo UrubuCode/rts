@@ -25,7 +25,10 @@ fn param(func: &Function, index: usize) -> ValueId {
     func.block(func.entry).expect("entry exists").params[index]
 }
 
-fn two_singletons() -> (rts_cranelift::tags::SingletonId, rts_cranelift::tags::SingletonId) {
+fn two_singletons() -> (
+    rts_cranelift::tags::SingletonId,
+    rts_cranelift::tags::SingletonId,
+) {
     let mut tags = TagRegistry::new();
     let declared = tags.declare_singletons(2).expect("two fit");
     (declared[0], declared[1])

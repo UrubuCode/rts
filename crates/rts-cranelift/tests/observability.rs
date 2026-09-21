@@ -269,9 +269,15 @@ fn a_placed_program_carries_a_map_of_itself() {
 
     let address = placed.address_of(id).expect("defined") as usize;
     let map = placed.code_map();
-    assert_eq!(map.len(), 1, "one function was placed, so one range is mapped");
+    assert_eq!(
+        map.len(),
+        1,
+        "one function was placed, so one range is mapped"
+    );
 
-    let at_entry = map.attribute(address).expect("the entry address is in the program");
+    let at_entry = map
+        .attribute(address)
+        .expect("the entry address is in the program");
     assert_eq!(
         at_entry.function, "mapped",
         "an address inside a placed function names that function"
