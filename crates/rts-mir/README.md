@@ -81,9 +81,29 @@ unlikely.
 
 ## 8. The fall is a branch, never an unwind
 
-There is no interpreter and no baseline tier. A guard that fails suspends and
-resumes the generic body of the same function, in the same binary.
+There is no interpreter and no baseline tier. A guard that fails reaches the
+generic body of the same function, in the same binary.
 `docs/engine/deopt-lateral.md` is the design and its cost.
+
+**Two forms, and only the second needs a frame reconstructed.** This rule said
+"suspends and resumes", which describes one of them and is what the code now
+contradicts — amended here rather than left standing, because a rule the code
+disagrees with is worse than no rule.
+
+- **A guard at the entry**, with nothing but guards before it, has no local state
+  behind it: the live set *is* the parameters. Falling from one is a CALL to the
+  generic body with the same arguments, and resuming at its entry is resuming at
+  the point, because the point is the entry. Nothing is reconstructed because
+  nothing was built. This is what `MachineOps::fall` is asked for and what
+  `rts-codegen` answers.
+- **A guard anywhere else** does need the frame reconstructed, and that is the
+  rest of D3. `lower` refuses it by position — structurally, because this crate
+  has no liveness pass and a condition it can check exactly is worth more than
+  one it would approximate.
+
+A fall hands over the **original** operands, never the narrowed ones. The generic
+body is reached precisely when a speculation did not hold, so passing the value a
+failed guard claimed to have produced would pass on the very thing that was wrong.
 
 ## 9. Every structural invariant is checked, and the checker runs in tests
 
