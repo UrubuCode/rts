@@ -125,7 +125,11 @@ impl Js {
     ///
     /// A static table for the reason `PRIMS` is one: an entry is a row of source code
     /// here, not something a program registers.
-    const ENTRIES: &'static [JsEntry] = &[JsEntry::RegexNew];
+    const ENTRIES: &'static [JsEntry] = &[
+        JsEntry::RegexNew,
+        JsEntry::ArrayAppend,
+        JsEntry::ArrayAppendAll,
+    ];
 
     /// The index the IR carries for an entry point.
     pub fn entry_point(&self, which: JsEntry) -> EntryId {
@@ -512,6 +516,10 @@ impl Domain for Js {
             // A regular expression is an object, and not a shaped one: which layout it
             // arrives at is the runtime shape tree's answer.
             Some(JsEntry::RegexNew) => Type::Object,
+            // BOTH APPENDS ANSWER THE ARRAY, which is why they answer anything useful
+            // at all: a caller chains them, and an append answering `undefined` would
+            // make every element after the first a read of nothing.
+            Some(JsEntry::ArrayAppend | JsEntry::ArrayAppendAll) => Type::Object,
             None => Type::Anything,
         }
     }

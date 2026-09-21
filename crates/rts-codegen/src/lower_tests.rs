@@ -691,12 +691,50 @@ fn a_hole_is_refused_rather_than_collapsed_into_undefined() {
     assert!(matches!(refused, Unsupported::Expression(_)));
 }
 
-/// A spread makes the length a run-time question, which a fixed argument list
-/// cannot carry.
+/// A spread does make the length a run-time question, and this test replaced one
+/// asserting the refusal that said so. The count is not what `NewArray` has to be
+/// given — it needs the ELEMENTS — so a literal with a spread is built rather than
+/// counted: one array, and an append per element.
 #[test]
-fn a_spread_element_is_refused_because_the_length_stops_being_written() {
-    let refused = only("function f(xs) { return [1, ...xs]; }").expect_err("a spread");
-    assert!(matches!(refused, Unsupported::Expression(_)));
+fn a_literal_with_a_spread_is_built_by_appending() {
+    let lowered = only("function f(xs) { return [1, ...xs, 2]; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let entries: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Call {
+                callee: rts_mir::cfg::Callee::Entry(entry),
+                ..
+            } => lowered.domain.entry_meaning(*entry),
+            _ => None,
+        })
+        .collect();
+    use crate::domain::JsEntry;
+    assert_eq!(
+        entries,
+        vec![
+            JsEntry::ArrayAppend,
+            JsEntry::ArrayAppendAll,
+            JsEntry::ArrayAppend,
+        ],
+        "in source order, one per element"
+    );
+}
+
+/// A literal with NO spread must not start paying for the feature: the elements are
+/// known, `NewArray` takes them, and the array arrives full with no calls at all.
+#[test]
+fn a_literal_with_no_spread_still_takes_its_elements_directly() {
+    let lowered = only("function f(a, b) { return [a, b]; }").expect("covered");
+    let calls = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(&held.op, rts_mir::Op::Call { .. }))
+        .count();
+    assert_eq!(calls, 0, "no spread, no appends");
 }
 
 /// The effect pass must not narrow an allocation away: allocating is what the
@@ -1694,7 +1732,10 @@ fn an_array_pattern_steps_the_iterator_rather_than_indexing() {
     // NOTHING IS INDEXED. An `IndexRead` here would be the defect this refusal used
     // to prevent, arriving under a different name.
     assert!(!ops.contains(&crate::domain::JsPrim::IndexRead));
-    assert!(ops.contains(&crate::domain::JsPrim::Truthy), "done is tested");
+    assert!(
+        ops.contains(&crate::domain::JsPrim::Truthy),
+        "done is tested"
+    );
 }
 
 /// A slot past the end binds `undefined` and NOT the step's own `value`. `{ done:
@@ -1757,19 +1798,60 @@ fn the_close_is_under_the_last_slots_done_test() {
     assert!(ops.contains(&crate::domain::JsPrim::IsNullish));
 }
 
-/// An array rest target gathers what the iterator has LEFT — a drain from the current
-/// position rather than from the start — so the entry point that drains an iterable is
-/// the wrong operation for it however much it looks right.
+/// An array rest target gathers what the iterator has LEFT, which is a LOOP and not a
+/// drain — the two differ by however many slots came before it. This test replaced one
+/// asserting the refusal that drew exactly that distinction and could not act on it.
 #[test]
-fn an_array_rest_target_is_refused_because_it_drains_from_here() {
-    let refused = only("function f(xs) { const [a, ...r] = xs; return r; }")
-        .expect_err("a rest target");
-    assert_eq!(
-        refused,
-        Unsupported::Expression(
-            "an array rest target drains from the current position, which needs an append"
-        )
+fn an_array_rest_target_gathers_by_stepping_and_appending() {
+    let lowered = only("function f(xs) { const [a, ...r] = xs; return r; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    use crate::domain::JsEntry;
+    let appends = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| match &held.op {
+            rts_mir::Op::Call {
+                callee: rts_mir::cfg::Callee::Entry(entry),
+                ..
+            } => lowered.domain.entry_meaning(*entry) == Some(JsEntry::ArrayAppend),
+            _ => false,
+        })
+        .count();
+    // ONE append, inside a loop -- not one per element, which is the whole difference
+    // between gathering and a literal's fixed list.
+    assert_eq!(appends, 1);
+    // And it is a loop: some block is its own successor's predecessor twice over,
+    // which is what a back edge looks like from here.
+    assert!(
+        lowered
+            .func
+            .block_ids()
+            .any(|held| lowered.func.predecessors(held).len() == 2),
+        "a back edge"
     );
+}
+
+/// Gathering cannot close, and that is not an omission: it runs until the iterator
+/// reports `done`, which is the one way out that owes nothing. So a pattern WITH a rest
+/// target has no close where the same pattern without one does.
+#[test]
+fn a_rest_target_owes_no_close_because_the_iterator_ended_itself() {
+    let gathering = only("function f(xs) { const [a, ...r] = xs; return r; }").expect("covered");
+    let stopping = only("function f(xs) { const [a] = xs; return a; }").expect("covered");
+    let nullish = |held: &Lowered| {
+        held.func
+            .insts
+            .iter()
+            .filter_map(|inst| match &inst.op {
+                rts_mir::Op::Prim { prim, .. } => held.domain.meaning(*prim),
+                _ => None,
+            })
+            .filter(|held| *held == crate::domain::JsPrim::IsNullish)
+            .count()
+    };
+    assert_eq!(nullish(&gathering), 0, "nothing is closed");
+    assert_eq!(nullish(&stopping), 1, "the pattern stopped, so it closes");
 }
 
 /// An object rest collects the own enumerable properties NOT already named, which

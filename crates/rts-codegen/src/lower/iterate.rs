@@ -68,9 +68,9 @@ use rts_mir::Domain;
 use rts_mir::cfg::{Callee, Op, Terminator, ValueId};
 
 use super::{FrameKind, LoopFrame, Lowering, Unsupported};
-use crate::domain::{JsConst, JsPrim, WellKnown};
+use crate::domain::{JsConst, JsEntry, JsPrim, WellKnown};
 use crate::names::resolve::BindingId;
-use crate::syntax::{Expr, ForEachSource, ForEachTarget, Pattern, Stmt};
+use crate::syntax::{Expr, ForEachSource, ForEachTarget, Pattern, Spreadable, Stmt};
 
 impl Lowering<'_> {
     /// Lowers a `for`-each loop.
@@ -299,6 +299,102 @@ impl Lowering<'_> {
             args: Vec::new(),
         });
         self.builder.switch_to(after);
+    }
+
+    /// An array literal, whether or not a spread widens it.
+    ///
+    /// # Two shapes, and the cheap one is not an optimisation
+    ///
+    /// With no spread, the elements are known and `NewArray` takes them — one operation,
+    /// no calls, and the array arrives full. That is what this emitted before a spread
+    /// was expressible and it is unchanged, which matters: `[a, b, c]` must not start
+    /// paying for a feature it does not use.
+    ///
+    /// With a spread, the count is not a number this stage has, so the array is BUILT:
+    /// one empty array and an append per element. `ArrayAppend` for a single value and
+    /// `ArrayAppendAll` for a spread, both answering the array so the calls chain.
+    ///
+    /// Keeping both is not two answers to one question — it is one answer whose input
+    /// differs. A literal either has a spread in it or does not, and that is settled by
+    /// the syntax rather than by anything the graph would have to guess.
+    ///
+    /// # Why the spread DRAINS, when `for`-`of` must not
+    ///
+    /// `[...xs]` cannot answer at all until the sequence ends, so draining it is the
+    /// operation rather than a divergence from it — which is the line
+    /// `rts_core::entry::iterate`'s own header draws, and the opposite side of the one
+    /// `lower/iterate.rs` opens with. The same runtime, asked two different questions.
+    pub(super) fn array_literal(
+        &mut self,
+        elements: &[Option<Spreadable>],
+        at: &Expr,
+    ) -> Result<ValueId, Unsupported> {
+        let spread = elements
+            .iter()
+            .any(|held| matches!(held, Some(Spreadable::Spread(_))));
+        if !spread {
+            let mut values = Vec::with_capacity(elements.len());
+            for element in elements {
+                let Some(Spreadable::Single(held)) = element else {
+                    // A HOLE is not `undefined`, and collapsing them loses the
+                    // difference: `[, 1]` has a hole that some operations skip and
+                    // others read as `undefined`. Refused rather than chosen for.
+                    return Err(Unsupported::Expression(
+                        "a hole in an array literal is not the same as undefined",
+                    ));
+                };
+                values.push(self.expression(held)?);
+            }
+            return Ok(self.prim(JsPrim::NewArray, values, at));
+        }
+
+        let mut array = self.prim(JsPrim::NewArray, Vec::new(), at);
+        for element in elements {
+            match element {
+                Some(Spreadable::Single(held)) => {
+                    let value = self.expression(held)?;
+                    array = self.entry(JsEntry::ArrayAppend, vec![array, value], at);
+                }
+                Some(Spreadable::Spread(held)) => {
+                    let value = self.expression(held)?;
+                    array = self.entry(JsEntry::ArrayAppendAll, vec![array, value], at);
+                }
+                None => {
+                    return Err(Unsupported::Expression(
+                        "a hole in an array literal is not the same as undefined",
+                    ));
+                }
+            }
+        }
+        Ok(array)
+    }
+
+    /// Calls an entry point of this language's table.
+    ///
+    /// Here rather than at each site because the effect is the entry's and not the
+    /// caller's: what an entry point does is a row of `ENTRIES`, and a caller writing
+    /// its own summary is how an effect table stops being the one source.
+    pub(super) fn entry(&mut self, which: JsEntry, args: Vec<ValueId>, at: &Expr) -> ValueId {
+        let entry = self.domain.entry_point(which);
+        // ALLOCATES and CALLS_USER and THROWS, for the honest reason: appending grows an
+        // array, a spread runs the source's `next`, and both raise on something that is
+        // not iterable. Narrowing this per entry is what `ENTRIES` grows a column for,
+        // and claiming PURE here would be rule 5's silent wrong program.
+        let effect = rts_mir::Effect::ALLOCATES
+            .and(rts_mir::Effect::CALLS_USER)
+            .and(rts_mir::Effect::THROWS);
+        let held = self.builder.push(
+            Op::Call {
+                callee: Callee::Entry(entry),
+                receiver: None,
+                args,
+            },
+            effect,
+            at.at,
+        );
+        let answered = self.domain.of_entry(entry);
+        self.types.insert(held, answered);
+        held
     }
 }
 

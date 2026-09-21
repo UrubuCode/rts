@@ -733,23 +733,17 @@ impl Lowering<'_> {
             }
             // AN ARRAY LITERAL, which is one primitive over its elements.
             //
-            // A hole is refused rather than lowered as `undefined`: the two are
+            // A hole is still refused rather than lowered as `undefined`: the two are
             // different, and the tree's own comment says why — a hole is skipped by
             // some operations and read as `undefined` by others, so collapsing them
-            // loses that. A spread is refused because the element count would stop
-            // being the count written.
-            ExprKind::Array { elements } => {
-                let mut values = Vec::with_capacity(elements.len());
-                for element in elements {
-                    let Some(crate::syntax::Spreadable::Single(held)) = element else {
-                        return Err(Unsupported::Expression(
-                            "an array literal with a hole or a spread has a run-time length",
-                        ));
-                    };
-                    values.push(self.expression(held)?);
-                }
-                Ok(self.prim(JsPrim::NewArray, values, expr))
-            }
+            // loses that.
+            //
+            // A SPREAD is no longer refused, and the reason it was is worth keeping:
+            // "the element count would stop being the count written". True, and the
+            // count is not what `NewArray` needs to be given -- it needs the elements.
+            // So a literal with a spread is built rather than counted: one array, and
+            // an append per element, which is the shape `array_append` exists for.
+            ExprKind::Array { elements } => self.array_literal(elements, expr),
             ExprKind::Call {
                 callee,
                 arguments,

@@ -25,7 +25,7 @@
 
 use super::choice::Arm;
 use super::{Lowering, Unsupported};
-use crate::domain::{JsConst, JsPrim, WellKnown};
+use crate::domain::{JsConst, JsEntry, JsPrim, WellKnown};
 use crate::names::Name;
 use crate::syntax::{Expr, Pattern, PropertyKey};
 use rts_mir::Domain;
@@ -133,14 +133,22 @@ impl Lowering<'_> {
         from: ValueId,
         at: &Expr,
     ) -> Result<Vec<Name>, Unsupported> {
-        if pattern.rest.is_some() {
-            // A rest target gathers what the iterator has LEFT, which is a drain from
-            // the current position rather than from the start -- so `entry::iterate` is
-            // the wrong operation for it however much it looks right, and what it needs
-            // is a loop appending to an array. `RuntimeOp::ArrayAppend` is the other
-            // half and is not in this table yet.
+        // A REST TARGET IS A LOOP AND NOT A DRAIN, which is the distinction the refusal
+        // that stood here drew and then could not act on. `ArrayAppendAll` drains an
+        // iterable from the START; a rest target gathers what this iterator has LEFT,
+        // and those differ by however many slots came before it. So the loop is built
+        // below, out of the same step the slots use and `ArrayAppend` per element.
+        //
+        // Handing the ITERATOR to `ArrayAppendAll` would have compiled and would be
+        // right for every built-in iterator, because those answer themselves from
+        // `Symbol.iterator`. A hand-written one need not, and then the drain restarts
+        // the source or raises -- the same class of defect as reading `value` past
+        // `done`, correct until someone writes their own iterator.
+        let nested_rest =
+            matches!(pattern.rest.as_deref(), Some(other) if !matches!(other, Pattern::Name(_)));
+        if nested_rest {
             return Err(Unsupported::Expression(
-                "an array rest target drains from the current position, which needs an append",
+                "a nested pattern needs the value read to be destructured again",
             ));
         }
 
@@ -215,6 +223,22 @@ impl Lowering<'_> {
             bound.push(*name);
         }
 
+        // A REST TARGET TAKES EVERYTHING LEFT, and then the sequence is over -- so
+        // nothing is owed and the close below is skipped entirely. That is not an
+        // omission: the iterator reported `done` itself, which is the one way out that
+        // closes nothing.
+        if let Some(Pattern::Name(name)) = pattern.rest.as_deref() {
+            let gathered = self.gather_rest(iterator, at)?;
+            let of = self.type_of(gathered);
+            let target = Expr {
+                kind: crate::syntax::ExprKind::Ident(*name),
+                at: at.at,
+            };
+            self.bind(*name, gathered, of, &target)?;
+            bound.push(*name);
+            return Ok(bound);
+        }
+
         // THE CLOSE, owed only if the PATTERN stopped first. Not done after the last
         // step means the sequence has more, so `const [a] = endless()` closes and
         // `const [a, b] = [1, 2]` does not.
@@ -242,5 +266,57 @@ impl Lowering<'_> {
             None => self.close_iterator(iterator, at),
         }
         Ok(bound)
+    }
+
+    /// Everything the iterator has left, as an array.
+    ///
+    /// A loop rather than a call, and the loop carries ONE value across its back edge:
+    /// the array. Everything else it needs -- the iterator, the keys -- is constant
+    /// through it, which is why this needs none of the carried-binding machinery a
+    /// written loop does.
+    ///
+    /// It cannot close, and that is not an omission. Gathering runs until the iterator
+    /// reports `done`, which is the one way out that owes nothing.
+    fn gather_rest(&mut self, iterator: ValueId, at: &Expr) -> Result<ValueId, Unsupported> {
+        let empty = self.prim(JsPrim::NewArray, Vec::new(), at);
+        let header = self.builder.block();
+        let appending = self.builder.block();
+        let exit = self.builder.block();
+        self.builder.end(Terminator::Jump {
+            target: header,
+            args: vec![empty],
+        });
+
+        self.builder.switch_to(header);
+        let holding = self.builder.param(header);
+        self.types.insert(holding, self.domain.top());
+        let next = self.well_known(WellKnown::Next, iterator, at);
+        let step = self.call_method(next, iterator, at);
+        let done = self.well_known(WellKnown::Done, step, at);
+        let ended = self.prim(JsPrim::Truthy, vec![done], at);
+        self.builder.end(Terminator::Branch {
+            condition: ended,
+            then_block: exit,
+            then_args: vec![holding],
+            else_block: appending,
+            else_args: Vec::new(),
+        });
+
+        self.builder.switch_to(appending);
+        let element = self.well_known(WellKnown::Element, step, at);
+        let grown = self.entry(JsEntry::ArrayAppend, vec![holding, element], at);
+        // THE APPEND'S ANSWER goes round the back edge and not the array it was given.
+        // They are the same object today and the entry point answers one deliberately,
+        // so carrying the operand instead would be reading a value whose definition
+        // does not dominate the next pass.
+        self.builder.end(Terminator::Jump {
+            target: header,
+            args: vec![grown],
+        });
+
+        self.builder.switch_to(exit);
+        let gathered = self.builder.param(exit);
+        self.types.insert(gathered, self.domain.top());
+        Ok(gathered)
     }
 }

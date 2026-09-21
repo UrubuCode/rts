@@ -349,6 +349,22 @@ pub enum JsEntry {
     /// literal, and the object carries mutable state — `lastIndex` — which is why two
     /// evaluations of one literal are two objects and not one shared value.
     RegexNew,
+    /// Appends one value to an array, and answers the array.
+    ///
+    /// # Why this is an entry point and not a write at an index
+    ///
+    /// Because the index is the array's CURRENT LENGTH, which is not a number this
+    /// stage has: a spread earlier in the same literal contributed an unknown count.
+    /// `rts_core::entry::iterate::array_append` says the same thing from its own side,
+    /// which is what makes this one shared answer rather than two.
+    ArrayAppend,
+    /// Appends everything an iterable yields, and answers the array.
+    ///
+    /// The spread's own operation. It DRAINS -- which is right here and wrong for a
+    /// `for`-`of`, and the difference is the whole of `lower/iterate.rs`'s first
+    /// section: `[...xs]` must consume the entire sequence to answer at all, so
+    /// draining is not a divergence, it is the operation.
+    ArrayAppendAll,
 }
 
 /// What a guard of this language asserts.
