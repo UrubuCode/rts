@@ -31,7 +31,7 @@
 /// Where the region starts: after the header and the FULL static capacity, not
 /// after the statics in use — a fixed offset, so writing a material does not
 /// depend on how many statics the scene has this frame.
-pub(super) const MATERIALS_AT: usize = 4 + STATIC_CAPACITY * 8;
+pub(super) const MATERIALS_AT: usize = 8 + STATIC_CAPACITY * 8;
 const STATIC_CAPACITY: usize = 256;
 /// A static's record: restitution, friction, two unused.
 const STATIC_RECORD: usize = 4;
@@ -43,8 +43,6 @@ const BODY_RECORD: usize = 8;
 /// they are scaled by.
 const REFERENCE_FRICTION: f32 = 0.35;
 
-/// The unassigned body type (0.0). Defaults to dynamic.
-pub const BODY_UNASSIGNED: f32 = 0.0;
 /// Static body type: does not move and is not moved.
 pub const BODY_STATIC: f32 = 1.0;
 /// Kinematic body type: moves purely by velocity, ignores forces and impulses.
@@ -118,22 +116,30 @@ impl<'a> Materials<'a> {
         Self { region: (world.len() >= needed).then(|| &world[MATERIALS_AT..]) }
     }
 
+    #[inline]
+    pub fn layer_mask(&self, body: usize) -> (u32, u32) {
+        let Some(region) = self.region else {
+            return (LEGACY_BODY.layer, LEGACY_BODY.mask);
+        };
+        let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
+        let layer = region[at + 6].to_bits();
+        let mask = region[at + 7].to_bits();
+        (layer, mask)
+    }
+
     pub fn body(&self, body: usize) -> Body {
         let Some(region) = self.region else { return LEGACY_BODY };
         let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
-        let raw_type = if region.len() > at + 5 { region[at + 5] } else { BODY_UNASSIGNED };
-        // 0.0 = unassigned (default => dynamic, 3.0)
-        // 1.0 = static
-        // 2.0 = kinematic
-        // 3.0 = dynamic
-        let body_type = match raw_type as u32 {
-            x if x == BODY_STATIC as u32 => BODY_STATIC,
-            x if x == BODY_KINEMATIC as u32 => BODY_KINEMATIC,
-            x if x == BODY_UNASSIGNED as u32 => BODY_DYNAMIC,
-            _ => BODY_DYNAMIC,
+        let raw_type = region[at + 5];
+        let body_type = if raw_type == BODY_STATIC {
+            BODY_STATIC
+        } else if raw_type == BODY_KINEMATIC {
+            BODY_KINEMATIC
+        } else {
+            BODY_DYNAMIC
         };
-        let layer = if region.len() > at + 6 { region[at + 6].to_bits() } else { 1 };
-        let mask = if region.len() > at + 7 { region[at + 7].to_bits() } else { 0xFFFF_FFFF };
+        let layer = region[at + 6].to_bits();
+        let mask = region[at + 7].to_bits();
         Body {
             gravity: region[at],
             restitution: region[at + 1],
@@ -141,7 +147,7 @@ impl<'a> Materials<'a> {
             friction: region[at + 3],
             floor: region[at + 4],
             body_type,
-            layer: if layer == 0 { 1 } else { layer },
+            layer,
             mask,
         }
     }
@@ -149,12 +155,12 @@ impl<'a> Materials<'a> {
     pub fn fixed(&self, fixed: usize) -> Fixed {
         let Some(region) = self.region else { return LEGACY_FIXED };
         let at = fixed.min(STATIC_CAPACITY - 1) * STATIC_RECORD;
-        let layer = if region.len() > at + 2 { region[at + 2].to_bits() } else { 1 };
-        let mask = if region.len() > at + 3 { region[at + 3].to_bits() } else { 0xFFFF_FFFF };
+        let layer = region[at + 2].to_bits();
+        let mask = region[at + 3].to_bits();
         Fixed {
             restitution: region[at],
             friction: region[at + 1],
-            layer: if layer == 0 { 1 } else { layer },
+            layer,
             mask,
         }
     }

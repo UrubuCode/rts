@@ -16,14 +16,14 @@ impl Scene<'_> {
     /// make a scene at rest — the case sleeping exists to make cheap — the one
     /// that pays a full n² every step.
     pub(super) fn disturbed(&self, body: usize, p: V3, h: V3, shape: f32) -> bool {
-        let mine = self.materials.body(body);
+        let (my_layer, my_mask) = self.materials.layer_mask(body);
         let mut woken = false;
         self.near(p, |other| {
             if woken || other == body {
                 return;
             }
-            let other_mat = self.materials.body(other);
-            if (mine.mask & other_mat.layer) == 0 || (other_mat.mask & mine.layer) == 0 {
+            let (other_layer, other_mask) = self.materials.layer_mask(other);
+            if (my_mask & other_layer) == 0 || (other_mask & my_layer) == 0 {
                 return;
             }
             let vj = self.velocity(other);
@@ -54,10 +54,10 @@ impl Scene<'_> {
             if (mine.mask & made_of.layer) == 0 || (made_of.mask & mine.layer) == 0 {
                 continue;
             }
-            let centre = triple(self.world, 1 + k * 2);
-            let half = triple(self.world, 2 + k * 2);
+            let centre = triple(self.world, 2 + k * 2);
+            let half = triple(self.world, 3 + k * 2);
             // Roundness, not shape: see the layout note in the module doc.
-            let fixed_shape = match self.world[(1 + k * 2) * 4 + 3] > 0.5 {
+            let fixed_shape = match self.world[(2 + k * 2) * 4 + 3] > 0.5 {
                 true => 0.0,
                 false => 1.0,
             };

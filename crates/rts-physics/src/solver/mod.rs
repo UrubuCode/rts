@@ -65,7 +65,7 @@ pub mod contact;
 pub mod grid;
 
 mod adapter;
-mod material;
+pub(crate) mod material;
 mod step;
 pub use adapter::GatherBackend;
 
@@ -173,16 +173,11 @@ impl Solver {
         substeps: usize,
     ) {
         let count = pos.len().min(vel.len()).min(ext.len()) / 4;
-        if count == 0 || world.len() < 4 {
+        if count == 0 || world.len() < 8 || world[4] != material::PHYSICS_LAYOUT_VERSION {
             return;
         }
-        let _layout_ver = if world.len() >= 4 && world[3] > 0.0 {
-            world[3]
-        } else {
-            material::PHYSICS_LAYOUT_VERSION
-        };
         let dt = world[0];
-        let statics = (world[1].max(0.0) as usize).min((world.len().saturating_sub(4)) / 8);
+        let statics = (world[1].max(0.0) as usize).min((world.len().saturating_sub(8)) / 8);
         let size = cell_size(world);
 
         for _ in 0..substeps {

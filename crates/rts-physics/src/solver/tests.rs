@@ -8,7 +8,16 @@ use super::*;
 /// every test written before materials existed a test of their ABSENCE too —
 /// the legacy defaults are what all of these assert against.
 fn world(statics: &[([f32; 3], [f32; 3])], size: f32) -> Vec<f32> {
-    let mut world = vec![1.0 / 60.0, statics.len() as f32, size, 0.0];
+    let mut world = vec![
+        1.0 / 60.0,
+        statics.len() as f32,
+        size,
+        1.0,
+        material::PHYSICS_LAYOUT_VERSION,
+        0.0,
+        0.0,
+        0.0,
+    ];
     for (centre, half) in statics {
         world.extend_from_slice(&[centre[0], centre[1], centre[2], 0.0]);
         world.extend_from_slice(&[half[0], half[1], half[2], 0.0]);
@@ -47,7 +56,7 @@ fn static_material(world: &mut [f32], k: usize) -> &mut [f32] {
 /// Marks static `k` ROUND: `w` of its centre. See the layout note in the
 /// module doc for why 1 is the sphere and 0 the box.
 fn round(world: &mut [f32], k: usize) {
-    world[(1 + k * 2) * 4 + 3] = 1.0;
+    world[(2 + k * 2) * 4 + 3] = 1.0;
 }
 
 /// A body: position, half-extent, shape, mass. `mass = 0` is immovable.
