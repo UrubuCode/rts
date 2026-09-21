@@ -1479,3 +1479,104 @@ keeping for that reason alone.
 Measured per file against a kept binary: `bench/` 357 of 397 and `tests/` 15 223 of
 17 194, both **unchanged**, LOST empty. Expected, and stated rather than omitted: this
 adds a consumer of the graph and changes nothing that produces one.
+
+---
+
+## A claim becomes a guard, and the section above was wrong about the rule
+
+The entry before this one said *"a parameter is `Anything`"* and treated it as what
+rule 4 requires. It is not. Rule 4 says it in one sentence and the second half is the
+part that matters:
+
+> An annotation is treated as a **claim**: it may be used to prove a representation
+> where the language can check it, and **it becomes a guard where it cannot**.
+
+The second half had no implementation, and the commit that reported the gap pinned it
+as a test — *"an annotation changes nothing at this boundary"*. That is a **gap wearing
+a rule's clothes**, and it is a failure mode worth naming on its own: a test that
+asserts current behaviour reads exactly like a test that asserts intended behaviour,
+and the only thing distinguishing them is whether someone checked the rule.
+
+### What a guard makes true, and why it is not trusting the annotation
+
+Nothing believes TypeScript. The annotation is not evidence that the value **is** a
+number — it is evidence that **assuming so is worth a check**. The guard performs the
+check, and after it the narrowing is a proof in the ordinary way: `Op::Guard`'s result
+is the same value with a narrowed type, which is why `rts-mir` rule 6 makes a guard a
+value in the dataflow rather than emission.
+
+So rule 4's *"any place a claim becomes a proof must say what checked it"* is answered
+**structurally**. What checked it is the instruction standing between them, and a
+narrowed type with no guard above it is unrepresentable rather than discouraged.
+
+### The measurable result is that the refusal changed sides
+
+For one source, `function f(a: number, b: number) { return a - b; }`:
+
+| tier | refused by | saying |
+|---|---|---|
+| generic | the **language** | `Subtract over operands that were not proved numeric` |
+| specialised | the **machine** | `NeedsSideExit(PointId(0))` |
+
+That is the whole proof the chain works — claim → guard → narrowed → an instruction
+the language can emit — and it is a better proof than a passing lowering would have
+been, because it says exactly which layer the work moved to. What remains is
+`deopt-lateral.md` D3, named rather than described.
+
+A test pins both halves over the same string, so the day one of them changes the
+other is right there to compare against.
+
+### `: number` asserts a DOUBLE
+
+A JavaScript number is a double, and `Int32` is a subset the lattice tracks separately.
+Asserting `IsInt32` from `: number` would be a check the annotation does not support —
+`f(1.5)` is a perfectly good call — so it would fall on ordinary input and the
+specialised tier would be dead weight.
+
+A test pins that the guard's **result** is `Double` while the value it **guards** is
+still `Anything`. That pair is what makes the guard the thing that changed the answer,
+rather than the annotation.
+
+### Only the specialised tier, and why the builder had to be asked
+
+A guard needs somewhere to fall, and the generic tier is that somewhere — a guard there
+is a check whose failure has no destination, which is what `guard.rs` says from its own
+side. So the generic body emits none and is slower on purpose.
+
+`FuncBuilder` gained `tier()` for it. The decision turns on the tier in a **different
+crate** from the one that chose it, and a client keeping its own copy is two places for
+one answer, whose drift is a guard with nowhere to fall.
+
+### What produces no guard, and each is a different reason
+
+| claim | why not |
+|---|---|
+| `boolean`, `undefined`, `null`, an object, an array | the assertion table has no row |
+| a union | `Claim::is_definite` already said it: *"a claim that has to be examined before it answers is a claim that did not answer"* |
+| `any`, `unknown` | `Claim::Unknown` names nothing to check |
+
+The union is the interesting one. Guarding `number | string` needs two assertions and
+two falls for one parameter, which is a **different shape** and not a bigger version of
+this one. Rule 5 is satisfied by all of these being visible in `lower/claim.rs` rather
+than three lowerings later.
+
+### One numbering, not two
+
+The deoptimisation points are counted on the lowering rather than per guard, because
+the number has to be the **same in both tiers**: a fall from point three of the
+specialised body lands at point three of the generic one. Two counters that happen to
+agree is the shape of a bug that only appears once a fall actually fires.
+
+### Where this leaves the order of work
+
+The guard producer was named as next by the section above, and it is done. What is left
+is unchanged in kind and shorter by one:
+
+1. **the side exit** — `deopt-lateral.md` D3, which is what `NeedsSideExit` waits on
+   and what makes a guard's failure survivable;
+2. **E2 on the path that runs**, which is still reached only from `rts mir`;
+3. **passes**, still one.
+
+Measured per file against a kept binary: both corpora unchanged, LOST empty. `rts mir`
+prints the generic tier, so nothing it surveys emits a guard — stated rather than left
+as a surprise for whoever runs it next.
