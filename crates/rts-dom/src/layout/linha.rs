@@ -226,11 +226,11 @@ pub(in crate::layout) fn layout_inline_flow(
     // por passada de layout, uma por segmento, para copiar algo que ninguém mais
     // usaria depois.
     for line in lines {
-        // A line holding nothing but float anchors is not a line box: a float
-        // is out of flow and generates none (CSS 2.1 §9.5). `a<br><float>` made
-        // a phantom second line — a full line of height, and the LAST line box
-        // an enclosing inline-block then took its baseline from.
-        if line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float)))) {
+        // A line holding nothing but ANCHORS is not a line box: a float or an
+        // absolute box is out of flow and generates none (CSS 2.1 §9.5).
+        // `a<br><float>` made a phantom second line — a full line of height, and
+        // the LAST line box an enclosing inline-block then took its baseline from.
+        if super::ancora_estatica::linha_so_de_ancoras(dom, &line, x, cy, list) {
             continue;
         }
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.
@@ -301,7 +301,7 @@ pub(in crate::layout) fn layout_inline_flow(
             seg_x += seg.lead_w;
             if let Some((a_idx, caixa, kind)) = seg.atomic {
                 // Float and static-position anchors have nothing on the line (`ancora_estatica.rs`).
-                if super::ancora_estatica::fora_da_linha(dom, (a_idx, caixa, kind), seg_x, x, cy, cy + line_advance, list) {
+                if super::ancora_estatica::fora_da_linha(dom, (a_idx, caixa, kind), seg_x, x, cy, cy + line_advance, (at_linha, filhos_antes_da_linha), list) {
                     continue;
                 }
                 let (desde, (rx, ry)) = (list.items.len(), super::relativo::offset_do_inline(dom, seg.owners.last().copied(), ctx));

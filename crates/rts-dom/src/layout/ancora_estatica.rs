@@ -51,7 +51,19 @@ pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: Option<BoxId>, co
 /// static-position anchor — and answers `true` for them, so the caller skips
 /// the segment. For the latter it records where the box would have been:
 /// `(seg_x, line_top)` if it was inline-level, `(flow_x, line_bottom)` if it
-/// was block-level.
+/// was block-level — and `(flow_x, line_top)` if it was block-level with
+/// NOTHING before it on the line. In flow it would have split the line, and
+/// the part before it would be a line box with no text and no atom: zero
+/// height (CSS 2.1 §9.4.2), so the box sits where that line starts. Measured in
+/// Blink (`claude-absoluto-posicao-estatica-linha-vazia`), which does not count
+/// a START BORDER of the enclosing inline as content either, whatever §9.4.2
+/// says of it.
+///
+/// `inicio_da_linha` is `(list.items.len(), list.children.len())` as they stood
+/// when the line began: "nothing before it" is asked as "the line has emitted
+/// nothing yet", since the surfaces of the inlines are inserted only after the
+/// line's last segment. Cut, stated: text that paints nothing
+/// (`visibility: hidden`) reads as an empty line here.
 pub(in crate::layout) fn fora_da_linha(
     dom: &Dom,
     atomic: (NodeIdx, Option<BoxId>, AtomicKind),
@@ -59,6 +71,7 @@ pub(in crate::layout) fn fora_da_linha(
     flow_x: f32,
     line_top: f32,
     line_bottom: f32,
+    inicio_da_linha: (usize, usize),
     list: &mut DisplayList,
 ) -> bool {
     match atomic {
@@ -67,13 +80,33 @@ pub(in crate::layout) fn fora_da_linha(
         // leaves it out of the client rects of the inline that contains it.
         (_, _, AtomicKind::Float) => true,
         (id, Some(caixa), AtomicKind::Estatica) => {
-            let (x, y) = if era_de_bloco(dom, id) { (flow_x, line_bottom) } else { (seg_x, line_top) };
+            let vazia = (list.items.len(), list.children.len()) == inicio_da_linha;
+            let (x, y) = match (era_de_bloco(dom, id), vazia) {
+                (true, true) => (flow_x, line_top),
+                (true, false) => (flow_x, line_bottom),
+                (false, _) => (seg_x, line_top),
+            };
             list.ancoras_estaticas.push((caixa, x, y));
             true
         }
         (_, None, AtomicKind::Estatica) => true,
         _ => false,
     }
+}
+
+/// Is `line` made of anchors alone — floats' and static positions'? Then it is
+/// no line box and the caller skips it; but the static positions still have to
+/// be said, and with no line they are all the same place: where the line would
+/// have started (Blink, `claude-absoluto-posicao-estatica-linha-vazia` case 5).
+pub(in crate::layout) fn linha_so_de_ancoras(dom: &Dom, line: &[Segment], flow_x: f32, cy: f32, list: &mut DisplayList) -> bool {
+    let so_ancoras = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::Estatica))));
+    if so_ancoras {
+        let inicio = (list.items.len(), list.children.len());
+        for atomic in line.iter().filter_map(|s| s.atomic) {
+            fora_da_linha(dom, atomic, flow_x, flow_x, cy, cy, inicio, list);
+        }
+    }
+    so_ancoras
 }
 
 /// Was this box block-level BEFORE `position: absolute` blockified it? The
