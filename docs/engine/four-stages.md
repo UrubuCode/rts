@@ -1676,3 +1676,95 @@ that pinned a gap as a rule and a work list that pointed at the wrong crate.
 
 Measured per file against a kept binary at every step: both corpora unchanged by this
 commit, LOST empty.
+
+---
+
+## How far from running anything: 2.8%, and the road is now known precisely
+
+Asked directly — is the new stage at or above what `main` passes? — and the answer needed
+an instrument that did not exist, because the number being quoted was the wrong one.
+
+**Two shares, and they had been read as one.**
+
+| | over `bench/` | what it means |
+|---|---:|---|
+| functions that produce a GRAPH | 88.5% | it lowered |
+| functions that reach the MACHINE | **2.8%** | it becomes code |
+
+`rts mir --machine` is the second one, and it is part of this work rather than a script:
+an instrument that can only be run by `cargo test` is an instrument nobody runs. Over
+`tests/` at one file in twenty it is 4.3%.
+
+**And `main`'s 833 of 888 does not pass through any of this.** That number is produced
+entirely by the old `emit/` path, which this branch does not change. The new stage has no
+pass rate on the suite because no `*.test.ts` file executes through it. Quoting 88.5%
+beside 94% would have compared two rulers and overstated the stage by more than an order
+of magnitude.
+
+### Two defects the instrument found immediately, and every test passed with both
+
+**`Truthy` over a proved boolean was refused.** It is the identity — this language's truth
+rule applied to something already a truth value asks nothing — and the slice turned it
+away for failing a numeric test it never had. `truthy` is the second most common operation
+in `bench/` at 362, because every `if (a < b)` writes one over a comparison's boolean, so
+every branch in the corpus stopped at its condition.
+
+**An edge carried a representation the target did not declare**, and that one was mine. A
+block parameter's representation comes from what a pass PROVED; an argument's comes from
+whatever instruction produced it. `let x = n; if (c) { x = 2; }` joins a guarded double
+with an integer literal: the lattice proves `Double` and the literal arrives as an
+integer. The machine refused and was right to — changing a representation is never
+implicit there. 133 of roughly 350 refusals over `bench/` were that one error.
+
+`MachineOps::coerce` is the question that was missing, and it belongs to the language
+because which conversions are sound is a fact about its lattice. The refusing half is the
+one worth stating: tagged into anything is a NARROWING, and a coercion that performed it
+would be a guard nobody wrote and nobody checks.
+
+**Neither fix moved the count**, and that is stated rather than dressed up: 11 of 398
+before and after. What moved is which wall is in front — and knowing that is the point of
+measuring rather than estimating.
+
+### What is in front now, in order, and why the order is not a preference
+
+The wall is `LessThan over operands that were not proved numeric: v4 is Double, v0 is
+Anything` — 119 of them. `v0` is an **unannotated parameter**, and `bench/` has 75
+annotations against `tests/`'s 2107 because its files run unmodified under Node and Bun,
+so they can carry no types at all.
+
+The obvious answer is to speculate on the OPERATION rather than on the annotation: assume
+`<` has numeric operands, guard, fall if not. That is what a real engine does, and it is
+**blocked by something else**: such a guard is mid-body, and `lower` refuses any guard that
+is not at the entry because the live set there is not the parameters. So operation-level
+speculation waits on frame reconstruction, which is the rest of D3.
+
+That leaves everything else, and every remaining item is an agreement somebody else has to
+state:
+
+| stopped by | count | whose |
+|---|---:|---|
+| a declared constant needs the runtime's numbering | 37 `bench/`, 195 `tests/` | the **host**'s: where a text, a key or a binding lives |
+| `ThisValue` | 18 | the **machine**'s receiver convention |
+| `NewArray` over N operands | 19 | the **host**'s or the machine's: an array's layout |
+| `IsStr` narrows to no representation | 9 `bench/`, 48 `tests/` | the **machine**'s: a string is a reference whose layout is the shape tree |
+| `Add` has no machine form | 31 | **decided**, and deliberately: over anything but two numbers it may concatenate |
+
+**So the language side of this slice is done.** That is the real finding, and it is more
+useful than the percentage: raising the machine share from here is not more lowering
+work — it is frame reconstruction, plus the host stating where an entry point lives.
+
+### A refusal whose name is wrong, and it is worth correcting the expectation
+
+`NeedsHandlerTag` reads as though the language owes a tag. It does not owe much: JavaScript
+has exactly ONE tag, because one `catch` catches everything, so the declaration is
+`Tag(0)` and a line of code.
+
+What is actually missing is that `lower` creates **every block before any region is
+opened**, and a block's region is fixed at creation — `FuncBuilder::create_block` assigns
+whatever region is open, which is deliberate and documented on it. So lowering a region
+means interleaving `open_region`/`close_region` with block creation, walking the region
+tree rather than the block list.
+
+Recorded rather than done, because it is a restructuring of `lower`'s two-pass block
+creation and this section would otherwise claim a piece that is not finished. The name
+will keep suggesting a one-line fix to whoever reads it next; it is not one.
