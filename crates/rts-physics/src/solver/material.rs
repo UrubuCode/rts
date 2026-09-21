@@ -163,6 +163,17 @@ impl<'a> Materials<'a> {
         }
     }
 
+    #[inline]
+    pub fn fixed_layer_mask(&self, fixed: usize) -> (u32, u32) {
+        let Some(region) = self.region else {
+            return (LEGACY_FIXED.layer, LEGACY_FIXED.mask);
+        };
+        let at = fixed.min(STATIC_CAPACITY - 1) * STATIC_RECORD;
+        let layer = region[at + 2].to_bits();
+        let mask = region[at + 3].to_bits();
+        (layer, mask)
+    }
+
     pub fn fixed(&self, fixed: usize) -> Fixed {
         let Some(region) = self.region else { return LEGACY_FIXED };
         let at = fixed.min(STATIC_CAPACITY - 1) * STATIC_RECORD;

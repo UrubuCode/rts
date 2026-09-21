@@ -50,8 +50,8 @@ impl Scene<'_> {
     pub(super) fn against_statics(&self, p: &mut V3, v: &mut V3, h: V3, shape: f32, mine: Body) -> bool {
         let mut touched = false;
         for k in 0..self.statics {
-            let made_of = self.materials.fixed(k);
-            if (mine.mask & made_of.layer) == 0 || (made_of.mask & mine.layer) == 0 {
+            let (other_layer, other_mask) = self.materials.fixed_layer_mask(k);
+            if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
                 continue;
             }
             let centre = triple(self.world, 2 + k * 2);
@@ -64,6 +64,7 @@ impl Scene<'_> {
             let Some((normal, depth)) = narrow(*p, h, shape, centre, half, fixed_shape) else {
                 continue;
             };
+            let made_of = self.materials.fixed(k);
             *p = add(*p, scale(normal, (depth - SLOP).max(0.0) * STATIC_RELAXATION));
             let approach = dot(*v, normal);
             if approach < 0.0 {
@@ -105,8 +106,8 @@ impl Scene<'_> {
             if other == body {
                 return;
             }
-            let made_of = self.materials.body(other);
-            if (mine.mask & made_of.layer) == 0 || (made_of.mask & mine.layer) == 0 {
+            let (other_layer, other_mask) = self.materials.layer_mask(other);
+            if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
                 return;
             }
             let Some((normal, depth)) = narrow(
@@ -119,6 +120,7 @@ impl Scene<'_> {
             ) else {
                 return;
             };
+            let made_of = self.materials.body(other);
             let other_inverse_mass = self.extents[other * 4 + 3];
             let share = inverse_mass / (inverse_mass + other_inverse_mass).max(0.0001);
             let theirs = self.velocity(other);
