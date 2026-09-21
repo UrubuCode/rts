@@ -249,6 +249,7 @@ pub enum Inst {
     // guard proved for a block, never which VALUE, so a narrow of some other
     // tagged value in that block passed. See the deleting commit for what that
     // would have computed.
+
     /// An operation on operands whose representation is not proven.
     Generic(GenericOp, ValueId, ValueId),
 
@@ -944,6 +945,7 @@ pub enum Terminator {
     /// Stops the program.
     Trap(TrapCode),
 }
+
 
 /// An instruction together with the values it defines.
 #[derive(Clone, PartialEq, Eq, Debug)]

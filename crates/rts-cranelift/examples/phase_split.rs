@@ -124,9 +124,7 @@ fn measure(width: usize) {
         bodies.iter().map(|(id, func)| (*id, func)).collect();
 
     let started = Instant::now();
-    module
-        .compile_all(&batch, &funcs, &types)
-        .expect("compiled");
+    module.compile_all(&batch, &funcs, &types).expect("compiled");
     let together = started.elapsed();
 
     let share = preparing.as_secs_f64() / split.as_secs_f64() * 100.0;

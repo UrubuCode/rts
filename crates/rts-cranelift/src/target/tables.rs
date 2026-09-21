@@ -128,9 +128,7 @@ impl MachineModule<'_> {
                 .declarations
                 .machine_id(*id)
                 .ok_or(TargetError::UndeclaredFunction(*id))?;
-            let reference = self
-                .module
-                .declare_func_in_data(machine_id, &mut description);
+            let reference = self.module.declare_func_in_data(machine_id, &mut description);
             // Past the count word.
             description.write_function_addr(((at + 1) * width) as u32, reference);
         }

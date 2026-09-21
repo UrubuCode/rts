@@ -122,9 +122,6 @@ mod tests {
         )));
         assert!(exhausted(&full), "the provider's own text is the signal");
         let other = TargetError::Module(ModuleError::Backend(anyhow::Error::msg("something else")));
-        assert!(
-            !exhausted(&other),
-            "any other backend error is not a size problem"
-        );
+        assert!(!exhausted(&other), "any other backend error is not a size problem");
     }
 }

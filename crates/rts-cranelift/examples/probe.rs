@@ -104,7 +104,11 @@ fn main() {
         };
         println!(
             "{:width$}  {:>8.2} ns/op  {:>+8.0} ps   {}{}",
-            fixture.name, per_op, picos, fixture.about, verdict,
+            fixture.name,
+            per_op,
+            picos,
+            fixture.about,
+            verdict,
         );
 
         // Printed so that nothing here can be optimized into an empty loop
@@ -127,5 +131,7 @@ fn main() {
         "  This run resolves about {resolution:.0} ps: the floor itself moved that much between \
          rounds, so a"
     );
-    println!("  smaller delta is noise. Raise the iteration count (argv[1]) to resolve finer.");
+    println!(
+        "  smaller delta is noise. Raise the iteration count (argv[1]) to resolve finer."
+    );
 }

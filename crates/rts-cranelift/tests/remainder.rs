@@ -1,4 +1,4 @@
-//! What a remainder is admitted to be, and what it is refused for.
+﻿//! What a remainder is admitted to be, and what it is refused for.
 //!
 //! `NumOp::Rem` is the first operator in this crate admitted **conditionally**
 //! rather than outright, and every claim that rests on is pinned here. The
@@ -232,10 +232,7 @@ fn a_divisor_whose_reciprocal_is_subnormal_is_refused() {
     // claim "this sequence is faster than the call" true for every divisor the
     // sequence is used on.
     let huge = 2.0f64.powi(1023);
-    assert!(
-        huge.is_finite(),
-        "the fixture itself has to be a real divisor"
-    );
+    assert!(huge.is_finite(), "the fixture itself has to be a real divisor");
     assert!(
         !(1.0 / huge).is_normal(),
         "and its reciprocal has to be the subnormal this test is about"
@@ -277,10 +274,7 @@ fn the_two_divisors_that_trap_are_refused_by_value_not_by_representation() {
     // test accepts. Only the value does, which is why the check reads the constant.
     for (bits, why) in [
         (0i64, "a zero divisor traps rather than answering NaN"),
-        (
-            -1i64,
-            "INT_MIN % -1 traps because the quotient is not representable",
-        ),
+        (-1i64, "INT_MIN % -1 traps because the quotient is not representable"),
     ] {
         let types = TypeRegistry::new();
         let mut func = function(&[Repr::I64], &[Repr::I64]);
@@ -314,11 +308,9 @@ fn the_verifier_refuses_a_trapping_remainder_the_builder_never_saw() {
     let (x, y) = (param(&func, 0), param(&func, 1));
     let entry = func.entry;
 
-    let rest = func.push_inst(
-        entry,
-        rts_cranelift::ir::Inst::IntArith(NumOp::Rem, x, y),
-        &[Repr::I64],
-    )[0];
+    let rest = func.push_inst(entry, rts_cranelift::ir::Inst::IntArith(NumOp::Rem, x, y), &[
+        Repr::I64,
+    ])[0];
     func.set_terminator(entry, rts_cranelift::ir::Terminator::Return(vec![rest]));
 
     let funcs = rts_cranelift::ir::FuncRegistry::new();
@@ -342,11 +334,9 @@ fn lowering_refuses_a_float_remainder_rather_than_approximating_one() {
     let (x, y) = (param(&func, 0), param(&func, 1));
     let entry = func.entry;
 
-    let rest = func.push_inst(
-        entry,
-        rts_cranelift::ir::Inst::FloatArith(NumOp::Rem, x, y),
-        &[Repr::F64],
-    )[0];
+    let rest = func.push_inst(entry, rts_cranelift::ir::Inst::FloatArith(NumOp::Rem, x, y), &[
+        Repr::F64,
+    ])[0];
     func.set_terminator(entry, rts_cranelift::ir::Terminator::Return(vec![rest]));
 
     match lower_function(&func, CallConv::SystemV) {

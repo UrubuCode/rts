@@ -643,7 +643,9 @@ pub(super) fn check_instructions(
                     // here is total, and the partiality is in the divisor's
                     // VALUE rather than in its representation — so this is the
                     // one arithmetic check that reads a constant.
-                    if *op == NumOp::Rem && !crate::ir::fold::divisor_cannot_trap(func, *b) {
+                    if *op == NumOp::Rem
+                        && !crate::ir::fold::divisor_cannot_trap(func, *b)
+                    {
                         errors.push(VerifyError::UnsafeRemainder {
                             inst: inst_id,
                             found: func.repr_of(*a),
@@ -655,7 +657,9 @@ pub(super) fn check_instructions(
                     // Same shape as the integer case above and for the same
                     // reason: what makes the instruction legal is the
                     // divisor's VALUE, which no representation records.
-                    if *op == NumOp::Rem && !crate::ir::fold::divisor_is_power_of_two(func, *b) {
+                    if *op == NumOp::Rem
+                        && !crate::ir::fold::divisor_is_power_of_two(func, *b)
+                    {
                         errors.push(VerifyError::UnsafeRemainder {
                             inst: inst_id,
                             found: func.repr_of(*a),
@@ -747,6 +751,7 @@ pub(super) fn check_instructions(
                         });
                     }
                 }
+
 
                 Inst::Generic(_, a, b) => {
                     for &operand in [a, b] {

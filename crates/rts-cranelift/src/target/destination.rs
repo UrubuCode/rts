@@ -66,8 +66,7 @@ pub fn executable_memory_in_arena(
     let mut builder = builder_calling(symbols)?;
     let arena = cranelift_jit::ArenaMemoryProvider::new_with_size(bytes).map_err(|error| {
         TargetError::Module(ModuleError::Backend(
-            anyhow::Error::new(error)
-                .context(format!("reserving {bytes} bytes of executable memory")),
+            anyhow::Error::new(error).context(format!("reserving {bytes} bytes of executable memory")),
         ))
     })?;
     builder.memory_provider(Box::new(arena));

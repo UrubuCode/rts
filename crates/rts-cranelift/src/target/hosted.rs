@@ -26,10 +26,7 @@ use cranelift_module::{Linkage, Module};
 
 use super::blob::{DataBlob, define_data_blob};
 use super::tables::AddressTable;
-use super::{
-    MachineModule, TargetError, destination::executable_memory_calling,
-    destination::executable_memory_in_arena,
-};
+use super::{MachineModule, TargetError, destination::executable_memory_calling, destination::executable_memory_in_arena};
 use crate::ir::{FuncId, FuncRegistry, Function};
 use crate::types::TypeRegistry;
 

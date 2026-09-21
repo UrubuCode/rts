@@ -316,12 +316,7 @@ mod tests {
         // The narrowing is one fact about one representation. A blanket rule
         // that narrowed every return would break a reference, whose payload is a
         // table index and needs the whole word.
-        for repr in [
-            Repr::I64,
-            Repr::Tagged,
-            Repr::F64,
-            Repr::Ref(crate::repr::RefKind::Opaque),
-        ] {
+        for repr in [Repr::I64, Repr::Tagged, Repr::F64, Repr::Ref(crate::repr::RefKind::Opaque)] {
             assert_eq!(
                 returning(repr, Convention::Foreign).returns[0].value_type,
                 machine_type(repr),

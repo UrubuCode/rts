@@ -275,14 +275,14 @@ impl RtEntry {
             // thing it may refuse. Written out rather than delegated to the
             // arm above: two entry points sharing a signature by construction
             // is a coupling that would silently survive one of them changing.
-            RtEntry::CacheResolve | RtEntry::CacheResolveStore | RtEntry::CacheResolveIndirect => {
-                Signature {
-                    params: vec![Repr::Ref(RefKind::Opaque), Repr::I64, Repr::I64],
-                    returns: vec![Repr::I64],
-                    convention: crate::abi::Convention::Foreign,
-                    ..Signature::default()
-                }
-            }
+            RtEntry::CacheResolve
+            | RtEntry::CacheResolveStore
+            | RtEntry::CacheResolveIndirect => Signature {
+                params: vec![Repr::Ref(RefKind::Opaque), Repr::I64, Repr::I64],
+                returns: vec![Repr::I64],
+                convention: crate::abi::Convention::Foreign,
+                ..Signature::default()
+            },
 
             // The receiver, the KEY AS A VALUE, and the cell. The middle operand
             // is what makes this a fourth entry rather than a fourth caller: the
