@@ -36,6 +36,7 @@ pub const SLOTS: usize = 32;
 pub struct Grid {
     counts: Vec<u32>,
     slots: Vec<u32>,
+    overflows: usize,
 }
 
 /// The bucket a cell coordinate falls in.
@@ -69,6 +70,7 @@ impl Grid {
         Self {
             counts: vec![0; CELLS],
             slots: vec![0; CELLS * SLOTS],
+            overflows: 0,
         }
     }
 
@@ -80,6 +82,7 @@ impl Grid {
     /// ([`super::cell_size`]) and is why the size is not decided here.
     pub fn build(&mut self, positions: &[f32], count: usize, size: f32) {
         self.counts.fill(0);
+        self.overflows = 0;
         for body in 0..count {
             let p = [
                 positions[body * 4],
@@ -92,8 +95,16 @@ impl Grid {
             if at < SLOTS {
                 self.slots[cell * SLOTS + at] = body as u32;
                 self.counts[cell] += 1;
+            } else {
+                self.overflows += 1;
             }
         }
+    }
+
+    /// The number of bodies dropped due to cell capacity overflow during the last build.
+    #[inline]
+    pub fn overflows(&self) -> usize {
+        self.overflows
     }
 
     /// The bodies recorded in one bucket.

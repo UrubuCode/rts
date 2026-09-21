@@ -28,11 +28,23 @@
 //! arithmetic (`0.35 / 0.35` is `1.0` in any float), which is what keeps the
 //! measured `RUST x GPU = 0` parity meaning something.
 
+/// Layout do cabeçalho do buffer world (8 floats / 2 vec4s)
+pub const WORLD_HEADER_FLOATS: usize = 8;
+pub const WORLD_PARAM_DT: usize = 0;
+pub const WORLD_PARAM_NUM_STATICS: usize = 1;
+pub const WORLD_PARAM_CELL_SIZE: usize = 2;
+pub const WORLD_PARAM_SUBSTEPS: usize = 3;
+pub const WORLD_PARAM_LAYOUT_VERSION: usize = 4;
+pub const WORLD_PARAM_ANY_MASK: usize = 5;
+
+/// Registro de estático no world (pos/round: 4 floats, half/pad: 4 floats = 8 floats / 2 vec4s)
+pub const STATIC_RECORD_FLOATS: usize = 8;
+pub const STATIC_CAPACITY: usize = 256;
+
 /// Where the region starts: after the header and the FULL static capacity, not
 /// after the statics in use — a fixed offset, so writing a material does not
 /// depend on how many statics the scene has this frame.
-pub(super) const MATERIALS_AT: usize = 4 + STATIC_CAPACITY * 8;
-const STATIC_CAPACITY: usize = 256;
+pub(super) const MATERIALS_AT: usize = WORLD_HEADER_FLOATS + STATIC_CAPACITY * STATIC_RECORD_FLOATS;
 /// A static's record: restitution, friction, two unused.
 const STATIC_RECORD: usize = 4;
 /// A body's record: gravity, restitution, drag, friction, floor, three unused.
@@ -42,6 +54,15 @@ const BODY_RECORD: usize = 8;
 /// friction constants of the solver were tuned against it, so it is the unit
 /// they are scaled by.
 const REFERENCE_FRICTION: f32 = 0.35;
+
+/// Static body type: does not move and is not moved.
+pub const BODY_STATIC: f32 = 1.0;
+/// Kinematic body type: moves purely by velocity, ignores forces and impulses.
+pub const BODY_KINEMATIC: f32 = 2.0;
+/// Dynamic body type: fully simulated under gravity, contacts and impulses.
+pub const BODY_DYNAMIC: f32 = 3.0;
+/// Canonical version of the physics world layout.
+pub const PHYSICS_LAYOUT_VERSION: f32 = 1.0;
 
 /// One body's material.
 #[derive(Clone, Copy)]
@@ -57,6 +78,10 @@ pub(super) struct Body {
     /// The height the body's CENTRE rests at on the implicit floor. Anything at
     /// or below `NO_FLOOR` switches it off.
     pub floor: f32,
+    /// 1.0 = static, 2.0 = kinematic, 3.0 = dynamic (0.0 unassigned maps to 3.0).
+    pub body_type: f32,
+    pub layer: u32,
+    pub mask: u32,
 }
 
 /// One static's material.
@@ -64,6 +89,8 @@ pub(super) struct Body {
 pub(super) struct Fixed {
     pub restitution: f32,
     pub friction: f32,
+    pub layer: u32,
+    pub mask: u32,
 }
 
 const NO_FLOOR: f32 = -1.0e8;
@@ -74,13 +101,23 @@ const LEGACY_BODY: Body = Body {
     drag: 0.0,
     friction: REFERENCE_FRICTION,
     floor: -1.0e30,
+    body_type: BODY_DYNAMIC,
+    layer: 1,
+    mask: 0xFFFF_FFFF,
 };
-const LEGACY_FIXED: Fixed = Fixed { restitution: 0.0, friction: REFERENCE_FRICTION };
+
+const LEGACY_FIXED: Fixed = Fixed {
+    restitution: 0.0,
+    friction: REFERENCE_FRICTION,
+    layer: 1,
+    mask: 0xFFFF_FFFF,
+};
 
 /// The material region of one step's `world`, or its absence.
 #[derive(Clone, Copy)]
 pub(super) struct Materials<'a> {
     region: Option<&'a [f32]>,
+    any_mask: bool,
 }
 
 impl<'a> Materials<'a> {
@@ -88,26 +125,94 @@ impl<'a> Materials<'a> {
     /// that is half there would give the first bodies a material and the rest
     /// the legacy one, which runs and is wrong.
     pub fn of(world: &'a [f32], bodies: usize) -> Self {
+        let any_mask = if world.len() > WORLD_PARAM_ANY_MASK {
+            world[WORLD_PARAM_ANY_MASK] > 0.5
+        } else {
+            false
+        };
         let needed = MATERIALS_AT + STATIC_CAPACITY * STATIC_RECORD + bodies * BODY_RECORD;
-        Self { region: (world.len() >= needed).then(|| &world[MATERIALS_AT..]) }
+        Self {
+            region: (world.len() >= needed).then(|| &world[MATERIALS_AT..]),
+            any_mask,
+        }
+    }
+
+    #[inline]
+    pub fn any_mask(&self) -> bool {
+        self.any_mask
+    }
+
+    #[inline]
+    pub fn layer_mask(&self, body: usize) -> (u32, u32) {
+        let Some(region) = self.region else {
+            return (LEGACY_BODY.layer, LEGACY_BODY.mask);
+        };
+        let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
+        let layer = region[at + 6].to_bits();
+        let mask = region[at + 7].to_bits();
+        (layer, mask)
+    }
+
+    /// Só restituição e atrito do corpo: o que o laço de contato lê do OUTRO
+    /// corpo. É o caminho quente da cena densa (um acesso por contato), e
+    /// `body()` monta os oito campos e decide o `body_type` para descartar seis
+    /// deles. Trocar um pelo outro tirou metade da regressão da issue #5.
+    #[inline]
+    pub fn restitution_friction(&self, body: usize) -> (f32, f32) {
+        let Some(region) = self.region else {
+            return (LEGACY_BODY.restitution, LEGACY_BODY.friction);
+        };
+        let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
+        (region[at + 1], region[at + 3])
     }
 
     pub fn body(&self, body: usize) -> Body {
         let Some(region) = self.region else { return LEGACY_BODY };
         let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
+        let raw_type = region[at + 5];
+        let body_type = if raw_type == BODY_STATIC {
+            BODY_STATIC
+        } else if raw_type == BODY_KINEMATIC {
+            BODY_KINEMATIC
+        } else {
+            BODY_DYNAMIC
+        };
+        let layer = region[at + 6].to_bits();
+        let mask = region[at + 7].to_bits();
         Body {
             gravity: region[at],
             restitution: region[at + 1],
             drag: region[at + 2],
             friction: region[at + 3],
             floor: region[at + 4],
+            body_type,
+            layer,
+            mask,
         }
+    }
+
+    #[inline]
+    pub fn fixed_layer_mask(&self, fixed: usize) -> (u32, u32) {
+        let Some(region) = self.region else {
+            return (LEGACY_FIXED.layer, LEGACY_FIXED.mask);
+        };
+        let at = fixed.min(STATIC_CAPACITY - 1) * STATIC_RECORD;
+        let layer = region[at + 2].to_bits();
+        let mask = region[at + 3].to_bits();
+        (layer, mask)
     }
 
     pub fn fixed(&self, fixed: usize) -> Fixed {
         let Some(region) = self.region else { return LEGACY_FIXED };
         let at = fixed.min(STATIC_CAPACITY - 1) * STATIC_RECORD;
-        Fixed { restitution: region[at], friction: region[at + 1] }
+        let layer = region[at + 2].to_bits();
+        let mask = region[at + 3].to_bits();
+        Fixed {
+            restitution: region[at],
+            friction: region[at + 1],
+            layer,
+            mask,
+        }
     }
 }
 

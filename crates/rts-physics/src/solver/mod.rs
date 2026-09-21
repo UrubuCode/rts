@@ -65,7 +65,7 @@ pub mod contact;
 pub mod grid;
 
 mod adapter;
-mod material;
+pub(crate) mod material;
 mod step;
 pub use adapter::GatherBackend;
 
@@ -154,6 +154,11 @@ impl Solver {
         self
     }
 
+    /// Total bodies dropped due to grid cell capacity overflow in the most recent step.
+    pub fn grid_overflows(&self) -> usize {
+        self.grid.overflows()
+    }
+
     /// Advances `substeps` fixed steps in place.
     ///
     /// The three body buffers are four floats per body and must agree about how
@@ -168,11 +173,15 @@ impl Solver {
         substeps: usize,
     ) {
         let count = pos.len().min(vel.len()).min(ext.len()) / 4;
-        if count == 0 || world.len() < 4 {
+        if count == 0
+            || world.len() < material::WORLD_HEADER_FLOATS
+            || world[material::WORLD_PARAM_LAYOUT_VERSION] != material::PHYSICS_LAYOUT_VERSION
+        {
             return;
         }
-        let dt = world[0];
-        let statics = (world[1].max(0.0) as usize).min((world.len().saturating_sub(4)) / 8);
+        let dt = world[material::WORLD_PARAM_DT];
+        let statics = (world[material::WORLD_PARAM_NUM_STATICS].max(0.0) as usize)
+            .min((world.len().saturating_sub(material::WORLD_HEADER_FLOATS)) / material::STATIC_RECORD_FLOATS);
         let size = cell_size(world);
 
         for _ in 0..substeps {
@@ -195,11 +204,21 @@ impl Solver {
                 size,
                 dt,
             };
-            pos[..count * 4]
+            // O filtro de máscara é escolhido aqui, uma vez por sub-passo, e não
+            // testado por candidato: cada instância de `solve` já nasce com ou
+            // sem ele. Ver `Scene::disturbed`.
+            let bodies = pos[..count * 4]
                 .par_chunks_mut(4)
                 .zip(vel[..count * 4].par_chunks_mut(4))
-                .enumerate()
-                .for_each(|(body, (out_pos, out_vel))| scene.solve(body, out_pos, out_vel));
+                .enumerate();
+            match scene.materials.any_mask() {
+                true => bodies.for_each(|(body, (out_pos, out_vel))| {
+                    scene.solve::<true>(body, out_pos, out_vel)
+                }),
+                false => bodies.for_each(|(body, (out_pos, out_vel))| {
+                    scene.solve::<false>(body, out_pos, out_vel)
+                }),
+            }
         }
     }
 }
@@ -213,8 +232,8 @@ impl Solver {
 /// wastes candidates. The caller knows the largest extent without scanning
 /// anything, which is why it is passed rather than derived here.
 fn cell_size(world: &[f32]) -> f32 {
-    match world[2].is_finite() {
-        true => world[2].max(0.001),
+    match world[material::WORLD_PARAM_CELL_SIZE].is_finite() {
+        true => world[material::WORLD_PARAM_CELL_SIZE].max(0.001),
         false => 1.0,
     }
 }
@@ -272,7 +291,8 @@ impl Scene<'_> {
 
     /// One body's whole sub-step: wake or skip, integrate, statics, pairs,
     /// clamp, park, sleep. Writes only its own four-float slots.
-    fn solve(&self, body: usize, out_pos: &mut [f32], out_vel: &mut [f32]) {
+    /// `FILTRO` é o `any_mask` do passo; ver `disturbed`.
+    fn solve<const FILTRO: bool>(&self, body: usize, out_pos: &mut [f32], out_vel: &mut [f32]) {
         let mut p = self.position(body);
         let mut v = self.velocity(body);
         let mut sleep = self.positions[body * 4 + 3];
@@ -281,8 +301,23 @@ impl Scene<'_> {
         let inverse_mass = self.extents[body * 4 + 3];
         let mine = self.materials.body(body);
 
+        if mine.body_type == material::BODY_STATIC {
+            // Static: does not move at all, zero velocity
+            write(out_pos, p, SLEEP_STEPS);
+            write(out_vel, [0.0; 3], shape);
+            return;
+        }
+
+        if mine.body_type == material::BODY_KINEMATIC {
+            // Kinematic: moves purely by its velocity, ignores gravity, drag, floor, statics and impulses
+            p = add(p, scale(v, self.dt));
+            write(out_pos, p, 0.0);
+            write(out_vel, v, shape);
+            return;
+        }
+
         if sleep >= SLEEP_STEPS {
-            if !self.disturbed(body, p, h, shape) {
+            if !self.disturbed::<FILTRO>(body, p, h, shape) {
                 // Unchanged, and written out rather than left alone: the caller's
                 // buffer is the destination, and the snapshot it was read from is
                 // a different allocation.
@@ -304,10 +339,10 @@ impl Scene<'_> {
         // Whether anything touched this body this step, which is what decides
         // if it may fall asleep. See the counter below.
         let mut supported = mine.rest_on_floor(&mut p[1], &mut v[1]);
-        supported |= self.against_statics(&mut p, &mut v, h, shape, mine);
+        supported |= self.against_statics::<FILTRO>(&mut p, &mut v, h, shape, mine);
 
         let before = p;
-        supported |= self.against_bodies(body, &mut p, &mut v, &mut sleep, h, shape, inverse_mass, mine);
+        supported |= self.against_bodies::<FILTRO>(body, &mut p, &mut v, &mut sleep, h, shape, inverse_mass, mine);
         // The per-step ceiling on positional correction, which is what keeps a
         // deep pile from exploding: a buried body sums the corrections of dozens
         // of neighbours in one Jacobi pass.

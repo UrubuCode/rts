@@ -168,6 +168,18 @@ fn describe(needs: &Needs) -> &'static str {
     if needs.joints {
         return "joints";
     }
+    if needs.deterministic {
+        return "deterministic simulation";
+    }
+    if needs.raycast {
+        return "raycast queries";
+    }
+    if needs.overlap {
+        return "overlap queries";
+    }
+    if needs.contact_events {
+        return "contact events";
+    }
     "nothing in particular"
 }
 

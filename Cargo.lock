@@ -4936,6 +4936,7 @@ dependencies = [
  "rts-core",
  "rts-dom-bridge",
  "rts-node",
+ "rts-physics",
  "rts-std",
  "rts-ui",
 ]

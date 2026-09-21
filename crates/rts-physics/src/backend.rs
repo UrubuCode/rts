@@ -85,6 +85,14 @@ pub struct Needs {
     pub angular: bool,
     /// Joints, articulations, motors.
     pub joints: bool,
+    /// Deterministic bit-by-bit simulation across runs and thread counts.
+    pub deterministic: bool,
+    /// Spatial raycast queries supported by the backend.
+    pub raycast: bool,
+    /// Spatial overlap queries supported by the backend.
+    pub overlap: bool,
+    /// Contact events (begin, persist, end, trigger) emitted after solver.
+    pub contact_events: bool,
 }
 
 /// The result of asking a backend to advance a scene.

@@ -15,11 +15,26 @@ impl Scene<'_> {
     /// Through the grid, like everything else. Scanning every body instead would
     /// make a scene at rest — the case sleeping exists to make cheap — the one
     /// that pays a full n² every step.
-    pub(super) fn disturbed(&self, body: usize, p: V3, h: V3, shape: f32) -> bool {
+    ///
+    /// `FILTRO` é o `any_mask` do passo, decidido UMA vez em `Solver::step`: com
+    /// ele desligado a instância não tem nem a leitura de layer/máscara nem o
+    /// teste — o recurso desligado custa zero, e acordar respeita a mesma flag
+    /// que os pares (antes filtrava máscara mesmo com `any_mask = 0`).
+    pub(super) fn disturbed<const FILTRO: bool>(&self, body: usize, p: V3, h: V3, shape: f32) -> bool {
+        let (my_layer, my_mask) = match FILTRO {
+            true => self.materials.layer_mask(body),
+            false => (0, 0),
+        };
         let mut woken = false;
         self.near(p, |other| {
             if woken || other == body {
                 return;
+            }
+            if FILTRO {
+                let (other_layer, other_mask) = self.materials.layer_mask(other);
+                if (my_mask & other_layer) == 0 || (other_mask & my_layer) == 0 {
+                    return;
+                }
             }
             let vj = self.velocity(other);
             if dot(vj, vj) <= WAKE_SPEED_SQUARED {
@@ -42,13 +57,27 @@ impl Scene<'_> {
     /// correction is the moving body's, and only the velocity component entering
     /// the static is removed.
     /// Answers whether any static touched the body.
-    pub(super) fn against_statics(&self, p: &mut V3, v: &mut V3, h: V3, shape: f32, mine: Body) -> bool {
+    /// `FILTRO`: ver `disturbed`.
+    pub(super) fn against_statics<const FILTRO: bool>(
+        &self,
+        p: &mut V3,
+        v: &mut V3,
+        h: V3,
+        shape: f32,
+        mine: Body,
+    ) -> bool {
         let mut touched = false;
         for k in 0..self.statics {
-            let centre = triple(self.world, 1 + k * 2);
-            let half = triple(self.world, 2 + k * 2);
+            if FILTRO {
+                let (other_layer, other_mask) = self.materials.fixed_layer_mask(k);
+                if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
+                    continue;
+                }
+            }
+            let centre = triple(self.world, 2 + k * 2);
+            let half = triple(self.world, 3 + k * 2);
             // Roundness, not shape: see the layout note in the module doc.
-            let fixed_shape = match self.world[(1 + k * 2) * 4 + 3] > 0.5 {
+            let fixed_shape = match self.world[(2 + k * 2) * 4 + 3] > 0.5 {
                 true => 0.0,
                 false => 1.0,
             };
@@ -78,7 +107,10 @@ impl Scene<'_> {
     /// The cell is recomputed from the position AFTER integration and statics,
     /// not from the one the grid was built with — a pair the step itself created
     /// would otherwise be missed until the next one.
-    pub(super) fn against_bodies(
+    ///
+    /// `FILTRO`: ver `disturbed`. Aqui é onde mais pesa, porque o teste roda
+    /// por CANDIDATO e a cena densa tem dezenas por corpo.
+    pub(super) fn against_bodies<const FILTRO: bool>(
         &self,
         body: usize,
         p: &mut V3,
@@ -97,6 +129,12 @@ impl Scene<'_> {
             if other == body {
                 return;
             }
+            if FILTRO {
+                let (other_layer, other_mask) = self.materials.layer_mask(other);
+                if (mine.mask & other_layer) == 0 || (other_mask & mine.layer) == 0 {
+                    return;
+                }
+            }
             let Some((normal, depth)) = narrow(
                 position,
                 h,
@@ -107,13 +145,13 @@ impl Scene<'_> {
             ) else {
                 return;
             };
+            let (other_restitution, other_friction) = self.materials.restitution_friction(other);
             let other_inverse_mass = self.extents[other * 4 + 3];
             let share = inverse_mass / (inverse_mass + other_inverse_mass).max(0.0001);
             let theirs = self.velocity(other);
-            let made_of = self.materials.body(other);
             // Relative velocity along the normal. Negative is approaching.
             let approach = dot(sub(velocity, theirs), normal);
-            let back = 1.0 + bounce(approach, mine.restitution, made_of.restitution);
+            let back = 1.0 + bounce(approach, mine.restitution, other_restitution);
 
             if normal[1] > VERTICAL || normal[1] < -VERTICAL {
                 if approach < -1.0 {
@@ -127,7 +165,7 @@ impl Scene<'_> {
                     // than an impulse applied — an impulse here is the limit
                     // cycle that makes a column vibrate forever.
                     velocity[1] = theirs[1];
-                    let grip = friction_loss(STACK_FRICTION, mine.friction, made_of.friction);
+                    let grip = friction_loss(STACK_FRICTION, mine.friction, other_friction);
                     velocity[0] += (theirs[0] - velocity[0]) * grip;
                     velocity[2] += (theirs[2] - velocity[2]) * grip;
                 }

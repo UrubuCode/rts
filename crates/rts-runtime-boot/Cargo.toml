@@ -27,8 +27,10 @@ rts-node = { path = "../rts-node" }
 # ecrã não a liga).
 rts-dom-bridge = { path = "../rts-dom-bridge" }
 rts-ui = { path = "../rts-ui", optional = true }
+rts-physics = { path = "../rts-physics", optional = true }
 libc = "0.2"
 
 [features]
-default = ["ui"]
+default = ["ui", "physics"]
 ui = ["dep:rts-ui"]
+physics = ["dep:rts-physics"]

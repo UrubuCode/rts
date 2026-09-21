@@ -8,7 +8,16 @@ use super::*;
 /// every test written before materials existed a test of their ABSENCE too —
 /// the legacy defaults are what all of these assert against.
 fn world(statics: &[([f32; 3], [f32; 3])], size: f32) -> Vec<f32> {
-    let mut world = vec![1.0 / 60.0, statics.len() as f32, size, 0.0];
+    let mut world = vec![
+        1.0 / 60.0,
+        statics.len() as f32,
+        size,
+        1.0,
+        material::PHYSICS_LAYOUT_VERSION,
+        0.0,
+        0.0,
+        0.0,
+    ];
     for (centre, half) in statics {
         world.extend_from_slice(&[centre[0], centre[1], centre[2], 0.0]);
         world.extend_from_slice(&[half[0], half[1], half[2], 0.0]);
@@ -21,11 +30,13 @@ fn world(statics: &[([f32; 3], [f32; 3])], size: f32) -> Vec<f32> {
 fn world_with_materials(statics: &[([f32; 3], [f32; 3])], size: f32, bodies: usize) -> Vec<f32> {
     let mut world = world(statics, size);
     world.resize(material::MATERIALS_AT, 0.0);
+    let def_layer = f32::from_bits(1);
+    let def_mask = f32::from_bits(0xFFFF_FFFF);
     for _ in 0..256 {
-        world.extend_from_slice(&[0.0, 0.35, 0.0, 0.0]);
+        world.extend_from_slice(&[0.0, 0.35, def_layer, def_mask]);
     }
     for _ in 0..bodies {
-        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, 0.0, 0.0, 0.0]);
+        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, material::BODY_DYNAMIC, def_layer, def_mask]);
     }
     world
 }
@@ -45,7 +56,7 @@ fn static_material(world: &mut [f32], k: usize) -> &mut [f32] {
 /// Marks static `k` ROUND: `w` of its centre. See the layout note in the
 /// module doc for why 1 is the sphere and 0 the box.
 fn round(world: &mut [f32], k: usize) {
-    world[(1 + k * 2) * 4 + 3] = 1.0;
+    world[(2 + k * 2) * 4 + 3] = 1.0;
 }
 
 /// A body: position, half-extent, shape, mass. `mass = 0` is immovable.
@@ -451,4 +462,148 @@ fn a_bouncing_body_does_not_fall_asleep_in_mid_air() {
     // On the floor (half-extents 0.5 + 0.5), not hanging above it.
     assert!(pos[1] < 1.1, "it fell asleep in the air at y = {}", pos[1]);
     assert!(pos[1] > 0.8, "it sank into the floor: y = {}", pos[1]);
+}
+
+#[test]
+fn a_kinematic_body_moves_by_velocity_with_no_gravity_or_drag_and_never_sleeps() {
+    // Kinematic (body_type = 2.0): moves strictly by p += v * dt.
+    // Velocity must be preserved exactly, position must advance linearly,
+    // gravity and drag must not affect it.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 10.0, 0.0], [1.0; 3], BOX, 0.0)]);
+    vel[0] = 5.0; // vx = 5.0
+    vel[1] = 0.0; // vy = 0.0
+    let mut world = world_with_materials(&[], 4.0, 1);
+    // Set body_type = 2.0 (kinematic)
+    body_material(&mut world, 0)[0] = 9.8; // gravity declared
+    body_material(&mut world, 0)[2] = 0.5; // drag declared
+    let at = material::MATERIALS_AT + 256 * 4;
+    world[at + 5] = material::BODY_KINEMATIC; // 2.0!
+
+    let dt = world[0];
+    let steps = 60;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, steps);
+
+    let expected_x = 5.0 * (steps as f32) * dt;
+    assert!((pos[0] - expected_x).abs() < 1e-3, "x was {}, expected {}", pos[0], expected_x);
+    assert!((pos[1] - 10.0).abs() < 1e-3, "y was {} (should stay 10.0, no gravity)", pos[1]);
+    assert!((vel[0] - 5.0).abs() < 1e-3, "vx was {} (should stay 5.0, no drag)", vel[0]);
+    assert_eq!(vel[1], 0.0, "vy was {} (should stay 0.0)", vel[1]);
+    assert_eq!(pos[3], 0.0, "kinematic bodies must not sleep");
+}
+
+#[test]
+fn a_dynamic_body_resting_on_a_moving_kinematic_platform_is_carried_along() {
+    // Platform (body 0, kinematic): y = 0.0, h = [5.0, 0.5, 5.0], vx = 3.0
+    // Dynamic body (body 1): dropped at y = 1.0, h = [0.5, 0.5, 0.5], mass = 1.0
+    let (mut pos, mut vel, ext) = scene(&[
+        body([0.0, 0.0, 0.0], [5.0, 0.5, 5.0], BOX, 0.0), // Kinematic platform
+        body([0.0, 1.0, 0.0], [0.5, 0.5, 0.5], BOX, 1.0), // Dynamic body resting on it
+    ]);
+    vel[0] = 3.0; // platform moves at vx = 3.0
+
+    let mut world = world_with_materials(&[], 10.0, 2);
+    // Body 0 is kinematic (tipo = 2.0)
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    world[at0 + 5] = material::BODY_KINEMATIC;
+    // Body 1 is dynamic (tipo = 3.0)
+    let at1 = material::MATERIALS_AT + 256 * 4 + 8;
+    world[at1 + 5] = material::BODY_DYNAMIC;
+
+    let mut solver = Solver::new();
+    // Step 120 steps (~2 seconds)
+    solver.step(&mut pos, &mut vel, &ext, &world, 120);
+
+    // Platform moved to x = 3.0 * (120/60) = 6.0
+    assert!((pos[0] - 6.0).abs() < 0.05, "platform x = {}, expected 6.0", pos[0]);
+    assert!((vel[0] - 3.0).abs() < 1e-3, "platform vx = {}", vel[0]);
+
+    // Dynamic body on top (body 1) must stay around y = 1.0 (top of platform 0.5 + half 0.5)
+    assert!((pos[5] - 1.0).abs() < 0.2, "dynamic body y = {}, expected ~1.0", pos[5]);
+    // Dynamic body must have been carried horizontally along with platform
+    assert!(pos[4] > 4.0, "dynamic body x = {} was not carried by platform", pos[4]);
+}
+
+#[test]
+fn unassigned_body_type_0_defaults_to_dynamic() {
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 10.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let mut world = world_with_materials(&[], 4.0, 1);
+    let at = material::MATERIALS_AT + 256 * 4;
+    world[at + 5] = 0.0; // unassigned
+    body_material(&mut world, 0)[0] = 9.8; // gravity
+
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 60);
+    // Body should fall under gravity because 0.0 defaults to dynamic
+    assert!(pos[1] < 9.0, "unassigned body type 0.0 did not fall under gravity: y = {}", pos[1]);
+}
+
+#[test]
+fn layer_and_mask_filters_collision_pairs() {
+    // Two overlapping bodies: body 0 at x=0, body 1 at x=0.5 (both h=0.5)
+    let (mut pos, mut vel, ext) = scene(&[
+        body([0.0, 0.0, 0.0], [0.5; 3], BOX, 1.0),
+        body([0.5, 0.0, 0.0], [0.5; 3], BOX, 1.0),
+    ]);
+    let mut world = world_with_materials(&[], 4.0, 2);
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    let at1 = material::MATERIALS_AT + 256 * 4 + 8;
+
+    // Set body 0: layer = 1, mask = 2 (only collides with layer 2)
+    world[at0 + 6] = f32::from_bits(1);
+    world[at0 + 7] = f32::from_bits(2);
+
+    // Set body 1: layer = 4, mask = 1 (only collides with layer 1, but body 0 is layer 1 and body 1 is layer 4 != mask 2)
+    world[at1 + 6] = f32::from_bits(4);
+    world[at1 + 7] = f32::from_bits(1);
+
+    // 1. With any_mask = 0.0, the solver skips the mask filter (recurso desligado custa zero):
+    world[material::WORLD_PARAM_ANY_MASK] = 0.0;
+    let initial_x0 = pos[0];
+    let initial_x1 = pos[4];
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert!(pos[0] < initial_x0, "with any_mask=0 bodies should separate regardless of masks");
+    assert!(pos[4] > initial_x1, "with any_mask=0 bodies should separate regardless of masks");
+
+    // Reset positions
+    pos[0] = initial_x0;
+    pos[4] = initial_x1;
+
+    // 2. With any_mask = 1.0, masks ARE checked: (2 & 4) == 0 -> no collision!
+    world[material::WORLD_PARAM_ANY_MASK] = 1.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert_eq!(pos[0], initial_x0, "body 0 was moved despite mask mismatch");
+    assert_eq!(pos[4], initial_x1, "body 1 was moved despite mask mismatch");
+
+    // Now change body 1 layer to 2 (so body 0 mask 2 matches body 1 layer 2, AND body 1 mask 1 matches body 0 layer 1)
+    world[at1 + 6] = f32::from_bits(2);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert!(pos[0] < initial_x0, "body 0 did not separate when masks matched");
+    assert!(pos[4] > initial_x1, "body 1 did not separate when masks matched");
+}
+
+#[test]
+fn acordar_respeita_a_mesma_flag_any_mask_que_os_pares() {
+    // Um corpo dormindo e um vizinho rápido que o toca, em layers que a máscara
+    // separa. Com `any_mask = 0` a máscara é ignorada em TUDO — pares e acordar
+    // —, então ele acorda; com `any_mask = 1` o vizinho não o enxerga e ele
+    // continua dormindo. Antes, acordar filtrava máscara mesmo com a flag
+    // desligada, divergindo dos pares.
+    let asleep = ([0.0, 0.5, 0.0, SLEEP_STEPS], [0.0, 0.0, 0.0, BOX], [0.5, 0.5, 0.5, 1.0]);
+    let mover = ([0.9, 0.5, 0.0, 0.0], [-4.0, 0.0, 0.0, BOX], [0.5, 0.5, 0.5, 1.0]);
+    let mut world = world_with_materials(&[([0.0, -0.5, 0.0], [40.0, 0.5, 40.0])], 2.0, 2);
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    let at1 = at0 + 8;
+    world[at0 + 6] = f32::from_bits(1);
+    world[at0 + 7] = f32::from_bits(2);
+    world[at1 + 6] = f32::from_bits(4);
+    world[at1 + 7] = f32::from_bits(1);
+
+    world[material::WORLD_PARAM_ANY_MASK] = 0.0;
+    let (mut pos, mut vel, ext) = scene(&[asleep, mover]);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 1);
+    assert!(pos[3] < SLEEP_STEPS, "com any_mask = 0 a máscara não deveria impedir o acordar");
+
+    world[material::WORLD_PARAM_ANY_MASK] = 1.0;
+    let (mut pos, mut vel, ext) = scene(&[asleep, mover]);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 1);
+    assert!(pos[3] >= SLEEP_STEPS, "com any_mask = 1 um vizinho mascarado não deveria acordá-lo");
 }
