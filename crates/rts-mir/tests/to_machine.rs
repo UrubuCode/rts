@@ -45,6 +45,7 @@ impl MachineOps for Integers {
         into: &mut rts_cranelift::ir::FuncBuilder,
         prim: Prim,
         args: &[MachineValue],
+        _inst: &rts_mir::cfg::Inst,
     ) -> Result<MachineValue, String> {
         match (prim, args) {
             (ADD, [left, right]) => into
@@ -62,6 +63,7 @@ impl MachineOps for Integers {
         _into: &mut rts_cranelift::ir::FuncBuilder,
         entry: EntryId,
         _args: &[MachineValue],
+        _inst: &rts_mir::cfg::Inst,
     ) -> Result<MachineValue, String> {
         Err(format!(
             "this language names no entry point, and {entry:?} was asked for"

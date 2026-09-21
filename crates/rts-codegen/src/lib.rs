@@ -33,6 +33,7 @@ mod check;
 pub mod domain;
 pub mod lower;
 pub mod lower_module;
+pub mod machine;
 pub mod mir_dump;
 pub mod names;
 pub mod parse;

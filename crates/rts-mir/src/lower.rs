@@ -59,19 +59,47 @@ pub trait MachineOps {
     fn declared(&mut self, into: &mut FuncBuilder, index: u32) -> Result<MachineValue, String>;
 
     /// What a primitive computes.
+    ///
+    /// # Why the instruction travels beside the machine values
+    ///
+    /// Because without it a language cannot use what it proved, and this trait was
+    /// short by exactly that for as long as nothing implemented it. `param_repr` above
+    /// hands over a [`ValueId`] and says the answer *"comes from what a pass proved
+    /// about the value"* -- and then this method received machine values only, so a
+    /// front end could declare a parameter as an integer and still have no way to
+    /// lower `+` as a machine add, because it could not ask what its OPERANDS were
+    /// proved to be.
+    ///
+    /// That is the whole point of the type domain arriving at the boundary and being
+    /// unusable there. A language holds its own inferred types -- `infer` answers them
+    /// per [`ValueId`] -- so identity is all that was missing.
+    ///
+    /// # Why the whole instruction and not the operand ids
+    ///
+    /// One parameter instead of three, and the other two are worth having: `result` is
+    /// what the answer's representation is a fact about, and `at` is the source
+    /// position a fault record needs. A signature that handed over the ids alone would
+    /// be back here the first time a lowering wanted to report where it failed.
     fn prim(
         &mut self,
         into: &mut FuncBuilder,
         prim: Prim,
         args: &[MachineValue],
+        inst: &crate::cfg::Inst,
     ) -> Result<MachineValue, String>;
 
     /// A call to a named entry point of the runtime.
+    ///
+    /// Takes the instruction for the same reason [`Self::prim`] does, although an
+    /// entry's own signature is fixed: what its ANSWER is proved to be is still the
+    /// language's fact, and a boundary where one of two call shapes can consult the
+    /// lattice is a boundary that will be asked why.
     fn entry(
         &mut self,
         into: &mut FuncBuilder,
         entry: EntryId,
         args: &[MachineValue],
+        inst: &crate::cfg::Inst,
     ) -> Result<MachineValue, String>;
 }
 
@@ -191,7 +219,7 @@ pub fn lower(
                 Op::Const(value) => constant(into, value),
                 Op::Prim { prim, args } => {
                     let of_args = read(args, &values)?;
-                    ops.prim(into, *prim, &of_args)
+                    ops.prim(into, *prim, &of_args, held)
                         .map_err(Unlowerable::Language)?
                 }
                 Op::Call {
@@ -208,7 +236,7 @@ pub fn lower(
                     (_, Some(_)) => return Err(Unlowerable::NeedsReceiverConvention),
                     (Callee::Entry(entry), None) => {
                         let of_args = read(args, &values)?;
-                        ops.entry(into, *entry, &of_args)
+                        ops.entry(into, *entry, &of_args, held)
                             .map_err(Unlowerable::Language)?
                     }
                     (Callee::Func(_) | Callee::Dynamic(_), None) => {
