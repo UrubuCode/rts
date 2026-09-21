@@ -8,7 +8,7 @@
 //! the same two things this one needs: a graph to iterate over, and an effect
 //! summary to say what may move.
 
-use crate::cfg::{Func, Op};
+use crate::cfg::{Func, Op, Terminator};
 use crate::domain::Domain;
 use crate::effect::Effect;
 use crate::infer::infer;
@@ -261,4 +261,137 @@ mod tests {
         let mut func = build.finish();
         assert_eq!(refine_effects(&mut func, &Pair), Refined::default());
     }
+}
+
+/// How many guards a pass removed for proving nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Dropped {
+    /// Guards removed.
+    pub guards: usize,
+}
+
+/// Removes every guard whose operand is already proved what it asserts.
+///
+/// # Why a pass and not a decision at the lowering
+///
+/// Because a lowering cannot know. It records what it knows as each instruction is
+/// PUSHED, and a loop header's parameter is created before its back edge exists — so its
+/// type is the top of the lattice there, whatever the two predecessors will turn out to
+/// agree about. Inference runs over a finished graph and knows better.
+///
+/// The case that made this necessary: `while (a < b) { a = a - 1; }` over a parameter
+/// guarded at the entry. The header's parameter joins a proved double with a
+/// subtraction's result, which is a double, so nothing about it needs checking — and the
+/// lowering had already emitted a guard on it, in the header, where a side exit cannot be
+/// built. One redundant guard turned the whole function away.
+///
+/// This is the shape README rule 6 exists for: a guard is a value in the dataflow, so a
+/// pass reaches it like anything else. A guard decided at emission could only ever be
+/// removed by the emitter that wrote it.
+///
+/// # What it does to the instruction, and why it is not deleted
+///
+/// The instruction is unlisted from its block and its uses are pointed at the operand.
+/// It stays in the function's flat list unreferenced, because the list is indexed by
+/// [`crate::cfg::InstId`] and compacting it would renumber every instruction after it —
+/// for no gain, since nothing walks the list expecting every entry to be live.
+///
+/// Its deoptimisation point goes unused, which is allowed: `guard::pair` is
+/// one-directional precisely so a pass may remove a guard without the other tier having
+/// to be rewritten.
+pub fn drop_proved_guards<D: Domain>(func: &mut Func, domain: &D) -> Dropped {
+    let types = infer(func, domain);
+    let mut out = Dropped::default();
+    let mut replace: std::collections::BTreeMap<crate::cfg::ValueId, crate::cfg::ValueId> =
+        std::collections::BTreeMap::new();
+
+    for at in 0..func.insts.len() {
+        let Op::Guard { assertion, on, .. } = func.insts[at].op else {
+            continue;
+        };
+        let of = types.of(on).clone();
+        // PROVES NOTHING NEW, which is the exact test: narrowing an already-narrow type
+        // answers the same type. A guard that would narrow is kept, and one over a value
+        // nothing is known about narrows and is therefore kept too.
+        if domain.narrow(assertion, &of) != of {
+            continue;
+        }
+        let result = func.insts[at].result;
+        // THROUGH ANY CHAIN, because two guards over one value leave the second reading
+        // the first's result: dropping both has to send the uses all the way back.
+        let mut target = on;
+        while let Some(held) = replace.get(&target) {
+            target = *held;
+        }
+        replace.insert(result, target);
+        out.guards += 1;
+    }
+    if replace.is_empty() {
+        return out;
+    }
+
+    let dropped: std::collections::BTreeSet<crate::cfg::InstId> = (0..func.insts.len())
+        .map(|at| crate::cfg::InstId(at as u32))
+        .filter(|held| replace.contains_key(&func.inst(*held).result))
+        .collect();
+    for block in 0..func.blocks.len() {
+        func.blocks[block]
+            .insts
+            .retain(|held| !dropped.contains(held));
+    }
+
+    let of = |held: crate::cfg::ValueId| replace.get(&held).copied().unwrap_or(held);
+    for inst in &mut func.insts {
+        match &mut inst.op {
+            Op::Prim { args, .. } => {
+                for held in args.iter_mut() {
+                    *held = of(*held);
+                }
+            }
+            Op::Call { receiver, args, .. } => {
+                if let Some(held) = receiver.as_mut() {
+                    *held = of(*held);
+                }
+                for held in args.iter_mut() {
+                    *held = of(*held);
+                }
+            }
+            Op::Suspend { value } => {
+                if let Some(held) = value.as_mut() {
+                    *held = of(*held);
+                }
+            }
+            Op::Guard { on, .. } => *on = of(*on),
+            Op::Const(_) => {}
+        }
+    }
+    for block in &mut func.blocks {
+        let Some(end) = block.terminator.as_mut() else {
+            continue;
+        };
+        match end {
+            Terminator::Jump { args, .. } => {
+                for held in args.iter_mut() {
+                    *held = of(*held);
+                }
+            }
+            Terminator::Branch {
+                condition,
+                then_args,
+                else_args,
+                ..
+            } => {
+                *condition = of(*condition);
+                for held in then_args.iter_mut().chain(else_args.iter_mut()) {
+                    *held = of(*held);
+                }
+            }
+            Terminator::Return(Some(held)) | Terminator::Raise(held) => *held = of(*held),
+            Terminator::Return(None)
+            | Terminator::Fall(_)
+            | Terminator::CleanupDone
+            | Terminator::Unreachable => {}
+        }
+    }
+    out
 }

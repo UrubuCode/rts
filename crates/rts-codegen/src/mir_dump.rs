@@ -72,7 +72,7 @@ pub fn describe_tier(source: &str, tier: Tier) -> Result<String, String> {
                 // every operation of a numeric loop marked as possibly calling user
                 // code -- but showing it now would be showing a graph no pass will
                 // ever see.
-                let refined = refine_effects(&mut func, &domain);
+                let refined = entry.refined;
                 out.push_str(&format!(
                     "fn {}
 ",

@@ -36,7 +36,7 @@
 use std::collections::HashMap;
 
 use super::layout::FrameLayout;
-use super::{ResumeLabel, ResumeMode, SuspendPlan, plan_suspension};
+use super::{ResumeLabel, ResumeMode, SuspendPlan};
 use crate::ir::{
     BlockCall, BlockId, CmpOp, ConstDecl, Function, Inst, ScalarBits, Signature, Terminator,
     ValueId,

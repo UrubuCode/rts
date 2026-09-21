@@ -54,6 +54,7 @@ mod destructure;
 mod iterate;
 mod loops;
 mod named;
+mod numeric_use;
 mod protect;
 mod push;
 mod suspend;
@@ -224,6 +225,11 @@ pub fn lower_with(
         points: 0,
     };
 
+    // WHICH PARAMETERS THE BODY COERCES, read from the SYNTAX so that both tiers agree.
+    // The answer mints deoptimisation points and a point's number has to be the same on
+    // both sides; the two tiers infer different types, so a decision that consulted one
+    // would number them differently.
+    let coerced = numeric_use::coerced_names(function);
     for parameter in &function.parameters {
         if parameter.default.is_some() {
             return Err(Unsupported::Shape("a parameter default is an expression"));
@@ -244,12 +250,24 @@ pub fn lower_with(
         // evidence that assuming something is worth checking, never that it is true,
         // so the check stands between the claim and the proof. In the generic tier
         // this does nothing -- that tier is where a fall LANDS.
-        if let Some(claim) = &parameter.claim {
-            let Some(binding) = lowering.resolution.binding_in(scope, *name) else {
-                return Err(Unsupported::NoScope);
-            };
-            let at = lowering.at_parameter(*name, function.at);
-            lowering.guard_claim(*name, binding, claim, &at);
+        let Some(binding) = lowering.resolution.binding_in(scope, *name) else {
+            return Err(Unsupported::NoScope);
+        };
+        let at = lowering.at_parameter(*name, function.at);
+        let claimed = match &parameter.claim {
+            Some(claim) => lowering.guard_claim(*name, binding, claim, &at),
+            None => false,
+        };
+        // AND WITHOUT A CLAIM, where the body COERCES it to a number anyway. The
+        // annotation says which assumption is worth checking; the operator says the same
+        // thing for a program that carries no annotations, and `bench/` is that program.
+        //
+        // AT THE ENTRY and not at the use, which is the whole reason this is here rather
+        // than in `push.rs`: a guard inside a loop header is not in the entry block, so
+        // its side exit is refused and the function is turned away. Guarded here, the
+        // loop's own parameter joins two doubles and needs no guard of its own.
+        if !claimed && coerced.contains(name) {
+            lowering.speculate_binding(binding, &at);
         }
     }
 

@@ -209,3 +209,40 @@ impl Lowering<'_> {
         }
     }
 }
+
+impl Lowering<'_> {
+    /// Speculates that a binding holds a number, at the entry.
+    ///
+    /// The annotation-free sibling of [`Self::guard_claim`], and the difference is only
+    /// what justified it: there a claim, here the body coercing the name to a number
+    /// anyway. `lower/numeric_use.rs` decides which, from the syntax.
+    ///
+    /// Rebinds, so every later read sees the proved form — including the argument a jump
+    /// into a loop carries, which is the point of guarding here rather than at the use.
+    pub(super) fn speculate_binding(&mut self, binding: BindingId, at: &Expr) -> bool {
+        let point = PointId(self.points);
+        self.points += 1;
+        let Some(held) = self.values.get(&binding).copied() else {
+            return false;
+        };
+        if self.builder.tier() != Tier::Specialised {
+            self.builder.resumable(point);
+            return false;
+        }
+        let assertion = self.domain.assertion(JsAssertion::IsDouble);
+        let of = self.type_of(held);
+        let narrowed = self.domain.narrow(assertion, &of);
+        let proved = self.builder.push(
+            Op::Guard {
+                assertion,
+                on: held,
+                point,
+            },
+            rts_mir::Effect::PURE,
+            at.at,
+        );
+        self.types.insert(proved, narrowed);
+        self.values.insert(binding, proved);
+        true
+    }
+}

@@ -254,42 +254,63 @@ fn a_guard_that_is_not_at_the_entry_still_needs_the_frame_reconstructed() {
     );
 }
 
-/// **What the annotation buys is WHERE the guard goes, not whether there is one.** This
-/// replaced a test asserting that an un-annotated function is refused outright, which was
-/// true until the operation itself became a reason to speculate: `a - b` coerces both
-/// operands to numbers whatever they are, so a number is the case the operator is FOR
-/// rather than a guess about the program.
+/// **An annotation and no annotation now produce the SAME graph for a numeric function**,
+/// and this test has been rewritten twice to say so. First it asserted the un-annotated
+/// form was refused; then that the two differed in guard count, three against two. Both
+/// were true when written, and what made them stale is the same thing each time: another
+/// reason to speculate arrived.
 ///
-/// So both forms reach the machine, and they differ in the count: a claim guards each
-/// PARAMETER once, and an operator guards each USE. Two uses of one parameter is two
-/// guards without a claim and one with.
+/// A `number` claim asserts `IsDouble` at the entry. The pre-pass asserts `IsDouble` at
+/// the entry for a parameter the body coerces. Same assertion, same place — so for this
+/// shape the annotation buys nothing, which is worth pinning precisely because it sounds
+/// like the annotation stopped mattering.
 #[test]
-fn a_claim_guards_the_parameter_once_where_the_operator_guards_every_use() {
-    let source = "function f(a, b) { return (a - b) - a; }";
+fn an_annotation_adds_nothing_where_the_body_already_coerces() {
+    let bare = "function f(a, b) { return (a - b) - a; }";
     let annotated = "function f(a: number, b: number) { return (a - b) - a; }";
-    assert!(reach_in(source, Tier::Specialised).0.is_ok());
+    assert_eq!(guards(bare), 2, "one per parameter, from the coercion");
+    assert_eq!(guards(annotated), 2, "one per parameter, from the claim");
+    assert!(reach_in(bare, Tier::Specialised).0.is_ok());
     assert!(reach_in(annotated, Tier::Specialised).0.is_ok());
-
-    let guards = |held: &str| {
-        let mut names = Names::new();
-        let program = parse_script(held, &mut names).expect("parses");
-        let resolution = resolve_module(&program.body);
-        let lowered = lower_module(&program.body, &resolution, &names, Tier::Specialised);
-        lowered.functions[0]
-            .result
-            .as_ref()
-            .expect("it lowers")
-            .insts
-            .iter()
-            .filter(|inst| matches!(&inst.op, rts_mir::Op::Guard { .. }))
-            .count()
-    };
-    // `a` is read twice and `b` once: three uses, three guards with no claim.
-    assert_eq!(guards(source), 3);
-    // With the claim, one per parameter and the operator finds them already proved.
-    assert_eq!(guards(annotated), 2);
 }
 
+/// And where it DOES matter, which is the other half and the reason the claim is not now
+/// redundant: a parameter the body never coerces gets no guard from the operator, because
+/// there is no operator. The claim is the only thing that can prove anything about it.
+#[test]
+fn a_claim_reaches_a_parameter_the_body_never_coerces() {
+    assert_eq!(guards("function f(a) { return a; }"), 0);
+    assert_eq!(guards("function f(a: number) { return a; }"), 1);
+}
+
+/// Counts the guards in the specialised tier of a script's first function.
+fn guards(source: &str) -> usize {
+    let mut names = Names::new();
+    let program = parse_script(source, &mut names).expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Specialised);
+    lowered.functions[0]
+        .result
+        .as_ref()
+        .expect("it lowers")
+        .block_ids()
+        .flat_map(|held| {
+            lowered.functions[0]
+                .result
+                .as_ref()
+                .unwrap()
+                .block(held)
+                .insts
+                .clone()
+        })
+        .filter(|held| {
+            matches!(
+                lowered.functions[0].result.as_ref().unwrap().inst(*held).op,
+                rts_mir::Op::Guard { .. }
+            )
+        })
+        .count()
+}
 /// A guard lives only in the SPECIALISED tier, because the generic one is where a fall
 /// lands — a guard there would be a check whose failure had no destination. So the two
 /// tiers of one source end differently, which is the arrangement rather than a shortfall.

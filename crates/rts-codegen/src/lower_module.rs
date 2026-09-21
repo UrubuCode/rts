@@ -52,6 +52,10 @@ pub struct Entry {
     pub named: String,
     /// The graph, or why there is none.
     pub result: Result<Func, Unsupported>,
+    /// What the effect pass narrowed, and what it refused to.
+    pub refined: rts_mir::passes::Refined,
+    /// How many guards were removed for proving nothing.
+    pub dropped: rts_mir::passes::Dropped,
 }
 
 /// A module, lowered.
@@ -161,8 +165,27 @@ pub fn lower_module(
             Some(name) => names.text(name).to_owned(),
             None => format!("<anonymous at {}>", function.at.0),
         };
-        let result = lower_with(function, resolution, &callees, &mut domain, names, tier);
-        out.push(Entry { named, result });
+        let mut result = lower_with(function, resolution, &callees, &mut domain, names, tier);
+        // THE PASSES RUN HERE, so that every consumer sees the same graph. They used to
+        // run in `mir_dump` alone, which meant the dump reported a refined graph and the
+        // machine boundary was handed an unrefined one -- two answers to one question,
+        // and the measurement that mattered was reading the worse of them.
+        let mut refined = rts_mir::passes::Refined::default();
+        let mut dropped = rts_mir::passes::Dropped::default();
+        if let Ok(func) = result.as_mut() {
+            // GUARDS FIRST, because dropping one changes which types the effect pass
+            // sees: a use pointed back at an unguarded operand is a wider type, and a
+            // wider type is a wider effect. The other order would narrow an effect on the
+            // strength of a proof about to be removed.
+            dropped = rts_mir::passes::drop_proved_guards(func, &domain);
+            refined = rts_mir::passes::refine_effects(func, &domain);
+        }
+        out.push(Entry {
+            named,
+            result,
+            refined,
+            dropped,
+        });
     }
     Module {
         functions: out,
