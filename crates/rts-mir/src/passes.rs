@@ -79,7 +79,11 @@ pub fn refine_effects<D: Domain>(func: &mut Func, domain: &D) -> Refined {
         if asked == held {
             continue;
         }
-        match held.has(asked) {
+        // ASKED BY NAME, and this was the same question written twice: `held.has(asked)`
+        // inline here, and `claims_no_more` defined below with nothing calling it. Rule 3
+        // -- a rule stated once, where it is decided -- and a function with no caller is
+        // rule 10's gap rather than a feature.
+        match claims_no_more(asked, held) {
             // A subset: everything the new answer claims was already claimed, and
             // it claims less.
             true => {

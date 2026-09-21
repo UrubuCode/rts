@@ -90,9 +90,6 @@ impl Lowering<'_> {
         claim: &Claim,
         at: &Expr,
     ) -> bool {
-        if self.builder.tier() != Tier::Specialised {
-            return false;
-        }
         if !claim.is_definite() {
             return false;
         }
@@ -103,14 +100,24 @@ impl Lowering<'_> {
             return false;
         };
 
+        // THE POINT IS TAKEN IN BOTH TIERS, and only the guard is not. The number has to
+        // be the same on both sides -- a fall from point three lands at point three -- so
+        // it is minted from one rule applied to one traversal, before the tier is even
+        // consulted.
+        let point = PointId(self.points);
+        self.points += 1;
+        if self.builder.tier() != Tier::Specialised {
+            // THE GENERIC BODY DECLARES IT AND EMITS NOTHING, which is what makes it the
+            // place a fall lands. Without this it declared no points at all and
+            // `guard::pair` answered `Unresumable` for every function that speculates --
+            // live and unnoticed, because nothing called `pair`.
+            self.builder.resumable(point);
+            return false;
+        }
+
         let assertion = self.domain.assertion(assertion);
         let of = self.type_of(held);
         let narrowed = self.domain.narrow(assertion, &of);
-        // THE POINT IS THE PARAMETER'S POSITION, and nothing else may share it: a fall
-        // from here lands in the generic body at the same point, so two guards numbered
-        // alike would be two assumptions with one destination.
-        let point = PointId(self.points);
-        self.points += 1;
         let proved = self.builder.push(
             Op::Guard {
                 assertion,

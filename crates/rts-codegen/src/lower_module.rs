@@ -73,6 +73,73 @@ impl Module {
     }
 }
 
+/// Both tiers of a module, with the pairing between them CHECKED.
+///
+/// # Why this exists, and what it caught the first time it ran
+///
+/// `rts_mir::guard::pair` says of itself that it exists because *"a property nothing
+/// checks is a property nobody finds out about"* -- and nothing called it. It had no
+/// producer outside its own tests, which is rule 10's gap rather than a feature, and the
+/// property it guards had just become load-bearing: a fall from point three of the
+/// specialised body must land at point three of the generic one.
+///
+/// The first thing it caught was live. The generic tier emitted no guard, and declaring
+/// a point was a side effect of emitting one -- so the generic body claimed NO points
+/// and `pair` answered `Unresumable` for every function that speculates about anything.
+/// `FuncBuilder::resumable` is the fix and this is what would have found it.
+///
+/// # Why the check and not just the two lowerings
+///
+/// Because README rule 7 of `rts-mir` says both tiers come from ONE traversal, so the
+/// ids match by construction -- and that is precisely the kind of claim that stops being
+/// true quietly. Two lowerings handed back unchecked would be the same arrangement with
+/// the net removed.
+pub fn lower_module_paired(items: &[ModuleItem], resolution: &Resolution, names: &Names) -> Paired {
+    let specialised = lower_module(items, resolution, names, Tier::Specialised);
+    let generic = lower_module(items, resolution, names, Tier::Generic);
+    let mut verdicts = Vec::with_capacity(specialised.functions.len());
+    for (fast, slow) in specialised.functions.iter().zip(&generic.functions) {
+        // A FUNCTION THAT DID NOT LOWER IN BOTH TIERS HAS NO PAIRING TO CHECK, and that
+        // is not a failure: the two tiers refuse different things by design, since only
+        // one of them speculates.
+        let verdict = match (&fast.result, &slow.result) {
+            (Ok(fast), Ok(slow)) => Some(rts_mir::guard::pair(fast, slow)),
+            _ => None,
+        };
+        verdicts.push(verdict);
+    }
+    Paired {
+        specialised,
+        generic,
+        verdicts,
+    }
+}
+
+/// Two tiers of one module and what the pairing check said about each function.
+pub struct Paired {
+    /// The tier that speculates.
+    pub specialised: Module,
+    /// The tier a fall lands in.
+    pub generic: Module,
+    /// Per function, in the same order: `None` where one tier did not lower it.
+    pub verdicts: Vec<Option<Result<(), rts_mir::guard::Mismatch>>>,
+}
+
+impl Paired {
+    /// Every function whose tiers disagree, by name.
+    pub fn unpaired(&self) -> Vec<(&str, rts_mir::guard::Mismatch)> {
+        self.specialised
+            .functions
+            .iter()
+            .zip(&self.verdicts)
+            .filter_map(|(held, verdict)| match verdict {
+                Some(Err(held_mismatch)) => Some((held.named.as_str(), held_mismatch.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 /// Every function of a module, numbered and lowered against one set of tables.
 pub fn lower_module(
     items: &[ModuleItem],

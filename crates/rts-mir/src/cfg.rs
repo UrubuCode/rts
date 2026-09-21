@@ -569,6 +569,22 @@ impl FuncBuilder {
         block.terminator = Some(terminator);
     }
 
+    /// Declares a point this body can be resumed at, emitting nothing.
+    ///
+    /// # Why the generic tier needs this and the specialised one does not
+    ///
+    /// Because the specialised body declares a point by EMITTING the guard that falls
+    /// to it, and the generic body emits no guard at all -- it is where a fall lands.
+    /// Without this it declares no points, so `guard::pair` answers `Unresumable` for
+    /// every function that speculates about anything: the specialised tier falls to a
+    /// point the generic tier never claimed.
+    ///
+    /// That was live and unnoticed, and it is exactly what `pair`'s own doc predicted
+    /// about itself: *"a property nothing checks is a property nobody finds out about"*.
+    pub fn resumable(&mut self, point: PointId) {
+        self.declare(point);
+    }
+
     /// The finished function. `verify` is what says it is well formed.
     pub fn finish(self) -> Func {
         self.func
