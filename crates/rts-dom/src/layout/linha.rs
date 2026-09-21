@@ -300,11 +300,11 @@ pub(in crate::layout) fn layout_inline_flow(
             // a nada: avança o cursor antes de qualquer caixa ser calculada.
             seg_x += seg.lead_w;
             if let Some((a_idx, caixa, kind)) = seg.atomic {
-                // A float's anchor and a static-position anchor have nothing on
-                // the line; the latter records where it landed (`ancora_estatica.rs`).
+                // Float and static-position anchors have nothing on the line (`ancora_estatica.rs`).
                 if super::ancora_estatica::fora_da_linha(dom, (a_idx, caixa, kind), seg_x, x, cy, cy + line_advance, list) {
                     continue;
                 }
+                let (desde, (rx, ry)) = (list.items.len(), super::relativo::offset_do_inline(dom, seg.owners.last().copied(), ctx));
                 match kind {
                     AtomicKind::Widget => {
                         // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
@@ -401,6 +401,7 @@ pub(in crate::layout) fn layout_inline_flow(
                     | AtomicKind::Float
                     | AtomicKind::Estatica => {}
                 }
+                super::relativo::desloca_desde(list, desde, caixa.filter(|_| kind.tem_corpo()), rx, ry);
                 superficies.ver(dom, &seg.owners, seg_x, seg_x + seg.ww);
                 match kind {
                     AtomicKind::ArestaInicio => superficies.marca(a_idx, true),
@@ -441,7 +442,7 @@ pub(in crate::layout) fn layout_inline_flow(
                             Rect::new(seg_x, text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh, seg.ww, seg.wh),
                         _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                     };
-                    crate::inline_box::union_rect(list, a_idx, propria);
+                    crate::inline_box::union_rect(list, a_idx, Rect::new(propria.x + rx, propria.y + ry, propria.w, propria.h));
                 }
                 // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
                 // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
@@ -479,16 +480,16 @@ pub(in crate::layout) fn layout_inline_flow(
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
             let w = seg.text_width + ls * seg.text.chars().count() as f32;
             superficies.ver(dom, &seg.owners, seg_x, seg_x + w);
-            // A segment with a font of its OWN is painted in it, on the line's
-            // shared baseline (`fonte_do_trecho.rs`); the rest, in the container's.
+            // Its OWN font on the shared baseline (`fonte_do_trecho.rs`), shifted with a relative inline.
             let propria = super::fonte_do_trecho::do_segmento(dom, &seg.owners, family, font_size, ctx.measurer);
             let (seg_y, seg_size, seg_mono, seg_ahem) = match &propria {
                 Some(f) => (text_top + ascent - f.ascent, f.fonte.size, f.fonte.mono, f.ahem),
                 None => (text_top, font_size, mono, ahem),
             };
+            let (rx, ry) = super::relativo::offset_do_inline(dom, seg.owners.last().copied(), ctx);
             list.items.push(DisplayItem::Text {
-                x: seg_x,
-                y: seg_y,
+                x: seg_x + rx,
+                y: seg_y + ry,
                 text: seg.text.into(),
                 color: seg.color,
                 size: seg_size,

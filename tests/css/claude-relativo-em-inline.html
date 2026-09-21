@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Ruler: `position: relative` on an INLINE box (CSS 2.1 §9.4.3). The box is
+     laid out in flow and then shifted: its own fragments move, the text around
+     it does NOT reflow, and the line keeps its size. The engine moved only
+     block boxes — an inline's text is painted by the line it sits in, under no
+     box of its own, so a relative `<span>` stayed where it was (WPT
+     `CSS2/positioning/position-relative-033`). Four cases: left/top on a span,
+     a negative left that pulls the span over the text before it, a span
+     holding a nested span, and a relative span broken across two lines. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .caso { margin-bottom: 20px; background: #eee; }
+  .r { position: relative; background: #ff0; }
+  #r1 { left: 30px; top: 5px; }
+  #r2 { left: -20px; }
+  #r3 { top: -4px; left: 8px; }
+  #c4 { width: 100px; }
+  #r4 { left: 10px; top: 3px; }
+</style></head>
+<body>
+  <div class="caso" id="c1">aaa <span class="r" id="r1">bbb</span><span id="d1">ccc</span></div>
+  <div class="caso" id="c2">aaaa <span class="r" id="r2">bbb</span><span id="d2">ccc</span></div>
+  <div class="caso" id="c3">aaa <span class="r" id="r3">bb<b id="n3">nn</b></span><span id="d3">ccc</span></div>
+  <div class="caso" id="c4">aaaa <span class="r" id="r4">bbbb cccc dddd</span> <span id="d4">eee</span></div>
+</body>
+</html>

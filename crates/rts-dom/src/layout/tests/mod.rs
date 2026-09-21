@@ -59,6 +59,7 @@ mod out_of_flow_in_inline_corpus;
 mod anonymous_table_corpus;
 mod table_groups_corpus;
 mod static_position_in_line_corpus;
+mod relative_inline_corpus;
 mod inline_block_baseline_corpus;
 mod pseudo_caixa_gerada_corpus;
 mod pintura;
