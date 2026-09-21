@@ -281,6 +281,21 @@ impl Scene<'_> {
         let inverse_mass = self.extents[body * 4 + 3];
         let mine = self.materials.body(body);
 
+        if mine.body_type == 0.0 {
+            // Static: does not move at all, zero velocity
+            write(out_pos, p, SLEEP_STEPS);
+            write(out_vel, [0.0; 3], shape);
+            return;
+        }
+
+        if mine.body_type == 1.0 {
+            // Kinematic: moves purely by its velocity, ignores gravity, drag, floor, statics and impulses
+            p = add(p, scale(v, self.dt));
+            write(out_pos, p, 0.0);
+            write(out_vel, v, shape);
+            return;
+        }
+
         if sleep >= SLEEP_STEPS {
             if !self.disturbed(body, p, h, shape) {
                 // Unchanged, and written out rather than left alone: the caller's

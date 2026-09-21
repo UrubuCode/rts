@@ -25,7 +25,7 @@ fn world_with_materials(statics: &[([f32; 3], [f32; 3])], size: f32, bodies: usi
         world.extend_from_slice(&[0.0, 0.35, 0.0, 0.0]);
     }
     for _ in 0..bodies {
-        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, 0.0, 0.0, 0.0]);
+        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, 2.0, 0.0, 0.0]);
     }
     world
 }
@@ -452,3 +452,63 @@ fn a_bouncing_body_does_not_fall_asleep_in_mid_air() {
     assert!(pos[1] < 1.1, "it fell asleep in the air at y = {}", pos[1]);
     assert!(pos[1] > 0.8, "it sank into the floor: y = {}", pos[1]);
 }
+
+#[test]
+fn a_kinematic_body_moves_by_velocity_with_no_gravity_or_drag_and_never_sleeps() {
+    // Kinematic (body_type = 1.0): moves strictly by p += v * dt.
+    // Velocity must be preserved exactly, position must advance linearly,
+    // gravity and drag must not affect it.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 10.0, 0.0], [1.0; 3], BOX, 0.0)]);
+    vel[0] = 5.0; // vx = 5.0
+    vel[1] = 0.0; // vy = 0.0
+    let mut world = world_with_materials(&[], 4.0, 1);
+    // Set body_type = 1.0 (kinematic)
+    body_material(&mut world, 0)[0] = 9.8; // gravity declared
+    body_material(&mut world, 0)[2] = 0.5; // drag declared
+    let at = material::MATERIALS_AT + 256 * 4;
+    world[at + 5] = 1.0; // kinematic!
+
+    let dt = world[0];
+    let steps = 60;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, steps);
+
+    let expected_x = 5.0 * (steps as f32) * dt;
+    assert!((pos[0] - expected_x).abs() < 1e-3, "x was {}, expected {}", pos[0], expected_x);
+    assert!((pos[1] - 10.0).abs() < 1e-3, "y was {} (should stay 10.0, no gravity)", pos[1]);
+    assert!((vel[0] - 5.0).abs() < 1e-3, "vx was {} (should stay 5.0, no drag)", vel[0]);
+    assert_eq!(vel[1], 0.0, "vy was {} (should stay 0.0)", vel[1]);
+    assert_eq!(pos[3], 0.0, "kinematic bodies must not sleep");
+}
+
+#[test]
+fn a_dynamic_body_resting_on_a_moving_kinematic_platform_is_carried_along() {
+    // Platform (body 0, kinematic): y = 0.0, h = [5.0, 0.5, 5.0], vx = 3.0
+    // Dynamic body (body 1): dropped at y = 1.0, h = [0.5, 0.5, 0.5], mass = 1.0
+    let (mut pos, mut vel, ext) = scene(&[
+        body([0.0, 0.0, 0.0], [5.0, 0.5, 5.0], BOX, 0.0), // Kinematic platform
+        body([0.0, 1.0, 0.0], [0.5, 0.5, 0.5], BOX, 1.0), // Dynamic body resting on it
+    ]);
+    vel[0] = 3.0; // platform moves at vx = 3.0
+
+    let mut world = world_with_materials(&[], 10.0, 2);
+    // Body 0 is kinematic (tipo = 1.0)
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    world[at0 + 5] = 1.0;
+    // Body 1 is dynamic (tipo = 2.0)
+    let at1 = material::MATERIALS_AT + 256 * 4 + 8;
+    world[at1 + 5] = 2.0;
+
+    let mut solver = Solver::new();
+    // Step 120 steps (~2 seconds)
+    solver.step(&mut pos, &mut vel, &ext, &world, 120);
+
+    // Platform moved to x = 3.0 * (120/60) = 6.0
+    assert!((pos[0] - 6.0).abs() < 0.05, "platform x = {}, expected 6.0", pos[0]);
+    assert!((vel[0] - 3.0).abs() < 1e-3, "platform vx = {}", vel[0]);
+
+    // Dynamic body on top (body 1) must stay around y = 1.0 (top of platform 0.5 + half 0.5)
+    assert!((pos[5] - 1.0).abs() < 0.2, "dynamic body y = {}, expected ~1.0", pos[5]);
+    // Dynamic body must have been carried horizontally along with platform
+    assert!(pos[4] > 4.0, "dynamic body x = {} was not carried by platform", pos[4]);
+}
+

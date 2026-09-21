@@ -57,6 +57,8 @@ pub(super) struct Body {
     /// The height the body's CENTRE rests at on the implicit floor. Anything at
     /// or below `NO_FLOOR` switches it off.
     pub floor: f32,
+    /// 0.0 = static, 1.0 = kinematic, 2.0 = dynamic.
+    pub body_type: f32,
 }
 
 /// One static's material.
@@ -74,6 +76,7 @@ const LEGACY_BODY: Body = Body {
     drag: 0.0,
     friction: REFERENCE_FRICTION,
     floor: -1.0e30,
+    body_type: 2.0,
 };
 const LEGACY_FIXED: Fixed = Fixed { restitution: 0.0, friction: REFERENCE_FRICTION };
 
@@ -95,12 +98,21 @@ impl<'a> Materials<'a> {
     pub fn body(&self, body: usize) -> Body {
         let Some(region) = self.region else { return LEGACY_BODY };
         let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
+        let raw_type = if region.len() > at + 5 { region[at + 5] } else { 2.0 };
+        // 0.0 = static, 1.0 = kinematic, 2.0 = dynamic.
+        // If 0.0 is found but gravity > 0.0, it came from legacy matFillDefaults where slots 5..7 were 0.0.
+        let body_type = if raw_type == 0.0 && region[at] > 0.0 {
+            2.0
+        } else {
+            raw_type
+        };
         Body {
             gravity: region[at],
             restitution: region[at + 1],
             drag: region[at + 2],
             friction: region[at + 3],
             floor: region[at + 4],
+            body_type,
         }
     }
 
