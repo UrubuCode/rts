@@ -124,13 +124,13 @@ impl Scene<'_> {
             ) else {
                 return;
             };
-            let made_of = self.materials.body(other);
+            let (other_restitution, other_friction) = self.materials.restitution_friction(other);
             let other_inverse_mass = self.extents[other * 4 + 3];
             let share = inverse_mass / (inverse_mass + other_inverse_mass).max(0.0001);
             let theirs = self.velocity(other);
             // Relative velocity along the normal. Negative is approaching.
             let approach = dot(sub(velocity, theirs), normal);
-            let back = 1.0 + bounce(approach, mine.restitution, made_of.restitution);
+            let back = 1.0 + bounce(approach, mine.restitution, other_restitution);
 
             if normal[1] > VERTICAL || normal[1] < -VERTICAL {
                 if approach < -1.0 {
@@ -144,7 +144,7 @@ impl Scene<'_> {
                     // than an impulse applied — an impulse here is the limit
                     // cycle that makes a column vibrate forever.
                     velocity[1] = theirs[1];
-                    let grip = friction_loss(STACK_FRICTION, mine.friction, made_of.friction);
+                    let grip = friction_loss(STACK_FRICTION, mine.friction, other_friction);
                     velocity[0] += (theirs[0] - velocity[0]) * grip;
                     velocity[2] += (theirs[2] - velocity[2]) * grip;
                 }

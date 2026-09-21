@@ -153,6 +153,19 @@ impl<'a> Materials<'a> {
         (layer, mask)
     }
 
+    /// Só restituição e atrito do corpo: o que o laço de contato lê do OUTRO
+    /// corpo. É o caminho quente da cena densa (um acesso por contato), e
+    /// `body()` monta os oito campos e decide o `body_type` para descartar seis
+    /// deles. Trocar um pelo outro tirou metade da regressão da issue #5.
+    #[inline]
+    pub fn restitution_friction(&self, body: usize) -> (f32, f32) {
+        let Some(region) = self.region else {
+            return (LEGACY_BODY.restitution, LEGACY_BODY.friction);
+        };
+        let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
+        (region[at + 1], region[at + 3])
+    }
+
     pub fn body(&self, body: usize) -> Body {
         let Some(region) = self.region else { return LEGACY_BODY };
         let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
