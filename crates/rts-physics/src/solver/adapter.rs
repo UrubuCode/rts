@@ -74,7 +74,9 @@ impl Backend for GatherBackend {
         //                      the speed clamp is a net rather than a fix.
         //   angular            no torque, no angular velocity, anywhere.
         //   joints             none, and no articulation to hang one from.
-        //   deterministic      multi-threaded gather does not guarantee bit-exact replay yet.
+        //   deterministic      supported: gather reads a top-of-step snapshot and writes
+        //                      only itself, giving bit-exact replay across 1, 2 and 16 threads
+        //                      on the same binary and same machine (desenho §9, §15.3).
         //   raycast            spatial queries are not implemented on gather solver.
         //   overlap            spatial overlap queries are not implemented.
         //   contact_events     contact event stream is not implemented.
@@ -82,7 +84,6 @@ impl Backend for GatherBackend {
             && !needs.continuous
             && !needs.angular
             && !needs.joints
-            && !needs.deterministic
             && !needs.raycast
             && !needs.overlap
             && !needs.contact_events
@@ -104,7 +105,7 @@ impl Backend for GatherBackend {
         if !self.supports(needs) {
             return StepOutcome::Unsupported {
                 needs: "the gather solver has no hull-against-hull, continuous \
-                        collision, angular velocity, joints, determinism, raycast, overlap or contact events",
+                        collision, angular velocity, joints, raycast, overlap or contact events",
             };
         }
         let count = scene.body_count();
@@ -190,6 +191,11 @@ mod tests {
         assert!(!b.supports(&Needs { raycast: true, ..Needs::default() }));
         assert!(!b.supports(&Needs { overlap: true, ..Needs::default() }));
         assert!(!b.supports(&Needs { contact_events: true, ..Needs::default() }));
-        assert!(!b.supports(&Needs { deterministic: true, ..Needs::default() }));
+    }
+
+    #[test]
+    fn deterministic_is_supported() {
+        let b = GatherBackend::new();
+        assert!(b.supports(&Needs { deterministic: true, ..Needs::default() }));
     }
 }
