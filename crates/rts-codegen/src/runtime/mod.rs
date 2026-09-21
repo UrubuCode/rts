@@ -37,7 +37,10 @@
 //! and the machine emits them itself. A language layer naming them would be
 //! reaching past the boundary to do work the machine already does.
 
+mod literals;
 mod raising;
+
+pub use literals::Literals;
 
 pub use raising::{CANNOT_RAISE, IS_THE_CHECK};
 

@@ -61,7 +61,7 @@ use rts_mir::guard::{Assertion, PointId};
 use rts_mir::infer::Types;
 use rts_mir::lower::MachineOps;
 
-use crate::domain::{Js, JsAssertion, JsPrim, Type};
+use crate::domain::{Js, JsAssertion, JsConst, JsPrim, Type};
 
 /// This language, answering the machine's four questions.
 pub struct JsMachine<'a> {
@@ -80,7 +80,14 @@ pub struct JsMachine<'a> {
     /// guard without one refuses by name rather than trapping -- a fall that aborted
     /// would turn a speculation that did not hold into a crashed program, which is
     /// worse than the speculation never being made.
-    generic: Option<(FuncId, &'a FuncRegistry)>,
+    /// The other tier of this same function, by id.
+    ///
+    /// The ID ALONE, because the registry it lives in is `Shared`'s -- and holding a
+    /// second reference to it was what made a boundary able to fall OR to declare a call
+    /// and never both: two borrows of one registry, one shared and one mutable. The
+    /// instrument then measured a function that falls without entry points and one that
+    /// does not with them, which is a limit nothing but this field imposed.
+    generic: Option<FuncId>,
     /// Where a runtime operation's `FuncId` comes from, and the registry it lives in.
     ///
     /// # Why the language holds this and the machine does not
@@ -92,7 +99,7 @@ pub struct JsMachine<'a> {
     ///
     /// `None` is a boundary asked to lower a call with nowhere to declare it, which
     /// refuses by name rather than inventing an id. A test wants that case.
-    calls: Option<(&'a mut crate::runtime::RuntimeCalls, &'a mut FuncRegistry)>,
+    shared: Option<&'a mut Shared>,
 }
 
 /// The machine's own failures travel out as the machine's words.
@@ -150,7 +157,7 @@ impl<'a> JsMachine<'a> {
             domain,
             types,
             generic: None,
-            calls: None,
+            shared: None,
         }
     }
 
@@ -162,17 +169,12 @@ impl<'a> JsMachine<'a> {
     /// the generic one got is whoever declared it. `rts-host` is the crate that may
     /// name all three layers at once and is therefore where the pair is agreed --
     /// exactly as the entry-point symbols and the singleton numbering are.
-    pub fn falling_to(
-        domain: &'a Js,
-        types: Types<Type>,
-        generic: FuncId,
-        funcs: &'a FuncRegistry,
-    ) -> Self {
+    pub fn falling_to(domain: &'a Js, types: Types<Type>, generic: FuncId) -> Self {
         Self {
             domain,
             types,
-            generic: Some((generic, funcs)),
-            calls: None,
+            generic: Some(generic),
+            shared: None,
         }
     }
 
@@ -182,12 +184,8 @@ impl<'a> JsMachine<'a> {
     /// be given -- a generic twin to fall to and somewhere to declare a call -- are
     /// independent, and a constructor per combination is four constructors for two
     /// questions.
-    pub fn declaring_in(
-        mut self,
-        calls: &'a mut crate::runtime::RuntimeCalls,
-        funcs: &'a mut FuncRegistry,
-    ) -> Self {
-        self.calls = Some((calls, funcs));
+    pub fn declaring_in(mut self, shared: &'a mut Shared) -> Self {
+        self.shared = Some(shared);
         self
     }
 
@@ -254,14 +252,46 @@ impl MachineOps for JsMachine<'_> {
         Self::repr_of(self.types.of(value)).unwrap_or(Repr::Tagged)
     }
 
-    fn declared(&mut self, _into: &mut FuncBuilder, index: u32) -> Result<MachineValue, String> {
+    fn declared(&mut self, into: &mut FuncBuilder, index: u32) -> Result<MachineValue, String> {
         let named = match self.domain.declared(index) {
             Some(held) => format!("{held:?}"),
             None => format!("index {index}, which no table row answers"),
         };
-        // A DECLARED CONSTANT IS A HEAP VALUE, mostly: a key, a text, a singleton, a
-        // closure over a function of the module. Each needs the runtime's own numbering
-        // for that kind of thing, and none is a number this slice can produce.
+        // A TEXT CONSTANT IS A CALL, and `emit/expr.rs` says why in one line: it is not a
+        // constant here. `RuntimeOp::StringConst` takes the string's index and the runtime
+        // holds the text, because a string is a heap value and a machine constant is bits.
+        //
+        // Through the PROGRAM's table and not a fresh one, which is the whole reason
+        // `Shared` carries it: the index is an agreement with the runtime, which holds one
+        // table, so a second numbering would reach the wrong string rather than failing.
+        if let Some(JsConst::Text(text)) = self.domain.declared(index) {
+            let units = text.units().to_vec();
+            let Some(shared) = self.shared.as_deref_mut() else {
+                return Err(format!(
+                    "a text constant is a call to StringConst, which needs somewhere to declare it"
+                ));
+            };
+            let which = shared.literals.intern(&units);
+            let callee = shared
+                .calls
+                .declare(&mut shared.funcs, crate::runtime::RuntimeOp::StringConst);
+            // THE INDEX AS AN `I64`, which is what the operation declares. A literal that
+            // fits in an `i32` is declared `I32` by `rts-mir`'s own constant lowering --
+            // deliberately, so the double domain can use it -- and the machine has no
+            // integer widening, so this one is made at the width it is wanted at.
+            let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: rts_cranelift::ir::ScalarBits(u64::from(which)),
+            });
+            let held = into.use_const(held);
+            let produced = into.call(&shared.funcs, callee, &[held]).map_err(machine)?;
+            return produced.first().copied().ok_or_else(|| {
+                "StringConst answered nothing, and the graph reads its result".to_owned()
+            });
+        }
+        // EVERY OTHER KIND IS STILL A HEAP VALUE the runtime numbers differently: a key,
+        // a singleton, a closure over a function of the module. Each needs its own
+        // agreement, and none is a number this slice can produce.
         Err(format!(
             "a declared constant needs the runtime's numbering for it: {named}"
         ))
@@ -397,7 +427,7 @@ impl MachineOps for JsMachine<'_> {
         point: PointId,
         live: &[MachineValue],
     ) -> Result<(), String> {
-        let Some((generic, funcs)) = self.generic else {
+        let Some(generic) = self.generic else {
             return Err(format!(
                 "the fall at p{} has no generic body to land in, which is the pairing rts-host agrees",
                 point.0
@@ -414,7 +444,13 @@ impl MachineOps for JsMachine<'_> {
         // body's protected regions are expressible this calls and returns, which costs
         // one frame on a path that is taken when a speculation failed -- the path whose
         // cost the whole arrangement is willing to pay.
-        let answered = into.call(funcs, generic, live).map_err(machine)?;
+        let Some(shared) = self.shared.as_deref_mut() else {
+            return Err(format!(
+                "the fall at p{} has no registry to name the generic body in",
+                point.0
+            ));
+        };
+        let answered = into.call(&shared.funcs, generic, live).map_err(machine)?;
         into.ret(&answered);
         Ok(())
     }
@@ -449,7 +485,7 @@ impl MachineOps for JsMachine<'_> {
                 "{which:?} can raise, and this boundary emits no branch-and-reraise after a call"
             ));
         }
-        let Some((calls, funcs)) = self.calls.as_mut() else {
+        let Some(Shared { funcs, calls, .. }) = self.shared.as_deref_mut() else {
             return Err(format!(
                 "calling {which:?} needs somewhere to declare it, which is the host's agreement"
             ));
@@ -499,6 +535,12 @@ pub struct Shared {
     pub funcs: rts_cranelift::ir::FuncRegistry,
     /// Which runtime operations have been declared, so each is declared once.
     pub calls: crate::runtime::RuntimeCalls,
+    /// Every string the program holds, numbered as the runtime numbers it.
+    ///
+    /// Here and not per function for the same reason the registry is: a string's index
+    /// is an agreement with the runtime, which holds ONE table. Two functions numbering
+    /// their own would reach the wrong string rather than failing.
+    pub literals: crate::runtime::Literals,
 }
 
 /// Does this graph reach the machine, and what stopped it if not?
@@ -531,7 +573,6 @@ pub fn reaches_machine(
     use rts_cranelift::types::TypeRegistry;
 
     let types = TypeRegistry::new();
-    let Shared { funcs, calls } = shared;
     let inferred = rts_mir::infer::infer(func, domain);
     let params: Vec<Repr> = func
         .block(func.entry())
@@ -561,8 +602,8 @@ pub fn reaches_machine(
     // because a fall hands over the same arguments and answers what the other tier
     // answers -- the two bodies of one function agree about their shape by definition.
     let twin = generic.map(|_| {
-        let sig = funcs.declare_signature(signature.clone());
-        funcs.declare_function(sig)
+        let sig = shared.funcs.declare_signature(signature.clone());
+        shared.funcs.declare_function(sig)
     });
     let mut machine = Function::new(signature);
     let entry = machine.entry;
@@ -576,10 +617,15 @@ pub fn reaches_machine(
     // program: `funcs` and `calls` are created once and every file and function share
     // them. A registry per function would give each one its own `FuncId` for one symbol,
     // and the instrument would never notice two functions failing to agree.
+    // THE WHOLE SHARED STATE, whether or not there is a twin to fall to. Those were
+    // mutually exclusive while the twin carried its own reference to the registry, which
+    // is a limit nothing but that field imposed -- and it made the instrument measure a
+    // falling function without entry points and a non-falling one with them.
     let mut ops = match twin {
-        Some(twin) => JsMachine::falling_to(domain, inferred, twin, funcs),
+        Some(twin) => JsMachine::falling_to(domain, inferred, twin),
         None => JsMachine::new(domain, inferred),
-    };
-    let _ = calls;
+    }
+    .declaring_in(shared);
+
     rts_mir::lower::lower(func, &mut into, &mut ops, &start)
 }

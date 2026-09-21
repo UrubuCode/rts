@@ -508,7 +508,7 @@ pub struct Ctx<'a> {
     /// numbering, and what crosses at every use is the number. A literal is
     /// referred to by its index here exactly as a property is referred to by its
     /// key.
-    literals: Vec<Vec<u16>>,
+    literals: crate::runtime::Literals,
     /// The pieces of each tagged-template site, in the order the sites were met.
     templates: Vec<Vec<u32>>,
     /// Which locals were proved to hold a number.
@@ -696,7 +696,7 @@ impl<'a> Ctx<'a> {
             generators: Vec::new(),
             inferred_name: None,
             function_names: Vec::new(),
-            literals: Vec::new(),
+            literals: crate::runtime::Literals::new(),
             templates: Vec::new(),
             numeric: Numeric::default(),
             integers: crate::emit::int32::Int32::default(),
@@ -828,8 +828,7 @@ impl<'a> Ctx<'a> {
         // the same string as one the program wrote with those characters. Rust
         // text loses nothing on the way in: `encode_utf16` of valid UTF-8 is
         // exactly its code units.
-        let units: Vec<u16> = text.encode_utf16().collect();
-        self.literal_units(&units)
+        self.literals.intern_str(text)
     }
 
     /// The same, for text that is already code units.
@@ -838,11 +837,7 @@ impl<'a> Ctx<'a> {
     /// delegates here rather than the other way round: `"\uD83D"` is a legal
     /// one-unit string, and there is no `&str` that spells it.
     pub fn literal_units(&mut self, units: &[u16]) -> u32 {
-        if let Some(found) = self.literals.iter().position(|held| held == units) {
-            return found as u32;
-        }
-        self.literals.push(units.to_vec());
-        (self.literals.len() - 1) as u32
+        self.literals.intern(units)
     }
 
     /// Records a tagged-template site and answers its number.
@@ -1182,7 +1177,7 @@ fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
         generators: std::mem::take(&mut ctx.generators),
         function_names: std::mem::take(&mut ctx.function_names),
         entry,
-        literals: std::mem::take(&mut ctx.literals),
+        literals: std::mem::take(&mut ctx.literals).into_units(),
         templates: std::mem::take(&mut ctx.templates),
     }
 }

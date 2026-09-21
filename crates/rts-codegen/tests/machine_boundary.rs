@@ -47,9 +47,12 @@ fn reach(source: &str) -> Result<Function, Unlowerable> {
 }
 
 /// The same, with the registries the machine's verifier will need.
-fn reach_verified(source: &str, tier: Tier) -> (Function, TypeRegistry, FuncRegistry) {
-    let (held, types, funcs) = reach_in(source, tier);
-    (held.expect("it reaches the machine"), types, funcs)
+fn reach_verified(
+    source: &str,
+    tier: Tier,
+) -> (Function, TypeRegistry, rts_codegen::machine::Shared) {
+    let (held, types, shared) = reach_in(source, tier);
+    (held.expect("it reaches the machine"), types, shared)
 }
 
 /// The same, in a named tier. A guard exists only in the specialised one, because the
@@ -57,7 +60,11 @@ fn reach_verified(source: &str, tier: Tier) -> (Function, TypeRegistry, FuncRegi
 fn reach_in(
     source: &str,
     tier: Tier,
-) -> (Result<Function, Unlowerable>, TypeRegistry, FuncRegistry) {
+) -> (
+    Result<Function, Unlowerable>,
+    TypeRegistry,
+    rts_codegen::machine::Shared,
+) {
     let mut names = Names::new();
     let program = parse_script(source, &mut names).expect("the fixture parses");
     let resolution = resolve_module(&program.body);
@@ -102,17 +109,18 @@ fn reach_in(
     // THE GENERIC TWIN, declared with the same signature, which is what a fall lands
     // in. Declared here because `rts-host` is where the pairing is agreed in a real
     // build and a test has to stand in for it -- not because the id is arbitrary.
-    let sig = funcs.declare_signature(signature.clone());
-    let twin = funcs.declare_function(sig);
+    let mut shared = rts_codegen::machine::Shared::default();
+    let sig = shared.funcs.declare_signature(signature.clone());
+    let twin = shared.funcs.declare_function(sig);
     let mut func = Function::new(signature);
     let entry = func.entry;
     let start: Vec<_> = func.block(entry).expect("an entry block").params.clone();
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, entry);
-    let mut ops = JsMachine::falling_to(&lowered.domain, inferred, twin, &funcs);
+    let mut ops = JsMachine::falling_to(&lowered.domain, inferred, twin).declaring_in(&mut shared);
     let lowered = lower(graph, &mut into, &mut ops, &start);
     drop(into);
     drop(ops);
-    (lowered.map(|()| func), types, funcs)
+    (lowered.map(|()| func), types, shared)
 }
 
 /// The language's own words, from a refusal.
@@ -128,11 +136,14 @@ fn said(held: Unlowerable) -> String {
 /// good on, and until this test nothing had made it.
 #[test]
 fn an_arithmetic_function_reaches_the_machine() {
-    let (func, types, funcs) = reach_verified("function f() { return 7 - 3; }", Tier::Generic);
+    let (func, types, shared) = reach_verified("function f() { return 7 - 3; }", Tier::Generic);
     // THE MACHINE'S OWN VERIFIER IS THE JUDGE, not an assertion written here: a graph it
     // accepts is a graph the code generator will accept, where a test checking the shape
     // by hand would be checking what this file expects instead.
-    assert_eq!(rts_cranelift::verify(&func, &types, &funcs), Vec::new());
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
 }
 
 /// The other numeric rows reach it on the same terms, and a comparison answers a boolean.
@@ -146,9 +157,9 @@ fn the_other_numeric_rows_reach_it_too() {
         "function f() { return 7 < 3; }",
         "function f() { return 7 === 3; }",
     ] {
-        let (func, types, funcs) = reach_verified(source, Tier::Generic);
+        let (func, types, shared) = reach_verified(source, Tier::Generic);
         assert_eq!(
-            rts_cranelift::verify(&func, &types, &funcs),
+            rts_cranelift::verify(&func, &types, &shared.funcs),
             Vec::new(),
             "{source}"
         );
@@ -176,11 +187,14 @@ fn addition_is_refused_although_its_operands_are_proved() {
 /// side exit. Both were true when written and neither was the rule.
 #[test]
 fn an_annotated_function_becomes_a_guarded_float_subtraction() {
-    let (func, types, funcs) = reach_verified(
+    let (func, types, shared) = reach_verified(
         "function f(a: number, b: number) { return a - b; }",
         Tier::Specialised,
     );
-    assert_eq!(rts_cranelift::verify(&func, &types, &funcs), Vec::new());
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
 
     // ONE GUARD PER CLAIM, each narrowing to F64 -- the representation `: number`
     // asserts, which is a double and not an integer.
@@ -424,18 +438,24 @@ fn remainder_is_refused_because_fmod_is_not_an_integer_remainder() {
     assert!(words.contains("fmod"), "{words}");
 }
 
-/// The order of the refusals is the other way round from what this test first asserted,
-/// and the GRAPH is why: a text literal is its own instruction, lowered before the
-/// subtraction that reads it, so the declared-constant refusal is reached first and the
-/// operand test never runs.
+/// **The order of the refusals has now flipped back**, and this test's subject has moved
+/// three times. It first asserted the operand test refuses `7 - "a"` first; then that the
+/// CONSTANT does, because a text literal is its own instruction lowered before the
+/// subtraction that reads it; and now the operand test again, because a text constant
+/// lowers — it is a call to `StringConst`, and the runtime holds the text.
 ///
-/// Written down because the wrong guess is the natural one — the interesting refusal is
-/// the one about the operand, and it is not the one a reader gets.
+/// Each version was true when written. Worth keeping the history in one place rather than
+/// rewriting the prose clean, because what moved is not this test: it is which layer
+/// knows enough to complain first, and that is the measure of the work.
 #[test]
-fn a_text_operand_is_refused_at_the_constant_and_not_at_the_operation() {
-    let words = said(reach("function f() { return 7 - \"a\"; }").expect_err("a text operand"));
-    assert!(words.contains("the runtime's numbering"), "{words}");
-    assert!(words.contains("Text"), "which constant it was: {words}");
+fn a_text_operand_is_refused_at_the_operation_now_that_the_constant_lowers() {
+    let words = said(
+        reach_in("function f() { return 7 - \"a\"; }", Tier::Generic)
+            .0
+            .expect_err("a text operand"),
+    );
+    assert!(words.contains("not proved numeric"), "{words}");
+    assert!(words.contains("v1 is Str"), "the operand is named: {words}");
 }
 
 /// **An entry-point call reaches the machine**, through the same declaration table the
@@ -488,7 +508,7 @@ fn an_entry_point_call_reaches_the_machine() {
     let inferred = rts_mir::infer::infer(&graph, &domain);
     let types = TypeRegistry::new();
     let mut funcs = FuncRegistry::new();
-    let mut calls = rts_codegen::runtime::RuntimeCalls::new();
+    let mut shared = rts_codegen::machine::Shared::default();
     let signature = Signature {
         params: vec![Repr::I64],
         returns: vec![Repr::Tagged],
@@ -502,13 +522,13 @@ fn an_entry_point_call_reaches_the_machine() {
         .params
         .clone();
     let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, machine_entry);
-    let mut ops = JsMachine::new(&domain, inferred).declaring_in(&mut calls, &mut funcs);
+    let mut ops = JsMachine::new(&domain, inferred).declaring_in(&mut shared);
     lower(&graph, &mut into, &mut ops, &start).expect("the call is emitted");
     drop(into);
     // THE MACHINE'S VERIFIER IS THE JUDGE, and it needs the registry the call was
     // declared in -- which is the thing a fresh one would not have.
     assert_eq!(
-        rts_cranelift::verify(&func, &types, &funcs),
+        rts_cranelift::verify(&func, &types, &shared.funcs),
         Vec::new(),
         "a call to a declared function verifies"
     );
