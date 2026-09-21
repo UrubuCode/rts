@@ -519,21 +519,21 @@ pub(in crate::layout) fn layout_children_vertical(
             // pula — NÃO coleta seu texto como inline (senão o título e o CSS cru
             // vazam pra tela). Checado ANTES do caminho inline.
             NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
-            // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
-            // pintado na passada out-of-flow de layout_document.
-            NodeKind::Element { .. } if child_out => {}
-            // A FLOAT in the middle of TEXT joins the inline group as an anchor
-            // and the inline flow places it (CSS 2.1 §9.5.1, `float_in_line.rs`);
-            // closing the group here gave `<div>before<float/>after</div>` two
-            // lines. With no text pending the branch below decides, as before.
+            // A FLOAT or an ABSOLUTE box in the middle of TEXT joins the inline
+            // group as an anchor: the inline flow places the float (§9.5.1,
+            // `float_in_line.rs`) and records the other's static position
+            // (`ancora_estatica.rs`). With no text pending, the arms below decide.
             NodeKind::Element { .. }
-                if child_float != crate::style::FloatSide::None
+                if (child_out || child_float != crate::style::FloatSide::None)
                     && caixa_do_filho.is_some()
                     && ib_run.is_empty()
                     && group_has_content(dom, &inline_group) =>
             {
                 inline_group.push((child, caixa_do_filho));
             }
+            // Fora do fluxo sem texto pendente: não ocupa espaço aqui — pintado
+            // na passada out-of-flow de layout_document.
+            NodeKind::Element { .. } if child_out => {}
             // FLOAT left/right: encosta ao lado pedido, na primeira faixa a
             // partir do cursor onde CAIBA ao lado dos floats já postos.
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {

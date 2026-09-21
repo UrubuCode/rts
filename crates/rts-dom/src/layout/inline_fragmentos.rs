@@ -54,7 +54,10 @@ pub(in crate::layout) fn fragmento_do_dono(
 ) -> Rect {
     let css = dom.computed_style_idx(dono);
     let com_arestas = css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
-    fragmento_com_estilo(css.as_deref(), com_arestas, x, y, w, conteudo_da_linha, ctx, align_to_baseline)
+    // A relative inline — or one inside a relative inline — is shifted HERE, the
+    // one place its fragment is made: client rects and painted surface move together.
+    let (dx, dy) = super::relativo::offset_do_inline(dom, Some(dono), ctx);
+    fragmento_com_estilo(css.as_deref(), com_arestas, x + dx, y + dy, w, conteudo_da_linha, ctx, align_to_baseline)
 }
 
 /// [`fragmento_do_dono`] for a style that is not a node's — a generated

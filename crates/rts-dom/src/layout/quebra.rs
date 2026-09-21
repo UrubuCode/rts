@@ -293,7 +293,7 @@ pub(in crate::layout) fn wrap_runs(
             // pendente -- so marca uma posicao para quem lhe quiser a caixa.
             // A float's ANCHOR is the same: it only says which line the float
             // appeared on; its width enters through the exclusions, not the line.
-            if matches!(kind, AtomicKind::Marker | AtomicKind::Float) {
+            if matches!(kind, AtomicKind::Marker | AtomicKind::Float | AtomicKind::Estatica) {
                 fechar_cluster!();
                 cur.push(Segment {
                     text: String::new(),

@@ -54,8 +54,19 @@ pub(in crate::layout) fn aplica_offset_relativo(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) {
+    let (dx, dy) = offset_relativo(css, avail_w, avail_h, font_size, ctx);
+    desloca_desde(list, box_index, Some(id), dx, dy);
+}
+
+/// The `(dx, dy)` a `position: relative` box is shifted by; `(0, 0)` for any
+/// other `position`.
+///
+/// `left` beats `right` and `top` beats `bottom` in LTR (CSS 2.1 §9.4.3): with
+/// both of an axis present only the reading-side one shifts, and with neither
+/// the box stays where it was.
+pub(in crate::layout) fn offset_relativo(css: &ComputedStyle, avail_w: f32, avail_h: Option<f32>, font_size: f32, ctx: &LayoutCtx) -> (f32, f32) {
     if css.position != Some(crate::style::Position::Relative) {
-        return;
+        return (0.0, 0.0);
     }
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
@@ -64,43 +75,64 @@ pub(in crate::layout) fn aplica_offset_relativo(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    // `left` vence `right` e `top` vence `bottom` em LTR (CSS 2.1 §9.4.3): com
-    // os dois presentes de um eixo, só o do lado "de leitura" desloca. Sem
-    // nenhum dos dois no eixo, offset zero — a caixa fica onde estava.
     let left = super::posicionado::resolve_inset(css.inset_left, avail_w, &resolve);
     let right = super::posicionado::resolve_inset(css.inset_right, avail_w, &resolve);
     let avail_h_axis = avail_h.unwrap_or(0.0);
     let top = super::posicionado::resolve_inset(css.inset_top, avail_h_axis, &resolve);
     let bottom = super::posicionado::resolve_inset(css.inset_bottom, avail_h_axis, &resolve);
-    let dx = match (left, right) {
-        (Some(l), _) => l,
-        (None, Some(r)) => -r,
-        (None, None) => 0.0,
-    };
-    let dy = match (top, bottom) {
-        (Some(t), _) => t,
-        (None, Some(b)) => -b,
-        (None, None) => 0.0,
-    };
+    (left.or(right.map(|r| -r)).unwrap_or(0.0), top.or(bottom.map(|b| -b)).unwrap_or(0.0))
+}
+
+/// The shift of an INLINE box: its own `position: relative` offset plus that
+/// of every inline box around it, up to the block that owns the line.
+///
+/// An inline's text is painted by the line it sits in, under no box of its
+/// own, so `aplica_offset_relativo` — which shifts what a BLOCK emitted —
+/// never reached it and a relative `<span>` stayed where it was
+/// (`claude-relativo-em-inline`, WPT `position-relative-033`). The line asks
+/// here instead, for each segment's innermost owner, and `fragmento_do_dono`
+/// asks for each owner — so text, client rects and painted surface move
+/// together and nothing around them reflows.
+///
+/// The walk stops at the first ancestor that is not an inline box: a block or
+/// an atom shifts ITS OWN subtree through `aplica_offset_relativo`, and adding
+/// it here would shift the content twice. Cut: a percentage inset resolves
+/// against the viewport, the line not knowing its containing block's size.
+pub(in crate::layout) fn offset_do_inline(dom: &Dom, mut no: Option<NodeIdx>, ctx: &LayoutCtx) -> (f32, f32) {
+    let (mut dx, mut dy) = (0.0, 0.0);
+    while let Some(n) = no.filter(|&n| !is_block_level(dom, n) && !is_inline_block(dom, n)) {
+        if let Some(css) = dom.computed_style_idx(n) {
+            let (x, y) = offset_relativo(&css, ctx.viewport_w, Some(ctx.viewport_h), font_px(&css, DEFAULT_FONT_SIZE), ctx);
+            (dx, dy) = (dx + x, dy + y);
+        }
+        no = dom.node(n).parent;
+    }
+    (dx, dy)
+}
+
+/// Shifts by `(dx, dy)` everything emitted into `list` since `desde` — items,
+/// reused subtrees and the rects of `caixa`'s subtree. What an ATOM laid out on
+/// the line of a relative inline needs: its box was placed by `layout_block`,
+/// which knows nothing of the inline around it.
+pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, caixa: Option<BoxId>, dx: f32, dy: f32) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }
-    for it in list.items[box_index..].iter_mut() {
+    for it in list.items[desde..].iter_mut() {
         translate_item(it, dx, dy);
     }
-    for child in list.children.iter_mut().filter(|c| c.at >= box_index) {
+    for child in list.children.iter_mut().filter(|c| c.at >= desde) {
         child.dx += dx;
         child.dy += dy;
     }
-    // Subtrees served by a cached fragment (`list.children`, already shifted
-    // above) have no entry in `list.box_rects` — the box-tree walk below does
-    // not find them, and it is correct that it does not: they were already
-    // handled through the `ChildRef`'s `dx`/`dy`, which `geometry_now`/
-    // `collect_geometry` add on read. This is a second source of truth for
-    // the same answer, reconciled by hand; the lot that removes it is later
-    // than this one.
-    let tree = list.tree.clone();
-    shift_box_rects(&tree, id, dx, dy, list);
+    // Subtrees served by a cached fragment (`list.children`, shifted above) have
+    // no entry in `list.box_rects`: the walk below does not find them, rightly —
+    // their `ChildRef`'s `dx`/`dy` is added on read by `geometry_now`. A second
+    // source of truth for one answer, reconciled by hand until BT-2 removes it.
+    if let Some(caixa) = caixa {
+        let tree = list.tree.clone();
+        shift_box_rects(&tree, caixa, dx, dy, list);
+    }
 }
 
 /// Walks the box tree from `id`, shifting every box's rect by `(dx, dy)`.

@@ -40,6 +40,11 @@ pub(in crate::layout) fn posicao_estatica(
     outer_h: f32,
     containing_block: Rect,
 ) -> (f32, f32) {
+    // The box appeared in the middle of a LINE: the inline flow recorded where
+    // it would have been, which no sibling's rectangle can say (`ancora_estatica.rs`).
+    if let Some(ancora) = flow_rects.get(&id) {
+        return (ancora.x, ancora.y);
+    }
     let Some(parent) = dom.node(id).parent else {
         return (0.0, 0.0);
     };

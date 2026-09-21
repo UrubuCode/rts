@@ -71,6 +71,10 @@ pub(crate) enum AtomicKind {
     /// from that element's own `Block`/`ArestaInicio`/`ArestaFim`, which a
     /// second meaning on those kinds would have confused.
     Gerada(crate::style::PseudoElement, ParteGerada),
+    /// The ANCHOR of an absolutely positioned box that appears in the middle of
+    /// the inline flow: zero width, nothing on the line. It only says WHERE the
+    /// box would have been — its static position (`layout/ancora_estatica.rs`).
+    Estatica,
 }
 
 /// Which piece of a generated box an `AtomicKind::Gerada` run is.

@@ -100,6 +100,10 @@ pub struct Fragment {
     /// child and recompute the total (`fragmento::costurar`).
     pub linha_directa: Option<f32>,
     pub ultima_linha: Option<f32>,
+    /// The static positions the inline flows of THIS fragment's own list
+    /// recorded (`ancora_estatica.rs`), in the coordinates of `origin`. A cached
+    /// fragment runs no flow, so they have to travel with it.
+    pub ancoras_estaticas: std::rc::Rc<Vec<(crate::boxes::BoxId, f32, f32)>>,
     /// Onde este fragmento foi calculado.
     pub origin: (f32, f32),
     /// Tamanho externo devolvido pelo `layout_block` (o que o chamador usa para
@@ -173,6 +177,9 @@ impl Fragment {
             scroll_regions: self.scroll_regions.clone(),
             linha_directa: self.linha_directa,
             ultima_linha: self.ultima_linha,
+            ancoras_estaticas: std::rc::Rc::new(
+                self.ancoras_estaticas.iter().map(|&(b, x, y)| Some((map_box(b)?, x, y))).collect::<Option<Vec<_>>>()?,
+            ),
             origin: self.origin,
             size: self.size,
             margin_top: self.margin_top,

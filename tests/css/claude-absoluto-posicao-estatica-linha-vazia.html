@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<!-- Ruler (IFC): the STATIC POSITION of a block-level absolutely positioned box
+     when NOTHING comes before it on the line it appears in. Had it been in
+     flow it would have split the line, and the part before it would be a line
+     box with no text, no atom and no edge with padding/border/margin — a
+     zero-height line (CSS 2.1 §9.4.2). So the box goes at the line's TOP, not
+     below it (WPT `CSS2/abspos/static-inside-inline-001`/`-003`,
+     `css-flexbox/flexbox-min-width-auto-005`).
+     `claude-absoluto-posicao-estatica-na-linha` only had boxes with text
+     before them, and the first version of the rule was written from it alone.
+     Six cases: first thing inside a span; the same with a border at the END of
+     the span (does not count); with a border at the START (Blink decides);
+     after a `<br>`, with text after; after a `<br>`, between blocks; and an
+     INLINE-level box first on the line. The tall `line-height` is on the BLOCK:
+     on the span it would also measure how an inline's own `line-height` grows
+     the line, which is another question. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .caso { position: relative; margin-bottom: 40px; background: #eee; }
+  .abs { position: absolute; width: 30px; height: 10px; background: #0a0; }
+  .alta { line-height: 60px; }
+  #s2 { border-right: 25px solid #00f; }
+  #s3 { border-left: 25px solid #00f; }
+</style></head>
+<body>
+  <div class="caso alta" id="c1"><span id="s1">
+    <div class="abs" id="a1"></div>
+    X
+  </span></div>
+  <div class="caso alta" id="c2"><span id="s2">
+    <div class="abs" id="a2"></div>
+    X
+  </span></div>
+  <div class="caso alta" id="c3"><span id="s3">
+    <div class="abs" id="a3"></div>
+    X
+  </span></div>
+  <div class="caso" id="c4">antes<br><div class="abs" id="a4"></div>depois</div>
+  <div class="caso" id="c5"><div id="b5">bloco</div>
+    <br>
+    <div class="abs" id="a5"></div>
+    <div id="d5">bloco</div></div>
+  <div class="caso alta" id="c6"><span id="s6"><span class="abs" id="a6"></span>X</span></div>
+</body>
+</html>

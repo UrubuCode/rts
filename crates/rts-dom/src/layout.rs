@@ -91,6 +91,7 @@ mod sequencia;
 mod vertical;
 mod linha_ib;
 mod alinhamento_vertical;
+mod ancora_estatica;
 use self::coluna::{align_offset, justify_offsets, layout_children_column};
 use self::flex::layout_children_horizontal;
 use self::grid::layout_children_grid;
@@ -396,11 +397,16 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // Apêndice E pede DENTRO do grupo. `resto` (≥0/auto) segue exatamente o
     // caminho de sempre, por cima do fluxo.
     let mut rects_conhecidos = list.geometry_now().rects;
+    // Where each box that appeared in the middle of a line WOULD have been: the
+    // flow skips an out-of-flow box, so its node has no rect here, and the
+    // entry is its static position (`ancora_estatica.rs`).
+    rects_conhecidos.extend(ancora_estatica::todas(&list));
     let mut positioned = Vec::with_capacity(out_of_flow.len());
     for alvo in out_of_flow {
         let mut fragment = DisplayList::for_dom(dom);
         layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
         rects_conhecidos.extend(fragment.geometry_now().rects);
+        rects_conhecidos.extend(ancora_estatica::todas(&fragment));
         positioned.push((empilhamento::stacking_key(dom, alvo.node), fragment));
     }
     positioned.sort_by(|(a, _), (b, _)| a.cmp(b));
