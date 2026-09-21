@@ -44,6 +44,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("readPoll", read_poll),
     ("bufferFree", buffer_free),
     ("adapterName", adapter_name),
+    ("maxStorageBuffers", max_storage_buffers),
 ];
 
 /// `available()` — há GPU utilizável. Cria o device na primeira consulta.
@@ -162,4 +163,9 @@ extern "C" fn adapter_name(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _d: u64)
         Some(name) => value::from_text(&name),
         None => value::nothing(),
     }
+}
+
+/// `maxStorageBuffers()` — limite de storage buffers por estágio do shader.
+extern "C" fn max_storage_buffers(_e: u64, _t: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    value::from_number(compute::max_storage_buffers_per_shader_stage() as f64)
 }
