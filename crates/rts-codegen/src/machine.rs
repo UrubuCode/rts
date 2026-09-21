@@ -81,12 +81,55 @@ pub struct JsMachine<'a> {
     /// would turn a speculation that did not hold into a crashed program, which is
     /// worse than the speculation never being made.
     generic: Option<(FuncId, &'a FuncRegistry)>,
+    /// Where a runtime operation's `FuncId` comes from, and the registry it lives in.
+    ///
+    /// # Why the language holds this and the machine does not
+    ///
+    /// Because a `FuncId` is an agreement about a SYMBOL, and rule 2 of the machine's
+    /// README forbids that layer knowing a language's names. So the catalogue of
+    /// operations, their signatures and the lazy declaration are all this crate's --
+    /// `crate::runtime::RuntimeCalls`, which the old emitter has used all along.
+    ///
+    /// `None` is a boundary asked to lower a call with nowhere to declare it, which
+    /// refuses by name rather than inventing an id. A test wants that case.
+    calls: Option<(&'a mut crate::runtime::RuntimeCalls, &'a mut FuncRegistry)>,
 }
 
 /// The machine's own failures travel out as the machine's words.
 ///
 /// A lowering that paraphrased the layer below it would be a second account of one fact,
 /// and the two would disagree the first time either changed.
+/// This value in the representation something else declares.
+///
+/// A free function because it never needed the boundary's state, which the borrow
+/// checker is what said: an entry-point call coerces its arguments while holding the
+/// declaration table, and `&mut self` made the two exclusive for no reason at all.
+fn coerced(
+    into: &mut FuncBuilder,
+    value: MachineValue,
+    want: Repr,
+) -> Result<MachineValue, String> {
+    let found = into.repr_of(value);
+    match (found, want) {
+        // AN INTEGER JOINING A DOUBLE, which is the case this exists for: `let x = n;
+        // if (c) { x = 2; }` joins a guarded double with a literal, the lattice proves
+        // `Double`, and the literal arrives as an integer. Every value an `i32` holds
+        // is a double exactly, so nothing is lost and no check is needed.
+        (Repr::I32, Repr::F64) => into.to_f64(value).map_err(machine),
+        // ANYTHING INTO THE GENERIC FORM is always available: widening is what the
+        // tagged representation is for.
+        (_, Repr::Tagged) => Ok(into.widen(value)),
+        // AND THE OTHER DIRECTION IS REFUSED, which is the half worth stating. Going
+        // from a double to an integer loses values, and going from the generic form to
+        // anything is a NARROWING -- the machine's rule 11 says narrowing is never
+        // automatic and a tagged value passes a guard first. A coercion that did it
+        // here would be a guard nobody wrote and nobody checks.
+        _ => Err(format!(
+            "{found:?} into {want:?} is a narrowing, which needs a guard rather than a coercion"
+        )),
+    }
+}
+
 fn machine(held: impl std::fmt::Debug) -> String {
     format!("{held:?}")
 }
@@ -98,6 +141,7 @@ impl<'a> JsMachine<'a> {
             domain,
             types,
             generic: None,
+            calls: None,
         }
     }
 
@@ -119,7 +163,23 @@ impl<'a> JsMachine<'a> {
             domain,
             types,
             generic: Some((generic, funcs)),
+            calls: None,
         }
+    }
+
+    /// Where a runtime operation may be declared, so a call to one can be emitted.
+    ///
+    /// Taken after construction rather than in it, because the two things a boundary may
+    /// be given -- a generic twin to fall to and somewhere to declare a call -- are
+    /// independent, and a constructor per combination is four constructors for two
+    /// questions.
+    pub fn declaring_in(
+        mut self,
+        calls: &'a mut crate::runtime::RuntimeCalls,
+        funcs: &'a mut FuncRegistry,
+    ) -> Self {
+        self.calls = Some((calls, funcs));
+        self
     }
 
     /// What a proved type is held in.
@@ -233,6 +293,16 @@ impl MachineOps for JsMachine<'_> {
             return Ok(args[0]);
         }
 
+        // ARITY FIRST, because it is the accurate reason for a row this slice has no
+        // form for at any arity. Asked second, `NewArray` with no operands was reported
+        // as "operands that were not proved numeric" followed by an empty list -- true
+        // of a vacuous gate and useless to a reader.
+        if args.len() != 2 {
+            return Err(format!(
+                "{which:?} over {} operands has no form in this slice",
+                args.len()
+            ));
+        }
         if !self.all_numeric(&of) {
             // NAMED PER OPERAND, because "not proven" over two values is two different
             // situations and which one failed is the useful half.
@@ -243,12 +313,6 @@ impl MachineOps for JsMachine<'_> {
             return Err(format!(
                 "{which:?} over operands that were not proved numeric: {}",
                 unproven.join(", ")
-            ));
-        }
-        if args.len() != 2 {
-            return Err(format!(
-                "{which:?} over {} operands has no form in this slice",
-                args.len()
             ));
         }
 
@@ -316,27 +380,8 @@ impl MachineOps for JsMachine<'_> {
         value: MachineValue,
         want: Repr,
     ) -> Result<MachineValue, String> {
-        let found = into.repr_of(value);
-        match (found, want) {
-            // AN INTEGER JOINING A DOUBLE, which is the case this exists for: `let x = n;
-            // if (c) { x = 2; }` joins a guarded double with a literal, the lattice proves
-            // `Double`, and the literal arrives as an integer. Every value an `i32` holds
-            // is a double exactly, so nothing is lost and no check is needed.
-            (Repr::I32, Repr::F64) => into.to_f64(value).map_err(machine),
-            // ANYTHING INTO THE GENERIC FORM is always available: widening is what the
-            // tagged representation is for.
-            (_, Repr::Tagged) => Ok(into.widen(value)),
-            // AND THE OTHER DIRECTION IS REFUSED, which is the half worth stating. Going
-            // from a double to an integer loses values, and going from the generic form to
-            // anything is a NARROWING -- the machine's rule 11 says narrowing is never
-            // automatic and a tagged value passes a guard first. A coercion that did it
-            // here would be a guard nobody wrote and nobody checks.
-            _ => Err(format!(
-                "{found:?} into {want:?} is a narrowing, which needs a guard rather than a coercion"
-            )),
-        }
+        coerced(into, value, want)
     }
-
     fn fall(
         &mut self,
         into: &mut FuncBuilder,
@@ -367,21 +412,49 @@ impl MachineOps for JsMachine<'_> {
 
     fn entry(
         &mut self,
-        _into: &mut FuncBuilder,
+        into: &mut FuncBuilder,
         entry: EntryId,
-        _args: &[MachineValue],
+        args: &[MachineValue],
         _inst: &Inst,
     ) -> Result<MachineValue, String> {
-        let named = match self.domain.entry_meaning(entry) {
-            Some(held) => format!("{held:?}"),
-            None => format!("{entry:?}, which no table row answers"),
+        let Some(which) = self.domain.entry_meaning(entry) else {
+            return Err(format!("{entry:?} is no row of this language's catalogue"));
         };
-        // An entry point is reached by ADDRESS, and which address is `rts-host`'s
-        // agreement rather than this crate's -- the entry table is wired and asserted
-        // there for exactly that reason.
-        Err(format!(
-            "calling {named} needs the host's agreement about where it lives"
-        ))
+        let Some((calls, funcs)) = self.calls.as_mut() else {
+            return Err(format!(
+                "calling {which:?} needs somewhere to declare it, which is the host's agreement"
+            ));
+        };
+        // THE SAME DECLARATION THE OLD EMITTER MAKES, through the same table: lazy, so a
+        // compilation that never concatenates carries no relocation to the string path.
+        let callee = calls.declare(funcs, which);
+        // WIDENED PER PARAMETER and not unconditionally, which `emit/expr.rs` records as a
+        // finding: a property key is a number the compiler resolved, declared `I64`, and
+        // widening it produced a call the machine refused -- correctly, and with the
+        // position named.
+        let declared = which.signature().params;
+        let mut of_args = Vec::with_capacity(args.len());
+        for (held, want) in args.iter().zip(&declared) {
+            of_args.push(match into.repr_of(*held) == *want {
+                true => *held,
+                false => coerced(into, *held, *want)?,
+            });
+        }
+        if of_args.len() != declared.len() {
+            return Err(format!(
+                "{which:?} declares {} parameters and the graph supplied {}",
+                declared.len(),
+                args.len()
+            ));
+        }
+        let produced = into.call(funcs, callee, &of_args).map_err(machine)?;
+        // ONE RESULT, because that is what every row of this catalogue answers. A row that
+        // answered none would leave the graph with a value nothing defines, which is a
+        // different shape and not a missing case.
+        produced
+            .first()
+            .copied()
+            .ok_or_else(|| format!("{which:?} answered nothing, and the graph reads its result"))
     }
 }
 

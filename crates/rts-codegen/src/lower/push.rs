@@ -61,7 +61,7 @@ impl Lowering<'_> {
                 let pattern = self.declared(pattern, at);
                 let flags = self.domain.constant(JsConst::Text(flags));
                 let flags = self.declared(flags, at);
-                let entry = self.domain.entry_point(crate::domain::JsEntry::RegexNew);
+                let entry = self.domain.entry_point(crate::runtime::RuntimeOp::RegexNew);
                 return Ok(self.call(
                     rts_mir::cfg::Callee::Entry(entry),
                     None,

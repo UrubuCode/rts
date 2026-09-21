@@ -437,3 +437,120 @@ fn a_text_operand_is_refused_at_the_constant_and_not_at_the_operation() {
     assert!(words.contains("the runtime's numbering"), "{words}");
     assert!(words.contains("Text"), "which constant it was: {words}");
 }
+
+/// **An entry-point call reaches the machine**, through the same declaration table the
+/// old emitter has used all along.
+///
+/// This was refused with "needs the host's agreement about where it lives" for as long as
+/// the language kept a table of its own. It kept one — `JsEntry`, three rows, every one of
+/// them already a row of `RuntimeOp` — and the reuse-check rule calls that shape fatal for
+/// a reason this case shows exactly: the duplicate would have had to agree about a symbol,
+/// an ABI signature AND an address, and `entries::resolve` answers the address from
+/// `RuntimeOp`, so a `JsEntry` row could never have reached one.
+///
+/// # Why the graph is built by hand
+///
+/// Because no JavaScript source reaches an entry-point call yet without stopping at
+/// something else first: `[...xs]` starts with a `NewArray` this slice has no form for,
+/// and a regular expression literal starts with a text constant. Writing a fixture that
+/// got there would mean waiting for two unrelated pieces, and the boundary being tested
+/// is one call.
+#[test]
+fn an_entry_point_call_reaches_the_machine() {
+    use rts_mir::cfg::{Callee, FuncBuilder as MirBuilder, Op, Terminator};
+
+    let mut domain = rts_codegen::domain::Js::new();
+    let entry_id = domain.entry_point(rts_codegen::runtime::RuntimeOp::ArrayAppendAll);
+    let mut build = MirBuilder::new(Tier::Generic);
+    let block = build.current();
+    let array = build.param(block);
+    let iterable = build.param(block);
+    let grown = build.push(
+        Op::Call {
+            callee: Callee::Entry(entry_id),
+            receiver: None,
+            args: vec![array, iterable],
+        },
+        rts_mir::Effect::ALLOCATES
+            .and(rts_mir::Effect::CALLS_USER)
+            .and(rts_mir::Effect::THROWS),
+        Default::default(),
+    );
+    build.end(Terminator::Return(Some(grown)));
+    let graph = build.finish();
+    assert_eq!(rts_mir::verify(&graph), Ok(()));
+
+    let inferred = rts_mir::infer::infer(&graph, &domain);
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let mut calls = rts_codegen::runtime::RuntimeCalls::new();
+    let signature = Signature {
+        params: vec![Repr::Tagged, Repr::Tagged],
+        returns: vec![Repr::Tagged],
+        ..Signature::default()
+    };
+    let mut func = Function::new(signature);
+    let machine_entry = func.entry;
+    let start: Vec<_> = func
+        .block(machine_entry)
+        .expect("an entry block")
+        .params
+        .clone();
+    let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, machine_entry);
+    let mut ops = JsMachine::new(&domain, inferred).declaring_in(&mut calls, &mut funcs);
+    lower(&graph, &mut into, &mut ops, &start).expect("the call is emitted");
+    drop(into);
+    // THE MACHINE'S VERIFIER IS THE JUDGE, and it needs the registry the call was
+    // declared in -- which is the thing a fresh one would not have.
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &funcs),
+        Vec::new(),
+        "a call to a declared function verifies"
+    );
+}
+
+/// And a boundary with nowhere to declare one refuses by NAME rather than inventing an id,
+/// which is the case that would otherwise emit a call to a function nobody supplied — a
+/// crash inside compiled code rather than a refusal.
+#[test]
+fn a_boundary_with_nowhere_to_declare_refuses_the_call() {
+    use rts_mir::cfg::{Callee, FuncBuilder as MirBuilder, Op, Terminator};
+
+    let mut domain = rts_codegen::domain::Js::new();
+    let entry_id = domain.entry_point(rts_codegen::runtime::RuntimeOp::ArrayAppend);
+    let mut build = MirBuilder::new(Tier::Generic);
+    let block = build.current();
+    let array = build.param(block);
+    let grown = build.push(
+        Op::Call {
+            callee: Callee::Entry(entry_id),
+            receiver: None,
+            args: vec![array],
+        },
+        rts_mir::Effect::ALLOCATES,
+        Default::default(),
+    );
+    build.end(Terminator::Return(Some(grown)));
+    let graph = build.finish();
+
+    let inferred = rts_mir::infer::infer(&graph, &domain);
+    let types = TypeRegistry::new();
+    let signature = Signature {
+        params: vec![Repr::Tagged],
+        returns: vec![Repr::Tagged],
+        ..Signature::default()
+    };
+    let mut func = Function::new(signature);
+    let machine_entry = func.entry;
+    let start: Vec<_> = func
+        .block(machine_entry)
+        .expect("an entry block")
+        .params
+        .clone();
+    let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, machine_entry);
+    let mut ops = JsMachine::new(&domain, inferred);
+    let words =
+        said(lower(&graph, &mut into, &mut ops, &start).expect_err("nowhere to declare it"));
+    assert!(words.contains("somewhere to declare it"), "{words}");
+    assert!(words.contains("ArrayAppend"), "which one: {words}");
+}

@@ -37,7 +37,9 @@
 //! visible — a conversion performed before the dispatch that would not have
 //! needed it.
 
-pub use tables::{JsAssertion, JsConst, JsEntry, JsPrim, WellKnown};
+pub use tables::{JsAssertion, JsConst, JsPrim, WellKnown};
+
+use crate::runtime::RuntimeOp;
 
 mod tables;
 
@@ -125,23 +127,23 @@ impl Js {
     ///
     /// A static table for the reason `PRIMS` is one: an entry is a row of source code
     /// here, not something a program registers.
-    const ENTRIES: &'static [JsEntry] = &[
-        JsEntry::RegexNew,
-        JsEntry::ArrayAppend,
-        JsEntry::ArrayAppendAll,
+    const ENTRIES: &'static [RuntimeOp] = &[
+        RuntimeOp::RegexNew,
+        RuntimeOp::ArrayAppend,
+        RuntimeOp::ArrayAppendAll,
     ];
 
     /// The index the IR carries for an entry point.
-    pub fn entry_point(&self, which: JsEntry) -> EntryId {
+    pub fn entry_point(&self, which: RuntimeOp) -> EntryId {
         let at = Self::ENTRIES
             .iter()
             .position(|held| *held == which)
-            .expect("every JsEntry is a row of ENTRIES");
+            .expect("every entry named is a row of ENTRIES");
         EntryId(at as u32)
     }
 
     /// What an [`EntryId`] index means.
-    pub fn entry_meaning(&self, entry: EntryId) -> Option<JsEntry> {
+    pub fn entry_meaning(&self, entry: EntryId) -> Option<RuntimeOp> {
         Self::ENTRIES.get(entry.0 as usize).copied()
     }
 
@@ -515,12 +517,18 @@ impl Domain for Js {
         match self.entry_meaning(entry) {
             // A regular expression is an object, and not a shaped one: which layout it
             // arrives at is the runtime shape tree's answer.
-            Some(JsEntry::RegexNew) => Type::Object,
+            Some(RuntimeOp::RegexNew) => Type::Object,
             // BOTH APPENDS ANSWER THE ARRAY, which is why they answer anything useful
             // at all: a caller chains them, and an append answering `undefined` would
             // make every element after the first a read of nothing.
-            Some(JsEntry::ArrayAppend | JsEntry::ArrayAppendAll) => Type::Object,
-            None => Type::Anything,
+            Some(RuntimeOp::ArrayAppend | RuntimeOp::ArrayAppendAll) => Type::Object,
+            // EVERY OTHER ROW OF THE CATALOGUE answers the widest thing, and that is a
+            // change of shape worth stating: the old table held only what this lowering
+            // reached, so a row it did not know was unrepresentable. `RuntimeOp` holds
+            // every operation the language can call, so most of them are rows this
+            // lowering has not learned anything about yet -- and `Anything` is the honest
+            // answer for those rather than a gap the compiler would report.
+            Some(_) | None => Type::Anything,
         }
     }
 

@@ -711,13 +711,13 @@ fn a_literal_with_a_spread_is_built_by_appending() {
             _ => None,
         })
         .collect();
-    use crate::domain::JsEntry;
+    use crate::runtime::RuntimeOp;
     assert_eq!(
         entries,
         vec![
-            JsEntry::ArrayAppend,
-            JsEntry::ArrayAppendAll,
-            JsEntry::ArrayAppend,
+            RuntimeOp::ArrayAppend,
+            RuntimeOp::ArrayAppendAll,
+            RuntimeOp::ArrayAppend,
         ],
         "in source order, one per element"
     );
@@ -1805,7 +1805,7 @@ fn the_close_is_under_the_last_slots_done_test() {
 fn an_array_rest_target_gathers_by_stepping_and_appending() {
     let lowered = only("function f(xs) { const [a, ...r] = xs; return r; }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
-    use crate::domain::JsEntry;
+    use crate::runtime::RuntimeOp;
     let appends = lowered
         .func
         .insts
@@ -1814,7 +1814,7 @@ fn an_array_rest_target_gathers_by_stepping_and_appending() {
             rts_mir::Op::Call {
                 callee: rts_mir::cfg::Callee::Entry(entry),
                 ..
-            } => lowered.domain.entry_meaning(*entry) == Some(JsEntry::ArrayAppend),
+            } => lowered.domain.entry_meaning(*entry) == Some(RuntimeOp::ArrayAppend),
             _ => false,
         })
         .count();
@@ -2143,7 +2143,9 @@ fn a_regex_literal_calls_an_entry_point() {
         .expect("a call");
     match &call.op {
         rts_mir::Op::Call { callee, args, .. } => {
-            let entry = lowered.domain.entry_point(crate::domain::JsEntry::RegexNew);
+            let entry = lowered
+                .domain
+                .entry_point(crate::runtime::RuntimeOp::RegexNew);
             assert_eq!(callee, &rts_mir::cfg::Callee::Entry(entry));
             // The pattern and the flags, both text.
             assert_eq!(args.len(), 2);

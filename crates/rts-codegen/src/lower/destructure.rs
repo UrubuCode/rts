@@ -25,8 +25,9 @@
 
 use super::choice::Arm;
 use super::{Lowering, Unsupported};
-use crate::domain::{JsConst, JsEntry, JsPrim, WellKnown};
+use crate::domain::{JsConst, JsPrim, WellKnown};
 use crate::names::Name;
+use crate::runtime::RuntimeOp;
 use crate::syntax::{Expr, Pattern, PropertyKey};
 use rts_mir::Domain;
 use rts_mir::cfg::{Terminator, ValueId};
@@ -304,7 +305,7 @@ impl Lowering<'_> {
 
         self.builder.switch_to(appending);
         let element = self.well_known(WellKnown::Element, step, at);
-        let grown = self.entry(JsEntry::ArrayAppend, vec![holding, element], at);
+        let grown = self.entry(RuntimeOp::ArrayAppend, vec![holding, element], at);
         // THE APPEND'S ANSWER goes round the back edge and not the array it was given.
         // They are the same object today and the entry point answers one deliberately,
         // so carrying the operand instead would be reading a value whose definition

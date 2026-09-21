@@ -68,8 +68,9 @@ use rts_mir::Domain;
 use rts_mir::cfg::{Callee, Op, Terminator, ValueId};
 
 use super::{FrameKind, LoopFrame, Lowering, Unsupported};
-use crate::domain::{JsConst, JsEntry, JsPrim, WellKnown};
+use crate::domain::{JsConst, JsPrim, WellKnown};
 use crate::names::resolve::BindingId;
+use crate::runtime::RuntimeOp;
 use crate::syntax::{Expr, ForEachSource, ForEachTarget, Pattern, Spreadable, Stmt};
 
 impl Lowering<'_> {
@@ -353,11 +354,11 @@ impl Lowering<'_> {
             match element {
                 Some(Spreadable::Single(held)) => {
                     let value = self.expression(held)?;
-                    array = self.entry(JsEntry::ArrayAppend, vec![array, value], at);
+                    array = self.entry(RuntimeOp::ArrayAppend, vec![array, value], at);
                 }
                 Some(Spreadable::Spread(held)) => {
                     let value = self.expression(held)?;
-                    array = self.entry(JsEntry::ArrayAppendAll, vec![array, value], at);
+                    array = self.entry(RuntimeOp::ArrayAppendAll, vec![array, value], at);
                 }
                 None => {
                     return Err(Unsupported::Expression(
@@ -374,7 +375,7 @@ impl Lowering<'_> {
     /// Here rather than at each site because the effect is the entry's and not the
     /// caller's: what an entry point does is a row of `ENTRIES`, and a caller writing
     /// its own summary is how an effect table stops being the one source.
-    pub(super) fn entry(&mut self, which: JsEntry, args: Vec<ValueId>, at: &Expr) -> ValueId {
+    pub(super) fn entry(&mut self, which: RuntimeOp, args: Vec<ValueId>, at: &Expr) -> ValueId {
         let entry = self.domain.entry_point(which);
         // ALLOCATES and CALLS_USER and THROWS, for the honest reason: appending grows an
         // array, a spread runs the source's `next`, and both raise on something that is

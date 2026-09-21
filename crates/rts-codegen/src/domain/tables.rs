@@ -363,51 +363,18 @@ pub enum WellKnown {
     Return,
 }
 
-/// An operation of the runtime this language names.
-///
-/// # Why a table here and not in `rts-mir`
-///
-/// `rts_mir::cfg::EntryId` is an opaque index for the reason a `Prim` is: what a
-/// runtime offers is the language's business, and the next language's table is its own.
-/// This is that table, and it is the first thing to make `Callee::Entry` reachable.
-///
-/// # Why an entry and not a primitive
-///
-/// A primitive is something the machine can be told to compute; an entry is something
-/// the runtime DOES. Building a regular expression compiles a pattern, allocates an
-/// object and installs its state — none of which a lowering can express as
-/// instructions, and all of which one call can ask for.
-///
-/// `rts-host/src/entries.rs` is where the name and the ABI shape of one are agreed, and
-/// this table is what a lowering names before that agreement is reached. An index that
-/// nothing implements yet is honest: the graph says which operation it wants, and the
-/// machine boundary refuses until the entry exists.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum JsEntry {
-    /// Builds a regular expression from its pattern and its flags.
-    ///
-    /// Two arguments, both text. The pattern is compiled once per evaluation of the
-    /// literal, and the object carries mutable state — `lastIndex` — which is why two
-    /// evaluations of one literal are two objects and not one shared value.
-    RegexNew,
-    /// Appends one value to an array, and answers the array.
-    ///
-    /// # Why this is an entry point and not a write at an index
-    ///
-    /// Because the index is the array's CURRENT LENGTH, which is not a number this
-    /// stage has: a spread earlier in the same literal contributed an unknown count.
-    /// `rts_core::entry::iterate::array_append` says the same thing from its own side,
-    /// which is what makes this one shared answer rather than two.
-    ArrayAppend,
-    /// Appends everything an iterable yields, and answers the array.
-    ///
-    /// The spread's own operation. It DRAINS -- which is right here and wrong for a
-    /// `for`-`of`, and the difference is the whole of `lower/iterate.rs`'s first
-    /// section: `[...xs]` must consume the entire sequence to answer at all, so
-    /// draining is not a divergence, it is the operation.
-    ArrayAppendAll,
-}
-
+// THE ENTRY TABLE WAS A SECOND TABLE OF ONE THING, and `JsEntry` is gone rather than
+// bridged. Every row it had -- `RegexNew`, `ArrayAppend`, `ArrayAppendAll` -- already
+// existed in `crate::runtime::RuntimeOp`, which is this crate's one catalogue of
+// operations the language calls instead of emitting.
+//
+// The `reuse-check` skill calls that shape fatal and says why: two tables that must
+// agree about a number are two shape trees one level up. This one would have had to
+// agree about a symbol name, an ABI signature AND an address, and the address is the
+// one nobody could have checked -- `rts-host::entries::resolve` answers it from
+// `RuntimeOp`, so a `JsEntry` row would have reached no address at all.
+//
+// So `rts_mir::EntryId` now indexes `Js::ENTRIES`, which is a list of `RuntimeOp`.
 /// What a guard of this language asserts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum JsAssertion {
