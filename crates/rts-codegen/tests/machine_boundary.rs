@@ -254,18 +254,40 @@ fn a_guard_that_is_not_at_the_entry_still_needs_the_frame_reconstructed() {
     );
 }
 
-/// Nothing here believes TypeScript, and the un-annotated form is what says so: the same
-/// function with no claim has no guard, so nothing narrows and the boundary refuses it.
-/// The annotation did not make the value a number — it made the CHECK worth emitting.
+/// **What the annotation buys is WHERE the guard goes, not whether there is one.** This
+/// replaced a test asserting that an un-annotated function is refused outright, which was
+/// true until the operation itself became a reason to speculate: `a - b` coerces both
+/// operands to numbers whatever they are, so a number is the case the operator is FOR
+/// rather than a guess about the program.
+///
+/// So both forms reach the machine, and they differ in the count: a claim guards each
+/// PARAMETER once, and an operator guards each USE. Two uses of one parameter is two
+/// guards without a claim and one with.
 #[test]
-fn the_same_function_without_the_claim_is_still_refused() {
-    let words = said(
-        reach_in("function f(a, b) { return a - b; }", Tier::Specialised)
-            .0
-            .expect_err("no claim, no guard"),
-    );
-    assert!(words.contains("not proved numeric"), "{words}");
-    assert!(words.contains("v0 is Anything"), "{words}");
+fn a_claim_guards_the_parameter_once_where_the_operator_guards_every_use() {
+    let source = "function f(a, b) { return (a - b) - a; }";
+    let annotated = "function f(a: number, b: number) { return (a - b) - a; }";
+    assert!(reach_in(source, Tier::Specialised).0.is_ok());
+    assert!(reach_in(annotated, Tier::Specialised).0.is_ok());
+
+    let guards = |held: &str| {
+        let mut names = Names::new();
+        let program = parse_script(held, &mut names).expect("parses");
+        let resolution = resolve_module(&program.body);
+        let lowered = lower_module(&program.body, &resolution, &names, Tier::Specialised);
+        lowered.functions[0]
+            .result
+            .as_ref()
+            .expect("it lowers")
+            .insts
+            .iter()
+            .filter(|inst| matches!(&inst.op, rts_mir::Op::Guard { .. }))
+            .count()
+    };
+    // `a` is read twice and `b` once: three uses, three guards with no claim.
+    assert_eq!(guards(source), 3);
+    // With the claim, one per parameter and the operator finds them already proved.
+    assert_eq!(guards(annotated), 2);
 }
 
 /// A guard lives only in the SPECIALISED tier, because the generic one is where a fall

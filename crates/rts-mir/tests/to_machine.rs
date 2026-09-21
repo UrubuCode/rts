@@ -252,11 +252,15 @@ fn a_guard_at_the_entry_lowers_with_its_side_exit() {
     assert_eq!(lower(&graph, &mut into, &mut Integers, &params), Ok(()));
 }
 
-/// A guard that is NOT at the entry is refused, and this is the other half of the same
-/// condition: something stood before it, so a local could exist, so a fall would need a
-/// frame reconstructed -- the rest of `deopt-lateral.md` D3.
+/// A guard behind an OBSERVABLE instruction is refused, and this is the other half of
+/// the same condition.
+///
+/// It used to say "behind an instruction", and a pure one was enough to trip it. That
+/// was the condition read too narrowly: falling means the other tier re-runs from the
+/// top, and re-running something pure is sound because pure means nothing can tell. So
+/// the instruction here now WRITES, which is the case that genuinely cannot be repeated.
 #[test]
-fn a_guard_behind_an_instruction_still_needs_the_frame_reconstructed() {
+fn a_guard_behind_an_observable_instruction_needs_the_frame_reconstructed() {
     let mut build = FuncBuilder::new(Tier::Specialised);
     let entry = build.current();
     let x = build.param(entry);
@@ -266,7 +270,9 @@ fn a_guard_behind_an_instruction_still_needs_the_frame_reconstructed() {
             prim: ADD,
             args: vec![x, x],
         },
-        Effect::PURE,
+        // WRITES, and that is the whole of what makes this refused: a write cannot be
+        // performed twice, so the other tier cannot be asked to run from the top.
+        Effect::WRITES,
         Default::default(),
     );
     let proved = build.push(

@@ -55,7 +55,7 @@
 //! and the specialised tier would be dead weight.
 
 use rts_mir::Domain;
-use rts_mir::cfg::Op;
+use rts_mir::cfg::{Op, ValueId};
 use rts_mir::guard::{PointId, Tier};
 
 use super::Lowering;
@@ -139,6 +139,62 @@ impl Lowering<'_> {
         self.values.insert(binding, proved);
         let _ = name;
         true
+    }
+
+    /// Speculates that an operand is a number, for an operation that coerces to one.
+    ///
+    /// # Why this is speculation with no annotation behind it
+    ///
+    /// Because `a - b` coerces both operands to numbers whatever they are, so a number
+    /// is not a guess about the program -- it is the case the operation is FOR. The
+    /// annotation-driven guard needs a claim; this one needs only the operator, which is
+    /// why it reaches code an unannotated program writes.
+    ///
+    /// `bench/` is that program: its files run unmodified under Node and Bun, so they
+    /// carry 75 annotations against `tests/`'s 2107, and every numeric function in it
+    /// stopped at its first comparison for want of a claim nobody could have written.
+    ///
+    /// # Why the point is taken in both tiers whatever is decided
+    ///
+    /// Because whether an operand is already proved DIFFERS between the tiers -- the
+    /// specialised one has the claim guards that narrowed it and the generic one does
+    /// not -- so a counter that advanced only when a guard was emitted would number the
+    /// two bodies differently. A fall from point three would land at point four.
+    ///
+    /// `guard::pair` is what would catch it, and the point of taking the number
+    /// unconditionally is that it never has to.
+    pub(super) fn speculate_numeric(&mut self, args: &[ValueId], at: &Expr) -> Vec<ValueId> {
+        let mut out = Vec::with_capacity(args.len());
+        for held in args {
+            let point = PointId(self.points);
+            self.points += 1;
+            let of = self.type_of(*held);
+            // ALREADY A NUMBER, so there is nothing to check and the point goes unused.
+            // `pair` is one-directional for exactly this: the generic tier may carry a
+            // label the specialised tier never falls to.
+            let settled = matches!(of, crate::domain::Type::Int32 | crate::domain::Type::Double);
+            if self.builder.tier() != Tier::Specialised || settled {
+                if self.builder.tier() != Tier::Specialised {
+                    self.builder.resumable(point);
+                }
+                out.push(*held);
+                continue;
+            }
+            let assertion = self.domain.assertion(JsAssertion::IsDouble);
+            let narrowed = self.domain.narrow(assertion, &of);
+            let proved = self.builder.push(
+                Op::Guard {
+                    assertion,
+                    on: *held,
+                    point,
+                },
+                rts_mir::Effect::PURE,
+                at.at,
+            );
+            self.types.insert(proved, narrowed);
+            out.push(proved);
+        }
+        out
     }
 
     /// The expression a parameter's guard is attributed to.

@@ -266,9 +266,9 @@ pub fn lower(
 
     for block in func.block_ids() {
         into.switch_to(blocks[&block]);
-        // HOW MANY GUARDS HAVE BEEN SEEN in this block, and nothing else has. The
-        // condition a side exit needs, made structural: see the `Op::Guard` arm.
-        let mut only_guards_so_far = true;
+        // WHETHER ANYTHING OBSERVABLE HAS HAPPENED in this block yet. The condition a
+        // side exit needs, made structural: see the `Op::Guard` arm.
+        let mut nothing_observed = true;
         for inst in &func.block(block).insts {
             let held = func.inst(*inst);
             let lowered = match &held.op {
@@ -307,19 +307,32 @@ pub fn lower(
                     on,
                     point,
                 } => {
-                    // THE CONDITION THAT MAKES A SIDE EXIT BUILDABLE AT ALL, and it is
-                    // structural rather than analytic: a guard in the ENTRY block with
-                    // nothing but guards before it has no local state behind it, so the
-                    // only live values are the parameters. Falling from there needs no
-                    // frame reconstructed -- it needs the same arguments handed to the
-                    // other tier.
+                    // THE CONDITION THAT MAKES A SIDE EXIT BUILDABLE, and it is about
+                    // what has been OBSERVED rather than about what has been built.
                     //
-                    // A guard anywhere else does need reconstruction, which is the rest
-                    // of `deopt-lateral.md` D3, and it is refused by the same name it
-                    // always was. Checking the position rather than computing liveness
-                    // is deliberate: this crate has no liveness pass, and a condition it
-                    // can check exactly is worth more than one it would approximate.
-                    if block != func.entry() || !only_guards_so_far {
+                    // A guard in the entry block with only PURE instructions before it
+                    // can fall by handing the original arguments to the other tier and
+                    // letting it run from the top. The other tier re-executes those same
+                    // pure instructions, which is sound precisely because pure means
+                    // nothing can tell: same operands, same answers, no heap read, no
+                    // heap written, nothing allocated, nothing called, nothing raised.
+                    //
+                    // This started as "nothing but guards before it", which is the same
+                    // idea read too narrowly -- a guard is pure, and so is the arithmetic
+                    // a numeric function does before its first comparison. That narrower
+                    // form refused every function in `bench/` that computed anything at
+                    // all before speculating.
+                    //
+                    // ALLOCATION IS EXCLUDED and it is the interesting exclusion: an
+                    // allocation before the guard would be performed twice, and the first
+                    // object becomes garbage rather than a wrong answer. Excluded anyway,
+                    // because `PURE` is a line this crate can check exactly and "produces
+                    // only garbage" is a judgement it would have to argue.
+                    //
+                    // A guard behind anything else needs the frame reconstructed -- the
+                    // arrival `rts_cranelift::frame` now has, plus the transfer -- and is
+                    // refused by the same name it always was.
+                    if block != func.entry() || !nothing_observed {
                         return Err(Unlowerable::NeedsSideExit(*point));
                     }
                     let input = one(*on, &values)?;
@@ -351,7 +364,12 @@ pub fn lower(
                 }
                 Op::Suspend { .. } => return Err(Unlowerable::NeedsFrameTransform),
             };
-            only_guards_so_far = false;
+            // AN OBSERVABLE INSTRUCTION closes the window, and a pure one does not. Read
+            // from the EFFECT rather than from the operation, so a language that grows a
+            // pure primitive gets the window widened without this crate naming it.
+            if !held.effect.is_pure() {
+                nothing_observed = false;
+            }
             values.insert(held.result, lowered);
         }
 
