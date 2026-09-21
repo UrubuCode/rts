@@ -64,7 +64,7 @@ impl Backend for GatherBackend {
 
     fn supports(&self, needs: &Needs) -> bool {
         // Every one of these is `false` for a measured or stated reason, and
-        //answering `true` to any of them would be the silent approximation
+        // answering `true` to any of them would be the silent approximation
         // README rule 9 exists to forbid.
         //
         //   hull_against_hull  `docs/colisores.md` §3: 2.2 billion dot products
@@ -74,7 +74,18 @@ impl Backend for GatherBackend {
         //                      the speed clamp is a net rather than a fix.
         //   angular            no torque, no angular velocity, anywhere.
         //   joints             none, and no articulation to hang one from.
-        !needs.hull_against_hull && !needs.continuous && !needs.angular && !needs.joints
+        //   deterministic      multi-threaded gather does not guarantee bit-exact replay yet.
+        //   raycast            spatial queries are not implemented on gather solver.
+        //   overlap            spatial overlap queries are not implemented.
+        //   contact_events     contact event stream is not implemented.
+        !needs.hull_against_hull
+            && !needs.continuous
+            && !needs.angular
+            && !needs.joints
+            && !needs.deterministic
+            && !needs.raycast
+            && !needs.overlap
+            && !needs.contact_events
     }
 
     fn supports_shape(&self, kind: ShapeKind) -> bool {
@@ -93,7 +104,7 @@ impl Backend for GatherBackend {
         if !self.supports(needs) {
             return StepOutcome::Unsupported {
                 needs: "the gather solver has no hull-against-hull, continuous \
-                        collision, angular velocity or joints",
+                        collision, angular velocity, joints, determinism, raycast, overlap or contact events",
             };
         }
         let count = scene.body_count();
@@ -171,5 +182,14 @@ mod tests {
         assert!(b.supports_shape(ShapeKind::Sphere));
         assert!(b.supports_shape(ShapeKind::Box));
         assert!(!b.supports_shape(ShapeKind::Hull(1)));
+    }
+
+    #[test]
+    fn raycast_and_unsupported_queries_are_refused() {
+        let b = GatherBackend::new();
+        assert!(!b.supports(&Needs { raycast: true, ..Needs::default() }));
+        assert!(!b.supports(&Needs { overlap: true, ..Needs::default() }));
+        assert!(!b.supports(&Needs { contact_events: true, ..Needs::default() }));
+        assert!(!b.supports(&Needs { deterministic: true, ..Needs::default() }));
     }
 }

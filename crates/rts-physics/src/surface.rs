@@ -85,12 +85,15 @@ extern "C" fn step(_e: u64, _this: u64, pos: u64, vel: u64, ext: u64, world: u64
     let (pos, vel) = unsafe { (floats_mut(pos), floats_mut(vel)) };
     let (ext, world) = unsafe { (floats(ext), floats(world)) };
 
-    if world.len() < 8 || world[4] != crate::solver::material::PHYSICS_LAYOUT_VERSION {
+    use crate::solver::material::{
+        PHYSICS_LAYOUT_VERSION, WORLD_HEADER_FLOATS, WORLD_PARAM_LAYOUT_VERSION, WORLD_PARAM_SUBSTEPS,
+    };
+    if world.len() < WORLD_HEADER_FLOATS || world[WORLD_PARAM_LAYOUT_VERSION] != PHYSICS_LAYOUT_VERSION {
         return entry::make_number(0.0);
     }
 
-    let substeps = match world[3].is_finite() && world[3] >= 1.0 {
-        true => world[3] as usize,
+    let substeps = match world[WORLD_PARAM_SUBSTEPS].is_finite() && world[WORLD_PARAM_SUBSTEPS] >= 1.0 {
+        true => world[WORLD_PARAM_SUBSTEPS] as usize,
         false => 1,
     };
     SOLVER.with(|solver| solver.borrow_mut().step(pos, vel, ext, world, substeps));

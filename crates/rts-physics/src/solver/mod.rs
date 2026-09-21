@@ -173,11 +173,15 @@ impl Solver {
         substeps: usize,
     ) {
         let count = pos.len().min(vel.len()).min(ext.len()) / 4;
-        if count == 0 || world.len() < 8 || world[4] != material::PHYSICS_LAYOUT_VERSION {
+        if count == 0
+            || world.len() < material::WORLD_HEADER_FLOATS
+            || world[material::WORLD_PARAM_LAYOUT_VERSION] != material::PHYSICS_LAYOUT_VERSION
+        {
             return;
         }
-        let dt = world[0];
-        let statics = (world[1].max(0.0) as usize).min((world.len().saturating_sub(8)) / 8);
+        let dt = world[material::WORLD_PARAM_DT];
+        let statics = (world[material::WORLD_PARAM_NUM_STATICS].max(0.0) as usize)
+            .min((world.len().saturating_sub(material::WORLD_HEADER_FLOATS)) / material::STATIC_RECORD_FLOATS);
         let size = cell_size(world);
 
         for _ in 0..substeps {
@@ -218,8 +222,8 @@ impl Solver {
 /// wastes candidates. The caller knows the largest extent without scanning
 /// anything, which is why it is passed rather than derived here.
 fn cell_size(world: &[f32]) -> f32 {
-    match world[2].is_finite() {
-        true => world[2].max(0.001),
+    match world[material::WORLD_PARAM_CELL_SIZE].is_finite() {
+        true => world[material::WORLD_PARAM_CELL_SIZE].max(0.001),
         false => 1.0,
     }
 }

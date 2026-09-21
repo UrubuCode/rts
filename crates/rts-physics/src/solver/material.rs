@@ -28,11 +28,22 @@
 //! arithmetic (`0.35 / 0.35` is `1.0` in any float), which is what keeps the
 //! measured `RUST x GPU = 0` parity meaning something.
 
+/// Layout do cabeçalho do buffer world (8 floats / 2 vec4s)
+pub const WORLD_HEADER_FLOATS: usize = 8;
+pub const WORLD_PARAM_DT: usize = 0;
+pub const WORLD_PARAM_NUM_STATICS: usize = 1;
+pub const WORLD_PARAM_CELL_SIZE: usize = 2;
+pub const WORLD_PARAM_SUBSTEPS: usize = 3;
+pub const WORLD_PARAM_LAYOUT_VERSION: usize = 4;
+
+/// Registro de estático no world (pos/round: 4 floats, half/pad: 4 floats = 8 floats / 2 vec4s)
+pub const STATIC_RECORD_FLOATS: usize = 8;
+pub const STATIC_CAPACITY: usize = 256;
+
 /// Where the region starts: after the header and the FULL static capacity, not
 /// after the statics in use — a fixed offset, so writing a material does not
 /// depend on how many statics the scene has this frame.
-pub(super) const MATERIALS_AT: usize = 8 + STATIC_CAPACITY * 8;
-const STATIC_CAPACITY: usize = 256;
+pub(super) const MATERIALS_AT: usize = WORLD_HEADER_FLOATS + STATIC_CAPACITY * STATIC_RECORD_FLOATS;
 /// A static's record: restitution, friction, two unused.
 const STATIC_RECORD: usize = 4;
 /// A body's record: gravity, restitution, drag, friction, floor, three unused.
