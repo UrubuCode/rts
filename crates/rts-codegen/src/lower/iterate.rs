@@ -247,7 +247,7 @@ impl Lowering<'_> {
     }
 
     /// Reads a key this language fixes, off `object`.
-    fn well_known(&mut self, which: WellKnown, object: ValueId, at: &Expr) -> ValueId {
+    pub(super) fn well_known(&mut self, which: WellKnown, object: ValueId, at: &Expr) -> ValueId {
         let index = self.domain.constant(JsConst::WellKnown(which));
         let key = self.declared(index, at);
         self.prim(JsPrim::FieldRead, vec![object, key], at)
@@ -257,7 +257,7 @@ impl Lowering<'_> {
     ///
     /// The receiver is the `Op::Call` field and not argument zero, which is the whole
     /// reason that field exists: how one reaches a callee is the machine's convention.
-    fn call_method(&mut self, method: ValueId, receiver: ValueId, at: &Expr) -> ValueId {
+    pub(super) fn call_method(&mut self, method: ValueId, receiver: ValueId, at: &Expr) -> ValueId {
         let effect = rts_mir::Effect::CALLS_USER
             .and(rts_mir::Effect::THROWS)
             .and(rts_mir::Effect::ALLOCATES);
@@ -280,7 +280,7 @@ impl Lowering<'_> {
     /// `return` and calling `undefined` would raise where the specification says do
     /// nothing. Leaves the builder in the block that follows the call, which is what
     /// lets a caller terminate it however its own path requires.
-    fn close_iterator(&mut self, iterator: ValueId, at: &Expr) {
+    pub(super) fn close_iterator(&mut self, iterator: ValueId, at: &Expr) {
         let method = self.well_known(WellKnown::Return, iterator, at);
         let absent = self.prim(JsPrim::IsNullish, vec![method], at);
         let calling = self.builder.block();

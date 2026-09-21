@@ -1674,17 +1674,100 @@ fn a_pattern_default_is_a_branch_and_not_a_coalesce() {
     );
 }
 
-/// `const [a] = xs` is NOT `a = xs[0]`. Array destructuring steps the iterator
-/// protocol, so it works on a `Set` and fails on an object with numeric keys — a
-/// lowering that indexed would be wrong in both directions at once.
+/// `const [a] = xs` is NOT `a = xs[0]`, and this test replaced one asserting the
+/// refusal that said so. It steps the iterator, which is the same machinery `for`-`of`
+/// steps -- so it works on a `Set` and fails on an object with numeric keys and no
+/// iterator, and a lowering that indexed would be wrong in both directions at once.
 #[test]
-fn an_array_pattern_is_refused_as_an_iteration_and_not_lowered_as_indexing() {
-    let refused =
-        only("function f(xs) { const [a] = xs; return a; }").expect_err("an array pattern");
+fn an_array_pattern_steps_the_iterator_rather_than_indexing() {
+    let lowered = only("function f(xs) { const [a] = xs; return a; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    // NOTHING IS INDEXED. An `IndexRead` here would be the defect this refusal used
+    // to prevent, arriving under a different name.
+    assert!(!ops.contains(&crate::domain::JsPrim::IndexRead));
+    assert!(ops.contains(&crate::domain::JsPrim::Truthy), "done is tested");
+}
+
+/// A slot past the end binds `undefined` and NOT the step's own `value`. `{ done:
+/// true, value: 42 }` is a legal answer from a hand-written iterator, and reading
+/// `value` unconditionally is correct for every well-behaved one and silently wrong for
+/// that one — so each slot is a join whose two arms are the value and the singleton.
+#[test]
+fn a_slot_past_the_end_binds_undefined_rather_than_the_steps_value() {
+    let lowered = only("function f(xs) { const [a, b] = xs; return b; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // One join per bound slot, each taking exactly one parameter.
+    let joins = lowered
+        .func
+        .block_ids()
+        .filter(|held| {
+            lowered.func.predecessors(*held).len() == 2
+                && lowered.func.block(*held).params.len() == 1
+        })
+        .count();
+    assert!(joins >= 2, "two slots, two joins: {joins}");
+}
+
+/// A HOLE still takes a step and binds nothing: `[, b] = xs` reads two elements. The
+/// tree keeps the hole rather than omitting it for exactly this reason — dropping one
+/// would shift every element after it onto the wrong value.
+#[test]
+fn a_hole_takes_a_step_and_binds_nothing() {
+    let with_hole = only("function f(xs) { const [, b] = xs; return b; }").expect("covered");
+    let without = only("function f(xs) { const [b] = xs; return b; }").expect("covered");
+    let steps = |held: &Lowered| {
+        held.func
+            .insts
+            .iter()
+            .filter(|inst| matches!(&inst.op, rts_mir::Op::Call { .. }))
+            .count()
+    };
+    assert!(
+        steps(&with_hole) > steps(&without),
+        "the hole costs a step: {} against {}",
+        steps(&with_hole),
+        steps(&without)
+    );
+}
+
+/// The close is owed only when the PATTERN stopped first, which is what the last
+/// slot's `done` test decides: `const [a] = endless()` takes one element and closes.
+#[test]
+fn the_close_is_under_the_last_slots_done_test() {
+    let lowered = only("function f(xs) { const [a] = xs; return a; }").expect("covered");
+    let ops: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, .. } => lowered.domain.meaning(*prim),
+            _ => None,
+        })
+        .collect();
+    // The close is guarded by a nullish test on `return`, the same as the loop's.
+    assert!(ops.contains(&crate::domain::JsPrim::IsNullish));
+}
+
+/// An array rest target gathers what the iterator has LEFT — a drain from the current
+/// position rather than from the start — so the entry point that drains an iterable is
+/// the wrong operation for it however much it looks right.
+#[test]
+fn an_array_rest_target_is_refused_because_it_drains_from_here() {
+    let refused = only("function f(xs) { const [a, ...r] = xs; return r; }")
+        .expect_err("a rest target");
     assert_eq!(
         refused,
         Unsupported::Expression(
-            "an array pattern steps the iteration protocol, which is not indexing"
+            "an array rest target drains from the current position, which needs an append"
         )
     );
 }
