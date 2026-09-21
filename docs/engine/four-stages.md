@@ -1393,3 +1393,89 @@ grouping was not.
 
 Per file against a kept binary at every step, both corpora, denominator unmoved,
 **LOST empty at all six**.
+
+---
+
+## What is left of this stage, measured rather than estimated
+
+Asked directly, and answered by searching rather than by recalling. **It is one thing,
+and the other three are downstream of it.**
+
+| missing | what the search found |
+|---|---|
+| **a producer at the machine boundary** | `MachineOps` had **zero** implementations outside a toy with one primitive in `rts-mir`'s own tests |
+| **E2 on the path that runs** | `resolve_module` is reached only from `mir_dump`, which is only reached from `rts mir` |
+| **a guard, therefore a second tier** | `Op::Guard` and `Terminator::Fall`: **zero** producers. Nothing asks for `Tier::Specialised` |
+| **passes** | one, `refine_effects` |
+
+So the stage lowered 15 223 of 17 194 functions to a graph and **no graph became
+code**. That is a harsher reading than the share suggests, and it is the accurate one.
+
+### The first producer, and the hole that explains why there had been none
+
+`MachineOps::prim` received the machine values and nothing else, while `param_repr`
+directly above it takes a `ValueId` and says the answer *"comes from what a pass proved
+about the value"*. So a front end could set a parameter's representation from the
+lattice and then have **no way** to lower `-` as a machine instruction, because it
+could not ask what its operands were proved to be.
+
+The type domain arrived at the boundary and was unusable there. That is a fair account
+of why nothing had implemented the trait, and it is the kind of gap that does not
+appear in any count: every test passed, the graph was well formed, and the one thing
+missing was a parameter.
+
+It now takes the whole `Inst` — one parameter instead of three, and the other two earn
+their place: the result is what a representation is a fact *about*, and `at` is what a
+fault record needs.
+
+### Three things the machine and the lattice taught the file, none of them guessed
+
+**The first draft lowered integer arithmetic and every arm of it was dead.**
+`Subtract`, `Multiply`, `Divide` and `Remainder` answer `Double` whatever their
+operands were, because the result may not fit in an `i32` — which `domain/tables.rs`
+records about `+` and is true of all four. A guard on `result == Int32` is a condition
+nothing satisfies. So the slice works in the double domain, and what found this was
+reading the lattice rather than reasoning about it.
+
+**`%` has no form here, and `arith` is what said so**: `UnsafeRemainder { found: F64 }`,
+because `NumOp::Rem` is integer-domain only. Nor is that a gap in the machine —
+JavaScript's `%` over doubles is `fmod`, which keeps the sign of the left operand, so a
+float instruction that *did* exist would have been the wrong one to reach for.
+
+**A text operand is refused at the CONSTANT, not at the operation**, the other way
+round from what the test first asserted: the literal is its own instruction, lowered
+before the subtraction that reads it. Recorded because the wrong guess is the natural
+one — the interesting refusal is the one about the operand, and it is not the one a
+reader gets.
+
+### The bound it hits, which is the headline
+
+**A parameter is `Anything`.** Rule 4 of `crates/rts-codegen/README.md` says a type
+annotation is evidence and not proof, so `function f(a: number)` proves nothing about
+`a`, and every primitive over one is refused at this boundary. A test pins that an
+annotation and no annotation are refused **identically** — rule 4 as a test rather than
+as prose, and a tripwire for the day something starts trusting a declaration the
+language does not check.
+
+What would turn `Anything` into `Int32` is a **guard**, and nothing emits one.
+
+So the order of the remaining work is settled by this rather than chosen: **a guard
+producer comes next**, because without it the boundary is correct and has nothing to
+work on for any function that takes an argument. Then the second tier, which is what a
+guard falls to. Then passes, including the array specialisation `lower/iterate.rs`
+explicitly deferred to one.
+
+### One more finding, about the tests rather than the code
+
+The boundary test builds the signature from what the language answers — and it supplied
+the RETURN half by hand at first. A comparison caught it in the same minute: `7 < 3`
+answers a boolean against a declared `F64`, and the machine's verifier said
+`ReturnRepr { expected: F64, found: Bool }`.
+
+**A principle stated and half applied** is the shape of mistake this whole stage exists
+against, and it turned up inside the file whose header states the principle. Worth
+keeping for that reason alone.
+
+Measured per file against a kept binary: `bench/` 357 of 397 and `tests/` 15 223 of
+17 194, both **unchanged**, LOST empty. Expected, and stated rather than omitted: this
+adds a consumer of the graph and changes nothing that produces one.
