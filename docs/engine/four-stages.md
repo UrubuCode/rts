@@ -1580,3 +1580,99 @@ is unchanged in kind and shorter by one:
 Measured per file against a kept binary: both corpora unchanged, LOST empty. `rts mir`
 prints the generic tier, so nothing it surveys emits a guard — stated rather than left
 as a surprise for whoever runs it next.
+
+---
+
+## The side exit, and what TypeScript is actually for here
+
+`function f(a: number, b: number) { return a - b; }`, in the specialised tier:
+
+```text
+block0(v0: Tagged, v1: Tagged)   Guard v0 expect F64   -> block1 / block2
+block1(v2: F64)                  Guard v1 expect F64   -> block3 / block4
+block2                           Call generic(v0, v1); Return
+block3(v4: F64)                  FloatArith(Sub, v2, v4); Return
+block4                           Call generic(v0, v1); Return
+```
+
+Two guards, two side exits, one native instruction, and the machine's own verifier
+accepts it. **That is the sentence the four stages exist for**, and this is the first
+time anything in this document could print it.
+
+It also settles what the annotations are for. They are not a type system this compiler
+enforces and they are not documentation — they are **where the speculation comes from**.
+`: number` says which assumption is worth a check; the guard makes it sound; the fall
+makes it survivable. Nothing in the chain believes TypeScript at any point, and the
+un-annotated form of the same function still reaches no instruction.
+
+### Why it is buildable now and was not, and it is one observation
+
+A guard in the **entry block with nothing but guards before it** has no local state
+behind it. So the live set *is* the parameters, and falling from there needs no frame
+reconstructed — it needs the same arguments handed to the other tier.
+
+That is the whole of it. The rest of `deopt-lateral.md` D3 — reconstructing a frame for
+a guard in the middle of a body — is still absent and still refused by the same name it
+always was.
+
+**The condition is checked structurally, by position.** `rts-mir` has no liveness pass,
+and a condition it can check *exactly* is worth more than one it would approximate. Both
+halves are pinned: a guard at the entry lowers, and the same guard with one ordinary
+instruction in front of it is refused.
+
+### Two questions the boundary grew, and why each belongs to the language
+
+`asserted_repr` — what an assertion narrows to in machine terms. `IsStr` answers
+**None**, because a string is a reference to a heap value whose layout is the runtime's
+shape tree, and inventing a `Ref` of something would be a guard that narrowed to the
+wrong thing **and passed**.
+
+`fall` — what happens when a guard fails. Where a fall lands is an arrangement between
+two bodies of one function, and which two those are is not something a graph knows.
+`rts-host` is the crate that may name all three layers, so it is where the pairing is
+agreed — exactly as the entry-point symbols and the singleton numbering are.
+
+### The property the whole arrangement rests on
+
+**Every fall hands over the original arguments, never the narrowed ones.** A test pins
+it across both falls, *including the second* — where the first guard had held and a
+narrowed `a` existed.
+
+The generic body is reached precisely when a speculation did **not** hold. Handing it
+the value the failed guard claimed to have produced would pass on the very thing that
+was wrong, and it would be subtly wrong in the way nothing else catches: the types
+line up, the verifier is content, and the program answers using a value that was never
+established.
+
+A tail call would save the frame and is not available — `unwind`'s header says a call in
+tail position discards its frame before control transfers, so it cannot also be the call
+a handler is installed around. So the fall calls and returns, costing one frame on the
+path taken when a speculation failed, which is the path whose cost the arrangement is
+willing to pay.
+
+### A justification that stopped being true, kept because that is the lesson
+
+The boundary test built its registries fresh wherever one was needed, on an argument
+written into the file: `lower` takes them immutably, so nothing it does can add a row,
+and two empty registries built the same way are the same registry.
+
+Declaring the generic twin **mutates** the function registry. So the verifier read a
+fresh one, found no such callee, and said `UnknownCallee` — the right answer to the
+wrong registry. The argument was sound when written and false two commits later, and
+nothing about it looked stale.
+
+**A justification is only as good as the last thing that changed under it.** That is
+the third time this campaign has produced a variant of the same finding, after a test
+that pinned a gap as a rule and a work list that pointed at the wrong crate.
+
+### What is left
+
+1. **frame reconstruction** — a guard that is not at the entry, which is the remainder
+   of D3;
+2. **E2 on the path that runs**, still reached only from `rts mir`;
+3. **passes**, still one — and `rts mir` surveys the generic tier, so nothing it prints
+   shows a guard. Worth fixing next if only so the work is visible to the instrument
+   that measures it.
+
+Measured per file against a kept binary at every step: both corpora unchanged by this
+commit, LOST empty.
