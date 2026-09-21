@@ -542,6 +542,12 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
 ///
 /// When `regions` is not a power of two. A selector is a mask.
 pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
+    // No entry file, so no project, so no map. Said HERE rather than left to
+    // whatever `graph::load` last installed on this thread: the alias map is
+    // thread-wide and outlives the load that put it there, so a compile that
+    // never had an entry would otherwise inherit a previous program's aliases
+    // — and a bare specifier would resolve to a file this source never named.
+    crate::graph::forget_aliases();
     let front = front_end(source)?;
     assemble(
         front.emitted,

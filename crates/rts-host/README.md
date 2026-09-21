@@ -118,6 +118,16 @@ and rule 4 is now a claim with a gate behind it: the AOT smoke in
 destinations and **diffs the two answers**. A binary that starts and answers
 differently fails it, which a smoke that only asks "did it run" never could.
 
+**A bare or relative specifier is no longer the only way to name a file.** A
+project's `tsconfig.json` (`paths`/`baseUrl`) can now make `import "@/x"` name
+a file too, and this line used to say it could not. `is_relative` is gone from
+every one of the six sites that used to ask it; `resolve_written` answers all
+of them, and a project with no `tsconfig.json` resolves byte for byte as
+before. `docs/engine/import-alias.md` has the precedence and the cost; a
+COMPUTED alias specifier (`import("@/" + name)`) is still refused by name on
+both destinations, for the same reason a computed relative one already was —
+see the entry below.
+
 What is left:
 
 - **No fault handling.** A compiled program that traps takes the process with

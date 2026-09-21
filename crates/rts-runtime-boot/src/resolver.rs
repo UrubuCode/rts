@@ -24,10 +24,14 @@
 //! # What this therefore cannot do, stated rather than discovered
 //!
 //! A COMPUTED specifier. `require("./" + name)` is in no table, because there
-//! was nothing in the tree to resolve while compiling — so it resolves in a JIT
-//! run and is refused, by name, in an AOT one. That is the one place the two
-//! destinations answer differently about a program, and it is a fact about the
-//! destination: one of them has the files.
+//! was nothing in the tree to resolve while compiling. This module answers
+//! `None` for it, exactly as it does for a bare or `node:` specifier — and a
+//! JIT run answers the same way in the end, though by a different route: its
+//! resolver hook can still ask the disk and produce a real PATH, but
+//! `rts_core::entry::module_import` reads only what the static walk already
+//! registered, so the import fails regardless. Both destinations refuse a
+//! computed specifier, by name, identically; neither has the files a program
+//! only decides which to ask for at run time.
 
 use std::sync::OnceLock;
 
@@ -49,7 +53,8 @@ pub fn declare(resolutions: Vec<(String, String, String)>) {
 /// `None` for anything not in it — a bare name, a `node:` specifier, or a
 /// computed one — which leaves the specifier as the program wrote it. That is
 /// the same answer `rts_host::graph::resolve_specifier` gives for the first
-/// two, and the divergence for the third is this module's own header.
+/// two; the third is this module's own header — a computed specifier fails
+/// the same way on both destinations, just by a different route.
 pub fn resolve(from: &str, specifier: &str) -> Option<String> {
     let table = TABLE.get()?;
     table

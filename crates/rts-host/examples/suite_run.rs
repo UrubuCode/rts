@@ -64,12 +64,13 @@ fn measure() {
     // every assertion — 14 of them in `module_imports.test.ts` alone, which is
     // about this measurement rather than about the engine.
     //
-    // A relative specifier is the test: `node:` and `rts:` are resolved by the
-    // runtime, and only `./` and `../` name another file the loader has to read.
-    let imports_a_file = source.contains("from \"./")
-        || source.contains("from \"../")
-        || source.contains("from './")
-        || source.contains("from '../");
+    // WHICH specifiers name a file is `rts_host::names_any_file`'s answer and
+    // not this file's. It used to be four `contains` calls here, and that copy
+    // had the defect task 9 fixed: an alias (`@/x`) names a file and contains
+    // none of the four, so an alias-only suite file was measured by the
+    // single-file path — "ran and failed every assertion" — for the exact
+    // reason this comment says relative imports must not be.
+    let imports_a_file = rts_host::names_any_file(&source, &path).unwrap_or(false);
     let compiled = match imports_a_file {
         true => rts_host::compile_graph(&path),
         false => rts_host::compile(&source),

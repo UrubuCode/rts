@@ -77,9 +77,12 @@ fn compile_shell_has_no_relative_import_so_it_never_compiles_as_a_graph() {
     let entry = fixture_path();
     let program = html_entry::for_compile(&entry, &html).expect("gera a casca de compile");
 
-    // `rts_cli::cli::new_engine::imports_a_file` decide grafo por estas
-    // mesmas substrings — o programa gerado não deve acionar nenhuma, senão
-    // um `.html` de entrada passaria a compilar como grafo por engano.
+    // Isto NÃO é uma cópia da decisão: `imports_a_file` já não decide "nomeia
+    // um ficheiro" por substring nenhuma — pergunta a `rts_host::names_any_file`
+    // — e `from "./"`/`from "../"` estão aqui como o texto que essa resolução
+    // encontraria. `require(`, `module.exports` e `import.meta` continuam a ser
+    // braços literais dessa função, e nenhum deles deve aparecer na casca: um
+    // `.html` de entrada passaria a compilar como grafo por engano.
     for needle in ["from \"./", "from \"../", "require(", "module.exports", "import.meta"] {
         assert!(!program.contains(needle), "casca de compile parece um grafo (`{needle}`):\n{program}");
     }

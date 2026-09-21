@@ -37,14 +37,15 @@ pub(super) fn is_relative(specifier: &str) -> bool {
 /// the same resolution, reached from there: `rts-core` holds the hook and this
 /// fills it, exactly as it does for compiling source.
 ///
-/// `None` for anything that is not a relative path, which leaves the specifier
+/// `None` for anything that does not name a file, which leaves the specifier
 /// as the program wrote it — the rule the loader applies to `node:fs` and to a
 /// bare name, stated once and applied in both directions.
 pub(crate) fn resolve_specifier(from: &str, specifier: &str) -> Option<String> {
-    if !is_relative(specifier) {
-        return None;
-    }
-    Some(resolve(Path::new(from), specifier).display().to_string())
+    // The SAME question the loader's walk asked, through the same map, so a
+    // name that named a file at load time still names that file at run time.
+    let from = Path::new(from);
+    let found = super::tsconfig::with_active(|aliases| resolve_written(from, specifier, aliases))?;
+    Some(found.display().to_string())
 }
 
 /// A path as the `file:` URL `import.meta.url` answers.
@@ -143,6 +144,21 @@ pub(super) fn plain(path: PathBuf) -> PathBuf {
     }
 }
 
+/// One file, one spelling: canonicalised, then stripped of Windows's
+/// verbatim prefix.
+///
+/// Both branches of [`resolve_written`] end here, and that is the point. The
+/// loader keys a module by the string this answers, so two written names for
+/// one file that came back as two strings would be two modules with two
+/// namespaces — the failure the design's §5 exists to prevent. A `paths`
+/// target is allowed to escape the project (`"@lib/*": ["../../shared/*"]`),
+/// so a joined alias path really does keep a `..` that the relative spelling
+/// of the same file does not, and `tests/import_alias.rs` failed on exactly
+/// that before this was shared.
+fn settled(path: PathBuf) -> PathBuf {
+    plain(path.canonicalize().unwrap_or(path))
+}
+
 /// The path a relative specifier names, from the file that wrote it.
 pub(super) fn resolve(from: &Path, specifier: &str) -> PathBuf {
     let base = from.parent().unwrap_or(Path::new("."));
@@ -158,5 +174,96 @@ pub(super) fn resolve(from: &Path, specifier: &str) -> PathBuf {
     // spellings of one file compiled twice would run its side effects twice and
     // give it two namespaces, and `import { x } from` each would answer two
     // different `x`.
-    plain(joined.canonicalize().unwrap_or(joined))
+    settled(joined)
+}
+
+/// Whether a specifier names something the HOST provides rather than a file.
+///
+/// A `:` before any `/` is a scheme: `node:fs`, `rts:egui`. Such a name is
+/// never a path, and asking the disk about it is not merely wasteful — with a
+/// `baseUrl` set, a directory called `node` beside the config would answer,
+/// and `node:fs` would silently become a user's file. That failure compiles
+/// and lies, which is the one this crate's rule 1 names.
+///
+/// A Windows absolute specifier (`C:/x`) has the same shape and gets the same
+/// answer, which is also what it gets today: [`is_relative`] is false for it.
+pub fn names_the_host(specifier: &str) -> bool {
+    match specifier.find(':') {
+        None => false,
+        Some(colon) => !specifier[..colon].contains('/'),
+    }
+}
+
+/// Whether this specifier names a FILE, and which.
+///
+/// The one question, asked by the loader's walk, by `rewrite`, and by the
+/// runtime resolver. It replaced a bare [`is_relative`] at each of those sites
+/// so that a second thing never learns what a path is — the header of
+/// `rts_core::entry::dynamic_module` records what the last copy cost.
+///
+/// `None` keeps its established meaning: not a file, so the text is used as
+/// written and the host provides it by name.
+pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -> Option<PathBuf> {
+    if is_relative(specifier) {
+        return Some(resolve(from, specifier));
+    }
+    if names_the_host(specifier) {
+        return None;
+    }
+    // Every candidate the map offers, in the map's order, and the first that
+    // is a real file. `extended` is what "a real file" means here — extension
+    // and `index.*` — and it is called rather than reproduced.
+    for candidate in aliases.candidates(specifier) {
+        // A declaration file is a TYPE mapping and names no module. `tsc` reads
+        // such a target to type check an import the HOST answers at run time,
+        // which is exactly what `rts init` scaffolds and what this repository's
+        // own `tsconfig.json` writes: `"rts": ["./rts-types/rts.d.ts"]`, beside
+        // a real `rts.d.ts`. Taken as a module it wins over the bare `rts` the
+        // runtime provides — `names_the_host` cannot catch a name with no
+        // colon — and every `import { … } from "rts"` binds nothing. Skipped
+        // rather than refused, so the next target and the `baseUrl`
+        // fall-through still get their turn: the mapping is not an error, it is
+        // simply not about modules. This closes the whole `typeRoots` class,
+        // not one key.
+        if is_declaration(&candidate) {
+            continue;
+        }
+        // A target may already be written with its extension
+        // (`"@/one": ["./exact/one.ts"]`), and `extended` assumes the opposite
+        // — handed "one.ts" it tries "one.ts.ts" next. Checked literally FIRST,
+        // the same order `resolve` already uses for a relative specifier, so an
+        // exact target is not run through a rule written for an extension-less
+        // one.
+        if candidate.is_file() {
+            return Some(settled(candidate));
+        }
+        // `continue`, never `?`. Spec §9 point 4 says the list is "tried in
+        // order", and a `?` here answered `None` from the FUNCTION: one
+        // candidate nobody can take apart — a target ending in `..`, a name
+        // that is not UTF-8 — silently discarded every LATER target and the
+        // `baseUrl` fall-through with it. A candidate that cannot be split is
+        // a candidate that does not match, which is all it ever meant.
+        let (Some(parent), Some(name)) =
+            (candidate.parent(), candidate.file_name().and_then(|one| one.to_str()))
+        else {
+            continue;
+        };
+        match extended(parent, name) {
+            Some(found) if !is_declaration(&found) => return Some(settled(found)),
+            _ => continue,
+        }
+    }
+    None
+}
+
+/// Whether a path is a TypeScript DECLARATION file.
+///
+/// `Path::extension` answers `ts` for both `x.ts` and `x.d.ts`, so the whole
+/// file name is what carries the difference.
+fn is_declaration(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts")
+        })
 }

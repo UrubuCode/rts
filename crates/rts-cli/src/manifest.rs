@@ -16,45 +16,10 @@ pub struct RawPackageManifest {
     pub dependencies: BTreeMap<String, String>,
 }
 
-/// Strip `//` line comments outside of strings (JSONC → JSON).
-pub fn strip_json_comments(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut chars = input.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if in_string {
-            output.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if ch == '"' {
-            in_string = true;
-            output.push(ch);
-            continue;
-        }
-
-        if ch == '/' && matches!(chars.peek(), Some('/')) {
-            let _ = chars.next();
-            for next in chars.by_ref() {
-                if next == '\n' {
-                    output.push('\n');
-                    break;
-                }
-            }
-            continue;
-        }
-
-        output.push(ch);
-    }
-
-    output
-}
+/// Strip JSONC down to JSON.
+///
+/// Moved to `rts-host` so the module loader can call it for `tsconfig.json`:
+/// `rts-cli` depends on `rts-host` and not the other way round, so the shared
+/// answer has to live in the lower crate. Kept as a name here because callers
+/// in this crate spell it this way.
+pub use rts_host::jsonc::strip as strip_json_comments;
