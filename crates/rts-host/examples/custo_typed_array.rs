@@ -17,8 +17,7 @@
 //! ```
 
 fn medir(nome: &str, corpo: &str) {
-    let src = format!(
-        r#"
+    let src = format!(r#"
 const N = 100000;
 const a = new Float32Array(4096);
 let aquece = 0;
@@ -29,13 +28,9 @@ let j = 0;
 while (j < N) {{ {corpo} j = j + 1; }}
 const t1 = performance.now();
 return (t1 - t0) * 1000000.0 / N + s * 0.0;
-"#
-    );
+"#);
     match rts_host::compile(&src) {
-        Ok(mut p) => println!(
-            "{nome:<34} {:.1} ns/volta",
-            rts_cranelift::tags::decode_double(p.run())
-        ),
+        Ok(mut p) => println!("{nome:<34} {:.1} ns/volta", rts_cranelift::tags::decode_double(p.run())),
         Err(e) => println!("{nome:<34} RECUSADO: {e:?}"),
     }
 }
@@ -44,10 +39,7 @@ fn main() {
     medir("laco vazio", "s = s + 1.0;");
     medir("so o modulo (j % 4096)", "s = s + (j % 4096) * 1.0;");
     medir("indice CONSTANTE a[0]", "a[0] = 1.0; s = s + a[0];");
-    medir(
-        "indice variavel a[j % 4096]",
-        "a[j % 4096] = 1.0; s = s + a[j % 4096];",
-    );
+    medir("indice variavel a[j % 4096]", "a[j % 4096] = 1.0; s = s + a[j % 4096];");
     medir("so escrita a[0]", "a[0] = 1.0;");
     medir("so leitura a[0]", "s = s + a[0];");
 }

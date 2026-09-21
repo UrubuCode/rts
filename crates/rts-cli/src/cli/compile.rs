@@ -83,8 +83,7 @@ pub fn command(
     windows_subsystem: Option<WindowsSubsystem>,
     html_files: &[String],
 ) -> Result<()> {
-    let input =
-        input.ok_or_else(|| anyhow!("usage: rts compile <input.ts|input.html> [output]"))?;
+    let input = input.ok_or_else(|| anyhow!("usage: rts compile <input.ts|input.html> [output]"))?;
     let (entry, output_base) = if crate::url_entry::is_url(&input) {
         let local = crate::url_entry::fetch_program(&input)?;
         let name = local
@@ -112,8 +111,8 @@ pub fn command(
     // unlike the JIT bootstrap `html_scripts::window_base` runs.
     let is_html_entry = crate::cli::html_entry::is_html(&entry);
     let source = if is_html_entry {
-        let html =
-            std::fs::read_to_string(&entry).with_context(|| format!("read {}", entry.display()))?;
+        let html = std::fs::read_to_string(&entry)
+            .with_context(|| format!("read {}", entry.display()))?;
         crate::cli::html_entry::for_compile(&entry, &html)
             .with_context(|| format!("build the window-loop shell for {}", entry.display()))?
     } else {
@@ -144,26 +143,24 @@ pub fn command(
     let on_disk = entry.clone();
     let program = std::thread::Builder::new()
         .stack_size(STACK)
-        .spawn(
-            move || -> Result<rts_host::object::ObjectProgram, rts_host::HostError> {
-                // Extracted here rather than passed in already-extracted: a page
-                // `<script>` compiles under the SAME `Scoped::Page` rules as a
-                // JIT run, which is what `object::page` builds on top of the
-                // main program's own `FrontEnd` — see that module's header for
-                // why the two cannot be two object files.
-                let page_scripts = rts_host::object::html_scripts::extract_files(&html_paths)?;
-                match (graph, page_scripts.is_empty()) {
-                    (true, true) => rts_host::object::compile_graph_to_object(&on_disk),
-                    (true, false) => {
-                        rts_host::object::compile_graph_to_object_with_html(&on_disk, &page_scripts)
-                    }
-                    (false, true) => rts_host::object::compile_to_object(&source),
-                    (false, false) => {
-                        rts_host::object::compile_to_object_with_html(&source, &page_scripts)
-                    }
+        .spawn(move || -> Result<rts_host::object::ObjectProgram, rts_host::HostError> {
+            // Extracted here rather than passed in already-extracted: a page
+            // `<script>` compiles under the SAME `Scoped::Page` rules as a
+            // JIT run, which is what `object::page` builds on top of the
+            // main program's own `FrontEnd` — see that module's header for
+            // why the two cannot be two object files.
+            let page_scripts = rts_host::object::html_scripts::extract_files(&html_paths)?;
+            match (graph, page_scripts.is_empty()) {
+                (true, true) => rts_host::object::compile_graph_to_object(&on_disk),
+                (true, false) => {
+                    rts_host::object::compile_graph_to_object_with_html(&on_disk, &page_scripts)
                 }
-            },
-        )
+                (false, true) => rts_host::object::compile_to_object(&source),
+                (false, false) => {
+                    rts_host::object::compile_to_object_with_html(&source, &page_scripts)
+                }
+            }
+        })
         .expect("a thread to compile the new engine's AOT object on")
         .join()
         .expect("the compile thread not to panic")
@@ -182,11 +179,7 @@ pub fn command(
     let archive = super::runtime_archive(options.embed_compiler).with_context(|| {
         format!(
             "locate the new engine's AOT runtime archive ({})",
-            if options.embed_compiler {
-                "rts-runtime-jit"
-            } else {
-                "rts-runtime"
-            }
+            if options.embed_compiler { "rts-runtime-jit" } else { "rts-runtime" }
         )
     })?;
     let exe_path = exe_output_path(output.as_deref(), &output_base);
@@ -221,9 +214,8 @@ pub fn command(
     // whether a compiler is embedded, and still available as its own flag.
     request.keep_all_runtime_symbols = options.all_namespaces;
 
-    let linked =
-        link_objects_to_binary_with_request(&[obj_path.clone(), archive], &exe_path, &request)
-            .with_context(|| format!("link {} + runtime archive", obj_path.display()))?;
+    let linked = link_objects_to_binary_with_request(&[obj_path.clone(), archive], &exe_path, &request)
+        .with_context(|| format!("link {} + runtime archive", obj_path.display()))?;
 
     // The sidecar `rts_host::object`'s module doc names: keys, literals,
     // template pieces and the singleton/kind numbering, read by the facade's
@@ -280,11 +272,7 @@ fn exe_output_path(output: Option<&str>, fallback: &Path) -> PathBuf {
 /// otherwise sit next to the fallback base as `<stem>.o`/`.obj` (the input path,
 /// or the URL's bare file name in the cwd for a URL entry).
 fn object_output_path(output: Option<&str>, fallback: &Path) -> PathBuf {
-    let ext = if cfg!(target_os = "windows") {
-        "obj"
-    } else {
-        "o"
-    };
+    let ext = if cfg!(target_os = "windows") { "obj" } else { "o" };
     match output {
         Some(o) => {
             let base = PathBuf::from(o);

@@ -28,10 +28,7 @@ use crate::run::SCRIPT;
 /// `__runScriptAt` still runs as an ordinary script, a pre-existing
 /// simplification this function does not change — see
 /// `docs/engine/aot-page-scripts.md`.
-pub(crate) fn wrap_and_parse_script(
-    source: &str,
-    names: &mut Names,
-) -> Result<Vec<Stmt>, HostError> {
+pub(crate) fn wrap_and_parse_script(source: &str, names: &mut Names) -> Result<Vec<Stmt>, HostError> {
     let wrapper = match source.contains("await ") {
         true => "async function",
         false => "function",
@@ -41,12 +38,10 @@ pub(crate) fn wrap_and_parse_script(
     // so the wrapper never closed and the parser reported `Expected '}', got
     // '<eof>'` — twelve files in the corpus, refused for a character this host
     // wrote rather than for anything they contained.
-    let wrapped = format!(
-        "{wrapper} {SCRIPT}() {{ {source}
- }}"
-    );
-    let program =
-        parse_script(&wrapped, names).map_err(|error| HostError::Parse(format!("{error:?}")))?;
+    let wrapped = format!("{wrapper} {SCRIPT}() {{ {source}
+ }}");
+    let program = parse_script(&wrapped, names)
+        .map_err(|error| HostError::Parse(format!("{error:?}")))?;
     // Anything other than the one function declaration means the wrapping did
     // not produce what it was written to produce, which is a defect here
     // rather than in the source.

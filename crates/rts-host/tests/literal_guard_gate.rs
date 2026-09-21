@@ -73,9 +73,7 @@ fn undefined_is_a_name_and_is_still_guarded() {
 #[test]
 fn it_is_the_literal_and_not_the_operator_that_settles_it() {
     // Every operator the guarded form covers, with a string on one side.
-    for op in [
-        "+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "===", "!==",
-    ] {
+    for op in ["+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "!=", "===", "!=="] {
         let source = format!("function f(i) {{ return \"n\" {op} i; }}\nconsole.log(f(1));\n");
         assert_eq!(guards_in(&source, "f"), 0, "`\"n\" {op} i`");
     }
@@ -83,10 +81,7 @@ fn it_is_the_literal_and_not_the_operator_that_settles_it() {
     // is for and must be left alone.
     for op in ["+", "-", "*", "<", "==="] {
         let source = format!("function f(i, j) {{ return i {op} j; }}\nconsole.log(f(1, 2));\n");
-        assert!(
-            guards_in(&source, "f") >= 2,
-            "`i {op} j` speculates on both operands"
-        );
+        assert!(guards_in(&source, "f") >= 2, "`i {op} j` speculates on both operands");
     }
 }
 

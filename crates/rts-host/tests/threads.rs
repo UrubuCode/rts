@@ -75,8 +75,8 @@ fn each_thread_allocates_in_its_own_region() {
     //
     // The program answers its first object rather than a number, so the test can
     // look at the reference itself.
-    let mut program =
-        compile_for("let o = {a: 1}; return o;", 4).expect("compiles for four regions");
+    let mut program = compile_for("let o = {a: 1}; return o;", 4)
+        .expect("compiles for four regions");
     let answers = program.run_on(4);
 
     let mut seen: Vec<u64> = answers
@@ -108,10 +108,7 @@ fn asking_for_more_threads_than_regions_is_refused() {
     let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         program.run_on(4);
     }));
-    assert!(
-        refused.is_err(),
-        "four threads over two regions was allowed"
-    );
+    assert!(refused.is_err(), "four threads over two regions was allowed");
 }
 
 #[test]

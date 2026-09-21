@@ -94,11 +94,7 @@ pub fn command(input: Option<String>) -> Result<()> {
             path.display()
         ));
     };
-    println!(
-        "{} loaded, exporting {} names:",
-        path.display(),
-        names.len()
-    );
+    println!("{} loaded, exporting {} names:", path.display(), names.len());
     for (name, answer) in names {
         match answer {
             Some(answer) => println!("  {name}() -> {answer}"),

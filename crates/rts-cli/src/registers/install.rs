@@ -76,7 +76,11 @@ fn install_one(
 
     if symlink_mode {
         symlink_dir(&register_path, &dest).with_context(|| {
-            format!("symlink {} -> {}", register_path.display(), dest.display())
+            format!(
+                "symlink {} -> {}",
+                register_path.display(),
+                dest.display()
+            )
         })?;
     } else {
         copy_dir_all(&register_path, &dest)?;
@@ -148,10 +152,7 @@ fn install_bin(bin_dir: &Path, name: &str, target: &Path, symlink_mode: bool) ->
         let _ = symlink_mode;
         // .cmd wrapper for cmd.exe
         let cmd_path = bin_dir.join(format!("{name}.cmd"));
-        let cmd_script = format!(
-            "@echo off\r\n\"{target}\" %*\r\n",
-            target = target.display()
-        );
+        let cmd_script = format!("@echo off\r\n\"{target}\" %*\r\n", target = target.display());
         std::fs::write(&cmd_path, cmd_script)?;
 
         // shell script for Git Bash / WSL

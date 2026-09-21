@@ -50,8 +50,8 @@ use rts_codegen::syntax::ModuleItem;
 
 mod resolve;
 
-pub(crate) use resolve::resolve_specifier;
 use resolve::{extended, file_url, is_relative, plain, resolve};
+pub(crate) use resolve::resolve_specifier;
 
 use crate::link::HostError;
 
@@ -331,9 +331,11 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
     let resolutions: Vec<(String, String, String)> = loaded
         .iter()
         .flat_map(|file| {
-            file.resolutions.iter().map(|(written, resolved)| {
-                (file.specifier.clone(), written.clone(), resolved.clone())
-            })
+            file.resolutions
+                .iter()
+                .map(|(written, resolved)| {
+                    (file.specifier.clone(), written.clone(), resolved.clone())
+                })
         })
         .collect();
     // The load order is dependencies-first, so the ENTRY is the last file —
@@ -424,3 +426,4 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
         resolutions,
     })
 }
+

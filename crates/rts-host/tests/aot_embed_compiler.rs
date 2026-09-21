@@ -33,15 +33,8 @@ use rts_core::value::Singletons;
 /// it. The singleton and kind numbers are arbitrary: nothing here reads a
 /// value, so nothing needs them to agree with any compilation's.
 fn bare_context() -> Context {
-    let singletons = Singletons {
-        undefined: 0,
-        null: 1,
-        hole: 2,
-    };
-    let kinds = Kinds {
-        symbol: 3,
-        bigint: 4,
-    };
+    let singletons = Singletons { undefined: 0, null: 1, hole: 2 };
+    let kinds = Kinds { symbol: 3, bigint: 4 };
     Context::over(singletons, kinds, Region::with_capacity(1 << 10))
 }
 
@@ -51,10 +44,7 @@ fn install_compiler_wires_every_hook_run_region_used_to_wire_inline() {
     assert!(context.function_compiler.is_none(), "nothing installed yet");
     assert!(context.source_parser.is_none(), "nothing installed yet");
     assert!(context.eval_compiler.is_none(), "nothing installed yet");
-    assert!(
-        context.eval_compiler_with_receiver.is_none(),
-        "nothing installed yet"
-    );
+    assert!(context.eval_compiler_with_receiver.is_none(), "nothing installed yet");
     assert!(context.evaluator.is_none(), "nothing installed yet");
     assert!(context.resolver.is_none(), "nothing installed yet");
 

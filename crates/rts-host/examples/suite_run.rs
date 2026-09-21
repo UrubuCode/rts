@@ -89,11 +89,7 @@ fn measure() {
     let reported = rts_std::test::record();
     let failed: Vec<String> = reported
         .iter()
-        .filter_map(|one| {
-            one.failure
-                .clone()
-                .map(|why| format!("{}: {why}", one.name))
-        })
+        .filter_map(|one| one.failure.clone().map(|why| format!("{}: {why}", one.name)))
         .collect();
     let passed = reported.len() - failed.len();
 

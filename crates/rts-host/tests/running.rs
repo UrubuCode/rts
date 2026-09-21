@@ -544,10 +544,7 @@ fn a_loop_can_now_be_written_the_way_a_program_writes_one() {
 #[test]
 fn a_hole_beside_a_spread_stays_a_hole() {
     // The one that was refused until this list emptied.
-    assert_eq!(
-        tags::decode_double(run("return [...[1], , 2].length;")),
-        3.0
-    );
+    assert_eq!(tags::decode_double(run("return [...[1], , 2].length;")), 3.0);
     assert_eq!(
         tags::decode_double(run("return (1 in [...[1], , 2]) ? 1 : 0;")),
         0.0,
@@ -565,10 +562,7 @@ fn a_hole_beside_a_spread_stays_a_hole() {
 
     // A spread of more than one element, so the hole's index is not the
     // spread's length by coincidence.
-    assert_eq!(
-        tags::decode_double(run("return [...[1, 2], , 3].length;")),
-        4.0
-    );
+    assert_eq!(tags::decode_double(run("return [...[1, 2], , 3].length;")), 4.0);
     assert_eq!(tags::decode_double(run("return [...[1, 2], , 3][3];")), 3.0);
 
     // And the hole between an element and a spread.
@@ -810,10 +804,12 @@ fn calling_something_that_is_not_a_function_throws_rather_than_jumping() {
     // needed something bigger than the raise itself: every native that calls
     // user code had to learn to ask whether the callee left a throw behind.
     // Raising before that turned one silent wrong answer into a hang.
-    let caught = run("let kind = 'none'; \
+    let caught = run(
+        "let kind = 'none'; \
          try { let n = 1; n(); } \
          catch (e) { kind = e instanceof TypeError ? 'TypeError' : 'other'; } \
-         return kind === 'TypeError' ? 1 : 0;");
+         return kind === 'TypeError' ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(caught), 1.0);
 }
 
@@ -837,10 +833,8 @@ fn the_limits_of_the_fixed_arity_are_refused_by_name() {
     // it was really protecting rather than deleted: that going past four
     // arguments RUNS and ANSWERS, because the failure it was written against
     // was an argument vanishing without a word.
-    compile(
-        "class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();",
-    )
-    .expect("`super()` past the fixed arity goes through the vector entry");
+    compile("class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();")
+        .expect("`super()` past the fixed arity goes through the vector entry");
 }
 
 #[test]
@@ -1085,36 +1079,28 @@ fn proven_unsigned_right_shift_stays_positive_after_machine_lowering() {
     // Locals keep their numeric proof, so these operands reach the machine path
     // rather than the constant folder or the generic runtime entry point.
     assert_eq!(
-        tags::decode_double(run(
-            "let value = -1; let count = 0; return value >>> count;"
-        )),
+        tags::decode_double(run("let value = -1; let count = 0; return value >>> count;")),
         4294967295.0
     );
     assert_eq!(
-        tags::decode_double(run(
-            "let value = -8; let count = 1; return value >>> count;"
-        )),
+        tags::decode_double(run("let value = -8; let count = 1; return value >>> count;")),
         2147483644.0
     );
     assert_eq!(
-        tags::decode_double(run(
-            "let value = 1; let count = 32; return value >>> count;"
-        )),
+        tags::decode_double(run("let value = 1; let count = 32; return value >>> count;")),
         1.0
     );
 }
 
 #[test]
 fn unary_plus_skips_numeric_conversion_but_converts_generic_values() {
-    assert_eq!(
-        tags::decode_double(run("let value = 3 | 0; return +value;")),
-        3.0
-    );
+    assert_eq!(tags::decode_double(run("let value = 3 | 0; return +value;")), 3.0);
     assert_eq!(tags::decode_double(run("return +\"3\";")), 3.0);
 }
 
 #[test]
 fn a_bitwise_operator_converts_a_string_first() {
+
     // Which is what makes these entry points at all: `ToInt32` runs `ToNumber`,
 
     // and `ToNumber` of a string reads its text out of the heap.
@@ -1216,10 +1202,12 @@ fn a_template_concatenates_rather_than_adding() {
 
 #[test]
 fn a_template_uses_the_string_hint_for_object_substitutions() {
-    let produced = run("let calls = 0; \
+    let produced = run(
+        "let calls = 0; \
          let o = { valueOf: function () { return 7; }, \
                    toString: function () { calls++; return 'T'; } }; \
-         return `${o}` === 'T' && calls === 1;");
+         return `${o}` === 'T' && calls === 1;",
+    );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -1237,7 +1225,9 @@ fn template_join_roots_hook_returned_strings_until_the_final_string_is_built() {
 
 #[test]
 fn string_concat_preserves_arguments_layouts_and_coercion_effects() {
-    holds("return \"a\".concat(\"b\", \"c\", \"d\", \"e\", \"f\") === \"abcdef\";");
+    holds(
+        "return \"a\".concat(\"b\", \"c\", \"d\", \"e\", \"f\") === \"abcdef\";",
+    );
     holds("return String.prototype.concat.call(5, \"!\") === \"5!\";");
     holds(
         "let s = \"a\".concat(\"日\", String.fromCharCode(0xD800)); \
@@ -1722,10 +1712,7 @@ fn a_hole_is_absent_rather_than_an_undefined_that_was_stored() {
     // The pair is the whole point: same length, same read, different `in`.
     assert_eq!(tags::decode_double(run("return [,1].length;")), 2.0);
     assert_eq!(tags::decode_double(run("return [,1][1];")), 1.0);
-    assert_eq!(
-        tags::decode_double(run("return [,1][0] === undefined ? 1 : 0;")),
-        1.0
-    );
+    assert_eq!(tags::decode_double(run("return [,1][0] === undefined ? 1 : 0;")), 1.0);
     assert_eq!(
         tags::decode_double(run("return (0 in [,1]) ? 1 : 0;")),
         0.0,
@@ -2408,6 +2395,7 @@ fn a_throw_from_inside_a_nested_block_still_finds_the_handler() {
     assert_eq!(tags::decode_double(produced), 5.0);
 }
 
+
 #[test]
 fn a_value_assigned_inside_a_try_is_the_one_the_handler_sees() {
     // The reason `capture` forces these into the environment. A handler is
@@ -2451,8 +2439,7 @@ fn a_finally_runs_on_both_the_normal_path_and_the_throwing_one() {
     let quiet = run("let x = 0; try { x = 1; } finally { x = x + 10; } return x;");
     assert_eq!(tags::decode_double(quiet), 11.0);
 
-    let caught =
-        run("let x = 0; try { throw 1; } catch (e) { x = 2; } finally { x = x + 10; } return x;");
+    let caught = run("let x = 0; try { throw 1; } catch (e) { x = 2; } finally { x = x + 10; } return x;");
     assert_eq!(tags::decode_double(caught), 12.0);
 }
 
@@ -2556,8 +2543,7 @@ fn a_program_can_reset_where_the_next_search_starts() {
     // `lastIndex` is a real property rather than state held beside the cell,
     // and this is the difference: a copy the runtime kept would ignore this
     // assignment and search from 1.
-    let produced =
-        run("let r = /a/g; r.test(\"aa\"); r.lastIndex = 0; r.test(\"aa\"); return r.lastIndex;");
+    let produced = run("let r = /a/g; r.test(\"aa\"); r.lastIndex = 0; r.test(\"aa\"); return r.lastIndex;");
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -2569,11 +2555,7 @@ fn each_evaluation_of_one_literal_is_its_own_object() {
     let produced = run(
         "let n = 0; let i = 0; while (i < 2) { let r = /a/g; if (r.test(\"aa\")) { n = n + r.lastIndex; } i = i + 1; } return n;",
     );
-    assert_eq!(
-        tags::decode_double(produced),
-        2.0,
-        "1 from each pass, not 1 then 2"
-    );
+    assert_eq!(tags::decode_double(produced), 2.0, "1 from each pass, not 1 then 2");
 }
 
 #[test]
@@ -2677,11 +2659,13 @@ fn the_string_methods_count_code_units_and_not_bytes() {
 
 #[test]
 fn index_of_keeps_object_conversion_order_off_the_direct_path() {
-    let produced = run("let order = ''; \
+    let produced = run(
+        "let order = ''; \
          let receiver = { toString() { order = order + 'h'; return 'abc'; } }; \
          let needle = { toString() { order = order + 'n'; return 'b'; } }; \
          let found = String.prototype.indexOf.call(receiver, needle, 0); \
-         return found === 1 && order === 'hn';");
+         return found === 1 && order === 'hn';"
+    );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -2702,12 +2686,14 @@ fn slice_crosses_where_substring_swaps() {
 
 #[test]
 fn slice_keeps_receiver_and_bound_conversion_order_off_the_direct_path() {
-    let produced = run("let order = ''; \
+    let produced = run(
+        "let order = ''; \
          let receiver = { toString() { order = order + 'r'; return 'abcd'; } }; \
          let from = { valueOf() { order = order + 'f'; return 1; } }; \
          let to = { valueOf() { order = order + 't'; return 3; } }; \
          let result = String.prototype.slice.call(receiver, from, to); \
-         return result === 'bc' && order === 'rft';");
+         return result === 'bc' && order === 'rft';"
+    );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -2728,19 +2714,23 @@ fn char_at_answers_the_empty_string_where_the_index_answers_undefined() {
 
 #[test]
 fn char_code_at_keeps_utf16_units_and_nan_semantics() {
-    let produced = run("const s = new String('😀'); \
+    let produced = run(
+        "const s = new String('😀'); \
          return (s.charCodeAt(0) === 55357 && s.charCodeAt(1) === 56832 && \
-                 'abc'.charCodeAt(9) !== 'abc'.charCodeAt(9)) ? 1 : 0;");
+                 'abc'.charCodeAt(9) !== 'abc'.charCodeAt(9)) ? 1 : 0;"
+    );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
 #[test]
 fn char_code_at_converts_the_receiver_before_an_object_index() {
-    let produced = run("let order = ''; \
+    let produced = run(
+        "let order = ''; \
          let receiver = { toString() { order = order + 'r'; return 'abc'; } }; \
          let index = { valueOf() { order = order + 'i'; return 1; } }; \
          let code = String.prototype.charCodeAt.call(receiver, index); \
-         return code === 98 && order === 'ri';");
+         return code === 98 && order === 'ri';"
+    );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -2759,9 +2749,7 @@ fn a_program_can_add_a_method_to_every_string() {
 fn the_constructor_holds_properties_of_its_own() {
     // `String.yellow = f` — an ordinary write on the constructor, which is an
     // ordinary object.
-    let produced = run(
-        "String.twice = function (s) { return s + s; }; return String.twice(\"ab\") === \"abab\";",
-    );
+    let produced = run("String.twice = function (s) { return s + s; }; return String.twice(\"ab\") === \"abab\";");
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -2822,8 +2810,9 @@ fn a_replacement_can_be_a_function_the_program_wrote() {
     // The one place a built-in calls back into compiled code. It is why the
     // replacement is computed between two borrows of the context rather than
     // inside one — calling user code from inside a borrow re-enters it.
-    let produced =
-        run("return \"ab\".replace(/./g, function (m) { return m.toUpperCase(); }) === \"AB\";");
+    let produced = run(
+        "return \"ab\".replace(/./g, function (m) { return m.toUpperCase(); }) === \"AB\";",
+    );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 
     // The second argument is where the match was.
@@ -2949,8 +2938,7 @@ fn a_method_can_close_over_where_the_class_was_written() {
     // The capture analysis has to descend into a class body. Skipping it was
     // not a missing feature but a wrong answer: `secret` would be decided
     // uncaptured and the method would read a register the activation had left.
-    let produced =
-        run("let secret = 42; class A { get() { return secret; } } return new A().get();");
+    let produced = run("let secret = 42; class A { get() { return secret; } } return new A().get();");
     assert_eq!(tags::decode_double(produced), 42.0);
 }
 
@@ -3072,9 +3060,8 @@ fn reading_a_name_nothing_declares_or_creates_raises_where_the_read_is() {
     // the error belongs to the READ, so a program that never reaches the read is
     // legal. A UMD bundle mentioning `exports` in a branch it does not take was
     // refused whole, and that is a real program, not a typo.
-    let caught = run(
-        "try { return neverMentionedAgain; } catch (e) { return e instanceof ReferenceError; }",
-    );
+    let caught =
+        run("try { return neverMentionedAgain; } catch (e) { return e instanceof ReferenceError; }");
     assert_eq!(caught, rts_core::value::Value::from_bool(true).bits());
 
     // The typo case the strictness was protecting is still protected — it is a
@@ -3169,12 +3156,14 @@ fn object_keys_and_values_agree_about_order() {
 
 #[test]
 fn object_keys_filters_hidden_and_symbol_properties_after_ordering_indices() {
-    let produced = run("let symbol = Symbol('hidden'); \
+    let produced = run(
+        "let symbol = Symbol('hidden'); \
          let o = {}; o['2'] = 2; o['1'] = 1; o.name = 3; \
          Object.defineProperty(o, 'secret', { value: 4, enumerable: false }); \
          o[symbol] = 5; \
          let keys = Object.keys(o); \
-         return keys.length === 3 && keys[0] === '1' && keys[1] === '2' && keys[2] === 'name';");
+         return keys.length === 3 && keys[0] === '1' && keys[1] === '2' && keys[2] === 'name';"
+    );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -3224,15 +3213,13 @@ fn assign_copies_through_the_ordinary_property_paths() {
 
     // A getter on the source runs, which a slot-to-slot copy would have skipped
     // — and would have found nothing, an accessor not being in the layout.
-    let through_a_getter =
-        run("let t = {}; Object.assign(t, { get a() { return 4; } }); return t.a;");
+    let through_a_getter = run("let t = {}; Object.assign(t, { get a() { return 4; } }); return t.a;");
     assert_eq!(tags::decode_double(through_a_getter), 4.0);
 
     // Every source, not the first. It read one and dropped the rest silently,
     // which is the failure a merge must not have: the result still looks like a
     // merge, so nothing downstream reports the missing keys.
-    let merged =
-        run("let t = Object.assign({}, { a: 1 }, { b: 2 }, { c: 3 }); return t.a + t.b + t.c;");
+    let merged = run("let t = Object.assign({}, { a: 1 }, { b: 2 }, { c: 3 }); return t.a + t.b + t.c;");
     assert_eq!(tags::decode_double(merged), 6.0);
 
     // Order is left to right, so a later source overwrites an earlier one.
@@ -3269,8 +3256,9 @@ fn a_computed_access_reaches_the_same_property_a_named_one_does() {
     let read = run("let o = { get x() { return 5; } }; let k = \"x\"; return o[k];");
     assert_eq!(tags::decode_double(read), 5.0);
 
-    let written =
-        run("let o = { set x(v) { this.held = v + 1; } }; let k = \"x\"; o[k] = 2; return o.held;");
+    let written = run(
+        "let o = { set x(v) { this.held = v + 1; } }; let k = \"x\"; o[k] = 2; return o.held;",
+    );
     assert_eq!(tags::decode_double(written), 3.0);
 }
 
@@ -3284,8 +3272,7 @@ fn the_base_of_the_chain_allocates_and_the_class_new_named_decides_the_prototype
     );
     assert_eq!(tags::decode_double(produced), 2.0);
 
-    let recognised =
-        run("class A {} class B extends A {} class C extends B {} return new C() instanceof C;");
+    let recognised = run("class A {} class B extends A {} class C extends B {} return new C() instanceof C;");
     assert_eq!(tags::payload_of(recognised), tags::BOOL_TRUE);
 }
 
@@ -3334,8 +3321,7 @@ fn a_call_past_the_convention_reaches_the_arguments_it_wrote() {
     assert_eq!(tags::decode_double(produced), 5.0);
 
     // And the ones past the fourth are not lost — they reach a rest parameter.
-    let gathered =
-        run("function f(a, ...rest) { return rest.length; } return f(1, 2, 3, 4, 5, 6);");
+    let gathered = run("function f(a, ...rest) { return rest.length; } return f(1, 2, 3, 4, 5, 6);");
     assert_eq!(tags::decode_double(gathered), 5.0);
 
     let last = run("function f(a, ...rest) { return rest[4]; } return f(1, 2, 3, 4, 5, 6);");
@@ -3419,8 +3405,7 @@ fn a_method_taking_a_callback_calls_back_into_compiled_code() {
     let mapped = run("let a = [1, 2, 3]; return a.map(function (x) { return x * 2; })[2];");
     assert_eq!(tags::decode_double(mapped), 6.0);
 
-    let filtered =
-        run("let a = [1, 2, 3, 4]; return a.filter(function (x) { return x > 2; }).length;");
+    let filtered = run("let a = [1, 2, 3, 4]; return a.filter(function (x) { return x > 2; }).length;");
     assert_eq!(tags::decode_double(filtered), 2.0);
 
     let reduced = run("let a = [1, 2, 3]; return a.reduce(function (t, x) { return t + x; }, 0);");
@@ -3437,7 +3422,8 @@ fn a_method_taking_a_callback_calls_back_into_compiled_code() {
 
 #[test]
 fn builtin_array_species_memoization_never_skips_user_getters() {
-    let observed = run("let calls = 0; \
+    let observed = run(
+        "let calls = 0; \
          let original = Array.prototype.constructor; \
          let holder = {}; \
          Object.defineProperty(holder, Symbol.species, { get: function () { calls++; return Array; } }); \
@@ -3450,13 +3436,15 @@ fn builtin_array_species_memoization_never_skips_user_getters() {
          let explicit = [5]; \
          Object.setPrototypeOf(explicit, Array.prototype); \
          let linked = explicit.map(function (x) { return x; })[0] === 5; \
-         return custom && restored && linked ? 1 : 0;");
+         return custom && restored && linked ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(observed), 1.0);
 }
 
 #[test]
 fn cached_store_mutation_cannot_stale_array_species() {
-    let observed = run("let calls = 0; \
+    let observed = run(
+        "let calls = 0; \
          let original = Array.prototype.constructor; \
          let holder = {}; \
          Object.defineProperty(holder, Symbol.species, { get: function () { calls++; return Array; } }); \
@@ -3471,12 +3459,14 @@ fn cached_store_mutation_cannot_stale_array_species() {
              } \
              mode = mode + 1; \
          } \
-         return warm[0] === 1 && result === 2 && calls === 1 ? 1 : 0;");
+         return warm[0] === 1 && result === 2 && calls === 1 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(observed), 1.0);
 }
 
 #[test]
 fn the_predicates_answer_booleans_over_the_whole_array() {
+
     let some = run("let a = [1, 2]; return a.some(function (x) { return x > 1; });");
     assert_eq!(tags::payload_of(some), tags::BOOL_TRUE);
 
@@ -3517,8 +3507,7 @@ fn array_is_a_name_the_runtime_provides() {
 
     // `Array.prototype.mine = f` reaches every array, which is the whole point
     // of the substitution being an ordinary object.
-    let extended =
-        run("Array.prototype.first = function () { return this[0]; }; return [7, 8].first();");
+    let extended = run("Array.prototype.first = function () { return this[0]; }; return [7, 8].first();");
     assert_eq!(tags::decode_double(extended), 7.0);
 }
 
@@ -3533,8 +3522,7 @@ fn for_of_walks_the_elements_rather_than_the_keys() {
 
     // Everything the loop already gets right is got right once: this is the
     // same expansion `for-in` uses, so `break` needs no second implementation.
-    let stopped =
-        run("let t = 0; for (let v of [1, 2, 3]) { if (v > 1) { break; } t = t + v; } return t;");
+    let stopped = run("let t = 0; for (let v of [1, 2, 3]) { if (v > 1) { break; } t = t + v; } return t;");
     assert_eq!(tags::decode_double(stopped), 1.0);
 }
 
@@ -3557,8 +3545,7 @@ fn a_loop_walks_a_copy_so_a_body_that_grows_it_terminates() {
     // The array is materialised, so pushing inside the body does not extend
     // what is being walked. This test hangs rather than fails if that changes,
     // which is why it is small.
-    let produced =
-        run("let a = [1, 2]; let n = 0; for (let v of a) { a.push(v); n = n + 1; } return n;");
+    let produced = run("let a = [1, 2]; let n = 0; for (let v of a) { a.push(v); n = n + 1; } return n;");
     assert_eq!(tags::decode_double(produced), 2.0);
 }
 
@@ -3572,24 +3559,20 @@ fn a_spread_contributes_a_count_nothing_knew_while_compiling() {
 
     // One written argument becoming three is why a spread takes the vector path
     // whatever the written count is.
-    let in_a_call =
-        run("function f(a, b, c) { return a + b + c; } let xs = [1, 2, 3]; return f(...xs);");
+    let in_a_call = run("function f(a, b, c) { return a + b + c; } let xs = [1, 2, 3]; return f(...xs);");
     assert_eq!(tags::decode_double(in_a_call), 6.0);
 
-    let mixed = run(
-        "function f(a, ...rest) { return rest.length; } let xs = [1, 2]; return f(0, ...xs, 9);",
-    );
+    let mixed = run("function f(a, ...rest) { return rest.length; } let xs = [1, 2]; return f(0, ...xs, 9);");
     assert_eq!(tags::decode_double(mixed), 3.0);
 
-    let constructed = run(
-        "class P { constructor(a, b) { this.n = a + b; } } let xs = [3, 4]; return new P(...xs).n;",
-    );
+    let constructed = run("class P { constructor(a, b) { this.n = a + b; } } let xs = [3, 4]; return new P(...xs).n;");
     assert_eq!(tags::decode_double(constructed), 7.0);
 
     // A string spreads by code point, the same sequence `for-of` walks.
     let text = run("return [...\"ab\"].length;");
     assert_eq!(tags::decode_double(text), 2.0);
 }
+
 
 /// Runs a script whose answer is a boolean, and asserts it is true.
 ///
@@ -3667,10 +3650,7 @@ fn math_is_an_object_whose_members_are_reached_rather_than_folded() {
     // one — and the test that says so is the one that replaces it.
     assert_eq!(tags::decode_double(run("return Math.floor(3.7);")), 3.0);
     assert_eq!(tags::decode_double(run("return Math.pow(2, 10);")), 1024.0);
-    assert_eq!(
-        tags::decode_double(run("return Math.PI;")),
-        std::f64::consts::PI
-    );
+    assert_eq!(tags::decode_double(run("return Math.PI;")), std::f64::consts::PI);
 
     let replaced = run("Math.floor = function (x) { return 99; }; return Math.floor(3.7);");
     assert_eq!(tags::decode_double(replaced), 99.0);
@@ -3700,18 +3680,9 @@ fn number_asks_what_arrived_where_the_conversion_converts() {
     holds("return Number.isNaN(0 / 0) === true;");
 
     assert_eq!(tags::decode_double(run("return Number(\"12\");")), 12.0);
-    assert_eq!(
-        tags::decode_double(run("return Number.parseInt(\"42px\");")),
-        42.0
-    );
-    assert_eq!(
-        tags::decode_double(run("return Number.parseInt(\"ff\", 16);")),
-        255.0
-    );
-    assert_eq!(
-        tags::decode_double(run("return Number.parseFloat(\"3.5px\");")),
-        3.5
-    );
+    assert_eq!(tags::decode_double(run("return Number.parseInt(\"42px\");")), 42.0);
+    assert_eq!(tags::decode_double(run("return Number.parseInt(\"ff\", 16);")), 255.0);
+    assert_eq!(tags::decode_double(run("return Number.parseFloat(\"3.5px\");")), 3.5);
     assert_eq!(
         tags::decode_double(run("return Number.MAX_SAFE_INTEGER;")),
         9_007_199_254_740_991.0
@@ -3746,8 +3717,7 @@ fn reflect_reaches_the_same_operations_the_syntax_does() {
     let applied = run("function f(a, b) { return a + b; } return Reflect.apply(f, null, [1, 2]);");
     assert_eq!(tags::decode_double(applied), 3.0);
 
-    let built =
-        run("class P { constructor(a) { this.n = a; } } return Reflect.construct(P, [5]).n;");
+    let built = run("class P { constructor(a) { this.n = a; } } return Reflect.construct(P, [5]).n;");
     assert_eq!(tags::decode_double(built), 5.0);
 }
 
@@ -3762,10 +3732,7 @@ fn a_global_function_converts_where_its_strict_twin_does_not() {
 
     assert_eq!(tags::decode_double(run("return parseInt(\"42px\");")), 42.0);
     assert_eq!(tags::decode_double(run("return parseInt(\"0x1f\");")), 31.0);
-    assert_eq!(
-        tags::decode_double(run("return parseFloat(\"-2.5e1x\");")),
-        -25.0
-    );
+    assert_eq!(tags::decode_double(run("return parseFloat(\"-2.5e1x\");")), -25.0);
 
     // One value read twice, so a program can pass it around.
     holds("return parseInt === parseInt;");
@@ -3807,15 +3774,11 @@ fn a_symbol_keyed_property_is_reachable_and_not_enumerated() {
 
     // Two different symbols are two different properties, even with one
     // description — the test that fails if identity were interned away.
-    holds(
-        "let a = Symbol(\"k\"); let b = Symbol(\"k\"); let o = {}; o[a] = 1; o[b] = 2; return o[a] === 1 && o[b] === 2;",
-    );
+    holds("let a = Symbol(\"k\"); let b = Symbol(\"k\"); let o = {}; o[a] = 1; o[b] = 2; return o[a] === 1 && o[b] === 2;");
 
     // Not enumerated: `Object.keys` and `for-in` walk string keys only.
     holds("let s = Symbol(\"k\"); let o = {a: 1}; o[s] = 2; return Object.keys(o).length === 1;");
-    holds(
-        "let s = Symbol(\"k\"); let o = {}; o[s] = 2; let n = 0; for (let k in o) { n = n + 1; } return n === 0;",
-    );
+    holds("let s = Symbol(\"k\"); let o = {}; o[s] = 2; let n = 0; for (let k in o) { n = n + 1; } return n === 0;");
 }
 
 #[test]
@@ -3823,23 +3786,27 @@ fn for_of_asks_an_object_how_it_iterates() {
     // The protocol, reached for the first time: a `Symbol.iterator` that
     // answers an object with `next`. Before this, an object that declared one
     // ran the loop zero times.
-    let summed = run("let o = {}; o[Symbol.iterator] = function () { \
+    let summed = run(
+        "let o = {}; o[Symbol.iterator] = function () { \
            let i = 0; \
            return {next: function () { i = i + 1; \
              if (i > 3) { return {done: true, value: undefined}; } \
              return {done: false, value: i}; }}; \
          }; \
-         let t = 0; for (let v of o) { t = t + v; } return t;");
+         let t = 0; for (let v of o) { t = t + v; } return t;",
+    );
     assert_eq!(tags::decode_double(summed), 6.0);
 
     // A spread is the same walk, which is what makes both correct at once.
-    let spread = run("let o = {}; o[Symbol.iterator] = function () { \
+    let spread = run(
+        "let o = {}; o[Symbol.iterator] = function () { \
            let i = 0; \
            return {next: function () { i = i + 1; \
              if (i > 2) { return {done: true, value: undefined}; } \
              return {done: false, value: i}; }}; \
          }; \
-         return [...o].length;");
+         return [...o].length;",
+    );
     assert_eq!(tags::decode_double(spread), 2.0);
 
     // An object declaring nothing is not iterable, and saying so is the point.
@@ -3864,9 +3831,7 @@ fn a_plain_object_inherits_from_object_prototype() {
     holds("Object.prototype.mine = 5; return ({}).mine === 5;");
 
     // Own, not inherited: the distinction `hasOwnProperty` exists to make.
-    holds(
-        "Object.prototype.shared = 1; let o = {}; return o.shared === 1 && o.hasOwnProperty(\"shared\") === false;",
-    );
+    holds("Object.prototype.shared = 1; let o = {}; return o.shared === 1 && o.hasOwnProperty(\"shared\") === false;");
 
     // `instanceof` steps through substituted prototypes now, so the kinds that
     // never carried a link of their own answer for themselves.
@@ -3901,23 +3866,19 @@ fn json_round_trips_what_it_can_represent() {
     // comportamento, e o que ela pina é que o erro é CAPTURÁVEL em vez de
     // terminar o processo.
     holds(
-        "try { JSON.parse(\"[\"); return false; }          catch (e) { return e instanceof SyntaxError; }",
+        "try { JSON.parse(\"[\"); return false; }          catch (e) { return e instanceof SyntaxError; }"
     );
 
     // A key that spells an index reaches the same property either spelling
     // finds, which is what routing the parse through the interner buys.
     holds("return JSON.parse(\"{\\\"0\\\":7}\")[0] === 7;");
 
-    let round = run(
-        "let o = {a: [1, {b: true}], c: null}; return JSON.stringify(JSON.parse(JSON.stringify(o)));",
-    );
+    let round = run("let o = {a: [1, {b: true}], c: null}; return JSON.stringify(JSON.parse(JSON.stringify(o)));");
     let direct = run("let o = {a: [1, {b: true}], c: null}; return JSON.stringify(o);");
     // Two separate programs, so the words differ; what is compared is that each
     // produced the same text as itself round-tripped.
     let _ = (round, direct);
-    holds(
-        "let o = {a: [1, {b: true}], c: null}; return JSON.stringify(JSON.parse(JSON.stringify(o))) === JSON.stringify(o);",
-    );
+    holds("let o = {a: [1, {b: true}], c: null}; return JSON.stringify(JSON.parse(JSON.stringify(o))) === JSON.stringify(o);");
 
     // A cycle THROWS, which is what the specification says. This asserted the
     // `null` a writer that could not raise had to answer instead — the gap,
@@ -3957,29 +3918,19 @@ fn a_date_is_a_time_value_and_a_calendar_over_it() {
 #[test]
 fn a_map_keeps_insertion_order_and_same_value_zero_keys() {
     holds("let m = new Map(); m.set(\"a\", 1); return m.get(\"a\") === 1 && m.size === 1;");
-    holds(
-        "let m = new Map(); m.set(\"a\", 1); m.set(\"a\", 2); return m.get(\"a\") === 2 && m.size === 1;",
-    );
-    holds(
-        "let m = new Map(); m.set(\"a\", 1); return m.has(\"a\") && m.delete(\"a\") && m.size === 0;",
-    );
+    holds("let m = new Map(); m.set(\"a\", 1); m.set(\"a\", 2); return m.get(\"a\") === 2 && m.size === 1;");
+    holds("let m = new Map(); m.set(\"a\", 1); return m.has(\"a\") && m.delete(\"a\") && m.size === 0;");
     holds("let m = new Map([[1, \"x\"], [2, \"y\"]]); return m.get(2) === \"y\" && m.size === 2;");
 
     // Insertion order, which a bare hash table does not give and which the
     // specification requires of every walk.
-    let order = run(
-        "let m = new Map(); m.set(\"b\", 1); m.set(\"a\", 2); m.set(\"c\", 3); let s = \"\"; m.forEach(function (v, k) { s = s + k; }); return s;",
-    );
+    let order = run("let m = new Map(); m.set(\"b\", 1); m.set(\"a\", 2); m.set(\"c\", 3); let s = \"\"; m.forEach(function (v, k) { s = s + k; }); return s;");
     let expected = run("return \"bac\";");
     let _ = (order, expected);
-    holds(
-        "let m = new Map(); m.set(\"b\", 1); m.set(\"a\", 2); m.set(\"c\", 3); let s = \"\"; m.forEach(function (v, k) { s = s + k; }); return s === \"bac\";",
-    );
+    holds("let m = new Map(); m.set(\"b\", 1); m.set(\"a\", 2); m.set(\"c\", 3); let s = \"\"; m.forEach(function (v, k) { s = s + k; }); return s === \"bac\";");
 
     // A delete preserves it, which is the case a swap-with-last gets wrong.
-    holds(
-        "let m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.set(\"c\", 3); m.delete(\"b\"); return [...m.keys()][1] === \"c\";",
-    );
+    holds("let m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.set(\"c\", 3); m.delete(\"b\"); return [...m.keys()][1] === \"c\";");
 
     // SameValueZero: `NaN` is a usable key, where `===` would never find it.
     holds("let m = new Map(); m.set(0 / 0, 7); return m.get(0 / 0) === 7;");
@@ -3988,9 +3939,7 @@ fn a_map_keeps_insertion_order_and_same_value_zero_keys() {
     holds("let m = new Map(); m.set(0, 1); m.set(-0, 2); return m.size === 1 && m.get(0) === 2;");
 
     // Object keys use their live slot as an identity hash and stay correct by identity.
-    holds(
-        "let a = {}; let b = {}; let m = new Map(); m.set(a, 1); m.set(b, 2); return m.get(a) === 1 && m.get(b) === 2;",
-    );
+    holds("let a = {}; let b = {}; let m = new Map(); m.set(a, 1); m.set(b, 2); return m.get(a) === 1 && m.get(b) === 2;");
 }
 
 #[test]
@@ -4031,21 +3980,15 @@ fn a_set_holds_each_member_once_and_answers_the_es2025_operations() {
     holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.union(b).size === 3;");
     holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.intersection(b).size === 1;");
     holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.difference(b).size === 1;");
-    holds(
-        "let a = new Set([1, 2]); let b = new Set([2, 3]); return a.symmetricDifference(b).size === 2;",
-    );
-    holds(
-        "let a = new Set([1]); let b = new Set([1, 2]); return a.isSubsetOf(b) && b.isSupersetOf(a);",
-    );
+    holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.symmetricDifference(b).size === 2;");
+    holds("let a = new Set([1]); let b = new Set([1, 2]); return a.isSubsetOf(b) && b.isSupersetOf(a);");
     holds("let a = new Set([1]); let b = new Set([2]); return a.isDisjointFrom(b);");
 }
 
 #[test]
 fn a_weak_collection_takes_objects_only_and_is_strong_here() {
     holds("let k = {}; let m = new WeakMap(); m.set(k, 5); return m.get(k) === 5 && m.has(k);");
-    holds(
-        "let k = {}; let m = new WeakMap(); m.set(k, 5); m.delete(k); return m.has(k) === false;",
-    );
+    holds("let k = {}; let m = new WeakMap(); m.set(k, 5); m.delete(k); return m.has(k) === false;");
     // A primitive key THROWS, which is what the specification says and what
     // this asserted the absence of: it read `m.has(1) === false` back when a
     // native could not raise, and kept reading it after natives learned to —
@@ -4087,13 +4030,11 @@ fn a_bound_function_keeps_its_receiver_and_its_leading_arguments() {
 
     // The bound receiver wins over the call's, which is the whole of what
     // `bind` does and the part a naive forward gets backwards.
-    let kept =
-        run("function f() { return this.n; } let o = {n: 1, m: f.bind({n: 2})}; return o.m();");
+    let kept = run("function f() { return this.n; } let o = {n: 1, m: f.bind({n: 2})}; return o.m();");
     assert_eq!(tags::decode_double(kept), 2.0);
 
     // Partial arguments come first at every later call.
-    let partial =
-        run("function f(a, b) { return a * 10 + b; } let g = f.bind(null, 1); return g(2);");
+    let partial = run("function f(a, b) { return a * 10 + b; } let g = f.bind(null, 1); return g(2);");
     assert_eq!(tags::decode_double(partial), 12.0);
 
     // And nothing is prepended when none were given — the case that breaks if
@@ -4103,8 +4044,7 @@ fn a_bound_function_keeps_its_receiver_and_its_leading_arguments() {
 
     // Binding twice keeps the first receiver, because the second binds the
     // already-bound function.
-    let twice =
-        run("function f() { return this.n; } let g = f.bind({n: 3}).bind({n: 4}); return g();");
+    let twice = run("function f() { return this.n; } let g = f.bind({n: 3}).bind({n: 4}); return g();");
     assert_eq!(tags::decode_double(twice), 3.0);
 }
 
@@ -4122,15 +4062,12 @@ fn a_name_captured_from_inside_a_nested_block_is_still_captured() {
     let nested = run("let n = 0; function f() { { { n = 2; } } } f(); return n;");
     assert_eq!(tags::decode_double(nested), 2.0);
 
-    let looped = run(
-        "let n = 0; function f() { for (let i = 0; i < 3; i = i + 1) { n = n + i; } } f(); return n;",
-    );
+    let looped = run("let n = 0; function f() { for (let i = 0; i < 3; i = i + 1) { n = n + i; } } f(); return n;");
     assert_eq!(tags::decode_double(looped), 3.0);
 
     // A `try` was reaching the traversal's wildcard entirely, so a function
     // written inside one had its captures decided as if it did not exist.
-    let protected =
-        run("let n = 0; function f() { try { n = 5; } finally { n = n + 1; } } f(); return n;");
+    let protected = run("let n = 0; function f() { try { n = 5; } finally { n = n + 1; } } f(); return n;");
     assert_eq!(tags::decode_double(protected), 6.0);
 }
 #[test]
@@ -4140,14 +4077,16 @@ fn a_write_inside_a_constructors_arguments_survives_a_loop() {
     // only inside a constructor's arguments was invisible: the name got no block
     // parameter, the header restored it to its pre-loop value on every pass, and
     // every write to it was discarded. The program compiled and ran wrong.
-    let inside_new =
-        run("let y = 0; let i = 0; while (i < 3) { new Object(y = i); i = i + 1; } return y;");
+    let inside_new = run(
+        "let y = 0; let i = 0; while (i < 3) { new Object(y = i); i = i + 1; } return y;",
+    );
     assert_eq!(tags::decode_double(inside_new), 2.0);
 
     // The same shape through the nodes that copy also covered, so a regression
     // in either direction is visible.
-    let inside_call =
-        run("let y = 0; let i = 0; while (i < 3) { Object(y = i); i = i + 1; } return y;");
+    let inside_call = run(
+        "let y = 0; let i = 0; while (i < 3) { Object(y = i); i = i + 1; } return y;",
+    );
     assert_eq!(tags::decode_double(inside_call), 2.0);
 
     // A template's substitution and an array literal reach the same walk.
@@ -4176,14 +4115,15 @@ fn an_object_operand_is_converted_by_its_own_method() {
     // Through the prototypes that were already there and unreachable: an array
     // converts by `Array.prototype.toString`, a plain object by
     // `Object.prototype.toString`.
-    let inherited =
-        run("return \"x\" + {} === \"x[object Object]\" && String([1, 2]) === \"1,2\" ? 1 : 0;");
+    let inherited = run("return \"x\" + {} === \"x[object Object]\" && String([1, 2]) === \"1,2\" ? 1 : 0;");
     assert_eq!(tags::decode_double(inherited), 1.0);
 
     // Arithmetic, relational and loose equality, all of which read the object
     // through the same conversion.
-    let operators = run("let o = { valueOf() { return 7; } }; \
-         return (o - 2) === 5 && (o * 2) === 14 && o > 6 && ([] == 0) ? 1 : 0;");
+    let operators = run(
+        "let o = { valueOf() { return 7; } }; \
+         return (o - 2) === 5 && (o * 2) === 14 && o > 6 && ([] == 0) ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(operators), 1.0);
 
     // Two objects are still compared by identity. Converting both first would
@@ -4224,10 +4164,12 @@ fn an_object_operand_is_converted_by_its_own_method() {
         );
     }
     // `+` has no swap to cancel and converts left first for the plain reason.
-    let plus = run("let log = \"\"; \
+    let plus = run(
+        "let log = \"\"; \
          let a = { valueOf() { log += \"a\"; return 1; } }; \
          let b = { valueOf() { log += \"b\"; return 2; } }; \
-         a + b; return log === \"ab\" ? 1 : 0;");
+         a + b; return log === \"ab\" ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(plus), 1.0);
 }
 
@@ -4240,14 +4182,8 @@ fn an_object_operand_is_converted_by_its_own_method() {
 /// range is bounded before the search starts.
 #[test]
 fn searching_backwards_terminates_on_the_needle_that_matches_everywhere() {
-    assert_eq!(
-        tags::decode_double(run("return \"abc\".lastIndexOf(\"\");")),
-        3.0
-    );
-    assert_eq!(
-        tags::decode_double(run("return \"\".lastIndexOf(\"\");")),
-        0.0
-    );
+    assert_eq!(tags::decode_double(run("return \"abc\".lastIndexOf(\"\");")), 3.0);
+    assert_eq!(tags::decode_double(run("return \"\".lastIndexOf(\"\");")), 0.0);
 
     // The ordinary answers the rewrite must not have moved.
     holds("return \"abcabc\".lastIndexOf(\"a\") === 3 && \"abcabc\".lastIndexOf(\"bc\") === 4;");
@@ -4270,9 +4206,7 @@ fn a_search_position_moves_where_the_comparison_happens() {
     holds("return \"abc\".includes(\"c\", 1) === true && \"abc\".includes(\"a\") === true;");
 
     // A start, not a search: `startsWith` compares AT the position.
-    holds(
-        "return \"abc\".startsWith(\"a\", 1) === false && \"abc\".startsWith(\"b\", 1) === true;",
-    );
+    holds("return \"abc\".startsWith(\"a\", 1) === false && \"abc\".startsWith(\"b\", 1) === true;");
 
     // An end, not a start — which is why this one cannot share the clamp.
     holds("return \"abc\".endsWith(\"c\", 2) === false && \"abc\".endsWith(\"b\", 2) === true;");
@@ -4309,9 +4243,7 @@ fn stringify_asks_the_value_how_it_wants_to_be_written() {
 
     // Nested and inside an array, the two positions the walk reaches a value
     // from other than the root.
-    holds(
-        "return JSON.stringify({ a: { toJSON() { return \"z\"; } } }) === \"{\\\"a\\\":\\\"z\\\"}\";",
-    );
+    holds("return JSON.stringify({ a: { toJSON() { return \"z\"; } } }) === \"{\\\"a\\\":\\\"z\\\"}\";");
     holds("return JSON.stringify([{ toJSON() { return 1; } }]) === \"[1]\";");
 
     // Inherited rather than own, which is how `Date` provides one.
@@ -4343,15 +4275,16 @@ fn a_number_method_does_not_convert_its_own_receiver() {
 /// before and lost. `class B extends A { b = 2 }` answered `undefined`.
 #[test]
 fn a_subclass_field_is_initialised_after_the_base_has_made_the_object() {
-    let inherited =
-        run("class A { x = 10; } class B extends A { w = 30; } let b = new B(); return b.x + b.w;");
+    let inherited = run("class A { x = 10; } class B extends A { w = 30; } let b = new B(); return b.x + b.w;");
     assert_eq!(tags::decode_double(inherited), 40.0);
 
     // The ORDER is the point, not merely that they run: an initialiser may read
     // a property the base constructor set, which is only there after `super()`.
-    let ordered = run("class C { constructor(n) { this.n = n; } } \
+    let ordered = run(
+        "class C { constructor(n) { this.n = n; } } \
          class E extends C { e = this.n * 2; constructor() { super(4); } } \
-         return new E().e;");
+         return new E().e;",
+    );
     assert_eq!(tags::decode_double(ordered), 8.0);
 
     // A base class keeps the head placement, where its own constructor body can
@@ -4371,14 +4304,16 @@ fn a_subclass_field_is_initialised_after_the_base_has_made_the_object() {
 /// than the language.
 #[test]
 fn random_stays_in_the_unit_interval_and_moves() {
-    let held = run("let ok = true; let moved = false; let prev = -1; \
+    let held = run(
+        "let ok = true; let moved = false; let prev = -1; \
          for (let i = 0; i < 500; i++) { \
            let r = Math.random(); \
            if (r < 0 || r >= 1) { ok = false; } \
            if (r !== prev) { moved = true; } \
            prev = r; \
          } \
-         return ok && moved ? 1 : 0;");
+         return ok && moved ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(held), 1.0);
 }
 
@@ -4410,9 +4345,11 @@ fn awaiting_a_timer_finishes_rather_than_reporting_a_deadlock() {
     assert_eq!(tags::decode_double(through), 7.0);
 
     // The value crosses the wait, so this is not "it stopped erroring".
-    let carried = run("let seen = 0; \
+    let carried = run(
+        "let seen = 0; \
          await new Promise(function (r) { setTimeout(function () { seen = 3; r(0); }, 1); }); \
-         return seen;");
+         return seen;",
+    );
     assert_eq!(tags::decode_double(carried), 3.0);
 }
 
@@ -4427,13 +4364,15 @@ fn awaiting_a_timer_finishes_rather_than_reporting_a_deadlock() {
 /// no longer one.
 #[test]
 fn a_generator_answers_its_values_one_at_a_time() {
-    let counted = run("function* counter() { yield 1; yield 2; return 3; } \
+    let counted = run(
+        "function* counter() { yield 1; yield 2; return 3; } \
          const g = counter(); \
          let sum = 0; \
          sum = sum + g.next().value; \
          sum = sum + g.next().value; \
          sum = sum + g.next().value; \
-         return sum;");
+         return sum;",
+    );
     assert_eq!(
         tags::decode_double(counted),
         6.0,
@@ -4441,10 +4380,12 @@ fn a_generator_answers_its_values_one_at_a_time() {
     );
 
     // `done` is what separates a generator from a function answering values.
-    let finished = run("function* one() { yield 1; } \
+    let finished = run(
+        "function* one() { yield 1; } \
          const g = one(); \
          g.next(); \
-         return g.next().done ? 1 : 0;");
+         return g.next().done ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(finished), 1.0);
 }
 
@@ -4472,10 +4413,12 @@ fn what_next_is_given_is_what_the_yield_produced() {
 /// string, and that key is a symbol.
 #[test]
 fn a_generator_is_what_the_iteration_protocol_asks_for() {
-    let totalled = run("function* three() { yield 1; yield 2; yield 3; } \
+    let totalled = run(
+        "function* three() { yield 1; yield 2; yield 3; } \
          let total = 0; \
          for (const n of three()) { total = total + n; } \
-         return total;");
+         return total;",
+    );
     assert_eq!(tags::decode_double(totalled), 6.0);
 
     let spread = run("function* two() { yield 4; yield 5; } return [...two()].length;");
@@ -4490,26 +4433,32 @@ fn a_generator_is_what_the_iteration_protocol_asks_for() {
 /// `emit/delegate.rs`, where the limit is the same one `for`-`of` has.
 #[test]
 fn delegating_yields_each_of_the_inner_values() {
-    let summed = run("function* inner() { yield 1; yield 2; } \
+    let summed = run(
+        "function* inner() { yield 1; yield 2; } \
          function* outer() { yield* inner(); yield 3; } \
          let total = 0; \
          for (const n of outer()) { total = total + n; } \
-         return total;");
+         return total;",
+    );
     assert_eq!(tags::decode_double(summed), 6.0);
 
     // An array is an iterable like any other, and the commonest thing written.
-    let over_an_array = run("function* g() { yield* [4, 5]; } \
+    let over_an_array = run(
+        "function* g() { yield* [4, 5]; } \
          let total = 0; \
          for (const n of g()) { total = total + n; } \
-         return total;");
+         return total;",
+    );
     assert_eq!(tags::decode_double(over_an_array), 9.0);
 
     // Order, which a loop that yielded before stepping would still pass the
     // sums above with.
-    let ordered = run("function* g() { yield* [1, 2]; } \
+    let ordered = run(
+        "function* g() { yield* [1, 2]; } \
          const seen = []; \
          for (const n of g()) { seen.push(n); } \
-         return seen[0] * 10 + seen[1];");
+         return seen[0] * 10 + seen[1];",
+    );
     assert_eq!(tags::decode_double(ordered), 12.0);
 }
 
@@ -4542,22 +4491,28 @@ fn a_generator_can_park_inside_a_protected_region() {
 /// point where the traps live. A program with no proxy in it pays nothing.
 #[test]
 fn a_proxy_answers_through_its_handler() {
-    let trapped = run("const p = new Proxy({}, { get(t, k) { return 42; } }); return p.anything;");
+    let trapped = run(
+        "const p = new Proxy({}, { get(t, k) { return 42; } }); return p.anything;",
+    );
     assert_eq!(tags::decode_double(trapped), 42.0);
 
     // The property reaches the trap as a string, which is the one place a key
     // has to travel back out of the number the compiler resolved it to.
-    let named = run("let seen = ''; \
+    let named = run(
+        "let seen = ''; \
          const p = new Proxy({}, { get(t, k) { seen = k; return 1; } }); \
          p.chosen; \
-         return seen === 'chosen' ? 1 : 0;");
+         return seen === 'chosen' ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(named), 1.0);
 
     // A write goes to the trap, and the assignment still evaluates to the value.
-    let written = run("let stored = 0; \
+    let written = run(
+        "let stored = 0; \
          const p = new Proxy({}, { set(t, k, v) { stored = v; return true; } }); \
          const answered = (p.x = 7); \
-         return stored * 10 + answered;");
+         return stored * 10 + answered;",
+    );
     assert_eq!(tags::decode_double(written), 77.0);
 
     let asked = run(
@@ -4576,10 +4531,12 @@ fn a_handler_without_the_trap_falls_through_to_the_target() {
     let read = run("const p = new Proxy({ a: 5 }, {}); return p.a;");
     assert_eq!(tags::decode_double(read), 5.0);
 
-    let written = run("const target = { a: 1 }; \
+    let written = run(
+        "const target = { a: 1 }; \
          const p = new Proxy(target, {}); \
          p.a = 9; \
-         return target.a;");
+         return target.a;",
+    );
     assert_eq!(tags::decode_double(written), 9.0);
 
     let present = run("const p = new Proxy({ a: 1 }, {}); return 'a' in p ? 1 : 0;");
@@ -4625,14 +4582,18 @@ fn a_proxy_can_be_called_and_constructed() {
     assert_eq!(tags::decode_double(with_arguments), 7.0);
 
     // No trap: the call goes to the target.
-    let forwarded = run("function target(a) { return a * 2; } \
+    let forwarded = run(
+        "function target(a) { return a * 2; } \
          const p = new Proxy(target, {}); \
-         return p(21);");
+         return p(21);",
+    );
     assert_eq!(tags::decode_double(forwarded), 42.0);
 
-    let built = run("class Thing { constructor() { this.n = 1; } } \
+    let built = run(
+        "class Thing { constructor() { this.n = 1; } } \
          const p = new Proxy(Thing, { construct(t, args) { return { n: 9 }; } }); \
-         return new p().n;");
+         return new p().n;",
+    );
     assert_eq!(tags::decode_double(built), 9.0);
 }
 
@@ -4661,9 +4622,11 @@ fn a_proxy_answers_for_its_keys_and_its_prototype() {
     let forwarded = run("const p = new Proxy({ x: 1, y: 2 }, {}); return Object.keys(p).length;");
     assert_eq!(tags::decode_double(forwarded), 2.0);
 
-    let inherited = run("const proto = { tag: 7 }; \
+    let inherited = run(
+        "const proto = { tag: 7 }; \
          const p = new Proxy({}, { getPrototypeOf(t) { return proto; } }); \
-         return Object.getPrototypeOf(p).tag;");
+         return Object.getPrototypeOf(p).tag;",
+    );
     assert_eq!(tags::decode_double(inherited), 7.0);
 }
 
@@ -4682,10 +4645,12 @@ fn a_trap_answers_the_computed_spelling_too() {
     );
     assert_eq!(tags::decode_double(read), 0.0);
 
-    let written = run("let stored = 0; \
+    let written = run(
+        "let stored = 0; \
          const p = new Proxy({}, { set: (t, k, v) => { stored = v; return true; } }); \
          Reflect.set(p, 'x', 5); \
-         return stored;");
+         return stored;",
+    );
     assert_eq!(tags::decode_double(written), 5.0);
 
     // And a descriptor, which is the trap `Reflect` had no member for at all.
@@ -4697,9 +4662,11 @@ fn a_trap_answers_the_computed_spelling_too() {
     // until the invariant check existed, so it was pinning the absence of the
     // check rather than the trap — bun and node both throw on the version it
     // asserted.
-    let described = run("const p = new Proxy({ x: 0 }, \
+    let described = run(
+        "const p = new Proxy({ x: 0 }, \
              { getOwnPropertyDescriptor: (t, k) => ({ value: 42, configurable: true }) }); \
-         return Reflect.getOwnPropertyDescriptor(p, 'x').value;");
+         return Reflect.getOwnPropertyDescriptor(p, 'x').value;",
+    );
     assert_eq!(tags::decode_double(described), 42.0);
 
     // A handler that refuses reports the refusal, rather than the truth that
@@ -4719,21 +4686,27 @@ fn a_trap_answers_the_computed_spelling_too() {
 /// iterator is now `undefined`, exactly as it is in every other engine.
 #[test]
 fn the_three_iteration_methods_answer_something_with_next() {
-    let stepped = run("const it = [1, 2].values(); \
+    let stepped = run(
+        "const it = [1, 2].values(); \
          const first = it.next().value; \
          const second = it.next().value; \
          const done = it.next().done ? 1 : 0; \
-         return first * 100 + second * 10 + done;");
+         return first * 100 + second * 10 + done;",
+    );
     assert_eq!(tags::decode_double(stepped), 121.0);
 
     // An exhausted iterator stays exhausted rather than wrapping around.
-    let twice_past_the_end = run("const it = [1].values(); it.next(); it.next(); \
-         return it.next().done ? 1 : 0;");
+    let twice_past_the_end = run(
+        "const it = [1].values(); it.next(); it.next(); \
+         return it.next().done ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(twice_past_the_end), 1.0);
 
     // A collection's three, which walk the same lists they always did.
-    let mapped = run("const m = new Map([['k', 9]]); \
-         return m.values().next().value;");
+    let mapped = run(
+        "const m = new Map([['k', 9]]); \
+         return m.values().next().value;",
+    );
     assert_eq!(tags::decode_double(mapped), 9.0);
 
     let setted = run("const s = new Set([5, 6]); return s.keys().next().value;");
@@ -4756,11 +4729,11 @@ fn the_three_iteration_methods_answer_something_with_next() {
 /// `.join()` on the helper's result is a mistake there as much as here.
 #[test]
 fn an_iterator_carries_the_helpers_a_program_expects() {
-    let mapped =
-        run("return [1, 2, 3].values().map(x => x * 2).toArray().join(',') === '2,4,6' ? 1 : 0;");
+    let mapped = run("return [1, 2, 3].values().map(x => x * 2).toArray().join(',') === '2,4,6' ? 1 : 0;");
     assert_eq!(tags::decode_double(mapped), 1.0);
 
-    let filtered = run("return [1, 2, 3, 4].values().filter(x => x > 2).toArray().length;");
+    let filtered =
+        run("return [1, 2, 3, 4].values().filter(x => x > 2).toArray().length;");
     assert_eq!(tags::decode_double(filtered), 2.0);
 
     let sliced = run("return [1, 2, 3].values().take(2).toArray().join('') === '12' ? 1 : 0;");
@@ -4792,20 +4765,24 @@ fn an_iterator_carries_the_helpers_a_program_expects() {
     // What consumption actually looks like is the second pair below: two
     // `take(1)` calls on ONE source answer `[1]` and then `[2]`, never `[1]`
     // twice. That is the behaviour the comment always described, now asserted.
-    let after = run("const it = [1, 2, 3].values(); \
+    let after = run(
+        "const it = [1, 2, 3].values(); \
          it.take(1).toArray(); \
          const step = it.next(); \
-         return step.done === false && step.value === 2 ? 1 : 0;");
+         return step.done === false && step.value === 2 ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(after),
         1.0,
         "one element taken leaves the other two on the source"
     );
 
-    let twice = run("const it = [1, 2, 3].values(); \
+    let twice = run(
+        "const it = [1, 2, 3].values(); \
          const first = it.take(1).toArray(); \
          const second = it.take(1).toArray(); \
-         return first[0] === 1 && second[0] === 2 ? 1 : 0;");
+         return first[0] === 1 && second[0] === 2 ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(twice),
         1.0,
@@ -4814,10 +4791,12 @@ fn an_iterator_carries_the_helpers_a_program_expects() {
 
     // The same through a helper that WRAPS rather than ends: `map` adopts the
     // source, `take` adopts the map, and the pull still reaches the array.
-    let through = run("const it = [1, 2, 3].values(); \
+    let through = run(
+        "const it = [1, 2, 3].values(); \
          const mapped = it.map(x => x * 2).take(1).toArray(); \
          const step = it.next(); \
-         return mapped[0] === 2 && step.value === 2 ? 1 : 0;");
+         return mapped[0] === 2 && step.value === 2 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(through), 1.0);
 }
 
@@ -4838,10 +4817,7 @@ fn a_star_export_forwards_what_the_other_module_has() {
         path
     };
 
-    write(
-        "star_inner.ts",
-        "export function one() { return 1; }\nexport const three = 3;\n",
-    );
+    write("star_inner.ts", "export function one() { return 1; }\nexport const three = 3;\n");
     write("star_all.ts", "export * from \"./star_inner\";\n");
     write("star_ns.ts", "export * as inner from \"./star_inner\";\n");
     // Asserted from INSIDE the program, through `rts:test`, because a module
@@ -4859,10 +4835,7 @@ fn a_star_export_forwards_what_the_other_module_has() {
     let mut program = rts_host::compile_graph(&entry).expect("the graph compiles");
     program.run();
     let reported = rts_std::test::record();
-    let failed: Vec<String> = reported
-        .iter()
-        .filter_map(|one| one.failure.clone())
-        .collect();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
     assert_eq!(reported.len(), 1, "the fixture registers one test");
     assert!(
         failed.is_empty(),
@@ -4901,17 +4874,21 @@ fn a_throw_from_a_callback_stops_the_native_that_called_it() {
     assert_eq!(tags::decode_double(refused), 1.0);
 
     // `forEach` stops rather than running the callback over the rest.
-    let stopped = run("let ran = 0; \
+    let stopped = run(
+        "let ran = 0; \
          try { [1, 2, 3].forEach(x => { ran = ran + 1; if (x === 2) throw new Error('stop'); }); } \
          catch (e) {} \
-         return ran;");
+         return ran;",
+    );
     assert_eq!(tags::decode_double(stopped), 2.0);
 
     // And `map` answers what it had, rather than folding `undefined` in.
-    let mapped = run("let ran = 0; \
+    let mapped = run(
+        "let ran = 0; \
          try { [1, 2, 3].map(x => { ran = ran + 1; if (x === 2) throw new Error('stop'); return x; }); } \
          catch (e) {} \
-         return ran;");
+         return ran;",
+    );
     assert_eq!(tags::decode_double(mapped), 2.0);
 }
 
@@ -4922,19 +4899,23 @@ fn a_throw_from_a_callback_stops_the_native_that_called_it() {
 /// and the reason the runtime was not allowed to raise until the checks existed.
 #[test]
 fn a_handler_that_throws_rejects_the_promise_it_derived() {
-    let rejected = run("let seen = 'none'; \
+    let rejected = run(
+        "let seen = 'none'; \
          await Promise.resolve(1) \
              .then(function () { throw new Error('boom'); }) \
              .catch(function (e) { seen = e.message; }); \
-         return seen === 'boom' ? 1 : 0;");
+         return seen === 'boom' ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(rejected), 1.0);
 
     // A `finally` that throws replaces the settlement it was passing through.
-    let replaced = run("let seen = 'none'; \
+    let replaced = run(
+        "let seen = 'none'; \
          await Promise.resolve(1) \
              .finally(function () { throw new Error('from finally'); }) \
              .catch(function (e) { seen = e.message; }); \
-         return seen === 'from finally' ? 1 : 0;");
+         return seen === 'from finally' ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(replaced), 1.0);
 }
 
@@ -4948,7 +4929,9 @@ fn a_handler_that_throws_rejects_the_promise_it_derived() {
 /// `undefined`, and calling it became a `TypeError`.
 #[test]
 fn a_static_block_can_name_the_class_it_is_in() {
-    let assigned = run("class Config { static V; static { Config.V = 7; } } return Config.V;");
+    let assigned = run(
+        "class Config { static V; static { Config.V = 7; } } return Config.V;",
+    );
     assert_eq!(tags::decode_double(assigned), 7.0);
 
     // Through a static field the block mutates rather than replaces, which is
@@ -4961,8 +4944,9 @@ fn a_static_block_can_name_the_class_it_is_in() {
 
     // A static METHOD naming the class, which is the same binding seen from a
     // function rather than from the body.
-    let called =
-        run("class Q { static V = 1; static bump() { return Q.V + 1; } } return Q.bump();");
+    let called = run(
+        "class Q { static V = 1; static bump() { return Q.V + 1; } } return Q.bump();",
+    );
     assert_eq!(tags::decode_double(called), 2.0);
 }
 
@@ -4994,10 +4978,7 @@ fn the_bare_rts_specifier_answers_integer_arithmetic() {
     let mut program = rts_host::compile_graph(&path).expect("the fixture compiles");
     program.run();
     let reported = rts_std::test::record();
-    let failed: Vec<String> = reported
-        .iter()
-        .filter_map(|one| one.failure.clone())
-        .collect();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
     assert_eq!(reported.len(), 5, "the fixture registers five tests");
     assert!(failed.is_empty(), "{failed:?}");
 }
@@ -5032,10 +5013,7 @@ fn an_object_declaring_an_rts_operator_answers_it_and_unary_plus_does_not() {
     let mut program = rts_host::compile_graph(&path).expect("the fixture compiles");
     program.run();
     let reported = rts_std::test::record();
-    let failed: Vec<String> = reported
-        .iter()
-        .filter_map(|one| one.failure.clone())
-        .collect();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
     assert_eq!(reported.len(), 4, "the fixture registers four tests");
     assert!(failed.is_empty(), "{failed:?}");
 }
@@ -5049,12 +5027,14 @@ fn an_object_declaring_an_rts_operator_answers_it_and_unary_plus_does_not() {
 /// forgot to pop.
 #[test]
 fn an_error_says_where_it_came_from() {
-    let traced = run("function inner() { throw new Error('boom'); } \
+    let traced = run(
+        "function inner() { throw new Error('boom'); } \
          function middle() { inner(); } \
          function outer() { middle(); } \
          let seen = ''; \
          try { outer(); } catch (e) { seen = e.stack; } \
-         return seen.indexOf('at inner') >= 0 ? 1 : 0;");
+         return seen.indexOf('at inner') >= 0 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(traced), 1.0);
 
     // AN INLINED FRAME IS NOT IN THE TRACE, and that is asserted rather than
@@ -5074,12 +5054,14 @@ fn an_error_says_where_it_came_from() {
     // where, so `throw::stack_text` can name them — and that does not exist.
     // Until it does, this is the trade: a call that costs 25.7 ns costs 4.3, and
     // the frame is gone.
-    let inlined_away = run("function inner() { throw new Error('boom'); } \
+    let inlined_away = run(
+        "function inner() { throw new Error('boom'); } \
          function middle() { inner(); } \
          function outer() { middle(); } \
          let seen = ''; \
          try { outer(); } catch (e) { seen = e.stack; } \
-         return seen.indexOf('at outer') < 0 && seen.indexOf('at middle') < 0 ? 1 : 0;");
+         return seen.indexOf('at outer') < 0 && seen.indexOf('at middle') < 0 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(inlined_away), 1.0);
 
     // Innermost first, which is the order every engine prints and the order a
@@ -5089,26 +5071,32 @@ fn an_error_says_where_it_came_from() {
     // substituted at its call site and has no frame to order — see
     // `inlined_away` above. The pass fires on a bare identifier callee only, so
     // `holder.go()` is a real call and both frames exist to be compared.
-    let ordered = run("function inner() { throw new Error('boom'); } \
+    let ordered = run(
+        "function inner() { throw new Error('boom'); } \
          const holder = { go() { inner(); } }; \
          let seen = ''; \
          try { holder.go(); } catch (e) { seen = e.stack; } \
          return seen.indexOf('at inner') >= 0 && seen.indexOf('at go') >= 0 \
-             && seen.indexOf('at inner') < seen.indexOf('at go') ? 1 : 0;");
+             && seen.indexOf('at inner') < seen.indexOf('at go') ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(ordered), 1.0);
 
     // The header is `Name: message`, so the first line still says what happened.
-    let headed = run("let seen = ''; \
+    let headed = run(
+        "let seen = ''; \
          try { throw new TypeError('wrong'); } catch (e) { seen = e.stack; } \
-         return seen.indexOf('TypeError: wrong') === 0 ? 1 : 0;");
+         return seen.indexOf('TypeError: wrong') === 0 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(headed), 1.0);
 
     // Captured where the error is CONSTRUCTED, not where it is thrown — which
     // is what every engine does, and what makes a stored-then-thrown error name
     // the line that made it.
-    let constructed = run("function made() { return new Error('later'); } \
+    let constructed = run(
+        "function made() { return new Error('later'); } \
          const e = made(); \
-         return e.stack.indexOf('at made') >= 0 ? 1 : 0;");
+         return e.stack.indexOf('at made') >= 0 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(constructed), 1.0);
 }
 
@@ -5121,8 +5109,9 @@ fn proven_dot_rs_try_catch_bug_class_a_var_reassigned_inside_try_is_not_wrongly_
     // Before the fix this failed to compile with `ImplicitNarrowing` (or
     // worse, ran with a mismatched representation) because `x` stayed
     // "proved numeric" straight through `x = "a"`.
-    let produced =
-        run("let x = 1; try { x = \"a\"; } catch (e) {} return typeof x === \"string\" ? 1 : 0;");
+    let produced = run(
+        "let x = 1; try { x = \"a\"; } catch (e) {} return typeof x === \"string\" ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -5133,11 +5122,13 @@ fn a_call_emitted_as_its_callee_s_body_still_evaluates_its_arguments_once_and_in
     // `emit/inline.rs` emits every argument before it binds anything, so the
     // counter here answers 1 rather than 2 — and the order is pinned as well,
     // because the second argument's side effect must happen after the first's.
-    let produced = run("function pick(a, b) { return a * 10 + b; } \
+    let produced = run(
+        "function pick(a, b) { return a * 10 + b; } \
          let log = ''; \
          function step(c) { log = log + c; return c === 'x' ? 1 : 2; } \
          const answered = pick(step('x'), step('y')); \
-         return answered === 12 && log === 'xy' ? 1 : 0;");
+         return answered === 12 && log === 'xy' ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -5147,8 +5138,10 @@ fn a_function_a_call_site_substitutes_is_still_a_value_the_program_can_pass_arou
     // called directly AND handed to `map`, and only the first of those is a
     // call site at all. A version that treated the proof as permission to stop
     // emitting the declaration would fail here rather than merely be slower.
-    let produced = run("function id(x) { return x; } \
-         return id(7) === 7 && [1, 2, 3].map(id).length === 3 ? 1 : 0;");
+    let produced = run(
+        "function id(x) { return x; } \
+         return id(7) === 7 && [1, 2, 3].map(id).length === 3 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -5158,9 +5151,11 @@ fn a_parameter_of_a_substituted_body_shadows_a_caller_local_of_the_same_spelling
     // CALLER's scope: `x` in the callee is the argument, never the caller's own
     // `x`. Bound in a scope layer of its own for exactly this, and the answer
     // 9 rather than 1000 is what says the layer is there.
-    let produced = run("function twice(x) { return x + x; } \
+    let produced = run(
+        "function twice(x) { return x + x; } \
          let x = 500; \
-         return twice(4.5) === 9 ? 1 : 0;");
+         return twice(4.5) === 9 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -5170,9 +5165,11 @@ fn a_name_declared_twice_is_never_substituted_from_the_wrong_declaration() {
     // without it: the inner `size` shadows the outer one, so a call inside
     // `wrapped` must reach the inner function. `inline::declarations_of`
     // counts two declarations and refuses the candidate outright.
-    let produced = run("function size(v) { return v + 1; } \
+    let produced = run(
+        "function size(v) { return v + 1; } \
          function wrapped() { function size(v) { return v + 100; } return size(1); } \
-         return wrapped() === 101 ? 1 : 0;");
+         return wrapped() === 101 ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -5193,9 +5190,11 @@ fn a_closure_survives_the_collection_its_own_prototype_allocation_triggers() {
     //
     // The symptom was `TypeError: object is not a function`, because the swept
     // cell was handed back out and the value named whatever took the index.
-    let produced = run("let n = 0; \
+    let produced = run(
+        "let n = 0; \
          for (let i = 0; i < 200000; i++) { const f = (x) => x + 1; n = n + f(1); } \
-         return n === 400000 ? 1 : 0;");
+         return n === 400000 ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(produced),
         1.0,
@@ -5215,7 +5214,8 @@ fn values_a_native_is_still_accumulating_survive_a_collection() {
     // rounds came back with wrong data, because objects already produced had
     // been swept and their cells handed to something else. That is why this
     // asserts the contents and not merely the length.
-    let produced = run("const xs = []; \
+    let produced = run(
+        "const xs = []; \
          for (let i = 0; i < 500; i++) xs.push(i); \
          let bad = 0; \
          for (let r = 0; r < 200; r++) { \
@@ -5223,7 +5223,8 @@ fn values_a_native_is_still_accumulating_survive_a_collection() {
            if (out.length !== 500) { bad = bad + 1; continue; } \
            for (let i = 0; i < 500; i++) { if (out[i].v !== i) { bad = bad + 1; break; } } \
          } \
-         return bad === 0 ? 1 : 0;");
+         return bad === 0 ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(produced),
         1.0,
@@ -5242,7 +5243,8 @@ fn negating_a_proven_double_is_a_sign_flip_and_still_answers_what_the_language_s
     // The corners a sign flip must not get wrong, all in one program: `-0` is
     // not `0` under `Object.is` but is under `===`, double negation is the
     // identity, and a bigint still negates as a bigint rather than as `NaN`.
-    let produced = run("let sign = 1.0; let s = 0.0; \
+    let produced = run(
+        "let sign = 1.0; let s = 0.0; \
          for (let i = 0; i < 6; i++) { sign = -sign; s = s + sign * i; } \
          const zero = -0; \
          const ok = s === 3 \
@@ -5252,7 +5254,8 @@ fn negating_a_proven_double_is_a_sign_flip_and_still_answers_what_the_language_s
            && -(-5) === 5 \
            && (-(2n) === -2n) \
            && Object.is(-(0.0), -0); \
-         return ok ? 1 : 0;");
+         return ok ? 1 : 0;",
+    );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -5297,10 +5300,7 @@ fn a_module_knows_its_own_url_and_imports_itself_once() {
     let mut program = rts_host::compile_graph(&entry).expect("the graph compiles");
     program.run();
     let reported = rts_std::test::record();
-    let failed: Vec<String> = reported
-        .iter()
-        .filter_map(|one| one.failure.clone())
-        .collect();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
     assert_eq!(reported.len(), 4, "the fixture registers four tests");
     assert!(failed.is_empty(), "{failed:?}");
 }
@@ -5388,15 +5388,11 @@ fn a_direct_eval_sees_the_callers_scope_and_an_indirect_one_sees_the_globals() {
     holds("return eval(\"1 + 2 * 3\") === 7;");
 
     // A name bound to `eval` is NOT a direct eval: the call names that binding.
-    holds(
-        "function f(eval) { return eval(\"s\"); } return f(function (s) { return s + \"!\"; }) === \"s!\";",
-    );
+    holds("function f(eval) { return eval(\"s\"); } return f(function (s) { return s + \"!\"; }) === \"s!\";");
 
     // Nor is a replaced global, which is why the entry point asks whether the
     // one it was built for is still there.
-    holds(
-        "globalThis.eval = function (s) { return \"replaced\"; }; return eval(\"1\") === \"replaced\";",
-    );
+    holds("globalThis.eval = function (s) { return \"replaced\"; }; return eval(\"1\") === \"replaced\";");
 }
 
 /// A `with` resolves a free name against its object first and lexically after.
@@ -5410,9 +5406,7 @@ fn a_direct_eval_sees_the_callers_scope_and_an_indirect_one_sees_the_globals() {
 #[test]
 fn a_with_resolves_a_name_against_its_object_before_its_binding() {
     // Found on the object, and the outer binding of the same name untouched.
-    holds(
-        "let width = 1; let out = 0; with ({ width: 10 }) { out = width; } return out === 10 && width === 1;",
-    );
+    holds("let width = 1; let out = 0; with ({ width: 10 }) { out = width; } return out === 10 && width === 1;");
 
     // Not on the object: the lexical binding answers.
     holds("let outer = 7; let out = 0; with ({ other: 1 }) { out = outer; } return out === 7;");
@@ -5434,9 +5428,7 @@ fn a_with_resolves_a_name_against_its_object_before_its_binding() {
 
     // A CALL through a `with` object, which is where the emitter's inlining and
     // its `Math` fast path would answer the lexical function instead.
-    holds(
-        "function f() { return \"lexical\"; } let out = \"\"; with ({ f: () => \"object\" }) { out = f(); } return out === \"object\";",
-    );
+    holds("function f() { return \"lexical\"; } let out = \"\"; with ({ f: () => \"object\" }) { out = f(); } return out === \"object\";");
 
     // `var` inside a `with` belongs to the function, not to the object — the
     // declaration is hoisted and only the assignment is in the body.
@@ -5499,13 +5491,15 @@ fn symbol_unscopables_hides_a_property_a_with_would_otherwise_find() {
 /// value.
 #[test]
 fn a_nested_try_does_not_reuse_the_outer_regions_re_raise() {
-    let answer = run("let log = ''; \
+    let answer = run(
+        "let log = ''; \
          try { \
            try { JSON.parse('{'); } catch (e) { log = log + 'i'; } \
            JSON.parse('['); \
            log = log + 'X'; \
          } catch (e) { log = log + 'o'; } \
-         return log === 'io' ? 1 : 0;");
+         return log === 'io' ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(answer),
         1.0,
@@ -5520,11 +5514,13 @@ fn a_nested_try_does_not_reuse_the_outer_regions_re_raise() {
 /// a `finally` executes. Three raising calls in one `try` branch to one block.
 #[test]
 fn many_checks_in_one_region_still_run_the_handler_once() {
-    let answer = run("let ran = 0; let caught = 0; \
+    let answer = run(
+        "let ran = 0; let caught = 0; \
          try { JSON.parse('{'); JSON.parse('['); JSON.parse('}'); } \
          catch (e) { caught = caught + 1; } \
          finally { ran = ran + 1; } \
-         return caught === 1 && ran === 1 ? 1 : 0;");
+         return caught === 1 && ran === 1 ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(answer),
         1.0,
@@ -5543,12 +5539,14 @@ fn many_checks_in_one_region_still_run_the_handler_once() {
 /// code that reaches it.
 #[test]
 fn a_function_defined_inside_a_try_does_not_inherit_its_re_raise_block() {
-    let answer = run("let out = ''; \
+    let answer = run(
+        "let out = ''; \
          try { \
            const inner = () => { try { JSON.parse('{'); } catch (e) { return 'in'; } return 'no'; }; \
            out = inner(); \
          } catch (e) { out = 'outer'; } \
-         return out === 'in' ? 1 : 0;");
+         return out === 'in' ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(answer),
         1.0,
@@ -5592,10 +5590,12 @@ fn a_throw_outside_every_region_still_escapes_the_function() {
 /// from another function where a JavaScript value was required.
 #[test]
 fn a_captured_write_inside_a_callback_does_not_leak_into_the_outer_body() {
-    let answer = run("let ran = 0; \
+    let answer = run(
+        "let ran = 0; \
          try { [1, 2, 3].forEach(x => { ran = ran + 1; if (x === 2) throw new Error('stop'); }); } \
          catch (e) {} \
-         return ran === 2 ? 1 : 0;");
+         return ran === 2 ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(answer),
         1.0,
@@ -5613,10 +5613,12 @@ fn a_captured_write_inside_a_callback_does_not_leak_into_the_outer_body() {
 /// trade one for the other again.
 #[test]
 fn a_captured_string_written_in_a_callback_survives_the_catch_that_follows() {
-    let answer = run("let s = ''; \
+    let answer = run(
+        "let s = ''; \
          try { ['a', 'b'].forEach(x => { s = s + x; if (x === 'b') throw new Error('z'); }); } \
          catch (e) { s = s + '!'; } \
-         return s === 'ab!' ? 1 : 0;");
+         return s === 'ab!' ? 1 : 0;",
+    );
     assert_eq!(
         tags::decode_double(answer),
         1.0,
@@ -5650,16 +5652,10 @@ fn a_commonjs_module_requires_another_and_gets_what_it_exported() {
     // Two shapes of export, because they answer differently: filling `exports`
     // leaves a namespace of names, and REPLACING `module.exports` leaves one
     // value that a namespace could not hold.
-    write(
-        "cjs_lib.js",
-        "exports.greet = function (who) { return 'ola ' + who; };
-",
-    );
-    write(
-        "cjs_fn.js",
-        "module.exports = function double(n) { return n * 2; };
-",
-    );
+    write("cjs_lib.js", "exports.greet = function (who) { return 'ola ' + who; };
+");
+    write("cjs_fn.js", "module.exports = function double(n) { return n * 2; };
+");
     let entry = write(
         "cjs_entry.js",
         "import { test, expect } from \"rts:test\";
@@ -5674,10 +5670,7 @@ fn a_commonjs_module_requires_another_and_gets_what_it_exported() {
     let mut program = rts_host::compile_graph(&entry).expect("the graph compiles");
     program.run();
     let reported = rts_std::test::record();
-    let failed: Vec<String> = reported
-        .iter()
-        .filter_map(|one| one.failure.clone())
-        .collect();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
     assert_eq!(reported.len(), 2, "the fixture registers two tests");
     assert!(
         failed.is_empty(),
@@ -5704,17 +5697,11 @@ fn import_and_require_reach_each_other_inside_one_program() {
         path
     };
 
-    write(
-        "mixed_esm.ts",
-        "export const two = 2;
+    write("mixed_esm.ts", "export const two = 2;
 export default 'padrao';
-",
-    );
-    write(
-        "mixed_cjs.js",
-        "module.exports = { four: 4 };
-",
-    );
+");
+    write("mixed_cjs.js", "module.exports = { four: 4 };
+");
     let entry = write(
         "mixed_entry.ts",
         "import { test, expect } from \"rts:test\";
@@ -5730,15 +5717,9 @@ export default 'padrao';
     let mut program = rts_host::compile_graph(&entry).expect("the graph compiles");
     program.run();
     let reported = rts_std::test::record();
-    let failed: Vec<String> = reported
-        .iter()
-        .filter_map(|one| one.failure.clone())
-        .collect();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
     assert_eq!(reported.len(), 2, "the fixture registers two tests");
-    assert!(
-        failed.is_empty(),
-        "each system reads the other's module: {failed:?}"
-    );
+    assert!(failed.is_empty(), "each system reads the other's module: {failed:?}");
 }
 
 /// A program's own `require` is the one it declared.
@@ -5770,15 +5751,9 @@ fn a_declared_name_wins_over_the_commonjs_binding() {
     let mut program = rts_host::compile_graph(&path).expect("the graph compiles");
     program.run();
     let reported = rts_std::test::record();
-    let failed: Vec<String> = reported
-        .iter()
-        .filter_map(|one| one.failure.clone())
-        .collect();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
     assert_eq!(reported.len(), 1, "the fixture registers one test");
-    assert!(
-        failed.is_empty(),
-        "the program's own bindings answer: {failed:?}"
-    );
+    assert!(failed.is_empty(), "the program's own bindings answer: {failed:?}");
 }
 
 /// A `for-of` hands back the elements of the array it walks, across a collection.
@@ -5824,7 +5799,8 @@ fn a_declared_name_wins_over_the_commonjs_binding() {
 /// fix removed the hoist rather than narrowing its predicate.
 #[test]
 fn a_for_of_hands_back_its_own_elements_across_a_collection() {
-    let produced = run("const held: { id: number }[] = [];
+    let produced = run(
+        "const held: { id: number }[] = [];
          for (let i = 0; i < 90; i++) held.push({ id: i });
          let step: i32 = 0;
          let mismatched: i32 = 0;
@@ -5834,13 +5810,13 @@ fn a_for_of_hands_back_its_own_elements_across_a_collection() {
            if (each !== held[step]) { mismatched += 1; }
            step += 1;
          }
-         return mismatched * 1000 + step;");
+         return mismatched * 1000 + step;",
+    );
     // Packed rather than two runs: the defect depends on the allocation the loop
     // performs, so asking twice asks a different question the second time.
     let packed = tags::decode_double(produced);
     assert_eq!(
-        packed,
-        90.0,
+        packed, 90.0,
         "expected 0 mismatches over 90 steps; got {} mismatches over {} steps",
         (packed / 1000.0).floor(),
         packed % 1000.0
@@ -5865,7 +5841,8 @@ fn a_for_of_hands_back_its_own_elements_across_a_collection() {
 /// more than one that turns it into an assertion.
 #[test]
 fn a_for_of_does_not_read_a_run_the_collector_reclaimed() {
-    let produced = run("const held: { id: number }[] = [];
+    let produced = run(
+        "const held: { id: number }[] = [];
          for (let i = 0; i < 200; i++) held.push({ id: i });
          let step: i32 = 0;
          let mismatched: i32 = 0;
@@ -5879,7 +5856,8 @@ fn a_for_of_does_not_read_a_run_the_collector_reclaimed() {
            if (each !== held[step]) { mismatched += 1; }
            step += 1;
          }
-         return mismatched * 1000 + step;");
+         return mismatched * 1000 + step;",
+    );
     assert_eq!(
         tags::decode_double(produced),
         200.0,

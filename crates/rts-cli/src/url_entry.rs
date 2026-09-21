@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow, bail};
 
+
 /// `true` when the CLI input names an http(s) URL instead of a local file.
 pub fn is_url(input: &str) -> bool {
     input.starts_with("http://") || input.starts_with("https://")
@@ -151,11 +152,12 @@ fn user_agent() -> &'static str {
 /// GET `url` with the shared RTS User-Agent. `Ok(None)` on 404 (candidate
 /// probing), error on any other failure.
 fn fetch_text(url: &str) -> Result<Option<String>> {
-    let resp = ureq::get(url).set("User-Agent", user_agent()).call();
+    let resp = ureq::get(url)
+        .set("User-Agent", user_agent())
+        .call();
     match resp {
         Ok(r) => Ok(Some(
-            r.into_string()
-                .with_context(|| format!("reading body of {url}"))?,
+            r.into_string().with_context(|| format!("reading body of {url}"))?,
         )),
         Err(ureq::Error::Status(404, _)) => Ok(None),
         Err(ureq::Error::Status(code, _)) => bail!("HTTP {code} fetching {url}"),
@@ -202,12 +204,7 @@ impl UrlParts {
     }
 
     fn to_url(&self) -> String {
-        format!(
-            "{}://{}/{}",
-            self.scheme,
-            self.host,
-            self.segments.join("/")
-        )
+        format!("{}://{}/{}", self.scheme, self.host, self.segments.join("/"))
     }
 
     /// Resolve a relative `spec` against THIS module's URL (drop the filename,

@@ -277,10 +277,6 @@ mod tests {
             &0x1122_3344_5566_7788u64.to_le_bytes(),
             "the source hash, little-endian"
         );
-        assert_eq!(
-            &tail[12..16],
-            &5u32.to_le_bytes(),
-            "the function-table index"
-        );
+        assert_eq!(&tail[12..16], &5u32.to_le_bytes(), "the function-table index");
     }
 }

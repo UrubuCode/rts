@@ -110,10 +110,7 @@ fn resolve_version(name: &str, spec: &str) -> Result<ResolvedPackage> {
 }
 
 fn is_exact_version(s: &str) -> bool {
-    s.chars()
-        .next()
-        .map(|c| c.is_ascii_digit())
-        .unwrap_or(false)
+    s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
 }
 
 fn fetch_specific(name: &str, version: &str) -> Result<ResolvedPackage> {
@@ -181,11 +178,7 @@ fn pick_semver_range(manifest: &NpmFullManifest, spec: &str) -> Result<String> {
                 "lte" => p <= base,
                 _ => false,
             };
-            if ok {
-                Some((p.0, p.1, p.2, v.clone()))
-            } else {
-                None
-            }
+            if ok { Some((p.0, p.1, p.2, v.clone())) } else { None }
         })
         .collect();
 

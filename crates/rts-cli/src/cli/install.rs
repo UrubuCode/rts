@@ -35,7 +35,8 @@ pub fn command(extra_pkgs: Vec<String>) -> Result<()> {
 
     println!("{}", "Resolving dependencies".dimmed());
 
-    let installed = install_packages(&root, &requests, &mut lock).context("install packages")?;
+    let installed = install_packages(&root, &requests, &mut lock)
+        .context("install packages")?;
 
     lock.save(&root)?;
     println!("{}", "Saved lockfile".dimmed());
@@ -87,8 +88,8 @@ fn deps_from_package_json(root: &Path) -> Result<Vec<InstallRequest>> {
     }
     let raw = std::fs::read_to_string(&pkg_path)?;
     let clean = strip_json_comments(&raw);
-    let parsed: RawPackageManifest =
-        serde_json::from_str(&clean).with_context(|| format!("parse {}", pkg_path.display()))?;
+    let parsed: RawPackageManifest = serde_json::from_str(&clean)
+        .with_context(|| format!("parse {}", pkg_path.display()))?;
 
     Ok(parsed
         .dependencies

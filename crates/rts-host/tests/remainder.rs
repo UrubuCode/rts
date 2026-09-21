@@ -271,10 +271,7 @@ fn the_unboxed_remainder_carries_no_thrown_value_check() {
     let numbered = ir
         .lines()
         .find(|line| line.contains("__rts_number_remainder"))
-        .and_then(|line| {
-            line.split_whitespace()
-                .find(|word| word.starts_with("FuncId("))
-        })
+        .and_then(|line| line.split_whitespace().find(|word| word.starts_with("FuncId(")))
         .expect("the legend names the unboxed remainder")
         .to_owned();
 
@@ -282,15 +279,10 @@ fn the_unboxed_remainder_carries_no_thrown_value_check() {
     let calls: Vec<usize> = lines
         .iter()
         .enumerate()
-        .filter(|(_, line)| {
-            line.contains("Call {") && line.contains(&format!("callee: {numbered}"))
-        })
+        .filter(|(_, line)| line.contains("Call {") && line.contains(&format!("callee: {numbered}")))
         .map(|(at, _)| at)
         .collect();
-    assert!(
-        !calls.is_empty(),
-        "the legend named it, so a site calls it\n\n{ir}"
-    );
+    assert!(!calls.is_empty(), "the legend named it, so a site calls it\n\n{ir}");
 
     for at in calls {
         let next = lines.get(at + 1).copied().unwrap_or("");
@@ -310,8 +302,10 @@ fn an_unproven_remainder_still_reaches_the_generic_operator() {
     // applied where it holds rather than everywhere. A parameter is not
     // provable — `emit/proven.rs` refuses to prove anything arriving from
     // outside the function — so this `%` must still be the generic call.
-    let ir = rts_host::describe::describe_source("function f(a, b) { return a % b; } f(5, 3);")
-        .expect("compiles");
+    let ir = rts_host::describe::describe_source(
+        "function f(a, b) { return a % b; } f(5, 3);",
+    )
+    .expect("compiles");
 
     assert!(
         ir.contains("__rts_remainder"),
