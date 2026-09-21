@@ -639,69 +639,104 @@ fn replay_bit_a_bit_e_independente_de_threads_1_2_16() {
         h
     }
 
-    let run = |threads: usize| -> (u64, Vec<f32>, Vec<f32>) {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .expect("private pool");
-        let (mut pos, mut vel) = (initial_pos.clone(), initial_vel.clone());
-        pool.install(|| {
-            let mut solver = Solver::new();
-            solver.step(&mut pos, &mut vel, &ext, &floor, 180);
-        });
-        let h = hash_state(&pos, &vel);
-        (h, pos, vel)
+    let assert_deterministic = |scene_name: &str,
+                                init_pos: &[f32],
+                                init_vel: &[f32],
+                                ext_buf: &[f32],
+                                world_buf: &[f32],
+                                steps: usize| {
+        let run = |threads: usize| -> (u64, Vec<f32>, Vec<f32>) {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .expect("private pool");
+            let (mut pos, mut vel) = (init_pos.to_vec(), init_vel.to_vec());
+            pool.install(|| {
+                let mut solver = Solver::new();
+                solver.step(&mut pos, &mut vel, ext_buf, world_buf, steps);
+            });
+            let h = hash_state(&pos, &vel);
+            (h, pos, vel)
+        };
+
+        // 1. Rodar 2 vezes com 1 thread e verificar que o replay é idêntico
+        let (h1_a, pos1_a, vel1_a) = run(1);
+        let (h1_b, pos1_b, vel1_b) = run(1);
+        assert_eq!(h1_a, h1_b, "{scene_name}: replay com 1 thread divergiu entre duas rodadas");
+        assert_eq!(pos1_a, pos1_b);
+        assert_eq!(vel1_a, vel1_b);
+
+        // 2. Rodar 2 vezes com 2 threads
+        let (h2_a, pos2_a, vel2_a) = run(2);
+        let (h2_b, pos2_b, vel2_b) = run(2);
+        assert_eq!(h2_a, h2_b, "{scene_name}: replay com 2 threads divergiu entre duas rodadas");
+        assert_eq!(pos2_a, pos2_b);
+        assert_eq!(vel2_a, vel2_b);
+
+        // 3. Rodar 2 vezes com 16 threads
+        let (h16_a, pos16_a, vel16_a) = run(16);
+        let (h16_b, pos16_b, vel16_b) = run(16);
+        assert_eq!(h16_a, h16_b, "{scene_name}: replay com 16 threads divergiu entre duas rodadas");
+        assert_eq!(pos16_a, pos16_b);
+        assert_eq!(vel16_a, vel16_b);
+
+        // 4. Comparar os hashes entre 1, 2 e 16 threads
+        if h1_a != h2_a || h1_a != h16_a {
+            for i in 0..pos1_a.len() {
+                if pos1_a[i].to_bits() != pos2_a[i].to_bits() || pos1_a[i].to_bits() != pos16_a[i].to_bits() {
+                    let body = i / 4;
+                    let field = match i % 4 { 0 => "x", 1 => "y", 2 => "z", _ => "sleep" };
+                    panic!(
+                        "{scene_name}: Divergência no corpo {body} campo pos.{field}: 1t={:08x} ({}), 2t={:08x} ({}), 16t={:08x} ({})",
+                        pos1_a[i].to_bits(), pos1_a[i],
+                        pos2_a[i].to_bits(), pos2_a[i],
+                        pos16_a[i].to_bits(), pos16_a[i],
+                    );
+                }
+            }
+            for i in 0..vel1_a.len() {
+                if vel1_a[i].to_bits() != vel2_a[i].to_bits() || vel1_a[i].to_bits() != vel16_a[i].to_bits() {
+                    let body = i / 4;
+                    let field = match i % 4 { 0 => "vx", 1 => "vy", 2 => "vz", _ => "shape" };
+                    panic!(
+                        "{scene_name}: Divergência no corpo {body} campo vel.{field}: 1t={:08x} ({}), 2t={:08x} ({}), 16t={:08x} ({})",
+                        vel1_a[i].to_bits(), vel1_a[i],
+                        vel2_a[i].to_bits(), vel2_a[i],
+                        vel16_a[i].to_bits(), vel16_a[i],
+                    );
+                }
+            }
+        }
+
+        assert_eq!(h1_a, h2_a, "{scene_name}: hash 1 thread vs 2 threads divergiu");
+        assert_eq!(h1_a, h16_a, "{scene_name}: hash 1 thread vs 16 threads divergiu");
     };
 
-    // 1. Rodar 2 vezes com 1 thread e verificar que o replay é idêntico
-    let (h1_a, pos1_a, vel1_a) = run(1);
-    let (h1_b, pos1_b, vel1_b) = run(1);
-    assert_eq!(h1_a, h1_b, "replay com 1 thread divergiu entre duas rodadas");
-    assert_eq!(pos1_a, pos1_b);
-    assert_eq!(vel1_a, vel1_b);
+    // Cena 1: 400 corpos na cena padrão (legada)
+    assert_deterministic("cena legado", &initial_pos, &initial_vel, &ext, &floor, 180);
 
-    // 2. Rodar 2 vezes com 2 threads
-    let (h2_a, pos2_a, vel2_a) = run(2);
-    let (h2_b, pos2_b, vel2_b) = run(2);
-    assert_eq!(h2_a, h2_b, "replay com 2 threads divergiu entre duas rodadas");
-    assert_eq!(pos2_a, pos2_b);
-    assert_eq!(vel2_a, vel2_b);
+    // Cena 2: cena com região de materiais, corpo cinemático em movimento e any_mask = 1.0
+    let mut world_mat = world_with_materials(&[([0.0, -0.5, 0.0], [40.0, 0.5, 40.0])], 2.0, bodies.len());
+    world_mat[material::WORLD_PARAM_ANY_MASK] = 1.0;
 
-    // 3. Rodar 2 vezes com 16 threads
-    let (h16_a, pos16_a, vel16_a) = run(16);
-    let (h16_b, pos16_b, vel16_b) = run(16);
-    assert_eq!(h16_a, h16_b, "replay com 16 threads divergiu entre duas rodadas");
-    assert_eq!(pos16_a, pos16_b);
-    assert_eq!(vel16_a, vel16_b);
+    let mat_pos = initial_pos.clone();
+    let mut mat_vel = initial_vel.clone();
 
-    // 4. Comparar os hashes entre 1, 2 e 16 threads
-    if h1_a != h2_a || h1_a != h16_a {
-        for i in 0..pos1_a.len() {
-            if pos1_a[i].to_bits() != pos2_a[i].to_bits() || pos1_a[i].to_bits() != pos16_a[i].to_bits() {
-                let body = i / 4;
-                let field = match i % 4 { 0 => "x", 1 => "y", 2 => "z", _ => "sleep" };
-                panic!(
-                    "Divergência no corpo {body} campo pos.{field}: 1t={:08x} ({}), 2t={:08x} ({}), 16t={:08x} ({})",
-                    pos1_a[i].to_bits(), pos1_a[i],
-                    pos2_a[i].to_bits(), pos2_a[i],
-                    pos16_a[i].to_bits(), pos16_a[i],
-                );
-            }
-        }
-        for i in 0..vel1_a.len() {
-            if vel1_a[i].to_bits() != vel2_a[i].to_bits() || vel1_a[i].to_bits() != vel16_a[i].to_bits() {
-                let body = i / 4;
-                let field = match i % 4 { 0 => "vx", 1 => "vy", 2 => "vz", _ => "shape" };
-                panic!(
-                    "Divergência no corpo {body} campo vel.{field}: 1t={:08x} ({}), 2t={:08x} ({}), 16t={:08x} ({})",
-                    vel1_a[i].to_bits(), vel1_a[i],
-                    vel2_a[i].to_bits(), vel2_a[i],
-                    vel16_a[i].to_bits(), vel16_a[i],
-                );
-            }
-        }
+    // Corpo 0: cinemático com velocidade inicial
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    world_mat[at0 + 5] = material::BODY_KINEMATIC;
+    world_mat[at0 + 6] = f32::from_bits(2); // layer 2
+    world_mat[at0 + 7] = f32::from_bits(1); // mask 1
+    mat_vel[0] = 3.0; // vx em movimento
+
+    // Demais corpos com máscaras alternadas para exercitar o filtro de máscara e const FILTRO
+    for i in 1..bodies.len() {
+        let at_i = material::MATERIALS_AT + 256 * 4 + i * 8;
+        let layer_bit = 1u32 << (i % 4);
+        let mask_bit = 1u32 << ((i + 1) % 4);
+        world_mat[at_i + 6] = f32::from_bits(layer_bit);
+        world_mat[at_i + 7] = f32::from_bits(mask_bit);
     }
 
-    assert_eq!(h1_a, h2_a, "hash 1 thread vs 2 threads divergiu");
-    assert_eq!(h1_a, h16_a, "hash 1 thread vs 16 threads divergiu");
+    assert_deterministic("cena com materiais, cinemático e máscaras", &mat_pos, &mat_vel, &ext, &world_mat, 180);
 }

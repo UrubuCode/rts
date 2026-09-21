@@ -85,7 +85,9 @@ pub struct Needs {
     pub angular: bool,
     /// Joints, articulations, motors.
     pub joints: bool,
-    /// Deterministic bit-by-bit simulation across runs and thread counts.
+    /// Deterministic bit-by-bit simulation across runs and thread counts on the same binary
+    /// and same machine (desenho §9, §15.3). Lockstep across different machines or OSes is not
+    /// promised or verified yet.
     pub deterministic: bool,
     /// Spatial raycast queries supported by the backend.
     pub raycast: bool,

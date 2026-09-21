@@ -75,7 +75,8 @@ impl Backend for GatherBackend {
         //   angular            no torque, no angular velocity, anywhere.
         //   joints             none, and no articulation to hang one from.
         //   deterministic      supported: gather reads a top-of-step snapshot and writes
-        //                      only itself, giving bit-exact replay across 1, 2 and 16 threads.
+        //                      only itself, giving bit-exact replay across 1, 2 and 16 threads
+        //                      on the same binary and same machine (desenho §9, §15.3).
         //   raycast            spatial queries are not implemented on gather solver.
         //   overlap            spatial overlap queries are not implemented.
         //   contact_events     contact event stream is not implemented.
