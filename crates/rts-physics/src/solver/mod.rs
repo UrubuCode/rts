@@ -204,11 +204,21 @@ impl Solver {
                 size,
                 dt,
             };
-            pos[..count * 4]
+            // O filtro de máscara é escolhido aqui, uma vez por sub-passo, e não
+            // testado por candidato: cada instância de `solve` já nasce com ou
+            // sem ele. Ver `Scene::disturbed`.
+            let bodies = pos[..count * 4]
                 .par_chunks_mut(4)
                 .zip(vel[..count * 4].par_chunks_mut(4))
-                .enumerate()
-                .for_each(|(body, (out_pos, out_vel))| scene.solve(body, out_pos, out_vel));
+                .enumerate();
+            match scene.materials.any_mask() {
+                true => bodies.for_each(|(body, (out_pos, out_vel))| {
+                    scene.solve::<true>(body, out_pos, out_vel)
+                }),
+                false => bodies.for_each(|(body, (out_pos, out_vel))| {
+                    scene.solve::<false>(body, out_pos, out_vel)
+                }),
+            }
         }
     }
 }
@@ -281,7 +291,8 @@ impl Scene<'_> {
 
     /// One body's whole sub-step: wake or skip, integrate, statics, pairs,
     /// clamp, park, sleep. Writes only its own four-float slots.
-    fn solve(&self, body: usize, out_pos: &mut [f32], out_vel: &mut [f32]) {
+    /// `FILTRO` é o `any_mask` do passo; ver `disturbed`.
+    fn solve<const FILTRO: bool>(&self, body: usize, out_pos: &mut [f32], out_vel: &mut [f32]) {
         let mut p = self.position(body);
         let mut v = self.velocity(body);
         let mut sleep = self.positions[body * 4 + 3];
@@ -306,7 +317,7 @@ impl Scene<'_> {
         }
 
         if sleep >= SLEEP_STEPS {
-            if !self.disturbed(body, p, h, shape) {
+            if !self.disturbed::<FILTRO>(body, p, h, shape) {
                 // Unchanged, and written out rather than left alone: the caller's
                 // buffer is the destination, and the snapshot it was read from is
                 // a different allocation.
@@ -328,10 +339,10 @@ impl Scene<'_> {
         // Whether anything touched this body this step, which is what decides
         // if it may fall asleep. See the counter below.
         let mut supported = mine.rest_on_floor(&mut p[1], &mut v[1]);
-        supported |= self.against_statics(&mut p, &mut v, h, shape, mine);
+        supported |= self.against_statics::<FILTRO>(&mut p, &mut v, h, shape, mine);
 
         let before = p;
-        supported |= self.against_bodies(body, &mut p, &mut v, &mut sleep, h, shape, inverse_mass, mine);
+        supported |= self.against_bodies::<FILTRO>(body, &mut p, &mut v, &mut sleep, h, shape, inverse_mass, mine);
         // The per-step ceiling on positional correction, which is what keeps a
         // deep pile from exploding: a buried body sums the corrections of dozens
         // of neighbours in one Jacobi pass.

@@ -580,3 +580,30 @@ fn layer_and_mask_filters_collision_pairs() {
     assert!(pos[4] > initial_x1, "body 1 did not separate when masks matched");
 }
 
+#[test]
+fn acordar_respeita_a_mesma_flag_any_mask_que_os_pares() {
+    // Um corpo dormindo e um vizinho rápido que o toca, em layers que a máscara
+    // separa. Com `any_mask = 0` a máscara é ignorada em TUDO — pares e acordar
+    // —, então ele acorda; com `any_mask = 1` o vizinho não o enxerga e ele
+    // continua dormindo. Antes, acordar filtrava máscara mesmo com a flag
+    // desligada, divergindo dos pares.
+    let asleep = ([0.0, 0.5, 0.0, SLEEP_STEPS], [0.0, 0.0, 0.0, BOX], [0.5, 0.5, 0.5, 1.0]);
+    let mover = ([0.9, 0.5, 0.0, 0.0], [-4.0, 0.0, 0.0, BOX], [0.5, 0.5, 0.5, 1.0]);
+    let mut world = world_with_materials(&[([0.0, -0.5, 0.0], [40.0, 0.5, 40.0])], 2.0, 2);
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    let at1 = at0 + 8;
+    world[at0 + 6] = f32::from_bits(1);
+    world[at0 + 7] = f32::from_bits(2);
+    world[at1 + 6] = f32::from_bits(4);
+    world[at1 + 7] = f32::from_bits(1);
+
+    world[material::WORLD_PARAM_ANY_MASK] = 0.0;
+    let (mut pos, mut vel, ext) = scene(&[asleep, mover]);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 1);
+    assert!(pos[3] < SLEEP_STEPS, "com any_mask = 0 a máscara não deveria impedir o acordar");
+
+    world[material::WORLD_PARAM_ANY_MASK] = 1.0;
+    let (mut pos, mut vel, ext) = scene(&[asleep, mover]);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 1);
+    assert!(pos[3] >= SLEEP_STEPS, "com any_mask = 1 um vizinho mascarado não deveria acordá-lo");
+}
