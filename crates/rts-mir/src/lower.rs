@@ -144,6 +144,28 @@ pub trait MachineOps {
         live: &[MachineValue],
     ) -> Result<(), String>;
 
+    /// A call through a value, with a receiver where the language passes one.
+    ///
+    /// # Why this is one question and not two
+    ///
+    /// Because a call with a receiver and a call without one differ in what they HAND
+    /// OVER and not in what they are, and every language that has methods has both. A pair
+    /// of methods would make the boundary answer twice about one operation, which is how
+    /// the two come to disagree about the arity or the order.
+    ///
+    /// `None` for the receiver is a plain call. The language decides what either becomes:
+    /// this crate does not know whether a receiver is an argument, a register or a frame
+    /// slot, and `rts_cranelift::abi::Convention` does not either -- it is about linkage
+    /// and tail calls and reserves nothing for one.
+    fn call_value(
+        &mut self,
+        into: &mut FuncBuilder,
+        callee: MachineValue,
+        receiver: Option<MachineValue>,
+        args: &[MachineValue],
+        inst: &crate::cfg::Inst,
+    ) -> Result<MachineValue, String>;
+
     /// A call to a named entry point of the runtime.
     ///
     /// Takes the instruction for the same reason [`Self::prim`] does, although an
@@ -286,12 +308,25 @@ pub fn lower(
                     receiver,
                     args,
                 } => match (callee, receiver) {
-                    // A RECEIVER IS REFUSED, and this is where the machine question
-                    // gets asked rather than answered. How a receiver reaches a
-                    // callee is a calling convention, and no entry point takes one
-                    // today — so packing it into the argument list here would be
-                    // inventing the convention in the module that is supposed to
-                    // implement whatever the machine decides.
+                    // A RECEIVER TRAVELS AS ITSELF, to a language that says what to do
+                    // with one. This arm used to refuse, on the reasoning that how a
+                    // receiver reaches a callee is a calling convention and therefore the
+                    // machine's -- and that reasoning was wrong in the same way the
+                    // `ThisValue` note was: `rts_cranelift::abi::Convention` is about
+                    // linkage and tail calls and reserves nothing for a receiver, so the
+                    // machine has no answer to give.
+                    //
+                    // It is the LANGUAGE's, which is why this hands the receiver over
+                    // beside the callee and the arguments rather than packing it anywhere:
+                    // the boundary is told what it is and decides what a call with one
+                    // becomes. Packing it here is what would have invented a convention.
+                    (Callee::Dynamic(value), Some(held_receiver)) => {
+                        let callee = one(*value, &values)?;
+                        let receiver = one(*held_receiver, &values)?;
+                        let of_args = read(args, &values)?;
+                        ops.call_value(into, callee, Some(receiver), &of_args, held)
+                            .map_err(Unlowerable::Language)?
+                    }
                     (_, Some(_)) => return Err(Unlowerable::NeedsReceiverConvention),
                     (Callee::Entry(entry), None) => {
                         let of_args = read(args, &values)?;

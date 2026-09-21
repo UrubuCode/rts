@@ -17,7 +17,6 @@ use crate::domain::Js;
 /// function -- which is how `rts-host::graph` builds a real one: `FuncRegistry` and
 /// `RuntimeCalls` are created once and every file shares them. A registry per function
 /// would hand each its own id for one symbol and nothing would notice.
-#[derive(Default)]
 pub struct Shared {
     /// Every function a call may name.
     pub funcs: rts_cranelift::ir::FuncRegistry,
@@ -36,6 +35,42 @@ pub struct Shared {
     /// about. The PAIRING of a name to a key lives on `Names`, and CLAUDE.md names this as
     /// the correct shape -- two tables of different lifetimes minting from ONE registry.
     pub keys: rts_cranelift::shape::KeyRegistry,
+    /// The tags a value's representation is built from.
+    ///
+    /// Program-scoped like every other numbering here: a tag is an agreement about bits,
+    /// and two registries would encode one singleton two ways.
+    pub tags: rts_cranelift::tags::TagRegistry,
+    /// What a value IS, in the tags above.
+    ///
+    /// Built from them rather than beside them, which is why the two are one field apart
+    /// and never constructed separately.
+    pub model: crate::values::ValueModel,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Shared {
+    /// Every numbering a program agrees with the runtime about, empty.
+    ///
+    /// Not derived, because the value model is DECLARED from the tag registry -- the two
+    /// are one fact in two pieces, and a `Default` that made them separately would build a
+    /// model against tags nothing else uses.
+    pub fn new() -> Self {
+        let mut tags = rts_cranelift::tags::TagRegistry::new();
+        let model = crate::values::ValueModel::declare(&mut tags);
+        Self {
+            funcs: rts_cranelift::ir::FuncRegistry::new(),
+            calls: crate::runtime::RuntimeCalls::new(),
+            literals: crate::runtime::Literals::new(),
+            keys: rts_cranelift::shape::KeyRegistry::new(),
+            tags,
+            model,
+        }
+    }
 }
 
 /// Does this graph reach the machine, and what stopped it if not?

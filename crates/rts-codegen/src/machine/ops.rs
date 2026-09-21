@@ -63,6 +63,27 @@ impl MachineOps for JsMachine<'_> {
                 "StringConst answered nothing, and the graph reads its result".to_owned()
             });
         }
+        // A SINGLETON IS BITS, and the bits come from the program's tag registry rather
+        // than from anything this file knows: `SingletonId::word` is the value, and which
+        // id each singleton has is `ValueModel::declare`'s answer over those tags.
+        //
+        // Two registries would encode one singleton two ways, which is why the model and
+        // the tags are one field apart in `Shared` and never built separately.
+        if let Some(JsConst::Singleton(which)) = self.domain.declared(index) {
+            let which = *which;
+            let Some(shared) = self.shared.as_deref_mut() else {
+                return Err(
+                    "a singleton is bits from the program's tag registry, which this boundary was not given"
+                        .to_owned(),
+                );
+            };
+            let id = shared.model.singleton(which);
+            let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::Tagged,
+                bits: rts_cranelift::ir::ScalarBits(id.word()),
+            });
+            return Ok(into.use_const(held));
+        }
         // A PROPERTY KEY IS A NUMBER THE COMPILER RESOLVED, and the number is the whole of
         // it: `rts_cranelift::shape::Key` is opaque to the machine, which compares keys and
         // does nothing else with them. So this is a machine constant and not a call --
@@ -300,6 +321,69 @@ impl MachineOps for JsMachine<'_> {
             .map_err(machine)?;
         into.ret(&answered);
         Ok(())
+    }
+
+    fn call_value(
+        &mut self,
+        into: &mut FuncBuilder,
+        callee: MachineValue,
+        receiver: Option<MachineValue>,
+        args: &[MachineValue],
+        _inst: &Inst,
+    ) -> Result<MachineValue, String> {
+        // `RuntimeOp::Call` IS THE DOOR, and its shape is the convention written out:
+        // callee, receiver, how many arguments were WRITTEN, which literal spells the
+        // callee, then one slot per argument padded with `undefined`.
+        //
+        // The count is what lets a callee tell `f(undefined)` from `f()`. The name is what
+        // used to be a crossing of its own -- `SetCallName`, measured at 2.3-2.9 ns on
+        // every named call -- and `-1` spells a callee with nothing to name, which is what
+        // this boundary always passes: the graph carries no callee spelling, deliberately,
+        // because a name is for a diagnostic and a call is not.
+        //
+        // FOUR SLOTS, and `runtime/mod.rs` says why the arity is fixed: the machine has no
+        // stack slot to put a real argument vector in, so `rts-core` keeps the vector in a
+        // `Vec` of its own. A call with more arguments than slots is refused here rather
+        // than truncated -- `CallWithArgs` is the operation for that and takes a spread.
+        if args.len() > crate::runtime::ARGUMENT_SLOTS {
+            return Err(format!(
+                "a call of {} arguments needs the vector form, and this door has {} slots",
+                args.len(),
+                crate::runtime::ARGUMENT_SLOTS
+            ));
+        }
+        let Some(shared) = self.shared.as_deref_mut() else {
+            return Err(
+                "a call needs the program's tag registry for its undefined padding".to_owned(),
+            );
+        };
+        let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
+        let padding = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits: rts_cranelift::ir::ScalarBits(undefined.word()),
+        });
+        let padding = into.use_const(padding);
+        let count = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(args.len() as u64),
+        });
+        let count = into.use_const(count);
+        // `-1`, which spells a callee with nothing to name.
+        let unnamed = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(u64::MAX),
+        });
+        let unnamed = into.use_const(unnamed);
+
+        // NO RECEIVER IS `undefined` AND NOT ABSENT, because the door's arity is fixed and
+        // a plain call is one whose receiver the callee decides. That is the language's own
+        // rule: a non-strict function called with no receiver sees the global object, which
+        // `emit/function.rs` substitutes once at the entry rather than at the call.
+        let receiver = receiver.unwrap_or(padding);
+        let mut of_args = vec![callee, receiver, count, unnamed];
+        of_args.extend_from_slice(args);
+        of_args.resize(4 + crate::runtime::ARGUMENT_SLOTS, padding);
+        self.call_runtime(into, crate::runtime::RuntimeOp::Call, &of_args)
     }
 
     fn entry(

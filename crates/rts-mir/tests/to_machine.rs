@@ -96,6 +96,20 @@ impl MachineOps for Integers {
         }
     }
 
+    fn call_value(
+        &mut self,
+        _into: &mut rts_cranelift::ir::FuncBuilder,
+        _callee: MachineValue,
+        _receiver: Option<MachineValue>,
+        _args: &[MachineValue],
+        _inst: &rts_mir::cfg::Inst,
+    ) -> Result<MachineValue, String> {
+        // A LANGUAGE WITH ONE TYPE AND NO FUNCTIONS calls nothing, so being asked is a bug
+        // in the caller rather than a case to handle. A toy that answered something would
+        // make the refusal this method exists to allow untestable.
+        Err("this language has no calls, so a call through a value is not one it has".to_owned())
+    }
+
     fn entry(
         &mut self,
         _into: &mut rts_cranelift::ir::FuncBuilder,

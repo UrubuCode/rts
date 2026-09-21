@@ -796,3 +796,67 @@ fn a_computed_key_is_refused_because_it_is_a_different_operation() {
         "a computed key is not a cached_get"
     );
 }
+
+/// **A method call reaches the machine**, and the receiver travels as itself.
+///
+/// `NeedsReceiverConvention` refused this on the reasoning that how a receiver reaches a
+/// callee is a calling convention and therefore the machine's. That reasoning was wrong in
+/// the same way the `ThisValue` note was: `abi::Convention` is about linkage and tail calls
+/// and reserves nothing for a receiver, so the machine has no answer to give and asking it
+/// would have got one invented.
+///
+/// So the graph hands the receiver over beside the callee and the arguments, and the
+/// LANGUAGE decides what a call with one becomes: `RuntimeOp::Call`, whose shape is the
+/// convention written out.
+#[test]
+fn a_method_call_reaches_the_machine_with_the_receiver_travelling() {
+    for source in [
+        "function f(o) { return o.m(1); }",
+        "function f(o, a) { return o.m(a, 2); }",
+    ] {
+        let mut names = Names::new();
+        let program = parse_script(source, &mut names).expect("parses");
+        let resolution = resolve_module(&program.body);
+        let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+        let graph = lowered.functions[0].result.as_ref().expect("it lowers");
+        let mut shared = rts_codegen::machine::Shared::new();
+        assert_eq!(
+            rts_codegen::machine::reaches_machine(
+                graph,
+                &lowered.domain,
+                None,
+                &mut shared,
+                &mut names
+            ),
+            Ok(()),
+            "{source}"
+        );
+    }
+}
+
+/// The door's arity is FIXED at four argument slots, and a call with more is refused rather
+/// than truncated — `CallWithArgs` is the operation for that.
+///
+/// `runtime/mod.rs` says why the arity is fixed at all: the machine has no stack slot to put
+/// a real argument vector in, so `rts-core` keeps the vector in a `Vec` of its own.
+#[test]
+fn a_call_with_more_arguments_than_slots_is_refused_and_not_truncated() {
+    let mut names = Names::new();
+    let program =
+        parse_script("function f(o) { return o.m(1, 2, 3, 4, 5); }", &mut names).expect("parses");
+    let resolution = resolve_module(&program.body);
+    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
+    let Ok(graph) = lowered.functions[0].result.as_ref() else {
+        return;
+    };
+    let mut shared = rts_codegen::machine::Shared::new();
+    let refused = rts_codegen::machine::reaches_machine(
+        graph,
+        &lowered.domain,
+        None,
+        &mut shared,
+        &mut names,
+    )
+    .expect_err("five arguments, four slots");
+    assert!(said(refused).contains("needs the vector form"));
+}
