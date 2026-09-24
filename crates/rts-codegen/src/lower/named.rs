@@ -22,7 +22,9 @@ pub(super) fn primitive(op: BinaryOp) -> Option<JsPrim> {
         BinaryOp::Div => Some(JsPrim::Divide),
         BinaryOp::Rem => Some(JsPrim::Remainder),
         BinaryOp::Less => Some(JsPrim::LessThan),
-        BinaryOp::Greater | BinaryOp::LessEqual | BinaryOp::GreaterEqual => Some(JsPrim::Compare),
+        BinaryOp::Greater => Some(JsPrim::GreaterThan),
+        BinaryOp::LessEqual => Some(JsPrim::LessOrEqual),
+        BinaryOp::GreaterEqual => Some(JsPrim::GreaterOrEqual),
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
             Some(JsPrim::BitwiseInt32)
         }

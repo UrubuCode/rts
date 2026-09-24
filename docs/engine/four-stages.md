@@ -1882,3 +1882,41 @@ argument count a callee can observe. Calling past it would be faster and would a
 whether its binding is ever reassigned, which would call the old function after
 `f = other`. Both are reasons to keep `NeedsCallee` until something proves the binding and
 decides the trace, and neither is a reason to guess.
+
+## The generic arm: 5 384 → 7 218, and three things the lattice or the table had wrong
+
+**An operation over values nothing proved is a CALL**, which is `README.md` rule 5 and what
+`emit/expr.rs` has always done: `a + b` over tagged values is the runtime's `Add`, because
+which of concatenation and arithmetic it is depends on the operands at run time.
+`machine/generic.rs` names, per row, the `RuntimeOp` the running engine calls for the same
+operator -- so the runtime's implementation stays the one definition. Proved numbers still
+take the instruction, and that set grew: `+`, `==`, and `-x` (the sign bit, which `0 - x`
+is not, for `-0`), with `%` as the unboxed `NumberRemainder` rather than the integer `Rem`
+the machine had refused.
+
+**`+` over two proved numbers was refused on purpose, and that decision is reversed.** The
+concern was lowering it "beside the four on the strength of the operands looking alike",
+and it was right about unproved operands. Behind the `all_numeric` gate nothing looks like
+anything -- both operands were proved by a literal or a guard -- so the refusal was one gate
+too wide. An unproved `+` still cannot reach the instruction; the boundary test pins both
+halves.
+
+Three things were wrong before any of this could be sound, and each was invisible while the
+boundary refused the operations they described:
+
+- **The lattice ignored BigInt.** Every ToNumeric row answered `Double` whatever its
+  operands, and `10n - 1n` is `9n`. It answers a number now only where one operand rules a
+  BigInt out -- mixing the two kinds throws, so `x - 1` and `x | 0` keep their proofs --
+  and `Anything` over two unknowns.
+- **`FieldWrite` typed its answer as the KEY**, the second operand, so `(o.x = 5) + 1` read as
+  a concatenation.
+- **`Compare` was three operators under one row**, with a note saying which one was "the
+  machine lowering's question" -- which the machine lowering could not answer, because the
+  graph did not say. All 79 were over proved numbers. It is three rows.
+
+Measured 2026-09-24 per function against the previous commit: **5 384 → 7 218, none lost.**
+`tests/` 7 027 of 8 598; `bench/` 191 of 387, from 21.
+
+Still refused by the generic arm, each for a stated reason in `generic.rs`: `BitwiseInt32`
+(five operators under one row, the fault `Compare` had), and `ToNumber` over an unproved
+value (`i++` applies ToNumeric, and the call that exists, `UnaryPlus`, throws on a BigInt).

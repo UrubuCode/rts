@@ -495,6 +495,25 @@ impl JsMachine<'_> {
         key_operand: MachineValue,
         value: MachineValue,
     ) -> Result<(), String> {
+        self.store_through_cache(into, object, key, key_operand, value, true)
+    }
+
+    /// The same store with either miss: `define` installs an own property through
+    /// `DefineField`, and otherwise `[[Set]]` runs through `SetProperty` -- which may
+    /// reach a setter and a prototype, which a program's `o.x = v` means.
+    ///
+    /// `SetProperty` takes the writer's MODE, and it is always strict here: the running
+    /// engine compiles a program strict and only `eval` and `Function` text sloppy, so a
+    /// write the object refuses is a `TypeError`, as it is there.
+    fn store_through_cache(
+        &mut self,
+        into: &mut FuncBuilder,
+        object: MachineValue,
+        key: rts_cranelift::shape::Key,
+        key_operand: MachineValue,
+        value: MachineValue,
+        define: bool,
+    ) -> Result<(), String> {
         let receiver = match into.repr_of(object) {
             Repr::Tagged => object,
             _ => into.widen(object),
@@ -523,11 +542,21 @@ impl JsMachine<'_> {
             .map_err(machine)?;
 
         into.switch_to(slow);
-        self.call_runtime(
-            into,
-            crate::runtime::RuntimeOp::DefineField,
-            &[receiver, key_operand, stored],
-        )?;
+        match define {
+            true => self.call_runtime(
+                into,
+                crate::runtime::RuntimeOp::DefineField,
+                &[receiver, key_operand, stored],
+            )?,
+            false => {
+                let strict = self.word(into, 0);
+                self.call_runtime(
+                    into,
+                    crate::runtime::RuntimeOp::SetProperty,
+                    &[receiver, key_operand, stored, strict],
+                )?
+            }
+        };
         into.jump(join, &[]).map_err(machine)?;
 
         into.switch_to(join);
@@ -553,20 +582,34 @@ impl JsMachine<'_> {
         let (link, link_operand) = self.fixed_key(into, crate::emit::OUTER)?;
         self.define_through_cache(into, built, link, link_operand, enclosing)?;
 
-        let Some(shared) = self.shared.as_deref_mut() else {
-            return Err("an environment's bindings start `undefined`, which is bits from the program's tag registry".to_owned());
-        };
-        let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
-        let undefined = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-            repr: Repr::Tagged,
-            bits: rts_cranelift::ir::ScalarBits(undefined.word()),
-        });
-        let undefined = into.use_const(undefined);
+        let undefined = self.undefined(into)?;
         for key_operand in keys {
             let key = self.key_from_operand(*key_operand)?;
             self.define_through_cache(into, built, key, *key_operand, undefined)?;
         }
         Ok(built)
+    }
+
+    /// An `I64` the compiler fixed: a count, a mode, an index.
+    fn word(&mut self, into: &mut FuncBuilder, bits: u64) -> MachineValue {
+        let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(bits),
+        });
+        into.use_const(held)
+    }
+
+    /// `undefined`, as bits from the program's tag registry.
+    fn undefined(&mut self, into: &mut FuncBuilder) -> Result<MachineValue, String> {
+        let Some(shared) = self.shared.as_deref() else {
+            return Err("`undefined` is bits from the program's tag registry, which this boundary was not given".to_owned());
+        };
+        let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
+        let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits: rts_cranelift::ir::ScalarBits(undefined.word()),
+        });
+        Ok(into.use_const(held))
     }
 
     /// The key a declared key constant is, recovered from the operand it was made as.
@@ -693,6 +736,7 @@ impl JsMachine<'_> {
     }
 }
 
+mod generic;
 mod ops;
 mod reach;
 

@@ -159,15 +159,27 @@ fn the_other_numeric_rows_reach_it_too() {
     }
 }
 
-/// `+` is NOT one of them, and its absence is the point. Over two numbers it adds; over
-/// anything else it may concatenate, and which one depends on a coercion that can call
-/// user code — so lowering it beside the four would be lowering a different operator on
-/// the strength of the operands looking alike.
+/// `+` over two PROVED numbers is a float addition, and over anything else it is the
+/// runtime's `Add` -- never an instruction chosen because the operands look numeric.
+///
+/// This test pinned the opposite for as long as `+` was refused even over two proved
+/// numbers, on the concern that lowering it "beside the four" would lower a different
+/// operator on the strength of the operands looking alike. The concern was right and the
+/// refusal was one gate too wide: behind a proof nothing looks like anything, and an
+/// unproved `+` still cannot reach the instruction. Both halves are what this pins.
 #[test]
-fn addition_is_refused_although_its_operands_are_proved() {
-    let words = said(reach("function f() { return 7 + 3; }").expect_err("the plus row"));
-    assert!(words.contains("Add"), "{words}");
-    assert!(words.contains("no machine form"), "{words}");
+fn addition_is_an_instruction_over_proved_numbers_and_a_call_otherwise() {
+    let (func, types, shared) = reach_verified("function f() { return 7 + 3; }", Tier::Generic);
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
+    let (func, types, shared) = reach_named("function f(a, b) { return a + b; }", "f");
+    let func = func.expect("an unproved `+` reaches the runtime's Add");
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
 }
 
 /// **The whole chain, end to end: a TypeScript annotation becomes a native float
@@ -321,13 +333,19 @@ fn guards(source: &str) -> usize {
 /// A guard lives only in the SPECIALISED tier, because the generic one is where a fall
 /// lands — a guard there would be a check whose failure had no destination. So the two
 /// tiers of one source end differently, which is the arrangement rather than a shortfall.
+///
+/// The generic tier was REFUSED here, for a subtraction over operands nothing proved. It
+/// reaches the machine now, through the runtime's `Subtract` -- which is what the generic
+/// tier is for: the body that runs when the speculation did not hold.
 #[test]
 fn the_generic_tier_emits_no_guard_because_it_is_where_a_fall_lands() {
     let source = "function f(a: number, b: number) { return a - b; }";
-    let generic = reach_in(source, Tier::Generic)
-        .0
-        .expect_err("no guard in the generic body");
-    assert!(matches!(generic, Unlowerable::Language(_)));
+    let (generic, types, shared) = reach_in(source, Tier::Generic);
+    let generic = generic.expect("the generic tier subtracts through the runtime");
+    assert_eq!(
+        rts_cranelift::verify(&generic, &types, &shared.funcs),
+        Vec::new()
+    );
     assert!(reach_in(source, Tier::Specialised).0.is_ok());
 }
 /// `: number` asserts a DOUBLE and not an integer. A JavaScript number is a double and
@@ -420,35 +438,39 @@ fn arithmetic_over_two_integers_is_proved_a_double() {
     assert_eq!(*types.of(args[1]), Type::Int32);
 }
 
-/// `%` has no form here, and the MACHINE is what said so rather than this file having
-/// known: `arith` answered `UnsafeRemainder { found: F64 }`, because `NumOp::Rem` is
-/// integer-domain only. Nor is that a gap in the machine — JavaScript's `%` over doubles
-/// is `fmod`, which keeps the sign of the left operand, so a float instruction that did
-/// exist would have been the wrong one.
+/// `%` over two proved numbers is `NumberRemainder`, the unboxed call the running engine
+/// makes -- and NOT `NumOp::Rem`. The machine said so when this was tried: `arith` answered
+/// `UnsafeRemainder { found: F64 }`, because its remainder is integer-domain only, and
+/// JavaScript's `%` over doubles is `fmod`, which keeps the sign of the left operand. This
+/// test pinned the refusal until the call was the answer.
 #[test]
-fn remainder_is_refused_because_fmod_is_not_an_integer_remainder() {
-    let words = said(reach("function f() { return 7 % 3; }").expect_err("the remainder row"));
-    assert!(words.contains("fmod"), "{words}");
+fn remainder_of_proved_numbers_is_the_unboxed_call_and_not_the_integer_instruction() {
+    let (func, types, shared) = reach_verified("function f() { return 7 % 3; }", Tier::Generic);
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
 }
 
 /// **The order of the refusals has now flipped back**, and this test's subject has moved
-/// three times. It first asserted the operand test refuses `7 - "a"` first; then that the
+/// four times. It first asserted the operand test refuses `7 - "a"` first; then that the
 /// CONSTANT does, because a text literal is its own instruction lowered before the
-/// subtraction that reads it; and now the operand test again, because a text constant
-/// lowers — it is a call to `StringConst`, and the runtime holds the text.
+/// subtraction that reads it; then the operand test again, because a text constant
+/// lowers — it is a call to `StringConst`, and the runtime holds the text. And now nothing
+/// refuses it: an operand nothing proved numeric sends the subtraction to the runtime's
+/// `Subtract`, which answers `NaN` exactly as the running engine's does.
 ///
 /// Each version was true when written. Worth keeping the history in one place rather than
 /// rewriting the prose clean, because what moved is not this test: it is which layer
 /// knows enough to complain first, and that is the measure of the work.
 #[test]
-fn a_text_operand_is_refused_at_the_operation_now_that_the_constant_lowers() {
-    let words = said(
-        reach_in("function f() { return 7 - \"a\"; }", Tier::Generic)
-            .0
-            .expect_err("a text operand"),
+fn a_text_operand_sends_the_subtraction_to_the_runtime() {
+    let (func, types, shared) = reach_in("function f() { return 7 - \"a\"; }", Tier::Generic);
+    let func = func.expect("the runtime subtracts a text operand");
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
     );
-    assert!(words.contains("not proved numeric"), "{words}");
-    assert!(words.contains("v1 is Str"), "the operand is named: {words}");
 }
 
 /// **An entry-point call reaches the machine**, through the same declaration table the
@@ -761,32 +783,18 @@ fn a_property_read_reaches_the_machine_cached() {
     );
 }
 
-/// A read whose key the program COMPUTED is a different operation, and refusing it rather
-/// than guessing is what keeps the two apart: `cached_get` takes a key fixed while
-/// compiling and `cached_get_keyed` takes a value, and there is no flag that turns one into
-/// the other.
+/// A read whose key the program COMPUTED is a different operation from a cached one:
+/// `cached_get` takes a key fixed while compiling and `cached_get_keyed` takes a value, and
+/// there is no flag that turns one into the other. So it is not a cached read -- it is the
+/// runtime's `GetIndexed`, the call the running engine makes for `o[k]`, which reaches the
+/// machine where this used to be refused.
 #[test]
-fn a_computed_key_is_refused_because_it_is_a_different_operation() {
-    let mut names = Names::new();
-    let program = parse_script("function f(o, k) { return o[k]; }", &mut names).expect("parses");
-    let resolution = resolve_module(&program.body);
-    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
-    let Ok(graph) = lowered.functions[0].result.as_ref() else {
-        // A computed read may not even lower yet, and that is a refusal one stage earlier
-        // rather than a different answer.
-        return;
-    };
-    let mut shared = rts_codegen::machine::Shared::default();
-    assert!(
-        rts_codegen::machine::reaches_machine(
-            graph,
-            &lowered.domain,
-            None,
-            &mut shared,
-            &mut names
-        )
-        .is_err(),
-        "a computed key is not a cached_get"
+fn a_computed_key_is_the_runtimes_indexed_read_and_not_a_cached_one() {
+    let (func, types, shared) = reach_named("function f(o, k) { return o[k]; }", "f");
+    let func = func.expect("a computed read is `GetIndexed`");
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
     );
 }
 
@@ -1074,4 +1082,48 @@ fn with_the_module_numbered_a_closure_is_an_address_and_an_environment() {
             "{source}"
         );
     }
+}
+
+/// **Every generic row reaches the machine as the call the running engine makes**, and the
+/// machine's verifier accepts each: `typeof`, a negation and `~` of something unproved,
+/// `==`, `instanceof`, `in`, a truth test of an unproved value, a field write, an indexed
+/// write, a construction, and array and object literals.
+#[test]
+fn every_generic_row_reaches_the_machine_as_a_runtime_call() {
+    for source in [
+        "function f(a) { return typeof a; }",
+        "function f(a) { return -a; }",
+        "function f(a) { return ~a; }",
+        "function f(a, b) { return a == b; }",
+        "function f(a, b) { return a instanceof b; }",
+        "function f(a, b) { return a in b; }",
+        "function f(a) { if (a) { return 1; } return 2; }",
+        "function f(o, v) { o.x = v; return o; }",
+        "function f(o, k, v) { o[k] = v; return o; }",
+        "function f(C, a) { return new C(a, a); }",
+        "function f(a, b) { return [a, b]; }",
+        "function f(a, b) { return { first: a, second: b }; }",
+    ] {
+        let (func, types, shared) = reach_named(source, "f");
+        let func = func.unwrap_or_else(|held| panic!("{source}: {held:?}"));
+        assert_eq!(
+            rts_cranelift::verify(&func, &types, &shared.funcs),
+            Vec::new(),
+            "{source}"
+        );
+    }
+}
+
+/// `{ __proto__ }` is an ordinary own property -- only `__proto__: v` sets the prototype,
+/// and the tree holds that one apart as `Property::Prototype`, which the lowering refuses.
+/// So the shorthand is DEFINED like any other key, and must not be turned away for its
+/// spelling.
+#[test]
+fn a_shorthand_proto_key_is_an_ordinary_property() {
+    let (held, types, shared) = reach_named("function f(__proto__) { return { __proto__ }; }", "f");
+    let func = held.expect("a shorthand is a defined property");
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
 }

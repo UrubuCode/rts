@@ -28,18 +28,24 @@ pub enum JsPrim {
     Remainder,
     /// `a < b`, which also coerces and also answers a boolean.
     LessThan,
-    /// `a > b`, `a <= b`, `a >= b`.
+    /// `a > b`, `a <= b`, `a >= b` -- one row each.
     ///
     /// Rows of their own rather than `LessThan` with the operands swapped, which is
     /// the rewrite this table refused for three commits and the refusal was right:
     /// `a > b` coerces `a` FIRST and `b < a` coerces `b` first, so the swap changes
     /// which `valueOf` runs first and that is observable.
     ///
-    /// One row for the three because they agree about everything recorded here — each
-    /// coerces both operands, each answers a boolean, each calls user code only where
-    /// an operand is an object. Which comparison they are is the machine lowering's
-    /// question.
-    Compare,
+    /// They were ONE row, `Compare`, on the reasoning that they agree about everything
+    /// recorded here and "which comparison they are is the machine lowering's
+    /// question". The machine lowering could not answer it: nothing in the graph said
+    /// which of the three a `Compare` was, so every one of them was refused at the
+    /// boundary -- 79 functions of the corpus, every one over two PROVED numbers. A question the
+    /// graph does not carry cannot be answered below it.
+    GreaterThan,
+    /// `a <= b`.
+    LessOrEqual,
+    /// `a >= b`.
+    GreaterOrEqual,
     /// `a === b`, which coerces nothing. The one comparison that cannot call
     /// user code, which is why it is a row of its own.
     StrictEquals,
@@ -298,7 +304,9 @@ impl JsPrim {
                 | JsPrim::Divide
                 | JsPrim::Remainder
                 | JsPrim::LessThan
-                | JsPrim::Compare
+                | JsPrim::GreaterThan
+                | JsPrim::LessOrEqual
+                | JsPrim::GreaterOrEqual
                 | JsPrim::Negate
                 | JsPrim::ToNumber
         )

@@ -185,7 +185,9 @@ impl Js {
         JsPrim::GlobalRead,
         JsPrim::Construct,
         JsPrim::MakeClosure,
-        JsPrim::Compare,
+        JsPrim::GreaterThan,
+        JsPrim::LessOrEqual,
+        JsPrim::GreaterOrEqual,
         JsPrim::IsNullish,
         JsPrim::LooseEquals,
         JsPrim::InstanceOf,
@@ -279,7 +281,9 @@ impl Js {
             | JsPrim::Divide
             | JsPrim::Remainder
             | JsPrim::LessThan
-            | JsPrim::Compare
+            | JsPrim::GreaterThan
+            | JsPrim::LessOrEqual
+            | JsPrim::GreaterOrEqual
             | JsPrim::LooseEquals
             | JsPrim::BitwiseInt32
             | JsPrim::Negate
@@ -385,6 +389,25 @@ impl Js {
     fn is_numeric(of: &Type) -> bool {
         matches!(of, Type::Int32 | Type::Double)
     }
+
+    /// Whether ToNumeric of a value of this type is certainly a Number and never a
+    /// BigInt.
+    ///
+    /// Every primitive but a BigInt converts to a Number; an object may convert to
+    /// either, through a `valueOf` the program wrote. `Nothing` is here because no
+    /// value has it, so it constrains nothing.
+    fn numeric_result(of: &Type) -> bool {
+        matches!(
+            of,
+            Type::Nothing
+                | Type::Undefined
+                | Type::Null
+                | Type::Bool(_)
+                | Type::Int32
+                | Type::Double
+                | Type::Str
+        )
+    }
 }
 
 impl Domain for Js {
@@ -461,27 +484,50 @@ impl Domain for Js {
                 [one, two] if Self::is_numeric(one) && Self::is_numeric(two) => Type::Double,
                 _ => Type::Anything,
             },
-            JsPrim::Subtract | JsPrim::Multiply | JsPrim::Remainder => match args {
-                [one, two] if Self::is_numeric(one) && Self::is_numeric(two) => Type::Double,
-                // Every arithmetic operator but `+` coerces to a number, so the
-                // answer is a number whatever the operands were — including when
-                // it is `NaN`, which is a number.
-                _ => Type::Double,
+            // A NUMBER, UNLESS BOTH OPERANDS MAY BE A BIGINT. Every arithmetic operator
+            // but `+` applies ToNumeric, not ToNumber, and a BigInt passes through it:
+            // `10n - 1n` is `9n`. This row answered `Double` whatever the operands
+            // were, which was sound for every value but that one -- and nothing noticed
+            // while the machine refused the operation over unproved operands anyway.
+            //
+            // One side is enough to rule it out, because mixing the two kinds THROWS:
+            // `x - 1` answers a number or raises, whatever `x` is. So `x | 0` keeps
+            // proving an Int32, which is the reason a program writes one.
+            JsPrim::Subtract | JsPrim::Multiply | JsPrim::Remainder | JsPrim::Divide => {
+                match args {
+                    [one, two] if Self::numeric_result(one) || Self::numeric_result(two) => {
+                        Type::Double
+                    }
+                    _ => Type::Anything,
+                }
+            }
+            // ALWAYS an Int32 when either side rules a BigInt out, and that is the
+            // reason a program writes one: `x | 0` is how a number becomes provably
+            // narrow. `a | b` over two unknowns may be `3n | 4n`.
+            JsPrim::BitwiseInt32 => match args {
+                [one, two] if Self::numeric_result(one) || Self::numeric_result(two) => {
+                    Type::Int32
+                }
+                _ => Type::Anything,
             },
-            // Division answers a double even of two integers, and `1/0` is
-            // `Infinity` rather than a fault.
-            JsPrim::Divide => Type::Double,
-            // ALWAYS an Int32, whatever it was given, and that is the reason a
-            // program writes one: `x | 0` is how a number becomes provably narrow.
-            JsPrim::BitwiseInt32 | JsPrim::BitwiseNot => Type::Int32,
+            JsPrim::BitwiseNot => match args {
+                [one] if Self::numeric_result(one) => Type::Int32,
+                _ => Type::Anything,
+            },
             // A negation answers a number, and never an Int32: negating the most
             // negative one does not fit, and negative zero is not a value this
-            // lattice can name apart from zero.
-            JsPrim::Negate => Type::Double,
+            // lattice can name apart from zero. Unless the operand may be a BigInt,
+            // where `-1n` is `-1n`.
+            JsPrim::Negate => match args {
+                [one] if Self::numeric_result(one) => Type::Double,
+                _ => Type::Anything,
+            },
             // Nothing is known about a receiver without a proof about the call site.
             JsPrim::ThisValue => Type::Anything,
             JsPrim::LessThan
-            | JsPrim::Compare
+            | JsPrim::GreaterThan
+            | JsPrim::LessOrEqual
+            | JsPrim::GreaterOrEqual
             | JsPrim::StrictEquals
             | JsPrim::Not
             | JsPrim::IsNullish
@@ -525,8 +571,10 @@ impl Domain for Js {
             JsPrim::EnvWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             JsPrim::IndexWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             // A write answers the value written, which is what makes `a = b = 1`
-            // work.
-            JsPrim::FieldWrite => args.get(1).cloned().unwrap_or(Type::Anything),
+            // work. The operands are the receiver, the key and the value, so the value is
+            // the THIRD. This read the second -- the key, a string -- so `(o.x = 5) + 1`
+            // was typed as a concatenation.
+            JsPrim::FieldWrite => args.get(2).cloned().unwrap_or(Type::Anything),
         }
     }
 
@@ -674,8 +722,11 @@ mod tests {
         assert_eq!(domain.transfer(add, &[Type::Int32, Type::Str]), Type::Str);
     }
 
+    /// Division answers a double even of two integers -- and only a number where one
+    /// side rules a BigInt out. This test asserted `Double` over two unknowns, which is
+    /// what the table said and what the language does not: `10n / 3n` is `3n`.
     #[test]
-    fn division_answers_a_number_whatever_it_was_given() {
+    fn division_answers_a_number_unless_both_sides_may_be_a_bigint() {
         let domain = Js::new();
         let divide = domain.prim(JsPrim::Divide);
         assert_eq!(
@@ -683,8 +734,59 @@ mod tests {
             Type::Double
         );
         assert_eq!(
+            domain.transfer(divide, &[Type::Anything, Type::Int32]),
+            Type::Double,
+            "mixing a BigInt with a Number throws, so one side is enough"
+        );
+        assert_eq!(
             domain.transfer(divide, &[Type::Anything, Type::Anything]),
-            Type::Double
+            Type::Anything
+        );
+    }
+
+    /// The same for every ToNumeric row, the bitwise ones included: `x | 0` still proves
+    /// an Int32 -- the reason a program writes it -- and `~x` over an unknown may be
+    /// `~1n`.
+    #[test]
+    fn a_numeric_row_over_two_possible_bigints_proves_nothing() {
+        let domain = Js::new();
+        for which in [JsPrim::Subtract, JsPrim::Multiply, JsPrim::Remainder] {
+            let prim = domain.prim(which);
+            assert_eq!(
+                domain.transfer(prim, &[Type::Object, Type::Anything]),
+                Type::Anything,
+                "{which:?}"
+            );
+            assert_eq!(
+                domain.transfer(prim, &[Type::Str, Type::Anything]),
+                Type::Double,
+                "{which:?}"
+            );
+        }
+        let bitwise = domain.prim(JsPrim::BitwiseInt32);
+        assert_eq!(
+            domain.transfer(bitwise, &[Type::Anything, Type::Int32]),
+            Type::Int32
+        );
+        assert_eq!(
+            domain.transfer(bitwise, &[Type::Anything, Type::Anything]),
+            Type::Anything
+        );
+        let not = domain.prim(JsPrim::BitwiseNot);
+        assert_eq!(domain.transfer(not, &[Type::Anything]), Type::Anything);
+        let negate = domain.prim(JsPrim::Negate);
+        assert_eq!(domain.transfer(negate, &[Type::Anything]), Type::Anything);
+        assert_eq!(domain.transfer(negate, &[Type::Int32]), Type::Double);
+    }
+
+    /// A field write answers the VALUE written -- the third operand -- and not the key.
+    #[test]
+    fn a_field_write_answers_what_was_written() {
+        let domain = Js::new();
+        let write = domain.prim(JsPrim::FieldWrite);
+        assert_eq!(
+            domain.transfer(write, &[Type::Object, Type::Str, Type::Int32]),
+            Type::Int32
         );
     }
 

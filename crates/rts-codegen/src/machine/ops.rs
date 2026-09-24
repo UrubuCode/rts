@@ -180,6 +180,17 @@ impl MachineOps for JsMachine<'_> {
             return Ok(args[0]);
         }
 
+        // `ToNumber` OVER A PROVED NUMBER IS THE IDENTITY, for the reason `Truthy` over a
+        // proved boolean is: the conversion asks nothing of what is already its answer.
+        // The lattice agrees -- it answers the operand's own type for an Int32 and a
+        // double otherwise -- so the representation passes through unchanged.
+        if which == JsPrim::ToNumber
+            && let [only] = of.as_slice()
+            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+        {
+            return Ok(args[0]);
+        }
+
         // THE RECEIVER, which takes no operands and is not arithmetic, so it goes ahead of
         // both gates below. Reading it is reading a parameter: the signature declared one
         // and the caller said which.
@@ -251,71 +262,88 @@ impl MachineOps for JsMachine<'_> {
             return self.call_runtime(into, crate::runtime::RuntimeOp::ClosureNew, args);
         }
 
-        // ARITY FIRST, because it is the accurate reason for a row this slice has no
-        // form for at any arity. Asked second, `NewArray` with no operands was reported
-        // as "operands that were not proved numeric" followed by an empty list -- true
-        // of a vacuous gate and useless to a reader.
-        if args.len() != 2 {
-            return Err(format!(
-                "{which:?} over {} operands has no form in this slice",
-                args.len()
-            ));
+        // PROVED NUMBERS: the instruction, where the row has one.
+        if args.len() == 2 && self.all_numeric(&of) {
+            let left = self.as_double(into, args[0])?;
+            let right = self.as_double(into, args[1])?;
+            let op = match which {
+                // EVERY ARITHMETIC ROW ANSWERS A DOUBLE in this lattice, so every one of
+                // these is a float instruction and there is no integer arm to choose.
+                //
+                // `+` IS HERE NOW, and it was absent on purpose: over anything but two
+                // numbers it may concatenate, and choosing an instruction because the
+                // operands LOOK numeric would lower a different operator. That concern
+                // is the gate this sits behind -- both operands PROVED, by a literal or
+                // a guard -- and a proved number coerces nothing. What the concern
+                // forbids is still impossible: an unproved `+` reaches the runtime's
+                // `Add` below, never this.
+                JsPrim::Add => Some(NumOp::Add),
+                JsPrim::Subtract => Some(NumOp::Sub),
+                JsPrim::Multiply => Some(NumOp::Mul),
+                JsPrim::Divide => Some(NumOp::Div),
+                _ => None,
+            };
+            if let Some(op) = op {
+                return into.arith(op, left, right).map_err(machine);
+            }
+            match which {
+                JsPrim::LessThan => return into.compare(CmpOp::Lt, left, right).map_err(machine),
+                JsPrim::GreaterThan => {
+                    return into.compare(CmpOp::Gt, left, right).map_err(machine);
+                }
+                JsPrim::LessOrEqual => {
+                    return into.compare(CmpOp::Le, left, right).map_err(machine);
+                }
+                JsPrim::GreaterOrEqual => {
+                    return into.compare(CmpOp::Ge, left, right).map_err(machine);
+                }
+                // `a === b` over two proved numbers coerces nothing and can call nothing,
+                // and `a == b` over two numbers IS `a === b` -- the loose algorithm's
+                // first step, for operands of one type.
+                JsPrim::StrictEquals | JsPrim::LooseEquals => {
+                    return into.compare(CmpOp::Eq, left, right).map_err(machine);
+                }
+                // THE REMAINDER OF TWO DOUBLES IS `fmod`, which the integer `NumOp::Rem`
+                // is not -- the machine said so. `NumberRemainder` is the unboxed call the
+                // running engine makes for exactly this case.
+                JsPrim::Remainder => {
+                    return self.call_runtime(
+                        into,
+                        crate::runtime::RuntimeOp::NumberRemainder,
+                        &[left, right],
+                    );
+                }
+                _ => {}
+            }
         }
-        if !self.all_numeric(&of) {
-            // NAMED PER OPERAND, because "not proven" over two values is two different
-            // situations and which one failed is the useful half.
-            let unproven: Vec<String> = of
-                .iter()
-                .map(|held| format!("v{} is {:?}", held.0, self.types.of(*held)))
-                .collect();
-            return Err(format!(
-                "{which:?} over operands that were not proved numeric: {}",
-                unproven.join(", ")
-            ));
+        // A NEGATION OF A PROVED NUMBER flips the sign bit, which is not `0 - x`: that
+        // answers `0` for `-0` where the language answers `-0`.
+        if which == JsPrim::Negate
+            && let [only] = of.as_slice()
+            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+        {
+            let held = self.as_double(into, args[0])?;
+            return into
+                .float_unary(rts_cranelift::ir::FloatOp::Neg, held)
+                .map_err(machine);
         }
 
-        let op = match which {
-            // EVERY ARITHMETIC ROW ANSWERS A DOUBLE in this lattice, so every one of
-            // these is a float instruction and there is no integer arm to choose. That is
-            // measured rather than assumed: the first draft had one and it was dead.
-            JsPrim::Subtract => Some(NumOp::Sub),
-            JsPrim::Multiply => Some(NumOp::Mul),
-            JsPrim::Divide => Some(NumOp::Div),
-            // `%` IS NOT HERE, and the machine is what said so: `arith` answered
-            _ => None,
-        };
-        let left = self.as_double(into, args[0])?;
-        let right = self.as_double(into, args[1])?;
-        if let Some(op) = op {
-            return into.arith(op, left, right).map_err(machine);
+        // EVERYTHING ELSE IS THE RUNTIME'S, the call the running engine makes for the same
+        // operator -- `generic.rs` names each and says why a row is absent.
+        if let Some(done) = self.generic(into, which, args)? {
+            return Ok(done);
         }
-        match which {
-            // `+` IS NOT ABOVE, and its absence is the point. Over two numbers it adds;
-            // over anything else it may concatenate, and which one depends on a coercion
-            // that can call user code. The table gives it a row of its own for that
-            // reason, and a slice that lowered it beside the four would be lowering a
-            // different operator on the strength of the operands looking alike.
-            JsPrim::LessThan => into.compare(CmpOp::Lt, left, right).map_err(machine),
-            // `a === b` over two proved numbers coerces nothing and can call nothing,
-            // which is why it needs no proof beyond its operands'.
-            JsPrim::StrictEquals => into.compare(CmpOp::Eq, left, right).map_err(machine),
-            // THE BITWISE ROW would go the other way -- it answers a value that fits in
-            // an `i32`, so its operands belong in the integer domain -- and it cannot be
-            // emitted at all: the table deliberately holds five operators under one
-            // `Prim`, so WHICH instruction is not in the graph. Refused rather than
-            // guessed, and the table's own comment is where the fix belongs.
-            JsPrim::Remainder => Err(
-                "the remainder of two doubles is fmod, which the integer NumOp::Rem is not"
-                    .to_owned(),
-            ),
-            JsPrim::BitwiseInt32 => Err(
-                "the bitwise row is five operators under one Prim, so which instruction to emit is not in the graph"
-                    .to_owned(),
-            ),
-            other => Err(format!(
-                "{other:?} has no machine form in this slice, over proved numbers or otherwise"
-            )),
-        }
+        // WHAT IS LEFT has no form here at any operands. Named per operand, because the
+        // types are the first thing a reader asks about.
+        let unproven: Vec<String> = of
+            .iter()
+            .map(|held| format!("v{} is {:?}", held.0, self.types.of(*held)))
+            .collect();
+        Err(format!(
+            "{which:?} over {} operands has no form in this slice: {}",
+            args.len(),
+            unproven.join(", ")
+        ))
     }
 
     fn asserted_repr(&mut self, assertion: Assertion) -> Option<Repr> {
