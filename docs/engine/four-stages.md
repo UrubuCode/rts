@@ -1972,3 +1972,26 @@ because the machine refuses the question rather than answering a constant.
 
 Measured 2026-09-24 per function against the previous commit: **7 292 → 7 388, none lost.**
 `tests/` 7 188 of 8 598, `bench/` 200 of 387.
+
+## The template literal: 7 388 → 7 467
+
+A template is the first text, then each substitution converted to a string and joined, then
+the text after it. The conversion is `RuntimeOp::StringOf` -- ToString, the STRING hint --
+and not the `+` that joins, because `+` asks `valueOf` first and a substitution asks
+`toString` first: `emit/template.rs` recorded that no spelling of `+` repairs it. It is the
+shape that file itself falls back to; `TemplateJoin` is its faster form over declared sites
+and stays a pass's to choose.
+
+Measured 2026-09-24 per function against the previous commit: **7 388 → 7 467, none lost.**
+`tests/` 7 263 of 8 598, `bench/` 204 of 387.
+
+### What stands in front now
+
+Counted over the same 931 files, and each is a different piece:
+
+| stopped by | functions | what it is |
+|---|---:|---|
+| `NeedsCallee` | 504 | a call to a function of the module by NUMBER -- kept refused on purpose: the running engine never calls past `invoke`, which keeps the trace and the argument count, and the lowering does not prove the callee's binding is never reassigned |
+| `NeedsFrameTransform` | 173 | a generator or `async` body: `Op::Suspend` to `into.suspend()`, the host's `frame::resumable_form`, and the wrapper that answers a generator object or a promise |
+| `NeedsSideExit` | ~210 | a guard behind something observable: frame reconstruction, the rest of D3 |
+| the lowering's own refusals | ~550 | a callee that is neither a name nor a property, an object literal with a method, `yield*`, parameter defaults, `super` calls, rest parameters, destructuring targets, `arguments` -- each a named line of `rts mir` |

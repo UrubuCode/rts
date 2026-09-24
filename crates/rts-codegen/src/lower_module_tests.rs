@@ -342,3 +342,39 @@ fn this_in_an_arrow_is_refused_and_a_methods_own_this_is_not() {
     let (plain, _) = module("function m() { return this; }");
     assert!(plain.functions[0].result.is_ok());
 }
+
+/// A template substitution is converted with the STRING hint before it is joined -- a
+/// `StringOf` call per substitution, then `+` over two strings. `"" + x` would ask
+/// `valueOf` first, so `` `${{ toString: () => "T", valueOf: () => 42 }}` `` would read
+/// `"42"` where the language reads `"T"`: the order is what this pins.
+#[test]
+fn a_template_converts_each_substitution_to_a_string_before_joining() {
+    let (lowered, _) = module("function f(a, b) { return `x${a}y${b}`; }");
+    let func = lowered.functions[0]
+        .result
+        .as_ref()
+        .expect("a template lowers");
+    assert_eq!(verify(func), Ok(()));
+    let conversions = func
+        .insts
+        .iter()
+        .filter(|held| {
+            matches!(&held.op, rts_mir::Op::Call { callee: rts_mir::cfg::Callee::Entry(entry), .. }
+                if lowered.domain.entry_meaning(*entry) == Some(crate::runtime::RuntimeOp::StringOf))
+        })
+        .count();
+    assert_eq!(conversions, 2, "one ToString per substitution");
+    let joins = func
+        .insts
+        .iter()
+        .filter(|held| {
+            matches!(&held.op, rts_mir::Op::Prim { prim, .. }
+            if lowered.domain.meaning(*prim) == Some(crate::domain::JsPrim::Add))
+        })
+        .count();
+    // `x` + a, + `y`, + b -- and the empty piece after `b` joins nothing.
+    assert_eq!(
+        joins, 3,
+        "each substitution and each non-empty text after the first"
+    );
+}

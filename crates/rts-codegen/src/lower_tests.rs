@@ -1316,15 +1316,11 @@ fn unsigned_shift_is_refused_because_its_answer_is_not_an_int32() {
 /// a refusal that does not name itself is worth the same as no refusal, because the
 /// survey is the work queue and a bucket cannot be queued.
 ///
-/// The kinds asserted here are the ones still refused: a construction and a type
-/// assertion were in this list and both lower now, which is why the list moved
-/// rather than the test being deleted.
+/// The kinds asserted here are the ones still refused: a construction, a type
+/// assertion and a template literal were in this list and all three lower now, which
+/// is why the list moved rather than the test being deleted.
 #[test]
 fn a_refused_expression_names_what_it_was() {
-    assert_eq!(
-        only("function f(a) { return `x${a}`; }").expect_err("a template"),
-        Unsupported::Expression("a template literal")
-    );
     assert_eq!(
         only("function f(a) { return a?.b; }").expect_err("an optional chain"),
         Unsupported::Expression("an optional chain")

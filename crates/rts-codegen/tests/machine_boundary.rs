@@ -1104,6 +1104,7 @@ fn every_generic_row_reaches_the_machine_as_a_runtime_call() {
         "function f(a, b) { return [a, b]; }",
         "function f(a, b) { return { first: a, second: b }; }",
         "function f(a) { return a == null; }",
+        "function f(a, b) { return `x${a}y${b}`; }",
         "function f(a) { return !a; }",
         "function f(a, b) { return !(a < b); }",
     ] {

@@ -60,6 +60,7 @@ mod protect;
 mod push;
 mod suspend;
 mod switch;
+mod template;
 
 /// What this lowering does not do yet, and where.
 ///
@@ -969,6 +970,7 @@ impl Lowering<'_> {
                     }
                 }
             }
+            ExprKind::Template { parts, expressions } => self.template(parts, expressions, expr),
             ExprKind::Await(operand) => self.await_on(operand),
             ExprKind::Yield { value, delegate } => {
                 self.yield_from(value.as_deref(), *delegate, expr)

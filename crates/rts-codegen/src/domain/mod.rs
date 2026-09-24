@@ -136,6 +136,9 @@ impl Js {
         // entry point this boundary can actually emit -- every other row it named raises,
         // and a call that raises is refused for want of a branch-and-reraise.
         RuntimeOp::StringConst,
+        // ToString, which a template substitution applies -- see `lower/template.rs` for
+        // why it is not the `+` that joins the pieces afterwards.
+        RuntimeOp::StringOf,
     ];
 
     /// The index the IR carries for an entry point.
@@ -587,6 +590,10 @@ impl Domain for Js {
             // at all: a caller chains them, and an append answering `undefined` would
             // make every element after the first a read of nothing.
             Some(RuntimeOp::ArrayAppend | RuntimeOp::ArrayAppendAll) => Type::Object,
+            // ToString answers a string or raises -- a symbol raises -- and never answers
+            // anything else, which is what lets the `+` joining a template's pieces be
+            // typed a concatenation.
+            Some(RuntimeOp::StringOf) => Type::Str,
             // EVERY OTHER ROW OF THE CATALOGUE answers the widest thing, and that is a
             // change of shape worth stating: the old table held only what this lowering
             // reached, so a row it did not know was unrepresentable. `RuntimeOp` holds
