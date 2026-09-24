@@ -44,7 +44,7 @@ use crate::names::Name;
 /// collision would be harmless anyway, because an environment object is never
 /// handed to JavaScript. Named as a constant rather than written twice, since
 /// the reader and the writer disagreeing about it is a chain that goes nowhere.
-const OUTER: &str = "__rts_outer";
+pub(crate) const OUTER: &str = "__rts_outer";
 
 /// Reads a name.
 pub fn read(

@@ -1068,18 +1068,17 @@ fn a_call_through_a_parameter_is_a_dynamic_call_with_no_receiver() {
     }
 }
 
-/// The three reasons a binding holds no value here are told apart, and this test
-/// followed the work: one commit ago it asserted that a module binding is REFUSED as
-/// needing an environment, which was the honest answer then. It lowers now, through
-/// an operation that names it, so what the test pins is the distinction rather than
-/// the refusal — a dead zone is still a dead zone.
+/// The reasons a binding holds no value here are told apart, and this test followed
+/// the work: it asserted a module binding was REFUSED, then that it was read by an
+/// operation naming the binding, and now that it is read out of an environment. What
+/// it pins is the distinction -- a dead zone is still a dead zone.
 #[test]
 fn a_binding_outside_this_function_is_not_reported_as_a_dead_zone() {
     let outside = only("function f() { return outer; } let outer = 1;")
         .expect("a module binding is an outer read now");
     assert!(
-        outside.func.insts.iter().any(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if outside.domain.meaning(*prim) == Some(JsPrim::OuterRead))),
-        "it reads the binding by name rather than being refused"
+        outside.func.insts.iter().any(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if outside.domain.meaning(*prim) == Some(JsPrim::EnvRead))),
+        "it reads the binding out of the environment rather than being refused"
     );
 
     let inside = only("function f() { const a = later; const later = 1; return a; }");
@@ -1112,10 +1111,12 @@ fn a_spread_argument_is_refused() {
     assert!(matches!(refused, Unsupported::Expression(_)));
 }
 
-/// A binding outside this function is an OPERATION that names it, not a refusal —
-/// and where its cell lives is the machine question this layer leaves below.
+/// A binding outside this function is read out of the ENVIRONMENT that owns it, by
+/// its spelling -- and the read reaches no user code and raises nothing, because an
+/// environment is an object the program never holds and every key in it was defined
+/// as an own data property when it was made.
 #[test]
-fn an_outer_binding_is_read_by_an_operation_that_names_it() {
+fn an_outer_binding_is_read_out_of_the_environment_by_its_spelling() {
     let mut names = Names::new();
     let program = parse_script(
         "let total = 0; function add(n) { return total + n; }",
@@ -1141,32 +1142,35 @@ fn an_outer_binding_is_read_by_an_operation_that_names_it() {
         .func
         .insts
         .iter()
-        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::OuterRead)))
-        .expect("an outer read");
-    // It READS and may THROW -- a binding in its dead zone throws -- and it calls
-    // nothing, because a binding is not a property and no getter is reachable.
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::EnvRead)))
+        .expect("an environment read");
     assert!(read.effect.has(Effect::READS));
-    assert!(read.effect.has(Effect::THROWS));
+    assert!(!read.effect.has(Effect::THROWS));
     assert!(!read.effect.has(Effect::CALLS_USER));
 
-    // Its one argument names the binding, and the name is a constant of this
-    // language's table rather than anything the IR interprets.
-    let named = match &read.op {
-        rts_mir::Op::Prim { args, .. } => args[0],
+    let (environment, key) = match &read.op {
+        rts_mir::Op::Prim { args, .. } => (args[0], args[1]),
         other => panic!("expected a primitive, got {other:?}"),
     };
-    let held = lowered
-        .func
-        .insts
-        .iter()
-        .find(|inst| inst.result == named)
-        .expect("the naming constant");
-    match &held.op {
-        rts_mir::Op::Const(rts_mir::Const::Declared(index)) => assert!(matches!(
+    let defined = |value| {
+        lowered
+            .func
+            .insts
+            .iter()
+            .find(|inst| inst.result == value)
+            .expect("defined")
+    };
+    // ZERO LINKS: `add` owns nothing captured, so the environment it was made in is
+    // the module's, which owns `total`.
+    assert!(
+        matches!(&defined(environment).op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::EnclosingEnvironment))
+    );
+    match &defined(key).op {
+        rts_mir::Op::Const(rts_mir::Const::Declared(index)) => assert_eq!(
             lowered.domain.declared(*index),
-            Some(crate::domain::JsConst::Binding(_))
-        )),
-        other => panic!("expected a declared constant, got {other:?}"),
+            Some(&crate::domain::JsConst::Key(names.intern("total")))
+        ),
+        other => panic!("expected a declared key, got {other:?}"),
     }
 }
 
@@ -1208,8 +1212,8 @@ fn two_reads_of_one_outer_binding_name_it_once() {
     assert_ne!(indices[1], indices[2], "a different binding, another index");
 }
 
-/// A write to an outer binding is an operation too, not a rebind: SSA rebinding is
-/// for a value this function holds, and an outer binding is a cell somewhere.
+/// A write to an outer binding is a write to its environment, not a rebind: SSA
+/// rebinding is for a value this function holds in a register.
 #[test]
 fn a_write_to_an_outer_binding_is_an_operation() {
     let mut names = Names::new();
@@ -1234,11 +1238,13 @@ fn a_write_to_an_outer_binding_is_an_operation() {
         .func
         .insts
         .iter()
-        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::OuterWrite)))
-        .expect("an outer write");
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::EnvWrite)))
+        .expect("an environment write");
     assert!(write.effect.has(Effect::WRITES));
     match &write.op {
-        rts_mir::Op::Prim { args, .. } => assert_eq!(args.len(), 2, "the name and the value"),
+        rts_mir::Op::Prim { args, .. } => {
+            assert_eq!(args.len(), 3, "the environment, the key and the value")
+        }
         other => panic!("expected a primitive, got {other:?}"),
     }
 }

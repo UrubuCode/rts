@@ -51,6 +51,7 @@ mod choice;
 mod claim;
 mod class;
 mod destructure;
+mod environment;
 mod iterate;
 mod loops;
 mod named;
@@ -221,6 +222,9 @@ pub fn lower_with(
         resolution,
         names,
         scope,
+        function: scope,
+        environment: None,
+        prologue: true,
         loops: Vec::new(),
         points: 0,
     };
@@ -270,6 +274,12 @@ pub fn lower_with(
             lowering.speculate_binding(binding, &at);
         }
     }
+
+    lowering.prologue = false;
+    lowering.open_environment(&Expr {
+        kind: ExprKind::This,
+        at: function.at,
+    })?;
 
     match &function.body {
         FunctionBody::Expression(expr) => {
@@ -337,6 +347,17 @@ struct Lowering<'a> {
     /// language fixes is a `JsConst::WellKnown` and not an interned string.
     names: &'a crate::names::Names,
     scope: ScopeId,
+    /// The scope this function's body opened, which is what the scope tree is asked
+    /// about capture from -- `scope` moves as blocks are entered and this does not.
+    function: ScopeId,
+    /// The environment in force: this activation's own when it builds one, the one
+    /// it was made in when something inside reaches past it, nothing otherwise.
+    /// Defined in the entry block, so it dominates every use.
+    environment: Option<ValueId>,
+    /// Whether the parameters are still being bound. A captured parameter is held in
+    /// a register until the guards have run and the environment exists -- see
+    /// `environment.rs`.
+    prologue: bool,
     /// The loops and switches enclosing what is being lowered, innermost last.
     loops: Vec<LoopFrame>,
     /// How many deoptimisation points this body has declared.
@@ -924,17 +945,20 @@ impl Lowering<'_> {
 
     /// Records what a declaration now holds.
     ///
-    /// A binding of THIS function is a rebind — SSA makes a write into a new value
-    /// and no store happens. A binding outside it is a cell somewhere, so the write
-    /// is an operation; which cell, and where it lives, is the machine question rule
-    /// 2 leaves below.
+    /// A binding held in a register is a rebind — SSA makes a write into a new value
+    /// and no store happens. A CAPTURED one is a write to the environment that owns
+    /// it, whichever function is writing, because a closure reads it from there.
     fn bind(&mut self, name: Name, value: ValueId, of: Type, at: &Expr) -> Result<(), Unsupported> {
         let Some(binding) = self.resolution.binding_in(self.scope, name) else {
             return Err(Unsupported::Global(name));
         };
+        if self.resolution.captured(binding) && !self.prologue {
+            return self.env_write(binding, value, at);
+        }
         if !self.declared_in_this_function(binding) {
-            self.outer(binding, JsPrim::OuterWrite, Some(value), at);
-            return Ok(());
+            return Err(Unsupported::Expression(
+                "an outer binding the scope walk did not record as captured",
+            ));
         }
         self.values.insert(binding, value);
         self.types.insert(value, of);

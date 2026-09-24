@@ -1768,3 +1768,47 @@ tree rather than the block list.
 Recorded rather than done, because it is a restructuring of `lower`'s two-pass block
 creation and this section would otherwise claim a piece that is not finished. The name
 will keep suggesting a one-line fix to whoever reads it next; it is not one.
+
+## The environment: 645 → 827 of 8 985, and the wall behind it is one piece
+
+Measured 2026-09-24 over **every** file of `tests/` and `bench/`: 931 files, 8 985
+functions, `mir_dump::describe_machine` on each, compared per function against a binary of
+the tree before the change. **182 gained, none lost.** `tests/` goes 626 → 806 of 8 598,
+`bench/` 19 → 21 of 387. The sampled figures above (one file in twenty) are not comparable
+with these and are not replaced by them.
+
+**What stood in front was not a machine question, and it was not only a boundary one.**
+The refusal said a captured binding needed "the environment layout -- how many
+`__rts_outer` links to walk -- which is escape analysis", and that was true of the reader.
+The declarer was worse off and nothing said so: it kept the captured local in SSA while the
+closure asked for it somewhere else. Both sides compiled. So this is a soundness fix on one
+end and a lowering on the other.
+
+- **E2 answers capture.** `names::resolve::captured` records every use with the scope it was
+  written in and resolves them once the tree is complete -- a use can reach a `var` declared
+  further down. From that: which bindings are captured, which activations build an
+  environment, which ones reach past themselves, and how many links separate a use from the
+  owner. The running engine answers the same question in `emit/escape.rs`, by spelling.
+- **The graph says the layout.** `OuterRead` / `OuterWrite` named a binding and left where it
+  lived to the machine; they are gone, with `JsConst::Binding`. In their place five
+  operations over an ordinary object: `EnclosingEnvironment` (parameter 0 of the convention),
+  `EnvNew`, `EnvOuter`, `EnvRead`, `EnvWrite`. A `MakeClosure` now carries the environment it
+  closes over as its second operand, so the one thing a closure is made of that was nowhere
+  in the graph is in it.
+- **The boundary lowers all five** through what it already had: the cached read `o.x` uses,
+  and a cached define whose slow path is `DefineField` rather than `[[Set]]` -- a binding
+  spelled like an `Object.prototype` accessor must land as data. Every key is defined at
+  creation, to `undefined`, so a read never falls through to the prototype chain.
+
+**Refused by name rather than folded**, each a different missing piece: a captured binding
+of a scope that is fresh per loop pass (15 functions -- the per-iteration environment the
+running engine builds); two captured bindings of one activation with one spelling; a
+function expression's own name, captured. And one gap stated rather than hidden: a `let`
+read by a closure before its declaration runs answers `undefined` where the language throws.
+
+**What is in front now is one piece, counted as one.** Of the 4 745 functions the capture
+stopped, 3 564 now stop at `NeedsCallee`, and every builder of an environment stops at
+making its closure -- "a function value needs the machine id of fN". Both are the same
+missing thing: the boundary compiles one function at a time, so no other function of the
+module has a machine id. The message for the second was rewritten to say so, because
+counted apart they read as two pieces of work.

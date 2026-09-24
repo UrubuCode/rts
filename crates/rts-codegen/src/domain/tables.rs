@@ -152,23 +152,23 @@ pub enum JsPrim {
     /// whatever the callee returned — and giving construction a flag on the call
     /// would make every pass reading a call ask which kind it was.
     Construct,
-    /// A function value, naming which function of the module it is.
+    /// A function value: which function of the module it is, and the environment it
+    /// closes over.
     ///
-    /// # Why this is an operation and not a refusal
+    /// # Two operands, where there used to be one
     ///
-    /// The third time rule 2 answers the same shape. A function value is a closure:
-    /// code plus whatever its free bindings resolve to. The CODE is known — the
-    /// module numbered it — and the environment is where its free bindings live,
-    /// which is the machine question `OuterRead` already leaves below.
+    /// This took the function alone and said the environment was "the machine
+    /// question `OuterRead` already leaves below". It was not the machine's -- see
+    /// [`Self::EnvRead`] -- and leaving it out of the graph meant a closure's
+    /// environment was nowhere a pass or a boundary could see. So the environment
+    /// in force where the closure is made is the second operand: this activation's
+    /// own when it builds one, the one it was made in otherwise, `undefined` when
+    /// nothing inside reaches past itself -- which is what `emit/function.rs` hands
+    /// such a closure too.
     ///
-    /// So this says WHICH FUNCTION and stops. A machine lowering decides what a
-    /// closure is made of, and it already has everything it needs to: the function's
-    /// own graph reads its free bindings through `OuterRead`, so the set is derivable
-    /// from the graph rather than something this operation has to carry.
-    ///
-    /// That is what makes it one argument instead of a captured list — and why a pass
-    /// that wants the captured set reads the callee's graph, which is the one place
-    /// the answer cannot drift from.
+    /// The captured SET is still not carried, and that part of the old reasoning
+    /// holds: the callee's own graph says what it reads, which is the one place the
+    /// answer cannot drift from.
     MakeClosure,
     /// Reading a property whose position a shape decided.
     FieldRead,
@@ -193,28 +193,58 @@ pub enum JsPrim {
     IndexRead,
     /// Writing one.
     IndexWrite,
-    /// Reading a binding declared outside the function being lowered.
+    /// The environment this activation was created in: the one its closure carried.
     ///
-    /// # Why this is an operation and not a parameter
+    /// # Why an operation and not a parameter of the graph
     ///
-    /// Closure conversion is the other answer: make every free binding an extra
-    /// parameter and have each call site supply it. It is the standard move and it
-    /// does not fit yet — a `Callee::Dynamic` site does not know the callee's free
-    /// set, so the conversion would have to refuse exactly the calls that most need
-    /// it.
+    /// For the reason [`Self::ThisValue`] is one. `emit/function.rs` fixes the
+    /// convention -- parameter 0 is the environment -- and the boundary is TOLD the
+    /// parameters by whoever declared the signature, so a lowering that made it a
+    /// parameter would be choosing a position that is the caller's to state.
     ///
-    /// What this does instead is say *which binding* and stop. WHERE its cell lives
-    /// — a module record, an environment object, a slot some enclosing activation
-    /// holds — is a machine question, and this crate's rule 2 is that a machine
-    /// question is never decided here. The front end's `MachineOps` answers it when
-    /// there is one.
+    /// It is `undefined` for a function made where nothing was captured, which is
+    /// what `emit/function.rs` hands such a closure. Nothing reads through it then:
+    /// `names::resolve` asks for it only in a function that reaches past itself.
+    EnclosingEnvironment,
+    /// A fresh environment: the enclosing one first, then one declared key per
+    /// captured binding this activation owns, in declaration order.
     ///
-    /// Takes one argument: a declared constant naming the binding. So two reads of
-    /// one outer binding carry one index and compare equal, which is what a pass
-    /// hoisting a load out of a loop needs.
-    OuterRead,
-    /// Writing one.
-    OuterWrite,
+    /// # The layout, and whose it is
+    ///
+    /// An environment is an ordinary object holding each captured binding under its
+    /// spelling, plus the link to the environment the function was made in -- the
+    /// shape `emit/binding.rs` gives one. This language invented that layout, which is
+    /// why the operation is here and names no machine fact.
+    ///
+    /// Every key is DEFINED at creation, to `undefined`. A binding a closure reads
+    /// before its declaration runs is then an own property holding `undefined` rather
+    /// than an absent one, and an absent one would be looked up on the prototype
+    /// chain: a captured `var toString` would answer `Object.prototype.toString`.
+    EnvNew,
+    /// The environment an environment was made inside: one link out.
+    EnvOuter,
+    /// A captured binding read out of an environment, by its declared key.
+    ///
+    /// # Why not [`Self::FieldRead`]
+    ///
+    /// Because an environment is not an object the program can reach, and that is
+    /// what the effect rests on: every key was defined at creation as an own data
+    /// property, so no getter and no proxy trap is reachable through one. A field read
+    /// promises nothing of the sort, and sharing it would make a pass read an
+    /// environment as a call into user code.
+    ///
+    /// This replaces an operation that named the BINDING and left where it lived to
+    /// "the machine" -- which had no answer to give, since `rts_cranelift` knows no
+    /// environment. The distance is now a fact of the scope tree,
+    /// `Resolution::hops`, and the graph says it as that many [`Self::EnvOuter`].
+    ///
+    /// Not a dead-zone check: a `let` read by a closure before its declaration runs
+    /// answers `undefined` here where the language throws. Stated, not hidden -- it is
+    /// the gap `JsPrim::EnvNew`'s definition at creation trades for never reading the
+    /// prototype chain.
+    EnvRead,
+    /// A captured binding written, by its declared key. Answers the value written.
+    EnvWrite,
     /// An object built from its written properties, in order.
     ///
     /// Variadic and in PAIRS: a declared key, then its value, repeated. The pairs
@@ -301,32 +331,6 @@ pub enum JsConst {
     /// in a layout and a string is a value, and a pass folding one must not fold
     /// the other.
     Text(crate::syntax::Text),
-    /// # What this defers, and to whom -- corrected
-    ///
-    /// This said the constant names a binding "without this layer deciding how the thing
-    /// is represented", with the representation implied to be the machine's. It is not.
-    /// A captured local is a property of an environment OBJECT, an environment is an
-    /// ordinary object with one `__rts_outer` link, and that layout is
-    /// `emit/binding.rs`'s -- this language's, decided while compiling.
-    ///
-    /// Third time the same deferral has been wrong in this table: `ThisValue` said the
-    /// receiver's position was the machine's and `abi::Convention` reserves nothing for
-    /// one, and `Op::Call`'s receiver said the same. The pattern is worth naming -- when a
-    /// question is about where something LIVES, the reflex is to call it the machine's,
-    /// and a layout this language invented is not.
-    ///
-    /// What the constant legitimately leaves out is `hops`, and that is not a deferral to
-    /// anybody: it is escape analysis, which the new stage has not got. The graph says
-    /// WHICH binding and nothing yet says how far.
-    ///
-    /// A declaration of this program, by its [`crate::names::resolve::BindingId`]
-    /// index.
-    ///
-    /// Not a value the program can hold: it names a binding, so that an operation
-    /// reading or writing one outside the function being lowered can say WHICH
-    /// without this layer deciding where the binding's cell lives. See
-    /// [`JsPrim::OuterRead`].
-    Binding(u32),
     /// A key the LANGUAGE fixes, rather than one the program wrote.
     ///
     /// Apart from [`JsConst::Key`] because that one holds an interned name of the
@@ -337,9 +341,8 @@ pub enum JsConst {
     WellKnown(WellKnown),
     /// A function of this program, by its `rts_mir::cfg::FuncId` index.
     ///
-    /// Beside [`JsConst::Binding`] and for the same reason: it names something rather
-    /// than being a value, so that an operation can say WHICH without this layer
-    /// deciding how the thing is represented.
+    /// It names something rather than being a value, so that an operation can say
+    /// WHICH without this layer deciding how the thing is represented.
     Function(u32),
 }
 

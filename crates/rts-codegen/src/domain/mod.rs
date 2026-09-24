@@ -176,8 +176,8 @@ impl Js {
         JsPrim::IndexWrite,
         JsPrim::NewArray,
         JsPrim::NewObject,
-        JsPrim::OuterRead,
-        JsPrim::OuterWrite,
+        JsPrim::EnvRead,
+        JsPrim::EnvWrite,
         JsPrim::BitwiseInt32,
         JsPrim::Negate,
         JsPrim::BitwiseNot,
@@ -190,6 +190,9 @@ impl Js {
         JsPrim::LooseEquals,
         JsPrim::InstanceOf,
         JsPrim::HasProperty,
+        JsPrim::EnclosingEnvironment,
+        JsPrim::EnvNew,
+        JsPrim::EnvOuter,
     ];
 
     /// A domain holding only the fixed constants.
@@ -304,11 +307,16 @@ impl Js {
             // Building one allocates, whatever it is built from, and it reaches
             // no code the program wrote: the elements are already values.
             JsPrim::NewArray | JsPrim::NewObject => Effect::ALLOCATES,
-            // A READ of an outer binding loads a cell and may find it in its
-            // temporal dead zone, which throws. It calls nothing: a binding is not
-            // a property, so no getter is reachable through one.
-            JsPrim::OuterRead => Effect::READS.and(Effect::THROWS),
-            JsPrim::OuterWrite => Effect::WRITES.and(Effect::THROWS),
+            // AN ENVIRONMENT IS NOT AN OBJECT THE PROGRAM CAN REACH, and every key in
+            // one was defined as an own data property when it was made -- so a read
+            // or a write reaches no getter, no setter and no trap, and raises nothing.
+            // It reads or writes the heap and that is all. No dead-zone check either:
+            // `JsPrim::EnvRead` states that gap where it is decided.
+            JsPrim::EnvRead | JsPrim::EnvOuter => Effect::READS,
+            JsPrim::EnvWrite => Effect::WRITES,
+            JsPrim::EnvNew => Effect::ALLOCATES,
+            // A parameter the convention placed, read like the receiver is.
+            JsPrim::EnclosingEnvironment => Effect::PURE,
             JsPrim::ToNumber => match args.first().is_some_and(Self::needs_no_coercion) {
                 true => Effect::PURE,
                 false => Effect::CALLS_USER.and(Effect::THROWS),
@@ -424,10 +432,10 @@ impl Domain for Js {
                 Some(JsConst::Singleton(crate::values::Singleton::Null)) => Type::Null,
                 // A key is a string, and so is a string.
                 Some(JsConst::Key(_) | JsConst::Text(_)) => Type::Str,
-                // A binding NAME is not a value of the language, so it has no type
-                // in this lattice. Nothing reads one as a value: it is only ever an
-                // operand of an outer read or write.
-                Some(JsConst::Binding(_) | JsConst::Function(_)) => Type::Nothing,
+                // A function NAME is not a value of the language, so it has no type
+                // in this lattice. Nothing reads one as a value: it is only ever the
+                // operand of the operation that makes a closure of it.
+                Some(JsConst::Function(_)) => Type::Nothing,
                 // A key is text, wherever the key came from.
                 Some(JsConst::WellKnown(_)) => Type::Str,
                 None => Type::Anything,
@@ -503,14 +511,18 @@ impl Domain for Js {
             // this domain does not hold one yet, so the honest answer is the
             // weaker type rather than a number invented here.
             JsPrim::NewArray | JsPrim::NewObject => Type::Object,
-            JsPrim::FieldRead | JsPrim::IndexRead | JsPrim::OuterRead | JsPrim::GlobalRead => {
+            JsPrim::FieldRead | JsPrim::IndexRead | JsPrim::EnvRead | JsPrim::GlobalRead => {
                 Type::Anything
             }
+            // An environment is an object; the one this activation was made in may be
+            // `undefined`, for a closure made where nothing was captured.
+            JsPrim::EnvNew | JsPrim::EnvOuter => Type::Object,
+            JsPrim::EnclosingEnvironment => Type::Anything,
             // An object, and never a shaped one: which layout a constructor arrives
             // at is the runtime shape tree's answer. See [`Type::Shaped`].
             JsPrim::Construct => Type::Object,
             JsPrim::MakeClosure => Type::Callable,
-            JsPrim::OuterWrite => args.get(1).cloned().unwrap_or(Type::Anything),
+            JsPrim::EnvWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             JsPrim::IndexWrite => args.get(2).cloned().unwrap_or(Type::Anything),
             // A write answers the value written, which is what makes `a = b = 1`
             // work.
@@ -604,10 +616,6 @@ impl rts_mir::text::Legend for Js {
         match Js::declared(self, index) {
             Some(JsConst::Singleton(which)) => format!("{which:?}").to_lowercase(),
             Some(JsConst::Key(_)) => format!("key#{index}"),
-            // A binding, printed as its index. The NAME lives in the interner, so
-            // this crate can honestly say only which declaration it is --
-            // `mir_dump::Spelled` is what turns it into a name.
-            Some(JsConst::Binding(held)) => format!("binding#{held}"),
             Some(JsConst::Function(held)) => format!("f{held}"),
             Some(JsConst::WellKnown(which)) => format!(".{}", format!("{which:?}").to_lowercase()),
             Some(JsConst::Text(_)) => format!("str#{index}"),

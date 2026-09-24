@@ -381,25 +381,52 @@ impl JsMachine<'_> {
         // THE KEY AS A NUMBER FIXED WHILE COMPILING, recovered from the operand. A read
         // whose key the program COMPUTED is a different operation -- `cached_get_keyed` --
         // and refusing here rather than guessing is what keeps the two apart.
-        let Some(index) = self.from_constant.get(&key_operand).copied() else {
-            return Err(
-                "a cached read needs a key fixed while compiling, and this one is a value"
-                    .to_owned(),
-            );
-        };
-        let Some(JsConst::Key(name)) = self.domain.declared(index) else {
-            return Err(format!(
-                "a cached read's key is a property name, and constant {index} is not one"
-            ));
-        };
-        let name = *name;
+        let key = self.key_from_operand(key_operand)?;
+        self.read_through_cache(into, object, key, key_operand)
+    }
+
+    /// A key the compiler fixed, minted from the program's one registry.
+    fn key_of(&mut self, name: crate::names::Name) -> Result<rts_cranelift::shape::Key, String> {
         let Some(names) = self.names.as_deref_mut() else {
-            return Err("a cached read needs the program's interner for its key".to_owned());
+            return Err("a cached access needs the program's interner for its key".to_owned());
         };
         let Some(shared) = self.shared.as_deref_mut() else {
-            return Err("a cached read needs the program's key registry".to_owned());
+            return Err("a cached access needs the program's key registry".to_owned());
         };
-        let key = names.key(name, &mut shared.keys);
+        Ok(names.key(name, &mut shared.keys))
+    }
+
+    /// The key a spelling the LANGUAGE chose has, and the operand the runtime is
+    /// handed for it on a slow path.
+    ///
+    /// Interned here rather than declared in the graph, because the program never
+    /// wrote it -- the same reason `JsConst::WellKnown` gives for the keys a
+    /// `for`-`of` reads.
+    fn fixed_key(
+        &mut self,
+        into: &mut FuncBuilder,
+        spelled: &str,
+    ) -> Result<(rts_cranelift::shape::Key, MachineValue), String> {
+        let Some(names) = self.names.as_deref_mut() else {
+            return Err(format!("the key {spelled} needs the program's interner"));
+        };
+        let name = names.intern(spelled);
+        let key = self.key_of(name)?;
+        let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(key.index() as u64),
+        });
+        Ok((key, into.use_const(held)))
+    }
+
+    /// The read itself, once the key is known.
+    fn read_through_cache(
+        &mut self,
+        into: &mut FuncBuilder,
+        object: MachineValue,
+        key: rts_cranelift::shape::Key,
+        key_operand: MachineValue,
+    ) -> Result<MachineValue, String> {
 
         let receiver = match into.repr_of(object) {
             Repr::Tagged => object,
@@ -445,6 +472,123 @@ impl JsMachine<'_> {
     /// those differ only in which table named the operation -- and a second copy of the
     /// widening rule, the arity check and the throw check is three chances to get one of
     /// them wrong in one of the two.
+    /// Installs an OWN property, through the site's memory of what it last saw.
+    ///
+    /// The mirror of [`Self::read_through_cache`], taken from `emit/property.rs`'s
+    /// `emit_define`: the fast path is a cached store into a slot the layout already
+    /// has, and a miss -- a key the object does not own yet, which is a shape
+    /// transition no site can remember -- goes to `DefineField`.
+    ///
+    /// A DEFINE and not a `[[Set]]`, which is the reason this exists beside a field
+    /// write: an environment holds bindings, and a binding spelled `__proto__` or one
+    /// an `Object.prototype` setter shares a name with must land as an own data
+    /// property. `[[Set]]` would run the setter.
+    ///
+    /// Answers the value handed in, untouched: the graph types the write by what was
+    /// written, so a proved double has to come back as the double it was rather than
+    /// as the widened word the store took.
+    fn define_through_cache(
+        &mut self,
+        into: &mut FuncBuilder,
+        object: MachineValue,
+        key: rts_cranelift::shape::Key,
+        key_operand: MachineValue,
+        value: MachineValue,
+    ) -> Result<(), String> {
+        let receiver = match into.repr_of(object) {
+            Repr::Tagged => object,
+            _ => into.widen(object),
+        };
+        let stored = match into.repr_of(value) {
+            Repr::Tagged => value,
+            _ => into.widen(value),
+        };
+        let reference = into.create_block();
+        let narrowed =
+            into.add_block_param(reference, Repr::Ref(rts_cranelift::repr::RefKind::Opaque));
+        let slow = into.create_block();
+        let join = into.create_block();
+
+        into.guard(
+            receiver,
+            Repr::Ref(rts_cranelift::repr::RefKind::Opaque),
+            (reference, &[]),
+            (slow, &[]),
+        )
+        .map_err(machine)?;
+
+        into.switch_to(reference);
+        let cache = into.declare_cache();
+        into.cached_set(narrowed, key, cache, stored, (join, &[]), (slow, &[]))
+            .map_err(machine)?;
+
+        into.switch_to(slow);
+        self.call_runtime(
+            into,
+            crate::runtime::RuntimeOp::DefineField,
+            &[receiver, key_operand, stored],
+        )?;
+        into.jump(join, &[]).map_err(machine)?;
+
+        into.switch_to(join);
+        Ok(())
+    }
+
+    /// A fresh environment: an object with the link and every captured binding
+    /// defined, the link first -- `JsPrim::EnvNew` says why each key is defined at
+    /// creation rather than on first write.
+    fn environment_new(
+        &mut self,
+        into: &mut FuncBuilder,
+        enclosing: MachineValue,
+        keys: &[MachineValue],
+    ) -> Result<MachineValue, String> {
+        // THE WIDTH `emit/binding.rs` gives one: a slot per name plus the link.
+        let width = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(keys.len() as u64 + 1),
+        });
+        let width = into.use_const(width);
+        let built = self.call_runtime(into, crate::runtime::RuntimeOp::ObjectNew, &[width])?;
+        let (link, link_operand) = self.fixed_key(into, crate::emit::OUTER)?;
+        self.define_through_cache(into, built, link, link_operand, enclosing)?;
+
+        let Some(shared) = self.shared.as_deref_mut() else {
+            return Err("an environment's bindings start `undefined`, which is bits from the program's tag registry".to_owned());
+        };
+        let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
+        let undefined = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits: rts_cranelift::ir::ScalarBits(undefined.word()),
+        });
+        let undefined = into.use_const(undefined);
+        for key_operand in keys {
+            let key = self.key_from_operand(*key_operand)?;
+            self.define_through_cache(into, built, key, *key_operand, undefined)?;
+        }
+        Ok(built)
+    }
+
+    /// The key a declared key constant is, recovered from the operand it was made as.
+    ///
+    /// `MachineOps::prim` knows WHICH value an operand is but not what defined it, so
+    /// the constant is remembered where it was made -- see `from_constant`.
+    fn key_from_operand(&mut self, key_operand: MachineValue) -> Result<rts_cranelift::shape::Key, String> {
+        let Some(index) = self.from_constant.get(&key_operand).copied() else {
+            return Err(
+                "a cached access needs a key fixed while compiling, and this one is a value"
+                    .to_owned(),
+            );
+        };
+        let Some(JsConst::Key(name)) = self.domain.declared(index) else {
+            return Err(format!(
+                "a cached access's key is a property name, and constant {index} is not one"
+            ));
+        };
+        let name = *name;
+        self.key_of(name)
+    }
+
     fn call_runtime(
         &mut self,
         into: &mut FuncBuilder,

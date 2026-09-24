@@ -906,50 +906,117 @@ fn a_string_literal_still_narrows_without_a_guard() {
     );
 }
 
-/// **A captured binding is refused for the environment LAYOUT, not for a numbering**, and
-/// the message matters because it is what sends the next reader to the right place.
-///
-/// A captured local is a property of an environment object; an environment is an ordinary
-/// object with one `__rts_outer` link; reading one is `hops` reads of that link followed by a
-/// read of the name — all of which this boundary already emits, through the same cached read
-/// `o.x` uses.
-///
-/// `hops` is the missing input and it cannot be invented here: how many links to walk depends
-/// on which functions BUILD an environment, and one that captures nothing builds none. That
-/// is escape analysis.
-#[test]
-fn a_captured_binding_names_the_environment_layout_as_what_is_missing() {
+/// The same as `reaches_machine`, for a function named in the fixture, keeping what the
+/// machine's verifier needs -- the convention's two leading parameters included, because
+/// the environment IS parameter 0 and a read of it has nowhere else to come from.
+fn reach_named(
+    source: &str,
+    named: &str,
+) -> (
+    Result<Function, Unlowerable>,
+    TypeRegistry,
+    rts_codegen::machine::Shared,
+) {
     let mut names = Names::new();
-    let program = parse_script(
-        "function outer(a) { function inner() { return a; } return inner; }",
-        &mut names,
-    )
-    .expect("parses");
+    let program = parse_script(source, &mut names).expect("parses");
     let resolution = resolve_module(&program.body);
     let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
-    // `inner` reads `a`, which `outer` declares — a captured binding.
-    let inner = lowered
+    let held = lowered
         .functions
         .iter()
-        .find(|held| held.named == "inner")
-        .expect("the inner function");
-    let Ok(graph) = inner.result.as_ref() else {
-        return;
-    };
-    let mut shared = rts_codegen::machine::Shared::new();
-    let words = said(
-        rts_codegen::machine::reaches_machine(
-            graph,
-            &lowered.domain,
-            None,
-            &mut shared,
-            &mut names,
+        .find(|held| held.named == named)
+        .expect("the fixture declares it");
+    let graph = held.result.as_ref().expect("it lowers to a graph");
+    let inferred = rts_mir::infer::infer(graph, &lowered.domain);
+    let params: Vec<Repr> = [Repr::Tagged, Repr::Tagged]
+        .into_iter()
+        .chain(
+            graph
+                .block(graph.entry())
+                .params
+                .iter()
+                .map(|held| JsMachine::repr_of(inferred.of(*held)).unwrap_or(Repr::Tagged)),
         )
-        .expect_err("hops is not in the graph"),
+        .collect();
+    let returns: Vec<Repr> = graph
+        .block_ids()
+        .filter_map(|held| match graph.block(held).terminator {
+            Some(rts_mir::cfg::Terminator::Return(Some(value))) => Some(value),
+            _ => None,
+        })
+        .next()
+        .map(|held| JsMachine::repr_of(inferred.of(held)).unwrap_or(Repr::Tagged))
+        .into_iter()
+        .collect();
+    let types = TypeRegistry::new();
+    let mut shared = rts_codegen::machine::Shared::default();
+    let mut func = Function::new(Signature {
+        params,
+        returns,
+        ..Signature::default()
+    });
+    let entry = func.entry;
+    let start: Vec<_> = func.block(entry).expect("an entry block").params.clone();
+    let mut into = rts_cranelift::ir::FuncBuilder::new(&mut func, &types, entry);
+    let mut ops = JsMachine::new(&lowered.domain, inferred)
+        .declaring_in(&mut shared)
+        .naming_with(&mut names)
+        .with_incoming(&start);
+    let lowered = lower(graph, &mut into, &mut ops, &start[2..]);
+    drop(into);
+    drop(ops);
+    (lowered.map(|()| func), types, shared)
+}
+
+/// **A closure's read of its declarer's local reaches the machine, and the machine's
+/// verifier accepts it.** This stood as a refusal naming the environment layout as what
+/// was missing, and it was right: how many `__rts_outer` links to walk depends on which
+/// functions BUILD an environment, which the graph did not say.
+///
+/// `names::resolve::captured` says it now, and the graph spells the answer as that many
+/// link reads followed by one keyed read -- each an ordinary cached read of an object, so
+/// nothing new was needed below. Two links' worth are pinned: `x` is one environment out
+/// from where `c` was made, `y` none.
+#[test]
+fn a_captured_binding_reaches_the_machine_through_the_environment() {
+    for (source, named) in [
+        (
+            "function outer(a) { function inner() { return a; } return inner; }",
+            "inner",
+        ),
+        (
+            "function a() { let x = 1; function b() { let y = 2; function c() { y; return x; } return c; } return b; }",
+            "c",
+        ),
+        // A WRITE is a define of an own property, so a binding spelled like an
+        // `Object.prototype` accessor lands as data rather than running the setter.
+        (
+            "function outer() { let n = 0; function bump() { n = 1; } return bump; }",
+            "bump",
+        ),
+    ] {
+        let (func, types, shared) = reach_named(source, named);
+        let func = func.unwrap_or_else(|held| panic!("{named} reaches the machine: {held:?}"));
+        assert_eq!(
+            rts_cranelift::verify(&func, &types, &shared.funcs),
+            Vec::new(),
+            "{source}"
+        );
+    }
+}
+
+/// The function that BUILDS the environment gets past it too, and stops at the next wall
+/// rather than at this one: making the closure needs the machine id of another function
+/// of the module, and this boundary compiles one function at a time. That is the same
+/// missing piece a direct call stops at -- which the message says, so the two are counted
+/// as one piece of work rather than two.
+#[test]
+fn the_builder_stops_at_the_module_numbering_and_not_at_the_environment() {
+    let (held, ..) = reach_named(
+        "function outer(a) { function inner() { return a; } return inner; }",
+        "outer",
     );
-    assert!(words.contains("environment layout"), "{words}");
-    assert!(words.contains("escape analysis"), "{words}");
-    // AND NOT a numbering, which is what it used to say and which would have sent a reader
-    // to the host's entry table for something that needs no entry at all.
-    assert!(!words.contains("runtime's numbering"), "{words}");
+    let words = said(held.expect_err("making `inner` needs its machine id"));
+    assert!(words.contains("machine id of f"), "{words}");
+    assert!(words.contains("one function at a time"), "{words}");
 }

@@ -55,6 +55,7 @@
 //! rather than a rumour. `PLAN.md` §E has the order and why.
 
 mod binding;
+pub(crate) use binding::OUTER;
 mod body_state;
 mod call;
 pub(crate) mod capture;

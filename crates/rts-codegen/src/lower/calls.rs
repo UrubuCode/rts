@@ -63,32 +63,35 @@ impl Lowering<'_> {
         held
     }
 
-    /// Reads a binding this function holds, as a value.
+    /// Reads a binding, as a value.
     ///
     /// Apart from the identifier arm because a call needs the same answer without
     /// going through an `Expr` it does not have: the callee of `f(1)` is the name
     /// `f`, and reading it is the same question the arm asks.
     ///
-    /// # Three refusals, and why they are told apart
+    /// # Four answers, and why they are told apart
     ///
-    /// A binding with no value here is one of three things, and the first version of
-    /// this reported all of them as a temporal dead zone — which made the survey
-    /// name the wrong work. `bench/` and `tests/` between them had 66 of these, and
-    /// an import is not a dead zone.
-    ///
-    /// - declared LATER in this function: its dead zone, and reading it throws;
-    /// - declared OUTSIDE this function: a module binding or a captured one, which
-    ///   needs the environment this stage does not build;
+    /// - held in a register of this function: the value it holds now;
+    /// - CAPTURED, by this function or by one inside it: a read of the environment
+    ///   that owns it, `names::resolve::captured` having said which and how far;
     /// - a function of this module read as a value: it needs a closure, which is a
-    ///   different missing piece from either.
+    ///   different missing piece;
+    /// - declared LATER in this function: its dead zone, and reading it throws.
+    ///
+    /// Captured comes before the function arm because a nested declaration a closure
+    /// reads is bound into the environment and read back out of it, and asking the
+    /// callee map first turned that ordinary read into a refusal.
     pub(super) fn read_binding(
         &mut self,
         binding: BindingId,
         name: Name,
-        _at: &Expr,
+        at: &Expr,
     ) -> Result<ValueId, Unsupported> {
         if let Some(value) = self.values.get(&binding) {
             return Ok(*value);
+        }
+        if self.resolution.captured(binding) {
+            return self.env_read(binding, at);
         }
         if self.callees.of_binding(binding).is_some() {
             return Err(Unsupported::Expression(
@@ -100,50 +103,27 @@ impl Lowering<'_> {
             true => Err(Unsupported::Expression(
                 "a binding read before its declaration is in its dead zone",
             )),
-            // OUTSIDE THIS FUNCTION: an operation that names the binding, rather
-            // than a refusal.
-            //
-            // It was 912 refusals in `tests/` and 54 in `bench/`, the top of both
-            // tables, and the reason it is expressible after all is rule 2: WHERE a
-            // captured cell lives — a module record, an environment object, a slot
-            // an enclosing activation holds — is a machine question, and this layer
-            // says which binding and stops.
-            //
-            // Closure conversion is the other answer and does not fit yet: it makes
-            // every free binding an extra parameter, and a `Callee::Dynamic` site
-            // does not know the callee's free set, so it would refuse exactly the
-            // calls that most need it.
-            false => Ok(self.outer(binding, JsPrim::OuterRead, None, _at)),
+            // OUTSIDE THIS FUNCTION AND NOT CAPTURED is a contradiction: the scope walk
+            // records every use, and a use from another function is what capturing
+            // means. Refused rather than guessed at, because the guess is a read of a
+            // place nothing writes.
+            false => Err(Unsupported::Expression(
+                "an outer binding the scope walk did not record as captured",
+            )),
         }
     }
 
-    /// An outer binding read or written, named by a declared constant.
-    ///
-    /// The name travels as a constant of the language's table so that two accesses
-    /// to one outer binding carry ONE index and compare equal — which is what a pass
-    /// hoisting a load out of a loop needs, and what comparing `BindingId`s inside
-    /// the lowering could not give a pass reading the finished graph.
-    pub(super) fn outer(
-        &mut self,
-        binding: BindingId,
-        which: JsPrim,
-        value: Option<ValueId>,
-        at: &Expr,
-    ) -> ValueId {
-        let index = self
-            .domain
-            .constant(crate::domain::JsConst::Binding(binding.index() as u32));
-        let named = self.declared(index, at);
-        let mut args = vec![named];
-        args.extend(value);
-        self.prim(which, args, at)
-    }
-
-    /// A closure value for a function the module numbered.
+    /// A closure value for a function the module numbered, over the environment in
+    /// force here -- or `undefined` where nothing inside reaches past this function,
+    /// which is what `emit/function.rs` hands such a closure too.
     pub(super) fn closure(&mut self, id: rts_mir::cfg::FuncId, at: &Expr) -> ValueId {
         let index = self.domain.constant(crate::domain::JsConst::Function(id.0));
         let named = self.declared(index, at);
-        self.prim(JsPrim::MakeClosure, vec![named], at)
+        let environment = match self.environment {
+            Some(held) => held,
+            None => self.singleton_at(crate::values::Singleton::Undefined, at),
+        };
+        self.prim(JsPrim::MakeClosure, vec![named, environment], at)
     }
 
     /// A name no scope declares, read through the global object.

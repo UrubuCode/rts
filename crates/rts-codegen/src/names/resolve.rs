@@ -166,7 +166,13 @@ pub struct Resolution {
     /// position of its own in the tree — and the `try` is what a consumer holds when it
     /// wants to know where the caught value is bound.
     catches: BTreeMap<Position, ScopeId>,
+    /// Which bindings a nested function reads or writes, and what follows from it.
+    /// `captured.rs` computes it and says why it is here rather than in a lowering.
+    capture: captured::Capture,
 }
+
+mod captured;
+pub use captured::Environment;
 
 impl Resolution {
     /// The module scope, which every program has.
@@ -299,6 +305,9 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
     let mut walker = Walker {
         out: &mut out,
         function: module,
+        in_loop: false,
+        field_code: None,
+        references: Vec::new(),
     };
     for item in items {
         match item {
@@ -322,6 +331,8 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
             },
         }
     }
+    let references = std::mem::take(&mut walker.references);
+    out.settle_capture(&references);
     out
 }
 
@@ -332,8 +343,13 @@ pub fn resolve(body: &[Stmt]) -> Resolution {
     let mut walker = Walker {
         out: &mut out,
         function: module,
+        in_loop: false,
+        field_code: None,
+        references: Vec::new(),
     };
     walker.statements(body, module);
+    let references = std::mem::take(&mut walker.references);
+    out.settle_capture(&references);
     out
 }
 
@@ -363,9 +379,80 @@ impl Resolution {
 struct Walker<'a> {
     out: &'a mut Resolution,
     function: ScopeId,
+    /// Whether what is being walked runs once per pass of a loop of the SAME
+    /// function. A scope opened while it holds is a fresh record per pass, which is
+    /// what `captured::Capture::per_pass` reports.
+    in_loop: bool,
+    /// Every name USED, with the scope it was used in and the function it was used
+    /// from -- resolved only once the walk is over, because a `var` or a function
+    /// declared further down is already in scope at a use written above it.
+    references: Vec<captured::Reference>,
+    /// The class body whose field initialiser or static block is being walked. That
+    /// code runs in a constructor or a class evaluation, not in the activation the
+    /// class is written in, so a use there is attributed to the class body.
+    field_code: Option<ScopeId>,
 }
 
 impl Walker<'_> {
+    /// Opens a scope, remembering whether it is one record per loop pass.
+    fn open(&mut self, kind: ScopeKind, parent: Option<ScopeId>) -> ScopeId {
+        let scope = self.out.open(kind, parent);
+        if self.in_loop && kind != ScopeKind::Function {
+            self.out.capture.per_pass.insert(scope);
+        }
+        scope
+    }
+
+    /// Walks a loop's head and body, which run once per pass.
+    fn in_a_loop(&mut self, walk: impl FnOnce(&mut Self)) {
+        let outer = std::mem::replace(&mut self.in_loop, true);
+        walk(self);
+        self.in_loop = outer;
+    }
+
+    /// Records a use of `name` from `scope`, to be resolved when the walk ends.
+    fn used(&mut self, name: crate::names::Name, scope: ScopeId) {
+        self.references.push(captured::Reference {
+            name,
+            scope,
+            function: self.field_code.unwrap_or(self.function),
+        });
+    }
+
+    /// The names a `for (target of …)` writes, and the expressions inside the
+    /// pattern -- a computed key or a default is an ordinary read.
+    fn assigned(&mut self, pattern: &Pattern, scope: ScopeId) {
+        match pattern {
+            Pattern::Name(name) => self.used(*name, scope),
+            Pattern::Target(expr) => self.expression(expr, scope),
+            Pattern::Object(object) => {
+                for property in &object.properties {
+                    if let crate::syntax::PropertyKey::Computed(key) = &property.key {
+                        self.expression(key, scope);
+                    }
+                    self.assigned(&property.value.pattern, scope);
+                    if let Some(default) = &property.value.default {
+                        self.expression(default, scope);
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    self.assigned(rest, scope);
+                }
+            }
+            Pattern::Array(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.assigned(&element.pattern, scope);
+                    if let Some(default) = &element.default {
+                        self.expression(default, scope);
+                    }
+                }
+                if let Some(rest) = &array.rest {
+                    self.assigned(rest, scope);
+                }
+            }
+        }
+    }
+
     fn statements(&mut self, body: &[Stmt], scope: ScopeId) {
         for statement in body {
             self.statement(statement, scope);
@@ -396,7 +483,7 @@ impl Walker<'_> {
                 self.class(class, scope);
             }
             StmtKind::Block(inner) => {
-                let block = self.out.open(ScopeKind::Block, Some(scope));
+                let block = self.open(ScopeKind::Block, Some(scope));
                 self.out.blocks.insert(statement.at, block);
                 self.statements(inner, block);
             }
@@ -411,64 +498,65 @@ impl Walker<'_> {
                     self.statement(branch, scope);
                 }
             }
-            StmtKind::While { condition, body } => {
-                self.expression(condition, scope);
-                self.statement(body, scope);
-            }
-            StmtKind::DoWhile { body, condition } => {
-                self.statement(body, scope);
-                self.expression(condition, scope);
-            }
+            StmtKind::While { condition, body } => self.in_a_loop(|walker| {
+                walker.expression(condition, scope);
+                walker.statement(body, scope);
+            }),
+            StmtKind::DoWhile { body, condition } => self.in_a_loop(|walker| {
+                walker.statement(body, scope);
+                walker.expression(condition, scope);
+            }),
             StmtKind::For {
                 init,
                 test,
                 update,
                 body,
-            } => {
+            } => self.in_a_loop(|walker| {
                 // The HEAD is its own scope wrapping the body, which is what
                 // makes each pass's copy of a lexical target a binding of its
                 // own rather than the body's.
-                let head = self.out.open(ScopeKind::ForHead, Some(scope));
-                self.out.heads.insert(statement.at, head);
+                let head = walker.open(ScopeKind::ForHead, Some(scope));
+                walker.out.heads.insert(statement.at, head);
                 match init {
                     Some(ForInit::Declare { kind, bindings }) => {
-                        let (origin, at) = self.destination(*kind, head);
-                        self.bindings_of(bindings, origin, at, head);
+                        let (origin, at) = walker.destination(*kind, head);
+                        walker.bindings_of(bindings, origin, at, head);
                     }
-                    Some(ForInit::Expr(expr)) => self.expression(expr, head),
+                    Some(ForInit::Expr(expr)) => walker.expression(expr, head),
                     None => {}
                 }
                 if let Some(expr) = test {
-                    self.expression(expr, head);
+                    walker.expression(expr, head);
                 }
                 if let Some(expr) = update {
-                    self.expression(expr, head);
+                    walker.expression(expr, head);
                 }
-                self.statement(body, head);
-            }
+                walker.statement(body, head);
+            }),
             StmtKind::ForEach {
                 target,
                 subject,
                 body,
                 ..
-            } => {
-                let head = self.out.open(ScopeKind::ForHead, Some(scope));
-                self.out.heads.insert(statement.at, head);
+            } => self.in_a_loop(|walker| {
+                let head = walker.open(ScopeKind::ForHead, Some(scope));
+                walker.out.heads.insert(statement.at, head);
                 match target {
                     ForEachTarget::Declare { kind, target } => {
-                        let (origin, at) = self.destination(*kind, head);
-                        self.pattern(target, origin, at);
+                        let (origin, at) = walker.destination(*kind, head);
+                        walker.pattern(target, origin, at);
                     }
                     ForEachTarget::Dispose { target, .. } => {
-                        self.out.declare(*target, Origin::Lexical, head);
+                        walker.out.declare(*target, Origin::Lexical, head);
                     }
                     // An ASSIGNMENT target declares nothing: the loop writes a binding
-                    // that already exists, wherever it exists.
-                    ForEachTarget::Assign(_) => {}
+                    // that already exists, wherever it exists -- which is a USE of it,
+                    // and a nested function writing an outer one captures it.
+                    ForEachTarget::Assign(target) => walker.assigned(target, head),
                 }
-                self.expression(subject, head);
-                self.statement(body, head);
-            }
+                walker.expression(subject, head);
+                walker.statement(body, head);
+            }),
             StmtKind::Switch {
                 discriminant,
                 clauses,
@@ -476,7 +564,7 @@ impl Walker<'_> {
                 self.expression(discriminant, scope);
                 // ONE scope for every clause: a `let` in one case is visible from
                 // the others, which is why the tree keeps the clauses flat.
-                let block = self.out.open(ScopeKind::Block, Some(scope));
+                let block = self.open(ScopeKind::Block, Some(scope));
                 for SwitchClause { test, body } in clauses {
                     if let Some(expr) = test {
                         self.expression(expr, block);
@@ -489,14 +577,14 @@ impl Walker<'_> {
                 catch,
                 finally,
             } => {
-                let protected = self.out.open(ScopeKind::Block, Some(scope));
+                let protected = self.open(ScopeKind::Block, Some(scope));
                 self.statements(body, protected);
                 if let Some(Catch {
                     binding,
                     body: handler,
                 }) = catch
                 {
-                    let clause = self.out.open(ScopeKind::CatchClause, Some(scope));
+                    let clause = self.open(ScopeKind::CatchClause, Some(scope));
                     self.out.catches.insert(statement.at, clause);
                     if let Some(pattern) = binding {
                         self.pattern(pattern, Origin::Caught, clause);
@@ -504,13 +592,13 @@ impl Walker<'_> {
                     self.statements(handler, clause);
                 }
                 if let Some(cleanup) = finally {
-                    let after = self.out.open(ScopeKind::Block, Some(scope));
+                    let after = self.open(ScopeKind::Block, Some(scope));
                     self.statements(cleanup, after);
                 }
             }
             StmtKind::With { object, body } => {
                 self.expression(object, scope);
-                let inside = self.out.open(ScopeKind::With, Some(scope));
+                let inside = self.open(ScopeKind::With, Some(scope));
                 self.statement(body, inside);
             }
             StmtKind::Labelled { body, .. } => self.statement(body, scope),
@@ -570,7 +658,7 @@ impl Walker<'_> {
 
     /// A function's own scope: its parameters and its body, together.
     fn function(&mut self, function: &Function, outside: ScopeId, expression: bool) {
-        let body = self.out.open(ScopeKind::Function, Some(outside));
+        let body = self.open(ScopeKind::Function, Some(outside));
         self.out.functions.insert(function.at, body);
         // A function EXPRESSION binds its own name inside its own body and
         // nowhere else. `inline.rs` lost four assertions to exactly this: the
@@ -580,6 +668,10 @@ impl Walker<'_> {
             self.out.declare(name, Origin::OwnName, body);
         }
         let outer = std::mem::replace(&mut self.function, body);
+        // A body runs once per CALL, not once per pass of a loop around its
+        // definition: what it declares is one record per activation.
+        let looping = std::mem::replace(&mut self.in_loop, false);
+        let fields = self.field_code.take();
         for parameter in &function.parameters {
             self.pattern(&parameter.target, Origin::Parameter, body);
             if let Some(default) = &parameter.default {
@@ -594,12 +686,14 @@ impl Walker<'_> {
             FunctionBody::Expression(expr) => self.expression(expr, body),
         }
         self.function = outer;
+        self.in_loop = looping;
+        self.field_code = fields;
     }
 
     fn class(&mut self, class: &Class, outside: ScopeId) {
         // A class binds its own name inside its body, declaration or expression
         // alike — which is what makes `static { … }` able to name it.
-        let inside = self.out.open(ScopeKind::ClassBody, Some(outside));
+        let inside = self.open(ScopeKind::ClassBody, Some(outside));
         if let Some(name) = class.name {
             self.out.declare(name, Origin::OwnName, inside);
         }
@@ -611,12 +705,16 @@ impl Walker<'_> {
                 ClassElement::Method(method) => self.function(&method.function, inside, false),
                 ClassElement::Field(field) => {
                     if let Some(value) = &field.value {
+                        let outer = self.field_code.replace(inside);
                         self.expression(value, inside);
+                        self.field_code = outer;
                     }
                 }
                 ClassElement::StaticBlock(statements) => {
-                    let block = self.out.open(ScopeKind::Block, Some(inside));
+                    let block = self.open(ScopeKind::Block, Some(inside));
+                    let outer = self.field_code.replace(inside);
                     self.statements(statements, block);
+                    self.field_code = outer;
                 }
             }
         }
@@ -631,6 +729,21 @@ impl Walker<'_> {
             ExprKind::Class(class) => {
                 self.class(class, scope);
                 return;
+            }
+            ExprKind::Ident(name) => self.used(*name, scope),
+            // A destructuring ASSIGNMENT writes the names at its leaves, and the shared
+            // walk reports only the expressions inside a pattern -- its own comment
+            // records the gap. Reported here rather than there, because a binding this
+            // walk decides is not captured is one a closure reads from the wrong place.
+            ExprKind::Assign {
+                target: crate::syntax::AssignTarget::Pattern(pattern),
+                ..
+            } => {
+                let mut names = Vec::new();
+                pattern.bound_names(&mut names);
+                for name in names {
+                    self.used(name, scope);
+                }
             }
             _ => {}
         }
