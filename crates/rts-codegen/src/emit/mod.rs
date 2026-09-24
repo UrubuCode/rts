@@ -1117,7 +1117,7 @@ pub(super) fn emit_program_into(
     // facts above are: a function is lowered where it is emitted, and the tree is the
     // whole program's.
     ctx.mir_resolution = through_mir::open()
-        .then(|| std::rc::Rc::new(crate::names::resolve::resolve(body)));
+        .then(|| std::rc::Rc::new(crate::names::resolve::resolve_program(body, imports)));
 
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);

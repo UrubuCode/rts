@@ -147,7 +147,9 @@ fn parsed(context: &Context, value: u64) -> Option<BigInt> {
     if let Some(held) = super::bigints::digits_of(context, value) {
         return Some(held.clone());
     }
-    if let Some(number) = Value(value).as_f64() {
+    // EITHER ENCODING of a number: an integer widened by compiled code is tagged
+    // `Int`, and it is as much a number as a double -- `Value::numeric` reads both.
+    if let Some(number) = Value(value).numeric() {
         return BigInt::from_f64(number);
     }
     if let Some(flag) = Value(value).as_bool() {

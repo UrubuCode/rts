@@ -336,10 +336,25 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
     out
 }
 
-/// The same, for a body of statements with no module items in it.
-pub fn resolve(body: &[Stmt]) -> Resolution {
+/// The same, for a body of statements whose imports were split off beside it --
+/// which is the shape the running emitter holds a program in.
+///
+/// The imports are declared FIRST, in the module scope, because that is where the
+/// running emitter binds them (`emit/module.rs`) and where the language hoists them.
+/// Leaving them out made every imported name read as a global -- `expect` alone was
+/// the reason 3 822 functions of the corpus were kept off the MIR stage.
+pub fn resolve_program(body: &[Stmt], imports: &[crate::syntax::Import]) -> Resolution {
     let mut out = Resolution::default();
     let module = out.open(ScopeKind::Module, None);
+    for import in imports {
+        for binding in &import.bindings {
+            let local = match binding {
+                ImportBinding::Default(name) | ImportBinding::Namespace(name) => *name,
+                ImportBinding::Named { local, .. } => *local,
+            };
+            out.declare(local, Origin::Lexical, module);
+        }
+    }
     let mut walker = Walker {
         out: &mut out,
         function: module,
@@ -351,6 +366,11 @@ pub fn resolve(body: &[Stmt]) -> Resolution {
     let references = std::mem::take(&mut walker.references);
     out.settle_capture(&references);
     out
+}
+
+/// The same, for a body of statements with no module items in it.
+pub fn resolve(body: &[Stmt]) -> Resolution {
+    resolve_program(body, &[])
 }
 
 impl Resolution {

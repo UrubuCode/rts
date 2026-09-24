@@ -1995,3 +1995,49 @@ Counted over the same 931 files, and each is a different piece:
 | `NeedsFrameTransform` | 173 | a generator or `async` body: `Op::Suspend` to `into.suspend()`, the host's `frame::resumable_form`, and the wrapper that answers a generator object or a promise |
 | `NeedsSideExit` | ~210 | a guard behind something observable: frame reconstruction, the rest of D3 |
 | the lowering's own refusals | ~550 | a callee that is neither a name nor a property, an object literal with a method, `yield*`, parameter defaults, `super` calls, rest parameters, destructuring targets, `arguments` -- each a named line of `rts mir` |
+
+## The stage RUNS: the suite, per file, with the door open
+
+Everything above measured what COMPILES. `emit/through_mir.rs` is where a function of a
+running program is compiled through this stage instead of the running emitter, and it is
+on by default; `RTS_MIR=0` shuts it for measuring the running emitter alone on the same
+binary, and `RTS_MIR_TRACE=why` names every function taken and every reason one was not.
+
+Measured 2026-09-24 on this container (4 cores), `--profile fast`, one process per file,
+`target/debug/rts` moved aside -- six `*_err.test.ts` files spawn it when it exists and
+compare a different binary than the one under test:
+
+| binary | passes |
+|---|---:|
+| `origin/main` | 880 of 905 |
+| this branch, door SHUT | 883 of 907 |
+| this branch, door OPEN | **883 of 907** |
+
+LOST with the door open, against `main` and against the same binary with it shut: **empty**.
+The two gained over `main` are this branch's own, not the door's.
+
+**What running found that compiling never could**, each a wrong answer or a crash on a
+function every static check accepted -- the verifier included:
+
+- the machine lowered handler and cleanup blocks in creation order, because a throw has no
+  successor; exceptional edges are successors in the ordering now;
+- `if`, `try`, `switch` and every loop handed the next statement the map ONE path left;
+  `settle_after` is one rule for all of them;
+- `var x;` rebound `x` to `undefined`;
+- an array rest took one element too few -- the tree's trailing placeholder;
+- `try/catch/finally` ran the `finally` before the `catch`, and skipped it on the ordinary
+  way out;
+- deep recursion overflowed without `TailCall`, and `return c ? f() : g()` hid its calls
+  behind a join;
+- `Number.isFinite(42)` was `false`, and `new Date(0)`, `BigInt(1)` and numeric `Intl`
+  options misread an integer, because the runtime read numbers with `as_f64`, which knows
+  one of the two encodings. The running emitter widens integers too, so this was a runtime
+  defect the stage exposed rather than one it caused.
+
+**How much of the program this is.** Over the suite, a first count had 2 830 functions
+taken and 7 454 declined -- and the largest reason was an instrument error of mine: the
+scope tree was built without the IMPORTS, so every imported name (`expect` alone, 3 822)
+read as an unplaced global. With them, the first 60 files take 292 and decline 117. What
+declines most now is a function that makes a closure -- `test(() => …)` inside
+`describe(() => …)` -- because a closure made here would be laid out by this stage and read
+by the running emitter's code.

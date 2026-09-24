@@ -142,7 +142,7 @@ fn stored_digits(this: u64, name: &str) -> Option<i16> {
         let cell = Value(held).as_slot()?;
         let key = context.well_known(name);
         let found = super::super::objects::read_property(context, cell, key)?;
-        Some(found.as_f64()? as i16)
+        Some(found.numeric()? as i16)
     })
 }
 
