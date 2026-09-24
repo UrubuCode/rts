@@ -149,12 +149,19 @@ pub struct JsMachine<'a> {
     /// value that has to dominate anything and two sites reaching one copy cannot disagree
     /// about what it computes.
     ///
-    /// One per FUNCTION here and not one per region, and that is correct only because this
-    /// boundary refuses a region: where a `Throw` lands is decided by the region its block
-    /// is in, so sharing between a site inside a `try` and one outside would route the
-    /// outer one into a handler that never protected it. When regions arrive this becomes a
-    /// map keyed by region, which is what `BodyState::reraise_in` already is.
-    reraise: Option<rts_cranelift::ir::BlockId>,
+    /// One per REGION, and it was one per function while this boundary refused a region:
+    /// where a `Throw` lands is decided by the region its block is in, so sharing between
+    /// a site inside a `try` and one outside would route the outer one into a handler that
+    /// never protected it. Keyed as `BodyState::reraise_in` is, by the region of the site
+    /// -- which the made block inherits, because the builder is told to let a block made
+    /// while emitting join the region of the block being emitted.
+    reraise: std::collections::BTreeMap<
+        Option<rts_cranelift::unwind::RegionId>,
+        rts_cranelift::ir::BlockId,
+    >,
+    /// Whether the block being lowered is part of a cleanup -- `rts_mir::lower` says so
+    /// before each block. See [`JsMachine::recheck_throw`] for what it costs.
+    in_cleanup: bool,
     /// Which declared constant each machine value came from.
     ///
     /// # Why this is needed and the instruction is not enough
@@ -228,7 +235,8 @@ impl<'a> JsMachine<'a> {
             receiver: None,
             incoming: Vec::new(),
             names: None,
-            reraise: None,
+            reraise: std::collections::BTreeMap::new(),
+            in_cleanup: false,
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -250,7 +258,8 @@ impl<'a> JsMachine<'a> {
             receiver: None,
             incoming: Vec::new(),
             names: None,
-            reraise: None,
+            reraise: std::collections::BTreeMap::new(),
+            in_cleanup: false,
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -688,6 +697,15 @@ impl JsMachine<'_> {
     /// Leaves the builder in the block that CARRIES ON, so a caller's next instruction
     /// lands on the path where nothing was thrown.
     fn recheck_throw(&mut self, into: &mut FuncBuilder) -> Result<(), String> {
+        // NOT INSIDE A CLEANUP, and this is `emit/expr.rs`'s `raise_if_thrown` decision
+        // taken the same way for the same reason: the re-raise is a throw, a throw is an
+        // exit a cleanup piece may not have, and the machine's verifier refuses it as
+        // `CleanupDoesNotEnd` -- which it did, on the first `finally` holding a call. The
+        // gap it leaves is the running engine's too, and `emit/protect.rs` names it: a
+        // call inside a `finally` that throws does not propagate out of the cleanup.
+        if self.in_cleanup {
+            return Ok(());
+        }
         let Some(shared) = self.shared.as_deref_mut() else {
             return Err(
                 "a raising call needs the throw check, which needs somewhere to declare two calls"
@@ -712,8 +730,9 @@ impl JsMachine<'_> {
         // records an earlier draft that created the block, filled it, and only then
         // terminated the one it had left -- which compiled and reached Cranelift's
         // verifier with "uses value from non-dominating inst" on a real program.
+        let region = into.current_region();
         let carrying_on = into.create_block();
-        match self.reraise {
+        match self.reraise.get(&region).copied() {
             Some(built) => into
                 .branch(raised, (built, &[]), (carrying_on, &[]))
                 .map_err(machine)?,
@@ -728,7 +747,7 @@ impl JsMachine<'_> {
                 let value = into.call(&shared.funcs, taken, &[]).map_err(machine)?;
                 let value = *value.first().ok_or("TakeThrown answered nothing")?;
                 into.throw(crate::emit::protect::JS_THROW, value);
-                self.reraise = Some(made);
+                self.reraise.insert(region, made);
             }
         }
         into.switch_to(carrying_on);

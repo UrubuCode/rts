@@ -1127,3 +1127,53 @@ fn a_shorthand_proto_key_is_an_ordinary_property() {
         Vec::new()
     );
 }
+
+/// **A protected region reaches the machine**, and a throw inside it is planned to land in
+/// its handler. This stood as `NeedsHandlerTag`, which read as though the language owed a
+/// tag and was mostly about ORDER: the machine places a block in a region when the block
+/// is made, and `rts_mir::lower` made every block before opening any region.
+///
+/// The plan is asked of the machine, not asserted here: every throw of `f` -- the `throw`
+/// statement, and the re-raise after the call that can raise -- is inside the `try`, so
+/// none of them may leave the function. The re-raise is the case that would silently
+/// fail: its block is made WHILE emitting, and belonged to no region until the builder
+/// was told to let such a block inherit the region of the block being emitted.
+#[test]
+fn a_try_reaches_the_machine_and_every_throw_inside_it_lands_in_its_handler() {
+    let (func, types, shared) = reach_named(
+        "function f(g, x) { try { g(x); throw x; } catch (e) { return e; } return 0; }",
+        "f",
+    );
+    let func = func.unwrap_or_else(|held| panic!("a try reaches the machine: {held:?}"));
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
+    let plans = rts_cranelift::unwind::plan_all_throws(&func);
+    assert!(
+        plans.len() >= 2,
+        "the throw statement and the re-raise: {plans:?}"
+    );
+    assert!(
+        plans.iter().all(|(_, plan)| !plan.escapes()),
+        "no throw inside the `try` leaves the function: {plans:?}"
+    );
+}
+
+/// A `finally` is a cleanup the machine copies onto every path out, and a `throw`
+/// outside every region leaves the function -- which is what an uncaught throw is.
+#[test]
+fn a_finally_and_an_uncaught_throw_reach_the_machine() {
+    for source in [
+        "function f(g) { try { g(); } finally { g(); } return 1; }",
+        "function f(x) { throw x; }",
+    ] {
+        let (func, types, shared) = reach_named(source, "f");
+        let func = func.unwrap_or_else(|held| panic!("{source}: {held:?}"));
+        assert_eq!(
+            rts_cranelift::verify(&func, &types, &shared.funcs),
+            Vec::new(),
+            "{source}"
+        );
+    }
+}

@@ -1920,3 +1920,35 @@ Measured 2026-09-24 per function against the previous commit: **5 384 → 7 218,
 Still refused by the generic arm, each for a stated reason in `generic.rs`: `BitwiseInt32`
 (five operators under one row, the fault `Compare` had), and `ToNumber` over an unproved
 value (`i++` applies ToNumeric, and the call that exists, `UnaryPlus`, throws on a BigInt).
+
+## The protected region: 7 218 → 7 292, and the order that was the whole problem
+
+The entry above called `NeedsHandlerTag` a name that "will keep suggesting a one-line fix
+to whoever reads it next". It was right. The tag was a line -- `MachineOps::exception_tag`,
+answered with the one tag the running engine throws and catches with -- and the rest was
+ORDER: the machine places a block in a region when the block is made, and `rts_mir::lower`
+made every block before opening any region.
+
+- **`rts_mir::lower::regions` makes the machine's blocks in the region tree's order**: a
+  level's own blocks first (a region's handler and cleanup live outside it, and the machine
+  requires them made before it opens), then each region inside, opened around the blocks it
+  holds. The machine's `open_region` also places the block being BUILT, so each region
+  opens on an anchor -- its first block, counting the regions inside it -- which is what
+  leaves the first block of `try { try { … } }` in the inner one.
+- **A block made while emitting has to inherit its region, and the machine now derives
+  it.** Every continuation the boundary makes -- the halves of a cached read, the path past
+  a raising call -- was made with no region open and so belonged to NOTHING: a throw from
+  one would have left the function past the handler written to catch it, and the verifier
+  has no way to know that was not meant. `FuncBuilder::inherit_block_regions` is a mode, not
+  a parameter, for rts-cranelift's rule 8; its invariant test shows both halves.
+- **The re-raise block is one per region**, as its own note said it would have to become.
+- **A call inside a `finally` takes no re-raise check**, which is `emit/expr.rs`'s decision
+  for the same reason: the verifier refuses a cleanup that leaves by a throw. The gap is the
+  running engine's too, and stated there.
+
+`rts-mir/src/lower.rs` was already past that crate's ceiling of 500 lines; it is a folder
+now, `mod.rs` the walk, `ops.rs` the questions a language answers, `regions.rs` the order.
+
+Measured 2026-09-24 per function against the previous commit: **7 218 → 7 292, none lost**,
+and `NeedsHandlerTag` is gone from the list. The boundary test asks the machine to plan
+every throw inside a `try` and checks none of them leaves the function.

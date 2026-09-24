@@ -360,6 +360,18 @@ impl MachineOps for JsMachine<'_> {
         }
     }
 
+    fn in_cleanup(&mut self, inside: bool) {
+        self.in_cleanup = inside;
+    }
+
+    fn exception_tag(&mut self) -> Option<rts_cranelift::unwind::Tag> {
+        // ONE TAG, because one `catch` catches everything this language throws -- the
+        // `NeedsHandlerTag` note said as much: the declaration is a line. It is the tag
+        // the running engine throws and catches with, so a throw from this stage and a
+        // handler from the other agree about what they are.
+        Some(crate::emit::protect::JS_THROW)
+    }
+
     fn returned(
         &mut self,
         into: &mut FuncBuilder,
