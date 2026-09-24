@@ -1952,3 +1952,23 @@ now, `mod.rs` the walk, `ops.rs` the questions a language answers, `regions.rs` 
 Measured 2026-09-24 per function against the previous commit: **7 218 → 7 292, none lost**,
 and `NeedsHandlerTag` is gone from the list. The boundary test asks the machine to plan
 every throw inside a `try` and checks none of them leaves the function.
+
+## The language's own keys, `== null` and `!`: 7 292 → 7 388
+
+**A key the language fixed was refused as needing "the runtime's numbering", and it needed
+none.** `for`-`of` reads `@@iterator`, `next`, `done`, `value` and `return`, and a class
+writes `prototype` -- keys the program never spelled, held as `JsConst::WellKnown`. A key is
+a number from the one registry every key comes from, and a symbol key is an interned name
+in a space no program can write, which is `rts_core::entry::symbol`'s design. So
+`WellKnown::spelled` is the one place the six spellings live, and `key_of_constant` is the
+one place a constant becomes a `shape::Key` -- the operand and the cached access recover it
+the same way.
+
+That moved 50 functions to the wall behind it, `IsNullish` -- the `x == null` a loop asks
+before it closes an iterator -- and `Not`. Both are branches over what the machine already
+answers, which is `emit/choice.rs`'s shape: two singleton tests and a join, and a branch on
+the truth value. Over a proved operand `x == null` is the constant `false`, answered here
+because the machine refuses the question rather than answering a constant.
+
+Measured 2026-09-24 per function against the previous commit: **7 292 → 7 388, none lost.**
+`tests/` 7 188 of 8 598, `bench/` 200 of 387.

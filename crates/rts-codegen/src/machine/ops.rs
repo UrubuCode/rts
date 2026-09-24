@@ -92,21 +92,11 @@ impl MachineOps for JsMachine<'_> {
         // `I64`, because that is what every operation taking a key declares. `emit/` widens
         // a key only where the signature says `UNPROVEN`, and its own comment records the
         // call the machine refused when an earlier version widened it unconditionally.
-        if let Some(JsConst::Key(name)) = self.domain.declared(index) {
-            let name = *name;
-            let Some(names) = self.names.as_deref_mut() else {
-                return Err(
-                    "a property key is minted from the program's interner, which this boundary was not given"
-                        .to_owned(),
-                );
-            };
-            let Some(shared) = self.shared.as_deref_mut() else {
-                return Err(
-                    "a property key is minted from the program's key registry, which this boundary was not given"
-                        .to_owned(),
-                );
-            };
-            let key = names.key(name, &mut shared.keys);
+        if matches!(
+            self.domain.declared(index),
+            Some(JsConst::Key(_) | JsConst::WellKnown(_))
+        ) {
+            let key = self.key_of_constant(index)?;
             let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
                 repr: Repr::I64,
                 bits: rts_cranelift::ir::ScalarBits(key.index() as u64),

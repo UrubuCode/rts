@@ -632,12 +632,31 @@ impl JsMachine<'_> {
                     .to_owned(),
             );
         };
-        let Some(JsConst::Key(name)) = self.domain.declared(index) else {
-            return Err(format!(
-                "a cached access's key is a property name, and constant {index} is not one"
-            ));
+        self.key_of_constant(index)
+    }
+
+    /// The key a declared constant names: the program's own spelling, or one the
+    /// language fixed. The one place a constant becomes a `shape::Key`, so a key made as
+    /// an operand and the same key recovered for a cached access cannot disagree.
+    fn key_of_constant(&mut self, index: u32) -> Result<rts_cranelift::shape::Key, String> {
+        let name = match self.domain.declared(index) {
+            Some(JsConst::Key(name)) => *name,
+            // A KEY THE LANGUAGE FIXED, which the program never wrote: interned here by
+            // the one spelling `WellKnown::spelled` gives it, so it lands on the key the
+            // runtime stores the same property under.
+            Some(JsConst::WellKnown(which)) => {
+                let spelled = which.spelled();
+                let Some(names) = self.names.as_deref_mut() else {
+                    return Err(format!("the key {spelled} needs the program's interner"));
+                };
+                names.intern(spelled)
+            }
+            _ => {
+                return Err(format!(
+                    "a cached access's key is a property name, and constant {index} is not one"
+                ));
+            }
         };
-        let name = *name;
         self.key_of(name)
     }
 

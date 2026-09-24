@@ -403,6 +403,26 @@ pub enum WellKnown {
     Return,
 }
 
+impl WellKnown {
+    /// The key text the runtime stores this under.
+    ///
+    /// One place for the six spellings, because the runtime reaches the same property by
+    /// the same text and a second copy is how one comes to be `"@iterator"`. A SYMBOL is
+    /// an interned name in a space no program can write -- `"@@iterator"`, which is
+    /// `rts_core::entry::symbol`'s design and `emit/delegate.rs`'s spelling -- so storage,
+    /// shapes and the inline cache treat it as any other key and only enumeration knows.
+    pub fn spelled(self) -> &'static str {
+        match self {
+            WellKnown::Prototype => "prototype",
+            WellKnown::IteratorSymbol => "@@iterator",
+            WellKnown::Next => "next",
+            WellKnown::Done => "done",
+            WellKnown::Element => "value",
+            WellKnown::Return => "return",
+        }
+    }
+}
+
 // THE ENTRY TABLE WAS A SECOND TABLE OF ONE THING, and `JsEntry` is gone rather than
 // bridged. Every row it had -- `RegexNew`, `ArrayAppend`, `ArrayAppendAll` -- already
 // existed in `crate::runtime::RuntimeOp`, which is this crate's one catalogue of

@@ -25,7 +25,9 @@
 
 use rts_cranelift::ir::{FuncBuilder, ValueId as MachineValue};
 
-use super::JsMachine;
+use rts_cranelift::repr::Repr;
+
+use super::{JsMachine, machine};
 use crate::domain::JsPrim;
 use crate::runtime::{ARGUMENT_SLOTS, RuntimeOp};
 
@@ -74,6 +76,8 @@ impl JsMachine<'_> {
                 self.store_through_cache(into, args[0], key, args[1], args[2], false)?;
                 return Ok(Some(args[2]));
             }
+            (JsPrim::IsNullish, 1) => return self.nullish(into, args[0]).map(Some),
+            (JsPrim::Not, 1) => return self.negated(into, args[0]).map(Some),
             (JsPrim::Construct, count) if count >= 1 => {
                 return self.construct(into, args).map(Some);
             }
@@ -86,11 +90,73 @@ impl JsMachine<'_> {
             //   split into its three rows;
             // - `ToNumber` is used for `i++`, which applies ToNumeric -- a BigInt
             //   increments to a BigInt -- while `UnaryPlus` throws on one, so the call
-            //   that exists answers a different operation;
-            // - `Not` and `IsNullish` have no call of their own in the catalogue.
+            //   that exists answers a different operation.
             _ => return Ok(None),
         };
         self.call_runtime(into, op, args).map(Some)
+    }
+
+    /// `x == null`: `undefined` or `null`, and nothing else -- `document.all` aside, which
+    /// this engine does not have.
+    ///
+    /// Two singleton tests and a join, which is `emit/choice.rs`'s shape: a branch asks
+    /// for nothing the machine did not already promise `branch` takes. A PROVED value is
+    /// neither -- a double, a boolean, a reference cannot be a singleton -- and the
+    /// machine refuses the question for one rather than answering a constant, so the
+    /// constant is answered here.
+    fn nullish(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: MachineValue,
+    ) -> Result<MachineValue, String> {
+        if into.repr_of(value) != Repr::Tagged {
+            return Ok(into.bool_constant(false));
+        }
+        let Some(shared) = self.shared.as_deref() else {
+            return Err("a singleton test needs the program's tag registry".to_owned());
+        };
+        let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
+        let null = shared.model.singleton(crate::values::Singleton::Null);
+        let is_undefined = into.is_singleton(value, undefined).map_err(machine)?;
+        let against_null = into.create_block();
+        let join = into.create_block();
+        let answer = into.add_block_param(join, Repr::Bool);
+        into.branch(is_undefined, (join, &[is_undefined]), (against_null, &[]))
+            .map_err(machine)?;
+        into.switch_to(against_null);
+        let is_null = into.is_singleton(value, null).map_err(machine)?;
+        into.jump(join, &[is_null]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(answer)
+    }
+
+    /// `!x`: this language's truth rule, then the other answer -- as a branch, for the
+    /// reason `emit/choice.rs` gives: negating a boolean is arithmetic on a
+    /// representation the numeric instructions do not take, and a branch asks for
+    /// nothing but the boolean `branch` already takes.
+    fn negated(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: MachineValue,
+    ) -> Result<MachineValue, String> {
+        let truth = match into.repr_of(value) {
+            Repr::Bool => value,
+            _ => self.call_runtime(into, RuntimeOp::ToBoolean, &[value])?,
+        };
+        let yes = into.bool_constant(true);
+        let no = into.bool_constant(false);
+        let join = into.create_block();
+        let answer = into.add_block_param(join, Repr::Bool);
+        let when_true = into.create_block();
+        let when_false = into.create_block();
+        into.branch(truth, (when_true, &[]), (when_false, &[]))
+            .map_err(machine)?;
+        into.switch_to(when_true);
+        into.jump(join, &[no]).map_err(machine)?;
+        into.switch_to(when_false);
+        into.jump(join, &[yes]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(answer)
     }
 
     /// `new f(a, b)`: the constructor, then one slot per argument padded with

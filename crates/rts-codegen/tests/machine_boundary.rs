@@ -1103,6 +1103,9 @@ fn every_generic_row_reaches_the_machine_as_a_runtime_call() {
         "function f(C, a) { return new C(a, a); }",
         "function f(a, b) { return [a, b]; }",
         "function f(a, b) { return { first: a, second: b }; }",
+        "function f(a) { return a == null; }",
+        "function f(a) { return !a; }",
+        "function f(a, b) { return !(a < b); }",
     ] {
         let (func, types, shared) = reach_named(source, "f");
         let func = func.unwrap_or_else(|held| panic!("{source}: {held:?}"));
@@ -1176,4 +1179,22 @@ fn a_finally_and_an_uncaught_throw_reach_the_machine() {
             "{source}"
         );
     }
+}
+
+/// **A `for`-`of` reaches the machine**: the iteration protocol is ordinary property reads
+/// under keys the LANGUAGE fixed -- `@@iterator`, `next`, `done`, `value`, `return` -- which
+/// the program never wrote and `WellKnown::spelled` is the one spelling of. They were
+/// refused as constants needing "the runtime's numbering", which they did not: a key is a
+/// number from the same registry every other key comes from.
+#[test]
+fn a_for_of_reaches_the_machine_through_the_keys_the_language_fixed() {
+    let (func, types, shared) = reach_named(
+        "function f(xs, g) { for (const x of xs) { g(x); } return 0; }",
+        "f",
+    );
+    let func = func.unwrap_or_else(|held| panic!("a for-of reaches the machine: {held:?}"));
+    assert_eq!(
+        rts_cranelift::verify(&func, &types, &shared.funcs),
+        Vec::new()
+    );
 }
