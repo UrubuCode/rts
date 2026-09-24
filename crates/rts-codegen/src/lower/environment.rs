@@ -48,7 +48,10 @@ impl Lowering<'_> {
         let owned = self.resolution.environment_of(self.function);
         let reaches = self.resolution.reaches_out(self.function);
         if owned.is_empty() {
-            if reaches {
+            // UNDER ANOTHER STAGE'S LAYOUT a closure made here is handed the environment
+            // this function was made in, always: the running emitter emits the closure's
+            // body and may read through it for a reason the scope walk here does not see.
+            if reaches || self.outer.is_some() {
                 self.environment = Some(self.prim(JsPrim::EnclosingEnvironment, vec![], at));
             }
             return Ok(());

@@ -2041,3 +2041,39 @@ read as an unplaced global. With them, the first 60 files take 292 and decline 1
 declines most now is a function that makes a closure -- `test(() => …)` inside
 `describe(() => …)` -- because a closure made here would be laid out by this stage and read
 by the running emitter's code.
+
+### Closures made here, and what the Rust tests saw that the suite did not
+
+A function this door takes now MAKES closures: the functions written directly inside are
+emitted by the running emitter, in the scope the taken function sits in -- which is what
+they reach, since a taken function builds no environment of its own -- and the closure is
+made here from the id that answers. A class inside, or an arrow reading the enclosing
+`this`, still declines. Over the first 60 files that moved the count from 292 taken to 363.
+
+Same suite, same conditions as above: **883 of 907, LOST empty** against `main` and against
+the door shut. But the suite was the weaker ruler this time. `cargo test -p rts-host` had
+seven failures only with the door open, and three of them are the kind a green suite
+cannot see:
+
+- **a disabled optimisation.** The generic tier answered `5 + i` with a call where the
+  running engine guards `i` and adds; `literal_guard_gate.rs` counts the guards and read
+  zero. `machine/guarded.rs` is the running engine's shape at the boundary -- guard, the
+  instruction, and the very call the generic arm makes on the failing edge -- which is a
+  LOWERING rather than a speculation, since nothing is reconstructed when the guess is
+  wrong. `% 2^k` asks the machine for its exact sequence first, as `remainder.rs` pins;
+- **an encoding.** A literal the lattice proved `Int32` left the proved domain boxed under
+  `TAG_INT32`, where the running engine boxes every literal as a double. Both are legal
+  words; every native still reading `as_f64` is not ready for the first. `coerced` goes
+  through the double now, so a number leaves this stage in the running engine's encoding;
+- **a name.** `const f = () => …` names the arrow `f`, and the running emitter carries that
+  from the declaration to the function. The door emitted the body without it, so `f.name`
+  was `""`. It carries the names of the three sites a taken function can hold.
+
+And one defect of the scope tree itself, which both stages read: a declaring pattern's
+DEFAULTS were never walked, so `function inner({ a = seen })` recorded no use of `seen`
+and the capture analysis called it a register. The running emitter was never affected --
+it answers capture with its own walk -- which is why only the door found it.
+
+`rts ir` did not open the door at all: the graph path, `emit_modules`, never built the scope
+tree, so the one command whose job is to show what runs showed the other stage's output.
+It builds one per unit now.

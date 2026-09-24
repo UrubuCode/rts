@@ -442,35 +442,7 @@ impl Walker<'_> {
     /// The names a `for (target of …)` writes, and the expressions inside the
     /// pattern -- a computed key or a default is an ordinary read.
     fn assigned(&mut self, pattern: &Pattern, scope: ScopeId) {
-        match pattern {
-            Pattern::Name(name) => self.used(*name, scope),
-            Pattern::Target(expr) => self.expression(expr, scope),
-            Pattern::Object(object) => {
-                for property in &object.properties {
-                    if let crate::syntax::PropertyKey::Computed(key) = &property.key {
-                        self.expression(key, scope);
-                    }
-                    self.assigned(&property.value.pattern, scope);
-                    if let Some(default) = &property.value.default {
-                        self.expression(default, scope);
-                    }
-                }
-                if let Some(rest) = &object.rest {
-                    self.assigned(rest, scope);
-                }
-            }
-            Pattern::Array(array) => {
-                for element in array.elements.iter().flatten() {
-                    self.assigned(&element.pattern, scope);
-                    if let Some(default) = &element.default {
-                        self.expression(default, scope);
-                    }
-                }
-                if let Some(rest) = &array.rest {
-                    self.assigned(rest, scope);
-                }
-            }
-        }
+        self.pattern_walk(pattern, scope, true);
     }
 
     fn statements(&mut self, body: &[Stmt], scope: ScopeId) {
@@ -608,6 +580,7 @@ impl Walker<'_> {
                     self.out.catches.insert(statement.at, clause);
                     if let Some(pattern) = binding {
                         self.pattern(pattern, Origin::Caught, clause);
+                        self.pattern_reads(pattern, clause);
                     }
                     self.statements(handler, clause);
                 }
@@ -662,6 +635,7 @@ impl Walker<'_> {
     ) {
         for binding in bindings {
             self.pattern(&binding.target, origin, at);
+            self.pattern_reads(&binding.target, reads);
             if let Some(value) = &binding.value {
                 self.expression(value, reads);
             }
@@ -673,6 +647,52 @@ impl Walker<'_> {
         pattern.bound_names(&mut names);
         for name in names {
             self.out.declare(name, origin, at);
+        }
+    }
+
+    /// The expressions a declaring pattern evaluates -- its defaults and computed keys
+    /// -- read in `scope`.
+    ///
+    /// Apart from [`Self::pattern`] because the two scopes differ: a `var` declares in
+    /// the function and reads where it is written. It was missing outright, so
+    /// `function inner({ a = seen })` recorded no use of `seen`, the capture analysis
+    /// called `seen` a register, and the closure found nothing there.
+    fn pattern_reads(&mut self, pattern: &Pattern, scope: ScopeId) {
+        self.pattern_walk(pattern, scope, false);
+    }
+
+    /// The walk both of those are: every expression inside a pattern, read in `scope`,
+    /// and each name it holds as a USE where the pattern writes existing bindings.
+    fn pattern_walk(&mut self, pattern: &Pattern, scope: ScopeId, writes: bool) {
+        match pattern {
+            Pattern::Name(name) if writes => self.used(*name, scope),
+            Pattern::Name(_) => {}
+            Pattern::Target(expr) => self.expression(expr, scope),
+            Pattern::Object(object) => {
+                for property in &object.properties {
+                    if let crate::syntax::PropertyKey::Computed(key) = &property.key {
+                        self.expression(key, scope);
+                    }
+                    self.pattern_walk(&property.value.pattern, scope, writes);
+                    if let Some(default) = &property.value.default {
+                        self.expression(default, scope);
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    self.pattern_walk(rest, scope, writes);
+                }
+            }
+            Pattern::Array(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.pattern_walk(&element.pattern, scope, writes);
+                    if let Some(default) = &element.default {
+                        self.expression(default, scope);
+                    }
+                }
+                if let Some(rest) = &array.rest {
+                    self.pattern_walk(rest, scope, writes);
+                }
+            }
         }
     }
 
@@ -694,12 +714,14 @@ impl Walker<'_> {
         let fields = self.field_code.take();
         for parameter in &function.parameters {
             self.pattern(&parameter.target, Origin::Parameter, body);
+            self.pattern_reads(&parameter.target, body);
             if let Some(default) = &parameter.default {
                 self.expression(default, body);
             }
         }
         if let Some(rest) = &function.rest_parameter {
             self.pattern(rest, Origin::Parameter, body);
+            self.pattern_reads(rest, body);
         }
         match &function.body {
             FunctionBody::Block(statements) => self.statements(statements, body),

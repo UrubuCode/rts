@@ -210,6 +210,51 @@ fn emit_closure_with(
     definition: Definition,
     constructs: Constructs,
 ) -> EmitResult<ValueId> {
+    let id = closure_code(ctx, scope, function, late_this, definition, constructs)?;
+
+    // The address is not a number known here — it is a relocation the
+    // destination fills in, which is the whole reason the machine had to grow
+    // `FuncAddr` before any of this could be written.
+    let code = builder.func_addr(ctx.funcs, id)?;
+
+    // What the function closes over is the environment of whoever is defining
+    // it. A function defined where nothing is captured closes over nothing, and
+    // `undefined` is what it is handed — reading a name through it would be a
+    // defect in the analysis rather than something to guard against here.
+    let environment = match scope.environment() {
+        Some(environment) => environment,
+        None => expr::undefined(builder, ctx),
+    };
+    Ok(expr::call(builder, ctx, RuntimeOp::ClosureNew, &[code, environment])?[0])
+}
+
+/// A function expression or declaration written inside a function the MIR stage
+/// compiled, emitted HERE -- its body, not the closure, which the MIR stage makes from
+/// the id this answers. `scope` is the scope the enclosing function sits in: a function
+/// that stage takes builds no environment, so what the nested one reaches is what the
+/// enclosing one's own scope would have reached. See `through_mir`.
+pub(super) fn nested_code(
+    ctx: &mut Ctx,
+    scope: &Scope,
+    function: &Function,
+    declared: bool,
+) -> EmitResult<FuncId> {
+    let definition = match declared {
+        true => Definition::Declaration,
+        false => Definition::Expression,
+    };
+    closure_code(ctx, scope, function, None, definition, Constructs::Maybe)
+}
+
+/// What a closure's code is: the flags its kind implies, and its body emitted.
+fn closure_code(
+    ctx: &mut Ctx,
+    scope: &Scope,
+    function: &Function,
+    late_this: Option<Name>,
+    definition: Definition,
+    constructs: Constructs,
+) -> EmitResult<FuncId> {
     // TWO questions, not one, and conflating them was a bug: a generator HAS a
     // `prototype` and is NOT constructible. The matrix below was read off Node
     // 25.9 on 2026-08-25 rather than derived — sixteen forms, every combination
@@ -257,7 +302,7 @@ fn emit_closure_with(
         }
         false => late_this,
     };
-    let id = emit_function(
+    emit_function(
         ctx,
         scope,
         function,
@@ -265,22 +310,7 @@ fn emit_closure_with(
         definition,
         has_prototype,
         constructs,
-    )?;
-
-    // The address is not a number known here — it is a relocation the
-    // destination fills in, which is the whole reason the machine had to grow
-    // `FuncAddr` before any of this could be written.
-    let code = builder.func_addr(ctx.funcs, id)?;
-
-    // What the function closes over is the environment of whoever is defining
-    // it. A function defined where nothing is captured closes over nothing, and
-    // `undefined` is what it is handed — reading a name through it would be a
-    // defect in the analysis rather than something to guard against here.
-    let environment = match scope.environment() {
-        Some(environment) => environment,
-        None => expr::undefined(builder, ctx),
-    };
-    Ok(expr::call(builder, ctx, RuntimeOp::ClosureNew, &[code, environment])?[0])
+    )
 }
 
 /// Emits a function's body as a machine function, and answers its id.

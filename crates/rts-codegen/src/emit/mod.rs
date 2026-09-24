@@ -1388,6 +1388,12 @@ fn emit_unit(
 ) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
+    // The scope tree the MIR stage lowers against, per unit because a unit's top level
+    // is a scope of its own. Without it every function of a GRAPH declined -- which is
+    // every program `rts ir` shows, so the one command whose job is to show what runs
+    // showed the other stage's output.
+    ctx.mir_resolution = through_mir::open()
+        .then(|| std::rc::Rc::new(crate::names::resolve::resolve_program(body, imports)));
     let global_this = ctx.names.intern("globalThis");
     ctx.globals = sloppy::created(body, global_this);
     // Which file is being compiled, for `import.meta` and `import()`. Recorded

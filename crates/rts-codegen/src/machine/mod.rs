@@ -199,7 +199,17 @@ fn coerced(
         // `Double`, and the literal arrives as an integer. Every value an `i32` holds
         // is a double exactly, so nothing is lost and no check is needed.
         (Repr::I32, Repr::F64) => into.to_f64(value).map_err(machine),
-        // ANYTHING INTO THE GENERIC FORM is always available: widening is what the
+        // AN INTEGER INTO THE GENERIC FORM goes through the double first, so a number
+        // leaves this stage in the one encoding the running engine gives every literal.
+        // The machine would box it under `TAG_INT32` -- a legal word, and one every
+        // native that reads `as_f64` rather than `numeric` answers `NaN` or "not a
+        // number" for. The integer tag is a proof the running engine hands out at
+        // named places, and a literal in a function this stage took is not one of them.
+        (Repr::I32, Repr::Tagged) => {
+            let double = into.to_f64(value).map_err(machine)?;
+            Ok(into.widen(double))
+        }
+        // ANYTHING ELSE INTO THE GENERIC FORM is always available: widening is what the
         // tagged representation is for.
         (_, Repr::Tagged) => Ok(into.widen(value)),
         // AN INTEGER INTO THE WIDER INTEGER is sound -- every `i32` is an `i64` -- and
@@ -546,10 +556,7 @@ impl JsMachine<'_> {
             Repr::Tagged => object,
             _ => into.widen(object),
         };
-        let stored = match into.repr_of(value) {
-            Repr::Tagged => value,
-            _ => into.widen(value),
-        };
+        let stored = coerced(into, value, Repr::Tagged)?;
         let reference = into.create_block();
         let narrowed =
             into.add_block_param(reference, Repr::Ref(rts_cranelift::repr::RefKind::Opaque));
@@ -839,6 +846,7 @@ pub fn tail_positions(func: &rts_mir::cfg::Func) -> std::collections::BTreeSet<V
 }
 
 mod generic;
+mod guarded;
 mod ops;
 mod reach;
 

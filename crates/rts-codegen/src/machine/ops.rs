@@ -6,7 +6,7 @@
 //! check, a cached read -- and this is the `MachineOps` implementation that decides which
 //! of them each question needs.
 
-use rts_cranelift::ir::{CmpOp, FuncBuilder, NumOp, ValueId as MachineValue};
+use rts_cranelift::ir::{FuncBuilder, ValueId as MachineValue};
 use rts_cranelift::repr::Repr;
 use rts_mir::cfg::{EntryId, Inst, Op, Prim, ValueId};
 use rts_mir::guard::{Assertion, PointId};
@@ -252,59 +252,22 @@ impl MachineOps for JsMachine<'_> {
             return self.call_runtime(into, crate::runtime::RuntimeOp::ClosureNew, args);
         }
 
-        // PROVED NUMBERS: the instruction, where the row has one.
+        // PROVED NUMBERS: the instruction, where the row has one. `+` is among them, and
+        // was absent on purpose: over anything but two numbers it may concatenate, and
+        // choosing an instruction because the operands LOOK numeric would lower a
+        // different operator. That concern is the gate this sits behind -- both operands
+        // PROVED, by a literal or a guard -- and a proved number coerces nothing.
         if args.len() == 2 && self.all_numeric(&of) {
             let left = self.as_double(into, args[0])?;
             let right = self.as_double(into, args[1])?;
-            let op = match which {
-                // EVERY ARITHMETIC ROW ANSWERS A DOUBLE in this lattice, so every one of
-                // these is a float instruction and there is no integer arm to choose.
-                //
-                // `+` IS HERE NOW, and it was absent on purpose: over anything but two
-                // numbers it may concatenate, and choosing an instruction because the
-                // operands LOOK numeric would lower a different operator. That concern
-                // is the gate this sits behind -- both operands PROVED, by a literal or
-                // a guard -- and a proved number coerces nothing. What the concern
-                // forbids is still impossible: an unproved `+` reaches the runtime's
-                // `Add` below, never this.
-                JsPrim::Add => Some(NumOp::Add),
-                JsPrim::Subtract => Some(NumOp::Sub),
-                JsPrim::Multiply => Some(NumOp::Mul),
-                JsPrim::Divide => Some(NumOp::Div),
-                _ => None,
-            };
-            if let Some(op) = op {
-                return into.arith(op, left, right).map_err(machine);
+            if let Some(done) = self.numeric_instruction(into, which, left, right)? {
+                return Ok(done);
             }
-            match which {
-                JsPrim::LessThan => return into.compare(CmpOp::Lt, left, right).map_err(machine),
-                JsPrim::GreaterThan => {
-                    return into.compare(CmpOp::Gt, left, right).map_err(machine);
-                }
-                JsPrim::LessOrEqual => {
-                    return into.compare(CmpOp::Le, left, right).map_err(machine);
-                }
-                JsPrim::GreaterOrEqual => {
-                    return into.compare(CmpOp::Ge, left, right).map_err(machine);
-                }
-                // `a === b` over two proved numbers coerces nothing and can call nothing,
-                // and `a == b` over two numbers IS `a === b` -- the loose algorithm's
-                // first step, for operands of one type.
-                JsPrim::StrictEquals | JsPrim::LooseEquals => {
-                    return into.compare(CmpOp::Eq, left, right).map_err(machine);
-                }
-                // THE REMAINDER OF TWO DOUBLES IS `fmod`, which the integer `NumOp::Rem`
-                // is not -- the machine said so. `NumberRemainder` is the unboxed call the
-                // running engine makes for exactly this case.
-                JsPrim::Remainder => {
-                    return self.call_runtime(
-                        into,
-                        crate::runtime::RuntimeOp::NumberRemainder,
-                        &[left, right],
-                    );
-                }
-                _ => {}
-            }
+        }
+        // UNPROVED NUMBERS: the same instruction behind a guard, falling to the call --
+        // `guarded.rs` says why that is a lowering and not a speculation.
+        if let Some(done) = self.guarded(into, which, &of, args)? {
+            return Ok(done);
         }
         // A NEGATION OF A PROVED NUMBER flips the sign bit, which is not `0 - x`: that
         // answers `0` for `-0` where the language answers `-0`.
