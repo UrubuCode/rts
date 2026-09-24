@@ -73,6 +73,15 @@ impl Names {
         &self.text[name.index()]
     }
 
+    /// The same, or `None` for a name this interner never minted.
+    ///
+    /// For a caller handed an interner that may not be the one that read the program
+    /// -- `lower::lower` takes one function out of context with an empty one, which
+    /// answers every text question with nothing rather than with another name's text.
+    pub fn spelled(&self, name: Name) -> Option<&str> {
+        self.text.get(name.index()).map(String::as_str)
+    }
+
     /// What the machine calls this identifier, minting one the first time.
     ///
     /// Only names used as property keys ever get one, which is why this takes the

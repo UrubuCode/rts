@@ -225,6 +225,7 @@ pub fn lower_with(
         function: scope,
         environment: None,
         prologue: true,
+        lexical_this: function.captures_this,
         loops: Vec::new(),
         points: 0,
     };
@@ -366,6 +367,9 @@ struct Lowering<'a> {
     /// a register until the guards have run and the environment exists -- see
     /// `environment.rs`.
     prologue: bool,
+    /// Whether `this` here is the enclosing function's rather than the receiver --
+    /// an arrow's.
+    lexical_this: bool,
     /// The loops and switches enclosing what is being lowered, innermost last.
     loops: Vec<LoopFrame>,
     /// How many deoptimisation points this body has declared.
@@ -556,6 +560,15 @@ impl Lowering<'_> {
             ExprKind::Ident(name) => {
                 match self.resolution.binding_in(self.scope, *name) {
                     Some(binding) => self.read_binding(binding, *name, expr),
+                    // `arguments` IS DECLARED BY NO SCOPE AND IS NOT A GLOBAL: every
+                    // non-arrow function binds it implicitly, and an arrow sees its
+                    // enclosing function's. Reading it through the global object would
+                    // answer `undefined`, or whatever a program put there, where the
+                    // language answers the activation's argument list -- so it is refused
+                    // by name until this stage builds one.
+                    None if self.names.spelled(*name) == Some("arguments") => Err(Unsupported::Expression(
+                        "the arguments object, which this stage does not build",
+                    )),
                     // NO SCOPE DECLARES IT, so it is a global -- read through the
                     // global object, which is what the language does with one.
                     None => Ok(self.global(*name, expr)),
@@ -690,6 +703,14 @@ impl Lowering<'_> {
             // Where that receiver lives is the calling convention, which the machine
             // decides -- the same answer the outer binding got, and the other end of
             // the receiver field on a call.
+            // AN ARROW'S `this` IS ITS ENCLOSING FUNCTION'S, fixed where the arrow was
+            // written. `ThisValue` reads the receiver the activation was CALLED with,
+            // which for an arrow is whatever the caller passed -- usually `undefined` --
+            // so reading it would be a wrong answer that compiles. Refused until this
+            // stage carries the enclosing `this` the way it carries a captured binding.
+            ExprKind::This if self.lexical_this => Err(Unsupported::Expression(
+                "`this` in an arrow is the enclosing function's, which this stage does not carry",
+            )),
             ExprKind::This => Ok(self.prim(JsPrim::ThisValue, Vec::new(), expr)),
             ExprKind::Unary { op, operand } => {
                 // `delete` REMOVES a property, so its operand is a place and not a

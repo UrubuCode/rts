@@ -310,3 +310,35 @@ fn a_class_with_extends_is_refused_with_its_three_reasons() {
         Some(Unsupported::Expression(_))
     ));
 }
+
+/// `arguments` is declared by no scope and is not a global. Read through the global
+/// object it answered `undefined` -- or whatever a program had put there -- where the
+/// language answers the activation's argument list, so it is refused by name, in an
+/// arrow as well: an arrow sees its enclosing function's.
+#[test]
+fn the_arguments_object_is_refused_rather_than_read_as_a_global() {
+    let (lowered, _) = module(
+        "function f() { return arguments[0]; }
+         function g() { return () => arguments; }",
+    );
+    let refused = Unsupported::Expression("the arguments object, which this stage does not build");
+    assert_eq!(lowered.functions[0].result.as_ref().err(), Some(&refused));
+    assert_eq!(lowered.functions[2].result.as_ref().err(), Some(&refused));
+}
+
+/// An arrow's `this` is the enclosing function's. Read as the receiver the arrow was
+/// called with, `obj.m = function () { return () => this; }` would answer `undefined`
+/// from the arrow where the language answers `obj` -- so it is refused, and a method's
+/// own `this` still lowers.
+#[test]
+fn this_in_an_arrow_is_refused_and_a_methods_own_this_is_not() {
+    let (lowered, _) = module("function m() { const own = this; return () => this; }");
+    assert_eq!(
+        lowered.functions[1].result.as_ref().err(),
+        Some(&Unsupported::Expression(
+            "`this` in an arrow is the enclosing function's, which this stage does not carry"
+        ))
+    );
+    let (plain, _) = module("function m() { return this; }");
+    assert!(plain.functions[0].result.is_ok());
+}

@@ -1838,8 +1838,16 @@ before the environment work, both sides verified: **643 → 4 210, none lost.** 
 
 **What the number does not say.** No `*.test.ts` file executes through this stage yet, so
 4 210 is how many functions become code the machine accepts, not how many answer correctly.
-Two gaps in what reaches it are known and stated: a sloppy-mode function reads `this` as the
-raw receiver where the language substitutes the global object for `undefined`, which
-`emit/function.rs` does at the entry and this stage does not; and `NeedsCallee` still refuses
-203 calls to a function of the module by number, which the module's machine numbering is
-what unlocks.
+`NeedsCallee` still refuses 203 calls to a function of the module by number, which the
+module's machine numbering is what unlocks.
+
+**Two wrong answers the count was hiding, found by reading what reached it, and refused
+now.** An arrow's `this` read the receiver the arrow was CALLED with, where the language
+fixes it where the arrow was written; and `arguments`, declared by no scope, was read
+through the global object. Each compiled, verified, and would have answered wrongly. Both
+are refused by name, and that is a REGRESSION in the count, stated rather than netted: 4 210
+→ 4 189, the 21 being exactly 17 `arguments` and 4 arrow `this` -- and 20 of them were
+counted as reaching the machine in the base. They were wrong answers wearing a pass; the
+LOST list against the base is those 20 and nothing else. A third suspicion was checked and is not one: a function reads `this`
+as the raw receiver with no global substitution, which is what the running engine does
+too -- it compiles a program strict and only `eval` and `Function` text sloppy.
