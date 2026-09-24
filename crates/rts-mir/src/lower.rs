@@ -215,10 +215,12 @@ pub enum Unlowerable {
     /// CONVENTION. Counting the two together would hide which of them a corpus is
     /// actually waiting on.
     NeedsReceiverConvention,
-    /// A call to a function of this program, or to a value.
+    /// A call to a function of this program, named by its number.
     ///
-    /// Both need a function registry and a signature, which a caller holds and
-    /// this signature does not take yet.
+    /// It needs the machine's id for that function -- a registry and a signature a
+    /// caller holds and this signature does not take yet. A call to a VALUE used to
+    /// be refused under this name too, and needed neither: it is
+    /// [`MachineOps::call_value`] with no receiver.
     NeedsCallee,
     /// The machine refused what was built, with what it said.
     ///
@@ -320,11 +322,20 @@ pub fn lower(
                     // beside the callee and the arguments rather than packing it anywhere:
                     // the boundary is told what it is and decides what a call with one
                     // becomes. Packing it here is what would have invented a convention.
-                    (Callee::Dynamic(value), Some(held_receiver)) => {
+                    //
+                    // AND A CALL WITH NO RECEIVER IS THE SAME QUESTION, asked with one
+                    // thing fewer. It was refused beside a call to a function of the
+                    // program, under one name, while `call_value` already took its
+                    // receiver as optional -- so the most common call there is, `f(x)`
+                    // over a value, stopped at a registry it never needed.
+                    (Callee::Dynamic(value), held_receiver) => {
                         let callee = one(*value, &values)?;
-                        let receiver = one(*held_receiver, &values)?;
+                        let receiver = match held_receiver {
+                            Some(held) => Some(one(*held, &values)?),
+                            None => None,
+                        };
                         let of_args = read(args, &values)?;
-                        ops.call_value(into, callee, Some(receiver), &of_args, held)
+                        ops.call_value(into, callee, receiver, &of_args, held)
                             .map_err(Unlowerable::Language)?
                     }
                     (_, Some(_)) => return Err(Unlowerable::NeedsReceiverConvention),
@@ -333,7 +344,7 @@ pub fn lower(
                         ops.entry(into, *entry, &of_args, held)
                             .map_err(Unlowerable::Language)?
                     }
-                    (Callee::Func(_) | Callee::Dynamic(_), None) => {
+                    (Callee::Func(_), None) => {
                         return Err(Unlowerable::NeedsCallee);
                     }
                 },

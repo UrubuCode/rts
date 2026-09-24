@@ -1812,3 +1812,34 @@ making its closure -- "a function value needs the machine id of fN". Both are th
 missing thing: the boundary compiles one function at a time, so no other function of the
 module has a machine id. The message for the second was rewritten to say so, because
 counted apart they read as two pieces of work.
+
+## The plain call: 643 → 4 210 of 8 985, and the instrument now asks the verifier
+
+**`NeedsCallee` was two refusals under one name, and the larger one needed nothing.**
+`rts_mir::lower` refused a call to a numbered function AND a call through a value with no
+receiver, while `MachineOps::call_value` had taken its receiver as optional from the day it
+was written. So `f(x)` over a value -- the most common call there is -- stood behind a
+function registry it never asked for. Routed to `call_value` with `None`, it takes the same
+door a method call takes, `RuntimeOp::Call` with the receiver `undefined`.
+
+**The instrument did not ask the machine's verifier, and it does now.** `reaches_machine`
+counted a function as reaching the machine when the builder accepted every instruction, and a
+builder accepting instructions one by one is not the verifier accepting the function. Asked,
+it refused two functions the old count had included -- so the base is re-measured under the
+stricter ruler, 645 → 643, and every number in this section is the verifier's. Both were one
+defect: a body returning a value on one path and falling off the end on another produced a
+`ret` with nothing, against a signature of one. `return;` and falling off the end now answer
+`undefined` in the graph, because every function of this language returns a value and that
+is the language's to say.
+
+Measured 2026-09-24, every file of `tests/` and `bench/`, per function against the tree
+before the environment work, both sides verified: **643 → 4 210, none lost.** `tests/` 624 →
+4 188 of 8 598; `bench/` 19 → 22 of 387.
+
+**What the number does not say.** No `*.test.ts` file executes through this stage yet, so
+4 210 is how many functions become code the machine accepts, not how many answer correctly.
+Two gaps in what reaches it are known and stated: a sloppy-mode function reads `this` as the
+raw receiver where the language substitutes the global object for `undefined`, which
+`emit/function.rs` does at the entry and this stage does not; and `NeedsCallee` still refuses
+203 calls to a function of the module by number, which the module's machine numbering is
+what unlocks.

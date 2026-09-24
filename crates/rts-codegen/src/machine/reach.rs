@@ -172,5 +172,19 @@ pub fn reaches_machine(
     .declaring_in(shared)
     .naming_with(names)
     .with_incoming(&start);
-    rts_mir::lower::lower(func, &mut into, &mut ops, &start[2..])
+    rts_mir::lower::lower(func, &mut into, &mut ops, &start[2..])?;
+    drop(ops);
+    drop(into);
+    // THE MACHINE'S OWN VERIFIER IS THE LAST WORD, and this instrument did not ask it.
+    // A function the builder accepted instruction by instruction can still be one the
+    // verifier refuses as a whole -- a value used where it does not dominate, a jump
+    // whose arguments disagree with the target's -- and counting it as reaching the
+    // machine would be counting a program the code generator would reject.
+    let refused = rts_cranelift::verify(&machine, &types, &shared.funcs);
+    match refused.first() {
+        None => Ok(()),
+        Some(first) => Err(rts_mir::lower::Unlowerable::Machine(format!(
+            "the machine's verifier refused it: {first:?}"
+        ))),
+    }
 }

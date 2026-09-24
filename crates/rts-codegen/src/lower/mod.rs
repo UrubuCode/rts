@@ -289,7 +289,15 @@ pub fn lower_with(
         FunctionBody::Block(statements) => {
             let answered = lowering.statements(statements)?;
             if !answered {
-                lowering.builder.end(Terminator::Return(None));
+                // Falling off the end is `return;`, which answers `undefined`.
+                let undefined = lowering.singleton_at(
+                    Singleton::Undefined,
+                    &Expr {
+                        kind: ExprKind::This,
+                        at: function.at,
+                    },
+                );
+                lowering.builder.end(Terminator::Return(Some(undefined)));
             }
         }
     }
@@ -436,12 +444,17 @@ impl Lowering<'_> {
             } => self.switch(discriminant, clauses),
             StmtKind::Break(None) => self.jump_out_of_loop(false),
             StmtKind::Continue(None) => self.jump_out_of_loop(true),
+            // `return;` ANSWERS `undefined`, and saying so is the language's job: every
+            // function of this language returns a value. A bare return in the graph
+            // left it to whoever lowered the graph, and the machine's verifier refused
+            // the first function that returned a value on one path and fell off the
+            // end on another -- one signature, two arities.
             StmtKind::Return(value) => {
                 let answered = match value {
-                    Some(expr) => Some(self.expression(expr)?),
-                    None => None,
+                    Some(expr) => self.expression(expr)?,
+                    None => self.singleton(Singleton::Undefined, statement),
                 };
-                self.builder.end(Terminator::Return(answered));
+                self.builder.end(Terminator::Return(Some(answered)));
                 Ok(true)
             }
             StmtKind::Block(inner) => {

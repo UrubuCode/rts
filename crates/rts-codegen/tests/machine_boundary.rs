@@ -1020,3 +1020,33 @@ fn the_builder_stops_at_the_module_numbering_and_not_at_the_environment() {
     assert!(words.contains("machine id of f"), "{words}");
     assert!(words.contains("one function at a time"), "{words}");
 }
+
+/// **A plain call over a value reaches the machine**, through the same door a method call
+/// takes with the receiver left `undefined`. It was refused as `NeedsCallee` beside a call
+/// to a numbered function, and needed nothing that one needs: the most common call there
+/// is stood behind a registry it never asked for, in 3 564 functions of the corpus.
+#[test]
+fn a_plain_call_over_a_value_reaches_the_machine() {
+    for source in [
+        "function f(g) { return g(1); }",
+        "function f(g) { g(); }",
+        "function f(g, a, b) { return g(a, b, a, b); }",
+    ] {
+        let (func, types, shared) = reach_named(source, "f");
+        let func = func.unwrap_or_else(|held| panic!("{source}: {held:?}"));
+        assert_eq!(
+            rts_cranelift::verify(&func, &types, &shared.funcs),
+            Vec::new(),
+            "{source}"
+        );
+    }
+}
+
+/// And one past the door's slots is refused rather than truncated: a fifth argument has
+/// no slot to arrive in, and dropping it would be a different call.
+#[test]
+fn a_plain_call_past_the_slots_is_refused_rather_than_truncated() {
+    let (held, ..) = reach_named("function f(g) { return g(1, 2, 3, 4, 5); }", "f");
+    let words = said(held.expect_err("five arguments, four slots"));
+    assert!(words.contains("vector form"), "{words}");
+}

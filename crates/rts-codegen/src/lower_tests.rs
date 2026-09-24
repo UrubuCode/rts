@@ -112,14 +112,31 @@ fn neither_a_generator_nor_an_async_function_is_refused_at_the_function() {
     assert!(!asynchronous.func.may_suspend);
 }
 
+/// Falling off the end of a body answers `undefined`, as `return;` does: every function
+/// of this language returns a value. This test asserted a bare `Return(None)` until the
+/// machine's verifier, asked for the first time, refused a function that returned a value
+/// on one path and fell off the end on another.
 #[test]
-fn a_body_with_no_return_answers_nothing_and_is_still_well_formed() {
+fn a_body_with_no_return_answers_undefined_and_is_still_well_formed() {
     let lowered = only("function f() { const a = 1; }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
-    assert_eq!(
-        lowered.func.block(lowered.func.entry()).terminator,
-        Some(Terminator::Return(None))
-    );
+    let Some(Terminator::Return(Some(answered))) =
+        lowered.func.block(lowered.func.entry()).terminator
+    else {
+        panic!("the body answers a value");
+    };
+    let made = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| held.result == answered)
+        .expect("defined");
+    assert!(matches!(
+        made.op,
+        rts_mir::Op::Const(rts_mir::Const::Declared(index))
+            if lowered.domain.declared(index)
+                == Some(&crate::domain::JsConst::Singleton(Singleton::Undefined))
+    ));
 }
 
 /// The declared-constant numbering is a coupling between two files, so it is
