@@ -344,6 +344,9 @@ pub fn describe_machine(source: &str) -> Result<String, String> {
     // ONE REGISTRY FOR THE MODULE, shared across every function, which is what a real
     // build does and what makes this instrument measure the same thing.
     let mut shared = crate::machine::Shared::default();
+    // THE MODULE'S FUNCTIONS, numbered on the machine's side before any is lowered, so
+    // a closure over one of them has an address to be made of.
+    shared.number_module(found);
     let mut reached = 0usize;
     let mut no_graph = 0usize;
     for (at, entry) in lowered.functions.iter().enumerate() {

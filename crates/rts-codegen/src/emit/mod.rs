@@ -73,6 +73,7 @@ mod fold;
 mod for_await;
 mod foreach;
 mod function;
+pub(crate) use function::signature as convention;
 mod globals;
 mod heritage;
 mod hoist;

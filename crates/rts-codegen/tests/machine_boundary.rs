@@ -85,21 +85,14 @@ fn reach_in(
         .iter()
         .map(|held| JsMachine::repr_of(inferred.of(*held)).unwrap_or(Repr::Tagged))
         .collect();
-    // AND THE RETURN, from the same place. This file said the signature is not the
-    // test's to supply and then supplied the return half anyway -- which a comparison
-    // caught at once: `7 < 3` answers a boolean and the machine's verifier reported
-    // `ReturnRepr { expected: F64, found: Bool }`. A principle stated and half applied
-    // is the shape of mistake the whole stage is against.
-    let returns: Vec<Repr> = graph
-        .block_ids()
-        .filter_map(|held| match graph.block(held).terminator {
-            Some(rts_mir::cfg::Terminator::Return(Some(value))) => Some(value),
-            _ => None,
-        })
-        .next()
-        .map(|held| JsMachine::repr_of(inferred.of(held)).unwrap_or(Repr::Tagged))
-        .into_iter()
-        .collect();
+    // AND THE RETURN, which is the CONVENTION's rather than the proof's: one tagged word,
+    // because a caller that cannot know the callee has to be able to receive whatever it
+    // answers. This read the proved representation until the boundary started widening
+    // a return on the way out, which `reaches_machine` does because a function declared
+    // any other way cannot be the code of a closure. It had caught, when it was the
+    // proof's, `7 < 3` answering a boolean against a declared `F64` -- which is the same
+    // disagreement a declared convention makes impossible.
+    let returns = vec![Repr::Tagged];
     let (types, mut funcs) = registries();
     let signature = Signature {
         params,
@@ -917,6 +910,20 @@ fn reach_named(
     TypeRegistry,
     rts_codegen::machine::Shared,
 ) {
+    reach_named_in(source, named, false)
+}
+
+/// The same, with the module's functions numbered on the machine's side first when
+/// `numbered` -- which is what a closure over one of them needs an address from.
+fn reach_named_in(
+    source: &str,
+    named: &str,
+    numbered: bool,
+) -> (
+    Result<Function, Unlowerable>,
+    TypeRegistry,
+    rts_codegen::machine::Shared,
+) {
     let mut names = Names::new();
     let program = parse_script(source, &mut names).expect("parses");
     let resolution = resolve_module(&program.body);
@@ -938,18 +945,13 @@ fn reach_named(
                 .map(|held| JsMachine::repr_of(inferred.of(*held)).unwrap_or(Repr::Tagged)),
         )
         .collect();
-    let returns: Vec<Repr> = graph
-        .block_ids()
-        .filter_map(|held| match graph.block(held).terminator {
-            Some(rts_mir::cfg::Terminator::Return(Some(value))) => Some(value),
-            _ => None,
-        })
-        .next()
-        .map(|held| JsMachine::repr_of(inferred.of(held)).unwrap_or(Repr::Tagged))
-        .into_iter()
-        .collect();
+    // THE CONVENTION'S ONE TAGGED RESULT, as `reaches_machine` declares it.
+    let returns = vec![Repr::Tagged];
     let types = TypeRegistry::new();
     let mut shared = rts_codegen::machine::Shared::default();
+    if numbered {
+        shared.number_module(lowered.functions.len());
+    }
     let mut func = Function::new(Signature {
         params,
         returns,
@@ -1049,4 +1051,27 @@ fn a_plain_call_past_the_slots_is_refused_rather_than_truncated() {
     let (held, ..) = reach_named("function f(g) { return g(1, 2, 3, 4, 5); }", "f");
     let words = said(held.expect_err("five arguments, four slots"));
     assert!(words.contains("vector form"), "{words}");
+}
+
+/// **With the module numbered, the builder of an environment reaches the machine too**, and
+/// the machine's verifier accepts the closure it makes: a code address from the numbering
+/// and the environment in force, handed to `ClosureNew` -- the call `emit/function.rs`
+/// makes. Without the numbering it stops, as the test above pins, and says why.
+#[test]
+fn with_the_module_numbered_a_closure_is_an_address_and_an_environment() {
+    for (source, named) in [
+        (
+            "function outer(a) { function inner() { return a; } return inner; }",
+            "outer",
+        ),
+        ("function make() { return () => 1; }", "make"),
+    ] {
+        let (func, types, shared) = reach_named_in(source, named, true);
+        let func = func.unwrap_or_else(|held| panic!("{named}: {held:?}"));
+        assert_eq!(
+            rts_cranelift::verify(&func, &types, &shared.funcs),
+            Vec::new(),
+            "{source}"
+        );
+    }
 }

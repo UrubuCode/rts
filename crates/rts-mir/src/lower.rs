@@ -179,6 +179,22 @@ pub trait MachineOps {
         args: &[MachineValue],
         inst: &crate::cfg::Inst,
     ) -> Result<MachineValue, String>;
+
+    /// What a `return` hands back, in the representation the signature declared.
+    ///
+    /// Asked of the language because the SIGNATURE is the language's: whether every
+    /// function returns one generic word -- what a caller that cannot know the callee
+    /// has to be able to receive -- or what a pass proved, is a calling convention this
+    /// crate does not choose. The default hands the value back as it is, which is right
+    /// for a signature declared from the proof.
+    fn returned(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: MachineValue,
+    ) -> Result<MachineValue, String> {
+        let _ = into;
+        Ok(value)
+    }
 }
 
 /// Why a function could not be lowered.
@@ -470,6 +486,7 @@ pub fn lower(
             Terminator::Return(value) => match value {
                 Some(held) => {
                     let held = one(*held, &values)?;
+                    let held = ops.returned(into, held).map_err(Unlowerable::Language)?;
                     into.ret(&[held]);
                 }
                 None => into.ret(&[]),

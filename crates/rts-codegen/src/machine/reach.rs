@@ -5,7 +5,6 @@
 //! answers one question about one function -- none of which the boundary needs to know.
 
 use rts_cranelift::ir::FuncRegistry;
-use rts_cranelift::repr::Repr;
 
 use rts_mir::lower::MachineOps as _;
 
@@ -45,6 +44,14 @@ pub struct Shared {
     /// Built from them rather than beside them, which is why the two are one field apart
     /// and never constructed separately.
     pub model: crate::values::ValueModel,
+    /// The machine's id for each function of the module, indexed by its MIR number.
+    ///
+    /// What a closure is made of is a CODE ADDRESS, and an address exists only for a
+    /// function the registry declared -- so a function value was refused until the
+    /// module's functions were numbered on the machine's side as well as on the MIR's.
+    /// Every one is declared with the convention's one signature, which is what makes it
+    /// possible to number them before any is lowered: nothing about the body decides it.
+    pub module: Vec<rts_cranelift::ir::FuncId>,
 }
 
 impl Default for Shared {
@@ -69,7 +76,16 @@ impl Shared {
             keys: rts_cranelift::shape::KeyRegistry::new(),
             tags,
             model,
+            module: Vec::new(),
         }
+    }
+
+    /// Declares a machine function for each of a module's `count` functions, in order.
+    pub fn number_module(&mut self, count: usize) {
+        let signature = self.funcs.declare_signature(crate::emit::convention());
+        self.module = (0..count)
+            .map(|_| self.funcs.declare_function(signature))
+            .collect();
     }
 }
 
@@ -88,11 +104,20 @@ impl Shared {
 /// it, and an instrument that can only be run by `cargo test` is an instrument nobody
 /// runs.
 ///
-/// # The signature comes from the LANGUAGE, one parameter at a time
+/// # The signature is the CONVENTION, and it used to be the proof
 ///
-/// Whatever the lattice proved about the graph's entry parameters is what the machine
-/// function is declared to take, which is the agreement `param_repr` exists to state. A
-/// caller that supplied its own would be measuring its own guess.
+/// It was built from what the lattice proved about the graph's entry parameters and its
+/// return, one at a time -- which is a signature nothing in this engine can call. The
+/// runtime enters a function through `rts_core::entry::functions::invoke`, a closure is a
+/// code address the runtime calls on those terms, and `emit/function.rs` states them:
+/// the environment, the receiver, a fixed number of argument slots, one result, every one
+/// tagged. A function declared any other way could not be the code of a closure, so the
+/// instrument was measuring functions that could never be called.
+///
+/// So it is `emit::convention()`, reused rather than restated, and a proved return is
+/// widened on the way out. Entry parameters were tagged under the old rule anyway --
+/// nothing is proved about a parameter before its guard -- so what changes is the return
+/// and the slot count.
 pub fn reaches_machine(
     func: &rts_mir::cfg::Func,
     domain: &Js,
@@ -100,44 +125,22 @@ pub fn reaches_machine(
     shared: &mut Shared,
     names: &mut crate::names::Names,
 ) -> Result<(), rts_mir::lower::Unlowerable> {
-    use rts_cranelift::ir::{Function, Signature};
+    use rts_cranelift::ir::Function;
     use rts_cranelift::types::TypeRegistry;
 
     let types = TypeRegistry::new();
     let inferred = rts_mir::infer::infer(func, domain);
-    let params: Vec<Repr> = func
-        .block(func.entry())
-        .params
-        .iter()
-        .map(|held| JsMachine::repr_of(inferred.of(*held)).unwrap_or(Repr::Tagged))
-        .collect();
-    // AND THE RETURN, from the same place. A function with no `Return` carrying a value
-    // returns nothing, which is a signature with no results rather than one with an
-    // invented result.
-    let returns: Vec<Repr> = func
-        .block_ids()
-        .filter_map(|held| match func.block(held).terminator {
-            Some(rts_mir::cfg::Terminator::Return(Some(value))) => Some(value),
-            _ => None,
-        })
-        .next()
-        .map(|held| JsMachine::repr_of(inferred.of(held)).unwrap_or(Repr::Tagged))
-        .into_iter()
-        .collect();
-    // THE LANGUAGE'S CALLING CONVENTION, which `emit/function.rs` fixes and
-    // `rts_core::entry::functions::invoke` calls on: parameter 0 is the environment and
-    // parameter 1 is the receiver, both runtime values and therefore tagged. The
-    // program's own parameters follow.
-    //
-    // Adopted here rather than left out, because a signature without them is one nothing
-    // in this engine can call -- and the instrument would be measuring a function shape
-    // that could never run.
-    let leading = vec![Repr::Tagged, Repr::Tagged];
-    let signature = Signature {
-        params: leading.iter().copied().chain(params).collect(),
-        returns,
-        ..Signature::default()
-    };
+    // A PARAMETER PAST THE SLOTS has nowhere to arrive: the convention fixes how many a
+    // call hands over, and `runtime/mod.rs` says why. Refused rather than read as
+    // `undefined` forever, which is what `emit/function.rs` decided for the same case.
+    let written = func.block(func.entry()).params.len();
+    if written > crate::runtime::ARGUMENT_SLOTS {
+        return Err(rts_mir::lower::Unlowerable::Language(format!(
+            "{written} parameters, and the convention has {} slots",
+            crate::runtime::ARGUMENT_SLOTS
+        )));
+    }
+    let signature = crate::emit::convention();
     // THE GENERIC TWIN, when the caller has one. Declared with the same signature
     // because a fall hands over the same arguments and answers what the other tier
     // answers -- the two bodies of one function agree about their shape by definition.
@@ -162,9 +165,10 @@ pub fn reaches_machine(
     // mutually exclusive while the twin carried its own reference to the registry, which
     // is a limit nothing but that field imposed -- and it made the instrument measure a
     // falling function without entry points and a non-falling one with them.
-    // THE GRAPH'S PARAMETERS ARE THE PROGRAM'S, so they map onto the TAIL of the
-    // signature. Handing the whole list would bind the program's first parameter to the
-    // environment, which is the kind of off-by-two that compiles.
+    // THE GRAPH'S PARAMETERS ARE THE PROGRAM'S, so they map onto the slots after the
+    // convention's two. Handing the whole list would bind the program's first parameter
+    // to the environment, which is the kind of off-by-two that compiles; a slot the
+    // program did not name is simply not read.
     let mut ops = match twin {
         Some(twin) => JsMachine::falling_to(domain, inferred, twin),
         None => JsMachine::new(domain, inferred),
@@ -172,7 +176,7 @@ pub fn reaches_machine(
     .declaring_in(shared)
     .naming_with(names)
     .with_incoming(&start);
-    rts_mir::lower::lower(func, &mut into, &mut ops, &start[2..])?;
+    rts_mir::lower::lower(func, &mut into, &mut ops, &start[2..2 + written])?;
     drop(ops);
     drop(into);
     // THE MACHINE'S OWN VERIFIER IS THE LAST WORD, and this instrument did not ask it.

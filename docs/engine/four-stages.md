@@ -1851,3 +1851,34 @@ counted as reaching the machine in the base. They were wrong answers wearing a p
 LOST list against the base is those 20 and nothing else. A third suspicion was checked and is not one: a function reads `this`
 as the raw receiver with no global substitution, which is what the running engine does
 too -- it compiles a program strict and only `eval` and `Function` text sloppy.
+
+## The convention and the module's numbering: 4 189 → 5 384
+
+**A closure is a code address, and an address exists only for a function the machine's
+registry declared.** So every builder of an environment stopped at making its closure,
+~1 000 functions. `Shared::number_module` declares one machine function per function of the
+module before any is lowered, and a function value becomes `func_addr` handed to
+`ClosureNew` beside the environment -- the call `emit/function.rs` makes.
+
+**Numbering first was only possible because the signature stopped depending on the body.**
+`reaches_machine` declared each function from what the lattice proved about its parameters
+and its return, which is a signature nothing in this engine can call: the runtime enters a
+function through `invoke`, on the terms `emit/function.rs` states -- environment, receiver,
+four argument slots, one result, all tagged. A function declared any other way cannot be the
+code of a closure, so the instrument had been measuring functions that could never run. It
+is `emit::convention()` now, reused rather than restated, and a proved return is widened on
+the way out through a new question on the boundary, `MachineOps::returned`, whose default
+hands the value back unchanged -- the toy domain's answer. A fifth parameter is refused, as
+`emit/function.rs` refuses it.
+
+Measured 2026-09-24 per function against the previous commit: **4 189 → 5 384, none lost.**
+`tests/` 5 363 of 8 598, `bench/` 21 of 387.
+
+**What stays refused at the call, deliberately.** 377 calls name a function of the module
+by number, and a direct machine call is not what the running engine makes -- every call
+there goes through `invoke`, which keeps the call stack a trace is built from and the
+argument count a callee can observe. Calling past it would be faster and would answer
+`new Error().stack` differently. And the lowering names a callee by number without asking
+whether its binding is ever reassigned, which would call the old function after
+`f = other`. Both are reasons to keep `NeedsCallee` until something proves the binding and
+decides the trace, and neither is a reason to guess.

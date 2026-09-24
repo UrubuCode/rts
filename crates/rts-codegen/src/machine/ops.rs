@@ -121,10 +121,22 @@ impl MachineOps for JsMachine<'_> {
         // time, so no other function of the module has an id here. That is the same
         // missing piece a direct call stops at (`NeedsCallee`): the module's machine
         // numbering, which only something compiling the whole module can hand out.
+        //
+        // Numbered now, when whoever compiles the module has declared its functions --
+        // `Shared::number_module`. The address is `I64` and not a value: it is a machine
+        // address nothing collects, which is `RuntimeOp::ClosureNew`'s own note.
         if let Some(JsConst::Function(which)) = self.domain.declared(index) {
-            return Err(format!(
-                "a function value needs the machine id of f{which}, and this boundary compiles one function at a time -- the module numbering a direct call waits on too"
-            ));
+            let which = *which;
+            let numbered = self
+                .shared
+                .as_deref()
+                .and_then(|shared| shared.module.get(which as usize).copied());
+            let (Some(id), Some(shared)) = (numbered, self.shared.as_deref()) else {
+                return Err(format!(
+                    "a function value needs the machine id of f{which}, and this boundary compiles one function at a time -- the module numbering a direct call waits on too"
+                ));
+            };
+            return into.func_addr(&shared.funcs, id).map_err(machine);
         }
         // EVERY OTHER KIND needs an agreement of its own, and none is a number this
         // slice can produce.
@@ -233,6 +245,11 @@ impl MachineOps for JsMachine<'_> {
         if which == JsPrim::GlobalRead {
             return self.call_runtime(into, crate::runtime::RuntimeOp::GlobalGet, args);
         }
+        // A CLOSURE IS A CODE ADDRESS AND AN ENVIRONMENT, made by the runtime -- the same
+        // call `emit/function.rs` makes, over the two operands the graph now carries.
+        if which == JsPrim::MakeClosure {
+            return self.call_runtime(into, crate::runtime::RuntimeOp::ClosureNew, args);
+        }
 
         // ARITY FIRST, because it is the accurate reason for a row this slice has no
         // form for at any arity. Asked second, `NewArray` with no operands was reported
@@ -313,6 +330,17 @@ impl MachineOps for JsMachine<'_> {
             // thing and passed.
             Some(JsAssertion::IsStr) | Some(JsAssertion::HasShape(_)) | None => None,
         }
+    }
+
+    fn returned(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: MachineValue,
+    ) -> Result<MachineValue, String> {
+        // ONE TAGGED RESULT, which is what the convention declares: a caller that cannot
+        // know the callee has to be able to receive whatever it answers. A proved double
+        // or boolean is widened here, once, on the way out.
+        coerced(into, value, Repr::Tagged)
     }
 
     fn coerce(
