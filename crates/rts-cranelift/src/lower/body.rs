@@ -1484,6 +1484,23 @@ pub(super) fn trap_code(code: TrapCode) -> cranelift_codegen::ir::TrapCode {
 /// path into it has been. Unreachable blocks follow, in the order they were
 /// created, so that this answers EVERY block and the caller does not have to
 /// decide what to do about the ones nothing jumps to.
+///
+/// # The EXCEPTIONAL edges are successors too
+///
+/// A throw has no successor, so a region's handler and cleanup -- and everything
+/// reachable only from them -- were "unreachable" here and emitted in creation
+/// order. That was a definition-before-use order only for a client that makes its
+/// blocks top-down while it emits. One that makes a block's continuation AFTER
+/// blocks the continuation's values flow into -- a mid-level IR translated block by
+/// block, where a cached read's join is made while lowering the block that reads --
+/// had a catch body read a value before the block defining it was emitted, and the
+/// lowering panicked on a function the verifier had accepted. So every block in a
+/// region reaches that region's handlers, its cleanup and its resumption point, and
+/// those of every region around it: that is where control goes when it throws, and
+/// the order follows control.
+///
+/// Not a change for a function with no region, whose edges are exactly the ones
+/// they were.
 fn reachable_first(func: &Function) -> Vec<BlockId> {
     let mut order = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -1505,6 +1522,19 @@ fn reachable_first(func: &Function) -> Vec<BlockId> {
         {
             for successor in terminator.successors() {
                 stack.push((successor, false));
+            }
+        }
+        if let Some(region) = func.region_of(id) {
+            for (_, around) in func.regions.enclosing(region) {
+                let exceptional = around
+                    .handlers
+                    .iter()
+                    .map(|handler| handler.block)
+                    .chain(around.cleanup)
+                    .chain(around.resume_return);
+                for successor in exceptional {
+                    stack.push((successor, false));
+                }
             }
         }
     }

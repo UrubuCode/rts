@@ -106,6 +106,17 @@ impl Lowering<'_> {
                 }
             }
         }
+        // A `break` OR `continue` LEAVING A `try` WITH A `finally` is a jump out of the
+        // region, and the machine runs a cleanup on a return and on a throw, not on a
+        // jump -- so the `finally` would be skipped. Refused, and counted over the whole
+        // body including loops written inside it, which over-refuses in the safe
+        // direction.
+        if finally.is_some() && (jumps_out(body) || catch.is_some_and(|held| jumps_out(&held.body)))
+        {
+            return Err(Unsupported::Statement(
+                "a break or continue inside a try with a finally skips the cleanup",
+            ));
+        }
         // A `try` WITH NO CATCH IS NOW ORDINARY, and the refusal that stood here
         // called it "only a finally". `Region::handler` is an `Option` precisely so
         // that a region can protect nothing and still clean up.
@@ -147,20 +158,35 @@ impl Lowering<'_> {
         // BOTH BLOCKS BEFORE THE REGION OPENS, which is what puts them outside it. For
         // the cleanup that is load-bearing and the header says why: inside its own
         // region, a `finally` that threw would re-enter its own `catch`.
-        let handler = catch.map(|_| {
-            let block = self.builder.block();
-            // The raised value, and nothing else. A handler takes exactly one
-            // parameter because exactly one thing arrives with the exception.
-            let raised = self.builder.param(block);
-            self.types.insert(raised, self.domain.top());
-            (block, raised)
-        });
+        //
+        // WITH A `finally` AS WELL, the handler is made INSIDE the cleanup's region
+        // instead -- see below.
+        let make_handler = |lowering: &mut Self| {
+            catch.map(|_| {
+                let block = lowering.builder.block();
+                // The raised value, and nothing else. A handler takes exactly one
+                // parameter because exactly one thing arrives with the exception.
+                let raised = lowering.builder.param(block);
+                lowering.types.insert(raised, lowering.domain.top());
+                (block, raised)
+            })
+        };
+        let mut handler = match finally {
+            Some(_) => None,
+            None => make_handler(self),
+        };
         // A cleanup takes NO parameter. Nothing jumps to it either -- it is copied --
         // so there is no edge to carry one, which is the same argument the handler's
         // single parameter rests on, reaching the opposite answer because a cleanup is
         // not handed a value.
         let cleanup = finally.map(|_| self.builder.block());
 
+        // THE ORDINARY WAY OUT of a `try` with a `finally` runs a copy of it. The machine
+        // runs a cleanup where the region is left by a return or a throw; a path that
+        // simply falls off the end of the body or the handler JUMPS out, and the running
+        // emitter emits the `finally` inline there for that reason. Outside every region,
+        // so a throw from this copy is not caught by the `try` it belongs to.
+        let normal = finally.map(|_| self.builder.block());
         let join = self.builder.block();
         let joined: Vec<ValueId> = carried
             .iter()
@@ -174,22 +200,47 @@ impl Lowering<'_> {
         // supplies: the body assigns none of them, as the refusal above establishes.
         let before: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
 
+        // WHAT EVERY PATH OUT OF THE `try` AGREES ON is what held before it. A handler is
+        // entered from anywhere in the body, so nothing the body bound dominates it; the
+        // map is restored before the cleanup and the handler rather than inherited from
+        // the body, which is what it was -- and a `catch` then read a value the body had
+        // defined, which the Cranelift verifier refused on a program that ran.
+        let outside = self.values.clone();
         let protected = self.builder.block();
         self.builder.end(Terminator::Jump {
             target: protected,
             args: Vec::new(),
         });
         self.builder.switch_to(protected);
-        self.builder
-            .open_region(handler.map(|(block, _)| block), cleanup);
+        // TWO REGIONS WHEN THERE ARE BOTH, and which encloses which is the semantics --
+        // `emit/protect.rs` builds the same pair. The `catch` runs BEFORE the `finally`,
+        // and a throw from the `catch` still owes the `finally`: so the cleanup's region
+        // is outside, the handler's inside, and the handler block lives in the outer one.
+        // One region holding both ran the `finally` first, because the machine runs a
+        // region's cleanup before its handler -- which a program that ran showed.
+        let nested = finally.is_some() && catch.is_some();
+        if nested {
+            self.builder.open_region(None, cleanup);
+            handler = make_handler(self);
+            self.builder
+                .open_region(handler.map(|(block, _)| block), None);
+        } else {
+            self.builder
+                .open_region(handler.map(|(block, _)| block), cleanup);
+        }
+        let leaving = normal.unwrap_or(join);
         let ended = self.statements(body)?;
         if !ended {
             self.builder.end(Terminator::Jump {
-                target: join,
-                args: before.clone(),
+                target: leaving,
+                args: match normal {
+                    Some(_) => Vec::new(),
+                    None => before.clone(),
+                },
             });
         }
         self.builder.close_region();
+        let from_body = std::mem::replace(&mut self.values, outside.clone());
 
         // THE CLEANUP PIECE. One entry, and `CleanupDone` is what makes its single exit
         // structural -- a piece that fell off its end would be a copy the unwind never
@@ -197,8 +248,10 @@ impl Lowering<'_> {
         // sound here only because of the two refusals above: neither the body nor the
         // cleanup assigns a carried binding, and a handler that does is refused beside
         // a cleanup.
+        let mut from_cleanup = std::collections::BTreeMap::new();
         if let (Some(entry), Some(statements)) = (cleanup, finally) {
             self.builder.switch_to(entry);
+            self.values = outside.clone();
             for (binding, held) in carried.iter().zip(&before) {
                 self.values.insert(*binding, *held);
             }
@@ -206,13 +259,16 @@ impl Lowering<'_> {
             if !ended {
                 self.builder.end(Terminator::CleanupDone);
             }
+            from_cleanup = std::mem::take(&mut self.values);
         }
 
         // THE HANDLER, outside the region it handles — a raise inside a `catch` is not
         // caught by its own `try`, which is what closing the region before switching
         // here says.
+        let mut from_handler = std::collections::BTreeMap::new();
         if let (Some((block, raised)), Some(catch)) = (handler, catch) {
             self.builder.switch_to(block);
+            self.values = outside.clone();
             // THE CLAUSE HAS ITS OWN SCOPE, which is where the caught value is bound.
             // Without entering it the binding is not found at all and the name reads as
             // a global -- which is exactly what the first run of this reported.
@@ -244,15 +300,81 @@ impl Lowering<'_> {
             let ended = self.statements(&catch.body);
             self.scope = outer;
             if !ended? {
-                let args: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
-                self.builder.end(Terminator::Jump { target: join, args });
+                let args: Vec<ValueId> = match normal {
+                    Some(_) => Vec::new(),
+                    None => carried.iter().map(|held| self.values[held]).collect(),
+                };
+                self.builder.end(Terminator::Jump {
+                    target: leaving,
+                    args,
+                });
             }
+            from_handler = std::mem::take(&mut self.values);
+        }
+        if nested {
+            self.builder.close_region();
+        }
+
+        // THE ORDINARY COPY of the `finally`, from the values as they stood before the
+        // `try` -- which is all either path agrees on, and all the refusals above leave.
+        if let (Some(entry), Some(statements)) = (normal, finally) {
+            self.builder.switch_to(entry);
+            self.values = outside.clone();
+            let ended = self.statements(statements)?;
+            if !ended {
+                self.builder.end(Terminator::Jump {
+                    target: join,
+                    args: Vec::new(),
+                });
+            }
+            from_cleanup.extend(std::mem::take(&mut self.values));
+        }
+
+        // A BINDING FIRST BOUND INSIDE the body, the handler or the cleanup and still in
+        // scope after
+        // -- a `var` -- holds what one path gave it and nothing the other did: the body
+        // may have thrown before its assignment, and the handler may not run at all.
+        // That is a value per path with no edge to carry it along, which is the cell the
+        // header's refusals name.
+        let first_bound = from_body
+            .keys()
+            .chain(from_handler.keys())
+            .chain(from_cleanup.keys())
+            .any(|held| !outside.contains_key(held) && self.visible_here(*held));
+        if first_bound {
+            return Err(Unsupported::Statement(
+                "a binding first bound inside a try or its catch, read after it, needs a cell",
+            ));
         }
 
         self.builder.switch_to(join);
+        self.values = outside;
         for (binding, param) in carried.iter().zip(&joined) {
             self.values.insert(*binding, *param);
         }
         Ok(false)
     }
+}
+
+/// Whether a `break` or `continue` appears anywhere in these statements, nested
+/// functions aside -- a jump that may leave the region they are written in.
+fn jumps_out(statements: &[Stmt]) -> bool {
+    fn one(statement: &Stmt) -> bool {
+        use crate::syntax::StmtKind;
+        match &statement.kind {
+            StmtKind::Break(_) | StmtKind::Continue(_) => return true,
+            StmtKind::Function(_) | StmtKind::Class(_) => return false,
+            _ => {}
+        }
+        let mut found = false;
+        crate::emit::capture::walk_stmt(statement, &mut |child| {
+            if let crate::emit::capture::StmtChild::Stmt(inner) = child
+                && one(inner)
+            {
+                found = true;
+            }
+        });
+        found
+    }
+    statements.iter().any(one)
 }

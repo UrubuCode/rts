@@ -265,6 +265,7 @@ pub fn emit_expr(
             // `this` — so the flag is cleared for one and kept for the other.
             let enclosing = ctx.in_field_initializer;
             ctx.in_field_initializer = enclosing && function.captures_this;
+            ctx.mir_candidate = true;
             let produced = super::function::emit_closure(builder, scope, ctx, function);
             ctx.in_field_initializer = enclosing;
             produced

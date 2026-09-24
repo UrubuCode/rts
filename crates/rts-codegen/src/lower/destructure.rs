@@ -158,7 +158,16 @@ impl Lowering<'_> {
 
         let mut bound = Vec::new();
         let mut exhausted = None;
-        for slot in &pattern.elements {
+        // WITH A REST, THE LAST SLOT IS ITS PLACEHOLDER and not a hole: the tree keeps
+        // the rest's position in `elements` so that both roles of a pattern have one
+        // shape, and `emit/destructure` drops it for the same reason. Stepping it as a
+        // hole took one element away from the rest -- `const [h, ...t] = [1, 2, 3]`
+        // gathered `[3]` -- which a program that ran through this stage showed.
+        let slots = match pattern.rest {
+            Some(_) => &pattern.elements[..pattern.elements.len().saturating_sub(1)],
+            None => &pattern.elements[..],
+        };
+        for slot in slots {
             let next = self.well_known(WellKnown::Next, iterator, at);
             let step = self.call_method(next, iterator, at);
             let done = self.well_known(WellKnown::Done, step, at);

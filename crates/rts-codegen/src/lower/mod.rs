@@ -39,7 +39,7 @@ use crate::domain::{Js, JsConst, JsPrim, Type};
 use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
 use crate::syntax::{
-    AssignOp, AssignTarget, BinaryOp, Binding, Expr, ExprKind, Function, FunctionBody, Pattern,
+    AssignOp, AssignTarget, BinaryOp, Expr, ExprKind, Function, FunctionBody, Pattern,
     Stmt, StmtKind, UpdateOp, UpdatePosition,
 };
 use crate::values::Singleton;
@@ -50,6 +50,7 @@ mod calls;
 mod choice;
 mod claim;
 mod class;
+mod declare;
 mod destructure;
 mod environment;
 mod iterate;
@@ -198,6 +199,32 @@ pub fn lower_with(
     names: &crate::names::Names,
     tier: Tier,
 ) -> Result<Func, Unsupported> {
+    lower_within(function, resolution, callees, domain, names, tier, None)
+}
+
+/// Where the environment a function is MADE in keeps a name: how many links out from
+/// it, and under which key. `None` for a name it does not hold in an environment.
+///
+/// The layout of whoever makes the closure. This stage lays environments out one per
+/// activation; the running emitter lays them out per block and per loop pass. A
+/// function lowered here but made by that emitter reads its free names where THAT
+/// emitter put them, which only it can say -- so it says, through this.
+pub type OuterLayout<'l> = &'l dyn Fn(Name) -> Option<(u32, Name)>;
+
+/// [`lower_with`], reading every binding this function does not own through `outer`.
+///
+/// A function that would build an environment of its own is refused in this mode: the
+/// links `outer` counts start at the environment the function was made in, and a
+/// function holding its own would start one link further in.
+pub fn lower_within(
+    function: &Function,
+    resolution: &Resolution,
+    callees: &Callees,
+    domain: &mut Js,
+    names: &crate::names::Names,
+    tier: Tier,
+    outer: Option<OuterLayout<'_>>,
+) -> Result<Func, Unsupported> {
     // NEITHER KIND IS REFUSED HERE ANY MORE, and what changed is where the missing
     // piece is. Both used to be turned away for parking a frame; parking is now a
     // fact the graph carries (`Effect::SUSPENDS`, derived into `Func::may_suspend`),
@@ -227,6 +254,7 @@ pub fn lower_with(
         environment: None,
         prologue: true,
         lexical_this: function.captures_this,
+        outer,
         loops: Vec::new(),
         points: 0,
     };
@@ -371,6 +399,9 @@ struct Lowering<'a> {
     /// Whether `this` here is the enclosing function's rather than the receiver --
     /// an arrow's.
     lexical_this: bool,
+    /// The layout of whoever makes this function's closure, where that is not this
+    /// stage. See [`OuterLayout`].
+    outer: Option<OuterLayout<'a>>,
     /// The loops and switches enclosing what is being lowered, innermost last.
     loops: Vec<LoopFrame>,
     /// How many deoptimisation points this body has declared.
@@ -401,54 +432,15 @@ impl Lowering<'_> {
                 self.expression(expr)?;
                 Ok(false)
             }
-            StmtKind::Declare { bindings, .. } => {
-                for Binding { target, value, .. } in bindings {
-                    // A PATTERN needs a value to read from, so a declaration with
-                    // no initialiser cannot have one -- and the language agrees: a
-                    // destructuring declaration must be initialised.
-                    if !matches!(target, Pattern::Name(_)) {
-                        let Some(expr) = value else {
-                            return Err(Unsupported::Statement(
-                                "a destructuring declaration with no initialiser",
-                            ));
-                        };
-                        let held = self.expression(expr)?;
-                        self.destructure(target, held, expr)?;
-                        continue;
-                    }
-                    let Pattern::Name(name) = target else {
-                        unreachable!("the arm above took every other shape")
-                    };
-                    let (held, of) = match value {
-                        Some(expr) => {
-                            let held = self.expression(expr)?;
-                            let of = self.type_of(held);
-                            (held, of)
-                        }
-                        // `let x;` is `undefined`, which is a value like any
-                        // other.
-                        None => {
-                            let held = self.singleton(Singleton::Undefined, statement);
-                            (held, Type::Undefined)
-                        }
-                    };
-                    // A DECLARATION is always this function's -- a `let` binds
-                    // here -- so the position is only carried for the arm that
-                    // cannot be reached from one.
-                    let at = Expr {
-                        kind: ExprKind::Ident(*name),
-                        at: statement.at,
-                    };
-                    self.bind(*name, held, of, &at)?;
-                }
-                Ok(false)
-            }
-            StmtKind::Switch {
-                discriminant,
-                clauses,
-            } => self.switch(discriminant, clauses),
+            StmtKind::Declare { bindings, kind } => self.declare(bindings, *kind, statement),
             StmtKind::Break(None) => self.jump_out_of_loop(false),
             StmtKind::Continue(None) => self.jump_out_of_loop(true),
+            // `return c ? a : b` -- see `branch.rs` for why it is two returns.
+            StmtKind::Return(Some(returned))
+                if matches!(returned.kind, ExprKind::Conditional { .. }) =>
+            {
+                self.conditional_return(returned, statement)
+            }
             // `return;` ANSWERS `undefined`, and saying so is the language's job: every
             // function of this language returns a value. A bare return in the graph
             // left it to whoever lowered the graph, and the machine's verifier refused
@@ -480,27 +472,20 @@ impl Lowering<'_> {
                 then_branch,
                 else_branch,
             } => self.branch(condition, then_branch, else_branch.as_deref()),
-            StmtKind::While { condition, body } => self.loop_while(condition, body),
-            StmtKind::DoWhile { body, condition } => self.loop_do_while(body, condition),
-            StmtKind::For {
-                init,
-                test,
-                update,
-                body,
-            } => self.loop_for(
-                statement.at,
-                init.as_ref(),
-                test.as_ref(),
-                update.as_ref(),
-                body,
-            ),
-            StmtKind::ForEach {
-                source,
-                target,
-                subject,
-                body,
-                ..
-            } => self.for_each(*source, target, subject, body, statement),
+            // A CONSTRUCT THAT MERGES PATHS hands on the map from before it plus what it
+            // carried -- `settle_after` says why, and why that is not left to each one.
+            StmtKind::While { .. }
+            | StmtKind::DoWhile { .. }
+            | StmtKind::For { .. }
+            | StmtKind::ForEach { .. }
+            | StmtKind::Switch { .. } => {
+                let outside = self.values.clone();
+                let ended = self.merging(statement)?;
+                if !ended {
+                    self.settle_after(outside)?;
+                }
+                Ok(ended)
+            }
             // A NESTED DEFINITION is a closure bound to a name, and the name is this
             // function's -- so it is an ordinary rebind and no environment is written.
             //

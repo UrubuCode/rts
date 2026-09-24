@@ -192,6 +192,14 @@ impl FuncBuilder {
         value
     }
 
+    /// The parameters a block declares so far.
+    ///
+    /// For a client that merges paths into a block and has to tell a value the merge
+    /// made -- one of these -- from one a single path left behind.
+    pub fn params_of(&self, block: BlockId) -> &[ValueId] {
+        &self.func.blocks[block.0 as usize].params
+    }
+
     /// Opens a protected region, which every block made until it closes belongs to.
     ///
     /// The block being built joins it too, and that is not an accident: a raise emitted

@@ -293,6 +293,8 @@ fn emit_function(
     has_prototype: bool,
     constructs: bool,
 ) -> EmitResult<FuncId> {
+    // TAKEN FIRST, before anything nested can be emitted and read it.
+    let candidate = std::mem::take(&mut ctx.mir_candidate);
     // Two refusals and not one, because they are two constructs and the
     // measurement that ranks this crate's gaps counts by this string. Merged,
     // they were the largest single entry in that ranking and it was impossible
@@ -387,25 +389,35 @@ fn emit_function(
     if ctx.sloppy && super::nonstrict::is_strict(&function.directives) {
         ctx.sloppy = false;
     }
-    let emitted = emit_body(
-        ctx,
-        enclosing,
-        &parameters,
-        &parameter_claims,
-        body,
-        function.captures_this,
-        rest,
-        late_this,
-        // What the body binds its OWN name to, decided here because only this
-        // level has both the tree and the enclosing scope. See [`self_binding`].
-        self_binding(enclosing, function, definition),
-        &[],
-        // A nested function is not a module: it has no specifier and nothing to
-        // publish. Passing the enclosing module's would make every closure
-        // re-publish its exports on every call.
-        None,
-        &[],
-    );
+    // THROUGH THE MIR STAGE FIRST, where it agrees with this emitter about everything
+    // the function touches -- `through_mir` lists what it declines and why. What it
+    // takes is the body the program runs.
+    let through = match candidate {
+        true => super::through_mir::try_emit(ctx, enclosing, function),
+        false => None,
+    };
+    let emitted = match through {
+        Some(machine) => Ok(machine),
+        None => emit_body(
+            ctx,
+            enclosing,
+            &parameters,
+            &parameter_claims,
+            body,
+            function.captures_this,
+            rest,
+            late_this,
+            // What the body binds its OWN name to, decided here because only this
+            // level has both the tree and the enclosing scope. See [`self_binding`].
+            self_binding(enclosing, function, definition),
+            &[],
+            // A nested function is not a module: it has no specifier and nothing to
+            // publish. Passing the enclosing module's would make every closure
+            // re-publish its exports on every call.
+            None,
+            &[],
+        ),
+    };
     ctx.async_parks = outer_parks;
     ctx.tail_calls = outer_tail;
     ctx.sloppy = outer_sloppy;

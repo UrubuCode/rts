@@ -99,7 +99,7 @@ pub struct JsMachine<'a> {
     ///
     /// `None` is a boundary asked to lower a call with nowhere to declare it, which
     /// refuses by name rather than inventing an id. A test wants that case.
-    shared: Option<&'a mut Shared>,
+    shared: Option<Parts<'a>>,
     /// The machine value this activation's receiver arrived in.
     ///
     /// # Why the CALLER supplies it and this does not find it
@@ -159,6 +159,8 @@ pub struct JsMachine<'a> {
         Option<rts_cranelift::unwind::RegionId>,
         rts_cranelift::ir::BlockId,
     >,
+    /// The calls in TAIL position, by the value each answers -- see [`tail_positions`].
+    tail: std::collections::BTreeSet<ValueId>,
     /// Whether the block being lowered is part of a cleanup -- `rts_mir::lower` says so
     /// before each block. See [`JsMachine::recheck_throw`] for what it costs.
     in_cleanup: bool,
@@ -237,6 +239,7 @@ impl<'a> JsMachine<'a> {
             names: None,
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
+            tail: std::collections::BTreeSet::new(),
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -260,6 +263,7 @@ impl<'a> JsMachine<'a> {
             names: None,
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
+            tail: std::collections::BTreeSet::new(),
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -288,12 +292,27 @@ impl<'a> JsMachine<'a> {
         self
     }
 
+    /// The calls a return hands straight back, which go through `RuntimeOp::TailCall`
+    /// -- see [`tail_positions`].
+    pub fn tail_calls_of(mut self, func: &rts_mir::cfg::Func) -> Self {
+        self.tail = tail_positions(func);
+        self
+    }
+
     /// Where a runtime operation may be declared, so a call to one can be emitted.
     ///
     /// Taken after construction rather than in it, because the things a boundary may be
     /// given are independent and a constructor per combination is one per subset.
-    pub fn declaring_in(mut self, shared: &'a mut Shared) -> Self {
-        self.shared = Some(shared);
+    pub fn declaring_in(self, shared: &'a mut Shared) -> Self {
+        self.declaring_into(shared.parts())
+    }
+
+    /// The same, over registries somebody else owns -- the running emitter's, when a
+    /// function of the program it is compiling is lowered through this stage instead.
+    /// ONE set of registries for the program either way: a second numbering of a key, a
+    /// literal or a function would reach the wrong thing rather than failing.
+    pub fn declaring_into(mut self, parts: Parts<'a>) -> Self {
+        self.shared = Some(parts);
         self
     }
 
@@ -399,7 +418,7 @@ impl JsMachine<'_> {
         let Some(names) = self.names.as_deref_mut() else {
             return Err("a cached access needs the program's interner for its key".to_owned());
         };
-        let Some(shared) = self.shared.as_deref_mut() else {
+        let Some(shared) = self.shared.as_mut() else {
             return Err("a cached access needs the program's key registry".to_owned());
         };
         Ok(names.key(name, &mut shared.keys))
@@ -610,7 +629,7 @@ impl JsMachine<'_> {
 
     /// `undefined`, as bits from the program's tag registry.
     fn undefined(&mut self, into: &mut FuncBuilder) -> Result<MachineValue, String> {
-        let Some(shared) = self.shared.as_deref() else {
+        let Some(shared) = self.shared.as_ref() else {
             return Err("`undefined` is bits from the program's tag registry, which this boundary was not given".to_owned());
         };
         let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
@@ -681,7 +700,7 @@ impl JsMachine<'_> {
                 false => coerced(into, *held, *want)?,
             });
         }
-        let Some(shared) = self.shared.as_deref_mut() else {
+        let Some(shared) = self.shared.as_mut() else {
             return Err(format!(
                 "calling {which:?} needs somewhere to declare it, which is the host's agreement"
             ));
@@ -725,7 +744,7 @@ impl JsMachine<'_> {
         if self.in_cleanup {
             return Ok(());
         }
-        let Some(shared) = self.shared.as_deref_mut() else {
+        let Some(shared) = self.shared.as_mut() else {
             return Err(
                 "a raising call needs the throw check, which needs somewhere to declare two calls"
                     .to_owned(),
@@ -774,8 +793,53 @@ impl JsMachine<'_> {
     }
 }
 
+/// The calls in TAIL position: the last instruction of a block that returns its
+/// answer, outside every protected region, in a function that does not park.
+///
+/// `emit/tail.rs` is the rule and its reasons, and this is the same rule read off the
+/// graph: `return f(x)` records the call through `RuntimeOp::TailCall` and the frame
+/// is gone before the callee runs, which is what lets a recursion a million deep run
+/// flat. An ordinary call there is never WRONG, only deeper -- and deep enough, it is a
+/// stack overflow, which is how the difference was found: seven files that pass under
+/// the running emitter aborted when their functions came through this stage.
+///
+/// Outside a region because a handler, a `finally` or an iterator close runs on the way
+/// out, which is work after the return; a parked frame is resumed by something other
+/// than the door a tail call settles through.
+pub fn tail_positions(func: &rts_mir::cfg::Func) -> std::collections::BTreeSet<ValueId> {
+    let mut found = std::collections::BTreeSet::new();
+    if func.may_suspend {
+        return found;
+    }
+    for block in func.block_ids() {
+        if func.region_of(block).is_some() {
+            continue;
+        }
+        let held = func.block(block);
+        let Some(rts_mir::cfg::Terminator::Return(Some(answered))) = held.terminator else {
+            continue;
+        };
+        let Some(last) = held.insts.last() else {
+            continue;
+        };
+        let inst = func.inst(*last);
+        if inst.result == answered
+            && matches!(
+                inst.op,
+                Op::Call {
+                    callee: rts_mir::cfg::Callee::Dynamic(_),
+                    ..
+                }
+            )
+        {
+            found.insert(answered);
+        }
+    }
+    found
+}
+
 mod generic;
 mod ops;
 mod reach;
 
-pub use reach::{Shared, reaches_machine};
+pub use reach::{Parts, Shared, reaches_machine};

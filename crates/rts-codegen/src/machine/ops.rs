@@ -12,7 +12,7 @@ use rts_mir::cfg::{EntryId, Inst, Op, Prim, ValueId};
 use rts_mir::guard::{Assertion, PointId};
 use rts_mir::lower::MachineOps;
 
-use super::{JsMachine, Shared, coerced, machine};
+use super::{JsMachine, Parts, coerced, machine};
 use crate::domain::{JsAssertion, JsConst, JsPrim, Type};
 impl MachineOps for JsMachine<'_> {
     fn param_repr(&mut self, value: ValueId) -> Repr {
@@ -37,7 +37,7 @@ impl MachineOps for JsMachine<'_> {
         // table, so a second numbering would reach the wrong string rather than failing.
         if let Some(JsConst::Text(text)) = self.domain.declared(index) {
             let units = text.units().to_vec();
-            let Some(shared) = self.shared.as_deref_mut() else {
+            let Some(shared) = self.shared.as_mut() else {
                 return Err(format!(
                     "a text constant is a call to StringConst, which needs somewhere to declare it"
                 ));
@@ -71,7 +71,7 @@ impl MachineOps for JsMachine<'_> {
         // the tags are one field apart in `Shared` and never built separately.
         if let Some(JsConst::Singleton(which)) = self.domain.declared(index) {
             let which = *which;
-            let Some(shared) = self.shared.as_deref_mut() else {
+            let Some(shared) = self.shared.as_mut() else {
                 return Err(
                     "a singleton is bits from the program's tag registry, which this boundary was not given"
                         .to_owned(),
@@ -119,9 +119,9 @@ impl MachineOps for JsMachine<'_> {
             let which = *which;
             let numbered = self
                 .shared
-                .as_deref()
+                .as_ref()
                 .and_then(|shared| shared.module.get(which as usize).copied());
-            let (Some(id), Some(shared)) = (numbered, self.shared.as_deref()) else {
+            let (Some(id), Some(shared)) = (numbered, self.shared.as_ref()) else {
                 return Err(format!(
                     "a function value needs the machine id of f{which}, and this boundary compiles one function at a time -- the module numbering a direct call waits on too"
                 ));
@@ -404,7 +404,7 @@ impl MachineOps for JsMachine<'_> {
         // body's protected regions are expressible this calls and returns, which costs
         // one frame on a path that is taken when a speculation failed -- the path whose
         // cost the whole arrangement is willing to pay.
-        let Some(shared) = self.shared.as_deref_mut() else {
+        let Some(shared) = self.shared.as_mut() else {
             return Err(format!(
                 "the fall at p{} has no registry to name the generic body in",
                 point.0
@@ -431,7 +431,7 @@ impl MachineOps for JsMachine<'_> {
         callee: MachineValue,
         receiver: Option<MachineValue>,
         args: &[MachineValue],
-        _inst: &Inst,
+        inst: &Inst,
     ) -> Result<MachineValue, String> {
         // `RuntimeOp::Call` IS THE DOOR, and its shape is the convention written out:
         // callee, receiver, how many arguments were WRITTEN, which literal spells the
@@ -454,7 +454,7 @@ impl MachineOps for JsMachine<'_> {
                 crate::runtime::ARGUMENT_SLOTS
             ));
         }
-        let Some(shared) = self.shared.as_deref_mut() else {
+        let Some(shared) = self.shared.as_mut() else {
             return Err(
                 "a call needs the program's tag registry for its undefined padding".to_owned(),
             );
@@ -485,7 +485,13 @@ impl MachineOps for JsMachine<'_> {
         let mut of_args = vec![callee, receiver, count, unnamed];
         of_args.extend_from_slice(args);
         of_args.resize(4 + crate::runtime::ARGUMENT_SLOTS, padding);
-        self.call_runtime(into, crate::runtime::RuntimeOp::Call, &of_args)
+        // A CALL A RETURN HANDS STRAIGHT BACK records itself rather than growing the
+        // stack -- the same door with the same operands, `tail_positions` says which.
+        let door = match self.tail.contains(&inst.result) {
+            true => crate::runtime::RuntimeOp::TailCall,
+            false => crate::runtime::RuntimeOp::Call,
+        };
+        self.call_runtime(into, door, &of_args)
     }
 
     fn entry(
@@ -514,7 +520,7 @@ impl MachineOps for JsMachine<'_> {
         // each naming the `rts-core` body it was read against -- so this is not a guess
         // about which operations throw.
 
-        let Some(Shared { funcs, calls, .. }) = self.shared.as_deref_mut() else {
+        let Some(Parts { funcs, calls, .. }) = self.shared.as_mut() else {
             return Err(format!(
                 "calling {which:?} needs somewhere to declare it, which is the host's agreement"
             ));

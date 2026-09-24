@@ -1433,10 +1433,11 @@ fn delete_is_refused_because_its_operand_is_a_place() {
 }
 
 /// A conditional is a branch whose arms answer a value, joined into one — and the
-/// type at the join is the domain's join of the two.
+/// type at the join is the domain's join of the two. Not in `return` position, where it
+/// is rewritten into two returns so that a call in an arm is a tail call.
 #[test]
 fn a_conditional_joins_the_two_arms_types() {
-    let lowered = only("function f(c) { return c ? 1 : 0.5; }").expect("covered");
+    let lowered = only("function f(c) { const v = c ? 1 : 0.5; return v; }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
     let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
     let join = lowered
@@ -1995,14 +1996,24 @@ fn a_finally_is_a_cleanup_piece_on_its_region() {
     let lowered =
         only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
-    let protected = lowered
+    // TWO REGIONS, the cleanup's around the handler's: the `catch` runs before the
+    // `finally`, and a throw from the `catch` still owes it. One region holding both
+    // ran the `finally` first, because the machine runs a region's cleanup before its
+    // handler.
+    let outer = lowered
         .func
-        .block_ids()
-        .find(|held| lowered.func.region_of(*held).is_some())
-        .expect("a protected block");
-    let region = lowered
+        .regions
+        .iter()
+        .position(|held| held.cleanup.is_some())
+        .expect("a region carries the cleanup");
+    let inner = lowered
         .func
-        .region(lowered.func.region_of(protected).unwrap());
+        .regions
+        .iter()
+        .find(|held| held.handler.is_some())
+        .expect("a region carries the handler");
+    assert_eq!(inner.parent, Some(rts_mir::region::RegionId(outer as u32)));
+    let region = &lowered.func.regions[outer];
     let entry = region.cleanup.expect("the region carries a cleanup");
     // ONE ENTRY AND NO PARAMETER: nothing jumps to a cleanup, so no edge could carry
     // one -- the same argument the handler's single parameter rests on, reaching the
@@ -2041,14 +2052,23 @@ fn a_try_with_only_a_finally_is_a_region_with_no_handler() {
 fn a_cleanup_is_outside_the_region_it_cleans_up_after() {
     let lowered =
         only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }").expect("covered");
-    let protected = lowered
+    let of = lowered
         .func
-        .block_ids()
-        .find(|held| lowered.func.region_of(*held).is_some())
-        .expect("a protected block");
-    let of = lowered.func.region_of(protected).unwrap();
+        .regions
+        .iter()
+        .position(|held| held.cleanup.is_some())
+        .expect("a region carries the cleanup");
+    let of = rts_mir::region::RegionId(of as u32);
     let entry = lowered.func.region(of).cleanup.unwrap();
-    assert_ne!(lowered.func.region_of(entry), Some(of));
+    // Outside the region AND every region inside it.
+    let mut at = lowered.func.region_of(entry);
+    while let Some(here) = at {
+        assert_ne!(
+            here, of,
+            "the cleanup sits inside the region it cleans up after"
+        );
+        at = lowered.func.region(here).parent;
+    }
 }
 
 /// A `finally` that can complete ABRUPTLY is a different shape, not a missing feature:
@@ -2475,4 +2495,49 @@ fn for_await_is_refused_because_it_suspends_inside_the_region() {
         refused,
         Unsupported::Statement("for await suspends inside the region that owes the close")
     );
+}
+
+/// A `try` with a `finally` that completes NORMALLY runs the `finally` on the way out.
+/// The machine runs a cleanup where a region is left by a return or a throw, and falling
+/// off the end of the body is neither -- so a copy runs on that path, outside every
+/// region. Without it, `try { print("c") } finally { print("f") }` printed only `c`.
+#[test]
+fn a_finally_runs_on_the_ordinary_way_out_too() {
+    let lowered =
+        only("function f(o) { try { o.m(); } finally { o.n(); } return 1; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // `o.n()` is written once and lowered twice: the cleanup piece and the ordinary copy.
+    let calls = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(held.op, rts_mir::Op::Call { .. }))
+        .count();
+    assert_eq!(
+        calls, 3,
+        "o.m(), and o.n() in the cleanup and on the ordinary path"
+    );
+}
+
+/// A `break` out of a `try` with a `finally` is a jump out of the region, where the
+/// machine runs no cleanup -- so it is refused rather than skipping the `finally`.
+#[test]
+fn a_break_out_of_a_try_with_a_finally_is_refused() {
+    let refused = only("function f(o) { while (o) { try { break; } finally { o.n(); } } }")
+        .expect_err("the finally would be skipped");
+    assert_eq!(
+        refused,
+        Unsupported::Statement("a break or continue inside a try with a finally skips the cleanup")
+    );
+}
+
+/// `return c ? a : b` is two returns, which is what makes a call in either arm a TAIL
+/// call -- lowered through a join, `sumAcc(n - 1, acc + n)` answered into a block
+/// parameter first, and a recursion a million deep overflowed the stack.
+#[test]
+fn a_conditional_return_is_two_returns() {
+    let lowered = only("function f(c, g) { return c ? g(1) : g(2); }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let tails = crate::machine::tail_positions(&lowered.func);
+    assert_eq!(tails.len(), 2, "each arm's call is in tail position");
 }

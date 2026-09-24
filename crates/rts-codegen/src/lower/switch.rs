@@ -102,6 +102,10 @@ impl Lowering<'_> {
         // The values as they stand before any clause runs. Every edge out of the test
         // chain carries these, because no body has run yet.
         let entering: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
+        // EACH CLAUSE STARTS FROM WHAT HELD BEFORE THE SWITCH, and not from what the
+        // clause lowered before it left behind: a clause is reached from its own test,
+        // where nothing an earlier clause bound exists.
+        let outside = self.values.clone();
 
         for (at_clause, clause) in clauses.iter().enumerate() {
             let Some(test) = &clause.test else {
@@ -147,6 +151,7 @@ impl Lowering<'_> {
                 break;
             }
             self.builder.switch_to(bodies[at_clause]);
+            self.values = outside.clone();
             for (binding, param) in carried.iter().zip(&body_params[at_clause]) {
                 self.values.insert(*binding, *param);
             }

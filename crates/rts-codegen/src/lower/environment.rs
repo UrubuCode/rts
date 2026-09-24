@@ -54,6 +54,11 @@ impl Lowering<'_> {
             return Ok(());
         }
 
+        if self.outer.is_some() {
+            return Err(Unsupported::Shape(
+                "a function building its own environment under another stage's layout",
+            ));
+        }
         let mut keys = Vec::with_capacity(owned.len());
         let mut spelled = std::collections::BTreeSet::new();
         for binding in &owned {
@@ -105,6 +110,29 @@ impl Lowering<'_> {
     ) -> Result<(ValueId, ValueId), Unsupported> {
         let record = self.resolution.binding(binding);
         let (scope, name) = (record.scope, record.name);
+        // A BINDING SOMEBODY ELSE LAID OUT is read where they put it. The per-pass
+        // refusal below does not apply: the running emitter builds the environment
+        // per pass, and its count of links already says which one this closure holds.
+        if let Some(outer) = self.outer
+            && self.resolution.owner(scope) != self.function
+        {
+            let Some((hops, key)) = outer(name) else {
+                return Err(Unsupported::Expression(
+                    "the enclosing layout does not hold this binding in an environment",
+                ));
+            };
+            let Some(mut environment) = self.environment else {
+                return Err(Unsupported::Expression(
+                    "a captured binding with no environment in force, which the scope walk should have made impossible",
+                ));
+            };
+            for _ in 0..hops {
+                environment = self.prim(JsPrim::EnvOuter, vec![environment], at);
+            }
+            let key = self.domain.constant(JsConst::Key(key));
+            let key = self.declared(key, at);
+            return Ok((environment, key));
+        }
         if self.resolution.per_pass(scope) {
             return Err(Unsupported::Shape(
                 "a captured binding declared inside a loop is one per pass, and this environment holds one per activation",

@@ -73,6 +73,7 @@ mod fold;
 mod for_await;
 mod foreach;
 mod function;
+mod through_mir;
 pub(crate) use function::signature as convention;
 mod globals;
 mod heritage;
@@ -379,6 +380,16 @@ pub struct Ctx<'a> {
     /// ver `process` de borla), e só `vm.runInThisContext` — que partilha o
     /// OBJETO GLOBAL real — o quer `false`. `rts-host`'s `live.rs` decide qual.
     pub hide_node_globals: bool,
+    /// The scope tree of the program being emitted, for the functions
+    /// `through_mir` compiles through the MIR stage. `None` where that door is shut.
+    mir_resolution: Option<std::rc::Rc<crate::names::resolve::Resolution>>,
+    /// Whether the function about to be emitted is one `through_mir` may take: set by
+    /// the two call sites that make an ordinary function -- an expression and a hoisted
+    /// declaration -- and TAKEN by `emit_function`, so nothing nested inherits it. A
+    /// class constructor reaches `emit_function` down the same path as a function
+    /// expression and gets a body this emitter shapes -- fields, the derived `this` --
+    /// so the question is where the function came from, which only the caller knows.
+    mir_candidate: bool,
     /// The objects a `with` put on the scope chain, innermost LAST.
     ///
     /// Empty everywhere except inside a `with` body. What reads it is
@@ -699,6 +710,8 @@ impl<'a> Ctx<'a> {
             inferred_name: None,
             function_names: Vec::new(),
             literals: crate::runtime::Literals::new(),
+            mir_resolution: None,
+            mir_candidate: false,
             templates: Vec::new(),
             numeric: Numeric::default(),
             integers: crate::emit::int32::Int32::default(),
@@ -1100,6 +1113,11 @@ pub(super) fn emit_program_into(
     // Whole-program, once, before anything is emitted: a claim in one function
     // names a class declared in another, so this cannot be built per body.
     whole_program_facts(body, ctx);
+    // The scope tree the MIR stage lowers against, once per program for the reason the
+    // facts above are: a function is lowered where it is emitted, and the tree is the
+    // whole program's.
+    ctx.mir_resolution = through_mir::open()
+        .then(|| std::rc::Rc::new(crate::names::resolve::resolve(body)));
 
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);

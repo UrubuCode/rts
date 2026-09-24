@@ -54,6 +54,38 @@ pub struct Shared {
     pub module: Vec<rts_cranelift::ir::FuncId>,
 }
 
+/// Borrowed views of the registries a program shares, which is what the boundary
+/// actually needs -- so the instrument's own [`Shared`] and the running emitter's
+/// context can both hand them over.
+pub struct Parts<'a> {
+    /// See [`Shared::funcs`].
+    pub funcs: &'a mut rts_cranelift::ir::FuncRegistry,
+    /// See [`Shared::calls`].
+    pub calls: &'a mut crate::runtime::RuntimeCalls,
+    /// See [`Shared::literals`].
+    pub literals: &'a mut crate::runtime::Literals,
+    /// See [`Shared::keys`].
+    pub keys: &'a mut rts_cranelift::shape::KeyRegistry,
+    /// See [`Shared::model`].
+    pub model: &'a crate::values::ValueModel,
+    /// See [`Shared::module`].
+    pub module: &'a [rts_cranelift::ir::FuncId],
+}
+
+impl Shared {
+    /// The registries, borrowed.
+    pub fn parts(&mut self) -> Parts<'_> {
+        Parts {
+            funcs: &mut self.funcs,
+            calls: &mut self.calls,
+            literals: &mut self.literals,
+            keys: &mut self.keys,
+            model: &self.model,
+            module: &self.module,
+        }
+    }
+}
+
 impl Default for Shared {
     fn default() -> Self {
         Self::new()

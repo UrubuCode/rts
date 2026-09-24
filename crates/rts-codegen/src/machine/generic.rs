@@ -112,7 +112,7 @@ impl JsMachine<'_> {
         if into.repr_of(value) != Repr::Tagged {
             return Ok(into.bool_constant(false));
         }
-        let Some(shared) = self.shared.as_deref() else {
+        let Some(shared) = self.shared.as_ref() else {
             return Err("a singleton test needs the program's tag registry".to_owned());
         };
         let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
