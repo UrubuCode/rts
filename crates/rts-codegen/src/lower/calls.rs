@@ -17,10 +17,60 @@ use crate::names::resolve::BindingId;
 use crate::syntax::Expr;
 
 impl Lowering<'_> {
+    /// A call as the program wrote it: the argument list, or -- where it holds a spread,
+    /// whose count only the run time knows -- a vector and `CallWithArgs`, the door the
+    /// running emitter takes for the same call. A function of this module called by
+    /// number with a spread is refused; it has no value to hand that door.
+    pub(super) fn call_written(
+        &mut self,
+        callee: rts_mir::cfg::Callee,
+        receiver: Option<ValueId>,
+        arguments: &[crate::syntax::Spreadable],
+        at: &Expr,
+    ) -> Result<ValueId, Unsupported> {
+        if let Some(vector) = self.spread_vector(arguments, at)? {
+            let rts_mir::cfg::Callee::Dynamic(function) = callee else {
+                return Err(Unsupported::Expression(
+                    "a spread into a function called by number",
+                ));
+            };
+            let receiver = match receiver {
+                Some(held) => held,
+                None => self.singleton_at(crate::values::Singleton::Undefined, at),
+            };
+            return Ok(self.entry(
+                crate::runtime::RuntimeOp::CallWithArgs,
+                vec![function, receiver, vector],
+                at,
+            ));
+        }
+        let args = self.arguments(arguments)?;
+        Ok(self.call(callee, receiver, args, at))
+    }
+
+    /// The arguments as ONE array, where any of them is a spread -- built the way an
+    /// array literal with a spread is -- or `None` where the count is the one written.
+    pub(super) fn spread_vector(
+        &mut self,
+        arguments: &[crate::syntax::Spreadable],
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        if !arguments
+            .iter()
+            .any(|held| matches!(held, crate::syntax::Spreadable::Spread(_)))
+        {
+            return Ok(None);
+        }
+        let elements: Vec<Option<crate::syntax::Spreadable>> =
+            arguments.iter().cloned().map(Some).collect();
+        self.array_literal(&elements, at).map(Some)
+    }
+
     /// The arguments of a call, in source order.
     ///
-    /// A spread is refused: the count would stop being the count written, and every
-    /// consumer of this graph reads the argument list as what the program wrote.
+    /// A spread is refused here: the count would stop being the count written, and
+    /// every consumer of this graph reads the argument list as what the program wrote.
+    /// [`Self::call_written`] is where a spread goes instead.
     pub(super) fn arguments(
         &mut self,
         arguments: &[crate::syntax::Spreadable],

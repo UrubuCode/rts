@@ -143,7 +143,7 @@ impl Lowering<'_> {
     }
 
     /// A parameter of `block` nothing is known about.
-    fn top_param(&mut self, block: rts_mir::BlockId) -> ValueId {
+    pub(super) fn top_param(&mut self, block: rts_mir::BlockId) -> ValueId {
         let param = self.builder.param(block);
         self.types.insert(param, self.domain.top());
         param

@@ -166,8 +166,8 @@ impl JsMachine<'_> {
     }
 
     /// `new f(a, b)`: the constructor, then one slot per argument padded with
-    /// `undefined` -- the arity `RuntimeOp::Construct` fixes, and the same refusal
-    /// past it that a call has.
+    /// `undefined` -- the arity `RuntimeOp::Construct` fixes. Past it, the arguments go
+    /// in an array and `ConstructWithArgs` takes it, as a long call does.
     fn construct(
         &mut self,
         into: &mut FuncBuilder,
@@ -175,9 +175,8 @@ impl JsMachine<'_> {
     ) -> Result<MachineValue, String> {
         let written = args.len() - 1;
         if written > ARGUMENT_SLOTS {
-            return Err(format!(
-                "a construction of {written} arguments needs the vector form, and this door has {ARGUMENT_SLOTS} slots"
-            ));
+            let vector = self.array_of(into, &args[1..])?;
+            return self.call_runtime(into, RuntimeOp::ConstructWithArgs, &[args[0], vector]);
         }
         let undefined = self.undefined(into)?;
         let mut of_args = args.to_vec();

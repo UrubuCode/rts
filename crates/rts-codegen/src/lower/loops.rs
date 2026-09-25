@@ -478,7 +478,7 @@ impl Lowering<'_> {
     }
 
     /// The bindings an expression assigns, for a loop head's update and test.
-    fn assigned_in_expr(&self, expr: &Expr) -> Result<BTreeSet<BindingId>, Unsupported> {
+    pub(super) fn assigned_in_expr(&self, expr: &Expr) -> Result<BTreeSet<BindingId>, Unsupported> {
         let mut names = Vec::new();
         assigned_names_in_expr(expr, &mut names);
         let mut found = BTreeSet::new();

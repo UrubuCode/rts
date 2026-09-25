@@ -40,7 +40,7 @@ use crate::names::Name;
 use crate::names::resolve::{BindingId, Resolution, ScopeId};
 use crate::syntax::{
     AssignOp, AssignTarget, BinaryOp, Expr, ExprKind, Function, FunctionBody, Pattern,
-    Stmt, StmtKind, UpdateOp, UpdatePosition,
+    Stmt, StmtKind,
 };
 use crate::values::Singleton;
 use named::{expression_name, name_of, primitive};
@@ -49,6 +49,7 @@ pub(crate) use object::built_elsewhere;
 
 mod branch;
 mod callees;
+mod chain;
 mod calls;
 mod choice;
 mod claim;
@@ -63,6 +64,7 @@ mod loops;
 mod named;
 mod numeric_use;
 mod object;
+mod places;
 mod protect;
 mod push;
 mod suspend;
@@ -676,9 +678,7 @@ impl Lowering<'_> {
                 // value: lowering the operand first would evaluate what is about to
                 // be deleted. It keeps its refusal by name.
                 if matches!(op, crate::syntax::UnaryOp::Delete) {
-                    return Err(Unsupported::Expression(
-                        "delete removes a property, so its operand is a place",
-                    ));
+                    return self.delete(operand, expr);
                 }
                 let held = self.expression(operand)?;
                 let which = match op {
@@ -744,6 +744,15 @@ impl Lowering<'_> {
             // A CONSTRUCTION, with the constructor as the first argument.
             ExprKind::New { callee, arguments } => {
                 let held = self.expression(callee)?;
+                // A SPREAD has a count only the run time knows: the vector door,
+                // `ConstructWithArgs`, which is what the running emitter takes.
+                if let Some(vector) = self.spread_vector(arguments, expr)? {
+                    return Ok(self.entry(
+                        crate::runtime::RuntimeOp::ConstructWithArgs,
+                        vec![held, vector],
+                        expr,
+                    ));
+                }
                 let mut args = vec![held];
                 args.extend(self.arguments(arguments)?);
                 Ok(self.prim(JsPrim::Construct, args, expr))
@@ -762,6 +771,7 @@ impl Lowering<'_> {
             // So a literal with a spread is built rather than counted: one array, and
             // an append per element, which is the shape `array_append` exists for.
             ExprKind::Array { elements } => self.array_literal(elements, expr),
+            ExprKind::Chain(inner) => self.chain(inner),
             // A class EXPRESSION is lowered only where another stage compiles it --
             // `class.rs`; everywhere else it stays refused by name.
             ExprKind::Class(class) if self.outer.is_some() => self.class_value(class, expr),
@@ -800,13 +810,12 @@ impl Lowering<'_> {
                     let key = self.domain.constant(JsConst::Key(*property));
                     let key = self.declared(key, expr);
                     let held = self.prim(JsPrim::FieldRead, vec![receiver, key], expr);
-                    let args = self.arguments(arguments)?;
-                    return Ok(self.call(
+                    return self.call_written(
                         rts_mir::cfg::Callee::Dynamic(held),
                         Some(receiver),
-                        args,
+                        arguments,
                         expr,
-                    ));
+                    );
                 }
                 // `o[k]()` is a method call as much as `o.m()` is: the receiver is `o`.
                 if let ExprKind::Index {
@@ -818,30 +827,28 @@ impl Lowering<'_> {
                     let receiver = self.expression(object)?;
                     let key = self.expression(index)?;
                     let held = self.prim(JsPrim::IndexRead, vec![receiver, key], expr);
-                    let args = self.arguments(arguments)?;
-                    return Ok(self.call(
+                    return self.call_written(
                         rts_mir::cfg::Callee::Dynamic(held),
                         Some(receiver),
-                        args,
+                        arguments,
                         expr,
-                    ));
+                    );
                 }
                 // ANY OTHER CALLEE is a value, called with no receiver: `f()()`,
                 // `(a || b)(x)`, `(() => 1)()`. What the expression cannot express --
                 // `super`, an optional chain -- its own lowering refuses by name.
                 let ExprKind::Ident(name) = &callee.kind else {
                     let held = self.expression(callee)?;
-                    let args = self.arguments(arguments)?;
-                    return Ok(self.call(rts_mir::cfg::Callee::Dynamic(held), None, args, expr));
+                    return self.call_written(rts_mir::cfg::Callee::Dynamic(held), None, arguments, expr);
                 };
                 let binding = self.resolution.binding_in(self.scope, *name);
-                let args = self.arguments(arguments)?;
                 // A CALL TO A GLOBAL: read it, then call what it held. No receiver
                 // travels -- parseInt(x) passes none, and the global object is not
-                // a receiver.
+                // a receiver. The callee is read BEFORE the arguments run, which is
+                // the language's order; this read them the other way round.
                 let Some(binding) = binding else {
                     let held = self.global(*name, expr);
-                    return Ok(self.call(rts_mir::cfg::Callee::Dynamic(held), None, args, expr));
+                    return self.call_written(rts_mir::cfg::Callee::Dynamic(held), None, arguments, expr);
                 };
                 // A NAME THAT HOLDS NO FUNCTION OF THIS MODULE is still a call — an
                 // imported binding, or a parameter holding a function. It reaches
@@ -858,7 +865,7 @@ impl Lowering<'_> {
                         rts_mir::cfg::Callee::Dynamic(held)
                     }
                 };
-                Ok(self.call(callee, None, args, expr))
+                self.call_written(callee, None, arguments, expr)
             }
             // AN INCREMENT of a local, which a `for` header needs and which is not
             // `x = x + 1`.
@@ -872,32 +879,7 @@ impl Lowering<'_> {
                 op,
                 position,
                 target,
-            } => {
-                let ExprKind::Ident(name) = &target.kind else {
-                    return Err(Unsupported::Expression(
-                        "an increment of a property writes the heap",
-                    ));
-                };
-                let held = self.expression(target)?;
-                let before = self.prim(JsPrim::ToNumber, vec![held], expr);
-                let one = {
-                    let value = Const::Int(1);
-                    let of = self.domain.of_const(&value);
-                    let pushed = self.builder.push(Op::Const(value), Effect::PURE, expr.at);
-                    self.types.insert(pushed, of);
-                    pushed
-                };
-                let after = match op {
-                    UpdateOp::Increment => self.prim(JsPrim::Add, vec![before, one], expr),
-                    UpdateOp::Decrement => self.prim(JsPrim::Subtract, vec![before, one], expr),
-                };
-                let of = self.type_of(after);
-                self.bind(*name, after, of, expr)?;
-                Ok(match position {
-                    UpdatePosition::Prefix => after,
-                    UpdatePosition::Postfix => before,
-                })
-            }
+            } => self.update(*op, *position, target, expr),
             ExprKind::Binary { op, left, right } => {
                 let left = self.expression(left)?;
                 let right = self.expression(right)?;

@@ -373,6 +373,11 @@ pub enum JsConst {
     /// Not a number of the language: nothing reads one as a value, and a `Const::Int`
     /// would be one, typed and boxed as the program's numbers are.
     Count(u32),
+    /// The marker an array holds at a position nothing was written to -- a hole.
+    ///
+    /// Not a value of the language: nothing reads one as a value, and an append is the
+    /// only operation handed one, which is how `[, 1]` keeps its first position absent.
+    Hole,
 }
 
 /// A key this language fixes.

@@ -106,6 +106,18 @@ impl MachineOps for JsMachine<'_> {
             self.from_constant.insert(held, index);
             return Ok(held);
         }
+        // THE HOLE MARKER IS BITS the model declared, as a singleton's are.
+        if let Some(JsConst::Hole) = self.domain.declared(index) {
+            let Some(shared) = self.shared.as_ref() else {
+                return Err("the hole marker is bits from the program's model".to_owned());
+            };
+            let hole = shared.model.hole();
+            let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::Tagged,
+                bits: rts_cranelift::ir::ScalarBits(hole.word()),
+            });
+            return Ok(into.use_const(held));
+        }
         // A COUNT IS A MACHINE WORD, which is the whole of what the entry point taking it
         // declares; it is never a value of the language.
         if let Some(JsConst::Count(held)) = self.domain.declared(index) {

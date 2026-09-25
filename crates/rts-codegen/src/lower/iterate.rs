@@ -330,21 +330,19 @@ impl Lowering<'_> {
         elements: &[Option<Spreadable>],
         at: &Expr,
     ) -> Result<ValueId, Unsupported> {
-        let spread = elements
+        // A HOLE is not `undefined`: `[, 1]` has a position some operations skip and
+        // others read as `undefined`. So a literal with one is APPENDED, like one with a
+        // spread, and the hole is the runtime's own marker for an unwritten position --
+        // `emit/expr.rs`'s way, which leaves `0 in [, 1]` false.
+        let appended = elements
             .iter()
-            .any(|held| matches!(held, Some(Spreadable::Spread(_))));
-        if !spread {
+            .any(|held| !matches!(held, Some(Spreadable::Single(_))));
+        if !appended {
             let mut values = Vec::with_capacity(elements.len());
             for element in elements {
-                let Some(Spreadable::Single(held)) = element else {
-                    // A HOLE is not `undefined`, and collapsing them loses the
-                    // difference: `[, 1]` has a hole that some operations skip and
-                    // others read as `undefined`. Refused rather than chosen for.
-                    return Err(Unsupported::Expression(
-                        "a hole in an array literal is not the same as undefined",
-                    ));
-                };
-                values.push(self.expression(held)?);
+                if let Some(Spreadable::Single(held)) = element {
+                    values.push(self.expression(held)?);
+                }
             }
             return Ok(self.prim(JsPrim::NewArray, values, at));
         }
@@ -361,9 +359,9 @@ impl Lowering<'_> {
                     array = self.entry(RuntimeOp::ArrayAppendAll, vec![array, value], at);
                 }
                 None => {
-                    return Err(Unsupported::Expression(
-                        "a hole in an array literal is not the same as undefined",
-                    ));
+                    let hole = self.domain.constant(crate::domain::JsConst::Hole);
+                    let hole = self.declared(hole, at);
+                    array = self.entry(RuntimeOp::ArrayAppend, vec![array, hole], at);
                 }
             }
         }

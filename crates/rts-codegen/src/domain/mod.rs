@@ -164,6 +164,11 @@ impl Js {
         RuntimeOp::BigIntNew,
         // A write to a name no scope declares -- `lower::Lowering::bind`, under the door.
         RuntimeOp::GlobalSet,
+        // `delete`, a spread call and a spread or long construction -- `lower/places.rs`
+        // and `lower/calls.rs`.
+        RuntimeOp::DeleteProperty,
+        RuntimeOp::CallWithArgs,
+        RuntimeOp::ConstructWithArgs,
     ];
 
     /// The index the IR carries for an entry point.
@@ -499,6 +504,8 @@ impl Domain for Js {
                 // in this lattice. Nothing reads one as a value: it is only ever the
                 // operand of the operation that makes a closure of it.
                 Some(JsConst::Function(_) | JsConst::Count(_)) => Type::Nothing,
+                // Handed to an append and nothing else, so nothing is known of it.
+                Some(JsConst::Hole) => Type::Anything,
                 // A key is text, wherever the key came from.
                 Some(JsConst::WellKnown(_)) => Type::Str,
                 None => Type::Anything,
@@ -648,6 +655,8 @@ impl Domain for Js {
             // typed a concatenation.
             Some(RuntimeOp::StringOf) => Type::Str,
             Some(RuntimeOp::BigIntNew) => Type::BigInt,
+            // A truth value, and answered unboxed -- the representation is the proof.
+            Some(RuntimeOp::DeleteProperty) => Type::Bool(None),
             // A length is a number, answered unboxed -- the representation and the
             // proof are one fact here.
             Some(RuntimeOp::ArrayLength) => Type::Double,
@@ -730,6 +739,7 @@ impl rts_mir::text::Legend for Js {
             Some(JsConst::Key(_)) => format!("key#{index}"),
             Some(JsConst::Function(held)) => format!("f{held}"),
             Some(JsConst::Count(held)) => format!("count#{held}"),
+            Some(JsConst::Hole) => "hole".to_owned(),
             Some(JsConst::WellKnown(which)) => format!(".{}", format!("{which:?}").to_lowercase()),
             Some(JsConst::Text(_)) => format!("str#{index}"),
             None => format!("const#{index}"),

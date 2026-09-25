@@ -229,23 +229,24 @@ mod tests {
     fn a_refusal_is_printed_as_a_work_queue_and_counted() {
         let printed = describe(
             "function ok() { return 1; }
-             function nope(a, b) { delete a.b; }",
+             function nope(a, b) { with (a) { b; } }",
         )
         .expect("parses");
         assert!(
-            printed.contains("fn nope — NOT LOWERED: expression — delete"),
+            printed.contains("fn nope — NOT LOWERED"),
             "{printed}"
         );
         assert!(printed.contains("1 of 2 functions lowered"), "{printed}");
     }
 
-    /// A refusal names what it was, and the example has now moved three times -- a
-    /// global, a generator, `yield*`, now an optional chain. Each time for the same
-    /// reason: the previous example started lowering.
+    /// A refusal names what it was, and the example has now moved four times -- a
+    /// global, a generator, `yield*`, an optional chain, now `with`. Each time for the
+    /// same reason: the previous example started lowering. `with` is sloppy code only,
+    /// which the door declines whole, so it is the one expected to stay.
     #[test]
     fn a_refusal_is_named_in_the_dump() {
-        let printed = describe("function g(i) { return i?.x; }").expect("parses");
-        assert!(printed.contains("optional chain"), "{printed}");
+        let printed = describe("function g(i) { with (i) { x; } }").expect("parses");
+        assert!(printed.contains("with"), "{printed}");
     }
 
     /// And a generator that only suspends is PRINTED, which is what the line above

@@ -705,11 +705,17 @@ fn an_array_literal_is_one_allocating_primitive() {
     }
 }
 
-/// A hole is NOT `undefined`, so it is refused rather than lowered as one.
+/// A hole is NOT `undefined`, so it is not lowered as one: the literal is APPENDED and
+/// the hole is the runtime's own marker for an unwritten position, a declared constant
+/// of its own rather than the `undefined` singleton.
 #[test]
-fn a_hole_is_refused_rather_than_collapsed_into_undefined() {
-    let refused = only("function f() { return [1, , 3]; }").expect_err("a hole");
-    assert!(matches!(refused, Unsupported::Expression(_)));
+fn a_hole_is_the_runtimes_marker_and_not_undefined() {
+    let lowered = only("function f() { return [1, , 3]; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    assert!(
+        (0..).map_while(|at| lowered.domain.declared(at)).any(|held| *held == crate::domain::JsConst::Hole),
+        "the hole is its own marker"
+    );
 }
 
 /// A spread does make the length a run-time question, and this test replaced one
@@ -925,12 +931,18 @@ fn a_key_and_a_string_of_one_spelling_are_two_constants() {
     assert!(matches!(declared[1], crate::domain::JsConst::Text(_)));
 }
 
-/// An optional access short-circuits, which is a branch this stage does not build
-/// — refused by name rather than lowered as an ordinary read.
+/// An optional access short-circuits: `o?.x` tests `o` for the two nullish singletons
+/// and leaves for the chain's join, so the read is NOT in the entry block.
 #[test]
-fn an_optional_access_is_refused_rather_than_read_unconditionally() {
-    let refused = only("function f(o) { return o?.x; }").expect_err("an optional link");
-    assert!(matches!(refused, Unsupported::Expression(_)));
+fn an_optional_access_short_circuits_rather_than_reading_unconditionally() {
+    let lowered = only("function f(o) { return o?.x; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let entry = lowered.func.entry();
+    let read_in_entry = lowered.func.block(entry).insts.iter().any(|inst| matches!(
+        &lowered.func.inst(*inst).op,
+        Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::FieldRead)
+    ));
+    assert!(!read_in_entry, "the read sits behind the nullish test");
 }
 
 /// An object literal is pairs of a declared key and a value, in SOURCE ORDER --
@@ -1125,11 +1137,18 @@ fn a_call_carries_the_effect_a_call_has() {
     assert!(!call.effect.falls_through());
 }
 
-/// A spread argument is refused: the count would stop being the count written.
+/// A spread argument is not a count the program wrote, so the call takes the vector door:
+/// one array built like a literal with a spread, and `CallWithArgs` over it.
 #[test]
-fn a_spread_argument_is_refused() {
-    let refused = only("function f(o, xs) { return o.m(...xs); }").expect_err("a spread");
-    assert!(matches!(refused, Unsupported::Expression(_)));
+fn a_spread_argument_takes_the_vector_door() {
+    let lowered = only("function f(o, xs) { return o.m(...xs); }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let called = lowered.func.insts.iter().any(|held| matches!(
+        held.op,
+        Op::Call { callee: rts_mir::cfg::Callee::Entry(entry), .. }
+            if lowered.domain.entry_meaning(entry) == Some(crate::runtime::RuntimeOp::CallWithArgs)
+    ));
+    assert!(called, "CallWithArgs");
 }
 
 /// A binding outside this function is read out of the ENVIRONMENT that owns it, by
@@ -1329,14 +1348,11 @@ fn unsigned_shift_answers_a_double_and_not_an_int32() {
 /// survey is the work queue and a bucket cannot be queued.
 ///
 /// The kinds asserted here are the ones still refused: a construction, a type
-/// assertion, a template literal and a comma expression were in this list and all four
-/// lower now, which is why the list moved rather than the test being deleted.
+/// assertion, a template literal, a comma expression and an optional chain were in this
+/// list and all five lower now, which is why the list moved rather than the test being
+/// deleted.
 #[test]
 fn a_refused_expression_names_what_it_was() {
-    assert_eq!(
-        only("function f(a) { return a?.b; }").expect_err("an optional chain"),
-        Unsupported::Expression("an optional chain")
-    );
     assert_eq!(
         only("function f(t) { return t`x`; }").expect_err("a tagged template"),
         Unsupported::Expression("a tagged template")
@@ -1512,15 +1528,19 @@ fn void_evaluates_its_operand_and_answers_undefined() {
     assert_eq!(*types.of(returned), Type::Undefined);
 }
 
-/// `delete` removes a property, so its operand is a PLACE: lowering the operand
-/// first would evaluate what is about to be deleted.
+/// `delete` removes a property, so its operand is a PLACE: the object is evaluated once
+/// and the runtime removes the key -- no read of the property happens first.
 #[test]
-fn delete_is_refused_because_its_operand_is_a_place() {
-    let refused = only("function f(o) { return delete o.x; }").expect_err("delete");
-    assert_eq!(
-        refused,
-        Unsupported::Expression("delete removes a property, so its operand is a place")
-    );
+fn delete_removes_a_place_without_reading_it() {
+    // A computed key: `only` lowers against an empty interner, where a written name has
+    // no spelling to hand the runtime -- the door lowers against the program's own.
+    let lowered = only("function f(o, k) { return delete o[k]; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let read = lowered.func.insts.iter().any(|held| matches!(
+        &held.op,
+        Op::Prim { prim, .. } if matches!(lowered.domain.meaning(*prim), Some(JsPrim::FieldRead | JsPrim::IndexRead))
+    ));
+    assert!(!read, "nothing reads what is about to be deleted");
 }
 
 /// A conditional is a branch whose arms answer a value, joined into one — and the
