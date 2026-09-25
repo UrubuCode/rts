@@ -55,6 +55,7 @@ mod class;
 mod declare;
 mod destructure;
 mod environment;
+mod gather;
 mod iterate;
 mod loops;
 mod named;
@@ -183,8 +184,10 @@ pub fn lower_within(
     // body, it answers a generator object or a promise -- and that follows from the
     // callee's flag, which rule 2 puts on the machine. It refuses by name there:
     // `rts_mir::lower::Unlowerable::NeedsFrameTransform`.
-    if function.rest_parameter.is_some() {
-        return Err(Unsupported::Shape("a rest parameter gathers at run time"));
+    if let Some(rest) = &function.rest_parameter
+        && !matches!(rest, Pattern::Name(_))
+    {
+        return Err(Unsupported::Pattern);
     }
     let Some(scope) = resolution.function_scope(function.at) else {
         return Err(Unsupported::NoScope);
@@ -213,13 +216,17 @@ pub fn lower_within(
     // both sides; the two tiers infer different types, so a decision that consulted one
     // would number them differently.
     let coerced = numeric_use::coerced_names(function);
-    for parameter in &function.parameters {
+    for (position, parameter) in function.parameters.iter().enumerate() {
         if parameter.default.is_some() {
             return Err(Unsupported::Shape("a parameter default is an expression"));
         }
         let Pattern::Name(name) = &parameter.target else {
             return Err(Unsupported::Pattern);
         };
+        // PAST THE SLOTS a parameter arrives in no register -- `gather.rs` reads it.
+        if position >= crate::runtime::ARGUMENT_SLOTS {
+            continue;
+        }
         let entry = lowering.builder.current();
         let value = lowering.builder.param(entry);
         // A parameter is this function's by definition, so the `at` is only ever
@@ -254,6 +261,7 @@ pub fn lower_within(
         }
     }
 
+    lowering.gather(function)?;
     lowering.prologue = false;
     lowering.open_environment(&Expr {
         kind: ExprKind::This,

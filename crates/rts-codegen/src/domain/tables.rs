@@ -352,6 +352,12 @@ pub enum JsConst {
     /// It names something rather than being a value, so that an operation can say
     /// WHICH without this layer deciding how the thing is represented.
     Function(u32),
+    /// A count the compiler fixed and an entry point takes as a machine word -- how many
+    /// parameters a function declares, where `RestArguments` starts gathering.
+    ///
+    /// Not a number of the language: nothing reads one as a value, and a `Const::Int`
+    /// would be one, typed and boxed as the program's numbers are.
+    Count(u32),
 }
 
 /// A key this language fixes.

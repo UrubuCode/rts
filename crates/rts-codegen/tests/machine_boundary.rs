@@ -19,6 +19,7 @@ use rts_codegen::machine::JsMachine;
 use rts_codegen::names::Names;
 use rts_codegen::names::resolve::resolve_module;
 use rts_codegen::parse::parse_script;
+use rts_codegen::runtime::RuntimeOp;
 use rts_cranelift::ir::{FuncRegistry, Function, Signature};
 use rts_cranelift::repr::Repr;
 use rts_cranelift::types::TypeRegistry;
@@ -835,31 +836,33 @@ fn a_method_call_reaches_the_machine_with_the_receiver_travelling() {
     }
 }
 
-/// The door's arity is FIXED at four argument slots, and a call with more is refused rather
-/// than truncated — `CallWithArgs` is the operation for that.
+/// The door's arity is FIXED at four argument slots, and a call with more goes through the
+/// vector door rather than being truncated: `CallWithArgs` over an array holding every
+/// argument, which is the running emitter's shape for the same call.
 ///
 /// `runtime/mod.rs` says why the arity is fixed at all: the machine has no stack slot to put
-/// a real argument vector in, so `rts-core` keeps the vector in a `Vec` of its own.
+/// a real argument vector in, so `rts-core` keeps the vector in a `Vec` of its own. It was
+/// refused here until the boundary built that vector; the fifth argument is appended, and
+/// a door that took four would have been a different call.
 #[test]
-fn a_call_with_more_arguments_than_slots_is_refused_and_not_truncated() {
-    let mut names = Names::new();
-    let program =
-        parse_script("function f(o) { return o.m(1, 2, 3, 4, 5); }", &mut names).expect("parses");
-    let resolution = resolve_module(&program.body);
-    let lowered = lower_module(&program.body, &resolution, &names, Tier::Generic);
-    let Ok(graph) = lowered.functions[0].result.as_ref() else {
-        return;
-    };
-    let mut shared = rts_codegen::machine::Shared::new();
-    let refused = rts_codegen::machine::reaches_machine(
-        graph,
-        &lowered.domain,
-        None,
-        &mut shared,
-        &mut names,
-    )
-    .expect_err("five arguments, four slots");
-    assert!(said(refused).contains("needs the vector form"));
+fn a_call_with_more_arguments_than_slots_takes_the_vector_door() {
+    for source in [
+        "function f(o) { return o.m(1, 2, 3, 4, 5); }",
+        "function f(g) { return g(1, 2, 3, 4, 5); }",
+    ] {
+        let (func, types, shared) = reach_named(source, "f");
+        let func = func.unwrap_or_else(|held| panic!("{source}: {held:?}"));
+        assert_eq!(
+            rts_cranelift::verify(&func, &types, &shared.funcs),
+            Vec::new(),
+            "{source}"
+        );
+        let declared: Vec<_> = shared.calls.declared().map(|(op, _)| op).collect();
+        for wanted in [RuntimeOp::CallWithArgs, RuntimeOp::ArrayOf, RuntimeOp::ArrayAppend] {
+            assert!(declared.contains(&wanted), "{source}: {wanted:?} in {declared:?}");
+        }
+        assert!(!declared.contains(&RuntimeOp::Call), "{source}: {declared:?}");
+    }
 }
 
 /// **A `: string` claim earns no guard**, and that is rule 4 applied strictly rather than a
@@ -1050,15 +1053,6 @@ fn a_plain_call_over_a_value_reaches_the_machine() {
             "{source}"
         );
     }
-}
-
-/// And one past the door's slots is refused rather than truncated: a fifth argument has
-/// no slot to arrive in, and dropping it would be a different call.
-#[test]
-fn a_plain_call_past_the_slots_is_refused_rather_than_truncated() {
-    let (held, ..) = reach_named("function f(g) { return g(1, 2, 3, 4, 5); }", "f");
-    let words = said(held.expect_err("five arguments, four slots"));
-    assert!(words.contains("vector form"), "{words}");
 }
 
 /// **With the module numbered, the builder of an environment reaches the machine too**, and

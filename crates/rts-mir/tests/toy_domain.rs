@@ -270,6 +270,72 @@ fn a_loop_whose_back_edge_disagrees_widens_to_the_languages_own_top() {
     assert_eq!(*types.of(carried), Toy::Anything);
 }
 
+/// A block that READS a loop's parameter learns when it widens, even when the block
+/// that hands it over computes nothing new.
+///
+/// The exit here is reached through `leave`, which only forwards the carried value. The
+/// pass re-queued a block's successors when the block itself changed, and `leave` never
+/// changes -- so the exit kept the integer of the first pass while the back edge had made
+/// the carried value `Anything`. Found by a JavaScript loop counter the machine was then
+/// asked to narrow from a double to an integer; this is the same graph in the toy
+/// language, which is where a pass of this crate is pinned.
+#[test]
+fn a_value_that_widens_reaches_every_block_that_reads_it() {
+    let mut build = FuncBuilder::new(Tier::Generic);
+    let header = build.block();
+    let carried = build.param(header);
+    let leave = build.block();
+    // Made before the body, so the pass reaches it while the carried value is still
+    // the integer of the first pass -- which is the order that hid the widening.
+    let exit = build.block();
+    let out = build.param(exit);
+    let body = build.block();
+    let start = build.push(Op::Const(Const::Int(0)), Effect::PURE, at());
+    build.end(Terminator::Jump {
+        target: header,
+        args: vec![start],
+    });
+    build.switch_to(header);
+    let test = build.push(Op::Const(Const::Bool(true)), Effect::PURE, at());
+    build.end(Terminator::Branch {
+        condition: test,
+        then_block: body,
+        then_args: vec![],
+        else_block: leave,
+        else_args: vec![],
+    });
+    build.switch_to(leave);
+    build.end(Terminator::Jump {
+        target: exit,
+        args: vec![carried],
+    });
+    build.switch_to(body);
+    let divided = build.push(
+        Op::Prim {
+            prim: DIVIDE,
+            args: vec![carried],
+        },
+        Effect::PURE,
+        at(),
+    );
+    build.end(Terminator::Jump {
+        target: header,
+        args: vec![divided],
+    });
+    build.switch_to(exit);
+    build.end(Terminator::Return(Some(out)));
+    let func = build.finish();
+    assert_eq!(verify(&func), Ok(()));
+
+    let types = rts_mir::infer::infer(&func, &ToyDomain);
+    assert_eq!(*types.of(carried), Toy::Anything);
+    assert_eq!(
+        *types.of(out),
+        Toy::Anything,
+        "the exit reads the carried value, so it must see the widening"
+    );
+}
+
 /// What a guard buys, which is the only reason the specialised tier knows more.
 #[test]
 fn a_guard_narrows_what_the_domain_says_it_narrows() {

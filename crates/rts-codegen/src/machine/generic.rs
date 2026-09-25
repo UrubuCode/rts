@@ -179,26 +179,26 @@ impl JsMachine<'_> {
         self.call_runtime(into, RuntimeOp::Construct, &of_args)
     }
 
-    /// An array literal of at most four elements, through `ArrayOf` -- the count
-    /// written, then the elements padded with `undefined`. The count is what keeps the
-    /// padding out of the array.
-    fn array_of(
+    /// An array literal, through `ArrayOf` -- the count written, then the elements
+    /// padded with `undefined`, the count keeping the padding out of the array. Past
+    /// four, the rest are APPENDED one by one, the running emitter's form for the same
+    /// literal and for the argument vector of a long call.
+    pub(super) fn array_of(
         &mut self,
         into: &mut FuncBuilder,
         args: &[MachineValue],
     ) -> Result<MachineValue, String> {
-        if args.len() > ARGUMENT_SLOTS {
-            return Err(format!(
-                "an array literal of {} elements needs the appending form, and ArrayOf has {ARGUMENT_SLOTS} slots",
-                args.len()
-            ));
-        }
-        let count = self.word(into, args.len() as u64);
+        let (first, rest) = args.split_at(args.len().min(ARGUMENT_SLOTS));
+        let count = self.word(into, first.len() as u64);
         let undefined = self.undefined(into)?;
         let mut of_args = vec![count];
-        of_args.extend_from_slice(args);
+        of_args.extend_from_slice(first);
         of_args.resize(1 + ARGUMENT_SLOTS, undefined);
-        self.call_runtime(into, RuntimeOp::ArrayOf, &of_args)
+        let mut array = self.call_runtime(into, RuntimeOp::ArrayOf, &of_args)?;
+        for element in rest {
+            array = self.call_runtime(into, RuntimeOp::ArrayAppend, &[array, *element])?;
+        }
+        Ok(array)
     }
 
     /// An object literal: an empty object as wide as the literal, then every pair

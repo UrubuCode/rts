@@ -139,6 +139,10 @@ impl Js {
         // ToString, which a template substitution applies -- see `lower/template.rs` for
         // why it is not the `+` that joins the pieces afterwards.
         RuntimeOp::StringOf,
+        // The arguments past the ones a function declares, or all of them: what a rest
+        // parameter holds and where a fifth parameter is read from -- the running
+        // emitter's `bind_parameters` reads both out of it.
+        RuntimeOp::RestArguments,
     ];
 
     /// The index the IR carries for an entry point.
@@ -461,7 +465,7 @@ impl Domain for Js {
                 // A function NAME is not a value of the language, so it has no type
                 // in this lattice. Nothing reads one as a value: it is only ever the
                 // operand of the operation that makes a closure of it.
-                Some(JsConst::Function(_)) => Type::Nothing,
+                Some(JsConst::Function(_) | JsConst::Count(_)) => Type::Nothing,
                 // A key is text, wherever the key came from.
                 Some(JsConst::WellKnown(_)) => Type::Str,
                 None => Type::Anything,
@@ -672,6 +676,7 @@ impl rts_mir::text::Legend for Js {
             Some(JsConst::Singleton(which)) => format!("{which:?}").to_lowercase(),
             Some(JsConst::Key(_)) => format!("key#{index}"),
             Some(JsConst::Function(held)) => format!("f{held}"),
+            Some(JsConst::Count(held)) => format!("count#{held}"),
             Some(JsConst::WellKnown(which)) => format!(".{}", format!("{which:?}").to_lowercase()),
             Some(JsConst::Text(_)) => format!("str#{index}"),
             None => format!("const#{index}"),

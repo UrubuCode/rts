@@ -106,6 +106,12 @@ impl MachineOps for JsMachine<'_> {
             self.from_constant.insert(held, index);
             return Ok(held);
         }
+        // A COUNT IS A MACHINE WORD, which is the whole of what the entry point taking it
+        // declares; it is never a value of the language.
+        if let Some(JsConst::Count(held)) = self.domain.declared(index) {
+            let held = u64::from(*held);
+            return Ok(self.word(into, held));
+        }
         // A FUNCTION VALUE NEEDS THE MACHINE'S ID FOR THAT FUNCTION -- its code address
         // is what `ClosureNew` takes -- and this boundary compiles one function at a
         // time, so no other function of the module has an id here. That is the same
@@ -412,14 +418,20 @@ impl MachineOps for JsMachine<'_> {
         //
         // FOUR SLOTS, and `runtime/mod.rs` says why the arity is fixed: the machine has no
         // stack slot to put a real argument vector in, so `rts-core` keeps the vector in a
-        // `Vec` of its own. A call with more arguments than slots is refused here rather
-        // than truncated -- `CallWithArgs` is the operation for that and takes a spread.
+        // `Vec` of its own. Past them the arguments go in an ARRAY and `CallWithArgs`
+        // takes it, which is the running emitter's `emit_call_with_name_as` -- and, as
+        // there, never as a tail call: the vector is the activation's, not the caller's.
         if args.len() > crate::runtime::ARGUMENT_SLOTS {
-            return Err(format!(
-                "a call of {} arguments needs the vector form, and this door has {} slots",
-                args.len(),
-                crate::runtime::ARGUMENT_SLOTS
-            ));
+            let vector = self.array_of(into, args)?;
+            let receiver = match receiver {
+                Some(held) => held,
+                None => self.undefined(into)?,
+            };
+            return self.call_runtime(
+                into,
+                crate::runtime::RuntimeOp::CallWithArgs,
+                &[callee, receiver, vector],
+            );
         }
         let Some(shared) = self.shared.as_mut() else {
             return Err(

@@ -64,22 +64,27 @@ pub(super) fn try_emit(
     function: &Function,
 ) -> Option<MachineFunction> {
     let traced = std::env::var(TRACE).ok();
-    match attempt(ctx, enclosing, function) {
+    let answer = attempt(ctx, enclosing, function);
+    let named = || {
+        let spelled = function
+            .name
+            .map_or("<anonymous>", |name| ctx.names.text(name));
+        format!("{spelled} @{}", function.at.0)
+    };
+    match answer {
         // WHICH FUNCTIONS RAN THROUGH HERE, on request: a count of what compiled says
         // nothing about what executed, and this is the one place that knows both.
         Ok(machine) => {
             if traced.is_some() {
-                let named = function
-                    .name
-                    .map_or("<anonymous>", |name| ctx.names.text(name));
-                eprintln!("[mir] {named} @{}", function.at.0);
+                eprintln!("[mir] {}", named());
             }
             Some(machine)
         }
-        // AND WHY THE REST DID NOT, with `why`: the work list, measured on what runs.
+        // AND WHY THE REST DID NOT, with `why`: the work list, measured on what runs --
+        // the reason first, so a count by reason is a sort of the lines.
         Err(why) => {
             if traced.as_deref() == Some("why") {
-                eprintln!("[mir-declined] {why}");
+                eprintln!("[mir-declined] {why} -- {}", named());
             }
             None
         }

@@ -2104,3 +2104,25 @@ binding captured by a closure that outlives the block, which the running emitter
 from the wrong object -- `function f(a) { let x = a; { let y = 5; var g = () => x + y; }
 return g(); }` throws `ReferenceError: y` with the door shut, and answers what Node does
 with it open.
+
+### Past the four slots, and a fixed point that was not one: 90% → 93%
+
+9 636 taken and 705 declined over the suite, from 9 342 and 1 003.
+
+- **More than four of anything.** A call of five arguments goes through `CallWithArgs`
+  over an array built by `ArrayOf` and `ArrayAppend`, an array literal of five elements is
+  that same array, and a function declaring five parameters or `...rest` reads them from
+  `RestArguments` -- each the running emitter's shape for the same code. What the graph
+  needed for the last one is all four slots whether or not the program named them, so a
+  function that gathers declares every slot as an entry parameter; and a count the
+  compiler fixes is `JsConst::Count`, a machine word, never a number of the language.
+- **`rts_mir::infer` answered a type that was not a fixed point.** A change re-queued the
+  successors of the block it happened in, and nothing that READ the value: a loop exit
+  reached through a block that only forwarded the counter never looked again, and kept the
+  entry's `Int32` for a value the back edge had made a `Double`. The machine was then asked
+  to narrow a double to an integer -- 26 functions refused, and the lattice was WRONG
+  rather than coarse, which is a wrong answer the day a pass trusts it. Every block reading
+  a value that moved is re-queued now; `tests/toy_domain.rs` pins the graph in the toy
+  language, and fails without the fix.
+
+Suite: 884 of 907, LOST empty against `main` and the step before.

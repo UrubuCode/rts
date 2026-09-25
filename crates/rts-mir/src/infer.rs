@@ -13,6 +13,18 @@
 //! [`Domain::join`] never narrows: each value's type only moves up the lattice, so
 //! the number of rounds is bounded by the lattice's height.
 //!
+//! # What a change re-queues
+//!
+//! The successors of the block where it happened, AND every block that reads the value
+//! that moved -- an instruction's operand, or an argument a terminator hands to another
+//! block's parameter. Successors alone are not enough, and it was measured: a loop's
+//! carried value joined as the entry's narrow type on the first pass, the exit block
+//! received it through a block that only forwarded it and so never changed, and the exit
+//! kept that narrow type for a value the back edge had widened. The machine was then
+//! asked to narrow a wide representation to pass it -- 26 functions of a front end's
+//! test suite refused, and a lattice that is WRONG rather than merely coarse is a wrong
+//! answer the day something trusts it. `tests/toy_domain.rs` pins the graph.
+//!
 //! A domain whose `join` is not monotone does not terminate, and that is the
 //! front end's bug rather than this pass's. `ROUNDS` bounds it anyway — not to
 //! paper over such a domain but so the failure is a panic naming the cause instead
@@ -51,6 +63,20 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
     for param in &func.block(func.entry()).params {
         of[param.0 as usize] = domain.top();
     }
+    // WHO LOOKS AGAIN when a value moves -- see the module's note.
+    let mut dependents: Vec<Vec<crate::cfg::BlockId>> = vec![Vec::new(); func.values as usize];
+    for block in func.block_ids() {
+        for inst in &func.block(block).insts {
+            for read in func.reads(*inst) {
+                dependents[read.0 as usize].push(block);
+            }
+        }
+        if let Some(end) = &func.block(block).terminator {
+            for read in end.reads() {
+                dependents[read.0 as usize].extend(end.successors());
+            }
+        }
+    }
     let mut visits = vec![0usize; func.blocks.len()];
     let mut worklist: Vec<_> = func.block_ids().collect();
     worklist.reverse();
@@ -61,6 +87,7 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
             "a block was re-analysed {ROUNDS} times, which means the domain's join narrows somewhere"
         );
         let mut changed = false;
+        let mut moved = Vec::new();
         // The parameters, joined from every predecessor that supplies them.
         if block != func.entry() {
             let params = func.block(block).params.clone();
@@ -77,6 +104,7 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
                 if joined != of[param.0 as usize] {
                     of[param.0 as usize] = joined;
                     changed = true;
+                    moved.push(*param);
                 }
             }
         }
@@ -110,14 +138,22 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
             if computed != of[held.result.0 as usize] {
                 of[held.result.0 as usize] = computed;
                 changed = true;
+                moved.push(held.result);
             }
         }
         if changed {
-            if let Some(end) = &func.block(block).terminator {
-                for successor in end.successors() {
-                    if !worklist.contains(&successor) {
-                        worklist.push(successor);
-                    }
+            let successors = func
+                .block(block)
+                .terminator
+                .as_ref()
+                .map(|end| end.successors())
+                .unwrap_or_default();
+            let readers = moved
+                .iter()
+                .flat_map(|value| dependents[value.0 as usize].iter().copied());
+            for again in successors.into_iter().chain(readers) {
+                if !worklist.contains(&again) {
+                    worklist.push(again);
                 }
             }
         }
