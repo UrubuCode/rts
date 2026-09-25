@@ -490,6 +490,18 @@ impl Lowering<'_> {
             .collect()
     }
 
+    /// The bindings a loop's own target writes each pass, seen from here: a `var`
+    /// target or an assigned one is a binding outside the pass, and crosses the back
+    /// edge like anything the body assigns.
+    pub(super) fn assigned_by_pattern(&self, pattern: &crate::syntax::Pattern) -> BTreeSet<BindingId> {
+        let mut names = Vec::new();
+        pattern_writes(pattern, &mut names);
+        names
+            .into_iter()
+            .filter_map(|name| self.resolution.binding_in(self.scope, name))
+            .collect()
+    }
+
     /// The bindings an expression assigns, for a loop head's update and test.
     pub(super) fn assigned_in_expr(&self, expr: &Expr) -> Result<BTreeSet<BindingId>, Unsupported> {
         let mut names = Vec::new();
@@ -513,10 +525,24 @@ impl Lowering<'_> {
 /// case a carried set must not miss, and a traversal that stopped at the function
 /// boundary would miss it silently.
 fn assigned_names_in_statement(statement: &Stmt, found: &mut Vec<Name>) {
+    // A LOOP'S OWN TARGET is written once per pass, and the walk below reaches its
+    // body and subject but not the head -- so a `for (var k of xs)` or a
+    // `for ([a, b] of pairs)` nested in a loop is named here.
+    if let crate::syntax::StmtKind::ForEach { target, .. } = &statement.kind {
+        match target {
+            crate::syntax::ForEachTarget::Declare { target, .. }
+            | crate::syntax::ForEachTarget::Assign(target) => pattern_writes(target, found),
+            _ => {}
+        }
+    }
     walk_stmt(statement, &mut |child| match child {
         StmtChild::Stmt(inner) => assigned_names_in_statement(inner, found),
         StmtChild::Expr(expr) => assigned_names_in_expr(expr, found),
+        // A DECLARATION WRITES what it names: a `var` inside a loop body is assigned
+        // once per pass. A `let` there names a binding of an inner scope, which the
+        // caller's resolution from outside does not find, so naming it costs nothing.
         StmtChild::Binding(binding) => {
+            pattern_writes(&binding.target, found);
             if let Some(value) = &binding.value {
                 assigned_names_in_expr(value, found);
             }
@@ -537,8 +563,42 @@ fn assigned_names_in_statement(statement: &Stmt, found: &mut Vec<Name>) {
     });
 }
 
+/// Every name a pattern writes: the names it binds, and the plain names among its
+/// assignment targets.
+pub(super) fn pattern_writes(pattern: &crate::syntax::Pattern, found: &mut Vec<Name>) {
+    use crate::syntax::Pattern;
+    match pattern {
+        Pattern::Name(name) => found.push(*name),
+        Pattern::Target(place) => {
+            if let ExprKind::Ident(name) = &place.kind {
+                found.push(*name);
+            }
+        }
+        Pattern::Object(object) => {
+            for property in &object.properties {
+                pattern_writes(&property.value.pattern, found);
+            }
+            if let Some(rest) = &object.rest {
+                pattern_writes(rest, found);
+            }
+        }
+        Pattern::Array(array) => {
+            for element in array.elements.iter().flatten() {
+                pattern_writes(&element.pattern, found);
+            }
+            if let Some(rest) = &array.rest {
+                pattern_writes(rest, found);
+            }
+        }
+    }
+}
+
 fn assigned_names_in_expr(expr: &Expr, found: &mut Vec<Name>) {
     match &expr.kind {
+        ExprKind::Assign {
+            target: AssignTarget::Pattern(pattern),
+            ..
+        } => pattern_writes(pattern, found),
         ExprKind::Assign {
             target: AssignTarget::Place(place),
             ..

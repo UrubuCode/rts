@@ -76,4 +76,34 @@ impl Lowering<'_> {
         }
         Ok(false)
     }
+
+    /// Every `var` of this function, `undefined` from its first statement -- which is
+    /// the language's hoisting, and what `emit/function.rs::hoist_vars` does for the
+    /// running engine. Without it a `var` first assigned inside a loop, a `switch` or a
+    /// branch had no value before the construct, so nothing could carry it past, and
+    /// one read before its line was refused as a dead zone it does not have.
+    ///
+    /// A captured one lives in the environment, which defined it as `undefined` when
+    /// it was built; a parameter of the same name IS the parameter, and holds its
+    /// argument.
+    pub(super) fn hoist_vars(&mut self, at: &Expr) {
+        let scope = self.resolution.scope(self.function);
+        let hoisted: Vec<_> = scope
+            .bindings
+            .iter()
+            .copied()
+            .filter(|held| {
+                self.resolution.binding(*held).origin == crate::names::resolve::Origin::Var
+                    && !self.resolution.captured(*held)
+                    && !self.values.contains_key(held)
+            })
+            .collect();
+        if hoisted.is_empty() {
+            return;
+        }
+        let undefined = self.singleton_at(Singleton::Undefined, at);
+        for held in hoisted {
+            self.values.insert(held, undefined);
+        }
+    }
 }

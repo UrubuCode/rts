@@ -38,7 +38,9 @@ impl Lowering<'_> {
         let length = self.entry(RuntimeOp::ArrayLength, vec![keys], subject);
         let zero = self.integer(0, subject);
 
-        let carried = self.carried_now(self.assigned_in(body)?);
+        let mut written = self.assigned_in(body)?;
+        written.extend(self.assigned_by_pattern(pattern));
+        let carried = self.carried_now(written);
         let header = self.builder.block();
         let checking = self.builder.block();
         let binding = self.builder.block();

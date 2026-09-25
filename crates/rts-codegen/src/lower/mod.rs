@@ -282,6 +282,10 @@ pub fn lower_within(
         kind: ExprKind::This,
         at: function.at,
     })?;
+    lowering.hoist_vars(&Expr {
+        kind: ExprKind::This,
+        at: function.at,
+    });
     lowering.defaults(function, &patterns)?;
 
     match &function.body {

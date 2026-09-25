@@ -107,9 +107,11 @@ impl Lowering<'_> {
             // a walk of the prototype chain and not a protocol at all -- the tree's own
             // comment on the variant calls it the trap. Nothing here is reusable for it.
             ForEachSource::In => {
-                let ForEachTarget::Declare { target: pattern, .. } = target else {
+                let (ForEachTarget::Declare { target: pattern, .. }
+                | ForEachTarget::Assign(pattern)) = target
+                else {
                     return Err(Unsupported::Statement(
-                        "a for-in target that assigns writes past the loop's carried set",
+                        "a for-in target that is disposed at the end of each pass",
                     ));
                 };
                 return self.for_in(pattern, subject, body);
@@ -125,13 +127,16 @@ impl Lowering<'_> {
             }
         }
 
-        // A DECLARED target, a name or a pattern: fresh per pass, in the head's scope.
-        // An ASSIGNED one writes bindings outside the loop that would have to cross its
-        // back edge, which the carried set below does not scan the head for.
-        let ForEachTarget::Declare { target: pattern, .. } = target else {
-            return Err(Unsupported::Statement(
-                "a for-of target that assigns writes past the loop's carried set",
-            ));
+        // A DECLARED target is fresh per pass, in the head's scope; an ASSIGNED one
+        // writes bindings outside the loop, which the carried set below takes from
+        // the target as well as from the body.
+        let pattern = match target {
+            ForEachTarget::Declare { target, .. } | ForEachTarget::Assign(target) => target,
+            _ => {
+                return Err(Unsupported::Statement(
+                    "a for-of target that is disposed at the end of each pass",
+                ));
+            }
         };
 
         // THE ITERATOR, once, before the loop. `xs[Symbol.iterator]()` with `xs` as the
@@ -141,7 +146,9 @@ impl Lowering<'_> {
         let method = self.well_known(WellKnown::IteratorSymbol, subject_value, subject);
         let iterator = self.call_method(method, subject_value, subject);
 
-        let carried = self.carried_now(self.assigned_in(body)?);
+        let mut written = self.assigned_in(body)?;
+        written.extend(self.assigned_by_pattern(pattern));
+        let carried = self.carried_now(written);
         let header = self.builder.block();
         let into_body = self.builder.block();
         // THE CLOSING BLOCK, which is where `break` goes. Created before the region opens
