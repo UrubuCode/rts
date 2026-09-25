@@ -219,7 +219,14 @@ pub fn lower(
                     values.insert(held.result, narrowed);
                     continue;
                 }
-                Op::Suspend { .. } => return Err(Unlowerable::NeedsFrameTransform),
+                Op::Suspend { value } => {
+                    let handed = value.map(|held| one(held, &values)).transpose()?;
+                    match ops.hand_out(into, handed) {
+                        None => return Err(Unlowerable::NeedsFrameTransform),
+                        Some(said) => said.map_err(Unlowerable::Language)?,
+                    }
+                    into.suspend()
+                }
             };
             // AN OBSERVABLE INSTRUCTION closes the window, and a pure one does not. Read
             // from the EFFECT rather than from the operation, so a language that grows a

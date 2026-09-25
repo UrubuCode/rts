@@ -2148,3 +2148,42 @@ Suite: 884 of 907, LOST empty against `main` and the step before.
 `node_modules` target timed out in two of five runs with the door OPEN and in two of five
 with it SHUT, on the same binary; every one of its 51 tests passes run alone. On `main` the
 same target ABORTS in six runs of six. Recorded rather than retried until green.
+
+### Generators and async functions run through the stage: 94% → 96%
+
+9 962 taken and 378 declined, from 9 737 and 604. The 196 generators and 87 async
+functions were the largest refusal left.
+
+- **The suspension is neutral, what is handed out is not.** `rts_mir::lower` emits the
+  machine's own `suspend`, and asks the language first through `MachineOps::hand_out`;
+  this language calls `GeneratorYield`, which is what `emit/expr.rs` does for a `yield` and
+  for a parking `await`. The default still refuses as `NeedsFrameTransform`, so a language
+  that has not said stays refused by name. The function is declared as one that may
+  suspend, and gets no tail calls -- the frame is the generator's or the promise's, which
+  `emit/tail.rs::permitted` refuses for the same reason. Only the BODY comes from here:
+  the wrappers and `frame::resumable_form` are the running emitter's, unchanged. An async
+  GENERATOR still declines, because its `await` drains where its `yield` parks and one
+  `Op::Suspend` cannot say which it was.
+- **`frame::resumable_form` walked blocks in creation order**, the same fault the
+  lowering had, one stage later: it reads every value from the map its definition filled,
+  and a block made before the ones feeding it panicked with "no entry found for key".
+  `Function::control_order` is now the one ordering both use, moved out of `lower/body.rs`.
+- **`continue` in a `for` skipped the update.** The MIR lowering sent it to the test, so a
+  pass cut short never incremented and the loop never ended. It had been wrong since the
+  loop was first lowered, and only showed once async functions with such loops came
+  through; the update has a block of its own now, which `continue` reaches.
+
+Suite: 884 of 907, LOST empty against `main` and the step before.
+
+**Every Rust test of the four engine crates passes now, 1 088 of them**, and the two that
+did not were not this stage's:
+
+- `node_modules` timed out in about a third of the runs, with the door open or shut. Two
+  real defects under it: `node:http2`'s pump could deliver an accepted session's request
+  before the session had an object, so `'stream'` went nowhere and the peer waited for
+  ever; and `node:tls` never relayed the inner socket's `'error'`, so a refused connection
+  ended the process even when the program listened on the `TLSSocket` -- Node emits it
+  there. The test that connects to a closed port now listens for it, as Node requires of
+  that program. 15 runs of 15 pass.
+- `aot_manifest_embedded` named the executable `.exe` and the object `.obj`, which is
+  Windows; everywhere else it failed at "did not produce" beside the file it wanted.

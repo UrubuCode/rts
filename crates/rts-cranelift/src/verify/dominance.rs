@@ -4,7 +4,7 @@
 //!
 //! Nothing in this workspace answered "does this block dominate that one" — the
 //! search that rule 0b asks for found one private helper inside `rules.rs` and
-//! nothing else. The nearest neighbour is `lower::reachable_first`, which orders
+//! nothing else. The nearest neighbour is `Function::control_order`, which orders
 //! blocks for emission and computes no dominance at all.
 //!
 //! What was there was the textbook iterative bitmap: a `Vec<Vec<bool>>` of
@@ -81,7 +81,7 @@ impl Dominance {
         // Postorder over the reachable subgraph, iteratively: a deeply nested
         // body must not overflow the compiler's own stack, which is the one
         // failure a compiler may not have — the same reason
-        // `lower::reachable_first` is written this way.
+        // `Function::control_order` is written this way.
         let mut order = Vec::with_capacity(count);
         let mut reached = vec![false; count];
         if entry < count {

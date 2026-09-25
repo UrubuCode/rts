@@ -127,8 +127,14 @@ pub(super) extern "C" fn connect(_e: u64, _this: u64, a: u64, b: u64, c: u64, _d
     let data_hook = entry::with_runtime(|context| entry::make_callable(context, on_data));
     let connect_hook = entry::with_runtime(|context| entry::make_callable(context, on_underlying_connect));
     let close_hook = entry::with_runtime(|context| entry::make_callable(context, on_underlying_close));
+    let error_hook = entry::with_runtime(|context| entry::make_callable(context, on_underlying_error));
     entry::with_runtime(|context| super::common::set_num(context, underlying, "__tlsPeerId", id as f64));
-    for (event, hook) in [("data", data_hook), ("connect", connect_hook), ("close", close_hook)] {
+    for (event, hook) in [
+        ("data", data_hook),
+        ("connect", connect_hook),
+        ("close", close_hook),
+        ("error", error_hook),
+    ] {
         let on_fn = entry::with_runtime(|context| entry::get_member(context, underlying, "on"));
         if on_fn != absent {
             let event_key = super::common::key(event);
@@ -185,6 +191,23 @@ extern "C" fn on_underlying_close(_e: u64, this: u64, had_error: u64, _b: u64, _
         let tls_instance = registry::with_entries(|table| table.get(&id).map(|e| e.tls_instance));
         if let Some(tls_instance) = tls_instance {
             super::common::emit(tls_instance, "close", had_error, entry::undefined_value(), entry::undefined_value());
+        }
+    }
+    entry::undefined_value()
+}
+
+/// The underlying `net.Socket`'s `'error'` listener: the TLS socket's own.
+///
+/// Node emits a refused or reset connection on the `TLSSocket` a program holds, and
+/// this relayed only `'data'`, `'connect'` and `'close'` -- so the error went out on
+/// the inner socket, which nobody can listen to, and ended the process even when the
+/// program had written `socket.on("error", …)`. A test connecting to a closed port
+/// passed only when the refusal lost a race with the end of the program.
+extern "C" fn on_underlying_error(_e: u64, this: u64, error: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    if let Some(id) = peer_id(this) {
+        let tls_instance = registry::with_entries(|table| table.get(&id).map(|e| e.tls_instance));
+        if let Some(tls_instance) = tls_instance {
+            super::common::emit(tls_instance, "error", error, entry::undefined_value(), entry::undefined_value());
         }
     }
     entry::undefined_value()

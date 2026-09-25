@@ -1356,6 +1356,31 @@ fn a_comma_evaluates_every_operand_and_answers_the_last() {
     );
 }
 
+/// `continue` in a `for` with an update reaches the UPDATE, not the test. It went to the
+/// test, and every pass a `continue` cut short left the counter where it was -- a loop
+/// that never ends. So the block `continue` jumps to must be one that adds.
+#[test]
+fn a_continue_in_a_for_runs_the_update() {
+    let lowered = only(
+        "function f(n) { let s = 0; for (let i = 0; i < n; i = i + 1) { if (i) continue; s = s + i; } return s; }",
+    )
+    .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    // Two jumps reach the block that adds -- the body's end and the `continue` -- and
+    // none of them skips it on the way to the test.
+    let adds: Vec<_> = lowered
+        .func
+        .block_ids()
+        .filter(|block| {
+            lowered.func.block(*block).insts.iter().any(|inst| {
+                matches!(&lowered.func.inst(*inst).op,
+                    Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::Add))
+            }) && lowered.func.predecessors(*block).len() == 2
+        })
+        .collect();
+    assert_eq!(adds.len(), 1, "one step block, reached from the body and from `continue`");
+}
+
 /// `this` is an operation that reads the receiver of this activation. It is pure --
 /// the value is already there -- and nothing is known about it without a proof about
 /// the call site.

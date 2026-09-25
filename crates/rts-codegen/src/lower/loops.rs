@@ -321,27 +321,40 @@ impl Lowering<'_> {
             }),
         }
 
+        // THE UPDATE HAS A BLOCK OF ITS OWN, which is where `continue` goes: it runs
+        // after every pass, the ones a `continue` cut short included. `continue` went to
+        // the header, and `for (let i = 0; i < n; i++) { if (odd(i)) continue; … }`
+        // never incremented on those passes -- a loop that never ends, in a graph that
+        // looked well formed. Without an update the header is the step.
+        let step = match update {
+            Some(_) => self.builder.block(),
+            None => header,
+        };
         self.builder.switch_to(into_body);
         self.loops.push(LoopFrame {
             kind: FrameKind::Loop,
-            header,
+            header: step,
             exit,
             carried: carried.clone(),
         });
         let ended = self.statement(body);
-        // The UPDATE runs after the body and before the test, so it is emitted where
-        // the body left off — and only when the body did not leave, because a body
-        // that returned never reaches it.
-        let ended = match ended {
-            Ok(false) => match update {
-                Some(expr) => self.expression(expr).map(|_| false),
-                None => Ok(false),
-            },
-            other => other,
-        };
         self.loops.pop();
         let ended = ended?;
         if !ended {
+            let back: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
+            self.builder.end(Terminator::Jump {
+                target: step,
+                args: back,
+            });
+        }
+        if let Some(expr) = update {
+            self.builder.switch_to(step);
+            for binding in &carried {
+                let param = self.builder.param(step);
+                self.types.insert(param, self.domain.top());
+                self.values.insert(*binding, param);
+            }
+            self.expression(expr)?;
             let back: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
             self.builder.end(Terminator::Jump {
                 target: header,

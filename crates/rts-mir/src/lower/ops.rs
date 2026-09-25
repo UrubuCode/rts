@@ -176,6 +176,26 @@ pub trait MachineOps {
         let _ = inside;
     }
 
+    /// What handing a value out at a suspension is, for this language, or `None` where it
+    /// has not said -- the default, refused as [`Unlowerable::NeedsFrameTransform`].
+    ///
+    /// The SUSPENSION is neutral and this crate emits it: the machine's own instruction,
+    /// whose frame `rts_cranelift::frame::resumable_form` rewrites. What the parked frame
+    /// hands out, and to whom, is not: one language stores it where a resumer reads it,
+    /// another returns it through a channel. So that half is asked, before the suspension.
+    /// `value` is `None` where the program handed out nothing.
+    ///
+    /// The function being lowered must be declared as one that may suspend; the machine's
+    /// verifier refuses the instruction in any other, which is the check this relies on.
+    fn hand_out(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: Option<MachineValue>,
+    ) -> Option<Result<(), String>> {
+        let _ = (into, value);
+        None
+    }
+
     /// What a `return` hands back, in the representation the signature declared.
     ///
     /// Asked of the language because the SIGNATURE is the language's: whether every
@@ -206,9 +226,10 @@ pub enum Unlowerable {
     /// answers rule 3 of this crate's README puts on the machine's side, and
     /// `frame::resumable_form` already holds all three.
     ///
-    /// So this is the one place a graph that is entirely well formed is refused for
-    /// something the MACHINE has not been asked for yet, rather than for something the
-    /// language has not declared.
+    /// So the suspension is emitted here as the machine's instruction, and the transform
+    /// is applied by whoever places the function. What is still refused under this name
+    /// is a language that has not said what handing a value out IS --
+    /// [`MachineOps::hand_out`] answering `None`.
     NeedsFrameTransform,
     /// A guard or a fall, which needs the side exit of `deopt-lateral.md` D3.
     NeedsSideExit(PointId),

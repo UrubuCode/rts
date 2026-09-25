@@ -335,6 +335,26 @@ impl MachineOps for JsMachine<'_> {
         Some(crate::emit::protect::JS_THROW)
     }
 
+    fn hand_out(
+        &mut self,
+        into: &mut FuncBuilder,
+        value: Option<MachineValue>,
+    ) -> Option<Result<(), String>> {
+        if !self.parks {
+            return None;
+        }
+        let handed = (|| {
+            // A BARE `yield` hands out `undefined`, which is where the language says so.
+            let value = match value {
+                Some(held) => held,
+                None => self.undefined(into)?,
+            };
+            self.call_runtime(into, crate::runtime::RuntimeOp::GeneratorYield, &[value])
+                .map(|_| ())
+        })();
+        Some(handed)
+    }
+
     fn returned(
         &mut self,
         into: &mut FuncBuilder,

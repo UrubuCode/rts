@@ -165,6 +165,9 @@ pub struct JsMachine<'a> {
     /// name is absent where every other global read answers `undefined`. The caller
     /// decides which, because only it can see the lists a name is placed by.
     unbound: std::collections::BTreeSet<ValueId>,
+    /// Whether a suspension here PARKS the frame: a generator's `yield`, a plain async
+    /// function's `await`. See [`JsMachine::parking`].
+    parks: bool,
     /// Whether the block being lowered is part of a cleanup -- `rts_mir::lower` says so
     /// before each block. See [`JsMachine::recheck_throw`] for what it costs.
     in_cleanup: bool,
@@ -293,6 +296,7 @@ impl<'a> JsMachine<'a> {
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
             unbound: std::collections::BTreeSet::new(),
+            parks: false,
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -318,6 +322,7 @@ impl<'a> JsMachine<'a> {
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
             unbound: std::collections::BTreeSet::new(),
+            parks: false,
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -350,6 +355,16 @@ impl<'a> JsMachine<'a> {
     /// -- see [`tail_positions`].
     pub fn tail_calls_of(mut self, func: &rts_mir::cfg::Func) -> Self {
         self.tail = tail_positions(func);
+        self
+    }
+
+    /// That this function parks at every suspension, which is what `emit/expr.rs` does
+    /// for `yield` in a generator and for `await` in a plain async function: hand the
+    /// value to `GeneratorYield`, then the machine's suspension. Left unset, a suspension
+    /// is refused -- an async GENERATOR's `await` drains where its `yield` parks, and one
+    /// `Op::Suspend` cannot say which of the two it was.
+    pub fn parking(mut self, parks: bool) -> Self {
+        self.parks = parks;
         self
     }
 

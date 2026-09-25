@@ -98,8 +98,10 @@ fn attempt(
 ) -> Result<MachineFunction, String> {
     let refused = [
         (ctx.sloppy, "sloppy code"),
-        (function.is_async, "an async function"),
-        (function.is_generator, "a generator"),
+        (
+            function.is_async && function.is_generator,
+            "an async generator, whose await drains where its yield parks",
+        ),
         (!ctx.with_objects.is_empty(), "inside `with`"),
         (ctx.in_field_initializer, "a field initialiser"),
     ];
@@ -164,7 +166,13 @@ fn attempt(
     }
 
     let inferred = rts_mir::infer::infer(&graph, &domain);
-    let mut machine = MachineFunction::new(super::function::signature());
+    // A FUNCTION THAT PARKS says so on its signature, which the machine's verifier reads
+    // before it accepts a suspension -- the same flag `emit_function` sets on the body
+    // the running emitter builds.
+    let suspends = function.is_async || function.is_generator;
+    let mut signature = super::function::signature();
+    signature.may_suspend = suspends;
+    let mut machine = MachineFunction::new(signature);
     let entry = machine.entry;
     let start: Vec<_> = machine.block(entry).ok_or("no entry block")?.params.clone();
     // THE NESTED BODIES, now that this function is known to lower -- emitted before the
@@ -207,9 +215,17 @@ fn attempt(
             model: ctx.model,
             module: &module,
         };
-        let mut ops = crate::machine::JsMachine::new(&domain, inferred)
-            .tail_calls_of(&graph)
+        // NO TAIL CALL IN A FRAME THAT PARKS: the frame is the generator's or the
+        // promise's, and replacing it would hand the resumer somebody else's --
+        // `emit/tail.rs::permitted` refuses the same two kinds.
+        let ops = crate::machine::JsMachine::new(&domain, inferred);
+        let ops = match suspends {
+            true => ops,
+            false => ops.tail_calls_of(&graph),
+        };
+        let mut ops = ops
             .unbound_reads(unbound)
+            .parking(suspends)
             .declaring_into(parts)
             .naming_with(&mut *ctx.names)
             .with_incoming(&start);
@@ -239,7 +255,6 @@ fn agrees(
     let in_page = enclosing.lookup(window).is_some();
     for inst in &graph.insts {
         match &inst.op {
-            rts_mir::Op::Suspend { .. } => return Err("a suspension".to_owned()),
             rts_mir::Op::Call {
                 callee: rts_mir::cfg::Callee::Func(_),
                 ..

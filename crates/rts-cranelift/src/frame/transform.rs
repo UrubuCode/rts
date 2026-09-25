@@ -278,7 +278,15 @@ impl<'a> Rewrite<'a> {
     }
 
     fn rewrite_blocks(&mut self) -> Result<(), TransformError> {
-        for (source_block, data) in self.source.blocks().map(|(id, d)| (id, d.clone())) {
+        // IN CONTROL ORDER and not in creation order: every value is read from the map
+        // its definition filled, so a block has to be rewritten after the ones that
+        // define what it reads. A client that makes a continuation before the blocks
+        // feeding it -- the MIR stage does -- panicked here otherwise.
+        let order = self.source.control_order();
+        for source_block in order {
+            let Some(data) = self.source.block(source_block).cloned() else {
+                continue;
+            };
             let mut current = self.blocks[&source_block];
 
             // A parameter that outlives a suspension is written down on arrival,
