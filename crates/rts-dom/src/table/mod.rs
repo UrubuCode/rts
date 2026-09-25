@@ -23,6 +23,7 @@
 
 mod anonymous;
 mod grid;
+mod relative;
 pub(in crate::table) mod widths;
 
 pub(crate) use anonymous::{anonymous_table_widths, layout_anonymous_table};
@@ -46,10 +47,6 @@ use grid::collect;
 /// `floor_width: false` em vez de reescrever a travessia.
 pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
     let css = dom.computed_style_idx(id).unwrap_or_default();
-    let sem_quebra = matches!(
-        css.white_space,
-        Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
-    );
     // `mono`: sem isto, um item `font-family: monospace` media a palavra pelo
     // avanço PROPORCIONAL (`PROP_ADVANCE`) — o piso do `flex-shrink` divergia
     // do que `wrap_runs` desenha (`MONO_ADVANCE`, calibrado a 0.5498 contra o
@@ -62,7 +59,7 @@ pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) ->
         .as_deref()
         .map(crate::style::is_mono_family)
         .unwrap_or(false);
-    widths::min_content(dom, id, font, ctx, sem_quebra, mono, false)
+    widths::min_content(dom, id, font, ctx, mono, false)
 }
 
 /// Uma célula colocada na grade. `col` é a coluna onde começa, já resolvida
@@ -231,6 +228,7 @@ fn medir_colunas(
 /// Posiciona a tabela inteira dentro do content-box já resolvido pelo
 /// `layout_block` da `<table>`, e devolve a ALTURA do conteúdo.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn layout_table(
     dom: &Dom,
     id: NodeIdx,
@@ -238,6 +236,16 @@ pub(crate) fn layout_table(
     content_x: f32,
     content_y: f32,
     content_w: f32,
+    // The table's own DEFINITE height, if any — the same value
+    // `explicit_content_h` gives the table's children in `bloco.rs` (an
+    // explicitly specified `height`/`aspect-ratio`/flex-forced size, never
+    // the auto result of stacking the rows). Forwarded to
+    // `relative::apply_table_part_relative_offset` as the containing-block
+    // height for a `<tr>`/`<tbody>`'s own percentage `top`/`bottom` (CSS 2.1
+    // §9.3.2): a table height that is itself auto makes that percentage
+    // resolve to `auto` too, the same rule `resolve_height` already applies
+    // to an ordinary block's `%` height against an auto parent.
+    definite_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
     ctx: &LayoutCtx,
@@ -246,13 +254,14 @@ pub(crate) fn layout_table(
     let tree = std::rc::Rc::clone(&list.tree);
     let g = collect(dom, &tree, caixa);
     let ts = TableStyle::of(dom, Some(id), css, font_size, ctx);
-    lay_out_grid(dom, &tree, &g, &ts, content_x, content_y, content_w, font_size, ctx, list)
+    lay_out_grid(dom, &tree, &g, &ts, content_x, content_y, content_w, definite_h, font_size, ctx, list)
 }
 
 /// Lays out a grid already COLLECTED, inside a content box already sized, and
 /// answers the content height. Shared by the table element (`layout_table`)
 /// and the anonymous table (`anonima.rs`), which differ only in where the grid
-/// and the width come from.
+/// and the width come from — an anonymous table box has no `height` of its
+/// own to be definite, so `anonymous.rs` always passes `None`.
 #[allow(clippy::too_many_arguments)]
 fn lay_out_grid(
     dom: &Dom,
@@ -262,6 +271,7 @@ fn lay_out_grid(
     content_x: f32,
     content_y: f32,
     content_w: f32,
+    definite_h: Option<f32>,
     font_size: f32,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -370,12 +380,13 @@ fn lay_out_grid(
 
     // ── Posicionamento ──────────────────────────────────────────────────────────
     let mut row_y = Vec::with_capacity(g.rows.len());
+    let mut row_piece_start = Vec::with_capacity(g.rows.len()); // box_start p/ relativo
     y += ts.spacing_v;
     for (ri, row) in g.rows.iter().enumerate() {
         row_y.push(y);
-        // Lembra a posição ANTES das células: o fundo do `<tr>` pinta-se atrás
-        // delas, como qualquer caixa pinta atrás dos filhos.
+        // Antes das células: o fundo do `<tr>` pinta-se atrás delas.
         let idx_fundo = list.pieces.len();
+        row_piece_start.push(idx_fundo);
         if let Some((_, caixa)) = row.node {
             crate::layout::reserve_box_order(list, caixa);
         }
@@ -418,7 +429,13 @@ fn lay_out_grid(
                 alturas[ri],
             );
             crate::layout::record_box_rect(list, caixa, rect);
-            pinta_caixa(dom, n, rect, idx_fundo, list);
+            relative::pinta_caixa(dom, n, rect, idx_fundo, list);
+            // Row relative offset — see `table/relative.rs`. `definite_h`,
+            // not `altura_total`: the row's `%` containing-block height is
+            // the table's DEFINITE height, not whatever the rows measured.
+            relative::apply_table_part_relative_offset(
+                dom, n, caixa, content_w, definite_h, font_size, idx_fundo, ctx, list,
+            );
         }
         y += alturas[ri] + ts.spacing_v;
     }
@@ -440,48 +457,12 @@ fn lay_out_grid(
             base - topo,
         );
         crate::layout::record_box_rect(list, caixa, rect);
-        pinta_caixa(dom, node, rect, list.pieces.len(), list);
+        relative::pinta_caixa(dom, node, rect, list.pieces.len(), list);
+        // Group relative offset, from its first row — same `definite_h` as
+        // the row case above.
+        relative::apply_table_part_relative_offset(
+            dom, node, caixa, content_w, definite_h, font_size, row_piece_start[inicio], ctx, list,
+        );
     }
     y - content_y
-}
-
-/// Pinta fundo e borda de uma caixa que não passou pelo `layout_block` (linha ou
-/// grupo de linhas), inserindo os itens em `at` para ficarem ATRÁS do que já lá
-/// está. Sem isto, um `<tr>` com `background` não pintava nada: a linha nunca é
-/// um bloco, e era o `layout_block` que fazia esta parte para todos os outros.
-fn pinta_caixa(
-    dom: &Dom,
-    id: NodeIdx,
-    rect: Rect,
-    at: usize,
-    list: &mut DisplayList,
-) {
-    let Some(css) = dom.computed_style_idx(id) else {
-        return;
-    };
-    if !css.has_box() {
-        return;
-    }
-    let radius = css.corner_radius.unwrap_or(0.0);
-    let mut em = Vec::new();
-    if let Some(bg) = css.bg {
-        em.push(DisplayItem::SolidRect {
-            rect,
-            color: bg,
-            radius: crate::layout::Corners::from_style(&css, 0.0),
-        });
-    }
-    em.extend(crate::layout::border_items(
-        &css,
-        rect,
-        radius,
-        1.0,
-        // A borda de uma célula respeita o `filter` dela como a de qualquer
-        // outra caixa; passar a identidade aqui faria a mesma folha pintar
-        // diferente consoante o elemento fosse ou não uma célula de tabela.
-        crate::painteffects::filtro(css.filter.as_deref().unwrap_or("")),
-    ));
-    for (i, item) in em.into_iter().enumerate() {
-        list.pieces.insert(at + i, crate::layout::Piece::Item(item));
-    }
 }

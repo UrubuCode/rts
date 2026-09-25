@@ -180,16 +180,9 @@ pub(in crate::layout) fn child_outer_width(
                 None => content_natural_width(dom, id, font, ctx) + frame,
             }
         }
-        // Um nó de texto solto mede-se COLAPSADO (CSS Text §4.1) — o mesmo
-        // motivo de `intrinsic_content_width`; `pre` num pai não é visto aqui
-        // (corte dito: mede-se colapsado na mesma).
-        NodeKind::Text(t) => ctx.measurer.text_width(
-            &super::segmento::collapse_ws(&super::hifen::sem_shy(t), false),
-            parent_font,
-            false,
-            false,
-            false,
-        ),
+        // A loose text node measures as `intrinsic_outer_width` measures it:
+        // its lines under its parent's `white-space` and font (`text_measure`).
+        NodeKind::Text(_) => super::text_measure::intrinsic_text_width(dom, id, parent_font, false, ctx),
         _ => 0.0,
     }
 }

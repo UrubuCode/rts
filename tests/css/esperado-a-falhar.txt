@@ -42,3 +42,10 @@ claude-absoluto-posicao-estatica-linha-vazia.html
 # `claude-fm-metricas-por-familia`, the ruler of those metrics, was here for one
 # commit: its 38 deviations were all the WIDTH of the string "xg", and left
 # with the text advances (`layout/fonte_avancos.rs`).
+
+# rect de um inline VAZIO (so um espaco colapsavel): o Blink da 0x0 na posicao da
+# linha (y=140); este motor nao regista rect nenhum (y=0). As margens a volta
+# (a2/b2) batem — e a geometria do inline sem conteudo, lote da geometria de
+# caixas vazias (BT-2c deixou `rects_of_box` pronto para isso). 2026-09-25.
+claude-margem-atraves-de-inline-vazio.html
+

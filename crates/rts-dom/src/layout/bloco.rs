@@ -815,6 +815,14 @@ pub(crate) fn layout_block(
             content_x,
             content_y,
             children_w,
+            // Same definiteness the table's OWN children (`avail_children`,
+            // three lines above) already resolve `height:%` against: only an
+            // explicitly specified height (or its `aspect-ratio`/flex
+            // equivalents), never the auto result of stacking the rows. A
+            // `<tr>`/`<tbody>`'s `top:100%` (CSS 2.1 §9.3.2) reuses this same
+            // value rather than the laid-out row height — see
+            // `table::relative`.
+            explicit_content_h,
             &css,
             font_size,
             ctx,

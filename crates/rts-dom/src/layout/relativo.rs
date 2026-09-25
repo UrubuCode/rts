@@ -43,8 +43,13 @@ use crate::boxes::{BoxId, BoxTree};
 /// `id` is already a `BoxId` — the caller resolves it through
 /// `list.tree.boxes_of(node)` before calling in, which is what lets this
 /// function walk the box tree instead of the DOM (invariant I2).
+/// `pub(crate)`, not `pub(in crate::layout)`: `table/relativo.rs` calls this
+/// too, for the row/row-group boxes `layout_block` never sees (see its own
+/// header for why). Reusing this function rather than writing a second
+/// offset routine is the point — a table-internal box's offset is computed
+/// and applied exactly like any other block's.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn aplica_offset_relativo(
+pub(crate) fn aplica_offset_relativo(
     id: BoxId,
     css: &ComputedStyle,
     avail_w: f32,

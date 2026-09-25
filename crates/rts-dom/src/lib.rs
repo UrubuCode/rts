@@ -32,6 +32,7 @@ pub mod imagem;
 /// uma resistência que não se usa. Ver as ressalvas no módulo.
 pub mod boxes;
 pub mod fasthash;
+mod entity_refs;
 mod html;
 mod inline_box;
 /// Motor de LAYOUT (egui-free): calcula a geometria (x,y,w,h) de cada nó via box

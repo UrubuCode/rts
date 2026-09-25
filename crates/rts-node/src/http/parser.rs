@@ -154,14 +154,19 @@ pub(crate) struct ChunkedDecoder {
 }
 
 impl ChunkedDecoder {
-    pub(super) fn new() -> Self {
+    // `pub(crate)`, not `pub(super)`: `rts_node::fetch::request` reuses this
+    // decoder to tell whether a chunked body has fully arrived WITHOUT
+    // waiting for the socket to close (its own module has why) — the same
+    // algorithm `decode_body` below already runs, over a scratch copy,
+    // rather than a second reader of the chunk grammar.
+    pub(crate) fn new() -> Self {
         Self { remaining: None, trailers_done: false }
     }
 
     /// Consumes as much of `buf` as a complete chunk-size line or chunk body
     /// needs, draining what it consumes. Call repeatedly (the caller loops
     /// while it gets `Body`) until `NeedMore` or `Done`.
-    pub(super) fn step(&mut self, buf: &mut Vec<u8>) -> ChunkOutcome {
+    pub(crate) fn step(&mut self, buf: &mut Vec<u8>) -> ChunkOutcome {
         match self.remaining {
             None => {
                 let Some(pos) = find_crlf(buf) else { return ChunkOutcome::NeedMore };

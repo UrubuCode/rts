@@ -57,7 +57,9 @@ pub(crate) fn layout_anonymous_table(
     let css = tree.style(dom, caixa).unwrap_or_default();
     let ts = TableStyle::of(dom, None, &css, font_size, ctx);
     let g = collect(dom, tree, caixa);
-    let h = lay_out_grid(dom, tree, &g, &ts, x, y, w, font_size, ctx, list);
+    // An anonymous table box has no `height` of its own — it is a wrapper the
+    // engine invents, never something the author gave a definite size to.
+    let h = lay_out_grid(dom, tree, &g, &ts, x, y, w, None, font_size, ctx, list);
     crate::layout::record_box_rect(list, caixa, Rect::new(x, y, w, h));
     (w, h)
 }

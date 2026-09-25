@@ -87,6 +87,7 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
     let linhas = wrap_runs(
         std::slice::from_ref(&run),
         &mut |_| if nowrap { f32::INFINITY } else { largura },
+        &mut |_| 0.0,
         fonte,
         familia.is_some_and(crate::style::is_mono_family),
         crate::inline_box::quebra_dentro(css),

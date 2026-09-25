@@ -72,4 +72,5 @@ pub(crate) fn textos(list: &crate::layout::DisplayList) -> Vec<String> {
 mod classes;
 mod grade;
 mod regras;
+mod relative;
 mod trilhas;

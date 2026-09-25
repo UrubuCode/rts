@@ -11,18 +11,57 @@
 use super::{AtomicKind, InlineRun, NodeIdx, Segment};
 use crate::style::{ComputedStyle, WhiteSpace};
 
-/// What `wrap_runs` needs to know of the container's `white-space` and
-/// `tab-size`. One value built from the style, so each caller passes the
-/// same answer instead of deriving booleans of its own.
-#[derive(Clone, Copy)]
+/// What `wrap_runs` needs to know of `white-space` and `tab-size`, per RUN.
+///
+/// Both are inherited and apply to each inline box (CSS Text 3 §3), so a
+/// `<span style="white-space:pre">` inside a `normal` paragraph keeps ITS
+/// spaces while the text around it collapses. One value per call — the
+/// container's — was the shape before, and it made the span's declaration
+/// invisible (WPT `white-space/*-051/052`).
+///
+/// A run does not carry the value in a new field: like its font
+/// (`fonte_do_trecho.rs`), it is the computed style of the INNERMOST owner,
+/// which already inherits from everything above it; a run with no owner is
+/// the container's. A field on `InlineRun` was the alternative and lost
+/// because every constructor of a run (floats, anchors, pseudo boxes) would
+/// have to fill it with the same lookup this does once.
 pub(in crate::layout) struct Spaces {
+    base: WhiteSpaceRegime,
+    per_run: Vec<WhiteSpaceRegime>,
+}
+
+impl Spaces {
+    /// One value for every run: a flow whose text has no inline owners, like
+    /// a generated box's own text.
+    pub(in crate::layout) fn from_css(css: &ComputedStyle) -> Spaces {
+        Spaces { base: WhiteSpaceRegime::from_css(css), per_run: Vec::new() }
+    }
+
+    pub(in crate::layout) fn from_flow(dom: &crate::Dom, runs: &[InlineRun], css: &ComputedStyle) -> Spaces {
+        let base = WhiteSpaceRegime::from_css(css);
+        let per_run = runs
+            .iter()
+            .map(|r| r.owners.last().and_then(|&o| dom.computed_style_idx(o)).map_or(base, |c| WhiteSpaceRegime::from_css(&c)))
+            .collect();
+        Spaces { base, per_run }
+    }
+
+    /// The value of run `i`; any index past the runs is the container's.
+    pub(in crate::layout) fn of(&self, i: usize) -> WhiteSpaceRegime {
+        self.per_run.get(i).copied().unwrap_or(self.base)
+    }
+}
+
+/// One element's `white-space` and `tab-size`.
+#[derive(Clone, Copy)]
+pub(in crate::layout) struct WhiteSpaceRegime {
     ws: WhiteSpace,
     tab_size: f32,
 }
 
-impl Spaces {
-    pub(in crate::layout) fn from_css(css: &ComputedStyle) -> Spaces {
-        Spaces {
+impl WhiteSpaceRegime {
+    pub(in crate::layout) fn from_css(css: &ComputedStyle) -> WhiteSpaceRegime {
+        WhiteSpaceRegime {
             ws: css.white_space.unwrap_or(WhiteSpace::Normal),
             tab_size: css.tab_size.unwrap_or(8.0).max(0.0),
         }
@@ -45,10 +84,18 @@ impl Spaces {
         self.ws == WhiteSpace::BreakSpaces
     }
 
-    /// A tab advances to the next tab stop, measured from the start of the
-    /// LINE (`pos` px into it) — not from the start of the run, which was the
-    /// cut the old per-run expansion in `linha.rs` declared. The text is
-    /// spaces so the painter, which has no idea of tabs, draws blank.
+    /// A tab advances to the next tab stop, measured from `pos` — not from the
+    /// start of the run, which was the cut the old per-run expansion in
+    /// `linha.rs` declared. The text is spaces so the painter, which has no
+    /// idea of tabs, draws blank.
+    ///
+    /// `pos` itself is `wrap_runs`'s `line_offset(i) + cur_w + cluster_w`: CSS
+    /// Text 3 §4.2 counts a tab stop from "the start edge of the line box's
+    /// containing block" — the block's CONTENT edge — not from where line `i`
+    /// happens to start. A float shortens a line from the left without moving
+    /// the content edge, so `line_offset` (the band's left edge minus the
+    /// content edge, from `linha.rs`'s `offset_da_linha`) is what keeps a
+    /// tab-stop-with-float line agreeing with a plain one on where stop N is.
     pub(in crate::layout) fn tab(self, pos: f32, space: f32) -> (String, f32) {
         let w = tab_advance(pos, self.tab_size, space);
         (" ".repeat((w / space).round() as usize), w)
