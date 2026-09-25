@@ -1356,12 +1356,13 @@ fn unsigned_shift_answers_a_double_and_not_an_int32() {
 /// The kinds asserted here are the ones still refused: a construction, a type
 /// assertion, a template literal, a comma expression and an optional chain were in this
 /// list and all five lower now, which is why the list moved rather than the test being
-/// deleted.
+/// deleted. A tagged template lowers where its compiler minted a site, and names the
+/// missing site where none did -- which is every lowering outside the door.
 #[test]
 fn a_refused_expression_names_what_it_was() {
     assert_eq!(
-        only("function f(t) { return t`x`; }").expect_err("a tagged template"),
-        Unsupported::Expression("a tagged template")
+        only("function f(t) { return t`x`; }").expect_err("no site was minted"),
+        Unsupported::Expression("a tagged template with no site minted")
     );
     assert_eq!(
         only("function f() { return class {}; }").expect_err("a class expression"),
