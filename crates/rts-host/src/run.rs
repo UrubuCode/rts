@@ -505,6 +505,41 @@ fn run_region(
     }
 }
 
+/// The environment variable that raises how far a region may grow, in cells.
+pub const MAX_CELLS_VAR: &str = "RTS_MAX_CELLS";
+
+/// How many cells each region reserves, starting from `cells`.
+///
+/// [`rts_core::heap::GROWTH_CEILING`] times `cells` unless [`MAX_CELLS_VAR`]
+/// asks for more. The constant is sized for a test binary that compiles
+/// hundreds of programs on several threads, where every reservation sits
+/// between two pieces of compiled code and a large one pushes them beyond the
+/// ±2 GiB a `PCRel4` relocation reaches — `growth.rs` has the measurements. A
+/// process running ONE program, which is what `rts run` is, has no such
+/// neighbours, so the variable lets it claim more.
+///
+/// Only ever raises: a value below the default is ignored, because a smaller
+/// ceiling helps no program and the default is what the suites were measured
+/// against. A value that is not a number is reported and ignored rather than
+/// failing the program, since it is the caller's setting and not the source's
+/// fault.
+fn heap_reservation(cells: u32) -> u32 {
+    let default = cells.saturating_mul(rts_core::heap::GROWTH_CEILING);
+    let Some(raw) = std::env::var_os(MAX_CELLS_VAR) else {
+        return default;
+    };
+    match raw.to_str().and_then(|text| text.trim().parse::<u32>().ok()) {
+        Some(asked) => asked.max(default),
+        None => {
+            eprintln!(
+                "rts: ignoring {MAX_CELLS_VAR}={raw:?}: expected a whole number of cells                  up to {}; using {default}.",
+                u32::MAX
+            );
+            default
+        }
+    }
+}
+
 /// Compiles a function body into this process's memory.
 ///
 /// # Why a body and not a script
@@ -1165,14 +1200,15 @@ pub(crate) fn assemble(
     // change: the sharded form costs a mask, a load and an add on every access,
     // and a program that never asked for a second thread must not pay them.
     const CELLS: u32 = 1 << 16;
+    let reserved = heap_reservation(CELLS);
     let (table, mut owned) = if regions <= 1 {
-        (None, vec![rts_core::heap::Region::with_capacity(CELLS)])
+        (None, vec![rts_core::heap::Region::with_reservation(CELLS, reserved)])
     } else {
         // A precondition rather than a `HostError`: every variant of that enum
         // is about the SOURCE, and a region count is the embedder's own
         // argument. Reporting it as though the program were at fault would put
         // it where nobody looks.
-        let several = rts_core::heap::Regions::new(regions, CELLS)
+        let several = rts_core::heap::Regions::new_reserving(regions, CELLS, reserved)
             .expect("the region count must be a power of two: a selector is a mask");
         let (table, list) = several.into_parts();
         (Some(table), list)

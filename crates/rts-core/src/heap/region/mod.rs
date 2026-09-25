@@ -324,7 +324,26 @@ impl Region {
     /// because the single-region case is the one that must stay free: a caller
     /// that never asks for shards must not be able to accidentally pay for them.
     pub fn sharded(cells: u32, index: u32, selector_bits: u32) -> Self {
-        let reserved = cells.saturating_mul(GROWTH_CEILING);
+        Region::sharded_reserving(cells, cells.saturating_mul(GROWTH_CEILING), index, selector_bits)
+    }
+
+    /// A lone region that starts at `cells` and may grow to `reserved`.
+    ///
+    /// For an embedder that knows its program better than [`GROWTH_CEILING`]
+    /// does. That constant is sized for the worst process there is — a test
+    /// binary compiling hundreds of programs on several threads, where each
+    /// reservation pushes compiled code apart — and a process that runs ONE
+    /// program has no such neighbours, so it can afford a larger span.
+    ///
+    /// `reserved` below `cells` is raised to `cells`: a region cannot start
+    /// larger than it may ever be.
+    pub fn with_reservation(cells: u32, reserved: u32) -> Self {
+        Region::sharded_reserving(cells, reserved, 0, 0)
+    }
+
+    /// [`Self::sharded`] with the reservation stated rather than derived.
+    pub fn sharded_reserving(cells: u32, reserved: u32, index: u32, selector_bits: u32) -> Self {
+        let reserved = reserved.max(cells);
         // Claimed ZEROED in one allocation, then shortened to the starting
         // bound. `vec![0; n]` is specialised to `alloc_zeroed`, which for a
         // block this size asks the operating system for demand-zero pages and
