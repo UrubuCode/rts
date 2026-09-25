@@ -7,6 +7,9 @@
 //! `bind_parameters`, said in the graph: one entry-point call, and a read by index for
 //! each parameter past the slots.
 //!
+//! A DEFAULT is the other thing a parameter list does at run time, and it is here for
+//! that reason: [`Lowering::defaults`].
+//!
 //! What the graph needs for it is all four slots, whether or not the program named them,
 //! so a function that gathers declares every slot as an entry parameter and binds the
 //! ones the program wrote.
@@ -63,6 +66,71 @@ impl Lowering<'_> {
         if let Some(name) = rest {
             let gathered = self.rest_arguments(written as u32, &slots, &at);
             self.bind(name, gathered, Type::Object, &at)?;
+        }
+        Ok(())
+    }
+
+    /// Each parameter with a default, as `if (p === void 0) p = default;` -- the
+    /// language's own definition of one, lowered by the statements that already exist.
+    ///
+    /// AFTER the environment is open and not with the parameters: a default may read a
+    /// captured binding, and a captured parameter it writes lives there by then. In
+    /// order, so a default reads the parameters before it with their defaults applied.
+    ///
+    /// `void 0` and not `undefined`, because `undefined` is a name a program may bind.
+    /// A default that WRITES a function is declined elsewhere rather than here: its
+    /// function is outside the body, so nothing numbered it, and the closure refuses.
+    ///
+    /// A PATTERN parameter is taken apart here too, in the same order and for the same
+    /// reason -- `patterns` holds the value each one arrived as, by position.
+    pub(super) fn defaults(
+        &mut self,
+        function: &Function,
+        patterns: &[(usize, ValueId)],
+    ) -> Result<(), Unsupported> {
+        for (position, parameter) in function.parameters.iter().enumerate() {
+            if let Some((_, arrived)) = patterns.iter().find(|(at, _)| *at == position) {
+                let at = Expr {
+                    kind: ExprKind::This,
+                    at: function.at,
+                };
+                self.destructure(&parameter.target, *arrived, &at)?;
+                continue;
+            }
+            let Some(default) = &parameter.default else {
+                continue;
+            };
+            let Pattern::Name(name) = &parameter.target else {
+                return Err(Unsupported::Pattern);
+            };
+            let at = default.at;
+            let expr = |kind| Expr { kind, at };
+            let absent = expr(ExprKind::Unary {
+                op: crate::syntax::UnaryOp::Void,
+                operand: Box::new(expr(ExprKind::Literal(crate::syntax::Literal::Number(0.0)))),
+            });
+            let written = crate::syntax::Stmt {
+                kind: crate::syntax::StmtKind::If {
+                    condition: expr(ExprKind::Binary {
+                        op: crate::syntax::BinaryOp::StrictEqual,
+                        left: Box::new(expr(ExprKind::Ident(*name))),
+                        right: Box::new(absent),
+                    }),
+                    then_branch: Box::new(crate::syntax::Stmt {
+                        kind: crate::syntax::StmtKind::Expr(expr(ExprKind::Assign {
+                            target: crate::syntax::AssignTarget::Place(Box::new(expr(
+                                ExprKind::Ident(*name),
+                            ))),
+                            value: Box::new(default.clone()),
+                            op: crate::syntax::AssignOp::Plain,
+                        })),
+                        at,
+                    }),
+                    else_branch: None,
+                },
+                at,
+            };
+            self.statement(&written)?;
         }
         Ok(())
     }

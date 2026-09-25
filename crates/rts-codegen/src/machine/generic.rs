@@ -61,6 +61,11 @@ impl JsMachine<'_> {
             (JsPrim::TypeOf, 1) => RuntimeOp::TypeOf,
             (JsPrim::Negate, 1) => RuntimeOp::Negate,
             (JsPrim::BitwiseNot, 1) => RuntimeOp::BitNot,
+            // `+x`, and the read `x++` makes: `UnaryPlus` for both, which is what
+            // `emit/unary.rs::step_value` calls for the same increment. It throws on a
+            // BigInt where `x++` would step one, a divergence the running engine has
+            // too -- this door answers what it answers, not a different language.
+            (JsPrim::ToNumber, 1) => RuntimeOp::UnaryPlus,
             // A WRITE answers the value written, which the graph types as the value.
             (JsPrim::IndexWrite, 3) => {
                 let strict = self.word(into, 0);
@@ -87,10 +92,7 @@ impl JsMachine<'_> {
             //
             // - `BitwiseInt32` holds five operators under one row, so WHICH runtime
             //   operation is not in the graph -- the fault `Compare` had until it was
-            //   split into its three rows;
-            // - `ToNumber` is used for `i++`, which applies ToNumeric -- a BigInt
-            //   increments to a BigInt -- while `UnaryPlus` throws on one, so the call
-            //   that exists answers a different operation.
+            //   split into its three rows.
             _ => return Ok(None),
         };
         self.call_runtime(into, op, args).map(Some)

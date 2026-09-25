@@ -216,12 +216,18 @@ pub fn lower_within(
     // both sides; the two tiers infer different types, so a decision that consulted one
     // would number them differently.
     let coerced = numeric_use::coerced_names(function);
+    let mut patterns = Vec::new();
     for (position, parameter) in function.parameters.iter().enumerate() {
-        if parameter.default.is_some() {
-            return Err(Unsupported::Shape("a parameter default is an expression"));
-        }
         let Pattern::Name(name) = &parameter.target else {
-            return Err(Unsupported::Pattern);
+            // A PATTERN arrives as one value and is taken apart once the environment
+            // is open -- `gather.rs`, with the defaults. One that also has a default,
+            // or sits past the slots, is not taken apart here yet.
+            if position >= crate::runtime::ARGUMENT_SLOTS || parameter.default.is_some() {
+                return Err(Unsupported::Pattern);
+            }
+            let entry = lowering.builder.current();
+            patterns.push((position, lowering.builder.param(entry)));
+            continue;
         };
         // PAST THE SLOTS a parameter arrives in no register -- `gather.rs` reads it.
         if position >= crate::runtime::ARGUMENT_SLOTS {
@@ -267,6 +273,7 @@ pub fn lower_within(
         kind: ExprKind::This,
         at: function.at,
     })?;
+    lowering.defaults(function, &patterns)?;
 
     match &function.body {
         FunctionBody::Expression(expr) => {

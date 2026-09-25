@@ -1381,6 +1381,39 @@ fn a_continue_in_a_for_runs_the_update() {
     assert_eq!(adds.len(), 1, "one step block, reached from the body and from `continue`");
 }
 
+/// A default is the language's own `if (p === void 0) p = default`: the parameter is
+/// tested, and the default is evaluated only on the arm where it was absent -- so a
+/// default with an effect runs once per call that omitted it, and never otherwise.
+#[test]
+fn a_parameter_default_is_evaluated_only_when_the_argument_is_absent() {
+    let lowered = only("function f(a, b = a()) { return b; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let calls: Vec<_> = lowered
+        .func
+        .block_ids()
+        .filter(|block| {
+            lowered
+                .func
+                .block(*block)
+                .insts
+                .iter()
+                .any(|inst| matches!(lowered.func.inst(*inst).op, Op::Call { .. }))
+        })
+        .collect();
+    assert_eq!(calls.len(), 1, "the default's call sits in one block");
+    assert_ne!(calls[0], lowered.func.entry(), "and it is not the entry: it is guarded");
+}
+
+/// A destructured parameter arrives as one value and is taken apart: `{ x, y }` reads
+/// two fields of it.
+#[test]
+fn a_pattern_parameter_is_taken_apart_from_the_value_it_arrived_as() {
+    let lowered = only("function f({ x, y }) { return x; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let entry = lowered.func.block(lowered.func.entry());
+    assert_eq!(entry.params.len(), 1, "one argument, however many names it binds");
+}
+
 /// `this` is an operation that reads the receiver of this activation. It is pure --
 /// the value is already there -- and nothing is known about it without a proof about
 /// the call site.

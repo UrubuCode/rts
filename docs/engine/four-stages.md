@@ -2187,3 +2187,21 @@ did not were not this stage's:
   that program. 15 runs of 15 pass.
 - `aot_manifest_embedded` named the executable `.exe` and the object `.obj`, which is
   Windows; everywhere else it failed at "did not produce" beside the file it wanted.
+
+### Parameter lists: defaults, patterns, and `+x` over anything
+
+10 016 taken and 324 declined, from 9 962 and 378.
+
+- **A default** is lowered as the language defines it, `if (p === void 0) p = default;`,
+  through the statements that already exist -- after the environment opens, in order, so
+  a default may read a captured binding and the parameters before it. `void 0` because
+  `undefined` is a name a program may bind. A default holding a function still declines:
+  it sits outside the body, so nothing numbered it.
+- **A destructured parameter** arrives as one value and is taken apart there too, in the
+  same order. With a default of its own, or past the four slots, it still declines.
+- **`ToNumber` over an unknown value** is `UnaryPlus`, which is exactly what
+  `emit/unary.rs::step_value` calls for `x++`. It throws on a BigInt where the language
+  steps one; the running engine does the same, and this door answers what that engine
+  answers rather than a different language.
+
+Suite: 884 of 907, LOST empty against `main` and the step before.
