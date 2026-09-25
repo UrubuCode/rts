@@ -23,15 +23,11 @@ impl Rect {
 
     /// The bounding rectangle of `self` and `other`.
     ///
-    /// Extracted from `inline_box::union_rect`'s arithmetic — that function
-    /// keeps its own copy for now, so the duplication is real and temporary:
-    /// it closes once `union_rect` itself is rewritten against the box tree,
-    /// which is someone else's lot. Unlike `union_rect`, this has no
-    /// sentinel to skip: a reserved placeholder now lives in a SEPARATE
-    /// `box_rects` entry keyed by `BoxId`, so a box that was never written
-    /// simply has no entry there. The ambiguity a single per-node slot had —
-    /// "empty box at the origin" vs. "no box yet" — cannot arise once each
-    /// box has its own key; it dies by construction, not by a special case.
+    /// The ONE union arithmetic: a box's fragments (`box_fragments.rs`), a
+    /// node's boxes and a reused subtree's rects all fold through it. It has
+    /// no sentinel to skip: a reserved placeholder is FLAGGED in its entry and
+    /// replaced by the first real write, so "empty box at the origin" and "no
+    /// box yet" cannot be confused — by construction, not by a special case.
     pub fn union(self, other: Rect) -> Rect {
         let x = self.x.min(other.x);
         let y = self.y.min(other.y);
@@ -338,7 +334,7 @@ pub struct DisplayList {
     /// indistinguível da forma antiga: é o que faz este lote não mudar
     /// resposta nenhuma. `rect_of_node` e `geometry_now` são as vistas
     /// agregadas por nó, para quando um nó vier a ter mais do que uma caixa.
-    pub box_rects: crate::fasthash::FastMap<BoxId, Rect>,
+    pub box_rects: super::BoxRects,
     pub ancoras_estaticas: Vec<(BoxId, f32, f32)>, // static positions, `ancora_estatica.rs`
     /// Tracks de coluna de grids explícitos, já resolvidas em px pelo layout. O
     /// `computedProperty` usa esta fonte de used values sem duplicar `resolve_tracks`.
@@ -373,7 +369,7 @@ impl PartialEq for DisplayList {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Geometry {
     pub rects: crate::fasthash::FastMap<NodeIdx, Rect>,
-    pub hit_order: Vec<NodeIdx>,
+    pub hit_order: Vec<(NodeIdx, Rect)>, // each box's own rect: `pecas::collect`
     pub scroll_regions: Vec<ScrollRegion>,
 }
 
@@ -459,12 +455,12 @@ impl DisplayList {
         // árvore for o espelho, cada nó tem no máximo uma caixa e isto é uma
         // cópia; deixa de ser quando um nó vier a ter várias.
         let mut rects: crate::fasthash::FastMap<NodeIdx, Rect> = crate::fasthash::FastMap::default();
-        for (&box_id, rect) in self.box_rects.iter() {
+        for (box_id, rect) in self.box_rects.unions() {
             if let Some(node) = self.tree.node_of(box_id) {
                 match rects.get_mut(&node) {
-                    Some(existing) => *existing = existing.union(*rect),
+                    Some(existing) => *existing = existing.union(rect),
                     None => {
-                        rects.insert(node, *rect);
+                        rects.insert(node, rect);
                     }
                 }
             }
@@ -476,7 +472,7 @@ impl DisplayList {
         };
         // The hit order is the geometry marks in paint order, a reused
         // subtree's entering where its `Child` stands — `pecas::collect`.
-        super::pecas::collect(&self.tree, &self.pieces, 0.0, 0.0, &mut g);
+        super::pecas::collect(&self.tree, &self.pieces, 0.0, 0.0, &|b| self.box_rects.union(b), &mut g);
         g
     }
 
@@ -491,8 +487,7 @@ impl DisplayList {
     /// pois caixas anônimas não possuem `NodeIdx` para expor.
     pub(crate) fn rect_of_box(&self, box_id: BoxId) -> Option<Rect> {
         self.box_rects
-            .get(&box_id)
-            .copied()
+            .union(box_id)
             .or_else(|| super::pecas::rect_in_children(&self.pieces, box_id, 0.0, 0.0))
     }
 
@@ -527,11 +522,8 @@ impl DisplayList {
     pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeIdx> {
         let g = self.geometry();
         if !g.hit_order.is_empty() {
-            return g.hit_order.iter().rev().copied().find(|&idx| {
-                g.rects
-                    .get(&idx)
-                    .is_some_and(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
-            });
+            let hit = |r: &Rect| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+            return g.hit_order.iter().rev().find(|(_, r)| hit(r)).map(|&(idx, _)| idx);
         }
         let mut best: Option<(NodeIdx, f32)> = None;
         for (&idx, r) in &g.rects {

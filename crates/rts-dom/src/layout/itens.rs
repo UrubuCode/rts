@@ -58,8 +58,7 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
 /// caixas dele contra `list.tree`, morreu com o último chamador que só sabia
 /// o nó (BT-2a).
 pub(crate) fn reserve_box_order(list: &mut DisplayList, box_id: BoxId) {
-    if !list.box_rects.contains_key(&box_id) {
-        list.box_rects.insert(box_id, Rect::new(0.0, 0.0, 0.0, 0.0));
+    if list.box_rects.reserve(box_id) {
         list.pieces.push(Piece::Rect(box_id));
     }
 }
@@ -69,21 +68,17 @@ pub(crate) fn reserve_box_order(list: &mut DisplayList, box_id: BoxId) {
 /// variante que existe: um nó pode ter produzido fragmentos distintos na
 /// BoxTree, e só a caixa exacta diz qual deles é este.
 pub(crate) fn record_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect) {
-    if list.box_rects.insert(box_id, rect).is_none() {
+    if list.box_rects.insert(box_id, rect) {
         list.pieces.push(Piece::Rect(box_id));
     }
 }
 
-/// Grows ONE box's rectangle to take in another of its fragments — a box
-/// that breaks across lines, recorded one line at a time.
-///
-/// Not `inline_box::union_rect`, which does this by NODE and so cannot reach
-/// a box with none (a generated inline). Nor its placeholder sentinel: that
-/// guards against `reserve_node_order`, which only ever reserves boxes that
-/// name a node.
-pub(crate) fn union_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect) {
-    match list.box_rects.get_mut(&box_id) {
-        Some(old) => *old = old.union(rect),
-        None => record_box_rect(list, box_id, rect),
+/// One line's piece of a box that breaks across lines: it grows that line's
+/// fragment, or starts the box's next one (`box_fragments.rs`, I4). The only
+/// writer an inline has — `inline_box::union_rect` resolves a node to its
+/// boxes and comes here, a generated inline (no node) comes here directly.
+pub(crate) fn add_line_fragment(list: &mut DisplayList, box_id: BoxId, rect: Rect, line: super::LineId) {
+    if list.box_rects.add_on_line(box_id, rect, line) {
+        list.pieces.push(Piece::Rect(box_id));
     }
 }

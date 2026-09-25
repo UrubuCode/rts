@@ -331,39 +331,19 @@ pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
     ((altura_da_linha - conteudo) / 2.0).floor()
 }
 
-/// Une um fragmento de linha ao retângulo acumulado de um elemento inline.
+/// Records one line's piece of an inline element in each of its boxes.
 ///
-/// É a definição da spec para `getBoundingClientRect` de um inline: a bounding
-/// box dos border boxes dos seus fragmentos. Um `<a>` que quebra em duas linhas
-/// tem dois fragmentos e um retângulo que os contém aos dois — deliberadamente
-/// mais largo do que qualquer um deles, que é o que o browser também devolve.
-///
-/// **Porque continua a unir, agora que a geometria é por CAIXA.** No espelho de
-/// BT-1 um elemento tem UMA caixa, e os fragmentos de linha dele caem todos
-/// nela — portanto a união é a mesma de sempre, só que a chave passou a ser o
-/// `BoxId`. É quando os fragmentos de um inline forem caixas de verdade (BT-2)
-/// que esta função deixa de unir no momento do cálculo e a união passa a ser
-/// uma VISTA (`DisplayList::rect_of_node`), que é o que `box-tree.md` chama de
-/// invariante I4.
-pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
-    // Um nó sem caixa (texto, `display:none`) não tem onde acumular. A fatia
-    // vazia responde a isso sem caso especial.
-    let caixas: Vec<crate::boxes::BoxId> = list.tree.boxes_of(idx).to_vec();
-    for caixa in caixas {
-        if let Some(old) = list.box_rects.get_mut(&caixa) {
-            // Um placeholder reservado (`reserve_box_order`) é 0,0,0,0 e não é
-            // um fragmento: uni-lo puxaria a caixa até à origem do documento. O
-            // sentinela sobrevive a BT-1 porque a reserva de ordem continua a
-            // escrever o placeholder; morre com ela.
-            if old.w == 0.0 && old.h == 0.0 && old.x == 0.0 && old.y == 0.0 {
-                *old = fragment;
-                continue;
-            }
-            *old = old.union(fragment);
-        } else {
-            list.box_rects.insert(caixa, fragment);
-            list.pieces.push(crate::layout::Piece::Rect(caixa));
-        }
+/// `getBoundingClientRect` of an inline is the bounding box of its fragments'
+/// border boxes: an `<a>` wrapping onto two lines has two fragments and a rect
+/// holding both, wider than either — which is what the browser returns too.
+/// Since BT-2c that union is a VIEW (`layout/box_fragments.rs`, invariant I4):
+/// what is recorded here is the fragment of `line`, and a box keeps one per line.
+pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect, line: &crate::layout::LineScope) {
+    // A node with no box (text, `display:none`) has nowhere to record; the
+    // empty list answers that with no special case. Only the boxes of THIS
+    // flow: a split inline's other fragments are other flows' (`LineScope`).
+    for caixa in line.boxes_of(&list.tree, idx) {
+        crate::layout::add_line_fragment(list, caixa, fragment, line.id);
     }
 }
 /// Pode a linha ser partida DENTRO de um aglomerado — isto é, no meio de uma

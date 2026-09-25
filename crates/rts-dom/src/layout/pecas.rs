@@ -155,10 +155,25 @@ pub(in crate::layout) fn flatten_from(pieces: &mut Vec<Piece>, start: usize) {
 /// translated here, and an anonymous box (no node) does not enter: the bridge
 /// promises element boxes, and a box the document does not have is not
 /// reachable by any `NodeId`.
-pub(in crate::layout) fn collect(tree: &BoxTree, pieces: &[Piece], dx: f32, dy: f32, out: &mut Geometry) {
+///
+/// **Each entry carries its BOX's rect** (`rect_of`, already offset), not the
+/// node's. A split inline's fragment after the block marks its box after the
+/// block's; with the node's union — which spans the block — it won a click on
+/// the block that Blink gives the block (`rect_cliente.rs`). That only held
+/// while every fragment box was written at the first line, marking them all
+/// before the block — true of the per-node union, false once each fragment
+/// records its own rects (BT-2c).
+pub(in crate::layout) fn collect(
+    tree: &BoxTree,
+    pieces: &[Piece],
+    dx: f32,
+    dy: f32,
+    rect_of: &dyn Fn(BoxId) -> Option<Rect>,
+    out: &mut Geometry,
+) {
     for piece in pieces {
         match piece {
-            Piece::Rect(box_id) => out.hit_order.extend(tree.node_of(*box_id)),
+            Piece::Rect(box_id) => out.hit_order.extend(tree.node_of(*box_id).zip(rect_of(*box_id))),
             Piece::Child(c) => collect_fragment(tree, &c.fragment, dx + c.dx, dy + c.dy, out),
             Piece::Item(_) => {}
         }
@@ -170,16 +185,18 @@ pub(in crate::layout) fn collect(tree: &BoxTree, pieces: &[Piece], dx: f32, dy: 
 /// the order `geometry_now` always produced them in.
 fn collect_fragment(tree: &BoxTree, fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
     let moved = dx != 0.0 || dy != 0.0;
+    let mut by_box: crate::fasthash::FastMap<BoxId, Rect> = crate::fasthash::FastMap::default();
     for (box_id, rect) in fragment.rects.iter() {
-        let Some(node) = tree.node_of(*box_id) else { continue };
         let mut rect = *rect;
         if moved {
             rect.x += dx;
             rect.y += dy;
         }
+        by_box.entry(*box_id).and_modify(|r| *r = r.union(rect)).or_insert(rect);
+        let Some(node) = tree.node_of(*box_id) else { continue };
         out.rects.entry(node).and_modify(|r| *r = r.union(rect)).or_insert(rect);
     }
-    collect(tree, &fragment.pieces, dx, dy, out);
+    collect(tree, &fragment.pieces, dx, dy, &|b| by_box.get(&b).copied(), out);
     for region in fragment.scroll_regions.iter() {
         let mut region = *region;
         if moved {
@@ -191,13 +208,31 @@ fn collect_fragment(tree: &BoxTree, fragment: &Fragment, dx: f32, dy: f32, out: 
 }
 
 /// The rect of one box inside the subtrees `pieces` reuses, with their offsets
-/// added. Unlike the public geometry by node, this reaches anonymous boxes too.
+/// added: the union of its fragments. Unlike the public geometry by node, this
+/// reaches anonymous boxes too.
 pub(in crate::layout) fn rect_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32) -> Option<Rect> {
+    let rects = rects_in_children(pieces, box_id, dx, dy)?;
+    Some(rects[1..].iter().fold(rects[0], |acc, r| acc.union(*r)))
+}
+
+/// Every fragment of one box inside the subtrees `pieces` reuses, offsets
+/// added. A box's line fragments all come from the ONE inline formatting
+/// context that laid it out, so they sit in one `Fragment` and the first
+/// fragment naming the box has them all.
+pub(in crate::layout) fn rects_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32) -> Option<Vec<Rect>> {
     children(pieces).find_map(|c| {
         let (dx, dy) = (dx + c.dx, dy + c.dy);
-        match c.fragment.rects.iter().find(|(id, _)| *id == box_id) {
-            Some((_, r)) => Some(Rect::new(r.x + dx, r.y + dy, r.w, r.h)),
-            None => rect_in_children(&c.fragment.pieces, box_id, dx, dy),
+        let own: Vec<Rect> = c
+            .fragment
+            .rects
+            .iter()
+            .filter(|(id, _)| *id == box_id)
+            .map(|(_, r)| Rect::new(r.x + dx, r.y + dy, r.w, r.h))
+            .collect();
+        if own.is_empty() {
+            rects_in_children(&c.fragment.pieces, box_id, dx, dy)
+        } else {
+            Some(own)
         }
     })
 }

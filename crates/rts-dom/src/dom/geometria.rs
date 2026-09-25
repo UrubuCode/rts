@@ -131,16 +131,14 @@ impl Dom {
     /// chamar este em vez daquele é a mudança mínima que fecha o gap.
     pub fn hit_test_clickable(&self, list: &crate::layout::DisplayList, x: f32, y: f32) -> Option<NodeIdx> {
         let g = list.geometry();
-        g.hit_order.iter().rev().copied().find(|&idx| {
-            let dentro = g
-                .rects
-                .get(&idx)
-                .is_some_and(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+        g.hit_order.iter().rev().find(|&&(idx, r)| {
+            let dentro = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
             dentro
                 && !matches!(
                     self.computed_style_idx(idx).and_then(|s| s.pointer_events),
                     Some(crate::style::vocab::PointerEvents::None)
                 )
         })
+        .map(|&(idx, _)| idx)
     }
 }
