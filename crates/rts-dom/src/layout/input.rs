@@ -11,7 +11,7 @@ use super::*;
 pub(in crate::layout) fn layout_button(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -65,11 +65,7 @@ pub(in crate::layout) fn layout_button(
         decoration: 0,
     });
     let rect = Rect::new(x, y, w, h);
-    if let Some(caixa) = caixa {
-        record_box_rect(list, caixa, rect);
-    } else {
-        record_node_rect(list, id, rect);
-    }
+    record_box_rect(list, caixa, rect);
     (w + 6.0, h + 4.0) // margenzinha UA entre botões
 }
 
@@ -252,7 +248,7 @@ impl MedidaDoInput {
 pub(in crate::layout) fn layout_input(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -299,11 +295,7 @@ pub(in crate::layout) fn layout_input(
         content_w + padding_h + 2.0 * border,
         content_h + pad_top + pad_bottom + 2.0 * border,
     );
-    if let Some(caixa) = caixa {
-        record_box_rect(list, caixa, box_rect);
-    } else {
-        record_node_rect(list, id, box_rect);
-    }
+    record_box_rect(list, caixa, box_rect);
 
     // Fundo: o `background` do CSS, senão branco (campo de texto clássico).
     let radius = css.corner_radius.unwrap_or(0.0);

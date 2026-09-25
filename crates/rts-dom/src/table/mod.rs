@@ -274,7 +274,7 @@ fn lay_out_grid(
         let (_, h) = crate::layout::layout_block(
             dom,
             o,
-            Some(caixa),
+            caixa,
             content_x,
             y,
             content_w,
@@ -391,7 +391,7 @@ fn lay_out_grid(
             crate::layout::layout_block(
                 dom,
                 c.node,
-                Some(c.caixa),
+                c.caixa,
                 col_x[c.col],
                 y,
                 w,

@@ -111,10 +111,13 @@ pub(in crate::layout) fn offset_do_inline(dom: &Dom, mut no: Option<NodeIdx>, ct
 }
 
 /// Shifts by `(dx, dy)` everything emitted into `list` since `desde` — items,
-/// reused subtrees and the rects of `caixa`'s subtree. What an ATOM laid out on
-/// the line of a relative inline needs: its box was placed by `layout_block`,
-/// which knows nothing of the inline around it.
-pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, caixa: Option<BoxId>, dx: f32, dy: f32) {
+/// reused subtrees and, when `rects_de` names one, the rects of that box's
+/// subtree. What an ATOM laid out on the line of a relative inline needs: its
+/// box was placed by `layout_block`, which knows nothing of the inline around
+/// it. `rects_de` is `None` for an atom with no body (an anchor, an edge):
+/// there is no rect of its own to move. Every atom HAS a box; the `Option`
+/// says whether it recorded a rect.
+pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, rects_de: Option<BoxId>, dx: f32, dy: f32) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }
@@ -129,7 +132,7 @@ pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, cai
     // no entry in `list.box_rects`: the walk below does not find them, rightly —
     // their `ChildRef`'s `dx`/`dy` is added on read by `geometry_now`. A second
     // source of truth for one answer, reconciled by hand until BT-2 removes it.
-    if let Some(caixa) = caixa {
+    if let Some(caixa) = rects_de {
         let tree = list.tree.clone();
         shift_box_rects(&tree, caixa, dx, dy, list);
     }

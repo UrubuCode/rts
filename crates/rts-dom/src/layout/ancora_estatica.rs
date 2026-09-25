@@ -33,8 +33,8 @@ use crate::boxes::BoxId;
 /// line and the inlines around it do not count it as content. Returning early
 /// here is also what keeps the walk from descending into the box and leaking
 /// its text into the line.
-pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: Option<BoxId>, color: u32) -> Option<InlineRun> {
-    (caixa.is_some() && is_out_of_flow(dom, id)).then(|| InlineRun {
+pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32) -> Option<InlineRun> {
+    is_out_of_flow(dom, id).then(|| InlineRun {
         text: String::new(),
         color,
         bold: false,
@@ -66,7 +66,7 @@ pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: Option<BoxId>, co
 /// (`visibility: hidden`) reads as an empty line here.
 pub(in crate::layout) fn fora_da_linha(
     dom: &Dom,
-    atomic: (NodeIdx, Option<BoxId>, AtomicKind),
+    atomic: (NodeIdx, BoxId, AtomicKind),
     seg_x: f32,
     flow_x: f32,
     line_top: f32,
@@ -79,7 +79,7 @@ pub(in crate::layout) fn fora_da_linha(
         // the boxes of the inlines around it pass through the line — Blink
         // leaves it out of the client rects of the inline that contains it.
         (_, _, AtomicKind::Float) => true,
-        (id, Some(caixa), AtomicKind::Estatica) => {
+        (id, caixa, AtomicKind::Estatica) => {
             let vazia = (list.items.len(), list.children.len()) == inicio_da_linha;
             let (x, y) = match (era_de_bloco(dom, id), vazia) {
                 (true, true) => (flow_x, line_top),
@@ -89,7 +89,6 @@ pub(in crate::layout) fn fora_da_linha(
             list.ancoras_estaticas.push((caixa, x, y));
             true
         }
-        (_, None, AtomicKind::Estatica) => true,
         _ => false,
     }
 }

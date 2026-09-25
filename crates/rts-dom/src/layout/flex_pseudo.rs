@@ -44,14 +44,13 @@ fn rc(css: &ComputedStyle, base_w: f32, fonte: f32, ctx: &LayoutCtx) -> ResolveC
 pub(in crate::layout) fn medir(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: Option<crate::boxes::BoxId>,
-    id: NodeIdx,
+    dono: crate::boxes::BoxId,
     pe: crate::style::PseudoElement,
     base_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> Option<PseudoItem> {
-    let (gerada, caixa) = super::pseudo_caixa::da_arvore(dom, tree, dono, id, pe)?;
+    let (gerada, caixa) = super::pseudo_caixa::da_arvore(dom, tree, dono, pe)?;
     if caixa.css.effective_display() == Some(crate::style::DisplayKind::None) {
         return None;
     }
@@ -89,13 +88,12 @@ pub(in crate::layout) fn medir(
 pub(in crate::layout) fn largura(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: Option<crate::boxes::BoxId>,
-    id: NodeIdx,
+    dono: crate::boxes::BoxId,
     pe: crate::style::PseudoElement,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    medir(dom, tree, dono, id, pe, ctx.viewport_w, font_size, ctx).map_or(0.0, |p| p.w)
+    medir(dom, tree, dono, pe, ctx.viewport_w, font_size, ctx).map_or(0.0, |p| p.w)
 }
 
 /// Pinta o item gerado com o canto superior esquerdo da sua margin box em
@@ -107,17 +105,16 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, item: &PseudoItem, x: f3
 
 /// O item flex de um pseudo-elemento gerado do contentor, se existir.
 ///
-/// `caixa: None` on the item even though the pseudo has a box: that field is
-/// what `flex.rs` hands to `layout_block` for a REAL item, and a generated one
-/// is painted by `pintar` from `pseudo` instead — its `BoxId` travels there,
-/// in `CaixaGerada::gerada`.
+/// The item's box is the GENERATED box. `flex.rs` never hands it to
+/// `layout_block` — a generated item is painted by `pintar` from `pseudo` —
+/// but it is the box the item is, and the one its geometry is recorded under.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn item_flex(dom: &Dom, tree: &crate::boxes::BoxTree, dono: crate::boxes::BoxId, id: NodeIdx, pe: crate::style::PseudoElement, content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Option<super::flex::FlexItem> {
-    let p = medir(dom, tree, Some(dono), id, pe, content_w, font_size, ctx)?;
+    let p = medir(dom, tree, dono, pe, content_w, font_size, ctx)?;
     let css = &p.caixa.css;
     Some(super::flex::FlexItem {
         node: id,
-        caixa: None,
+        caixa: p.gerada,
         base: p.w,
         main: p.w,
         h: p.h,

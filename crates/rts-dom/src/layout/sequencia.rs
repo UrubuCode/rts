@@ -59,10 +59,17 @@ use crate::boxes::{BoxId, BoxTree};
 /// the node is not reachable without matching the variant that has one.
 #[derive(Debug)]
 pub(in crate::layout) enum PassoDoFluxo {
-    /// A step that names a node: an element box, a text box, or — with
-    /// `caixa: None` — a DOM child that generates no box at all (a comment), and
-    /// every child when the list carries no tree.
-    No { no: NodeIdx, caixa: Option<BoxId> },
+    /// A step that names a node AND its box: an element box or a text box.
+    No { no: NodeIdx, caixa: BoxId },
+    /// A DOM child that generates NO box — a comment, a whitespace-only run the
+    /// split declined to wrap, an element the cascade refused — spliced back at
+    /// its DOM position (see the module header for why it is here at all).
+    ///
+    /// Its own variant and not `No` with an `Option<BoxId>`: the flow has one
+    /// arm for it, which reproduces what the box-less child did before — it
+    /// opens an inline group and nothing else — and no layout function below
+    /// that arm ever receives a "maybe box". BT-2a, `box-tree.md` §7 I1.
+    SemCaixa(NodeIdx),
     /// An ANONYMOUS block box. It has no node, and nothing in this step may be
     /// translated back into one: what it needs — its style source, its children
     /// — it asks the tree for.
@@ -71,23 +78,12 @@ pub(in crate::layout) enum PassoDoFluxo {
 
 /// The children of `caixa`, in the tree's order, with the no-box DOM children
 /// spliced back at their own positions.
-///
-/// `caixa` is `None` when the list carries no tree (`DisplayList::default()`,
-/// five call sites) — the sequence is then the DOM's children with no box each,
-/// which is exactly what the loop did before this module existed.
 pub(in crate::layout) fn sequencia_do_fluxo(
     dom: &Dom,
     tree: &BoxTree,
     id: NodeIdx,
-    caixa: Option<BoxId>,
+    caixa: BoxId,
 ) -> Vec<PassoDoFluxo> {
-    let filhos_dom = &dom.node(id).children;
-    let Some(caixa) = caixa else {
-        return filhos_dom
-            .iter()
-            .map(|&no| PassoDoFluxo::No { no, caixa: None })
-            .collect();
-    };
     // The box being descended into must belong to the tree this list was laid
     // out against. It is the check the generation field exists for: an id kept
     // across a rebuild indexes an arena that has moved, and reading it answers
@@ -119,7 +115,7 @@ pub(in crate::layout) fn sequencia_do_fluxo(
             "a caixa {b:?} nao e filha de {caixa:?}, e a descida chegou a ela na mesma"
         );
         match tree.node_of(b) {
-            Some(no) => da_arvore.push(PassoDoFluxo::No { no, caixa: Some(b) }),
+            Some(no) => da_arvore.push(PassoDoFluxo::No { no, caixa: b }),
             None => da_arvore.push(PassoDoFluxo::Anonima(b)),
         }
     }
@@ -259,20 +255,17 @@ fn emenda_os_sem_caixa(
     let mut s = 0usize;
     for f in da_arvore {
         let posicao = match &f {
-            PassoDoFluxo::No { no, .. } => filhos_dom.iter().position(|d| d == no),
+            PassoDoFluxo::No { no, .. } | PassoDoFluxo::SemCaixa(no) => filhos_dom.iter().position(|d| d == no),
             PassoDoFluxo::Anonima(b) => posicao_no_contentor(dom, tree, id, *b),
         };
         while s < sem_caixa.len() && Some(sem_caixa[s].0) < posicao {
-            out.push(PassoDoFluxo::No {
-                no: sem_caixa[s].1,
-                caixa: None,
-            });
+            out.push(PassoDoFluxo::SemCaixa(sem_caixa[s].1));
             s += 1;
         }
         out.push(f);
     }
     for &(_, d) in &sem_caixa[s..] {
-        out.push(PassoDoFluxo::No { no: d, caixa: None });
+        out.push(PassoDoFluxo::SemCaixa(d));
     }
     out
 }
@@ -295,14 +288,14 @@ mod tests {
     /// que não gera caixa nenhuma.
     fn caixa_do_passo(p: &PassoDoFluxo) -> Option<BoxId> {
         match *p {
-            PassoDoFluxo::No { caixa, .. } => caixa,
-            PassoDoFluxo::Anonima(b) => Some(b),
+            PassoDoFluxo::No { caixa, .. } | PassoDoFluxo::Anonima(caixa) => Some(caixa),
+            PassoDoFluxo::SemCaixa(_) => None,
         }
     }
 
     fn no_do_passo(p: &PassoDoFluxo) -> Option<NodeIdx> {
         match *p {
-            PassoDoFluxo::No { no, .. } => Some(no),
+            PassoDoFluxo::No { no, .. } | PassoDoFluxo::SemCaixa(no) => Some(no),
             PassoDoFluxo::Anonima(_) => None,
         }
     }
@@ -317,7 +310,7 @@ mod tests {
         let p = no_da_tag(&dom, "section");
         let div = no_da_tag(&dom, "div");
 
-        let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
+        let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
         assert_eq!(seq.len(), 3, "anonima, o bloco, anonima: {seq:?}");
         assert!(
             matches!(seq[0], PassoDoFluxo::Anonima(_)),
@@ -350,7 +343,7 @@ mod tests {
             2,
             "o inline partido tem DUAS caixas suas, uma por corrida"
         );
-        let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
+        let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
         let PassoDoFluxo::Anonima(anon) = seq[0] else {
             panic!("o primeiro passo devia ser anonimo: {seq:?}");
         };
@@ -359,7 +352,7 @@ mod tests {
         // caixa não-anónima que a envolve.
         assert_eq!(tree.style_source(anon), p);
 
-        let dentro = sequencia_do_fluxo(&dom, &tree, p, Some(anon));
+        let dentro = sequencia_do_fluxo(&dom, &tree, p, anon);
         assert_eq!(dentro.len(), 1, "a corrida da frente e o fragmento do span");
         assert_eq!(no_do_passo(&dentro[0]), Some(span));
         assert_eq!(
@@ -378,12 +371,12 @@ mod tests {
         let tree = dom.box_tree();
         let p = no_da_tag(&dom, "section");
 
-        let seq = sequencia_do_fluxo(&dom, &tree, p, Some(tree.boxes_of(p)[0]));
+        let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
         assert_eq!(seq.len(), 3, "anonima, bloco, anonima: {seq:?}");
         let PassoDoFluxo::Anonima(frente) = seq[0] else {
             panic!("{seq:?}");
         };
-        let dentro = sequencia_do_fluxo(&dom, &tree, p, Some(frente));
+        let dentro = sequencia_do_fluxo(&dom, &tree, p, frente);
         assert_eq!(dentro.len(), 2, "o texto 'x' E o fragmento do span");
         assert!(
             matches!(&dom.node(no_do_passo(&dentro[0]).unwrap()).kind, NodeKind::Text(t) if t == "x")
@@ -396,7 +389,7 @@ mod tests {
         let dom = crate::parse_html_to_dom("<div>ola</div>");
         let tree = dom.box_tree();
         let div = no_da_tag(&dom, "div");
-        let seq = sequencia_do_fluxo(&dom, &tree, div, Some(tree.boxes_of(div)[0]));
+        let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 1);
         assert!(caixa_do_passo(&seq[0]).is_some(), "o texto tem caixa desde que a arvore a da");
@@ -410,7 +403,7 @@ mod tests {
         let dom = crate::parse_html_to_dom("<div><p>a</p><!--c--><p>b</p></div>");
         let tree = dom.box_tree();
         let div = no_da_tag(&dom, "div");
-        let seq = sequencia_do_fluxo(&dom, &tree, div, Some(tree.boxes_of(div)[0]));
+        let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 3, "dois <p> e o comentario entre eles");
         assert!(caixa_do_passo(&seq[1]).is_none(), "um comentario nao gera caixa");
@@ -426,7 +419,7 @@ mod tests {
         let dom = crate::parse_html_to_dom("<div>a<!--c-->b<span>s<p>x</p>f</span></div>");
         let tree = dom.box_tree();
         let div = no_da_tag(&dom, "div");
-        let seq = sequencia_do_fluxo(&dom, &tree, div, Some(tree.boxes_of(div)[0]));
+        let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
         let anonimas: Vec<BoxId> = seq
             .iter()
             .filter_map(|p| match *p {
@@ -437,7 +430,7 @@ mod tests {
         assert_eq!(anonimas.len(), 2, "uma corrida de cada lado do <p>: {seq:?}");
 
         let comentarios = |b: BoxId| {
-            sequencia_do_fluxo(&dom, &tree, div, Some(b))
+            sequencia_do_fluxo(&dom, &tree, div, b)
                 .iter()
                 .filter(|p| {
                     no_do_passo(p).is_some_and(|n| matches!(&dom.node(n).kind, NodeKind::Comment(_)))
@@ -446,18 +439,6 @@ mod tests {
         };
         assert_eq!(comentarios(anonimas[0]), 1, "o comentario esta nesta corrida");
         assert_eq!(comentarios(anonimas[1]), 0, "e nao na outra");
-    }
-
-    /// Sem árvore (`DisplayList::default()`), a sequência é a do DOM e nenhuma
-    /// caixa é prometida.
-    #[test]
-    fn sem_arvore_a_sequencia_e_a_do_dom() {
-        let dom = crate::parse_html_to_dom("<div><p>a</p><!--c--><p>b</p></div>");
-        let div = no_da_tag(&dom, "div");
-        let seq = sequencia_do_fluxo(&dom, &BoxTree::default(), div, None);
-
-        assert_eq!(seq.len(), dom.node(div).children.len());
-        assert!(seq.iter().all(|p| caixa_do_passo(p).is_none()));
     }
 
     /// Uma `BoxId` de OUTRA construção da árvore é recusada.
@@ -470,6 +451,6 @@ mod tests {
         let caixa = antiga.boxes_of(div)[0];
         let nova = crate::boxes::build_mirror(&dom);
 
-        let _ = sequencia_do_fluxo(&dom, &nova, div, Some(caixa));
+        let _ = sequencia_do_fluxo(&dom, &nova, div, caixa);
     }
 }

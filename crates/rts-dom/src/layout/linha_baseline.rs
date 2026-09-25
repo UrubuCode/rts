@@ -160,7 +160,7 @@ fn atomo(dom: &Dom, seg: &Segment, content_w: f32, ctx: &LayoutCtx) -> Option<At
 fn ascent_do_bloco(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     css: &ComputedStyle,
     altura: f32,
     largura: f32,
@@ -188,25 +188,25 @@ fn ascent_do_bloco(
         viewport_h: ctx.viewport_h,
     };
     let (mt, mb) = (css.margin.top.resolve(&r).unwrap_or(0.0), css.margin.bottom.resolve(&r).unwrap_or(0.0));
-    if let (true, Some(caixa)) = (flex && super::flex_baseline::tem_itens_elemento(dom, id), caixa) {
+    if flex && super::flex_baseline::tem_itens_elemento(dom, id) {
         // A flex container's baseline is its first line's item's (Flexbox
         // §8.5), read where that item really sits once the container is laid out.
         let inicio = marca();
         let mut scratch = DisplayList::for_dom(dom);
-        layout_block(dom, id, Some(caixa), 0.0, 0.0, content_w, None, Some(largura), None, false, true, &BlockFormattingContext::new(), ctx, &mut scratch);
+        layout_block(dom, id, caixa, 0.0, 0.0, content_w, None, Some(largura), None, false, true, &BlockFormattingContext::new(), ctx, &mut scratch);
         descarta(inicio);
         if let Some(b) = super::flex_baseline::baseline_no_layout(dom, id, &scratch, content_w, ctx) {
             return b.clamp(0.0, altura);
         }
     }
-    if flex || caixa.is_none() {
+    if flex {
         let borda = (altura - mt - mb).max(0.0);
         let dentro = super::linha_ib::ascent_do_item(dom, id, borda, content_w, ctx);
         // `ascent_do_item` answers the whole border box when the box is empty:
         // then the baseline is the bottom MARGIN edge, which is `altura`.
         return if dentro >= borda { altura } else { mt + dentro };
     }
-    match baseline_da_ultima_linha(dom, id, caixa.expect("checked above"), largura, content_w, ctx) {
+    match baseline_da_ultima_linha(dom, id, caixa, largura, content_w, ctx) {
         Some(b) => b.min(altura),
         None => altura,
     }
@@ -351,7 +351,7 @@ fn baseline_da_ultima_linha(
     layout_block(
         dom,
         id,
-        Some(caixa),
+        caixa,
         0.0,
         0.0,
         content_w,

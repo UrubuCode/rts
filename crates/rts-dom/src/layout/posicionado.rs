@@ -66,15 +66,24 @@ fn containing_block_rect(
     None
 }
 
-/// DFS que coleta os nós `position:absolute/fixed`. Não desce DENTRO de um
-/// out-of-flow (os filhos dele pertencem ao layout dele; abs-dentro-de-abs = v2).
+/// DFS over the BOX tree that collects the `position:absolute/fixed` boxes —
+/// `caixa` itself included, which is how a positioned ROOT element is found —
+/// parent before child (the layout pass reads the parent's rect as the
+/// containing block).
+///
+/// The tree and not the DOM (`box-tree.md` §7 I2): a split inline has several
+/// boxes and the DOM walk could only name its first; walking the boxes hands
+/// each out-of-flow child the exact box it sits in. The set of nodes visited
+/// is the same — the split keeps document order and moves nothing out of its
+/// container — and a box with no node (anonymous, generated) is entered for
+/// what it holds.
 pub(in crate::layout) fn collect_out_of_flow(
     dom: &Dom,
     tree: &BoxTree,
-    id: NodeIdx,
+    caixa: BoxId,
     out: &mut Vec<OutOfFlowBox>,
 ) {
-    for &child in &dom.node(id).children {
+    if let Some(child) = tree.node_of(caixa) {
         // `display:none` num ANCESTRAL remove a subárvore inteira do layout, e o
         // fora de fluxo não é exceção: um `position:absolute` dentro de um ramo
         // escondido não gera caixa nenhuma no browser.
@@ -85,22 +94,14 @@ pub(in crate::layout) fn collect_out_of_flow(
         // `<input type=checkbox height:100%>` de um menu escondido resolvia
         // contra um contentor com a altura do DOCUMENTO e vinha com 96 665px.
         if e_display_none(dom, child) {
-            continue;
+            return;
         }
         if is_out_of_flow(dom, child) {
-            let caixa = match tree.boxes_of(child) {
-                [caixa] => *caixa,
-                [] => continue,
-                caixas => panic!(
-                    "o fora do fluxo {child} gerou {} caixas; a sua blockificação precisa ser representada pela BoxTree",
-                    caixas.len()
-                ),
-            };
             out.push(OutOfFlowBox { node: child, caixa });
         }
-        // O pai precisa entrar antes do filho: a BoxTree preserva ambos os
-        // BoxIds, e a passada de layout usa o rect do pai como containing block.
-        collect_out_of_flow(dom, tree, child, out);
+    }
+    for &caixa_filho in tree.children(caixa) {
+        collect_out_of_flow(dom, tree, caixa_filho, out);
     }
 }
 
@@ -197,7 +198,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     layout_block(
         dom,
         id,
-        Some(alvo.caixa),
+        alvo.caixa,
         x,
         y,
         cb.w,

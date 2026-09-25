@@ -43,7 +43,7 @@ fn cor_do_retangulo_svg_embutido(dom: &Dom, id: NodeIdx) -> Option<u32> {
 pub(in crate::layout) fn layout_svg_placeholder(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -123,18 +123,14 @@ pub(in crate::layout) fn layout_svg_placeholder(
         color: 0xE8EAEDFF,
         radius: Corners::same(2.0),
     });
-    if let Some(caixa) = caixa {
-        record_box_rect(list, caixa, rect);
-    } else {
-        record_node_rect(list, id, rect);
-    }
+    record_box_rect(list, caixa, rect);
     Some((w + ml + mr, h + mt + mb))
 }
 
 pub(in crate::layout) fn layout_image(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -205,11 +201,7 @@ pub(in crate::layout) fn layout_image(
     // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
     let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (forced_w, forced_h), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
-    if let Some(caixa) = caixa {
-        record_box_rect(list, caixa, rect);
-    } else {
-        record_node_rect(list, id, rect);
-    }
+    record_box_rect(list, caixa, rect);
     // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com
     // `background` é uma caixa como as outras enquanto a imagem não chega
     // (`claude-object-fit`: o Blink mostra o `#eee` por baixo, e aqui a régua
@@ -278,7 +270,7 @@ pub(in crate::layout) fn layout_image(
 pub(in crate::layout) fn layout_canvas(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -302,11 +294,7 @@ pub(in crate::layout) fn layout_canvas(
     // A caixa devolvida é a BORDER-BOX, como no `<img>`.
     let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (None, None), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
-    if let Some(caixa) = caixa {
-        record_box_rect(list, caixa, rect);
-    } else {
-        record_node_rect(list, id, rect);
-    }
+    record_box_rect(list, caixa, rect);
     if let Some(color) = css.bg {
         list.items.push(DisplayItem::SolidRect {
             rect,

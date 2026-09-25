@@ -99,7 +99,7 @@ pub(in crate::layout) fn layout_inline_block_line(
     // The owner of the flow these atoms sit in — whose last line's baseline an
     // enclosing atom may ask for (`linha_baseline.rs`).
     dono: NodeIdx,
-    run: &[(NodeIdx, Option<crate::boxes::BoxId>)],
+    run: &[(NodeIdx, crate::boxes::BoxId)],
     content_x: f32,
     y: f32,
     content_w: f32,
@@ -112,12 +112,12 @@ pub(in crate::layout) fn layout_inline_block_line(
     // 1) mede a largura+altura desejada (shrink) de cada item numa lista descartável,
     //    junto com o `vertical-align` dele — `None` (não declarado) continua a
     //    alinhar pelo TOPO, o corte que o doc do módulo de alinhamento explica.
-    let mut sizes: Vec<(NodeIdx, Option<crate::boxes::BoxId>, f32, f32, Option<VerticalAlign>, f32, f32)> = Vec::with_capacity(run.len());
+    let mut sizes: Vec<(NodeIdx, crate::boxes::BoxId, f32, f32, Option<VerticalAlign>, f32, f32)> = Vec::with_capacity(run.len());
     for (pos, &(child, caixa)) in run.iter().enumerate() {
         let (measured_w, h) = measure_block(
             dom,
             child,
-            caixa.expect("um inline-block da corrida tem a caixa que a sequencia lhe deu"),
+            caixa,
             content_w,
             avail_h,
             None,
@@ -154,7 +154,7 @@ pub(in crate::layout) fn layout_inline_block_line(
     }
     // 2) agrupa em LINHAS (soma das larguras ≤ content_w). Cada linha guarda os
     //    itens + a largura total (p/ o alinhamento).
-    type Item = (NodeIdx, Option<crate::boxes::BoxId>, f32, f32, Option<VerticalAlign>, f32, f32);
+    type Item = (NodeIdx, crate::boxes::BoxId, f32, f32, Option<VerticalAlign>, f32, f32);
     let mut lines: Vec<(Vec<Item>, f32)> = Vec::new();
     let mut cur: Vec<Item> = Vec::new();
     let mut cur_w = 0.0f32;

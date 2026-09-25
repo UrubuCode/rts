@@ -133,16 +133,21 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
         // O chamador já tem a caixa em mãos (um fragmento específico, ou o
         // caso ubíquo de um nó com uma caixa só, resolvido no `match` de
         // baixo antes de chegar aqui recursivamente): usa exatamente essa.
-        Some(c) => intrinsic_content_width_geral(dom, tree, id, Some(c), font, ctx),
-        // Sem caixa em mãos: dobra sobre as de `id`.
+        Some(c) => intrinsic_content_width_geral(dom, tree, id, c, font, ctx),
+        // Sem caixa em mãos: dobra sobre as de `id`. This is the ONE place the
+        // intrinsic-width family turns a node into its boxes; everything below
+        // it takes the exact box (BT-2a).
         None => match tree.boxes_of(id) {
             // O caso ubíquo: um nó normal, uma caixa só — comportamento
             // idêntico ao de antes deste lote (era exatamente este o único
             // caminho que existia).
-            [c] => intrinsic_content_width_geral(dom, tree, id, Some(*c), font, ctx),
-            // Sem caixa nenhuma (ex.: `display:none`, cascata recusou): sem
-            // filhos para medir.
-            [] => intrinsic_content_width_geral(dom, tree, id, None, font, ctx),
+            [c] => intrinsic_content_width_geral(dom, tree, id, *c, font, ctx),
+            // Sem caixa nenhuma (a cascata recusou o elemento, ou o split
+            // absorveu um inline que só envolvia um bloco): sem filhos para
+            // medir. The generated boxes' widths of a row flex used to be
+            // asked of the DOM here too; a node with no box has no generated
+            // box either, so that was zero, and is not asked.
+            [] => 0.0,
             // Um NÓ SPLIT (a própria inline que o CSS 2.1 §9.2.1.1 partiu em
             // vários fragmentos). Cada fragmento vive na sua PRÓPRIA linha
             // (§9.2.1.1: os lados ficam em caixas de bloco anónimas, siblings
@@ -159,7 +164,7 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
             // pelo `<div>` do meio (29.44, o maior das duas).
             caixas => caixas
                 .iter()
-                .map(|&c| intrinsic_content_width_geral(dom, tree, id, Some(c), font, ctx))
+                .map(|&c| intrinsic_content_width_geral(dom, tree, id, c, font, ctx))
                 .fold(0.0, f32::max),
         },
     }
@@ -168,13 +173,12 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
 /// O corpo "geral" de [`intrinsic_content_width`]: soma (flex-row) ou maior
 /// das linhas (bloco), sobre os filhos de UMA caixa específica — nunca sobre
 /// `id` sozinho, que é ambíguo quando `id` tem mais de uma caixa (ver o
-/// comentário no chamador). `caixa` é `None` só quando `id` não gerou caixa
-/// nenhuma.
+/// comentário no chamador).
 fn intrinsic_content_width_geral(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
@@ -221,7 +225,7 @@ fn intrinsic_content_width_geral(
     // obriga a olhar para o `<br>`: ele não é de bloco e mesmo assim quebra.
     let mut linha = 0.0f32;
     let mut maior = 0.0f32;
-    let filhos: &[crate::boxes::BoxId] = caixa.map(|c| tree.children_without_generated(c)).unwrap_or(&[]);
+    let filhos: &[crate::boxes::BoxId] = tree.children_without_generated(caixa);
     for &caixa_filho in filhos {
         let Some(child) = tree.node_of(caixa_filho) else {
             // Caixa ANÓNIMA (CSS 2.1 §9.2.1.1): não tem nó, mas não é
@@ -276,7 +280,7 @@ fn intrinsic_content_width_geral(
     // na largura natural do contentor — o caret do botão do Bootstrap.
     if is_row {
         for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
-            let w = super::flex_pseudo::largura(dom, tree, caixa, id, pe, font, ctx);
+            let w = super::flex_pseudo::largura(dom, tree, caixa, pe, font, ctx);
             if w > 0.0 {
                 sum += w;
                 count += 1;

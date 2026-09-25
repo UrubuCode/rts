@@ -58,8 +58,7 @@ pub(in crate::layout) fn natural_content(css: &ComputedStyle, ctx: &LayoutCtx) -
 }
 
 pub(in crate::layout) fn layout_select(
-    id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -91,11 +90,7 @@ pub(in crate::layout) fn layout_select(
         content_w + f.horizontal + 2.0 * f.border,
         content_h + f.vertical + 2.0 * f.border,
     );
-    if let Some(caixa) = caixa {
-        record_box_rect(list, caixa, rect);
-    } else {
-        record_node_rect(list, id, rect);
-    }
+    record_box_rect(list, caixa, rect);
     let opacity = css.opacity.unwrap_or(1.0);
     list.items.push(DisplayItem::SolidRect {
         rect,

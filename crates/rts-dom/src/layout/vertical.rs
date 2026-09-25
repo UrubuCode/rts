@@ -114,9 +114,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // A CAIXA de `id` — ao lado do `NodeIdx`, não em vez dele. É ela que dá a
     // SEQUÊNCIA dos filhos, por [`super::sequencia::sequencia_do_fluxo`]: quem
     // desce já não pergunta ao DOM por que filhos desce nem por que ordem.
-    // `None` quando a lista não traz árvore (`DisplayList::default()`), e aí o
-    // laço volta a perguntar ao DOM como sempre perguntou.
-    caixa: Option<BoxId>,
+    caixa: BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -158,13 +156,21 @@ pub(in crate::layout) fn layout_children_vertical(
     // que `collect_runs` desce (o fragmento de um inline partido não vê o
     // `<div>` que o partiu) e é ela que chega ao ÁTOMO — um inline-flex a meio
     // de texto é disposto pela caixa exacta, e sem ela `layout_block` não a
-    // tinha para dar ao contentor flex nem à ordem de hit-test. `None` só sem
-    // árvore, ou para um nó que não gera caixa (um comentário).
-    let mut inline_group: Vec<(NodeIdx, Option<BoxId>)> = Vec::new();
+    // tinha para dar ao contentor flex nem à ordem de hit-test.
+    let mut inline_group: Vec<(NodeIdx, BoxId)> = Vec::new();
+    // A box-less DOM child (`PassoDoFluxo::SemCaixa`: a comment, a whitespace
+    // run the split declined to wrap) OPENS the inline group without joining
+    // it — it has no box to be collected by. What it did before BT-2a, as a
+    // member with no box, was exactly that: `collect_runs` produced nothing
+    // for it, and the flush that closed the group reset `borda` and `strut`,
+    // breaking the margin collapse of the two blocks around it. Whether it
+    // SHOULD is a lot of its own, measured on its own; this flag keeps the
+    // answer where it was.
+    let mut grupo_aberto = false;
     // Corrida de INLINE-BLOCKS consecutivos (botões/pills lado a lado). Pintada
     // por `flush_ib` — mede cada um (shrink), põe lado a lado quebrando linha ao
     // encher, e alinha a linha pelo text-align do pai (center do google).
-    let mut ib_run: Vec<(NodeIdx, Option<BoxId>)> = Vec::new();
+    let mut ib_run: Vec<(NodeIdx, BoxId)> = Vec::new();
     macro_rules! flush_ib {
         ($y:expr) => {
             if !ib_run.is_empty() {
@@ -182,7 +188,7 @@ pub(in crate::layout) fn layout_children_vertical(
             if !ib_run.is_empty() {
                 flush_ib!($y);
             }
-            if !inline_group.is_empty() {
+            if !inline_group.is_empty() || grupo_aberto {
                 // Does NOT move below the floats: the lines go AROUND them. The
                 // reference and not a copy: a float that appears in the MIDDLE
                 // of the group is placed in there (`float_in_line.rs`) and has
@@ -201,6 +207,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     list,
                 );
                 inline_group.clear();
+                grupo_aberto = false;
                 // texto quebra a sequência de margin-collapse
                 borda = $y;
                 strut = (0.0, 0.0);
@@ -209,7 +216,7 @@ pub(in crate::layout) fn layout_children_vertical(
     }
     // A ÁRVORE é quem dá a sequência e a ordem. `Rc` clonado e não um
     // empréstimo de `list.tree`: `list` é escrito ao longo do laço inteiro — a
-    // mesma razão pela qual `record_node_rect` o clona antes de tocar em
+    // mesma razão pela qual `layout_document` o clona antes de tocar em
     // `box_rects`.
     let arvore = std::rc::Rc::clone(&list.tree);
     // **ESTA descida é a de uma caixa ANÓNIMA?** Se for, `id` não é o dono do
@@ -218,18 +225,13 @@ pub(in crate::layout) fn layout_children_vertical(
     // ELEMENTO e não a cada corrida dele — as caixas geradas de bloco e o
     // clearfix — é emitido lá e tem de ser recusado aqui, ou aparece uma vez por
     // corrida. Ver `bloco_caixa.rs`.
-    let e_anonima = caixa.is_some_and(|b| {
-        matches!(arvore.kind(b), crate::boxes::BoxKind::Anonymous { .. })
-    });
+    let e_anonima = matches!(arvore.kind(caixa), crate::boxes::BoxKind::Anonymous { .. });
     // `::before` de BLOCO com conteúdo — o primeiro do fluxo, antes de
     // qualquer filho real. Ver `pseudo_bloco.rs`.
     if !e_anonima {
         super::pseudo_bloco::aplicar(dom, caixa, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
     }
     let sequencia = sequencia_do_fluxo(dom, &arvore, id, caixa);
-    // `tem_arvore`: sem árvore (`DisplayList::default()`) nenhum filho traz
-    // caixa, e "é uma caixa?" tem de voltar a ser a pergunta ao DOM.
-    let tem_arvore = caixa.is_some();
     for item in &sequencia {
         // **A CAIXA ANÓNIMA É UM PASSO, e é disposta como o BLOCO que é.** Ela
         // não tem margem, borda nem padding (CSS 2.1 §9.2.1.1: nenhuma
@@ -241,7 +243,7 @@ pub(in crate::layout) fn layout_children_vertical(
         // browser junta.
         let anonima = match *item {
             PassoDoFluxo::Anonima(b) => Some(b),
-            PassoDoFluxo::No { .. } => None,
+            PassoDoFluxo::No { .. } | PassoDoFluxo::SemCaixa(_) => None,
         };
         if let Some(anon) = anonima {
             flush_inline!(child_y);
@@ -258,12 +260,28 @@ pub(in crate::layout) fn layout_children_vertical(
             child_y = borda + strut_colapsado(strut);
             continue;
         }
+        // A box-less child: the same three answers it got as a `(child, None)`
+        // member before BT-2a, and no other. Non-rendered metadata is skipped;
+        // whitespace between blocks is skipped; anything else — a comment, a
+        // separator whitespace — closes the inline-block run and opens the
+        // inline group (see `grupo_aberto`).
+        if let PassoDoFluxo::SemCaixa(no) = *item {
+            match &dom.node(no).kind {
+                NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
+                NodeKind::Text(t) if t.trim().is_empty() && !whitespace_is_inline_separator(dom, id, no) => {}
+                _ => {
+                    flush_ib!(child_y);
+                    grupo_aberto = true;
+                }
+            }
+            continue;
+        }
         let PassoDoFluxo::No { no: child, caixa: caixa_do_filho } = *item else {
-            unreachable!("a anonima ja saiu do laco acima");
+            unreachable!("the anonymous and the box-less steps left the loop above");
         };
         // Um FRAGMENTO de inline partido — o único nó com mais de uma caixa — é
         // conteúdo de linha e nunca serve o fragmento guardado do nó (abaixo).
-        let fragmento_do_filho = caixa_do_filho.filter(|_| arvore.boxes_of(child).len() > 1);
+        let fragmento_do_filho = (arvore.boxes_of(child).len() > 1).then_some(caixa_do_filho);
         let e_texto = matches!(dom.node(child).kind, NodeKind::Text(_));
         // **O agrupamento é o MESMO algoritmo, e `e_caixa` só fala de caixas
         // que não são de texto.** Um nó de texto tem caixa, mas quem o dispõe
@@ -272,13 +290,9 @@ pub(in crate::layout) fn layout_children_vertical(
         // partia cada palavra numa linha própria — foi medido, e é por isso que
         // esta linha tem esta forma.
         //
-        // Quem decide se este filho é uma caixa é a ÁRVORE: um comentário chega
-        // aqui com `caixa: None` e responde `false`, como sempre respondeu.
-        let e_caixa = if tem_arvore {
-            caixa_do_filho.is_some() && !e_texto
-        } else {
-            matches!(dom.node(child).kind, NodeKind::Element { .. })
-        };
+        // Quem decide se este filho é uma caixa é a ÁRVORE: um nó sem caixa
+        // já saiu do laço acima.
+        let e_caixa = !e_texto;
         // CAMINHO RÁPIDO: se existe fragmento para este filho com estas
         // constraints, ele já foi classificado como BLOCO NORMAL quando foi
         // criado — é o único caminho que produz fragmento. Encontrá-lo responde
@@ -298,7 +312,7 @@ pub(in crate::layout) fn layout_children_vertical(
             let key = key_base.key(
                 dom,
                 child,
-                caixa_do_filho.expect("um filho-cacheado tem uma caixa"),
+                caixa_do_filho,
                 None,
                 None,
                 false,
@@ -342,8 +356,8 @@ pub(in crate::layout) fn layout_children_vertical(
         // `dom.computed_style_idx(child)`, que é o que estava aqui — a troca não
         // muda valor nenhum hoje e deixa de ter um `NodeIdx` no caminho.
         let child_css = e_caixa.then(|| {
-            caixa_do_filho
-                .and_then(|b| arvore.style(dom, b))
+            arvore
+                .style(dom, caixa_do_filho)
                 .or_else(|| dom.computed_style_idx(child))
                 .unwrap_or_default()
         });
@@ -525,7 +539,6 @@ pub(in crate::layout) fn layout_children_vertical(
             // (`ancora_estatica.rs`). With no text pending, the arms below decide.
             NodeKind::Element { .. }
                 if (child_out || child_float != crate::style::FloatSide::None)
-                    && caixa_do_filho.is_some()
                     && ib_run.is_empty()
                     && group_has_content(dom, &inline_group) =>
             {
@@ -538,7 +551,7 @@ pub(in crate::layout) fn layout_children_vertical(
             // partir do cursor onde CAIBA ao lado dos floats já postos.
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
-                let caixa_float = caixa_do_filho.expect("um float tem uma caixa");
+                let caixa_float = caixa_do_filho;
                 let medida = super::float_placement::measure_float(dom, &arvore, child, caixa_float, content_w, avail_h, css, font_size, ctx);
                 super::float_placement::place_float(dom, child, caixa_float, child_float, medida, child_y, content_x, content_w, avail_h, bfc, ctx, list);
                 // float quebra a sequência de collapse
@@ -620,7 +633,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 let ((_, h), _) = layout_block_reusing(
                     dom,
                     child,
-                    caixa_do_filho.expect("um filho de bloco tem uma caixa"),
+                    caixa_do_filho,
                     content_x,
                     child_y,
                     content_w,
@@ -723,10 +736,9 @@ pub(in crate::layout) fn layout_children_vertical(
 /// Does the pending inline group hold anything besides collapsible space? The
 /// question that decides whether a following float appears in the MIDDLE of a
 /// line or before it.
-fn group_has_content(dom: &Dom, grupo: &[(NodeIdx, Option<BoxId>)]) -> bool {
+fn group_has_content(dom: &Dom, grupo: &[(NodeIdx, BoxId)]) -> bool {
     grupo.iter().any(|&(n, _)| match &dom.node(n).kind {
         NodeKind::Text(t) => !t.trim().is_empty(),
-        NodeKind::Comment(_) => false,
         _ => true,
     })
 }

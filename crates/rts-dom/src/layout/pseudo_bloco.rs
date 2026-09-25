@@ -47,14 +47,13 @@ pub(in crate::layout) type PseudoBlockBox = super::pseudo_caixa::CaixaGerada;
 fn medir(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: Option<crate::boxes::BoxId>,
-    id: NodeIdx,
+    dono: crate::boxes::BoxId,
     pe: crate::style::PseudoElement,
     content_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> Option<PseudoBlockBox> {
-    let (gerada, caixa) = super::pseudo_caixa::da_arvore(dom, tree, dono, id, pe)?;
+    let (gerada, caixa) = super::pseudo_caixa::da_arvore(dom, tree, dono, pe)?;
     if caixa.texto.is_empty() {
         return None;
     }
@@ -109,7 +108,7 @@ pub(in crate::layout) fn aplicar(
     dom: &Dom,
     // The box of `id` this flow is the children of — where the tree put the
     // generated box (`boxes/build/generated.rs`). `None` without a tree.
-    dono: Option<crate::boxes::BoxId>,
+    dono: crate::boxes::BoxId,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
     content_x: f32,
@@ -123,7 +122,7 @@ pub(in crate::layout) fn aplicar(
 ) {
     use super::vertical::{atravessa_se, junta_ao_strut, strut_colapsado};
     let arvore = std::rc::Rc::clone(&list.tree);
-    let Some(caixa) = medir(dom, &arvore, dono, id, pe, content_w, font_size, ctx) else {
+    let Some(caixa) = medir(dom, &arvore, dono, pe, content_w, font_size, ctx) else {
         return;
     };
     let (m, m_baixo) = (caixa.mt, caixa.mb);

@@ -303,10 +303,9 @@ pub struct DisplayList {
     /// The box tree this list was laid out against, memoised on the `Dom`
     /// (`Dom::box_tree`).
     ///
-    /// This is what lets `record_node_rect`/`reserve_node_order` translate a
-    /// `NodeIdx` to the box(es) it owns from inside `itens.rs`, so none of
-    /// their nine callers has to learn about `BoxId` — the fix for invariant
-    /// I1 in `docs/ui/html-engine/box-tree.md` §7. `Rc` and not a borrow:
+    /// This is what the flow sequence, the fragment cache's address and the
+    /// public geometry read the boxes from — the fix for invariant I1 in
+    /// `docs/ui/html-engine/box-tree.md` §7. `Rc` and not a borrow:
     /// this list can outlive the layout pass that built it (it is cached),
     /// and cloning the `Rc` guarantees it is always read against the SAME
     /// tree it was built against, never half of one tree and half of

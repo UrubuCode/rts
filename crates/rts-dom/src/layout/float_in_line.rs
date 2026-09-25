@@ -54,7 +54,7 @@ pub(in crate::layout) fn place_anchored_floats(
     let anchors: Vec<(NodeIdx, BoxId)> = runs
         .iter()
         .filter_map(|r| match r.atomic {
-            Some((node, Some(caixa), AtomicKind::Float)) => Some((node, caixa)),
+            Some((node, caixa, AtomicKind::Float)) => Some((node, caixa)),
             _ => None,
         })
         .collect();
@@ -123,15 +123,14 @@ fn where_it_landed(lines: &[Vec<Segment>], node: NodeIdx, nowrap: bool) -> Optio
 /// Zero width and nothing else: the walk does not descend into the float (its
 /// content is its own, laid out by `layout_block` when it is placed), and the
 /// inlines around it do not count it as their content — empty `owners`. With no
-/// box there is nothing to lay it out by, and the walk goes the usual way.
-pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: Option<BoxId>, color: u32) -> Option<InlineRun> {
+pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32) -> Option<InlineRun> {
     // `float` declared and not cancelled by `position: absolute/fixed` (CSS 2.1
     // §9.7 — an absolutely positioned box does not float).
     let floats = dom.computed_style_idx(id).is_some_and(|c| {
         c.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
             && !c.position.is_some_and(|p| p.out_of_flow())
     });
-    (floats && caixa.is_some()).then(|| InlineRun {
+    floats.then(|| InlineRun {
         text: String::new(),
         color,
         bold: false,
