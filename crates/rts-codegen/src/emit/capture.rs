@@ -1207,7 +1207,7 @@ fn names_in_pattern(pattern: &Pattern, found: &mut BTreeSet<Name>) {
 /// "what does this statement write" has exactly one answer, and a copy here
 /// would be a second place for it to be wrong. It is a `Vec` there because a
 /// merge needs the order.
-fn writes(statement: &Stmt) -> Vec<Name> {
+pub(crate) fn writes(statement: &Stmt) -> Vec<Name> {
     let mut names = Vec::new();
     writes_of(statement, &mut names);
     names

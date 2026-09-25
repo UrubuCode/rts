@@ -2091,16 +2091,19 @@ fn a_catch_with_no_binding_still_receives_the_value() {
 /// An assignment in a protected body cannot reach the handler as an SSA value: nothing
 /// jumps to a handler, so there is no edge to carry an argument and no single value to
 /// carry. The first draft passed one as a block parameter, which compiles and is wrong.
+/// So the binding lives in MEMORY -- the scope tree counts what a `try` writes as used
+/// from an activation of its own, as the running emitter keeps it in its environment --
+/// and the write is a store the handler reads back.
 #[test]
-fn an_assignment_in_a_protected_body_is_refused_with_its_reason() {
-    let refused = only("function f(o) { let x = 1; try { x = 2; } catch (e) { } return x; }")
-        .expect_err("an assignment in the body");
-    assert_eq!(
-        refused,
-        Unsupported::Statement(
-            "an assignment in a protected body is not visible to the handler without a cell"
-        )
-    );
+fn an_assignment_in_a_protected_body_lives_in_the_environment() {
+    let lowered = only("function f(o) { let x = 1; try { x = 2; } catch (e) { } return x; }")
+        .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let stored = lowered.func.insts.iter().any(|held| matches!(
+        &held.op,
+        Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::EnvWrite)
+    ));
+    assert!(stored, "x is written to its environment slot");
 }
 
 /// A `finally` is a CLEANUP PIECE, and this test replaced one asserting it was refused
@@ -2203,25 +2206,19 @@ fn a_finally_that_can_complete_abruptly_is_refused_as_the_wrong_shape() {
     );
 }
 
-/// A cleanup BESIDE a handler that assigns is refused for a reason neither half has
-/// alone: the cleanup is copied into the body's exit and the handler's, and those two
-/// disagree about what the binding holds.
+/// A cleanup BESIDE a handler that assigns needed a cell: the cleanup is copied into the
+/// body's exit and the handler's, and those two disagree about what an SSA binding holds.
+/// The binding lives in the environment now, so the copies read one place.
 #[test]
-fn a_cleanup_beside_an_assigning_handler_is_refused_because_the_copies_disagree() {
-    let refused =
-        only("function f(o) { let x = 1; try { o.m(); } catch (e) { x = 2; } finally { o.n(); } return x; }")
-            .expect_err("the copies disagree");
-    assert_eq!(
-        refused,
-        Unsupported::Statement(
-            "a cleanup beside a handler that assigns needs a cell, because the copies disagree"
-        )
-    );
-    // Each half ALONE is fine, which is what makes this a combination and not either.
-    only("function f(o) { let x = 1; try { o.m(); } catch (e) { x = 2; } return x; }")
-        .expect("a handler that assigns, with no cleanup");
-    only("function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }")
-        .expect("a cleanup, with a handler that assigns nothing");
+fn a_cleanup_beside_an_assigning_handler_reads_one_place() {
+    for source in [
+        "function f(o) { let x = 1; try { o.m(); } catch (e) { x = 2; } finally { o.n(); } return x; }",
+        "function f(o) { let x = 1; try { o.m(); } catch (e) { x = 2; } return x; }",
+        "function f(o) { try { o.m(); } catch (e) { } finally { o.n(); } }",
+    ] {
+        let lowered = only(source).unwrap_or_else(|held| panic!("{source}: {held:?}"));
+        assert_eq!(verify(&lowered.func), Ok(()), "{source}");
+    }
 }
 
 /// A `throw` is a TERMINATOR, and this test replaced one asserting it was refused for

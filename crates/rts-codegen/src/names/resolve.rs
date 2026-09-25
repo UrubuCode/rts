@@ -581,6 +581,27 @@ impl Walker<'_> {
                 finally,
             } => {
                 let protected = self.open(ScopeKind::Block, Some(scope));
+                // WHAT A `try` WRITES LIVES IN MEMORY, as it does in the running
+                // emitter (`capture::assigned_under_protection`): a handler is entered
+                // from every throwing point in the body, a cleanup is copied into every
+                // way out, and none of those edges can carry an SSA value -- so the
+                // lowering refused each such binding as "needs a cell". Recorded as a
+                // use from the protected scope, an activation of its own, which is what
+                // makes the scope tree put the binding in its owner's environment.
+                // Over-reports a name the body only shadows, the safe direction.
+                let written: Vec<crate::names::Name> = body
+                    .iter()
+                    .chain(catch.iter().flat_map(|held| held.body.iter()))
+                    .chain(finally.iter().flat_map(|held| held.iter()))
+                    .flat_map(crate::emit::capture::writes)
+                    .collect();
+                for name in written {
+                    self.references.push(captured::Reference {
+                        name,
+                        scope,
+                        function: protected,
+                    });
+                }
                 self.statements(body, protected);
                 let mut after_scope = None;
                 if let Some(Catch {
