@@ -397,7 +397,7 @@ pub(crate) enum QuebraDentro {
 /// para `Nao` é o comportamento certo em texto latino (que é todo o corpus) e é
 /// honesto no resto: não partir é o que `keep-all` pede.
 pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
-    use crate::style::{OverflowWrap, WordBreak};
+    use crate::style::{painting::LineBreak, OverflowWrap, WordBreak};
     match css.word_break {
         Some(WordBreak::BreakAll) => return QuebraDentro::Sempre,
         // Legado: `word-break: break-word` é, por MDN, o mesmo que
@@ -405,6 +405,13 @@ pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
         // mais do que `break-all` — por isso não é um caso de canto.
         Some(WordBreak::BreakWord) => return QuebraDentro::SePreciso,
         _ => {}
+    }
+    // CSS Text 3 §5.1: `line-break: anywhere` é "a soft wrap opportunity
+    // around every typographic character unit ... or in the middle of
+    // words" — a mesma quebra INCONDICIONAL de `word-break: break-all`, não a
+    // quebra "só se preciso" de `overflow-wrap`.
+    if css.line_break == Some(LineBreak::Anywhere) {
+        return QuebraDentro::Sempre;
     }
     match css.overflow_wrap {
         // `anywhere` difere de `break-word` só no cálculo da largura MÍNIMA

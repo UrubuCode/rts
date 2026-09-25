@@ -99,6 +99,7 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "word-break" => set_if(&mut css.word_break, crate::style::WordBreak::parse(val)),
         // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
         "overflow-wrap" | "word-wrap" => set_if(&mut css.overflow_wrap, crate::style::OverflowWrap::parse(val)),
+        "line-break" => set_if(&mut css.line_break, crate::style::painting::LineBreak::parse(val)),
         "direction" => set_if(&mut css.direction, crate::style::Direction::parse(val)),
         "writing-mode" => set_if(&mut css.writing_mode, crate::style::WritingMode::parse(val)),
         // `text-indent` aceita negativo (o truque de esconder texto atrás da

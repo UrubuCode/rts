@@ -211,6 +211,7 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
         "white-space" => dst.white_space = src.white_space,
         "word-break" => dst.word_break = src.word_break,
         "overflow-wrap" | "word-wrap" => dst.overflow_wrap = src.overflow_wrap,
+        "line-break" => dst.line_break = src.line_break,
         "direction" => dst.direction = src.direction,
         "visibility" => dst.visibility = src.visibility,
         "cursor" => dst.cursor = src.cursor.clone(),

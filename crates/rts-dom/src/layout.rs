@@ -59,6 +59,7 @@ mod float_placement;
 mod float_in_line;
 mod inline_fragmentos;
 mod input;
+mod input_tamanho;
 mod select;
 mod intrinseco_min_max;
 mod tamanho_intrinseco;
