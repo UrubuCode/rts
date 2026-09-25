@@ -482,7 +482,7 @@ pub(in crate::layout) fn layout_block_reusing(
     let fragment = std::rc::Rc::new(Fragment {
         caixa,
         tree: std::rc::Rc::clone(&own.tree),
-        rects: std::rc::Rc::new(std::mem::take(&mut own.box_rects).into_iter().collect()),
+        rects: std::rc::Rc::new(std::mem::take(&mut own.box_rects).into_pairs()),
         grid_column_tracks: std::rc::Rc::new(
             std::mem::take(&mut own.grid_column_tracks)
                 .into_iter()

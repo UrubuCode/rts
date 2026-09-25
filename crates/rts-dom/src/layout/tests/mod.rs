@@ -52,6 +52,7 @@ mod hifen_corpus;
 mod break_spaces_corpus;
 mod fontes_corpus;
 mod imagens_corpus;
+mod box_fragments_i4;
 mod inline;
 mod inline_corpus;
 mod inline_fragmentos_corpus;

@@ -23,10 +23,12 @@ pub(in crate::layout) fn registar_markers_sem_linha(
     x: f32,
     y: f32,
     runs: &[InlineRun],
+    group: &[(NodeIdx, crate::boxes::BoxId)],
 ) {
+    let linha = super::LineScope::fresh(group);
     for r in runs {
         if let Some((idx, _, AtomicKind::Marker)) = r.atomic {
-            crate::inline_box::union_rect(list, idx, Rect::new(x, y, 0.0, 0.0));
+            crate::inline_box::union_rect(list, idx, Rect::new(x, y, 0.0, 0.0), &linha);
         }
     }
 }
@@ -200,6 +202,7 @@ impl Superficies {
         dom: &Dom,
         list: &mut DisplayList,
         at: usize,
+        linha: super::LineId,
         y: f32,
         conteudo_da_linha: f32,
         align_to_baseline: bool,
@@ -228,14 +231,12 @@ impl Superficies {
                 Dono::Gerada(n, pe) => {
                     let Some(caixa) = dom.pseudo_box(n, pe) else { continue };
                     let r = fragmento_com_estilo(Some(&caixa.css), true, s.x0, y, s.x1 - s.x0, conteudo_da_linha, ctx, align_to_baseline);
-                    // Each line's fragment of the generated inline joins its
-                    // box's rect, so `rect_of_box` answers the union the way a
-                    // real inline's `union_rect` does. By node, because a
-                    // surface is named by `(node, pseudo)`: the copy of the
-                    // pseudo a LATER fragment of a split inline repeats
-                    // (`runs.rs`) is unioned into the same box.
+                    // Each line's piece of the generated inline is a fragment
+                    // of its box, as a real inline's are (`union_rect`). Found
+                    // by node because a surface is named by `(node, pseudo)`;
+                    // only the fragment that holds the box emits it (`runs.rs`).
                     if let Some(gerada) = list.tree.generated_of(n, pe) {
-                        super::itens::union_box_rect(list, gerada, r);
+                        super::itens::add_line_fragment(list, gerada, r, linha);
                     }
                     (std::rc::Rc::new(caixa.css), r)
                 }

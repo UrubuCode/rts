@@ -144,10 +144,7 @@ pub(in crate::layout) fn shift_box_rects(
     dy: f32,
     list: &mut DisplayList,
 ) {
-    if let Some(r) = list.box_rects.get_mut(&id) {
-        r.x += dx;
-        r.y += dy;
-    }
+    list.box_rects.map_fragments(id, |r| Rect::new(r.x + dx, r.y + dy, r.w, r.h));
     for &child in tree.children(id) {
         shift_box_rects(tree, child, dx, dy, list);
     }

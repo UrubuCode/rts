@@ -411,6 +411,11 @@ that wants to know "is this an inline formatting context" asks the tree.
 
 ### What the base does NOT do yet, and must not be assumed
 
+- **The fragments of a split or wrapped inline EXIST** (BT-2c, 2026-09-25).
+  `layout/box_fragments.rs` keeps a `Vec<Rect>` per box, one per line
+  (`LineId`); `DisplayList::rects_of_box` answers them, `rect_of`/`Geometry`
+  union at the bridge boundary, and the hit-test uses each box's OWN rect.
+  Invariant I4 is closed. `getClientRects` is now possible and not added.
 - **The paint order is one sequence of pieces, never an index** (BT-2b,
   2026-09-25). `DisplayList.pieces` and `Fragment.pieces` hold `Item`,
   `Child` and `Rect` in paint order; nesting is the `ChildRef`; the hit-test
