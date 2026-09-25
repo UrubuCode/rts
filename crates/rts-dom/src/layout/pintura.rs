@@ -334,7 +334,7 @@ pub(crate) fn border_items(
     // O `filter` do elemento, resolved once by the caller, which already holds
     // it for the box's other colours. It was also a parameter so that a second
     // call could COUNT the border items for the overflow clip's index with the
-    // identity matrix; that count died with the index (BT-2b, `pecas.rs`).
+    // identity matrix; that count died with the index (BT-2b, `pieces.rs`).
     fx: crate::painteffects::FilterMatriz,
 ) -> Vec<DisplayItem> {
     let mut out = Vec::new();

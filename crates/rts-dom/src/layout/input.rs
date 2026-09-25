@@ -150,9 +150,9 @@ pub(in crate::layout) fn medida_do_input(
     let pad_right = p.right.resolve(&resolve).unwrap_or(pad_ua_h).max(0.0);
     let pad_top = p.top.resolve(&resolve).unwrap_or(pad_ua_v).max(0.0);
     let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(pad_ua_v).max(0.0);
-    // See `input_tamanho::largura_borda_usada` for why this is not just
+    // See `input_sizing::used_border_width` for why this is not just
     // `css.border_width.unwrap_or(borda_ua)`.
-    let border = super::input_tamanho::largura_borda_usada(css.border_width, borda_ua, css.border_style);
+    let border = super::input_sizing::used_border_width(css.border_width, borda_ua, css.border_style);
     let padding_h = pad_left + pad_right;
     let frame = margin_left + margin_right + 2.0 * border + padding_h;
     let border_box = css.border_box.unwrap_or(false);

@@ -1,5 +1,5 @@
 //! Transformar itens já desenhados: deslocar, aplicar `transform`, e registar
-//! a ordem e o retângulo de uma caixa. (Walking the pieces is `pecas.rs`.)
+//! a ordem e o retângulo de uma caixa. (Walking the pieces is `pieces.rs`.)
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.

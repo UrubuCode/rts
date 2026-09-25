@@ -158,7 +158,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // de texto é disposto pela caixa exacta, e sem ela `layout_block` não a
     // tinha para dar ao contentor flex nem à ordem de hit-test.
     let mut inline_group: Vec<(NodeIdx, BoxId)> = Vec::new();
-    // A box-less DOM child (`PassoDoFluxo::SemCaixa`: a comment, a whitespace
+    // A box-less DOM child (`PassoDoFluxo::NoBox`: a comment, a whitespace
     // run the split declined to wrap) OPENS the inline group without joining
     // it — it has no box to be collected by. What it did before BT-2a, as a
     // member with no box, was exactly that: `collect_runs` produced nothing
@@ -166,7 +166,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // breaking the margin collapse of the two blocks around it. Whether it
     // SHOULD is a lot of its own, measured on its own; this flag keeps the
     // answer where it was.
-    let mut grupo_aberto = false;
+    let mut group_open = false;
     // Corrida de INLINE-BLOCKS consecutivos (botões/pills lado a lado). Pintada
     // por `flush_ib` — mede cada um (shrink), põe lado a lado quebrando linha ao
     // encher, e alinha a linha pelo text-align do pai (center do google).
@@ -188,7 +188,7 @@ pub(in crate::layout) fn layout_children_vertical(
             if !ib_run.is_empty() {
                 flush_ib!($y);
             }
-            if !inline_group.is_empty() || grupo_aberto {
+            if !inline_group.is_empty() || group_open {
                 // Does NOT move below the floats: the lines go AROUND them. The
                 // reference and not a copy: a float that appears in the MIDDLE
                 // of the group is placed in there (`float_in_line.rs`) and has
@@ -207,7 +207,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     list,
                 );
                 inline_group.clear();
-                grupo_aberto = false;
+                group_open = false;
                 // texto quebra a sequência de margin-collapse
                 borda = $y;
                 strut = (0.0, 0.0);
@@ -243,7 +243,7 @@ pub(in crate::layout) fn layout_children_vertical(
         // browser junta.
         let anonima = match *item {
             PassoDoFluxo::Anonima(b) => Some(b),
-            PassoDoFluxo::No { .. } | PassoDoFluxo::SemCaixa(_) => None,
+            PassoDoFluxo::No { .. } | PassoDoFluxo::NoBox(_) => None,
         };
         if let Some(anon) = anonima {
             flush_inline!(child_y);
@@ -264,14 +264,14 @@ pub(in crate::layout) fn layout_children_vertical(
         // member before BT-2a, and no other. Non-rendered metadata is skipped;
         // whitespace between blocks is skipped; anything else — a comment, a
         // separator whitespace — closes the inline-block run and opens the
-        // inline group (see `grupo_aberto`).
-        if let PassoDoFluxo::SemCaixa(no) = *item {
+        // inline group (see `group_open`).
+        if let PassoDoFluxo::NoBox(no) = *item {
             match &dom.node(no).kind {
                 NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
                 NodeKind::Text(t) if t.trim().is_empty() && !whitespace_is_inline_separator(dom, id, no) => {}
                 _ => {
                     flush_ib!(child_y);
-                    grupo_aberto = true;
+                    group_open = true;
                 }
             }
             continue;

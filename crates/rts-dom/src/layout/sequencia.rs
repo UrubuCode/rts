@@ -69,7 +69,7 @@ pub(in crate::layout) enum PassoDoFluxo {
     /// arm for it, which reproduces what the box-less child did before — it
     /// opens an inline group and nothing else — and no layout function below
     /// that arm ever receives a "maybe box". BT-2a, `box-tree.md` §7 I1.
-    SemCaixa(NodeIdx),
+    NoBox(NodeIdx),
     /// An ANONYMOUS block box. It has no node, and nothing in this step may be
     /// translated back into one: what it needs — its style source, its children
     /// — it asks the tree for.
@@ -255,17 +255,17 @@ fn emenda_os_sem_caixa(
     let mut s = 0usize;
     for f in da_arvore {
         let posicao = match &f {
-            PassoDoFluxo::No { no, .. } | PassoDoFluxo::SemCaixa(no) => filhos_dom.iter().position(|d| d == no),
+            PassoDoFluxo::No { no, .. } | PassoDoFluxo::NoBox(no) => filhos_dom.iter().position(|d| d == no),
             PassoDoFluxo::Anonima(b) => posicao_no_contentor(dom, tree, id, *b),
         };
         while s < sem_caixa.len() && Some(sem_caixa[s].0) < posicao {
-            out.push(PassoDoFluxo::SemCaixa(sem_caixa[s].1));
+            out.push(PassoDoFluxo::NoBox(sem_caixa[s].1));
             s += 1;
         }
         out.push(f);
     }
     for &(_, d) in &sem_caixa[s..] {
-        out.push(PassoDoFluxo::SemCaixa(d));
+        out.push(PassoDoFluxo::NoBox(d));
     }
     out
 }
@@ -289,13 +289,13 @@ mod tests {
     fn caixa_do_passo(p: &PassoDoFluxo) -> Option<BoxId> {
         match *p {
             PassoDoFluxo::No { caixa, .. } | PassoDoFluxo::Anonima(caixa) => Some(caixa),
-            PassoDoFluxo::SemCaixa(_) => None,
+            PassoDoFluxo::NoBox(_) => None,
         }
     }
 
     fn no_do_passo(p: &PassoDoFluxo) -> Option<NodeIdx> {
         match *p {
-            PassoDoFluxo::No { no, .. } | PassoDoFluxo::SemCaixa(no) => Some(no),
+            PassoDoFluxo::No { no, .. } | PassoDoFluxo::NoBox(no) => Some(no),
             PassoDoFluxo::Anonima(_) => None,
         }
     }

@@ -230,7 +230,7 @@ pub enum DisplayItem {
     /// (o backend injeta o offset aqui antes de pintar). Empilha — pode aninhar.
     ///
     /// What it clips is what lies between it and its `EndClip` in the piece
-    /// sequence (`pecas.rs`), reused subtrees included. It used to carry how
+    /// sequence (`pieces.rs`), reused subtrees included. It used to carry how
     /// many subtrees existed when it opened, because a subtree entered the list
     /// by an index that inserting this marker shifted; with one sequence there
     /// is no index to shift.
@@ -308,7 +308,7 @@ pub struct DisplayList {
     pub tree: std::rc::Rc<BoxTree>,
     /// The output in paint order: own items, subtrees reused by REFERENCE, and
     /// the geometry marks the hit order is read from — one sequence
-    /// (`pecas.rs` says what it replaced and why).
+    /// (`pieces.rs` says what it replaced and why).
     ///
     /// The subtrees are what make the output a TREE: a frame that touches one
     /// leaf does not rebuild the page's 30 000 items, it points at the fragments
@@ -369,7 +369,7 @@ impl PartialEq for DisplayList {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Geometry {
     pub rects: crate::fasthash::FastMap<NodeIdx, Rect>,
-    pub hit_order: Vec<(NodeIdx, Rect)>, // each box's own rect: `pecas::collect`
+    pub hit_order: Vec<(NodeIdx, Rect)>, // each box's own rect: `pieces::collect`
     pub scroll_regions: Vec<ScrollRegion>,
 }
 
@@ -393,7 +393,7 @@ impl DisplayList {
 
     /// Paints `item` over everything emitted so far — the one write most of
     /// layout does. An item that must go BEHIND what is already there is an
-    /// insert into `pieces` at a position remembered before it (`pecas.rs`).
+    /// insert into `pieces` at a position remembered before it (`pieces.rs`).
     pub fn push_item(&mut self, item: DisplayItem) {
         self.pieces.push(Piece::Item(item));
     }
@@ -405,7 +405,7 @@ impl DisplayList {
     /// mais um deslocamento é grátis — foi o que permitiu a saída deixar de ser
     /// uma lista plana refeita por frame.
     pub fn walk(&self, mut f: impl FnMut(&DisplayItem, f32, f32)) {
-        super::pecas::walk(&self.pieces, 0.0, 0.0, &mut f);
+        super::pieces::walk(&self.pieces, 0.0, 0.0, &mut f);
     }
 
     /// A lista PLANA. Para quem precisa MUTAR itens (o `transform` do CSS, o
@@ -425,12 +425,12 @@ impl DisplayList {
     /// Achata esta lista em itens próprios, esquecendo a árvore — and the
     /// geometry of the subtrees it reused, as it always did.
     pub fn materialize(&mut self) {
-        super::pecas::flatten_from(&mut self.pieces, 0);
+        super::pieces::flatten_from(&mut self.pieces, 0);
     }
 
     /// Quantos itens esta lista pinta ao todo.
     pub fn total_items(&self) -> usize {
-        super::pecas::count_items(&self.pieces)
+        super::pieces::count_items(&self.pieces)
     }
 
     /// A geometria COMPLETA desta lista: os retângulos próprios mais os das
@@ -471,8 +471,8 @@ impl DisplayList {
             scroll_regions: self.scroll_regions.clone(),
         };
         // The hit order is the geometry marks in paint order, a reused
-        // subtree's entering where its `Child` stands — `pecas::collect`.
-        super::pecas::collect(&self.tree, &self.pieces, 0.0, 0.0, &|b| self.box_rects.union(b), &mut g);
+        // subtree's entering where its `Child` stands — `pieces::collect`.
+        super::pieces::collect(&self.tree, &self.pieces, 0.0, 0.0, &|b| self.box_rects.union(b), &mut g);
         g
     }
 
@@ -488,7 +488,7 @@ impl DisplayList {
     pub(crate) fn rect_of_box(&self, box_id: BoxId) -> Option<Rect> {
         self.box_rects
             .union(box_id)
-            .or_else(|| super::pecas::rect_in_children(&self.pieces, box_id, 0.0, 0.0))
+            .or_else(|| super::pieces::rect_in_children(&self.pieces, box_id, 0.0, 0.0))
     }
 
     /// O retângulo de um NÓ: a união dos retângulos das caixas que ele

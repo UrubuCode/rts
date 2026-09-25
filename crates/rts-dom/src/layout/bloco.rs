@@ -561,7 +561,7 @@ pub(crate) fn layout_block(
     // inserida (antes de qualquer filho), descemos nos filhos (que dão append no
     // fim), e só DEPOIS — conhecendo a altura — inserimos o fundo nessa posição.
     // Nothing emitted before it can move (descendants only append after it), so
-    // the position stays true and an insert corrects nothing (`pecas.rs`).
+    // the position stays true and an insert corrects nothing (`pieces.rs`).
     let box_start = list.pieces.len();
     // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
     // depois que a altura natural do conteúdo for conhecida.
@@ -1242,7 +1242,7 @@ pub(crate) fn layout_block(
             // uma regra de 40 bytes casou com um `<span>`.
             let is_pure_translate = mat.a == 1.0 && mat.b == 0.0 && mat.c == 0.0 && mat.d == 1.0;
             if is_pure_translate {
-                super::pecas::shift_from(&mut list.pieces, box_start, mat.e, mat.f);
+                super::pieces::shift_from(&mut list.pieces, box_start, mat.e, mat.f);
             } else {
                 // Escala/rotação/skew/matriz: em vez de mutar cada item por
                 // aproximação (norma das colunas — a caixa continuava
@@ -1251,8 +1251,8 @@ pub(crate) fn layout_block(
                 // `[box_start..]`. The reused subtrees in that range are
                 // flattened first — and ONLY those: flattening the whole list,
                 // as this did, also flattened the preceding siblings, and the
-                // `PushTransform` then landed inside them (`pecas::flatten_from`).
-                super::pecas::flatten_from(&mut list.pieces, box_start);
+                // `PushTransform` then landed inside them (`pieces::flatten_from`).
+                super::pieces::flatten_from(&mut list.pieces, box_start);
                 list.pieces.insert(box_start, Piece::Item(DisplayItem::PushTransform { mat }));
                 list.pieces.push(Piece::Item(DisplayItem::PopTransform));
             }

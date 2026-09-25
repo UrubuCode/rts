@@ -52,7 +52,7 @@ mod clearfix;
 mod dimensao_indefinida;
 mod display;
 mod box_fragments;
-mod pecas;
+mod pieces;
 mod rect_cliente;
 mod empilhamento;
 mod float;
@@ -60,7 +60,7 @@ mod float_placement;
 mod float_in_line;
 mod inline_fragmentos;
 mod input;
-mod input_tamanho;
+mod input_sizing;
 mod select;
 mod intrinseco_min_max;
 mod tamanho_intrinseco;
@@ -125,7 +125,7 @@ mod hifen;
 mod linha;
 mod linha_baseline;
 mod quebra;
-mod quebra_espacos;
+mod preserved_spaces;
 mod runs;
 mod segmento;
 mod texto_solto;
@@ -133,7 +133,7 @@ mod tabulacao;
 mod transformacao;
 pub(crate) use self::bloco::layout_block;
 pub use self::fragmento_tipos::{ChildRef, Fragment};
-pub use self::pecas::Piece;
+pub use self::pieces::Piece;
 pub use self::box_fragments::BoxRects;
 pub(crate) use self::box_fragments::{LineId, LineScope};
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
@@ -429,7 +429,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // Asked of what PAINTS, as it was of `items`/`children` before BT-2b: a
     // negative layer with geometry and no paint is dropped here, its rects with
     // it. Found, not fixed — a zero-change lot keeps the answer it found.
-    if pecas::paints(&negativos.pieces) {
+    if pieces::paints(&negativos.pieces) {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.

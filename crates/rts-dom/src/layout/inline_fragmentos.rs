@@ -291,7 +291,7 @@ pub(in crate::layout) fn group_is_whole_owner(
     group: &[(NodeIdx, crate::boxes::BoxId)],
 ) -> bool {
     // A comment counts on NEITHER side. It has no box, so it never enters the
-    // group (`PassoDoFluxo::SemCaixa` only opens one); before BT-2a it was in
+    // group (`PassoDoFluxo::NoBox` only opens one); before BT-2a it was in
     // the group with no box and counted on both sides — the same equality.
     let conta = |n: NodeIdx| match &dom.node(n).kind {
         NodeKind::Comment(_) => false,

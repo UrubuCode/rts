@@ -9,7 +9,7 @@
 //! O hífen suave (`hyphens`) vive em `hifen.rs` por causa do teto.
 
 use super::*;
-use super::quebra_espacos::{aparar_pendura, fichas, segmento_atomico, Ficha};
+use super::preserved_spaces::{trim_hanging, tokens, atomic_segment, Token};
 pub(in crate::layout) fn wrap_runs(
     runs: &[InlineRun],
     // A largura disponível DA LINHA `i` — não uma largura só para todas. Um
@@ -25,8 +25,8 @@ pub(in crate::layout) fn wrap_runs(
     // para responder o mesmo valor em todos eles.
     quebra: crate::inline_box::QuebraDentro,
     // `white-space`/`tab-size` of the CONTAINER, like `quebra` above: whether a
-    // `\n` forces a break, and whether spaces are content (`quebra_espacos.rs`).
-    espacos: super::quebra_espacos::Espacos,
+    // `\n` forces a break, and whether spaces are content (`preserved_spaces.rs`).
+    spaces: super::preserved_spaces::Spaces,
     // `word-spacing` (px, pode ser negativo) — soma-se à largura de CADA espaço
     // entre palavras. Entra aqui e não só na pintura porque é o mesmo número
     // que decide ONDE a linha quebra: medir sem ele e pintar com ele (ou
@@ -43,7 +43,7 @@ pub(in crate::layout) fn wrap_runs(
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
     let ahem = fontes.base_ahem();
-    let preservar_quebras = espacos.preserva_quebras();
+    let preservar_quebras = spaces.preserves_newlines();
     // `i` is the run the text belongs to; `usize::MAX` is the container's own.
     let medir = |m: &dyn TextMeasurer, i: usize, t: &str, bold: bool, italic: bool| -> f32 { fontes.largura(m, i, t, bold, italic) };
     // A largura do espaço só interessa ao caminho palavra-a-palavra. Medida
@@ -85,7 +85,7 @@ pub(in crate::layout) fn wrap_runs(
     // The preserved spaces/tabs that END the cluster under `pre-wrap`/`pre`:
     // they hang, so they do not count when asking whether it fits. The last
     // PLACED cluster's (width, space width) is what a soft wrap trims.
-    let (mut cluster_pendura, mut pendura_posta) = (0.0f32, (0.0f32, 0.0f32));
+    let (mut cluster_hang, mut posted_hang) = (0.0f32, (0.0f32, 0.0f32));
     // havia whitespace ANTES do cluster? e esse whitespace veio de FORA do run
     // que abre o cluster? (a segunda pergunta decide de quem e o vao -- ver o
     // `lead_w` do `Segment`.)
@@ -135,9 +135,9 @@ pub(in crate::layout) fn wrap_runs(
                 if !cluster.is_empty()
                     && !at_line_start
                     && !enche_a_linha
-                    && cur_w + need - cluster_pendura > max_w(lines.len())
+                    && cur_w + need - cluster_hang > max_w(lines.len())
                 {
-                    lines.push(aparar_pendura(std::mem::take(&mut cur), pendura_posta));
+                    lines.push(trim_hanging(std::mem::take(&mut cur), posted_hang));
                     cur_w = 0.0;
                     at_line_start = true;
                 }
@@ -151,7 +151,7 @@ pub(in crate::layout) fn wrap_runs(
                     let espaco = if com_espaco { space_w(m, de) } else { 0.0 };
                     match peca.atomico {
                         Some((a_idx, caixa, kind, ww, wh)) => {
-                            cur.push(segmento_atomico(run, (a_idx, caixa, kind), ww, wh, espaco));
+                            cur.push(atomic_segment(run, (a_idx, caixa, kind), ww, wh, espaco));
                             cur_w += ww + espaco;
                         }
                         None => {
@@ -175,7 +175,7 @@ pub(in crate::layout) fn wrap_runs(
                             let disponivel = max_w(lines.len());
                             // A hanging sequence (`pre-wrap`) is never split; a
                             // `break-spaces` space may move down alone.
-                            let partir = (espacos.quebra_em_cada() || !so_espaco_css(&peca.texto)) && match quebra {
+                            let partir = (spaces.breaks_after_each() || !so_espaco_css(&peca.texto)) && match quebra {
                                 crate::inline_box::QuebraDentro::Nao => false,
                                 // `break-word`: só quando a palavra não cabe NEM
                                 // numa linha vazia. Se cabe, ela já desceu inteira
@@ -237,8 +237,8 @@ pub(in crate::layout) fn wrap_runs(
                     primeiro = false;
                     at_line_start = false;
                 }
-                (cluster_w, pendura_posta) = (0.0, (cluster_pendura, space_w(m, de)));
-                cluster_pendura = 0.0;
+                (cluster_w, posted_hang) = (0.0, (cluster_hang, space_w(m, de)));
+                cluster_hang = 0.0;
                 cluster_espaco = false;
                 cluster_de_fora = false;
             }
@@ -264,7 +264,7 @@ pub(in crate::layout) fn wrap_runs(
             // BREAK: entra na linha (para receber a sua caixa) e FECHA-A.
             if kind == AtomicKind::Break {
                 fechar_cluster!();
-                cur.push(segmento_atomico(run, (a_idx, caixa, AtomicKind::Break), 0.0, 0.0, 0.0));
+                cur.push(atomic_segment(run, (a_idx, caixa, AtomicKind::Break), 0.0, 0.0, 0.0));
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
                 at_line_start = true;
@@ -278,7 +278,7 @@ pub(in crate::layout) fn wrap_runs(
             // appeared on; its width enters through the exclusions, not the line.
             if matches!(kind, AtomicKind::Marker | AtomicKind::Float | AtomicKind::Estatica) {
                 fechar_cluster!();
-                cur.push(segmento_atomico(run, (a_idx, caixa, kind), 0.0, 0.0, 0.0));
+                cur.push(atomic_segment(run, (a_idx, caixa, kind), 0.0, 0.0, 0.0));
                 continue;
             }
             juntar!(
@@ -292,30 +292,30 @@ pub(in crate::layout) fn wrap_runs(
             );
             continue;
         }
-        // PRESERVED white space (`quebra_espacos.rs`): every space and tab is a
+        // PRESERVED white space (`preserved_spaces.rs`): every space and tab is a
         // piece of the cluster — no opportunity BEFORE it (UAX #14) — and the
         // cluster closes after each one (`break-spaces`) or after the whole
         // sequence, which then hangs (`pre-wrap`, `pre`). Nothing is pending.
-        if espacos.preserva() {
-            let mut fichas = fichas(&run.text).peekable();
-            while let Some(f) = fichas.next() {
+        if spaces.preserves() {
+            let mut toks = tokens(&run.text).peekable();
+            while let Some(f) = toks.next() {
                 let (texto, w) = match f {
-                    Ficha::Quebra => {
+                    Token::Break => {
                         fechar_cluster!();
                         lines.push(std::mem::take(&mut cur));
                         (cur_w, at_line_start) = (0.0, true);
                         continue;
                     }
-                    Ficha::Palavra(p) => (hifen::texto_da_peca(p, hifen_manual), medir(m, i, &hifen::sem_shy(p), run.bold, run.italic)),
-                    Ficha::Espaco => (" ".to_string(), space_w(m, i)),
-                    Ficha::Tab => espacos.tab(cur_w + cluster_w, space_w(m, i)),
+                    Token::Word(p) => (hifen::texto_da_peca(p, hifen_manual), medir(m, i, &hifen::sem_shy(p), run.bold, run.italic)),
+                    Token::Space => (" ".to_string(), space_w(m, i)),
+                    Token::Tab => spaces.tab(cur_w + cluster_w, space_w(m, i)),
                 };
                 juntar!(Peca { run: i, texto, largura: w, atomico: None }, w);
-                let cada = espacos.quebra_em_cada();
-                if f.branca() && !cada {
-                    cluster_pendura += w;
+                let each = spaces.breaks_after_each();
+                if f.is_white() && !each {
+                    cluster_hang += w;
                 }
-                if f.branca() && (cada || !fichas.peek().is_some_and(Ficha::branca)) {
+                if f.is_white() && (each || !toks.peek().is_some_and(Token::is_white)) {
                     fechar_cluster!();
                 }
             }

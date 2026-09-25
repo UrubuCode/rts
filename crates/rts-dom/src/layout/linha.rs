@@ -134,7 +134,7 @@ pub(in crate::layout) fn layout_inline_flow(
             font_size,
             mono,
             crate::inline_box::quebra_dentro(parent_css),
-            super::quebra_espacos::Espacos::do_css(parent_css),
+            super::preserved_spaces::Spaces::from_css(parent_css),
             parent_css.word_spacing.unwrap_or(0.0),
             parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
             &fontes, ctx.measurer,
@@ -202,7 +202,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // por passada de layout, uma por segmento, para copiar algo que ninguém mais
     // usaria depois.
     for line in lines {
-        let linha_id = super::LineScope::fresh(group); // one per line box: `box_fragments.rs`
+        let line_id = super::LineScope::fresh(group); // one per line box: `box_fragments.rs`
         // A line holding nothing but ANCHORS is not a line box: a float or an
         // absolute box is out of flow and generates none (CSS 2.1 §9.5).
         // `a<br><float>` made a phantom second line — a full line of height, and
@@ -418,7 +418,7 @@ pub(in crate::layout) fn layout_inline_flow(
                             Rect::new(seg_x, text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh, seg.ww, seg.wh),
                         _ => Rect::new(seg_x, cy, seg.ww, seg.wh),
                     };
-                    crate::inline_box::union_rect(list, a_idx, Rect::new(propria.x + rx, propria.y + ry, propria.w, propria.h), &linha_id);
+                    crate::inline_box::union_rect(list, a_idx, Rect::new(propria.x + rx, propria.y + ry, propria.w, propria.h), &line_id);
                 }
                 // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
                 // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
@@ -446,7 +446,7 @@ pub(in crate::layout) fn layout_inline_flow(
                             conteudo,
                             ctx,
                             na_baseline,
-                        ), &linha_id,
+                        ), &line_id,
                     );
                 }
 
@@ -489,13 +489,13 @@ pub(in crate::layout) fn layout_inline_flow(
                         conteudo,
                         ctx,
                         na_baseline,
-                    ), &linha_id,
+                    ), &line_id,
                 );
             }
             seg_x += w;
         }
         transporte = superficies.pintar(
-            dom, list, at_linha, linha_id.id,
+            dom, list, at_linha, line_id.id,
             text_owner_anchor,
             conteudo,
             na_baseline,

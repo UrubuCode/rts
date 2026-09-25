@@ -34,7 +34,7 @@ pub struct ChildRef {
     pub shrink_to_fit: bool,
     // No position of its own: where this subtree paints, and where its hit
     // order enters, is where its `Piece::Child` stands in the sequence
-    // (`pecas.rs`). The two indices it carried (`at` into the items, `hit_at`
+    // (`pieces.rs`). The two indices it carried (`at` into the items, `hit_at`
     // into the hit order) grew apart for different reasons, and keeping them
     // aligned was the arithmetic of invariant I5.
     pub fragment: std::rc::Rc<Fragment>,
@@ -67,7 +67,7 @@ pub struct Fragment {
     /// a árvore nova antes de voltar à `DisplayList`.
     pub tree: std::rc::Rc<crate::boxes::BoxTree>,
     /// This subtree's output in paint order — own items, the subtrees it reused
-    /// by reference, the geometry marks of its boxes (`pecas.rs`).
+    /// by reference, the geometry marks of its boxes (`pieces.rs`).
     ///
     /// `Rc`, like `rects`, so that emitting or re-emitting a cached fragment
     /// never copies it. A STITCH does copy it, where it used to copy only the
