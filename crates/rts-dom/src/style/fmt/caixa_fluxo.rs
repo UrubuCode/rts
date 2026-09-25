@@ -97,6 +97,10 @@ impl ComputedStyle {
                 .overflow_wrap
                 .map(|w| w.css().to_string())
                 .unwrap_or_default(),
+            "line-break" => self
+                .line_break
+                .map(|w| w.css().to_string())
+                .unwrap_or_default(),
             "direction" => self
                 .direction
                 .map(|d| d.css().to_string())

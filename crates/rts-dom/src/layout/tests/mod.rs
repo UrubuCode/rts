@@ -89,6 +89,7 @@ mod posicao_estatica_corpus;
 mod controlo_natural_corpus;
 mod box_tree_anonimas_largura_corpus;
 mod ahem_corpus;
+mod line_break_anywhere_corpus;
 mod textarea_ahem_corpus;
 mod bloco_quebra_paragrafo_corpus;
 mod caixa_gerada_arvore;

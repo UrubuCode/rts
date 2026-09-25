@@ -168,7 +168,12 @@ pub enum BoxDecorationBreak {
     Clone,
 }
 
-/// `line-break` — a rigidez das regras de quebra de linha em CJK.
+/// `line-break` — a rigidez das regras de quebra de linha em CJK, e um quinto
+/// valor que não é sobre CJK: `anywhere` (CSS Text 3 §5.1) é "a soft wrap
+/// opportunity around every typographic character unit ... or in the middle
+/// of words" — a mesma quebra INCONDICIONAL de `word-break: break-all`, lida
+/// por `inline_box::quebra_dentro`. `loose`/`normal`/`strict` continuam
+/// aceites e serializados sem mudar o layout (kinsoku etc. não implementados).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum LineBreak {
     Auto,
