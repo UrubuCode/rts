@@ -34,6 +34,24 @@ use crate::domain::{JsConst, JsPrim};
 use crate::syntax::{Class, ClassElement, ClassKey, Expr, ExprKind, MethodKind, PropertyKey};
 
 impl Lowering<'_> {
+    /// Calls the helper another stage compiled for what was written at `position`, with
+    /// this activation's receiver -- `emit/through_mir.rs::helper_of` says why.
+    pub(super) fn helper_call(
+        &mut self,
+        position: rts_cranelift::fault::Position,
+        at: &Expr,
+    ) -> Result<ValueId, Unsupported> {
+        let Some(helper) = self.callees.of_position(position) else {
+            return Err(Unsupported::Expression("a helper nothing numbered"));
+        };
+        let made = self.closure(helper, at);
+        let receiver = match self.lexical_this {
+            true => None,
+            false => Some(self.prim(JsPrim::ThisValue, Vec::new(), at)),
+        };
+        Ok(self.call(rts_mir::cfg::Callee::Dynamic(made), receiver, Vec::new(), at))
+    }
+
     /// Lowers a class declaration, binding its name.
     pub(super) fn class(&mut self, class: &Class, at: &Expr) -> Result<bool, Unsupported> {
         let Some(name) = class.name else {
@@ -58,17 +76,7 @@ impl Lowering<'_> {
     /// activation's receiver -- `emit/through_mir.rs::helper_of` says why.
     pub(super) fn class_value(&mut self, class: &Class, at: &Expr) -> Result<ValueId, Unsupported> {
         if self.outer.is_some() {
-            let Some(helper) = self.callees.of_position(class.at) else {
-                return Err(Unsupported::Expression(
-                    "a class whose helper nothing numbered",
-                ));
-            };
-            let made = self.closure(helper, at);
-            let receiver = match self.lexical_this {
-                true => None,
-                false => Some(self.prim(JsPrim::ThisValue, Vec::new(), at)),
-            };
-            return Ok(self.call(rts_mir::cfg::Callee::Dynamic(made), receiver, Vec::new(), at));
+            return self.helper_call(class.at, at);
         }
         if class.heritage.is_some() {
             return Err(Unsupported::Expression(

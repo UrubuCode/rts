@@ -45,6 +45,7 @@ use crate::syntax::{
 use crate::values::Singleton;
 use named::{expression_name, name_of, primitive};
 pub use callees::Callees;
+pub(crate) use object::built_elsewhere;
 
 mod branch;
 mod callees;
@@ -61,6 +62,7 @@ mod iterate;
 mod loops;
 mod named;
 mod numeric_use;
+mod object;
 mod protect;
 mod push;
 mod suspend;
@@ -746,41 +748,7 @@ impl Lowering<'_> {
                 args.extend(self.arguments(arguments)?);
                 Ok(self.prim(JsPrim::Construct, args, expr))
             }
-            // AN OBJECT LITERAL, as pairs of a declared key and a value.
-            //
-            // In SOURCE ORDER, and that is load-bearing rather than tidy: the order
-            // properties are added is what decides the layout, which the tree's own
-            // comment on this node says, so reordering the pairs here would mint a
-            // different shape at run time and nothing would report it.
-            //
-            // No shape is asserted. `Type::Shaped` carries the reason — the shape
-            // tree that decides layouts is the RUNTIME's, and claiming a number only
-            // it mints is what this crate's rules 1 and 2 forbid by name.
-            //
-            // A method, a getter, a setter and a spread are each refused apart. A
-            // method is not a value under a key: it is installed with a home object,
-            // which is what `super.x` inside it reads from, and a function stored
-            // under a key has none. Collapsing the two would compile and would make
-            // `super` mean nothing.
-            ExprKind::Object { properties } => {
-                let mut pairs = Vec::with_capacity(properties.len() * 2);
-                for property in properties {
-                    let crate::syntax::Property::Value { key, value, .. } = property else {
-                        return Err(Unsupported::Expression(
-                            "an object literal with a method, an accessor or a spread",
-                        ));
-                    };
-                    let crate::syntax::PropertyKey::Named(name) = key else {
-                        return Err(Unsupported::Expression(
-                            "a computed key is a value, so the layout is not the one written",
-                        ));
-                    };
-                    let index = self.domain.constant(JsConst::Key(*name));
-                    pairs.push(self.declared(index, expr));
-                    pairs.push(self.expression(value)?);
-                }
-                Ok(self.prim(JsPrim::NewObject, pairs, expr))
-            }
+            ExprKind::Object { properties } => self.object_literal(properties, expr),
             // AN ARRAY LITERAL, which is one primitive over its elements.
             //
             // A hole is still refused rather than lowered as `undefined`: the two are

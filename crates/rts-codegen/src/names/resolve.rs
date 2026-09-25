@@ -787,6 +787,23 @@ impl Walker<'_> {
                 self.class(class, scope);
                 return;
             }
+            // A LITERAL THE STAGE DOES NOT BUILD is evaluated by a helper under the
+            // door, so what its values, spreads and computed keys read is read from an
+            // activation of its own -- the same over-reporting a class's `extends` gets,
+            // for the same reason. Its names still resolve where it is written.
+            ExprKind::Object { properties } if crate::lower::built_elsewhere(properties) => {
+                let helper = self.open(ScopeKind::Block, Some(scope));
+                let enclosing = self.field_code.replace(helper);
+                crate::emit::capture::walk_expr(expr, &mut |child| match child {
+                    crate::emit::capture::Child::Expr(inner) => self.expression(inner, scope),
+                    crate::emit::capture::Child::Function(function) => {
+                        self.function(function, scope, true)
+                    }
+                    crate::emit::capture::Child::Class(class) => self.class(class, scope),
+                });
+                self.field_code = enclosing;
+                return;
+            }
             ExprKind::Ident(name) => self.used(*name, scope),
             // A destructuring ASSIGNMENT writes the names at its leaves, and the shared
             // walk reports only the expressions inside a pattern -- its own comment

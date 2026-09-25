@@ -134,7 +134,33 @@ fn attempt(
     {
         return Err("a class inside an arrow, whose helper would need the enclosing `this`".to_owned());
     }
-    let helpers: Vec<Function> = nested.classes.iter().map(|class| helper_of(class)).collect();
+    // AN OBJECT LITERAL'S HELPER receives this function's `this` and nothing else, so
+    // what its values read of `arguments`, `super` or `new.target` would be the
+    // helper's; and a suspension cannot move into it at all.
+    for object in &nested.objects {
+        let written = [crate::syntax::Stmt {
+            kind: crate::syntax::StmtKind::Expr((*object).clone()),
+            at: object.at,
+        }];
+        if super::suspends::body_suspends(&written) {
+            return Err("an object literal that suspends, which a helper cannot".to_owned());
+        }
+        let this_too = function.captures_this;
+        if expression_reads(object, ctx.names, this_too) {
+            return Err("an object literal reading what its helper would not have".to_owned());
+        }
+    }
+    let helpers: Vec<Function> = nested
+        .classes
+        .iter()
+        .map(|class| {
+            helper_of(crate::syntax::Expr {
+                kind: crate::syntax::ExprKind::Class(Box::new((*class).clone())),
+                at: class.at,
+            })
+        })
+        .chain(nested.objects.iter().map(|object| helper_of((*object).clone())))
+        .collect();
     // AN ARROW INSIDE READS `this` -- and `arguments`, `super`, `new.target` -- FROM
     // THIS FUNCTION, which the running emitter hands it through an environment slot
     // this function would have to build. Declined rather than built.
@@ -385,6 +411,8 @@ fn key_name(
 struct Nested<'a> {
     found: Vec<(&'a Function, bool)>,
     classes: Vec<&'a crate::syntax::Class>,
+    /// The object literals this stage does not build, which a helper does.
+    objects: Vec<&'a crate::syntax::Expr>,
     /// The name each anonymous definition is given by where it is written --
     /// NamedEvaluation, which the running emitter carries in `Ctx::lend_name` from the
     /// site that writes it. Keyed by position because those sites are here the PARENT of
@@ -439,6 +467,9 @@ impl<'a> Nested<'a> {
         match &value.kind {
             ExprKind::Function(inner) => return self.found.push((inner, false)),
             ExprKind::Class(class) => return self.classes.push(class),
+            ExprKind::Object { properties } if crate::lower::built_elsewhere(properties) => {
+                return self.objects.push(value);
+            }
             // `f = () => {}` and `f ??= () => {}` name the arrow; `f += ...` names
             // nothing, and neither does `o.f = ...` -- the rule is attached to an
             // identifier reference on the left.
@@ -473,8 +504,8 @@ impl<'a> Nested<'a> {
     }
 }
 
-/// `function () { return class … }` -- a class written inside a function this door
-/// takes, as the running emitter's own code.
+/// `function () { return <value> }` -- a class, or an object literal this stage does
+/// not build, written inside a function this door takes, as the running emitter's code.
 ///
 /// # Why the class is not lowered here
 ///
@@ -486,19 +517,15 @@ impl<'a> Nested<'a> {
 /// evaluated by a helper the running emitter compiles, at the point it is written,
 /// with this function's `this` as the helper's receiver -- which is what its computed
 /// keys and `extends` expression read -- and the value it answers is bound here.
-fn helper_of(class: &crate::syntax::Class) -> Function {
-    let at = class.at;
-    let class = crate::syntax::Expr {
-        kind: crate::syntax::ExprKind::Class(Box::new(class.clone())),
-        at,
-    };
+fn helper_of(value: crate::syntax::Expr) -> Function {
+    let at = value.at;
     Function {
         name: None,
         parameters: Vec::new(),
         rest_parameter: None,
         directives: Vec::new(),
         body: crate::syntax::FunctionBody::Block(vec![crate::syntax::Stmt {
-            kind: crate::syntax::StmtKind::Return(Some(class)),
+            kind: crate::syntax::StmtKind::Return(Some(value)),
             at,
         }]),
         returns: None,
@@ -561,20 +588,27 @@ fn statement_reads_this(held: &crate::syntax::Stmt, names: &crate::names::Names)
 }
 
 fn expression_reads_this(value: &crate::syntax::Expr, names: &crate::names::Names) -> bool {
+    expression_reads(value, names, true)
+}
+
+/// Whether an expression reads what a function takes from where it is called --
+/// `arguments`, `super`, `new.target`, and `this` when `this_too`. An arrow inside
+/// counts whatever it reads, which over-reports `this` and is the safe direction.
+fn expression_reads(value: &crate::syntax::Expr, names: &crate::names::Names, this_too: bool) -> bool {
     use crate::emit::capture::Child;
     use crate::syntax::ExprKind;
     match &value.kind {
-        ExprKind::This
-        | ExprKind::NewTarget
-        | ExprKind::SuperMember { .. }
-        | ExprKind::SuperCall { .. } => return true,
+        ExprKind::This => return this_too,
+        ExprKind::NewTarget | ExprKind::SuperMember { .. } | ExprKind::SuperCall { .. } => {
+            return true;
+        }
         ExprKind::Ident(name) if names.spelled(*name) == Some("arguments") => return true,
         _ => {}
     }
     let mut found = false;
     crate::emit::capture::walk_expr(value, &mut |child| {
         found |= match child {
-            Child::Expr(inner) => expression_reads_this(inner, names),
+            Child::Expr(inner) => expression_reads(inner, names, this_too),
             Child::Function(inner) => inner.captures_this && reads_enclosing_this(inner, names),
             Child::Class(class) => class_reads_enclosing_this(class, names),
         };

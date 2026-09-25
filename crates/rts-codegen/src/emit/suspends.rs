@@ -33,7 +33,7 @@ use crate::syntax::{
 };
 
 /// Whether any statement in `body` suspends the frame it is written in.
-pub(super) fn body_suspends(body: &[Stmt]) -> bool {
+pub(crate) fn body_suspends(body: &[Stmt]) -> bool {
     body.iter().any(stmt_suspends)
 }
 

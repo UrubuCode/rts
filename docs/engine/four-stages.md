@@ -2268,3 +2268,15 @@ Two things the scope tree had to learn for it, both in the over-reporting direct
 And the lattice learned a bigint: `Type::BigInt`, from `BigIntNew`, joins nothing but
 itself. Typed `Anything`, `1n + i` guarded `i` where the running engine does not, and
 `literal_guard_gate.rs` counted the guard.
+
+### Object literals the stage does not build, by the same helper: 98.3%
+
+10 171 taken and 181 declined, from 10 141 and 210.
+
+A literal with a method, an accessor, a spread, a computed key or a prototype is the
+running emitter's too, in a helper: `lower::built_elsewhere` is the one answer to "does this
+stage build it", asked by the scope tree, the door and the lowering alike. What the
+literal's values read is read from the helper's activation, so the scope tree counts it
+that way. Three cases still decline: a literal that suspends, since a suspension cannot
+move into another function; one whose values read `arguments`, `super` or `new.target`,
+which the helper would answer with its own; and, inside an arrow, one that reads `this`.
