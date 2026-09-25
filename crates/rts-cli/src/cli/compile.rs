@@ -151,15 +151,24 @@ pub fn command(
             // main program's own `FrontEnd` — see that module's header for
             // why the two cannot be two object files.
             let page_scripts = rts_host::object::html_scripts::extract_files(&html_paths)?;
-            match (graph, page_scripts.is_empty()) {
+            // Every local file those pages' loader reads, recorded by RUNNING
+            // it (see `page_resources`' header) — on this thread for the same
+            // stack reason as `window_base`, and keyed by the paths the binary
+            // will ask for, so a copied `.exe` still has its CSS and images.
+            let resources = rts_host::object::page_resources::record_files(&html_paths)?;
+            match (graph, html_paths.is_empty()) {
                 (true, true) => rts_host::object::compile_graph_to_object(&on_disk),
-                (true, false) => {
-                    rts_host::object::compile_graph_to_object_with_html(&on_disk, &page_scripts)
-                }
+                (true, false) => rts_host::object::compile_graph_to_object_with_html(
+                    &on_disk,
+                    &page_scripts,
+                    resources,
+                ),
                 (false, true) => rts_host::object::compile_to_object(&source),
-                (false, false) => {
-                    rts_host::object::compile_to_object_with_html(&source, &page_scripts)
-                }
+                (false, false) => rts_host::object::compile_to_object_with_html(
+                    &source,
+                    &page_scripts,
+                    resources,
+                ),
             }
         })
         .expect("a thread to compile the new engine's AOT object on")

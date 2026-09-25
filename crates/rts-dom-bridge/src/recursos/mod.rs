@@ -8,6 +8,12 @@
 //! TS é o mesmo argumento de `setImageFile`: é a ponte que tem o `std::fs`.
 //! `http(s)` continua por fazer — não há busca síncrona de texto no motor novo
 //! (dito no `dom.ts`).
+//!
+//! Local reads go through [`tabela`] first: a compiled page carries its
+//! resources in the binary (lot AOT-1), and `tabela`'s header says why the
+//! table is consulted here rather than a second loader written in Rust.
+
+pub mod tabela;
 
 use rts_core::entry::Provided;
 
@@ -18,7 +24,6 @@ pub const MEMBERS: &[(&str, Provided)] = &[("readTextFile", read_text_file)];
 /// `readTextFile(caminho)` → o conteúdo, ou `""` se não existe / não é UTF-8
 /// (a convenção tolerante que o `__readResource` do `dom.ts` já assumia).
 extern "C" fn read_text_file(_e: u64, _t: u64, caminho: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let caminho = text(caminho);
-    let caminho = caminho.strip_prefix("file://").unwrap_or(&caminho);
-    string(&std::fs::read_to_string(caminho).unwrap_or_default())
+    let bytes = tabela::read(&text(caminho)).unwrap_or_default();
+    string(&String::from_utf8(bytes).unwrap_or_default())
 }

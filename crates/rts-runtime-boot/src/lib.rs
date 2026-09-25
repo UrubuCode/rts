@@ -456,6 +456,9 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
     // already found — see `resolver`'s own header for why, and for the one
     // specifier shape it therefore cannot answer.
     resolver::declare(manifest.resolutions);
+    // A compiled page's own files, read from this image before the disk — the
+    // same "answers travel" as the resolutions above (`recursos::tabela`).
+    rts_dom_bridge::recursos::tabela::declare(manifest.resources);
     rts_core::entry::declare_resolver(&mut context, resolver::resolve);
 
     // What `import.meta` answers, per module — built HERE, in this program's

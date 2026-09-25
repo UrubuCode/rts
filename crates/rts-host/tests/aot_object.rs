@@ -302,7 +302,7 @@ fn a_program_with_no_html_writes_an_empty_page_scripts_table() {
 #[test]
 fn a_page_script_is_placed_beside_the_main_program_and_found_by_hash() {
     let script = "document.getElementById(\"x\");\n".to_owned();
-    let program = compile_to_object_with_html("console.log(1);\n", std::slice::from_ref(&script))
+    let program = compile_to_object_with_html("console.log(1);\n", std::slice::from_ref(&script), Vec::new())
         .expect("a program with one page script compiles");
 
     assert_eq!(
@@ -346,7 +346,7 @@ fn two_page_scripts_and_the_main_program_share_one_key_numbering() {
         format!("function f{letter}(x: number) {{ return {{ shared: x }}; }}\nconsole.log(f{letter}({value}).shared);\n")
     };
     let scripts = vec![wrapping("a", "1"), wrapping("b", "2")];
-    let program = compile_to_object_with_html(&wrapping("c", "3"), &scripts)
+    let program = compile_to_object_with_html(&wrapping("c", "3"), &scripts, Vec::new())
         .expect("a main program with two page scripts compiles");
 
     assert_eq!(program.page_scripts.len(), 2, "both scripts are placed");
@@ -379,7 +379,7 @@ fn two_page_scripts_and_the_main_program_share_one_key_numbering() {
 fn a_name_a_sibling_script_writes_only_as_a_property_of_this_still_compiles() {
     let bundle = "(function (global) { global.React = {}; })(this);\n".to_owned();
     let app = "console.log(React);\n".to_owned();
-    let program = compile_to_object_with_html("console.log(1);\n", &[bundle, app])
+    let program = compile_to_object_with_html("console.log(1);\n", &[bundle, app], Vec::new())
         .expect(
             "a page script reading a name only a SIBLING wrote as a property \
              of `this` must still compile — the language resolves it at run \

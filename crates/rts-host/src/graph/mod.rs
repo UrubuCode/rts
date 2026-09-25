@@ -58,7 +58,7 @@ mod tsconfig;
 mod walk;
 
 use resolve::file_url;
-pub(crate) use resolve::resolve_specifier;
+pub(crate) use resolve::{resolve_specifier, settled};
 pub use resolve::{names_the_host, resolve_written};
 pub use tsconfig::Aliases;
 pub use walk::{load, names_any_file, relative_imports};
