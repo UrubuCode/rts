@@ -111,40 +111,6 @@ impl KeyBase {
     }
 }
 
-/// Insere um item numa posição, corrigindo o ponto de entrada das SUBÁRVORES.
-///
-/// O box model emite os filhos primeiro e insere o fundo e a borda atrás deles;
-/// as subárvores reusadas guardam o índice antes do qual entram, e sem esta
-/// correção elas passariam a ser pintadas na frente do próprio fundo. Foi o que
-/// um teste de altura percentual acusou, ao ver os retângulos na ordem trocada.
-/// Insere um item em `at` e corrige o `at` das subárvores que ficam depois dele.
-///
-/// `filhos_antes` é quantas subárvores já existiam quando `at` foi RESERVADO, e
-/// é o que distingue "esta subárvore é minha, empurra-a" de "esta subárvore já
-/// cá estava, não lhe toques". Sem essa fronteira, um `at >= at` sozinho não
-/// consegue separar os dois casos quando os índices coincidem — e coincidem
-/// exatamente no caso que interessa: um `position:fixed`, pintado no fim do
-/// documento, reserva o índice 0 da lista de topo, que é também o `at` do
-/// fragmento onde vive a página inteira. O fixed empurrava a página para
-/// depois de si e ficava ATRÁS dela; numa página real é o dropdown a
-/// desaparecer por trás do conteúdo.
-///
-/// É a mesma distinção que o `BeginClip { filhos_antes }` já fazia, e pela mesma
-/// razão: o índice sozinho não carrega a ordem de criação.
-pub(crate) fn insert_item(
-    list: &mut DisplayList,
-    at: usize,
-    filhos_antes: usize,
-    item: DisplayItem,
-) {
-    list.items.insert(at, item);
-    for child in list.children.iter_mut().skip(filhos_antes) {
-        if child.at >= at {
-            child.at += 1;
-        }
-    }
-}
-
 /// Reconstrói o fragmento de um container trocando SÓ as subárvores sujas.
 ///
 /// Devolve `None` — e o chamador refaz tudo — quando alguma premissa não vale:
@@ -181,7 +147,7 @@ fn costurar(
     {
         return None;
     }
-    if anterior.children.is_empty() {
+    if super::pecas::children(&anterior.pieces).next().is_none() {
         return None;
     }
     // Um container cujos filhos carregam tamanho IMPOSTO (flex, grid,
@@ -195,9 +161,7 @@ fn costurar(
     // cada ITEM, individualmente, bater no cache por `FragmentKey` exata
     // (ver `layout_block_reusing`). Bloco normal nunca tem `forced_outer_*`
     // definido, então este guard não custa nada ao caminho comum.
-    if anterior
-        .children
-        .iter()
+    if super::pecas::children(&anterior.pieces)
         .any(|c| c.forced_outer_w.is_some() || c.forced_outer_h.is_some())
     {
         return None;
@@ -217,16 +181,20 @@ fn costurar(
         caixa_antiga,
         &tree,
         anterior.caixa,
-    ) || !super::costura_filhos::sujeira_coberta(&tree, &sujos, &anterior.children)
+    ) || !super::costura_filhos::sujeira_coberta(&tree, &sujos, &anterior.pieces)
     {
         return None;
     }
     let _phase = crate::metrics::phases::scope("fragment-patch");
 
-    let mut children = anterior.children.clone();
+    // The dirty child is replaced WHERE IT STANDS, found by its box: its
+    // `Piece::Child` keeps its place in the sequence, so nothing painted around
+    // it moves and there is no index to correct.
+    let mut pieces = (*anterior.pieces).clone();
     let mut grid_column_tracks = (*anterior.grid_column_tracks).clone();
     let mut trocou = false;
-    for child in &mut children {
+    for piece in &mut pieces {
+        let super::Piece::Child(child) = piece else { continue };
         let Some(child_node) = tree.node_of(child.caixa) else {
             return None;
         };
@@ -298,7 +266,7 @@ fn costurar(
         // novo pode ter sido calculado já em `origem` (deslocamento zero) ou ser
         // uma costura que herdou a origem do velho. Manter o `dx`/`dy` antigo
         // aplicava o deslocamento duas vezes a um filho que tinha subido.
-        let novo = own.children.first()?;
+        let novo = super::pecas::children(&own.pieces).next()?;
         grid_column_tracks.retain(|(node, _)| !previous_grid_nodes.contains(node));
         grid_column_tracks.extend(novo.fragment.grid_column_tracks.iter().cloned());
         (child.dx, child.dy) = (novo.dx, novo.dy);
@@ -308,15 +276,14 @@ fn costurar(
     if !trocou {
         return None;
     }
-    let ultima_linha = super::linha_baseline::total_da_costura(dom, id, &anterior, &children, &tree);
+    let ultima_linha = super::linha_baseline::total_da_costura(dom, id, &anterior, &pieces, &tree);
     let fragment = std::rc::Rc::new(Fragment {
         caixa: tree.boxes_of(key.target.node).get(key.target.ordinal as usize).copied()?,
         tree: std::rc::Rc::clone(&tree),
-        // Compartilha o que NÃO mudou — só a lista de subárvores é nova.
-        items: std::rc::Rc::clone(&anterior.items),
-        children,
+        // Shares what did NOT change; the sequence is new because a subtree in
+        // it is.
+        pieces: std::rc::Rc::new(pieces),
         rects: std::rc::Rc::clone(&anterior.rects),
-        hit_order: std::rc::Rc::clone(&anterior.hit_order),
         grid_column_tracks: std::rc::Rc::new(grid_column_tracks),
         scroll_regions: anterior.scroll_regions.clone(),
         linha_directa: anterior.linha_directa,
@@ -516,15 +483,13 @@ pub(in crate::layout) fn layout_block_reusing(
         caixa,
         tree: std::rc::Rc::clone(&own.tree),
         rects: std::rc::Rc::new(std::mem::take(&mut own.box_rects).into_iter().collect()),
-        hit_order: std::rc::Rc::new(std::mem::take(&mut own.hit_order)),
         grid_column_tracks: std::rc::Rc::new(
             std::mem::take(&mut own.grid_column_tracks)
                 .into_iter()
                 .collect(),
         ),
         scroll_regions: std::mem::take(&mut own.scroll_regions),
-        items: std::rc::Rc::new(std::mem::take(&mut own.items)),
-        children: std::mem::take(&mut own.children),
+        pieces: std::rc::Rc::new(std::mem::take(&mut own.pieces)),
         linha_directa,
         ultima_linha,
         ancoras_estaticas: std::rc::Rc::new(std::mem::take(&mut own.ancoras_estaticas)),

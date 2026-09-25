@@ -259,7 +259,7 @@
             // A janela de clips ABERTOS em cada índice da lista já plana.
             let mut abertos: Vec<usize> = Vec::new();
             let mut janela: Vec<Vec<usize>> = Vec::new();
-            for (i, it) in list.items.iter().enumerate() {
+            for (i, it) in list.materialized().iter().enumerate() {
                 match it {
                     DisplayItem::BeginClip { .. } => {
                         janela.push(abertos.clone());
@@ -274,7 +274,7 @@
             }
             let mut caixas = Vec::new();
             let mut pontos = Vec::new();
-            for (i, it) in list.items.iter().enumerate() {
+            for (i, it) in list.materialized().iter().enumerate() {
                 if let DisplayItem::SolidRect { rect, radius, color } = it {
                     if radius.tl > 0.0 && (rect.w - rect.h).abs() < 0.01 && rect.w < 12.0 {
                         pontos.push((rect.x, janela[i].clone()));

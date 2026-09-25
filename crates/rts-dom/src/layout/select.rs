@@ -92,13 +92,13 @@ pub(in crate::layout) fn layout_select(
     );
     record_box_rect(list, caixa, rect);
     let opacity = css.opacity.unwrap_or(1.0);
-    list.items.push(DisplayItem::SolidRect {
+    list.push_item(DisplayItem::SolidRect {
         rect,
         color: apply_opacity(css.bg.unwrap_or(0xFFFFFFFF), opacity),
         radius: Corners::from_style(css, 0.0),
     });
     if f.border > 0.0 {
-        list.items.push(DisplayItem::Border {
+        list.push_item(DisplayItem::Border {
             rect,
             width: f.border,
             color: apply_opacity(css.border_color.unwrap_or(0x767676FF), opacity),

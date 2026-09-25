@@ -118,7 +118,7 @@ pub(in crate::layout) fn layout_svg_placeholder(
     let (mt, mb) = (m.top.resolve(&resolve).unwrap_or(0.0), m.bottom.resolve(&resolve).unwrap_or(0.0));
     let rect = Rect::new(x + ml, y + mt, w, h);
     // placeholder cinza-claro (a caixa do ícone) — só quando não é minúsculo demais.
-    list.items.push(DisplayItem::SolidRect {
+    list.push_item(DisplayItem::SolidRect {
         rect,
         color: 0xE8EAEDFF,
         radius: Corners::same(2.0),
@@ -209,7 +209,7 @@ pub(in crate::layout) fn layout_image(
     // `opacity` do elemento, que o caminho do bloco aplica por `cor()`; e sem
     // borda pintada (v1 acima) — só reservada na caixa (`used_widths` acima).
     if let Some(color) = css.bg.filter(|_| !super::pintura::deve_suprimir_fundo(css)) {
-        list.items.push(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
+        list.push_item(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
     }
     // Os PIXELS pintam só o CONTENT-BOX — a borda/padding reservados acima na
     // caixa não são a imagem (CSS2 §10.3.2: `<img>` sizes the replaced content
@@ -229,12 +229,12 @@ pub(in crate::layout) fn layout_image(
     // a imagem estica à caixa (`object-fit: fill`); `contain`/`cover`/`none`
     // ainda não recortam nem centram.
     if let Some((data, pw, ph)) = dom.pixel_data_of(id).filter(|(_, pw, ph)| *pw > 0 && *ph > 0) {
-        list.items.push(DisplayItem::Pixels { rect: content_rect, data, w: pw, h: ph });
+        list.push_item(DisplayItem::Pixels { rect: content_rect, data, w: pw, h: ph });
     } else if let Some((handle, off, iw, ih)) = dom
         .image_of(id)
         .filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
     {
-        list.items.push(DisplayItem::Image {
+        list.push_item(DisplayItem::Image {
             rect: content_rect,
             pixels_handle: handle,
             pixels_off: off,
@@ -242,7 +242,7 @@ pub(in crate::layout) fn layout_image(
             img_h: ih,
         });
     } else if let Some(color) = cor_do_retangulo_svg_embutido(dom, id) {
-        list.items.push(DisplayItem::SolidRect {
+        list.push_item(DisplayItem::SolidRect {
             rect: content_rect,
             color,
             radius: Corners::ZERO,
@@ -296,7 +296,7 @@ pub(in crate::layout) fn layout_canvas(
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_box_rect(list, caixa, rect);
     if let Some(color) = css.bg {
-        list.items.push(DisplayItem::SolidRect {
+        list.push_item(DisplayItem::SolidRect {
             rect,
             color,
             radius: Corners::ZERO,
@@ -317,7 +317,7 @@ pub(in crate::layout) fn layout_canvas(
     );
     if let Some((data, pw, ph)) = dom.pixel_data_of(id) {
         if pw > 0 && ph > 0 {
-            list.items.push(DisplayItem::Pixels {
+            list.push_item(DisplayItem::Pixels {
                 rect: content_rect,
                 data,
                 w: pw,

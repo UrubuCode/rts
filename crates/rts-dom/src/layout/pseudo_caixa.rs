@@ -215,7 +215,7 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
     );
     super::record_box_rect(list, caixa.gerada, r);
     if let Some(bg) = css.bg {
-        list.items.push(DisplayItem::SolidRect { rect: r, color: bg, radius: Corners::ZERO });
+        list.push_item(DisplayItem::SolidRect { rect: r, color: bg, radius: Corners::ZERO });
     }
     let sides = crate::style::borders::resolved_sides(css);
     let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
@@ -227,7 +227,7 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
     ];
     for (rect, side) in barras {
         if side.paints() && side.color & 0xFF != 0 {
-            list.items.push(DisplayItem::SolidRect { rect, color: side.color, radius: Corners::ZERO });
+            list.push_item(DisplayItem::SolidRect { rect, color: side.color, radius: Corners::ZERO });
         }
     }
     let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
@@ -235,7 +235,7 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
     let lh = crate::inline_box::altura_da_linha(css, caixa.fonte, ctx.measurer);
     let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
     for (i, linha) in caixa.linhas.iter().enumerate() {
-        list.items.push(DisplayItem::Text {
+        list.push_item(DisplayItem::Text {
             x: r.x + caixa.arestas[3],
             y: r.y + caixa.arestas[0] + i as f32 * lh + crate::inline_box::meia_entrelinha(lh, conteudo),
             text: linha.clone().into(),

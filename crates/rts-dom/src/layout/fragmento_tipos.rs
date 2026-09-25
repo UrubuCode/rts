@@ -32,16 +32,11 @@ pub struct ChildRef {
     pub forced_outer_w: Option<f32>,
     pub forced_outer_h: Option<f32>,
     pub shrink_to_fit: bool,
-    /// Posição em `items` ANTES da qual esta subárvore é pintada.
-    pub at: usize,
-    /// Posição em `hit_order` antes da qual a ordem de hit-test dela entra.
-    ///
-    /// Separada do `at` porque as duas sequências crescem por motivos
-    /// diferentes: nem todo item de pintura registra um nó, e nem todo nó
-    /// registrado pinta um item. Montar a ordem de hit-test com os próprios
-    /// primeiro e os das subárvores depois inverte o z-order — foi o que o teste
-    /// de `z-index` acusou.
-    pub hit_at: usize,
+    // No position of its own: where this subtree paints, and where its hit
+    // order enters, is where its `Piece::Child` stands in the sequence
+    // (`pecas.rs`). The two indices it carried (`at` into the items, `hit_at`
+    // into the hit order) grew apart for different reasons, and keeping them
+    // aligned was the arithmetic of invariant I5.
     pub fragment: std::rc::Rc<Fragment>,
     pub dx: f32,
     pub dy: f32,
@@ -51,11 +46,7 @@ impl PartialEq for ChildRef {
     /// Compara CONTEÚDO — duas listas equivalentes podem ter chegado ao mesmo
     /// desenho por caminhos diferentes.
     fn eq(&self, other: &Self) -> bool {
-        self.at == other.at
-            && self.dx == other.dx
-            && self.dy == other.dy
-            && self.fragment.items == other.fragment.items
-            && self.fragment.children == other.fragment.children
+        self.dx == other.dx && self.dy == other.dy && self.fragment.pieces == other.fragment.pieces
     }
 }
 
@@ -75,21 +66,18 @@ pub struct Fragment {
     /// sobreviver à reconstrução da árvore; nesses casos ele é reidratado para
     /// a árvore nova antes de voltar à `DisplayList`.
     pub tree: std::rc::Rc<crate::boxes::BoxTree>,
-    /// Itens de pintura PRÓPRIOS desta subárvore.
+    /// This subtree's output in paint order — own items, the subtrees it reused
+    /// by reference, the geometry marks of its boxes (`pecas.rs`).
     ///
-    /// Os três vetores grandes são `Rc`: quando um container é COSTURADO, só a
-    /// lista de subárvores muda, e clonar retângulos e ordem de hit-test de um
-    /// container de mil filhos custaria mais do que a costura economiza.
-    pub items: std::rc::Rc<Vec<DisplayItem>>,
-    /// As subárvores que ela reusou, por referência — o desenho é uma árvore.
-    pub children: Vec<ChildRef>,
+    /// `Rc`, like `rects`, so that emitting or re-emitting a cached fragment
+    /// never copies it. A STITCH does copy it, where it used to copy only the
+    /// subtree list and share the items: one sequence cannot be half-replaced.
+    pub pieces: std::rc::Rc<Vec<super::Piece>>,
     /// Geometria por caixa. A fronteira pública agrega-a por nó somente ao
     /// construir `Geometry`.
     pub rects: std::rc::Rc<Vec<(crate::boxes::BoxId, Rect)>>,
     /// Tracks de coluna resolvidas desta subárvore, para `computedProperty`.
     pub grid_column_tracks: std::rc::Rc<Vec<(NodeIdx, Vec<f32>)>>,
-    /// Ordem de pintura para o hit-test (ancestral antes de descendente).
-    pub hit_order: std::rc::Rc<Vec<crate::boxes::BoxId>>,
     /// Regiões roláveis internas descobertas dentro da subárvore.
     pub scroll_regions: Vec<ScrollRegion>,
     /// The baseline of this subtree's lowest OWN line box, in the coordinates
@@ -150,30 +138,30 @@ impl Fragment {
             .iter()
             .map(|&(old, rect)| Some((map_box(old)?, rect)))
             .collect::<Option<Vec<_>>>()?;
-        let hit_order = self
-            .hit_order
+        // Every piece is rebuilt, the items included, where the item vector
+        // used to be shared: the marks and subtrees name boxes of the old tree,
+        // and they live in the same sequence as the items now.
+        let pieces = self
+            .pieces
             .iter()
-            .map(|&old| map_box(old))
-            .collect::<Option<Vec<_>>>()?;
-        let children = self
-            .children
-            .iter()
-            .map(|child| {
-                Some(ChildRef {
-                    caixa: map_box(child.caixa)?,
-                    fragment: child.fragment.remapped_to(tree)?,
-                    ..child.clone()
+            .map(|piece| {
+                Some(match piece {
+                    super::Piece::Item(item) => super::Piece::Item(item.clone()),
+                    super::Piece::Rect(old) => super::Piece::Rect(map_box(*old)?),
+                    super::Piece::Child(child) => super::Piece::Child(ChildRef {
+                        caixa: map_box(child.caixa)?,
+                        fragment: child.fragment.remapped_to(tree)?,
+                        ..child.clone()
+                    }),
                 })
             })
             .collect::<Option<Vec<_>>>()?;
         Some(std::rc::Rc::new(Fragment {
             caixa,
             tree: std::rc::Rc::clone(tree),
-            items: std::rc::Rc::clone(&self.items),
-            children,
+            pieces: std::rc::Rc::new(pieces),
             rects: std::rc::Rc::new(rects),
             grid_column_tracks: std::rc::Rc::clone(&self.grid_column_tracks),
-            hit_order: std::rc::Rc::new(hit_order),
             scroll_regions: self.scroll_regions.clone(),
             linha_directa: self.linha_directa,
             ultima_linha: self.ultima_linha,
@@ -211,7 +199,7 @@ impl Fragment {
         for (node, tracks) in self.grid_column_tracks.iter() {
             list.grid_column_tracks.insert(*node, tracks.clone());
         }
-        list.children.push(ChildRef {
+        list.pieces.push(super::Piece::Child(ChildRef {
             caixa: self.caixa,
             height: self.size.1,
             margin_top: self.margin_top,
@@ -221,28 +209,14 @@ impl Fragment {
             forced_outer_w,
             forced_outer_h,
             shrink_to_fit,
-            at: list.items.len(),
-            hit_at: list.hit_order.len(),
             fragment: std::rc::Rc::clone(self),
             dx,
             dy,
-        });
+        }));
         // A GEOMETRIA da subárvore (retângulos, ordem de hit-test, regiões
         // roláveis) também fica na referência: materializá-la aqui era metade do
         // custo de um frame parado — três inserções em mapa por fragmento, mil
         // fragmentos. Quem precisa dela chama `geometry()`, que percorre a
         // árvore uma vez e guarda o resultado.
-    }
-}
-
-impl Fragment {
-    /// Quantos itens este fragmento pinta, contando as subárvores que ele reusa.
-    pub fn total_items(&self) -> usize {
-        self.items.len()
-            + self
-                .children
-                .iter()
-                .map(|c| c.fragment.total_items())
-                .sum::<usize>()
     }
 }

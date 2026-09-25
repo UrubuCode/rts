@@ -67,6 +67,7 @@ mod pintura;
 mod pintura_transform_clip;
 mod pintura_juncao;
 mod pintura_e_caixas_corpus;
+mod pecas_ordem;
 mod replaced_fundo;
 mod replaced_pixels;
 mod posicionado;

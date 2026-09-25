@@ -557,14 +557,12 @@ pub(crate) fn layout_block(
         y + (collapse_margin(margin_top, escaped_top_pre) - escaped_top_pre) + border_top + pad_top;
 
     // Z-ORDER: o fundo/borda da caixa precisam ficar ATRÁS dos filhos. Como a
-    // display list é pintada em ordem, reservamos AGORA o índice onde a caixa será
+    // display list é pintada em ordem, lembramos AGORA a posição onde a caixa será
     // inserida (antes de qualquer filho), descemos nos filhos (que dão append no
-    // fim), e só DEPOIS — conhecendo a altura — inserimos o fundo nesse índice.
-    let box_index = list.items.len();
-    // Quantas subárvores já existiam ANTES desta caixa começar. Só as que
-    // vierem a seguir é que são empurradas quando o fundo for inserido — ver
-    // [`insert_item`].
-    let filhos_antes_da_caixa = list.children.len();
+    // fim), e só DEPOIS — conhecendo a altura — inserimos o fundo nessa posição.
+    // Nothing emitted before it can move (descendants only append after it), so
+    // the position stays true and an insert corrects nothing (`pecas.rs`).
+    let box_start = list.pieces.len();
     // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
     // depois que a altura natural do conteúdo for conhecida.
     reserve_box_order(list, caixa);
@@ -993,8 +991,10 @@ pub(crate) fn layout_block(
     // não pode preencher com o mesmo rect os demais fragmentos do inline.
     record_box_rect(list, caixa, box_rect);
 
-    // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_index` põe o
-    // fundo antes dos itens dos filhos (z-order).
+    // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_start` põe o
+    // fundo antes dos itens dos filhos (z-order); `at` ends past the box items,
+    // where the overflow clip below opens.
+    let mut at = box_start;
     if css.has_box() {
         let radius = css.corner_radius.unwrap_or(0.0);
         // O FUNDO pinta por canto; a borda e a sombra continuam a ler o campo
@@ -1032,15 +1032,12 @@ pub(crate) fn layout_block(
         // abaixo possa aplicar uma e esquecer a outra.
         let cor = |c: u32| apply_opacity(fx.aplicar(c), op);
         // Insere na ordem: primeiro o fundo, depois a borda por cima dele (ambos
-        // atrás dos filhos). `insert` desloca os filhos para a frente.
-        let mut at = box_index;
+        // atrás dos filhos).
         // SOMBRA primeiro (atrás de tudo): box-shadow.
         if let Some(sh) = css.box_shadow {
-            insert_item(
-                list,
+            list.pieces.insert(
                 at,
-                filhos_antes_da_caixa,
-                DisplayItem::Shadow {
+                Piece::Item(DisplayItem::Shadow {
                     rect: box_rect,
                     dx: sh.dx,
                     dy: sh.dy,
@@ -1048,7 +1045,7 @@ pub(crate) fn layout_block(
                     spread: sh.spread,
                     color: cor(sh.color),
                     radius,
-                },
+                }),
             );
             at += 1;
         }
@@ -1074,30 +1071,26 @@ pub(crate) fn layout_block(
             _ => box_rect,
         };
         if let Some(g) = css.gradient.filter(|_| fundo) {
-            insert_item(
-                list,
+            list.pieces.insert(
                 at,
-                filhos_antes_da_caixa,
-                DisplayItem::GradientRect {
+                Piece::Item(DisplayItem::GradientRect {
                     rect: background_rect,
                     c0: cor(g.c0),
                     c1: cor(g.c1),
                     angle_deg: g.angle_deg,
                     radius,
-                },
+                }),
             );
             at += 1;
         } else if let Some(color) = css.bg.filter(|_| fundo) {
             let color = cor(color);
-            insert_item(
-                list,
+            list.pieces.insert(
                 at,
-                filhos_antes_da_caixa,
-                DisplayItem::SolidRect {
+                Piece::Item(DisplayItem::SolidRect {
                     rect: background_rect,
                     color,
                     radius: cantos,
-                },
+                }),
             );
             at += 1;
         }
@@ -1106,13 +1099,12 @@ pub(crate) fn layout_block(
         // exatamente como o Blink compõe as camadas de `background`.
         for item in super::fundo_imagem::background_pixels_items(
             dom, id, &css, box_rect, border_top, border_right, border_bottom, border_left,
-            filhos_antes_da_caixa, list.children.len(),
         ) {
-            insert_item(list, at, filhos_antes_da_caixa, item);
+            list.pieces.insert(at, Piece::Item(item));
             at += 1;
         }
         for item in border_items(&css, box_rect, radius, op, fx) {
-            insert_item(list, at, filhos_antes_da_caixa, item);
+            list.pieces.insert(at, Piece::Item(item));
             at += 1;
         }
     }
@@ -1137,33 +1129,11 @@ pub(crate) fn layout_block(
             content_w,
             box_content_h,
         );
-        // BeginClip no índice onde os FILHOS começam (logo após os itens de caixa que
-        // foram inseridos em `box_index`); EndClip no fim. Quantos itens de caixa:
-        // fundo (se bg) + borda (se visível).
-        let box_items = if css.has_box() {
-            // MESMA contagem da emissão acima: sombra + (gradiente OU bg) + as
-            // barras de borda/outline. Estas últimas vêm de `border_items`, a mesma
-            // função que as emitiu — contar por outra regra é o que dessincroniza
-            // o índice do clip quando uma borda por lado entra em jogo.
-            css.box_shadow.is_some() as usize
-                + (css.gradient.is_some() || css.bg.is_some()) as usize
-                + super::fundo_imagem::background_pixels_items(
-                    dom, id, &css, box_rect, border_top, border_right, border_bottom, border_left,
-                    filhos_antes_da_caixa, list.children.len(),
-                )
-                .len()
-                + border_items(
-                    &css,
-                    box_rect,
-                    css.corner_radius.unwrap_or(0.0),
-                    1.0,
-                    crate::painteffects::FilterMatriz::IDENTIDADE,
-                )
-                .len()
-        } else {
-            0
-        };
-        let children_start = box_index + box_items;
+        // BeginClip onde os FILHOS começam — `at`, just past the box items
+        // inserted above; EndClip no fim. It used to RECOUNT the box items by a
+        // second rule, and the two disagreed for a `mask-image` box (the
+        // background counted, not emitted): the clip opened one item late, or
+        // past the end of the list and panicked.
         // O offset vem do `Dom` (`dom/scroll.rs`) — não é escrito aqui de
         // propósito, só LIDO: quem rola é o backend, respondendo a input, e o
         // layout nunca recebe `&mut Dom` (ver a auditoria estrutural). Este
@@ -1172,38 +1142,16 @@ pub(crate) fn layout_block(
         // a perguntar ao `Dom` o valor VIVO); ver a nota de topo de
         // `dom/scroll.rs` sobre por que scroll nunca invalida este cache.
         let (offset_x, offset_y) = dom.scroll_of_idx(id);
-        insert_item(
-            list,
-            children_start,
-            filhos_antes_da_caixa,
-            DisplayItem::BeginClip {
+        list.pieces.insert(
+            at,
+            Piece::Item(DisplayItem::BeginClip {
                 rect: content_rect,
                 node: id,
                 offset_x,
                 offset_y,
-                // O valor capturado ANTES de os filhos serem layoutados
-                // (linha ~549), não `list.children.len()` de AGORA: os
-                // filhos deste elemento já foram anexados a `list.children`
-                // pela recursão que os layoutou, e usar a contagem atual
-                // marcava TODOS eles como "já existiam quando o clip abriu"
-                // — o `walk_items` de `itens.rs` então desenhava-os ANTES de
-                // entrar no clip, e o recorte nunca continha nada. Era por
-                // isso que `overflow:hidden`/`auto` nunca recortava (medido
-                // pela régua de pintura: `claude-overflow.html` a 5,57%).
-                filhos_antes: filhos_antes_da_caixa,
-            },
+            }),
         );
-        list.items.push(DisplayItem::EndClip {
-            filhos_dentro: list.children.len(),
-        });
-        if std::env::var_os("RTS_CLIP_DEBUG").is_some() && content_w <= 2.0 {
-            let filhos: Vec<(usize, f32)> = list.children.iter().map(|c| (c.at, c.dy)).collect();
-            eprintln!(
-                "[clip] no={id:?} box_index={box_index} children_start={children_start} end_at={} children={:?}",
-                list.items.len() - 1,
-                &filhos[filhos.len().saturating_sub(6)..]
-            );
-        }
+        list.pieces.push(Piece::Item(DisplayItem::EndClip));
         // só registra como rolável (com barra) se de fato rola (auto/scroll), não hidden.
         if ov_x.scrollable() || ov_y.scrollable() {
             list.scroll_regions.push(ScrollRegion {
@@ -1233,42 +1181,28 @@ pub(crate) fn layout_block(
         .and_then(|clip| crate::painteffects::clip_legacy_retangulo(clip, box_rect));
     for rect in [clip_path_rect, legacy_clip_rect].into_iter().flatten() {
         // Emitido DEPOIS do bloco de overflow acima, e de propósito: inserir em
-        // `box_index` empurra tudo o que vem a partir dali, e fazê-lo antes
-        // desalinharia por um o `children_start` que aquele bloco calcula. Como
+        // `box_start` empurra tudo o que vem a partir dali, e fazê-lo antes
+        // desalinharia por um o `at` que aquele bloco usa. Como
         // o `EndClip` deste é empilhado no fim, o aninhamento sai certo — este
         // abre primeiro e fecha por último, portanto envolve o clip de scroll.
         //
         // A diferença para o clip de overflow é onde ABRE: aquele recorta só
         // os FILHOS (abre depois dos itens de caixa), este recorta o elemento
         // INTEIRO, fundo e borda incluídos.
-        insert_item(
-            list,
-            box_index,
-            filhos_antes_da_caixa,
-            DisplayItem::BeginClip {
-                rect,
-                node: id,
-                offset_x: 0.0,
-                offset_y: 0.0,
-                // Os fragmentos-filhos que existiam quando a CAIXA foi
-                // reservada — não `list.children.len()` de agora, que já
-                // conta os desta subárvore. O clip abre conceptualmente antes
-                // deles, mesmo sendo inserido depois de existirem.
-                filhos_antes: filhos_antes_da_caixa,
-            },
+        list.pieces.insert(
+            box_start,
+            Piece::Item(DisplayItem::BeginClip { rect, node: id, offset_x: 0.0, offset_y: 0.0 }),
         );
-        list.items.push(DisplayItem::EndClip {
-            filhos_dentro: list.children.len(),
-        });
+        list.pieces.push(Piece::Item(DisplayItem::EndClip));
     }
 
     // POSITION:RELATIVE — porquê e o que desloca em `relativo.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_index, ctx, list);
+    aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_start, ctx, list);
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE
-    // elemento e seus descendentes (o range `[box_index..]`), em torno de
+    // elemento e seus descendentes (o range `[box_start..]`), em torno de
     // `transform-origin` (default `50% 50%` — CSS Transforms 1 §6). Aplicado
     // por último (não afeta o fluxo/tamanho — como no CSS, transform é visual).
     if let Some(tf) = css.transform {
@@ -1300,34 +1234,27 @@ pub(crate) fn layout_block(
             // no que é partilhado.
             //
             // Achatar aqui era um defeito com alcance muito além do elemento:
-            // `materialize` reescreve `items` INTEIRO, e todos os índices que os
-            // ancestrais reservaram para as caixas deles passam a apontar para
+            // `materialize` reescrevia a lista INTEIRA, e todos os índices que os
+            // ancestrais reservaram para as caixas deles passavam a apontar para
             // outro item. Um `position:absolute` com `transform:translateY(-50%)`
             // — uma regra de ícone, na folha do MediaWiki — punha a página
             // inteira da Wikipédia a zero: 16 813 elementos sem geometria porque
             // uma regra de 40 bytes casou com um `<span>`.
             let is_pure_translate = mat.a == 1.0 && mat.b == 0.0 && mat.c == 0.0 && mat.d == 1.0;
             if is_pure_translate {
-                for it in list.items[box_index..].iter_mut() {
-                    translate_item(it, mat.e, mat.f);
-                }
-                for child in list.children.iter_mut().filter(|c| c.at >= box_index) {
-                    child.dx += mat.e;
-                    child.dy += mat.f;
-                }
+                super::pecas::shift_from(&mut list.pieces, box_start, mat.e, mat.f);
             } else {
                 // Escala/rotação/skew/matriz: em vez de mutar cada item por
                 // aproximação (norma das colunas — a caixa continuava
                 // axis-aligned, só do tamanho errado), a matriz VIAJA na
                 // lista como `PushTransform`/`PopTransform` em torno de
-                // `[box_index..]`. `materialize()` primeiro pela mesma razão
-                // de índices que já valia aqui: a subárvore precisa estar
-                // achatada para o range `[box_index..]` corresponder
-                // exatamente a este elemento e seus descendentes — nada
-                // depois pertence a outro irmão ainda por vir.
-                list.materialize();
-                list.items.insert(box_index, DisplayItem::PushTransform { mat });
-                list.items.push(DisplayItem::PopTransform);
+                // `[box_start..]`. The reused subtrees in that range are
+                // flattened first — and ONLY those: flattening the whole list,
+                // as this did, also flattened the preceding siblings, and the
+                // `PushTransform` then landed inside them (`pecas::flatten_from`).
+                super::pecas::flatten_from(&mut list.pieces, box_start);
+                list.pieces.insert(box_start, Piece::Item(DisplayItem::PushTransform { mat }));
+                list.pieces.push(Piece::Item(DisplayItem::PopTransform));
             }
         }
     }

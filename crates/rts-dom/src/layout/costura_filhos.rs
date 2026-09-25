@@ -9,7 +9,7 @@
 use crate::boxes::{BoxId, BoxKind, BoxTree};
 use crate::dom::NodeIdx;
 
-use super::fragmento_tipos::ChildRef;
+use super::pecas::{Piece, children};
 
 /// `true` só quando a caixa recém-construída tem a mesma sequência de filhos
 /// que a caixa que produziu o desenho antigo — CAIXA contra CAIXA, cada uma na
@@ -75,7 +75,7 @@ fn mesma_caixa(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
 }
 
 /// `true` só quando todo filho SUJO tem um fragmento próprio entre os
-/// `children` — é o único desenho que a costura sabe refazer.
+/// subtrees of `pieces` — é o único desenho que a costura sabe refazer.
 ///
 /// Um filho sujo sem `ChildRef` (texto solto, um inline, um nó dentro de uma
 /// caixa anónima) desenha dentro dos itens do PRÓPRIO container, e a costura
@@ -85,11 +85,9 @@ fn mesma_caixa(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
 pub(in crate::layout) fn sujeira_coberta(
     tree: &BoxTree,
     sujos: &[NodeIdx],
-    children: &[ChildRef],
+    pieces: &[Piece],
 ) -> bool {
-    sujos.iter().all(|&sujo| {
-        children
-            .iter()
-            .any(|child| tree.node_of(child.caixa) == Some(sujo))
-    })
+    sujos
+        .iter()
+        .all(|&sujo| children(pieces).any(|child| tree.node_of(child.caixa) == Some(sujo)))
 }

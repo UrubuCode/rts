@@ -260,8 +260,7 @@ pub(in crate::layout) fn layout_inline_flow(
         let imagem_alta_sem_texto = super::linha_baseline::imagem_alta_sem_texto(&line, line_h, lh, tem_texto);
         // As superfícies (fundo/borda) dos inlines por fragmentos desta
         // linha: acumulam-se ao longo dos segmentos e inserem-se ATRÁS deles.
-        let at_linha = list.items.len();
-        let filhos_antes_da_linha = list.children.len();
+        let at_linha = list.pieces.len();
         let mut superficies = std::mem::take(&mut transporte);
         // A line holding an inline-block is placed by the §10.8.1 envelope
         // (`linha_baseline.rs`): one baseline, each item's extent above and below
@@ -300,10 +299,10 @@ pub(in crate::layout) fn layout_inline_flow(
             seg_x += seg.lead_w;
             if let Some((a_idx, caixa, kind)) = seg.atomic {
                 // Float and static-position anchors have nothing on the line (`ancora_estatica.rs`).
-                if super::ancora_estatica::fora_da_linha(dom, (a_idx, caixa, kind), seg_x, x, cy, cy + line_advance, (at_linha, filhos_antes_da_linha), list) {
+                if super::ancora_estatica::fora_da_linha(dom, (a_idx, caixa, kind), seg_x, x, cy, cy + line_advance, at_linha, list) {
                     continue;
                 }
-                let (desde, (rx, ry)) = (list.items.len(), super::relativo::offset_do_inline(dom, seg.owners.last().copied(), ctx));
+                let (desde, (rx, ry)) = (list.pieces.len(), super::relativo::offset_do_inline(dom, seg.owners.last().copied(), ctx));
                 match kind {
                     AtomicKind::Widget => {
                         // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
@@ -486,7 +485,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 None => (text_top, font_size, mono, ahem),
             };
             let (rx, ry) = super::relativo::offset_do_inline(dom, seg.owners.last().copied(), ctx);
-            list.items.push(DisplayItem::Text {
+            list.push_item(DisplayItem::Text {
                 x: seg_x + rx,
                 y: seg_y + ry,
                 text: seg.text.into(),
@@ -521,7 +520,6 @@ pub(in crate::layout) fn layout_inline_flow(
             dom,
             list,
             at_linha,
-            filhos_antes_da_linha,
             text_owner_anchor,
             conteudo,
             na_baseline,

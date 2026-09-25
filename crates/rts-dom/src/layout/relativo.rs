@@ -9,14 +9,14 @@
 //!
 //! O mecanismo de "deslocar uma subárvore já pintada, in-place" já existe
 //! para `transform` (`bloco.rs`, atalho `so_translate`) e é reusado aqui para
-//! a metade da PINTURA (`list.items`/`list.children`). A diferença, e a razão
+//! a metade da PINTURA (`pecas::shift_from`). A diferença, e a razão
 //! de não bastar chamar essa função: `transform` nunca toca `list.box_rects`
 //! — é visual, não move o `getBoundingClientRect` (decisão já tomada nesse
 //! módulo) — mas o offset de `relative` TEM de mover, porque é exactamente o
 //! que o Chrome mede em `claude-position-relative.esperado.json`.
 //!
 //! `list.box_rects` é um mapa achatado por CAIXA, não uma fatia por posição
-//! como `list.items`. Per the box-tree invariant I2
+//! como `list.pieces`. Per the box-tree invariant I2
 //! (`docs/ui/html-engine/box-tree.md` §7), the only way to know which entries
 //! belong to this subtree is walking the box tree from `id` — not the DOM —
 //! so an anonymous box, which has no `NodeIdx`, is still found and shifted.
@@ -35,8 +35,8 @@ use super::*;
 use crate::boxes::{BoxId, BoxTree};
 
 /// Aplica o deslocamento de `position:relative` a um bloco já layoutado.
-/// `box_index` é o mesmo marcador que `bloco.rs` usa para o `transform` — o
-/// início, em `list.items`, da pintura desta caixa e dos seus descendentes.
+/// `box_start` é o mesmo marcador que `bloco.rs` usa para o `transform` — o
+/// início, em `list.pieces`, da pintura desta caixa e dos seus descendentes.
 /// Sem efeito quando `css.position` não é `Relative`, ou quando os quatro
 /// insets resolvem a deslocamento nulo (não vale andar a subárvore à toa).
 ///
@@ -50,12 +50,12 @@ pub(in crate::layout) fn aplica_offset_relativo(
     avail_w: f32,
     avail_h: Option<f32>,
     font_size: f32,
-    box_index: usize,
+    box_start: usize,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) {
     let (dx, dy) = offset_relativo(css, avail_w, avail_h, font_size, ctx);
-    desloca_desde(list, box_index, Some(id), dx, dy);
+    desloca_desde(list, box_start, Some(id), dx, dy);
 }
 
 /// The `(dx, dy)` a `position: relative` box is shifted by; `(0, 0)` for any
@@ -110,25 +110,20 @@ pub(in crate::layout) fn offset_do_inline(dom: &Dom, mut no: Option<NodeIdx>, ct
     (dx, dy)
 }
 
-/// Shifts by `(dx, dy)` everything emitted into `list` since `desde` — items,
-/// reused subtrees and, when `rects_de` names one, the rects of that box's
-/// subtree. What an ATOM laid out on the line of a relative inline needs: its
-/// box was placed by `layout_block`, which knows nothing of the inline around
-/// it. `rects_de` is `None` for an atom with no body (an anchor, an edge):
+/// Shifts by `(dx, dy)` everything emitted into `list` since the piece
+/// position `desde` — items, reused subtrees (`pecas::shift_from`, which also
+/// says which subtrees just before `desde` it still takes along) and, when
+/// `rects_de` names one, the rects of that box's subtree. What an ATOM laid
+/// out on the line of a relative inline needs: its box was placed by
+/// `layout_block`, which knows nothing of the inline around it. `rects_de` is `None` for an atom with no body (an anchor, an edge):
 /// there is no rect of its own to move. Every atom HAS a box; the `Option`
 /// says whether it recorded a rect.
 pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, rects_de: Option<BoxId>, dx: f32, dy: f32) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }
-    for it in list.items[desde..].iter_mut() {
-        translate_item(it, dx, dy);
-    }
-    for child in list.children.iter_mut().filter(|c| c.at >= desde) {
-        child.dx += dx;
-        child.dy += dy;
-    }
-    // Subtrees served by a cached fragment (`list.children`, shifted above) have
+    super::pecas::shift_from(&mut list.pieces, desde, dx, dy);
+    // Subtrees served by a cached fragment (the `Piece::Child`s shifted above) have
     // no entry in `list.box_rects`: the walk below does not find them, rightly —
     // their `ChildRef`'s `dx`/`dy` is added on read by `geometry_now`. A second
     // source of truth for one answer, reconciled by hand until BT-2 removes it.

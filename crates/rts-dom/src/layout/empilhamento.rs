@@ -13,11 +13,10 @@
 //! da auditoria estrutural lista isso como "o que NÃO é problema" enquanto
 //! houver um backend imediato só. Por isso "pintar antes" não é reordenar uma
 //! lista: é montar os itens negativos numa lista À PARTE e PREPENDER essa
-//! lista à frente da que já existe, corrigindo os índices que dependem de
-//! POSIÇÃO — `at`/`hit_at` dos filhos já emitidos, e as contagens
-//! `filhos_antes`/`filhos_dentro` dos marcadores de clip já na lista. É a
-//! mesma disciplina que [`super::fragmento::insert_item`] já aplica a UM
-//! item, generalizada a uma subárvore inteira.
+//! lista à frente da que já existe. Since BT-2b that is a splice of pieces at
+//! the front (`pecas.rs`); it used to be followed by a correction of every
+//! index that pointed by POSITION — the `at`/`hit_at` of each emitted subtree
+//! and the subtree counts of each clip marker — and none of those exists now.
 //!
 //! Um contexto que `opacity<1`, `transform` ou `z-index` explícito abre não
 //! deixa o `z-index` de um filho escapar para o contexto raiz. A passada de
@@ -131,41 +130,16 @@ fn creates_context(dom: &Dom, node: NodeIdx) -> bool {
         })
 }
 
-/// Prepende `antes` a `alvo`: os itens e subárvores de `antes` passam a
-/// pintar-se PRIMEIRO — mais atrás — que tudo o que `alvo` já tinha, e os
-/// índices de `alvo` que apontam por POSIÇÃO (o `at`/`hit_at` de cada
-/// subárvore reusada, e as contagens `filhos_antes`/`filhos_dentro` de cada
-/// marcador de clip já emitido) deslocam-se pela mesma quantidade — sem essa
-/// correção um clip existente passaria a "conter" as subárvores negativas
-/// que nunca esteve dentro dele.
-pub(in crate::layout) fn merge_before(alvo: &mut DisplayList, mut antes: DisplayList) {
-    if antes.items.is_empty()
-        && antes.children.is_empty()
-        && antes.box_rects.is_empty()
-        && antes.hit_order.is_empty()
-    {
+/// Prepende `antes` a `alvo`: what `antes` paints — its items, subtrees and
+/// geometry marks, in its own order — comes FIRST, further back than
+/// everything `alvo` already had. A splice: no clip already in `alvo` can come
+/// to "contain" the negative subtrees, because a clip contains what lies
+/// between its markers and they now lie before both.
+pub(in crate::layout) fn merge_before(alvo: &mut DisplayList, antes: DisplayList) {
+    if antes.pieces.is_empty() && antes.box_rects.is_empty() {
         return;
     }
-    let n_items = antes.items.len();
-    let n_children = antes.children.len();
-    let n_hits = antes.hit_order.len();
-    for item in alvo.items.iter_mut() {
-        match item {
-            DisplayItem::BeginClip { filhos_antes, .. } => *filhos_antes += n_children,
-            DisplayItem::EndClip { filhos_dentro } => *filhos_dentro += n_children,
-            _ => {}
-        }
-    }
-    for child in alvo.children.iter_mut() {
-        child.at += n_items;
-        child.hit_at += n_hits;
-    }
-    antes.items.append(&mut alvo.items);
-    alvo.items = antes.items;
-    antes.children.append(&mut alvo.children);
-    alvo.children = antes.children;
-    antes.hit_order.append(&mut alvo.hit_order);
-    alvo.hit_order = antes.hit_order;
+    alvo.pieces.splice(0..0, antes.pieces);
     // `box_rects` é a geometria por CAIXA (era `node_rects`, por nó); a
     // fusão continua sendo uma simples união de mapas — as chaves de `antes`
     // e `alvo` não colidem, porque vêm de subárvores disjuntas.
@@ -174,25 +148,18 @@ pub(in crate::layout) fn merge_before(alvo: &mut DisplayList, mut antes: Display
     alvo.scroll_regions.splice(0..0, antes.scroll_regions);
 }
 
-/// Appends a positioned fragment after the current list, translating the
-/// fragment-local item and hit indices on the way.
+/// Appends a positioned fragment after the current list.
+///
+/// It used to translate the appended subtrees' item and hit indices and NOT
+/// the subtree counts its clip markers carried, so an `EndClip` of an
+/// `overflow:hidden` positioned box counted subtrees of `alvo` and let its own
+/// children be drawn after it — outside the clip. An append of pieces has no
+/// count to forget.
 pub(in crate::layout) fn merge_after(alvo: &mut DisplayList, mut depois: DisplayList) {
-    if depois.items.is_empty()
-        && depois.children.is_empty()
-        && depois.box_rects.is_empty()
-        && depois.hit_order.is_empty()
-    {
+    if depois.pieces.is_empty() && depois.box_rects.is_empty() {
         return;
     }
-    let n_items = alvo.items.len();
-    let n_hits = alvo.hit_order.len();
-    for child in depois.children.iter_mut() {
-        child.at += n_items;
-        child.hit_at += n_hits;
-    }
-    alvo.items.append(&mut depois.items);
-    alvo.children.append(&mut depois.children);
-    alvo.hit_order.append(&mut depois.hit_order);
+    alvo.pieces.append(&mut depois.pieces);
     alvo.box_rects.extend(depois.box_rects);
     alvo.grid_column_tracks.extend(depois.grid_column_tracks);
     alvo.scroll_regions.append(&mut depois.scroll_regions);

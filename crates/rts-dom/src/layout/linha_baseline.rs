@@ -317,7 +317,7 @@ pub(in crate::layout) fn total_da_costura(
     dom: &Dom,
     id: NodeIdx,
     anterior: &Fragment,
-    children: &[ChildRef],
+    pieces: &[super::Piece],
     tree: &crate::boxes::BoxTree,
 ) -> Option<f32> {
     // A clipping block stands for its bottom edge, and a stitch keeps its size.
@@ -325,8 +325,7 @@ pub(in crate::layout) fn total_da_costura(
         return anterior.ultima_linha;
     }
     let directa = anterior.linha_directa;
-    children
-        .iter()
+    super::pecas::children(pieces)
         .filter(|c| tree.node_of(c.caixa).is_none_or(|n| fluxo_proprio(dom, id, n, true)))
         .filter_map(|c| c.fragment.ultima_linha.map(|b| b + c.dy))
         .chain(directa)
