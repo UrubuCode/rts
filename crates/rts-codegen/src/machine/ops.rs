@@ -244,7 +244,11 @@ impl MachineOps for JsMachine<'_> {
             return Ok(*value);
         }
         if which == JsPrim::GlobalRead {
-            return self.call_runtime(into, crate::runtime::RuntimeOp::GlobalGet, args);
+            let op = match self.unbound.contains(&inst.result) {
+                true => crate::runtime::RuntimeOp::UnboundGlobalGet,
+                false => crate::runtime::RuntimeOp::GlobalGet,
+            };
+            return self.call_runtime(into, op, args);
         }
         // A CLOSURE IS A CODE ADDRESS AND AN ENVIRONMENT, made by the runtime -- the same
         // call `emit/function.rs` makes, over the two operands the graph now carries.

@@ -29,6 +29,14 @@
 //!   with an environment per block;
 //! - a function expression's own name, captured: nothing binds it in this lowering,
 //!   so the environment would hold `undefined` where the language holds the function.
+//!
+//! # Under another stage's layout
+//!
+//! The environment built here is the running emitter's shape exactly -- an ordinary
+//! object, a slot per spelling, the `__rts_outer` link -- so a function the running
+//! emitter compiles inside this one reads it through one more layer of ITS scope, at
+//! hops zero. `emit/through_mir.rs` builds that layer from the same list this one is
+//! built from, which is what keeps the two agreeing about which names are in it.
 
 use rts_mir::cfg::ValueId;
 
@@ -57,11 +65,6 @@ impl Lowering<'_> {
             return Ok(());
         }
 
-        if self.outer.is_some() {
-            return Err(Unsupported::Shape(
-                "a function building its own environment under another stage's layout",
-            ));
-        }
         let mut keys = Vec::with_capacity(owned.len());
         let mut spelled = std::collections::BTreeSet::new();
         for binding in &owned {
@@ -129,7 +132,10 @@ impl Lowering<'_> {
                     "a captured binding with no environment in force, which the scope walk should have made impossible",
                 ));
             };
-            for _ in 0..hops {
+            // The enclosing layout counts from the environment this function was MADE
+            // in; one this function built itself stands one link in front of it.
+            let built = !self.resolution.environment_of(self.function).is_empty();
+            for _ in 0..hops + u32::from(built) {
                 environment = self.prim(JsPrim::EnvOuter, vec![environment], at);
             }
             let key = self.domain.constant(JsConst::Key(key));

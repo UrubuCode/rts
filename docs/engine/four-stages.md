@@ -2077,3 +2077,30 @@ it answers capture with its own walk -- which is why only the door found it.
 `rts ir` did not open the door at all: the graph path, `emit_modules`, never built the scope
 tree, so the one command whose job is to show what runs showed the other stage's output.
 It builds one per unit now.
+
+### An unplaced global, and an environment built here: 83% → 90% of the suite's functions
+
+Counted over every `*.test.ts` with `RTS_MIR_TRACE=why`: 8 534 functions taken and 1 779
+declined before these two steps; **9 342 and 1 003** after.
+
+- **A name nothing placed** -- `dom`, `DomTimers`, `DomScope`, `engine`, which the host
+  installs where no compile-time list sees them -- was 640 of the refusals. The running
+  emitter reads such a name with `UnboundGlobalGet`, which raises `ReferenceError` when it
+  RUNS; the boundary now does the same for exactly those reads. A page script, whose
+  sibling scripts write its window, and a read under `typeof`, which the language exempts
+  from the error, still decline.
+- **A function that builds its own environment** was 308. The environment built here is
+  the running emitter's shape exactly -- an object, a slot per spelling, `__rts_outer` --
+  so a function the running emitter compiles inside this one reads it through one more
+  layer of ITS scope at hops zero, built from the same `environment_of` list the
+  lowering builds the object from. The one thing it cost: a read of a binding the
+  ENCLOSING layout holds counts from the environment this function was made in, and one
+  built here stands one link in front of it -- 21 files failed until that link was
+  walked.
+
+Suite, same conditions as above: **884 of 907**, LOST empty against `main` and against the
+step before. The one gained, `closure-capture-loop-shadow.test.ts`, is a block-scoped
+binding captured by a closure that outlives the block, which the running emitter reads
+from the wrong object -- `function f(a) { let x = a; { let y = 5; var g = () => x + y; }
+return g(); }` throws `ReferenceError: y` with the door shut, and answers what Node does
+with it open.

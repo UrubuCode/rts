@@ -91,13 +91,15 @@ fn attempt(
     enclosing: &Scope,
     function: &Function,
 ) -> Result<MachineFunction, String> {
-    if ctx.sloppy
-        || function.is_async
-        || function.is_generator
-        || !ctx.with_objects.is_empty()
-        || ctx.in_field_initializer
-    {
-        return Err("sloppy, async, generator, with or field initialiser".to_owned());
+    let refused = [
+        (ctx.sloppy, "sloppy code"),
+        (function.is_async, "an async function"),
+        (function.is_generator, "a generator"),
+        (!ctx.with_objects.is_empty(), "inside `with`"),
+        (ctx.in_field_initializer, "a field initialiser"),
+    ];
+    if let Some((_, why)) = refused.iter().find(|(held, _)| *held) {
+        return Err((*why).to_owned());
     }
     let resolution = ctx
         .mir_resolution
@@ -150,7 +152,7 @@ fn attempt(
         Some(&layout),
     )
     .map_err(|held| format!("lowering: {held:?}"))?;
-    agrees(ctx, enclosing, &graph, &domain)?;
+    let unbound = agrees(ctx, enclosing, &graph, &domain)?;
     let written = graph.block(graph.entry()).params.len();
     if written > crate::runtime::ARGUMENT_SLOTS {
         return Err("more parameters than the convention has slots".to_owned());
@@ -168,6 +170,8 @@ fn attempt(
     // The name THIS function was lent is put aside while they are emitted and put back
     // after: it is taken when this function's own id is recorded, which is after its
     // body, and the first nested definition to ask would otherwise take it.
+    let built = inner_scope(enclosing, &resolution, function);
+    let inside = built.as_ref().unwrap_or(enclosing);
     let outer_name = ctx.take_lent_name();
     let mut module = Vec::with_capacity(nested.found.len());
     for (inner, declared) in &nested.found {
@@ -177,7 +181,7 @@ fn attempt(
             ctx.lend_name(*name);
         }
         ctx.mir_candidate = true;
-        let made = super::function::nested_code(ctx, enclosing, inner, *declared);
+        let made = super::function::nested_code(ctx, inside, inner, *declared);
         let _ = ctx.take_lent_name();
         match made {
             Ok(id) => module.push(id),
@@ -200,6 +204,7 @@ fn attempt(
         };
         let mut ops = crate::machine::JsMachine::new(&domain, inferred)
             .tail_calls_of(&graph)
+            .unbound_reads(unbound)
             .declaring_into(parts)
             .naming_with(&mut *ctx.names)
             .with_incoming(&start);
@@ -219,11 +224,14 @@ const TRACE: &str = "RTS_MIR_TRACE";
 
 /// Whether every operation in the graph is one the two stages agree about.
 fn agrees(
-    ctx: &Ctx,
+    ctx: &mut Ctx,
     enclosing: &Scope,
     graph: &rts_mir::cfg::Func,
     domain: &crate::domain::Js,
-) -> Result<(), String> {
+) -> Result<std::collections::BTreeSet<rts_mir::ValueId>, String> {
+    let mut unbound = std::collections::BTreeSet::new();
+    let window = super::page::page_window_name(ctx);
+    let in_page = enclosing.lookup(window).is_some();
     for inst in &graph.insts {
         match &inst.op {
             rts_mir::Op::Suspend { .. } => return Err("a suspension".to_owned()),
@@ -232,32 +240,85 @@ fn agrees(
                 ..
             } => return Err("a call by number".to_owned()),
             rts_mir::Op::Prim { prim, args } => match domain.meaning(*prim) {
-                // A CLOSURE MADE HERE, or an environment built here, is laid out by
-                // this stage and read by whatever the running emitter makes inside it.
-                // Reads and writes of the ENCLOSING layout are not: they come from the
-                // running emitter's own scope, through `lower_within`.
-                Some(JsPrim::EnvNew) => return Err("builds an environment".to_owned()),
+                // AN ENVIRONMENT BUILT HERE is laid out by this stage and read by what
+                // the running emitter makes inside it, through the layer `attempt`
+                // hands the nested emission -- `lower/environment.rs` says why the two
+                // layouts are one.
                 Some(JsPrim::GlobalRead) => {
                     let Some(name) = args.first().and_then(|key| key_name(graph, domain, *key))
                     else {
                         return Err("a global read with no fixed key".to_owned());
                     };
                     let text = ctx.names.text(name);
-                    let placed = super::globals::resolves(ctx, name)
-                        || matches!(text, "undefined" | "NaN" | "Infinity");
-                    if !placed {
-                        return Err(format!("the unplaced global {text}"));
-                    }
                     if enclosing.lookup(name).is_some() {
                         return Err(format!("{text}, which the enclosing scope binds"));
                     }
+                    let placed = super::globals::resolves(ctx, name)
+                        || matches!(text, "undefined" | "NaN" | "Infinity");
+                    if placed {
+                        continue;
+                    }
+                    // A NAME NOTHING PLACED is the running emitter's `unbound_read`: the
+                    // global object is asked when the read RUNS, and its absence is a
+                    // `ReferenceError` then -- `dom` and `DomTimers` are installed by the
+                    // host, which no compile-time list sees. Two cases are that emitter's
+                    // alone: a page script, whose sibling scripts write its window, and
+                    // `typeof`, which the language exempts from the error.
+                    if in_page {
+                        return Err(format!("the unplaced global {text}, in a page script"));
+                    }
+                    if typeof_reads(graph, domain, inst.result) {
+                        return Err(format!("`typeof` of the unplaced global {text}"));
+                    }
+                    unbound.insert(inst.result);
                 }
                 _ => {}
             },
             _ => {}
         }
     }
-    Ok(())
+    Ok(unbound)
+}
+
+/// The scope a function written inside this one is emitted in, when this one builds an
+/// environment: the enclosing scope one link further out, under a layer holding what
+/// this function's environment holds. `None` when it builds none -- the closure is then
+/// handed the enclosing environment, and the enclosing scope is the answer as it stands.
+fn inner_scope(
+    enclosing: &Scope,
+    resolution: &crate::names::resolve::Resolution,
+    function: &Function,
+) -> Option<Scope> {
+    let owned: std::collections::BTreeSet<crate::names::Name> = resolution
+        .function_scope(function.at)
+        .map(|scope| resolution.environment_of(scope))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|binding| resolution.binding(binding).name)
+        .collect();
+    if owned.is_empty() {
+        return None;
+    }
+    let shifted: Vec<_> = enclosing
+        .reachable()
+        .into_iter()
+        .map(|(name, hops)| (name, hops + 1))
+        .collect();
+    Some(Scope::for_function(None, owned.clone(), &owned, &shifted))
+}
+
+/// Whether a `typeof` reads this value.
+fn typeof_reads(
+    graph: &rts_mir::cfg::Func,
+    domain: &crate::domain::Js,
+    value: rts_mir::ValueId,
+) -> bool {
+    graph.insts.iter().any(|inst| match &inst.op {
+        rts_mir::Op::Prim { prim, args } => {
+            domain.meaning(*prim) == Some(JsPrim::TypeOf) && args.contains(&value)
+        }
+        _ => false,
+    })
 }
 
 /// The name a declared key constant spells, if that is what defined `value`.

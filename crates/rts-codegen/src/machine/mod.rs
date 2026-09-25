@@ -161,6 +161,10 @@ pub struct JsMachine<'a> {
     >,
     /// The calls in TAIL position, by the value each answers -- see [`tail_positions`].
     tail: std::collections::BTreeSet<ValueId>,
+    /// The global reads of a name nothing placed, which raise `ReferenceError` when the
+    /// name is absent where every other global read answers `undefined`. The caller
+    /// decides which, because only it can see the lists a name is placed by.
+    unbound: std::collections::BTreeSet<ValueId>,
     /// Whether the block being lowered is part of a cleanup -- `rts_mir::lower` says so
     /// before each block. See [`JsMachine::recheck_throw`] for what it costs.
     in_cleanup: bool,
@@ -250,6 +254,7 @@ impl<'a> JsMachine<'a> {
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
+            unbound: std::collections::BTreeSet::new(),
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -274,6 +279,7 @@ impl<'a> JsMachine<'a> {
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
+            unbound: std::collections::BTreeSet::new(),
             from_constant: std::collections::BTreeMap::new(),
         }
     }
@@ -306,6 +312,12 @@ impl<'a> JsMachine<'a> {
     /// -- see [`tail_positions`].
     pub fn tail_calls_of(mut self, func: &rts_mir::cfg::Func) -> Self {
         self.tail = tail_positions(func);
+        self
+    }
+
+    /// Which global reads name something nothing placed -- see the field.
+    pub fn unbound_reads(mut self, reads: std::collections::BTreeSet<ValueId>) -> Self {
+        self.unbound = reads;
         self
     }
 
