@@ -442,7 +442,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         list.grid_column_tracks.extend(grid_column_tracks);
         list.scroll_regions.extend(scroll_regions);
         let pieces = if empilhamento::z_index_of(dom, node) == 0 {
-            match empilhamento::splice_layer8(dom, &arvore, &mut list.pieces, node, pieces) {
+            match empilhamento::splice_layer8(dom, &arvore, &mut list.pieces, node, pieces, 0.0, 0.0) {
                 Ok(()) => continue,
                 Err(leftover) => leftover,
             }

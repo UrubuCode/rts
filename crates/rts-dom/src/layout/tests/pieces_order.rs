@@ -169,3 +169,53 @@ td > div { height: 50px; width: 50px; }\
     let green = index_of(&itens, |it| matches!(it, DisplayItem::SolidRect { color, .. } if *color == CSS_GREEN));
     assert!(red < green, "the relative cell's OWN background must not paint ahead of the absolute box it follows in the DOM: {itens:?}");
 }
+
+/// The WPT shape of `position-relative-table-tbody-left-absolute-child.html`:
+/// an absolute box is a DESCENDANT of a `position:relative` ancestor (its own
+/// containing block), not a sibling. Appendix E paints a positioned box's
+/// descendants INSIDE that box's own place in the paint order — never spliced
+/// to before it, however much earlier an out-of-flow layer-8 SIBLING of the
+/// ancestor has to land. `splice_layer8` used to match the relative ancestor
+/// itself as a candidate for such a sibling and, separately, to corrupt the
+/// position of what it spliced one level into a cached fragment (see the
+/// module doc): this pins both — the sibling still lands before the relative
+/// ancestor, AND the descendant paints at the SAME place as what it must
+/// cover.
+#[test]
+fn an_absolute_descendant_of_a_relative_ancestor_paints_after_the_ancestors_own_background() {
+    let html = "<style>\
+table { border-collapse:collapse; }\
+td { padding: 0; }\
+td > div { height: 50px; width: 50px; }\
+.group { display: inline-block; position: relative; width: 150px; height: 200px; }\
+.indicator { position: absolute; background-color: red; left: 100px; height: 50px; width: 50px; }\
+.relative { position: relative; left: 50px; background-color: green; }\
+.absolute { position: absolute; left: 50px; background-color: green; }\
+</style>\
+<div class=\"group\">\
+  <div>\
+    <div class=\"indicator\"></div>\
+    <table>\
+      <tbody class=\"relative\">\
+        <tr><td><div class=\"absolute\"></div></td></tr>\
+      </tbody>\
+    </table>\
+  </div>\
+</div>";
+    const CSS_GREEN: u32 = 0x0080_00FF;
+    let (dom, list) = geometria(html, 1280.0);
+    let itens = list.materialized();
+    let red = index_of(&itens, |it| matches!(it, DisplayItem::SolidRect { color, .. } if *color == RED));
+    let green = index_of(&itens, |it| matches!(it, DisplayItem::SolidRect { color, .. } if *color == CSS_GREEN));
+    assert!(red < green, "the absolute descendant of the later relative ancestor must paint on top of the earlier indicator: {itens:?}");
+    // Both boxes must land at the EXACT same rectangle — `.indicator`'s inset
+    // is computed against `.group`, and `.absolute`'s against `tbody` shifted
+    // by its own `left`, and the two are meant to coincide pixel for pixel.
+    let indicator_rect = crate::table::tests::rect(&dom, &list, ".indicator", 0);
+    let absolute_rect = crate::table::tests::rect(&dom, &list, ".absolute", 0);
+    assert_eq!(
+        indicator_rect, absolute_rect,
+        "the absolute descendant must be painted at the SAME rect as the indicator it covers, \
+         not shifted by an ancestor fragment's own reuse offset"
+    );
+}

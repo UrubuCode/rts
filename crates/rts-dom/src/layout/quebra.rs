@@ -269,10 +269,22 @@ pub(in crate::layout) fn wrap_runs(
     // above) — so the whole nowrap run stays ONE cluster and is measured as
     // one indivisible unit whenever a real wrap opportunity eventually closes
     // it.
+    // §4.1.3 phase II (see `preserved_spaces::collapses_at_line_start`): a
+    // glued space still collapses away at a line start. And
+    // `glued_space_absorbs_pending`: a `pending_space` already due when this
+    // run's OWN whitespace is glued is the SAME collapsible run split across
+    // the regime boundary — consumed here so `juntar!` does not also turn it
+    // into a second, cluster-level separator on top of the piece.
     macro_rules! glue_space {
         ($i:expr) => {{
-            let w = space_w(m, $i);
-            juntar!(Peca { run: $i, texto: " ".to_string(), largura: w, atomico: None }, w);
+            if !super::preserved_spaces::collapses_at_line_start(cluster.is_empty(), at_line_start) {
+                if super::preserved_spaces::glued_space_absorbs_pending(cluster.is_empty(), pending_space) {
+                    pending_space = false;
+                    espaco_de_fora = false;
+                }
+                let w = space_w(m, $i);
+                juntar!(Peca { run: $i, texto: " ".to_string(), largura: w, atomico: None }, w);
+            }
         }};
     }
 

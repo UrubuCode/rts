@@ -233,6 +233,25 @@ fn is_layer8_relative(dom: &Dom, node: NodeIdx) -> bool {
 /// actually on that path get a fresh `Rc`, and every sibling subtree the walk
 /// does not enter keeps pointing at the exact `Rc` it already had.
 ///
+/// `(dx, dy)` is the offset the caller's OWN pieces already carry at this
+/// depth — the sum of every `ChildRef::{dx,dy}` walked through to reach
+/// `pieces` (zero at the top-level call from `layout.rs`). `insert`'s items
+/// hold PAGE-ABSOLUTE coordinates, as `layout_out_of_flow` computed them
+/// against `flow_rects` (itself page-absolute) — never coordinates relative
+/// to some fragment's own build-time origin. `Fragment::emit_at`'s own doc
+/// comment states the reverse for a REUSED subtree: its pieces are recorded
+/// absolute AS OF BUILD TIME, and everything under a `Piece::Child` is
+/// walked with that child's `(dx, dy)` ADDED on top (`pieces::walk`). Splicing
+/// `insert` straight into a `Piece::Child`'s own subtree — one level below the
+/// top of `pieces` — used to leave its absolute coordinates as they were, so
+/// that child's own `(dx, dy)` landed on them a SECOND time: a `<tbody>` cell
+/// reused 8px away from where it was first built shifted its absolute
+/// sibling `.indicator` by 8px in both axes when the two landed side by side
+/// (measured against `position-relative-table-tbody-left-absolute-child.html`:
+/// the indicator painted at `(116, 16)` against the tbody's own `(108, 8)`,
+/// both meant to coincide). Subtracting the accumulated `(dx, dy)` before a
+/// splice at THIS depth cancels exactly the amount the walk will re-add.
+///
 /// `Err(insert)` unchanged when no match exists anywhere in `pieces` — the
 /// caller appends it at the end instead, same as before this fix (Appendix E
 /// layer 8 paints a box with nothing after it last among ties).
@@ -242,6 +261,8 @@ pub(in crate::layout) fn splice_layer8(
     pieces: &mut Vec<Piece>,
     target: NodeIdx,
     mut insert: Vec<Piece>,
+    dx: f32,
+    dy: f32,
 ) -> Result<(), Vec<Piece>> {
     for i in 0..pieces.len() {
         // `Piece::Rect(box_id)` is the mark EVERY box leaves at its own paint
@@ -271,6 +292,7 @@ pub(in crate::layout) fn splice_layer8(
                 while splice_at > 0 && matches!(pieces[splice_at - 1], Piece::Item(_)) {
                     splice_at -= 1;
                 }
+                pieces::shift_from(&mut insert, 0, -dx, -dy);
                 pieces.splice(splice_at..splice_at, insert);
                 return Ok(());
             }
@@ -281,11 +303,12 @@ pub(in crate::layout) fn splice_layer8(
             .node_of(c.caixa)
             .is_some_and(|n| is_layer8_relative(dom, n) && is_before_in_tree(dom, target, n))
         {
+            pieces::shift_from(&mut insert, 0, -dx, -dy);
             pieces.splice(i..i, insert);
             return Ok(());
         }
         let mut subtree = (*c.fragment.pieces).clone();
-        match splice_layer8(dom, &c.fragment.tree, &mut subtree, target, insert) {
+        match splice_layer8(dom, &c.fragment.tree, &mut subtree, target, insert, dx + c.dx, dy + c.dy) {
             Ok(()) => {
                 let mut novo = (*c.fragment).clone();
                 novo.pieces = std::rc::Rc::new(subtree);

@@ -116,15 +116,26 @@ pub(in crate::layout) fn layout_inline_flow(
     // avanço do cursor. A PINTURA não usa esta previsão — usa o `cy` verdadeiro
     // (ver a banda recalculada no laço), portanto o erro fica no ponto de
     // quebra e nunca em texto pintado por cima de um float.
-    // No `nowrap`/`pre` shortcut here any more: `white-space` is now gated
-    // PER RUN inside `wrap_runs` (`WhiteSpaceRegime::wraps`, `quebra.rs`), so
-    // an infinite width for the whole flow would be wrong the moment one run
-    // in it — a `<span style="white-space:normal">` inside a `<pre>`, or the
-    // ordinary text around a `nowrap` span — is allowed to wrap on its own.
-    // For a flow whose runs are ALL nowrap/pre, this is redundant rather than
-    // wrong: `wrap_runs` never checks the width against a run it will not
-    // break at anyway, so a finite `content_w` here changes nothing for it.
+    // The removed `nowrap`/`pre` shortcut said a finite width was harmless
+    // for an all-nowrap flow because `wrap_runs` never checks it to SPLIT a
+    // run it will not break at anyway — missing `fechar_cluster!`'s OTHER
+    // caller: an atomic marker (a float's anchor) closes the open cluster
+    // UNCONDITIONALLY and that close still asks "does this fit?", not to
+    // split but to decide whether the unbreakable chunk moves to a fresh
+    // line — which an all-nowrap flow must never do (CSS 2.1 §9.5/§9.5.1: no
+    // soft-wrap opportunity anywhere means ONE line, forced breaks aside).
+    // `CSS2/floats/float-nowrap-7.html` (container AND span both `nowrap`)
+    // pinned exactly this. Gated per-FLOW rather than per-container-property,
+    // so a flow with one wrapping run (`a_normal_span_inside_pre_still_
+    // wraps`) keeps the finite width that run's own clusters still check.
+    // `offset_da_linha` is unaffected either way — a nowrap line still
+    // starts past a float crossing it; only the width question here changes.
+    let espacos_do_fluxo = super::preserved_spaces::Spaces::from_flow(dom, &runs, parent_css);
+    let nunca_quebra = (0..runs.len()).all(|i| !espacos_do_fluxo.of(i).wraps());
     let largura_da_linha = |exclusoes: &[Exclusao], i: usize| -> f32 {
+        if nunca_quebra {
+            return f32::INFINITY;
+        }
         if exclusoes.is_empty() {
             return content_w;
         }
