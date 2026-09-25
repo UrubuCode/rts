@@ -124,8 +124,10 @@ mod grid_tracks;
 mod grid_colapso;
 mod hifen;
 mod linha;
+mod linha_atomos;
 mod linha_baseline;
 mod quebra;
+mod quebra_particao;
 mod preserved_spaces;
 mod runs;
 mod segmento;
@@ -419,16 +421,37 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
         rects_conhecidos.extend(fragment.geometry_now().rects);
         rects_conhecidos.extend(ancora_estatica::todas(&fragment));
-        positioned.push((empilhamento::stacking_key(dom, alvo.node), fragment));
+        positioned.push((empilhamento::stacking_key(dom, alvo.node), alvo.node, fragment));
     }
-    positioned.sort_by(|(a, _), (b, _)| a.cmp(b));
+    positioned.sort_by(|(a, ..), (b, ..)| a.cmp(b));
     let mut negativos = DisplayList::for_dom(dom);
-    for (key, fragment) in positioned {
+    // Layer 8 (Appendix E): an out-of-flow box with `z-index: auto`/`0` paints
+    // in TREE ORDER together with `position:relative` siblings of the same
+    // layer, not always after the whole flow. `empilhamento::splice_layer8`
+    // searches `list.pieces` FRESH for each box — unlike an index computed
+    // once and reused, a search has nothing to invalidate when an earlier
+    // splice in this very loop moved things around, so this stays a single
+    // forward pass in the already-correct sort order instead of a second
+    // pass ordered to avoid shifting stale indices.
+    let arvore = std::rc::Rc::clone(&list.tree);
+    for (key, node, fragment) in positioned {
         if key.first().copied().unwrap_or(0) < 0 {
             empilhamento::merge_after(&mut negativos, fragment);
-        } else {
-            empilhamento::merge_after(&mut list, fragment);
+            continue;
         }
+        let DisplayList { pieces, box_rects, grid_column_tracks, scroll_regions, .. } = fragment;
+        list.box_rects.extend(box_rects);
+        list.grid_column_tracks.extend(grid_column_tracks);
+        list.scroll_regions.extend(scroll_regions);
+        let pieces = if empilhamento::z_index_of(dom, node) == 0 {
+            match empilhamento::splice_layer8(dom, &arvore, &mut list.pieces, node, pieces, 0.0, 0.0) {
+                Ok(()) => continue,
+                Err(leftover) => leftover,
+            }
+        } else {
+            pieces
+        };
+        list.pieces.extend(pieces);
     }
     // Asked of what PAINTS, as it was of `items`/`children` before BT-2b: a
     // negative layer with geometry and no paint is dropped here, its rects with

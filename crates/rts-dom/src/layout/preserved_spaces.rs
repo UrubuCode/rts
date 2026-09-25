@@ -84,6 +84,20 @@ impl WhiteSpaceRegime {
         self.ws == WhiteSpace::BreakSpaces
     }
 
+    /// Does a run under THIS regime ever offer an automatic soft-wrap
+    /// opportunity? False for `nowrap` and `pre` (CSS Text 3 §4.1.3 — both
+    /// forbid line breaking except at a forced `\n`, which `pre` still
+    /// preserves). This is what makes `white-space` apply per INLINE box
+    /// rather than once for the whole flow: `wrap_runs` asks it of the RUN
+    /// that owns the boundary being closed, not of the container, so
+    /// `<span style="white-space:nowrap">` glues only its own spaces while
+    /// the text around it keeps wrapping normally, and a `normal` span
+    /// inside a `<pre>` wraps on its own even though the `<pre>` around it
+    /// never would.
+    pub(in crate::layout) fn wraps(self) -> bool {
+        !matches!(self.ws, WhiteSpace::Nowrap | WhiteSpace::Pre)
+    }
+
     /// A tab advances to the next tab stop, measured from `pos` — not from the
     /// start of the run, which was the cut the old per-run expansion in
     /// `linha.rs` declared. The text is spaces so the painter, which has no
@@ -182,6 +196,48 @@ pub(in crate::layout) fn trim_hanging(mut line: Vec<Segment>, (hang, space): (f3
         }
     }
     line
+}
+
+/// CSS Text 3 §4.1.3 phase II: a collapsible space is removed at the START of
+/// a line under EVERY `white-space` value — `nowrap` and `pre` withhold the
+/// soft-wrap OPPORTUNITY a space would otherwise offer (`WhiteSpaceRegime::
+/// wraps`), they do not stop the space from collapsing. `quebra.rs`'s
+/// wrapping branches get this for free: `fechar_cluster!`'s `sep =
+/// cluster_espaco && !at_line_start` already drops a `pending_space` that
+/// would open a line. A non-wrapping run's space skips that path — it is
+/// glued straight into the open cluster as an ordinary piece instead of
+/// closing it (`glue_space!`, so a later wrap-allowed boundary cannot split
+/// the glued run in the middle) — so it needs the same guard applied at the
+/// point it would be glued: nothing open (`cluster.is_empty()`) and nothing
+/// on the line yet (`at_line_start`) means this space opens the line and is
+/// dropped rather than becoming its first piece.
+pub(in crate::layout) fn collapses_at_line_start(cluster_is_empty: bool, at_line_start: bool) -> bool {
+    cluster_is_empty && at_line_start
+}
+
+/// The other half of the same rule: one run of collapsible whitespace never
+/// contributes MORE than one collapsed space, even when it is split across a
+/// wrapping run and a non-wrapping one at the boundary between them (CSS Text
+/// 3 §4.1.1 — adjacent collapsible spaces collapse to a single space
+/// regardless of how many elements or text nodes they are spread across).
+///
+/// `wrap_runs` already tracks this with `pending_space`: a WRAPPING run that
+/// ends in whitespace sets it and clears its own cluster (`fechar_cluster!`
+/// then `pending_space = true`), and the NEXT run that opens a cluster
+/// (`juntar!`) turns that flag into the separator ONE cluster is drawn
+/// with. A non-wrapping run's OWN leading/whole-run whitespace is glued as an
+/// ordinary piece instead (`glue_space!`) so a later wrap-allowed boundary
+/// cannot split the glued run — but if `pending_space` is already true when
+/// that piece is about to be glued, the piece and the pending flag are the
+/// SAME run of whitespace on either side of the regime change, and `juntar!`
+/// would otherwise turn the flag into a SECOND separator on top of the piece
+/// (`float-nowrap-4.html`, WPT `CSS2/floats`: "Some" + this glued run's own
+/// leading space landed as ONE-AND-A-HALF spaces of width, which was enough
+/// extra room to push the float's anchor a whole line down). The caller
+/// consumes `pending_space` before gluing in that case, so the glued piece
+/// alone stands for the collapsed run.
+pub(in crate::layout) fn glued_space_absorbs_pending(cluster_is_empty: bool, pending_space: bool) -> bool {
+    cluster_is_empty && pending_space
 }
 
 /// The segment an atomic inline (or a zero-width marker) occupies on a line.

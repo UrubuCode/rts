@@ -1,12 +1,12 @@
 //! QUEBRA DE LINHA: decidir onde os runs passam para a linha seguinte.
 //!
-//! **Perto do teto de 500.** O `wrap_runs` é a maior parte disto e não é
-//! partido por dentro: partir uma função deixa de ser um movimento de código.
-//! Tem dois `macro_rules!` no corpo (`fechar_cluster`, `juntar`) que fecham com
-//! `    }` a quatro espaços — quem cortar este ficheiro por blocos em vez de
-//! por item de topo fecha blocos falsos no meio da função, e ali isso não dá
-//! erro de compilação.
-//! O hífen suave (`hyphens`) vive em `hifen.rs` por causa do teto.
+//! **No teto de 500.** O `wrap_runs` é a maior parte disto e não é partido
+//! por dentro: tem três `macro_rules!` no corpo (`fechar_cluster`, `juntar`,
+//! `glue_space`) que capturam uma dúzia de locais cada — mover UM deles para
+//! outro ficheiro obriga a mover TODOS os locais que captura, e o que sobra
+//! deixa de ser um movimento de código. O que não toca nos macros já saiu:
+//! o hífen suave em `hifen.rs`, e a partição de peça/o atalho de run inteiro
+//! em `quebra_particao.rs`.
 
 use super::*;
 use super::preserved_spaces::{trim_hanging, tokens, atomic_segment, Token};
@@ -57,7 +57,6 @@ pub(in crate::layout) fn wrap_runs(
     let mut at_line_start = true;
     // havia whitespace no ORIGINAL desde a última palavra? (carrega entre runs)
     let mut pending_space = false;
-
     // -- O CLUSTER: a unidade que a linha move.
     //
     // Uma linha so pode quebrar numa OPORTUNIDADE DE QUEBRA, e no texto essa
@@ -187,46 +186,12 @@ pub(in crate::layout) fn wrap_runs(
                                 }
                             };
                             if partir {
-                                let mut resto = texto.as_str();
-                                let mut lead = vao;
-                                while !resto.is_empty() {
-                                    let disp = max_w(lines.len()) - cur_w;
-                                    let (mut n, mut w) = crate::inline_box::prefixo_que_cabe(
-                                        resto,
-                                        disp,
-                                        font_size,
-                                        mono,
-                                        run.bold,
-                                        run.italic,
-                                        ahem,
-                                        m,
-                                    );
-                                    if n == 0 && at_line_start {
-                                        // Numa caixa mais estreita que um glifo,
-                                        // nada cabe e descer de linha não muda
-                                        // isso: sem um carácter forçado o laço
-                                        // não termina. Transbordar um carácter é
-                                        // o que o browser também faz.
-                                        n = resto.chars().next().map_or(0, char::len_utf8);
-                                        w = medir(m, peca.run, &resto[..n], run.bold, run.italic);
-                                    }
-                                    if n == 0 {
-                                        lines.push(std::mem::take(&mut cur));
-                                        cur_w = 0.0;
-                                        at_line_start = true;
-                                        continue;
-                                    }
-                                    push_segment(&mut cur, run, &resto[..n], w, lead);
-                                    lead = 0.0;
-                                    cur_w += w;
-                                    at_line_start = false;
-                                    resto = &resto[n..];
-                                    if !resto.is_empty() {
-                                        lines.push(std::mem::take(&mut cur));
-                                        cur_w = 0.0;
-                                        at_line_start = true;
-                                    }
-                                }
+                                // Moved to `quebra_particao.rs` (teto de 500).
+                                super::quebra_particao::dividir_peca_que_nao_cabe(
+                                    &mut cur, &mut lines, &mut cur_w, &mut at_line_start,
+                                    &mut *max_w, run, peca.run, &texto, vao,
+                                    font_size, mono, ahem, fontes, m,
+                                );
                             } else {
                                 push_segment(&mut cur, run, &texto, largura, vao);
                                 cur_w += largura;
@@ -254,6 +219,37 @@ pub(in crate::layout) fn wrap_runs(
             cluster_w += $w;
             pending_space = false;
             espaco_de_fora = false;
+        }};
+    }
+    // A collapsible space at a boundary whose run FORBIDS automatic wrapping
+    // (`nowrap`, `pre` — `WhiteSpaceRegime::wraps`): closing the cluster here
+    // like an ordinary space would DRAIN it into `cur` early, and a LATER
+    // close — by a run that DOES allow wrapping, such as the plain text after
+    // a `<span style="white-space:nowrap">` — would then see only the tail of
+    // the nowrap span still open and could break the LINE in the middle of
+    // it (`nowrap-span-glues-only-its-own-spaces`: "bb cc dd" landed as "bb
+    // cc" on one line and "dd" alone on the next). So instead of closing, the
+    // space becomes an ordinary PIECE of the same open cluster — exactly how
+    // the PRESERVED branch already represents a space (`Token::Space`,
+    // above) — so the whole nowrap run stays ONE cluster and is measured as
+    // one indivisible unit whenever a real wrap opportunity eventually closes
+    // it.
+    // §4.1.3 phase II (see `preserved_spaces::collapses_at_line_start`): a
+    // glued space still collapses away at a line start. And
+    // `glued_space_absorbs_pending`: a `pending_space` already due when this
+    // run's OWN whitespace is glued is the SAME collapsible run split across
+    // the regime boundary — consumed here so `juntar!` does not also turn it
+    // into a second, cluster-level separator on top of the piece.
+    macro_rules! glue_space {
+        ($i:expr) => {{
+            if !super::preserved_spaces::collapses_at_line_start(cluster.is_empty(), at_line_start) {
+                if super::preserved_spaces::glued_space_absorbs_pending(cluster.is_empty(), pending_space) {
+                    pending_space = false;
+                    espaco_de_fora = false;
+                }
+                let w = space_w(m, $i);
+                juntar!(Peca { run: $i, texto: " ".to_string(), largura: w, atomico: None }, w);
+            }
         }};
     }
 
@@ -315,7 +311,12 @@ pub(in crate::layout) fn wrap_runs(
                 if f.is_white() && !each {
                     cluster_hang += w;
                 }
-                if f.is_white() && (each || !toks.peek().is_some_and(Token::is_white)) {
+                // Un-drained (see `glue_space!`) when this run forbids
+                // wrapping: the space is already a PIECE in the cluster
+                // (`juntar!` above), so nothing is lost by not closing —
+                // closing early is what would let a later, wrap-allowed
+                // boundary break in the middle of this run's content.
+                if f.is_white() && (each || !toks.peek().is_some_and(Token::is_white)) && regime.wraps() {
                     fechar_cluster!();
                 }
             }
@@ -338,9 +339,13 @@ pub(in crate::layout) fn wrap_runs(
                 espaco_de_fora = false;
                 continue;
             }
-            fechar_cluster!();
-            pending_space = true;
-            espaco_de_fora = true;
+            if regime.wraps() {
+                fechar_cluster!();
+                pending_space = true;
+                espaco_de_fora = true;
+            } else {
+                glue_space!(i);
+            }
             continue;
         }
         if run.text.is_empty() {
@@ -349,14 +354,18 @@ pub(in crate::layout) fn wrap_runs(
         // O espaco da frente e devido quando havia whitespace desde a ultima
         // palavra, esteja ele no fim do run ANTERIOR ou no inicio deste.
         if run.text.starts_with(e_espaco_css) {
-            fechar_cluster!();
-            pending_space = true;
-            // NAO e vao: este espaco esta no texto DESTE run, logo pertence aos
-            // donos dele e vive dentro do segmento. So o espaco que vem de um
-            // run ANTERIOR e um vao. E a diferenca entre `<a> alvo</a>` e
-            // `antes <a>alvo</a>` -- o `::after` com `content:" (…)"` e o
-            // primeiro caso, e o espaco tem de sobreviver no texto.
-            espaco_de_fora = false;
+            if regime.wraps() {
+                fechar_cluster!();
+                pending_space = true;
+                // NAO e vao: este espaco esta no texto DESTE run, logo pertence aos
+                // donos dele e vive dentro do segmento. So o espaco que vem de um
+                // run ANTERIOR e um vao. E a diferenca entre `<a> alvo</a>` e
+                // `antes <a>alvo</a>` -- o `::after` com `content:" (…)"` e o
+                // primeiro caso, e o espaco tem de sobreviver no texto.
+                espaco_de_fora = false;
+            } else {
+                glue_space!(i);
+            }
         }
         // As FAST PATHS abaixo julgam pelo texto APARADO ou por `ends_with`, e
         // um run "tres\n" apara para "tres" (sem whitespace interno) — tomaria
@@ -381,9 +390,13 @@ pub(in crate::layout) fn wrap_runs(
                 w
             );
             if terminava_em_espaco {
-                fechar_cluster!();
-                pending_space = true;
-                espaco_de_fora = true;
+                if regime.wraps() {
+                    fechar_cluster!();
+                    pending_space = true;
+                    espaco_de_fora = true;
+                } else {
+                    glue_space!(i);
+                }
             }
             continue;
         }
@@ -413,21 +426,12 @@ pub(in crate::layout) fn wrap_runs(
             && !run.text.contains(hifen::SHY)
         {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
-            if !normalizado.is_empty() {
-                let w = medir(m, i, &normalizado, run.bold, run.italic);
-                if !at_line_start && cur_w + w <= max_w(lines.len()) {
-                    let vao = if pending_space && espaco_de_fora {
-                        space_w(m, i.wrapping_sub(1))
-                    } else {
-                        0.0
-                    };
-                    push_segment(&mut cur, run, &normalizado, w, vao);
-                    cur_w += w;
-                    at_line_start = false;
-                    pending_space = true;
-                    espaco_de_fora = true;
-                    continue;
-                }
+            // Moved to `quebra_particao.rs` (teto de 500).
+            if super::quebra_particao::run_inteiro_cabe(
+                &mut cur, &mut cur_w, &mut at_line_start, &mut pending_space, &mut espaco_de_fora,
+                &mut *max_w, lines.len(), run, i, &normalizado, fontes, m,
+            ) {
+                continue;
             }
         }
         // scanner ws/palavra: cada whitespace FECHA o cluster (e uma
@@ -451,9 +455,13 @@ pub(in crate::layout) fn wrap_runs(
                         continue;
                     }
                 }
-                fechar_cluster!();
-                pending_space = true;
-                espaco_de_fora = false;
+                if regime.wraps() {
+                    fechar_cluster!();
+                    pending_space = true;
+                    espaco_de_fora = false;
+                } else {
+                    glue_space!(i);
+                }
                 rest = rest.trim_start_matches(e_espaco_css);
                 continue;
             }
@@ -472,9 +480,13 @@ pub(in crate::layout) fn wrap_runs(
             );
         }
         if run.text.ends_with(e_espaco_css) {
-            fechar_cluster!();
-            pending_space = true;
-            espaco_de_fora = true;
+            if regime.wraps() {
+                fechar_cluster!();
+                pending_space = true;
+                espaco_de_fora = true;
+            } else {
+                glue_space!(i);
+            }
         }
     }
     fechar_cluster!();
@@ -482,19 +494,7 @@ pub(in crate::layout) fn wrap_runs(
         lines.push(cur);
     }
     if lines.is_empty() {
-        lines.push(vec![Segment {
-            text: String::new(),
-            text_width: 0.0,
-            color: 0,
-            bold: false,
-            italic: false,
-            deco: 0,
-            owners: Vec::new(),
-            atomic: None,
-            ww: 0.0,
-            wh: 0.0,
-            lead_w: 0.0,
-        }]);
+        lines.push(vec![super::quebra_particao::linha_vazia()]);
     }
     lines
 }
