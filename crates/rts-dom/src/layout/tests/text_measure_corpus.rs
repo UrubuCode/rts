@@ -58,3 +58,28 @@ fn min_content_of_a_pre_text_is_its_widest_forced_line() {
     let w = width_of("<div id=t style=\"width:0;min-width:min-content;white-space:pre\">AB&#10;CDE</div>");
     assert_eq!(w, 30.0);
 }
+
+#[test]
+fn a_space_after_a_float_that_opens_the_line_has_no_width() {
+    // WPT css/CSS2/floats/intrinsic-size-float-and-line.html: the float is not
+    // line content, so the newline after it is at the line's start and phase II
+    // removes it (CSS Text 3 §4.1.3): 100 + 100, not 100 + space + 100.
+    let w = width_of(
+        "<div id=t><div style=\"float:right;width:100px;height:20px\"></div>\n<div style=\"display:inline-block;width:100px;height:20px\"></div></div>",
+    );
+    assert_eq!(w, 200.0);
+}
+
+#[test]
+fn leading_and_trailing_collapsible_spaces_have_no_width() {
+    let w = width_of("<div id=t>\n<span>ab</span>\n</div>");
+    assert_eq!(w, 20.0);
+}
+
+#[test]
+fn newlines_between_floats_add_no_width() {
+    // The float-based reference of css-flexbox/flexbox-flex-wrap-horiz-002.html.
+    let f = "<div style=\"float:left;width:20px;height:20px\"></div>";
+    let w = width_of(&format!("<div id=t>\n{f}\n{f}\n{f}\n{f}\n{f}\n</div>"));
+    assert_eq!(w, 100.0);
+}

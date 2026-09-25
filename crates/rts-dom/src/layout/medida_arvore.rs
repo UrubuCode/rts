@@ -288,6 +288,8 @@ fn walk_children(
             lines.forced_break(ctx);
         } else if fecha_a_corrida(dom, child) {
             lines.block(w, ctx);
+        } else if super::float::float_of(dom, child) != crate::style::FloatSide::None {
+            lines.float(w, ctx);
         } else if w > 0.0 {
             // A zero-wide child (`display:none`, an empty inline-block) is not
             // placed: placing it would pin a collapsible space before it that

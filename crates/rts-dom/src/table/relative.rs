@@ -18,16 +18,23 @@
 //! and two routines answering the same question is exactly the drift that
 //! rule exists to forbid.
 //!
-//! Percentage insets resolve against the TABLE's own content box
-//! (`avail_w`/`avail_h`, passed in by the caller as the table's `content_w`
-//! and its total content height) rather than the row's own box: a table row
-//! has no containing block of its own the ordinary way a block does — its
-//! "size" is a side effect of the grid, not something resolved before its
-//! children are measured — so the nearest ancestor with a settled size is the
-//! table.
+//! Percentage insets resolve against the TABLE's own content box for the
+//! WIDTH axis (`avail_w`, the table's `content_w` — a table always sizes its
+//! own width before laying out any row, so it is always definite) but only
+//! CONDITIONALLY for the height axis: CSS 2.1 §9.3.2 / CSS Positioned Layout 3
+//! §3.1 resolve a percentage `top`/`bottom` against the containing block's
+//! height only when that height is DEFINITE — the table's own explicitly
+//! specified `height` (or its `aspect-ratio`/flex-forced equivalent), never
+//! the auto result of stacking the rows. `avail_h` is therefore
+//! `Option<f32>` here, the SAME shape `layout/posicionado.rs::resolve_height`
+//! already uses for an ordinary block's `%` height against its parent
+//! (`None` = parent height auto → the percentage computes to `auto`, i.e. no
+//! offset): the caller in `table/mod.rs` passes exactly the
+//! `explicit_content_h` it computes for the table's own children, and `None`
+//! when the table's height is itself auto.
 
 use crate::boxes::BoxId;
-use crate::layout::{DisplayList, LayoutCtx, aplica_offset_relativo};
+use crate::layout::{DisplayItem, DisplayList, LayoutCtx, Rect, aplica_offset_relativo};
 use crate::style::ComputedStyle;
 use crate::{Dom, NodeIdx};
 
@@ -43,7 +50,7 @@ pub(super) fn apply_table_part_relative_offset(
     node: NodeIdx,
     caixa: BoxId,
     avail_w: f32,
-    avail_h: f32,
+    avail_h: Option<f32>,
     font_size: f32,
     desde: usize,
     ctx: &LayoutCtx,
@@ -59,11 +66,55 @@ fn aplica_offset(
     css: &ComputedStyle,
     caixa: BoxId,
     avail_w: f32,
-    avail_h: f32,
+    avail_h: Option<f32>,
     font_size: f32,
     desde: usize,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) {
-    aplica_offset_relativo(caixa, css, avail_w, Some(avail_h), font_size, desde, ctx, list);
+    aplica_offset_relativo(caixa, css, avail_w, avail_h, font_size, desde, ctx, list);
+}
+
+/// Pinta fundo e borda de uma caixa que não passou pelo `layout_block` (linha
+/// ou grupo de linhas), inserindo os itens em `at` para ficarem ATRÁS do que já
+/// lá está. Sem isto, um `<tr>` com `background` não pintava nada: a linha
+/// nunca é um bloco, e era o `layout_block` que fazia esta parte para todos os
+/// outros. Vive aqui (em vez de `table/mod.rs`, que a chama) para manter esse
+/// módulo dentro do teto de 500 linhas — não é uma questão de offset relativo,
+/// mas é a caixa de uma linha/grupo, o mesmo par que este módulo já trata.
+pub(super) fn pinta_caixa(
+    dom: &Dom,
+    id: NodeIdx,
+    rect: Rect,
+    at: usize,
+    list: &mut DisplayList,
+) {
+    let Some(css) = dom.computed_style_idx(id) else {
+        return;
+    };
+    if !css.has_box() {
+        return;
+    }
+    let radius = css.corner_radius.unwrap_or(0.0);
+    let mut em = Vec::new();
+    if let Some(bg) = css.bg {
+        em.push(DisplayItem::SolidRect {
+            rect,
+            color: bg,
+            radius: crate::layout::Corners::from_style(&css, 0.0),
+        });
+    }
+    em.extend(crate::layout::border_items(
+        &css,
+        rect,
+        radius,
+        1.0,
+        // A borda de uma célula respeita o `filter` dela como a de qualquer
+        // outra caixa; passar a identidade aqui faria a mesma folha pintar
+        // diferente consoante o elemento fosse ou não uma célula de tabela.
+        crate::painteffects::filtro(css.filter.as_deref().unwrap_or("")),
+    ));
+    for (i, item) in em.into_iter().enumerate() {
+        list.pieces.insert(at + i, crate::layout::Piece::Item(item));
+    }
 }

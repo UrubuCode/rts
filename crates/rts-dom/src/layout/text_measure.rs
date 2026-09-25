@@ -96,6 +96,21 @@ impl Lines {
         self.after_space = false;
     }
 
+    /// A float beside the line's content. It adds its width to the line but is
+    /// not line content: white space collapsing (CSS Text 3 §4.1.1) sees
+    /// through it, so a collapsible space after a float that opens the line is
+    /// still at the line's start and is removed (phase II), and the spaces on
+    /// both sides of a float mid-line collapse into one. Hence neither the
+    /// pending space nor `after_space` is touched.
+    pub(in crate::layout) fn float(&mut self, w: f32, ctx: &LayoutCtx) {
+        if self.min {
+            self.widest = self.widest.max(w);
+            return;
+        }
+        self.flush(ctx);
+        self.line += w;
+    }
+
     /// One text node, under its parent element's style.
     pub(in crate::layout) fn text(&mut self, dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) {
         let NodeKind::Text(t) = &dom.node(id).kind else { return };

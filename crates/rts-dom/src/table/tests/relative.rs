@@ -99,3 +99,38 @@ fn td_relative_left_still_shifts_itself() {
     let td = rect(&dom, &list, "td", 0);
     assert!((td.x - 100.0).abs() < 0.51, "td.x = {}", td.x);
 }
+
+/// CSS 2.1 §9.3.2 / CSS Positioned Layout 3 §3.1: a percentage `top`/`bottom`
+/// on a `position:relative` box resolves against the containing block's
+/// height only when that height is DEFINITE — a table with no specified
+/// `height` gets its height from the rows (an AUTO result), which is not
+/// definite, so `top:100%` on the `<tr>` computes to `auto` (no offset) here
+/// exactly as it does on an ordinary block whose parent's height is auto.
+/// Regression test for `apply_table_part_relative_offset` passing the laid-out
+/// row height (`altura_total`) unconditionally as `Some(avail_h)`, which made
+/// `top:100%` move the row by the height of its own content — WPT
+/// `css-position/position-relative-008.html` and `-009.html`.
+#[test]
+fn tr_relative_top_percent_does_not_move_without_definite_table_height() {
+    let html = format!(
+        "{BASE}<table><tr style=\"position:relative;top:100%\">\
+         <td><div></div></td></tr></table>"
+    );
+    let (dom, list) = geometria(&html, 900.0);
+    let tr = rect(&dom, &list, "tr", 0);
+    assert!(tr.y.abs() < 0.51, "tr.y = {} (table height is auto, top:100% must not move it)", tr.y);
+}
+
+/// Same shape, but the table DOES specify a height — CSS 2.1's definiteness
+/// rule now gives the row a containing block to resolve `top:100%` against,
+/// same as `explicit_content_h` does for an ordinary block's children.
+#[test]
+fn tr_relative_top_percent_moves_with_definite_table_height() {
+    let html = format!(
+        "{BASE}<table style=\"height:100px\"><tr style=\"position:relative;top:100%\">\
+         <td><div></div></td></tr></table>"
+    );
+    let (dom, list) = geometria(&html, 900.0);
+    let tr = rect(&dom, &list, "tr", 0);
+    assert!((tr.y - 100.0).abs() < 0.51, "tr.y = {}", tr.y);
+}
