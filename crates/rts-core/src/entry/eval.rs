@@ -219,7 +219,10 @@ pub fn adopt(addition: Addition) {
         for pieces in addition.templates.iter().skip(context.templates.len()) {
             context.templates.push((pieces.clone(), None));
         }
-        context.frames.extend(addition.frames);
+        // Renumbered for the reason `declare_frames` is: a second compilation's
+        // registry also counts from zero, onto the context's string type.
+        let frames = super::generator::owned_frames(context, addition.frames);
+        context.frames.extend(frames);
         context.function_names.extend(addition.function_names);
         // The index is DERIVED, so extending the table without rebuilding it
         // would leave a callable minted by `eval` invisible to `closure_new` —
