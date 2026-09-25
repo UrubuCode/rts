@@ -82,9 +82,10 @@ pub struct Scene3D {
     cfwd: [f32; 3],
     tan_h: f32,
     tan_v: f32,
-    // (mesh, model, color, emissive, tex_flag, tex_id) — tex_flag vai pro shader
-    // (0/1/2), tex_id seleciona o bind group da textura no render loop.
-    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64)>,
+    // (mesh, model, color, emissive, tex_flag, tex_id, tile) — tex_flag vai pro
+    // shader (0/1/2), tex_id seleciona o bind group da textura no render loop,
+    // tile > 0 = UV em coordenada de mundo (repetições por unidade).
+    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64, f32)>,
     water_pipeline: wgpu::RenderPipeline,
     /// (mesh, buffer de instâncias [vec4/partícula], count, escala) — drenada
     /// junto de `draws`. O buffer vem CLONADO do rts:gpu (mesmo device).
@@ -134,8 +135,9 @@ impl Scene3D {
         }
     }
     /// `tex`: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (imagem).
-    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64) {
-        self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex));
+    /// `tile`: 0 = UV da malha; > 0 = UV em mundo, `tile` repetições por unidade.
+    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64, tile: f32) {
+        self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex, tile));
     }
 
     /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh`, lendo cada

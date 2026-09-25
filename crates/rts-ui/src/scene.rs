@@ -160,16 +160,20 @@ extern "C" fn set_shadow(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64
     value::nothing()
 }
 
-/// `drawMesh(win, { mesh, x, y, z, rx, ry, sx, sy, sz, color, emissive, tex })`.
+/// `drawMesh(win, { mesh, x, y, z, rx, ry, sx, sy, sz, color, emissive, tex, tile })`.
 ///
 /// Cor `0xAARRGGBB`; `tex` 0=nenhuma, 1=xadrez procedural, ≥2 = id de
 /// `textureUpload`. A escala vale 1 por default, porque uma escala 0 é uma malha
 /// invisível e é o que um objeto de opções incompleto produziria.
+///
+/// `tile` > 0 amostra a textura em coordenada de MUNDO (repetições por unidade),
+/// projetada pelo eixo dominante da normal: uma caixa de 40 u com textura
+/// repete a imagem em vez de esticá-la. 0 (default) = UV da malha, como antes.
 extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
     let read = options(
         spec,
-        &["mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex"],
-        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0],
+        &["mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex", "tile"],
+        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0, 0.0],
     );
     rts_egui::draw_mesh(
         handle(win),
@@ -178,6 +182,7 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
         read[9] as i64,
         read[10] as i64,
         read[11] as i64,
+        read[12],
     );
     value::nothing()
 }
