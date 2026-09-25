@@ -776,83 +776,8 @@ impl Lowering<'_> {
                 arguments,
                 optional: false,
             } => {
-                // A METHOD CALL: the receiver is read once, the callee is read from
-                // it, and the receiver travels as itself.
-                //
-                // Once is the whole point. `o.m()` evaluates `o` a single time, so
-                // lowering it as "read o, read o.m, call with o" would evaluate it
-                // twice and call a getter twice — which is observable and is the
-                // same mistake `a[i()] += 1` is refused for one arm up.
-                //
-                // The receiver is a FIELD of the call and not its first argument.
-                // `rts_mir::cfg::Op::Call` carries the reason: a convention held in
-                // two places drifts, and a field cannot.
-                if let ExprKind::Member {
-                    object,
-                    property,
-                    optional: false,
-                } = &callee.kind
-                {
-                    let receiver = self.expression(object)?;
-                    let key = self.domain.constant(JsConst::Key(*property));
-                    let key = self.declared(key, expr);
-                    let held = self.prim(JsPrim::FieldRead, vec![receiver, key], expr);
-                    return self.call_written(
-                        rts_mir::cfg::Callee::Dynamic(held),
-                        Some(receiver),
-                        arguments,
-                        expr,
-                    );
-                }
-                // `o[k]()` is a method call as much as `o.m()` is: the receiver is `o`.
-                if let ExprKind::Index {
-                    object,
-                    index,
-                    optional: false,
-                } = &callee.kind
-                {
-                    let receiver = self.expression(object)?;
-                    let key = self.expression(index)?;
-                    let held = self.prim(JsPrim::IndexRead, vec![receiver, key], expr);
-                    return self.call_written(
-                        rts_mir::cfg::Callee::Dynamic(held),
-                        Some(receiver),
-                        arguments,
-                        expr,
-                    );
-                }
-                // ANY OTHER CALLEE is a value, called with no receiver: `f()()`,
-                // `(a || b)(x)`, `(() => 1)()`. What the expression cannot express --
-                // `super`, an optional chain -- its own lowering refuses by name.
-                let ExprKind::Ident(name) = &callee.kind else {
-                    let held = self.expression(callee)?;
-                    return self.call_written(rts_mir::cfg::Callee::Dynamic(held), None, arguments, expr);
-                };
-                let binding = self.resolution.binding_in(self.scope, *name);
-                // A CALL TO A GLOBAL: read it, then call what it held. No receiver
-                // travels -- parseInt(x) passes none, and the global object is not
-                // a receiver. The callee is read BEFORE the arguments run, which is
-                // the language's order; this read them the other way round.
-                let Some(binding) = binding else {
-                    let held = self.global(*name, expr);
-                    return self.call_written(rts_mir::cfg::Callee::Dynamic(held), None, arguments, expr);
-                };
-                // A NAME THAT HOLDS NO FUNCTION OF THIS MODULE is still a call — an
-                // imported binding, or a parameter holding a function. It reaches
-                // whatever the value is, which is exactly `Callee::Dynamic`, and it
-                // passes no receiver.
-                //
-                // It was refused before this, and the refusal was about the MIR not
-                // having a receiver rather than about this shape: a dynamic call was
-                // already expressible. 218 refusals in `tests/` said so.
-                let callee = match self.callees.of_binding(binding) {
-                    Some(id) => rts_mir::cfg::Callee::Func(id),
-                    None => {
-                        let held = self.read_binding(binding, *name, expr)?;
-                        rts_mir::cfg::Callee::Dynamic(held)
-                    }
-                };
-                self.call_written(callee, None, arguments, expr)
+                let (callee, receiver) = self.callee_of(callee, expr)?;
+                self.call_written(callee, receiver, arguments, expr)
             }
             // AN INCREMENT of a local, which a `for` header needs and which is not
             // `x = x + 1`.
@@ -867,6 +792,23 @@ impl Lowering<'_> {
                 position,
                 target,
             } => self.update(*op, *position, target, expr),
+            // `` tag`a${x}b` ``: the tag and its receiver first, then the site's strings
+            // object, then the substitutions -- `emit/template.rs`'s order and call.
+            ExprKind::TaggedTemplate {
+                tag, expressions, ..
+            } => {
+                let Some(site) = self.callees.template_site(expr.at) else {
+                    return Err(Unsupported::Expression("a tagged template with no site minted"));
+                };
+                let (callee, receiver) = self.callee_of(tag, expr)?;
+                let site = self.domain.constant(JsConst::Count(site));
+                let site = self.declared(site, expr);
+                let mut args = vec![self.entry(crate::runtime::RuntimeOp::TemplateStrings, vec![site], expr)];
+                for substitution in expressions {
+                    args.push(self.expression(substitution)?);
+                }
+                Ok(self.call(callee, receiver, args, expr))
+            }
             ExprKind::Binary { op, left, right } => {
                 let left = self.expression(left)?;
                 let right = self.expression(right)?;

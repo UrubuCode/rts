@@ -177,6 +177,8 @@ impl Js {
         RuntimeOp::DefineMethod,
         // `new.target` in a function's own activation -- `lower::Lowering::expression`.
         RuntimeOp::NewTarget,
+        // A tagged template's strings object, by site -- `lower::Lowering::expression`.
+        RuntimeOp::TemplateStrings,
     ];
 
     /// The index the IR carries for an entry point.

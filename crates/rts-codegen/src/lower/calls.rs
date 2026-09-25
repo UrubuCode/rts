@@ -11,10 +11,10 @@ use rts_mir::cfg::{Op, ValueId};
 use rts_mir::{Domain, Effect};
 
 use super::{Lowering, Unsupported};
-use crate::domain::JsPrim;
+use crate::domain::{JsConst, JsPrim};
 use crate::names::Name;
 use crate::names::resolve::BindingId;
-use crate::syntax::Expr;
+use crate::syntax::{Expr, ExprKind};
 
 impl Lowering<'_> {
     /// A call as the program wrote it: the argument list, or -- where it holds a spread,
@@ -46,6 +46,81 @@ impl Lowering<'_> {
         }
         let args = self.arguments(arguments)?;
         Ok(self.call(callee, receiver, args, at))
+    }
+
+    /// What a call written with this callee reaches, and the receiver it passes.
+    pub(super) fn callee_of(
+        &mut self,
+        callee: &Expr,
+        expr: &Expr,
+    ) -> Result<(rts_mir::cfg::Callee, Option<ValueId>), Unsupported> {
+        // A METHOD CALL: the receiver is read once, the callee is read from
+        // it, and the receiver travels as itself.
+        //
+        // Once is the whole point. `o.m()` evaluates `o` a single time, so
+        // lowering it as "read o, read o.m, call with o" would evaluate it
+        // twice and call a getter twice — which is observable and is the
+        // same mistake `a[i()] += 1` is refused for one arm up.
+        //
+        // The receiver is a FIELD of the call and not its first argument.
+        // `rts_mir::cfg::Op::Call` carries the reason: a convention held in
+        // two places drifts, and a field cannot.
+        if let ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } = &callee.kind
+        {
+            let receiver = self.expression(object)?;
+            let key = self.domain.constant(JsConst::Key(*property));
+            let key = self.declared(key, expr);
+            let held = self.prim(JsPrim::FieldRead, vec![receiver, key], expr);
+            return Ok((rts_mir::cfg::Callee::Dynamic(held), Some(receiver)));
+        }
+        // `o[k]()` is a method call as much as `o.m()` is: the receiver is `o`.
+        if let ExprKind::Index {
+            object,
+            index,
+            optional: false,
+        } = &callee.kind
+        {
+            let receiver = self.expression(object)?;
+            let key = self.expression(index)?;
+            let held = self.prim(JsPrim::IndexRead, vec![receiver, key], expr);
+            return Ok((rts_mir::cfg::Callee::Dynamic(held), Some(receiver)));
+        }
+        // ANY OTHER CALLEE is a value, called with no receiver: `f()()`,
+        // `(a || b)(x)`, `(() => 1)()`. What the expression cannot express --
+        // `super`, an optional chain -- its own lowering refuses by name.
+        let ExprKind::Ident(name) = &callee.kind else {
+            let held = self.expression(callee)?;
+            return Ok((rts_mir::cfg::Callee::Dynamic(held), None));
+        };
+        let binding = self.resolution.binding_in(self.scope, *name);
+        // A CALL TO A GLOBAL: read it, then call what it held. No receiver
+        // travels -- parseInt(x) passes none, and the global object is not
+        // a receiver. The callee is read BEFORE the arguments run, which is
+        // the language's order; this read them the other way round.
+        let Some(binding) = binding else {
+            let held = self.global(*name, expr);
+            return Ok((rts_mir::cfg::Callee::Dynamic(held), None));
+        };
+        // A NAME THAT HOLDS NO FUNCTION OF THIS MODULE is still a call — an
+        // imported binding, or a parameter holding a function. It reaches
+        // whatever the value is, which is exactly `Callee::Dynamic`, and it
+        // passes no receiver.
+        //
+        // It was refused before this, and the refusal was about the MIR not
+        // having a receiver rather than about this shape: a dynamic call was
+        // already expressible. 218 refusals in `tests/` said so.
+        let callee = match self.callees.of_binding(binding) {
+            Some(id) => rts_mir::cfg::Callee::Func(id),
+            None => {
+                let held = self.read_binding(binding, *name, expr)?;
+                rts_mir::cfg::Callee::Dynamic(held)
+            }
+        };
+        Ok((callee, None))
     }
 
     /// The arguments as ONE array, where any of them is a spread -- built the way an

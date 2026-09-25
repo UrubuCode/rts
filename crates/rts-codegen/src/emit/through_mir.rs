@@ -188,7 +188,26 @@ fn attempt(
         .map(|(inner, _)| inner.at)
         .chain(helpers.iter().map(|helper| helper.at))
         .collect();
-    let callees = crate::lower::Callees::of_positions(&positions);
+    // A SITE PER TAGGED TEMPLATE, minted as `emit/template.rs` mints one: the cooked
+    // text then the raw, per piece. Minted before the lowering, so a function this door
+    // then declines leaves rows nothing reads -- a cost in table size, never in meaning,
+    // since the running emitter mints its own for what it emits.
+    let mut sites = std::collections::BTreeMap::new();
+    for template in &nested.templates {
+        let crate::syntax::ExprKind::TaggedTemplate { parts, .. } = &template.kind else {
+            continue;
+        };
+        let mut pieces = Vec::with_capacity(parts.len() * 2);
+        for part in parts {
+            pieces.push(match &part.cooked {
+                Some(text) => ctx.literal_units(text.units()),
+                None => super::NO_COOKED,
+            });
+            pieces.push(ctx.literal(&part.raw));
+        }
+        sites.insert(template.at, ctx.template(pieces));
+    }
+    let callees = crate::lower::Callees::of_positions(&positions).with_templates(sites);
     let mut domain = crate::domain::Js::new();
     // THE RUNNING EMITTER'S LAYOUT for every name this function does not own: it makes
     // the closure, from `enclosing`'s environment, so its scope is what says how many
@@ -450,6 +469,8 @@ struct Nested<'a> {
     classes: Vec<&'a crate::syntax::Class>,
     /// The object literals this stage does not build, which a helper does.
     objects: Vec<&'a crate::syntax::Expr>,
+    /// The tagged templates, each of which needs a site minted.
+    templates: Vec<&'a crate::syntax::Expr>,
     /// The name each anonymous definition is given by where it is written --
     /// NamedEvaluation, which the running emitter carries in `Ctx::lend_name` from the
     /// site that writes it. Keyed by position because those sites are here the PARENT of
@@ -507,6 +528,7 @@ impl<'a> Nested<'a> {
             ExprKind::Object { properties } if crate::lower::built_elsewhere(properties) => {
                 return self.objects.push(value);
             }
+            ExprKind::TaggedTemplate { .. } => self.templates.push(value),
             // `f = () => {}` and `f ??= () => {}` name the arrow; `f += ...` names
             // nothing, and neither does `o.f = ...` -- the rule is attached to an
             // identifier reference on the left.

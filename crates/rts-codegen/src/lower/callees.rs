@@ -24,6 +24,13 @@ pub struct Callees {
     /// it. The position is what the two views share, which `bound_expressions`
     /// already relied on.
     by_position: std::collections::BTreeMap<rts_cranelift::fault::Position, rts_mir::cfg::FuncId>,
+    /// The tagged-template SITE minted for the template written at each position.
+    ///
+    /// Minted by whoever compiles the function, because a site is a row of the
+    /// program's template table and one per emission -- `emit/template.rs` says why
+    /// it cannot be keyed by position across a program. Within one function's
+    /// lowering it can: every position is one node of one tree.
+    templates: std::collections::BTreeMap<rts_cranelift::fault::Position, u32>,
 }
 
 impl Callees {
@@ -38,6 +45,7 @@ impl Callees {
             items, functions, resolution,
         ));
         Self {
+            templates: std::collections::BTreeMap::new(),
             by_binding: held,
             by_position: functions
                 .iter()
@@ -51,6 +59,7 @@ impl Callees {
     /// for a lowering that makes closures of exactly those and calls none by name.
     pub fn of_positions(positions: &[rts_cranelift::fault::Position]) -> Self {
         Self {
+            templates: std::collections::BTreeMap::new(),
             by_binding: std::collections::BTreeMap::new(),
             by_position: positions
                 .iter()
@@ -58,6 +67,20 @@ impl Callees {
                 .map(|(at, held)| (*held, rts_mir::cfg::FuncId(at as u32)))
                 .collect(),
         }
+    }
+
+    /// The same map, with a site for each tagged template this function writes.
+    pub fn with_templates(
+        mut self,
+        sites: std::collections::BTreeMap<rts_cranelift::fault::Position, u32>,
+    ) -> Self {
+        self.templates = sites;
+        self
+    }
+
+    /// The site minted for the tagged template written at that position.
+    pub fn template_site(&self, at: rts_cranelift::fault::Position) -> Option<u32> {
+        self.templates.get(&at).copied()
     }
 
     /// Which function was written at that position, if the module numbered one.
