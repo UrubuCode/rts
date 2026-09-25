@@ -197,6 +197,11 @@ impl Resolution {
         self.bindings.len()
     }
 
+    /// Whether any scope of what was resolved declares `name`, wherever.
+    pub fn declares(&self, name: Name) -> bool {
+        self.bindings.iter().any(|held| held.name == name)
+    }
+
     /// Whether the program holds none, which only an empty one does.
     pub fn is_empty(&self) -> bool {
         self.bindings.is_empty()

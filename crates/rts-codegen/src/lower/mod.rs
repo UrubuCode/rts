@@ -966,6 +966,10 @@ impl Lowering<'_> {
             if self.outer.is_none() {
                 return Err(Unsupported::Global(name));
             }
+            if let Some((environment, key)) = self.enclosing_slot(name, at) {
+                self.prim(JsPrim::EnvWrite, vec![environment, key, value], at);
+                return Ok(());
+            }
             let key = self.domain.constant(JsConst::Key(name));
             let key = self.declared(key, at);
             let entry = self.domain.entry_point(crate::runtime::RuntimeOp::GlobalSet);

@@ -186,10 +186,33 @@ impl Lowering<'_> {
     /// global property, in strict code it throws, and which of the two a module is in
     /// is a fact `check/` holds and this stage does not ask for. Guessing either way
     /// would be wrong in half the programs.
+    ///
+    /// A name the ENCLOSING LAYOUT holds is not a global at all: `Function` text and a
+    /// page script are resolved on their own, so the scope walk calls global what the
+    /// running emitter's scope binds around them -- a CommonJS `module`, a page's
+    /// `document`. That is read where the layout keeps it.
     pub(super) fn global(&mut self, name: Name, at: &Expr) -> ValueId {
+        if let Some((environment, key)) = self.enclosing_slot(name, at) {
+            return self.prim(JsPrim::EnvRead, vec![environment, key], at);
+        }
         let index = self.domain.constant(crate::domain::JsConst::Key(name));
         let key = self.declared(index, at);
         self.prim(JsPrim::GlobalRead, vec![key], at)
+    }
+
+    /// Where the enclosing layout keeps a name the scope walk found no binding for.
+    ///
+    /// Only a name nothing resolved here DECLARES. One that is declared -- a function
+    /// declaration inside a block, which the scope walk keeps in the block -- has a
+    /// slot in the enclosing layout that the running emitter may never write: it calls
+    /// such a function directly, and the slot stays `undefined`. Measured, on
+    /// `tests/claude-bundle-real-gaps-2.test.ts`.
+    pub(super) fn enclosing_slot(&mut self, name: Name, at: &Expr) -> Option<(ValueId, ValueId)> {
+        if self.resolution.declares(name) {
+            return None;
+        }
+        self.outer?(name)?;
+        self.outer_slot(name, at).ok()
     }
 
     /// Whether the declaration belongs to this function rather than to something
