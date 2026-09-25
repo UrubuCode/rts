@@ -179,6 +179,10 @@ impl Js {
         RuntimeOp::NewTarget,
         // A tagged template's strings object, by site -- `lower::Lowering::expression`.
         RuntimeOp::TemplateStrings,
+        // `for`-`in`: the keys, snapshotted, and whether one is still reachable --
+        // `lower/enumerate.rs`, after `emit/foreach.rs`.
+        RuntimeOp::EnumerateKeys,
+        RuntimeOp::ForInHas,
     ];
 
     /// The index the IR carries for an entry point.
@@ -666,7 +670,9 @@ impl Domain for Js {
             Some(RuntimeOp::StringOf) => Type::Str,
             Some(RuntimeOp::BigIntNew) => Type::BigInt,
             // A truth value, and answered unboxed -- the representation is the proof.
-            Some(RuntimeOp::DeleteProperty) => Type::Bool(None),
+            Some(RuntimeOp::DeleteProperty | RuntimeOp::ForInHas) => Type::Bool(None),
+            // A fresh array of the keys, which nothing else can name.
+            Some(RuntimeOp::EnumerateKeys) => Type::Object,
             // A length is a number, answered unboxed -- the representation and the
             // proof are one fact here.
             Some(RuntimeOp::ArrayLength) => Type::Double,

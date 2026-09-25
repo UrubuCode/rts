@@ -57,6 +57,7 @@ mod class;
 mod declare;
 mod delegate;
 mod destructure;
+mod enumerate;
 mod environment;
 mod gather;
 mod iterate;

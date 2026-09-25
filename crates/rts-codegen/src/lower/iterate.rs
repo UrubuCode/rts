@@ -107,9 +107,12 @@ impl Lowering<'_> {
             // a walk of the prototype chain and not a protocol at all -- the tree's own
             // comment on the variant calls it the trap. Nothing here is reusable for it.
             ForEachSource::In => {
-                return Err(Unsupported::Statement(
-                    "for-in walks the prototype chain, which is not the iteration protocol",
-                ));
+                let ForEachTarget::Declare { target: pattern, .. } = target else {
+                    return Err(Unsupported::Statement(
+                        "a for-in target that assigns writes past the loop's carried set",
+                    ));
+                };
+                return self.for_in(pattern, subject, body);
             }
             // `for await` asks for `Symbol.asyncIterator` and awaits each step, so every
             // one of its suspensions sits inside the region that owes the close -- and

@@ -2600,17 +2600,27 @@ fn the_close_asks_whether_return_exists_before_calling_it() {
     );
 }
 
-/// `for`-`in` is not this protocol and shares nothing with it: it walks enumerable string
-/// keys INCLUDING inherited ones, which is a walk of the prototype chain.
+/// `for`-`in` is not this protocol and shares nothing with it: a snapshot of the keys,
+/// own and inherited, walked by a counter -- and each pass asks whether its key is still
+/// there, because a key deleted during the loop must not be visited.
 #[test]
-fn for_in_is_refused_because_it_is_not_the_protocol() {
-    let refused = only("function f(o) { for (const k in o) { o.m(k); } }").expect_err("for-in");
-    assert_eq!(
-        refused,
-        Unsupported::Statement(
-            "for-in walks the prototype chain, which is not the iteration protocol"
-        )
-    );
+fn for_in_walks_a_snapshot_and_guards_each_key() {
+    let lowered = only("function f(o) { for (const k in o) { o.m(k); } }").expect("for-in");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let entries: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Call {
+                callee: rts_mir::cfg::Callee::Entry(entry),
+                ..
+            } => lowered.domain.entry_meaning(*entry),
+            _ => None,
+        })
+        .collect();
+    assert!(entries.contains(&crate::runtime::RuntimeOp::EnumerateKeys), "{entries:?}");
+    assert!(entries.contains(&crate::runtime::RuntimeOp::ForInHas), "{entries:?}");
 }
 
 /// `for await` suspends INSIDE the region that owes the close, and the machine's frame
