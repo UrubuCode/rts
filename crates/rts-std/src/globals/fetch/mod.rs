@@ -54,9 +54,12 @@
 //! # Not implemented, by name
 //!
 //! - **`fetch`.** See above.
-//! - **`body` as a `ReadableStream`, and `Response.body`/`Request.body`.**
-//!   Nothing in this engine is a `ReadableStream`; the raw body is kept under
-//!   `__body` and read through `text()`/`json()`/`arrayBuffer()`/`bytes()`.
+//! - **`body` as a real `ReadableStream`.** Nothing in this engine is one, so
+//!   `Response.body`/`Request.body` answer `null` when there is no body and the
+//!   stored value itself otherwise — enough for the `!== null` a program
+//!   checks, not a stream a program can read from. The raw body is kept under
+//!   `__body` and read through `text()`/`json()`/`arrayBuffer()`/`bytes()`/
+//!   `blob()`.
 //! - **`formData()` on a `Request`/`Response`.** It parses `multipart/form-data`
 //!   and `application/x-www-form-urlencoded` bodies, which is a parser this
 //!   folder does not have and would be a second copy of `form_urlencoded`'s for
@@ -64,10 +67,14 @@
 //! - **`Request`/`Response` `signal`, `cache`, `credentials`, `mode`,
 //!   `referrer`, `integrity`.** Every one of them only means something to a
 //!   network fetch.
-//! - **Iteration as an `IterableIterator`.** `entries()`/`keys()`/`values()`
-//!   answer plain JS arrays, so `Array.from`, `for`-`of` and spread all work and
-//!   `.next()` does not. `node:url` states the same limit for the same reason:
-//!   a host module cannot install a `Symbol.iterator`-keyed member.
+//! - **`Headers` iteration is a real iterator** (`.next()` included) — its own
+//!   small hand-built one, since `rts-core`'s `list_iterator` (what `Array`,
+//!   `Map` and `Set` share) is private to that crate. `entries()`/`keys()`/
+//!   `values()` on `FormData`, `Request` and `Response` still answer plain JS
+//!   arrays: `Array.from`, `for`-`of` and spread all work and `.next()` does
+//!   not. `node:url` states the same limit for the same reason: a host module
+//!   cannot install a `Symbol.iterator`-keyed member without building the
+//!   object itself.
 //! - **Bun's two divergences from the standard, which this follows the standard
 //!   on.** Bun iterates a `Headers` in insertion order where the standard sorts
 //!   by name (Node sorts), and Bun sets no `Content-Type` for a string body
