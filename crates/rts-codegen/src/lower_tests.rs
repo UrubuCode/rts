@@ -2202,20 +2202,19 @@ fn a_cleanup_is_outside_the_region_it_cleans_up_after() {
     }
 }
 
-/// A `finally` that can complete ABRUPTLY is a different shape, not a missing feature:
-/// `try { return "t" } finally { return "f" }` answers "f", and a return inside a
-/// copied cleanup is a terminator with no successor -- a copy left through a path the
-/// unwind knows nothing about, which the machine's verifier names.
+/// A `finally` that can complete ABRUPTLY is a different shape: a catch-all handler with
+/// no cleanup, whose region names a RETURN copy -- `try { return 1 } finally { return 2 }`
+/// sends the written return there, and a return injected at a suspension goes there too.
 #[test]
-fn a_finally_that_can_complete_abruptly_is_refused_as_the_wrong_shape() {
-    let refused = only("function f(o) { try { return 1; } finally { return 2; } }")
-        .expect_err("an abrupt finally");
-    assert_eq!(
-        refused,
-        Unsupported::Statement(
-            "a finally that can complete abruptly is a handler rather than a cleanup"
-        )
-    );
+fn a_finally_that_can_complete_abruptly_is_a_handler_and_a_return_target() {
+    let lowered = only("function f(o) { try { return 1; } finally { return 2; } }")
+        .expect("an abrupt finally");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let region = &lowered.func.regions[0];
+    assert!(region.cleanup.is_none(), "no cleanup is copied");
+    assert!(region.handler.is_some(), "a raise runs the finally");
+    let returning = region.resume_return.expect("a return target");
+    assert_eq!(lowered.func.block(returning).params.len(), 1, "it receives the value");
 }
 
 /// A cleanup BESIDE a handler that assigns needed a cell: the cleanup is copied into the

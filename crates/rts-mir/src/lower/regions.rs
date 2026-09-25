@@ -127,6 +127,9 @@ impl Walk<'_> {
             None => None,
         };
         into.open_region(handlers, cleanup);
+        if let Some(block) = declared.resume_return {
+            into.set_region_return(self.made(block)?);
+        }
         self.level(into, ops, Some(region))?;
         into.close_region();
         Ok(())

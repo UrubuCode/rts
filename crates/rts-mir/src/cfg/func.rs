@@ -217,12 +217,21 @@ impl FuncBuilder {
             parent,
             handler,
             cleanup,
+            resume_return: None,
         });
         let region = crate::region::RegionId(self.func.regions.len() as u32 - 1);
         let held = self.current;
         self.func.block_regions[held.0 as usize] = Some(region);
         self.open.push(region);
         region
+    }
+
+    /// Says where a resumption that returns carries on, for the innermost open region
+    /// -- see [`crate::region::Region::resume_return`].
+    pub fn set_region_return(&mut self, block: BlockId) {
+        if let Some(region) = self.open.last() {
+            self.func.regions[region.0 as usize].resume_return = Some(block);
+        }
     }
 
     /// Closes the innermost open region.

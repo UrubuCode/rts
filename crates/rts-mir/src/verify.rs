@@ -154,15 +154,18 @@ pub fn verify(func: &Func) -> Result<(), Malformed> {
             return Err(Malformed::NoSuchRegion(parent));
         }
         let _ = at;
-        for block in [region.handler, region.cleanup].into_iter().flatten() {
+        for block in [region.handler, region.cleanup, region.resume_return]
+            .into_iter()
+            .flatten()
+        {
             if block.0 >= blocks {
                 return Err(Malformed::NoSuchBlock(block));
             }
         }
-        if let Some(handler) = region.handler
-            && func.block(handler).params.is_empty()
-        {
-            return Err(Malformed::HandlerTakesNoValue(handler));
+        for receiving in [region.handler, region.resume_return].into_iter().flatten() {
+            if func.block(receiving).params.is_empty() {
+                return Err(Malformed::HandlerTakesNoValue(receiving));
+            }
         }
     }
 

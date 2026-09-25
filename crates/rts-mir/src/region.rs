@@ -50,6 +50,12 @@ pub struct Region {
     /// `None` here is not "no cleanup needed" — it is "this region has none", which is
     /// what a `try`/`catch` with no `finally` is.
     pub cleanup: Option<BlockId>,
+    /// Where a resumption that RETURNS, injected at a suspension inside the region,
+    /// carries on instead of returning -- the machine's `Region::resume_return`, and
+    /// its reason: a return a client writes is a jump the client routes, and this one
+    /// is written nowhere, so the region is the only place its destination can be
+    /// stated. Receives the delivered value as its first parameter, as a handler does.
+    pub resume_return: Option<BlockId>,
 }
 
 #[cfg(test)]

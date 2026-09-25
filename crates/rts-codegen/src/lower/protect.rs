@@ -51,7 +51,7 @@
 //! own region would be protected by the handler it runs on the way out of, so a
 //! `finally` that threw would re-enter its own `catch`.
 //!
-//! # What is refused, and it is a different shape rather than a missing feature
+//! # A `finally` that can complete abruptly is a different shape
 //!
 //! **A `finally` that can complete ABRUPTLY.** `try { return "t" } finally { return
 //! "f" }` answers `"f"`: the language says an abrupt completion in the `finally`
@@ -62,8 +62,13 @@
 //!
 //! The shape that IS correct for it is a catch-all handler rather than a cleanup: a
 //! `return` in a handler is an ordinary return, and re-raising when the body falls
-//! off its end is what puts the pending throw back. `emit/protect.rs` already builds
-//! both shapes and chooses between them, and this lowering builds one of the two.
+//! off its end is what puts the pending throw back. `emit/protect.rs` builds both
+//! shapes and chooses between them, and so does this lowering: the handler shape
+//! copies the `finally` onto the raise (then raises again), onto a RETURN (then
+//! returns) and onto falling off the end. Every `return` written in the body or the
+//! `catch` jumps to the return copy, and the region names that copy as where a return
+//! injected at a parked suspension goes -- `rts_mir::region::Region::resume_return`,
+//! because that one is written nowhere and cannot be routed by a jump.
 //!
 //! **The predicate is SHARED with that file rather than written again here.**
 //! `emit::protect::leaves_abruptly` over-approximates in the safe direction — a
@@ -88,12 +93,12 @@ impl Lowering<'_> {
         finally: Option<&Vec<Stmt>>,
         at: &Stmt,
     ) -> Result<bool, Unsupported> {
+        // A `finally` THAT CAN COMPLETE ABRUPTLY is a catch-all HANDLER rather than a
+        // cleanup -- the module header says why -- and a RETURN target, which is where
+        // every `return` written in the body or the `catch` goes, and where a return
+        // injected at a parked suspension is sent: `emit/protect.rs`'s shape.
+        let abrupt = finally.is_some_and(|held| crate::emit::protect::leaves_abruptly(held));
         if let Some(cleanup) = finally {
-            if crate::emit::protect::leaves_abruptly(cleanup) {
-                return Err(Unsupported::Statement(
-                    "a finally that can complete abruptly is a handler rather than a cleanup",
-                ));
-            }
             // THE SAME CELL THE PROTECTED BODY WAITS ON. A cleanup is copied into
             // each path that needs it, so a binding it assigns is assigned in every
             // copy -- and what each copy leaves has to merge somewhere the copies do
@@ -179,7 +184,15 @@ impl Lowering<'_> {
         // so there is no edge to carry one, which is the same argument the handler's
         // single parameter rests on, reaching the opposite answer because a cleanup is
         // not handed a value.
-        let cleanup = finally.map(|_| self.builder.block());
+        let cleanup = finally.filter(|_| !abrupt).map(|_| self.builder.block());
+        let receiving = |lowering: &mut Self| {
+            let block = lowering.builder.block();
+            let value = lowering.builder.param(block);
+            lowering.types.insert(value, lowering.domain.top());
+            (block, value)
+        };
+        let unwind = finally.filter(|_| abrupt).map(|_| receiving(self));
+        let returning = finally.filter(|_| abrupt).map(|_| receiving(self));
 
         // THE ORDINARY WAY OUT of a `try` with a `finally` runs a copy of it. The machine
         // runs a cleanup where the region is left by a return or a throw; a path that
@@ -220,13 +233,22 @@ impl Lowering<'_> {
         // region's cleanup before its handler -- which a program that ran showed.
         let nested = finally.is_some() && catch.is_some();
         if nested {
-            self.builder.open_region(None, cleanup);
+            self.builder.open_region(unwind.map(|(block, _)| block), cleanup);
+            if let Some((block, _)) = returning {
+                self.builder.set_region_return(block);
+            }
             handler = make_handler(self);
             self.builder
                 .open_region(handler.map(|(block, _)| block), None);
         } else {
-            self.builder
-                .open_region(handler.map(|(block, _)| block), cleanup);
+            let catching = handler.or(unwind).map(|(block, _)| block);
+            self.builder.open_region(catching, cleanup);
+            if let Some((block, _)) = returning {
+                self.builder.set_region_return(block);
+            }
+        }
+        if let Some((block, _)) = returning {
+            self.returns_to.push(block);
         }
         let leaving = normal.unwrap_or(join);
         // THE BODY AND THE `finally` HAVE SCOPES OF THEIR OWN, as the clause has: a
@@ -323,8 +345,38 @@ impl Lowering<'_> {
             }
             from_handler = std::mem::take(&mut self.values);
         }
+        if returning.is_some() {
+            self.returns_to.pop();
+        }
         if nested {
             self.builder.close_region();
+        }
+
+        // THE ABRUPT SHAPE'S TWO COPIES, outside every region of this `try`: on a raise,
+        // the `finally` and then the raise again; on a return, the `finally` and then
+        // the return, to whatever encloses this one. An abrupt completion inside either
+        // replaces the pending one, which is the language's rule and why this shape.
+        if let (Some((entry, raised)), Some(statements)) = (unwind, finally) {
+            self.builder.switch_to(entry);
+            self.values = outside.clone();
+            let enclosing = std::mem::replace(&mut self.scope, finally_scope);
+            let ended = self.statements(statements);
+            self.scope = enclosing;
+            if !ended? {
+                self.builder.end(Terminator::Raise(raised));
+            }
+            from_cleanup.extend(std::mem::take(&mut self.values));
+        }
+        if let (Some((entry, value)), Some(statements)) = (returning, finally) {
+            self.builder.switch_to(entry);
+            self.values = outside.clone();
+            let enclosing = std::mem::replace(&mut self.scope, finally_scope);
+            let ended = self.statements(statements);
+            self.scope = enclosing;
+            if !ended? {
+                self.end_return(value);
+            }
+            from_cleanup.extend(std::mem::take(&mut self.values));
         }
 
         // THE ORDINARY COPY of the `finally`, from the values as they stood before the
@@ -367,6 +419,22 @@ impl Lowering<'_> {
             self.values.insert(*binding, *param);
         }
         Ok(false)
+    }
+}
+
+impl Lowering<'_> {
+    /// A written `return`: to the innermost abrupt `finally` it owes, or out.
+    pub(super) fn end_return(&mut self, value: ValueId) {
+        match self.returns_to.last() {
+            Some(block) => {
+                let target = *block;
+                self.builder.end(Terminator::Jump {
+                    target,
+                    args: vec![value],
+                });
+            }
+            None => self.builder.end(Terminator::Return(Some(value))),
+        }
     }
 }
 

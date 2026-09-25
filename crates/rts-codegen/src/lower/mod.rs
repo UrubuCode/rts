@@ -216,6 +216,7 @@ pub fn lower_within(
         base_environment: None,
         passes: Vec::new(),
         made_in: BTreeMap::new(),
+        returns_to: Vec::new(),
         prologue: true,
         lexical_this: function.captures_this,
         arguments: None,
@@ -392,6 +393,9 @@ struct Lowering<'a> {
     /// Where each closure was made: the scopes of the pass environments in force,
     /// innermost first -- what whoever emits the closure's body lays its scope out by.
     made_in: BTreeMap<u32, Vec<Vec<ScopeId>>>,
+    /// Where a written `return` goes: the innermost abrupt `finally`'s returning
+    /// block, or out of the function where there is none -- `protect.rs`.
+    returns_to: Vec<rts_mir::BlockId>,
     /// Whether the parameters are still being bound. A captured parameter is held in
     /// a register until the guards have run and the environment exists -- see
     /// `environment.rs`.
@@ -476,7 +480,7 @@ impl Lowering<'_> {
                     Some(expr) => self.expression(expr)?,
                     None => self.singleton(Singleton::Undefined, statement),
                 };
-                self.builder.end(Terminator::Return(Some(answered)));
+                self.end_return(answered);
                 Ok(true)
             }
             StmtKind::Block(inner) => {
