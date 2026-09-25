@@ -119,15 +119,25 @@ impl Regions {
     /// — or when a cell number would not survive being shifted past the
     /// selector.
     pub fn new(count: u32, cells: u32) -> Option<Self> {
+        Regions::new_reserving(count, cells, cells.saturating_mul(GROWTH_CEILING))
+    }
+
+    /// [`Self::new`] with each region's reservation stated rather than derived
+    /// from [`GROWTH_CEILING`]. See [`Region::with_reservation`] for who wants
+    /// that.
+    pub fn new_reserving(count: u32, cells: u32, reserved: u32) -> Option<Self> {
         if !count.is_power_of_two() {
             return None;
         }
         let selector_bits = count.trailing_zeros();
-        if cells == 0 || cells - 1 > (u32::MAX >> selector_bits) {
+        // Checked against the RESERVATION, because a region grows its cell
+        // numbers up to it, and the largest one has to survive the shift too.
+        let reserved = reserved.max(cells);
+        if cells == 0 || reserved - 1 > (u32::MAX >> selector_bits) {
             return None;
         }
         let regions: Vec<Region> = (0..count)
-            .map(|index| Region::sharded(cells, index, selector_bits))
+            .map(|index| Region::sharded_reserving(cells, reserved, index, selector_bits))
             .collect();
         // Filled once, here, and never grown. See [`BaseTable`] for what growing
         // it would do to code already compiled against its address.

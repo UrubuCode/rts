@@ -50,4 +50,4 @@ mod wrap_script;
 pub use graph::names_any_file;
 pub use link::{HostError, singletons_for};
 pub use live::install_compiler;
-pub use run::{Compiled, compile, compile_for, compile_graph};
+pub use run::{Compiled, MAX_CELLS_VAR, compile, compile_for, compile_graph};

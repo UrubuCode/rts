@@ -265,8 +265,11 @@ pub(super) fn heap_exhausted(context: &Context) -> ! {
          cells and all of them are in use even after a collection.\n     \
          Nothing left to reclaim, and the program cannot continue.\n     What \
          would have happened instead is `undefined` from the allocation, which \
-         computes a wrong answer quietly.",
-        context.region.reserved()
+         computes a wrong answer quietly.\n     If the program really holds \
+         that much, RTS_MAX_CELLS=<cells> raises the reservation (each cell is \
+         {} bytes of address space).",
+        context.region.reserved(),
+        crate::heap::STRIDE
     );
     std::process::exit(1);
 }
