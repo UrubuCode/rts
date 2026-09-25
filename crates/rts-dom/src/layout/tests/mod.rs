@@ -49,6 +49,7 @@ mod grid_align_safe_corpus;
 mod align_safe_corpus;
 mod grid_intrinseco_corpus;
 mod hifen_corpus;
+mod break_spaces_corpus;
 mod fontes_corpus;
 mod imagens_corpus;
 mod inline;

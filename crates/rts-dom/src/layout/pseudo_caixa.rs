@@ -90,7 +90,7 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
         fonte,
         familia.is_some_and(crate::style::is_mono_family),
         crate::inline_box::quebra_dentro(css),
-        css.white_space.is_some_and(|w| w.preserves_newlines()),
+        super::quebra_espacos::Espacos::do_css(css),
         css.word_spacing.unwrap_or(0.0),
         css.hyphens != Some(crate::style::vocab::Hyphens::None),
         &super::fonte_do_trecho::Fontes::uniforme(familia, fonte, familia.is_some_and(crate::style::is_mono_family)),

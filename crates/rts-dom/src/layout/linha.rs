@@ -72,26 +72,6 @@ pub(in crate::layout) fn layout_inline_flow(
     for &(id, caixa) in group {
         runs.extend(collect_runs(dom, id, caixa, &arvore, parent_css, content_w, ctx));
     }
-    // `tab-size` — só sob `white-space: pre`/`pre-wrap`, onde o `\t` sobrevive
-    // ao invés de colapsar como um espaço qualquer (`preserves_spaces`, hoje só
-    // lido aqui). A coluna encadeia ENTRE runs do mesmo fluxo — ver o corte
-    // declarado em `tabulacao::expandir_tabs`.
-    if parent_css
-        .white_space
-        .map(|w| w.preserves_spaces())
-        .unwrap_or(false)
-    {
-        let tab_size = parent_css.tab_size.unwrap_or(8.0).round().max(1.0) as usize;
-        let mut coluna = 0usize;
-        for run in runs.iter_mut() {
-            if run.atomic.is_none() && !run.text.is_empty() {
-                let (expandido, fim) =
-                    crate::layout::tabulacao::expandir_tabs(&run.text, tab_size, coluna);
-                run.text = expandido;
-                coluna = fim;
-            }
-        }
-    }
     if dono_inteiro {
         runs.extend(pseudo_run(
             dom,
@@ -154,10 +134,7 @@ pub(in crate::layout) fn layout_inline_flow(
             font_size,
             mono,
             crate::inline_box::quebra_dentro(parent_css),
-            parent_css
-                .white_space
-                .map(|w| w.preserves_newlines())
-                .unwrap_or(false),
+            super::quebra_espacos::Espacos::do_css(parent_css),
             parent_css.word_spacing.unwrap_or(0.0),
             parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
             &fontes, ctx.measurer,

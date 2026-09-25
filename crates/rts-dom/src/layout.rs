@@ -123,6 +123,7 @@ mod hifen;
 mod linha;
 mod linha_baseline;
 mod quebra;
+mod quebra_espacos;
 mod runs;
 mod segmento;
 mod texto_solto;

@@ -6,62 +6,33 @@
 
 use super::Segment;
 
-/// Expande cada `\t` de `texto` para o número de espaços que o leva ao PRÓXIMO
-/// tab-stop de `tab_size` colunas — só chamado sob `white-space: pre`/`pre-wrap`,
-/// onde o tab é preservado em vez de colapsar como um espaço qualquer. Devolve o
-/// texto expandido e a coluna final (para o próximo run continuar a contagem).
-///
-/// A COLUNA é contada em CARACTERES desde o último `\n` (ou o início do fluxo),
-/// que é o que `tab-size: <número>` pede — não é uma medida em pixels: um tab
-/// vale `tab_size` vezes o avanço de um espaço, e um avanço de espaço é um
-/// caractere no medidor deste motor (`ApproxMeasurer`/`EguiMeasurer` medem uma
-/// string de N espaços como N avanços). Um medidor de largura de coluna FIXA
-/// (px) existe no CSS mas não é o que o corpus escreve (`parse_tab_size`
-/// recusa-o — ver `style/painting.rs`), por isso não há aqui uma segunda forma
-/// a suportar.
-///
-/// ⚠️ CORTE DECLARADO: a coluna reinicia por CHAMADA (por `InlineRun`), não
-/// pela posição real na linha pintada — um tab a meio de um `<span>` dentro de
-/// texto sem quebra ainda conta a partir do fragmento em que caiu, e não da
-/// margem esquerda do bloco. É a mesma aproximação que o resto do fluxo inline
-/// já faz por fronteira de run (`fecha_a_corrida`, `intrinsic_width`); o
-/// chamador (`layout_inline_flow`) faz o melhor que pode encadeando a coluna
-/// entre runs consecutivos do MESMO fluxo, que cobre o caso comum — um `<pre>`
-/// de texto simples, sem elementos inline a meio de uma linha.
-pub(in crate::layout) fn expandir_tabs(texto: &str, tab_size: usize, coluna_inicial: usize) -> (String, usize) {
-    if !texto.contains('\t') {
-        return (texto.to_string(), coluna_desde(texto, coluna_inicial));
-    }
-    let tab_size = tab_size.max(1);
+/// Expands each `\t` of `texto` into the spaces that reach the next tab stop,
+/// for the INTRINSIC width only: the line itself measures its tabs in px from
+/// the real position on the line (`quebra_espacos::Espacos::tab`). Both ask
+/// `avanco_tab`, so the stop rule exists once; here the unit is a character
+/// (a space advance), which is what `tab-size: <number>` counts. The column
+/// starts at 0 because an intrinsic width is the width of one unbroken line.
+fn expandir_tabs(texto: &str, tab_size: f32) -> String {
     let mut out = String::with_capacity(texto.len());
-    let mut coluna = coluna_inicial;
+    let mut coluna = 0.0f32;
     for ch in texto.chars() {
         match ch {
             '\t' => {
-                let avanco = tab_size - (coluna % tab_size);
-                out.extend(std::iter::repeat(' ').take(avanco));
-                coluna += avanco;
+                let n = super::quebra_espacos::avanco_tab(coluna, tab_size, 1.0).round();
+                out.extend(std::iter::repeat(' ').take(n as usize));
+                coluna += n;
             }
             '\n' => {
                 out.push('\n');
-                coluna = 0;
+                coluna = 0.0;
             }
             c => {
                 out.push(c);
-                coluna += 1;
+                coluna += 1.0;
             }
         }
     }
-    (out, coluna)
-}
-
-/// A coluna corrente depois de `texto`, sem tabs dentro (fast path do chamador
-/// — não vale a pena percorrer char a char um texto que não tem `\t` nenhum).
-fn coluna_desde(texto: &str, coluna_inicial: usize) -> usize {
-    match texto.rfind('\n') {
-        Some(i) => texto[i + 1..].chars().count(),
-        None => coluna_inicial + texto.chars().count(),
-    }
+    out
 }
 
 /// Aplica `tab-size` e `word-spacing` a um texto ANTES de ele ser medido para a
@@ -87,12 +58,7 @@ pub(in crate::layout) fn ajustar_texto_intrinsico(
         .map(|w| w.preserves_spaces())
         .unwrap_or(false);
     let texto = if preserva_tabs && texto.contains('\t') {
-        let tab_size = css
-            .and_then(|c| c.tab_size)
-            .unwrap_or(8.0)
-            .round()
-            .max(1.0) as usize;
-        expandir_tabs(&texto, tab_size, 0).0
+        expandir_tabs(&texto, css.and_then(|c| c.tab_size).unwrap_or(8.0).max(0.0))
     } else {
         texto
     };
