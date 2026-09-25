@@ -65,7 +65,7 @@ mod tamanho_intrinseco;
 mod itens;
 mod fonte_avancos;
 mod fonte_do_trecho;
-mod fonte_metricas;
+pub(crate) mod fonte_metricas;
 mod medida;
 mod medida_arvore;
 pub mod medidor_ativo;
