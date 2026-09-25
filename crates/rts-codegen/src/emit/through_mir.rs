@@ -102,7 +102,6 @@ fn attempt(
             "an async generator, whose await drains where its yield parks",
         ),
         (!ctx.with_objects.is_empty(), "inside `with`"),
-        (ctx.in_field_initializer, "a field initialiser"),
     ];
     if let Some((_, why)) = refused.iter().find(|(held, _)| *held) {
         return Err((*why).to_owned());

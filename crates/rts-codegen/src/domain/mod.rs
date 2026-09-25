@@ -175,6 +175,8 @@ impl Js {
         RuntimeOp::SloppyThis,
         RuntimeOp::RunningFunction,
         RuntimeOp::DefineMethod,
+        // `new.target` in a function's own activation -- `lower::Lowering::expression`.
+        RuntimeOp::NewTarget,
     ];
 
     /// The index the IR carries for an entry point.

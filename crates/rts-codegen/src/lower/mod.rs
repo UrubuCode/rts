@@ -563,68 +563,12 @@ impl Lowering<'_> {
                     None => Ok(self.global(*name, expr)),
                 }
             }
-            // An assignment to a plain local is a REBIND, which is what SSA makes
-            // of one: the binding now holds a different value and no store
-            // happens. A compound form (`a += b`) is refused rather than rewritten
-            // to `a = a + b`, because the target is evaluated once and rewriting
-            // would evaluate it twice — the tree carries the operator for exactly
-            // that reason.
+            // `x = v`, `o.k = v`, `o[k] = v`, `[a, b] = v` -- `places.rs`.
             ExprKind::Assign {
                 target,
                 value,
                 op: AssignOp::Plain,
-            } => {
-                let place = match target {
-                    AssignTarget::Place(place) => place,
-                    // `[a, b] = [b, a]`: the value, then taken apart into its targets --
-                    // and the assignment answers the value, not what was taken from it.
-                    AssignTarget::Pattern(pattern) => {
-                        let held = self.expression(value)?;
-                        self.destructure(pattern, held, expr)?;
-                        return Ok(held);
-                    }
-                };
-                // A WRITE TO A PROPERTY is a write to the heap and not a rebind, so
-                // it is a primitive rather than an entry in the binding map. Its
-                // answer is the value written, which is what makes `o.x = o.y = 1`
-                // work.
-                if let ExprKind::Member {
-                    object,
-                    property,
-                    optional: false,
-                } = &place.kind
-                {
-                    let receiver = self.expression(object)?;
-                    let key = self.domain.constant(JsConst::Key(*property));
-                    let key = self.declared(key, expr);
-                    let held = self.expression(value)?;
-                    self.prim(JsPrim::FieldWrite, vec![receiver, key, held], expr);
-                    return Ok(held);
-                }
-                if let ExprKind::Index {
-                    object,
-                    index,
-                    optional: false,
-                } = &place.kind
-                {
-                    let receiver = self.expression(object)?;
-                    let at = self.expression(index)?;
-                    let held = self.expression(value)?;
-                    self.prim(JsPrim::IndexWrite, vec![receiver, at, held], expr);
-                    return Ok(held);
-                }
-                let ExprKind::Ident(name) = &place.kind else {
-                    return Err(Unsupported::Expression(
-                        "an assignment whose target is neither a name nor a property",
-                    ));
-                };
-                let held = self.expression(value)?;
-                let of = self.type_of(held);
-                self.bind(*name, held, of, expr)?;
-                // The value of an assignment is what was assigned, which is what
-                // makes `a = b = 1` work.
-                Ok(held)
-            }
+            } => self.assign(target, value, expr),
             // A COMPOUND ASSIGNMENT to a plain local.
             //
             // `a += b` is not `a = a + b` and the tree says so by carrying the
@@ -710,6 +654,12 @@ impl Lowering<'_> {
                 ),
             ),
             ExprKind::This => Ok(self.this_value(expr)),
+            // `new.target` of a function's own activation, which the runtime keeps --
+            // `emit/expr.rs` asks the same. An arrow's is its enclosing function's, and
+            // a field initialiser's is fixed at `undefined`: both are refused below.
+            ExprKind::NewTarget if !self.lexical_this => {
+                Ok(self.entry(crate::runtime::RuntimeOp::NewTarget, Vec::new(), expr))
+            }
             ExprKind::Unary { op, operand } => {
                 // `delete` REMOVES a property, so its operand is a place and not a
                 // value: lowering the operand first would evaluate what is about to

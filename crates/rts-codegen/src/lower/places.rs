@@ -11,9 +11,72 @@ use rts_mir::{Domain as _, Effect};
 use super::{Lowering, Unsupported};
 use crate::domain::{JsConst, JsPrim};
 use crate::runtime::RuntimeOp;
-use crate::syntax::{Expr, ExprKind, UpdateOp, UpdatePosition};
+use crate::syntax::{AssignTarget, Expr, ExprKind, UpdateOp, UpdatePosition};
 
 impl Lowering<'_> {
+    /// A plain assignment. To a plain local it is a REBIND, which is what SSA makes
+    /// of one: the binding now holds a different value and no store happens. A
+    /// compound form (`a += b`) is not rewritten to `a = a + b` over a property,
+    /// because the target is evaluated once -- the tree carries the operator for
+    /// exactly that reason.
+    pub(super) fn assign(
+        &mut self,
+        target: &AssignTarget,
+        value: &Expr,
+        expr: &Expr,
+    ) -> Result<ValueId, Unsupported> {
+        let place = match target {
+            AssignTarget::Place(place) => place,
+            // `[a, b] = [b, a]`: the value, then taken apart into its targets --
+            // and the assignment answers the value, not what was taken from it.
+            AssignTarget::Pattern(pattern) => {
+                let held = self.expression(value)?;
+                self.destructure(pattern, held, expr)?;
+                return Ok(held);
+            }
+        };
+        // A WRITE TO A PROPERTY is a write to the heap and not a rebind, so
+        // it is a primitive rather than an entry in the binding map. Its
+        // answer is the value written, which is what makes `o.x = o.y = 1`
+        // work.
+        if let ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } = &place.kind
+        {
+            let receiver = self.expression(object)?;
+            let key = self.domain.constant(JsConst::Key(*property));
+            let key = self.declared(key, expr);
+            let held = self.expression(value)?;
+            self.prim(JsPrim::FieldWrite, vec![receiver, key, held], expr);
+            return Ok(held);
+        }
+        if let ExprKind::Index {
+            object,
+            index,
+            optional: false,
+        } = &place.kind
+        {
+            let receiver = self.expression(object)?;
+            let at = self.expression(index)?;
+            let held = self.expression(value)?;
+            self.prim(JsPrim::IndexWrite, vec![receiver, at, held], expr);
+            return Ok(held);
+        }
+        let ExprKind::Ident(name) = &place.kind else {
+            return Err(Unsupported::Expression(
+                "an assignment whose target is neither a name nor a property",
+            ));
+        };
+        let held = self.expression(value)?;
+        let of = self.type_of(held);
+        self.bind(*name, held, of, expr)?;
+        // The value of an assignment is what was assigned, which is what
+        // makes `a = b = 1` work.
+        Ok(held)
+    }
+
     /// `delete operand`.
     ///
     /// A property is removed by the runtime, from its key as TEXT -- a written name and
