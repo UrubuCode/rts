@@ -156,7 +156,12 @@ pub fn lower_with(
     tier: Tier,
 ) -> Result<Func, Unsupported> {
     lower_within(function, resolution, callees, domain, names, tier, None, &[], false)
+        .map(|(func, _)| func)
 }
+
+/// Where each closure a lowering made was made: by the function's number, the scopes of
+/// the pass environments in force at each site, innermost first.
+pub type Placement = BTreeMap<u32, Vec<Vec<ScopeId>>>;
 
 /// Where the environment a function is MADE in keeps a name: how many links out from
 /// it, and under which key. `None` for a name it does not hold in an environment.
@@ -182,7 +187,7 @@ pub fn lower_within(
     outer: Option<OuterLayout<'_>>,
     lexical: &[Name],
     sloppy: bool,
-) -> Result<Func, Unsupported> {
+) -> Result<(Func, Placement), Unsupported> {
     // NEITHER KIND IS REFUSED HERE ANY MORE, and what changed is where the missing
     // piece is. Both used to be turned away for parking a frame; parking is now a
     // fact the graph carries (`Effect::SUSPENDS`, derived into `Func::may_suspend`),
@@ -207,6 +212,9 @@ pub fn lower_within(
         scope,
         function: scope,
         environment: None,
+        base_environment: None,
+        passes: Vec::new(),
+        made_in: BTreeMap::new(),
         prologue: true,
         lexical_this: function.captures_this,
         arguments: None,
@@ -310,7 +318,7 @@ pub fn lower_within(
         }
     }
 
-    Ok(lowering.builder.finish())
+    Ok((lowering.builder.finish(), lowering.made_in))
 }
 
 /// Which construct a frame belongs to.
@@ -369,10 +377,20 @@ struct Lowering<'a> {
     /// The scope this function's body opened, which is what the scope tree is asked
     /// about capture from -- `scope` moves as blocks are entered and this does not.
     function: ScopeId,
-    /// The environment in force: this activation's own when it builds one, the one
-    /// it was made in when something inside reaches past it, nothing otherwise.
-    /// Defined in the entry block, so it dominates every use.
+    /// The environment a closure made HERE is handed: this activation's own when it
+    /// builds one, the one it was made in when something inside reaches past it,
+    /// nothing otherwise -- and, inside a scope with an environment per pass, that
+    /// pass's. `environment.rs` has the layout.
     environment: Option<ValueId>,
+    /// This activation's environment as it was opened at the entry, which every
+    /// binding it owns and every enclosing one is counted from. Defined in the entry
+    /// block, so it dominates every use.
+    base_environment: Option<ValueId>,
+    /// The environments built per pass, innermost last, with the scope each is for.
+    passes: Vec<(ScopeId, ValueId)>,
+    /// Where each closure was made: the scopes of the pass environments in force,
+    /// innermost first -- what whoever emits the closure's body lays its scope out by.
+    made_in: BTreeMap<u32, Vec<Vec<ScopeId>>>,
     /// Whether the parameters are still being bound. A captured parameter is held in
     /// a register until the guards have run and the environment exists -- see
     /// `environment.rs`.
@@ -461,9 +479,16 @@ impl Lowering<'_> {
                     return Err(Unsupported::NoScope);
                 };
                 let outer = std::mem::replace(&mut self.scope, scope);
-                let ended = self.statements(inner)?;
+                let pass = self.open_pass(scope, &Expr {
+                    kind: ExprKind::This,
+                    at: statement.at,
+                });
+                let ended = self.statements(inner);
+                if let Some((restored, _)) = pass {
+                    self.close_pass(restored);
+                }
                 self.scope = outer;
-                Ok(ended)
+                ended
             }
             StmtKind::If {
                 condition,

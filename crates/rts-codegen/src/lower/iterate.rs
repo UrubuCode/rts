@@ -194,6 +194,9 @@ impl Lowering<'_> {
         self.builder.switch_to(into_body);
         self.builder.open_region(None, Some(cleanup));
         let element = self.well_known(WellKnown::Element, step, subject);
+        // A HEAD A CLOSURE CAPTURES is a fresh environment per pass, bound before the
+        // body runs -- no copy, since nothing of one pass is the next one's.
+        let pass = self.open_pass(self.scope, subject);
         self.destructure(pattern, element, subject)?;
         self.loops.push(LoopFrame {
             labels: std::mem::take(&mut self.pending_labels),
@@ -206,6 +209,9 @@ impl Lowering<'_> {
         });
         let left = self.statement(body);
         self.loops.pop();
+        if let Some((restored, _)) = pass {
+            self.close_pass(restored);
+        }
         let left = left?;
         if !left {
             let back: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();

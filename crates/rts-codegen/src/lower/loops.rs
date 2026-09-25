@@ -242,7 +242,21 @@ impl Lowering<'_> {
             return Err(Unsupported::NoScope);
         };
         let outer = std::mem::replace(&mut self.scope, head);
-        let lowered = self.for_in_head(init, test, update, body);
+        // A HEAD WHOSE BINDINGS A CLOSURE CAPTURES has an environment per pass, and the
+        // language copies it at every step before the update runs
+        // (`CreatePerIterationEnvironment`): a closure made in one pass keeps that
+        // pass's `i` while the next pass counts on in a copy.
+        let pass = self.open_pass(
+            head,
+            &Expr {
+                kind: ExprKind::This,
+                at,
+            },
+        );
+        let lowered = self.for_in_head(init, test, update, body, pass.map(|(_, parent)| parent));
+        if let Some((restored, _)) = pass {
+            self.close_pass(restored);
+        }
         self.scope = outer;
         lowered
     }
@@ -258,6 +272,7 @@ impl Lowering<'_> {
         test: Option<&Expr>,
         update: Option<&Expr>,
         body: &Stmt,
+        pass: Option<ValueId>,
     ) -> Result<bool, Unsupported> {
         match init {
             Some(ForInit::Declare { kind, bindings }) => {
@@ -305,14 +320,26 @@ impl Lowering<'_> {
         let header = self.builder.block();
         let into_body = self.builder.block();
         let exit = self.builder.block();
+        let at = body_at(body);
 
-        let entering: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
+        // THE FIRST COPY, after the init and before the first test -- and the pass's
+        // environment then crosses every back edge as the header's first parameter.
+        let mut entering: Vec<ValueId> = Vec::with_capacity(1 + carried.len());
+        if let Some(parent) = pass {
+            entering.push(self.copy_pass(parent, &at));
+        }
+        entering.extend(carried.iter().map(|held| self.values[held]));
         self.builder.end(Terminator::Jump {
             target: header,
             args: entering,
         });
 
         self.builder.switch_to(header);
+        if pass.is_some() {
+            let arrived = self.builder.param(header);
+            self.types.insert(arrived, self.domain.top());
+            self.enter_pass_value(arrived);
+        }
         let mut params = Vec::with_capacity(carried.len());
         for binding in &carried {
             let param = self.builder.param(header);
@@ -345,9 +372,9 @@ impl Lowering<'_> {
         // the header, and `for (let i = 0; i < n; i++) { if (odd(i)) continue; … }`
         // never incremented on those passes -- a loop that never ends, in a graph that
         // looked well formed. Without an update the header is the step.
-        let step = match update {
-            Some(_) => self.builder.block(),
-            None => header,
+        let step = match (update, pass) {
+            (None, None) => header,
+            _ => self.builder.block(),
         };
         self.builder.switch_to(into_body);
         self.loops.push(LoopFrame {
@@ -367,15 +394,21 @@ impl Lowering<'_> {
                 args: back,
             });
         }
-        if let Some(expr) = update {
+        if step != header {
             self.builder.switch_to(step);
             for binding in &carried {
                 let param = self.builder.param(step);
                 self.types.insert(param, self.domain.top());
                 self.values.insert(*binding, param);
             }
-            self.expression(expr)?;
-            let back: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
+            let mut back = Vec::with_capacity(1 + carried.len());
+            if let Some(parent) = pass {
+                back.push(self.copy_pass(parent, &at));
+            }
+            if let Some(expr) = update {
+                self.expression(expr)?;
+            }
+            back.extend(carried.iter().map(|held| self.values[held]));
             self.builder.end(Terminator::Jump {
                 target: header,
                 args: back,
@@ -521,6 +554,14 @@ impl Lowering<'_> {
             }
         }
         Ok(found)
+    }
+}
+
+/// A statement's position as an expression, for the operations a loop makes itself.
+fn body_at(body: &Stmt) -> Expr {
+    Expr {
+        kind: ExprKind::This,
+        at: body.at,
     }
 }
 

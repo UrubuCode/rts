@@ -248,6 +248,8 @@ impl Lowering<'_> {
             Some(held) => held,
             None => self.singleton_at(crate::values::Singleton::Undefined, at),
         };
+        let chain: Vec<_> = self.passes.iter().rev().map(|(scope, _)| *scope).collect();
+        self.made_in.entry(id.0).or_default().push(chain);
         self.prim(JsPrim::MakeClosure, vec![named, environment], at)
     }
 

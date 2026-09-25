@@ -166,6 +166,30 @@ impl Resolution {
         self.capture.per_pass.contains(&scope)
     }
 
+    /// Whether a scope builds an ENVIRONMENT OF ITS OWN on every pass, where a lowering
+    /// lays one out per pass: a block or a loop head fresh per pass of a loop, which
+    /// owns captured bindings. Its bindings are not in its function's environment --
+    /// a closure made in one pass must not see the next pass's value -- but in one
+    /// linked to whatever environment was in force where the scope was entered.
+    ///
+    /// Only the two kinds a lowering enters as statements. A `catch` clause or a
+    /// `switch` body inside a loop is per pass too, and stays where it was.
+    pub fn pass_environment(&self, scope: ScopeId) -> bool {
+        self.per_pass(scope)
+            && matches!(self.scope(scope).kind, ScopeKind::Block | ScopeKind::ForHead)
+            && !self.captured_in(scope).is_empty()
+    }
+
+    /// The captured bindings declared in exactly this scope, in declaration order.
+    pub fn captured_in(&self, scope: ScopeId) -> Vec<BindingId> {
+        self.scope(scope)
+            .bindings
+            .iter()
+            .copied()
+            .filter(|held| self.captured(*held))
+            .collect()
+    }
+
     /// The captured bindings a function or module scope owns, in declaration order --
     /// which is the order its environment is laid out in.
     pub fn environment_of(&self, function: ScopeId) -> Vec<BindingId> {

@@ -90,6 +90,7 @@ impl Lowering<'_> {
 
         // THE BODY, with the key bound fresh.
         self.builder.switch_to(binding);
+        let pass = self.open_pass(self.scope, subject);
         self.destructure(pattern, key, subject)?;
         self.loops.push(LoopFrame {
             labels: std::mem::take(&mut self.pending_labels),
@@ -100,6 +101,9 @@ impl Lowering<'_> {
         });
         let left = self.statement(body);
         self.loops.pop();
+        if let Some((restored, _)) = pass {
+            self.close_pass(restored);
+        }
         if !left? {
             let args: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
             self.builder.end(Terminator::Jump { target: step, args });

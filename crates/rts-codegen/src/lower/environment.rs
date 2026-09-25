@@ -40,7 +40,7 @@ use rts_mir::cfg::ValueId;
 
 use super::{Lowering, Unsupported};
 use crate::domain::{JsConst, JsPrim};
-use crate::names::resolve::{BindingId, Origin};
+use crate::names::resolve::{BindingId, Origin, ScopeId};
 use crate::syntax::Expr;
 
 impl Lowering<'_> {
@@ -59,6 +59,7 @@ impl Lowering<'_> {
             // body and may read through it for a reason the scope walk here does not see.
             if reaches || self.outer.is_some() {
                 self.environment = Some(self.prim(JsPrim::EnclosingEnvironment, vec![], at));
+                self.base_environment = self.environment;
             }
             return Ok(());
         }
@@ -95,6 +96,7 @@ impl Lowering<'_> {
         operands.extend(keys);
         let built = self.prim(JsPrim::EnvNew, operands, at);
         self.environment = Some(built);
+        self.base_environment = Some(built);
         for name in slots {
             let spelled = self.names.spelled(name).unwrap_or_default().to_owned();
             let value = match (spelled.as_str(), self.lexical_this) {
@@ -137,14 +139,85 @@ impl Lowering<'_> {
     }
 
     /// The captured bindings this activation lays out -- all it owns, except, under
-    /// another stage's layout, those inside a class body: the class is that stage's,
-    /// compiled in a helper, and so is where its own bindings live.
+    /// another stage's layout, those inside a class body (the class is that stage's,
+    /// compiled in a helper, and so is where its own bindings live) and those of a
+    /// scope with an environment per pass, which [`Self::open_pass`] lays out.
     pub(super) fn owned_environment(&self) -> Vec<BindingId> {
         let mut owned = self.resolution.environment_of(self.function);
         if self.outer.is_some() {
-            owned.retain(|held| !self.resolution.in_class_body(self.resolution.binding(*held).scope));
+            owned.retain(|held| {
+                let scope = self.resolution.binding(*held).scope;
+                !self.resolution.in_class_body(scope) && !self.resolution.pass_environment(scope)
+            });
         }
         owned
+    }
+
+    /// Enters `scope`: where it has an environment per pass, builds this pass's -- linked
+    /// to the environment in force, holding the scope's captured bindings -- and makes
+    /// it the one closures made inside are handed. Answers what to restore on leaving
+    /// and the parent it linked to, or `None` where the scope builds nothing.
+    ///
+    /// Only under another stage's layout, which is the one whose nested bodies are laid
+    /// out by where each closure was made; elsewhere the binding is refused at its use.
+    pub(super) fn open_pass(
+        &mut self,
+        scope: ScopeId,
+        at: &Expr,
+    ) -> Option<(Option<ValueId>, ValueId)> {
+        if self.outer.is_none() || !self.resolution.pass_environment(scope) {
+            return None;
+        }
+        let parent = self.environment_in_force(at);
+        let built = self.new_pass(scope, parent, at);
+        self.passes.push((scope, built));
+        Some((std::mem::replace(&mut self.environment, Some(built)), parent))
+    }
+
+    /// Leaves a scope [`Self::open_pass`] entered.
+    pub(super) fn close_pass(&mut self, restored: Option<ValueId>) {
+        self.passes.pop();
+        self.environment = restored;
+    }
+
+    /// A fresh environment for `scope`, linked to `parent`, every slot `undefined`.
+    pub(super) fn new_pass(&mut self, scope: ScopeId, parent: ValueId, at: &Expr) -> ValueId {
+        let mut operands = vec![parent];
+        for binding in self.resolution.captured_in(scope) {
+            let key = self.domain.constant(JsConst::Key(self.resolution.binding(binding).name));
+            operands.push(self.declared(key, at));
+        }
+        self.prim(JsPrim::EnvNew, operands, at)
+    }
+
+    /// `CreatePerIterationEnvironment`: a new environment for the innermost pass scope,
+    /// holding what the current one holds, made the one in force. Answers it.
+    pub(super) fn copy_pass(&mut self, parent: ValueId, at: &Expr) -> ValueId {
+        let (scope, current) = *self.passes.last().expect("a pass is open");
+        let built = self.new_pass(scope, parent, at);
+        for binding in self.resolution.captured_in(scope) {
+            let key = self.domain.constant(JsConst::Key(self.resolution.binding(binding).name));
+            let key = self.declared(key, at);
+            let held = self.prim(JsPrim::EnvRead, vec![current, key], at);
+            self.prim(JsPrim::EnvWrite, vec![built, key, held], at);
+        }
+        self.enter_pass_value(built);
+        built
+    }
+
+    /// Makes `value` the innermost pass's environment -- a loop header's parameter,
+    /// which is the environment of whichever pass arrived.
+    pub(super) fn enter_pass_value(&mut self, value: ValueId) {
+        self.passes.last_mut().expect("a pass is open").1 = value;
+        self.environment = Some(value);
+    }
+
+    /// The environment a closure made here would be handed, as a value.
+    pub(super) fn environment_in_force(&mut self, at: &Expr) -> ValueId {
+        match self.environment {
+            Some(held) => held,
+            None => self.prim(JsPrim::EnclosingEnvironment, vec![], at),
+        }
     }
 
     /// The environment that owns a captured binding, seen from here, and its key.
@@ -155,6 +228,13 @@ impl Lowering<'_> {
     ) -> Result<(ValueId, ValueId), Unsupported> {
         let record = self.resolution.binding(binding);
         let (scope, name) = (record.scope, record.name);
+        // A BINDING OF A PASS lives in that pass's environment, by value.
+        if let Some((_, environment)) = self.passes.iter().rev().find(|(held, _)| *held == scope) {
+            let environment = *environment;
+            let key = self.domain.constant(JsConst::Key(name));
+            let key = self.declared(key, at);
+            return Ok((environment, key));
+        }
         // A BINDING SOMEBODY ELSE LAID OUT is read where they put it. The per-pass
         // refusal below does not apply: the running emitter builds the environment
         // per pass, and its count of links already says which one this closure holds.
@@ -171,7 +251,7 @@ impl Lowering<'_> {
         // encloses every use that reached it. A refusal keeps a broken invariant from
         // becoming a read of some other activation's variable.
         let (Some(mut environment), Some(reach)) = (
-            self.environment,
+            self.base_environment,
             self.resolution.hops(self.function, binding),
         ) else {
             return Err(Unsupported::Expression(
@@ -199,7 +279,7 @@ impl Lowering<'_> {
                 "the enclosing layout does not hold this binding in an environment",
             ));
         };
-        let Some(mut environment) = self.environment else {
+        let Some(mut environment) = self.base_environment else {
             return Err(Unsupported::Expression(
                 "a captured binding with no environment in force, which the scope walk should have made impossible",
             ));

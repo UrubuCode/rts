@@ -221,7 +221,7 @@ fn attempt(
     if ctx.sloppy {
         ctx.names.intern("callee");
     }
-    let graph = crate::lower::lower_within(
+    let (graph, placement) = crate::lower::lower_within(
         function,
         &resolution,
         &callees,
@@ -257,8 +257,6 @@ fn attempt(
     // The name THIS function was lent is put aside while they are emitted and put back
     // after: it is taken when this function's own id is recorded, which is after its
     // body, and the first nested definition to ask would otherwise take it.
-    let built = inner_scope(enclosing, &resolution, function, &lexical);
-    let inside = built.as_ref().unwrap_or(enclosing);
     let outer_name = ctx.take_lent_name();
     let mut module = Vec::with_capacity(nested.found.len());
     let written_inside = nested
@@ -266,7 +264,24 @@ fn attempt(
         .iter()
         .map(|(inner, declared)| (*inner, *declared, true))
         .chain(helpers.iter().map(|helper| (helper, false, false)));
-    for (inner, declared, candidate) in written_inside {
+    for (index, (inner, declared, candidate)) in written_inside.enumerate() {
+        // THE SCOPE IT IS EMITTED IN is the chain of environments in force where its
+        // closure was made: the pass environments there, innermost first, then this
+        // function's, then the enclosing layout -- `lower/environment.rs`'s layout, said
+        // in the running emitter's terms. Made at two sites under two chains, it has no
+        // one scope, and the function is declined.
+        let chain = match placement.get(&(index as u32)).map(Vec::as_slice) {
+            None | Some([]) => Vec::new(),
+            Some([first, rest @ ..]) => {
+                if rest.iter().any(|other| other != first) {
+                    ctx.restore_lent_name(outer_name);
+                    return Err("a closure made under two different pass environments".to_owned());
+                }
+                first.clone()
+            }
+        };
+        let built = inner_scope(enclosing, &resolution, function, &lexical, &chain);
+        let inside = built.as_ref().unwrap_or(enclosing);
         if let Some(name) = nested.lent.get(&inner.at)
             && !ctx.names.text(*name).starts_with("__rts_")
         {
@@ -409,27 +424,52 @@ fn inner_scope(
     resolution: &crate::names::resolve::Resolution,
     function: &Function,
     lexical: &[crate::names::Name],
+    chain: &[crate::names::resolve::ScopeId],
 ) -> Option<Scope> {
     let owned: std::collections::BTreeSet<crate::names::Name> = resolution
         .function_scope(function.at)
         .map(|scope| resolution.environment_of(scope))
         .unwrap_or_default()
         .into_iter()
-        // A class body's bindings are its helper's, as `lower/environment.rs` leaves
-        // them out of the object it builds.
-        .filter(|binding| !resolution.in_class_body(resolution.binding(*binding).scope))
+        // A class body's bindings are its helper's, and a pass's are its own
+        // environment's, as `lower/environment.rs` leaves both out of the object it
+        // builds.
+        .filter(|binding| {
+            let scope = resolution.binding(*binding).scope;
+            !resolution.in_class_body(scope) && !resolution.pass_environment(scope)
+        })
         .map(|binding| resolution.binding(binding).name)
         .chain(lexical.iter().copied())
         .collect();
-    if owned.is_empty() {
-        return None;
+    // THE LAYERS, innermost first: each pass environment in force, then this function's
+    // own where it builds one.
+    let mut layers: Vec<std::collections::BTreeSet<crate::names::Name>> = chain
+        .iter()
+        .map(|scope| {
+            resolution
+                .captured_in(*scope)
+                .into_iter()
+                .map(|binding| resolution.binding(binding).name)
+                .collect()
+        })
+        .collect();
+    if !owned.is_empty() {
+        layers.push(owned);
     }
-    let shifted: Vec<_> = enclosing
+    let Some(innermost) = layers.first().cloned() else {
+        return None;
+    };
+    let depth = layers.len() as u32;
+    // Outermost first, so that an inner layer's spelling shadows an outer one's.
+    let mut reachable: Vec<_> = enclosing
         .reachable()
         .into_iter()
-        .map(|(name, hops)| (name, hops + 1))
+        .map(|(name, hops)| (name, hops + depth))
         .collect();
-    Some(Scope::for_function(None, owned.clone(), &owned, &shifted))
+    for (hops, layer) in layers.iter().enumerate().skip(1).rev() {
+        reachable.extend(layer.iter().map(|name| (*name, hops as u32)));
+    }
+    Some(Scope::for_function(None, innermost.clone(), &innermost, &reachable))
 }
 
 /// Whether a `typeof` reads this value.
