@@ -145,8 +145,11 @@ fn attempt(
         if super::suspends::body_suspends(&written) {
             return Err("an object literal that suspends, which a helper cannot".to_owned());
         }
-        let this_too = function.captures_this;
-        if expression_reads(object, ctx.names, this_too) {
+        let reads = Reads {
+            this: function.captures_this,
+            arguments: true,
+        };
+        if expression_reads(object, ctx.names, reads) {
             return Err("an object literal reading what its helper would not have".to_owned());
         }
     }
@@ -161,16 +164,24 @@ fn attempt(
         })
         .chain(nested.objects.iter().map(|object| helper_of((*object).clone())))
         .collect();
-    // AN ARROW INSIDE READS `this` -- and `arguments`, `super`, `new.target` -- FROM
-    // THIS FUNCTION, which the running emitter hands it through an environment slot
-    // this function would have to build. Declined rather than built.
-    if nested
+    // AN ARROW INSIDE READS `this` OR `arguments` FROM THIS FUNCTION, which the running
+    // emitter hands it through environment slots under `__rts_this` and `arguments` --
+    // so the environment built here holds both, and the layer the arrow is emitted in
+    // shows them. `super` and `new.target` have no slot, and still decline.
+    let arrows: Vec<&Function> = nested
         .found
         .iter()
-        .any(|(inner, _)| inner.captures_this && reads_enclosing_this(inner, ctx.names))
-    {
-        return Err("an arrow inside reads this function's `this`".to_owned());
+        .map(|(inner, _)| *inner)
+        .filter(|inner| inner.captures_this)
+        .collect();
+    if arrows.iter().any(|inner| arrow_reads(inner, ctx.names, Reads::FRAME)) {
+        return Err("an arrow inside reads this function's `super` or `new.target`".to_owned());
     }
+    let lexical: Vec<crate::names::Name> =
+        match arrows.iter().any(|inner| reads_enclosing_this(inner, ctx.names)) {
+            true => vec![ctx.names.intern("__rts_this"), ctx.names.intern("arguments")],
+            false => Vec::new(),
+        };
     // The functions, then the class helpers, numbered in that order -- the order the
     // module list below is filled in.
     let positions: Vec<rts_cranelift::fault::Position> = nested
@@ -196,6 +207,7 @@ fn attempt(
         ctx.names,
         rts_mir::guard::Tier::Generic,
         Some(&layout),
+        &lexical,
     )
     .map_err(|held| format!("lowering: {held:?}"))?;
     let unbound = agrees(ctx, enclosing, &graph, &domain)?;
@@ -222,7 +234,7 @@ fn attempt(
     // The name THIS function was lent is put aside while they are emitted and put back
     // after: it is taken when this function's own id is recorded, which is after its
     // body, and the first nested definition to ask would otherwise take it.
-    let built = inner_scope(enclosing, &resolution, function);
+    let built = inner_scope(enclosing, &resolution, function, &lexical);
     let inside = built.as_ref().unwrap_or(enclosing);
     let outer_name = ctx.take_lent_name();
     let mut module = Vec::with_capacity(nested.found.len());
@@ -370,6 +382,7 @@ fn inner_scope(
     enclosing: &Scope,
     resolution: &crate::names::resolve::Resolution,
     function: &Function,
+    lexical: &[crate::names::Name],
 ) -> Option<Scope> {
     let owned: std::collections::BTreeSet<crate::names::Name> = resolution
         .function_scope(function.at)
@@ -380,6 +393,7 @@ fn inner_scope(
         // them out of the object it builds.
         .filter(|binding| !resolution.in_class_body(resolution.binding(*binding).scope))
         .map(|binding| resolution.binding(binding).name)
+        .chain(lexical.iter().copied())
         .collect();
     if owned.is_empty() {
         return None;
@@ -556,11 +570,34 @@ fn helper_of(value: crate::syntax::Expr) -> Function {
 /// Whether an arrow reads what an arrow takes from the function it is written in --
 /// `this`, `arguments`, `super`, `new.target` -- itself or through an arrow inside it.
 fn reads_enclosing_this(arrow: &Function, names: &crate::names::Names) -> bool {
+    arrow_reads(arrow, names, Reads::ALL)
+}
+
+/// Which of what a function takes from where it is called a walk counts.
+#[derive(Clone, Copy)]
+struct Reads {
+    this: bool,
+    arguments: bool,
+}
+
+impl Reads {
+    const ALL: Reads = Reads {
+        this: true,
+        arguments: true,
+    };
+    /// `super` and `new.target` alone -- what no environment slot hands an arrow.
+    const FRAME: Reads = Reads {
+        this: false,
+        arguments: false,
+    };
+}
+
+fn arrow_reads(arrow: &Function, names: &crate::names::Names, reads: Reads) -> bool {
     match &arrow.body {
-        crate::syntax::FunctionBody::Block(statements) => {
-            statements.iter().any(|held| statement_reads_this(held, names))
-        }
-        crate::syntax::FunctionBody::Expression(value) => expression_reads_this(value, names),
+        crate::syntax::FunctionBody::Block(statements) => statements
+            .iter()
+            .any(|held| statement_reads(held, names, reads)),
+        crate::syntax::FunctionBody::Expression(value) => expression_reads(value, names, reads),
     }
 }
 
@@ -581,22 +618,26 @@ fn class_reads_enclosing_this(class: &crate::syntax::Class, names: &crate::names
         })
 }
 
-fn statement_reads_this(held: &crate::syntax::Stmt, names: &crate::names::Names) -> bool {
+fn statement_reads(
+    held: &crate::syntax::Stmt,
+    names: &crate::names::Names,
+    reads: Reads,
+) -> bool {
     use crate::emit::capture::StmtChild;
     let mut found = false;
     crate::emit::capture::walk_stmt(held, &mut |child| {
         found |= match child {
-            StmtChild::Stmt(inner) => statement_reads_this(inner, names),
-            StmtChild::Expr(value) => expression_reads_this(value, names),
+            StmtChild::Stmt(inner) => statement_reads(inner, names, reads),
+            StmtChild::Expr(value) => expression_reads(value, names, reads),
             StmtChild::Binding(binding) => binding
                 .value
                 .as_ref()
-                .is_some_and(|value| expression_reads_this(value, names)),
+                .is_some_and(|value| expression_reads(value, names, reads)),
             StmtChild::Catch(clause) => clause
                 .body
                 .iter()
-                .any(|held| statement_reads_this(held, names)),
-            StmtChild::Function(inner) => inner.captures_this && reads_enclosing_this(inner, names),
+                .any(|held| statement_reads(held, names, reads)),
+            StmtChild::Function(inner) => inner.captures_this && arrow_reads(inner, names, reads),
             StmtChild::Class(class) => class_reads_enclosing_this(class, names),
         };
     });
@@ -604,28 +645,30 @@ fn statement_reads_this(held: &crate::syntax::Stmt, names: &crate::names::Names)
 }
 
 fn expression_reads_this(value: &crate::syntax::Expr, names: &crate::names::Names) -> bool {
-    expression_reads(value, names, true)
+    expression_reads(value, names, Reads::ALL)
 }
 
 /// Whether an expression reads what a function takes from where it is called --
 /// `arguments`, `super`, `new.target`, and `this` when `this_too`. An arrow inside
 /// counts whatever it reads, which over-reports `this` and is the safe direction.
-fn expression_reads(value: &crate::syntax::Expr, names: &crate::names::Names, this_too: bool) -> bool {
+fn expression_reads(value: &crate::syntax::Expr, names: &crate::names::Names, reads: Reads) -> bool {
     use crate::emit::capture::Child;
     use crate::syntax::ExprKind;
     match &value.kind {
-        ExprKind::This => return this_too,
+        ExprKind::This => return reads.this,
         ExprKind::NewTarget | ExprKind::SuperMember { .. } | ExprKind::SuperCall { .. } => {
             return true;
         }
-        ExprKind::Ident(name) if names.spelled(*name) == Some("arguments") => return true,
+        ExprKind::Ident(name) if names.spelled(*name) == Some("arguments") => {
+            return reads.arguments;
+        }
         _ => {}
     }
     let mut found = false;
     crate::emit::capture::walk_expr(value, &mut |child| {
         found |= match child {
-            Child::Expr(inner) => expression_reads(inner, names, this_too),
-            Child::Function(inner) => inner.captures_this && reads_enclosing_this(inner, names),
+            Child::Expr(inner) => expression_reads(inner, names, reads),
+            Child::Function(inner) => inner.captures_this && arrow_reads(inner, names, reads),
             Child::Class(class) => class_reads_enclosing_this(class, names),
         };
     });

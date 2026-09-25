@@ -55,7 +55,7 @@ impl Lowering<'_> {
     pub(super) fn open_environment(&mut self, at: &Expr) -> Result<(), Unsupported> {
         let owned = self.owned_environment();
         let reaches = self.resolution.reaches_out(self.function);
-        if owned.is_empty() {
+        if !self.builds_own() {
             // UNDER ANOTHER STAGE'S LAYOUT a closure made here is handed the environment
             // this function was made in, always: the running emitter emits the closure's
             // body and may read through it for a reason the scope walk here does not see.
@@ -87,12 +87,38 @@ impl Lowering<'_> {
             let key = self.domain.constant(JsConst::Key(record.name));
             keys.push(self.declared(key, at));
         }
+        // THE LEXICAL SLOTS, where an arrow written inside reads this activation's
+        // `this` or `arguments`: the running emitter hands both to its arrows through
+        // the environment, under these spellings, and the arrow it compiles reads them
+        // there.
+        let slots = self.lexical_slots.clone();
+        for name in &slots {
+            let key = self.domain.constant(JsConst::Key(*name));
+            keys.push(self.declared(key, at));
+        }
 
         let enclosing = self.prim(JsPrim::EnclosingEnvironment, vec![], at);
         let mut operands = vec![enclosing];
         operands.extend(keys);
         let built = self.prim(JsPrim::EnvNew, operands, at);
         self.environment = Some(built);
+        for name in slots {
+            let spelled = self.names.spelled(name).unwrap_or_default().to_owned();
+            let value = match (spelled.as_str(), self.lexical_this) {
+                // An arrow's own are its enclosing function's, read from their slots.
+                (_, true) => self.lexical(&spelled, at).ok_or(Unsupported::Expression(
+                    "an arrow's own lexical slot, which the enclosing layout does not hold",
+                ))?,
+                ("__rts_this", false) => self.prim(JsPrim::ThisValue, Vec::new(), at),
+                (_, false) => match self.arguments {
+                    Some(held) => held,
+                    None => self.singleton_at(crate::values::Singleton::Undefined, at),
+                },
+            };
+            let key = self.domain.constant(JsConst::Key(name));
+            let key = self.declared(key, at);
+            self.prim(JsPrim::EnvWrite, vec![built, key, value], at);
+        }
 
         // THE PARAMETERS ARRIVED IN REGISTERS, and were held there while the guards
         // ran. A captured one moves now, so that every later read -- this function's
@@ -106,6 +132,12 @@ impl Lowering<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Whether this activation builds an environment of its own: it owns a captured
+    /// binding, or an arrow inside reads its `this` or `arguments` from a slot.
+    pub(super) fn builds_own(&self) -> bool {
+        !self.owned_environment().is_empty() || !self.lexical_slots.is_empty()
     }
 
     /// The captured bindings this activation lays out -- all it owns, except, under
@@ -130,28 +162,8 @@ impl Lowering<'_> {
         // A BINDING SOMEBODY ELSE LAID OUT is read where they put it. The per-pass
         // refusal below does not apply: the running emitter builds the environment
         // per pass, and its count of links already says which one this closure holds.
-        if let Some(outer) = self.outer
-            && self.resolution.owner(scope) != self.function
-        {
-            let Some((hops, key)) = outer(name) else {
-                return Err(Unsupported::Expression(
-                    "the enclosing layout does not hold this binding in an environment",
-                ));
-            };
-            let Some(mut environment) = self.environment else {
-                return Err(Unsupported::Expression(
-                    "a captured binding with no environment in force, which the scope walk should have made impossible",
-                ));
-            };
-            // The enclosing layout counts from the environment this function was MADE
-            // in; one this function built itself stands one link in front of it.
-            let built = !self.owned_environment().is_empty();
-            for _ in 0..hops + u32::from(built) {
-                environment = self.prim(JsPrim::EnvOuter, vec![environment], at);
-            }
-            let key = self.domain.constant(JsConst::Key(key));
-            let key = self.declared(key, at);
-            return Ok((environment, key));
+        if self.outer.is_some() && self.resolution.owner(scope) != self.function {
+            return self.outer_slot(name, at);
         }
         if self.resolution.per_pass(scope) {
             return Err(Unsupported::Shape(
@@ -176,6 +188,44 @@ impl Lowering<'_> {
         let key = self.domain.constant(JsConst::Key(name));
         let key = self.declared(key, at);
         Ok((environment, key))
+    }
+
+    /// Where the ENCLOSING layout keeps `name`, seen from here: the environment and
+    /// the key. The enclosing layout counts from the environment this function was
+    /// MADE in; one this function built itself stands one link in front of it.
+    pub(super) fn outer_slot(
+        &mut self,
+        name: crate::names::Name,
+        at: &Expr,
+    ) -> Result<(ValueId, ValueId), Unsupported> {
+        let Some((hops, key)) = self.outer.and_then(|outer| outer(name)) else {
+            return Err(Unsupported::Expression(
+                "the enclosing layout does not hold this binding in an environment",
+            ));
+        };
+        let Some(mut environment) = self.environment else {
+            return Err(Unsupported::Expression(
+                "a captured binding with no environment in force, which the scope walk should have made impossible",
+            ));
+        };
+        let built = self.builds_own();
+        for _ in 0..hops + u32::from(built) {
+            environment = self.prim(JsPrim::EnvOuter, vec![environment], at);
+        }
+        let key = self.domain.constant(JsConst::Key(key));
+        let key = self.declared(key, at);
+        Ok((environment, key))
+    }
+
+    /// What an ARROW reads from where it was written -- `this` as `__rts_this`, or
+    /// `arguments` -- out of the slot the enclosing function put it in, which is how
+    /// the running emitter hands both to its arrows. `None` where there is no such slot:
+    /// no enclosing layout, or one that holds nothing under that spelling.
+    pub(super) fn lexical(&mut self, spelled: &str, at: &Expr) -> Option<ValueId> {
+        let name = self.names.find(spelled)?;
+        self.outer?(name)?;
+        let (environment, key) = self.outer_slot(name, at).ok()?;
+        Some(self.prim(JsPrim::EnvRead, vec![environment, key], at))
     }
 
     /// A captured binding, read.

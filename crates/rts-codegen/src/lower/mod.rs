@@ -154,7 +154,7 @@ pub fn lower_with(
     names: &crate::names::Names,
     tier: Tier,
 ) -> Result<Func, Unsupported> {
-    lower_within(function, resolution, callees, domain, names, tier, None)
+    lower_within(function, resolution, callees, domain, names, tier, None, &[])
 }
 
 /// Where the environment a function is MADE in keeps a name: how many links out from
@@ -179,6 +179,7 @@ pub fn lower_within(
     names: &crate::names::Names,
     tier: Tier,
     outer: Option<OuterLayout<'_>>,
+    lexical: &[Name],
 ) -> Result<Func, Unsupported> {
     // NEITHER KIND IS REFUSED HERE ANY MORE, and what changed is where the missing
     // piece is. Both used to be turned away for parking a frame; parking is now a
@@ -212,6 +213,7 @@ pub fn lower_within(
         prologue: true,
         lexical_this: function.captures_this,
         arguments: None,
+        lexical_slots: lexical.to_vec(),
         outer,
         loops: Vec::new(),
         points: 0,
@@ -372,6 +374,9 @@ struct Lowering<'a> {
     /// The `arguments` object this activation built, where its body mentions the name
     /// -- `gather.rs`.
     arguments: Option<ValueId>,
+    /// The slots an arrow written inside reads from this activation's environment --
+    /// `__rts_this`, `arguments` -- which the environment built here holds.
+    lexical_slots: Vec<Name>,
     /// The layout of whoever makes this function's closure, where that is not this
     /// stage. See [`OuterLayout`].
     outer: Option<OuterLayout<'a>>,
@@ -526,9 +531,18 @@ impl Lowering<'_> {
                     // language answers the activation's argument list -- so it is refused
                     // by name until this stage builds one.
                     None if self.names.spelled(*name) == Some("arguments") => {
-                        self.arguments.ok_or(Unsupported::Expression(
-                            "the arguments object, which this stage does not build",
-                        ))
+                        match (self.arguments, self.lexical_this) {
+                            (Some(held), _) => Ok(held),
+                            // An arrow's is its enclosing function's, from its slot.
+                            (None, true) => self.lexical("arguments", expr).ok_or(
+                                Unsupported::Expression(
+                                    "the arguments object, which this stage does not build",
+                                ),
+                            ),
+                            (None, false) => Err(Unsupported::Expression(
+                                "the arguments object, which this stage does not build",
+                            )),
+                        }
                     }
                     // NO SCOPE DECLARES IT, so it is a global -- read through the
                     // global object, which is what the language does with one.
@@ -669,9 +683,11 @@ impl Lowering<'_> {
             // which for an arrow is whatever the caller passed -- usually `undefined` --
             // so reading it would be a wrong answer that compiles. Refused until this
             // stage carries the enclosing `this` the way it carries a captured binding.
-            ExprKind::This if self.lexical_this => Err(Unsupported::Expression(
-                "`this` in an arrow is the enclosing function's, which this stage does not carry",
-            )),
+            ExprKind::This if self.lexical_this => self.lexical("__rts_this", expr).ok_or(
+                Unsupported::Expression(
+                    "`this` in an arrow is the enclosing function's, which this stage does not carry",
+                ),
+            ),
             ExprKind::This => Ok(self.prim(JsPrim::ThisValue, Vec::new(), expr)),
             ExprKind::Unary { op, operand } => {
                 // `delete` REMOVES a property, so its operand is a place and not a
