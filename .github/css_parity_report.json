@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 593,
+    "passing": 594,
     "total": 870,
-    "pct": 68.2,
+    "pct": 68.3,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -135,7 +135,7 @@
         "total": 4
       },
       "position": {
-        "passing": 1,
+        "passing": 2,
         "total": 4
       },
       "visibility": {
@@ -228,6 +228,8 @@
       "FM — as metricas de fonte num modelo so",
       "REGUA — o corredor deixa de contar vazio como aprovado",
       "WS-1 — `white-space` como família: `break-spaces`, espaços preservados, `ch`, por-inline, largura intrínseca por inline, tab stops, entidades HTML",
+      "WS-2 — `nowrap` por inline na LINHA; ordem de pintura da camada 8 (Apêndice E); `Response.headers` real",
+      "PQ-A — `paint/` e `query/`: os leitores da lista saem de `layout/` (item 2 da ordem, Fase A)",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
       "DISP — o `display` para de perder informacao no parse",
       "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",

@@ -1,9 +1,9 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 593,
+  "passam": 594,
   "passam_vazio": 36,
-  "falham": 235,
+  "falham": 234,
   "falha_parcial": 6,
   "erros": 0,
   "nao_rasterizaram": [],
@@ -1185,12 +1185,6 @@
       "script": false
     },
     {
-      "nome": "flex-item-position-relative-001",
-      "pct": 0.244140625,
-      "n": 2500,
-      "script": false
-    },
-    {
       "nome": "flexbox_object",
       "pct": 0.24082031250000002,
       "n": 2466,
@@ -2336,13 +2330,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-row-014",
-      "estado": "passa"
-    },
-    {
       "nome": "flex-aspect-ratio-img-row-015",
       "estado": "falha",
       "pct": 0.9765625
+    },
+    {
+      "nome": "flex-aspect-ratio-img-row-014",
+      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-row-016",
@@ -2521,11 +2515,11 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-009",
+      "nome": "flex-flow-010",
       "estado": "passa"
     },
     {
-      "nome": "flex-flow-010",
+      "nome": "flex-flow-009",
       "estado": "passa"
     },
     {
@@ -2623,14 +2617,13 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-item-position-relative-001",
-      "estado": "falha",
-      "pct": 0.244140625
-    },
-    {
       "nome": "flex-item-transferred-sizes-padding-border-sizing",
       "estado": "falha",
       "pct": 0.48828125
+    },
+    {
+      "nome": "flex-item-position-relative-001",
+      "estado": "passa"
     },
     {
       "nome": "flex-item-transferred-sizes-padding-content-sizing",
@@ -3418,14 +3411,14 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-writing-mode-010",
-      "estado": "falha",
-      "pct": 3.5999999999999996
-    },
-    {
       "nome": "flexbox-writing-mode-011",
       "estado": "falha",
       "pct": 0.525
+    },
+    {
+      "nome": "flexbox-writing-mode-010",
+      "estado": "falha",
+      "pct": 3.5999999999999996
     },
     {
       "nome": "flexbox-writing-mode-012",
@@ -4912,13 +4905,13 @@
       "estado": "passa"
     },
     {
-      "nome": "percentage-widths-001",
-      "estado": "passa"
-    },
-    {
       "nome": "position-absolute-scrollbar-freeze",
       "estado": "falha-parcial",
       "pct": 0.9765625
+    },
+    {
+      "nome": "percentage-widths-001",
+      "estado": "passa"
     },
     {
       "nome": "position-fixed-001",
