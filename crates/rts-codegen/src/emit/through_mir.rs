@@ -305,6 +305,22 @@ fn agrees(
                 callee: rts_mir::cfg::Callee::Func(_),
                 ..
             } => return Err("a call by number".to_owned()),
+            // A WRITE TO A GLOBAL is the running emitter's `globals::write` only for a
+            // name its lists place; any other is a program it refuses to compile, or a
+            // page script's window, and neither is this door's to decide.
+            rts_mir::Op::Call {
+                callee: rts_mir::cfg::Callee::Entry(entry),
+                args,
+                ..
+            } if domain.entry_meaning(*entry) == Some(crate::runtime::RuntimeOp::GlobalSet) => {
+                let Some(name) = args.first().and_then(|key| key_name(graph, domain, *key)) else {
+                    return Err("a global write with no fixed key".to_owned());
+                };
+                let text = ctx.names.text(name);
+                if in_page || enclosing.lookup(name).is_some() || !super::globals::resolves(ctx, name) {
+                    return Err(format!("a write to the global {text}, which is not placed"));
+                }
+            }
             rts_mir::Op::Prim { prim, args } => match domain.meaning(*prim) {
                 // AN ENVIRONMENT BUILT HERE is laid out by this stage and read by what
                 // the running emitter makes inside it, through the layer `attempt`

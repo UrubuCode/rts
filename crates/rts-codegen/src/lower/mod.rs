@@ -943,7 +943,17 @@ impl Lowering<'_> {
     /// it, whichever function is writing, because a closure reads it from there.
     fn bind(&mut self, name: Name, value: ValueId, of: Type, at: &Expr) -> Result<(), Unsupported> {
         let Some(binding) = self.resolution.binding_in(self.scope, name) else {
-            return Err(Unsupported::Global(name));
+            // A WRITE TO A GLOBAL, where another stage's rules decide whether the name
+            // is one: `GlobalSet`, which is what it writes with -- and the door refuses
+            // a name its lists do not place, as it refuses reading one.
+            if self.outer.is_none() {
+                return Err(Unsupported::Global(name));
+            }
+            let key = self.domain.constant(JsConst::Key(name));
+            let key = self.declared(key, at);
+            let entry = self.domain.entry_point(crate::runtime::RuntimeOp::GlobalSet);
+            self.call(rts_mir::cfg::Callee::Entry(entry), None, vec![key, value], at);
+            return Ok(());
         };
         if self.resolution.captured(binding) && !self.prologue {
             return self.env_write(binding, value, at);

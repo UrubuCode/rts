@@ -162,6 +162,8 @@ impl Js {
         RuntimeOp::ArrayLength,
         // A bigint literal, from its digits -- `lower/push.rs`.
         RuntimeOp::BigIntNew,
+        // A write to a name no scope declares -- `lower::Lowering::bind`, under the door.
+        RuntimeOp::GlobalSet,
     ];
 
     /// The index the IR carries for an entry point.

@@ -166,6 +166,8 @@ pub struct Resolution {
     /// position of its own in the tree — and the `try` is what a consumer holds when it
     /// wants to know where the caught value is bound.
     catches: BTreeMap<Position, ScopeId>,
+    /// The scopes a `try` body and its `finally` open, by the statement's position.
+    tries: BTreeMap<Position, (ScopeId, Option<ScopeId>)>,
     /// Which bindings a nested function reads or writes, and what follows from it.
     /// `captured.rs` computes it and says why it is here rather than in a lowering.
     capture: captured::Capture,
@@ -208,6 +210,15 @@ impl Resolution {
     /// The scope the `catch` clause of the `try` at that position opened.
     pub fn catch_scope(&self, at: Position) -> Option<ScopeId> {
         self.catches.get(&at).copied()
+    }
+
+    /// The scopes the body and the `finally` of the `try` at that position opened.
+    ///
+    /// Recorded because a lowering has to ENTER them: a `const` in a `try` body is
+    /// declared there, and a lowering reading the body in the enclosing scope found no
+    /// such binding and took the name for a global.
+    pub fn try_scopes(&self, at: Position) -> Option<(ScopeId, Option<ScopeId>)> {
+        self.tries.get(&at).copied()
     }
 
     /// The scope the loop head written at that position opened.
@@ -571,6 +582,7 @@ impl Walker<'_> {
             } => {
                 let protected = self.open(ScopeKind::Block, Some(scope));
                 self.statements(body, protected);
+                let mut after_scope = None;
                 if let Some(Catch {
                     binding,
                     body: handler,
@@ -587,7 +599,9 @@ impl Walker<'_> {
                 if let Some(cleanup) = finally {
                     let after = self.open(ScopeKind::Block, Some(scope));
                     self.statements(cleanup, after);
+                    after_scope = Some(after);
                 }
+                self.out.tries.insert(statement.at, (protected, after_scope));
             }
             StmtKind::With { object, body } => {
                 self.expression(object, scope);

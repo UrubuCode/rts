@@ -229,7 +229,17 @@ impl Lowering<'_> {
                 .open_region(handler.map(|(block, _)| block), cleanup);
         }
         let leaving = normal.unwrap_or(join);
-        let ended = self.statements(body)?;
+        // THE BODY AND THE `finally` HAVE SCOPES OF THEIR OWN, as the clause has: a
+        // `const` in a `try` body is declared there, and read from the enclosing scope
+        // it was not found at all -- the name was taken for a global.
+        let Some((protected, after)) = self.resolution.try_scopes(at.at) else {
+            return Err(Unsupported::NoScope);
+        };
+        let finally_scope = after.unwrap_or(self.scope);
+        let enclosing = std::mem::replace(&mut self.scope, protected);
+        let ended = self.statements(body);
+        self.scope = enclosing;
+        let ended = ended?;
         if !ended {
             self.builder.end(Terminator::Jump {
                 target: leaving,
@@ -255,8 +265,10 @@ impl Lowering<'_> {
             for (binding, held) in carried.iter().zip(&before) {
                 self.values.insert(*binding, *held);
             }
-            let ended = self.statements(statements)?;
-            if !ended {
+            let enclosing = std::mem::replace(&mut self.scope, finally_scope);
+            let ended = self.statements(statements);
+            self.scope = enclosing;
+            if !ended? {
                 self.builder.end(Terminator::CleanupDone);
             }
             from_cleanup = std::mem::take(&mut self.values);
@@ -320,8 +332,10 @@ impl Lowering<'_> {
         if let (Some(entry), Some(statements)) = (normal, finally) {
             self.builder.switch_to(entry);
             self.values = outside.clone();
-            let ended = self.statements(statements)?;
-            if !ended {
+            let enclosing = std::mem::replace(&mut self.scope, finally_scope);
+            let ended = self.statements(statements);
+            self.scope = enclosing;
+            if !ended? {
                 self.builder.end(Terminator::Jump {
                     target: join,
                     args: Vec::new(),

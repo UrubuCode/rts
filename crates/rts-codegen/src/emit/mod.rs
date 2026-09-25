@@ -265,6 +265,13 @@ pub struct CapturedWrite {
     pub value: rts_cranelift::ir::ValueId,
     /// The block the write's join landed in.
     pub block: rts_cranelift::ir::BlockId,
+    /// The environment the hops were counted from.
+    ///
+    /// The same spelling at the same depth can still be two bindings: a block that
+    /// shadows a name kept in memory gets an environment of its own, so the `x` it
+    /// writes and the outer `x` read right after it are both zero links away. Without
+    /// this, `try { … } finally { let x = 3; x = 5 } return x` answered 5.
+    pub environment: Option<rts_cranelift::ir::ValueId>,
 }
 
 /// What emission needs that is not the function being built.

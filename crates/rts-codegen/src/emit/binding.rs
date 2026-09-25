@@ -104,6 +104,7 @@ pub(super) fn lexical_read(
                 && written.name == name
                 && written.hops == hops
                 && written.block == builder.current()
+                && written.environment == scope.environment()
                 && builder.nothing_emitted_here()
             {
                 return Ok(written.value);
@@ -204,6 +205,7 @@ pub(super) fn lexical_write(
                 hops,
                 value: stored,
                 block: builder.current(),
+                environment: scope.environment(),
             });
             Ok(stored)
         }

@@ -467,15 +467,27 @@ fn emit_block(
     // A `function` declared in one of these three bodies is bound before the
     // body runs, exactly as it is in an ordinary block — `try { function f() {}
     // f() }` called it and found `undefined`, because nothing hoisted here.
+    //
+    // And each needs its OWN ENVIRONMENT where it shadows a name kept in memory, which
+    // is what `StmtKind::Block` does and these did not: everything a `try` assigns is
+    // kept in memory by spelling (`capture::assigned_under_protection`), so `try { let
+    // x = 2 } finally { let x = 3 }` wrote the outer `x`'s one slot from both, and a
+    // function returning that `x` answered 23 where the language answers 1.
+    let layer = super::binding::block_layer(builder, scope, ctx, body)?;
     super::function::hoist(builder, scope, ctx, body, false)?;
     let lexical = super::binding::lexical_names(body);
     scope.expect_lexical(&lexical);
+    let mut terminated = false;
     for statement in body {
         if emit_stmt(builder, scope, ctx, loops, statement)? {
-            return Ok(true);
+            terminated = true;
+            break;
         }
     }
-    Ok(false)
+    if let Some(previous) = layer {
+        scope.leave_environment(previous);
+    }
+    Ok(terminated)
 }
 
 /// Binds what was caught.

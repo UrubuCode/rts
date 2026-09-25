@@ -2280,3 +2280,26 @@ literal's values read is read from the helper's activation, so the scope tree co
 that way. Three cases still decline: a literal that suspends, since a suspension cannot
 move into another function; one whose values read `arguments`, `super` or `new.target`,
 which the helper would answer with its own; and, inside an arrow, one that reads `this`.
+
+### Writes to globals, and two block-scope defects found on the way: 98.4%
+
+10 191 taken and 167 declined, from 10 171 and 181.
+
+- **A write to a global** is `GlobalSet` under the door -- the running emitter's
+  `globals::write` -- for a name its lists place, and declined otherwise.
+- **The stage read a `try` body and its `finally` in the enclosing scope.** The scope tree
+  opened both and recorded neither, so a lowering could not enter them: a `const` in a
+  `try` body was not found and its name was taken for a global. It is recorded now, and the
+  lowering enters both as it enters a `catch` clause.
+- **And the running emitter had the same shape of bug one layer down, on `main` too.**
+  `tests/try_block_scopes_shadow.test.ts`, written for the fix above, failed with the door
+  shut: `let x = 1; try { … } finally { let x = 3; x = 5 } return x` answered 5, and the
+  version with `let x` in the `try` answered 23. Two causes. `emit/protect.rs`'s
+  `emit_block` never gave a `try`, `catch` or `finally` body the environment of its own an
+  ordinary block gets where it shadows a name kept in memory -- and everything a `try`
+  assigns is kept in memory, by spelling. And the memo that forwards the last captured
+  write to the next read (`CapturedWrite`) compared the name and the depth, which two
+  bindings at depth zero of two different environments share; it compares the environment
+  now. Both pass on this branch with the door open and shut.
+
+Suite: **886 of 909**, LOST empty against `main` and the step before; 885 with the door shut.
