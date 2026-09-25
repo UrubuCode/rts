@@ -313,16 +313,17 @@ fn a_class_with_extends_is_refused_with_its_three_reasons() {
 
 /// `arguments` is declared by no scope and is not a global. Read through the global
 /// object it answered `undefined` -- or whatever a program had put there -- where the
-/// language answers the activation's argument list, so it is refused by name, in an
-/// arrow as well: an arrow sees its enclosing function's.
+/// language answers the activation's argument list. A function that has one builds it
+/// from its slots; an ARROW sees its enclosing function's, which this stage does not
+/// carry, so there it is still refused by name.
 #[test]
-fn the_arguments_object_is_refused_rather_than_read_as_a_global() {
+fn the_arguments_object_is_built_and_an_arrows_is_refused() {
     let (lowered, _) = module(
         "function f() { return arguments[0]; }
          function g() { return () => arguments; }",
     );
+    assert!(lowered.functions[0].result.is_ok(), "{:?}", lowered.functions[0].result.as_ref().err());
     let refused = Unsupported::Expression("the arguments object, which this stage does not build");
-    assert_eq!(lowered.functions[0].result.as_ref().err(), Some(&refused));
     assert_eq!(lowered.functions[2].result.as_ref().err(), Some(&refused));
 }
 

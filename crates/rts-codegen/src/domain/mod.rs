@@ -143,6 +143,15 @@ impl Js {
         // parameter holds and where a fifth parameter is read from -- the running
         // emitter's `bind_parameters` reads both out of it.
         RuntimeOp::RestArguments,
+        // The `arguments` object, from the four slots -- `emit/function.rs` makes the
+        // same call where a body mentions the name.
+        RuntimeOp::ArgumentsObject,
+        // `yield*`: one step of the inner iterator, recorded as the one this generator
+        // stands in front of; a source with no protocol, materialised; and its length.
+        // `lower/delegate.rs`, after `emit/delegate.rs`.
+        RuntimeOp::DelegateStep,
+        RuntimeOp::Iterate,
+        RuntimeOp::ArrayLength,
     ];
 
     /// The index the IR carries for an entry point.
@@ -598,6 +607,9 @@ impl Domain for Js {
             // anything else, which is what lets the `+` joining a template's pieces be
             // typed a concatenation.
             Some(RuntimeOp::StringOf) => Type::Str,
+            // A length is a number, answered unboxed -- the representation and the
+            // proof are one fact here.
+            Some(RuntimeOp::ArrayLength) => Type::Double,
             // EVERY OTHER ROW OF THE CATALOGUE answers the widest thing, and that is a
             // change of shape worth stating: the old table held only what this lowering
             // reached, so a row it did not know was unrepresentable. `RuntimeOp` holds

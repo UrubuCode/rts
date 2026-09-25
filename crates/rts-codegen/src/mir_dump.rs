@@ -239,14 +239,13 @@ mod tests {
         assert!(printed.contains("1 of 2 functions lowered"), "{printed}");
     }
 
-    /// A refusal names what it was, and the example has now moved twice -- a global,
-    /// then a generator, now `yield*`. Each time for the same reason: the previous
-    /// example started lowering. What stays refused is the piece that is a LOOP rather
-    /// than a suspension.
+    /// A refusal names what it was, and the example has now moved three times -- a
+    /// global, a generator, `yield*`, now an optional chain. Each time for the same
+    /// reason: the previous example started lowering.
     #[test]
     fn a_refusal_is_named_in_the_dump() {
-        let printed = describe("function* g(i) { yield* i; }").expect("parses");
-        assert!(printed.contains("inner iterator"), "{printed}");
+        let printed = describe("function g(i) { return i?.x; }").expect("parses");
+        assert!(printed.contains("optional chain"), "{printed}");
     }
 
     /// And a generator that only suspends is PRINTED, which is what the line above

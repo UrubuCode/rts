@@ -89,15 +89,11 @@ impl Lowering<'_> {
         at: &Expr,
     ) -> Result<ValueId, Unsupported> {
         if delegate {
-            // THREE METHODS FORWARDED AND A LOOP, which is what the tree's own comment
-            // on the flag says: `yield*` forwards `next`, `throw` and `return` to the
-            // inner iterator and yields whatever it yields. So it needs the iteration
-            // protocol -- the same piece the array pattern and `for`-`of` wait on -- and
-            // a `yield*` lowered as one suspension of the inner ITERABLE would compile
-            // and hand out the wrong value.
-            return Err(Unsupported::Expression(
-                "yield* forwards next, throw and return to an inner iterator, which is a loop",
-            ));
+            // A LOOP AROUND A SUSPENSION, not one -- `delegate.rs`.
+            let Some(subject) = value else {
+                return Err(Unsupported::Expression("`yield*` with nothing to delegate to"));
+            };
+            return self.delegate(subject, at);
         }
         let value = match value {
             Some(operand) => Some(self.expression(operand)?),

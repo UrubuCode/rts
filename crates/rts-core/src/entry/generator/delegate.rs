@@ -47,7 +47,7 @@
 use rts_cranelift::frame::ResumeMode;
 
 use super::State;
-use super::resume::{finish, resumable, resume};
+use super::resume::{resumable, resume};
 use crate::entry::iterate::{callable, member};
 use crate::entry::{Context, functions, objects, primitives, throw, with_current};
 
@@ -158,8 +158,7 @@ pub(super) fn forward_throw(cell: u32, inner: u64, error: u64) -> Option<u64> {
     let unnamed = functions::NO_CALL_NAME;
     let answered = functions::call_counted(method, inner, 1, unnamed, error, absent, absent, absent);
     if throw::in_flight() {
-        with_current(|context| finish(context, cell));
-        return Some(absent);
+        return Some(raised_at_the_yield(cell));
     }
     delivered(cell, answered)
 }
@@ -180,8 +179,7 @@ pub(super) fn forward_return(cell: u32, inner: u64, value: u64) -> Option<u64> {
     let unnamed = functions::NO_CALL_NAME;
     let answered = functions::call_counted(method, inner, 1, unnamed, value, absent, absent, absent);
     if throw::in_flight() {
-        with_current(|context| finish(context, cell));
-        return Some(absent);
+        return Some(raised_at_the_yield(cell));
     }
 
     let produced = member(answered, "value");
@@ -195,6 +193,20 @@ pub(super) fn forward_return(cell: u32, inner: u64, value: u64) -> Option<u64> {
     // Still going, so the outer yields what came back and stays exactly where
     // it is: its frame is not re-entered, and the delegation still stands.
     Some(with_current(|context| super::result(context, produced, false)))
+}
+
+/// What both forwardings do when the inner iterator's own `throw` or `return` RAISED:
+/// the error is the `yield*`'s, so it is raised in the outer frame at that point.
+///
+/// It ended the outer generator and let the error reach whoever called
+/// `outer.throw(e)`, which skipped every `try` the outer body had written around the
+/// `yield*` -- `function* o() { try { yield* inner() } catch (e) { … } }` never caught,
+/// where Node and Bun both answer from the `catch`. Taken rather than left in flight
+/// (rule 8): the resumption is what raises it, inside the regions it belongs to, the
+/// same path an inner iterator with no `throw` already took.
+fn raised_at_the_yield(cell: u32) -> u64 {
+    let raised = throw::take_thrown();
+    resume(cell, raised, ResumeMode::Unwind)
 }
 
 /// What both forwardings do with an answer the inner iterator produced.

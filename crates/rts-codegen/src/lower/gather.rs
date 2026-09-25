@@ -31,7 +31,17 @@ impl Lowering<'_> {
             Some(_) => return Err(Unsupported::Pattern),
             None => None,
         };
-        if rest.is_none() && written <= ARGUMENT_SLOTS {
+        // `arguments`, where a function that has one -- not an arrow, which sees its
+        // enclosing function's -- mentions it: the same test `emit/function.rs` makes.
+        let wants_arguments = !function.captures_this
+            && match &function.body {
+                crate::syntax::FunctionBody::Block(body) => self
+                    .names
+                    .find("arguments")
+                    .is_some_and(|named| crate::emit::capture::mentions(body, named)),
+                crate::syntax::FunctionBody::Expression(_) => false,
+            };
+        if rest.is_none() && written <= ARGUMENT_SLOTS && !wants_arguments {
             return Ok(());
         }
         let at = Expr {
@@ -48,7 +58,8 @@ impl Lowering<'_> {
 
         if written > ARGUMENT_SLOTS {
             let all = self.rest_arguments(0, &slots, &at);
-            for (position, parameter) in function.parameters.iter().enumerate().skip(ARGUMENT_SLOTS) {
+            for (position, parameter) in function.parameters.iter().enumerate().skip(ARGUMENT_SLOTS)
+            {
                 let Pattern::Name(name) = &parameter.target else {
                     return Err(Unsupported::Pattern);
                 };
@@ -62,6 +73,10 @@ impl Lowering<'_> {
                 let value = self.prim(JsPrim::IndexRead, vec![all, index], &at);
                 self.bind(*name, value, Type::Anything, &at)?;
             }
+        }
+        if wants_arguments {
+            let entry = self.domain.entry_point(RuntimeOp::ArgumentsObject);
+            self.arguments = Some(self.call(Callee::Entry(entry), None, slots.clone(), &at));
         }
         if let Some(name) = rest {
             let gathered = self.rest_arguments(written as u32, &slots, &at);

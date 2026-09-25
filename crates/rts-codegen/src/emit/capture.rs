@@ -1313,7 +1313,7 @@ pub(super) fn has_with(body: &[Stmt]) -> bool {
     found
 }
 
-pub(super) fn mentions(body: &[Stmt], wanted: Name) -> bool {
+pub(crate) fn mentions(body: &[Stmt], wanted: Name) -> bool {
     let mut found = false;
     for statement in body {
         mentions_in_stmt(statement, wanted, &mut found);

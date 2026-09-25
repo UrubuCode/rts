@@ -2351,17 +2351,21 @@ fn a_bare_yield_carries_no_operand() {
     assert_eq!(parked, None);
 }
 
-/// `yield*` is not a suspension, it is a loop around one — three methods forwarded to an
-/// inner iterator — so it shares the piece the array pattern and `for`-`of` wait on.
+/// `yield*` is not a suspension, it is a LOOP around one: the protocol path parks once
+/// per element it steps and the materialised path once per element it holds, so the
+/// graph has two suspensions and a `yield*` over a two-element source parks twice at
+/// run time, not once.
 #[test]
-fn a_delegating_yield_is_refused_because_it_is_a_loop() {
-    let refused = only("function* g(i) { yield* i; }").expect_err("a delegating yield");
-    assert_eq!(
-        refused,
-        Unsupported::Expression(
-            "yield* forwards next, throw and return to an inner iterator, which is a loop"
-        )
-    );
+fn a_delegating_yield_is_a_loop_around_a_suspension() {
+    let lowered = only("function* g(i) { return yield* i; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let suspensions = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(held.op, rts_mir::Op::Suspend { .. }))
+        .count();
+    assert_eq!(suspensions, 2, "one in the protocol's loop, one in the list's");
 }
 
 /// Nothing may be moved across a suspension — in either direction and whatever the other

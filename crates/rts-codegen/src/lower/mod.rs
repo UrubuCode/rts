@@ -53,6 +53,7 @@ mod choice;
 mod claim;
 mod class;
 mod declare;
+mod delegate;
 mod destructure;
 mod environment;
 mod gather;
@@ -206,6 +207,7 @@ pub fn lower_within(
         environment: None,
         prologue: true,
         lexical_this: function.captures_this,
+        arguments: None,
         outer,
         loops: Vec::new(),
         points: 0,
@@ -363,6 +365,9 @@ struct Lowering<'a> {
     /// Whether `this` here is the enclosing function's rather than the receiver --
     /// an arrow's.
     lexical_this: bool,
+    /// The `arguments` object this activation built, where its body mentions the name
+    /// -- `gather.rs`.
+    arguments: Option<ValueId>,
     /// The layout of whoever makes this function's closure, where that is not this
     /// stage. See [`OuterLayout`].
     outer: Option<OuterLayout<'a>>,
@@ -516,9 +521,11 @@ impl Lowering<'_> {
                     // answer `undefined`, or whatever a program put there, where the
                     // language answers the activation's argument list -- so it is refused
                     // by name until this stage builds one.
-                    None if self.names.spelled(*name) == Some("arguments") => Err(Unsupported::Expression(
-                        "the arguments object, which this stage does not build",
-                    )),
+                    None if self.names.spelled(*name) == Some("arguments") => {
+                        self.arguments.ok_or(Unsupported::Expression(
+                            "the arguments object, which this stage does not build",
+                        ))
+                    }
                     // NO SCOPE DECLARES IT, so it is a global -- read through the
                     // global object, which is what the language does with one.
                     None => Ok(self.global(*name, expr)),

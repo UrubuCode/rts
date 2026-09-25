@@ -65,6 +65,15 @@ impl Names {
         name
     }
 
+    /// The identifier some text already is, without interning it.
+    ///
+    /// For a reader holding the interner shared -- a text nobody wrote is a name no
+    /// program mentions, which is the whole answer a question like "does this body
+    /// mention `arguments`" needs.
+    pub fn find(&self, text: &str) -> Option<Name> {
+        self.interned.get(text).copied()
+    }
+
     /// What an identifier is called.
     ///
     /// For diagnostics, and for nothing else: a decision that reads the text of a

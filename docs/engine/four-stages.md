@@ -2205,3 +2205,27 @@ did not were not this stage's:
   answers rather than a different language.
 
 Suite: 884 of 907, LOST empty against `main` and the step before.
+
+### `arguments`, `yield*`, and a runtime bug both engines shared: 97.4%
+
+10 079 taken and 268 declined, from 10 016 and 324.
+
+- **`arguments`** is built from the four slots by `ArgumentsObject` where a function that
+  has one mentions it, the test `emit/function.rs` makes. An arrow's is its enclosing
+  function's, and still declines.
+- **`yield*`** is a loop in the graph, path for path what `emit/delegate.rs` emits: the
+  source's iterator where it declares one, then either the protocol -- `DelegateStep`
+  until `done`, sending each resumption's value into the next step, the finished step's
+  `value` answering the expression -- or what `Iterate` materialises. Forwarding
+  `outer.throw(e)` and `outer.return(v)` stays the runtime's, as it was.
+- **A raise from the delegated iterator escaped the `yield*`.** Comparing the two engines
+  on `yield*` showed they agreed on a wrong answer: when the inner iterator's own `throw`
+  or `return` raised, `rts-core` ended the outer generator and let the error reach the
+  caller of `outer.throw(e)`, past the `try` the outer body had written around the
+  `yield*`. Node and Bun answer from the `catch`. It is raised at the `yield*` now, the
+  path an inner iterator with no `throw` already took, and
+  `tests/generator_delegate_raise_at_yield.test.ts` pins both halves -- it fails on the
+  binary before the fix.
+
+Suite: **885 of 908**, LOST empty against `main` and the step before; the one more file is
+that test.
