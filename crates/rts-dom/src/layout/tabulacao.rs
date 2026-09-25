@@ -8,7 +8,7 @@ use super::Segment;
 
 /// Expands each `\t` of `texto` into the spaces that reach the next tab stop,
 /// for the INTRINSIC width only: the line itself measures its tabs in px from
-/// the real position on the line (`quebra_espacos::Espacos::tab`). Both ask
+/// the real position on the line (`preserved_spaces::Spaces::tab`). Both ask
 /// `avanco_tab`, so the stop rule exists once; here the unit is a character
 /// (a space advance), which is what `tab-size: <number>` counts. The column
 /// starts at 0 because an intrinsic width is the width of one unbroken line.
@@ -18,7 +18,7 @@ fn expandir_tabs(texto: &str, tab_size: f32) -> String {
     for ch in texto.chars() {
         match ch {
             '\t' => {
-                let n = super::quebra_espacos::avanco_tab(coluna, tab_size, 1.0).round();
+                let n = super::preserved_spaces::tab_advance(coluna, tab_size, 1.0).round();
                 out.extend(std::iter::repeat(' ').take(n as usize));
                 coluna += n;
             }

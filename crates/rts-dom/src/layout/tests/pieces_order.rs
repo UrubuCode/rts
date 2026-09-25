@@ -1,4 +1,4 @@
-//! The paint order as ONE sequence of pieces (BT-2b, `layout/pecas.rs`): three
+//! The paint order as ONE sequence of pieces (BT-2b, `layout/pieces.rs`): three
 //! answers the index arithmetic it replaced got wrong, each pinned on the
 //! materialized list — the order a backend paints in.
 

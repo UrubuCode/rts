@@ -27,36 +27,36 @@ fn line_break_anywhere_alone_splits_every_two_ahem_chars() {
         "<div style='font:20px/1 Ahem;width:40px;line-break:anywhere'>abcd</div>",
         800.0,
     );
-    let pedacos = textos(&list);
+    let pieces = textos(&list);
     assert_eq!(
-        pedacos,
+        pieces,
         vec!["ab", "cd"],
-        "line-break:anywhere sozinho tem de partir a cada 2 caracteres: {pedacos:?}"
+        "line-break:anywhere alone must break every 2 characters: {pieces:?}"
     );
 }
 
-/// A mesma pergunta que `break_all_parte_uma_palavra_que_break_word_deixaria_descer`
-/// (`inline_box/tests/quebra.rs`), mas para `line-break: anywhere`: quebra uma
-/// palavra CURTA que caberia inteira na linha seguinte — o que
-/// `overflow-wrap: break-word` (e o `word-break` ausente aqui) deixaria
-/// descer. Fixa que `quebra_dentro` lê `line-break` como um terceiro caminho
-/// para `QuebraDentro::Sempre`, não só `word-break: break-all`.
+/// The same question as `break_all_parte_uma_palavra_que_break_word_deixaria_descer`
+/// (`inline_box/tests/quebra.rs`), but for `line-break: anywhere`: it breaks a
+/// SHORT word that would fit whole on the next line — which
+/// `overflow-wrap: break-word` (and the absent `word-break` here) would let
+/// drop down. Pins that `quebra_dentro` reads `line-break` as a third path
+/// to `QuebraDentro::Sempre`, not only `word-break: break-all`.
 #[test]
-fn line_break_anywhere_parte_palavra_que_break_word_deixaria_descer() {
-    let estreito = "width:60px;font-size:16px";
+fn line_break_anywhere_breaks_a_word_that_break_word_would_drop_down() {
+    let narrow = "width:60px;font-size:16px";
     let (d1, l1) = geometria(
-        &format!("<div style='{estreito};overflow-wrap:break-word'>aaaa <span>bbbb</span></div>"),
+        &format!("<div style='{narrow};overflow-wrap:break-word'>aaaa <span>bbbb</span></div>"),
         800.0,
     );
     let (d2, l2) = geometria(
-        &format!("<div style='{estreito};line-break:anywhere'>aaaa <span>bbbb</span></div>"),
+        &format!("<div style='{narrow};line-break:anywhere'>aaaa <span>bbbb</span></div>"),
         800.0,
     );
-    let com_break_word = rect(&d1, &l1, "span", 0);
-    let com_anywhere = rect(&d2, &l2, "span", 0);
+    let with_break_word = rect(&d1, &l1, "span", 0);
+    let with_anywhere = rect(&d2, &l2, "span", 0);
     assert!(
-        com_anywhere.h > com_break_word.h,
-        "line-break:anywhere reparte 'bbbb' em mais linhas do que break-word \
-         a desce inteira: anywhere={com_anywhere:?} break_word={com_break_word:?}"
+        with_anywhere.h > with_break_word.h,
+        "line-break:anywhere splits 'bbbb' into more lines than break-word, \
+         which lets it drop down whole: anywhere={with_anywhere:?} break_word={with_break_word:?}"
     );
 }

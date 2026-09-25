@@ -14,7 +14,7 @@
 //! houver um backend imediato só. Por isso "pintar antes" não é reordenar uma
 //! lista: é montar os itens negativos numa lista À PARTE e PREPENDER essa
 //! lista à frente da que já existe. Since BT-2b that is a splice of pieces at
-//! the front (`pecas.rs`); it used to be followed by a correction of every
+//! the front (`pieces.rs`); it used to be followed by a correction of every
 //! index that pointed by POSITION — the `at`/`hit_at` of each emitted subtree
 //! and the subtree counts of each clip marker — and none of those exists now.
 //!

@@ -11,9 +11,9 @@
 //!
 //! **Why a `Vec<Rect>` per box and not repeated `(BoxId, Rect)` entries with
 //! a fragment index on `Piece::Rect`.** The hit-test order is derived from the
-//! `Piece::Rect` marks (`pecas.rs`), one per box, and the hit rect must stay the
+//! `Piece::Rect` marks (`pieces.rs`), one per box, and the hit rect must stay the
 //! per-box union (`rect_cliente.rs` says why it must not grow further). With a
-//! mark per fragment, `pecas::collect` would push the same node once per line
+//! mark per fragment, `pieces::collect` would push the same node once per line
 //! and every consumer of `hit_order` would have to deduplicate — a second rule
 //! for one answer. Keeping the multiplicity INSIDE the entry leaves the marks,
 //! the traversal and the stitch exactly as BT-2b left them. `Fragment::rects`
@@ -219,7 +219,7 @@ impl super::DisplayList {
     pub(crate) fn rects_of_box(&self, box_id: BoxId) -> Vec<Rect> {
         match self.box_rects.fragments(box_id) {
             Some(own) => own.to_vec(),
-            None => super::pecas::rects_in_children(&self.pieces, box_id, 0.0, 0.0).unwrap_or_default(),
+            None => super::pieces::rects_in_children(&self.pieces, box_id, 0.0, 0.0).unwrap_or_default(),
         }
     }
 }
