@@ -43,6 +43,7 @@
 //! árvore, como a camada pede.
 
 use super::*;
+use crate::boxes::BoxTree;
 
 /// O `z-index` computado de um out-of-flow, `0` para `auto`/sem estilo — a
 /// mesma leitura que `layout_document` já fazia inline no `sort_by_key`.
@@ -130,37 +131,170 @@ fn creates_context(dom: &Dom, node: NodeIdx) -> bool {
         })
 }
 
-/// Prepende `antes` a `alvo`: what `antes` paints — its items, subtrees and
+/// Prepende `antes` a `target`: what `antes` paints — its items, subtrees and
 /// geometry marks, in its own order — comes FIRST, further back than
-/// everything `alvo` already had. A splice: no clip already in `alvo` can come
+/// everything `target` already had. A splice: no clip already in `target` can come
 /// to "contain" the negative subtrees, because a clip contains what lies
 /// between its markers and they now lie before both.
-pub(in crate::layout) fn merge_before(alvo: &mut DisplayList, antes: DisplayList) {
+pub(in crate::layout) fn merge_before(target: &mut DisplayList, antes: DisplayList) {
     if antes.pieces.is_empty() && antes.box_rects.is_empty() {
         return;
     }
-    alvo.pieces.splice(0..0, antes.pieces);
+    target.pieces.splice(0..0, antes.pieces);
     // `box_rects` é a geometria por CAIXA (era `node_rects`, por nó); a
     // fusão continua sendo uma simples união de mapas — as chaves de `antes`
-    // e `alvo` não colidem, porque vêm de subárvores disjuntas.
-    alvo.box_rects.extend(antes.box_rects);
-    alvo.grid_column_tracks.extend(antes.grid_column_tracks);
-    alvo.scroll_regions.splice(0..0, antes.scroll_regions);
+    // e `target` não colidem, porque vêm de subárvores disjuntas.
+    target.box_rects.extend(antes.box_rects);
+    target.grid_column_tracks.extend(antes.grid_column_tracks);
+    target.scroll_regions.splice(0..0, antes.scroll_regions);
 }
 
 /// Appends a positioned fragment after the current list.
 ///
 /// It used to translate the appended subtrees' item and hit indices and NOT
 /// the subtree counts its clip markers carried, so an `EndClip` of an
-/// `overflow:hidden` positioned box counted subtrees of `alvo` and let its own
+/// `overflow:hidden` positioned box counted subtrees of `target` and let its own
 /// children be drawn after it — outside the clip. An append of pieces has no
 /// count to forget.
-pub(in crate::layout) fn merge_after(alvo: &mut DisplayList, mut depois: DisplayList) {
+pub(in crate::layout) fn merge_after(target: &mut DisplayList, mut depois: DisplayList) {
     if depois.pieces.is_empty() && depois.box_rects.is_empty() {
         return;
     }
-    alvo.pieces.append(&mut depois.pieces);
-    alvo.box_rects.extend(depois.box_rects);
-    alvo.grid_column_tracks.extend(depois.grid_column_tracks);
-    alvo.scroll_regions.append(&mut depois.scroll_regions);
+    target.pieces.append(&mut depois.pieces);
+    target.box_rects.extend(depois.box_rects);
+    target.grid_column_tracks.extend(depois.grid_column_tracks);
+    target.scroll_regions.append(&mut depois.scroll_regions);
+}
+
+/// Is `a` before `b` in DOCUMENT (preorder) order? Walks both ancestor
+/// chains to the root and compares at the first level they diverge, by the
+/// SIBLING position under their common ancestor — general rather than
+/// assuming `a`/`b` are siblings, because a layer 8 out-of-flow box and the
+/// `position:relative` mark it is compared against can sit at different
+/// depths (CLAUDE.md repro: both direct children of one container, but a
+/// nested case is not excluded). An ancestor sorts before its own
+/// descendant, matching preorder.
+pub(in crate::layout) fn is_before_in_tree(dom: &Dom, a: NodeIdx, b: NodeIdx) -> bool {
+    if a == b {
+        return false;
+    }
+    let chain_of = |mut n: NodeIdx| {
+        let mut chain = vec![n];
+        while let Some(p) = dom.node(n).parent {
+            chain.push(p);
+            n = p;
+        }
+        chain.reverse();
+        chain
+    };
+    let (ca, cb) = (chain_of(a), chain_of(b));
+    let mut i = 0;
+    while i < ca.len() && i < cb.len() && ca[i] == cb[i] {
+        i += 1;
+    }
+    if i == ca.len() || i == cb.len() {
+        // One is an ancestor of the other: the ancestor's content starts
+        // first.
+        return i == ca.len();
+    }
+    let parent = ca[i - 1];
+    let siblings = &dom.node(parent).children;
+    let pos_a = siblings.iter().position(|&c| c == ca[i]);
+    let pos_b = siblings.iter().position(|&c| c == cb[i]);
+    pos_a < pos_b
+}
+
+/// Is `node` a layer 8 box — CSS 2.1 Appendix E: `position:relative` with
+/// `z-index: auto`/`0` — that an out-of-flow sibling of the same layer must
+/// paint BEFORE if it precedes `node` in the document? Read straight from the
+/// style at splice time, computed on demand rather than recorded during
+/// layout: a stored index into `pieces` is exactly the bookkeeping BT-2b
+/// deleted (this module's header), and every `Piece::Child` this walks
+/// through would need its own index space anyway, since it is a REUSED
+/// subtree potentially built by an earlier frame or shared with another box
+/// entirely (`fragmento.rs`'s cache).
+fn is_layer8_relative(dom: &Dom, node: NodeIdx) -> bool {
+    dom.computed_style_idx(node)
+        .is_some_and(|css| css.position == Some(crate::style::Position::Relative) && z_index_of(dom, node) == 0)
+}
+
+/// Splices `insert` into `pieces` right before the EARLIEST layer 8
+/// `position:relative` box that follows `target` in document order, searched
+/// depth-first in paint order — descending into a `Piece::Child`'s own
+/// subtree when its root box is not itself the match, since the relative box
+/// this out-of-flow sibling has to land before can be nested inside a cached
+/// container (`fragmento.rs` wraps EVERY ordinary block child as one, so the
+/// two are direct DOM siblings far more often than they are direct
+/// `pieces`-array neighbours).
+///
+/// A matched `Piece::Child`'s cached [`Fragment`] is never mutated in place —
+/// it may be shared with another frame or another box entirely — so the path
+/// from `pieces` down to the match is copy-on-written: only the fragments
+/// actually on that path get a fresh `Rc`, and every sibling subtree the walk
+/// does not enter keeps pointing at the exact `Rc` it already had.
+///
+/// `Err(insert)` unchanged when no match exists anywhere in `pieces` — the
+/// caller appends it at the end instead, same as before this fix (Appendix E
+/// layer 8 paints a box with nothing after it last among ties).
+pub(in crate::layout) fn splice_layer8(
+    dom: &Dom,
+    tree: &BoxTree,
+    pieces: &mut Vec<Piece>,
+    target: NodeIdx,
+    mut insert: Vec<Piece>,
+) -> Result<(), Vec<Piece>> {
+    for i in 0..pieces.len() {
+        // `Piece::Rect(box_id)` is the mark EVERY box leaves at its own paint
+        // position, reserved before its own content and descendants
+        // (`itens.rs::reserve_box_order`) — unlike `Piece::Child`, it exists
+        // whether or not this box went through the fragment cache, which is
+        // what a table's internals (`table/mod.rs` calls `layout_block`
+        // straight, never `layout_block_reusing`) need: a `<tbody>` never
+        // gets its own `Piece::Child`, only this mark.
+        if let Piece::Rect(box_id) = &pieces[i] {
+            if tree
+                .node_of(*box_id)
+                .is_some_and(|n| is_layer8_relative(dom, n) && is_before_in_tree(dom, target, n))
+            {
+                // `Piece::Rect(box_id)` is NOT this box's earliest paint
+                // position: `bloco.rs` reserves it at `box_start`, lays out
+                // the children (appended after), and only THEN inserts the
+                // box's own background/border AT `box_start` — pushing the
+                // `Rect` one slot later than where the box's OWN paint
+                // actually starts (`bloco.rs` around `record_box_rect`,
+                // comment "o fundo... insert no box_start"). Walking
+                // backward over plain `Item`s is safe: the previous sibling
+                // finished its ENTIRE insert cycle before this box's
+                // `box_start` was even captured, so nothing between the end
+                // of that sibling and this `Rect` can belong to anyone else.
+                let mut splice_at = i;
+                while splice_at > 0 && matches!(pieces[splice_at - 1], Piece::Item(_)) {
+                    splice_at -= 1;
+                }
+                pieces.splice(splice_at..splice_at, insert);
+                return Ok(());
+            }
+            continue;
+        }
+        let Piece::Child(c) = &pieces[i] else { continue };
+        if tree
+            .node_of(c.caixa)
+            .is_some_and(|n| is_layer8_relative(dom, n) && is_before_in_tree(dom, target, n))
+        {
+            pieces.splice(i..i, insert);
+            return Ok(());
+        }
+        let mut subtree = (*c.fragment.pieces).clone();
+        match splice_layer8(dom, &c.fragment.tree, &mut subtree, target, insert) {
+            Ok(()) => {
+                let mut novo = (*c.fragment).clone();
+                novo.pieces = std::rc::Rc::new(subtree);
+                let Piece::Child(c) = &mut pieces[i] else { unreachable!() };
+                c.fragment = std::rc::Rc::new(novo);
+                return Ok(());
+            }
+            Err(devolvido) => insert = devolvido,
+        }
+    }
+    Err(insert)
 }

@@ -84,6 +84,20 @@ impl WhiteSpaceRegime {
         self.ws == WhiteSpace::BreakSpaces
     }
 
+    /// Does a run under THIS regime ever offer an automatic soft-wrap
+    /// opportunity? False for `nowrap` and `pre` (CSS Text 3 §4.1.3 — both
+    /// forbid line breaking except at a forced `\n`, which `pre` still
+    /// preserves). This is what makes `white-space` apply per INLINE box
+    /// rather than once for the whole flow: `wrap_runs` asks it of the RUN
+    /// that owns the boundary being closed, not of the container, so
+    /// `<span style="white-space:nowrap">` glues only its own spaces while
+    /// the text around it keeps wrapping normally, and a `normal` span
+    /// inside a `<pre>` wraps on its own even though the `<pre>` around it
+    /// never would.
+    pub(in crate::layout) fn wraps(self) -> bool {
+        !matches!(self.ws, WhiteSpace::Nowrap | WhiteSpace::Pre)
+    }
+
     /// A tab advances to the next tab stop, measured from `pos` — not from the
     /// start of the run, which was the cut the old per-run expansion in
     /// `linha.rs` declared. The text is spaces so the painter, which has no

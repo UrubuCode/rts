@@ -42,3 +42,37 @@ fn a_normal_span_inside_pre_collapses_its_own_spaces() {
     let y = rect(&dom, &list, "#y", 0);
     assert_eq!((y.x, y.y), (60.0, 0.0), "x + ␣a␣b␣ = 6ch before y");
 }
+
+/// `white-space: nowrap` on a `<span>` glues only ITS OWN spaces — there is
+/// no soft-wrap opportunity between "bb", "cc" and "dd" — while the text
+/// around the span still wraps normally on the container's `normal`. Width
+/// is 6ch; "bb cc dd" alone is 8ch, wider than the whole line, so per CSS2.1
+/// the unbreakable run overflows its line rather than being split: "bb" and
+/// "dd" must land on the SAME line even though that line is wider than the
+/// container.
+#[test]
+fn a_nowrap_span_glues_only_its_own_spaces() {
+    let html = r#"<style>div { font: 10px/1 Ahem; width: 60px; }</style>
+<div>aa <span style="white-space:nowrap"><span id=bb>bb</span> cc <span id=dd>dd</span></span> ee</div>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let bb = rect(&dom, &list, "#bb", 0);
+    let dd = rect(&dom, &list, "#dd", 0);
+    assert_eq!(bb.y, dd.y, "the nowrap span's own text never breaks between its spaces");
+}
+
+/// The container-wide `nowrap` shortcut in `linha.rs` used to force an
+/// INFINITE line width for the whole flow whenever the CONTAINER's
+/// `white-space` was `nowrap`/`pre`, which made a `normal` span placed
+/// inside a `<pre>` unable to wrap at all — the line box it needed a finite
+/// width for never existed. Width is 7ch; "aaaa bb" (7ch) fits the first
+/// line exactly, and the `normal` span's own trailing space is where it
+/// wraps: "cc" does not fit in what is left and moves to a second line,
+/// exactly as it would outside the `<pre>`.
+#[test]
+fn a_normal_span_inside_pre_still_wraps() {
+    let html = r#"<style>pre { font: 10px/1 Ahem; width: 70px; margin: 0; }</style>
+<pre>aaaa <span style="white-space:normal">bb <span id=cc>cc</span></span></pre>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let cc = rect(&dom, &list, "#cc", 0);
+    assert_eq!(cc.y, 10.0, "'cc' wraps to the second line inside the normal span");
+}

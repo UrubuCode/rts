@@ -256,6 +256,25 @@ pub(in crate::layout) fn wrap_runs(
             espaco_de_fora = false;
         }};
     }
+    // A collapsible space at a boundary whose run FORBIDS automatic wrapping
+    // (`nowrap`, `pre` — `WhiteSpaceRegime::wraps`): closing the cluster here
+    // like an ordinary space would DRAIN it into `cur` early, and a LATER
+    // close — by a run that DOES allow wrapping, such as the plain text after
+    // a `<span style="white-space:nowrap">` — would then see only the tail of
+    // the nowrap span still open and could break the LINE in the middle of
+    // it (`nowrap-span-glues-only-its-own-spaces`: "bb cc dd" landed as "bb
+    // cc" on one line and "dd" alone on the next). So instead of closing, the
+    // space becomes an ordinary PIECE of the same open cluster — exactly how
+    // the PRESERVED branch already represents a space (`Token::Space`,
+    // above) — so the whole nowrap run stays ONE cluster and is measured as
+    // one indivisible unit whenever a real wrap opportunity eventually closes
+    // it.
+    macro_rules! glue_space {
+        ($i:expr) => {{
+            let w = space_w(m, $i);
+            juntar!(Peca { run: $i, texto: " ".to_string(), largura: w, atomico: None }, w);
+        }};
+    }
 
     for (i, run) in runs.iter().enumerate() {
         // WIDGET: uma "palavra" inquebravel de run.ww pontos, segmento proprio.
@@ -315,7 +334,12 @@ pub(in crate::layout) fn wrap_runs(
                 if f.is_white() && !each {
                     cluster_hang += w;
                 }
-                if f.is_white() && (each || !toks.peek().is_some_and(Token::is_white)) {
+                // Un-drained (see `glue_space!`) when this run forbids
+                // wrapping: the space is already a PIECE in the cluster
+                // (`juntar!` above), so nothing is lost by not closing —
+                // closing early is what would let a later, wrap-allowed
+                // boundary break in the middle of this run's content.
+                if f.is_white() && (each || !toks.peek().is_some_and(Token::is_white)) && regime.wraps() {
                     fechar_cluster!();
                 }
             }
@@ -338,9 +362,13 @@ pub(in crate::layout) fn wrap_runs(
                 espaco_de_fora = false;
                 continue;
             }
-            fechar_cluster!();
-            pending_space = true;
-            espaco_de_fora = true;
+            if regime.wraps() {
+                fechar_cluster!();
+                pending_space = true;
+                espaco_de_fora = true;
+            } else {
+                glue_space!(i);
+            }
             continue;
         }
         if run.text.is_empty() {
@@ -349,14 +377,18 @@ pub(in crate::layout) fn wrap_runs(
         // O espaco da frente e devido quando havia whitespace desde a ultima
         // palavra, esteja ele no fim do run ANTERIOR ou no inicio deste.
         if run.text.starts_with(e_espaco_css) {
-            fechar_cluster!();
-            pending_space = true;
-            // NAO e vao: este espaco esta no texto DESTE run, logo pertence aos
-            // donos dele e vive dentro do segmento. So o espaco que vem de um
-            // run ANTERIOR e um vao. E a diferenca entre `<a> alvo</a>` e
-            // `antes <a>alvo</a>` -- o `::after` com `content:" (…)"` e o
-            // primeiro caso, e o espaco tem de sobreviver no texto.
-            espaco_de_fora = false;
+            if regime.wraps() {
+                fechar_cluster!();
+                pending_space = true;
+                // NAO e vao: este espaco esta no texto DESTE run, logo pertence aos
+                // donos dele e vive dentro do segmento. So o espaco que vem de um
+                // run ANTERIOR e um vao. E a diferenca entre `<a> alvo</a>` e
+                // `antes <a>alvo</a>` -- o `::after` com `content:" (…)"` e o
+                // primeiro caso, e o espaco tem de sobreviver no texto.
+                espaco_de_fora = false;
+            } else {
+                glue_space!(i);
+            }
         }
         // As FAST PATHS abaixo julgam pelo texto APARADO ou por `ends_with`, e
         // um run "tres\n" apara para "tres" (sem whitespace interno) — tomaria
@@ -381,9 +413,13 @@ pub(in crate::layout) fn wrap_runs(
                 w
             );
             if terminava_em_espaco {
-                fechar_cluster!();
-                pending_space = true;
-                espaco_de_fora = true;
+                if regime.wraps() {
+                    fechar_cluster!();
+                    pending_space = true;
+                    espaco_de_fora = true;
+                } else {
+                    glue_space!(i);
+                }
             }
             continue;
         }
@@ -451,9 +487,13 @@ pub(in crate::layout) fn wrap_runs(
                         continue;
                     }
                 }
-                fechar_cluster!();
-                pending_space = true;
-                espaco_de_fora = false;
+                if regime.wraps() {
+                    fechar_cluster!();
+                    pending_space = true;
+                    espaco_de_fora = false;
+                } else {
+                    glue_space!(i);
+                }
                 rest = rest.trim_start_matches(e_espaco_css);
                 continue;
             }
@@ -472,9 +512,13 @@ pub(in crate::layout) fn wrap_runs(
             );
         }
         if run.text.ends_with(e_espaco_css) {
-            fechar_cluster!();
-            pending_space = true;
-            espaco_de_fora = true;
+            if regime.wraps() {
+                fechar_cluster!();
+                pending_space = true;
+                espaco_de_fora = true;
+            } else {
+                glue_space!(i);
+            }
         }
     }
     fechar_cluster!();

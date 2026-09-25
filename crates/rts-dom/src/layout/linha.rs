@@ -116,10 +116,15 @@ pub(in crate::layout) fn layout_inline_flow(
     // avanço do cursor. A PINTURA não usa esta previsão — usa o `cy` verdadeiro
     // (ver a banda recalculada no laço), portanto o erro fica no ponto de
     // quebra e nunca em texto pintado por cima de um float.
+    // No `nowrap`/`pre` shortcut here any more: `white-space` is now gated
+    // PER RUN inside `wrap_runs` (`WhiteSpaceRegime::wraps`, `quebra.rs`), so
+    // an infinite width for the whole flow would be wrong the moment one run
+    // in it — a `<span style="white-space:normal">` inside a `<pre>`, or the
+    // ordinary text around a `nowrap` span — is allowed to wrap on its own.
+    // For a flow whose runs are ALL nowrap/pre, this is redundant rather than
+    // wrong: `wrap_runs` never checks the width against a run it will not
+    // break at anyway, so a finite `content_w` here changes nothing for it.
     let largura_da_linha = |exclusoes: &[Exclusao], i: usize| -> f32 {
-        if nowrap {
-            return f32::INFINITY;
-        }
         if exclusoes.is_empty() {
             return content_w;
         }

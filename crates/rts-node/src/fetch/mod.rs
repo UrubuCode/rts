@@ -96,7 +96,11 @@ pub(crate) extern "C" fn fetch(
 
     match request(&text, &method, &body, &extra_headers) {
         Ok(response) => {
-            let object = entry::with_runtime(|context| build_response(context, &text, response));
+            // Built OUTSIDE the `with_runtime` below, for the reason
+            // `make_headers` states: it calls `entry::construct`, which
+            // re-enters the context on its own.
+            let headers = make_headers(&response.headers);
+            let object = entry::with_runtime(|context| build_response(context, &text, headers, response));
             entry::with_runtime(|context| entry::settled(context, object, false))
         }
         Err(reason) => reject(&format!("fetch: {text}: {reason}")),
@@ -129,20 +133,80 @@ pub(super) struct Response {
 
 /// The `headers` the program passed, as pairs.
 ///
-/// A plain object, which is the shape `fetch(url, { headers: { … } })` uses
-/// most. The `Headers` class does not exist here and so is not accepted —
-/// saying so by its absence rather than faking it.
+/// Goes through the global `Headers` class rather than walking `headers`
+/// itself: `rts-std` installs that class (it is a browser/Node global, not
+/// something this crate owns — see the module doc), and its constructor
+/// already accepts every shape the Fetch Standard does — a plain object, an
+/// array of `[name, value]` pairs, or another `Headers` — with its own name
+/// and value normalisation. Reaching it by name off the global object is the
+/// same route `body_json` already takes to `JSON.parse`: this crate has no
+/// dependency on `rts-std`, so a global lookup is how a native here reuses a
+/// class that crate defines, instead of re-parsing header shapes by hand.
 fn headers_of(options: u64) -> Vec<(String, String)> {
-    let object = entry::with_runtime(|context| entry::get_member(context, options, "headers"));
-    let names = entry::with_runtime(|context| entry::member_names(context, object));
-    let mut out = Vec::new();
-    for name in names {
-        let value = entry::with_runtime(|context| entry::get_member(context, object, &name));
-        if let Some(value) = entry::text_of(value) {
-            out.push((name, value));
-        }
-    }
-    out
+    let init = entry::with_runtime(|context| entry::get_member(context, options, "headers"));
+    let instance = headers_from(init);
+    let entries_fn = entry::with_runtime(|context| entry::get_member(context, instance, "entries"));
+    let absent = entry::undefined_value();
+    let entries = entry::call(entries_fn, instance, absent, absent, absent, absent);
+    pairs_of(entries)
+}
+
+/// A `Headers` instance over a response's raw header pairs — built as an
+/// array of `[name, value]` pairs rather than a plain object, so that a
+/// repeated header (`set-cookie` above all) survives the trip: a plain
+/// object can hold one value per key, and the `Headers` constructor's own
+/// combining rule is what the spec asks for instead of losing the rest.
+fn make_headers(pairs: &[(String, String)]) -> u64 {
+    let init = entry::with_runtime(|context| {
+        let built = pairs
+            .iter()
+            .map(|(name, value)| {
+                let pair = vec![entry::make_string(context, name), entry::make_string(context, value)];
+                entry::make_array_in(context, pair)
+            })
+            .collect();
+        entry::make_array_in(context, built)
+    });
+    headers_from(init)
+}
+
+/// `new Headers(init)`, off the global `rts-std` installs — see
+/// [`headers_of`]'s comment for why a global lookup and not a dependency.
+///
+/// `entry::construct` re-enters `with_current` on its own — see `called` in
+/// `rts-core`'s `entry::functions` — so the class lookup happens inside a
+/// `with_runtime` that returns before `construct` runs, never around it. A
+/// panic here would be inside an `extern "C"` frame that cannot unwind, which
+/// aborts the process rather than failing.
+fn headers_from(init: u64) -> u64 {
+    let class = entry::with_runtime(|context| {
+        let global = entry::global_object(context);
+        entry::get_member(context, global, "Headers")
+    });
+    let absent = entry::undefined_value();
+    entry::construct(class, init, absent, absent, absent)
+}
+
+/// A JS array's elements — the same recipe `node:url` and `child_process`'s
+/// `shared.rs` use over an indexed `length`.
+fn array_elements(array: u64) -> Vec<u64> {
+    let count = entry::array_length(array);
+    let count = if count.is_finite() && count > 0.0 { count as usize } else { 0 };
+    (0..count).map(|at| entry::get_indexed(array, entry::make_number(at as f64))).collect()
+}
+
+/// The `[[name, value], ...]` array `Headers.prototype.entries()` answers,
+/// read back into Rust pairs.
+fn pairs_of(entries: u64) -> Vec<(String, String)> {
+    array_elements(entries)
+        .into_iter()
+        .filter_map(|pair| {
+            let parts = array_elements(pair);
+            let name = entry::text_of(*parts.first()?)?;
+            let value = entry::text_of(*parts.get(1)?)?;
+            Some((name, value))
+        })
+        .collect()
 }
 
 /// The `Response` object the promise delivers.
@@ -150,7 +214,7 @@ fn headers_of(options: u64) -> Vec<(String, String)> {
 /// Its methods answer promises, as in a browser — `res.text()` is always an
 /// `await`, and a version that returned the raw string would make code
 /// written for here work and break what is written everywhere else.
-fn build_response(context: &mut Context, url: &str, response: Response) -> u64 {
+fn build_response(context: &mut Context, url: &str, headers: u64, response: Response) -> u64 {
     let object = entry::make_object(context);
     entry::put_member(context, object, "status", entry::make_number(response.status as f64));
     let reason = entry::make_string(context, &response.reason);
@@ -163,15 +227,12 @@ fn build_response(context: &mut Context, url: &str, response: Response) -> u64 {
     let type_ = entry::make_string(context, "basic");
     entry::put_member(context, object, "type", type_);
 
-    // The headers as a plain object, with lowercased names — the shape a
-    // `Headers` answers and what a program compares against. Not the
-    // `Headers` class: `get`/`has`/`forEach` are not here, and inventing
-    // them half-done would be worse than the absence.
-    let headers = entry::make_object(context);
-    for (name, value) in &response.headers {
-        let value = entry::make_string(context, value);
-        entry::put_member(context, headers, &name.to_lowercase(), value);
-    }
+    // A real `Headers` instance (built by the caller — see `make_headers`),
+    // through the global `Headers` class rather than a plain object. That
+    // class already normalises names (lower-cased), joins repeated ones with
+    // `", "` on `get`, and keeps `set-cookie` apart on iteration — a
+    // `res.headers.get("content-type")` used to throw `TypeError: get is not
+    // a function` because `headers` was a plain object with no such method.
     entry::put_member(context, object, "headers", headers);
 
     // The body is kept as both text and bytes, and the methods read from
