@@ -204,7 +204,7 @@ pub(in crate::layout) fn montar(
 /// answers for it. Here and not in each role: this is the one place all three
 /// (block, flex item, `inline-block` atom) pass with their final position.
 /// It reaches no DOM-facing geometry — the box has no node — and it is
-/// shifted with its element by `relativo.rs`/`transformacao.rs`, which walk
+/// shifted with its element by `relativo.rs`/`transform_rects.rs`, which walk
 /// the tree's full `children`.
 pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: f32, y: f32, ctx: &LayoutCtx) {
     let css = &caixa.caixa.css;

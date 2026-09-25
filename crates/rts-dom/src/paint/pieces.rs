@@ -3,7 +3,7 @@
 //!
 //! Before this module a list was `items: Vec<DisplayItem>` beside
 //! `children: Vec<ChildRef>`, each child saying "paint me before item `at`",
-//! plus `hit_order: Vec<BoxId>` with each child saying "my hit order enters
+//! plus a hit order `Vec<BoxId>` with each child saying "my hit order enters
 //! before entry `hit_at`". Two indices into vectors that grow for different
 //! reasons, fixed by hand wherever something was inserted: `insert_item` (+1 to
 //! every later `at`, but only for children created after the insertion point
@@ -22,8 +22,8 @@
 //! before them. Nothing points INTO the vector, so an insert has nothing to fix.
 //!
 //! [`Piece::Rect`] marks where a box recorded its geometry, and the hit-test
-//! order is DERIVED from those marks by the same traversal that paints
-//! ([`collect`]). Storing it beside the paint order was the rejected
+//! reads those marks in the same sequence that paints, backwards
+//! (`query/hit.rs`). Storing it beside the paint order was the rejected
 //! alternative: that second sequence is exactly what `hit_at` existed to keep
 //! aligned, and what cost the `z-index` defect its comment named.
 //!
@@ -84,7 +84,7 @@ pub(crate) fn count_items(pieces: &[Piece]) -> usize {
 /// Does `pieces` paint anything — an item or a subtree? A geometry mark alone
 /// paints nothing, and the two callers that ask ("has this line emitted
 /// anything yet", "is there a negative layer to prepend") asked it of the old
-/// `items` and `children` and never of `hit_order`.
+/// `items` and `children` and never of the hit order.
 pub(crate) fn paints(pieces: &[Piece]) -> bool {
     pieces.iter().any(|p| !matches!(p, Piece::Rect(_)))
 }

@@ -12,7 +12,7 @@ const TOL: f32 = 1.0;
 
 /// The rect the bridge answers (`boundingRect`) and the one `.esperado.json`
 /// measures — `rect_of`, not the hit-test table, which leaves out the blocks
-/// that split an inline (`layout/rect_cliente.rs`).
+/// that split an inline (`query/rect.rs`).
 fn rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, _n: usize) -> Rect {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"))

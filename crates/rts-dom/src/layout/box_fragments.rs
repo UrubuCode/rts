@@ -10,13 +10,13 @@
 //! hit-test geometry all read.
 //!
 //! **Why a `Vec<Rect>` per box and not repeated `(BoxId, Rect)` entries with
-//! a fragment index on `Piece::Rect`.** The hit-test order is derived from the
-//! `Piece::Rect` marks (`pieces.rs`), one per box, and the hit rect must stay the
-//! per-box union (`rect_cliente.rs` says why it must not grow further). With a
-//! mark per fragment, `pieces::collect` would push the same node once per line
-//! and every consumer of `hit_order` would have to deduplicate — a second rule
-//! for one answer. Keeping the multiplicity INSIDE the entry leaves the marks,
-//! the traversal and the stitch exactly as BT-2b left them. `Fragment::rects`
+//! a fragment index on `Piece::Rect`.** The hit-test order is the order of the
+//! `Piece::Rect` marks (`paint/pieces.rs`), one per box, and the hit-test
+//! (`query/hit.rs`) tests that one mark against every fragment of its box. With
+//! a mark per fragment, each would have to find its own rect again and a box
+//! would enter the order once per line — a second rule for one answer. Keeping
+//! the multiplicity INSIDE the entry leaves the marks, the traversal and the
+//! stitch exactly as BT-2b left them. `Fragment::rects`
 //! is the flattened form and does hold a box several times (form point 5):
 //! it is only ever read by unioning per node or by searching for one box.
 //!

@@ -1,8 +1,10 @@
 //! The geometry ASKED of a paint list after layout: `Geometry` (rects per
-//! node, the hit order, the scroll regions) and the per-box and per-node
+//! node, the scroll regions) and the per-box and per-node
 //! rect queries.
 //!
-//! Moved from `layout/display.rs` and `layout/pieces.rs` (`collect`) on 2026-09-25 (PQ-A3); nothing in it changed.
+//! The hit-test does not read it: it walks the fragments itself (`hit.rs`),
+//! because a rect per node is exactly what cannot tell a wrapped link's two
+//! lines from the gap between them.
 
 use crate::boxes::{BoxId, BoxTree};
 use crate::dom::NodeIdx;
@@ -14,7 +16,6 @@ use crate::paint::pieces::Piece;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Geometry {
     pub rects: crate::fasthash::FastMap<NodeIdx, Rect>,
-    pub hit_order: Vec<(NodeIdx, Rect)>, // each box's own rect: `pieces::collect`
     pub scroll_regions: Vec<ScrollRegion>,
 }
 
@@ -53,12 +54,10 @@ impl DisplayList {
         }
         let mut g = Geometry {
             rects,
-            hit_order: Vec::new(),
             scroll_regions: self.scroll_regions.clone(),
         };
-        // The hit order is the geometry marks in paint order, a reused
-        // subtree's entering where its `Child` stands — `pieces::collect`.
-        collect(&self.tree, &self.pieces, 0.0, 0.0, &|b| self.box_rects.union(b), &mut g);
+        // The reused subtrees' rects and scroll regions, in paint order.
+        add_children(&self.tree, &self.pieces, 0.0, 0.0, &mut g);
         g
     }
 
@@ -95,56 +94,28 @@ impl DisplayList {
     }
 }
 
-/// The hit order and the geometry of the subtrees `pieces` reuses, into `out`.
-///
-/// ONE walk in paint order: a box's hit-test entry is its [`Piece::Rect`], and a
-/// subtree's entries come in where its `Child` stands — which is what `hit_at`
-/// reconstructed by counting. The `Geometry` answers by NODE, so a box is
-/// translated here, and an anonymous box (no node) does not enter: the bridge
-/// promises element boxes, and a box the document does not have is not
-/// reachable by any `NodeId`.
-///
-/// **Each entry carries its BOX's rect** (`rect_of`, already offset), not the
-/// node's. A split inline's fragment after the block marks its box after the
-/// block's; with the node's union — which spans the block — it won a click on
-/// the block that Blink gives the block (`rect_cliente.rs`). That only held
-/// while every fragment box was written at the first line, marking them all
-/// before the block — true of the per-node union, false once each fragment
-/// records its own rects (BT-2c).
-pub(crate) fn collect(
-    tree: &BoxTree,
-    pieces: &[Piece],
-    dx: f32,
-    dy: f32,
-    rect_of: &dyn Fn(BoxId) -> Option<Rect>,
-    out: &mut Geometry,
-) {
-    for piece in pieces {
-        match piece {
-            Piece::Rect(box_id) => out.hit_order.extend(tree.node_of(*box_id).zip(rect_of(*box_id))),
-            Piece::Child(c) => collect_fragment(tree, &c.fragment, dx + c.dx, dy + c.dy, out),
-            Piece::Item(_) => {}
-        }
+/// The geometry of the subtrees `pieces` reuses, offset, into `out`.
+fn add_children(tree: &BoxTree, pieces: &[Piece], dx: f32, dy: f32, out: &mut Geometry) {
+    for c in crate::paint::pieces::children(pieces) {
+        add_fragment(tree, &c.fragment, dx + c.dx, dy + c.dy, out);
     }
 }
 
 /// A reused fragment's rects (several boxes of one node unite, which is what
-/// `getBoundingClientRect` asks), then its pieces, then its scroll regions —
+/// `getBoundingClientRect` asks), then its subtrees', then its scroll regions —
 /// the order `geometry_now` always produced them in.
-fn collect_fragment(tree: &BoxTree, fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
+fn add_fragment(tree: &BoxTree, fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
     let moved = dx != 0.0 || dy != 0.0;
-    let mut by_box: crate::fasthash::FastMap<BoxId, Rect> = crate::fasthash::FastMap::default();
     for (box_id, rect) in fragment.rects.iter() {
         let mut rect = *rect;
         if moved {
             rect.x += dx;
             rect.y += dy;
         }
-        by_box.entry(*box_id).and_modify(|r| *r = r.union(rect)).or_insert(rect);
         let Some(node) = tree.node_of(*box_id) else { continue };
         out.rects.entry(node).and_modify(|r| *r = r.union(rect)).or_insert(rect);
     }
-    collect(tree, &fragment.pieces, dx, dy, &|b| by_box.get(&b).copied(), out);
+    add_children(tree, &fragment.pieces, dx, dy, out);
     for region in fragment.scroll_regions.iter() {
         let mut region = *region;
         if moved {

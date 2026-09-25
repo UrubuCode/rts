@@ -64,7 +64,7 @@ fn overflow_hidden_recorta_o_filho_que_transborda() {
         .expect("overflow:hidden abre um BeginClip");
     let child_at = itens
         .iter()
-        // RGBA (R no byte mais significativo — ver `display.rs`): azul opaco.
+        // RGBA (R no byte mais significativo — ver `paint/item.rs`): azul opaco.
         .position(|it| matches!(it, DisplayItem::SolidRect { color, .. } if *color == 0x0000_FFFF));
     let child_at = child_at.expect("o filho pinta um SolidRect azul");
 

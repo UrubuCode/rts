@@ -27,7 +27,7 @@ use crate::dom::NodeIdx;
 use crate::paint::list::{DisplayList, Rect};
 
 impl DisplayList {
-    /// `getBoundingClientRect` — NÃO é só `Geometry::rects`; ver `rect_cliente.rs`.
+    /// `getBoundingClientRect` — NÃO é só `Geometry::rects`; ver o topo deste ficheiro.
     pub fn rect_of(&self, node: NodeIdx) -> Option<Rect> {
         rect_cliente(self, node)
     }
