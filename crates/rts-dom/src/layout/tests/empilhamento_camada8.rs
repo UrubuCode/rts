@@ -1,5 +1,5 @@
 //! Camada 8 do Apêndice E (`z-index:0` e `z-index:auto` juntos, ordem do
-//! documento) contra a regressão de `4c1d08132` — ver `empilhamento.rs`.
+//! documento) contra a regressão de `4c1d08132` — ver `paint/stacking.rs`.
 //! Ficheiro NOVO (`posicionado.rs` já está no teto de 500 linhas) em vez de
 //! crescer um ficheiro que não pode crescer.
 

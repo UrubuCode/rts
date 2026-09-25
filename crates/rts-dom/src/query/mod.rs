@@ -7,5 +7,7 @@
 pub(crate) mod geometry;
 pub(crate) mod hit;
 pub(crate) mod rect;
+#[cfg(test)]
+mod tests;
 
 pub use self::geometry::Geometry;

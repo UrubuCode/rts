@@ -380,7 +380,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // ocuparam espaço). Pintados contra o VIEWPORT com top/right/bottom/left,
     // por Z-INDEX: negativo pinta ANTES do fluxo normal — atrás dele —, e
     // ≥0/auto pinta DEPOIS — por cima —, como o CSS 2.1 Apêndice E pede (ver
-    // `empilhamento.rs`; esta linha dizia "sem z-index real" e não diz mais).
+    // `paint/stacking.rs`; esta linha dizia "sem z-index real" e não diz mais).
     // V1: o containing block é sempre a viewport (o de `absolute` — ancestral
     // positioned — e o "fica fixo ao rolar" do `fixed` são a v2).
     let mut out_of_flow = Vec::new();

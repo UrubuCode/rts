@@ -45,7 +45,7 @@ fn several_segments_of_an_inline_on_one_line_make_one_fragment() {
 
 /// A split inline (CSS 2.1 §9.2.1.1) has one box per fragment, each with its
 /// own rect. `rect_of` still takes in the block that split it
-/// (`rect_cliente.rs`); the hit-test rect does not, or the second fragment
+/// (`query/rect.rs`); the hit-test rect does not, or the second fragment
 /// would win a click on the whole `<div>`.
 #[test]
 fn a_split_inline_has_a_rect_per_fragment_and_only_the_dom_rect_holds_the_block() {
