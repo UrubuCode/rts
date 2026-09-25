@@ -396,14 +396,16 @@ fn agrees(
                     // A NAME NOTHING PLACED is the running emitter's `unbound_read`: the
                     // global object is asked when the read RUNS, and its absence is a
                     // `ReferenceError` then -- `dom` and `DomTimers` are installed by the
-                    // host, which no compile-time list sees. Two cases are that emitter's
-                    // alone: a page script, whose sibling scripts write its window, and
-                    // `typeof`, which the language exempts from the error.
+                    // host, which no compile-time list sees. A page script is that
+                    // emitter's alone, since its sibling scripts write its window;
+                    // `typeof` is exempt from the error, as the language says.
                     if in_page {
                         return Err(format!("the unplaced global {text}, in a page script"));
                     }
+                    // Under `typeof` the read stays `GlobalGet`, which answers `undefined`
+                    // for an absent name: the exemption `globals::force_read` makes.
                     if typeof_reads(graph, domain, inst.result) {
-                        return Err(format!("`typeof` of the unplaced global {text}"));
+                        continue;
                     }
                     unbound.insert(inst.result);
                 }

@@ -58,6 +58,7 @@ mod declare;
 mod delegate;
 mod destructure;
 mod enumerate;
+mod for_await;
 mod environment;
 mod gather;
 mod iterate;
@@ -431,6 +432,14 @@ struct Lowering<'a> {
 impl Lowering<'_> {
     /// Lowers a run of statements, answering whether it ended the block.
     fn statements(&mut self, statements: &[Stmt]) -> Result<bool, Unsupported> {
+        // A FUNCTION DECLARATION is bound before the first statement of its list runs --
+        // the function body's or the block's -- so a call written above it reaches it.
+        // `emit/function.rs::hoist` binds the same set at the same point.
+        for statement in statements {
+            if let StmtKind::Function(function) = &statement.kind {
+                self.declare_function(function)?;
+            }
+        }
         for statement in statements {
             if self.statement(statement)? {
                 return Ok(true);
@@ -509,32 +518,9 @@ impl Lowering<'_> {
                 }
                 Ok(ended)
             }
-            // A NESTED DEFINITION is a closure bound to a name, and the name is this
-            // function's -- so it is an ordinary rebind and no environment is written.
-            //
-            // It was refused as "its own graph", which was true and was not the whole
-            // truth: the graph is lowered by `lower_module` like every other, and what
-            // this statement does is make a VALUE of it.
-            StmtKind::Function(function) => {
-                let Some(name) = function.name else {
-                    return Err(Unsupported::Statement(
-                        "a function declaration with no name",
-                    ));
-                };
-                let Some(id) = self.callees.of_position(function.at) else {
-                    return Err(Unsupported::Statement(
-                        "a nested definition needs the module's numbering",
-                    ));
-                };
-                let at = Expr {
-                    kind: ExprKind::Ident(name),
-                    at: function.at,
-                };
-                let held = self.closure(id, &at);
-                let of = self.type_of(held);
-                self.bind(name, held, of, &at)?;
-                Ok(false)
-            }
+            // A NESTED DEFINITION was HOISTED: `statements` made the closure and bound it
+            // before the list's first statement ran -- `declare.rs::declare_function`.
+            StmtKind::Function(_) => Ok(false),
             StmtKind::Class(class) => {
                 let at = Expr {
                     kind: ExprKind::This,

@@ -106,4 +106,25 @@ impl Lowering<'_> {
             self.values.insert(held, undefined);
         }
     }
+
+    /// A nested definition: a closure bound to its name, and the name is this
+    /// function's -- so it is an ordinary rebind, or an environment write where a
+    /// closure captures it.
+    pub(super) fn declare_function(&mut self, function: &crate::syntax::Function) -> Result<(), Unsupported> {
+        let Some(name) = function.name else {
+            return Err(Unsupported::Statement("a function declaration with no name"));
+        };
+        let Some(id) = self.callees.of_position(function.at) else {
+            return Err(Unsupported::Statement(
+                "a nested definition needs the module's numbering",
+            ));
+        };
+        let at = Expr {
+            kind: ExprKind::Ident(name),
+            at: function.at,
+        };
+        let held = self.closure(id, &at);
+        let of = self.type_of(held);
+        self.bind(name, held, of, &at)
+    }
 }

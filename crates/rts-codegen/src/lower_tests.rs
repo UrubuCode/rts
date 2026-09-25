@@ -2623,17 +2623,24 @@ fn for_in_walks_a_snapshot_and_guards_each_key() {
     assert!(entries.contains(&crate::runtime::RuntimeOp::ForInHas), "{entries:?}");
 }
 
-/// `for await` suspends INSIDE the region that owes the close, and the machine's frame
-/// transform has a measured bug class exactly there — a `Return` left inside a region ran
-/// its `finally` once per yield.
+/// `for await` awaits one `next()` per pass and opens NO region: the running emitter's
+/// expansion closes only on `break`, and a suspension inside a region that owes a close
+/// is the frame transform's measured bug class. So the graph suspends, and nothing in it
+/// is protected.
 #[test]
-fn for_await_is_refused_because_it_suspends_inside_the_region() {
-    let refused = only("async function f(xs, o) { for await (const x of xs) { o.m(x); } }")
-        .expect_err("for await");
-    assert_eq!(
-        refused,
-        Unsupported::Statement("for await suspends inside the region that owes the close")
+fn for_await_suspends_per_step_outside_any_region() {
+    let lowered = only("async function f(xs, o) { for await (const x of xs) { o.m(x); } }")
+        .expect("for await");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    assert!(
+        lowered
+            .func
+            .insts
+            .iter()
+            .any(|held| matches!(held.op, rts_mir::Op::Suspend { .. })),
+        "each step is awaited"
     );
+    assert!(lowered.func.regions.is_empty(), "no region owes a close");
 }
 
 /// A `try` with a `finally` that completes NORMALLY runs the `finally` on the way out.

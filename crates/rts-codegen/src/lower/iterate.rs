@@ -116,14 +116,17 @@ impl Lowering<'_> {
                 };
                 return self.for_in(pattern, subject, body);
             }
-            // `for await` asks for `Symbol.asyncIterator` and awaits each step, so every
-            // one of its suspensions sits inside the region that owes the close -- and
-            // the machine's frame transform has a measured bug class exactly there: a
-            // `Return` left inside a region ran its `finally` once per yield.
+            // `for await` asks for `Symbol.asyncIterator` and awaits each step -- with no
+            // region owing a close, which is `for_await.rs`'s reason for being apart.
             ForEachSource::AwaitOf => {
-                return Err(Unsupported::Statement(
-                    "for await suspends inside the region that owes the close",
-                ));
+                let (ForEachTarget::Declare { target: pattern, .. }
+                | ForEachTarget::Assign(pattern)) = target
+                else {
+                    return Err(Unsupported::Statement(
+                        "a for-await target that is disposed at the end of each pass",
+                    ));
+                };
+                return self.for_await(pattern, subject, body);
             }
         }
 

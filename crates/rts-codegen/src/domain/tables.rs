@@ -411,6 +411,8 @@ pub enum WellKnown {
     /// read a string key would make it so. What a symbol key IS belongs to the
     /// runtime's key numbering, which is why this names it rather than describing it.
     IteratorSymbol,
+    /// `Symbol.asyncIterator` — what a `for await` asks a source for first.
+    AsyncIteratorSymbol,
     /// `next` — the method one step of the protocol calls.
     Next,
     /// `done` — whether the sequence ended, read off the step's result.
@@ -441,6 +443,7 @@ impl WellKnown {
         match self {
             WellKnown::Prototype => "prototype",
             WellKnown::IteratorSymbol => "@@iterator",
+            WellKnown::AsyncIteratorSymbol => "@@asyncIterator",
             WellKnown::Next => "next",
             WellKnown::Done => "done",
             WellKnown::Element => "value",
