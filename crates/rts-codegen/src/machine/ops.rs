@@ -224,7 +224,12 @@ impl MachineOps for JsMachine<'_> {
         if which == JsPrim::FieldRead
             && let [object, key] = args
         {
-            return self.cached_read(into, *object, *key);
+            // THE CALLEE OF A CALL reads through the cache that reaches the prototype:
+            // a method lives there, so an own-only cache never arms and the site
+            // re-resolves on every pass -- `emit/property.rs::emit_read_indirect`'s
+            // reason, and the same syntactic signal.
+            let inherited = self.method_reads.contains(&inst.result);
+            return self.cached_read(into, *object, *key, inherited);
         }
 
         // THE ENVIRONMENT, which is five operations over an ordinary object and a
@@ -247,12 +252,12 @@ impl MachineOps for JsMachine<'_> {
             && let [environment] = args
         {
             let (link, operand) = self.fixed_key(into, crate::emit::OUTER)?;
-            return self.read_through_cache(into, *environment, link, operand);
+            return self.read_through_cache(into, *environment, link, operand, false);
         }
         if which == JsPrim::EnvRead
             && let [environment, key] = args
         {
-            return self.cached_read(into, *environment, *key);
+            return self.cached_read(into, *environment, *key, false);
         }
         if which == JsPrim::EnvWrite
             && let [environment, key_operand, value] = args

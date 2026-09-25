@@ -325,6 +325,8 @@ fn attempt(
             .unbound_reads(unbound)
             .parking(suspends)
             .sloppy(ctx.sloppy)
+            .method_reads_of(&graph)
+            .asking_once_in((!suspends).then_some(entry))
             .declaring_into(parts)
             .naming_with(&mut *ctx.names)
             .with_incoming(&start);

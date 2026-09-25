@@ -163,6 +163,13 @@ pub struct JsMachine<'a> {
     tail: std::collections::BTreeSet<ValueId>,
     /// Whether this body is non-strict -- see [`JsMachine::sloppy`].
     sloppy: bool,
+    /// The property reads a call takes its callee from -- see [`method_reads`].
+    method_reads: std::collections::BTreeSet<ValueId>,
+    /// The block this body started in, where the throw flag's address is asked for
+    /// once -- see [`JsMachine::asking_once_in`].
+    body_entry: Option<rts_cranelift::ir::BlockId>,
+    /// That address, once asked for.
+    thrown_address: Option<MachineValue>,
     /// The global reads of a name nothing placed, which raise `ReferenceError` when the
     /// name is absent where every other global read answers `undefined`. The caller
     /// decides which, because only it can see the lists a name is placed by.
@@ -298,6 +305,9 @@ impl<'a> JsMachine<'a> {
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
             sloppy: false,
+            method_reads: std::collections::BTreeSet::new(),
+            body_entry: None,
+            thrown_address: None,
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
@@ -325,6 +335,9 @@ impl<'a> JsMachine<'a> {
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
             sloppy: false,
+            method_reads: std::collections::BTreeSet::new(),
+            body_entry: None,
+            thrown_address: None,
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
@@ -366,6 +379,24 @@ impl<'a> JsMachine<'a> {
     /// The writer's mode as the runtime takes it: `1` for sloppy.
     pub(super) fn write_mode(&mut self, into: &mut FuncBuilder) -> MachineValue {
         self.word(into, u64::from(self.sloppy))
+    }
+
+    /// The reads a call takes its callee from, which read through the cache that
+    /// reaches the prototype.
+    pub fn method_reads_of(mut self, func: &rts_mir::cfg::Func) -> Self {
+        self.method_reads = method_reads(func);
+        self
+    }
+
+    /// That the throw check loads a flag whose ADDRESS is asked for once, in `entry`,
+    /// rather than calling to ask for the flag after every raising call --
+    /// `emit/expr.rs::body_flag`'s arrangement and its reason: five calls per pass of
+    /// a loop that makes five raising calls. Not for a body that parks, which the
+    /// running emitter leaves on the call too: a value in the entry block would have to
+    /// survive every suspension.
+    pub fn asking_once_in(mut self, entry: Option<rts_cranelift::ir::BlockId>) -> Self {
+        self.body_entry = entry;
+        self
     }
 
     /// The calls a return hands straight back, which go through `RuntimeOp::TailCall`
@@ -498,12 +529,13 @@ impl JsMachine<'_> {
         into: &mut FuncBuilder,
         object: MachineValue,
         key_operand: MachineValue,
+        inherited: bool,
     ) -> Result<MachineValue, String> {
         // THE KEY AS A NUMBER FIXED WHILE COMPILING, recovered from the operand. A read
         // whose key the program COMPUTED is a different operation -- `cached_get_keyed` --
         // and refusing here rather than guessing is what keeps the two apart.
         let key = self.key_from_operand(key_operand)?;
-        self.read_through_cache(into, object, key, key_operand)
+        self.read_through_cache(into, object, key, key_operand, inherited)
     }
 
     /// A key the compiler fixed, minted from the program's one registry.
@@ -540,13 +572,15 @@ impl JsMachine<'_> {
         Ok((key, into.use_const(held)))
     }
 
-    /// The read itself, once the key is known.
+    /// The read itself, once the key is known -- through the cache that also reaches
+    /// what the receiver inherits where `inherited` says the site is a method's.
     fn read_through_cache(
         &mut self,
         into: &mut FuncBuilder,
         object: MachineValue,
         key: rts_cranelift::shape::Key,
         key_operand: MachineValue,
+        inherited: bool,
     ) -> Result<MachineValue, String> {
 
         let receiver = match into.repr_of(object) {
@@ -570,8 +604,11 @@ impl JsMachine<'_> {
 
         into.switch_to(reference);
         let cache = into.declare_cache();
-        into.cached_get(narrowed, key, cache, (join, &[]), (slow, &[]))
-            .map_err(machine)?;
+        match inherited {
+            true => into.cached_get_indirect(narrowed, key, cache, (join, &[]), (slow, &[])),
+            false => into.cached_get(narrowed, key, cache, (join, &[]), (slow, &[])),
+        }
+        .map_err(machine)?;
 
         into.switch_to(slow);
         let answered = self.call_runtime(
@@ -838,11 +875,28 @@ impl JsMachine<'_> {
                     .to_owned(),
             );
         };
-        let asked = shared
-            .calls
-            .declare(&mut shared.funcs, crate::runtime::RuntimeOp::Thrown);
-        let flag = into.call(&shared.funcs, asked, &[]).map_err(machine)?;
-        let flag = *flag.first().ok_or("Thrown answered nothing")?;
+        let flag = match (self.thrown_address, self.body_entry) {
+            (Some(address), _) => into.word_load(address).map_err(machine)?,
+            (None, Some(entry)) => {
+                let asked = shared
+                    .calls
+                    .declare(&mut shared.funcs, crate::runtime::RuntimeOp::ThrownAddress);
+                let resume = into.current();
+                into.switch_to(entry);
+                let address = into.call(&shared.funcs, asked, &[]).map_err(machine);
+                into.switch_to(resume);
+                let address = *address?.first().ok_or("ThrownAddress answered nothing")?;
+                self.thrown_address = Some(address);
+                into.word_load(address).map_err(machine)?
+            }
+            (None, None) => {
+                let asked = shared
+                    .calls
+                    .declare(&mut shared.funcs, crate::runtime::RuntimeOp::Thrown);
+                let flag = into.call(&shared.funcs, asked, &[]).map_err(machine)?;
+                *flag.first().ok_or("Thrown answered nothing")?
+            }
+        };
         let zero = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
             repr: Repr::I64,
             bits: rts_cranelift::ir::ScalarBits(0),
@@ -879,6 +933,21 @@ impl JsMachine<'_> {
         into.switch_to(carrying_on);
         Ok(())
     }
+}
+
+/// The values a call takes as its callee that a property read defined: `o.m(...)`.
+pub fn method_reads(func: &rts_mir::cfg::Func) -> std::collections::BTreeSet<ValueId> {
+    func.insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Call {
+                callee: rts_mir::cfg::Callee::Dynamic(callee),
+                receiver: Some(_),
+                ..
+            } => Some(*callee),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The calls in TAIL position: the last instruction of a block that returns its
