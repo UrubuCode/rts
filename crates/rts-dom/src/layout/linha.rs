@@ -125,16 +125,32 @@ pub(in crate::layout) fn layout_inline_flow(
         }
         banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).1
     };
+    // The same band's LEFT edge, minus the content edge (`x`): how far line
+    // `i` starts from the content edge because a float shortens it from the
+    // left. A tab stop is measured from the content edge (CSS Text 3 §4.2),
+    // not from where the line happens to start after a float — the defect
+    // this offset exists to fix (`tab-stop-with-float`).
+    // Unlike `largura_da_linha`, this ignores `nowrap`: a `white-space: pre`
+    // line still STARTS past a float that crosses it (the float only stops
+    // affecting the WIDTH question, which no longer applies once the line
+    // cannot wrap) — the tab stop must see where the line actually begins.
+    let offset_da_linha = |exclusoes: &[Exclusao], i: usize| -> f32 {
+        if exclusoes.is_empty() {
+            return 0.0;
+        }
+        banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).0 - x
+    };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
     let fontes = super::fonte_do_trecho::Fontes::do_fluxo(dom, &runs, family, font_size, mono);
     let quebrar = |exclusoes: &[Exclusao]| {
         wrap_runs(
             &runs,
             &mut |i| largura_da_linha(exclusoes, i),
+            &mut |i| offset_da_linha(exclusoes, i),
             font_size,
             mono,
             crate::inline_box::quebra_dentro(parent_css),
-            super::preserved_spaces::Spaces::from_css(parent_css),
+            super::preserved_spaces::Spaces::from_flow(dom, &runs, parent_css),
             parent_css.word_spacing.unwrap_or(0.0),
             parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
             &fontes, ctx.measurer,

@@ -40,6 +40,7 @@ mod css_url;
 mod ciclo;
 mod consulta;
 mod direction_herdada;
+pub(crate) mod entities;
 mod eventos;
 mod estilo;
 mod formulario;

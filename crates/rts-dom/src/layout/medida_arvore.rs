@@ -70,56 +70,21 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
         }
     }
     if let Some(w) = dom.computed_style_idx(id).and_then(|css| super::input::tamanho_natural_controlo(dom, id, &css, ctx)).map(|(w, _)| w) { return w; }
-    // folha de texto puro → largura do texto.
-    let own_text = collect_text(dom, id);
+    // An element whose children are all text: its lines, run by run
+    // (`text_measure`). Each text node answers to its own `white-space`,
+    // `tab-size`, weight, family and spacings — this element's, inherited —
+    // and the HTML indentation between children collapses as in the flow (CSS
+    // Text §4.1): fourteen spaces and newlines gave Bootstrap cover's fixed
+    // button 103px too many (`claude-intrinseco-whitespace`). It answers before
+    // the table branch below because a text-only element never had cells.
     let only_text = !dom.node(id).children.is_empty()
-        && dom
-            .node(id)
-            .children
-            .iter()
-            .all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
-    if (dom.node(id).children.is_empty() || only_text) && !own_text.trim().is_empty() {
-        let css = dom.computed_style_idx(id);
-        let mono = css
-            .as_ref()
-            .and_then(|c| c.font_family.as_ref())
-            .map(|f| crate::style::is_mono_family(f))
-            .unwrap_or(false);
-        // o peso importa p/ a largura natural: medir regular mas o wrap/paint usar bold
-        // (mais largo) faz o conteúdo não caber na largura natural → quebra indevida.
-        let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(false);
-        // `letter-spacing` entra na LARGURA e não só na pintura: o medidor não o
-        // recebe (a assinatura do trait é partilhada com o backend do egui), por
-        // isso soma-se aqui — n espaçamentos para n caracteres, ver
-        // `style::text_metrics::spacing_width`. Sem isto, uma caixa que encolhe
-        // ao conteúdo ficava com a largura do texto SEM espaçamento e o texto
-        // transbordava dela.
-        let ls = css.as_ref().and_then(|c| c.letter_spacing).unwrap_or(0.0);
-        // `tab-size`/`word-spacing`: a MESMA largura extra que `wrap_runs` soma
-        // depois — ver `tabulacao::ajustar_texto_intrinsico` para porquê isto
-        // não pode viver só lá. Sem isto, a largura shrink-to-fit (a de um
-        // `inline-block`/item flex sem `width`) não respondia a nenhuma das
-        // duas: media sempre o texto cru, e é ESSA largura — não a do
-        // `wrap_runs`, que só corre depois de a caixa já estar decidida — que
-        // vira a caixa de um elemento sem `width`.
-        let (own_text, ws_extra) =
-            crate::layout::tabulacao::ajustar_texto_intrinsico(own_text, css.as_deref());
-        // o hífen suave não pesa na largura natural (`hifen.rs`, regra 1).
-        let own_text = super::hifen::sem_shy(&own_text).into_owned();
-        // O whitespace colapsa como no fluxo (CSS Text §4.1): a indentação do
-        // HTML entre filhos não é conteúdo — catorze espaços e quebras de linha
-        // davam 103px a mais ao botão fixo do Bootstrap cover
-        // (`claude-intrinseco-whitespace`). Só `pre`/`pre-wrap` os preservam.
-        let preserva = css.as_ref().and_then(|c| c.white_space).is_some_and(|w| w.preserves_newlines());
-        let own_text = if preserva { own_text } else { super::segmento::collapse_ws(&own_text, false).into_owned() };
-        // o mesmo raciocínio do peso vale para o estilo: medir com a família
-        // errada muda a largura natural e com ela o sítio onde a linha quebra.
-        let italic = italico(css.as_deref(), tag_de(dom, id), false);
-        let family = css.as_ref().and_then(|c| c.font_family.as_deref());
-        let width = ctx.measurer.text_width_family(&own_text, font, family, mono, bold, italic)
-            + crate::style::spacing_width(own_text.chars().count(), ls)
-            + ws_extra;
-        return width;
+        && dom.node(id).children.iter().all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
+    if only_text {
+        let mut lines = super::text_measure::Lines::new(false);
+        for &c in &dom.node(id).children {
+            lines.text(dom, c, font, ctx);
+        }
+        return lines.finish(ctx);
     }
 
     // TABELA: a largura que o conteúdo quer é a SOMA das colunas, e nenhuma das
@@ -205,46 +170,18 @@ fn intrinsic_content_width_geral(
         0.0
     };
 
+    if !is_row {
+        let mut lines = super::text_measure::Lines::new(false);
+        walk_children(&mut lines, dom, tree, caixa, font, ctx);
+        return lines.finish(ctx);
+    }
     let mut sum = 0.0f32;
     let mut count: usize = 0;
-    // Fora de flex, o max-content NÃO é o maior filho: é o maior das LINHAS, e
-    // filhos inline consecutivos partilham uma. Era o `max` de todos, e por isso
-    // `<td><i></i><i></i></td>` com dois `inline-block` de 50 media 50 onde o
-    // Chrome mede 100 — a linha soma-os.
-    //
-    // Medido no Chrome com `width:max-content`:
-    //
-    //   dois inline-block de 50 ............ 100   (soma)
-    //   três inline-block de 50 ............ 150   (soma)
-    //   dois BLOCK de 50 .................... 50   (cada um a sua linha)
-    //   inline 50 + BLOCK 50 + inline 50 .... 50   (três corridas, máximo 50)
-    //   dois inline com <br> no meio ........ 50   (o <br> fecha a corrida)
-    //   texto "xy" + inline-block 50 ........ 66   (o texto entra na corrida)
-    //
-    // A quarta linha é a que prova que não basta somar tudo, e a quinta é a que
-    // obriga a olhar para o `<br>`: ele não é de bloco e mesmo assim quebra.
-    let mut linha = 0.0f32;
-    let mut maior = 0.0f32;
     let filhos: &[crate::boxes::BoxId] = tree.children_without_generated(caixa);
     for &caixa_filho in filhos {
-        let Some(child) = tree.node_of(caixa_filho) else {
-            // Caixa ANÓNIMA (CSS 2.1 §9.2.1.1): não tem nó, mas não é
-            // transparente — é o bloco que a norma manda envolver o run
-            // partido, e o texto lá dentro ("aaaa"/"cccc" de
-            // `<span>aaaa<div>b</div>cccc</span>`) tinha de continuar a
-            // contar na largura intrínseca do container. Saltá-la (como o
-            // `continue` fazia até este fix) apagava esse texto da conta —
-            // 147cb3e53 mudou a travessia para a árvore de caixas e herdou o
-            // salto do `node_of(caixa_filho) else { continue }` de
-            // `min_content_na_arvore`, sem o tratar. `is_row` nunca é `true`
-            // aqui: só um contentor de FLUXO parte (`boxes::build`), nunca um
-            // flex, por isso a caixa anónima só pode fechar a corrida como
-            // qualquer bloco.
-            let w = largura_anonima(dom, tree, caixa_filho, font, ctx);
-            maior = maior.max(linha).max(w);
-            linha = 0.0;
-            continue;
-        };
+        // `is_row` never meets an anonymous box: only a FLOW container splits
+        // (`boxes::build`), never a flex.
+        let Some(child) = tree.node_of(caixa_filho) else { continue };
         // fora do fluxo não contribui para a largura intrínseca do container.
         if is_out_of_flow(dom, child) {
             continue;
@@ -253,56 +190,117 @@ fn intrinsic_content_width_geral(
         // pré-passo de `layout_children_horizontal` descarta-o (`trim().is_empty()`)
         // e aqui ele contava DUAS vezes: a largura do `"\n\t\t"` e mais um `gap`
         // por ser um item a mais. Eram 155 px no `.vector-header-start` da
-        // Wikipédia. Fora de flex não se toca: entre dois inline o espaço é
-        // largura real, e essa pergunta é do fluxo inline, não desta função.
-        if is_row && matches!(&dom.node(child).kind, NodeKind::Text(t) if t.trim().is_empty()) {
+        // Wikipédia.
+        if matches!(&dom.node(child).kind, NodeKind::Text(t) if t.trim().is_empty()) {
             continue;
         }
-        // A caixa concreta (`caixa_filho`) viaja até à recursão: `child` pode
-        // ele próprio ter várias caixas (um fragmento aninhado), e sem lhe
-        // dizer QUAL delas estamos a medir aqui, `intrinsic_outer_width`
-        // voltaria a cair no `id` sozinho — o mesmo tipo de ambiguidade que a
-        // caixa `caixas => …` acima existe para resolver.
         let w = intrinsic_outer_width_de(dom, tree, child, Some(caixa_filho), font, ctx);
         if w > 0.0 {
             count += 1;
         }
         sum += w;
-        if fecha_a_corrida(dom, child) {
-            maior = maior.max(linha).max(w);
-            linha = 0.0;
-        } else {
-            linha += w;
-        }
     }
-    maior = maior.max(linha);
     // `::before`/`::after` de um flex em linha são itens (Flexbox §4) e entram
     // na largura natural do contentor — o caret do botão do Bootstrap.
-    if is_row {
-        for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
-            let w = super::flex_pseudo::largura(dom, tree, caixa, pe, font, ctx);
-            if w > 0.0 {
-                sum += w;
-                count += 1;
-            }
+    for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
+        let w = super::flex_pseudo::largura(dom, tree, caixa, pe, font, ctx);
+        if w > 0.0 {
+            sum += w;
+            count += 1;
         }
     }
-    if is_row {
-        // soma + gaps entre os itens.
-        sum + (count.saturating_sub(1)) as f32 * gap
-    } else {
-        maior
+    // soma + gaps entre os itens.
+    sum + (count.saturating_sub(1)) as f32 * gap
+}
+
+/// The lines of one box's in-flow children, fed into `lines`.
+///
+/// Outside flex the max-content is not the widest child but the widest LINE,
+/// and consecutive inline children share one. Measured in Chrome with
+/// `width:max-content`:
+///
+///   two inline-blocks of 50 ............ 100   (summed)
+///   two BLOCKs of 50 .................... 50   (a line each)
+///   inline 50 + BLOCK 50 + inline 50 .... 50   (three runs, widest 50)
+///   two inlines with a <br> between ..... 50   (the <br> ends the run)
+///   text "xy" + inline-block 50 ......... 66   (the text joins the run)
+///
+/// A non-replaced `display:inline` child is walked INTO rather than asked for
+/// one width: a forced break inside it ends the parent's line, and its text's
+/// collapsible spaces collapse with its neighbours' (`text_measure`). Asked as
+/// one opaque width, `a <span style="white-space:pre">B&#10;C</span> d`
+/// measured the single line "a B C d".
+fn walk_children(
+    lines: &mut super::text_measure::Lines,
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    parent_box: crate::boxes::BoxId,
+    font: f32,
+    ctx: &LayoutCtx,
+) {
+    for &child_box in tree.children_without_generated(parent_box) {
+        let Some(child) = tree.node_of(child_box) else {
+            // An ANONYMOUS box (CSS 2.1 §9.2.1.1) has no node but is not
+            // transparent: it is the block that wraps a split run, and the text
+            // in it ("aaaa"/"cccc" of `<span>aaaa<div>b</div>cccc</span>`)
+            // counts, on lines of its own.
+            lines.block(largura_anonima(dom, tree, child_box, font, ctx), ctx);
+            continue;
+        };
+        if is_out_of_flow(dom, child) {
+            continue;
+        }
+        if let NodeKind::Text(t) = &dom.node(child).kind {
+            // In a flex or grid container a white-space-only text is no item
+            // at all (`layout_children_horizontal` drops it); fed to the lines
+            // it would pin a space between two items that share none.
+            let in_flow = tree.formatting_context(dom, parent_box).inner == crate::boxes::InnerDisplay::Flow;
+            if in_flow || !t.trim().is_empty() {
+                lines.text(dom, child, font, ctx);
+            }
+            continue;
+        }
+        if super::text_measure::is_open_inline(dom, tree, (parent_box, child_box), child, ctx) {
+            let css = dom.computed_style_idx(child).unwrap_or_default();
+            let f = font_px(&css, font);
+            let resolve = ResolveCtx {
+                parent_content_w: ctx.viewport_w,
+                node_font_size: f,
+                root_font_size: crate::style::root_font_size(),
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            };
+            let (start, end) = super::text_measure::frame_inline(&css, &resolve);
+            if start > 0.0 {
+                lines.atom(start, ctx);
+            }
+            walk_children(lines, dom, tree, child_box, f, ctx);
+            if end > 0.0 {
+                lines.atom(end, ctx);
+            }
+            continue;
+        }
+        // The concrete box travels into the recursion: `child` may itself have
+        // several (a nested fragment), and without saying WHICH one is measured
+        // here `intrinsic_outer_width` would fall back to `id` alone.
+        let w = intrinsic_outer_width_de(dom, tree, child, Some(child_box), font, ctx);
+        if matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "br") {
+            lines.forced_break(ctx);
+        } else if fecha_a_corrida(dom, child) {
+            lines.block(w, ctx);
+        } else if w > 0.0 {
+            // A zero-wide child (`display:none`, an empty inline-block) is not
+            // placed: placing it would pin a collapsible space before it that
+            // the one after it then doubles.
+            lines.atom(w, ctx);
+        }
     }
 }
 
-/// A largura de uma caixa ANÓNIMA (CSS 2.1 §9.2.1.1): sem nó, sem `width`,
-/// margem, borda ou padding próprios (`box-tree.md` §10: "no width to
-/// resolve, no margin, no border, no background") — o seu conteúdo é o RUN
-/// que a gerou, e mede-se com a MESMA regra "maior das linhas" da caixa que a
-/// envolve: um filho de bloco (ou `<br>`) fecha a corrida, os demais somam-se
-/// na linha corrente. Recursiva porque uma caixa anónima aninhada, ainda que
-/// `boxes::build` hoje não produza uma, não deve voltar a ser saltada por um
-/// segundo `continue` no dia em que produzir.
+/// The width of an ANONYMOUS box (CSS 2.1 §9.2.1.1): no node, no width,
+/// margin, border or padding of its own (`box-tree.md` §10) — its content is
+/// the run that made it, measured by the same widest-line rule as the box
+/// around it.
 fn largura_anonima(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
@@ -316,27 +314,9 @@ fn largura_anonima(
     if matches!(tree.kind(caixa), crate::boxes::BoxKind::Anonymous { role: crate::boxes::AnonymousRole::Table, .. }) {
         return crate::table::anonymous_table_widths(dom, tree, caixa, font, ctx).1;
     }
-    let mut linha = 0.0f32;
-    let mut maior = 0.0f32;
-    for &filho in tree.children_without_generated(caixa) {
-        let Some(child) = tree.node_of(filho) else {
-            let w = largura_anonima(dom, tree, filho, font, ctx);
-            maior = maior.max(linha).max(w);
-            linha = 0.0;
-            continue;
-        };
-        if is_out_of_flow(dom, child) {
-            continue;
-        }
-        let w = intrinsic_outer_width_de(dom, tree, child, Some(filho), font, ctx);
-        if fecha_a_corrida(dom, child) {
-            maior = maior.max(linha).max(w);
-            linha = 0.0;
-        } else {
-            linha += w;
-        }
-    }
-    maior.max(linha)
+    let mut lines = super::text_measure::Lines::new(false);
+    walk_children(&mut lines, dom, tree, caixa, font, ctx);
+    lines.finish(ctx)
 }
 
 /// Como [`intrinsic_outer_width`](super::intrinsic_outer_width), mas com a
@@ -425,29 +405,13 @@ pub(in crate::layout) fn intrinsic_outer_width_de(
             let conteudo = intrinsic_content_width_sem_cache(dom, tree, id, caixa, f, ctx);
             crate::style::clamp_size(conteudo, mnw, mxw) + frame
         }
-        // Um nó de texto solto mede-se COLAPSADO (CSS Text §4.1) — o mesmo
-        // motivo de `intrinsic_content_width`; `pre` num pai não é visto aqui
-        // (corte dito: mede-se colapsado na mesma).
-        //
-        // Text has no style of its own: `monospace`, weight and slant are the
-        // parent element's, as they are when the same text is laid out. This
-        // measured every loose text proportional, bold-less and upright, so a
-        // text that is its own anonymous table cell or flex item came out
-        // narrower than it paints — "Some text." at 73.6 where Blink gives
-        // 87.97 (`claude-linha-so-com-texto`).
-        NodeKind::Text(t) => {
-            let pai = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
-            let mono = pai.as_ref().and_then(|c| c.font_family.as_deref()).is_some_and(crate::style::is_mono_family);
-            let bold = pai.as_ref().and_then(|c| c.bold).unwrap_or(false);
-            let italic = pai.as_ref().and_then(|c| c.italic).unwrap_or(false);
-            ctx.measurer.text_width(
-                &super::segmento::collapse_ws(&super::hifen::sem_shy(t), false),
-                parent_font,
-                mono,
-                bold,
-                italic,
-            )
-        }
+        // A loose text node: its own lines under its parent element's style —
+        // `white-space`, family, weight, slant and spacings, as when the same
+        // text is laid out. Measured proportional, bold-less and upright, a
+        // text that is its own anonymous cell or flex item came out narrower
+        // than it paints — "Some text." at 73.6 where Blink gives 87.97
+        // (`claude-linha-so-com-texto`).
+        NodeKind::Text(_) => super::text_measure::intrinsic_text_width(dom, id, parent_font, false, ctx),
         _ => 0.0,
     }
 }

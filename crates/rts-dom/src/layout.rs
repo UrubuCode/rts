@@ -70,6 +70,7 @@ mod fonte_do_trecho;
 pub(crate) mod fonte_metricas;
 mod medida;
 mod medida_arvore;
+pub(crate) mod text_measure;
 pub mod medidor_ativo;
 mod medidor_texto;
 mod pintura;
@@ -139,7 +140,10 @@ pub(crate) use self::box_fragments::{LineId, LineScope};
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
 use self::vertical::layout_children_vertical;
 use self::linha_ib::layout_inline_block_line;
-use self::relativo::aplica_offset_relativo;
+// `pub(crate)`, not a plain `use`: `table/relativo.rs` calls it too, for the
+// table-internal boxes (`<tr>`/`<tbody>`/`<thead>`/`<tfoot>`) that never go
+// through `layout_block` and so never asked this question on their own.
+pub(crate) use self::relativo::aplica_offset_relativo;
 
 pub use self::display::{Corners, DisplayItem, DisplayList, Geometry, Rect, ScrollRegion};
 pub use self::medidor_texto::{ApproxMeasurer, TextMeasurer};

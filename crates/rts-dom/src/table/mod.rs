@@ -23,6 +23,7 @@
 
 mod anonymous;
 mod grid;
+mod relative;
 pub(in crate::table) mod widths;
 
 pub(crate) use anonymous::{anonymous_table_widths, layout_anonymous_table};
@@ -46,10 +47,6 @@ use grid::collect;
 /// `floor_width: false` em vez de reescrever a travessia.
 pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
     let css = dom.computed_style_idx(id).unwrap_or_default();
-    let sem_quebra = matches!(
-        css.white_space,
-        Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
-    );
     // `mono`: sem isto, um item `font-family: monospace` media a palavra pelo
     // avanço PROPORCIONAL (`PROP_ADVANCE`) — o piso do `flex-shrink` divergia
     // do que `wrap_runs` desenha (`MONO_ADVANCE`, calibrado a 0.5498 contra o
@@ -62,7 +59,7 @@ pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) ->
         .as_deref()
         .map(crate::style::is_mono_family)
         .unwrap_or(false);
-    widths::min_content(dom, id, font, ctx, sem_quebra, mono, false)
+    widths::min_content(dom, id, font, ctx, mono, false)
 }
 
 /// Uma célula colocada na grade. `col` é a coluna onde começa, já resolvida
@@ -368,14 +365,18 @@ fn lay_out_grid(
         }
     }
 
+    // Containing block das percentagens de um `<tr>`/grupo `relative` (`table/relative.rs`).
+    let altura_total: f32 = alturas.iter().sum::<f32>() + (g.rows.len() + 1) as f32 * ts.spacing_v;
+
     // ── Posicionamento ──────────────────────────────────────────────────────────
     let mut row_y = Vec::with_capacity(g.rows.len());
+    let mut row_piece_start = Vec::with_capacity(g.rows.len()); // box_start p/ relativo
     y += ts.spacing_v;
     for (ri, row) in g.rows.iter().enumerate() {
         row_y.push(y);
-        // Lembra a posição ANTES das células: o fundo do `<tr>` pinta-se atrás
-        // delas, como qualquer caixa pinta atrás dos filhos.
+        // Antes das células: o fundo do `<tr>` pinta-se atrás delas.
         let idx_fundo = list.pieces.len();
+        row_piece_start.push(idx_fundo);
         if let Some((_, caixa)) = row.node {
             crate::layout::reserve_box_order(list, caixa);
         }
@@ -419,6 +420,10 @@ fn lay_out_grid(
             );
             crate::layout::record_box_rect(list, caixa, rect);
             pinta_caixa(dom, n, rect, idx_fundo, list);
+            // Row relative offset — see `table/relative.rs`.
+            relative::apply_table_part_relative_offset(
+                dom, n, caixa, content_w, altura_total, font_size, idx_fundo, ctx, list,
+            );
         }
         y += alturas[ri] + ts.spacing_v;
     }
@@ -441,6 +446,10 @@ fn lay_out_grid(
         );
         crate::layout::record_box_rect(list, caixa, rect);
         pinta_caixa(dom, node, rect, list.pieces.len(), list);
+        // Group relative offset, from its first row.
+        relative::apply_table_part_relative_offset(
+            dom, node, caixa, content_w, altura_total, font_size, row_piece_start[inicio], ctx, list,
+        );
     }
     y - content_y
 }

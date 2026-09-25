@@ -2,10 +2,10 @@
 //!
 //! **Perto do teto de 500.** O `wrap_runs` é a maior parte disto e não é
 //! partido por dentro: partir uma função deixa de ser um movimento de código.
-//! Tem dois `macro_rules!` no corpo
-//! (`fechar_cluster`, `juntar`) que fecham com `    }` a quatro espaços — quem
-//! cortar este ficheiro por blocos em vez de por item de topo fecha blocos
-//! falsos no meio da função, e ali isso não dá erro de compilação.
+//! Tem dois `macro_rules!` no corpo (`fechar_cluster`, `juntar`) que fecham com
+//! `    }` a quatro espaços — quem cortar este ficheiro por blocos em vez de
+//! por item de topo fecha blocos falsos no meio da função, e ali isso não dá
+//! erro de compilação.
 //! O hífen suave (`hyphens`) vive em `hifen.rs` por causa do teto.
 
 use super::*;
@@ -16,6 +16,7 @@ pub(in crate::layout) fn wrap_runs(
     // float encurta uma linha e deixa a seguinte inteira, e a diferença entre as
     // duas é o que faz o texto contornar a figura em vez de descer abaixo dela.
     max_w: &mut dyn FnMut(usize) -> f32,
+    line_offset: &mut dyn FnMut(usize) -> f32, // line `i`'s start vs. content edge — `Spaces::tab`
     font_size: f32,
     mono: bool,
     // Pode partir-se DENTRO de um aglomerado? Vem do elemento que possui o
@@ -24,14 +25,13 @@ pub(in crate::layout) fn wrap_runs(
     // Guardá-las por run era a alternativa e custava um campo em cada `InlineRun`
     // para responder o mesmo valor em todos eles.
     quebra: crate::inline_box::QuebraDentro,
-    // `white-space`/`tab-size` of the CONTAINER, like `quebra` above: whether a
+    // `white-space`/`tab-size` of EACH RUN (unlike `quebra` above): whether a
     // `\n` forces a break, and whether spaces are content (`preserved_spaces.rs`).
     spaces: super::preserved_spaces::Spaces,
     // `word-spacing` (px, pode ser negativo) — soma-se à largura de CADA espaço
     // entre palavras. Entra aqui e não só na pintura porque é o mesmo número
     // que decide ONDE a linha quebra: medir sem ele e pintar com ele (ou
-    // vice-versa) são as "duas verdades" que este ficheiro já pagou uma vez
-    // para `letter-spacing`.
+    // vice-versa) seriam as "duas verdades" que `letter-spacing` já pagou.
     word_spacing: f32,
     // `hyphens` do container: `manual`/`auto` deixam o U+00AD ser oportunidade
     // de quebra (`hifen.rs`); `none` apaga-o antes de medir.
@@ -43,7 +43,6 @@ pub(in crate::layout) fn wrap_runs(
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
     let ahem = fontes.base_ahem();
-    let preservar_quebras = spaces.preserves_newlines();
     // `i` is the run the text belongs to; `usize::MAX` is the container's own.
     let medir = |m: &dyn TextMeasurer, i: usize, t: &str, bold: bool, italic: bool| -> f32 { fontes.largura(m, i, t, bold, italic) };
     // A largura do espaço só interessa ao caminho palavra-a-palavra. Medida
@@ -175,7 +174,7 @@ pub(in crate::layout) fn wrap_runs(
                             let disponivel = max_w(lines.len());
                             // A hanging sequence (`pre-wrap`) is never split; a
                             // `break-spaces` space may move down alone.
-                            let partir = (spaces.breaks_after_each() || !so_espaco_css(&peca.texto)) && match quebra {
+                            let partir = (spaces.of(peca.run).breaks_after_each() || !so_espaco_css(&peca.texto)) && match quebra {
                                 crate::inline_box::QuebraDentro::Nao => false,
                                 // `break-word`: só quando a palavra não cabe NEM
                                 // numa linha vazia. Se cabe, ela já desceu inteira
@@ -296,7 +295,8 @@ pub(in crate::layout) fn wrap_runs(
         // piece of the cluster — no opportunity BEFORE it (UAX #14) — and the
         // cluster closes after each one (`break-spaces`) or after the whole
         // sequence, which then hangs (`pre-wrap`, `pre`). Nothing is pending.
-        if spaces.preserves() {
+        let regime = spaces.of(i);
+        if regime.preserves() {
             let mut toks = tokens(&run.text).peekable();
             while let Some(f) = toks.next() {
                 let (texto, w) = match f {
@@ -308,10 +308,10 @@ pub(in crate::layout) fn wrap_runs(
                     }
                     Token::Word(p) => (hifen::texto_da_peca(p, hifen_manual), medir(m, i, &hifen::sem_shy(p), run.bold, run.italic)),
                     Token::Space => (" ".to_string(), space_w(m, i)),
-                    Token::Tab => spaces.tab(cur_w + cluster_w, space_w(m, i)),
+                    Token::Tab => regime.tab(cur_w + cluster_w + line_offset(lines.len()), space_w(m, i)),
                 };
                 juntar!(Peca { run: i, texto, largura: w, atomico: None }, w);
-                let each = spaces.breaks_after_each();
+                let each = regime.breaks_after_each();
                 if f.is_white() && !each {
                     cluster_hang += w;
                 }
@@ -329,7 +329,7 @@ pub(in crate::layout) fn wrap_runs(
             // Run TODO whitespace com um `\n` dentro (`<div
             // style="white-space:pre">\n</div>` sem mais texto) — o caso
             // degenerado do scanner abaixo, sem palavra que o alcance.
-            if preservar_quebras && run.text.contains('\n') {
+            if regime.preserves_newlines() && run.text.contains('\n') {
                 fechar_cluster!();
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
@@ -361,7 +361,7 @@ pub(in crate::layout) fn wrap_runs(
         // As FAST PATHS abaixo julgam pelo texto APARADO ou por `ends_with`, e
         // um run "tres\n" apara para "tres" (sem whitespace interno) — tomaria
         // o caminho rápido e perderia a quebra que estava na borda apagada.
-        let tem_quebra_forcada = preservar_quebras && run.text.contains('\n');
+        let tem_quebra_forcada = regime.preserves_newlines() && run.text.contains('\n');
         // FAST PATH: o run inteiro e UMA peca quando nao tem whitespace dentro.
         //
         // Medir a string inteira e o que um browser faz, e e o que evita uma
@@ -439,7 +439,7 @@ pub(in crate::layout) fn wrap_runs(
                 // vez de virar separador pendente (`quebra_forcada_em`,
                 // `inline_box.rs`) — só o PRIMEIRO conta; o resto da corrida,
                 // se sobrar, passa por este braço de novo na iteração seguinte.
-                if preservar_quebras {
+                if regime.preserves_newlines() {
                     if let Some(apos_nl) = crate::inline_box::quebra_forcada_em(rest) {
                         fechar_cluster!();
                         lines.push(std::mem::take(&mut cur));
