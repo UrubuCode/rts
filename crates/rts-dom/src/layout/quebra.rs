@@ -1,12 +1,12 @@
 //! QUEBRA DE LINHA: decidir onde os runs passam para a linha seguinte.
 //!
-//! **Perto do teto de 500.** O `wrap_runs` é a maior parte disto e não é
-//! partido por dentro: partir uma função deixa de ser um movimento de código.
-//! Tem dois `macro_rules!` no corpo (`fechar_cluster`, `juntar`) que fecham com
-//! `    }` a quatro espaços — quem cortar este ficheiro por blocos em vez de
-//! por item de topo fecha blocos falsos no meio da função, e ali isso não dá
-//! erro de compilação.
-//! O hífen suave (`hyphens`) vive em `hifen.rs` por causa do teto.
+//! **No teto de 500.** O `wrap_runs` é a maior parte disto e não é partido
+//! por dentro: tem três `macro_rules!` no corpo (`fechar_cluster`, `juntar`,
+//! `glue_space`) que capturam uma dúzia de locais cada — mover UM deles para
+//! outro ficheiro obriga a mover TODOS os locais que captura, e o que sobra
+//! deixa de ser um movimento de código. O que não toca nos macros já saiu:
+//! o hífen suave em `hifen.rs`, e a partição de peça/o atalho de run inteiro
+//! em `quebra_particao.rs`.
 
 use super::*;
 use super::preserved_spaces::{trim_hanging, tokens, atomic_segment, Token};
@@ -57,7 +57,6 @@ pub(in crate::layout) fn wrap_runs(
     let mut at_line_start = true;
     // havia whitespace no ORIGINAL desde a última palavra? (carrega entre runs)
     let mut pending_space = false;
-
     // -- O CLUSTER: a unidade que a linha move.
     //
     // Uma linha so pode quebrar numa OPORTUNIDADE DE QUEBRA, e no texto essa
@@ -187,46 +186,12 @@ pub(in crate::layout) fn wrap_runs(
                                 }
                             };
                             if partir {
-                                let mut resto = texto.as_str();
-                                let mut lead = vao;
-                                while !resto.is_empty() {
-                                    let disp = max_w(lines.len()) - cur_w;
-                                    let (mut n, mut w) = crate::inline_box::prefixo_que_cabe(
-                                        resto,
-                                        disp,
-                                        font_size,
-                                        mono,
-                                        run.bold,
-                                        run.italic,
-                                        ahem,
-                                        m,
-                                    );
-                                    if n == 0 && at_line_start {
-                                        // Numa caixa mais estreita que um glifo,
-                                        // nada cabe e descer de linha não muda
-                                        // isso: sem um carácter forçado o laço
-                                        // não termina. Transbordar um carácter é
-                                        // o que o browser também faz.
-                                        n = resto.chars().next().map_or(0, char::len_utf8);
-                                        w = medir(m, peca.run, &resto[..n], run.bold, run.italic);
-                                    }
-                                    if n == 0 {
-                                        lines.push(std::mem::take(&mut cur));
-                                        cur_w = 0.0;
-                                        at_line_start = true;
-                                        continue;
-                                    }
-                                    push_segment(&mut cur, run, &resto[..n], w, lead);
-                                    lead = 0.0;
-                                    cur_w += w;
-                                    at_line_start = false;
-                                    resto = &resto[n..];
-                                    if !resto.is_empty() {
-                                        lines.push(std::mem::take(&mut cur));
-                                        cur_w = 0.0;
-                                        at_line_start = true;
-                                    }
-                                }
+                                // Moved to `quebra_particao.rs` (teto de 500).
+                                super::quebra_particao::dividir_peca_que_nao_cabe(
+                                    &mut cur, &mut lines, &mut cur_w, &mut at_line_start,
+                                    &mut *max_w, run, peca.run, &texto, vao,
+                                    font_size, mono, ahem, fontes, m,
+                                );
                             } else {
                                 push_segment(&mut cur, run, &texto, largura, vao);
                                 cur_w += largura;
@@ -461,21 +426,12 @@ pub(in crate::layout) fn wrap_runs(
             && !run.text.contains(hifen::SHY)
         {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
-            if !normalizado.is_empty() {
-                let w = medir(m, i, &normalizado, run.bold, run.italic);
-                if !at_line_start && cur_w + w <= max_w(lines.len()) {
-                    let vao = if pending_space && espaco_de_fora {
-                        space_w(m, i.wrapping_sub(1))
-                    } else {
-                        0.0
-                    };
-                    push_segment(&mut cur, run, &normalizado, w, vao);
-                    cur_w += w;
-                    at_line_start = false;
-                    pending_space = true;
-                    espaco_de_fora = true;
-                    continue;
-                }
+            // Moved to `quebra_particao.rs` (teto de 500).
+            if super::quebra_particao::run_inteiro_cabe(
+                &mut cur, &mut cur_w, &mut at_line_start, &mut pending_space, &mut espaco_de_fora,
+                &mut *max_w, lines.len(), run, i, &normalizado, fontes, m,
+            ) {
+                continue;
             }
         }
         // scanner ws/palavra: cada whitespace FECHA o cluster (e uma
@@ -538,19 +494,7 @@ pub(in crate::layout) fn wrap_runs(
         lines.push(cur);
     }
     if lines.is_empty() {
-        lines.push(vec![Segment {
-            text: String::new(),
-            text_width: 0.0,
-            color: 0,
-            bold: false,
-            italic: false,
-            deco: 0,
-            owners: Vec::new(),
-            atomic: None,
-            ww: 0.0,
-            wh: 0.0,
-            lead_w: 0.0,
-        }]);
+        lines.push(vec![super::quebra_particao::linha_vazia()]);
     }
     lines
 }
