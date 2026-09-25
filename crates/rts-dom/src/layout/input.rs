@@ -35,7 +35,7 @@ pub(in crate::layout) fn layout_button(
     let h = forced_outer_h.unwrap_or(lh + 5.0);
     let bg = css.bg.unwrap_or(0xF8F9FAFF); // cinza-claro UA (o do botão do google)
     let fg = css.color.unwrap_or(0x3C4043FF);
-    list.items.push(DisplayItem::SolidRect {
+    list.push_item(DisplayItem::SolidRect {
         rect: Rect::new(x, y, w, h),
         color: bg,
         // 4.0 é o raio que a UA dá a um botão; um canto declarado vence-o, e um
@@ -44,13 +44,13 @@ pub(in crate::layout) fn layout_button(
         // conseguiria dizer sem repetir a regra quatro vezes.
         radius: Corners::from_style(&css, 4.0),
     });
-    list.items.push(DisplayItem::Border {
+    list.push_item(DisplayItem::Border {
         rect: Rect::new(x, y, w, h),
         width: css.border_width.unwrap_or(1.0),
         color: css.border_color.unwrap_or(0xDADCE0FF),
         radius: css.corner_radius.unwrap_or(4.0),
     });
-    list.items.push(DisplayItem::Text {
+    list.push_item(DisplayItem::Text {
         x: x + pad_h,
         y: y + pad_v,
         text: label.into(),
@@ -313,7 +313,7 @@ pub(in crate::layout) fn layout_input(
     // campo com `opacity: 0` não o pinta.
     let opacidade = css.opacity.unwrap_or(1.0);
     let bg = apply_opacity(css.bg.unwrap_or(0xFFFFFFFF), opacidade);
-    list.items.push(DisplayItem::SolidRect {
+    list.push_item(DisplayItem::SolidRect {
         rect: box_rect,
         color: bg,
         radius: cantos,
@@ -328,7 +328,7 @@ pub(in crate::layout) fn layout_input(
     };
     let border_color = apply_opacity(border_color, opacidade);
     let bw = if border > 0.0 { border } else { 1.0 };
-    list.items.push(DisplayItem::Border {
+    list.push_item(DisplayItem::Border {
         rect: box_rect,
         width: bw,
         color: border_color,
@@ -345,7 +345,7 @@ pub(in crate::layout) fn layout_input(
         (dom.input_value(id), css.color.unwrap_or(0x111111FF))
     };
     if !shown.is_empty() {
-        list.items.push(DisplayItem::Text {
+        list.push_item(DisplayItem::Text {
             x: text_x,
             y: text_y,
             text: shown.as_str().into(),
@@ -365,7 +365,7 @@ pub(in crate::layout) fn layout_input(
         let val = dom.input_value(id);
         let caret_x = text_x + ctx.measurer.text_width_family(&val, font, FONTE_DOS_CONTROLOS, false, false, false) + 1.0;
         let caret = Rect::new(caret_x, text_y, 1.5, line_h.min(content_h.max(line_h)));
-        list.items.push(DisplayItem::SolidRect {
+        list.push_item(DisplayItem::SolidRect {
             rect: caret,
             color: 0x111111FF,
             radius: Corners::ZERO,

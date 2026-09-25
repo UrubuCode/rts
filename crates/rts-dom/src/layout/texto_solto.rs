@@ -27,7 +27,7 @@ pub(super) fn layout_texto_solto(dom: &Dom, id: NodeIdx, t: &str, x: f32, y: f32
     let is_ahem = super::fonte_metricas::usa_ahem(pai.font_family.as_deref());
     let lh = crate::inline_box::altura_da_linha(&pai, size, ctx.measurer);
     let tw = ctx.measurer.text_width(t, size, bold, false, mono);
-    list.items.push(DisplayItem::Text {
+    list.push_item(DisplayItem::Text {
         x,
         y,
         text: t.into(),

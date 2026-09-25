@@ -232,17 +232,17 @@ pub enum DisplayItem {
     /// `(offset_x, offset_y)` (o quanto a região rolou). O backend aplica o clip
     /// (egui: `painter.with_clip_rect`) e soma o offset. `node` liga ao `ScrollRegion`
     /// (o backend injeta o offset aqui antes de pintar). Empilha — pode aninhar.
+    ///
+    /// What it clips is what lies between it and its `EndClip` in the piece
+    /// sequence (`pecas.rs`), reused subtrees included. It used to carry how
+    /// many subtrees existed when it opened, because a subtree entered the list
+    /// by an index that inserting this marker shifted; with one sequence there
+    /// is no index to shift.
     BeginClip {
         rect: Rect,
         node: NodeIdx,
         offset_x: f32,
         offset_y: f32,
-        /// Quantos fragmentos-filhos JÁ existiam na lista quando este clip foi
-        /// aberto. Os de índice menor foram desenhados antes de o clip existir e
-        /// portanto estão FORA dele, por muito que o `at` deles diga o
-        /// contrário: inserir o marcador empurra o `at` de quem vinha depois, e
-        /// o que era "antes do primeiro item" passa a cair dentro do clip.
-        filhos_antes: usize,
     },
     /// Abre uma matriz `transform` EXATA para os itens seguintes, até o
     /// `PopTransform` correspondente — rotação/skew/matrix pintados como o
@@ -260,20 +260,16 @@ pub enum DisplayItem {
     PushTransform { mat: super::transformacao::Mat2d },
     /// Fecha a matriz aberta pelo `PushTransform` correspondente.
     PopTransform,
-    /// Fecha o clip mais recente, restaurando o anterior.
     /// Fecha o clip aberto pelo `BeginClip` correspondente.
     ///
-    /// Carrega QUANTOS fragmentos-filhos existiam quando foi emitido, e sem esse
-    /// número o clip vaza. A saída é uma ÁRVORE: um filho entra por um índice
-    /// (`ChildRef::at`, "antes do item nesta posição"), e vários filhos podem
-    /// partilhar o mesmo índice — o do `EndClip` inclusive. Os que já existiam
-    /// estão DENTRO do clip; os que os irmãos seguintes acrescentam no mesmo
-    /// índice estão FORA, e o percurso não tinha como distinguir uns dos outros.
-    ///
-    /// O sintoma era uma página inteira em branco: a folha do MediaWiki tem a
-    /// regra de acessibilidade `width:1px;height:1px;overflow:hidden`, e 30 325
-    /// dos 30 528 itens da Wikipédia acabavam recortados a esse pixel.
-    EndClip { filhos_dentro: usize },
+    /// No count of subtrees any more. When a subtree entered by an item index,
+    /// several could share the index of this marker — those already there were
+    /// inside the clip, those a later sibling added were not — and the count was
+    /// how a walk told them apart; without it a whole Wikipedia page went blank,
+    /// 30 325 of 30 528 items clipped to a MediaWiki `width:1px;height:1px;
+    /// overflow:hidden` rule. A later sibling's subtree is now simply AFTER this
+    /// marker in the sequence.
+    EndClip,
 }
 
 /// Um CONTAINER ROLÁVEL interno (uma `<div>` com `overflow:auto/scroll` e tamanho
@@ -314,15 +310,15 @@ pub struct DisplayList {
     /// `BoxTree` derives `Default`, so `Rc<BoxTree>` does too (an empty tree):
     /// the five `DisplayList::default()` call sites compile unchanged.
     pub tree: std::rc::Rc<BoxTree>,
-    pub items: Vec<DisplayItem>,
-    /// Subárvores emitidas por REFERÊNCIA, com a posição no meio dos itens
-    /// próprios e o deslocamento a aplicar.
+    /// The output in paint order: own items, subtrees reused by REFERENCE, and
+    /// the geometry marks the hit order is read from — one sequence
+    /// (`pecas.rs` says what it replaced and why).
     ///
-    /// É o que torna a saída uma ÁRVORE em vez de uma lista: um frame que mexe
-    /// numa folha não reconstrói os 30 000 itens da página, aponta para os
-    /// fragmentos que já existiam. Quem pinta anda a árvore ([`iter`]); quem
-    /// precisa mutar ou comparar achata ([`materialize`]).
-    pub children: Vec<ChildRef>,
+    /// The subtrees are what make the output a TREE: a frame that touches one
+    /// leaf does not rebuild the page's 30 000 items, it points at the fragments
+    /// that already existed. Whoever paints walks it ([`Self::walk`]); whoever
+    /// must mutate or compare flattens it ([`Self::materialize`]).
+    pub pieces: Vec<Piece>,
     /// A cor do CANVAS — o fundo do `<body>`/`<html>` propagado, e BRANCO
     /// quando nenhum dos dois define um. Vive aqui e não como item da lista
     /// porque é a cor de LIMPEZA do backend; sem ela o que aparecia por trás de
@@ -350,16 +346,6 @@ pub struct DisplayList {
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
     /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,
-    /// Caixas em ordem de pintura para hit-test: ancestrais antes de
-    /// descendentes, irmãos na ordem documental e elementos fora do fluxo por
-    /// `z-index` crescente. A última caixa que contém o ponto é a que está
-    /// visualmente no topo.
-    ///
-    /// `BoxId` e não `NodeIdx`, pela mesma razão de `box_rects`: é a caixa
-    /// que foi pintada. A pergunta pública continua "que NÓ está sob o
-    /// ponto" — `geometry_now` traduz cada entrada com `tree.node_of` ao
-    /// montar a `Geometry`, e é aí que a resposta volta a ser por nó.
-    pub hit_order: Vec<BoxId>,
     /// A geometria completa, montada sob demanda a partir da árvore. Não entra
     /// no `PartialEq` nem no `Clone` lógico: é derivada.
     geometry_cache: std::cell::RefCell<Option<std::rc::Rc<Geometry>>>,
@@ -369,19 +355,17 @@ pub struct DisplayList {
 ///
 /// `tree` and `geometry_cache` are excluded on purpose — both, the comment on
 /// `geometry_cache` already said before `tree` existed, are DERIVED from the
-/// same document that produced `box_rects`/`hit_order`. Comparing `tree` would
-/// add nothing and would force `BoxTree`/`LayoutBox` to carry `PartialEq` for
-/// no other reason.
+/// same document that produced `box_rects` and the pieces. Comparing `tree`
+/// would add nothing and would force `BoxTree`/`LayoutBox` to carry `PartialEq`
+/// for no other reason.
 impl PartialEq for DisplayList {
     fn eq(&self, other: &Self) -> bool {
-        self.items == other.items
-            && self.children == other.children
+        self.pieces == other.pieces
             && self.canvas_background == other.canvas_background
             && self.content_height == other.content_height
             && self.box_rects == other.box_rects
             && self.grid_column_tracks == other.grid_column_tracks
             && self.scroll_regions == other.scroll_regions
-            && self.hit_order == other.hit_order
     }
 }
 
@@ -391,71 +375,6 @@ pub struct Geometry {
     pub rects: crate::fasthash::FastMap<NodeIdx, Rect>,
     pub hit_order: Vec<NodeIdx>,
     pub scroll_regions: Vec<ScrollRegion>,
-}
-
-/// Acumula a geometria de um fragmento e das subárvores dele, deslocada.
-///
-/// O fragmento guarda a geometria por CAIXA e a `Geometry` responde por NÓ —
-/// é aqui que a tradução acontece, e é por isso que a árvore entra. Várias
-/// caixas de um nó unem-se, que é o que `getBoundingClientRect` pede; uma
-/// caixa ANÓNIMA não tem nó e não entra na `Geometry` de todo, o que é a
-/// resposta certa: a ponte promete caixas de elementos, e uma caixa que o
-/// documento não tem não é consultável por `NodeId` nenhum.
-fn collect_geometry(
-    tree: &crate::boxes::BoxTree,
-    fragment: &Fragment,
-    dx: f32,
-    dy: f32,
-    out: &mut Geometry,
-) {
-    let moved = dx != 0.0 || dy != 0.0;
-    for (box_id, rect) in fragment.rects.iter() {
-        let Some(node) = tree.node_of(*box_id) else { continue };
-        let mut rect = *rect;
-        if moved {
-            rect.x += dx;
-            rect.y += dy;
-        }
-        out.rects
-            .entry(node)
-            .and_modify(|r| *r = r.union(rect))
-            .or_insert(rect);
-    }
-    let mut next = 0usize;
-    for child in &fragment.children {
-        while next < child.hit_at && next < fragment.hit_order.len() {
-            if let Some(node) = tree.node_of(fragment.hit_order[next]) {
-                out.hit_order.push(node);
-            }
-            next += 1;
-        }
-        collect_geometry(tree, &child.fragment, dx + child.dx, dy + child.dy, out);
-    }
-    for &box_id in &fragment.hit_order[next.min(fragment.hit_order.len())..] {
-        if let Some(node) = tree.node_of(box_id) {
-            out.hit_order.push(node);
-        }
-    }
-    for region in fragment.scroll_regions.iter() {
-        let mut region = *region;
-        if moved {
-            region.visible.x += dx;
-            region.visible.y += dy;
-        }
-        out.scroll_regions.push(region);
-    }
-}
-
-/// Procura a geometria de uma caixa dentro de um fragmento, acumulando os
-/// deslocamentos aplicados quando ele foi reutilizado. Diferente da geometria
-/// pública por nó, esta vista preserva também caixas anônimas.
-fn rect_in_fragment(fragment: &Fragment, box_id: BoxId, dx: f32, dy: f32) -> Option<Rect> {
-    if let Some((_, rect)) = fragment.rects.iter().find(|(id, _)| *id == box_id) {
-        return Some(Rect::new(rect.x + dx, rect.y + dy, rect.w, rect.h));
-    }
-    fragment.children.iter().find_map(|child| {
-        rect_in_fragment(&child.fragment, box_id, dx + child.dx, dy + child.dy)
-    })
 }
 
 impl DisplayList {
@@ -476,6 +395,13 @@ impl DisplayList {
         }
     }
 
+    /// Paints `item` over everything emitted so far — the one write most of
+    /// layout does. An item that must go BEHIND what is already there is an
+    /// insert into `pieces` at a position remembered before it (`pecas.rs`).
+    pub fn push_item(&mut self, item: DisplayItem) {
+        self.pieces.push(Piece::Item(item));
+    }
+
     /// Todos os itens a pintar, em z-order, cada um com o deslocamento a somar.
     ///
     /// Anda a ÁRVORE de fragmentos: um item de uma subárvore reusada sai daqui
@@ -483,7 +409,7 @@ impl DisplayList {
     /// mais um deslocamento é grátis — foi o que permitiu a saída deixar de ser
     /// uma lista plana refeita por frame.
     pub fn walk(&self, mut f: impl FnMut(&DisplayItem, f32, f32)) {
-        walk_items(&self.items, &self.children, 0.0, 0.0, &mut f);
+        super::pecas::walk(&self.pieces, 0.0, 0.0, &mut f);
     }
 
     /// A lista PLANA. Para quem precisa MUTAR itens (o `transform` do CSS, o
@@ -500,23 +426,15 @@ impl DisplayList {
         out
     }
 
-    /// Achata esta lista em itens próprios, esquecendo a árvore.
+    /// Achata esta lista em itens próprios, esquecendo a árvore — and the
+    /// geometry of the subtrees it reused, as it always did.
     pub fn materialize(&mut self) {
-        if self.children.is_empty() {
-            return;
-        }
-        self.items = self.materialized();
-        self.children.clear();
+        super::pecas::flatten_from(&mut self.pieces, 0);
     }
 
     /// Quantos itens esta lista pinta ao todo.
     pub fn total_items(&self) -> usize {
-        self.items.len()
-            + self
-                .children
-                .iter()
-                .map(|c| c.fragment.total_items())
-                .sum::<usize>()
+        super::pecas::count_items(&self.pieces)
     }
 
     /// A geometria COMPLETA desta lista: os retângulos próprios mais os das
@@ -553,29 +471,12 @@ impl DisplayList {
         }
         let mut g = Geometry {
             rects,
-            hit_order: Vec::with_capacity(self.hit_order.len()),
+            hit_order: Vec::new(),
             scroll_regions: self.scroll_regions.clone(),
         };
-        // Intercala a ordem de hit-test pelo ponto de entrada de cada subárvore:
-        // a ordem É o z-order, e concatenar inverteria quem está por cima.
-        // Cada entrada é uma CAIXA (`hit_order` é `Vec<BoxId>`); a `Geometry`
-        // responde por NÓ, então a tradução acontece aqui — uma caixa
-        // anónima (`node_of` devolve `None`) simplesmente não entra.
-        let mut next = 0usize;
-        for child in &self.children {
-            while next < child.hit_at && next < self.hit_order.len() {
-                if let Some(node) = self.tree.node_of(self.hit_order[next]) {
-                    g.hit_order.push(node);
-                }
-                next += 1;
-            }
-            collect_geometry(&self.tree, &child.fragment, child.dx, child.dy, &mut g);
-        }
-        for &box_id in &self.hit_order[next.min(self.hit_order.len())..] {
-            if let Some(node) = self.tree.node_of(box_id) {
-                g.hit_order.push(node);
-            }
-        }
+        // The hit order is the geometry marks in paint order, a reused
+        // subtree's entering where its `Child` stands — `pecas::collect`.
+        super::pecas::collect(&self.tree, &self.pieces, 0.0, 0.0, &mut g);
         g
     }
 
@@ -592,11 +493,7 @@ impl DisplayList {
         self.box_rects
             .get(&box_id)
             .copied()
-            .or_else(|| {
-                self.children
-                    .iter()
-                    .find_map(|child| rect_in_fragment(&child.fragment, box_id, child.dx, child.dy))
-            })
+            .or_else(|| super::pecas::rect_in_children(&self.pieces, box_id, 0.0, 0.0))
     }
 
     /// O retângulo de um NÓ: a união dos retângulos das caixas que ele

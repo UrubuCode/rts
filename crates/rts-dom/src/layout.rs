@@ -51,6 +51,7 @@ mod caixa_contentora;
 mod clearfix;
 mod dimensao_indefinida;
 mod display;
+mod pecas;
 mod rect_cliente;
 mod empilhamento;
 mod float;
@@ -129,7 +130,7 @@ mod tabulacao;
 mod transformacao;
 pub(crate) use self::bloco::layout_block;
 pub use self::fragmento_tipos::{ChildRef, Fragment};
-pub(crate) use self::fragmento::insert_item;
+pub use self::pecas::Piece;
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
 use self::vertical::layout_children_vertical;
 use self::linha_ib::layout_inline_block_line;
@@ -150,7 +151,7 @@ use self::caixa::{css_display, em_contexto_inline, is_block_level, is_inline_blo
 use self::float::{banda_livre, fecha_a_corrida, float_of};
 use self::input::{layout_button, layout_input};
 use self::select::layout_select;
-use self::itens::{translate_item, walk_items};
+use self::itens::translate_item;
 use self::medida::{child_outer_height, child_outer_width, collect_text, content_natural_width};
 use self::pintura::{apply_opacity, body_background, cor_visivel, decoration_code, deve_suprimir_fundo, is_text_input_tag, italico, tag_de};
 use self::posicionado::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
@@ -420,7 +421,10 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
             empilhamento::merge_after(&mut list, fragment);
         }
     }
-    if !negativos.items.is_empty() || !negativos.children.is_empty() {
+    // Asked of what PAINTS, as it was of `items`/`children` before BT-2b: a
+    // negative layer with geometry and no paint is dropped here, its rects with
+    // it. Found, not fixed — a zero-change lot keeps the answer it found.
+    if pecas::paints(&negativos.pieces) {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.

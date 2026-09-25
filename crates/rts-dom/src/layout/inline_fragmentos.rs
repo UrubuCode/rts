@@ -187,8 +187,8 @@ impl Superficies {
         }
     }
 
-    /// Insere o fundo e as barras de borda de cada dono em `at` (o índice onde
-    /// a linha começou), atrás do texto. CORTE dito: as cores saem cruas — sem
+    /// Insere o fundo e as barras de borda de cada dono em `at` (the piece
+    /// position where the line began), atrás do texto. CORTE dito: as cores saem cruas — sem
     /// `opacity`/`filter` do elemento, que o caminho de bloco aplica por
     /// `cor()` — e sem `border-radius`.
     ///
@@ -200,7 +200,6 @@ impl Superficies {
         dom: &Dom,
         list: &mut DisplayList,
         at: usize,
-        filhos_antes: usize,
         y: f32,
         conteudo_da_linha: f32,
         align_to_baseline: bool,
@@ -208,12 +207,7 @@ impl Superficies {
     ) -> Superficies {
         let mut at = at;
         let mut poe = |list: &mut DisplayList, rect: Rect, color: u32| {
-            insert_item(
-                list,
-                at,
-                filhos_antes,
-                DisplayItem::SolidRect { rect, color, radius: Corners::ZERO },
-            );
+            list.pieces.insert(at, Piece::Item(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO }));
             at += 1;
         };
         let mut seguinte = Superficies::default();

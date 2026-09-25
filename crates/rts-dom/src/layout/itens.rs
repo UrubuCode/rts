@@ -1,71 +1,11 @@
-//! Transformar itens já desenhados: percorrer, deslocar, aplicar `transform`,
-//! e registar a ordem e o retângulo de um nó.
+//! Transformar itens já desenhados: deslocar, aplicar `transform`, e registar
+//! a ordem e o retângulo de uma caixa. (Walking the pieces is `pecas.rs`.)
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
 
 use super::*;
 use crate::boxes::BoxId;
-/// Percorre itens próprios e subárvores na ordem de pintura, acumulando o
-/// deslocamento. Recursivo pela mesma razão que a estrutura é uma árvore: um
-/// fragmento pode ter reusado outro.
-pub(in crate::layout) fn walk_items(
-    items: &[DisplayItem],
-    children: &[ChildRef],
-    dx: f32,
-    dy: f32,
-    f: &mut impl FnMut(&DisplayItem, f32, f32),
-) {
-    let mut next_child = 0usize;
-    for (i, item) in items.iter().enumerate() {
-        // Um `EndClip` só deixa passar à frente dele os filhos que JÁ existiam
-        // quando foi emitido — ver a doc da variante. Para todo o resto o empate
-        // no índice resolve-se a favor do filho, que é o que põe uma subárvore
-        // reusada no meio dos itens próprios.
-        // Um `BeginClip` empurra à sua FRENTE os filhos que já existiam antes
-        // dele: o `at` deles foi deslocado pela inserção do marcador, e sem isto
-        // o conteúdo inteiro da página cai dentro de um clip que não é dele.
-        if let DisplayItem::BeginClip { filhos_antes, .. } = item {
-            while next_child < *filhos_antes && next_child < children.len() {
-                let c = &children[next_child];
-                walk_items(
-                    &c.fragment.items,
-                    &c.fragment.children,
-                    dx + c.dx,
-                    dy + c.dy,
-                    f,
-                );
-                next_child += 1;
-            }
-        }
-        let teto = match item {
-            DisplayItem::EndClip { filhos_dentro } => *filhos_dentro,
-            _ => children.len(),
-        };
-        while next_child < teto.min(children.len()) && children[next_child].at <= i {
-            let c = &children[next_child];
-            walk_items(
-                &c.fragment.items,
-                &c.fragment.children,
-                dx + c.dx,
-                dy + c.dy,
-                f,
-            );
-            next_child += 1;
-        }
-        f(item, dx, dy);
-    }
-    for c in &children[next_child..] {
-        walk_items(
-            &c.fragment.items,
-            &c.fragment.children,
-            dx + c.dx,
-            dy + c.dy,
-            f,
-        );
-    }
-}
-
 /// DESLOCA um item de pintura por `(dx, dy)`.
 ///
 /// É a operação que torna um fragmento de layout REUSÁVEL: o desenho de uma
@@ -104,13 +44,15 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
             mat.e += dx;
             mat.f += dy;
         }
-        DisplayItem::EndClip { .. } | DisplayItem::PopTransform => {}
+        DisplayItem::EndClip | DisplayItem::PopTransform => {}
     }
 }
 
 /// Reserva uma posição de pintura antes de layoutar os descendentes. Um retângulo
 /// placeholder fica invisível para o hit-test até ser preenchido por
-/// [`record_box_rect`].
+/// [`record_box_rect`]. The position is a `Piece::Rect` pushed NOW, before the
+/// descendants' pieces: the hit order is read from those marks in sequence
+/// order, so an ancestor stays below its descendants.
 ///
 /// Por CAIXA, e só por caixa: a variante por nó, que traduzia `NodeIdx` para as
 /// caixas dele contra `list.tree`, morreu com o último chamador que só sabia
@@ -118,7 +60,7 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
 pub(crate) fn reserve_box_order(list: &mut DisplayList, box_id: BoxId) {
     if !list.box_rects.contains_key(&box_id) {
         list.box_rects.insert(box_id, Rect::new(0.0, 0.0, 0.0, 0.0));
-        list.hit_order.push(box_id);
+        list.pieces.push(Piece::Rect(box_id));
     }
 }
 
@@ -128,7 +70,7 @@ pub(crate) fn reserve_box_order(list: &mut DisplayList, box_id: BoxId) {
 /// BoxTree, e só a caixa exacta diz qual deles é este.
 pub(crate) fn record_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect) {
     if list.box_rects.insert(box_id, rect).is_none() {
-        list.hit_order.push(box_id);
+        list.pieces.push(Piece::Rect(box_id));
     }
 }
 

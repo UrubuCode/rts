@@ -51,13 +51,13 @@ pub fn emit_scrollbar(
     // FIXA na viewport: soma offset_y (o backend translada tudo por -offset).
     let vy = offset_y;
     // track (faixa direita inteira) — atrás do thumb.
-    list.items.push(DisplayItem::SolidRect {
+    list.push_item(DisplayItem::SolidRect {
         rect: Rect::new(bar_x, vy, bar_w, viewport_h),
         color: track_color,
         radius: Corners::ZERO,
     });
     // thumb (handle).
-    list.items.push(DisplayItem::SolidRect {
+    list.push_item(DisplayItem::SolidRect {
         rect: Rect::new(bar_x, vy + thumb_y, bar_w, thumb_h),
         color: thumb_color,
         radius: Corners::same(radius),
@@ -97,12 +97,12 @@ pub fn emit_scrollbar_in(
         let max_off = (region.content_h - v.h).max(1.0);
         let thumb_y = (offset_y / max_off).clamp(0.0, 1.0) * (track_h - thumb_h);
         let bx = v.x + v.w - bar_w;
-        list.items.push(DisplayItem::SolidRect {
+        list.push_item(DisplayItem::SolidRect {
             rect: Rect::new(bx, v.y, bar_w, track_h),
             color: track_color,
             radius: Corners::ZERO,
         });
-        list.items.push(DisplayItem::SolidRect {
+        list.push_item(DisplayItem::SolidRect {
             rect: Rect::new(bx, v.y + thumb_y, bar_w, thumb_h),
             color: thumb_color,
             radius: Corners::same(radius),
@@ -116,12 +116,12 @@ pub fn emit_scrollbar_in(
         let max_off = (region.content_w - v.w).max(1.0);
         let thumb_x = (offset_x / max_off).clamp(0.0, 1.0) * (track_w - thumb_w);
         let by = v.y + v.h - bar_w;
-        list.items.push(DisplayItem::SolidRect {
+        list.push_item(DisplayItem::SolidRect {
             rect: Rect::new(v.x, by, track_w, bar_w),
             color: track_color,
             radius: Corners::ZERO,
         });
-        list.items.push(DisplayItem::SolidRect {
+        list.push_item(DisplayItem::SolidRect {
             rect: Rect::new(v.x + thumb_x, by, thumb_w, bar_w),
             color: thumb_color,
             radius: Corners::same(radius),
@@ -331,11 +331,10 @@ pub(crate) fn border_items(
     box_rect: Rect,
     radius: f32,
     op: f32,
-    // O `filter` do elemento. Parâmetro e não leitura do `css` aqui dentro porque
-    // esta função é chamada TAMBÉM só para CONTAR quantos itens de borda existem
-    // (o índice do clip), e nessa chamada a cor não interessa — passar a
-    // identidade diz isso explicitamente em vez de calcular uma matriz para a
-    // deitar fora.
+    // O `filter` do elemento, resolved once by the caller, which already holds
+    // it for the box's other colours. It was also a parameter so that a second
+    // call could COUNT the border items for the overflow clip's index with the
+    // identity matrix; that count died with the index (BT-2b, `pecas.rs`).
     fx: crate::painteffects::FilterMatriz,
 ) -> Vec<DisplayItem> {
     let mut out = Vec::new();

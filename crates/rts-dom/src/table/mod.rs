@@ -373,11 +373,9 @@ fn lay_out_grid(
     y += ts.spacing_v;
     for (ri, row) in g.rows.iter().enumerate() {
         row_y.push(y);
-        // Reserva o índice ANTES das células: o fundo do `<tr>` pinta-se atrás
+        // Lembra a posição ANTES das células: o fundo do `<tr>` pinta-se atrás
         // delas, como qualquer caixa pinta atrás dos filhos.
-        let idx_fundo = list.items.len();
-        // A fronteira das subárvores que já existem — ver `layout::insert_item`.
-        let filhos_antes = list.children.len();
+        let idx_fundo = list.pieces.len();
         if let Some((_, caixa)) = row.node {
             crate::layout::reserve_box_order(list, caixa);
         }
@@ -420,7 +418,7 @@ fn lay_out_grid(
                 alturas[ri],
             );
             crate::layout::record_box_rect(list, caixa, rect);
-            pinta_caixa(dom, n, rect, idx_fundo, filhos_antes, list);
+            pinta_caixa(dom, n, rect, idx_fundo, list);
         }
         y += alturas[ri] + ts.spacing_v;
     }
@@ -442,7 +440,7 @@ fn lay_out_grid(
             base - topo,
         );
         crate::layout::record_box_rect(list, caixa, rect);
-        pinta_caixa(dom, node, rect, list.items.len(), list.children.len(), list);
+        pinta_caixa(dom, node, rect, list.pieces.len(), list);
     }
     y - content_y
 }
@@ -456,7 +454,6 @@ fn pinta_caixa(
     id: NodeIdx,
     rect: Rect,
     at: usize,
-    filhos_antes: usize,
     list: &mut DisplayList,
 ) {
     let Some(css) = dom.computed_style_idx(id) else {
@@ -485,6 +482,6 @@ fn pinta_caixa(
         crate::painteffects::filtro(css.filter.as_deref().unwrap_or("")),
     ));
     for (i, item) in em.into_iter().enumerate() {
-        crate::layout::insert_item(list, at + i, filhos_antes, item);
+        list.pieces.insert(at + i, crate::layout::Piece::Item(item));
     }
 }

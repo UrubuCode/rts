@@ -362,7 +362,7 @@ pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
             *old = old.union(fragment);
         } else {
             list.box_rects.insert(caixa, fragment);
-            list.hit_order.push(caixa);
+            list.pieces.push(crate::layout::Piece::Rect(caixa));
         }
     }
 }

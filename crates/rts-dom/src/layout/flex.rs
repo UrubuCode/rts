@@ -538,7 +538,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             } else if it.is_text {
                 let text = collect_text(dom, it.node);
                 let color = cor_visivel(&css, css.color.unwrap_or(0x000000FF));
-                list.items.push(DisplayItem::Text {
+                list.push_item(DisplayItem::Text {
                     x,
                     y: item_y,
                     text: text.into(),

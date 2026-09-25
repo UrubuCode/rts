@@ -59,10 +59,11 @@ pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32
 /// a START BORDER of the enclosing inline as content either, whatever §9.4.2
 /// says of it.
 ///
-/// `inicio_da_linha` is `(list.items.len(), list.children.len())` as they stood
-/// when the line began: "nothing before it" is asked as "the line has emitted
-/// nothing yet", since the surfaces of the inlines are inserted only after the
-/// line's last segment. Cut, stated: text that paints nothing
+/// `inicio_da_linha` is `list.pieces.len()` as it stood when the line began:
+/// "nothing before it" is asked as "the line has PAINTED nothing yet" — a
+/// geometry mark alone (a marker's rect) does not count, as it did not when
+/// this compared the item and subtree counts — since the surfaces of the
+/// inlines are inserted only after the line's last segment. Cut, stated: text that paints nothing
 /// (`visibility: hidden`) reads as an empty line here.
 pub(in crate::layout) fn fora_da_linha(
     dom: &Dom,
@@ -71,7 +72,7 @@ pub(in crate::layout) fn fora_da_linha(
     flow_x: f32,
     line_top: f32,
     line_bottom: f32,
-    inicio_da_linha: (usize, usize),
+    inicio_da_linha: usize,
     list: &mut DisplayList,
 ) -> bool {
     match atomic {
@@ -80,7 +81,7 @@ pub(in crate::layout) fn fora_da_linha(
         // leaves it out of the client rects of the inline that contains it.
         (_, _, AtomicKind::Float) => true,
         (id, caixa, AtomicKind::Estatica) => {
-            let vazia = (list.items.len(), list.children.len()) == inicio_da_linha;
+            let vazia = !super::pecas::paints(&list.pieces[inicio_da_linha..]);
             let (x, y) = match (era_de_bloco(dom, id), vazia) {
                 (true, true) => (flow_x, line_top),
                 (true, false) => (flow_x, line_bottom),
@@ -100,7 +101,7 @@ pub(in crate::layout) fn fora_da_linha(
 pub(in crate::layout) fn linha_so_de_ancoras(dom: &Dom, line: &[Segment], flow_x: f32, cy: f32, list: &mut DisplayList) -> bool {
     let so_ancoras = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::Estatica))));
     if so_ancoras {
-        let inicio = (list.items.len(), list.children.len());
+        let inicio = list.pieces.len();
         for atomic in line.iter().filter_map(|s| s.atomic) {
             fora_da_linha(dom, atomic, flow_x, flow_x, cy, cy, inicio, list);
         }
@@ -126,10 +127,10 @@ pub(in crate::layout) fn todas(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
         out.extend(a.iter().filter_map(|&(b, x, y)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, 0.0, 0.0)))));
     };
     por(&list.tree, &list.ancoras_estaticas, 0.0, 0.0);
-    let mut pilha: Vec<(&ChildRef, f32, f32)> = list.children.iter().map(|c| (c, c.dx, c.dy)).collect();
+    let mut pilha: Vec<(&ChildRef, f32, f32)> = super::pecas::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();
     while let Some((c, dx, dy)) = pilha.pop() {
         por(&c.fragment.tree, &c.fragment.ancoras_estaticas, dx, dy);
-        pilha.extend(c.fragment.children.iter().map(|n| (n, dx + n.dx, dy + n.dy)));
+        pilha.extend(super::pecas::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)));
     }
     out
 }

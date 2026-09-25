@@ -137,9 +137,7 @@ fn main() {
                 DisplayItem::BeginClip { rect, node, .. } if marcas.len() < 6 => marcas.push(
                     format!("#{pos} Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h),
                 ),
-                DisplayItem::EndClip { filhos_dentro } if marcas.len() < 6 => {
-                    marcas.push(format!("#{pos} End (filhos_dentro={filhos_dentro})"))
-                }
+                DisplayItem::EndClip if marcas.len() < 6 => marcas.push(format!("#{pos} End")),
                 _ => {}
             }
             pos += 1;
@@ -149,11 +147,10 @@ fn main() {
         list.walk(|item, _, _| {
             match item {
                 DisplayItem::BeginClip { .. } => prof += 1,
-                DisplayItem::EndClip { filhos_dentro } => {
+                DisplayItem::EndClip => {
                     prof -= 1;
                     if prof == 0 && fecha_em.is_none() {
                         fecha_em = Some(p2);
-                        println!("  o End que fecha tem filhos_dentro={filhos_dentro}");
                     }
                 }
                 _ => {}
@@ -167,26 +164,34 @@ fn main() {
         }
     }
     {
-        // A ESTRUTURA da lista de topo: onde os marcadores estão nos itens
-        // próprios, e onde os filhos entram.
+        // The STRUCTURE of the top-level sequence: where the clip markers
+        // stand among the pieces, and where the reused subtrees enter.
+        let conta = |f: fn(&layout::Piece) -> bool| list.pieces.iter().filter(|p| f(p)).count();
         println!(
-            "topo: items={} children={}",
-            list.items.len(),
-            list.children.len()
+            "topo: pieces={} items={} children={} rects={}",
+            list.pieces.len(),
+            conta(|p| matches!(p, layout::Piece::Item(_))),
+            conta(|p| matches!(p, layout::Piece::Child(_))),
+            conta(|p| matches!(p, layout::Piece::Rect(_))),
         );
-        for (i, it) in list.items.iter().enumerate().take(2000) {
-            match it {
-                DisplayItem::BeginClip { rect, node, .. } => {
-                    println!("  items[{i}] Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h)
+        for (i, p) in list.pieces.iter().enumerate().take(2000) {
+            match p {
+                layout::Piece::Item(DisplayItem::BeginClip { rect, node, .. }) => {
+                    println!("  pieces[{i}] Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h)
                 }
-                DisplayItem::EndClip { filhos_dentro } => {
-                    println!("  items[{i}] End (filhos_dentro={filhos_dentro})")
-                }
+                layout::Piece::Item(DisplayItem::EndClip) => println!("  pieces[{i}] End"),
                 _ => {}
             }
         }
-        let ats: Vec<usize> = list.children.iter().take(10).map(|c| c.at).collect();
-        println!("  at dos primeiros filhos: {ats:?}");
+        let filhos: Vec<usize> = list
+            .pieces
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| matches!(p, layout::Piece::Child(_)))
+            .take(10)
+            .map(|(i, _)| i)
+            .collect();
+        println!("  posição dos primeiros filhos: {filhos:?}");
     }
     let (mut textos, mut rects, mut outros) = (0usize, 0usize, 0usize);
     let (mut textos_na_tela, mut rects_na_tela) = (0usize, 0usize);

@@ -411,6 +411,14 @@ that wants to know "is this an inline formatting context" asks the tree.
 
 ### What the base does NOT do yet, and must not be assumed
 
+- **The paint order is one sequence of pieces, never an index** (BT-2b,
+  2026-09-25). `DisplayList.pieces` and `Fragment.pieces` hold `Item`,
+  `Child` and `Rect` in paint order; nesting is the `ChildRef`; the hit-test
+  order is derived from the `Rect` marks at `geometry()` time and stored
+  nowhere else. What lies between a `BeginClip` and its `EndClip` is inside
+  the clip — there is no child count to keep in step. Invariant I5 is closed.
+  Four answers the old arithmetic gave were kept on purpose and are named in
+  `layout/pecas.rs` (`legacy_tie_start`); each is a lot of its own.
 - **Every layout function takes a `BoxId`, never an `Option<BoxId>`** (BT-2a,
   2026-09-25). `layout_block`, the inline flow, the atoms, the leaves, the
   intrinsic-width walkers and the generated-box roles all name the exact box;

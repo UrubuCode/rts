@@ -435,7 +435,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
             }
             if it.is_text {
                 let text = collect_text(dom, it.node);
-                list.items.push(DisplayItem::Text {
+                list.push_item(DisplayItem::Text {
                     x,
                     y,
                     text: text.into(),

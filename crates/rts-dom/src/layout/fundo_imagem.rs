@@ -51,15 +51,6 @@ pub(in crate::layout) fn background_pixels_items(
     border_right: f32,
     border_bottom: f32,
     border_left: f32,
-    // Bookkeeping do CLIP — a mesma dupla que o clip de scroll (`bloco.rs`,
-    // logo abaixo neste ficheiro) já usa e pela mesma razão (ver
-    // `DisplayItem::BeginClip`/`EndClip`): quantas subárvores-filhas já
-    // existiam quando o clip abriu/fechou. Um clip de fundo não recorta
-    // nenhuma diferente das do scroll — os FILHOS deste nó já foram
-    // layoutados antes deste ponto — por isso os dois valores coincidem com
-    // os que o chamador já tem à mão.
-    filhos_antes: usize,
-    filhos_dentro: usize,
 ) -> Vec<DisplayItem> {
     let has_image = css
         .bg_image
@@ -107,7 +98,6 @@ pub(in crate::layout) fn background_pixels_items(
         node: id,
         offset_x: 0.0,
         offset_y: 0.0,
-        filhos_antes,
     });
     for &ty in &ys {
         for &tx in &xs {
@@ -119,7 +109,7 @@ pub(in crate::layout) fn background_pixels_items(
             });
         }
     }
-    out.push(DisplayItem::EndClip { filhos_dentro });
+    out.push(DisplayItem::EndClip);
     out
 }
 
