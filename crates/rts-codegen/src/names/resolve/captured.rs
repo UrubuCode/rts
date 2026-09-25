@@ -134,6 +134,23 @@ impl Resolution {
         }
     }
 
+    /// Whether a scope sits inside a class body of its activation -- a class's own name
+    /// and what its static blocks declare.
+    ///
+    /// Asked by a lowering that leaves the class to another stage: those bindings are
+    /// that stage's to lay out, reached only by the class's own code.
+    pub fn in_class_body(&self, scope: ScopeId) -> bool {
+        let mut at = scope;
+        loop {
+            let record = self.scope(at);
+            match (record.kind, record.parent) {
+                (ScopeKind::ClassBody, _) => return true,
+                (ScopeKind::Function | ScopeKind::Module, _) | (_, None) => return false,
+                (_, Some(parent)) => at = parent,
+            }
+        }
+    }
+
     /// Whether an activation of this function or module scope builds an environment.
     pub fn builds_environment(&self, function: ScopeId) -> bool {
         self.capture.builders.contains(&function)

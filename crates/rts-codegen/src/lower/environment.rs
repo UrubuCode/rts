@@ -53,7 +53,7 @@ impl Lowering<'_> {
     /// allocates and a guard behind an allocation is no longer at a point the other
     /// tier can be entered from -- `rts_mir::lower` refuses it by position.
     pub(super) fn open_environment(&mut self, at: &Expr) -> Result<(), Unsupported> {
-        let owned = self.resolution.environment_of(self.function);
+        let owned = self.owned_environment();
         let reaches = self.resolution.reaches_out(self.function);
         if owned.is_empty() {
             // UNDER ANOTHER STAGE'S LAYOUT a closure made here is handed the environment
@@ -108,6 +108,17 @@ impl Lowering<'_> {
         Ok(())
     }
 
+    /// The captured bindings this activation lays out -- all it owns, except, under
+    /// another stage's layout, those inside a class body: the class is that stage's,
+    /// compiled in a helper, and so is where its own bindings live.
+    pub(super) fn owned_environment(&self) -> Vec<BindingId> {
+        let mut owned = self.resolution.environment_of(self.function);
+        if self.outer.is_some() {
+            owned.retain(|held| !self.resolution.in_class_body(self.resolution.binding(*held).scope));
+        }
+        owned
+    }
+
     /// The environment that owns a captured binding, seen from here, and its key.
     fn env_slot(
         &mut self,
@@ -134,7 +145,7 @@ impl Lowering<'_> {
             };
             // The enclosing layout counts from the environment this function was MADE
             // in; one this function built itself stands one link in front of it.
-            let built = !self.resolution.environment_of(self.function).is_empty();
+            let built = !self.owned_environment().is_empty();
             for _ in 0..hops + u32::from(built) {
                 environment = self.prim(JsPrim::EnvOuter, vec![environment], at);
             }

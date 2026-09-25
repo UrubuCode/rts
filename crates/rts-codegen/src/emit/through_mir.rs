@@ -116,8 +116,7 @@ fn attempt(
     // BODIES are emitted by the running emitter -- in the scope this function sits in,
     // which is what they reach: a function this door takes builds no environment, so
     // nothing of its own is captured by them -- and the closure is made here from the
-    // id that answers. A class is declined: its methods are installed with a home object
-    // the MIR stage's class lowering and the running emitter's do not agree about.
+    // id that answers. A class is compiled the same way, inside a helper -- `helper_of`.
     let mut nested = Nested::default();
     match &function.body {
         crate::syntax::FunctionBody::Block(statements) => {
@@ -125,9 +124,17 @@ fn attempt(
         }
         crate::syntax::FunctionBody::Expression(value) => nested.expression(value),
     }
-    if nested.class {
-        return Err("a class written inside".to_owned());
+    // A CLASS INSIDE AN ARROW would need the arrow's `this` handed to its helper, which
+    // is the enclosing function's and not carried here.
+    if function.captures_this
+        && nested
+            .classes
+            .iter()
+            .any(|class| class_reads_enclosing_this(class, ctx.names))
+    {
+        return Err("a class inside an arrow, whose helper would need the enclosing `this`".to_owned());
     }
+    let helpers: Vec<Function> = nested.classes.iter().map(|class| helper_of(class)).collect();
     // AN ARROW INSIDE READS `this` -- and `arguments`, `super`, `new.target` -- FROM
     // THIS FUNCTION, which the running emitter hands it through an environment slot
     // this function would have to build. Declined rather than built.
@@ -138,8 +145,14 @@ fn attempt(
     {
         return Err("an arrow inside reads this function's `this`".to_owned());
     }
-    let positions: Vec<rts_cranelift::fault::Position> =
-        nested.found.iter().map(|(inner, _)| inner.at).collect();
+    // The functions, then the class helpers, numbered in that order -- the order the
+    // module list below is filled in.
+    let positions: Vec<rts_cranelift::fault::Position> = nested
+        .found
+        .iter()
+        .map(|(inner, _)| inner.at)
+        .chain(helpers.iter().map(|helper| helper.at))
+        .collect();
     let callees = crate::lower::Callees::of_positions(&positions);
     let mut domain = crate::domain::Js::new();
     // THE RUNNING EMITTER'S LAYOUT for every name this function does not own: it makes
@@ -187,14 +200,21 @@ fn attempt(
     let inside = built.as_ref().unwrap_or(enclosing);
     let outer_name = ctx.take_lent_name();
     let mut module = Vec::with_capacity(nested.found.len());
-    for (inner, declared) in &nested.found {
+    let written_inside = nested
+        .found
+        .iter()
+        .map(|(inner, declared)| (*inner, *declared, true))
+        .chain(helpers.iter().map(|helper| (helper, false, false)));
+    for (inner, declared, candidate) in written_inside {
         if let Some(name) = nested.lent.get(&inner.at)
             && !ctx.names.text(*name).starts_with("__rts_")
         {
             ctx.lend_name(*name);
         }
-        ctx.mir_candidate = true;
-        let made = super::function::nested_code(ctx, inside, inner, *declared);
+        // A HELPER is not offered to this door: nothing in the scope tree was written at
+        // its position, and the class it returns is the running emitter's by design.
+        ctx.mir_candidate = candidate;
+        let made = super::function::nested_code(ctx, inside, inner, declared);
         let _ = ctx.take_lent_name();
         match made {
             Ok(id) => module.push(id),
@@ -314,6 +334,9 @@ fn inner_scope(
         .map(|scope| resolution.environment_of(scope))
         .unwrap_or_default()
         .into_iter()
+        // A class body's bindings are its helper's, as `lower/environment.rs` leaves
+        // them out of the object it builds.
+        .filter(|binding| !resolution.in_class_body(resolution.binding(*binding).scope))
         .map(|binding| resolution.binding(binding).name)
         .collect();
     if owned.is_empty() {
@@ -357,12 +380,11 @@ fn key_name(
     }
 }
 
-/// The functions written directly inside a body -- not inside those -- and whether a
-/// class is written there.
+/// The functions written directly inside a body -- not inside those -- and the classes.
 #[derive(Default)]
 struct Nested<'a> {
     found: Vec<(&'a Function, bool)>,
-    class: bool,
+    classes: Vec<&'a crate::syntax::Class>,
     /// The name each anonymous definition is given by where it is written --
     /// NamedEvaluation, which the running emitter carries in `Ctx::lend_name` from the
     /// site that writes it. Keyed by position because those sites are here the PARENT of
@@ -377,10 +399,16 @@ struct Nested<'a> {
 
 impl Nested<'_> {
     fn lend(&mut self, value: &crate::syntax::Expr, name: crate::names::Name) {
-        if let crate::syntax::ExprKind::Function(inner) = &value.kind
-            && inner.name.is_none()
-        {
-            self.lent.insert(inner.at, name);
+        match &value.kind {
+            crate::syntax::ExprKind::Function(inner) if inner.name.is_none() => {
+                self.lent.insert(inner.at, name);
+            }
+            // An anonymous CLASS is named by its binding too, and it takes the name
+            // inside its helper, where the running emitter emits it.
+            crate::syntax::ExprKind::Class(class) if class.name.is_none() => {
+                self.lent.insert(class.at, name);
+            }
+            _ => {}
         }
     }
 }
@@ -401,7 +429,7 @@ impl<'a> Nested<'a> {
             }
             StmtChild::Catch(clause) => clause.body.iter().for_each(|held| self.statement(held)),
             StmtChild::Function(inner) => self.found.push((inner, true)),
-            StmtChild::Class(_) => self.class = true,
+            StmtChild::Class(class) => self.classes.push(class),
         });
     }
 
@@ -410,10 +438,7 @@ impl<'a> Nested<'a> {
         use crate::syntax::{AssignOp, AssignTarget, ExprKind, Property, PropertyKey};
         match &value.kind {
             ExprKind::Function(inner) => return self.found.push((inner, false)),
-            ExprKind::Class(_) => {
-                self.class = true;
-                return;
-            }
+            ExprKind::Class(class) => return self.classes.push(class),
             // `f = () => {}` and `f ??= () => {}` name the arrow; `f += ...` names
             // nothing, and neither does `o.f = ...` -- the rule is attached to an
             // identifier reference on the left.
@@ -443,58 +468,116 @@ impl<'a> Nested<'a> {
         crate::emit::capture::walk_expr(value, &mut |child| match child {
             Child::Expr(inner) => self.expression(inner),
             Child::Function(inner) => self.found.push((inner, false)),
-            Child::Class(_) => self.class = true,
+            Child::Class(class) => self.classes.push(class),
         });
+    }
+}
+
+/// `function () { return class … }` -- a class written inside a function this door
+/// takes, as the running emitter's own code.
+///
+/// # Why the class is not lowered here
+///
+/// Because a class is the running emitter's in every detail a program can observe:
+/// methods are installed non-enumerable with a home object, the constructor refuses a
+/// call without `new`, fields run in the constructor, `extends` links two prototype
+/// chains. `lower/class.rs` builds a class out of a closure and property writes, which
+/// is a shape the stage can reason about and not the same object. So the class is
+/// evaluated by a helper the running emitter compiles, at the point it is written,
+/// with this function's `this` as the helper's receiver -- which is what its computed
+/// keys and `extends` expression read -- and the value it answers is bound here.
+fn helper_of(class: &crate::syntax::Class) -> Function {
+    let at = class.at;
+    let class = crate::syntax::Expr {
+        kind: crate::syntax::ExprKind::Class(Box::new(class.clone())),
+        at,
+    };
+    Function {
+        name: None,
+        parameters: Vec::new(),
+        rest_parameter: None,
+        directives: Vec::new(),
+        body: crate::syntax::FunctionBody::Block(vec![crate::syntax::Stmt {
+            kind: crate::syntax::StmtKind::Return(Some(class)),
+            at,
+        }]),
+        returns: None,
+        captures_this: false,
+        is_async: false,
+        is_generator: false,
+        advertised_length: None,
+        at,
     }
 }
 
 /// Whether an arrow reads what an arrow takes from the function it is written in --
 /// `this`, `arguments`, `super`, `new.target` -- itself or through an arrow inside it.
 fn reads_enclosing_this(arrow: &Function, names: &crate::names::Names) -> bool {
-    fn statement(held: &crate::syntax::Stmt, names: &crate::names::Names) -> bool {
-        use crate::emit::capture::StmtChild;
-        let mut found = false;
-        crate::emit::capture::walk_stmt(held, &mut |child| {
-            found |= match child {
-                StmtChild::Stmt(inner) => statement(inner, names),
-                StmtChild::Expr(value) => expression(value, names),
-                StmtChild::Binding(binding) => {
-                    binding.value.as_ref().is_some_and(|value| expression(value, names))
-                }
-                StmtChild::Catch(clause) => clause.body.iter().any(|held| statement(held, names)),
-                StmtChild::Function(inner) => inner.captures_this && reads_enclosing_this(inner, names),
-                // A class body has its own `this`; its computed keys and heritage do not,
-                // and are rare enough to count as reading it.
-                StmtChild::Class(_) => true,
-            };
-        });
-        found
-    }
-    fn expression(value: &crate::syntax::Expr, names: &crate::names::Names) -> bool {
-        use crate::emit::capture::Child;
-        use crate::syntax::ExprKind;
-        match &value.kind {
-            ExprKind::This
-            | ExprKind::NewTarget
-            | ExprKind::SuperMember { .. }
-            | ExprKind::SuperCall { .. } => return true,
-            ExprKind::Ident(name) if names.spelled(*name) == Some("arguments") => return true,
-            _ => {}
-        }
-        let mut found = false;
-        crate::emit::capture::walk_expr(value, &mut |child| {
-            found |= match child {
-                Child::Expr(inner) => expression(inner, names),
-                Child::Function(inner) => inner.captures_this && reads_enclosing_this(inner, names),
-                Child::Class(_) => true,
-            };
-        });
-        found
-    }
     match &arrow.body {
         crate::syntax::FunctionBody::Block(statements) => {
-            statements.iter().any(|held| statement(held, names))
+            statements.iter().any(|held| statement_reads_this(held, names))
         }
-        crate::syntax::FunctionBody::Expression(value) => expression(value, names),
+        crate::syntax::FunctionBody::Expression(value) => expression_reads_this(value, names),
     }
+}
+
+/// Whether what a class evaluates where it is WRITTEN -- its `extends` expression and its
+/// computed keys -- reads `this`. Its methods, fields and static blocks have the class's
+/// own, so they ask nothing of the function the class sits in.
+fn class_reads_enclosing_this(class: &crate::syntax::Class, names: &crate::names::Names) -> bool {
+    let heritage = class
+        .heritage
+        .as_ref()
+        .is_some_and(|value| expression_reads_this(value, names));
+    heritage
+        || class.body.iter().any(|element| match element.key() {
+            Some(crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Computed(key))) => {
+                expression_reads_this(key, names)
+            }
+            _ => false,
+        })
+}
+
+fn statement_reads_this(held: &crate::syntax::Stmt, names: &crate::names::Names) -> bool {
+    use crate::emit::capture::StmtChild;
+    let mut found = false;
+    crate::emit::capture::walk_stmt(held, &mut |child| {
+        found |= match child {
+            StmtChild::Stmt(inner) => statement_reads_this(inner, names),
+            StmtChild::Expr(value) => expression_reads_this(value, names),
+            StmtChild::Binding(binding) => binding
+                .value
+                .as_ref()
+                .is_some_and(|value| expression_reads_this(value, names)),
+            StmtChild::Catch(clause) => clause
+                .body
+                .iter()
+                .any(|held| statement_reads_this(held, names)),
+            StmtChild::Function(inner) => inner.captures_this && reads_enclosing_this(inner, names),
+            StmtChild::Class(class) => class_reads_enclosing_this(class, names),
+        };
+    });
+    found
+}
+
+fn expression_reads_this(value: &crate::syntax::Expr, names: &crate::names::Names) -> bool {
+    use crate::emit::capture::Child;
+    use crate::syntax::ExprKind;
+    match &value.kind {
+        ExprKind::This
+        | ExprKind::NewTarget
+        | ExprKind::SuperMember { .. }
+        | ExprKind::SuperCall { .. } => return true,
+        ExprKind::Ident(name) if names.spelled(*name) == Some("arguments") => return true,
+        _ => {}
+    }
+    let mut found = false;
+    crate::emit::capture::walk_expr(value, &mut |child| {
+        found |= match child {
+            Child::Expr(inner) => expression_reads_this(inner, names),
+            Child::Function(inner) => inner.captures_this && reads_enclosing_this(inner, names),
+            Child::Class(class) => class_reads_enclosing_this(class, names),
+        };
+    });
+    found
 }

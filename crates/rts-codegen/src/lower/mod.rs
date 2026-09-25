@@ -794,6 +794,9 @@ impl Lowering<'_> {
             // So a literal with a spread is built rather than counted: one array, and
             // an append per element, which is the shape `array_append` exists for.
             ExprKind::Array { elements } => self.array_literal(elements, expr),
+            // A class EXPRESSION is lowered only where another stage compiles it --
+            // `class.rs`; everywhere else it stays refused by name.
+            ExprKind::Class(class) if self.outer.is_some() => self.class_value(class, expr),
             // `a, b`: every operand in order, the last one's value. Nothing else is
             // asked of it -- a comma is an order, and the graph already is one.
             ExprKind::Sequence { operands } => {

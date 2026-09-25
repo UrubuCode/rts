@@ -72,6 +72,14 @@ pub enum Type {
     Double,
     /// A string.
     Str,
+    /// A bigint -- the second numeric tower, known where a literal wrote one.
+    ///
+    /// Its own row and not `Anything`, for one reason a measurement gave: an operand
+    /// that is a bigint is never a double, so `1n + i` asks nothing of `i` -- the
+    /// running engine does not guard it, and `literal_guard_gate.rs` counts. It joins
+    /// nothing but itself, and no operator of this lattice proves one: arithmetic over
+    /// two of them is the runtime's, and answers whatever the runtime answers.
+    BigInt,
     /// An object whose layout is known, by the machine's shape id.
     ///
     /// # Unreachable today, and that is the finding rather than an omission
@@ -615,6 +623,7 @@ impl Domain for Js {
             // anything else, which is what lets the `+` joining a template's pieces be
             // typed a concatenation.
             Some(RuntimeOp::StringOf) => Type::Str,
+            Some(RuntimeOp::BigIntNew) => Type::BigInt,
             // A length is a number, answered unboxed -- the representation and the
             // proof are one fact here.
             Some(RuntimeOp::ArrayLength) => Type::Double,
@@ -652,10 +661,10 @@ impl Domain for Js {
             Type::Undefined | Type::Null => Some(false),
             Type::Bool(known) => *known,
             // SEVEN FALSY VALUES is why these are undecidable from the type
-            // alone: `0`, `-0`, `NaN` and `""` are values of `Int32`, `Double`
-            // and `Str`. The toy domain answers `Some(true)` for all three,
+            // alone: `0`, `-0`, `NaN`, `""` and `0n` are values of `Int32`,
+            // `Double`, `Str` and `BigInt`. The toy domain answers `Some(true)` for all three,
             // because its language has two falsy values and a zero is true.
-            Type::Int32 | Type::Double | Type::Str => None,
+            Type::Int32 | Type::Double | Type::Str | Type::BigInt => None,
             // An object is truthy whatever it holds, and so is a function.
             Type::Shaped(_) | Type::Object | Type::Callable => Some(true),
             Type::Nothing | Type::Anything => None,

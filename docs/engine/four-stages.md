@@ -2242,3 +2242,29 @@ that test.
 
 `>>>` is the operator still without a row: its answer is `ToUint32`, which an `Int32`
 cannot hold. The tests that used `**` as their example of a missing row use it now.
+
+### A class written inside, as the running emitter's own: 98.0%
+
+10 141 taken and 210 declined, from 10 079 and 268.
+
+**The class is not lowered here.** `lower/class.rs` builds one from a closure and property
+writes, which the stage can reason about and which is not the object a program observes:
+methods non-enumerable with a home object, a constructor that refuses a call without `new`,
+fields run in the constructor, `extends` linking two chains. So under the door a class is
+`(function () { return class … })()`: a helper the running emitter compiles, numbered at the
+class's position, called with this activation's receiver -- which is what its `extends`
+expression and computed keys read. Inside an arrow the helper would need the enclosing
+`this`, so a class there declines only when those two actually read it.
+
+Two things the scope tree had to learn for it, both in the over-reporting direction
+`captured.rs` calls safe:
+
+- a class's `extends` expression and computed keys count as reads from the class's own
+  activation, because that is where the helper evaluates them. The computed keys were not
+  read at all before -- a key naming a local recorded no use of it;
+- the bindings inside a class body -- its own name, its static blocks' -- are the helper's
+  to lay out, so the environment built here leaves them out.
+
+And the lattice learned a bigint: `Type::BigInt`, from `BigIntNew`, joins nothing but
+itself. Typed `Anything`, `1n + i` guarded `i` where the running engine does not, and
+`literal_guard_gate.rs` counted the guard.

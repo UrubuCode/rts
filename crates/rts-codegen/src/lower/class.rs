@@ -52,7 +52,24 @@ impl Lowering<'_> {
     }
 
     /// The class itself: a constructor, a prototype, and the link.
+    ///
+    /// UNDER ANOTHER STAGE'S LAYOUT the class is that stage's own: a helper it compiled
+    /// returns it, numbered at the class's position, and this calls the helper with this
+    /// activation's receiver -- `emit/through_mir.rs::helper_of` says why.
     pub(super) fn class_value(&mut self, class: &Class, at: &Expr) -> Result<ValueId, Unsupported> {
+        if self.outer.is_some() {
+            let Some(helper) = self.callees.of_position(class.at) else {
+                return Err(Unsupported::Expression(
+                    "a class whose helper nothing numbered",
+                ));
+            };
+            let made = self.closure(helper, at);
+            let receiver = match self.lexical_this {
+                true => None,
+                false => Some(self.prim(JsPrim::ThisValue, Vec::new(), at)),
+            };
+            return Ok(self.call(rts_mir::cfg::Callee::Dynamic(made), receiver, Vec::new(), at));
+        }
         if class.heritage.is_some() {
             return Err(Unsupported::Expression(
                 "extends brings super, a home object and a second prototype link",

@@ -739,9 +739,24 @@ impl Walker<'_> {
         if let Some(name) = class.name {
             self.out.declare(name, Origin::OwnName, inside);
         }
+        // THE HERITAGE AND THE COMPUTED KEYS are read in the scope the class is written
+        // in, and counted as the class's own activation rather than the enclosing
+        // function's: a lowering that leaves the class to another stage evaluates them
+        // in a helper, a function of their own, so a local they read is captured there.
+        // Where nothing is a helper it over-reports, which `captured.rs` names as the
+        // safe direction. The computed keys were not read at all before this.
+        let enclosing = self.field_code.replace(inside);
         if let Some(heritage) = &class.heritage {
             self.expression(heritage, outside);
         }
+        for element in &class.body {
+            if let Some(crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Computed(key))) =
+                element.key()
+            {
+                self.expression(key, outside);
+            }
+        }
+        self.field_code = enclosing;
         for element in &class.body {
             match element {
                 ClassElement::Method(method) => self.function(&method.function, inside, false),
