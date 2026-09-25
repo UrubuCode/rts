@@ -16,7 +16,7 @@ pub(in crate::layout) struct Segment {
     pub(in crate::layout) italic: bool,
     pub(in crate::layout) deco: u8,
     pub(in crate::layout) owners: Vec<NodeIdx>,
-    pub(in crate::layout) atomic: Option<(NodeIdx, Option<crate::boxes::BoxId>, AtomicKind)>,
+    pub(in crate::layout) atomic: Option<(NodeIdx, crate::boxes::BoxId, AtomicKind)>,
     pub(in crate::layout) ww: f32,
     pub(in crate::layout) wh: f32,
     /// A largura do espaço que precede este segmento e NÃO lhe pertence: o que

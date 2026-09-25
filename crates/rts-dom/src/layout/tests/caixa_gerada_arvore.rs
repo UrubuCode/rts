@@ -98,12 +98,12 @@ fn the_block_flow_does_not_step_through_a_generated_box() {
     let p = no(&dom, "#p");
     let caixa = list.tree.boxes_of(p)[0];
     assert_eq!(list.tree.children(caixa).len(), 3, "the tree has both pseudos");
-    let seq = super::super::sequencia::sequencia_do_fluxo(&dom, &list.tree, p, Some(caixa));
+    let seq = super::super::sequencia::sequencia_do_fluxo(&dom, &list.tree, p, caixa);
     assert_eq!(seq.len(), 1, "only the text is a step of the flow: {seq:?}");
 }
 
 /// The inline atom of an `inline-block` pseudo carries its box, from the box
-/// the line walk is in — it used to carry `None`.
+/// the line walk is in.
 #[test]
 fn the_inline_atom_of_a_generated_box_carries_its_box() {
     let (dom, list) = geometria(
@@ -114,7 +114,7 @@ fn the_inline_atom_of_a_generated_box_carries_its_box() {
     let caixa = list.tree.boxes_of(s)[0];
     let css = dom.computed_style_idx(s).unwrap();
     let ctx = crate::layout::LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &crate::layout::ApproxMeasurer };
-    let runs = super::super::runs::collect_runs(&dom, s, Some(caixa), &list.tree, &css, 800.0, &ctx);
+    let runs = super::super::runs::collect_runs(&dom, s, caixa, &list.tree, &css, 800.0, &ctx);
     let atomo = runs
         .iter()
         .find_map(|r| match r.atomic {
@@ -122,8 +122,7 @@ fn the_inline_atom_of_a_generated_box_carries_its_box() {
             _ => None,
         })
         .expect("the pseudo is an atom on the line");
-    assert_eq!(atomo, list.tree.generated_child(caixa, PseudoElement::Before));
-    assert!(atomo.is_some());
+    assert_eq!(Some(atomo), list.tree.generated_child(caixa, PseudoElement::Before));
 }
 
 /// After a mutation elsewhere the tree is REBUILT — new generation — and the

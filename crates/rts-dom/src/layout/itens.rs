@@ -109,23 +109,12 @@ pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) 
 }
 
 /// Reserva uma posição de pintura antes de layoutar os descendentes. Um retângulo
-/// placeholder fica invisível para o hit-test até ser preenchido por `record_node_rect`.
+/// placeholder fica invisível para o hit-test até ser preenchido por
+/// [`record_box_rect`].
 ///
-/// Recebe `NodeIdx`, como sempre recebeu: a tradução para `BoxId` acontece
-/// AQUI, contra `list.tree` — nenhum dos chamadores precisa de saber que uma
-/// caixa existe. No espelho `boxes_of` devolve no máximo uma entrada, então o
-/// laço corre uma vez; um nó sem caixa (texto, `display:none`) devolve uma
-/// fatia vazia e o laço não escreve nada, em vez de precisar de um caso
-/// especial para isso.
-pub(crate) fn reserve_node_order(list: &mut DisplayList, idx: NodeIdx) {
-    let tree = std::rc::Rc::clone(&list.tree);
-    for &box_id in tree.boxes_of(idx) {
-        reserve_box_order(list, box_id);
-    }
-}
-
-/// Reserva uma posição de pintura para UMA caixa já conhecida. Os caminhos que
-/// atravessam a BoxTree devem preferir esta variante à tradução por nó.
+/// Por CAIXA, e só por caixa: a variante por nó, que traduzia `NodeIdx` para as
+/// caixas dele contra `list.tree`, morreu com o último chamador que só sabia
+/// o nó (BT-2a).
 pub(crate) fn reserve_box_order(list: &mut DisplayList, box_id: BoxId) {
     if !list.box_rects.contains_key(&box_id) {
         list.box_rects.insert(box_id, Rect::new(0.0, 0.0, 0.0, 0.0));
@@ -133,20 +122,10 @@ pub(crate) fn reserve_box_order(list: &mut DisplayList, box_id: BoxId) {
     }
 }
 
-/// Registra uma caixa e sua geometria. Se o nó já foi reservado como ancestral,
-/// apenas substitui o placeholder sem duplicar a ordem de hit-test.
-///
-/// Mesma tradução de `reserve_node_order`: por dentro é `BoxId` que entra em
-/// `box_rects`/`hit_order`, e o chamador continua a falar de `NodeIdx`.
-pub(crate) fn record_node_rect(list: &mut DisplayList, idx: NodeIdx, rect: Rect) {
-    let tree = std::rc::Rc::clone(&list.tree);
-    for &box_id in tree.boxes_of(idx) {
-        record_box_rect(list, box_id, rect);
-    }
-}
-
-/// Registra a geometria de UMA caixa. É a única variante correta quando um
-/// nó pode ter produzido fragmentos distintos na BoxTree.
+/// Registra a geometria de UMA caixa. Se ela já foi reservada como ancestral,
+/// apenas substitui o placeholder sem duplicar a ordem de hit-test. A única
+/// variante que existe: um nó pode ter produzido fragmentos distintos na
+/// BoxTree, e só a caixa exacta diz qual deles é este.
 pub(crate) fn record_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect) {
     if list.box_rects.insert(box_id, rect).is_none() {
         list.hit_order.push(box_id);

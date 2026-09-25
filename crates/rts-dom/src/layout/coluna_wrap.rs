@@ -35,7 +35,7 @@ use crate::layout::coluna::{align_offset, justify_e_align, justify_offsets};
 /// saber a largura da coluna).
 struct Item {
     node: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     main: f32,
     cross: f32,
     is_text: bool,
@@ -131,7 +131,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 .text_width(&text, font_size, false, false, false);
             items.push(Item {
                 node: child,
-                caixa: None,
+                caixa,
                 main: h,
                 cross: w,
                 is_text: true,
@@ -192,7 +192,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         );
         items.push(Item {
             node: child,
-            caixa: Some(caixa),
+            caixa,
             main,
             cross,
             is_text: false,
@@ -493,7 +493,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 layout_block_reusing(
                     dom,
                     it.node,
-                    it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
+                    it.caixa,
                     child_x,
                     y,
                     avail_w,

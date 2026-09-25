@@ -400,7 +400,7 @@ pub(in crate::layout) fn layout_block_reusing(
         let size = layout_block(
             dom,
             id,
-            Some(caixa),
+            caixa,
             x,
             y,
             avail_w,
@@ -484,7 +484,7 @@ pub(in crate::layout) fn layout_block_reusing(
     let size = layout_block(
         dom,
         id,
-        Some(caixa),
+        caixa,
         x,
         y,
         avail_w,

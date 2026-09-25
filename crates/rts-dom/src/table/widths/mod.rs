@@ -146,7 +146,7 @@ pub(crate) fn cell_min_max_na_arvore(
         // Ainda assim não pode ficar ABAIXO do mínimo do conteúdo: uma largura
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
-        let piso = min_content_na_arvore(dom, tree, id, Some(caixa), font, ctx, false, mono, true);
+        let piso = min_content_na_arvore(dom, tree, id, caixa, font, ctx, false, mono, true);
         return Coluna {
             min: w.max(piso),
             max: w.max(piso),
@@ -158,7 +158,7 @@ pub(crate) fn cell_min_max_na_arvore(
     // e somá-la aqui contava o padding da célula duas vezes. Ficou invisível
     // enquanto uma célula com `width` declarado devolvia a largura e voltava
     // atrás — o caminho que somava duas vezes só era percorrido pelas outras.
-    let min = min_content_na_arvore(dom, tree, id, Some(caixa), font, ctx, false, mono, true);
+    let min = min_content_na_arvore(dom, tree, id, caixa, font, ctx, false, mono, true);
     Coluna {
         min,
         percentagem,
@@ -315,25 +315,21 @@ pub(in crate::table) fn min_content(
     // (`claude-flex-min-width-auto-block-child`, Flexbox §4.5 candidato (c)).
     floor_width: bool,
 ) -> f32 {
+    // The one node→boxes fold of this family: a split inline answers the
+    // widest of its fragments, a node with no box answers zero (an element the
+    // cascade refused; a text with no box is a collapsible run, zero wide).
     let tree = dom.box_tree();
-    let caixa = match tree.boxes_of(id) {
-        [caixa] => Some(*caixa),
-        [] => None,
-        caixas => {
-            return caixas
-                .iter()
-                .map(|&caixa| min_content_na_arvore(dom, &tree, id, Some(caixa), font, ctx, sem_quebra, mono, floor_width))
-                .fold(0.0, f32::max);
-        }
-    };
-    min_content_na_arvore(dom, &tree, id, caixa, font, ctx, sem_quebra, mono, floor_width)
+    tree.boxes_of(id)
+        .iter()
+        .map(|&caixa| min_content_na_arvore(dom, &tree, id, caixa, font, ctx, sem_quebra, mono, floor_width))
+        .fold(0.0, f32::max)
 }
 
 pub(super) fn min_content_na_arvore(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
     sem_quebra: bool,
@@ -438,9 +434,6 @@ pub(super) fn min_content_na_arvore(
             // empilhar-se, logo entram pelo máximo.
             let mut m = 0.0f32;
             let mut linha = 0.0f32;
-            let Some(caixa) = caixa else {
-                return 0.0;
-            };
             for &caixa_filho in tree.children_without_generated(caixa) {
                 let Some(c) = tree.node_of(caixa_filho) else {
                     // Caixa ANÓNIMA (§9.2.1.1): sem nó, mas o run que ela
@@ -459,7 +452,7 @@ pub(super) fn min_content_na_arvore(
                 }
                 // SEMPRE `true` para um descendente — só o TOPO usa o
                 // `floor_width` recebido (ver o comentário do parâmetro).
-                let w = min_content_na_arvore(dom, tree, c, Some(caixa_filho), f, ctx, sem_quebra, mono, true);
+                let w = min_content_na_arvore(dom, tree, c, caixa_filho, f, ctx, sem_quebra, mono, true);
                 if sem_quebra && em_linha(dom, c) {
                     linha += w;
                 } else {

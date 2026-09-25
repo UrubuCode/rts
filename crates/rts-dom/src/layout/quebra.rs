@@ -78,7 +78,7 @@ pub(in crate::layout) fn wrap_runs(
         run: usize,
         texto: String,
         largura: f32,
-        atomico: Option<(NodeIdx, Option<crate::boxes::BoxId>, AtomicKind, f32, f32)>,
+        atomico: Option<(NodeIdx, crate::boxes::BoxId, AtomicKind, f32, f32)>,
     }
     let mut cluster: Vec<Peca> = Vec::new();
     let mut cluster_w = 0.0f32;

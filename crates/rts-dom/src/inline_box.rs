@@ -351,7 +351,7 @@ pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect) {
     let caixas: Vec<crate::boxes::BoxId> = list.tree.boxes_of(idx).to_vec();
     for caixa in caixas {
         if let Some(old) = list.box_rects.get_mut(&caixa) {
-            // Um placeholder reservado (`reserve_node_order`) é 0,0,0,0 e não é
+            // Um placeholder reservado (`reserve_box_order`) é 0,0,0,0 e não é
             // um fragmento: uni-lo puxaria a caixa até à origem do documento. O
             // sentinela sobrevive a BT-1 porque a reserva de ordem continua a
             // escrever o placeholder; morre com ela.

@@ -20,7 +20,7 @@ pub(in crate::layout) struct InlineRun {
     pub(in crate::layout) deco: u8,
     /// Elementos inline ancestrais deste run. Cada um recebe a união dos fragmentos.
     pub(in crate::layout) owners: Vec<NodeIdx>,
-    pub(in crate::layout) atomic: Option<(NodeIdx, Option<crate::boxes::BoxId>, AtomicKind)>,
+    pub(in crate::layout) atomic: Option<(NodeIdx, crate::boxes::BoxId, AtomicKind)>,
     pub(in crate::layout) ww: f32,
     pub(in crate::layout) wh: f32,
 }
@@ -45,9 +45,8 @@ pub(in crate::layout) fn collect_runs(
     // tem a corrida dela, sem o bloco, que a árvore já pôs como irmão.
     //
     // E dá a um ÁTOMO (inline-flex, inline-block, widget) a sua caixa, pela
-    // qual `layout_block` o dispõe e lhe reserva a ordem de hit-test. `None`
-    // sem árvore (`DisplayList::default()`): os filhos vêm do DOM.
-    caixa: Option<crate::boxes::BoxId>,
+    // qual `layout_block` o dispõe e lhe reserva a ordem de hit-test.
+    caixa: crate::boxes::BoxId,
     tree: &crate::boxes::BoxTree,
     parent_css: &ComputedStyle,
     avail_w: f32,
@@ -74,20 +73,14 @@ pub(in crate::layout) fn collect_runs(
 
     /// Os filhos por onde este varredor desce, e a caixa de cada um.
     ///
-    /// Com caixa, a ÁRVORE decide: é o que exclui o filho de bloco que partiu
-    /// este inline, porque ele já não é filho do fragmento. Sem caixa (sem
-    /// árvore), o DOM. São os mesmos NÓS fora da partição — um comentário não
-    /// gera caixa e este varredor já o ignorava, e um `display:none` gera
-    /// caixa e continua a ser recusado por `e_display_none`.
+    /// A ÁRVORE decide: é o que exclui o filho de bloco que partiu este
+    /// inline, porque ele já não é filho do fragmento. Um comentário não gera
+    /// caixa e este varredor já o ignorava; um `display:none` gera caixa e
+    /// continua a ser recusado por `e_display_none`.
     fn filhos_do_varrimento(
-        dom: &Dom,
         tree: &crate::boxes::BoxTree,
-        id: NodeIdx,
-        caixa: Option<crate::boxes::BoxId>,
-    ) -> Vec<(NodeIdx, Option<crate::boxes::BoxId>)> {
-        let Some(b) = caixa else {
-            return dom.node(id).children.iter().map(|&c| (c, None)).collect();
-        };
+        b: crate::boxes::BoxId,
+    ) -> Vec<(NodeIdx, crate::boxes::BoxId)> {
         // Without `::before`/`::after`: their runs come from the two
         // `pseudo_run` calls around this walk, not from a child box.
         tree.children_without_generated(b)
@@ -99,7 +92,7 @@ pub(in crate::layout) fn collect_runs(
                 let no = tree
                     .node_of(cb)
                     .expect("uma caixa anonima dentro de um fragmento inline");
-                (no, Some(cb))
+                (no, cb)
             })
             .collect()
     }
@@ -111,7 +104,7 @@ pub(in crate::layout) fn collect_runs(
         ctx: &LayoutCtx,
         avail_w: f32,
         id: NodeIdx,
-        caixa: Option<crate::boxes::BoxId>,
+        caixa: crate::boxes::BoxId,
         inherited_color: u32,
         inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
@@ -140,12 +133,6 @@ pub(in crate::layout) fn collect_runs(
                 });
             }
             NodeKind::Element { tag } => {
-                // Sem caixa COM árvore = inline partido só de espaço: os blocos
-                // dele já são irmãos na árvore (ver `sequencia`); descer aqui
-                // pelo DOM dispunha-os DUAS vezes, e os átomos sem caixa.
-                if caixa.is_none() && !tree.is_empty() {
-                    return;
-                }
                 // `<script>`/`<style>`/head-etc DENTRO de um contexto inline (um
                 // script dentro de <td>/<center> — google.com faz isso): o texto
                 // cru NÃO é conteúdo renderável — sem este skip, o código JS era
@@ -260,7 +247,7 @@ pub(in crate::layout) fn collect_runs(
                 // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
                 // real isso multiplicava a altura do documento por ~2,7.
                 if is_inline_block(dom, id) {
-                    let (bw, bh) = measure_block(dom, id, caixa.expect("sem caixa saiu acima"), avail_w, None, None, None, true, ctx);
+                    let (bw, bh) = measure_block(dom, id, caixa, avail_w, None, None, None, true, ctx);
                     let mut owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
@@ -359,34 +346,44 @@ pub(in crate::layout) fn collect_runs(
                     v.push(id);
                     v
                 };
-                out.extend(super::pseudo_inline::pseudo_run_da_caixa(
-                    dom,
-                    id,
-                    caixa.and_then(|b| tree.generated_child(b, crate::style::PseudoElement::Before)),
-                    &donos_do_pseudo,
-                    crate::style::PseudoElement::Before,
-                    color,
-                    italic,
-                    avail_w,
-                    ctx,
-                ));
-                for (c, cb) in filhos_do_varrimento(dom, tree, id, caixa) {
+                // The fragment that HOLDS the generated box paints it — the first
+                // fragment of a split inline for `::before`, the last for
+                // `::after` (`box-tree.md` §10). With the box optional, a fragment
+                // without one still emitted the run from `Dom::pseudo_box`, and a
+                // split inline painted its pseudo once per fragment: the "found,
+                // not fixed" of BT-5. Requiring the box is what closes it.
+                if let Some(gerada) = tree.generated_child(caixa, crate::style::PseudoElement::Before) {
+                    out.extend(super::pseudo_inline::pseudo_run_da_caixa(
+                        dom,
+                        id,
+                        gerada,
+                        &donos_do_pseudo,
+                        crate::style::PseudoElement::Before,
+                        color,
+                        italic,
+                        avail_w,
+                        ctx,
+                    ));
+                }
+                for (c, cb) in filhos_do_varrimento(tree, caixa) {
                     walk(
                         dom, tree, ctx, avail_w, c, cb, color, deco, tt, bold, italic, &owners,
                         out,
                     );
                 }
-                out.extend(super::pseudo_inline::pseudo_run_da_caixa(
-                    dom,
-                    id,
-                    caixa.and_then(|b| tree.generated_child(b, crate::style::PseudoElement::After)),
-                    &donos_do_pseudo,
-                    crate::style::PseudoElement::After,
-                    color,
-                    italic,
-                    avail_w,
-                    ctx,
-                ));
+                if let Some(gerada) = tree.generated_child(caixa, crate::style::PseudoElement::After) {
+                    out.extend(super::pseudo_inline::pseudo_run_da_caixa(
+                        dom,
+                        id,
+                        gerada,
+                        &donos_do_pseudo,
+                        crate::style::PseudoElement::After,
+                        color,
+                        italic,
+                        avail_w,
+                        ctx,
+                    ));
+                }
                 if let Some([_, dir, ..]) = arestas {
                     crate::bump!(inline_runs);
                     out.push(aresta(AtomicKind::ArestaFim, dir, &owners));

@@ -95,7 +95,7 @@ pub(in crate::layout) fn place_float(
     layout_block(
         dom,
         child,
-        Some(caixa),
+        caixa,
         x,
         top,
         content_w,

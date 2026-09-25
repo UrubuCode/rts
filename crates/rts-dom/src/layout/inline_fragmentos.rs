@@ -293,9 +293,16 @@ fn margens_da_gerada(dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, ba
 pub(in crate::layout) fn group_is_whole_owner(
     dom: &Dom,
     dono: NodeIdx,
-    group: &[(NodeIdx, Option<crate::boxes::BoxId>)],
+    group: &[(NodeIdx, crate::boxes::BoxId)],
 ) -> bool {
-    let conta = |n: NodeIdx| !matches!(&dom.node(n).kind, NodeKind::Text(t) if t.trim().is_empty());
+    // A comment counts on NEITHER side. It has no box, so it never enters the
+    // group (`PassoDoFluxo::SemCaixa` only opens one); before BT-2a it was in
+    // the group with no box and counted on both sides — the same equality.
+    let conta = |n: NodeIdx| match &dom.node(n).kind {
+        NodeKind::Comment(_) => false,
+        NodeKind::Text(t) => !t.trim().is_empty(),
+        _ => true,
+    };
     let filhos_com_conteudo = dom.node(dono).children.iter().filter(|&&c| conta(c)).count();
     group.iter().filter(|&&(c, _)| conta(c)).count() == filhos_com_conteudo
 }

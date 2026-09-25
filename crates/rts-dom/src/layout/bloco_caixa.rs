@@ -126,7 +126,7 @@ fn layout_caixa_anonima(
     layout_children_vertical(
         dom,
         tree.style_source(anonima),
-        Some(anonima),
+        anonima,
         x,
         y,
         content_w,

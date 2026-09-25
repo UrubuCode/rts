@@ -222,7 +222,7 @@ pub(in crate::layout) fn escaped_margins_for_box(
 pub(crate) fn layout_block(
     dom: &Dom,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     x: f32,
     y: f32,
     avail_w: f32,
@@ -279,7 +279,7 @@ pub(crate) fn layout_block(
             }
             if tag == "select" {
                 return layout_select(
-                    id, caixa, &css, x, y, avail_w, avail_h, forced_outer_w,
+                    caixa, &css, x, y, avail_w, avail_h, forced_outer_w,
                     forced_outer_h, ctx, list,
                 );
             }
@@ -451,7 +451,7 @@ pub(crate) fn layout_block(
         // morde: o conteúdo pede 166,6. Se um dia bater nos 200, é sinal de que
         // esta medição passou a calcular a mais.
         let base = if css.width == Some(crate::style::Dimension::MaxContent) {
-            super::coluna_wrap_largura::max_content_width(dom, id, font_for_content, avail_h, &css, ctx)
+            super::coluna_wrap_largura::max_content_width(dom, id, caixa, font_for_content, avail_h, &css, ctx)
         } else {
             match css.width.and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref())) {
                 // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
@@ -567,11 +567,7 @@ pub(crate) fn layout_block(
     let filhos_antes_da_caixa = list.children.len();
     // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
     // depois que a altura natural do conteúdo for conhecida.
-    if let Some(caixa) = caixa {
-        reserve_box_order(list, caixa);
-    } else {
-        reserve_node_order(list, id);
-    }
+    reserve_box_order(list, caixa);
 
     // ── Filhos: o EIXO depende do `display` do bloco ─────────────────────────────
     // vertical (default): cada filho ABAIXO do anterior, ocupando a largura.
@@ -776,7 +772,7 @@ pub(crate) fn layout_block(
         // ver o comentário no parâmetro `wrap` lá.
         _ if is_flex && is_column => layout_children_column(
             dom,
-            caixa.expect("um contentor flex em coluna renderizável tem uma caixa"),
+            caixa,
             content_x,
             content_y,
             children_w,
@@ -793,7 +789,7 @@ pub(crate) fn layout_block(
         d if d == crate::block::DISPLAY_HORIZONTAL => layout_children_horizontal(
             dom,
             id,
-            caixa.expect("um contentor horizontal renderizável tem uma caixa"),
+            caixa,
             content_x,
             content_y,
             scroll_children_w,
@@ -817,7 +813,7 @@ pub(crate) fn layout_block(
         _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => crate::table::layout_table(
             dom,
             id,
-            caixa.expect("uma tabela renderizavel tem uma caixa"),
+            caixa,
             content_x,
             content_y,
             children_w,
@@ -830,7 +826,7 @@ pub(crate) fn layout_block(
             layout_children_grid(
                 dom,
                 id,
-                caixa.expect("um contentor grid renderizável tem uma caixa"),
+                caixa,
                 content_x,
                 content_y,
                 children_w,
@@ -845,7 +841,7 @@ pub(crate) fn layout_block(
         d if d == crate::block::DISPLAY_WRAP => layout_children_horizontal(
             dom,
             id,
-            caixa.expect("um contentor wrap renderizável tem uma caixa"),
+            caixa,
             content_x,
             content_y,
             scroll_children_w,
@@ -995,11 +991,7 @@ pub(crate) fn layout_block(
     );
     // A fronteira pública agrega por nó, mas este bloco conhece a caixa exata:
     // não pode preencher com o mesmo rect os demais fragmentos do inline.
-    if let Some(caixa) = caixa {
-        record_box_rect(list, caixa, box_rect);
-    } else {
-        record_node_rect(list, id, box_rect);
-    }
+    record_box_rect(list, caixa, box_rect);
 
     // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_index` põe o
     // fundo antes dos itens dos filhos (z-order).
@@ -1272,11 +1264,7 @@ pub(crate) fn layout_block(
 
     // POSITION:RELATIVE — porquê e o que desloca em `relativo.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    // Caminhos legados de texto podem não ter caixa; quem chegou por uma caixa
-    // leva a identidade exata até esta fronteira de geometria.
-    if let Some(caixa) = caixa {
-        aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_index, ctx, list);
-    }
+    aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_index, ctx, list);
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE
@@ -1299,10 +1287,8 @@ pub(crate) fn layout_block(
             // descendente (herdam a transformação do pai). Corre ANTES do
             // atalho abaixo e para os dois ramos: a bbox de um rect só
             // transladado é só transladada, a mesma chamada serve os dois.
-            if let Some(caixa) = caixa {
-                let arvore = std::rc::Rc::clone(&list.tree);
-                super::transformacao::transform_box_rects(&arvore, caixa, &mat, list);
-            }
+            let arvore = std::rc::Rc::clone(&list.tree);
+            super::transformacao::transform_box_rects(&arvore, caixa, &mat, list);
 
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo

@@ -411,6 +411,15 @@ that wants to know "is this an inline formatting context" asks the tree.
 
 ### What the base does NOT do yet, and must not be assumed
 
+- **Every layout function takes a `BoxId`, never an `Option<BoxId>`** (BT-2a,
+  2026-09-25). `layout_block`, the inline flow, the atoms, the leaves, the
+  intrinsic-width walkers and the generated-box roles all name the exact box;
+  the "list with no tree" branch they guarded is gone with the last
+  `DisplayList::default()` caller. A DOM child that generates no box reaches
+  the flow as `PassoDoFluxo::SemCaixa` and only OPENS the inline group — the
+  measured refusal of `sequencia.rs`, unchanged. The one node→boxes fold left
+  in layout is at the by-node entry of the intrinsic-width and table
+  min-content caches, where a split inline's answer is the widest fragment.
 - **Layout takes the child ORDER from the tree, and this line replaces one that
   said the opposite.** The block flow walks `tree.children(box)`: a text box
   arrives with its box, and an anonymous box is ENTERED rather than skipped.

@@ -142,7 +142,7 @@ pub use self::transformacao::{Mat2d, TransformList, TransformOp, MAX_TRANSFORM_O
 pub(crate) use self::bfc::BlockFormattingContext;
 pub(crate) use self::caixa::{font_px, is_non_rendered_tag, used_display};
 pub(crate) use self::float::Exclusao;
-pub(crate) use self::itens::{record_box_rect, record_node_rect, reserve_box_order, reserve_node_order};
+pub(crate) use self::itens::{record_box_rect, reserve_box_order};
 pub(crate) use self::medida::intrinsic_outer_width;
 pub(crate) use self::pintura::border_items;
 pub(crate) use self::posicionado::is_out_of_flow;
@@ -239,7 +239,7 @@ pub(crate) fn measure_block(
     let size = layout_block(
         dom,
         id,
-        Some(caixa),
+        caixa,
         0.0,
         0.0,
         avail_w,
@@ -352,7 +352,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         let (_, h) = layout_block(
             dom,
             child,
-            Some(caixa),
+            caixa,
             0.0,
             cursor_y,
             ctx.viewport_w,
@@ -380,7 +380,9 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // de cada nó da árvore, e era 78% de um frame de mutação numa página que não
     // tem um único posicionado.
     if dom.may_have_out_of_flow() {
-        collect_out_of_flow(dom, &list.tree, dom.root, &mut out_of_flow);
+        for raiz in tree.roots() {
+            collect_out_of_flow(dom, &list.tree, raiz, &mut out_of_flow);
+        }
     }
     // STACKING CONTEXTS: ordena pela cadeia de contextos, não pelo `z-index`
     // isolado. Assim `[0, 100]` (filho 100 dentro de um grupo 0) continua

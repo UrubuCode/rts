@@ -46,8 +46,8 @@ use super::*;
 pub(in crate::layout) struct CaixaGerada {
     pub(in crate::layout) caixa: crate::pseudo::PseudoBox,
     /// Its box in the tree (`BoxKind::Generated`), under which [`pintar`]
-    /// records the geometry. `None` only when the list carries no tree.
-    pub(in crate::layout) gerada: Option<crate::boxes::BoxId>,
+    /// records the geometry.
+    pub(in crate::layout) gerada: crate::boxes::BoxId,
     pub(in crate::layout) w: f32,
     pub(in crate::layout) h: f32,
     pub(in crate::layout) ml: f32,
@@ -110,20 +110,15 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
 /// This is where the block and flex roles stopped re-deriving the pseudo from
 /// the node: existence is the tree's answer, and the build asked the same
 /// `Dom::pseudo_box` under the same memo key, so the two cannot disagree
-/// within a pass. `dono: None` is a list with no tree (`DisplayList::default`)
-/// and asks the DOM, the way `sequencia_do_fluxo` does without one.
+/// within a pass.
 pub(in crate::layout) fn da_arvore(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: Option<crate::boxes::BoxId>,
-    id: NodeIdx,
+    dono: crate::boxes::BoxId,
     pe: crate::style::PseudoElement,
-) -> Option<(Option<crate::boxes::BoxId>, crate::pseudo::PseudoBox)> {
-    let Some(dono) = dono else {
-        return dom.pseudo_box(id, pe).map(|caixa| (None, caixa));
-    };
+) -> Option<(crate::boxes::BoxId, crate::pseudo::PseudoBox)> {
     let gerada = tree.generated_child(dono, pe)?;
-    Some((Some(gerada), tree.pseudo_box(dom, gerada)?))
+    Some((gerada, tree.pseudo_box(dom, gerada)?))
 }
 
 /// The height of `linhas` lines of the pseudo's text: one line box each.
@@ -176,7 +171,7 @@ fn dimensionar(css: &ComputedStyle, arestas: &Arestas, conteudo_w: f32, conteudo
 /// chamador decidiu (ver o cabeçalho do ficheiro: é o único pedaço que os
 /// dois papéis não partilham).
 pub(in crate::layout) fn montar(
-    (gerada, caixa): (Option<crate::boxes::BoxId>, crate::pseudo::PseudoBox),
+    (gerada, caixa): (crate::boxes::BoxId, crate::pseudo::PseudoBox),
     arestas: Arestas,
     conteudo_w: f32,
     conteudo_h: f32,
@@ -218,9 +213,7 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
         caixa.w - caixa.ml - caixa.mr,
         caixa.h - caixa.mt - caixa.mb,
     );
-    if let Some(gerada) = caixa.gerada {
-        super::record_box_rect(list, gerada, r);
-    }
+    super::record_box_rect(list, caixa.gerada, r);
     if let Some(bg) = css.bg {
         list.items.push(DisplayItem::SolidRect { rect: r, color: bg, radius: Corners::ZERO });
     }
@@ -327,8 +320,11 @@ mod tests {
         let arestas_item = resolve_arestas(&css, &r);
         let caixa_bloco = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
         let caixa_item = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
-        let bloco = montar((None, caixa_bloco), arestas_bloco, 50.0, 20.0, vec!["x".into()], 16.0);
-        let item = montar((None, caixa_item), arestas_item, 50.0, 20.0, vec!["x".into()], 16.0);
+        // Any box of any tree: `montar` only carries it, it never reads it.
+        let dom = crate::parse_html_to_dom("<p></p>");
+        let gerada = dom.box_tree().roots().next().expect("the document has a root box");
+        let bloco = montar((gerada, caixa_bloco), arestas_bloco, 50.0, 20.0, vec!["x".into()], 16.0);
+        let item = montar((gerada, caixa_item), arestas_item, 50.0, 20.0, vec!["x".into()], 16.0);
         assert_eq!((bloco.w, bloco.h), (item.w, item.h));
         assert_eq!(bloco.arestas, item.arestas);
     }

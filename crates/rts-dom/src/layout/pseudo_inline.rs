@@ -67,20 +67,24 @@ pub(in crate::layout) fn pseudo_run(
     base_w: f32,
     ctx: &LayoutCtx,
 ) -> Vec<InlineRun> {
-    let gerada = dom.box_tree().generated_of(id, pe);
+    // The tree holds a generated box for every pseudo the cascade generates
+    // (`box-tree.md` §10: the build asked the same `Dom::pseudo_box`), so a
+    // pseudo with no box here is one with no content, and no run.
+    let Some(gerada) = dom.box_tree().generated_of(id, pe) else {
+        return Vec::new();
+    };
     pseudo_run_da_caixa(dom, id, gerada, donos, pe, cor_herdada, herdado_italico, base_w, ctx)
 }
 
 /// [`pseudo_run`] with the generated box already found: `gerada` is what the
-/// atom carries (`None` where the tree has no generated box under the box
-/// being walked). Existence and content still come from `Dom::pseudo_box`, so
+/// atom carries. Existence and content still come from `Dom::pseudo_box`, so
 /// the runs are what they were before the box had an identity — this lot
 /// names the box, it does not move it.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn pseudo_run_da_caixa(
     dom: &Dom,
     id: NodeIdx,
-    gerada: Option<crate::boxes::BoxId>,
+    gerada: crate::boxes::BoxId,
     // The inline chain around the originating element, it included and last.
     donos: &[NodeIdx],
     pe: crate::style::PseudoElement,
@@ -176,7 +180,7 @@ fn contexto(base_w: f32, fonte: f32, ctx: &LayoutCtx) -> ResolveCtx {
 /// `width`/`height`, or shrink-to-fit — the max-content width of its text,
 /// capped by what the line offers (CSS 2.1 §10.3.9) — with its text broken
 /// at that width and one line box per line.
-fn medir_atomo((gerada, caixa): (Option<crate::boxes::BoxId>, crate::pseudo::PseudoBox), base_w: f32, ctx: &LayoutCtx) -> CaixaGerada {
+fn medir_atomo((gerada, caixa): (crate::boxes::BoxId, crate::pseudo::PseudoBox), base_w: f32, ctx: &LayoutCtx) -> CaixaGerada {
     let css = &caixa.css;
     let fonte = font_px(css, DEFAULT_FONT_SIZE);
     let r = contexto(base_w, fonte, ctx);
@@ -204,14 +208,13 @@ fn medir_atomo((gerada, caixa): (Option<crate::boxes::BoxId>, crate::pseudo::Pse
 ///
 /// `gerada` is the atom's box as the line has it — the exact box of THIS
 /// fragment when the originating inline is split, so each fragment records
-/// its own geometry. Only without it is the box looked up by node, where the
-/// last fragment would record over the others.
+/// its own geometry.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn pintar_atomo(
     dom: &Dom,
     id: NodeIdx,
     pe: crate::style::PseudoElement,
-    gerada: Option<crate::boxes::BoxId>,
+    gerada: crate::boxes::BoxId,
     x: f32,
     topo: f32,
     base_w: f32,
@@ -221,7 +224,6 @@ pub(in crate::layout) fn pintar_atomo(
     let Some(caixa) = dom.pseudo_box(id, pe) else {
         return;
     };
-    let gerada = gerada.or_else(|| list.tree.generated_of(id, pe));
     let medida = medir_atomo((gerada, caixa), base_w, ctx);
     super::pseudo_caixa::pintar(list, &medida, x, topo, ctx);
 }

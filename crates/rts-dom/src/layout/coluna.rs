@@ -116,7 +116,7 @@ pub(in crate::layout) fn layout_children_column(
     // no eixo principal, + margens auto e os fatores de flex-shrink/grow ──────
     struct ColItem {
         node: NodeIdx,
-        caixa: Option<crate::boxes::BoxId>,
+        caixa: crate::boxes::BoxId,
         /// tamanho BASE outer no eixo principal — antes de grow/shrink; após o
         /// PASSO 2 é o MAIN final (mesmo campo, mesmo papel que `FlexItem::h`
         /// tinha antes deste lote: cresce OU encolhe nele, nunca os dois).
@@ -161,7 +161,7 @@ pub(in crate::layout) fn layout_children_column(
             }
             items.push(ColItem {
                 node: child,
-                caixa: None,
+                caixa,
                 h: crate::inline_box::altura_da_linha(css, font_size, ctx.measurer),
                 is_text: true,
                 mt_auto: false,
@@ -240,7 +240,7 @@ pub(in crate::layout) fn layout_children_column(
         let order = ccss.order.unwrap_or(0);
         items.push(ColItem {
             node: child,
-            caixa: Some(caixa),
+            caixa,
             h,
             is_text: false,
             mt_auto,
@@ -392,7 +392,7 @@ pub(in crate::layout) fn layout_children_column(
                 let (w, _) = measure_block(
                     dom,
                     it.node,
-                    it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
+                    it.caixa,
                     content_w,
                     container_content_h,
                     None,
@@ -428,7 +428,7 @@ pub(in crate::layout) fn layout_children_column(
             layout_block_reusing(
                 dom,
                 it.node,
-                it.caixa.expect("item de coluna deve ter a caixa recolhida no pre-passe"),
+                it.caixa,
                 child_x,
                 y,
                 content_w,

@@ -31,6 +31,7 @@ use super::*;
 pub(in crate::layout) fn max_content_width(
     dom: &Dom,
     id: NodeIdx,
+    container: crate::boxes::BoxId,
     font_size: f32,
     avail_h: Option<f32>,
     css: &ComputedStyle,
@@ -58,14 +59,6 @@ pub(in crate::layout) fn max_content_width(
         return fallback();
     };
     let tree = dom.box_tree();
-    let container = match tree.boxes_of(id) {
-        [caixa] => *caixa,
-        [] => return fallback(),
-        caixas => panic!(
-            "o flex column-wrap {id:?} gerou {} caixas; a medicao precisa receber a caixa exata",
-            caixas.len()
-        ),
-    };
     let main_gap = resolve_height(css.row_gap, Some(container_content_h), &resolve)
         .unwrap_or(0.0)
         .max(0.0);
