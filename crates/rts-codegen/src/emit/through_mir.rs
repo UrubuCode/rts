@@ -97,7 +97,6 @@ fn attempt(
     function: &Function,
 ) -> Result<MachineFunction, String> {
     let refused = [
-        (ctx.sloppy, "sloppy code"),
         (
             function.is_async && function.is_generator,
             "an async generator, whose await drains where its yield parks",
@@ -199,6 +198,11 @@ fn attempt(
         Some(super::scope::Binding::InEnvironment { hops, name }) => Some((hops, name)),
         _ => None,
     };
+    // `callee` is the key a non-strict `arguments` object defines, and the lowering
+    // reads the interner rather than growing it.
+    if ctx.sloppy {
+        ctx.names.intern("callee");
+    }
     let graph = crate::lower::lower_within(
         function,
         &resolution,
@@ -208,6 +212,7 @@ fn attempt(
         rts_mir::guard::Tier::Generic,
         Some(&layout),
         &lexical,
+        ctx.sloppy,
     )
     .map_err(|held| format!("lowering: {held:?}"))?;
     let unbound = agrees(ctx, enclosing, &graph, &domain)?;
@@ -277,13 +282,16 @@ fn attempt(
         // promise's, and replacing it would hand the resumer somebody else's --
         // `emit/tail.rs::permitted` refuses the same two kinds.
         let ops = crate::machine::JsMachine::new(&domain, inferred);
-        let ops = match suspends {
+        // Nor in a NON-STRICT one, which `emit/tail.rs` refuses for the reason it
+        // gives: `f.caller` and `arguments` observe the frame a tail call would drop.
+        let ops = match suspends || ctx.sloppy {
             true => ops,
             false => ops.tail_calls_of(&graph),
         };
         let mut ops = ops
             .unbound_reads(unbound)
             .parking(suspends)
+            .sloppy(ctx.sloppy)
             .declaring_into(parts)
             .naming_with(&mut *ctx.names)
             .with_incoming(&start);

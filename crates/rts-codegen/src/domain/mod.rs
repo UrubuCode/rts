@@ -169,6 +169,12 @@ impl Js {
         RuntimeOp::DeleteProperty,
         RuntimeOp::CallWithArgs,
         RuntimeOp::ConstructWithArgs,
+        // A NON-STRICT body's entry: the receiver substituted, and `arguments.callee`
+        // defined on the arguments object -- `lower/gather.rs`, after
+        // `emit/nonstrict.rs`.
+        RuntimeOp::SloppyThis,
+        RuntimeOp::RunningFunction,
+        RuntimeOp::DefineMethod,
     ];
 
     /// The index the IR carries for an entry point.

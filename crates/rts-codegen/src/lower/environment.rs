@@ -109,7 +109,7 @@ impl Lowering<'_> {
                 (_, true) => self.lexical(&spelled, at).ok_or(Unsupported::Expression(
                     "an arrow's own lexical slot, which the enclosing layout does not hold",
                 ))?,
-                ("__rts_this", false) => self.prim(JsPrim::ThisValue, Vec::new(), at),
+                ("__rts_this", false) => self.this_value(at),
                 (_, false) => match self.arguments {
                     Some(held) => held,
                     None => self.singleton_at(crate::values::Singleton::Undefined, at),

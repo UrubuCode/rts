@@ -76,7 +76,22 @@ impl Lowering<'_> {
         }
         if wants_arguments {
             let entry = self.domain.entry_point(RuntimeOp::ArgumentsObject);
-            self.arguments = Some(self.call(Callee::Entry(entry), None, slots.clone(), &at));
+            let all = self.call(Callee::Entry(entry), None, slots.clone(), &at);
+            // `callee` only where the function is NON-STRICT, `emit/nonstrict.rs`'s
+            // `define_callee` and its reason: a strict one's is a throwing accessor
+            // this runtime does not make, and absent is the honest answer there.
+            if self.sloppy {
+                let running = self.domain.entry_point(RuntimeOp::RunningFunction);
+                let running = self.call(Callee::Entry(running), None, Vec::new(), &at);
+                let name = self.names.find("callee").ok_or(Unsupported::Expression(
+                    "`callee`, which the program's interner never saw",
+                ))?;
+                let key = self.domain.constant(JsConst::Key(name));
+                let key = self.declared(key, &at);
+                let define = self.domain.entry_point(RuntimeOp::DefineMethod);
+                self.call(Callee::Entry(define), None, vec![all, key, running], &at);
+            }
+            self.arguments = Some(all);
         }
         if let Some(name) = rest {
             let gathered = self.rest_arguments(written as u32, &slots, &at);
@@ -158,5 +173,32 @@ impl Lowering<'_> {
         args.extend_from_slice(slots);
         let entry = self.domain.entry_point(RuntimeOp::RestArguments);
         self.call(Callee::Entry(entry), None, args, at)
+    }
+
+    /// `OrdinaryCallBindThis` for a NON-STRICT body: the receiver, or the global
+    /// object where the call passed none -- once, at the entry, which is when the
+    /// language binds it and where `emit/nonstrict.rs` substitutes it too. An arrow
+    /// has no `this` of its own and is left alone.
+    pub(super) fn substitute_receiver(&mut self, function: &Function) -> Result<(), Unsupported> {
+        if !self.sloppy || self.lexical_this {
+            return Ok(());
+        }
+        let at = Expr {
+            kind: ExprKind::This,
+            at: function.at,
+        };
+        let incoming = self.prim(JsPrim::ThisValue, Vec::new(), &at);
+        let entry = self.domain.entry_point(RuntimeOp::SloppyThis);
+        self.this = Some(self.call(Callee::Entry(entry), None, vec![incoming], &at));
+        Ok(())
+    }
+
+    /// The receiver as the body reads it: the substituted one where the entry made
+    /// one, and the incoming one otherwise.
+    pub(super) fn this_value(&mut self, at: &Expr) -> ValueId {
+        match self.this {
+            Some(held) => held,
+            None => self.prim(JsPrim::ThisValue, Vec::new(), at),
+        }
     }
 }

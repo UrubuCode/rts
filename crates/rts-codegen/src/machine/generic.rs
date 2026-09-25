@@ -75,11 +75,11 @@ impl JsMachine<'_> {
             (JsPrim::ToNumber, 1) => RuntimeOp::UnaryPlus,
             // A WRITE answers the value written, which the graph types as the value.
             (JsPrim::IndexWrite, 3) => {
-                let strict = self.word(into, 0);
+                let mode = self.write_mode(into);
                 self.call_runtime(
                     into,
                     RuntimeOp::SetIndexed,
-                    &[args[0], args[1], args[2], strict],
+                    &[args[0], args[1], args[2], mode],
                 )?;
                 return Ok(Some(args[2]));
             }

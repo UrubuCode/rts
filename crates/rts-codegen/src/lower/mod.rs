@@ -154,7 +154,7 @@ pub fn lower_with(
     names: &crate::names::Names,
     tier: Tier,
 ) -> Result<Func, Unsupported> {
-    lower_within(function, resolution, callees, domain, names, tier, None, &[])
+    lower_within(function, resolution, callees, domain, names, tier, None, &[], false)
 }
 
 /// Where the environment a function is MADE in keeps a name: how many links out from
@@ -180,6 +180,7 @@ pub fn lower_within(
     tier: Tier,
     outer: Option<OuterLayout<'_>>,
     lexical: &[Name],
+    sloppy: bool,
 ) -> Result<Func, Unsupported> {
     // NEITHER KIND IS REFUSED HERE ANY MORE, and what changed is where the missing
     // piece is. Both used to be turned away for parking a frame; parking is now a
@@ -215,6 +216,8 @@ pub fn lower_within(
         arguments: None,
         lexical_slots: lexical.to_vec(),
         pending_labels: Vec::new(),
+        sloppy,
+        this: None,
         outer,
         loops: Vec::new(),
         points: 0,
@@ -277,6 +280,7 @@ pub fn lower_within(
     }
 
     lowering.gather(function)?;
+    lowering.substitute_receiver(function)?;
     lowering.prologue = false;
     lowering.open_environment(&Expr {
         kind: ExprKind::This,
@@ -381,6 +385,13 @@ struct Lowering<'a> {
     /// Labels written on the statement about to be lowered, which the frame it pushes
     /// takes -- `L: for (…)`.
     pending_labels: Vec<Name>,
+    /// Whether this body is non-strict -- `eval` and `Function` text without the
+    /// directive. What it changes here is `this` and `arguments.callee`, both at the
+    /// entry; the writer's mode is the machine's, which is told separately.
+    sloppy: bool,
+    /// The receiver as the body reads it, where the entry substituted it: a
+    /// non-strict function called with none sees the global object.
+    this: Option<ValueId>,
     /// The slots an arrow written inside reads from this activation's environment --
     /// `__rts_this`, `arguments` -- which the environment built here holds.
     lexical_slots: Vec<Name>,
@@ -696,7 +707,7 @@ impl Lowering<'_> {
                     "`this` in an arrow is the enclosing function's, which this stage does not carry",
                 ),
             ),
-            ExprKind::This => Ok(self.prim(JsPrim::ThisValue, Vec::new(), expr)),
+            ExprKind::This => Ok(self.this_value(expr)),
             ExprKind::Unary { op, operand } => {
                 // `delete` REMOVES a property, so its operand is a place and not a
                 // value: lowering the operand first would evaluate what is about to

@@ -161,6 +161,8 @@ pub struct JsMachine<'a> {
     >,
     /// The calls in TAIL position, by the value each answers -- see [`tail_positions`].
     tail: std::collections::BTreeSet<ValueId>,
+    /// Whether this body is non-strict -- see [`JsMachine::sloppy`].
+    sloppy: bool,
     /// The global reads of a name nothing placed, which raise `ReferenceError` when the
     /// name is absent where every other global read answers `undefined`. The caller
     /// decides which, because only it can see the lists a name is placed by.
@@ -295,6 +297,7 @@ impl<'a> JsMachine<'a> {
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
+            sloppy: false,
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
@@ -321,6 +324,7 @@ impl<'a> JsMachine<'a> {
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
             tail: std::collections::BTreeSet::new(),
+            sloppy: false,
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
@@ -349,6 +353,19 @@ impl<'a> JsMachine<'a> {
         self.receiver = params.get(1).copied();
         self.incoming = params.to_vec();
         self
+    }
+
+    /// That this body is NON-STRICT, which is the writer's mode every program write
+    /// carries: a write the object refuses is a `TypeError` in strict code and nothing
+    /// at all in sloppy -- `emit/property.rs::write_mode`, the same bit.
+    pub fn sloppy(mut self, sloppy: bool) -> Self {
+        self.sloppy = sloppy;
+        self
+    }
+
+    /// The writer's mode as the runtime takes it: `1` for sloppy.
+    pub(super) fn write_mode(&mut self, into: &mut FuncBuilder) -> MachineValue {
+        self.word(into, u64::from(self.sloppy))
     }
 
     /// The calls a return hands straight back, which go through `RuntimeOp::TailCall`
@@ -606,9 +623,7 @@ impl JsMachine<'_> {
     /// `DefineField`, and otherwise `[[Set]]` runs through `SetProperty` -- which may
     /// reach a setter and a prototype, which a program's `o.x = v` means.
     ///
-    /// `SetProperty` takes the writer's MODE, and it is always strict here: the running
-    /// engine compiles a program strict and only `eval` and `Function` text sloppy, so a
-    /// write the object refuses is a `TypeError`, as it is there.
+    /// `SetProperty` takes the writer's MODE -- see [`JsMachine::write_mode`].
     fn store_through_cache(
         &mut self,
         into: &mut FuncBuilder,
@@ -650,11 +665,11 @@ impl JsMachine<'_> {
                 &[receiver, key_operand, stored],
             )?,
             false => {
-                let strict = self.word(into, 0);
+                let mode = self.write_mode(into);
                 self.call_runtime(
                     into,
                     crate::runtime::RuntimeOp::SetProperty,
-                    &[receiver, key_operand, stored, strict],
+                    &[receiver, key_operand, stored, mode],
                 )?
             }
         };

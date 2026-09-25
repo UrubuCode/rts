@@ -47,7 +47,7 @@ impl Lowering<'_> {
         let made = self.closure(helper, at);
         let receiver = match self.lexical_this {
             true => None,
-            false => Some(self.prim(JsPrim::ThisValue, Vec::new(), at)),
+            false => Some(self.this_value(at)),
         };
         Ok(self.call(rts_mir::cfg::Callee::Dynamic(made), receiver, Vec::new(), at))
     }
