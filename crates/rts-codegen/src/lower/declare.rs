@@ -127,4 +127,23 @@ impl Lowering<'_> {
         let of = self.type_of(held);
         self.bind(name, held, of, &at)
     }
+
+    /// Annex B.3.3: where a function declared in a block also has a `var` of its
+    /// function (`names::resolve::annex`), that `var` takes the block's binding when
+    /// the declaration is evaluated.
+    pub(super) fn annex_write(&mut self, function: &crate::syntax::Function) -> Result<(), Unsupported> {
+        let (Some(name), Some(var)) = (function.name, self.resolution.annex_b(function.at)) else {
+            return Ok(());
+        };
+        let Some(block) = self.resolution.binding_in(self.scope, name) else {
+            return Ok(());
+        };
+        let at = Expr {
+            kind: ExprKind::Ident(name),
+            at: function.at,
+        };
+        let held = self.read_binding(block, name, &at)?;
+        let of = self.type_of(held);
+        self.write_binding(var, held, of, &at)
+    }
 }

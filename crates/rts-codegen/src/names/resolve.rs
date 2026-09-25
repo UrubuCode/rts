@@ -171,8 +171,12 @@ pub struct Resolution {
     /// Which bindings a nested function reads or writes, and what follows from it.
     /// `captured.rs` computes it and says why it is here rather than in a lowering.
     capture: captured::Capture,
+    /// The function-level `var` each block-level function declaration also writes,
+    /// by the declaration's position -- `annex.rs`.
+    annex: BTreeMap<Position, BindingId>,
 }
 
+mod annex;
 mod captured;
 pub use captured::Environment;
 
@@ -324,6 +328,7 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
         in_loop: false,
         field_code: None,
         references: Vec::new(),
+        annex: Vec::new(),
     };
     for item in items {
         match item {
@@ -348,6 +353,8 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
         }
     }
     let references = std::mem::take(&mut walker.references);
+    let annex = std::mem::take(&mut walker.annex);
+    out.settle_annex(&annex);
     out.settle_capture(&references);
     out
 }
@@ -377,9 +384,12 @@ pub fn resolve_program(body: &[Stmt], imports: &[crate::syntax::Import]) -> Reso
         in_loop: false,
         field_code: None,
         references: Vec::new(),
+        annex: Vec::new(),
     };
     walker.statements(body, module);
     let references = std::mem::take(&mut walker.references);
+    let annex = std::mem::take(&mut walker.annex);
+    out.settle_annex(&annex);
     out.settle_capture(&references);
     out
 }
@@ -423,6 +433,8 @@ struct Walker<'a> {
     /// from -- resolved only once the walk is over, because a `var` or a function
     /// declared further down is already in scope at a use written above it.
     references: Vec<captured::Reference>,
+    /// Every function declaration met in a block, for `annex.rs` to settle.
+    annex: Vec<annex::Candidate>,
     /// The class body whose field initialiser or static block is being walked. That
     /// code runs in a constructor or a class evaluation, not in the activation the
     /// class is written in, so a use there is attributed to the class body.
@@ -481,6 +493,14 @@ impl Walker<'_> {
                 // the scope that holds the statement — never in the body.
                 if let Some(name) = function.name {
                     self.out.declare(name, Origin::Lexical, scope);
+                    if scope != self.function && self.field_code.is_none() {
+                        self.annex.push(annex::Candidate {
+                            name,
+                            block: scope,
+                            function: self.function,
+                            at: function.at,
+                        });
+                    }
                 }
                 self.function(function, scope, false);
             }
@@ -870,143 +890,5 @@ impl Walker<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::names::Names;
-    use crate::parse::parse_script;
-
-    /// The scope tree of a script, with the interner that read it.
-    fn tree(source: &str) -> (Resolution, Names) {
-        let mut names = Names::new();
-        let program = parse_script(source, &mut names).expect("the fixture parses");
-        (resolve_module(&program.body), names)
-    }
-
-    /// Every binding of one spelling, anywhere in the program.
-    fn all(out: &Resolution, names: &mut Names, spelled: &str) -> Vec<BindingId> {
-        let name = names.intern(spelled);
-        (0..out.len())
-            .map(|at| BindingId(at as u32))
-            .filter(|held| out.binding(*held).name == name)
-            .collect()
-    }
-
-    #[test]
-    fn two_blocks_that_spell_one_name_are_two_bindings() {
-        let (out, mut names) = tree("let i = 1; { let i = 2; } { let i = 3; }");
-        assert_eq!(all(&out, &mut names, "i").len(), 3);
-    }
-
-    /// The defect this pass exists for, asked as the question `omit` has to ask.
-    #[test]
-    fn a_block_of_the_declarer_shadowing_a_free_name_is_visible() {
-        let (out, mut names) = tree(
-            "function main() {
-               let i = 1;
-               const q = (x) => x + i;
-               { let i = 100; q(10); }
-             }",
-        );
-        let main = out
-            .function_scope(
-                // The one function whose scope is not an arrow's: it holds a
-                // `const` and the arrow does not.
-                *out.functions
-                    .iter()
-                    .map(|(at, _)| at)
-                    .next()
-                    .expect("the script declares a function"),
-            )
-            .expect("its body opened a scope");
-        let i = names.intern("i");
-        assert!(out.shadowed_within(main, i));
-        let untouched = names.intern("q");
-        assert!(!out.shadowed_within(main, untouched));
-    }
-
-    /// The case that must stay provable, and the reason the answer is not simply
-    /// "the program spells it twice".
-    #[test]
-    fn a_name_spelled_again_in_a_different_function_is_not_shadowing() {
-        let (out, mut names) = tree(
-            "function held() { let zwq = 5; const q = (x) => x + zwq; q(1); }
-             function other() { let zwq = 9; return zwq; }",
-        );
-        let first = *out.functions.keys().next().expect("two functions");
-        let held = out.function_scope(first).expect("a body scope");
-        let zwq = names.intern("zwq");
-        assert!(!out.shadowed_within(held, zwq));
-        assert_eq!(all(&out, &mut names, "zwq").len(), 2);
-    }
-
-    #[test]
-    fn a_var_lands_in_the_function_and_a_let_stays_in_its_block() {
-        let (out, mut names) = tree("function f() { { var hoisted = 1; let kept = 2; } }");
-        let body = out
-            .function_scope(*out.functions.keys().next().expect("one function"))
-            .expect("a body scope");
-        let hoisted = all(&out, &mut names, "hoisted");
-        let kept = all(&out, &mut names, "kept");
-        assert_eq!(out.binding(hoisted[0]).scope, body);
-        assert_eq!(out.binding(hoisted[0]).origin, Origin::Var);
-        assert_ne!(out.binding(kept[0]).scope, body);
-        assert_eq!(out.binding(kept[0]).origin, Origin::Lexical);
-    }
-
-    #[test]
-    fn a_function_expression_binds_its_own_name_only_inside_itself() {
-        let (out, mut names) = tree("const f = function fact(n) { return n; };");
-        let fact = all(&out, &mut names, "fact");
-        assert_eq!(fact.len(), 1);
-        assert_eq!(out.binding(fact[0]).origin, Origin::OwnName);
-        let inside = out.binding(fact[0]).scope;
-        assert_eq!(out.scope(inside).kind, ScopeKind::Function);
-        // And it is NOT reachable from the module, which is the whole point: a
-        // substituted body carrying the name would land where nothing declares
-        // it. `inline.rs` lost four assertions to that.
-        let name = names.intern("fact");
-        assert!(out.binding_in(out.module(), name).is_none());
-    }
-
-    #[test]
-    fn a_loop_target_is_a_binding_of_the_head_and_not_of_the_body() {
-        let (out, mut names) = tree("let i = 7; for (let i = 0; i < 3; i++) { i; }");
-        let both = all(&out, &mut names, "i");
-        assert_eq!(both.len(), 2);
-        let head = out.binding(both[1]).scope;
-        assert_eq!(out.scope(head).kind, ScopeKind::ForHead);
-        assert_eq!(out.scope(head).parent, Some(out.module()));
-    }
-
-    #[test]
-    fn a_catch_binding_belongs_to_its_clause() {
-        let (out, mut names) = tree("try { } catch (e) { e; }");
-        let caught = all(&out, &mut names, "e");
-        assert_eq!(caught.len(), 1);
-        assert_eq!(out.binding(caught[0]).origin, Origin::Caught);
-        assert_eq!(
-            out.scope(out.binding(caught[0]).scope).kind,
-            ScopeKind::CatchClause
-        );
-    }
-
-    /// A `with` ends the question for every name under it, however it is spelled.
-    #[test]
-    fn a_with_makes_every_name_under_it_unprovable() {
-        let (out, mut names) = tree("function f() { let v = 1; with (o) { v; } }");
-        let body = out
-            .function_scope(*out.functions.keys().next().expect("one function"))
-            .expect("a body scope");
-        let v = names.intern("v");
-        assert!(out.shadowed_within(body, v));
-        let never_written = names.intern("absent");
-        assert!(out.shadowed_within(body, never_written));
-    }
-
-    #[test]
-    fn a_name_no_scope_declares_resolves_to_nothing() {
-        let (out, mut names) = tree("Math.abs(-1);");
-        let math = names.intern("Math");
-        assert!(out.binding_in(out.module(), math).is_none());
-    }
-}
+#[path = "resolve/tests.rs"]
+mod tests;

@@ -520,7 +520,12 @@ impl Lowering<'_> {
             }
             // A NESTED DEFINITION was HOISTED: `statements` made the closure and bound it
             // before the list's first statement ran -- `declare.rs::declare_function`.
-            StmtKind::Function(_) => Ok(false),
+            // What is left here is a block function's function-level `var`, which is
+            // written when the declaration is evaluated.
+            StmtKind::Function(function) => {
+                self.annex_write(function)?;
+                Ok(false)
+            }
             StmtKind::Class(class) => {
                 let at = Expr {
                     kind: ExprKind::This,
@@ -887,6 +892,17 @@ impl Lowering<'_> {
             self.call(rts_mir::cfg::Callee::Entry(entry), None, vec![key, value], at);
             return Ok(());
         };
+        self.write_binding(binding, value, of, at)
+    }
+
+    /// Writes a binding already resolved: its environment slot, or its value.
+    fn write_binding(
+        &mut self,
+        binding: BindingId,
+        value: ValueId,
+        of: Type,
+        at: &Expr,
+    ) -> Result<(), Unsupported> {
         if self.resolution.captured(binding) && !self.prologue {
             return self.env_write(binding, value, at);
         }
