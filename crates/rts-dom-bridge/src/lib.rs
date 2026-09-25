@@ -43,7 +43,7 @@ mod lifecycle;
 mod location;
 mod nodes;
 mod raizes;
-mod recursos;
+pub mod recursos;
 mod scroll;
 mod travessia;
 mod scope;

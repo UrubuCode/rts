@@ -451,14 +451,14 @@ fn print_help(bin_name: &str) {
     println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
     println!("  --no-embed-compiler                     (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
     println!("                                          aliases: --no-compiler, --sem-compilador");
-    println!("  --html <file>                           (compile) precompile this page's <script> tags into the binary (repeatable)");
+    println!("  --html <file>                           (compile) precompile this page's <script> tags and embed its local files (repeatable)");
     println!();
     println!("An `.html` entry needs no TypeScript at all: `{bin_name} compile pagina.html [out]` writes the");
     println!("app.ts-style window loop for you (parse+resources+scripts -> egui.openWindow -> per-frame");
     println!("render + input/event/timer pumps), with the page's HTML embedded as a build-time literal and");
-    println!("its <script>s precompiled as if `--html pagina.html` had been passed. A relative <link>/<img>");
-    println!("resolves against pagina.html's OWN folder as it exists on THIS machine at build time, not at");
-    println!("run time — moving the .exe elsewhere loses those. `<script src=\"http…\">` never enters either");
-    println!("way — fetched by a page loader, never by this compiler. `{bin_name} run pagina.html` runs the");
+    println!("its <script>s precompiled as if `--html pagina.html` had been passed. Every local file the page");
+    println!("loads — <link> sheets, their @imports, <script src>, <img> — is embedded in the binary at build");
+    println!("time (for every --html page too), so a copied .exe keeps them. http(s) resources are not");
+    println!("embedded — the page loader does not fetch them at all. `{bin_name} run pagina.html` runs the");
     println!("same loop in JIT, reading the page from disk each time instead of embedding it.");
 }
