@@ -2229,3 +2229,16 @@ Suite: 884 of 907, LOST empty against `main` and the step before.
 
 Suite: **885 of 908**, LOST empty against `main` and the step before; the one more file is
 that test.
+
+### `**` and bigint literals
+
+- **`a ** b`** has a row of its own, `JsPrim::Exponent`: numeric on `-`'s terms in the
+  lattice, `NumberExponent` over two doubles -- the unboxed call the running engine makes,
+  there being no instruction for `powf` -- behind the same guard as the others, and the
+  runtime's `Exponent` otherwise.
+- **A bigint literal** is `BigIntNew` over its digits, the running engine's one path for
+  `1n` and `BigInt("1")`. The lattice has no bigint, so every operator over one is the
+  runtime's, which is what the running engine does too.
+
+`>>>` is the operator still without a row: its answer is `ToUint32`, which an `Int32`
+cannot hold. The tests that used `**` as their example of a missing row use it now.

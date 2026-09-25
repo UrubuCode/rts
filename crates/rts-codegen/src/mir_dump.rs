@@ -229,7 +229,7 @@ mod tests {
     fn a_refusal_is_printed_as_a_work_queue_and_counted() {
         let printed = describe(
             "function ok() { return 1; }
-             function nope(a, b) { return a ** b; }",
+             function nope(a, b) { return a >>> b; }",
         )
         .expect("parses");
         assert!(

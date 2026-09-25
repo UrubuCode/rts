@@ -69,10 +69,16 @@ impl Lowering<'_> {
                     at,
                 ));
             }
-            _ => {
-                return Err(Unsupported::Expression(
-                    "a bigint literal is a second numeric tower",
-                ));
+            // A BIGINT is built by the runtime from its digits, which is what
+            // `emit/expr.rs` does: `1n` and `BigInt("1")` are one path. The lattice
+            // knows nothing of it, so every operator over one is the runtime's.
+            Literal::BigInt(digits) => {
+                let text =
+                    crate::syntax::Text::from_units(digits.encode_utf16().collect::<Vec<u16>>());
+                let text = self.domain.constant(JsConst::Text(text));
+                let text = self.declared(text, at);
+                let entry = self.domain.entry_point(crate::runtime::RuntimeOp::BigIntNew);
+                return Ok(self.call(rts_mir::cfg::Callee::Entry(entry), None, vec![text], at));
             }
         };
         let of = self.domain.of_const(&value);

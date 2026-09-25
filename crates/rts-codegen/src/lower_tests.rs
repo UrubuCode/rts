@@ -86,12 +86,12 @@ fn a_global_is_read_through_the_global_object() {
     assert!(held.effect.has(Effect::THROWS));
 }
 
-/// An operator with no row is refused as an operator, and `**` is one: it is not
-/// `Multiply` repeated, and nothing in the table answers it.
+/// An operator with no row is refused as an operator. `**` was the example until it
+/// got its row; `>>>` is one still -- its answer is `ToUint32`, which no row holds.
 #[test]
 fn an_operator_with_no_row_is_refused_by_name() {
-    let refused = only("function f(a, b) { return a ** b; }").expect_err("no row for **");
-    assert_eq!(refused, Unsupported::Operator(BinaryOp::Exponent));
+    let refused = only("function f(a, b) { return a >>> b; }").expect_err("no row for >>>");
+    assert_eq!(refused, Unsupported::Operator(BinaryOp::UShr));
 }
 
 /// Neither kind is turned away at the function any more, and this test replaced one
@@ -677,7 +677,7 @@ fn a_compound_assignment_to_a_property_is_refused_by_that_reason() {
 #[test]
 fn a_compound_form_of_an_unlowered_operator_is_refused_as_an_operator() {
     let refused =
-        only("function f(a) { let b = 1; b **= a; return b; }").expect_err("no row for **");
+        only("function f(a) { let b = 1; b >>>= a; return b; }").expect_err("no row for >>>");
     assert!(matches!(refused, Unsupported::Operator(_)));
 }
 
@@ -1597,16 +1597,21 @@ fn a_nested_choice_terminates_the_block_each_arm_actually_ended_in() {
     assert_eq!(verify(&lowered.func), Ok(()));
 }
 
-/// A bigint is still refused, and this test followed the work: the regex beside it was
-/// refused for being "an object the runtime builds", which is exactly what an entry
-/// point is for -- so it lowers now and the bigint keeps the assertion.
+/// A bigint is built by the runtime from its digits -- one entry point, `BigIntNew`,
+/// the call `emit/expr.rs` makes -- and this test followed the work twice: the regex
+/// beside it lowered first, for being "an object the runtime builds", and the bigint
+/// is that too.
 #[test]
-fn a_bigint_is_refused_as_a_second_numeric_tower() {
-    let bigint = only("function f() { return 1n; }").expect_err("a bigint");
-    assert_eq!(
-        bigint,
-        Unsupported::Expression("a bigint literal is a second numeric tower")
-    );
+fn a_bigint_literal_is_the_runtime_building_one_from_its_digits() {
+    let lowered = only("function f() { return 1n; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let entries = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(held.op, Op::Call { callee: rts_mir::cfg::Callee::Entry(_), .. }))
+        .count();
+    assert_eq!(entries, 1);
 }
 
 /// A `switch` merges at its exit, which the first version of the lowering skipped —

@@ -152,6 +152,8 @@ impl Js {
         RuntimeOp::DelegateStep,
         RuntimeOp::Iterate,
         RuntimeOp::ArrayLength,
+        // A bigint literal, from its digits -- `lower/push.rs`.
+        RuntimeOp::BigIntNew,
     ];
 
     /// The index the IR carries for an entry point.
@@ -211,6 +213,7 @@ impl Js {
         JsPrim::EnclosingEnvironment,
         JsPrim::EnvNew,
         JsPrim::EnvOuter,
+        JsPrim::Exponent,
     ];
 
     /// A domain holding only the fixed constants.
@@ -296,6 +299,7 @@ impl Js {
             | JsPrim::Multiply
             | JsPrim::Divide
             | JsPrim::Remainder
+            | JsPrim::Exponent
             | JsPrim::LessThan
             | JsPrim::GreaterThan
             | JsPrim::LessOrEqual
@@ -509,7 +513,11 @@ impl Domain for Js {
             // One side is enough to rule it out, because mixing the two kinds THROWS:
             // `x - 1` answers a number or raises, whatever `x` is. So `x | 0` keeps
             // proving an Int32, which is the reason a program writes one.
-            JsPrim::Subtract | JsPrim::Multiply | JsPrim::Remainder | JsPrim::Divide => {
+            JsPrim::Subtract
+            | JsPrim::Multiply
+            | JsPrim::Remainder
+            | JsPrim::Divide
+            | JsPrim::Exponent => {
                 match args {
                     [one, two] if Self::numeric_result(one) || Self::numeric_result(two) => {
                         Type::Double

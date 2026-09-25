@@ -21,6 +21,7 @@ pub(super) fn primitive(op: BinaryOp) -> Option<JsPrim> {
         BinaryOp::Mul => Some(JsPrim::Multiply),
         BinaryOp::Div => Some(JsPrim::Divide),
         BinaryOp::Rem => Some(JsPrim::Remainder),
+        BinaryOp::Exponent => Some(JsPrim::Exponent),
         BinaryOp::Less => Some(JsPrim::LessThan),
         BinaryOp::Greater => Some(JsPrim::GreaterThan),
         BinaryOp::LessEqual => Some(JsPrim::LessOrEqual),

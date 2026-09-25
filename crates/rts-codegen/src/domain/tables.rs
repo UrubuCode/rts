@@ -26,6 +26,9 @@ pub enum JsPrim {
     Divide,
     /// `a % b`, whose answer keeps the sign of the left operand.
     Remainder,
+    /// `a ** b`. Numeric on the same terms as `-`, and a call even over two numbers:
+    /// `powf` is a library function on every target here, so there is no instruction.
+    Exponent,
     /// `a < b`, which also coerces and also answers a boolean.
     LessThan,
     /// `a > b`, `a <= b`, `a >= b` -- one row each.
@@ -303,6 +306,7 @@ impl JsPrim {
                 | JsPrim::Multiply
                 | JsPrim::Divide
                 | JsPrim::Remainder
+                | JsPrim::Exponent
                 | JsPrim::LessThan
                 | JsPrim::GreaterThan
                 | JsPrim::LessOrEqual

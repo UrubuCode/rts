@@ -89,6 +89,17 @@ impl JsMachine<'_> {
                     )
                     .map(Some);
             }
+            // `**` OF TWO DOUBLES is the unboxed call the running engine makes for it
+            // (`emit/expr.rs`, `Proven::NumberCall`): there is no instruction to try.
+            JsPrim::Exponent => {
+                return self
+                    .call_runtime(
+                        into,
+                        crate::runtime::RuntimeOp::NumberExponent,
+                        &[left, right],
+                    )
+                    .map(Some);
+            }
             _ => return Ok(None),
         };
         into.arith(op, left, right).map(Some).map_err(machine)
@@ -123,6 +134,7 @@ impl JsMachine<'_> {
             JsPrim::Multiply,
             JsPrim::Divide,
             JsPrim::Remainder,
+            JsPrim::Exponent,
             JsPrim::LessThan,
             JsPrim::GreaterThan,
             JsPrim::LessOrEqual,

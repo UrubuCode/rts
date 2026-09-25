@@ -46,6 +46,7 @@ impl JsMachine<'_> {
             (JsPrim::Multiply, 2) => RuntimeOp::Multiply,
             (JsPrim::Divide, 2) => RuntimeOp::Divide,
             (JsPrim::Remainder, 2) => RuntimeOp::Remainder,
+            (JsPrim::Exponent, 2) => RuntimeOp::Exponent,
             (JsPrim::LessThan, 2) => RuntimeOp::Less,
             (JsPrim::GreaterThan, 2) => RuntimeOp::Greater,
             (JsPrim::LessOrEqual, 2) => RuntimeOp::LessEqual,
