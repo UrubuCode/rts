@@ -26,9 +26,14 @@
 //! ([`collect`]). Storing it beside the paint order was the rejected
 //! alternative: that second sequence is exactly what `hit_at` existed to keep
 //! aligned, and what cost the `z-index` defect its comment named.
+//!
+//! Moved from `layout/pieces.rs` on 2026-09-25 (PQ-A1); nothing in it changed.
 
-use super::*;
-use crate::boxes::{BoxId, BoxTree};
+use crate::boxes::BoxId;
+use crate::layout::ChildRef;
+use crate::paint::item::DisplayItem;
+use crate::paint::list::Rect;
+use crate::layout::itens::translate_item;
 
 /// One step of a list's output, in paint order.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,7 +51,7 @@ pub enum Piece {
 
 /// Every item of `pieces`, in paint order, with the offset to add — the
 /// subtrees reused by reference included, never copied.
-pub(in crate::layout) fn walk(pieces: &[Piece], dx: f32, dy: f32, f: &mut impl FnMut(&DisplayItem, f32, f32)) {
+pub(crate) fn walk(pieces: &[Piece], dx: f32, dy: f32, f: &mut impl FnMut(&DisplayItem, f32, f32)) {
     for piece in pieces {
         match piece {
             Piece::Item(item) => f(item, dx, dy),
@@ -57,7 +62,7 @@ pub(in crate::layout) fn walk(pieces: &[Piece], dx: f32, dy: f32, f: &mut impl F
 }
 
 /// The subtrees `pieces` reuses, in paint order.
-pub(in crate::layout) fn children(pieces: &[Piece]) -> impl Iterator<Item = &ChildRef> {
+pub(crate) fn children(pieces: &[Piece]) -> impl Iterator<Item = &ChildRef> {
     pieces.iter().filter_map(|p| match p {
         Piece::Child(c) => Some(c),
         _ => None,
@@ -65,7 +70,7 @@ pub(in crate::layout) fn children(pieces: &[Piece]) -> impl Iterator<Item = &Chi
 }
 
 /// How many items `pieces` paints, counting the subtrees it reuses.
-pub(in crate::layout) fn count_items(pieces: &[Piece]) -> usize {
+pub(crate) fn count_items(pieces: &[Piece]) -> usize {
     pieces
         .iter()
         .map(|p| match p {
@@ -80,7 +85,7 @@ pub(in crate::layout) fn count_items(pieces: &[Piece]) -> usize {
 /// paints nothing, and the two callers that ask ("has this line emitted
 /// anything yet", "is there a negative layer to prepend") asked it of the old
 /// `items` and `children` and never of `hit_order`.
-pub(in crate::layout) fn paints(pieces: &[Piece]) -> bool {
+pub(crate) fn paints(pieces: &[Piece]) -> bool {
     pieces.iter().any(|p| !matches!(p, Piece::Rect(_)))
 }
 
@@ -97,7 +102,7 @@ pub(in crate::layout) fn paints(pieces: &[Piece]) -> bool {
 /// </div></div>` moves "A" by 20px). BT-2b was a zero-change lot, and keeping
 /// that answer costs one line here where the fix is replacing the call by
 /// `mark`, so it stays until a lot of its own measures the fix.
-pub(in crate::layout) fn shift_from(pieces: &mut [Piece], mark: usize, dx: f32, dy: f32) {
+pub(crate) fn shift_from(pieces: &mut [Piece], mark: usize, dx: f32, dy: f32) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }
@@ -129,7 +134,7 @@ fn legacy_tie_start(pieces: &[Piece], mark: usize) -> usize {
 /// applied twice. The flattened subtrees' geometry is dropped, as the whole-list
 /// `materialize` this replaces always did. Only the TAIL: flattening what came
 /// before `start` would move pieces an ancestor still has to insert behind.
-pub(in crate::layout) fn flatten_from(pieces: &mut Vec<Piece>, start: usize) {
+pub(crate) fn flatten_from(pieces: &mut Vec<Piece>, start: usize) {
     if !pieces[start..].iter().any(|p| matches!(p, Piece::Child(_))) {
         return;
     }
@@ -147,70 +152,10 @@ pub(in crate::layout) fn flatten_from(pieces: &mut Vec<Piece>, start: usize) {
     }
 }
 
-/// The hit order and the geometry of the subtrees `pieces` reuses, into `out`.
-///
-/// ONE walk in paint order: a box's hit-test entry is its [`Piece::Rect`], and a
-/// subtree's entries come in where its `Child` stands — which is what `hit_at`
-/// reconstructed by counting. The `Geometry` answers by NODE, so a box is
-/// translated here, and an anonymous box (no node) does not enter: the bridge
-/// promises element boxes, and a box the document does not have is not
-/// reachable by any `NodeId`.
-///
-/// **Each entry carries its BOX's rect** (`rect_of`, already offset), not the
-/// node's. A split inline's fragment after the block marks its box after the
-/// block's; with the node's union — which spans the block — it won a click on
-/// the block that Blink gives the block (`rect_cliente.rs`). That only held
-/// while every fragment box was written at the first line, marking them all
-/// before the block — true of the per-node union, false once each fragment
-/// records its own rects (BT-2c).
-pub(in crate::layout) fn collect(
-    tree: &BoxTree,
-    pieces: &[Piece],
-    dx: f32,
-    dy: f32,
-    rect_of: &dyn Fn(BoxId) -> Option<Rect>,
-    out: &mut Geometry,
-) {
-    for piece in pieces {
-        match piece {
-            Piece::Rect(box_id) => out.hit_order.extend(tree.node_of(*box_id).zip(rect_of(*box_id))),
-            Piece::Child(c) => collect_fragment(tree, &c.fragment, dx + c.dx, dy + c.dy, out),
-            Piece::Item(_) => {}
-        }
-    }
-}
-
-/// A reused fragment's rects (several boxes of one node unite, which is what
-/// `getBoundingClientRect` asks), then its pieces, then its scroll regions —
-/// the order `geometry_now` always produced them in.
-fn collect_fragment(tree: &BoxTree, fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
-    let moved = dx != 0.0 || dy != 0.0;
-    let mut by_box: crate::fasthash::FastMap<BoxId, Rect> = crate::fasthash::FastMap::default();
-    for (box_id, rect) in fragment.rects.iter() {
-        let mut rect = *rect;
-        if moved {
-            rect.x += dx;
-            rect.y += dy;
-        }
-        by_box.entry(*box_id).and_modify(|r| *r = r.union(rect)).or_insert(rect);
-        let Some(node) = tree.node_of(*box_id) else { continue };
-        out.rects.entry(node).and_modify(|r| *r = r.union(rect)).or_insert(rect);
-    }
-    collect(tree, &fragment.pieces, dx, dy, &|b| by_box.get(&b).copied(), out);
-    for region in fragment.scroll_regions.iter() {
-        let mut region = *region;
-        if moved {
-            region.visible.x += dx;
-            region.visible.y += dy;
-        }
-        out.scroll_regions.push(region);
-    }
-}
-
 /// The rect of one box inside the subtrees `pieces` reuses, with their offsets
 /// added: the union of its fragments. Unlike the public geometry by node, this
 /// reaches anonymous boxes too.
-pub(in crate::layout) fn rect_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32) -> Option<Rect> {
+pub(crate) fn rect_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32) -> Option<Rect> {
     let rects = rects_in_children(pieces, box_id, dx, dy)?;
     Some(rects[1..].iter().fold(rects[0], |acc, r| acc.union(*r)))
 }
@@ -219,7 +164,7 @@ pub(in crate::layout) fn rect_in_children(pieces: &[Piece], box_id: BoxId, dx: f
 /// added. A box's line fragments all come from the ONE inline formatting
 /// context that laid it out, so they sit in one `Fragment` and the first
 /// fragment naming the box has them all.
-pub(in crate::layout) fn rects_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32) -> Option<Vec<Rect>> {
+pub(crate) fn rects_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32) -> Option<Vec<Rect>> {
     children(pieces).find_map(|c| {
         let (dx, dy) = (dx + c.dx, dy + c.dy);
         let own: Vec<Rect> = c

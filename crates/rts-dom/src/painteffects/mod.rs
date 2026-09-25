@@ -45,7 +45,7 @@
 //! exemplar do desenho errado com aparência de certo: um losango recortado
 //! assim continua a ser um quadrado.
 
-use crate::layout::Rect;
+use crate::paint::Rect;
 
 /// Uma cadeia de `filter` já reduzida a UMA transformação de cor.
 ///

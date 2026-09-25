@@ -376,7 +376,7 @@ pub struct Dom {
     /// pelo MESMO estado (uma consulta de geometria atrás da outra, um frame
     /// atrás do outro), não alternar entre viewports.
     display_cache:
-        std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::layout::DisplayList>)>>,
+        std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::paint::DisplayList>)>>,
     /// Algum `style=""` inline desta árvore menciona `position`.
     ///
     /// Junto com [`Stylesheet::has_out_of_flow`](crate::style::Stylesheet::has_out_of_flow),

@@ -16,7 +16,7 @@ use super::*;
 pub(in crate::frame::render) fn process_scroll_regions(
     ui: &mut egui::Ui,
     h: u64,
-    list: &mut layout::DisplayList,
+    list: &mut paint::DisplayList,
     sb: &rts_dom::scrollbar::ScrollbarStyle,
     page_dy: f32,
 ) {
@@ -113,6 +113,6 @@ pub(in crate::frame::render) fn process_scroll_regions(
             d.set_scroll_extent_idx(region.node_idx, off.x, off.y, max_x, max_y)
         });
         // barras DENTRO da região (coords de conteúdo; o paint soma o page scroll).
-        layout::emit_scrollbar_in(list, region, off.x, off.y, sb);
+        paint::emit_scrollbar_in(list, region, off.x, off.y, sb);
     }
 }

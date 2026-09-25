@@ -3,8 +3,13 @@
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
+//!
+//! Moved from `layout/pintura.rs` on 2026-09-25 (PQ-A1); the colour/decoration helpers went to `paint/style.rs`.
 
-use super::*;
+use crate::dom::{Dom, NodeIdx, NodeKind};
+use crate::paint::item::{Corners, DisplayItem};
+use crate::paint::list::{DisplayList, Rect, ScrollRegion};
+use crate::style::ComputedStyle;
 /// Emite os retângulos da SCROLLBAR (track + thumb) na DisplayList — a BARRA é
 /// preparada pelo DOM, não pelo backend (o egui só pinta `SolidRect`, mantendo-se
 /// burro e substituível). Dados de geometria: `viewport_w/h` (área visível),
@@ -145,7 +150,7 @@ pub fn emit_scrollbar_in(
 /// `<body>` lá dentro — `background-body-001` (só `body{background:green}`)
 /// media 97,86% de pixels errados por isto: a tela ficava no branco por
 /// omissão em vez do verde do body.
-pub(in crate::layout) fn body_background(dom: &Dom) -> Option<u32> {
+pub(crate) fn body_background(dom: &Dom) -> Option<u32> {
     for &child in &dom.node(dom.root).children {
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if tag == "html" {
@@ -205,81 +210,10 @@ fn find_body_bg(dom: &Dom, idx: NodeIdx) -> Option<u32> {
 /// SUBSTITUTO TEMPORÁRIO. Quando carregarmos e aplicarmos máscaras a sério, o
 /// fundo volta a ser pintado e passa a ser recortado pela máscara — esta função
 /// desaparece em vez de mudar de resposta.
-pub(in crate::layout) fn deve_suprimir_fundo(css: &ComputedStyle) -> bool {
+pub(crate) fn deve_suprimir_fundo(css: &ComputedStyle) -> bool {
     css.mask_image.is_some()
 }
 
-/// Código de decoração de texto p/ o `DisplayItem::Text` a partir do estilo:
-/// 0=nenhuma, 1=underline, 2=line-through, 3=overline.
-pub(in crate::layout) fn decoration_code(css: &ComputedStyle) -> u8 {
-    match css.text_decoration {
-        Some(crate::style::values::TextDecoration::Underline) => 1,
-        Some(crate::style::values::TextDecoration::LineThrough) => 2,
-        Some(crate::style::values::TextDecoration::Overline) => 3,
-        _ => 0,
-    }
-}
-
-/// Multiplica o ALPHA de uma cor `0xRRGGBBAA` por `opacity` ∈ [0,1] (o RGB fica
-/// A cor com que um elemento pinta, dado o seu `visibility`.
-///
-/// `visibility:hidden` não salta o layout — o elemento ocupa o espaço na mesma —,
-/// só não é pintado. Zerar o alpha é como isso se exprime numa display list que
-/// não tem grupos de compositing, e a propriedade ser HERDADA faz o resto: os
-/// descendentes chegam ao seu próprio layout já com ela posta.
-/// `font-style: italic` resolvido para uma tag: o CSS computado vence, e a
-/// UA-stylesheet responde quando ninguém declarou; `herdado` é o último recurso.
-///
-/// A consulta à UA passa por [`crate::block::lookup_inline`] — a TABELA que
-/// regista `<i>` e `<em>` como `FLAG_ITALIC` — e não por um `match` sobre o
-/// nome da tag. A alternativa rejeitada era exatamente esse `match`: o motor de
-/// layout não nomeia tags HTML, a UA-stylesheet é que as nomeia, e é ela quem
-/// muda quando o default de uma tag muda.
-///
-/// Sem este ramo, um `<em>` sem regra de autor não fica itálico nenhum — o mapa
-/// da UA não tinha, até aqui, UM ÚNICO leitor em todo o motor.
-/// O nome da tag de um nó, ou `None` se for texto. Existe para o [`italico`]
-/// poder consultar a UA-stylesheet sem que quem chama tenha de desmontar o nó.
-pub(in crate::layout) fn tag_de(dom: &Dom, id: NodeIdx) -> Option<&str> {
-    match &dom.node(id).kind {
-        NodeKind::Element { tag } => Some(tag.as_str()),
-        _ => None,
-    }
-}
-
-pub(in crate::layout) fn italico(css: Option<&crate::style::ComputedStyle>, tag: Option<&str>, herdado: bool) -> bool {
-    if let Some(v) = css.and_then(|c| c.italic) {
-        return v;
-    }
-    let ua = tag.is_some_and(|t| crate::block::lookup_inline(t) & crate::block::FLAG_ITALIC != 0);
-    ua || herdado
-}
-
-pub(in crate::layout) fn cor_visivel(css: &crate::style::ComputedStyle, cor: u32) -> u32 {
-    if css.visibility.is_some_and(|v| v.suppresses_paint()) {
-        cor & 0xFFFF_FF00
-    } else {
-        cor
-    }
-}
-
-/// intacto; só o canal alpha escala). `opacity >= 1` devolve a cor inalterada.
-pub(in crate::layout) fn apply_opacity(color: u32, opacity: f32) -> u32 {
-    if opacity >= 1.0 {
-        return color;
-    }
-    let op = opacity.clamp(0.0, 1.0);
-    let a = (color & 0xFF) as f32;
-    let new_a = (a * op).round().clamp(0.0, 255.0) as u32;
-    (color & 0xFFFF_FF00) | new_a
-}
-
-/// `true` se a tag é um campo de TEXTO editável (mini-browser): `<input>` (tipos
-/// textuais) ou `<textarea>`. Um `<input type=checkbox/radio/...>` não conta (v1
-/// só faz texto). Sem `type` → texto (o default do HTML).
-pub(in crate::layout) fn is_text_input_tag(tag: &str) -> bool {
-    matches!(tag, "input" | "textarea")
-}
 
 /// Os itens de BORDA de uma caixa: a moldura uniforme, as barras por lado, e o
 /// `outline`. Uma função só porque a lista é emitida num sítio e CONTADA noutro

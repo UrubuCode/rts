@@ -52,7 +52,8 @@
 //! trazê-la só para a escrita, quando a leitura já não precisa dela, seria
 //! uma segunda dependência para o mesmo problema que a primeira já resolve.
 
-use rts_dom::layout::{self, DisplayItem, DisplayList, Mat2d, Rect, TextMeasurer};
+use rts_dom::layout::{self, TextMeasurer};
+use rts_dom::paint::{DisplayItem, DisplayList, Mat2d, Rect};
 use rts_dom::Dom;
 use std::io::Write;
 use std::path::Path;

@@ -14,7 +14,8 @@
 //! pintura é decidida, e este trabalho acrescenta geometria sem tocar na pintura.
 
 use crate::dom::{Dom, NodeIdx};
-use crate::layout::{DisplayList, LayoutCtx, Rect, TextMeasurer};
+use crate::layout::{LayoutCtx, TextMeasurer};
+use crate::paint::{DisplayList, Rect};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod substituido;

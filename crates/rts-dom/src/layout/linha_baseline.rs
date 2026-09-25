@@ -325,7 +325,7 @@ pub(in crate::layout) fn total_da_costura(
         return anterior.ultima_linha;
     }
     let directa = anterior.linha_directa;
-    super::pieces::children(pieces)
+    crate::paint::pieces::children(pieces)
         .filter(|c| tree.node_of(c.caixa).is_none_or(|n| fluxo_proprio(dom, id, n, true)))
         .filter_map(|c| c.fragment.ultima_linha.map(|b| b + c.dy))
         .chain(directa)

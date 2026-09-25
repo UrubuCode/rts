@@ -2,7 +2,7 @@
 //! answers the index arithmetic it replaced got wrong, each pinned on the
 //! materialized list — the order a backend paints in.
 
-use crate::layout::DisplayItem;
+use crate::paint::DisplayItem;
 use crate::table::tests::geometria;
 
 /// Index in `itens` of the first item matching `f`.

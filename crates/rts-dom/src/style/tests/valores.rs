@@ -41,7 +41,7 @@ fn parses_aspect_ratio() {
 
 #[test]
 fn parses_transform() {
-    use crate::layout::TransformOp;
+    use crate::paint::TransformOp;
     let t = parse_inline("transform: translate(10px, -20px) scale(1.5) rotate(45deg)")
         .transform
         .unwrap();

@@ -24,7 +24,8 @@
 //! a alternativa está errada, e porque a varredura pára no primeiro irmão que
 //! não é item de lista.
 
-use crate::layout::{DisplayItem, DisplayList, LayoutCtx, Rect};
+use crate::layout::LayoutCtx;
+use crate::paint::{DisplayItem, DisplayList, Rect};
 use crate::style::{ComputedStyle, DisplayKind, ListStyleType};
 use crate::{Dom, NodeIdx};
 
@@ -156,12 +157,12 @@ pub(crate) fn emit_marker(
                 ListStyleType::Square => list.push_item(DisplayItem::SolidRect {
                     rect,
                     color,
-                    radius: crate::layout::Corners::ZERO,
+                    radius: crate::paint::Corners::ZERO,
                 }),
                 _ => list.push_item(DisplayItem::SolidRect {
                     rect,
                     color,
-                    radius: crate::layout::Corners::same(d / 2.0),
+                    radius: crate::paint::Corners::same(d / 2.0),
                 }),
             }
         }

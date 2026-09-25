@@ -12,7 +12,7 @@ use crate::table::tests::geometria;
 /// Corpus tolerance (`tests/css/README.md`): 1px.
 const TOL: f32 = 1.0;
 
-fn fixture() -> (crate::Dom, crate::layout::DisplayList) {
+fn fixture() -> (crate::Dom, crate::paint::DisplayList) {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/css/claude-pseudo-caixa-gerada.html"
@@ -21,7 +21,7 @@ fn fixture() -> (crate::Dom, crate::layout::DisplayList) {
     geometria(&src, 1280.0)
 }
 
-fn afirma(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+fn afirma(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     let got = (r.x, r.y, r.w, r.h);
@@ -53,7 +53,7 @@ fn inline_pseudo_padding_and_border_take_space_inside_its_element() {
 }
 
 /// The horizontal half of an axis-by-axis assertion: `x` and `w`.
-fn afirma_x(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, x: f32, w: f32) {
+fn afirma_x(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, x: f32, w: f32) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     assert!(
@@ -64,7 +64,7 @@ fn afirma_x(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, x: f
     );
 }
 
-fn y_h(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str) -> (f32, f32) {
+fn y_h(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str) -> (f32, f32) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     (r.y, r.h)
@@ -132,7 +132,7 @@ fn inline_pseudo_surface_is_painted_across_the_generated_box() {
         .materialized()
         .iter()
         .filter_map(|it| match it {
-            crate::layout::DisplayItem::SolidRect { rect, color, .. } => Some((*rect, *color)),
+            crate::paint::DisplayItem::SolidRect { rect, color, .. } => Some((*rect, *color)),
             _ => None,
         })
         .collect();

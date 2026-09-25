@@ -28,8 +28,13 @@
 //! fixed`, `background-clip`/`-origin` não-default, `background-blend-mode`,
 //! e mais de uma camada (o mesmo corte que `style::background` já assume —
 //! `bg_image` só guarda a PRIMEIRA).
+//!
+//! Moved from `layout/fundo_imagem.rs` on 2026-09-25 (PQ-A1); nothing in it changed.
 
-use super::*;
+use crate::dom::{Dom, NodeIdx};
+use crate::paint::item::DisplayItem;
+use crate::paint::list::Rect;
+use crate::style::ComputedStyle;
 use crate::style::BgRepeat;
 
 /// Os itens de `Pixels` (mais o `BeginClip`/`EndClip` que os recorta) para o
@@ -42,7 +47,7 @@ use crate::style::BgRepeat;
 /// spec (CSS Backgrounds 3 §3.4) — nunca o border-box inteiro, ou uma borda
 /// arredondada pintaria por baixo do canto reto do fundo.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn background_pixels_items(
+pub(crate) fn background_pixels_items(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,
@@ -75,7 +80,7 @@ pub(in crate::layout) fn background_pixels_items(
     let pos = css.bg_position.unwrap_or_default();
     let resolve = crate::style::ResolveCtx {
         parent_content_w: area.w,
-        node_font_size: super::DEFAULT_FONT_SIZE,
+        node_font_size: crate::layout::DEFAULT_FONT_SIZE,
         root_font_size: crate::style::root_font_size(),
         viewport_w: area.w,
         viewport_h: area.h,

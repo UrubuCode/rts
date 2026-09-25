@@ -20,7 +20,7 @@ use crate::table::tests::{geometria, rect};
 /// Tolerância do corpus (`tests/css/README.md`): 1px.
 const TOL: f32 = 1.0;
 
-fn afirma_rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+fn afirma_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
     let r = rect(dom, list, sel, 0);
     let got = (r.x, r.y, r.w, r.h);
     let bate = (got.0 - esperado.0).abs() <= TOL
@@ -134,7 +134,7 @@ fn inline_com_superficie_quebra_em_fragmentos_e_nao_engrossa_a_linha() {
     // o fundo pinta-se POR FRAGMENTO: três para `#quebra`, um para `#controlo`.
     let mut fundos = 0;
     list.walk(|item, _, _| {
-        if let crate::layout::DisplayItem::SolidRect { color: 0xFFCC00FF, .. } = item {
+        if let crate::paint::DisplayItem::SolidRect { color: 0xFFCC00FF, .. } = item {
             fundos += 1;
         }
     });

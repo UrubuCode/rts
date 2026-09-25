@@ -219,7 +219,7 @@ impl super::DisplayList {
     pub(crate) fn rects_of_box(&self, box_id: BoxId) -> Vec<Rect> {
         match self.box_rects.fragments(box_id) {
             Some(own) => own.to_vec(),
-            None => super::pieces::rects_in_children(&self.pieces, box_id, 0.0, 0.0).unwrap_or_default(),
+            None => crate::paint::pieces::rects_in_children(&self.pieces, box_id, 0.0, 0.0).unwrap_or_default(),
         }
     }
 }

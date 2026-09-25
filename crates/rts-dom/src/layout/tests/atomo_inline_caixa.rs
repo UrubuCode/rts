@@ -17,7 +17,7 @@
 
 use crate::table::tests::{geometria, rect};
 
-fn xywh(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str) -> (f32, f32, f32, f32) {
+fn xywh(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str) -> (f32, f32, f32, f32) {
     let r = rect(dom, list, sel, 0);
     (r.x, r.y, r.w, r.h)
 }
@@ -163,7 +163,7 @@ fn bloco_dentro_de_inline_so_de_espaco_e_disposto_uma_vez() {
     let pintados = list
         .materialized()
         .iter()
-        .filter(|it| matches!(it, crate::layout::DisplayItem::Text { text, .. } if text.contains("xyz")))
+        .filter(|it| matches!(it, crate::paint::DisplayItem::Text { text, .. } if text.contains("xyz")))
         .count();
     assert_eq!(pintados, 1, "o texto do bloco pinta-se uma vez");
 }

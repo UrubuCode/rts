@@ -6,7 +6,7 @@
 //! 20/30/20/30) e o triângulo (0×0 com três lados a zero).
 
 use crate::table::tests::geometria;
-use crate::layout::DisplayItem;
+use crate::paint::DisplayItem;
 
 fn quads(html: &str) -> Vec<([(f32, f32); 4], u32)> {
     let (_dom, list) = geometria(html, 1280.0);

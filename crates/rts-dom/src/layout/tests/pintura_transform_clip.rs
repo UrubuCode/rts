@@ -2,7 +2,7 @@
 //! `overflow`), pinados na `DisplayList` materializada — não em `node_rects`,
 //! que `transform_corpus.rs` já cobre e este lote não mexeu.
 
-use crate::layout::DisplayItem;
+use crate::paint::DisplayItem;
 use crate::table::tests::geometria;
 
 /// `transform: rotate(90deg)` emite `PushTransform`/`PopTransform` em volta

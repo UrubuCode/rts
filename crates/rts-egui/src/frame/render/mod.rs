@@ -10,7 +10,8 @@
 //! usando o sistema de fontes real do egui (galley) — então a medida é exata, não
 //! aproximada, e mesmo assim o DOM continua dono do layout.
 
-use rts_dom::layout::{self, DisplayItem, DisplayList, TextMeasurer};
+use rts_dom::layout::{self, TextMeasurer};
+use rts_dom::paint::{self, DisplayItem, DisplayList};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -141,7 +142,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
         list.walk(|item, _, _| {
             itens += 1;
             match item {
-                layout::DisplayItem::BeginClip { rect, .. } => {
+                paint::DisplayItem::BeginClip { rect, .. } => {
                     clips += 1;
                     profundidade += 1;
                     sobra = sobra.max(profundidade);
@@ -149,7 +150,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
                         vazios += 1;
                     }
                 }
-                layout::DisplayItem::EndClip { .. } => profundidade -= 1,
+                paint::DisplayItem::EndClip { .. } => profundidade -= 1,
                 _ => {}
             }
         });
@@ -236,7 +237,7 @@ fn emit_input_events(h: u64) {
 
 /// Renderiza o DOM COM SCROLL — o egui burro: mantém só o offset (input do mouse),
 /// translada o conteúdo por -offset e pinta. A BARRA (track+thumb) é emitida pelo
-/// DOM (`layout::emit_scrollbar`) como `SolidRect` — NÃO usa o ScrollArea do egui,
+/// DOM (`paint::emit_scrollbar`) como `SolidRect` — NÃO usa o ScrollArea do egui,
 /// p/ a barra não ficar presa ao backend (visão: egui removível). `h` é o handle do
 /// DOM; `sb` o estilo do CSS; `scroll_y` se o eixo Y rola; `force` se a barra é
 /// sempre visível (overflow:scroll).
@@ -326,7 +327,7 @@ pub(crate) fn render_dom_scrolled(
 
     // BARRA emitida pelo DOM (SolidRect) — fixa na viewport (a função soma o offset).
     if scroll_y {
-        layout::emit_scrollbar(&mut list, viewport_w, viewport_h, content_h, offset, sb, force);
+        paint::emit_scrollbar(&mut list, viewport_w, viewport_h, content_h, offset, sb, force);
     }
     // SCROLL CONTAINERS INTERNOS (#1744): para cada região rolável (div com overflow),
     // o egui lê/escreve o offset dela no `Dom` (`dom/scroll.rs`) e emite as

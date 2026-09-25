@@ -57,7 +57,8 @@
 //! svg+xml` (este motor só descodifica PNG, PLAN.md lote V-img) — um `<img>`
 //! desses continua sem pixels, com a caixa que a CSS/atributo decidir.
 
-use rts_dom::layout::{self, DisplayItem, DisplayList};
+use rts_dom::layout;
+use rts_dom::paint::{DisplayItem, DisplayList};
 use rts_dom::{Dom, NodeIdx, NodeKind};
 use std::path::Path;
 

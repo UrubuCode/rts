@@ -147,7 +147,7 @@ fn costurar(
     {
         return None;
     }
-    if super::pieces::children(&anterior.pieces).next().is_none() {
+    if crate::paint::pieces::children(&anterior.pieces).next().is_none() {
         return None;
     }
     // Um container cujos filhos carregam tamanho IMPOSTO (flex, grid,
@@ -161,7 +161,7 @@ fn costurar(
     // cada ITEM, individualmente, bater no cache por `FragmentKey` exata
     // (ver `layout_block_reusing`). Bloco normal nunca tem `forced_outer_*`
     // definido, então este guard não custa nada ao caminho comum.
-    if super::pieces::children(&anterior.pieces)
+    if crate::paint::pieces::children(&anterior.pieces)
         .any(|c| c.forced_outer_w.is_some() || c.forced_outer_h.is_some())
     {
         return None;
@@ -266,7 +266,7 @@ fn costurar(
         // novo pode ter sido calculado já em `origem` (deslocamento zero) ou ser
         // uma costura que herdou a origem do velho. Manter o `dx`/`dy` antigo
         // aplicava o deslocamento duas vezes a um filho que tinha subido.
-        let novo = super::pieces::children(&own.pieces).next()?;
+        let novo = crate::paint::pieces::children(&own.pieces).next()?;
         grid_column_tracks.retain(|(node, _)| !previous_grid_nodes.contains(node));
         grid_column_tracks.extend(novo.fragment.grid_column_tracks.iter().cloned());
         (child.dx, child.dy) = (novo.dx, novo.dy);
