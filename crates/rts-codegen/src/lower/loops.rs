@@ -270,17 +270,13 @@ impl Lowering<'_> {
                     if is_var && binding.value.is_none() {
                         continue;
                     }
-                    let crate::syntax::Pattern::Name(name) = &binding.target else {
-                        return Err(Unsupported::Pattern);
-                    };
                     let Some(value) = &binding.value else {
                         return Err(Unsupported::Statement(
                             "a loop head declaration with no initialiser",
                         ));
                     };
                     let held = self.expression(value)?;
-                    let of = self.type_of(held);
-                    self.bind(*name, held, of, value)?;
+                    self.destructure(&binding.target, held, value)?;
                 }
             }
             Some(ForInit::Expr(expr)) => {

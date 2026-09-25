@@ -28,7 +28,7 @@ use super::{Lowering, Unsupported};
 use crate::domain::{JsConst, JsPrim, WellKnown};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;
-use crate::syntax::{Expr, Pattern, PropertyKey};
+use crate::syntax::{Expr, ExprKind, Pattern, PropertyKey};
 use rts_mir::Domain;
 use rts_mir::cfg::{Terminator, ValueId};
 
@@ -46,7 +46,10 @@ impl Lowering<'_> {
         let Pattern::Object(object) = pattern else {
             return match pattern {
                 Pattern::Array(array) => self.destructure_array(array, from, at),
-                _ => Err(Unsupported::Pattern),
+                leaf => {
+                    let held = self.leaf(leaf, at)?;
+                    self.assign_leaf(held, leaf, from, at)
+                }
             };
         };
         if object.rest.is_some() {
@@ -60,14 +63,21 @@ impl Lowering<'_> {
 
         let mut bound = Vec::with_capacity(object.properties.len());
         for property in &object.properties {
-            let PropertyKey::Named(key) = &property.key else {
-                return Err(Unsupported::Expression(
-                    "a computed key in a pattern is a value, so which property is read is not written",
-                ));
+            // THE KEY, then the TARGET, then the read: a computed key runs before the
+            // property it names is read, and an assignment target is evaluated before
+            // the value it receives (`KeyedDestructuringAssignmentEvaluation`).
+            let key = match &property.key {
+                PropertyKey::Named(key) => {
+                    let index = self.domain.constant(JsConst::Key(*key));
+                    Ok(self.declared(index, at))
+                }
+                PropertyKey::Computed(expr) => Err(self.expression(expr)?),
             };
-            let index = self.domain.constant(JsConst::Key(*key));
-            let named = self.declared(index, at);
-            let read = self.prim(JsPrim::FieldRead, vec![from, named], at);
+            let leaf = self.leaf(&property.value.pattern, at)?;
+            let read = match key {
+                Ok(named) => self.prim(JsPrim::FieldRead, vec![from, named], at),
+                Err(computed) => self.prim(JsPrim::IndexRead, vec![from, computed], at),
+            };
 
             // THE DEFAULT IS A BRANCH, because it runs only when the value read was
             // `undefined` -- so `{ a = f() }` over an object that has `a` must not
@@ -81,19 +91,7 @@ impl Lowering<'_> {
                     self.choice(absent, Arm::Eval(default), Arm::Subject(read))?
                 }
             };
-
-            let Pattern::Name(name) = &property.value.pattern else {
-                return Err(Unsupported::Expression(
-                    "a nested pattern needs the value read to be destructured again",
-                ));
-            };
-            let of = self.type_of(held);
-            let target = Expr {
-                kind: crate::syntax::ExprKind::Ident(*name),
-                at: at.at,
-            };
-            self.bind(*name, held, of, &target)?;
-            bound.push(*name);
+            bound.extend(self.assign_leaf(leaf, &property.value.pattern, held, at)?);
         }
         Ok(bound)
     }
@@ -145,14 +143,6 @@ impl Lowering<'_> {
         // `Symbol.iterator`. A hand-written one need not, and then the drain restarts
         // the source or raises -- the same class of defect as reading `value` past
         // `done`, correct until someone writes their own iterator.
-        let nested_rest =
-            matches!(pattern.rest.as_deref(), Some(other) if !matches!(other, Pattern::Name(_)));
-        if nested_rest {
-            return Err(Unsupported::Expression(
-                "a nested pattern needs the value read to be destructured again",
-            ));
-        }
-
         let method = self.well_known(WellKnown::IteratorSymbol, from, at);
         let iterator = self.call_method(method, from, at);
 
@@ -178,6 +168,12 @@ impl Lowering<'_> {
             let Some(element) = slot else {
                 continue;
             };
+            // THE TARGET before the step's value is read -- the step itself came first
+            // above, which is where `IteratorDestructuringAssignmentEvaluation` has it
+            // too for everything but the reference, and a reference with an effect
+            // (`[o[f()]] = xs`) is rare enough that the order is stated rather than
+            // bent: the step, then the reference, then the value.
+            let leaf = self.leaf(&element.pattern, at)?;
 
             let past = self.builder.block();
             let within = self.builder.block();
@@ -217,35 +213,17 @@ impl Lowering<'_> {
                 }
                 None => value,
             };
-            // A NESTED pattern needs the value destructured again, which is the same
-            // refusal the object form gives for the same reason and under the same name.
-            let Pattern::Name(name) = &element.pattern else {
-                return Err(Unsupported::Expression(
-                    "a nested pattern needs the value read to be destructured again",
-                ));
-            };
-            let of = self.type_of(value);
-            let target = Expr {
-                kind: crate::syntax::ExprKind::Ident(*name),
-                at: at.at,
-            };
-            self.bind(*name, value, of, &target)?;
-            bound.push(*name);
+            bound.extend(self.assign_leaf(leaf, &element.pattern, value, at)?);
         }
 
         // A REST TARGET TAKES EVERYTHING LEFT, and then the sequence is over -- so
         // nothing is owed and the close below is skipped entirely. That is not an
         // omission: the iterator reported `done` itself, which is the one way out that
         // closes nothing.
-        if let Some(Pattern::Name(name)) = pattern.rest.as_deref() {
+        if let Some(rest) = pattern.rest.as_deref() {
+            let leaf = self.leaf(rest, at)?;
             let gathered = self.gather_rest(iterator, at)?;
-            let of = self.type_of(gathered);
-            let target = Expr {
-                kind: crate::syntax::ExprKind::Ident(*name),
-                at: at.at,
-            };
-            self.bind(*name, gathered, of, &target)?;
-            bound.push(*name);
+            bound.extend(self.assign_leaf(leaf, rest, gathered, at)?);
             return Ok(bound);
         }
 
@@ -329,4 +307,83 @@ impl Lowering<'_> {
         self.types.insert(gathered, self.domain.top());
         Ok(gathered)
     }
+
+    /// Where one element of a pattern goes, evaluated before its value is read.
+    fn leaf(&mut self, pattern: &Pattern, at: &Expr) -> Result<Leaf, Unsupported> {
+        let Pattern::Target(place) = pattern else {
+            return Ok(Leaf::Binding);
+        };
+        Ok(match &place.kind {
+            ExprKind::Ident(_) => Leaf::Binding,
+            ExprKind::Member {
+                object,
+                property,
+                optional: false,
+            } => {
+                let receiver = self.expression(object)?;
+                let key = self.domain.constant(JsConst::Key(*property));
+                Leaf::Field(receiver, self.declared(key, at))
+            }
+            ExprKind::Index {
+                object,
+                index,
+                optional: false,
+            } => {
+                let receiver = self.expression(object)?;
+                Leaf::Index(receiver, self.expression(index)?)
+            }
+            _ => {
+                return Err(Unsupported::Expression(
+                    "a pattern target that is neither a name nor a property",
+                ));
+            }
+        })
+    }
+
+    /// Puts `value` where the element goes: a name bound, a property written, or a
+    /// NESTED pattern taken apart again. Answers the names it bound.
+    fn assign_leaf(
+        &mut self,
+        leaf: Leaf,
+        pattern: &Pattern,
+        value: ValueId,
+        at: &Expr,
+    ) -> Result<Vec<Name>, Unsupported> {
+        match (leaf, pattern) {
+            (Leaf::Field(receiver, key), _) => {
+                self.prim(JsPrim::FieldWrite, vec![receiver, key, value], at);
+                Ok(Vec::new())
+            }
+            (Leaf::Index(receiver, key), _) => {
+                self.prim(JsPrim::IndexWrite, vec![receiver, key, value], at);
+                Ok(Vec::new())
+            }
+            (Leaf::Binding, Pattern::Name(name)) => self.bind_leaf(*name, value, at),
+            (Leaf::Binding, Pattern::Target(place)) => match &place.kind {
+                ExprKind::Ident(name) => self.bind_leaf(*name, value, at),
+                _ => Err(Unsupported::Pattern),
+            },
+            (Leaf::Binding, nested) => self.destructure(nested, value, at),
+        }
+    }
+
+    fn bind_leaf(&mut self, name: Name, value: ValueId, at: &Expr) -> Result<Vec<Name>, Unsupported> {
+        let of = self.type_of(value);
+        let target = Expr {
+            kind: ExprKind::Ident(name),
+            at: at.at,
+        };
+        self.bind(name, value, of, &target)?;
+        Ok(vec![name])
+    }
+}
+
+/// Where one element of a pattern goes, once its reference is evaluated.
+enum Leaf {
+    /// A name, or a nested pattern -- nothing to evaluate ahead of the value.
+    Binding,
+    /// `o.k`, its receiver and key already evaluated.
+    Field(ValueId, ValueId),
+    /// `o[k]`, likewise.
+    Index(ValueId, ValueId),
 }

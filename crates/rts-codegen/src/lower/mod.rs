@@ -191,11 +191,6 @@ pub fn lower_within(
     // body, it answers a generator object or a promise -- and that follows from the
     // callee's flag, which rule 2 puts on the machine. It refuses by name there:
     // `rts_mir::lower::Unlowerable::NeedsFrameTransform`.
-    if let Some(rest) = &function.rest_parameter
-        && !matches!(rest, Pattern::Name(_))
-    {
-        return Err(Unsupported::Pattern);
-    }
     let Some(scope) = resolution.function_scope(function.at) else {
         return Err(Unsupported::NoScope);
     };
@@ -232,9 +227,9 @@ pub fn lower_within(
     for (position, parameter) in function.parameters.iter().enumerate() {
         let Pattern::Name(name) = &parameter.target else {
             // A PATTERN arrives as one value and is taken apart once the environment
-            // is open -- `gather.rs`, with the defaults. One that also has a default,
-            // or sits past the slots, is not taken apart here yet.
-            if position >= crate::runtime::ARGUMENT_SLOTS || parameter.default.is_some() {
+            // is open -- `gather.rs`, with the defaults. One past the slots arrives in
+            // no register and is not taken apart here yet.
+            if position >= crate::runtime::ARGUMENT_SLOTS {
                 return Err(Unsupported::Pattern);
             }
             let entry = lowering.builder.current();
@@ -579,8 +574,15 @@ impl Lowering<'_> {
                 value,
                 op: AssignOp::Plain,
             } => {
-                let AssignTarget::Place(place) = target else {
-                    return Err(Unsupported::Pattern);
+                let place = match target {
+                    AssignTarget::Place(place) => place,
+                    // `[a, b] = [b, a]`: the value, then taken apart into its targets --
+                    // and the assignment answers the value, not what was taken from it.
+                    AssignTarget::Pattern(pattern) => {
+                        let held = self.expression(value)?;
+                        self.destructure(pattern, held, expr)?;
+                        return Ok(held);
+                    }
                 };
                 // A WRITE TO A PROPERTY is a write to the heap and not a rebind, so
                 // it is a primitive rather than an entry in the binding map. Its

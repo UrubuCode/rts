@@ -2008,16 +2008,21 @@ fn an_object_rest_is_refused_because_it_needs_the_keys() {
     );
 }
 
-/// A nested pattern and a computed key each keep their own refusal, so a survey can
-/// count them apart.
+/// A nested pattern is taken apart again from the value read, and a computed key
+/// is an index read of the key it evaluates to -- the key first, then the read.
 #[test]
-fn a_nested_pattern_and_a_computed_key_are_refused_apart() {
-    let nested =
-        only("function f(o) { const { a: { b } } = o; return b; }").expect_err("a nested pattern");
-    assert!(matches!(nested, Unsupported::Expression(_)));
-    let computed =
-        only("function f(o, k) { const { [k]: a } = o; return a; }").expect_err("a computed key");
-    assert!(matches!(computed, Unsupported::Expression(_)));
+fn a_nested_pattern_and_a_computed_key_are_lowered() {
+    let nested = only("function f(o) { const { a: { b } } = o; return b; }").expect("nested");
+    assert_eq!(verify(&nested.func), Ok(()));
+    let computed = only("function f(o, k) { const { [k]: a } = o; return a; }").expect("computed");
+    assert_eq!(verify(&computed.func), Ok(()));
+    assert!(
+        computed.func.insts.iter().any(|held| matches!(
+            &held.op,
+            rts_mir::Op::Prim { prim, .. } if computed.domain.meaning(*prim) == Some(JsPrim::IndexRead)
+        )),
+        "a computed key reads by index"
+    );
 }
 
 /// A `try`/`catch` is a protected region with one handler, and the handler receives

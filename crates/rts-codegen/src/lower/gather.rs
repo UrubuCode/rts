@@ -26,11 +26,7 @@ impl Lowering<'_> {
     /// Binds the parameters past the slots, and the rest parameter, if there are any.
     pub(super) fn gather(&mut self, function: &Function) -> Result<(), Unsupported> {
         let written = function.parameters.len();
-        let rest = match &function.rest_parameter {
-            Some(Pattern::Name(name)) => Some(*name),
-            Some(_) => return Err(Unsupported::Pattern),
-            None => None,
-        };
+        let rest = function.rest_parameter.as_ref();
         // `arguments`, where a function that has one -- not an arrow, which sees its
         // enclosing function's -- mentions it: the same test `emit/function.rs` makes.
         let wants_arguments = !function.captures_this
@@ -93,9 +89,18 @@ impl Lowering<'_> {
             }
             self.arguments = Some(all);
         }
-        if let Some(name) = rest {
-            let gathered = self.rest_arguments(written as u32, &slots, &at);
-            self.bind(name, gathered, Type::Object, &at)?;
+        match rest {
+            Some(Pattern::Name(name)) => {
+                let gathered = self.rest_arguments(written as u32, &slots, &at);
+                self.bind(*name, gathered, Type::Object, &at)?;
+            }
+            // `...[a, b]`: the gathered array, taken apart -- here and not with the
+            // defaults, because a rest parameter has none.
+            Some(pattern) => {
+                let gathered = self.rest_arguments(written as u32, &slots, &at);
+                self.destructure(pattern, gathered, &at)?;
+            }
+            None => {}
         }
         Ok(())
     }
@@ -124,7 +129,21 @@ impl Lowering<'_> {
                     kind: ExprKind::This,
                     at: function.at,
                 };
-                self.destructure(&parameter.target, *arrived, &at)?;
+                // `{ a } = {}`: the default where the argument is `undefined`, then
+                // taken apart -- a branch, so the default runs only when it is needed.
+                let arrived = match &parameter.default {
+                    None => *arrived,
+                    Some(default) => {
+                        let undefined = self.singleton_at(crate::values::Singleton::Undefined, &at);
+                        let absent = self.prim(JsPrim::StrictEquals, vec![*arrived, undefined], &at);
+                        self.choice(
+                            absent,
+                            super::choice::Arm::Eval(default),
+                            super::choice::Arm::Subject(*arrived),
+                        )?
+                    }
+                };
+                self.destructure(&parameter.target, arrived, &at)?;
                 continue;
             }
             let Some(default) = &parameter.default else {

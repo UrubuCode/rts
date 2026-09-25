@@ -70,7 +70,7 @@ use rts_mir::cfg::{Callee, Op, Terminator, ValueId};
 use super::{FrameKind, LoopFrame, Lowering, Unsupported};
 use crate::domain::{JsConst, JsPrim, WellKnown};
 use crate::runtime::RuntimeOp;
-use crate::syntax::{Expr, ForEachSource, ForEachTarget, Pattern, Spreadable, Stmt};
+use crate::syntax::{Expr, ForEachSource, ForEachTarget, Spreadable, Stmt};
 
 impl Lowering<'_> {
     /// Lowers a `for`-each loop.
@@ -89,7 +89,7 @@ impl Lowering<'_> {
             return Err(Unsupported::NoScope);
         };
         let outer = std::mem::replace(&mut self.scope, head);
-        let lowered = self.for_each_in_head(source, target, subject, body, at);
+        let lowered = self.for_each_in_head(source, target, subject, body);
         self.scope = outer;
         lowered
     }
@@ -100,7 +100,6 @@ impl Lowering<'_> {
         target: &ForEachTarget,
         subject: &Expr,
         body: &Stmt,
-        at: &Stmt,
     ) -> Result<bool, Unsupported> {
         match source {
             ForEachSource::Of => {}
@@ -123,9 +122,12 @@ impl Lowering<'_> {
             }
         }
 
-        let Some(name) = simple_target(target) else {
+        // A DECLARED target, a name or a pattern: fresh per pass, in the head's scope.
+        // An ASSIGNED one writes bindings outside the loop that would have to cross its
+        // back edge, which the carried set below does not scan the head for.
+        let ForEachTarget::Declare { target: pattern, .. } = target else {
             return Err(Unsupported::Statement(
-                "a for-of target that is a pattern destructures each element",
+                "a for-of target that assigns writes past the loop's carried set",
             ));
         };
 
@@ -182,12 +184,7 @@ impl Lowering<'_> {
         self.builder.switch_to(into_body);
         self.builder.open_region(None, Some(cleanup));
         let element = self.well_known(WellKnown::Element, step, subject);
-        let bound = Expr {
-            kind: crate::syntax::ExprKind::Ident(name),
-            at: at.at,
-        };
-        let of = self.type_of(element);
-        self.bind(name, element, of, &bound)?;
+        self.destructure(pattern, element, subject)?;
         self.loops.push(LoopFrame {
             labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Loop,
@@ -394,20 +391,5 @@ impl Lowering<'_> {
         let answered = self.domain.of_entry(entry);
         self.types.insert(held, answered);
         held
-    }
-}
-
-/// The target, when it is one plain name a fresh binding per pass.
-///
-/// A pattern destructures each element, which is the array-pattern piece; an assignment
-/// target writes something that already exists, which is the cell the protected body
-/// waits on when what it writes is carried.
-fn simple_target(target: &ForEachTarget) -> Option<crate::names::Name> {
-    match target {
-        ForEachTarget::Declare {
-            target: Pattern::Name(name),
-            ..
-        } => Some(*name),
-        _ => None,
     }
 }
