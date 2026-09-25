@@ -780,6 +780,15 @@ impl Lowering<'_> {
             // So a literal with a spread is built rather than counted: one array, and
             // an append per element, which is the shape `array_append` exists for.
             ExprKind::Array { elements } => self.array_literal(elements, expr),
+            // `a, b`: every operand in order, the last one's value. Nothing else is
+            // asked of it -- a comma is an order, and the graph already is one.
+            ExprKind::Sequence { operands } => {
+                let mut last = None;
+                for operand in operands {
+                    last = Some(self.expression(operand)?);
+                }
+                last.ok_or(Unsupported::Expression("a comma expression of no operands"))
+            }
             ExprKind::Call {
                 callee,
                 arguments,
@@ -814,10 +823,31 @@ impl Lowering<'_> {
                         expr,
                     ));
                 }
-                let ExprKind::Ident(name) = &callee.kind else {
-                    return Err(Unsupported::Expression(
-                        "a call whose callee is neither a name nor a property",
+                // `o[k]()` is a method call as much as `o.m()` is: the receiver is `o`.
+                if let ExprKind::Index {
+                    object,
+                    index,
+                    optional: false,
+                } = &callee.kind
+                {
+                    let receiver = self.expression(object)?;
+                    let key = self.expression(index)?;
+                    let held = self.prim(JsPrim::IndexRead, vec![receiver, key], expr);
+                    let args = self.arguments(arguments)?;
+                    return Ok(self.call(
+                        rts_mir::cfg::Callee::Dynamic(held),
+                        Some(receiver),
+                        args,
+                        expr,
                     ));
+                }
+                // ANY OTHER CALLEE is a value, called with no receiver: `f()()`,
+                // `(a || b)(x)`, `(() => 1)()`. What the expression cannot express --
+                // `super`, an optional chain -- its own lowering refuses by name.
+                let ExprKind::Ident(name) = &callee.kind else {
+                    let held = self.expression(callee)?;
+                    let args = self.arguments(arguments)?;
+                    return Ok(self.call(rts_mir::cfg::Callee::Dynamic(held), None, args, expr));
                 };
                 let binding = self.resolution.binding_in(self.scope, *name);
                 let args = self.arguments(arguments)?;

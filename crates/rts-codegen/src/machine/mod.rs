@@ -236,6 +236,44 @@ fn coerced(
     }
 }
 
+/// A value the lattice PROVED a number and the machine holds tagged, in the double domain.
+///
+/// Where it comes from: an operator the lattice answers `Double` for -- `x * 2` rules a
+/// BigInt out, so it is a number whatever `x` is -- lowered as a guard with the runtime's
+/// call on the failing edge, whose answer is a tagged word. The proof is sound and the
+/// representation did not follow it.
+///
+/// A number has TWO encodings, and both are read: a double, and an integer under
+/// `TAG_INT32`, which is the second encoding `rts-core` holds. A word that is neither
+/// means the lattice was wrong, and it TRAPS rather than reading garbage as a double --
+/// a crash names the defect where a wrong number would not.
+fn unbox_number(into: &mut FuncBuilder, held: MachineValue) -> Result<MachineValue, String> {
+    let join = into.create_block();
+    let result = into.add_block_param(join, Repr::F64);
+    let double = into.create_block();
+    let as_double = into.add_block_param(double, Repr::F64);
+    let not_double = into.create_block();
+    into.guard(held, Repr::F64, (double, &[]), (not_double, &[]))
+        .map_err(machine)?;
+    into.switch_to(double);
+    into.jump(join, &[as_double]).map_err(machine)?;
+
+    into.switch_to(not_double);
+    let integer = into.create_block();
+    let as_integer = into.add_block_param(integer, Repr::I32);
+    let neither = into.create_block();
+    into.guard(held, Repr::I32, (integer, &[]), (neither, &[]))
+        .map_err(machine)?;
+    into.switch_to(integer);
+    let widened = into.to_f64(as_integer).map_err(machine)?;
+    into.jump(join, &[widened]).map_err(machine)?;
+
+    into.switch_to(neither);
+    into.trap(rts_cranelift::ir::TrapCode::Unreachable);
+    into.switch_to(join);
+    Ok(result)
+}
+
 fn machine(held: impl std::fmt::Debug) -> String {
     format!("{held:?}")
 }
@@ -385,6 +423,7 @@ impl<'a> JsMachine<'a> {
         match into.repr_of(held) {
             Repr::F64 => Ok(held),
             Repr::I32 => into.to_f64(held).map_err(machine),
+            Repr::Tagged => unbox_number(into, held),
             other => Err(format!(
                 "an operand proved numeric is held as {other:?}, which this slice cannot bring to the double domain"
             )),

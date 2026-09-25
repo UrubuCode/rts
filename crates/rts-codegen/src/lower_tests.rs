@@ -1317,8 +1317,8 @@ fn unsigned_shift_is_refused_because_its_answer_is_not_an_int32() {
 /// survey is the work queue and a bucket cannot be queued.
 ///
 /// The kinds asserted here are the ones still refused: a construction, a type
-/// assertion and a template literal were in this list and all three lower now, which
-/// is why the list moved rather than the test being deleted.
+/// assertion, a template literal and a comma expression were in this list and all four
+/// lower now, which is why the list moved rather than the test being deleted.
 #[test]
 fn a_refused_expression_names_what_it_was() {
     assert_eq!(
@@ -1326,12 +1326,33 @@ fn a_refused_expression_names_what_it_was() {
         Unsupported::Expression("an optional chain")
     );
     assert_eq!(
-        only("function f(a, b) { return (a, b); }").expect_err("a comma expression"),
-        Unsupported::Expression("a comma expression")
+        only("function f(t) { return t`x`; }").expect_err("a tagged template"),
+        Unsupported::Expression("a tagged template")
     );
     assert_eq!(
         only("function f() { return class {}; }").expect_err("a class expression"),
         Unsupported::Expression("a class expression")
+    );
+}
+
+/// `a, b` evaluates both, in order, and answers the second: the call to `a` is in the
+/// graph although its value is discarded, which is the whole of what a comma is for.
+#[test]
+fn a_comma_evaluates_every_operand_and_answers_the_last() {
+    let lowered = only("function f(a, b) { return (a(), b); }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let calls = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|inst| matches!(inst.op, Op::Call { .. }))
+        .count();
+    assert_eq!(calls, 1, "the discarded operand still runs");
+    let entry = lowered.func.block(lowered.func.entry());
+    assert_eq!(
+        lowered.func.blocks[0].terminator,
+        Some(Terminator::Return(Some(entry.params[1]))),
+        "the answer is the last operand, the parameter `b`"
     );
 }
 

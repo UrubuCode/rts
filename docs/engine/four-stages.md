@@ -2126,3 +2126,25 @@ with it open.
   language, and fails without the fix.
 
 Suite: 884 of 907, LOST empty against `main` and the step before.
+
+### Any callee, the comma, and a proved number held tagged: 93% → 94%
+
+9 737 taken and 604 declined, from 9 636 and 705.
+
+- `o[k]()` is a method call with `o` as its receiver, and any other callee -- `f()()`,
+  `(a || b)(x)`, `(0, o.m)()` -- is a value called with none.
+- `a, b` evaluates both in order and answers the last.
+- **A value the lattice proved a number and the machine held tagged.** `x * 2` rules a
+  BigInt out, so the lattice answers `Double` whatever `x` is; the guarded lowering joins
+  the instruction's double with the runtime call's tagged word, so the representation did
+  not follow the proof, and every consumer wanting the double refused. `as_double` now
+  unboxes such a word from either of `rts-core`'s two number encodings, and TRAPS on a word
+  that is neither -- which would mean the lattice was wrong, and a crash names that where a
+  garbage double would not.
+
+Suite: 884 of 907, LOST empty against `main` and the step before.
+
+**A test target that does not settle, and it is not this work's.** `rts-host`'s
+`node_modules` target timed out in two of five runs with the door OPEN and in two of five
+with it SHUT, on the same binary; every one of its 51 tests passes run alone. On `main` the
+same target ABORTS in six runs of six. Recorded rather than retried until green.
