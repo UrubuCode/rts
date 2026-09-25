@@ -26,9 +26,7 @@
 //!   divergence the running engine closed with an environment per iteration;
 //! - two captured bindings of one activation with one spelling: the environment is
 //!   keyed by spelling, so they would be one slot, and the running engine answers that
-//!   with an environment per block;
-//! - a function expression's own name, captured: nothing binds it in this lowering,
-//!   so the environment would hold `undefined` where the language holds the function.
+//!   with an environment per block.
 //!
 //! # Under another stage's layout
 //!
@@ -74,11 +72,6 @@ impl Lowering<'_> {
                     "a captured binding declared inside a loop is one per pass, and this environment holds one per activation",
                 ));
             }
-            if record.origin == Origin::OwnName {
-                return Err(Unsupported::Shape(
-                    "a function expression's own name, captured, is bound by nothing in this lowering",
-                ));
-            }
             if !spelled.insert(record.name) {
                 return Err(Unsupported::Shape(
                     "two captured bindings of one activation share a spelling, and an environment is keyed by spelling",
@@ -121,10 +114,13 @@ impl Lowering<'_> {
         }
 
         // THE PARAMETERS ARRIVED IN REGISTERS, and were held there while the guards
-        // ran. A captured one moves now, so that every later read -- this function's
-        // and a closure's -- goes to one place.
+        // ran -- and the own name was bound beside them. A captured one moves now, so
+        // that every later read -- this function's and a closure's -- goes to one place.
         for binding in owned {
-            if self.resolution.binding(binding).origin != Origin::Parameter {
+            if !matches!(
+                self.resolution.binding(binding).origin,
+                Origin::Parameter | Origin::OwnName
+            ) {
                 continue;
             }
             if let Some(value) = self.values.remove(&binding) {

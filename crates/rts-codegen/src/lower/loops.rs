@@ -286,6 +286,14 @@ impl Lowering<'_> {
         }
 
         let mut carried: BTreeSet<BindingId> = self.assigned_in(body)?;
+        // A `var` THE INIT WROTE is the function's and outlives the loop, holding a value
+        // set before the construct -- which the exit has to hand on as its own, or what
+        // follows reads a value the construct changed without merging.
+        if let Some(ForInit::Declare { kind: crate::syntax::BindingKind::Var, bindings }) = init {
+            for binding in bindings {
+                carried.extend(self.assigned_by_pattern(&binding.target));
+            }
+        }
         if let Some(expr) = update {
             carried.extend(self.assigned_in_expr(expr)?);
         }

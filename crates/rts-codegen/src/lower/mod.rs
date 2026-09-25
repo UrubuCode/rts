@@ -275,6 +275,7 @@ pub fn lower_within(
         }
     }
 
+    lowering.bind_own_name(function)?;
     lowering.gather(function)?;
     lowering.substitute_receiver(function)?;
     lowering.prologue = false;

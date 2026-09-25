@@ -220,4 +220,28 @@ impl Lowering<'_> {
             None => self.prim(JsPrim::ThisValue, Vec::new(), at),
         }
     }
+
+    /// A function EXPRESSION's own name, bound to the function running -- what
+    /// `emit/function.rs` binds it to, and for its reason: `const g = function f() {
+    /// ... f() ... }` reaches the function itself, not `g`, which may be reassigned.
+    /// Where a parameter or a `var` of the body has the same spelling, that binding is
+    /// the one the name resolves to, and the own name binds nothing.
+    pub(super) fn bind_own_name(&mut self, function: &Function) -> Result<(), Unsupported> {
+        let Some(name) = function.name else {
+            return Ok(());
+        };
+        let Some(binding) = self.resolution.binding_in(self.function, name) else {
+            return Ok(());
+        };
+        if self.resolution.binding(binding).origin != crate::names::resolve::Origin::OwnName {
+            return Ok(());
+        }
+        let at = Expr {
+            kind: ExprKind::Ident(name),
+            at: function.at,
+        };
+        let entry = self.domain.entry_point(RuntimeOp::RunningFunction);
+        let running = self.call(Callee::Entry(entry), None, Vec::new(), &at);
+        self.bind(name, running, Type::Object, &at)
+    }
 }
