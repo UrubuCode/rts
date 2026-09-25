@@ -214,6 +214,7 @@ pub fn lower_within(
         lexical_this: function.captures_this,
         arguments: None,
         lexical_slots: lexical.to_vec(),
+        pending_labels: Vec::new(),
         outer,
         loops: Vec::new(),
         points: 0,
@@ -329,6 +330,9 @@ pub(super) struct LoopFrame {
     pub(super) header: rts_mir::BlockId,
     pub(super) exit: rts_mir::BlockId,
     pub(super) carried: Vec<BindingId>,
+    /// The labels written on the statement this frame is for -- what `break L` and
+    /// `continue L` look for.
+    pub(super) labels: Vec<Name>,
 }
 
 /// The state one function's lowering carries.
@@ -374,6 +378,9 @@ struct Lowering<'a> {
     /// The `arguments` object this activation built, where its body mentions the name
     /// -- `gather.rs`.
     arguments: Option<ValueId>,
+    /// Labels written on the statement about to be lowered, which the frame it pushes
+    /// takes -- `L: for (…)`.
+    pending_labels: Vec<Name>,
     /// The slots an arrow written inside reads from this activation's environment --
     /// `__rts_this`, `arguments` -- which the environment built here holds.
     lexical_slots: Vec<Name>,
@@ -411,8 +418,9 @@ impl Lowering<'_> {
                 Ok(false)
             }
             StmtKind::Declare { bindings, kind } => self.declare(bindings, *kind, statement),
-            StmtKind::Break(None) => self.jump_out_of_loop(false),
-            StmtKind::Continue(None) => self.jump_out_of_loop(true),
+            StmtKind::Break(label) => self.jump_out_of_loop(false, *label),
+            StmtKind::Continue(label) => self.jump_out_of_loop(true, *label),
+            StmtKind::Labelled { label, body } => self.labelled(*label, body),
             // `return c ? a : b` -- see `branch.rs` for why it is two returns.
             StmtKind::Return(Some(returned))
                 if matches!(returned.kind, ExprKind::Conditional { .. }) =>

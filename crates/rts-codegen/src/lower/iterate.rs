@@ -69,7 +69,6 @@ use rts_mir::cfg::{Callee, Op, Terminator, ValueId};
 
 use super::{FrameKind, LoopFrame, Lowering, Unsupported};
 use crate::domain::{JsConst, JsPrim, WellKnown};
-use crate::names::resolve::BindingId;
 use crate::runtime::RuntimeOp;
 use crate::syntax::{Expr, ForEachSource, ForEachTarget, Pattern, Spreadable, Stmt};
 
@@ -190,6 +189,7 @@ impl Lowering<'_> {
         let of = self.type_of(element);
         self.bind(name, element, of, &bound)?;
         self.loops.push(LoopFrame {
+            labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Loop,
             header,
             // `break` leaves through the CLOSE and not through the exit, which is the

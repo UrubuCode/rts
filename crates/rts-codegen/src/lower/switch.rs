@@ -53,7 +53,8 @@ use rts_mir::cfg::{BlockId, Terminator, ValueId};
 use super::{FrameKind, LoopFrame, Lowering, Unsupported};
 use crate::domain::JsPrim;
 use crate::names::resolve::BindingId;
-use crate::syntax::{Expr, SwitchClause};
+use crate::names::Name;
+use crate::syntax::{Expr, Stmt, StmtKind, SwitchClause};
 
 impl Lowering<'_> {
     /// Lowers a `switch`.
@@ -140,6 +141,7 @@ impl Lowering<'_> {
         // the same question a loop asks — so it uses the same frame, with the carried
         // set the exit declares.
         self.loops.push(LoopFrame {
+            labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Switch,
             header: exit,
             exit,
@@ -169,6 +171,58 @@ impl Lowering<'_> {
         self.loops.pop();
         lowered?;
 
+        self.builder.switch_to(exit);
+        for (binding, param) in carried.iter().zip(&exiting) {
+            self.values.insert(*binding, *param);
+        }
+        Ok(false)
+    }
+
+    /// `L: statement`. On a loop or a switch the label names the frame that
+    /// statement pushes, so it is handed on. On anything else it names a block `break
+    /// L` can leave: a frame of the switch kind -- `continue` passes through it --
+    /// whose exit takes what the block assigned, as a switch's does.
+    pub(super) fn labelled(&mut self, label: Name, body: &Stmt) -> Result<bool, Unsupported> {
+        if matches!(
+            body.kind,
+            StmtKind::While { .. }
+                | StmtKind::DoWhile { .. }
+                | StmtKind::For { .. }
+                | StmtKind::ForEach { .. }
+                | StmtKind::Switch { .. }
+                | StmtKind::Labelled { .. }
+        ) {
+            self.pending_labels.push(label);
+            let lowered = self.statement(body);
+            self.pending_labels.clear();
+            return lowered;
+        }
+        let mut labels = std::mem::take(&mut self.pending_labels);
+        labels.push(label);
+        let assigned = self.assigned_in(body)?;
+        let carried: Vec<BindingId> = self.carried_now(assigned);
+        let exit = self.builder.block();
+        let exiting: Vec<ValueId> = carried
+            .iter()
+            .map(|_| {
+                let param = self.builder.param(exit);
+                self.types.insert(param, self.domain.top());
+                param
+            })
+            .collect();
+        self.loops.push(LoopFrame {
+            labels,
+            kind: FrameKind::Switch,
+            header: exit,
+            exit,
+            carried: carried.clone(),
+        });
+        let lowered = self.statement(body);
+        self.loops.pop();
+        if !lowered? {
+            let args: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
+            self.builder.end(Terminator::Jump { target: exit, args });
+        }
         self.builder.switch_to(exit);
         for (binding, param) in carried.iter().zip(&exiting) {
             self.values.insert(*binding, *param);

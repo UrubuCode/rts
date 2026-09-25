@@ -100,6 +100,7 @@ impl Lowering<'_> {
 
         self.builder.switch_to(into_body);
         self.loops.push(LoopFrame {
+            labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Loop,
             header,
             exit,
@@ -170,14 +171,25 @@ impl Lowering<'_> {
     /// inside a loop takes the loop's next pass, and treating the two stacks as one
     /// would have it leave the loop instead. That is a wrong answer that compiles, and
     /// the graph would look perfectly well formed.
-    pub(super) fn jump_out_of_loop(&mut self, to_header: bool) -> Result<bool, Unsupported> {
-        let frame = match to_header {
-            true => self
+    pub(super) fn jump_out_of_loop(
+        &mut self,
+        to_header: bool,
+        label: Option<crate::names::Name>,
+    ) -> Result<bool, Unsupported> {
+        let frame = match (to_header, label) {
+            // A LABEL names its frame, whichever kind: `break L` leaves it, `continue
+            // L` takes that loop's next pass.
+            (_, Some(label)) => self
+                .loops
+                .iter()
+                .rev()
+                .find(|held| held.labels.contains(&label)),
+            (true, None) => self
                 .loops
                 .iter()
                 .rev()
                 .find(|held| held.kind == FrameKind::Loop),
-            false => self.loops.last(),
+            (false, None) => self.loops.last(),
         };
         let Some(frame) = frame else {
             return Err(Unsupported::Statement(
@@ -249,12 +261,15 @@ impl Lowering<'_> {
     ) -> Result<bool, Unsupported> {
         match init {
             Some(ForInit::Declare { kind, bindings }) => {
-                if matches!(kind, crate::syntax::BindingKind::Var) {
-                    return Err(Unsupported::Statement(
-                        "a var in a loop head belongs to the function, not the head",
-                    ));
-                }
+                // A `var` belongs to the FUNCTION and not the head, and the scope tree
+                // already says so: resolved from the head, the name reaches the
+                // function's binding. So each is an assignment, and one with no
+                // initialiser does nothing, as `var x;` anywhere does.
+                let is_var = matches!(kind, crate::syntax::BindingKind::Var);
                 for binding in bindings {
+                    if is_var && binding.value.is_none() {
+                        continue;
+                    }
                     let crate::syntax::Pattern::Name(name) = &binding.target else {
                         return Err(Unsupported::Pattern);
                     };
@@ -332,6 +347,7 @@ impl Lowering<'_> {
         };
         self.builder.switch_to(into_body);
         self.loops.push(LoopFrame {
+            labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Loop,
             header: step,
             exit,
@@ -406,6 +422,7 @@ impl Lowering<'_> {
             params.push(param);
         }
         self.loops.push(LoopFrame {
+            labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Loop,
             header,
             exit,

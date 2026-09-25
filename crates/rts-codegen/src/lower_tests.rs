@@ -442,18 +442,24 @@ fn a_loop_assigning_a_global_is_refused_by_name() {
     assert!(matches!(refused, Unsupported::Global(_)));
 }
 
-/// A labelled loop is refused at the LABEL, before the break inside it is
-/// reached -- which is the right order, because a label may name a block and not
-/// only a loop, so the exit a labelled break wants is not this loop's exit.
-///
-/// The expectation here was written as the break's own refusal and was wrong: the
-/// label comes first in the tree and therefore first in the refusal. Keeping the
-/// test with the real answer is the point of having written it.
+/// `break L` from an inner loop leaves the LABELLED one: the outer exit is where
+/// the inner body jumps, and the inner loop's own exit is never reached by it.
 #[test]
-fn a_labelled_loop_is_refused_at_the_label() {
-    let refused = only("function f() { outer: while (1) { break outer; } }")
-        .expect_err("a label is not lowered");
-    assert_eq!(refused, Unsupported::Statement("a label"));
+fn a_labelled_break_leaves_the_loop_it_names() {
+    let lowered = only(
+        "function f(n) { let r = 0; outer: while (r < n) { while (1) { r = r + 1; break outer; } } return r; }",
+    )
+    .expect("a label on a loop names its frame");
+    assert_eq!(verify(&lowered.func), Ok(()));
+}
+
+/// A label on a BLOCK is a frame `break L` leaves and `continue` passes through,
+/// whose exit takes what the block assigned -- the value after it is a merge.
+#[test]
+fn a_labelled_block_merges_what_it_assigned() {
+    let lowered = only("function f(x) { let r = 1; a: { if (x) break a; r = 2; } return r; }")
+        .expect("a labelled block is a frame of its own");
+    assert_eq!(verify(&lowered.func), Ok(()));
 }
 
 /// Nested loops each carry their own set, and the inner one's back edge must not
@@ -623,13 +629,13 @@ fn a_do_while_enters_through_its_body() {
     );
 }
 
-/// A `var` in a head belongs to the function rather than to the head, so it is
-/// refused by name instead of being bound in the wrong scope.
+/// A `var` in a head belongs to the FUNCTION: its initialiser is an assignment, and
+/// the binding is read after the loop as the value the last pass left.
 #[test]
-fn a_var_in_a_loop_head_is_refused_by_name() {
-    let refused = only("function f(n) { for (var i = 0; i < n; i++) {} return i; }")
-        .expect_err("a var hoists out of the head");
-    assert!(matches!(refused, Unsupported::Statement(_)));
+fn a_var_in_a_loop_head_is_the_functions_binding() {
+    let lowered = only("function f(n) { for (var i = 0; i < n; i++) {} return i; }")
+        .expect("a var in a head is assigned, not declared per pass");
+    assert_eq!(verify(&lowered.func), Ok(()));
 }
 
 /// A compound assignment to a plain local is the rewrite that is legal only there:
