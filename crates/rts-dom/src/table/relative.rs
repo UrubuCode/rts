@@ -34,7 +34,8 @@
 //! when the table's height is itself auto.
 
 use crate::boxes::BoxId;
-use crate::layout::{DisplayItem, DisplayList, LayoutCtx, Rect, aplica_offset_relativo};
+use crate::layout::{LayoutCtx, aplica_offset_relativo};
+use crate::paint::{DisplayItem, DisplayList, Rect};
 use crate::style::ComputedStyle;
 use crate::{Dom, NodeIdx};
 
@@ -101,10 +102,10 @@ pub(super) fn pinta_caixa(
         em.push(DisplayItem::SolidRect {
             rect,
             color: bg,
-            radius: crate::layout::Corners::from_style(&css, 0.0),
+            radius: crate::paint::Corners::from_style(&css, 0.0),
         });
     }
-    em.extend(crate::layout::border_items(
+    em.extend(crate::paint::decor::border_items(
         &css,
         rect,
         radius,
@@ -115,6 +116,6 @@ pub(super) fn pinta_caixa(
         crate::painteffects::filtro(css.filter.as_deref().unwrap_or("")),
     ));
     for (i, item) in em.into_iter().enumerate() {
-        list.pieces.insert(at + i, crate::layout::Piece::Item(item));
+        list.pieces.insert(at + i, crate::paint::Piece::Item(item));
     }
 }

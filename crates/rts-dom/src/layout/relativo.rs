@@ -127,7 +127,7 @@ pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, rec
     if dx == 0.0 && dy == 0.0 {
         return;
     }
-    super::pieces::shift_from(&mut list.pieces, desde, dx, dy);
+    crate::paint::pieces::shift_from(&mut list.pieces, desde, dx, dy);
     // Subtrees served by a cached fragment (the `Piece::Child`s shifted above) have
     // no entry in `list.box_rects`: the walk below does not find them, rightly —
     // their `ChildRef`'s `dx`/`dy` is added on read by `geometry_now`. A second

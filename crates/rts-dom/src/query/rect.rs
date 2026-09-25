@@ -20,9 +20,18 @@
 //!
 //! A PINTURA também não muda: o fundo e a borda do `<span>` continuam só nos
 //! seus fragmentos inline, que é o que o §9.2.1.1 pede e o que se pinta.
+//!
+//! Moved from `layout/rect_cliente.rs` on 2026-09-25 (PQ-A3); `DisplayList::rect_of` came from `layout/display.rs`. Nothing in it changed.
 
-use super::{DisplayList, Rect};
 use crate::dom::NodeIdx;
+use crate::paint::list::{DisplayList, Rect};
+
+impl DisplayList {
+    /// `getBoundingClientRect` — NÃO é só `Geometry::rects`; ver `rect_cliente.rs`.
+    pub fn rect_of(&self, node: NodeIdx) -> Option<Rect> {
+        rect_cliente(self, node)
+    }
+}
 
 /// A união das caixas de `node` e das dos blocos em fluxo que o partiram, ou
 /// `None` quando nenhuma das duas existe (texto não desenhado, `display:none`,

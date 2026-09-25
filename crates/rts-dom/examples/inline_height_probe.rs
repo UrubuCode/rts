@@ -15,7 +15,8 @@
 // cópia com `size * 1.3` que respondia 15% a mais em cada linha, e todas as
 // alturas medidas por este exemplo saíam infladas — o instrumento a mentir
 // sobre o motor.
-use rts_dom::layout::{self, DisplayItem};
+use rts_dom::layout;
+use rts_dom::paint::DisplayItem;
 
 /// Percorre a árvore como o extrator de paridade, emitindo `caminho	rect`.
 ///
@@ -25,7 +26,7 @@ use rts_dom::layout::{self, DisplayItem};
 /// mede a diferença dos percursos em vez da do layout.
 fn dump_caminhos(
     dom: &rts_dom::Dom,
-    geo: &rts_dom::layout::Geometry,
+    geo: &rts_dom::query::Geometry,
     idx: rts_dom::NodeIdx,
     caminho: String,
     out: &mut String,
@@ -217,7 +218,7 @@ fn main() {
             println!("  <{t}> {n} elementos, {:.0}px somados", h);
         }
     }
-    let mut paragrafos: Vec<(f32, rts_dom::layout::Rect)> = dom
+    let mut paragrafos: Vec<(f32, rts_dom::paint::Rect)> = dom
         .query_all("p")
         .iter()
         .filter_map(|id| dom.resolve(*id))

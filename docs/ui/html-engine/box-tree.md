@@ -179,6 +179,18 @@ is `layout_document`, `layout_cached` and `bounding_rect`; everything else in
 `crate::layout` is crate-private, which is what makes this migration possible at
 all.
 
+**Since 2026-09-25 the three readers of that surface have their own modules**
+(`docs/superpowers/plans/2026-09-25-paint-and-query.md`, Phase A): what the
+list IS and how it is painted lives in `crate::paint` (`DisplayItem`,
+`DisplayList`, `Piece`, stacking, transforms, decoration), what is ASKED of it
+after layout in `crate::query` (`Geometry`, `rect_of`, `hit_test`), and
+`crate::layout` only produces. A consumer imports `rts_dom::paint::DisplayList`
+and `rts_dom::query::Geometry`, never `rts_dom::layout::…` for those. The
+dependency direction is the plan's FORM 1 and is not fully honoured yet:
+`paint::pieces` holds a layout `Fragment`, `paint::list` a `BoxRects`, and
+`layout_document` reads `geometry_now` for its out-of-flow pass — three named
+seams Phase B narrows.
+
 **Internally there may be N boxes per element; at that boundary they aggregate**,
 exactly as `union_rect` aggregates the line fragments of an inline today.
 

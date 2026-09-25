@@ -9,7 +9,7 @@
 use crate::boxes::{BoxId, BoxKind, BoxTree};
 use crate::dom::NodeIdx;
 
-use super::pieces::{Piece, children};
+use crate::paint::pieces::{Piece, children};
 
 /// `true` só quando a caixa recém-construída tem a mesma sequência de filhos
 /// que a caixa que produziu o desenho antigo — CAIXA contra CAIXA, cada uma na

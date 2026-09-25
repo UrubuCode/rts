@@ -7,7 +7,8 @@
 //! a propriedade — o de `background` pinta mesmo o fundo, que era o sintoma que
 //! começou este trabalho.
 
-use crate::layout::{ApproxMeasurer, DisplayItem, DisplayList, LayoutCtx, Rect, layout_document};
+use crate::layout::{ApproxMeasurer, LayoutCtx, layout_document};
+use crate::paint::{DisplayItem, DisplayList, Rect};
 use crate::style::{BgRepeat, BgSize, BorderStyle, Dimension, parse_inline};
 
 /// Layout determinístico (medidor aproximado, viewport fixo) — o mesmo arranjo

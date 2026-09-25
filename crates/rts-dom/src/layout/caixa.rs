@@ -379,3 +379,19 @@ pub(in crate::layout) fn is_inline_text_container(dom: &Dom, id: NodeIdx) -> boo
         _ => false,
     }
 }
+
+/// O nome da tag de um nó, ou `None` se for texto. Existe para o [`italico`]
+/// poder consultar a UA-stylesheet sem que quem chama tenha de desmontar o nó.
+pub(in crate::layout) fn tag_de(dom: &Dom, id: NodeIdx) -> Option<&str> {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } => Some(tag.as_str()),
+        _ => None,
+    }
+}
+
+/// `true` se a tag é um campo de TEXTO editável (mini-browser): `<input>` (tipos
+/// textuais) ou `<textarea>`. Um `<input type=checkbox/radio/...>` não conta (v1
+/// só faz texto). Sem `type` → texto (o default do HTML).
+pub(in crate::layout) fn is_text_input_tag(tag: &str) -> bool {
+    matches!(tag, "input" | "textarea")
+}

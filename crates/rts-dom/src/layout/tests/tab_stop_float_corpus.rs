@@ -7,7 +7,7 @@
 //! and the `\t` inside it must still land on the stop counted from the
 //! container's edge, not from the float's right edge.
 
-use crate::layout::DisplayItem;
+use crate::paint::DisplayItem;
 use crate::table::tests::geometria;
 
 /// A 20px-wide left float sits at the container's left edge — not a multiple

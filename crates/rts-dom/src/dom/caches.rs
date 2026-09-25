@@ -119,7 +119,7 @@ impl Dom {
     pub(crate) fn display_cache_get(
         &self,
         key: DisplayKey,
-    ) -> Option<std::rc::Rc<crate::layout::DisplayList>> {
+    ) -> Option<std::rc::Rc<crate::paint::DisplayList>> {
         let cache = self.display_cache.borrow();
         let (k, list) = cache.as_ref()?;
         (*k == key).then(|| std::rc::Rc::clone(list))
@@ -128,7 +128,7 @@ impl Dom {
     pub(crate) fn display_cache_put(
         &self,
         key: DisplayKey,
-        list: &std::rc::Rc<crate::layout::DisplayList>,
+        list: &std::rc::Rc<crate::paint::DisplayList>,
     ) {
         *self.display_cache.borrow_mut() = Some((key, std::rc::Rc::clone(list)));
     }

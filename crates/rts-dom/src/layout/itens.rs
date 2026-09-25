@@ -13,7 +13,7 @@ use crate::boxes::BoxId;
 /// posição nova. Tudo o que um item carrega é geometria absoluta em coordenadas
 /// de conteúdo, então deslocar é somar — exceto o que é tamanho (`radius`,
 /// `blur`, `size` do texto), que não se move.
-pub(in crate::layout) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
+pub(crate) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
     let shift = |r: &mut Rect| {
         r.x += dx;
         r.y += dy;

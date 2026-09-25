@@ -19,7 +19,7 @@
 //! em que o avanço por carácter mudasse — que é uma coisa que já mudou duas
 //! vezes.
 
-use crate::layout::Rect;
+use crate::paint::Rect;
 use crate::table::tests::geometria;
 
 /// O rect de um elemento, ou `None` se ele não recebeu geometria nenhuma.
@@ -29,7 +29,7 @@ use crate::table::tests::geometria;
 /// estados diferentes do motor com o mesmo sintoma no ecrã.
 fn caixa(
     dom: &crate::Dom,
-    list: &crate::layout::DisplayList,
+    list: &crate::paint::DisplayList,
     sel: &str,
     n: usize,
 ) -> Option<Rect> {

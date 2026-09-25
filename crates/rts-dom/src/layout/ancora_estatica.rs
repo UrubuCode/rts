@@ -81,7 +81,7 @@ pub(in crate::layout) fn fora_da_linha(
         // leaves it out of the client rects of the inline that contains it.
         (_, _, AtomicKind::Float) => true,
         (id, caixa, AtomicKind::Estatica) => {
-            let vazia = !super::pieces::paints(&list.pieces[inicio_da_linha..]);
+            let vazia = !crate::paint::pieces::paints(&list.pieces[inicio_da_linha..]);
             let (x, y) = match (era_de_bloco(dom, id), vazia) {
                 (true, true) => (flow_x, line_top),
                 (true, false) => (flow_x, line_bottom),
@@ -127,10 +127,10 @@ pub(in crate::layout) fn todas(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
         out.extend(a.iter().filter_map(|&(b, x, y)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, 0.0, 0.0)))));
     };
     por(&list.tree, &list.ancoras_estaticas, 0.0, 0.0);
-    let mut pilha: Vec<(&ChildRef, f32, f32)> = super::pieces::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();
+    let mut pilha: Vec<(&ChildRef, f32, f32)> = crate::paint::pieces::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();
     while let Some((c, dx, dy)) = pilha.pop() {
         por(&c.fragment.tree, &c.fragment.ancoras_estaticas, dx, dy);
-        pilha.extend(super::pieces::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)));
+        pilha.extend(crate::paint::pieces::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)));
     }
     out
 }

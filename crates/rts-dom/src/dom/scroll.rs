@@ -111,7 +111,7 @@ impl Dom {
     /// o que a regra "um lote, um ficheiro" existe para evitar. Juntar os
     /// dois (scroll + medidor ativo) é trabalho de integração, não deste
     /// lote — fica dito no relatório do commit.
-    pub fn bounding_rect_scrolled(&self, id: NodeId) -> Option<crate::layout::Rect> {
+    pub fn bounding_rect_scrolled(&self, id: NodeId) -> Option<crate::paint::Rect> {
         let idx = self.resolve(id)?;
         let (vw, vh) = self.viewport.get();
         let ctx = crate::layout::LayoutCtx {

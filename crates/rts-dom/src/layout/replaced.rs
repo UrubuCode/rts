@@ -208,7 +208,7 @@ pub(in crate::layout) fn layout_image(
     // de pintura via 0 itens). CORTE dito: a cor sai crua — sem `filter` nem
     // `opacity` do elemento, que o caminho do bloco aplica por `cor()`; e sem
     // borda pintada (v1 acima) — só reservada na caixa (`used_widths` acima).
-    if let Some(color) = css.bg.filter(|_| !super::pintura::deve_suprimir_fundo(css)) {
+    if let Some(color) = css.bg.filter(|_| !crate::paint::decor::deve_suprimir_fundo(css)) {
         list.push_item(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
     }
     // Os PIXELS pintam só o CONTENT-BOX — a borda/padding reservados acima na

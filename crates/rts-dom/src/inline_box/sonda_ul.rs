@@ -3,7 +3,7 @@
 //! há literais multi-linha em que o espaço à esquerda é conteúdo.
 
     use crate::table::tests::geometria;
-    fn r(html: &str, sel: &str, n: usize) -> Option<crate::layout::Rect> {
+    fn r(html: &str, sel: &str, n: usize) -> Option<crate::paint::Rect> {
         let (dom, list) = geometria(html, 800.0);
         let id = *dom.query_all(sel).get(n)?;
         let idx = dom.resolve(id)?;

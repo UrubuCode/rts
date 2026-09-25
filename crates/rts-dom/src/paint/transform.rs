@@ -10,8 +10,10 @@
 //! precisar do tamanho da caixa — e é aqui, com `box_rect` na mão, que viram
 //! uma matriz e depois um retângulo. A mesma separação que `Dimension` já tem
 //! entre "o valor declarado" e "o valor resolvido".
+//!
+//! Moved from `layout/transformacao.rs` on 2026-09-25 (PQ-A1); `transform_box_rects` stayed in `layout/transform_rects.rs`.
 
-use super::Rect;
+use crate::paint::list::Rect;
 
 /// Uma matriz afim 2D, na convenção do `matrix(a,b,c,d,e,f)` do CSS:
 /// `x' = a·x + c·y + e`; `y' = b·x + d·y + f`.
@@ -228,7 +230,7 @@ impl TransformList {
 /// pai como `Dimension::resolve` faz — é a diferença entre "onde a imagem de
 /// fundo começa" e "em volta de que ponto ESTA caixa roda". `viewport_axis` é
 /// `viewport_w`/`viewport_h` conforme o eixo (para `vw`/`vh`).
-pub(in crate::layout) fn resolve_origin_axis(
+pub(crate) fn resolve_origin_axis(
     d: crate::style::values::Dimension,
     base: f32,
     font_size: f32,
@@ -253,7 +255,7 @@ pub(in crate::layout) fn resolve_origin_axis(
 /// `TransformList::resolve` + `resolve_origin_axis` + `Mat2d::around` numa
 /// chamada só, para `bloco.rs` não repetir os quatro passos na região do
 /// `transform` — só o CHAMA e decide o que fazer com a matriz.
-pub(in crate::layout) fn matriz_transform(
+pub(crate) fn matriz_transform(
     tf: crate::style::effects::Transform,
     origin: Option<crate::style::BgPosition>,
     box_rect: Rect,
@@ -270,34 +272,6 @@ pub(in crate::layout) fn matriz_transform(
     let ox = box_rect.x + resolve_origin_axis(origin.x, box_rect.w, font_size, root_font, viewport_w);
     let oy = box_rect.y + resolve_origin_axis(origin.y, box_rect.h, font_size, root_font, viewport_h);
     tf.ops.resolve(box_rect.w, box_rect.h).around(ox, oy)
-}
-
-/// Applies `mat` to the rect of `id` in `list.box_rects` (if it has one) and,
-/// RECURSIVELY, to every descendant's — descendants INHERIT the parent's
-/// transform (CSS Transforms 1: the "transform target" includes the
-/// subtree). Same pattern as `relativo.rs::shift_box_rects` (walk the box
-/// tree from `id`, per invariant I2 in `docs/ui/html-engine/box-tree.md` §7,
-/// rather than the DOM), except the operation is the whole matrix (bounding
-/// box of the 4 corners) instead of a sum.
-///
-/// `id` is already a `BoxId` — the caller resolves it through
-/// `list.tree.boxes_of(node)` before calling in.
-///
-/// Subtrees served by a cached fragment have no entry in `list.box_rects` and
-/// this walk does not find them; they are already handled elsewhere through
-/// the fragment's own offset. This is a second source of truth for the same
-/// answer, reconciled by hand — the lot that removes it is later than this
-/// one.
-pub(in crate::layout) fn transform_box_rects(
-    tree: &crate::boxes::BoxTree,
-    id: crate::boxes::BoxId,
-    mat: &Mat2d,
-    list: &mut super::DisplayList,
-) {
-    list.box_rects.map_fragments(id, |r| mat.transform_rect_bbox(r));
-    for &child in tree.children(id) {
-        transform_box_rects(tree, child, mat, list);
-    }
 }
 
 #[cfg(test)]

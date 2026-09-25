@@ -41,9 +41,14 @@
 //! prefixar, então `[0, 100]` ainda fica preso atrás de `[1]`, mas dois
 //! irmãos de camada 8 (`0`/`auto`) empatam e o sort ESTÁVEL decide pela
 //! árvore, como a camada pede.
+//!
+//! Moved from `layout/empilhamento.rs` on 2026-09-25 (PQ-A1); nothing in it changed.
 
-use super::*;
 use crate::boxes::BoxTree;
+use crate::dom::{Dom, NodeIdx};
+use crate::paint::list::DisplayList;
+use crate::paint::pieces::Piece;
+use crate::paint::pieces;
 
 /// O `z-index` computado de um out-of-flow, `0` para `auto`/sem estilo — a
 /// mesma leitura que `layout_document` já fazia inline no `sort_by_key`.
@@ -54,7 +59,7 @@ use crate::boxes::BoxTree;
 /// que produzir, esta função responde `0` (a mesma coisa que "auto") em vez
 /// de ter um ramo para "esta caixa não tem nó". Deixado como achado para o
 /// lote das caixas anónimas, e não corrigido aqui.
-pub(in crate::layout) fn z_index_of(dom: &Dom, id: NodeIdx) -> i32 {
+pub(crate) fn z_index_of(dom: &Dom, id: NodeIdx) -> i32 {
     dom.computed_style_idx(id)
         .and_then(|c| c.z_index)
         .unwrap_or(0)
@@ -74,7 +79,7 @@ pub(in crate::layout) fn z_index_of(dom: &Dom, id: NodeIdx) -> i32 {
 /// ancestral: um filho `z-index:100` de um pai `z-index:0` (`[0, 100]`) não
 /// ultrapassa o irmão raiz `z-index:1` (`[1]`), porque o PRIMEIRO componente
 /// já decide.
-pub(in crate::layout) fn stacking_key(dom: &Dom, id: NodeIdx) -> Vec<i32> {
+pub(crate) fn stacking_key(dom: &Dom, id: NodeIdx) -> Vec<i32> {
     let mut ancestors = Vec::new();
     let mut current = dom.node(id).parent;
     while let Some(node) = current {
@@ -136,7 +141,7 @@ fn creates_context(dom: &Dom, node: NodeIdx) -> bool {
 /// everything `target` already had. A splice: no clip already in `target` can come
 /// to "contain" the negative subtrees, because a clip contains what lies
 /// between its markers and they now lie before both.
-pub(in crate::layout) fn merge_before(target: &mut DisplayList, antes: DisplayList) {
+pub(crate) fn merge_before(target: &mut DisplayList, antes: DisplayList) {
     if antes.pieces.is_empty() && antes.box_rects.is_empty() {
         return;
     }
@@ -156,7 +161,7 @@ pub(in crate::layout) fn merge_before(target: &mut DisplayList, antes: DisplayLi
 /// `overflow:hidden` positioned box counted subtrees of `target` and let its own
 /// children be drawn after it — outside the clip. An append of pieces has no
 /// count to forget.
-pub(in crate::layout) fn merge_after(target: &mut DisplayList, mut depois: DisplayList) {
+pub(crate) fn merge_after(target: &mut DisplayList, mut depois: DisplayList) {
     if depois.pieces.is_empty() && depois.box_rects.is_empty() {
         return;
     }
@@ -174,7 +179,7 @@ pub(in crate::layout) fn merge_after(target: &mut DisplayList, mut depois: Displ
 /// depths (CLAUDE.md repro: both direct children of one container, but a
 /// nested case is not excluded). An ancestor sorts before its own
 /// descendant, matching preorder.
-pub(in crate::layout) fn is_before_in_tree(dom: &Dom, a: NodeIdx, b: NodeIdx) -> bool {
+pub(crate) fn is_before_in_tree(dom: &Dom, a: NodeIdx, b: NodeIdx) -> bool {
     if a == b {
         return false;
     }
@@ -255,7 +260,7 @@ fn is_layer8_relative(dom: &Dom, node: NodeIdx) -> bool {
 /// `Err(insert)` unchanged when no match exists anywhere in `pieces` — the
 /// caller appends it at the end instead, same as before this fix (Appendix E
 /// layer 8 paints a box with nothing after it last among ties).
-pub(in crate::layout) fn splice_layer8(
+pub(crate) fn splice_layer8(
     dom: &Dom,
     tree: &BoxTree,
     pieces: &mut Vec<Piece>,

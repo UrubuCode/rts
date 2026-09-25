@@ -237,7 +237,8 @@ pub fn texto_de(
 pub(crate) mod tests {
     use super::*;
     use crate::dom::parse_html_to_dom;
-    use crate::layout::{ApproxMeasurer, DisplayItem, LayoutCtx, layout_document};
+    use crate::layout::{ApproxMeasurer, LayoutCtx, layout_document};
+    use crate::paint::DisplayItem;
 
     /// Os textos pintados, em ordem de pintura — é o que prova que a caixa
     /// gerada existe e onde ficou.

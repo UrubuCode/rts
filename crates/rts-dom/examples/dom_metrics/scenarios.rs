@@ -465,7 +465,7 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
 
     // O que de fato vai para a tela: uma página pode ter caixas e ainda assim
     // abrir em branco se tudo o que ela emite for da cor do fundo.
-    use rts_dom::layout::DisplayItem as D;
+    use rts_dom::paint::DisplayItem as D;
     let mut retangulos = 0usize;
     let mut bordas = 0usize;
     let mut textos: Vec<String> = Vec::new();
@@ -680,13 +680,13 @@ pub fn verificar_equivalencia(
 /// 17.599976, dois centésimos de milésimo de pixel). Um verificador que dá
 /// alarme falso é pior que nenhum: ensina a ignorá-lo.
 fn item_equivalente(
-    a: &rts_dom::layout::DisplayItem,
-    b: &rts_dom::layout::DisplayItem,
+    a: &rts_dom::paint::DisplayItem,
+    b: &rts_dom::paint::DisplayItem,
     tol: f32,
 ) -> bool {
-    use rts_dom::layout::DisplayItem as D;
+    use rts_dom::paint::DisplayItem as D;
     let perto = |x: f32, y: f32| (x - y).abs() < tol;
-    let rects = |ra: &rts_dom::layout::Rect, rb: &rts_dom::layout::Rect| {
+    let rects = |ra: &rts_dom::paint::Rect, rb: &rts_dom::paint::Rect| {
         perto(ra.x, rb.x) && perto(ra.y, rb.y) && perto(ra.w, rb.w) && perto(ra.h, rb.h)
     };
     match (a, b) {

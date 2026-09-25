@@ -2,7 +2,7 @@
 //! Blink pinta o `background` de um `<img>` cuja imagem não carregou, na caixa
 //! que `width`/`height` já fixam. Aqui a régua de pintura via 0 itens.
 
-use crate::layout::DisplayItem;
+use crate::paint::DisplayItem;
 use crate::table::tests::geometria;
 
 #[test]

@@ -50,11 +50,7 @@ pub(crate) mod caixa;
 mod caixa_contentora;
 mod clearfix;
 mod dimensao_indefinida;
-mod display;
 mod box_fragments;
-mod pieces;
-mod rect_cliente;
-mod empilhamento;
 mod float;
 mod float_placement;
 mod float_in_line;
@@ -64,7 +60,7 @@ mod input_sizing;
 mod select;
 mod intrinseco_min_max;
 mod tamanho_intrinseco;
-mod itens;
+pub(crate) mod itens;
 mod fonte_avancos;
 mod fonte_do_trecho;
 pub(crate) mod fonte_metricas;
@@ -73,7 +69,6 @@ mod medida_arvore;
 pub(crate) mod text_measure;
 pub mod medidor_ativo;
 mod medidor_texto;
-mod pintura;
 mod margem_escapada;
 mod overflow_viewport;
 mod posicao_estatica;
@@ -82,7 +77,6 @@ mod pseudo_bloco;
 mod pseudo_caixa;
 mod pseudo_inline;
 mod relativo;
-mod fundo_imagem;
 mod replaced;
 mod replaced_transferido;
 pub(crate) mod bloco;
@@ -133,10 +127,10 @@ mod runs;
 mod segmento;
 mod texto_solto;
 mod tabulacao;
-mod transformacao;
+mod transform_rects;
 pub(crate) use self::bloco::layout_block;
 pub use self::fragmento_tipos::{ChildRef, Fragment};
-pub use self::pieces::Piece;
+use crate::paint::pieces::Piece;
 pub use self::box_fragments::BoxRects;
 pub(crate) use self::box_fragments::{LineId, LineScope};
 use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
@@ -147,24 +141,26 @@ use self::linha_ib::layout_inline_block_line;
 // through `layout_block` and so never asked this question on their own.
 pub(crate) use self::relativo::aplica_offset_relativo;
 
-pub use self::display::{Corners, DisplayItem, DisplayList, Geometry, Rect, ScrollRegion};
+use crate::paint::item::{Corners, DisplayItem};
+use crate::paint::list::{DisplayList, Rect, ScrollRegion};
 pub use self::medidor_texto::{ApproxMeasurer, TextMeasurer};
-pub use self::pintura::{emit_scrollbar, emit_scrollbar_in};
-pub use self::transformacao::{Mat2d, TransformList, TransformOp, MAX_TRANSFORM_OPS};
 pub(crate) use self::bfc::BlockFormattingContext;
 pub(crate) use self::caixa::{font_px, is_non_rendered_tag, used_display};
 pub(crate) use self::float::Exclusao;
 pub(crate) use self::itens::{add_line_fragment, record_box_rect, reserve_box_order};
 pub(crate) use self::medida::intrinsic_outer_width;
-pub(crate) use self::pintura::border_items;
+use crate::paint::decor::border_items;
 pub(crate) use self::posicionado::is_out_of_flow;
 use self::caixa::{css_display, em_contexto_inline, is_block_level, is_inline_block, is_inline_text_container, whitespace_is_inline_separator};
 use self::float::{banda_livre, fecha_a_corrida, float_of};
 use self::input::{layout_button, layout_input};
 use self::select::layout_select;
-use self::itens::translate_item;
 use self::medida::{child_outer_height, child_outer_width, collect_text, content_natural_width};
-use self::pintura::{apply_opacity, body_background, cor_visivel, decoration_code, deve_suprimir_fundo, is_text_input_tag, italico, tag_de};
+use self::caixa::{is_text_input_tag, tag_de};
+use crate::paint::decor::{body_background, deve_suprimir_fundo};
+use crate::paint::pieces;
+use crate::paint::stacking;
+use crate::paint::style::{apply_opacity, cor_visivel, decoration_code, italico};
 use self::posicionado::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
 use self::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
 
@@ -421,7 +417,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
         rects_conhecidos.extend(fragment.geometry_now().rects);
         rects_conhecidos.extend(ancora_estatica::todas(&fragment));
-        positioned.push((empilhamento::stacking_key(dom, alvo.node), alvo.node, fragment));
+        positioned.push((stacking::stacking_key(dom, alvo.node), alvo.node, fragment));
     }
     positioned.sort_by(|(a, ..), (b, ..)| a.cmp(b));
     let mut negativos = DisplayList::for_dom(dom);
@@ -436,15 +432,15 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let arvore = std::rc::Rc::clone(&list.tree);
     for (key, node, fragment) in positioned {
         if key.first().copied().unwrap_or(0) < 0 {
-            empilhamento::merge_after(&mut negativos, fragment);
+            stacking::merge_after(&mut negativos, fragment);
             continue;
         }
         let DisplayList { pieces, box_rects, grid_column_tracks, scroll_regions, .. } = fragment;
         list.box_rects.extend(box_rects);
         list.grid_column_tracks.extend(grid_column_tracks);
         list.scroll_regions.extend(scroll_regions);
-        let pieces = if empilhamento::z_index_of(dom, node) == 0 {
-            match empilhamento::splice_layer8(dom, &arvore, &mut list.pieces, node, pieces, 0.0, 0.0) {
+        let pieces = if stacking::z_index_of(dom, node) == 0 {
+            match stacking::splice_layer8(dom, &arvore, &mut list.pieces, node, pieces, 0.0, 0.0) {
                 Ok(()) => continue,
                 Err(leftover) => leftover,
             }
@@ -460,7 +456,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.
-        empilhamento::merge_before(&mut list, negativos);
+        stacking::merge_before(&mut list, negativos);
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
     // para o hit-test: fluxo normal em pré-ordem e, depois, posicionados em ordem

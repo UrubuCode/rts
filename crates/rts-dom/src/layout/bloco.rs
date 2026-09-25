@@ -1105,7 +1105,7 @@ pub(crate) fn layout_block(
         // IMAGEM DE FUNDO: sobre a cor/gradiente, atrás da borda — os pixels
         // (quando já carregados; ver `fundo_imagem`) tapam o que a cor pintou,
         // exatamente como o Blink compõe as camadas de `background`.
-        for item in super::fundo_imagem::background_pixels_items(
+        for item in crate::paint::background_image::background_pixels_items(
             dom, id, &css, box_rect, border_top, border_right, border_bottom, border_left,
         ) {
             list.pieces.insert(at, Piece::Item(item));
@@ -1215,7 +1215,7 @@ pub(crate) fn layout_block(
     // por último (não afeta o fluxo/tamanho — como no CSS, transform é visual).
     if let Some(tf) = css.transform {
         if !tf.is_identity() {
-            let mat = super::transformacao::matriz_transform(
+            let mat = crate::paint::transform::matriz_transform(
                 tf,
                 css.transform_origin,
                 box_rect,
@@ -1230,7 +1230,7 @@ pub(crate) fn layout_block(
             // atalho abaixo e para os dois ramos: a bbox de um rect só
             // transladado é só transladada, a mesma chamada serve os dois.
             let arvore = std::rc::Rc::clone(&list.tree);
-            super::transformacao::transform_box_rects(&arvore, caixa, &mat, list);
+            super::transform_rects::transform_box_rects(&arvore, caixa, &mat, list);
 
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo
@@ -1250,7 +1250,7 @@ pub(crate) fn layout_block(
             // uma regra de 40 bytes casou com um `<span>`.
             let is_pure_translate = mat.a == 1.0 && mat.b == 0.0 && mat.c == 0.0 && mat.d == 1.0;
             if is_pure_translate {
-                super::pieces::shift_from(&mut list.pieces, box_start, mat.e, mat.f);
+                crate::paint::pieces::shift_from(&mut list.pieces, box_start, mat.e, mat.f);
             } else {
                 // Escala/rotação/skew/matriz: em vez de mutar cada item por
                 // aproximação (norma das colunas — a caixa continuava
@@ -1260,7 +1260,7 @@ pub(crate) fn layout_block(
                 // flattened first — and ONLY those: flattening the whole list,
                 // as this did, also flattened the preceding siblings, and the
                 // `PushTransform` then landed inside them (`pieces::flatten_from`).
-                super::pieces::flatten_from(&mut list.pieces, box_start);
+                crate::paint::pieces::flatten_from(&mut list.pieces, box_start);
                 list.pieces.insert(box_start, Piece::Item(DisplayItem::PushTransform { mat }));
                 list.pieces.push(Piece::Item(DisplayItem::PopTransform));
             }

@@ -3,7 +3,7 @@
 //! `tests/css/claude-img-natural.html` no Blink: 4×2 sem atributos, 40×20 com
 //! `width: 40px` (a razão mantém-se), 8×8 quando os atributos mandam.
 
-use crate::layout::DisplayItem;
+use crate::paint::DisplayItem;
 use crate::table::tests::{geometria_com, rect};
 
 const HTML: &str = r#"<style>body{margin:0;font:16px/20px monospace}img{display:block}#so-largura{width:40px}</style>

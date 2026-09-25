@@ -14,7 +14,7 @@ fn no(dom: &crate::Dom, sel: &str) -> crate::dom::NodeIdx {
     dom.resolve(dom.query(sel).expect(sel)).expect("live node")
 }
 
-fn gerada(list: &crate::layout::DisplayList, dom: &crate::Dom, sel: &str, pe: PseudoElement) -> BoxId {
+fn gerada(list: &crate::paint::DisplayList, dom: &crate::Dom, sel: &str, pe: PseudoElement) -> BoxId {
     list.tree.generated_of(no(dom, sel), pe).unwrap_or_else(|| panic!("{sel} has a generated box"))
 }
 
