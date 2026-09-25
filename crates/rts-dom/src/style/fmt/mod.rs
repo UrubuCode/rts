@@ -134,6 +134,7 @@ impl ComputedStyle {
                 Some(WhiteSpace::Pre) => "pre".into(),
                 Some(WhiteSpace::PreWrap) => "pre-wrap".into(),
                 Some(WhiteSpace::PreLine) => "pre-line".into(),
+                Some(WhiteSpace::BreakSpaces) => "break-spaces".into(),
                 None => String::new(),
             },
             "text-transform" => match self.text_transform {

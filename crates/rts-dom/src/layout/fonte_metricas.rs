@@ -100,7 +100,7 @@ pub(in crate::layout) fn usa_ahem(family: Option<&str>) -> bool {
 
 /// The font metrics model. Stateless: the one place `size` and `family` decide
 /// the numbers.
-pub(in crate::layout) struct FontMetricsModel;
+pub(crate) struct FontMetricsModel;
 
 impl FontMetricsModel {
     /// Ascent in pixels, rounded to a whole pixel as Blink rounds it.
@@ -140,6 +140,26 @@ impl FontMetricsModel {
             })
             .sum();
         unidades * size / 2048.0
+    }
+
+    /// The advance of the "0" glyph (U+0030), as a fraction of the em, in the
+    /// REGULAR face of the font `family` resolves to — what CSS Values 4
+    /// §6.1.1 defines `1ch` to be. Reads the same `hmtx` table
+    /// [`text_width`](Self::text_width) sums, at the "0" glyph specifically,
+    /// instead of `MONO_ADVANCE`'s single number calibrated for Consolas
+    /// alone: Arial's "0" advances 0.556em and Segoe UI's 0.539em, not
+    /// 0.5498, so a proportional family's `ch` used to be off by up to 1.6%.
+    /// Falls back to the family's `fora_da_tabela` fraction — `MONO_ADVANCE`
+    /// for Consolas — only for a family with no table entry for "0", which
+    /// does not happen for the four families [`tabela`] ever returns, so
+    /// that arm is here for the same reason [`text_width`](Self::text_width)
+    /// keeps one: defence, not a live path.
+    pub fn ch_advance_em(family: Option<&str>) -> f32 {
+        let t = tabela(family);
+        match avancos::CHARS.binary_search(&('0' as u32)) {
+            Ok(i) => f32::from(t.avancos[0][i]) / 2048.0,
+            Err(_) => t.fora_da_tabela,
+        }
     }
 
     /// The height of one line under `line-height: normal`: the ROUNDED ascent

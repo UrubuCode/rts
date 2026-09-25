@@ -172,6 +172,9 @@ pub enum WhiteSpace {
     PreWrap,
     /// `pre-line` — colapsa espaços mas preserva quebras explícitas.
     PreLine,
+    /// `break-spaces` — preserves like `pre-wrap`, but every preserved space
+    /// and tab is a wrap opportunity and none of them hangs (CSS Text 3 §4.1.3).
+    BreakSpaces,
 }
 
 impl WhiteSpace {
@@ -182,12 +185,13 @@ impl WhiteSpace {
             "pre" => WhiteSpace::Pre,
             "pre-wrap" => WhiteSpace::PreWrap,
             "pre-line" => WhiteSpace::PreLine,
+            "break-spaces" => WhiteSpace::BreakSpaces,
             _ => return None,
         })
     }
     /// `true` se preserva os espaços/quebras originais (pre/pre-wrap/pre-line p/ quebras).
     pub fn preserves_spaces(self) -> bool {
-        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap)
+        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::BreakSpaces)
     }
 
     /// `true` se um `\n` LITERAL do texto força uma quebra de linha — os três
@@ -198,7 +202,7 @@ impl WhiteSpace {
     pub fn preserves_newlines(self) -> bool {
         matches!(
             self,
-            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine
+            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine | WhiteSpace::BreakSpaces
         )
     }
 }
