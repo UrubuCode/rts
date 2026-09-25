@@ -70,12 +70,12 @@ impl Scene3D {
         }
         let mut inst: Vec<f32> = Vec::with_capacity(self.draws.len() * 24);
         for &i in &ordem {
-            let (_m, model, color, emissive, tex_flag, _tid) = &self.draws[i];
+            let (_m, model, color, emissive, tex_flag, _tid, tile) = &self.draws[i];
             inst.extend_from_slice(model);
             inst.extend_from_slice(color);
             inst.push(*emissive);
             inst.push(*tex_flag);
-            inst.push(0.0);
+            inst.push(*tile);
             inst.push(0.0);
         }
         if !inst.is_empty() {
