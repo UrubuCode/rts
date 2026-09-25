@@ -160,4 +160,47 @@ impl Lowering<'_> {
         self.prim(JsPrim::FieldWrite, vec![held, named, prototype], at);
         Ok(held)
     }
+
+    /// `super(...)` written in an ARROW inside a derived constructor: the parent read
+    /// from the slot the constructor keeps it in, constructed without setting
+    /// `new.target` (`SuperConstruct`, whose vector form is its own operation for that
+    /// reason), and the object it made written to the constructor's `this` slot --
+    /// `emit/class.rs::emit_super_call`, read through the enclosing layout.
+    pub(super) fn super_call_in_arrow(
+        &mut self,
+        arguments: &[crate::syntax::Spreadable],
+        at: &Expr,
+    ) -> Result<ValueId, Unsupported> {
+        let refused = Unsupported::Expression("a super call with no constructor slots in reach");
+        let parent = self.lexical("__rts_super", at).ok_or(refused.clone())?;
+        let produced = match self.spread_vector(arguments, at)? {
+            Some(vector) => self.entry(
+                crate::runtime::RuntimeOp::SuperConstructWithArgs,
+                vec![parent, vector],
+                at,
+            ),
+            None if arguments.len() > crate::runtime::ARGUMENT_SLOTS => {
+                let elements: Vec<Option<crate::syntax::Spreadable>> =
+                    arguments.iter().cloned().map(Some).collect();
+                let vector = self.array_literal(&elements, at)?;
+                self.entry(
+                    crate::runtime::RuntimeOp::SuperConstructWithArgs,
+                    vec![parent, vector],
+                    at,
+                )
+            }
+            None => {
+                let mut passed = vec![parent];
+                passed.extend(self.arguments(arguments)?);
+                while passed.len() < 1 + crate::runtime::ARGUMENT_SLOTS {
+                    passed.push(self.singleton_at(crate::values::Singleton::Undefined, at));
+                }
+                self.entry(crate::runtime::RuntimeOp::SuperConstruct, passed, at)
+            }
+        };
+        let held = self.names.find("__rts_this").ok_or(refused.clone())?;
+        let (environment, key) = self.outer_slot(held, at).map_err(|_| refused)?;
+        self.prim(JsPrim::EnvWrite, vec![environment, key, produced], at);
+        Ok(produced)
+    }
 }

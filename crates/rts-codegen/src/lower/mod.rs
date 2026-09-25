@@ -680,6 +680,9 @@ impl Lowering<'_> {
                 ),
             ),
             ExprKind::This => Ok(self.this_value(expr)),
+            ExprKind::SuperCall { arguments } if self.lexical_this => {
+                self.super_call_in_arrow(arguments, expr)
+            }
             // `new.target` of a function's own activation, which the runtime keeps --
             // `emit/expr.rs` asks the same. An arrow's is its enclosing function's, and
             // a field initialiser's is fixed at `undefined`: both are refused below.

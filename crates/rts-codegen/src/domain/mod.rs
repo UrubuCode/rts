@@ -183,6 +183,9 @@ impl Js {
         // `lower/enumerate.rs`, after `emit/foreach.rs`.
         RuntimeOp::EnumerateKeys,
         RuntimeOp::ForInHas,
+        // `super(...)` in an arrow -- `lower/class.rs::super_call_in_arrow`.
+        RuntimeOp::SuperConstruct,
+        RuntimeOp::SuperConstructWithArgs,
     ];
 
     /// The index the IR carries for an entry point.
