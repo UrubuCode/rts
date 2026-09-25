@@ -57,8 +57,9 @@ pub(in crate::layout) fn layout_button(
         color: fg,
         size: font,
         mono: false,
-        // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
-        is_ahem: false,
+        // The single site of this question (`fonte_metricas::usa_ahem`), not
+        // a copy of it — Ahem is the one family whose PAINT differs.
+        is_ahem: super::fonte_metricas::usa_ahem(css.font_family.as_deref()),
         bold: false,
         italic: false,
         letter_spacing: 0.0,
@@ -351,8 +352,8 @@ pub(in crate::layout) fn layout_input(
             color: tcolor,
             size: font,
             mono: false,
-            // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
-            is_ahem: false,
+            // Same rule as `layout_button` above (`fonte_metricas::usa_ahem`).
+            is_ahem: super::fonte_metricas::usa_ahem(css.font_family.as_deref()),
             bold: false,
             italic: false,
             letter_spacing: 0.0,
