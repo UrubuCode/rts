@@ -372,7 +372,20 @@ impl MachineOps for JsMachine<'_> {
         value: MachineValue,
         want: Repr,
     ) -> Result<MachineValue, String> {
-        coerced(into, value, want)
+        // A TAGGED WORD WHERE THE LATTICE ASKS FOR A NUMBER: `rts_mir::lower` asks this
+        // for a jump's argument into a block parameter the lattice typed `Double` or
+        // `Int32`, and the value came through a guarded operator whose slow edge answers
+        // tagged. The proof is sound, so the word is unboxed from either encoding --
+        // `unbox_number`, which traps on anything else rather than reading garbage. An
+        // `Int32` is exact from the double, being one by proof.
+        match (into.repr_of(value), want) {
+            (Repr::Tagged, Repr::F64) => super::unbox_number(into, value),
+            (Repr::Tagged, Repr::I32) => {
+                let double = super::unbox_number(into, value)?;
+                into.to_int32(double).map_err(machine)
+            }
+            _ => coerced(into, value, want),
+        }
     }
     fn fall(
         &mut self,

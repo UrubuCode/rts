@@ -47,6 +47,12 @@ impl JsMachine<'_> {
             (JsPrim::Divide, 2) => RuntimeOp::Divide,
             (JsPrim::Remainder, 2) => RuntimeOp::Remainder,
             (JsPrim::Exponent, 2) => RuntimeOp::Exponent,
+            (JsPrim::BitAnd, 2) => RuntimeOp::BitAnd,
+            (JsPrim::BitOr, 2) => RuntimeOp::BitOr,
+            (JsPrim::BitXor, 2) => RuntimeOp::BitXor,
+            (JsPrim::ShiftLeft, 2) => RuntimeOp::ShiftLeft,
+            (JsPrim::ShiftRight, 2) => RuntimeOp::ShiftRight,
+            (JsPrim::ShiftRightUnsigned, 2) => RuntimeOp::ShiftRightUnsigned,
             (JsPrim::LessThan, 2) => RuntimeOp::Less,
             (JsPrim::GreaterThan, 2) => RuntimeOp::Greater,
             (JsPrim::LessOrEqual, 2) => RuntimeOp::LessEqual,
@@ -89,11 +95,8 @@ impl JsMachine<'_> {
             }
             (JsPrim::NewArray, _) => return self.array_of(into, args).map(Some),
             (JsPrim::NewObject, _) => return self.object_of(into, args).map(Some),
-            // NOT HERE, each for a reason of its own:
-            //
-            // - `BitwiseInt32` holds five operators under one row, so WHICH runtime
-            //   operation is not in the graph -- the fault `Compare` had until it was
-            //   split into its three rows.
+            // NOT HERE: every row left has no generic form at these operands, and the
+            // refusal below names it.
             _ => return Ok(None),
         };
         self.call_runtime(into, op, args).map(Some)

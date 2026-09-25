@@ -67,6 +67,9 @@ impl JsMachine<'_> {
         if let Some(op) = compare {
             return into.compare(op, left, right).map(Some).map_err(machine);
         }
+        if let Some(bits) = self.bits(into, which, left, right)? {
+            return Ok(Some(bits));
+        }
         let op = match which {
             JsPrim::Add => NumOp::Add,
             JsPrim::Subtract => NumOp::Sub,
@@ -105,6 +108,45 @@ impl JsMachine<'_> {
         into.arith(op, left, right).map(Some).map_err(machine)
     }
 
+    /// The bitwise rows over two doubles, as `emit/expr.rs` emits them: `ToInt32` both,
+    /// the instruction, and the count of a shift masked to five bits -- the language's
+    /// rule, emitted rather than left to a backend's modulo. The answer stays an `I32`,
+    /// which is the representation the lattice's `Int32` names; `>>>` alone answers
+    /// the unsigned conversion back to a double.
+    fn bits(
+        &mut self,
+        into: &mut FuncBuilder,
+        which: JsPrim,
+        left: MachineValue,
+        right: MachineValue,
+    ) -> Result<Option<MachineValue>, String> {
+        use rts_cranelift::ir::BitOp;
+        let (op, shifts) = match which {
+            JsPrim::BitAnd => (BitOp::And, false),
+            JsPrim::BitOr => (BitOp::Or, false),
+            JsPrim::BitXor => (BitOp::Xor, false),
+            JsPrim::ShiftLeft => (BitOp::Shl, true),
+            JsPrim::ShiftRight => (BitOp::Shr, true),
+            JsPrim::ShiftRightUnsigned => (BitOp::ShrUnsigned, true),
+            _ => return Ok(None),
+        };
+        let left = into.to_int32(left).map_err(machine)?;
+        let mut right = into.to_int32(right).map_err(machine)?;
+        if shifts {
+            let mask = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::I32,
+                bits: rts_cranelift::ir::ScalarBits(31),
+            });
+            let mask = into.use_const(mask);
+            right = into.bitwise(BitOp::And, right, mask).map_err(machine)?;
+        }
+        let bits = into.bitwise(op, left, right).map_err(machine)?;
+        match which {
+            JsPrim::ShiftRightUnsigned => into.to_f64_unsigned(bits).map(Some).map_err(machine),
+            _ => Ok(Some(bits)),
+        }
+    }
+
     /// `which` over two operands of which at least one is unproved, guarded into the
     /// instruction and falling to the runtime's call -- or `None` where the row has no
     /// instruction or an operand can never be a double.
@@ -135,6 +177,12 @@ impl JsMachine<'_> {
             JsPrim::Divide,
             JsPrim::Remainder,
             JsPrim::Exponent,
+            JsPrim::BitAnd,
+            JsPrim::BitOr,
+            JsPrim::BitXor,
+            JsPrim::ShiftLeft,
+            JsPrim::ShiftRight,
+            JsPrim::ShiftRightUnsigned,
             JsPrim::LessThan,
             JsPrim::GreaterThan,
             JsPrim::LessOrEqual,

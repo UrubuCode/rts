@@ -90,19 +90,30 @@ pub enum JsPrim {
     TypeOf,
     /// `!a`, which reads this language's truth rule.
     Not,
-    /// `a & b`, `a | b`, `a ^ b`, `a << b`, `a >> b`.
+    /// `a & b`. With `|`, `^`, `<<` and `>>` below it: each coerces both operands with
+    /// `ToInt32`, answers a value that fits in an `i32`, and reaches no code the
+    /// program wrote once the operands are not objects.
     ///
-    /// One row for the five, because they agree about everything this table records:
-    /// each coerces both operands with `ToInt32`, each answers a value that fits in
-    /// an `i32`, and none can reach code the program wrote once the operands are
-    /// not objects. What they disagree about is which machine instruction they
-    /// become, and that is the machine lowering's question rather than this table's.
+    /// They were ONE row, on the reasoning that which instruction they become is the
+    /// machine lowering's question. The machine lowering could not answer it -- the
+    /// graph did not say which of the five it was -- so every one over an operand
+    /// nothing proved was refused. That is `Compare`'s history, and it ended the same
+    /// way: a row each.
     ///
-    /// `>>>` is NOT here. It answers `ToUint32`, so `-1 >>> 0` is 4294967295 — a
-    /// number an `i32` cannot hold, and the one bitwise operator whose answer is not
-    /// an `Int32`. Giving it this row would be wrong at exactly the value that
-    /// distinguishes it.
-    BitwiseInt32,
+    /// `>>>` is a row of its own, [`JsPrim::ShiftRightUnsigned`]: it answers
+    /// `ToUint32`, so `-1 >>> 0` is 4294967295 -- a number an `i32` cannot hold.
+    BitAnd,
+    /// `a | b`, on `&`'s terms.
+    BitOr,
+    /// `a ^ b`, on `&`'s terms.
+    BitXor,
+    /// `a << b`, the count masked to five bits.
+    ShiftLeft,
+    /// `a >> b`, arithmetic, the count masked to five bits.
+    ShiftRight,
+    /// `a >>> b`: logical, and the one bitwise operator whose answer is not an
+    /// `Int32` -- a double holding an unsigned 32-bit number.
+    ShiftRightUnsigned,
     /// `-a`, which coerces and then negates.
     ///
     /// Apart from a subtraction from zero: `-0` is `-0` and `0 - 0` is `+0`, and the

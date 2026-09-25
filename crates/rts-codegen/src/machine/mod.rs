@@ -250,7 +250,7 @@ fn coerced(
 /// `TAG_INT32`, which is the second encoding `rts-core` holds. A word that is neither
 /// means the lattice was wrong, and it TRAPS rather than reading garbage as a double --
 /// a crash names the defect where a wrong number would not.
-fn unbox_number(into: &mut FuncBuilder, held: MachineValue) -> Result<MachineValue, String> {
+pub(super) fn unbox_number(into: &mut FuncBuilder, held: MachineValue) -> Result<MachineValue, String> {
     let join = into.create_block();
     let result = into.add_block_param(join, Repr::F64);
     let double = into.create_block();

@@ -206,7 +206,7 @@ impl Js {
         JsPrim::NewObject,
         JsPrim::EnvRead,
         JsPrim::EnvWrite,
-        JsPrim::BitwiseInt32,
+        JsPrim::BitAnd,
         JsPrim::Negate,
         JsPrim::BitwiseNot,
         JsPrim::ThisValue,
@@ -224,6 +224,11 @@ impl Js {
         JsPrim::EnvNew,
         JsPrim::EnvOuter,
         JsPrim::Exponent,
+        JsPrim::BitOr,
+        JsPrim::BitXor,
+        JsPrim::ShiftLeft,
+        JsPrim::ShiftRight,
+        JsPrim::ShiftRightUnsigned,
     ];
 
     /// A domain holding only the fixed constants.
@@ -315,7 +320,12 @@ impl Js {
             | JsPrim::LessOrEqual
             | JsPrim::GreaterOrEqual
             | JsPrim::LooseEquals
-            | JsPrim::BitwiseInt32
+            | JsPrim::BitAnd
+            | JsPrim::BitOr
+            | JsPrim::BitXor
+            | JsPrim::ShiftLeft
+            | JsPrim::ShiftRight
+            | JsPrim::ShiftRightUnsigned
             | JsPrim::Negate
             | JsPrim::BitwiseNot => match args.iter().all(Self::needs_no_coercion) {
                 true => match which {
@@ -538,9 +548,21 @@ impl Domain for Js {
             // ALWAYS an Int32 when either side rules a BigInt out, and that is the
             // reason a program writes one: `x | 0` is how a number becomes provably
             // narrow. `a | b` over two unknowns may be `3n | 4n`.
-            JsPrim::BitwiseInt32 => match args {
+            JsPrim::BitAnd
+            | JsPrim::BitOr
+            | JsPrim::BitXor
+            | JsPrim::ShiftLeft
+            | JsPrim::ShiftRight => match args {
                 [one, two] if Self::numeric_result(one) || Self::numeric_result(two) => {
                     Type::Int32
+                }
+                _ => Type::Anything,
+            },
+            // `>>>` answers `ToUint32`, a number and never an `Int32` -- the reason it
+            // is a row of its own.
+            JsPrim::ShiftRightUnsigned => match args {
+                [one, two] if Self::numeric_result(one) || Self::numeric_result(two) => {
+                    Type::Double
                 }
                 _ => Type::Anything,
             },
@@ -806,7 +828,7 @@ mod tests {
                 "{which:?}"
             );
         }
-        let bitwise = domain.prim(JsPrim::BitwiseInt32);
+        let bitwise = domain.prim(JsPrim::BitAnd);
         assert_eq!(
             domain.transfer(bitwise, &[Type::Anything, Type::Int32]),
             Type::Int32

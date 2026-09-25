@@ -1917,7 +1917,7 @@ boundary refused the operations they described:
 Measured 2026-09-24 per function against the previous commit: **5 384 → 7 218, none lost.**
 `tests/` 7 027 of 8 598; `bench/` 191 of 387, from 21.
 
-Still refused by the generic arm, each for a stated reason in `generic.rs`: `BitwiseInt32`
+Still refused by the generic arm, each for a stated reason in `generic.rs`: `BitAnd`
 (five operators under one row, the fault `Compare` had), and `ToNumber` over an unproved
 value (`i++` applies ToNumeric, and the call that exists, `UnaryPlus`, throws on a BigInt).
 

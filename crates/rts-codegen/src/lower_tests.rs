@@ -86,12 +86,16 @@ fn a_global_is_read_through_the_global_object() {
     assert!(held.effect.has(Effect::THROWS));
 }
 
-/// An operator with no row is refused as an operator. `**` was the example until it
-/// got its row; `>>>` is one still -- its answer is `ToUint32`, which no row holds.
+/// Every binary operator a program can write has a row, each its own: `**` got one,
+/// then the five bitwise operators and `>>>` stopped sharing one. Two rows that meant
+/// different operations under one number was how a whole family came to be refused.
 #[test]
-fn an_operator_with_no_row_is_refused_by_name() {
-    let refused = only("function f(a, b) { return a >>> b; }").expect_err("no row for >>>");
-    assert_eq!(refused, Unsupported::Operator(BinaryOp::UShr));
+fn every_binary_operator_has_a_row_of_its_own() {
+    for op in ["+", "-", "*", "/", "%", "**", "&", "|", "^", "<<", ">>", ">>>", "<", ">", "<=", ">=", "==", "===", "!=", "!==", "in", "instanceof"] {
+        let source = format!("function f(a, b) {{ return a {op} b; }}");
+        let lowered = only(&source).unwrap_or_else(|held| panic!("`{op}`: {held:?}"));
+        assert_eq!(verify(&lowered.func), Ok(()), "`{op}`");
+    }
 }
 
 /// Neither kind is turned away at the function any more, and this test replaced one
@@ -673,12 +677,12 @@ fn a_compound_assignment_to_a_property_is_refused_by_that_reason() {
     assert!(matches!(refused, Unsupported::Expression(_)));
 }
 
-/// An operator with no compound row is refused as an operator, not as a shape.
+/// A compound assignment of any operator is that operator's row and a rebind: `b >>>= a`
+/// reads `b` once, as the tree carrying the operator is there to keep.
 #[test]
-fn a_compound_form_of_an_unlowered_operator_is_refused_as_an_operator() {
-    let refused =
-        only("function f(a) { let b = 1; b >>>= a; return b; }").expect_err("no row for >>>");
-    assert!(matches!(refused, Unsupported::Operator(_)));
+fn a_compound_form_is_the_operators_row() {
+    let lowered = only("function f(a) { let b = 1; b >>>= a; b **= 2; return b; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
 }
 
 /// An array literal is one primitive over its elements, and it allocates.
@@ -1290,7 +1294,7 @@ fn a_bitwise_operator_answers_an_int32_and_the_next_one_is_therefore_pure() {
         .func
         .insts
         .iter()
-        .filter(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::BitwiseInt32)))
+        .filter(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if matches!(lowered.domain.meaning(*prim), Some(JsPrim::BitOr | JsPrim::BitAnd))))
         .collect();
     assert_eq!(bitwise.len(), 2);
     // Both answer an Int32...
@@ -1302,13 +1306,21 @@ fn a_bitwise_operator_answers_an_int32_and_the_next_one_is_therefore_pure() {
     assert!(bitwise[1].effect.is_pure());
 }
 
-/// `>>>` is NOT a row of that operator: it answers `ToUint32`, so `-1 >>> 0` is
-/// 4294967295 — which an `Int32` cannot hold. Giving it the row would be wrong at
-/// exactly the value that distinguishes it.
+/// `>>>` is a row of its own and answers a DOUBLE: it is `ToUint32`, so `-1 >>> 0` is
+/// 4294967295 -- which an `Int32` cannot hold. The row that answers `Int32` would be
+/// wrong at exactly the value that distinguishes it.
 #[test]
-fn unsigned_shift_is_refused_because_its_answer_is_not_an_int32() {
-    let refused = only("function f(x) { return x >>> 0; }").expect_err("no row for >>>");
-    assert_eq!(refused, Unsupported::Operator(BinaryOp::UShr));
+fn unsigned_shift_answers_a_double_and_not_an_int32() {
+    let lowered = only("function f(x) { return (x | 0) >>> 0; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    let shift = lowered
+        .func
+        .insts
+        .iter()
+        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::ShiftRightUnsigned)))
+        .expect("the unsigned shift is its own row");
+    assert_eq!(*types.of(shift.result), Type::Double);
 }
 
 /// Every expression kind names itself in a refusal. There was a fall-through arm

@@ -229,11 +229,11 @@ mod tests {
     fn a_refusal_is_printed_as_a_work_queue_and_counted() {
         let printed = describe(
             "function ok() { return 1; }
-             function nope(a, b) { return a >>> b; }",
+             function nope(a, b) { delete a.b; }",
         )
         .expect("parses");
         assert!(
-            printed.contains("fn nope — NOT LOWERED: operator"),
+            printed.contains("fn nope — NOT LOWERED: expression — delete"),
             "{printed}"
         );
         assert!(printed.contains("1 of 2 functions lowered"), "{printed}");
