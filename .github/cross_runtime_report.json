@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4657) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4596) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -11565,16 +11565,16 @@
 ,
 {
   "name": "obf_arrays_higher_order_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
-  "rts": "",
+  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11607,16 +11607,16 @@
 ,
 {
   "name": "obf_arrays_higher_order_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
-  "rts": "",
+  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11635,16 +11635,16 @@
 ,
 {
   "name": "obf_closures_scope_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0,3,6,9|12|inner|outer|12|3:2",
   "node": "0,3,6,9|12|inner|outer|12|3:2",
-  "rts": "",
+  "rts": "0,3,6,9|12|inner|outer|12|3:2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11677,16 +11677,16 @@
 ,
 {
   "name": "obf_closures_scope_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0,3,6,9|12|inner|outer|12|3:2",
   "node": "0,3,6,9|12|inner|outer|12|3:2",
-  "rts": "",
+  "rts": "0,3,6,9|12|inner|outer|12|3:2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11705,16 +11705,16 @@
 ,
 {
   "name": "obf_control_flow_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
-  "rts": "",
+  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11747,16 +11747,16 @@
 ,
 {
   "name": "obf_control_flow_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
-  "rts": "",
+  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11775,16 +11775,16 @@
 ,
 {
   "name": "obf_destructure_spread_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
-  "rts": "",
+  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11817,16 +11817,16 @@
 ,
 {
   "name": "obf_destructure_spread_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
-  "rts": "",
+  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11845,16 +11845,16 @@
 ,
 {
   "name": "obf_errors_throw_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
   "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
-  "rts": "",
+  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11887,16 +11887,16 @@
 ,
 {
   "name": "obf_errors_throw_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
   "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
-  "rts": "",
+  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11915,16 +11915,16 @@
 ,
 {
   "name": "obf_generators_async_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
   "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
-  "rts": "",
+  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11957,16 +11957,16 @@
 ,
 {
   "name": "obf_generators_async_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
   "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
-  "rts": "",
+  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -11985,16 +11985,16 @@
 ,
 {
   "name": "obf_getters_proxy_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
   "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
-  "rts": "",
+  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12013,16 +12013,16 @@
 ,
 {
   "name": "obf_getters_proxy_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
   "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
-  "rts": "",
+  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12041,16 +12041,16 @@
 ,
 {
   "name": "obf_numbers_ops_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
   "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
-  "rts": "",
+  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12083,16 +12083,16 @@
 ,
 {
   "name": "obf_numbers_ops_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
   "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
-  "rts": "",
+  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12111,16 +12111,16 @@
 ,
 {
   "name": "obf_objects_meta_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
   "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
-  "rts": "",
+  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12153,16 +12153,16 @@
 ,
 {
   "name": "obf_objects_meta_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
   "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
-  "rts": "",
+  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12181,16 +12181,16 @@
 ,
 {
   "name": "obf_proto_classes_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
   "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
-  "rts": "",
+  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot set property undefined of #<Object> which has only a getter"
+  "rts_error": ""
 }
 ,
 {
@@ -12223,16 +12223,16 @@
 ,
 {
   "name": "obf_proto_classes_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
   "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
-  "rts": "",
+  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12251,16 +12251,16 @@
 ,
 {
   "name": "obf_strings_regex_everything",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
   "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
-  "rts": "",
+  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -12293,16 +12293,16 @@
 ,
 {
   "name": "obf_strings_regex_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
   "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
-  "rts": "",
+  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -19167,16 +19167,16 @@
 ,
 {
   "name": "400_eval_scope_edges",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "local:missing\n7",
   "node": "local:missing\n7",
-  "rts": "",
+  "rts": "local:missing\n7",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: x is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -19727,10 +19727,10 @@
 ,
 {
   "name": "claude2-finally-throw-replaces-exception",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "replace_throw=from-finally\nreplace_throw_trace=try,finally\nreplace_return=over-return\nreplace_catch=wins\nreplace_catch_trace=catch:a,finally2\nnested_both=outer-replacement\nnested_both_trace=inner-finally,outer-finally\ninner_throw_outer_catch=substituted\nbreak_then_throw=i0,f0,i1,f1,caught:over-break\npassthrough=kept\npassthrough_trace=quiet-finally\nfrom_nothing=unprovoked\nthree_levels=L3\nthree_levels_trace=L0f,L1f,L2f\nnative_replaced=RangeError\nnative_replaced_is_range=true\nnative_replaced_is_type=false\nloop_stops=i0,f0,i1,f1,caught:replacement\nsibling_blocks=first-try,first-finally,caught:from-first,second-try,second-finally\nidentity_kept=true:Object\ncatch_returned_then_throw=catch-returns,finally-throws,caught:beats-return",
   "node": "replace_throw=from-finally\nreplace_throw_trace=try,finally\nreplace_return=over-return\nreplace_catch=wins\nreplace_catch_trace=catch:a,finally2\nnested_both=outer-replacement\nnested_both_trace=inner-finally,outer-finally\ninner_throw_outer_catch=substituted\nbreak_then_throw=i0,f0,i1,f1,caught:over-break\npassthrough=kept\npassthrough_trace=quiet-finally\nfrom_nothing=unprovoked\nthree_levels=L3\nthree_levels_trace=L0f,L1f,L2f\nnative_replaced=RangeError\nnative_replaced_is_range=true\nnative_replaced_is_type=false\nloop_stops=i0,f0,i1,f1,caught:replacement\nsibling_blocks=first-try,first-finally,caught:from-first,second-try,second-finally\nidentity_kept=true:Object\ncatch_returned_then_throw=catch-returns,finally-throws,caught:beats-return",
-  "rts": "replace_throw=from-finally\nreplace_throw_trace=try,finally\nreplace_return=over-return\nreplace_catch=wins\nreplace_catch_trace=catch:a,finally2\nnested_both=outer-replacement\nnested_both_trace=inner-finally,outer-finally\ninner_throw_outer_catch=substituted\nbreak_then_throw=i0,f0,i1,f1,f1,caught:over-break\npassthrough=kept\npassthrough_trace=quiet-finally\nfrom_nothing=unprovoked\nthree_levels=L3\nthree_levels_trace=L0f,L1f,L2f\nnative_replaced=RangeError\nnative_replaced_is_range=true\nnative_replaced_is_type=false\nloop_stops=i0,f0,i1,f1,caught:replacement\nsibling_blocks=first-try,first-finally,caught:from-first,second-try,second-finally\nidentity_kept=true:Object\ncatch_returned_then_throw=catch-returns,finally-throws,caught:beats-return",
+  "rts": "replace_throw=from-finally\nreplace_throw_trace=try,finally\nreplace_return=over-return\nreplace_catch=wins\nreplace_catch_trace=catch:a,finally2\nnested_both=outer-replacement\nnested_both_trace=inner-finally,outer-finally\ninner_throw_outer_catch=substituted\nbreak_then_throw=i0,f0,i1,f1,caught:over-break\npassthrough=kept\npassthrough_trace=quiet-finally\nfrom_nothing=unprovoked\nthree_levels=L3\nthree_levels_trace=L0f,L1f,L2f\nnative_replaced=RangeError\nnative_replaced_is_range=true\nnative_replaced_is_type=false\nloop_stops=i0,f0,i1,f1,caught:replacement\nsibling_blocks=first-try,first-finally,caught:from-first,second-try,second-finally\nidentity_kept=true:Object\ncatch_returned_then_throw=catch-returns,finally-throws,caught:beats-return",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1267,"reachable":1515,"rts_diverge":170,"bun_node_diverge":0,"errors":78,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1291,"reachable":1515,"rts_diverge":169,"bun_node_diverge":0,"errors":55,"rejected":0,"upstream_defect":1}}
