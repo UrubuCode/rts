@@ -262,6 +262,14 @@ impl MachineOps for JsMachine<'_> {
             return self.cached_read(into, *object, *key, inherited);
         }
 
+        // `o[k]` WITH A COMPUTED KEY reads through a keyed site -- `keyed.rs`.
+        if which == JsPrim::IndexRead
+            && let ([object, key], [_, of_key]) = (args, of.as_slice())
+            && self.reads_keyed(*of_key)
+        {
+            return self.keyed_read(into, *object, *key);
+        }
+
         // THE ENVIRONMENT, which is five operations over an ordinary object and a
         // parameter -- `lower/environment.rs` has the layout and whose it is.
         //
