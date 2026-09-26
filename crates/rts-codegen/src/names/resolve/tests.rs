@@ -138,3 +138,36 @@ fn a_name_no_scope_declares_resolves_to_nothing() {
     let math = names.intern("Math");
     assert!(out.binding_in(out.module(), math).is_none());
 }
+
+/// A `const` arrow only ever called, after it is written and in its own function, is
+/// folded into that function: its read of the loop counter is no capture, so the
+/// counter needs no environment per pass. Each use of another kind keeps it a function.
+#[test]
+fn an_arrow_only_called_is_folded_and_its_reads_are_not_captures() {
+    let fold = |source: &str| {
+        let mut names = Names::new();
+        let program = parse_script(source, &mut names).expect("parses");
+        let out = resolve_module(&program.body);
+        let i = names.intern("i");
+        let counter = (0..out.len())
+            .map(BindingId::from_index)
+            .find(|held| out.binding(*held).name == i);
+        (!out.omitted.is_empty(), counter.is_some_and(|held| out.captured(held)))
+    };
+    assert_eq!(
+        fold("function f(n) { let a = 0; for (let i = 0; i < n; i++) { const c = (x) => x + i; a = c(a); } return a; }"),
+        (true, false)
+    );
+    for kept in [
+        // handed on as a value
+        "function f(n, g) { for (let i = 0; i < n; i++) { const c = (x) => x + i; g(c); } }",
+        // called from another function
+        "function f(n) { for (let i = 0; i < n; i++) { const c = (x) => x + i; [1].map(() => c(1)); } }",
+        // a block between the arrow and the call shadows a name it reads
+        "function f(n) { for (let i = 0; i < n; i++) { const c = (x) => x + i; { let i = 9; c(1); } } }",
+        // a spread argument
+        "function f(n, xs) { for (let i = 0; i < n; i++) { const c = (x) => x + i; c(...xs); } }",
+    ] {
+        assert_eq!(fold(kept).0, false, "{kept}");
+    }
+}

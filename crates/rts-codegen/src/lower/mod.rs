@@ -761,6 +761,12 @@ impl Lowering<'_> {
                 Ok(self.prim(which, vec![held], expr))
             }
             // A FUNCTION EXPRESSION is a closure value naming which function it is.
+            // AN ARROW FOLDED INTO THIS FUNCTION is no function -- `names/resolve/omit.rs`
+            // -- and every call to it is substituted, so its `const` holds nothing a
+            // program reads.
+            ExprKind::Function(function) if self.resolution.omitted(function.at) => {
+                Ok(self.singleton_at(Singleton::Undefined, expr))
+            }
             ExprKind::Function(function) => match self.callees.of_position(function.at) {
                 Some(id) => Ok(self.closure(id, expr)),
                 // Unreachable through `lower_module`, which numbers every function of
@@ -838,23 +844,7 @@ impl Lowering<'_> {
                 arguments,
                 optional: false,
             } => {
-                if let Some(answered) = self.intrinsic(callee, arguments, expr)? {
-                    return Ok(answered);
-                }
-                if let ExprKind::Member {
-                    object,
-                    property,
-                    optional: false,
-                } = &callee.kind
-                    && let ExprKind::Ident(receiver) = &object.kind
-                    && let Some(answered) =
-                        self.substituted_method(*receiver, *property, object, arguments)?
-                {
-                    return Ok(answered);
-                }
-                if let ExprKind::Ident(name) = &callee.kind
-                    && let Some(answered) = self.substituted(*name, arguments)?
-                {
+                if let Some(answered) = self.call_replaced(callee, arguments, expr)? {
                     return Ok(answered);
                 }
                 let (callee, receiver) = self.callee_of(callee, expr)?;

@@ -180,6 +180,9 @@ fn attempt(
             true => vec![ctx.names.intern("__rts_this"), ctx.names.intern("arguments")],
             false => Vec::new(),
         };
+    // AN ARROW FOLDED INTO THIS FUNCTION is not compiled: every call to it is
+    // substituted, and nothing holds it -- `names/resolve/omit.rs`.
+    nested.found.retain(|(inner, _)| !resolution.omitted(inner.at));
     // The functions, then the class helpers, numbered in that order -- the order the
     // module list below is filled in.
     let positions: Vec<rts_cranelift::fault::Position> = nested

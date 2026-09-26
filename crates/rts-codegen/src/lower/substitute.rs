@@ -48,6 +48,49 @@ pub struct Substitute {
 
 impl Lowering<'_> {
     /// `name(arguments)` as its body, or `None` where it stays a call.
+    /// A call the program wrote, answered without calling where something proves it
+    /// may be: `Math.*`, a proved method, a proved or local function -- or refused where
+    /// it names a folded arrow that did not substitute. `None` where it stays a call.
+    pub(super) fn call_replaced(
+        &mut self,
+        callee: &Expr,
+        arguments: &[Spreadable],
+        expr: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        use crate::syntax::ExprKind;
+        if let Some(answered) = self.intrinsic(callee, arguments, expr)? {
+            return Ok(Some(answered));
+        }
+        if let ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } = &callee.kind
+            && let ExprKind::Ident(receiver) = &object.kind
+            && let Some(answered) =
+                self.substituted_method(*receiver, *property, object, arguments)?
+        {
+            return Ok(Some(answered));
+        }
+        if let ExprKind::Ident(name) = &callee.kind {
+            if let Some(answered) = self.substituted(*name, arguments)? {
+                return Ok(Some(answered));
+            }
+            // A CALL TO A FOLDED ARROW that did not substitute has nothing to
+            // call: refused, so the function is compiled where the arrow is one.
+            if self
+                .resolution
+                .binding_in(self.scope, *name)
+                .is_some_and(|held| self.resolution.binds_omitted(held))
+            {
+                return Err(Unsupported::Expression(
+                    "a call to a folded arrow that could not be substituted",
+                ));
+            }
+        }
+        Ok(None)
+    }
+
     /// `o.m(arguments)` as the method's body, with `this` bound to `o`'s value, or
     /// `None` where it stays a call.
     pub(super) fn substituted_method(

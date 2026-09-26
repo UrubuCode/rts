@@ -57,6 +57,11 @@ pub(super) struct Reference {
     /// The activation it runs in: a function or module scope, or a class body for a
     /// field initialiser or a static block.
     pub(super) function: ScopeId,
+    /// That the use is the callee of a direct call with no spread -- `f(a, b)` -- which
+    /// is the one use an omitted arrow may have (`omit.rs`).
+    pub(super) called: bool,
+    /// Where it was written.
+    pub(super) at: rts_cranelift::fault::Position,
 }
 
 /// What the finished walk says about capture.

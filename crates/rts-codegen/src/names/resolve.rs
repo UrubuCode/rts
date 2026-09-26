@@ -174,9 +174,13 @@ pub struct Resolution {
     /// The function-level `var` each block-level function declaration also writes,
     /// by the declaration's position -- `annex.rs`.
     annex: BTreeMap<Position, BindingId>,
+    /// The arrows folded into the function that declares them -- `omit.rs` -- by
+    /// their position, and the `const` each is bound to.
+    omitted: BTreeMap<Position, BindingId>,
 }
 
 mod annex;
+mod omit;
 mod captured;
 pub use captured::Environment;
 
@@ -329,6 +333,7 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
         field_code: None,
         references: Vec::new(),
         annex: Vec::new(),
+        arrows: Vec::new(),
     };
     for item in items {
         match item {
@@ -352,9 +357,11 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
             },
         }
     }
-    let references = std::mem::take(&mut walker.references);
+    let mut references = std::mem::take(&mut walker.references);
     let annex = std::mem::take(&mut walker.annex);
+    let arrows = std::mem::take(&mut walker.arrows);
     out.settle_annex(&annex);
+    out.settle_omitted(&arrows, &mut references);
     out.settle_capture(&references);
     out
 }
@@ -385,11 +392,14 @@ pub fn resolve_program(body: &[Stmt], imports: &[crate::syntax::Import]) -> Reso
         field_code: None,
         references: Vec::new(),
         annex: Vec::new(),
+        arrows: Vec::new(),
     };
     walker.statements(body, module);
-    let references = std::mem::take(&mut walker.references);
+    let mut references = std::mem::take(&mut walker.references);
     let annex = std::mem::take(&mut walker.annex);
+    let arrows = std::mem::take(&mut walker.arrows);
     out.settle_annex(&annex);
+    out.settle_omitted(&arrows, &mut references);
     out.settle_capture(&references);
     out
 }
@@ -435,6 +445,8 @@ struct Walker<'a> {
     references: Vec<captured::Reference>,
     /// Every function declaration met in a block, for `annex.rs` to settle.
     annex: Vec<annex::Candidate>,
+    /// Every `const` bound to an arrow `omit.rs` might fold into its function.
+    arrows: Vec<omit::Arrow>,
     /// The class body whose field initialiser or static block is being walked. That
     /// code runs in a constructor or a class evaluation, not in the activation the
     /// class is written in, so a use there is attributed to the class body.
@@ -460,10 +472,23 @@ impl Walker<'_> {
 
     /// Records a use of `name` from `scope`, to be resolved when the walk ends.
     fn used(&mut self, name: crate::names::Name, scope: ScopeId) {
+        self.used_at(name, scope, Position::default(), false);
+    }
+
+    /// A use with where it was written and whether it is a direct call's callee.
+    fn used_at(
+        &mut self,
+        name: crate::names::Name,
+        scope: ScopeId,
+        at: Position,
+        called: bool,
+    ) {
         self.references.push(captured::Reference {
             name,
             scope,
             function: self.field_code.unwrap_or(self.function),
+            called,
+            at,
         });
     }
 
@@ -484,6 +509,11 @@ impl Walker<'_> {
             StmtKind::Declare { kind, bindings } => {
                 let (origin, at) = self.destination(*kind, scope);
                 self.bindings_of(bindings, origin, at, scope);
+                if *kind == crate::syntax::BindingKind::Const {
+                    for binding in bindings {
+                        self.arrow_candidate(binding, at);
+                    }
+                }
             }
             StmtKind::Using { bindings, .. } => {
                 self.bindings_of(bindings, Origin::Lexical, scope, scope);
@@ -625,6 +655,8 @@ impl Walker<'_> {
                         name,
                         scope,
                         function: protected,
+                        called: false,
+                        at: Position::default(),
                     });
                 }
                 self.statements(body, protected);
@@ -864,7 +896,27 @@ impl Walker<'_> {
                 self.field_code = enclosing;
                 return;
             }
-            ExprKind::Ident(name) => self.used(*name, scope),
+            ExprKind::Ident(name) => self.used_at(*name, scope, expr.at, false),
+            // A DIRECT CALL BY NAME, recorded as one: the use `omit.rs` asks about.
+            ExprKind::Call {
+                callee,
+                arguments,
+                optional: false,
+            } if matches!(callee.kind, ExprKind::Ident(_))
+                && arguments
+                    .iter()
+                    .all(|held| matches!(held, crate::syntax::Spreadable::Single(_))) =>
+            {
+                if let ExprKind::Ident(name) = callee.kind {
+                    self.used_at(name, scope, callee.at, true);
+                }
+                for argument in arguments {
+                    if let crate::syntax::Spreadable::Single(value) = argument {
+                        self.expression(value, scope);
+                    }
+                }
+                return;
+            }
             // A destructuring ASSIGNMENT writes the names at its leaves, and the shared
             // walk reports only the expressions inside a pattern -- its own comment
             // records the gap. Reported here rather than there, because a binding this
