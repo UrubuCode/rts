@@ -56,3 +56,12 @@ pub fn with_dom_mut<R>(h: u64, f: impl FnOnce(&mut Dom) -> R) -> Option<R> {
 pub fn exists(h: u64) -> bool {
     DOMS.with(|m| m.borrow().contains_key(&h))
 }
+
+/// The most recently created live document, if any.
+///
+/// Asked by the inspector (`rts-dom-bridge`'s `inspector` feature), which shows
+/// one document: the newest one is the page a window shows, and the one a
+/// headless program just parsed.
+pub fn latest() -> Option<u64> {
+    DOMS.with(|m| m.borrow().keys().copied().max())
+}

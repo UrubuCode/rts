@@ -34,6 +34,7 @@ pub fn clear_active_measurer() {
 
 mod gradiente;
 mod medida;
+mod overlay;
 mod pintura;
 mod scroll;
 
@@ -293,6 +294,8 @@ pub(crate) fn render_dom_scrolled(
     // campo gravado no item, que pode vir de um fragmento reusado do cache) —
     // por isso precisa do empréstimo, não só da `list` (já uma cópia própria).
     let _ = rts_dom::store::with_dom(h, |d| paint_list(ui, &list, -offset, d));
+    // The inspector's highlight, on top of the page and under the same clip.
+    overlay::paint(ui, h, &list, &geometry, offset);
     ui.set_clip_rect(old_clip);
 
     // HIT-TEST de CLIQUE (north-star §3 + handoff #1793 item 6): o egui é só o

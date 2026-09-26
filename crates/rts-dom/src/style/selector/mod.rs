@@ -8,6 +8,7 @@
 mod tipos;
 mod sintaxe;
 mod casamento;
+mod serialize;
 
 pub use tipos::*;
 use sintaxe::*;

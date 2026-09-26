@@ -48,6 +48,7 @@ mod freelist;
 mod geometria;
 mod has;
 mod helpers;
+mod inspect;
 mod invalidacao;
 mod matcher;
 mod mutacao;
@@ -58,6 +59,7 @@ mod serial;
 mod travessia;
 
 pub use self::no::{Attr, Node, NodeId, NodeKind};
+pub use self::inspect::MatchedRuleView;
 pub use self::eventos::{RawInputEvent, RawKeyboardEvent};
 pub use self::parser::{parse_fragmento, parse_html_to_dom};
 pub(crate) use self::chaves_cache::{

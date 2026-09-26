@@ -55,6 +55,8 @@ pub mod counters;
 /// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
 /// mutações pela fachada `document` mudam o que a janela pinta.
 pub mod store;
+/// The inspector's highlighted node (`rts-dom-bridge` feature `inspector`).
+pub mod overlay;
 /// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
 /// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
 /// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
@@ -118,7 +120,8 @@ pub mod scrollbar;
 pub mod painteffects;
 
 pub use dom::{
-    Attr, Dom, ListenerOptions, Node, NodeId, NodeIdx, NodeKind, RawInputEvent, RawKeyboardEvent,
+    Attr, Dom, ListenerOptions, MatchedRuleView, Node, NodeId, NodeIdx, NodeKind, RawInputEvent,
+    RawKeyboardEvent,
     parse_html_to_dom,
 };
 

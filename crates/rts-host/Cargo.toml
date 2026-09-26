@@ -92,9 +92,13 @@ serde_json = "1.0"
 # cross-runtime. Num alvo sem tela isso e peso morto, e num alvo que nao TEM
 # janela (wasm) e um erro de link. Quando esse alvo existir, a feature volta a
 # ser opcional e o motivo sera este, medido, e nao um crate que ja nao existe.
-default = ["physics", "ui"]
+default = ["physics", "ui", "inspector"]
 ui = ["dep:rts-ui"]
 physics = ["dep:rts-physics"]
+# The DevTools endpoint (`--inspect`): the CDP transport in `rts-node` and the
+# DOM domains in `rts-dom-bridge`, wired together in `run.rs`. Default ON for
+# the CLI; `rts-runtime-boot` (the AOT `.exe`) does not enable it.
+inspector = ["rts-node/cdp", "rts-dom-bridge/inspector"]
 
 # Os dois alvos que só existem com a UI. Sem isto um `cargo test -p rts-host`
 # tentaria compilá-los sem o crate e falharia por nome não resolvido, que é uma
