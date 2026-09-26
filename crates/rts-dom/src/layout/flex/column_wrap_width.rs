@@ -7,25 +7,25 @@
 //! controlos", e não pode crescer).
 //!
 //! **Sem altura definida (`height`/`max-height`), não há limiar de quebra**
-//! (`coluna_wrap.rs`/`bloco.rs::wrap_definite_h`) — o contentor nunca chega a
+//! (`column_wrap.rs`/`block.rs::wrap_definite_h`) — o contentor nunca chega a
 //! ter mais de uma coluna, então a soma degenera na largura de UM item, que é
 //! exatamente o que `intrinsic_content_width` já devolve. Por isso esta
 //! função só precisa de agrupar quando o limiar existe; sem ele, delega.
 //!
 //! O agrupamento aqui é DELIBERADAMENTE mais simples do que
-//! `coluna_wrap.rs`: nenhum item aqui ainda tem `flex-grow`/`flex-shrink`
+//! `column_wrap.rs`: nenhum item aqui ainda tem `flex-grow`/`flex-shrink`
 //! resolvido (a largura `max-content` do CONTENTOR precisa de existir ANTES
 //! de layoutar os filhos — é o containing block deles), então a base de cada
 //! item é a sua altura NATURAL (`child_outer_height`), sem crescer/encolher.
 //! É a mesma ordem de dependência que já vale para `content_w` inteiro:
-//! `bloco.rs` resolve a largura do container antes de chamar
-//! `layout_children_column`/`coluna_wrap.rs`.
+//! `block.rs` resolve a largura do container antes de chamar
+//! `layout_children_column`/`column_wrap.rs`.
 
 use super::*;
 
 /// Largura que o WPT `col-wrap-*` chama de `width:max-content` num flex
 /// column-wrap: a soma da largura de cada coluna (o maior item dela) mais o
-/// `column-gap` entre colunas — o mesmo PASSO 1/2/4 de `coluna_wrap.rs`, só
+/// `column-gap` entre colunas — o mesmo PASSO 1/2/4 de `column_wrap.rs`, só
 /// que medindo em vez de posicionar, e sem grow/shrink (ver o comentário do
 /// módulo).
 pub(in crate::layout) fn max_content_width(
@@ -50,7 +50,7 @@ pub(in crate::layout) fn max_content_width(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    // Mesmo limiar de `bloco.rs::wrap_definite_h`: `height`/`max-height`
+    // Mesmo limiar de `block.rs::wrap_definite_h`: `height`/`max-height`
     // resolvidos, NUNCA `min-height` (um piso não é o que decide onde uma
     // coluna "encheu" — ver o comentário lá).
     let wrap_definite_h = resolve_height(css.height, avail_h, &resolve)
@@ -112,7 +112,7 @@ pub(in crate::layout) fn max_content_width(
         return fallback();
     }
 
-    // Mesmo empacotamento guloso de `coluna_wrap.rs` PASSO 2, sem `order`
+    // Mesmo empacotamento guloso de `column_wrap.rs` PASSO 2, sem `order`
     // (a ordem do documento chega a ele já correta para este propósito: só
     // conta QUANTAS colunas nascem e o maior item de cada uma).
     let mut columns: Vec<f32> = vec![0.0]; // largura (maior item) de cada coluna

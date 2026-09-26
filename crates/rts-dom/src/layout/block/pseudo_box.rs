@@ -1,8 +1,8 @@
 //! A CAIXA de um pseudo-elemento (`::before`/`::after`) medida com box model
 //! completo — padding, borda, margem, `box-sizing` — e pintada (fundo, quatro
 //! barras de borda, texto). Antes deste lote (issue #2731, BT-5) isto vivia
-//! DUAS vezes, byte a byte: `pseudo_bloco.rs::PseudoBlockBox`/`medir`/`pintar`
-//! e `flex_pseudo.rs::PseudoItem`/`medir`/`pintar` resolviam o MESMO padding,
+//! DUAS vezes, byte a byte: `pseudo_block.rs::PseudoBlockBox`/`medir`/`pintar`
+//! e `flex/pseudo.rs::PseudoItem`/`medir`/`pintar` resolviam o MESMO padding,
 //! a MESMA borda, a MESMA margem e pintavam com o MESMO desenho — só a
 //! decisão de largura/altura por omissão divergia entre os dois papéis. Uma
 //! correção ao desenho (a próxima borda com canto arredondado, por exemplo)
@@ -14,7 +14,7 @@
 //! line carries as an atom, sized by the same [`montar`] and painted by the
 //! same [`pintar`]. An `inline` pseudo does not become a `CaixaGerada` — it
 //! is text that breaks with the line, so its surface is painted per line
-//! fragment by `inline_fragmentos.rs`, the way a real inline's is.
+//! fragment by `inline_fragments.rs`, the way a real inline's is.
 //!
 //! The text of the box WRAPS at its content width ([`linhas_do_texto`]), by
 //! the same `wrap_runs` the line flow uses. It used to be measured as one
@@ -30,16 +30,16 @@
 //!   largura do texto medido). Cada chamador decide o SEU par e entrega-o já
 //!   resolvido a [`montar`]; nenhum dos dois é "o certo" para o outro papel.
 //! - **o colapso de margem**: um pseudo de bloco participa dele como
-//!   qualquer filho de bloco (`pseudo_bloco.rs` reusa a máquina de
-//!   `vertical.rs` — `Strut`/`junta_ao_strut`/`strut_colapsado`); um item flex
+//!   qualquer filho de bloco (`pseudo_block.rs` reusa a máquina de
+//!   `vertical_flow.rs` — `Strut`/`junta_ao_strut`/`strut_colapsado`); um item flex
 //!   NUNCA colapsa margens com o que o rodeia (Flexbox §4: "margins of
-//!   adjacent flex items do not collapse"), por isso `flex_pseudo.rs` não
+//!   adjacent flex items do not collapse"), por isso `flex/pseudo.rs` não
 //!   chama nada disto e usa `ml`/`mr`/`mt`/`mb` diretamente.
 
 use super::*;
 
 /// A caixa OUTER (com margens) de um pseudo-elemento, já medida — comum aos
-/// dois papéis. `pseudo_bloco.rs` e `flex_pseudo.rs` continuam a ter os seus
+/// dois papéis. `pseudo_block.rs` e `flex/pseudo.rs` continuam a ter os seus
 /// próprios nomes (`PseudoBlockBox`, `PseudoItem`) como `type` alias para
 /// este tipo: o nome no ponto de uso ainda diz qual papel é, só a estrutura
 /// deixou de estar escrita duas vezes.
@@ -197,14 +197,14 @@ pub(in crate::layout) fn montar(
 
 /// Pinta a caixa com o canto superior-esquerdo da margin box em (`x`,`y`):
 /// fundo, as quatro barras de borda, o texto — o desenho que
-/// `pseudo_bloco.rs` e `flex_pseudo.rs` tinham cada um a sua cópia dele.
+/// `pseudo_block.rs` e `flex/pseudo.rs` tinham cada um a sua cópia dele.
 ///
 /// And records its BORDER box under its `BoxId`, the rect every other box
 /// records (`layout_block`'s `box_rect`), so `DisplayList::rect_of_box`
 /// answers for it. Here and not in each role: this is the one place all three
 /// (block, flex item, `inline-block` atom) pass with their final position.
 /// It reaches no DOM-facing geometry — the box has no node — and it is
-/// shifted with its element by `relativo.rs`/`transform_rects.rs`, which walk
+/// shifted with its element by `relative.rs`/`transform_rects.rs`, which walk
 /// the tree's full `children`.
 pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: f32, y: f32, ctx: &LayoutCtx) {
     let css = &caixa.caixa.css;

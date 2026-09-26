@@ -2,14 +2,14 @@
 //! `<div style="display:table">abc</div>` (a célula anónima da grelha é o
 //! próprio nó de texto, `table/grid.rs`), ou texto directo na raiz.
 //!
-//! `bloco.rs` pintava-o com a fonte por omissão (16px, altura de linha do
+//! `block.rs` pintava-o com a fonte por omissão (16px, altura de linha do
 //! medidor) e ignorava o pai: numa página com `font: 16px/20px` a linha saía
 //! com 18 e não 20, e a cor/negrito/família do pai perdiam-se. O texto solto
 //! HERDA — é o pai que diz a fonte — e é isso que aqui se lê
 //! (`claude-table-texto-solto-sem-celula`: a `display:table` com texto mede
 //! os mesmos 20px que o bloco irmão).
 //!
-//! Vive à parte porque `bloco.rs` já passa o tecto das 500 linhas.
+//! Vive à parte porque `block.rs` já passa o tecto das 500 linhas.
 
 use super::*;
 

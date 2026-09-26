@@ -1,14 +1,14 @@
 //! FLEX em COLUNA com `flex-wrap`: quebra os itens em VÁRIAS COLUNAS quando o
 //! eixo PRINCIPAL (a altura, sempre DEFINIDA aqui — ver o corte no fim) não
 //! os comporta — o espelho, no eixo ortogonal, do `wrap` que
-//! `layout_children_horizontal` (`flex.rs`) já faz agrupando em `lines`.
+//! `layout_children_horizontal` (`row.rs`) já faz agrupando em `lines`.
 //!
 //! Algoritmo (Flexbox §9.3/§9.4, eixos trocados por `flex-direction:column`):
-//! agrupa os itens em colunas pela BASE do eixo principal (como `flex.rs`
+//! agrupa os itens em colunas pela BASE do eixo principal (como `row.rs`
 //! agrupa em linhas pela largura), aplica `flex-grow`/`flex-shrink` POR
 //! COLUNA (reusa [`super::column_shrink`]), a largura de cada coluna é o
 //! maior item dela, e o espaço cruzado sobrante entre colunas reparte-se por
-//! `align-content` — `normal` (não declarado) estica-as, como `flex.rs` já
+//! `align-content` — `normal` (não declarado) estica-as, como `row.rs` já
 //! faz para linhas (achado do lote `flex-coluna-shrink`, mesma regra).
 //!
 //! **A ORDEM do agrupamento é sempre a do documento (após `order`), NUNCA a
@@ -16,7 +16,7 @@
 //! espelha com `column-reverse` — confirmado item a item contra os quatro
 //! `flexbox_flow-column{,-reverse}-wrap{,-reverse}` do WPT (as referências
 //! usam floats reordenados para simular o resultado): agrupar já invertido
-//! (o que `flex.rs`/`coluna.rs` fazem para o caso de UMA linha, onde não faz
+//! (o que `row.rs`/`column.rs` fazem para o caso de UMA linha, onde não faz
 //! diferença) dá `flexbox_flow-column-reverse-wrap` errado — o par
 //! (two,one)/(four,three) que o WPT pede sai (four,three)/(two,one) se a
 //! lista inteira for invertida antes de agrupar.
@@ -27,37 +27,7 @@
 
 use super::*;
 use crate::layout::flex::column::{align_offset, justify_e_align, justify_offsets};
-
-/// Um item pré-medido: `main` é a altura outer (cresce/encolhe por coluna,
-/// mesmo papel de `ColItem::h` em `coluna.rs`); `cross` é a largura NATURAL
-/// (shrink-to-fit — para um item com `width` explícito é essa largura, sem
-/// depender de quantas colunas existem: por isso pode ser medida ANTES de se
-/// saber a largura da coluna).
-struct Item {
-    node: NodeIdx,
-    caixa: crate::boxes::BoxId,
-    main: f32,
-    cross: f32,
-    is_text: bool,
-    grow: f32,
-    shrink: f32,
-    min_main: f32,
-    align_self: Option<crate::style::AlignItems>,
-    /// só estica no eixo cruzado quando a LARGURA não é explícita — o mesmo
-    /// "`can_stretch`" de `FlexItem` em `flex.rs`, só que no eixo trocado.
-    can_stretch: bool,
-    order: i32,
-    /// margens `auto` no eixo PRINCIPAL (vertical) — mesma leitura de
-    /// `ColItem::mt_auto`/`mb_auto` em `coluna.rs`, que faltava aqui (corte
-    /// dito no cabeçalho do módulo até este lote): uma margem `auto` vence o
-    /// `justify-content` da COLUNA que a contém (spec §8.1) — sem isto, um
-    /// item de `margin-bottom:auto` numa coluna de `flex-wrap` recebia o
-    /// mesmo offset `space-around`/`space-between` das colunas SEM margem
-    /// `auto`, em vez de ficar encostado ao início com o livre absorvido no
-    /// fim (`flexbox-column-row-gap-001`, WPT).
-    mt_auto: bool,
-    mb_auto: bool,
-}
+use super::column_wrap_item::Item;
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_column_wrap(
@@ -66,7 +36,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
     content_x: f32,
     content_y: f32,
     content_w: f32,
-    // DEFINIDA — quem despacha (`coluna.rs`) só chama este caminho com
+    // DEFINIDA — quem despacha (`column.rs`) só chama este caminho com
     // `Some`; sem uma altura definida não há critério de "a coluna encheu".
     container_content_h: f32,
     css: &ComputedStyle,
@@ -83,13 +53,13 @@ pub(in crate::layout) fn layout_children_column_wrap(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    // Mesma regra de `coluna.rs`: o gap ENTRE ITENS (eixo principal, vertical)
+    // Mesma regra de `column.rs`: o gap ENTRE ITENS (eixo principal, vertical)
     // é SÓ o row-gap; o gap ENTRE COLUNAS (eixo cruzado, horizontal) é o
-    // column-gap (`css.gap`) — o espelho exato do que `flex.rs` faz (gap
+    // column-gap (`css.gap`) — o espelho exato do que `row.rs` faz (gap
     // entre itens de uma linha = `css.gap`; row_gap entre LINHAS). Sem
     // `.or(css.gap)`: `column-gap` sozinho não empurra os itens dentro de UMA
     // coluna (lote `flex-gap-2`, `flexbox-column-row-gap-004` do WPT — ver o
-    // comentário mais completo em `coluna.rs`, de onde este ficheiro herdou
+    // comentário mais completo em `column.rs`, de onde este ficheiro herdou
     // o mesmo fallback ao ser extraído).
     let main_gap = resolve_height(css.row_gap, Some(container_content_h), &resolve)
         .unwrap_or(0.0)
@@ -101,7 +71,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         .max(0.0);
     let (justify, align) = justify_e_align(css, reverse);
 
-    // ── PASSO 1: mede cada filho nos DOIS eixos (mesma base de `coluna.rs`,
+    // ── PASSO 1: mede cada filho nos DOIS eixos (mesma base de `column.rs`,
     // mais a largura NATURAL para decidir a largura de cada coluna) ─────────
     let mut items: Vec<Item> = Vec::new();
     let tree = std::rc::Rc::clone(&list.tree);
@@ -136,7 +106,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 cross: w,
                 is_text: true,
                 grow: 0.0,
-                shrink: 0.0, // texto solto não encolhe, como em `coluna.rs`/`flex.rs`.
+                shrink: 0.0, // texto solto não encolhe, como em `column.rs`/`row.rs`.
                 min_main: h,
                 align_self: None,
                 can_stretch: false,
@@ -172,7 +142,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         // `column_shrink::min_main` (lote `flex-coluna-shrink`, retrabalho):
         // decide entre o declarado, `min-content` (§4.5, não some sob
         // overflow não-visível) e o automático — a mesma pergunta que
-        // `coluna.rs` faz, agora numa função só.
+        // `column.rs` faz, agora numa função só.
         let min_main = super::column_shrink::min_main(dom, child, caixa, &ccss, natural_h, Some(container_content_h), &resolve_filho, ctx);
         // Largura NATURAL (shrink-to-fit): para um item de `width` explícito
         // é essa largura, qualquer que seja a coluna — layout_block honra o
@@ -215,7 +185,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
     items.sort_by_key(|it| it.order);
 
     // ── PASSO 2: agrupa em COLUNAS pela BASE do eixo principal (o mesmo
-    // empacotamento guloso de `flex.rs`, eixo trocado) ──────────────────────
+    // empacotamento guloso de `row.rs`, eixo trocado) ──────────────────────
     let balanced = css.flex_wrap.is_some_and(crate::style::FlexWrap::balances);
     let mains: Vec<f32> = items.iter().map(|it| it.main).collect();
     let mut minimum = 1usize;
@@ -297,7 +267,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
 
     // ── PASSO 3: `flex-grow`/`flex-shrink` no eixo principal, POR COLUNA —
     // mesma iteração de `column_shrink::shrink`, agora por grupo em vez de
-    // uma vez só (mesma relação que `flex.rs` tem entre uma linha e o
+    // uma vez só (mesma relação que `row.rs` tem entre uma linha e o
     // container inteiro sem wrap) ────────────────────────────────────────────
     for col in columns.iter_mut() {
         let n = col.len();
@@ -325,7 +295,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
 
     // ── PASSO 4: largura de cada coluna (o maior item dela) e `align-content`
     // no eixo cruzado — `normal` (não declarado) estica as colunas para
-    // preencher o espaço sobrante, a mesma regra que `flex.rs` já tem para
+    // preencher o espaço sobrante, a mesma regra que `row.rs` já tem para
     // linhas (achado `claude-gap-row-percentual-eixo`, lote `flex-coluna-shrink`) ──
     let mut col_cross: Vec<f32> = columns
         .iter()
@@ -382,7 +352,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
     // As duas trocas são a mesma pergunta feita duas vezes: RTL sozinho
     // inverte, `wrap-reverse` sozinho inverte, os dois juntos cancelam — daí o
     // XOR. Só quando `writing-mode` é horizontal (o único que este motor
-    // faz) — a mesma guarda de `column_rtl::cross_x`/`rtl_bloco.rs`.
+    // faz) — a mesma guarda de `column_rtl::cross_x`/`rtl.rs`.
     let rtl_horizontal = matches!(css.direction, Some(crate::style::Direction::Rtl))
         && css.writing_mode.unwrap_or_default().is_horizontal();
     let mut columns = columns;
@@ -400,7 +370,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
         let free = container_content_h - sum_main - total_gap;
         // Margem `auto` no eixo principal (Flexbox §8.1) vence o
-        // `justify-content` DESTA coluna — mesma regra de `coluna.rs`: com
+        // `justify-content` DESTA coluna — mesma regra de `column.rs`: com
         // pelo menos um `auto` a lista fica encostada ao início (leading=0,
         // between=0) e cada `auto` absorve a sua fatia do livre POSITIVO.
         let auto_count: usize = col
@@ -504,7 +474,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                     true, // hard: o main size de coluna sempre vence o height próprio.
                     !stretches,
                     // Item de flex-column: mesma razão do caminho de UMA
-                    // coluna em `coluna.rs` — floats não atravessam um
+                    // coluna em `column.rs` — floats não atravessam um
                     // container flex.
                     &BlockFormattingContext::new(),
                     ctx,
@@ -525,11 +495,11 @@ pub(in crate::layout) fn layout_children_column_wrap(
 // CORTES documentados (nenhuma fixture medida ou WPT deste lote precisa):
 //
 // - **Largura shrink-to-fit do CONTENTOR**: `content_w` chega já resolvido
-//   (o chamador, `bloco.rs`, resolve a largura do container ANTES de
+//   (o chamador, `block.rs`, resolve a largura do container ANTES de
 //   layoutar os filhos) — quando o autor não declara `width` num
 //   `flex-column wrap` FORA do fluxo normal (`float`/`inline-flex` sem
 //   largura), o browser soma as larguras das colunas; este motor usa a
-//   largura que `bloco.rs` já deu (fill-available do bloco, ou o
+//   largura que `block.rs` já deu (fill-available do bloco, ou o
 //   shrink-to-fit de uma coluna só, calculado sem saber que vai haver
 //   wrap). Precisa de uma segunda passada (medir o nº de colunas ANTES da
 //   largura) — é a circularidade que o WPT `multiline-shrink-to-fit`
@@ -538,10 +508,10 @@ pub(in crate::layout) fn layout_children_column_wrap(
 //   Blink.
 // - **Margem `auto` no eixo principal** (`margin-top`/`margin-bottom: auto`
 //   dentro de uma coluna) não é lida aqui — nenhuma fixture ou WPT deste
-//   lote combina os dois; `coluna.rs` (uma coluna) continua a lê-la.
-// - **`::before`/`::after` como item flex** (`flex_pseudo.rs`) não entra no
+//   lote combina os dois; `column.rs` (uma coluna) continua a lê-la.
+// - **`::before`/`::after` como item flex** (`flex/pseudo.rs`) não entra no
 //   caminho de coluna nenhum, com ou sem wrap — gap pré-existente do
-//   `coluna.rs` de uma coluna, não deste lote.
+//   `column.rs` de uma coluna, não deste lote.
 // - **RESOLVIDO no lote `flex-reverse-order`**: `direction:rtl` inverte a
 //   ORDEM DAS COLUNAS no eixo cruzado, do mesmo jeito que `wrap-reverse`
 //   (PASSO 4, XOR das duas) — não só o item DENTRO da coluna

@@ -4,8 +4,8 @@
 //! contentor como se fosse `horizontal-tb`.
 //!
 //! Duas perguntas, resolvidas uma vez aqui e nunca duplicadas nos dois
-//! algoritmos físicos (`flex.rs` = eixo X principal, `coluna.rs`/
-//! `coluna_wrap.rs` = eixo Y principal):
+//! algoritmos físicos (`row.rs` = eixo X principal, `column.rs`/
+//! `column_wrap.rs` = eixo Y principal):
 //!
 //! 1. **Que eixo físico é o principal?** `flex-direction:row` é sempre o
 //!    eixo INLINE e `column` é sempre o eixo de BLOCO (Flexbox §3) — e é o
@@ -15,7 +15,7 @@
 //!    Por isso `main_no_eixo_y` é um XOR entre a keyword e
 //!    `!writing_mode.is_horizontal()`: as DUAS trocas ao mesmo tempo
 //!    cancelam-se (uma `column` vertical volta a ser X, o caso comum de
-//!    `flex.rs`).
+//!    `row.rs`).
 //!
 //! 2. **Em que sentido corre cada eixo físico?** Um eixo físico corre no
 //!    sentido que os dois algoritmos já assumem como "positivo" (X: LTR;
@@ -38,7 +38,7 @@ use crate::style::{Direction, FlexWrap, WritingMode};
 use crate::style::text::{eixo_x_forward, eixo_y_forward};
 
 /// `true` quando o eixo PRINCIPAL do flex é o físico Y — a pergunta 1 do
-/// cabeçalho. Quem despacha (`bloco.rs`) troca de algoritmo por isto, no
+/// cabeçalho. Quem despacha (`block.rs`) troca de algoritmo por isto, no
 /// lugar de perguntar só pela keyword `flex-direction:column`.
 pub(in crate::layout) fn main_no_eixo_y(wm: WritingMode, is_column_keyword: bool) -> bool {
     is_column_keyword ^ !wm.is_horizontal()
@@ -107,7 +107,7 @@ pub(in crate::layout) fn eixo_x_invertido(wm: WritingMode, dir: Direction) -> bo
     !eixo_x_forward(wm, dir)
 }
 
-/// `justify-content` físico de uma LINHA (`flex.rs`), movido de `coluna.rs`
+/// `justify-content` físico de uma LINHA (`row.rs`), movido de `column.rs`
 /// para aqui por ser a MESMA pergunta de direção que o resto do ficheiro
 /// resolve. `left`/`right` são FÍSICOS e invariantes a `reverse` (`row-
 /// reverse` OU `direction:rtl`, os dois já achatados num só booleano pelo

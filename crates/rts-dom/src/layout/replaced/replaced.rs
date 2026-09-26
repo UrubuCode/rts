@@ -139,10 +139,10 @@ pub(in crate::layout) fn layout_image(
     // `align-items: stretch` no cruzado) — `None` fora de um item flex, ou
     // quando o eixo não é imposto (o `<img>` decide sozinho pela CSS/atributo/
     // natural). Vence `width`/`height` do mesmo jeito que já vence num bloco
-    // comum (`bloco.rs`): sem isto um `<img>` esticado no eixo cruzado nunca
+    // comum (`block.rs`): sem isto um `<img>` esticado no eixo cruzado nunca
     // via a altura que o flex lhe deu (`claude-flex-abspos-img-aspect-ratio`,
     // `claude-img-sem-tamanho-natural-em-flex`) — o despacho de `<img>` em
-    // `bloco.rs` ignorava os dois parâmetros por inteiro.
+    // `block.rs` ignorava os dois parâmetros por inteiro.
     forced_outer_w: Option<f32>,
     forced_outer_h: Option<f32>,
     ctx: &LayoutCtx,

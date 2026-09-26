@@ -33,19 +33,20 @@
 //! `collect_runs`, através do grupo inline.
 //!
 //! Uma das cinco cópias da pergunta "é de bloco?" vive DENTRO do laço de
-//! `layout_children_vertical`, escrita à mão — ver o cabeçalho de `caixa.rs`.
+//! `layout_children_vertical`, escrita à mão — ver o cabeçalho de `box_kind.rs`.
 //! Não é movível sem extrair uma função, o que deixa de ser um `move`.
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi alterada.
 //!
 //! **O crescimento para conter floats DEIXOU de viver aqui.** Vivia no fim
 //! desta função, incondicional (a divergência que `float_left_right_dividem_a_linha`
-//! pinava de propósito); agora é `bloco.rs` que decide, porque só ele sabe se
-//! `id` é o BFC responsável — ver `layout/bfc.rs`.
+//! pinava de propósito); agora é `block.rs` que decide, porque só ele sabe se
+//! `id` é o BFC responsável — ver `block/bfc.rs`.
 
 use super::*;
 use crate::boxes::BoxId;
 use super::sequence::{sequencia_do_fluxo, PassoDoFluxo};
+pub(in crate::layout) use super::margin_collapse::{atravessa_se, junta_ao_strut, strut_colapsado, Strut};
 
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
@@ -54,58 +55,6 @@ use super::sequence::{sequencia_do_fluxo, PassoDoFluxo};
 // a macro de estado (flush_inline!) escreve no cursor a cada fechamento — a
 // ÚLTIMA atribuição (no flush final) é estruturalmente morta, o que dispara
 // unused_assignments sem haver bug.
-/// O CONJUNTO de margens adjacentes ainda aberto, como o Blink o guarda
-/// (`MarginStrut`): o MAIOR dos positivos e o MENOR dos negativos, somados uma
-/// só vez no fim.
-///
-/// Substituiu a cadeia binária `colapso(colapso(a, b), c)`, que **não é
-/// associativa com sinais mistos** e por isso respondia conforme a ordem:
-/// (+10, −5, +20) dá 20 par a par e **15** pelo conjunto, que é o que um Chrome
-/// real responde. Um par cabia num `f32`; um conjunto não, e era essa a falta —
-/// não a fórmula do par, que estava certa.
-pub(in crate::layout) type Strut = (f32, f32);
-
-/// Junta mais uma margem ao conjunto. Cada sinal vai para o seu lado: um
-/// positivo só compete com positivos, um negativo só com negativos.
-///
-/// É aqui e no [`strut_colapsado`] que vivem as três formas da regra do CSS
-/// 2.1 §8.3.1, que antes eram um `colapso_de_margens(a, b)` binário: duas
-/// positivas dão a maior (o `max` daqui), duas negativas dão a mais negativa (o
-/// `min`), e uma de cada sinal dá a SOMA — que é o `pos + neg` do outro. É por
-/// isso que uma margem negativa CANCELA uma positiva em vez de ser ignorada
-/// por ela.
-pub(in crate::layout) fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
-    if m >= 0.0 {
-        (pos.max(m), neg)
-    } else {
-        (pos, neg.min(m))
-    }
-}
-
-/// O valor colapsado do conjunto — e é aqui que os dois sinais se encontram,
-/// UMA vez. Com (+10, −5, +20) dá 20 − 5 = 15.
-pub(in crate::layout) fn strut_colapsado((pos, neg): Strut) -> f32 {
-    pos + neg
-}
-
-/// `true` se a caixa se ATRAVESSA a si própria (self-collapsing, CSS 2.1
-/// §8.3.1): a altura externa é exactamente a soma das duas margens, logo o
-/// conteúdo, o padding e a borda somaram zero. Medido num Chrome real: um
-/// `<div style="margin:20px 0 30px">` vazio entre dois blocos injecta 30 e tem
-/// altura 0; nós injectávamos 50.
-///
-/// A condição é lida do que foi CALCULADO e não rededuzida do estilo, o que a
-/// torna certa de graça em dois casos que uma leitura de estilo erraria: um
-/// bloco que cresceu para conter um float deixa de casar, e um com borda ou
-/// padding também.
-///
-/// **O que ela ainda não sabe** é que uma caixa que estabelece um contexto de
-/// formatação próprio (`overflow` ≠ visible, `flow-root`) NÃO se atravessa,
-/// mesmo vazia. Isso é o lote do BFC; enquanto não houver, um `<div
-/// style="overflow:hidden">` vazio e sem altura colapsa aqui e não devia.
-pub(in crate::layout) fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> bool {
-    (altura - (topo + baixo)).abs() < 0.01
-}
 
 #[allow(unused_assignments)]
 pub(in crate::layout) fn layout_children_vertical(
@@ -126,7 +75,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // próprio (ver `layout_block`). Um float colocado aqui é escrito NELE
     // (`bfc.push`), então um `<div>` sem BFC dentro de outro `<div>` sem BFC
     // não perde o float ao subir — a mesma referência chega ao dono, seja ele
-    // quem for. Ver `layout/bfc.rs`.
+    // quem for. Ver `block/bfc.rs`.
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -191,7 +140,7 @@ pub(in crate::layout) fn layout_children_vertical(
             if !inline_group.is_empty() || group_open {
                 // Does NOT move below the floats: the lines go AROUND them. The
                 // reference and not a copy: a float that appears in the MIDDLE
-                // of the group is placed in there (`float_in_line.rs`) and has
+                // of the group is placed in there (`in_line.rs`) and has
                 // to reach the siblings that come after.
                 $y = layout_inline_flow(
                     dom,
@@ -224,10 +173,10 @@ pub(in crate::layout) fn layout_children_vertical(
     // próprio `layout_children_vertical` mais acima. Tudo o que pertence ao
     // ELEMENTO e não a cada corrida dele — as caixas geradas de bloco e o
     // clearfix — é emitido lá e tem de ser recusado aqui, ou aparece uma vez por
-    // corrida. Ver `bloco_caixa.rs`.
+    // corrida. Ver `block_box.rs`.
     let e_anonima = matches!(arvore.kind(caixa), crate::boxes::BoxKind::Anonymous { .. });
     // `::before` de BLOCO com conteúdo — o primeiro do fluxo, antes de
-    // qualquer filho real. Ver `pseudo_bloco.rs`.
+    // qualquer filho real. Ver `pseudo_block.rs`.
     if !e_anonima {
         super::pseudo_block::aplicar(dom, caixa, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
     }
@@ -535,8 +484,8 @@ pub(in crate::layout) fn layout_children_vertical(
             NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
             // A FLOAT or an ABSOLUTE box in the middle of TEXT joins the inline
             // group as an anchor: the inline flow places the float (§9.5.1,
-            // `float_in_line.rs`) and records the other's static position
-            // (`ancora_estatica.rs`). With no text pending, the arms below decide.
+            // `in_line.rs`) and records the other's static position
+            // (`static_anchor.rs`). With no text pending, the arms below decide.
             NodeKind::Element { .. }
                 if (child_out || child_float != crate::style::FloatSide::None)
                     && ib_run.is_empty()
@@ -719,7 +668,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // DESTE container não vive mais aqui — ver o cabeçalho do módulo e
     // `layout_block`, que é quem sabe se `id` é o BFC responsável.
     flush_inline!(child_y);
-    // `::after` de BLOCO com conteúdo — o último do fluxo. Ver `pseudo_bloco.rs`.
+    // `::after` de BLOCO com conteúdo — o último do fluxo. Ver `pseudo_block.rs`.
     // Recusado numa caixa anónima pela mesma razão do `::before`: a caixa gerada
     // é do ELEMENTO, e é emitida na descida dele.
     if !e_anonima {

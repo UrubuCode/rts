@@ -1,7 +1,7 @@
 //! Que elementos precisam de um `forced_outer_w` EXPLÍCITO para que
 //! `align-items: stretch` os encha no eixo cruzado de uma coluna
-//! (`coluna.rs`) — a mesma pergunta que `flex.rs` já faz no eixo horizontal
-//! (`replaced_transferido.rs`).
+//! (`column.rs`) — a mesma pergunta que `row.rs` já faz no eixo horizontal
+//! (`transferred_size.rs`).
 //!
 //! Um bloco comum já ocupa `content_w` sozinho (`measure_block` com
 //! `width:auto` mede-o à largura disponível): o stretch não precisa de
@@ -17,7 +17,7 @@
 //! Achado no lote `flex-desvios-pequenos` (WPT
 //! `stretch-flex-item-checkbox-input`/`-radio-input`): a exclusão de
 //! `<input>` era total (comentário "table/input ficam de fora" em
-//! `coluna.rs`), quando só o CAMPO DE TEXTO (que já se preenche sozinho)
+//! `column.rs`), quando só o CAMPO DE TEXTO (que já se preenche sozinho)
 //! precisava de ficar fora — o quadrado de marca, não.
 
 use crate::dom::{Dom, NodeIdx, NodeKind};

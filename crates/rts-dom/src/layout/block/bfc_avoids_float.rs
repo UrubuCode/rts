@@ -4,10 +4,10 @@
 //! an element that establishes a new block formatting context ... must not
 //! overlap ... any floats". É o OPOSTO de um bloco NORMAL, cuja caixa se
 //! sobrepõe de propósito e só as linhas lá dentro desviam (o comentário no
-//! ramo `child_block` de `vertical.rs` já o diz, e continua certo — para
+//! ramo `child_block` de `vertical_flow.rs` já o diz, e continua certo — para
 //! quem NÃO estabelece BFC).
 //!
-//! `bloco.rs::establishes_block_formatting_context` já classificava
+//! `block.rs::establishes_block_formatting_context` já classificava
 //! `display:flex` (e `overflow:hidden`, `flow-root`, …) como raiz de BFC;
 //! faltava alguém CONSULTAR isso antes de posicionar a caixa contra o `bfc`
 //! ambiente — é o que este módulo faz, no mesmo ponto em que `clear` já

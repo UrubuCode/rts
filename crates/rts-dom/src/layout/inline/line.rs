@@ -2,7 +2,7 @@
 //! montar as linhas e emitir a pintura de cada uma.
 //!
 //! Movido de `layout.rs` na modularização. O fragmento de cada dono e as
-//! superfícies por linha vivem em `inline_fragmentos.rs` (teto de 500).
+//! superfícies por linha vivem em `inline_fragments.rs` (teto de 500).
 
 use super::*;
 
@@ -42,7 +42,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // erro de posição por texto pintado por baixo da figura. Ver [`Exclusao`].
     //
     // The BFC and not a copy of its exclusions: a float that appears in the
-    // MIDDLE of this flow is placed here (`float_in_line.rs`) and has to reach
+    // MIDDLE of this flow is placed here (`in_line.rs`) and has to reach
     // the siblings that come after, as a direct child's float does.
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
@@ -173,7 +173,7 @@ pub(in crate::layout) fn layout_inline_flow(
         )
     };
     // Floats that appear in the MIDDLE of this flow are placed BEFORE the final
-    // line breaking: each shortens the lines it crosses. See `float_in_line.rs`.
+    // line breaking: each shortens the lines it crosses. See `in_line.rs`.
     crate::layout::float::in_line::place_anchored_floats(dom, &arvore, &runs, &quebrar, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
     // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
     if runs.iter().all(|r| r.text.trim().is_empty() && !r.atomic.is_some_and(|(_, _, k)| k.tem_corpo())) {
@@ -225,7 +225,7 @@ pub(in crate::layout) fn layout_inline_flow(
         .unwrap_or(0.0);
     let mut first_line = true;
     let mut cy = y;
-    // The last line's baseline, for an atom measuring its own (`linha_baseline.rs`).
+    // The last line's baseline, for an atom measuring its own (`line_baseline.rs`).
     let mut ultima_baseline: Option<f32> = None;
     // A generated inline broken across lines carries its open surface over.
     let mut transporte = super::inline_fragments::Superficies::default();
@@ -234,7 +234,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // por passada de layout, uma por segmento, para copiar algo que ninguém mais
     // usaria depois.
     for line in lines {
-        let line_id = super::LineScope::fresh(group); // one per line box: `box_fragments.rs`
+        let line_id = super::LineScope::fresh(group); // one per line box: `box_rects.rs`
         // A line holding nothing but ANCHORS is not a line box: a float or an
         // absolute box is out of flow and generates none (CSS 2.1 §9.5).
         // `a<br><float>` made a phantom second line — a full line of height, and
@@ -273,7 +273,7 @@ pub(in crate::layout) fn layout_inline_flow(
         let at_linha = list.pieces.len();
         let mut superficies = std::mem::take(&mut transporte);
         // A line holding an inline-block is placed by the §10.8.1 envelope
-        // (`linha_baseline.rs`): one baseline, each item's extent above and below
+        // (`line_baseline.rs`): one baseline, each item's extent above and below
         // it. It replaced a special case that sat every inline-block on its bottom
         // edge. Lines of text and images alone keep the half-leading placement.
         let ascent = ctx.measurer.font_ascent_family(font_size, family);
@@ -309,7 +309,7 @@ pub(in crate::layout) fn layout_inline_flow(
             seg_x += seg.lead_w;
             if seg.atomic.is_some() {
                 // The whole atom branch — widget, replaced, inline-block,
-                // generated atom — moved to `linha_atomos.rs` (teto de 500):
+                // generated atom — moved to `line_atoms.rs` (teto de 500):
                 // a pure move, see that file's header.
                 super::line_atoms::emitir_atomo(
                     dom, ctx, list, &seg, &mut seg_x, x, cy, line_advance, at_linha,
@@ -322,7 +322,7 @@ pub(in crate::layout) fn layout_inline_flow(
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
             let w = seg.text_width + ls * seg.text.chars().count() as f32;
             superficies.ver(dom, &seg.owners, seg_x, seg_x + w);
-            // Its OWN font on the shared baseline (`fonte_do_trecho.rs`), shifted with a relative inline.
+            // Its OWN font on the shared baseline (`run_font.rs`), shifted with a relative inline.
             let propria = super::run_font::do_segmento(dom, &seg.owners, family, font_size, ctx.measurer);
             let (seg_y, seg_size, seg_mono, seg_ahem) = match &propria {
                 Some(f) => (text_top + ascent - f.ascent, f.fonte.size, f.fonte.mono, f.ahem),

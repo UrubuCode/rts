@@ -8,7 +8,7 @@ use crate::paint::transform::Mat2d;
 /// Applies `mat` to the rect of `id` in `list.box_rects` (if it has one) and,
 /// RECURSIVELY, to every descendant's — descendants INHERIT the parent's
 /// transform (CSS Transforms 1: the "transform target" includes the
-/// subtree). Same pattern as `relativo.rs::shift_box_rects` (walk the box
+/// subtree). Same pattern as `relative.rs::shift_box_rects` (walk the box
 /// tree from `id`, per invariant I2 in `docs/ui/html-engine/box-tree.md` §7,
 /// rather than the DOM), except the operation is the whole matrix (bounding
 /// box of the 4 corners) instead of a sum.

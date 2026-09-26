@@ -1,9 +1,9 @@
 //! PRESERVED white space in line breaking — `pre`, `pre-wrap` and
 //! `break-spaces` (CSS Text 3 §4.1.3, §5.4.2).
 //!
-//! `quebra.rs` owns where a line breaks; this module only says what the
+//! `line_break.rs` owns where a line breaks; this module only says what the
 //! preserved text is made of and how wide a tab is, so the decision stays in
-//! one place (`box-tree.md` §10). It lives apart because `quebra.rs` sits at
+//! one place (`box-tree.md` §10). It lives apart because `line_break.rs` sits at
 //! its 500-line ceiling, and because the collapsing scanner there answers a
 //! different question: under `normal` a run of spaces is ONE separator that
 //! may vanish, here every space is content that takes room.
@@ -20,7 +20,7 @@ use crate::style::{ComputedStyle, WhiteSpace};
 /// invisible (WPT `white-space/*-051/052`).
 ///
 /// A run does not carry the value in a new field: like its font
-/// (`fonte_do_trecho.rs`), it is the computed style of the INNERMOST owner,
+/// (`run_font.rs`), it is the computed style of the INNERMOST owner,
 /// which already inherits from everything above it; a run with no owner is
 /// the container's. A field on `InlineRun` was the alternative and lost
 /// because every constructor of a run (floats, anchors, pseudo boxes) would
@@ -100,7 +100,7 @@ impl WhiteSpaceRegime {
 
     /// A tab advances to the next tab stop, measured from `pos` — not from the
     /// start of the run, which was the cut the old per-run expansion in
-    /// `linha.rs` declared. The text is spaces so the painter, which has no
+    /// `line.rs` declared. The text is spaces so the painter, which has no
     /// idea of tabs, draws blank.
     ///
     /// `pos` itself is `wrap_runs`'s `line_offset(i) + cur_w + cluster_w`: CSS
@@ -108,7 +108,7 @@ impl WhiteSpaceRegime {
     /// containing block" — the block's CONTENT edge — not from where line `i`
     /// happens to start. A float shortens a line from the left without moving
     /// the content edge, so `line_offset` (the band's left edge minus the
-    /// content edge, from `linha.rs`'s `offset_da_linha`) is what keeps a
+    /// content edge, from `line.rs`'s `offset_da_linha`) is what keeps a
     /// tab-stop-with-float line agreeing with a plain one on where stop N is.
     pub(in crate::layout) fn tab(self, pos: f32, space: f32) -> (String, f32) {
         let w = tab_advance(pos, self.tab_size, space);
@@ -182,7 +182,7 @@ pub(in crate::layout) fn tokens(text: &str) -> impl Iterator<Item = Token<'_>> {
 /// `<span>` still paints the span's background where it hangs
 /// (`white-space-pre-wrap-trailing-spaces-014/015`), so removing it there
 /// erases a box. The right shape is a hanging width that alignment
-/// subtracts, and alignment lives in `linha.rs`, outside this change.
+/// subtracts, and alignment lives in `line.rs`, outside this change.
 pub(in crate::layout) fn trim_hanging(mut line: Vec<Segment>, (hang, space): (f32, f32)) -> Vec<Segment> {
     if hang <= 0.0 || space <= 0.0 {
         return line;
@@ -201,7 +201,7 @@ pub(in crate::layout) fn trim_hanging(mut line: Vec<Segment>, (hang, space): (f3
 /// CSS Text 3 §4.1.3 phase II: a collapsible space is removed at the START of
 /// a line under EVERY `white-space` value — `nowrap` and `pre` withhold the
 /// soft-wrap OPPORTUNITY a space would otherwise offer (`WhiteSpaceRegime::
-/// wraps`), they do not stop the space from collapsing. `quebra.rs`'s
+/// wraps`), they do not stop the space from collapsing. `line_break.rs`'s
 /// wrapping branches get this for free: `fechar_cluster!`'s `sep =
 /// cluster_espaco && !at_line_start` already drops a `pending_space` that
 /// would open a line. A non-wrapping run's space skips that path — it is
@@ -242,7 +242,7 @@ pub(in crate::layout) fn glued_space_absorbs_pending(cluster_is_empty: bool, pen
 
 /// The segment an atomic inline (or a zero-width marker) occupies on a line.
 /// Three sites of `wrap_runs` built it field by field; it moved here to give
-/// `quebra.rs` room under its ceiling for the preserved-space branch.
+/// `line_break.rs` room under its ceiling for the preserved-space branch.
 pub(in crate::layout) fn atomic_segment(
     run: &InlineRun,
     atom: (NodeIdx, crate::boxes::BoxId, AtomicKind),

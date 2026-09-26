@@ -156,7 +156,7 @@ pub(in crate::layout) fn collect_runs(
                 if e_display_none(dom, id) {
                     return;
                 }
-                // A FLOAT in the middle of the flow: only an anchor (`float_in_line.rs`).
+                // A FLOAT in the middle of the flow: only an anchor (`in_line.rs`).
                 // An absolutely positioned box: the anchor of its static position.
                 let ancora = crate::layout::float::in_line::anchor(dom, id, caixa, inherited_color)
                     .or_else(|| super::static_anchor::anchor(dom, id, caixa, inherited_color));

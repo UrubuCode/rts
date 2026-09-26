@@ -330,7 +330,7 @@ pub(in crate::layout) fn layout_children_grid(
         // `stretch` só estica um eixo cujo tamanho é `auto` (spec §11.7 /
         // css-align §7.1: "stretch — if the item's used cross-size is
         // auto..."). Um `width`/`height` DECLARADO no item vence — o mesmo
-        // corte que o flex já tinha (`can_stretch` em `flex.rs`) e que o grid
+        // corte que o flex já tinha (`can_stretch` em `row.rs`) e que o grid
         // não tinha: sem isto, `#item1`/`#item3`/`#item4` de
         // `claude-grid-alinhamento.html` (que declaram `height:30px` mas
         // NENHUM `align-self`, logo caem no `align-items:stretch` default do
@@ -363,7 +363,7 @@ pub(in crate::layout) fn layout_children_grid(
             forced_h,
             false,
             !stretch_x,
-            // Item de grid: mesma razão do flex, ver `coluna.rs`.
+            // Item de grid: mesma razão do flex, ver `column.rs`.
             &BlockFormattingContext::new(),
             ctx,
             list,

@@ -1,7 +1,7 @@
-//! O valor que `bloco.rs` precisa ANTES de `content_y`, para o colapso de
+//! O valor que `block.rs` precisa ANTES de `content_y`, para o colapso de
 //! margem PAI→PRIMEIRO-FILHO (CSS 2.1 §8.3.1).
 //!
-//! `escaped_child_margins` (`bloco.rs`) já calcula este número — mas só
+//! `escaped_child_margins` (`block.rs`) já calcula este número — mas só
 //! DEPOIS de layoutar os filhos, porque também precisa do lado de BAIXO
 //! (que depende de `bottom_auto_height`, só conhecido depois da altura
 //! explícita ser resolvida). O `content_y` que os filhos recebem PARA SEREM
@@ -13,7 +13,7 @@
 //! Alternativa rejeitada: mover TODO o corpo de `escaped_child_margins` para
 //! antes do dispatch dos filhos, resolvendo `bottom_auto_height` mais cedo
 //! também. Funcionaria, mas reordenar uma função de 830 linhas para mover dez
-//! é o tipo de "movimento" que `bloco.rs` já recusa no seu próprio cabeçalho
+//! é o tipo de "movimento" que `block.rs` já recusa no seu próprio cabeçalho
 //! — dividir por dentro deixa de ser mecânico. Uma função pequena, à parte,
 //! que repete só a pergunta do lado de cima, custa dez linhas e zero risco
 //! sobre o resto da função.

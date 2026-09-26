@@ -1,12 +1,12 @@
-//! `flex-basis` e `flex-shrink` no eixo de COLUNA — espelha o que `flex.rs`
+//! `flex-basis` e `flex-shrink` no eixo de COLUNA — espelha o que `row.rs`
 //! já tem no eixo horizontal (base/min-content/shrink iterativo,
-//! `flex.rs:180-224` e `308-370`), só que a base é a ALTURA e o `%` do
+//! `row.rs:180-224` e `308-370`), só que a base é a ALTURA e o `%` do
 //! `flex-basis` resolve contra a altura do container, não a largura.
 //!
-//! Extraído de `coluna.rs` (que só tinha o ramo de `flex-grow`) para não
+//! Extraído de `column.rs` (que só tinha o ramo de `flex-grow`) para não
 //! passar o teto de 500 linhas com a lógica nova — `layout_children_column`
 //! ganharia ~90 linhas só com isto. Lote `flex-coluna-shrink` (2026-09-04):
-//! antes, `coluna.rs` nunca lia `flex-basis`/`flex-shrink`, e um item de
+//! antes, `column.rs` nunca lia `flex-basis`/`flex-shrink`, e um item de
 //! coluna com conteúdo maior do que o espaço principal transbordava em vez de
 //! encolher (achado da auditoria de 2026-09-04, `04-layout.md`).
 
@@ -122,7 +122,7 @@ pub(in crate::layout) fn min_main_auto(
 /// Um nó de texto só-espaços (a INDENTAÇÃO do HTML entre `<div>`s, comum em
 /// fixtures de mais de uma linha) não é conteúdo — o resto do motor já o
 /// descarta ao agrupar itens flex (`is_row && … trim().is_empty()`, `coluna.
-/// rs`/`coluna_wrap.rs`), mas esta função somava uma `altura_da_linha`
+/// rs`/`column_wrap.rs`), mas esta função somava uma `altura_da_linha`
 /// inteira por CADA um (achado ao expor `flex-minimum-height-flex-items-003`,
 /// WPT, do fix de CDATA: dois nós assim ladeando o filho real inflavam o
 /// piso de 100 para 200, igualando o `natural_h` do item — `natural_h.min
@@ -151,7 +151,7 @@ pub(in crate::layout) fn altura_conteudo_sem_height(
 /// moldura nem declarações suas (§9.2.1.1: herda do contentor, que é quem
 /// deu `ccss`), por isso conta o que envolve pela mesma regra, em vez de ser
 /// saltada — saltá-la apagava a corrida de texto dela, o erro que
-/// `medida_arvore.rs` documenta para a largura.
+/// `measure/tree.rs` documenta para a largura.
 fn empilhados(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
@@ -203,12 +203,12 @@ pub(in crate::layout) fn min_main(
 
 
 /// ENCOLHIMENTO com piso de `min_main` (CSS Flexbox §9.7) — a mesma iteração
-/// de congelamento de `flex.rs:319-370`, extraída para slices paralelas em
+/// de congelamento de `row.rs:319-370`, extraída para slices paralelas em
 /// vez de reusar `FlexItem` (que carrega campos do eixo horizontal, como
 /// `max_main`/`auto_esq`, que a coluna não tem ainda — ver o corte no
-/// cabeçalho de `coluna.rs`). Devolve o `main` final de cada item, na mesma
+/// cabeçalho de `column.rs`). Devolve o `main` final de cada item, na mesma
 /// ordem de `bases`. `free_pre >= 0.0` devolve `bases` sem tocar (sem
-/// défice: quem cresce é o `flex-grow`, tratado à parte em `coluna.rs`).
+/// défice: quem cresce é o `flex-grow`, tratado à parte em `column.rs`).
 pub(in crate::layout) fn shrink(bases: &[f32], shrinks: &[f32], mins: &[f32], free_pre: f32) -> Vec<f32> {
     let n = bases.len();
     let mut main: Vec<f32> = bases.to_vec();

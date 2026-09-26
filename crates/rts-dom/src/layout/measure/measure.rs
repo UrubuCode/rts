@@ -3,12 +3,12 @@
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
 //!
-//! O `TextMeasurer`/`ApproxMeasurer` MUDOU-SE para `medidor_texto.rs` no lote
+//! O `TextMeasurer`/`ApproxMeasurer` MUDOU-SE para `text_measurer.rs` no lote
 //! `medidor-ahem` (este ficheiro já estava no teto de 500 linhas do resto do
 //! workspace e os métodos `_family` novos não cabiam sem passar o teto).
 //!
 //! A travessia pela ÁRVORE DE CAIXAS (a caixa concreta de um filho, o corpo
-//! "geral" bloco/flex, a caixa anónima) MUDOU-SE para `medida_arvore.rs` no
+//! "geral" bloco/flex, a caixa anónima) MUDOU-SE para `measure/tree.rs` no
 //! lote que corrigiu 147cb3e53/02bc7088d — este ficheiro já estava perto do
 //! teto de 500 linhas do resto do workspace e o fix (uma caixa anónima
 //! deixar de ser saltada, e um fragmento deixar de se misturar com os
@@ -42,7 +42,7 @@ pub(in crate::layout) fn content_natural_width(
 /// - texto: a largura do texto concatenado.
 /// Recursivo: a largura de um filho é a SUA intrínseca + frame (ou seu `width` fixo).
 ///
-/// O corpo que percorre a árvore de caixas vive em `medida_arvore.rs`
+/// O corpo que percorre a árvore de caixas vive em `measure/tree.rs`
 /// (`intrinsic_content_width_sem_cache`); esta função só resolve a CACHE, que
 /// é chaveada por `id` e por isso só pode responder pela pergunta "todas as
 /// caixas deste nó, dobradas pelo máximo" — nunca por UM fragmento
@@ -173,7 +173,7 @@ pub(in crate::layout) fn child_outer_width(
             // (`claude-flex-base-size-max-width`, `#capado{max-width:100}`
             // com conteúdo 300 tinha de entrar na conta como 300, não 100).
             // O clamp para um FLOAT sem `width` (que precisa dele) vive no
-            // chamador em `vertical.rs`, não aqui.
+            // chamador em `vertical_flow.rs`, não aqui.
             match css.width.and_then(|d| d.resolve(&resolve)) {
                 Some(w) if css.border_box.unwrap_or(false) => w + css.margin.resolve_h(&resolve),
                 Some(w) => w + frame,

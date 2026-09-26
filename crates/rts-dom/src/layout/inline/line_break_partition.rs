@@ -1,7 +1,7 @@
-//! Two pieces of `quebra.rs`'s `wrap_runs`, moved out because that file sits
+//! Two pieces of `line_break.rs`'s `wrap_runs`, moved out because that file sits
 //! at the 500-line ceiling — a pure move, nothing changed. Unlike the cluster
 //! macros (`fechar_cluster!`/`juntar!`/`glue_space!`, which stay in
-//! `quebra.rs` because each captures a dozen locals of the cluster state),
+//! `line_break.rs` because each captures a dozen locals of the cluster state),
 //! both functions here only touch the ordinary line cursor (`cur`/`lines`/
 //! `cur_w`/`at_line_start`) and take everything else as a parameter.
 //!
@@ -86,7 +86,7 @@ pub(in crate::layout) fn dividir_peca_que_nao_cabe(
     }
 }
 
-/// The whole-run fast path (FAST PATH 2 in `quebra.rs`): when `run` both
+/// The whole-run fast path (FAST PATH 2 in `line_break.rs`): when `run` both
 /// OPENS a cluster (nothing pending) and CLOSES one (ends in whitespace),
 /// measuring it as one string answers for every word inside — the caller
 /// only reaches the per-word scanner when this returns `false`.

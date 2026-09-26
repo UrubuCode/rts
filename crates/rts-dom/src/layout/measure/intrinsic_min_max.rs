@@ -3,13 +3,13 @@
 //! que só a ÁRVORE resolve, nunca uma fórmula. `Dimension::resolve` não a
 //! conhece (devolve `None`), e antes deste módulo só um sítio a entendia:
 //! `crate::layout::flex::limits::limites_do_item`, e só para `MinContent`, e só na largura
-//! do PRÓPRIO item flex. Um clamp de bloco comum (`bloco.rs`) descartava a
+//! do PRÓPRIO item flex. Um clamp de bloco comum (`block.rs`) descartava a
 //! palavra por inteiro — `min-width: max-content` numa `<div>` qualquer
 //! dentro de um item flex (não o item em si) não alargava nada
 //! (`flex-item-content-is-min-width-max-content`, WPT).
 //!
-//! Módulo novo e não uma função a mais em `bloco.rs` (1266 linhas, teto de
-//! 500, não cresce — PLAN.md §1) nem em `flex_limites.rs`: o primeiro ganha
+//! Módulo novo e não uma função a mais em `block.rs` (1266 linhas, teto de
+//! 500, não cresce — PLAN.md §1) nem em `limits.rs`: o primeiro ganha
 //! só a CHAMADA, o segundo troca o seu próprio `match` inline por esta.
 
 use super::*;
@@ -18,7 +18,7 @@ use super::*;
 /// comprimento: `min-content` vira o min-content REAL de `id`
 /// (`crate::table::min_content`, o mesmo que o piso automático do
 /// encolhimento já usa); `max-content` vira a largura intrínseca do
-/// conteúdo (`content_natural_width`, `medida.rs`); qualquer outro valor
+/// conteúdo (`content_natural_width`, `measure.rs`); qualquer outro valor
 /// (comprimento, `%`, ausente) cai no `Dimension::resolve` de sempre.
 pub(in crate::layout) fn resolve(
     d: Option<crate::style::Dimension>,

@@ -12,18 +12,18 @@
 //!
 //! O pseudo entra na MESMA máquina de colapso de margem que um filho real —
 //! `Strut`/`junta_ao_strut`/`strut_colapsado`/`atravessa_se`, reusadas de
-//! `vertical.rs` — porque ele PARTICIPA do fluxo como qualquer outro bloco
+//! `vertical_flow.rs` — porque ele PARTICIPA do fluxo como qualquer outro bloco
 //! (CSS 2.1 §12.1: "generated content ... treated ... as if inserted...
 //! immediately before/after the ... content"), só que sem nó DOM próprio para
 //! caches de fragmento ou layout recursivo. O colapso de margem é a razão
-//! deste ficheiro EXISTIR separado de `flex_pseudo.rs`, apesar de os dois
+//! deste ficheiro EXISTIR separado de `flex/pseudo.rs`, apesar de os dois
 //! partilharem a medição de padding/borda/margem e a pintura inteira —
-//! ver `pseudo_caixa.rs`, que é onde essa parte comum vive agora (lote BT-5,
+//! ver `pseudo_box.rs`, que é onde essa parte comum vive agora (lote BT-5,
 //! issue #2731): um item flex nunca colapsa margem (Flexbox §4), um bloco
 //! colapsa sempre, e essa diferença não tem como desaparecer numa função só
 //! sem deixar de ser a diferença que a spec pede.
 //!
-//! CORTE dito (como `flex_pseudo.rs`, o mesmo padrão para o eixo flex): sem
+//! CORTE dito (como `flex/pseudo.rs`, o mesmo padrão para o eixo flex): sem
 //! `border-radius`, sem `flex-basis`/min/max no eixo do pseudo (the text
 //! does wrap now, at the content width — `pseudo_box::linhas_do_texto`),
 //! e o papel `display:flex`/`grid` do
@@ -80,10 +80,10 @@ fn medir(
     let arestas = resolve_arestas(css, &r);
     let texto = crate::layout::inline::segment::collapse_ws(&caixa.texto, false).into_owned();
     // BLOCO: largura AUTO enche o content-box do pai (menos as margens) — o
-    // default de qualquer bloco sem `width`. `flex_pseudo.rs::medir` encolhe
+    // default de qualquer bloco sem `width`. `flex/pseudo.rs::medir` encolhe
     // ao conteúdo porque ali o pseudo é um ITEM flex (shrink-to-fit); este é
     // o outro papel, o de CONTENTOR de bloco normal. É a única conta que os
-    // dois ficheiros não partilham (ver `pseudo_caixa.rs`).
+    // dois ficheiros não partilham (ver `pseudo_box.rs`).
     let conteudo_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or_else(|| {
         (content_w - arestas.ml - arestas.mr - arestas.valores[1] - arestas.valores[3]).max(0.0)
     });
@@ -97,12 +97,12 @@ fn medir(
 
 /// Mede, posiciona e pinta o pseudo `pe` de `id` como o próximo (`::before`)
 /// ou o último (`::after`) filho do fluxo vertical — a MESMA máquina de
-/// colapso de margem que `vertical.rs` usa para um filho real de bloco
+/// colapso de margem que `vertical_flow.rs` usa para um filho real de bloco
 /// (`borda`/`strut`/`child_y` são os três valores dela). Não faz nada
 /// (`borda`/`strut`/`child_y` inalterados) quando o pseudo não existe, tem
 /// `content` vazio ou não é de bloco — ver [`medir`].
 ///
-/// Gancho de UMA chamada em `vertical.rs`, que não cresce: a lógica inteira
+/// Gancho de UMA chamada em `vertical_flow.rs`, que não cresce: a lógica inteira
 /// vive aqui.
 pub(in crate::layout) fn aplicar(
     dom: &Dom,

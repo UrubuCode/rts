@@ -22,7 +22,7 @@
 //! list the day this was written.
 //!
 //! Text ADVANCE (the width of a string) is here too, from the same four
-//! fonts: `fonte_avancos.rs` holds each character's `hmtx` advance, measured in
+//! fonts: `font_advances.rs` holds each character's `hmtx` advance, measured in
 //! Blink, and [`FontMetricsModel::text_width`] sums them. Checked against real
 //! `<span>`s at 16px: ordinary sentences match Blink to 0.01px in all eight
 //! faces. What the sum does NOT have is KERNING — "AVATAR Toy To." is 14px
@@ -32,7 +32,7 @@
 //! a wide one (CJK and beyond) to one em.
 //!
 //! The question "is this family Ahem?" still has a single site here — four
-//! copies of it across `medidor_texto.rs` is the defect this module first
+//! copies of it across `text_measurer.rs` is the defect this module first
 //! closed — and Ahem is NOT rounded: 0.8 + 0.2 is the font's definition.
 
 use super::font_advances as avancos;

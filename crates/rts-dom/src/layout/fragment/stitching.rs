@@ -1,7 +1,7 @@
 //! As duas perguntas que a COSTURA faz antes de reusar o desenho de um
 //! container trocando só os filhos sujos (`fragment::costurar`).
 //!
-//! Vivem fora de `fragmento.rs` porque aquele ficheiro já passou do teto e não
+//! Vivem fora de `fragment.rs` porque aquele ficheiro já passou do teto e não
 //! cresce, e porque são exatamente as duas perguntas cujo erro não se vê: uma
 //! costura que devia ter sido recusada repinta o desenho anterior, internamente
 //! consistente e errado (I3 de `docs/ui/html-engine/box-tree.md`).

@@ -45,7 +45,7 @@
 //!
 //! ## What this file does NOT do
 //!
-//! It does not thread a fifth parameter through `vertical.rs`/`bloco.rs` to
+//! It does not thread a fifth parameter through `vertical_flow.rs`/`block.rs` to
 //! reach every existing improvisation — that exact move (`avail_h` through
 //! five signatures) was tried, MEASURED and REVERTED elsewhere in this crate
 //! (`containing_block.rs`, header). Nothing here replaces

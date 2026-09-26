@@ -5,11 +5,11 @@
 //! CSS Box Alignment não dá `center`/`flex-end` um fallback `safe` por
 //! omissão).
 //!
-//! Extraído de `flex.rs` (que já estava no tecto de 500 linhas do crate)
+//! Extraído de `row.rs` (que já estava no tecto de 500 linhas do crate)
 //! para o lote `flex-cross-size` (2026-09-04): as duas perguntas eram
 //! parágrafos inline ali, cada um com um bug próprio —
 //! `flexbox-overflow-horiz-001`/`flexbox-flex-wrap-horiz-001` (linha única)
-//! e `flex-align-content-center` (linhas múltiplas). `flex.rs` mantém só o
+//! e `flex-align-content-center` (linhas múltiplas). `row.rs` mantém só o
 //! gancho de uma linha em cada um dos dois sítios.
 
 use crate::style::JustifyContent;
@@ -19,11 +19,11 @@ use crate::style::JustifyContent;
 /// `flexbox-flex-wrap-horiz-001` (com wrap, um único item por linha) pedem
 /// exatamente a mesma resposta. Quando o contentor tem altura DEFINIDA
 /// (`container_cross_h > 0.0`, a mesma convenção de "0 = indefinida" já
-/// usada pelo resto de `flex.rs`), ela vence sempre — um item que a excede
+/// usada pelo resto de `row.rs`), ela vence sempre — um item que a excede
 /// transborda em vez de a redefinir, e um item mais pequeno estica contra
 /// ela (`align-items: stretch`).
 ///
-/// Antes disto, `flex.rs` só usava a altura do contentor quando ela era
+/// Antes disto, `row.rs` só usava a altura do contentor quando ela era
 /// MAIOR que a do maior item — o oposto do caso que o `overflow` existe
 /// para testar, e o motivo de `#pequeno` (com `margin-bottom`, sem `height`
 /// própria) esticar contra o item GRANDE do lado em vez de contra o

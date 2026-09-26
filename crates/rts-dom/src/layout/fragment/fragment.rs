@@ -8,6 +8,10 @@
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi alterada.
 
 use super::*;
+
+use super::fragment_key::fragment_key;
+pub(in crate::layout) use super::fragment_key::KeyBase;
+
 /// Põe um filho-bloco do fluxo normal, REUSANDO o desenho dele quando nada que
 /// o afete mudou.
 ///
@@ -19,98 +23,6 @@ use super::*;
 /// Só o fluxo VERTICAL normal entra aqui — sem `forced_outer_*` (flex) e sem
 /// `shrink_to_fit`. Os outros caminhos dependem de negociação com os irmãos, e
 /// um fragmento que ignorasse isso responderia errado.
-#[allow(clippy::too_many_arguments)]
-/// A chave do fragmento de uma caixa com certas constraints. Extraída porque o laço
-/// do fluxo vertical CONSULTA o cache antes de classificar o filho: um fragmento
-/// só existe para bloco-normal, então encontrá-lo já responde o que a
-/// classificação responderia — e a classificação custa estilo computado,
-/// `block::lookup` e a margem resolvida, mil vezes por frame.
-#[allow(clippy::too_many_arguments)]
-fn fragment_key(
-    dom: &Dom,
-    id: NodeIdx,
-    caixa: crate::boxes::BoxId,
-    avail_w: f32,
-    avail_h: Option<f32>,
-    forced_outer_w: Option<f32>,
-    forced_outer_h: Option<f32>,
-    shrink_to_fit: bool,
-    ctx: &LayoutCtx,
-) -> crate::dom::FragmentKey {
-    KeyBase::new(dom, avail_w, avail_h, ctx).key(
-        dom,
-        id,
-        caixa,
-        forced_outer_w,
-        forced_outer_h,
-        shrink_to_fit,
-    )
-}
-
-/// A parte da chave de fragmento que NÃO varia entre os filhos de um container:
-/// identidade da árvore, epochs globais, viewport, medidor e as constraints.
-///
-/// Montar a chave inteira por filho relia um `thread_local` (o epoch de estilo)
-/// e refazia as conversões mil vezes por container — o laço do fluxo vertical
-/// pergunta o mesmo a cada iteração e só o nó muda.
-#[derive(Clone, Copy)]
-pub(in crate::layout) struct KeyBase {
-    tree: u64,
-    style_epoch: u64,
-    anim_epoch: u64,
-    avail_w: u32,
-    avail_h: Option<u32>,
-    viewport_w: u32,
-    viewport_h: u32,
-    measurer: u64,
-}
-
-impl KeyBase {
-    pub(in crate::layout) fn new(
-        dom: &Dom,
-        avail_w: f32,
-        avail_h: Option<f32>,
-        ctx: &LayoutCtx,
-    ) -> KeyBase {
-        KeyBase {
-            tree: dom.cache_identity(),
-            style_epoch: crate::style::props::style_epoch(),
-            anim_epoch: dom.anim_epoch(),
-            avail_w: avail_w.to_bits(),
-            avail_h: avail_h.map(f32::to_bits),
-            viewport_w: ctx.viewport_w.to_bits(),
-            viewport_h: ctx.viewport_h.to_bits(),
-            measurer: ctx.measurer.identity(),
-        }
-    }
-
-    pub(in crate::layout) fn key(
-        &self,
-        dom: &Dom,
-        id: NodeIdx,
-        caixa: crate::boxes::BoxId,
-        forced_outer_w: Option<f32>,
-        forced_outer_h: Option<f32>,
-        shrink_to_fit: bool,
-    ) -> crate::dom::FragmentKey {
-        crate::dom::FragmentKey {
-            tree: self.tree,
-            node_epoch: dom.layout_epoch(id),
-            style_epoch: self.style_epoch,
-            anim_epoch: self.anim_epoch,
-            target: super::caixa_cache_target(dom, id, caixa),
-            avail_w: self.avail_w,
-            avail_h: self.avail_h,
-            forced_outer_w: forced_outer_w.map(f32::to_bits),
-            forced_outer_h: forced_outer_h.map(f32::to_bits),
-            shrink_to_fit,
-            viewport_w: self.viewport_w,
-            viewport_h: self.viewport_h,
-            measurer: self.measurer,
-        }
-    }
-}
-
 /// Reconstrói o fragmento de um container trocando SÓ as subárvores sujas.
 ///
 /// Devolve `None` — e o chamador refaz tudo — quando alguma premissa não vale:
@@ -249,7 +161,7 @@ fn costurar(
             // guard reage ao comprimento do BFC), mas NESTA passada de
             // costura o float fica preso a este contexto descartável — um
             // limite conhecido, não escondido: ver o cabeçalho de
-            // `layout/bfc.rs`.
+            // `block/bfc.rs`.
             &BlockFormattingContext::new(),
             ctx,
             &mut own,
@@ -343,7 +255,7 @@ pub(in crate::layout) fn layout_block_reusing(
     margens: impl FnOnce() -> (f32, f32),
     forced_outer_w: Option<f32>,
     forced_outer_h: Option<f32>,
-    // Ver o comentário em `layout_block` (`bloco.rs`) — só
+    // Ver o comentário em `layout_block` (`block.rs`) — só
     // `layout_children_column` passa `true`. Fica de fora da `FragmentKey`
     // de propósito: o `style_epoch` global já invalida o cache inteiro
     // quando um ancestral muda de `display`/`flex-direction` (o único jeito
@@ -444,7 +356,7 @@ pub(in crate::layout) fn layout_block_reusing(
     let mut own = DisplayList::for_dom(dom);
     // `bfc` — a referência AMBIENTE, não uma isolada — porque `id` pode não
     // estabelecer BFC próprio e conter um float que precisa de ESCAPAR para
-    // este mesmo `bfc` (ver `layout/bfc.rs`). O comprimento antes/depois é
+    // este mesmo `bfc` (ver `block/bfc.rs`). O comprimento antes/depois é
     // como se sabe se isso aconteceu: `floats_escaparam` abaixo.
     let floats_antes = bfc.len();
     let linhas_antes = crate::layout::inline::line_baseline::marca();
@@ -471,7 +383,7 @@ pub(in crate::layout) fn layout_block_reusing(
     // aconteceria. Recusar o cache aqui é o preço; a alternativa (guardar as
     // exclusões produzidas dentro do `Fragment` e reinjectá-las em cada
     // emissão, mesmo em cache-hit) fica para quando um caso real o pedir —
-    // documentado, não escondido, no cabeçalho de `layout/bfc.rs`.
+    // documentado, não escondido, no cabeçalho de `block/bfc.rs`.
     let floats_escaparam = bfc.len() != floats_antes;
     let (linha_directa, ultima_linha) = crate::layout::inline::line_baseline::colhe_do_bloco(dom, id, linhas_antes, y, size.1);
     // O desenho guardado conserva a identidade que o produziu: `BoxId`. A

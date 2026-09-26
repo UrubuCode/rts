@@ -1,27 +1,26 @@
 //! `layout_block` — a colocação de UM bloco: caixa, margens, padding, borda, e
 //! a escolha de como dispor os filhos.
 //!
-//! **Este módulo é uma função.** São 807 linhas, e ficam acima do teto de 500 de
+//! **Este módulo é uma função.** São 1 101 linhas (a função, 1 056), e ficam acima do teto de 500 de
 //! propósito: partir uma função por dentro deixa de ser um movimento de código e
 //! passa a ser uma alteração de comportamento que nenhuma régua desta arrumação
 //! consegue verificar. O teto vale para ficheiros que juntam assuntos; aqui o
-//! assunto é um só e tem 807 linhas. Reduzi-lo é trabalho medido, à parte.
+//! assunto é um só e tem 1 056 linhas. Reduzi-lo é trabalho medido, à parte:
+//! extrair funções do corpo carrega comportamento e pede a régua de layout
+//! (2026-09-26: `margin_collapse.rs` foi o único move inteiro possível).
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi alterada.
 
 use super::*;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum MarginChildRole {
-    Ignore,
-    Barrier,
-    Block { top: f32, bottom: f32 },
-}
+pub(in crate::layout) use super::margin_collapse::{
+    collapse_margin, edge_margin_from_children, escaped_child_margins, escaped_margins_for_box,
+};
 
 /// `true` se `id` estabelece o seu PRÓPRIO bloco de formatação (CSS 2.1
 /// §9.4.1) — hoje usado para barrar o escape de margens
 /// ([`escaped_child_margins`]) E para decidir o `BlockFormattingContext` de
-/// `layout_block`; ver `layout/bfc.rs` para o porquê da entidade. A raiz do
+/// `layout_block`; ver `block/bfc.rs` para o porquê da entidade. A raiz do
 /// documento entra por `id` ser filho direto de `dom.root` — o único gatilho
 /// que não está no `ComputedStyle`.
 /// Raised to `pub(crate)` for `crate::boxes::context`: a box has to be able to
@@ -30,7 +29,7 @@ enum MarginChildRole {
 /// carries with the fixtures that pinned each one. The rule it encodes is a
 /// STYLE question and will move to `style/` with `is_block_level`.
 pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
-    // The style half lives in `bfc_estilo.rs` since BT-5, so a box with no
+    // The style half lives in `bfc_style.rs` since BT-5, so a box with no
     // node — a generated one — can ask it too. What stays is what only a node
     // answers: being the root, and `overflow` propagating to the viewport.
     let pai = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
@@ -39,179 +38,6 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
         || dom.node(id).parent == Some(dom.root)
 }
 
-pub(in crate::layout) fn collapse_margin(first: f32, second: f32) -> f32 {
-    if first >= 0.0 && second >= 0.0 {
-        first.max(second)
-    } else if first <= 0.0 && second <= 0.0 {
-        first.min(second)
-    } else {
-        first + second
-    }
-}
-
-fn margin_child_role(
-    dom: &Dom,
-    child: NodeIdx,
-    content_w: f32,
-    parent_font_size: f32,
-    ctx: &LayoutCtx,
-) -> MarginChildRole {
-    match &dom.node(child).kind {
-        NodeKind::Comment(_) => MarginChildRole::Ignore,
-        NodeKind::Text(text) if text.trim().is_empty() => MarginChildRole::Ignore,
-        NodeKind::Text(_) | NodeKind::Document => MarginChildRole::Barrier,
-        NodeKind::Element { tag } if is_non_rendered_tag(tag) => MarginChildRole::Ignore,
-        NodeKind::Element { .. } => {
-            let css = dom.computed_style_idx(child).unwrap_or_default();
-            if e_display_none(dom, child)
-                || css
-                    .position
-                    .map(|position| position.out_of_flow())
-                    .unwrap_or(false)
-                || css
-                    .float_side
-                    .map(|side| side != crate::style::FloatSide::None)
-                    .unwrap_or(false)
-            {
-                return MarginChildRole::Ignore;
-            }
-            let effective = css.effective_display();
-            let block_candidate = match effective {
-                Some(
-                    crate::style::DisplayKind::Inline
-                    | crate::style::DisplayKind::InlineBlock
-                    | crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
-                    | crate::style::DisplayKind::InlineFlexWrap
-                    | crate::style::DisplayKind::TableRowGroup
-                    | crate::style::DisplayKind::TableHeaderGroup
-                    | crate::style::DisplayKind::TableFooterGroup
-                    | crate::style::DisplayKind::TableRow
-                    | crate::style::DisplayKind::TableCell
-                    | crate::style::DisplayKind::TableCaption
-                    | crate::style::DisplayKind::None,
-                ) => false,
-                Some(_) => true,
-                None => is_block_level(dom, child) && !is_inline_block(dom, child),
-            };
-            if !block_candidate {
-                return MarginChildRole::Barrier;
-            }
-            let resolve = ResolveCtx {
-                parent_content_w: content_w,
-                node_font_size: font_px(&css, parent_font_size),
-                root_font_size: crate::style::root_font_size(),
-                viewport_w: ctx.viewport_w,
-                viewport_h: ctx.viewport_h,
-            };
-            let margin_v = css.margin_v.unwrap_or(0.0);
-            let margin_top_extra = if css.margin.top == crate::style::Side::Unset {
-                margin_v
-            } else {
-                0.0
-            };
-            let margin_bottom_extra = if css.margin.bottom == crate::style::Side::Unset {
-                margin_v
-            } else {
-                0.0
-            };
-            MarginChildRole::Block {
-                top: css.margin.top.resolve(&resolve).unwrap_or(0.0) + margin_top_extra,
-                bottom: css.margin.bottom.resolve(&resolve).unwrap_or(0.0) + margin_bottom_extra,
-            }
-        }
-    }
-}
-
-pub(in crate::layout) fn edge_margin_from_children(
-    dom: &Dom,
-    id: NodeIdx,
-    content_w: f32,
-    parent_font_size: f32,
-    ctx: &LayoutCtx,
-    from_end: bool,
-) -> Option<f32> {
-    let children = &dom.node(id).children;
-    if from_end {
-        for &child in children.iter().rev() {
-            match margin_child_role(dom, child, content_w, parent_font_size, ctx) {
-                MarginChildRole::Ignore => continue,
-                MarginChildRole::Barrier => return None,
-                MarginChildRole::Block { bottom, .. } => return Some(bottom),
-            }
-        }
-    } else {
-        for &child in children {
-            match margin_child_role(dom, child, content_w, parent_font_size, ctx) {
-                MarginChildRole::Ignore => continue,
-                MarginChildRole::Barrier => return None,
-                MarginChildRole::Block { top, .. } => return Some(top),
-            }
-        }
-    }
-    None
-}
-
-pub(in crate::layout) fn escaped_child_margins(
-    dom: &Dom,
-    id: NodeIdx,
-    parent_css: &ComputedStyle,
-    content_w: f32,
-    parent_font_size: f32,
-    ctx: &LayoutCtx,
-    pad_top: f32,
-    border_top: f32,
-    pad_bottom: f32,
-    border_bottom: f32,
-    bottom_auto_height: bool,
-) -> (f32, f32) {
-    if establishes_block_formatting_context(dom, id, parent_css) {
-        return (0.0, 0.0);
-    }
-    let top = if pad_top == 0.0 && border_top == 0.0 {
-        edge_margin_from_children(dom, id, content_w, parent_font_size, ctx, false).unwrap_or(0.0)
-    } else {
-        0.0
-    };
-    let bottom = if bottom_auto_height && pad_bottom == 0.0 && border_bottom == 0.0 {
-        edge_margin_from_children(dom, id, content_w, parent_font_size, ctx, true).unwrap_or(0.0)
-    } else {
-        0.0
-    };
-    (top, bottom)
-}
-
-pub(in crate::layout) fn escaped_margins_for_box(
-    dom: &Dom,
-    id: NodeIdx,
-    content_w: f32,
-    parent_font_size: f32,
-    ctx: &LayoutCtx,
-) -> (f32, f32) {
-    let css = dom.computed_style_idx(id).unwrap_or_default();
-    let resolve = ResolveCtx {
-        parent_content_w: content_w,
-        node_font_size: font_px(&css, parent_font_size),
-        root_font_size: crate::style::root_font_size(),
-        viewport_w: ctx.viewport_w,
-        viewport_h: ctx.viewport_h,
-    };
-    let pad_top = css.padding.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
-    let pad_bottom = css.padding.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);
-    let [border_top, _, border_bottom, _] = crate::style::borders::used_widths(&css);
-    escaped_child_margins(
-        dom,
-        id,
-        &css,
-        content_w,
-        parent_font_size,
-        ctx,
-        pad_top,
-        border_top,
-        pad_bottom,
-        border_bottom,
-        css.height.is_none() && css.min_height.is_none(),
-    )
-}
 
 /// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
 /// disponível (a do container). Emite os itens (fundo/borda/texto/filhos) na
@@ -255,7 +81,7 @@ pub(crate) fn layout_block(
     shrink_to_fit: bool,
     // O bloco de formatação AMBIENTE, do antepassado que o estabeleceu — não
     // necessariamente o pai imediato. Ignorado se `id` estabelece o SEU
-    // PRÓPRIO BFC (um novo é criado abaixo, em `bfc_filhos`). Ver `layout/bfc.rs`.
+    // PRÓPRIO BFC (um novo é criado abaixo, em `bfc_filhos`). Ver `block/bfc.rs`.
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -349,7 +175,7 @@ pub(crate) fn layout_block(
             css
         }
         // Texto solto ao nível de bloco: uma linha com a fonte do PAI
-        // (`texto_solto.rs`); whitespace estrutural não cria linha nenhuma.
+        // (`bare_text.rs`); whitespace estrutural não cria linha nenhuma.
         NodeKind::Text(t) => return super::bare_text::layout_texto_solto(dom, id, t, x, y, ctx, list),
         _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
     };
@@ -467,7 +293,7 @@ pub(crate) fn layout_block(
                 //
                 // `largura_intrinseca_transferida` decide PRIMEIRO quando um
                 // `<img>` sem tamanho lá dentro pesa pela razão×altura
-                // esticada em vez do natural (`replaced_transferido.rs`) —
+                // esticada em vez do natural (`transferred_size.rs`) —
                 // `None` em qualquer outro caso, e cai no shrink-to-fit de
                 // sempre.
                 None if shrink_to_fit => {
@@ -549,7 +375,7 @@ pub(crate) fn layout_block(
     // Posição do content-box (canto sup-esq): deslocado pelo lado ESQUERDO/TOPO
     // (margin+border+padding daquele lado), não a soma do eixo.
     let content_x = x + margin_left + border_left + pad_left;
-    // MARGIN-COLLAPSE PAI→PRIMEIRO-FILHO — porquê em `margem_escapada.rs`.
+    // MARGIN-COLLAPSE PAI→PRIMEIRO-FILHO — porquê em `escaped_margin.rs`.
     let escaped_top_pre = crate::layout::block::escaped_margin::escapada_no_topo(
         dom, id, &css, content_w, font_for_content, pad_top, border_top, ctx,
     );
@@ -700,14 +526,14 @@ pub(crate) fn layout_block(
     // `Some(0.0)` — um limiar de wrap DEGENERADO onde o 2.º item de
     // QUALQUER coluna já não cabe, abrindo uma coluna nova por item (3 itens
     // ficavam 3 colunas de 1, lado a lado, em vez de uma pilha vertical de
-    // 3). `layout_children_column`/`coluna_wrap.rs` continuam a receber
+    // 3). `layout_children_column`/`column_wrap.rs` continuam a receber
     // `avail_children` para tudo o resto (gap%, `height:%` dos netos,
     // grow/shrink) — só o DESPACHO do wrap lê este valor mais estreito.
     let wrap_definite_h = explicit_content_h.or(mxh_pre);
 
     // Novo BFC (fresco, vazio) só se `id` o estabelece — senão os filhos
     // recebem a mesma referência ambiente, e um float lá dentro alcança os
-    // IRMÃOS do antepassado que a possui. Ver `layout/bfc.rs`.
+    // IRMÃOS do antepassado que a possui. Ver `block/bfc.rs`.
     let estabelece_bfc = establishes_block_formatting_context(dom, id, &css);
     let bfc_proprio = estabelece_bfc.then(BlockFormattingContext::new);
     let bfc_filhos = bfc_proprio.as_ref().unwrap_or(bfc);
@@ -745,7 +571,7 @@ pub(crate) fn layout_block(
     // troca (CSS Box Alignment §12.2 + Flexbox §8.1: "row-gap" é o espaço
     // entre as LINHAS do flex e "column-gap" entre os itens de uma linha —
     // "linha"/"coluna" aqui são o que `flex-direction:row`/`column` definem,
-    // não X/Y físicos). `flex.rs` (roda o eixo físico X) e `coluna.rs` (roda
+    // não X/Y físicos). `row.rs` (roda o eixo físico X) e `column.rs` (roda
     // o Y) continuam a ler `gap`=principal/`row_gap`=cruzado e
     // `row_gap`=principal/`gap`=cruzado, respetivamente — os papéis que já
     // tinham antes deste lote. Quando o DESPACHO físico diverge da keyword
@@ -756,7 +582,7 @@ pub(crate) fn layout_block(
     // acertar mesmo assim (achado pelo WPT `gap-*-lr/rl/rtl` e
     // `flexbox-column-row-gap-002/004`: sem isto, um `flex-direction:column`
     // vertical passava o `gap` do documento — pensado para as SUAS colunas —
-    // a `flex.rs`, que o lê como o espaço entre ITENS de uma linha).
+    // a `row.rs`, que o lê como o espaço entre ITENS de uma linha).
     let css = if is_flex && is_column != is_column_kw {
         let mut c = (*css).clone();
         std::mem::swap(&mut c.gap, &mut c.row_gap);
@@ -766,7 +592,7 @@ pub(crate) fn layout_block(
     };
     let content_h = match display {
         // flex column: sem wrap empilha numa coluna; COM wrap (e altura
-        // definida) `layout_children_column` delega para `coluna_wrap.rs` —
+        // definida) `layout_children_column` delega para `column_wrap.rs` —
         // ver o comentário no parâmetro `wrap` lá.
         _ if is_flex && is_column => layout_children_column(
             dom,
@@ -1204,7 +1030,7 @@ pub(crate) fn layout_block(
         list.pieces.push(Piece::Item(DisplayItem::EndClip));
     }
 
-    // POSITION:RELATIVE — porquê e o que desloca em `relativo.rs`. ANTES do
+    // POSITION:RELATIVE — porquê e o que desloca em `relative.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
     aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_start, ctx, list);
 

@@ -7,7 +7,7 @@
 //! shortened around it; if it does not fit, it goes to the next line.
 //!
 //! The previous model had no such question. A direct-child float CLOSED the
-//! inline flow (`vertical.rs`) and went below the last line, and a float inside
+//! inline flow (`vertical_flow.rs`) and went below the last line, and a float inside
 //! a `<span>` split the span into three boxes (`boxes/build.rs`) to end up in
 //! the same place — `<div>before<div style=float:left></div>after</div>` came
 //! out as two lines where Blink gives one, with the text beside the float.
@@ -17,14 +17,14 @@
 //! The anchor (`AtomicKind::Float`) is zero-width and enters line breaking as a
 //! `Marker` does. For each anchor, in document order: break the flow with the
 //! exclusions that exist, find the line it landed on and how much of that line
-//! it must leave free, decide the top, place the float (`float_placement.rs`,
+//! it must leave free, decide the top, place the float (`placement.rs`,
 //! the same path as a direct child) and move on — the next anchor already sees
 //! this float among the exclusions. The caller breaks one last time with all of
 //! them. **That is `k + 1` line breakings for `k` floats in the flow**, and not
 //! one more when there are none, which is almost always.
 //!
 //! Each line's top is predicted from its INDEX (`y + i × lh`) — the same
-//! declared approximation as the line width in `linha.rs`, for the same
+//! declared approximation as the line width in `line.rs`, for the same
 //! reason: a line holding a taller atom shifts the ones after it, and the float
 //! then sits a fraction of a line above its real place.
 

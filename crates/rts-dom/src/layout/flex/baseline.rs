@@ -1,5 +1,5 @@
 //! `align-items: baseline` / `align-self: baseline` no flex (Flexbox §8.5) —
-//! o gancho que `flex.rs` chama para não crescer além do tecto do crate. A
+//! o gancho que `row.rs` chama para não crescer além do tecto do crate. A
 //! ordem das linhas sob `flex-wrap: wrap-reverse` mudou-se para
 //! `axes::wrap_reverse_efetivo` no lote `flex-writing-mode`, que
 //! combina o `wrap-reverse` declarado com o sentido físico do eixo sob
@@ -26,7 +26,7 @@
 //! só olhava para a altura crua de cada item.
 //!
 //! CORTES declarados: só a linha (`flex-direction: row`) participa —
-//! `coluna.rs::align_offset` trata `Baseline` como `FlexStart`, o fallback
+//! `column.rs::align_offset` trata `Baseline` como `FlexStart`, o fallback
 //! que a própria spec prevê quando o eixo cruzado não tem baseline
 //! partilhável; um `::before`/`::after` de pseudo-item e um nó de texto
 //! solto nunca entram no grupo (a ascent de um pseudo seria a do
@@ -39,7 +39,7 @@
 use super::*;
 
 /// Filhos ELEMENTO deste contentor que são itens de flex EM FLUXO — a mesma
-/// filtragem que `flex.rs` aplica antes de construir cada `FlexItem` (tag não
+/// filtragem que `row.rs` aplica antes de construir cada `FlexItem` (tag não
 /// renderizável, fora do fluxo, `display:none`), MENOS texto solto e pseudo:
 /// nenhum dos dois tem uma baseline própria que [`ascent_do_contentor`] saiba
 /// medir — o mesmo corte que o doc deste módulo já declara para o GRUPO da
@@ -160,7 +160,7 @@ fn linhas_por_largura(dom: &Dom, filhos: &[NodeIdx], content_w: f32, font_size: 
 /// DOM: os itens contam pela ordem de `order` ([`em_ordem_de_flex`]), e sob
 /// `flex-wrap: wrap-reverse` a ordem das LINHAS inverte no eixo cruzado
 /// (Flexbox §8.3 — a MESMA leitura que [`reverte_linhas_se_wrap_reverse`] já
-/// aplica às linhas REAIS de `flex.rs`): a linha que o documento escreve
+/// aplica às linhas REAIS de `row.rs`): a linha que o documento escreve
 /// DEPOIS desenha-se no INÍCIO, e é ELA a "primeira" para a baseline. Sem
 /// `flex-wrap` (ou com `nowrap`), tudo cabe numa única linha e só o `order`
 /// interessa — nenhuma quebra é sequer calculada.
@@ -171,7 +171,7 @@ fn linhas_por_largura(dom: &Dom, filhos: &[NodeIdx], content_w: f32, font_size: 
 ///    [`calcula_linha`] já faz, e só no eixo de LINHA (`flex-direction:
 ///    row`; numa coluna a baseline de um item de texto normal não é
 ///    paralela ao eixo principal e por isso nunca participa, Flexbox §8.5 —
-///    a mesma leitura que já faz `coluna.rs::align_offset` cair em
+///    a mesma leitura que já faz `column.rs::align_offset` cair em
 ///    `FlexStart`) — a baseline do contentor é a desse GRUPO: o
 ///    `max_ascent` que [`calcula_linha`] devolveria PARA ESSA LINHA.
 /// 2. Senão (sem participante nela, ou eixo de coluna), a baseline do

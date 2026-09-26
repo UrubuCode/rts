@@ -7,11 +7,11 @@
 //! Um pseudo-elemento não é um nó, e o `layout_block` não lhe dá caixa; o que
 //! um item gerado precisa é pouco — a sua largura e altura (conteúdo, padding,
 //! borda, margem) e uma pintura de fundo, bordas e texto — e é isso que vive
-//! aqui, fora de `flex.rs`, que está no teto. CORTE dito: `border-radius`,
+//! aqui, fora de `row.rs`, que está no teto. CORTE dito: `border-radius`,
 //! `flex-basis` e `min/max-width` do pseudo não entram; o texto não quebra.
 //!
 //! A medição de padding/borda/margem e a pintura são as MESMAS de
-//! `pseudo_bloco.rs` — extraídas para `pseudo_caixa.rs` no lote BT-5 (issue
+//! `pseudo_block.rs` — extraídas para `pseudo_box.rs` no lote BT-5 (issue
 //! #2731), que era onde as duas cópias byte-a-byte viviam antes. O que este
 //! ficheiro NÃO partilha com esse, de propósito: a largura por omissão
 //! encolhe ao texto (shrink-to-fit, Flexbox §9.2) em vez de encher o
@@ -67,8 +67,8 @@ pub(in crate::layout) fn medir(
         ctx.measurer.text_width_family(&texto, fonte, css.font_family.as_deref(), mono, bold, false)
     };
     // ITEM FLEX: largura AUTO encolhe ao conteúdo (shrink-to-fit) — o oposto
-    // do bloco em `pseudo_bloco.rs::medir`, que enche o pai. É a única conta
-    // que os dois papéis não partilham (ver `pseudo_caixa.rs`).
+    // do bloco em `pseudo_block.rs::medir`, que enche o pai. É a única conta
+    // que os dois papéis não partilham (ver `pseudo_box.rs`).
     let conteudo_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or(tw);
     let conteudo_h = css.height.and_then(|d| d.resolve(&r)).unwrap_or(if texto.is_empty() {
         0.0
@@ -98,14 +98,14 @@ pub(in crate::layout) fn largura(
 
 /// Pinta o item gerado com o canto superior esquerdo da sua margin box em
 /// (`x`, `y`) — repassa a `crate::layout::block::pseudo_box::pintar`, mantida aqui como um nome
-/// próprio porque `flex.rs` chama-a por este caminho.
+/// próprio porque `row.rs` chama-a por este caminho.
 pub(in crate::layout) fn pintar(list: &mut DisplayList, item: &PseudoItem, x: f32, y: f32, ctx: &LayoutCtx) {
     crate::layout::block::pseudo_box::pintar(list, item, x, y, ctx);
 }
 
 /// O item flex de um pseudo-elemento gerado do contentor, se existir.
 ///
-/// The item's box is the GENERATED box. `flex.rs` never hands it to
+/// The item's box is the GENERATED box. `row.rs` never hands it to
 /// `layout_block` — a generated item is painted by `pintar` from `pseudo` —
 /// but it is the box the item is, and the one its geometry is recorded under.
 #[allow(clippy::too_many_arguments)]
