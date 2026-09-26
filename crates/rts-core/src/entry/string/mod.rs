@@ -144,7 +144,7 @@ pub(super) fn is_iterator_method(context: &Context, found: u64) -> bool {
     Value(found)
         .as_slot()
         .and_then(|cell| context.callable_at(cell))
-        .is_some_and(|(code, _)| code == iterate_units as usize as u64)
+        .is_some_and(|(code, _)| code == iterate_units as super::native::Native as usize as u64)
 }
 
 /// `s[Symbol.iterator]()` — an iterator over CODE POINTS.
