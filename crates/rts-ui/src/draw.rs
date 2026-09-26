@@ -26,6 +26,9 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("html", html),
     ("render", render),
     ("drawImage", draw_image),
+    ("imageRegister", image_register),
+    ("drawImageId", draw_image_id),
+    ("imageRelease", image_release),
 ];
 
 /// `drawRect(win, { x, y, w, h, fill, strokeW, stroke, radius })`.
@@ -85,6 +88,45 @@ extern "C" fn draw_image(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64
         read[5] as i64,
     );
     value::nothing()
+}
+
+/// `imageRegister(win, { pixels, imgWidth, imgHeight })` — sobe a imagem RGBA8
+/// UMA vez e devolve o id (>= 1) para `drawImageId`; 0 se não deu.
+///
+/// Existe porque `drawImage` sobe textura nova a cada chamada: um ícone ou uma
+/// miniatura desenhados todo frame pagavam um upload por frame.
+extern "C" fn image_register(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
+    let read = options(spec, &["imgWidth", "imgHeight"], &[0.0, 0.0]);
+    let Some(pixels) = value::member_bytes(spec, "pixels") else {
+        return value::from_number(0.0);
+    };
+    let id = rts_egui::image_register(handle(win), &pixels, read[0] as i64, read[1] as i64);
+    value::from_number(id as f64)
+}
+
+/// `drawImageId(win, dados: Float64Array)` — `dados` = [id, x, y, w, h]. Um
+/// buffer e não um objeto de opções: o chamador reaproveita o mesmo Float64Array
+/// e a chamada tem 2 argumentos (no RTS, 5+ parâmetros alocam por chamada).
+extern "C" fn draw_image_id(_e: u64, _t: u64, win: u64, data: u64, _b: u64, _c: u64) -> u64 {
+    let Some(raw) = value::bytes(data) else {
+        return value::nothing();
+    };
+    let d: Vec<f64> = raw
+        .chunks_exact(8)
+        .map(|w| f64::from_ne_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]]))
+        .collect();
+    if d.len() < 5 || d[0] < 1.0 {
+        return value::nothing();
+    }
+    rts_egui::draw_image_id(handle(win), d[0] as u64, d[1], d[2], d[3], d[4]);
+    value::nothing()
+}
+
+/// `imageRelease(win, id)` — solta a textura retida. Devolve 1 se existia.
+extern "C" fn image_release(_e: u64, _t: u64, win: u64, id: u64, _b: u64, _c: u64) -> u64 {
+    let n = number(id, 0.0);
+    let ok = n >= 1.0 && rts_egui::image_release(handle(win), n as u64);
+    value::from_number(if ok { 1.0 } else { 0.0 })
 }
 
 /// `drawText(win, { x, y, text, color, size, flags })`.
