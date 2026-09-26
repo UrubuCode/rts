@@ -221,7 +221,7 @@ fn attempt(
     if ctx.sloppy {
         ctx.names.intern("callee");
     }
-    let (graph, placement) = crate::lower::lower_within(
+    let (mut graph, placement) = crate::lower::lower_within(
         function,
         &resolution,
         &callees,
@@ -233,6 +233,13 @@ fn attempt(
         ctx.sloppy,
     )
     .map_err(|held| format!("lowering: {held:?}"))?;
+    // THE LANGUAGE'S PASSES, before the checks and the inference read the graph --
+    // `optimize/` says which and why each is this crate's rather than `rts_mir`'s.
+    crate::optimize::replace_scalars(&mut graph, &domain);
+    // `RTS_MIR_TRACE=graph` prints what the machine is handed.
+    if std::env::var(TRACE).as_deref() == Ok("graph") {
+        eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
+    }
     let unbound = agrees(ctx, enclosing, &graph, &domain)?;
     let written = graph.block(graph.entry()).params.len();
     if written > crate::runtime::ARGUMENT_SLOTS {

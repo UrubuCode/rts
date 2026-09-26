@@ -334,13 +334,33 @@ pub fn drop_proved_guards<D: Domain>(func: &mut Func, domain: &D) -> Dropped {
         .map(|at| crate::cfg::InstId(at as u32))
         .filter(|held| replace.contains_key(&func.inst(*held).result))
         .collect();
-    for block in 0..func.blocks.len() {
-        func.blocks[block]
-            .insts
-            .retain(|held| !dropped.contains(held));
-    }
+    unlist(func, &dropped);
+    rewrite_uses(func, &replace);
+    out
+}
 
-    let of = |held: crate::cfg::ValueId| replace.get(&held).copied().unwrap_or(held);
+/// Takes these instructions out of their blocks. They stay in the flat list,
+/// unreferenced -- [`drop_proved_guards`] says why the list is not compacted.
+pub fn unlist(func: &mut Func, dropped: &std::collections::BTreeSet<crate::cfg::InstId>) {
+    for block in &mut func.blocks {
+        block.insts.retain(|held| !dropped.contains(held));
+    }
+}
+
+/// Points every use of a key of `replace` at its value, through chains, in every
+/// operand and every terminator. The one place a pass that removes a value says where
+/// its readers go instead.
+pub fn rewrite_uses(
+    func: &mut Func,
+    replace: &std::collections::BTreeMap<crate::cfg::ValueId, crate::cfg::ValueId>,
+) {
+    let of = |held: crate::cfg::ValueId| {
+        let mut target = held;
+        while let Some(next) = replace.get(&target) {
+            target = *next;
+        }
+        target
+    };
     for inst in &mut func.insts {
         match &mut inst.op {
             Op::Prim { args, .. } => {
@@ -348,7 +368,17 @@ pub fn drop_proved_guards<D: Domain>(func: &mut Func, domain: &D) -> Dropped {
                     *held = of(*held);
                 }
             }
-            Op::Call { receiver, args, .. } => {
+            Op::Call {
+                callee,
+                receiver,
+                args,
+            } => {
+                // THE CALLEE TOO, where it is a value: `call v8(...)` reads `v8` as much
+                // as an argument does. Missing it left a call naming a value the pass had
+                // removed, which the machine refused as a read before any definition.
+                if let crate::cfg::Callee::Dynamic(held) = callee {
+                    *held = of(*held);
+                }
                 if let Some(held) = receiver.as_mut() {
                     *held = of(*held);
                 }
@@ -393,5 +423,4 @@ pub fn drop_proved_guards<D: Domain>(func: &mut Func, domain: &D) -> Dropped {
             | Terminator::Unreachable => {}
         }
     }
-    out
 }
