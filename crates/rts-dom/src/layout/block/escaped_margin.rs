@@ -26,7 +26,7 @@ use super::block::{edge_margin_from_children, establishes_block_formatting_conte
 /// próprio) — senão `0.0`. É o mesmo valor que `content_y` precisa somar (via
 /// `collapse_margin`) para não contar a margem do filho a dobro.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn escapada_no_topo(
+pub(in crate::layout) fn escaped_at_top(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,

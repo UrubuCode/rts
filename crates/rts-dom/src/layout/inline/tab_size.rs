@@ -15,11 +15,11 @@ use super::Segment;
 /// altura `auto` mede-se pelo `cy` que `layout_inline_flow` devolve, e esse
 /// `cy` só avança pelas linhas que sobram desta lista. Cortar a lista ANTES da
 /// emissão é o mesmo que cortar a altura, sem um segundo cálculo.
-pub(in crate::layout) fn aplicar_line_clamp(
+pub(in crate::layout) fn apply_line_clamp(
     mut lines: Vec<Vec<Segment>>,
     n: usize,
     content_w: f32,
-    fonte_de: &dyn Fn(&[crate::NodeIdx]) -> (f32, bool, bool),
+    font_of: &dyn Fn(&[crate::NodeIdx]) -> (f32, bool, bool),
     m: &dyn crate::layout::TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     if n == 0 || lines.len() <= n {
@@ -29,9 +29,9 @@ pub(in crate::layout) fn aplicar_line_clamp(
     // a última linha mantida ganha "…" pelo MESMO cortador que `text-overflow`
     // usa — envolvê-la numa lista de uma linha só reaproveita
     // `aplicar_elipse` sem uma segunda função "corta e junta reticências".
-    let ultima = vec![lines.pop().expect("n > 0 e lines.len() > n")];
-    let cortada =
-        super::segment::aplicar_elipse_forcada(ultima, content_w, fonte_de, m, true);
-    lines.extend(cortada);
+    let last_line = vec![lines.pop().expect("n > 0 e lines.len() > n")];
+    let clipped =
+        super::segment::apply_forced_ellipsis(last_line, content_w, font_of, m, true);
+    lines.extend(clipped);
     lines
 }

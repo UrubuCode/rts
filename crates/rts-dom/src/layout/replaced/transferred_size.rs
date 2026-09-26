@@ -5,7 +5,7 @@
 //! do tamanho NATURAL dos pixels, porque é isso que o item vai ocupar depois
 //! do `align-items: stretch` (o default) esticar o eixo cruzado.
 //!
-//! Duas perguntas, uma implementação (`transferido`, abaixo): o ITEM em si —
+//! Duas perguntas, uma implementação (`transferred`, abaixo): o ITEM em si —
 //! usado no pré-passo de `row.rs`, onde a altura do contentor já é um
 //! parâmetro — e o CONTENTOR que encolhe ao conteúdo
 //! (`largura_intrinseca_transferida`, usado por `block.rs`/`limits.rs`
@@ -24,7 +24,7 @@ use super::*;
 /// descodificados (sem razão de aspeto), ou `cross_h` não é positivo. Nesses
 /// casos o caminho normal (`replaced_inline_size` a partir do tamanho
 /// natural) decide sozinho.
-pub(in crate::layout) fn transferido(
+pub(in crate::layout) fn transferred(
     dom: &Dom,
     id: NodeIdx,
     content_w: f32,
@@ -61,16 +61,16 @@ pub(in crate::layout) fn transferido(
     let margin_h = css.margin.resolve_h(&resolve);
     let mt = css.margin.top.resolve(&resolve).unwrap_or(0.0);
     let mb = css.margin.bottom.resolve(&resolve).unwrap_or(0.0);
-    let bordas = crate::style::borders::resolved_sides(&css);
+    let borders = crate::style::borders::resolved_sides(&css);
     let px = |b: crate::style::borders::SideBorder| if b.paints() { b.width } else { 0.0 };
-    let (bt, br, bb, bl) = (px(bordas[0]), px(bordas[1]), px(bordas[2]), px(bordas[3]));
+    let (bt, br, bb, bl) = (px(borders[0]), px(borders[1]), px(borders[2]), px(borders[3]));
     let h_content = (cross_h - mt - mb - bt - bb).max(0.0);
     let w_content = h_content * nw as f32 / nh as f32;
     Some((w_content + margin_h + bl + br, cross_h))
 }
 
 /// `(base, h, transferiu)` de um item do pré-passo de `row.rs`: a versão
-/// TRANSFERIDA (`transferido`, acima) quando o item é um `<img>` esticado no
+/// TRANSFERIDA (`transferred`, acima) quando o item é um `<img>` esticado no
 /// eixo cruzado, senão a de sempre (`flex_base_outer`/`child_outer_height`)
 /// — uma chamada só, para o pré-passo (que já está no tecto de 500 linhas)
 /// não crescer com uma pergunta que já vive aqui.
@@ -98,17 +98,17 @@ pub(in crate::layout) fn base_e_altura_do_item(
     dom: &Dom,
     child: NodeIdx,
     // A caixa do item, recolhida pelo pré-passe de `row.rs` ao andar a árvore.
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     content_w: f32,
     container_content_h: Option<f32>,
-    align_efetivo: crate::style::AlignItems,
+    effective_align: crate::style::AlignItems,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> (f32, f32, bool) {
-    let t = (align_efetivo == crate::style::AlignItems::Stretch)
+    let t = (effective_align == crate::style::AlignItems::Stretch)
         .then_some(container_content_h)
         .flatten()
-        .and_then(|h| transferido(dom, child, content_w, h, font_size, ctx));
+        .and_then(|h| transferred(dom, child, content_w, h, font_size, ctx));
     match t {
         Some((w, h)) => (w, h, true),
         None => {
@@ -116,7 +116,7 @@ pub(in crate::layout) fn base_e_altura_do_item(
             let (_, h) = measure_block(
                 dom,
                 child,
-                caixa,
+                box_id,
                 content_w,
                 container_content_h,
                 Some(base),
@@ -131,7 +131,7 @@ pub(in crate::layout) fn base_e_altura_do_item(
 
 /// A largura OUTER de um contentor flex-ROW que encolhe ao conteúdo
 /// (shrink-to-fit), quando pelo menos um filho `<img>` se beneficia de
-/// [`transferido`] — ou `None` para deixar o caminho normal e CACHED
+/// [`transferred`] — ou `None` para deixar o caminho normal e CACHED
 /// (`intrinsic_content_width`) decidir, que é o que faz na esmagadora
 /// maioria dos contentores (sem isto o corte seria testar isto em CADA
 /// contentor, não só nos que têm uma imagem sem tamanho lá dentro).
@@ -197,7 +197,7 @@ pub(in crate::layout) fn largura_intrinseca_transferida(
         .max(0.0);
     let mut sum = 0.0f32;
     let mut count: usize = 0;
-    let mut algum_transferido = false;
+    let mut some_transferred = false;
     for &child in &dom.node(id).children {
         if is_out_of_flow(dom, child) {
             continue;
@@ -207,9 +207,9 @@ pub(in crate::layout) fn largura_intrinseca_transferida(
                 continue;
             }
         }
-        let w = match transferido(dom, child, f32::INFINITY, h, font, ctx) {
+        let w = match transferred(dom, child, f32::INFINITY, h, font, ctx) {
             Some((w, _)) => {
-                algum_transferido = true;
+                some_transferred = true;
                 w
             }
             None => intrinsic_outer_width(dom, child, font, ctx),
@@ -219,7 +219,7 @@ pub(in crate::layout) fn largura_intrinseca_transferida(
         }
         sum += w;
     }
-    if !algum_transferido {
+    if !some_transferred {
         // nenhum filho precisava da regra — o caminho cached decide igual,
         // e ele é o que os outros milhares de contentores já usam.
         return None;

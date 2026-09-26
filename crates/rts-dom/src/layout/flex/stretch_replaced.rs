@@ -32,8 +32,8 @@ pub(in crate::layout) fn precisa_de_forced_w_no_stretch(dom: &Dom, id: NodeIdx) 
         return true;
     }
     if tag == "input" {
-        let tipo = dom.node(id).attr("type").map(str::to_ascii_lowercase);
-        return matches!(tipo.as_deref(), Some("checkbox") | Some("radio"));
+        let type_attr = dom.node(id).attr("type").map(str::to_ascii_lowercase);
+        return matches!(type_attr.as_deref(), Some("checkbox") | Some("radio"));
     }
     false
 }

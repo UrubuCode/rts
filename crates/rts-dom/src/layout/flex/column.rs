@@ -9,7 +9,7 @@
 use super::*;
 pub(in crate::layout) use super::offsets::{align_offset, justify_offsets};
 
-/// `justify-content` (`fisico_para_coluna` — físicos/lógicos resolvidos e
+/// `justify-content` (`physical_to_column` — físicos/lógicos resolvidos e
 /// invariantes a `column-reverse`, ver o comentário lá — e depois espelhado
 /// se `reverse`, para os valores que NÃO são físicos) e `align-items`
 /// (`Stretch` por default) de um container de coluna. Extraído para que
@@ -19,20 +19,20 @@ pub(in crate::layout) use super::offsets::{align_offset, justify_offsets};
 /// colapsavam incondicionalmente em `FlexStart` aqui e o espelho seguinte
 /// invertia-os para o FUNDO em `column-reverse` — o mesmo bug que a versão
 /// inline em `layout_children_column` corrigia sem passar por aqui; ver o
-/// comentário de `fisico_para_coluna` para o porquê de não duplicar duas
+/// comentário de `physical_to_column` para o porquê de não duplicar duas
 /// vezes o mesmo espelho.
-pub(in crate::layout) fn justify_e_align(
+pub(in crate::layout) fn justify_and_align(
     css: &ComputedStyle,
     reverse: bool,
 ) -> (crate::style::JustifyContent, crate::style::AlignItems) {
-    let justify_declarado = css
+    let declared_justify = css
         .justify
         .unwrap_or(crate::style::JustifyContent::FlexStart);
-    let justify_declarado = fisico_para_coluna(justify_declarado, reverse);
+    let declared_justify = physical_to_column(declared_justify, reverse);
     let justify = if reverse {
-        mirror_justify(justify_declarado)
+        mirror_justify(declared_justify)
     } else {
-        justify_declarado
+        declared_justify
     };
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     (justify, align)
@@ -77,7 +77,7 @@ pub(in crate::layout) fn layout_children_column(
             // testes `flex_reverse_order_corpus`). Em `writing-mode` vertical
             // `eixo_x_forward` já ignora `direction` (o eixo de bloco não o
             // lê), então forçar LTR aqui não perde nada nesse caso.
-            let wrap_reverse = super::axes::wrap_reverse_efetivo(
+            let wrap_reverse = super::axes::effective_wrap_reverse(
                 css.writing_mode.unwrap_or_default(), crate::style::Direction::Ltr, true, css.flex_wrap,
             );
             return super::column_wrap::layout_children_column_wrap(
@@ -111,13 +111,13 @@ pub(in crate::layout) fn layout_children_column(
         .max(0.0);
     // `column-reverse`: mesmo espelho de `row.rs` — o main-start visual é o
     // FUNDO do container, não o topo; ver o comentário lá.
-    let (justify, align) = justify_e_align(css, reverse);
+    let (justify, align) = justify_and_align(css, reverse);
 
     // ── PASSO 1: mede a BASE outer de cada filho (flex-basis/height/conteúdo)
     // no eixo principal, + margens auto e os fatores de flex-shrink/grow ──────
     struct ColItem {
         node: NodeIdx,
-        caixa: crate::boxes::BoxId,
+        box_id: crate::boxes::BoxId,
         /// tamanho BASE outer no eixo principal — antes de grow/shrink; após o
         /// PASSO 2 é o MAIN final (mesmo campo, mesmo papel que `FlexItem::h`
         /// tinha antes deste lote: cresce OU encolhe nele, nunca os dois).
@@ -136,8 +136,8 @@ pub(in crate::layout) fn layout_children_column(
     }
     let mut items: Vec<ColItem> = Vec::new();
     let tree = std::rc::Rc::clone(&list.tree);
-    for &caixa in tree.children_without_generated(container) {
-        let Some(child) = tree.node_of(caixa) else {
+    for &box_id in tree.children_without_generated(container) {
+        let Some(child) = tree.node_of(box_id) else {
             continue;
         };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
@@ -162,7 +162,7 @@ pub(in crate::layout) fn layout_children_column(
             }
             items.push(ColItem {
                 node: child,
-                caixa,
+                box_id,
                 h: crate::inline_box::altura_da_linha(css, font_size, ctx.measurer),
                 is_text: true,
                 mt_auto: false,
@@ -180,21 +180,21 @@ pub(in crate::layout) fn layout_children_column(
         // shrink-to-fit punha dois floats lado a lado um DEBAIXO do outro (100px
         // de largura em vez de 1280) e o item saía com 70px onde o Blink dá 40
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
-        let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
-        let natural_h = if estica {
-            measure_block(dom, child, caixa, content_w, container_content_h, None, None, false, ctx).1
+        let stretched = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
+        let natural_h = if stretched {
+            measure_block(dom, child, box_id, content_w, container_content_h, None, None, false, ctx).1
         } else {
-            child_outer_height(dom, child, caixa, content_w, container_content_h, css, font_size, ctx)
+            child_outer_height(dom, child, box_id, content_w, container_content_h, css, font_size, ctx)
         };
         let child_font = font_px(&ccss, font_size);
-        let resolve_filho = ResolveCtx {
+        let child_resolve = ResolveCtx {
             parent_content_w: content_w,
             node_font_size: child_font,
             root_font_size: crate::style::root_font_size(),
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
-        let min_main = super::column_shrink::min_main(dom, child, caixa, &ccss, natural_h, container_content_h, &resolve_filho, ctx);
+        let min_main = super::column_shrink::min_main(dom, child, box_id, &ccss, natural_h, container_content_h, &child_resolve, ctx);
         // Uma percentagem de flex-basis num container de altura indefinida
         // vira `content`, não usa o `height` declarado do próprio item.
         // `measure_block` acima preserva esse height para a geometria normal;
@@ -209,20 +209,20 @@ pub(in crate::layout) fn layout_children_column(
         // MESMA linha (22px, nao 40) e tres floats lado a lado idem (16px, nao
         // 40). Aplicar a soma a todos custava esses dois reftests para ganhar
         // um — o oposto do que o lote queria.
-        let height_declarado = !matches!(
+        let declared_height = !matches!(
             ccss.height,
             None | Some(crate::style::Dimension::Auto)
         );
-        let basis_pelo_conteudo = (ccss.flex_basis == Some(crate::style::Dimension::MaxContent)
-            && height_declarado)
+        let basis_from_content = (ccss.flex_basis == Some(crate::style::Dimension::MaxContent)
+            && declared_height)
             || (matches!(ccss.flex_basis, Some(crate::style::Dimension::Percent(_)))
                 && container_content_h.is_none());
-        let base_natural_h = if basis_pelo_conteudo
+        let base_natural_h = if basis_from_content
         {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
             super::column_shrink::altura_conteudo_sem_height(
-                dom, caixa, &ccss, content_w, child_font, ctx,
-            ) + bt + bb + ccss.padding.resolve_v(&resolve_filho) + ccss.margin.resolve_v(&resolve_filho)
+                dom, box_id, &ccss, content_w, child_font, ctx,
+            ) + bt + bb + ccss.padding.resolve_v(&child_resolve) + ccss.margin.resolve_v(&child_resolve)
         } else {
             natural_h
         };
@@ -241,7 +241,7 @@ pub(in crate::layout) fn layout_children_column(
         let order = ccss.order.unwrap_or(0);
         items.push(ColItem {
             node: child,
-            caixa,
+            box_id,
             h,
             is_text: false,
             mt_auto,
@@ -378,8 +378,8 @@ pub(in crate::layout) fn layout_children_column(
             // `stretch-flex-item-checkbox-input`/`-radio-input`) —
             // `flex_stretch_replaced` decide os dois; um campo de texto ou
             // `<table>` já se enchem sozinhos e ficam de fora.
-            let precisa_forced_w = super::stretch_replaced::precisa_de_forced_w_no_stretch(dom, it.node);
-            let forced_w = (stretch && ccss.width.is_none() && precisa_forced_w).then_some(content_w);
+            let needs_forced_w = super::stretch_replaced::precisa_de_forced_w_no_stretch(dom, it.node);
+            let forced_w = (stretch && ccss.width.is_none() && needs_forced_w).then_some(content_w);
             let child_x = if stretch && ccss.width.is_none() {
                 super::column_rtl::cross_x(
                     css.direction,
@@ -393,7 +393,7 @@ pub(in crate::layout) fn layout_children_column(
                 let (w, _) = measure_block(
                     dom,
                     it.node,
-                    it.caixa,
+                    it.box_id,
                     content_w,
                     container_content_h,
                     None,
@@ -429,7 +429,7 @@ pub(in crate::layout) fn layout_children_column(
             layout_block_reusing(
                 dom,
                 it.node,
-                it.caixa,
+                it.box_id,
                 child_x,
                 y,
                 content_w,
@@ -462,7 +462,7 @@ pub(in crate::layout) fn layout_children_column(
 /// o eixo de bloco existe (`start`=topo, `end`=fundo, como numa LINHA). Os
 /// quatro ficam invariantes a `column-reverse` — só a ORDEM dos itens
 /// inverte, nunca o lado do empacotamento.
-fn fisico_para_coluna(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
+fn physical_to_column(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match j {
         J::Left | J::Right | J::Start => {

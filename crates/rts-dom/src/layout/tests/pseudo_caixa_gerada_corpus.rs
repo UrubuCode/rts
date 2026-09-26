@@ -76,7 +76,7 @@ fn y_h(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str) -> (f32, f
 /// §10.8.1, no line box of its own) so the strut's descent hangs below it:
 /// Blink's line grows to 25 (not the empty box's own 20), and the spans it
 /// widens sit at y=80. This is the BT-5 ruler's last axis (`linha_baseline.rs`
-/// `ascent_do_gerado`, which the atom now goes through the same
+/// `generated_ascent`, which the atom now goes through the same
 /// `alinhamento_vertical::Envelope` a real `inline-block` uses).
 #[test]
 fn inline_block_after_with_margin_widens_its_element() {

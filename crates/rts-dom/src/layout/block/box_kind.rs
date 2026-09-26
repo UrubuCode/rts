@@ -314,11 +314,11 @@ pub(crate) fn font_px(css: &ComputedStyle, fallback: f32) -> f32 {
 /// pode estar antes OU depois, e um `<span>` com fundo no fim de um parágrafo
 /// pertence à linha do texto que o antecede.
 pub(in crate::layout) fn em_contexto_inline(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
-    let irmaos = &dom.node(parent).children;
-    let Some(pos) = irmaos.iter().position(|&c| c == child) else {
+    let siblings = &dom.node(parent).children;
+    let Some(pos) = siblings.iter().position(|&c| c == child) else {
         return false;
     };
-    let e_inline = |idx: NodeIdx| match &dom.node(idx).kind {
+    let is_inline = |idx: NodeIdx| match &dom.node(idx).kind {
         NodeKind::Text(t) => !t.trim().is_empty(),
         NodeKind::Element { tag } => {
             !is_non_rendered_tag(tag)
@@ -328,8 +328,8 @@ pub(in crate::layout) fn em_contexto_inline(dom: &Dom, parent: NodeIdx, child: N
         }
         _ => false,
     };
-    irmaos[..pos].iter().rev().any(|&c| e_inline(c))
-        || irmaos[pos + 1..].iter().any(|&c| e_inline(c))
+    siblings[..pos].iter().rev().any(|&c| is_inline(c))
+        || siblings[pos + 1..].iter().any(|&c| is_inline(c))
 }
 
 /// Retorna se um whitespace entre irmãos deve participar do contexto inline. O

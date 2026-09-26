@@ -26,7 +26,7 @@
 use super::*;
 
 /// O corpo de [`intrinsic_content_width`] sem a cache — chamado também por
-/// [`intrinsic_outer_width_de`] quando o chamador já tem uma caixa
+/// [`intrinsic_outer_width_of`] quando o chamador já tem uma caixa
 /// ESPECÍFICA de `id` em mãos (um fragmento de um nó partido, CSS 2.1
 /// §9.2.1.1) e por isso não pode passar pela cache de `id`, que não
 /// distingue fragmentos.
@@ -38,11 +38,11 @@ use super::*;
 /// - `None` — dobra sobre TODAS as caixas de `id` pelo MÁXIMO (ver o
 ///   comentário em `intrinsic_content_width`). É o caso do chamador externo,
 ///   que só conhece o nó.
-pub(in crate::layout) fn intrinsic_content_width_sem_cache(
+pub(in crate::layout) fn intrinsic_content_width_no_cache(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    box_id: Option<crate::boxes::BoxId>,
     font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
@@ -94,11 +94,11 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
         return crate::table::max_content_width(dom, id, font, ctx);
     }
 
-    match caixa {
+    match box_id {
         // O chamador já tem a caixa em mãos (um fragmento específico, ou o
         // caso ubíquo de um nó com uma caixa só, resolvido no `match` de
         // baixo antes de chegar aqui recursivamente): usa exatamente essa.
-        Some(c) => intrinsic_content_width_geral(dom, tree, id, c, font, ctx),
+        Some(c) => intrinsic_content_width_general(dom, tree, id, c, font, ctx),
         // Sem caixa em mãos: dobra sobre as de `id`. This is the ONE place the
         // intrinsic-width family turns a node into its boxes; everything below
         // it takes the exact box (BT-2a).
@@ -106,7 +106,7 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
             // O caso ubíquo: um nó normal, uma caixa só — comportamento
             // idêntico ao de antes deste lote (era exatamente este o único
             // caminho que existia).
-            [c] => intrinsic_content_width_geral(dom, tree, id, *c, font, ctx),
+            [c] => intrinsic_content_width_general(dom, tree, id, *c, font, ctx),
             // Sem caixa nenhuma (a cascata recusou o elemento, ou o split
             // absorveu um inline que só envolvia um bloco): sem filhos para
             // medir. The generated boxes' widths of a row flex used to be
@@ -129,7 +129,7 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
             // pelo `<div>` do meio (29.44, o maior das duas).
             caixas => caixas
                 .iter()
-                .map(|&c| intrinsic_content_width_geral(dom, tree, id, c, font, ctx))
+                .map(|&c| intrinsic_content_width_general(dom, tree, id, c, font, ctx))
                 .fold(0.0, f32::max),
         },
     }
@@ -139,11 +139,11 @@ pub(in crate::layout) fn intrinsic_content_width_sem_cache(
 /// das linhas (bloco), sobre os filhos de UMA caixa específica — nunca sobre
 /// `id` sozinho, que é ambíguo quando `id` tem mais de uma caixa (ver o
 /// comentário no chamador).
-fn intrinsic_content_width_geral(
+fn intrinsic_content_width_general(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
@@ -151,8 +151,8 @@ fn intrinsic_content_width_geral(
     // empilha como um bloco (o maior filho), mesmo com `flex-wrap` — a
     // multi-coluna do wrap é corte dito (`claude-flex-column-shrink-to-fit`).
     let display = css_display(dom, id);
-    let em_coluna = dom.computed_style_idx(id).and_then(|c| c.flex_direction).map(|f| f.is_column()).unwrap_or(false);
-    let is_row = (display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP) && !em_coluna;
+    let in_column = dom.computed_style_idx(id).and_then(|c| c.flex_direction).map(|f| f.is_column()).unwrap_or(false);
+    let is_row = (display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP) && !in_column;
     let gap = if is_row {
         let resolve = ResolveCtx {
             parent_content_w: ctx.viewport_w,
@@ -172,16 +172,16 @@ fn intrinsic_content_width_geral(
 
     if !is_row {
         let mut lines = super::text::Lines::new(false);
-        walk_children(&mut lines, dom, tree, caixa, font, ctx);
+        walk_children(&mut lines, dom, tree, box_id, font, ctx);
         return lines.finish(ctx);
     }
     let mut sum = 0.0f32;
     let mut count: usize = 0;
-    let filhos: &[crate::boxes::BoxId] = tree.children_without_generated(caixa);
-    for &caixa_filho in filhos {
+    let children: &[crate::boxes::BoxId] = tree.children_without_generated(box_id);
+    for &child_box in children {
         // `is_row` never meets an anonymous box: only a FLOW container splits
         // (`boxes::build`), never a flex.
-        let Some(child) = tree.node_of(caixa_filho) else { continue };
+        let Some(child) = tree.node_of(child_box) else { continue };
         // fora do fluxo não contribui para a largura intrínseca do container.
         if is_out_of_flow(dom, child) {
             continue;
@@ -194,7 +194,7 @@ fn intrinsic_content_width_geral(
         if matches!(&dom.node(child).kind, NodeKind::Text(t) if t.trim().is_empty()) {
             continue;
         }
-        let w = intrinsic_outer_width_de(dom, tree, child, Some(caixa_filho), font, ctx);
+        let w = intrinsic_outer_width_of(dom, tree, child, Some(child_box), font, ctx);
         if w > 0.0 {
             count += 1;
         }
@@ -203,7 +203,7 @@ fn intrinsic_content_width_geral(
     // `::before`/`::after` de um flex em linha são itens (Flexbox §4) e entram
     // na largura natural do contentor — o caret do botão do Bootstrap.
     for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
-        let w = crate::layout::flex::pseudo::largura(dom, tree, caixa, pe, font, ctx);
+        let w = crate::layout::flex::pseudo::largura(dom, tree, box_id, pe, font, ctx);
         if w > 0.0 {
             sum += w;
             count += 1;
@@ -244,7 +244,7 @@ fn walk_children(
             // transparent: it is the block that wraps a split run, and the text
             // in it ("aaaa"/"cccc" of `<span>aaaa<div>b</div>cccc</span>`)
             // counts, on lines of its own.
-            lines.block(largura_anonima(dom, tree, child_box, font, ctx), ctx);
+            lines.block(anonymous_width(dom, tree, child_box, font, ctx), ctx);
             continue;
         };
         if is_out_of_flow(dom, child) {
@@ -283,7 +283,7 @@ fn walk_children(
         // The concrete box travels into the recursion: `child` may itself have
         // several (a nested fragment), and without saying WHICH one is measured
         // here `intrinsic_outer_width` would fall back to `id` alone.
-        let w = intrinsic_outer_width_de(dom, tree, child, Some(child_box), font, ctx);
+        let w = intrinsic_outer_width_of(dom, tree, child, Some(child_box), font, ctx);
         if matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "br") {
             lines.forced_break(ctx);
         } else if fecha_a_corrida(dom, child) {
@@ -303,21 +303,21 @@ fn walk_children(
 /// margin, border or padding of its own (`box-tree.md` §10) — its content is
 /// the run that made it, measured by the same widest-line rule as the box
 /// around it.
-fn largura_anonima(
+fn anonymous_width(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
     // An anonymous TABLE is as wide as the SUM of its columns, not the widest
     // of its cells: measuring the cells as stacked blocks gave a floated row
     // of two 48px cells a width of 48 where Blink gives 96.
-    if matches!(tree.kind(caixa), crate::boxes::BoxKind::Anonymous { role: crate::boxes::AnonymousRole::Table, .. }) {
-        return crate::table::anonymous_table_widths(dom, tree, caixa, font, ctx).1;
+    if matches!(tree.kind(box_id), crate::boxes::BoxKind::Anonymous { role: crate::boxes::AnonymousRole::Table, .. }) {
+        return crate::table::anonymous_table_widths(dom, tree, box_id, font, ctx).1;
     }
     let mut lines = super::text::Lines::new(false);
-    walk_children(&mut lines, dom, tree, caixa, font, ctx);
+    walk_children(&mut lines, dom, tree, box_id, font, ctx);
     lines.finish(ctx)
 }
 
@@ -325,18 +325,18 @@ fn largura_anonima(
 /// caixa CONCRETA de `id` quando o chamador já a tem em mãos — um filho
 /// encontrado a percorrer a árvore de caixas, nunca redescoberto por `id`
 /// sozinho. É a diferença entre medir SÓ o fragmento em causa e voltar a
-/// cair no `.fold(max)` de [`intrinsic_content_width_sem_cache`] sobre TODOS
+/// cair no `.fold(max)` de [`intrinsic_content_width_no_cache`] sobre TODOS
 /// os fragmentos de `id`, que é a resposta certa quando não se sabe qual
 /// fragmento se quer (o chamador externo, via
 /// [`intrinsic_outer_width`](super::intrinsic_outer_width)) e a resposta
 /// ERRADA aqui: dentro de UM run específico (uma caixa anónima, ou os
 /// filhos de UM fragmento), só o conteúdo DAQUELE fragmento pertence àquela
 /// linha.
-pub(in crate::layout) fn intrinsic_outer_width_de(
+pub(in crate::layout) fn intrinsic_outer_width_of(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    box_id: Option<crate::boxes::BoxId>,
     parent_font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
@@ -399,13 +399,13 @@ pub(in crate::layout) fn intrinsic_outer_width_de(
                 };
             }
             // senão: a intrínseca do conteúdo, clampada, + frame. SEM cache
-            // (`intrinsic_content_width_sem_cache`, não o `intrinsic_content_width`
+            // (`intrinsic_content_width_no_cache`, não o `intrinsic_content_width`
             // público) — `caixa`, quando presente, nomeia um fragmento
             // ESPECÍFICO de `id`, e a cache de `intrinsic_content_width` é
             // chaveada só por `id`: cachear aqui misturaria a resposta de um
             // fragmento com a do outro (ver o comentário da função).
-            let conteudo = intrinsic_content_width_sem_cache(dom, tree, id, caixa, f, ctx);
-            crate::style::clamp_size(conteudo, mnw, mxw) + frame
+            let content = intrinsic_content_width_no_cache(dom, tree, id, box_id, f, ctx);
+            crate::style::clamp_size(content, mnw, mxw) + frame
         }
         // A loose text node: its own lines under its parent element's style —
         // `white-space`, family, weight, slant and spacings, as when the same

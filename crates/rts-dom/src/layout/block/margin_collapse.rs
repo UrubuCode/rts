@@ -1,6 +1,6 @@
 //! Margin collapse (CSS 2.1 §8.3.1) as arithmetic and as a question about
 //! children: the pair rule (`collapse_margin`), the adjacent-margin set the
-//! vertical flow carries (`Strut` and its two operations, `atravessa_se`), and
+//! vertical flow carries (`Strut` and its two operations, `collapses_through`), and
 //! the margins a block's first/last child lets escape through it
 //! (`edge_margin_from_children`, `escaped_child_margins`,
 //! `escaped_margins_for_box`).
@@ -209,13 +209,13 @@ pub(in crate::layout) type Strut = (f32, f32);
 /// Junta mais uma margem ao conjunto. Cada sinal vai para o seu lado: um
 /// positivo só compete com positivos, um negativo só com negativos.
 ///
-/// É aqui e no [`strut_colapsado`] que vivem as três formas da regra do CSS
+/// É aqui e no [`collapsed_strut`] que vivem as três formas da regra do CSS
 /// 2.1 §8.3.1, que antes eram um `colapso_de_margens(a, b)` binário: duas
 /// positivas dão a maior (o `max` daqui), duas negativas dão a mais negativa (o
 /// `min`), e uma de cada sinal dá a SOMA — que é o `pos + neg` do outro. É por
 /// isso que uma margem negativa CANCELA uma positiva em vez de ser ignorada
 /// por ela.
-pub(in crate::layout) fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
+pub(in crate::layout) fn join_strut((pos, neg): Strut, m: f32) -> Strut {
     if m >= 0.0 {
         (pos.max(m), neg)
     } else {
@@ -225,7 +225,7 @@ pub(in crate::layout) fn junta_ao_strut((pos, neg): Strut, m: f32) -> Strut {
 
 /// O valor colapsado do conjunto — e é aqui que os dois sinais se encontram,
 /// UMA vez. Com (+10, −5, +20) dá 20 − 5 = 15.
-pub(in crate::layout) fn strut_colapsado((pos, neg): Strut) -> f32 {
+pub(in crate::layout) fn collapsed_strut((pos, neg): Strut) -> f32 {
     pos + neg
 }
 
@@ -244,6 +244,6 @@ pub(in crate::layout) fn strut_colapsado((pos, neg): Strut) -> f32 {
 /// formatação próprio (`overflow` ≠ visible, `flow-root`) NÃO se atravessa,
 /// mesmo vazia. Isso é o lote do BFC; enquanto não houver, um `<div
 /// style="overflow:hidden">` vazio e sem altura colapsa aqui e não devia.
-pub(in crate::layout) fn atravessa_se(altura: f32, topo: f32, baixo: f32) -> bool {
-    (altura - (topo + baixo)).abs() < 0.01
+pub(in crate::layout) fn collapses_through(box_h: f32, top_margin: f32, bottom_margin: f32) -> bool {
+    (box_h - (top_margin + bottom_margin)).abs() < 0.01
 }

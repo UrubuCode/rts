@@ -21,7 +21,7 @@ use crate::boxes::BoxId;
 #[derive(Clone, Copy)]
 pub(in crate::layout) struct GridItem {
     pub node: NodeIdx,
-    pub caixa: BoxId,
+    pub box_id: BoxId,
 }
 
 /// Onde UM item do grid vive: a célula inicial e o span, em índices de trilha
@@ -30,7 +30,7 @@ pub(in crate::layout) struct GridItem {
 /// coexistirem sem um segundo caminho de posicionamento.
 pub(in crate::layout) struct GridCell {
     pub child: NodeIdx,
-    pub caixa: BoxId,
+    pub box_id: BoxId,
     pub r0: usize,
     pub c0: usize,
     pub r1: usize,
@@ -183,7 +183,7 @@ pub(in crate::layout) fn place_grid_items(
         if let Some(a) = name.and_then(|n| areas.and_then(|ar| ar.area(&n))) {
             ncols = ncols.max(a.c1);
             mark(&mut taken, a.r0, a.c0, a.r1, a.c1);
-            cells.push(GridCell { child: child.node, caixa: child.caixa, r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 });
+            cells.push(GridCell { child: child.node, box_id: child.box_id, r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 });
             continue;
         }
         let has_numeric = css
@@ -218,7 +218,7 @@ pub(in crate::layout) fn place_grid_items(
             (Some((c0, c1)), Some((r0, r1))) => {
                 ncols = ncols.max(c1);
                 mark(&mut taken, r0, c0, r1, c1);
-                cells.push(GridCell { child: child.node, caixa: child.caixa, r0, c0, r1, c1 });
+                cells.push(GridCell { child: child.node, box_id: child.box_id, r0, c0, r1, c1 });
             }
             // Um eixo só (o outro `auto`/indeterminado): a spec varre o eixo
             // aberto a partir da linha dada; este motor simplifica para
@@ -240,7 +240,7 @@ pub(in crate::layout) fn place_grid_items(
             free_row_major(&taken, ncols, start)
         };
         mark(&mut taken, r, c, r + 1, c + 1);
-        cells.push(GridCell { child: child.node, caixa: child.caixa, r0: r, c0: c, r1: r + 1, c1: c + 1 });
+        cells.push(GridCell { child: child.node, box_id: child.box_id, r0: r, c0: c, r1: r + 1, c1: c + 1 });
         cursor = r * ncols.max(1) + c + 1;
         col_cursor = c;
         // flow `column`: as colunas implícitas contam para o `ncols` final,

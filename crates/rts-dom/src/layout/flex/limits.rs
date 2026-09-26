@@ -55,7 +55,7 @@ pub(in crate::layout) fn flex_base_outer(
         // (`flexbox-flex-basis-content-001a/001b`, WPT: "various specified
         // main-size values (should be ignored)").
         if css.flex_basis == Some(crate::style::Dimension::MaxContent) {
-            return super::basis_content::base_outer_linha_forcado_pelo_conteudo(
+            return super::basis_content::row_base_outer_forced_by_content(
                 dom, id, &css, container_w, parent_font, ctx,
             );
         }
@@ -106,19 +106,19 @@ pub(in crate::layout) fn limites_do_item(
             + { let [_, r, _, l] = crate::style::borders::used_widths(ccss); l + r }
             + ccss.padding.resolve_h(&rc)
     };
-    let resolve_lado = |d: Option<crate::style::Dimension>| -> Option<f32> {
+    let resolve_side = |d: Option<crate::style::Dimension>| -> Option<f32> {
         crate::layout::measure::intrinsic_min_max::resolve(d, dom, id, font_size, ctx, &rc)
     };
     (
-        resolve_lado(ccss.max_width).map(|m| m + extra),
-        resolve_lado(ccss.min_width).map(|m| m + extra),
+        resolve_side(ccss.max_width).map(|m| m + extra),
+        resolve_side(ccss.min_width).map(|m| m + extra),
     )
 }
 
 /// Shrink-to-fit (CSS2 §10.3.5): `width = min(max(pref-min, disponível),
 /// pref)` — o PISO (min-content) e o TECTO (`disponível`/max-content), na
 /// escala de CONTEÚDO (sem o frame de `id`, que o chamador já descontou de
-/// `disponivel`). Extraído de `block.rs` (já acima do tecto de 500, não
+/// `available`). Extraído de `block.rs` (já acima do tecto de 500, não
 /// cresce) com este lote: faltava o piso — um bloco/float sem `width` num
 /// pai de largura zero (o truque que o WPT usa para simular
 /// `width:min-content`) colapsava a 0 em vez de parar no min-content
@@ -126,13 +126,13 @@ pub(in crate::layout) fn limites_do_item(
 pub(in crate::layout) fn largura_shrink_to_fit(
     dom: &Dom,
     id: NodeIdx,
-    disponivel: f32,
+    available: f32,
     frame: f32,
     font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    let piso = (crate::table::min_content(dom, id, font, ctx) - frame).max(0.0);
-    disponivel.max(piso).min(content_natural_width(dom, id, font, ctx))
+    let floor = (crate::table::min_content(dom, id, font, ctx) - frame).max(0.0);
+    available.max(floor).min(content_natural_width(dom, id, font, ctx))
 }
 
 /// GROW/SHRINK de uma linha (Flexbox §9.7): espaço livre positivo distribui
@@ -141,7 +141,7 @@ pub(in crate::layout) fn largura_shrink_to_fit(
 /// (`max_main`). Extraído de `row.rs` (no tecto de 500) com o lote que deu
 /// ao encolhimento o tecto que só o piso tinha
 /// (`claude-flex-base-size-max-width`).
-pub(in crate::layout) fn resolve_grow_encolhe(
+pub(in crate::layout) fn resolve_grow_shrink(
     line: &mut [super::row::FlexItem],
     content_w: f32,
     total_gap: f32,
@@ -153,7 +153,7 @@ pub(in crate::layout) fn resolve_grow_encolhe(
         // Frozen items contribute their final size to the next round (§9.7).
         // Clamping only after distribution strands the space freed by max-width.
         let mut frozen: Vec<bool> = line.iter_mut().map(|it| {
-            let hypothetical = com_limites_finais(it.base, it.min_main, it.max_main, None);
+            let hypothetical = with_final_limits(it.base, it.min_main, it.max_main, None);
             let freeze = it.grow == 0.0 || it.base > hypothetical;
             if freeze { it.main = hypothetical; }
             freeze
@@ -181,7 +181,7 @@ pub(in crate::layout) fn resolve_grow_encolhe(
                     it.grow / grow
                 };
                 let proposed = it.base + free * share;
-                it.main = com_limites_finais(proposed, it.min_main, it.max_main, None);
+                it.main = with_final_limits(proposed, it.min_main, it.max_main, None);
                 *violation = it.main - proposed;
             }
             let total: f32 = violations.iter().sum();
@@ -221,25 +221,25 @@ pub(in crate::layout) fn resolve_grow_encolhe(
             if weighted <= 0.0 || deficit >= -0.01 {
                 break;
             }
-            let mut novo_congelado = false;
+            let mut newly_frozen = false;
             for (it, f) in line.iter_mut().zip(frozen.iter_mut()) {
                 if *f {
                     continue;
                 }
-                let proposto = it.base + deficit * (it.shrink * it.base) / weighted;
-                if proposto <= it.min_main {
+                let proposed = it.base + deficit * (it.shrink * it.base) / weighted;
+                if proposed <= it.min_main {
                     it.main = it.min_main;
                     *f = true;
-                    novo_congelado = true;
-                } else if it.max_main.is_some_and(|m| proposto >= m) {
+                    newly_frozen = true;
+                } else if it.max_main.is_some_and(|m| proposed >= m) {
                     it.main = it.max_main.unwrap();
                     *f = true;
-                    novo_congelado = true;
+                    newly_frozen = true;
                 } else {
-                    it.main = proposto;
+                    it.main = proposed;
                 }
             }
-            if !novo_congelado {
+            if !newly_frozen {
                 break; // convergiu sem ninguém bater numa fronteira: acabou.
             }
             // défice restante = o espaço por repartir pelos itens NÃO
@@ -249,19 +249,19 @@ pub(in crate::layout) fn resolve_grow_encolhe(
             // o total enquanto ninguém congelava ACIMA da base (só o piso
             // fazia isso; o tecto agora congela ACIMA, e aquela soma perdia
             // o excedente reclamado).
-            let congelado_soma: f32 = line
+            let frozen_sum: f32 = line
                 .iter()
                 .zip(&frozen)
                 .filter(|&(_, f)| *f)
                 .map(|(it, _)| it.main)
                 .sum();
-            let livre_base_soma: f32 = line
+            let unfrozen_base_sum: f32 = line
                 .iter()
                 .zip(&frozen)
                 .filter(|&(_, f)| !f)
                 .map(|(it, _)| it.base)
                 .sum();
-            deficit = (content_w - total_gap - congelado_soma - livre_base_soma).min(0.0);
+            deficit = (content_w - total_gap - frozen_sum - unfrozen_base_sum).min(0.0);
             if deficit >= -0.01 {
                 break;
             }
@@ -286,7 +286,7 @@ pub(in crate::layout) fn resolve_grow_encolhe(
 /// cobre itens que não participaram da distribuição. `grid_cols` fica de
 /// fora: uma coluna de grid tem largura FIXA por desenho (a base já veio
 /// zerada de grow/shrink em `row.rs`), não pelo conteúdo.
-pub(in crate::layout) fn com_limites_finais(
+pub(in crate::layout) fn with_final_limits(
     main: f32,
     min_main: f32,
     max_main: Option<f32>,
@@ -299,7 +299,7 @@ pub(in crate::layout) fn com_limites_finais(
     }
 }
 
-/// A mesma conta de [`com_limites_finais`], mas para a DECISÃO DE QUEBRA de
+/// A mesma conta de [`with_final_limits`], mas para a DECISÃO DE QUEBRA de
 /// linha. Com `flex-wrap: balance` o Flexbox 2 (§algo-line-break) manda
 /// "floor the outer hypothetical main size of each flex item at zero": um
 /// item de `width:0` com `margin:-50px` dos dois lados somaria NEGATIVO e
@@ -315,7 +315,7 @@ pub(in crate::layout) fn hipotetico_para_quebra(
     grid_cols: Option<i32>,
     balanced: bool,
 ) -> f32 {
-    let hyp = com_limites_finais(main, min_main, max_main, grid_cols);
+    let hyp = with_final_limits(main, min_main, max_main, grid_cols);
     if balanced { hyp.max(0.0) } else { hyp }
 }
 
@@ -325,7 +325,7 @@ pub(in crate::layout) fn hipotetico_para_quebra(
 /// entre três candidatos — a "content size suggestion" (`min_content`, já
 /// medido pelo chamador, e por baixo dela o `max-width` COMPUTADO, candidato
 /// (b) da spec — sem isto um `#capado{width:100;max-width:50}` erguia o
-/// automático ao `min_content` cru e `com_limites_finais` (min primeiro,
+/// automático ao `min_content` cru e `with_final_limits` (min primeiro,
 /// depois max) devolvia-o inteiro em vez do teto, `flexbox-min-width-
 /// auto-001` blocos 4-6, WPT) — e a "specified size suggestion": o `width`
 /// do item, quando é um comprimento DEFINIDO (a spec exclui a `flex-basis`
@@ -365,8 +365,8 @@ pub(in crate::layout) fn min_automatico(
     // fim (`min-size-auto-overflow-clip`, WPT). Só `Hidden`/`Auto`/`Scroll`
     // desligam o automático.
     use crate::scrollbar::Overflow::{Clip, Visible};
-    let eixo_visivel = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
-    let overflow_visible = eixo_visivel(ccss.overflow_x) && eixo_visivel(ccss.overflow_y);
+    let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    let overflow_visible = axis_visible(ccss.overflow_x) && axis_visible(ccss.overflow_y);
     if !overflow_visible {
         return 0.0;
     }
@@ -378,9 +378,9 @@ pub(in crate::layout) fn min_automatico(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let conteudo = max_main.map(|m| min_content.min(m)).unwrap_or(min_content);
+    let content = max_main.map(|m| min_content.min(m)).unwrap_or(min_content);
     match ccss.width.and_then(|d| d.resolve(&rc)) {
-        Some(_) => conteudo.min(child_outer_width(dom, id, content_w, font_size, ctx)),
-        None => conteudo,
+        Some(_) => content.min(child_outer_width(dom, id, content_w, font_size, ctx)),
+        None => content,
     }
 }

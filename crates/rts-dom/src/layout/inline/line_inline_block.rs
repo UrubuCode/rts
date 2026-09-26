@@ -59,21 +59,21 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
         };
         let [bt, ..] = crate::style::borders::used_widths(&css);
         let pt = css.padding.top.resolve(&r).unwrap_or(0.0);
-        let dentro = crate::layout::flex::baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
-        return if dentro >= h { h } else { (bt + pt + dentro).min(h) };
+        let inner = crate::layout::flex::baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
+        return if inner >= h { h } else { (bt + pt + inner).min(h) };
     }
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
     // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
     // `<input>` de 21px puxava a linha e o `<button>` ao lado descia 3,5px
     // (`claude-ua-form-disabled`).
-    let controlo = matches!(&dom.node(id).kind,
+    let is_control = matches!(&dom.node(id).kind,
         NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select" | "textarea"));
     if matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == "textarea") {
         // Blink usa a borda inferior como baseline do textarea replaced, não a
         // linha de texto interna do controle.
         return h;
     }
-    if !controlo && !crate::layout::block::box_kind::tem_conteudo_para_fragmento(dom, id) {
+    if !is_control && !crate::layout::block::box_kind::tem_conteudo_para_fragmento(dom, id) {
         return h;
     }
     let Some(css) = dom.computed_style_idx(id) else { return h };
@@ -88,9 +88,9 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
     let [bt, ..] = crate::style::borders::used_widths(&css);
     let pt = css.padding.top.resolve(&rc).unwrap_or(0.0);
     let lh = crate::inline_box::altura_da_linha(&css, font, ctx.measurer);
-    let conteudo = crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
+    let content = crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
     let ascent = ctx.measurer.font_ascent_family(font, css.font_family.as_deref());
-    (bt + pt + crate::inline_box::meia_entrelinha(lh, conteudo) + ascent).min(h)
+    (bt + pt + crate::inline_box::meia_entrelinha(lh, content) + ascent).min(h)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -98,7 +98,7 @@ pub(in crate::layout) fn layout_inline_block_line(
     dom: &Dom,
     // The owner of the flow these atoms sit in — whose last line's baseline an
     // enclosing atom may ask for (`line_baseline.rs`).
-    dono: NodeIdx,
+    owner: NodeIdx,
     run: &[(NodeIdx, crate::boxes::BoxId)],
     content_x: f32,
     y: f32,
@@ -113,11 +113,11 @@ pub(in crate::layout) fn layout_inline_block_line(
     //    junto com o `vertical-align` dele — `None` (não declarado) continua a
     //    alinhar pelo TOPO, o corte que o doc do módulo de alinhamento explica.
     let mut sizes: Vec<(NodeIdx, crate::boxes::BoxId, f32, f32, Option<VerticalAlign>, f32, f32)> = Vec::with_capacity(run.len());
-    for (pos, &(child, caixa)) in run.iter().enumerate() {
+    for (pos, &(child, box_id)) in run.iter().enumerate() {
         let (measured_w, h) = measure_block(
             dom,
             child,
-            caixa,
+            box_id,
             content_w,
             avail_h,
             None,
@@ -150,7 +150,7 @@ pub(in crate::layout) fn layout_inline_block_line(
             Some("checkbox") | Some("radio") => (4.0, 4.0),
             _ => (0.0, 0.0),
         };
-        sizes.push((child, caixa, w, h, valign, gap + ua_left, ua_right));
+        sizes.push((child, box_id, w, h, valign, gap + ua_left, ua_right));
     }
     // 2) agrupa em LINHAS (soma das larguras ≤ content_w). Cada linha guarda os
     //    itens + a largura total (p/ o alinhamento).
@@ -161,13 +161,13 @@ pub(in crate::layout) fn layout_inline_block_line(
     // `white-space: nowrap`/`pre` no contentor: a corrida não quebra, transborda
     // — a referência de 27 reftests de flexbox do WPT é exactamente isto
     // (`claude-inline-block-nowrap`: quatro de 96px num contentor de 192).
-    let quebra = !matches!(
+    let wraps = !matches!(
         parent_css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
     );
     for item in sizes {
         let w = item.2 + item.5 + item.6;
-        if quebra && !cur.is_empty() && cur_w + w > content_w {
+        if wraps && !cur.is_empty() && cur_w + w > content_w {
             lines.push((std::mem::take(&mut cur), cur_w));
             cur_w = 0.0;
         }
@@ -180,7 +180,7 @@ pub(in crate::layout) fn layout_inline_block_line(
     // 3) pinta cada linha: x inicial pelo text-align do pai, itens lado a lado;
     //    y avança pela ALTURA do envelope (baseline + os que a estendem).
     let mut cy = y;
-    let mut ultima_baseline: Option<f32> = None;
+    let mut last_baseline: Option<f32> = None;
     for (items, line_w) in &lines {
         let free = (content_w - line_w).max(0.0);
         let mut x = match parent_css.text_align {
@@ -199,16 +199,16 @@ pub(in crate::layout) fn layout_inline_block_line(
         // O default é `baseline` (CSS 2.1 §10.8.1) com a baseline PRÓPRIA de
         // cada item (`ascent_do_item`): o `Top` que aqui estava era o corte
         // que punha o caret `::after` do Bootstrap no topo da linha.
-        let atomos: Vec<(f32, f32, VerticalAlign)> = items
+        let atoms: Vec<(f32, f32, VerticalAlign)> = items
             .iter()
             .map(|&(n, _, _, h, va, _, _)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
             .collect();
         let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
-        let familia = parent_css.font_family.as_deref();
-        let env = super::vertical_align::envelope_com_baseline(&atomos, font_size, lh, familia, ctx.measurer);
-        for (&(child, caixa, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atomos) {
+        let family = parent_css.font_family.as_deref();
+        let env = super::vertical_align::envelope_with_baseline(&atoms, font_size, lh, family, ctx.measurer);
+        for (&(child, box_id, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atoms) {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
-            let base_y = super::vertical_align::topo_do_item_com_baseline(valign, h, ascent, cy, &env, font_size, familia, ctx.measurer);
+            let base_y = super::vertical_align::item_top_with_baseline(valign, h, ascent, cy, &env, font_size, family, ctx.measurer);
             let line_has_textarea = items.iter().any(|(n, _, _, _, _, _, _)| matches!(&dom.node(*n).kind, NodeKind::Element { tag } if tag == "textarea"));
             let is_mark = matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("checkbox" | "radio"));
             let form_text = matches!(&dom.node(child).kind, NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select")) && !is_mark;
@@ -217,7 +217,7 @@ pub(in crate::layout) fn layout_inline_block_line(
             layout_block(
                 dom,
                 child,
-                caixa,
+                box_id,
                 x,
                 item_y,
                 content_w,
@@ -234,11 +234,11 @@ pub(in crate::layout) fn layout_inline_block_line(
             );
             x += w + trailing;
         }
-        ultima_baseline = Some(cy + env.acima);
-        cy += env.altura();
+        last_baseline = Some(cy + env.above);
+        cy += env.height();
     }
-    if let Some(b) = ultima_baseline {
-        super::line_baseline::regista_ultima_linha(dono, b);
+    if let Some(b) = last_baseline {
+        super::line_baseline::register_last_line(owner, b);
     }
     cy
 }

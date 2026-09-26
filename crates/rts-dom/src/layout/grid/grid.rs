@@ -85,8 +85,8 @@ pub(in crate::layout) fn layout_children_grid(
     // blockificado. A sequência, porém, continua a pertencer à BoxTree; assim
     // cada item recebe o `BoxId` desta construção sem voltar por `NodeIdx`.
     let tree = std::rc::Rc::clone(&list.tree);
-    for &caixa in tree.children_without_generated(container) {
-        let Some(child) = tree.node_of(caixa) else {
+    for &box_id in tree.children_without_generated(container) {
+        let Some(child) = tree.node_of(box_id) else {
             continue;
         };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
@@ -100,7 +100,7 @@ pub(in crate::layout) fn layout_children_grid(
         if !is_block_level(dom, child) && collect_text(dom, child).trim().is_empty() {
             continue;
         }
-        children.push(GridItem { node: child, caixa });
+        children.push(GridItem { node: child, box_id });
     }
     if children.is_empty() {
         return 0.0;
@@ -140,22 +140,22 @@ pub(in crate::layout) fn layout_children_grid(
     let ncols = col_tracks.len().max(1);
     // `auto-fit`: as repetições sem NENHUM item colapsam, e só agora — depois
     // da colocação — se sabe quais são. Ver `grid_colapso`.
-    let col_colapsada =
-        collapse::colapsadas(&col_collapsible, ncols, cells.iter().map(|c| (c.c0, c.c1)));
-    collapse::como_fixas_a_zero(&mut col_tracks, &col_colapsada);
+    let col_collapsed =
+        collapse::collapsed(&col_collapsible, ncols, cells.iter().map(|c| (c.c0, c.c1)));
+    collapse::as_fixed_zero(&mut col_tracks, &col_collapsed);
 
     // A largura INTRÍNSECA por coluna — só medida quando alguma trilha PEDE
     // conteúdo (`Auto` ou `Intrinsic`, que pode precisar do min-content além
     // do max-content), porque medir custa uma travessia por item e a
     // esmagadora maioria das grades é só `fr` e px.
-    let precisa_min = col_tracks
+    let needs_min = col_tracks
         .iter()
         .any(|t| matches!(t, crate::style::GridTrack::Intrinsic { .. }));
-    let precisa_medir = precisa_min
+    let needs_measure = needs_min
         || col_tracks
             .iter()
             .any(|t| matches!(t, crate::style::GridTrack::Auto));
-    let (conteudo, conteudo_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if precisa_medir {
+    let (content_max, content_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if needs_measure {
         let mut wmax = vec![0.0f32; ncols];
         let mut wmin = vec![0.0f32; ncols];
         for c in &cells {
@@ -168,20 +168,20 @@ pub(in crate::layout) fn layout_children_grid(
                 continue;
             }
             wmax[c.c0] = wmax[c.c0].max(intrinsic_outer_width(dom, c.child, font_size, ctx));
-            if precisa_min {
+            if needs_min {
                 wmin[c.c0] = wmin[c.c0].max(crate::table::min_content(dom, c.child, font_size, ctx));
             }
         }
-        (Some(wmax), precisa_min.then_some(wmin))
+        (Some(wmax), needs_min.then_some(wmin))
     } else {
         (None, None)
     };
     let col_sizes = tracks::resolve_tracks(
         &col_tracks,
         content_w,
-        collapse::calhas(ncols, &col_colapsada, col_gap),
-        conteudo.as_deref(),
-        conteudo_min.as_deref(),
+        collapse::gutters(ncols, &col_collapsed, col_gap),
+        content_max.as_deref(),
+        content_min.as_deref(),
         &resolve,
     );
     // O computed style do Blink pode consultar o LayoutObject para propriedades
@@ -204,10 +204,10 @@ pub(in crate::layout) fn layout_children_grid(
     // grid-template-rows explícito (px/%/fr/auto), senão grid-auto-rows, senão a
     // altura do conteúdo mais alto da linha. `fr`/`%` de linha precisam da altura
     // do container (container_content_h).
-    let row_colapsada =
-        collapse::colapsadas(&row_collapsible, nrows, cells.iter().map(|c| (c.r0, c.r1)));
+    let row_collapsed =
+        collapse::collapsed(&row_collapsible, nrows, cells.iter().map(|c| (c.r0, c.r1)));
     let mut explicit_rows = explicit_rows;
-    collapse::como_fixas_a_zero(&mut explicit_rows, &row_colapsada);
+    collapse::as_fixed_zero(&mut explicit_rows, &row_collapsed);
     // mede a altura de conteúdo de cada linha (o item mais alto medido em shrink).
     // Um item que ATRAVESSA linhas reparte a sua altura IGUALMENTE pelas linhas do
     // span. O algoritmo da spec (§12.5) distribui pela contribuição de cada trilha;
@@ -219,7 +219,7 @@ pub(in crate::layout) fn layout_children_grid(
         let (_, h) = measure_block(
             dom,
             cell.child,
-            cell.caixa,
+            cell.box_id,
             cw,
             container_content_h,
             None,
@@ -272,7 +272,7 @@ pub(in crate::layout) fn layout_children_grid(
     // em `JustifyContent` — ver o cabeçalho da tabela — e por isso caem em
     // `None`, que é exatamente o ramo que preserva o preenchimento acima) SUBSTITUI
     // o preenchimento por espaço-livre-em-linhas-auto pela distribuição das
-    // LINHAS como blocos, via `collapse::inicios` abaixo — as linhas
+    // LINHAS como blocos, via `collapse::starts` abaixo — as linhas
     // mantêm o tamanho do conteúdo em vez de esticar.
     if css.align_content.is_none() {
         if let Some(ch) = container_content_h {
@@ -282,7 +282,7 @@ pub(in crate::layout) fn layout_children_grid(
                     .filter(|r| has_explicit_row_track(*r))
                     .map(|r| row_sizes[r])
                     .sum();
-                let total_gap = collapse::calhas(nrows, &row_colapsada, row_gap);
+                let total_gap = collapse::gutters(nrows, &row_collapsed, row_gap);
                 let free = (ch - fixed - total_gap).max(0.0);
                 let each = free / auto_rows.len() as f32;
                 for r in auto_rows {
@@ -300,16 +300,16 @@ pub(in crate::layout) fn layout_children_grid(
     // O início de cada coluna e de cada linha, com `justify-content` /
     // `align-content` já embutidos — o mesmo `justify_offsets` do flex (a spec
     // §8.4 partilha o vocabulário). `justify-content` ausente é `start`.
-    let col_x = collapse::inicios(
+    let col_x = collapse::starts(
         &col_sizes,
-        &col_colapsada,
+        &col_collapsed,
         content_x,
         col_gap,
         css.justify.map(|j| (j, content_w)),
     );
-    let row_y = collapse::inicios(
+    let row_y = collapse::starts(
         &row_sizes,
-        &row_colapsada,
+        &row_collapsed,
         content_y,
         row_gap,
         css.align_content.zip(container_content_h),
@@ -338,7 +338,7 @@ pub(in crate::layout) fn layout_children_grid(
         // (30px) — medido pelo orquestrador contra o Chrome.
         let stretch_x = justify == crate::style::AlignItems::Stretch && item_css.width.is_none();
         let stretch_y = align == crate::style::AlignItems::Stretch && item_css.height.is_none();
-        let (nat_w, nat_h) = measure_block(dom, child, cell.caixa, cell_w, Some(cell_h), None, None, true, ctx);
+        let (nat_w, nat_h) = measure_block(dom, child, cell.box_id, cell_w, Some(cell_h), None, None, true, ctx);
         let iw = if stretch_x { cell_w } else { nat_w.min(cell_w) };
         let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
         let x = cell_x + cell_align_offset(justify, cell_w, iw);
@@ -353,7 +353,7 @@ pub(in crate::layout) fn layout_children_grid(
         layout_block_reusing(
             dom,
             child,
-            cell.caixa,
+            cell.box_id,
             x,
             y,
             cell_w,
@@ -370,7 +370,7 @@ pub(in crate::layout) fn layout_children_grid(
         );
     }
     // altura total = soma das linhas + gaps.
-    let total_h: f32 = row_sizes.iter().sum::<f32>() + collapse::calhas(nrows, &row_colapsada, row_gap);
+    let total_h: f32 = row_sizes.iter().sum::<f32>() + collapse::gutters(nrows, &row_collapsed, row_gap);
     total_h.max(0.0)
 }
 

@@ -69,8 +69,8 @@ pub(in crate::layout) fn max_content_width(
         .max(0.0);
 
     let mut items: Vec<(f32, f32)> = Vec::new(); // (altura natural, largura natural)
-    for &caixa in tree.children_without_generated(container) {
-        let Some(child) = tree.node_of(caixa) else {
+    for &box_id in tree.children_without_generated(container) {
+        let Some(child) = tree.node_of(box_id) else {
             continue;
         };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
@@ -94,7 +94,7 @@ pub(in crate::layout) fn max_content_width(
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let child_font = font_px(&ccss, font_size);
         let natural_h =
-            child_outer_height(dom, child, caixa, ctx.viewport_w, Some(container_content_h), css, font_size, ctx);
+            child_outer_height(dom, child, box_id, ctx.viewport_w, Some(container_content_h), css, font_size, ctx);
         let main = super::column_shrink::base_outer(
             &ccss,
             natural_h,
@@ -104,7 +104,7 @@ pub(in crate::layout) fn max_content_width(
             ctx,
         );
         let (cross, _) = measure_block(
-            dom, child, caixa, ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
+            dom, child, box_id, ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
         );
         items.push((main, cross));
     }

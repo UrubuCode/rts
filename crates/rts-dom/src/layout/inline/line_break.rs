@@ -1,7 +1,7 @@
 //! QUEBRA DE LINHA: decidir onde os runs passam para a linha seguinte.
 //!
 //! **No teto de 500.** O `wrap_runs` é a maior parte disto e não é partido
-//! por dentro: tem três `macro_rules!` no corpo (`fechar_cluster`, `juntar`,
+//! por dentro: tem três `macro_rules!` no corpo (`close_cluster`, `join`,
 //! `glue_space`) que capturam uma dúzia de locais cada — mover UM deles para
 //! outro ficheiro obriga a mover TODOS os locais que captura, e o que sobra
 //! deixa de ser um movimento de código. O que não toca nos macros já saiu:
@@ -24,8 +24,8 @@ pub(in crate::layout) fn wrap_runs(
     // corpus real escreve-as sempre no container (13 folhas, zero excepções).
     // Guardá-las por run era a alternativa e custava um campo em cada `InlineRun`
     // para responder o mesmo valor em todos eles.
-    quebra: crate::inline_box::QuebraDentro,
-    // `white-space`/`tab-size` of EACH RUN (unlike `quebra` above): whether a
+    break_within: crate::inline_box::QuebraDentro,
+    // `white-space`/`tab-size` of EACH RUN (unlike `break_within` above): whether a
     // `\n` forces a break, and whether spaces are content (`preserved_spaces.rs`).
     spaces: super::preserved_spaces::Spaces,
     // `word-spacing` (px, pode ser negativo) — soma-se à largura de CADA espaço
@@ -35,22 +35,22 @@ pub(in crate::layout) fn wrap_runs(
     word_spacing: f32,
     // `hyphens` do container: `manual`/`auto` deixam o U+00AD ser oportunidade
     // de quebra (`hyphen.rs`); `none` apaga-o antes de medir.
-    hifen_manual: bool,
+    manual_hyphen: bool,
     // The font of each run — the container's, or its innermost inline's where
-    // that differs (`run_font.rs`). See `medir`.
-    fontes: &super::run_font::Fontes,
+    // that differs (`run_font.rs`). See `measure`.
+    fonts: &super::run_font::Fontes,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
-    let ahem = fontes.base_ahem();
+    let ahem = fonts.base_ahem();
     // `i` is the run the text belongs to; `usize::MAX` is the container's own.
-    let medir = |m: &dyn TextMeasurer, i: usize, t: &str, bold: bool, italic: bool| -> f32 { fontes.largura(m, i, t, bold, italic) };
+    let measure = |m: &dyn TextMeasurer, i: usize, t: &str, bold: bool, italic: bool| -> f32 { fonts.width(m, i, t, bold, italic) };
     // A largura do espaço só interessa ao caminho palavra-a-palavra. Medida
     // sempre, era metade de todas as medições de texto de um relayout — uma por
     // chamada, mesmo quando o fast path respondia sozinho.
     // A space is as wide as the font of the run it is IN: `i` inside run `i`,
     // `i − 1` when it came from the run before (0 wraps to the container's).
-    let space_w = |m: &dyn TextMeasurer, i: usize| -> f32 { medir(m, i, " ", false, false) + word_spacing };
+    let space_w = |m: &dyn TextMeasurer, i: usize| -> f32 { measure(m, i, " ", false, false) + word_spacing };
     let mut lines: Vec<Vec<Segment>> = Vec::new();
     let mut cur: Vec<Segment> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -72,13 +72,13 @@ pub(in crate::layout) fn wrap_runs(
     // pergunta "cabe?" e feita ao conjunto, uma vez. Nao e uma regra nova: e a
     // regra do CSS aplicada a unidade certa. Uma peca sozinha, que e o caso
     // esmagador, comporta-se exatamente como antes.
-    struct Peca {
+    struct Chunk {
         run: usize,
-        texto: String,
-        largura: f32,
-        atomico: Option<(NodeIdx, crate::boxes::BoxId, AtomicKind, f32, f32)>,
+        text: String,
+        width: f32,
+        atomic: Option<(NodeIdx, crate::boxes::BoxId, AtomicKind, f32, f32)>,
     }
-    let mut cluster: Vec<Peca> = Vec::new();
+    let mut cluster: Vec<Chunk> = Vec::new();
     let mut cluster_w = 0.0f32;
     // The preserved spaces/tabs that END the cluster under `pre-wrap`/`pre`:
     // they hang, so they do not count when asking whether it fits. The last
@@ -87,18 +87,18 @@ pub(in crate::layout) fn wrap_runs(
     // havia whitespace ANTES do cluster? e esse whitespace veio de FORA do run
     // que abre o cluster? (a segunda pergunta decide de quem e o vao -- ver o
     // `lead_w` do `Segment`.)
-    let mut cluster_espaco = false;
-    let mut cluster_de_fora = false;
+    let mut cluster_space = false;
+    let mut cluster_space_outside = false;
     // o whitespace pendente veio de um run ANTERIOR (e nao de dentro deste)?
-    let mut espaco_de_fora = false;
+    let mut space_outside = false;
 
-    macro_rules! fechar_cluster {
+    macro_rules! close_cluster {
         () => {
             if !cluster.is_empty() {
-                let sep = cluster_espaco && !at_line_start;
-                let de = if cluster_de_fora { cluster[0].run.wrapping_sub(1) } else { cluster[0].run };
+                let sep = cluster_space && !at_line_start;
+                let from_run = if cluster_space_outside { cluster[0].run.wrapping_sub(1) } else { cluster[0].run };
                 let need = if sep {
-                    space_w(m, de) + cluster_w
+                    space_w(m, from_run) + cluster_w
                 } else {
                     cluster_w
                 };
@@ -108,23 +108,23 @@ pub(in crate::layout) fn wrap_runs(
                 // que `break-all` existe para não deixar. Só vale para um
                 // aglomerado todo de texto — uma caixa atómica (um `<img>`, um
                 // widget) é inquebrável e continua a descer inteira.
-                let so_texto = cluster.iter().all(|p| p.atomico.is_none());
-                let enche_a_linha =
-                    quebra == crate::inline_box::QuebraDentro::Sempre && so_texto;
+                let text_only = cluster.iter().all(|p| p.atomic.is_none());
+                let fills_line =
+                    break_within == crate::inline_box::QuebraDentro::Sempre && text_only;
                 // HÍFEN SUAVE (`hyphen.rs`): a palavra que não cabe deixa na linha
                 // o prefixo com "-" e o aglomerado esvazia — o laço abaixo não emite.
-                if hifen_manual
-                    && !enche_a_linha
+                if manual_hyphen
+                    && !fills_line
                     && cluster.len() == 1
-                    && cluster[0].atomico.is_none()
-                    && cluster[0].texto.contains(hyphen::SHY)
+                    && cluster[0].atomic.is_none()
+                    && cluster[0].text.contains(hyphen::SHY)
                     && cur_w + need > max_w(lines.len())
                 {
-                    let (sep_w, vao, peca) =
-                        (if sep { space_w(m, de) } else { 0.0 }, sep && cluster_de_fora, &cluster[0]);
-                    if hyphen::emitir_com_hifen(
+                    let (sep_w, gap, chunk) =
+                        (if sep { space_w(m, from_run) } else { 0.0 }, sep && cluster_space_outside, &cluster[0]);
+                    if hyphen::emit_with_hyphen(
                         &mut cur, &mut lines, &mut cur_w, &mut at_line_start,
-                        &runs[peca.run], &peca.texto, peca.largura, sep_w, vao,
+                        &runs[chunk.run], &chunk.text, chunk.width, sep_w, gap,
                         max_w, font_size, mono, ahem, m,
                     ) {
                         cluster.clear();
@@ -132,7 +132,7 @@ pub(in crate::layout) fn wrap_runs(
                 }
                 if !cluster.is_empty()
                     && !at_line_start
-                    && !enche_a_linha
+                    && !fills_line
                     && cur_w + need - cluster_hang > max_w(lines.len())
                 {
                     lines.push(trim_hanging(std::mem::take(&mut cur), posted_hang));
@@ -141,84 +141,84 @@ pub(in crate::layout) fn wrap_runs(
                 }
                 // recalculado DEPOIS da quebra: um cluster que abre linha nao
                 // leva o espaco com ele.
-                let sep = cluster_espaco && !at_line_start;
-                let mut primeiro = true;
-                for peca in cluster.drain(..) {
-                    let run = &runs[peca.run];
-                    let com_espaco = primeiro && sep;
-                    let espaco = if com_espaco { space_w(m, de) } else { 0.0 };
-                    match peca.atomico {
-                        Some((a_idx, caixa, kind, ww, wh)) => {
-                            cur.push(atomic_segment(run, (a_idx, caixa, kind), ww, wh, espaco));
-                            cur_w += ww + espaco;
+                let sep = cluster_space && !at_line_start;
+                let mut first = true;
+                for chunk in cluster.drain(..) {
+                    let run = &runs[chunk.run];
+                    let with_space = first && sep;
+                    let space = if with_space { space_w(m, from_run) } else { 0.0 };
+                    match chunk.atomic {
+                        Some((a_idx, box_id, kind, ww, wh)) => {
+                            cur.push(atomic_segment(run, (a_idx, box_id, kind), ww, wh, space));
+                            cur_w += ww + space;
                         }
                         None => {
-                            let vao = if com_espaco && cluster_de_fora {
-                                espaco
+                            let gap = if with_space && cluster_space_outside {
+                                space
                             } else {
                                 0.0
                             };
-                            let mut texto = String::with_capacity(peca.texto.len() + 1);
-                            if com_espaco {
-                                texto.push(' ');
+                            let mut text = String::with_capacity(chunk.text.len() + 1);
+                            if with_space {
+                                text.push(' ');
                             }
-                            texto.push_str(&hyphen::sem_shy(&peca.texto));
-                            let largura = peca.largura + espaco;
+                            text.push_str(&hyphen::sem_shy(&chunk.text));
+                            let width = chunk.width + space;
                             // PARTIR DENTRO DA PALAVRA — o que `overflow-wrap` e
                             // `word-break` ligam. A pergunta faz-se aqui, na
                             // emissão de uma peça, porque é aqui que já se sabe
                             // quanto resta da linha; fazê-la antes, sobre o
                             // aglomerado inteiro, obrigava a uma segunda regra de
                             // quebra ao lado da que já existe.
-                            let disponivel = max_w(lines.len());
+                            let available = max_w(lines.len());
                             // A hanging sequence (`pre-wrap`) is never split; a
                             // `break-spaces` space may move down alone.
-                            let partir = (spaces.of(peca.run).breaks_after_each() || !so_espaco_css(&peca.texto)) && match quebra {
+                            let split = (spaces.of(chunk.run).breaks_after_each() || !so_espaco_css(&chunk.text)) && match break_within {
                                 crate::inline_box::QuebraDentro::Nao => false,
                                 // `break-word`: só quando a palavra não cabe NEM
                                 // numa linha vazia. Se cabe, ela já desceu inteira
                                 // na quebra prévia e parti-la seria errado.
                                 crate::inline_box::QuebraDentro::SePreciso => {
-                                    peca.largura > disponivel
+                                    chunk.width > available
                                 }
                                 crate::inline_box::QuebraDentro::Sempre => {
-                                    cur_w + largura > disponivel
+                                    cur_w + width > available
                                 }
                             };
-                            if partir {
+                            if split {
                                 // Moved to `line_break_partition.rs` (teto de 500).
-                                super::line_break_partition::dividir_peca_que_nao_cabe(
+                                super::line_break_partition::split_piece_that_does_not_fit(
                                     &mut cur, &mut lines, &mut cur_w, &mut at_line_start,
-                                    &mut *max_w, run, peca.run, &texto, vao,
-                                    font_size, mono, ahem, fontes, m,
+                                    &mut *max_w, run, chunk.run, &text, gap,
+                                    font_size, mono, ahem, fonts, m,
                                 );
                             } else {
-                                push_segment(&mut cur, run, &texto, largura, vao);
-                                cur_w += largura;
+                                push_segment(&mut cur, run, &text, width, gap);
+                                cur_w += width;
                             }
                         }
                     }
-                    primeiro = false;
+                    first = false;
                     at_line_start = false;
                 }
-                (cluster_w, posted_hang) = (0.0, (cluster_hang, space_w(m, de)));
+                (cluster_w, posted_hang) = (0.0, (cluster_hang, space_w(m, from_run)));
                 cluster_hang = 0.0;
-                cluster_espaco = false;
-                cluster_de_fora = false;
+                cluster_space = false;
+                cluster_space_outside = false;
             }
         };
     }
     // acrescenta uma peca ao cluster corrente, abrindo-o se estiver vazio.
-    macro_rules! juntar {
-        ($peca:expr, $w:expr) => {{
+    macro_rules! join {
+        ($chunk:expr, $w:expr) => {{
             if cluster.is_empty() {
-                cluster_espaco = pending_space;
-                cluster_de_fora = espaco_de_fora;
+                cluster_space = pending_space;
+                cluster_space_outside = space_outside;
             }
-            cluster.push($peca);
+            cluster.push($chunk);
             cluster_w += $w;
             pending_space = false;
-            espaco_de_fora = false;
+            space_outside = false;
         }};
     }
     // A collapsible space at a boundary whose run FORBIDS automatic wrapping
@@ -238,33 +238,33 @@ pub(in crate::layout) fn wrap_runs(
     // glued space still collapses away at a line start. And
     // `glued_space_absorbs_pending`: a `pending_space` already due when this
     // run's OWN whitespace is glued is the SAME collapsible run split across
-    // the regime boundary — consumed here so `juntar!` does not also turn it
+    // the regime boundary — consumed here so `join!` does not also turn it
     // into a second, cluster-level separator on top of the piece.
     macro_rules! glue_space {
         ($i:expr) => {{
             if !super::preserved_spaces::collapses_at_line_start(cluster.is_empty(), at_line_start) {
                 if super::preserved_spaces::glued_space_absorbs_pending(cluster.is_empty(), pending_space) {
                     pending_space = false;
-                    espaco_de_fora = false;
+                    space_outside = false;
                 }
                 let w = space_w(m, $i);
-                juntar!(Peca { run: $i, texto: " ".to_string(), largura: w, atomico: None }, w);
+                join!(Chunk { run: $i, text: " ".to_string(), width: w, atomic: None }, w);
             }
         }};
     }
 
     for (i, run) in runs.iter().enumerate() {
         // WIDGET: uma "palavra" inquebravel de run.ww pontos, segmento proprio.
-        if let Some((a_idx, caixa, kind)) = run.atomic {
+        if let Some((a_idx, box_id, kind)) = run.atomic {
             // BREAK: entra na linha (para receber a sua caixa) e FECHA-A.
             if kind == AtomicKind::Break {
-                fechar_cluster!();
-                cur.push(atomic_segment(run, (a_idx, caixa, AtomicKind::Break), 0.0, 0.0, 0.0));
+                close_cluster!();
+                cur.push(atomic_segment(run, (a_idx, box_id, AtomicKind::Break), 0.0, 0.0, 0.0));
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
                 at_line_start = true;
                 pending_space = false;
-                espaco_de_fora = false;
+                space_outside = false;
                 continue;
             }
             // MARKER: largura zero, nao quebra a linha, nao consome o espaco
@@ -272,16 +272,16 @@ pub(in crate::layout) fn wrap_runs(
             // A float's ANCHOR is the same: it only says which line the float
             // appeared on; its width enters through the exclusions, not the line.
             if matches!(kind, AtomicKind::Marker | AtomicKind::Float | AtomicKind::Estatica) {
-                fechar_cluster!();
-                cur.push(atomic_segment(run, (a_idx, caixa, kind), 0.0, 0.0, 0.0));
+                close_cluster!();
+                cur.push(atomic_segment(run, (a_idx, box_id, kind), 0.0, 0.0, 0.0));
                 continue;
             }
-            juntar!(
-                Peca {
+            join!(
+                Chunk {
                     run: i,
-                    texto: String::new(),
-                    largura: run.ww,
-                    atomico: Some((a_idx, caixa, kind, run.ww, run.wh)),
+                    text: String::new(),
+                    width: run.ww,
+                    atomic: Some((a_idx, box_id, kind, run.ww, run.wh)),
                 },
                 run.ww
             );
@@ -295,29 +295,29 @@ pub(in crate::layout) fn wrap_runs(
         if regime.preserves() {
             let mut toks = tokens(&run.text).peekable();
             while let Some(f) = toks.next() {
-                let (texto, w) = match f {
+                let (text, w) = match f {
                     Token::Break => {
-                        fechar_cluster!();
+                        close_cluster!();
                         lines.push(std::mem::take(&mut cur));
                         (cur_w, at_line_start) = (0.0, true);
                         continue;
                     }
-                    Token::Word(p) => (hyphen::texto_da_peca(p, hifen_manual), medir(m, i, &hyphen::sem_shy(p), run.bold, run.italic)),
+                    Token::Word(p) => (hyphen::piece_text(p, manual_hyphen), measure(m, i, &hyphen::sem_shy(p), run.bold, run.italic)),
                     Token::Space => (" ".to_string(), space_w(m, i)),
                     Token::Tab => regime.tab(cur_w + cluster_w + line_offset(lines.len()), space_w(m, i)),
                 };
-                juntar!(Peca { run: i, texto, largura: w, atomico: None }, w);
+                join!(Chunk { run: i, text, width: w, atomic: None }, w);
                 let each = regime.breaks_after_each();
                 if f.is_white() && !each {
                     cluster_hang += w;
                 }
                 // Un-drained (see `glue_space!`) when this run forbids
                 // wrapping: the space is already a PIECE in the cluster
-                // (`juntar!` above), so nothing is lost by not closing —
+                // (`join!` above), so nothing is lost by not closing —
                 // closing early is what would let a later, wrap-allowed
                 // boundary break in the middle of this run's content.
                 if f.is_white() && (each || !toks.peek().is_some_and(Token::is_white)) && regime.wraps() {
-                    fechar_cluster!();
+                    close_cluster!();
                 }
             }
             continue;
@@ -331,18 +331,18 @@ pub(in crate::layout) fn wrap_runs(
             // style="white-space:pre">\n</div>` sem mais texto) — o caso
             // degenerado do scanner abaixo, sem palavra que o alcance.
             if regime.preserves_newlines() && run.text.contains('\n') {
-                fechar_cluster!();
+                close_cluster!();
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
                 at_line_start = true;
                 pending_space = false;
-                espaco_de_fora = false;
+                space_outside = false;
                 continue;
             }
             if regime.wraps() {
-                fechar_cluster!();
+                close_cluster!();
                 pending_space = true;
-                espaco_de_fora = true;
+                space_outside = true;
             } else {
                 glue_space!(i);
             }
@@ -355,14 +355,14 @@ pub(in crate::layout) fn wrap_runs(
         // palavra, esteja ele no fim do run ANTERIOR ou no inicio deste.
         if run.text.starts_with(e_espaco_css) {
             if regime.wraps() {
-                fechar_cluster!();
+                close_cluster!();
                 pending_space = true;
                 // NAO e vao: este espaco esta no texto DESTE run, logo pertence aos
                 // donos dele e vive dentro do segmento. So o espaco que vem de um
                 // run ANTERIOR e um vao. E a diferenca entre `<a> alvo</a>` e
                 // `antes <a>alvo</a>` -- o `::after` com `content:" (…)"` e o
                 // primeiro caso, e o espaco tem de sobreviver no texto.
-                espaco_de_fora = false;
+                space_outside = false;
             } else {
                 glue_space!(i);
             }
@@ -370,30 +370,30 @@ pub(in crate::layout) fn wrap_runs(
         // As FAST PATHS abaixo julgam pelo texto APARADO ou por `ends_with`, e
         // um run "tres\n" apara para "tres" (sem whitespace interno) — tomaria
         // o caminho rápido e perderia a quebra que estava na borda apagada.
-        let tem_quebra_forcada = regime.preserves_newlines() && run.text.contains('\n');
+        let has_forced_break = regime.preserves_newlines() && run.text.contains('\n');
         // FAST PATH: o run inteiro e UMA peca quando nao tem whitespace dentro.
         //
         // Medir a string inteira e o que um browser faz, e e o que evita uma
         // medicao por palavra: `wrap-runs` era 38% de um relayout de pagina
         // grande, com 11 000 `text_width` por frame.
-        let miolo = apara_css(&run.text);
-        if !miolo.contains(e_espaco_css) && !tem_quebra_forcada {
-            let w = medir(m, i, &hyphen::sem_shy(miolo), run.bold, run.italic);
-            let terminava_em_espaco = run.text.ends_with(e_espaco_css);
-            juntar!(
-                Peca {
+        let trimmed = apara_css(&run.text);
+        if !trimmed.contains(e_espaco_css) && !has_forced_break {
+            let w = measure(m, i, &hyphen::sem_shy(trimmed), run.bold, run.italic);
+            let ended_in_space = run.text.ends_with(e_espaco_css);
+            join!(
+                Chunk {
                     run: i,
-                    texto: hyphen::texto_da_peca(miolo, hifen_manual),
-                    largura: w,
-                    atomico: None
+                    text: hyphen::piece_text(trimmed, manual_hyphen),
+                    width: w,
+                    atomic: None
                 },
                 w
             );
-            if terminava_em_espaco {
+            if ended_in_space {
                 if regime.wraps() {
-                    fechar_cluster!();
+                    close_cluster!();
                     pending_space = true;
-                    espaco_de_fora = true;
+                    space_outside = true;
                 } else {
                     glue_space!(i);
                 }
@@ -412,24 +412,24 @@ pub(in crate::layout) fn wrap_runs(
         // que vem de tras e nao pode ser commitada sozinha) e tem de FECHAR um
         // (senao a sua ultima palavra pode ainda vir a ter de descer com o run
         // seguinte). Sem as duas, o caminho lento e o que responde certo.
-        let abre_cluster = cluster.is_empty();
-        let fecha_cluster = run.text.ends_with(e_espaco_css);
+        let opens_cluster = cluster.is_empty();
+        let closes_cluster = run.text.ends_with(e_espaco_css);
         // `word_spacing != 0`: este caminho mede o run INTEIRO (várias palavras)
         // como UMA string, e o `word-spacing` tem de somar UMA vez por espaço
         // ENTRE palavras — o scanner abaixo já faz isso por peça, este atalho
         // não. Desviar para o scanner é mais lento e correto; inventar um fator
         // aqui seria a mesma "segunda verdade" que `letter-spacing` já pagou.
-        if abre_cluster
-            && fecha_cluster
-            && !tem_quebra_forcada
+        if opens_cluster
+            && closes_cluster
+            && !has_forced_break
             && word_spacing == 0.0
             && !run.text.contains(hyphen::SHY)
         {
-            let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
+            let normalized = collapse_ws(&run.text, pending_space && !at_line_start);
             // Moved to `line_break_partition.rs` (teto de 500).
-            if super::line_break_partition::run_inteiro_cabe(
-                &mut cur, &mut cur_w, &mut at_line_start, &mut pending_space, &mut espaco_de_fora,
-                &mut *max_w, lines.len(), run, i, &normalizado, fontes, m,
+            if super::line_break_partition::whole_run_fits(
+                &mut cur, &mut cur_w, &mut at_line_start, &mut pending_space, &mut space_outside,
+                &mut *max_w, lines.len(), run, i, &normalized, fonts, m,
             ) {
                 continue;
             }
@@ -444,21 +444,21 @@ pub(in crate::layout) fn wrap_runs(
                 // `inline_box.rs`) — só o PRIMEIRO conta; o resto da corrida,
                 // se sobrar, passa por este braço de novo na iteração seguinte.
                 if regime.preserves_newlines() {
-                    if let Some(apos_nl) = crate::inline_box::quebra_forcada_em(rest) {
-                        fechar_cluster!();
+                    if let Some(after_nl) = crate::inline_box::quebra_forcada_em(rest) {
+                        close_cluster!();
                         lines.push(std::mem::take(&mut cur));
                         cur_w = 0.0;
                         at_line_start = true;
                         pending_space = false;
-                        espaco_de_fora = false;
-                        rest = &rest[apos_nl..];
+                        space_outside = false;
+                        rest = &rest[after_nl..];
                         continue;
                     }
                 }
                 if regime.wraps() {
-                    fechar_cluster!();
+                    close_cluster!();
                     pending_space = true;
-                    espaco_de_fora = false;
+                    space_outside = false;
                 } else {
                     glue_space!(i);
                 }
@@ -468,33 +468,33 @@ pub(in crate::layout) fn wrap_runs(
             let end = rest.find(e_espaco_css).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
-            let ww = medir(m, i, &hyphen::sem_shy(word), run.bold, run.italic);
-            juntar!(
-                Peca {
+            let ww = measure(m, i, &hyphen::sem_shy(word), run.bold, run.italic);
+            join!(
+                Chunk {
                     run: i,
-                    texto: hyphen::texto_da_peca(word, hifen_manual),
-                    largura: ww,
-                    atomico: None
+                    text: hyphen::piece_text(word, manual_hyphen),
+                    width: ww,
+                    atomic: None
                 },
                 ww
             );
         }
         if run.text.ends_with(e_espaco_css) {
             if regime.wraps() {
-                fechar_cluster!();
+                close_cluster!();
                 pending_space = true;
-                espaco_de_fora = true;
+                space_outside = true;
             } else {
                 glue_space!(i);
             }
         }
     }
-    fechar_cluster!();
+    close_cluster!();
     if !cur.is_empty() {
         lines.push(cur);
     }
     if lines.is_empty() {
-        lines.push(vec![super::line_break_partition::linha_vazia()]);
+        lines.push(vec![super::line_break_partition::empty_line()]);
     }
     lines
 }

@@ -104,8 +104,8 @@ pub(in crate::layout) fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, t
     }
     // Só sai do texto se sobrar texto: um segmento que fosse SÓ o vão não tem
     // dono a quem servir e ainda perderia o espaço.
-    let separa = lead > 0.0 && text.starts_with(' ') && text.len() > 1;
-    let (text, width, lead) = match separa {
+    let splits = lead > 0.0 && text.starts_with(' ') && text.len() > 1;
+    let (text, width, lead) = match splits {
         true => (&text[1..], width - lead, lead),
         false => (text, width, 0.0),
     };
@@ -161,33 +161,33 @@ pub(in crate::layout) fn aplicar_elipse(
     // `(size, mono, ahem)` of the font a segment's text is in — the container's,
     // or its innermost inline's (`run_font.rs`). An ellipsis cut in the
     // container's font mis-cut a 16px span inside a 64px block.
-    fonte_de: &dyn Fn(&[NodeIdx]) -> (f32, bool, bool),
+    font_of: &dyn Fn(&[NodeIdx]) -> (f32, bool, bool),
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
-    aplicar_elipse_forcada(lines, content_w, fonte_de, m, false)
+    apply_forced_ellipsis(lines, content_w, font_of, m, false)
 }
 
-/// O mesmo corte de [`aplicar_elipse`], mas com um `forcar` que salta a saída
+/// O mesmo corte de [`aplicar_elipse`], mas com um `force` que salta a saída
 /// antecipada "já cabe, não corta nada" — `-webkit-line-clamp`
 /// (`layout::inline::tab_size::aplicar_line_clamp`) chama a última linha mantida
 /// SEMPRE com reticências, mesmo quando essa linha por si só caberia na
 /// largura: o que a propriedade limita são LINHAS, não largura, e uma frase
 /// curta que sobrou como 3ª de 3 continua a precisar do "…" que diz que havia
 /// mais texto por trás.
-pub(in crate::layout) fn aplicar_elipse_forcada(
+pub(in crate::layout) fn apply_forced_ellipsis(
     lines: Vec<Vec<Segment>>,
     content_w: f32,
-    fonte_de: &dyn Fn(&[NodeIdx]) -> (f32, bool, bool),
+    font_of: &dyn Fn(&[NodeIdx]) -> (f32, bool, bool),
     m: &dyn TextMeasurer,
-    forcar: bool,
+    force: bool,
 ) -> Vec<Vec<Segment>> {
-    const ELIPSE: &str = "…";
+    const ELLIPSIS: &str = "…";
     // The ellipsis takes the font of the text it is appended to.
-    let medir = |t: &str, owners: &[NodeIdx]| -> f32 {
-        let (font_size, mono, ahem) = fonte_de(owners);
+    let measure = |t: &str, owners: &[NodeIdx]| -> f32 {
+        let (font_size, mono, ahem) = font_of(owners);
         if ahem { t.chars().count() as f32 * font_size } else { m.text_width(t, font_size, mono, false, false) }
     };
-    let do_ultimo = |line: &[Segment]| -> Vec<NodeIdx> {
+    let of_last = |line: &[Segment]| -> Vec<NodeIdx> {
         line.iter().rev().find(|s| s.atomic.is_none()).map(|s| s.owners.clone()).unwrap_or_default()
     };
     lines
@@ -197,22 +197,22 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
                 .iter()
                 .map(|s| s.lead_w + if s.atomic.is_some() { s.ww } else { s.text_width })
                 .sum();
-            if total <= content_w && !forcar {
+            if total <= content_w && !force {
                 return line;
             }
-            if total <= content_w && forcar {
+            if total <= content_w && force {
                 // cabe, mas a elipse é devida na mesma (linha cortada por
                 // `line-clamp`, não por transbordo): só acrescenta o "…".
-                let w_elipse = medir(ELIPSE, &do_ultimo(&line));
+                let ellipsis_w = measure(ELLIPSIS, &of_last(&line));
                 let mut line = line;
                 match line.last_mut() {
                     Some(last) if last.atomic.is_none() => {
-                        last.text.push_str(ELIPSE);
-                        last.text_width += w_elipse;
+                        last.text.push_str(ELLIPSIS);
+                        last.text_width += ellipsis_w;
                     }
                     _ => line.push(Segment {
-                        text: ELIPSE.to_string(),
-                        text_width: w_elipse,
+                        text: ELLIPSIS.to_string(),
+                        text_width: ellipsis_w,
                         color: 0,
                         bold: false,
                         italic: false,
@@ -226,28 +226,28 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
                 }
                 return line;
             }
-            let w_elipse = medir(ELIPSE, &do_ultimo(&line));
-            let orcamento = content_w - w_elipse;
+            let ellipsis_w = measure(ELLIPSIS, &of_last(&line));
+            let budget = content_w - ellipsis_w;
             let mut out: Vec<Segment> = Vec::with_capacity(line.len());
             let mut acc = 0.0f32;
             for mut seg in line {
-                let largura = if seg.atomic.is_some() {
+                let width = if seg.atomic.is_some() {
                     seg.ww
                 } else {
                     seg.text_width
                 };
-                if acc + seg.lead_w + largura <= orcamento {
-                    acc += seg.lead_w + largura;
+                if acc + seg.lead_w + width <= budget {
+                    acc += seg.lead_w + width;
                     out.push(seg);
                     continue;
                 }
                 if seg.atomic.is_none() {
-                    let disp = orcamento - acc - seg.lead_w;
-                    let (font_size, mono, ahem) = fonte_de(&seg.owners);
+                    let disp = budget - acc - seg.lead_w;
+                    let (font_size, mono, ahem) = font_of(&seg.owners);
                     let (n, w) = crate::inline_box::prefixo_que_cabe(&seg.text, disp, font_size, mono, seg.bold, seg.italic, ahem, m);
                     seg.text.truncate(n);
-                    seg.text.push_str(ELIPSE);
-                    seg.text_width = w + w_elipse;
+                    seg.text.push_str(ELLIPSIS);
+                    seg.text_width = w + ellipsis_w;
                     out.push(seg);
                     return out;
                 }
@@ -257,12 +257,12 @@ pub(in crate::layout) fn aplicar_elipse_forcada(
             }
             match out.last_mut() {
                 Some(last) if last.atomic.is_none() => {
-                    last.text.push_str(ELIPSE);
-                    last.text_width += w_elipse;
+                    last.text.push_str(ELLIPSIS);
+                    last.text_width += ellipsis_w;
                 }
                 _ => out.push(Segment {
-                    text: ELIPSE.to_string(),
-                    text_width: w_elipse,
+                    text: ELLIPSIS.to_string(),
+                    text_width: ellipsis_w,
                     color: 0,
                     bold: false,
                     italic: false,

@@ -6,13 +6,13 @@
 //! (`row.rs`), the multi-line pass (`lines.rs`), the baseline fallback
 //! (`baseline.rs`), the wrapped column and the grid (`grid/collapse.rs`) all
 //! read them. `column.rs` re-exports both so every existing path resolves.
-//! Rejected: moving `justify_e_align`/`fisico_para_coluna`/`mirror_justify`
+//! Rejected: moving `justify_and_align`/`physical_to_column`/`mirror_justify`
 //! here too — those RESOLVE a column's keywords, which is column-specific,
 //! where these two only turn a resolved keyword into numbers.
 
 /// `Start`/`End` entram aqui só para `align-content` (multi-linha), que chama
 /// isto DIRETO com o valor cru — `justify-content` já os resolveu para
-/// `FlexStart`/`FlexEnd` em `fisico_para_eixo`/`fisico_para_coluna` antes de
+/// `FlexStart`/`FlexEnd` em `fisico_para_eixo`/`physical_to_column` antes de
 /// chegar aqui. Tratados como `FlexStart`/`FlexEnd` (mesma posição física
 /// que já tinham); `wrap-reverse` não os espelha aqui — nenhum valor é
 /// espelhado no `align-content` hoje, o que fica fora deste lote.

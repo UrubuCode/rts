@@ -26,10 +26,10 @@ use crate::layout::block::pseudo_box::{montar, resolve_arestas};
 /// `crate::layout::block::pseudo_box::CaixaGerada`.
 pub(in crate::layout) type PseudoItem = crate::layout::block::pseudo_box::CaixaGerada;
 
-fn rc(css: &ComputedStyle, base_w: f32, fonte: f32, ctx: &LayoutCtx) -> ResolveCtx {
+fn rc(css: &ComputedStyle, base_w: f32, font: f32, ctx: &LayoutCtx) -> ResolveCtx {
     ResolveCtx {
         parent_content_w: base_w,
-        node_font_size: fonte,
+        node_font_size: font,
         root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
@@ -38,49 +38,49 @@ fn rc(css: &ComputedStyle, base_w: f32, fonte: f32, ctx: &LayoutCtx) -> ResolveC
 
 /// Mede o pseudo-elemento `pe` do contentor `id` como item flex, se existir
 /// (tem `content`) e não for `display: none`.
-/// `dono` is the container's box, where the tree put the generated box; the
+/// `owner` is the container's box, where the tree put the generated box; the
 /// pseudo is taken from there (`crate::layout::block::pseudo_box::da_arvore`), not re-derived.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn medir(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: crate::boxes::BoxId,
+    owner: crate::boxes::BoxId,
     pe: crate::style::PseudoElement,
     base_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> Option<PseudoItem> {
-    let (gerada, caixa) = crate::layout::block::pseudo_box::da_arvore(dom, tree, dono, pe)?;
-    if caixa.css.effective_display() == Some(crate::style::DisplayKind::None) {
+    let (generated, generated_box) = crate::layout::block::pseudo_box::da_arvore(dom, tree, owner, pe)?;
+    if generated_box.css.effective_display() == Some(crate::style::DisplayKind::None) {
         return None;
     }
-    let css = &caixa.css;
-    let fonte = font_px(css, font_size);
-    let r = rc(css, base_w, fonte, ctx);
-    let arestas = resolve_arestas(css, &r);
-    let texto = crate::layout::inline::segment::collapse_ws(&caixa.texto, false).into_owned();
+    let css = &generated_box.css;
+    let font = font_px(css, font_size);
+    let r = rc(css, base_w, font, ctx);
+    let edges = resolve_arestas(css, &r);
+    let text = crate::layout::inline::segment::collapse_ws(&generated_box.texto, false).into_owned();
     let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
     let bold = css.bold.unwrap_or(false);
-    let tw = if texto.is_empty() {
+    let tw = if text.is_empty() {
         0.0
     } else {
-        ctx.measurer.text_width_family(&texto, fonte, css.font_family.as_deref(), mono, bold, false)
+        ctx.measurer.text_width_family(&text, font, css.font_family.as_deref(), mono, bold, false)
     };
     // ITEM FLEX: largura AUTO encolhe ao conteúdo (shrink-to-fit) — o oposto
-    // do bloco em `pseudo_block.rs::medir`, que enche o pai. É a única conta
+    // do bloco em `pseudo_block.rs::measure_pseudo`, que enche o pai. É a única conta
     // que os dois papéis não partilham (ver `pseudo_box.rs`).
-    let conteudo_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or(tw);
-    let conteudo_h = css.height.and_then(|d| d.resolve(&r)).unwrap_or(if texto.is_empty() {
+    let content_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or(tw);
+    let content_h = css.height.and_then(|d| d.resolve(&r)).unwrap_or(if text.is_empty() {
         0.0
     } else {
-        crate::inline_box::altura_da_linha(css, fonte, ctx.measurer)
+        crate::inline_box::altura_da_linha(css, font, ctx.measurer)
     });
     // One line, not `linhas_do_texto`: this item's width IS the text's
     // max-content width, and breaking at it could split on a rounding
     // difference between the two measurers (`text_width_family` here,
     // `text_width` in `wrap_runs`) — a line the height above did not count.
-    let linhas = if texto.is_empty() { Vec::new() } else { vec![texto] };
-    Some(montar((gerada, caixa), arestas, conteudo_w, conteudo_h, linhas, fonte))
+    let lines = if text.is_empty() { Vec::new() } else { vec![text] };
+    Some(montar((generated, generated_box), edges, content_w, content_h, lines, font))
 }
 
 /// A largura OUTER que o pseudo `pe` acrescenta à largura intrínseca de um
@@ -88,12 +88,12 @@ pub(in crate::layout) fn medir(
 pub(in crate::layout) fn largura(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: crate::boxes::BoxId,
+    owner: crate::boxes::BoxId,
     pe: crate::style::PseudoElement,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    medir(dom, tree, dono, pe, ctx.viewport_w, font_size, ctx).map_or(0.0, |p| p.w)
+    medir(dom, tree, owner, pe, ctx.viewport_w, font_size, ctx).map_or(0.0, |p| p.w)
 }
 
 /// Pinta o item gerado com o canto superior esquerdo da sua margin box em
@@ -109,12 +109,12 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, item: &PseudoItem, x: f3
 /// `layout_block` — a generated item is painted by `pintar` from `pseudo` —
 /// but it is the box the item is, and the one its geometry is recorded under.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn item_flex(dom: &Dom, tree: &crate::boxes::BoxTree, dono: crate::boxes::BoxId, id: NodeIdx, pe: crate::style::PseudoElement, content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Option<super::row::FlexItem> {
-    let p = medir(dom, tree, dono, pe, content_w, font_size, ctx)?;
+pub(in crate::layout) fn flex_item(dom: &Dom, tree: &crate::boxes::BoxTree, owner: crate::boxes::BoxId, id: NodeIdx, pe: crate::style::PseudoElement, content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Option<super::row::FlexItem> {
+    let p = medir(dom, tree, owner, pe, content_w, font_size, ctx)?;
     let css = &p.caixa.css;
     Some(super::row::FlexItem {
         node: id,
-        caixa: p.gerada,
+        box_id: p.gerada,
         base: p.w,
         main: p.w,
         h: p.h,
@@ -126,10 +126,10 @@ pub(in crate::layout) fn item_flex(dom: &Dom, tree: &crate::boxes::BoxTree, dono
         can_stretch: false,
         min_main: p.w,
         max_main: None,
-        auto_esq: false,
-        auto_dir: false,
-        auto_topo: false,
-        auto_fundo: false,
+        auto_left: false,
+        auto_right: false,
+        auto_top: false,
+        auto_bottom: false,
         pseudo: Some(p),
     })
 }

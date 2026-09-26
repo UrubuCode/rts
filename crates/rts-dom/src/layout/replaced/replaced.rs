@@ -9,12 +9,12 @@ use super::*;
 /// rasterizador ainda não é um motor SVG; este recorte preserva, porém, o caso
 /// comum de fixtures e ícones de estado `data:image/svg+xml,<svg><rect
 /// fill=.../></svg>` sem inventar suporte para paths, transforms ou texto.
-fn cor_do_retangulo_svg_embutido(dom: &Dom, id: NodeIdx) -> Option<u32> {
+fn embedded_svg_rect_fill_color(dom: &Dom, id: NodeIdx) -> Option<u32> {
     let src = dom.node(id).attr("src")?;
     let svg = src.strip_prefix("data:image/svg+xml,")?;
     let rect = svg.get(svg.find("<rect")?..)?;
-    let fim = rect.find('>')?;
-    let tag = &rect[..fim];
+    let end = rect.find('>')?;
+    let tag = &rect[..end];
     let marker = "fill=";
     let at = tag.find(marker)? + marker.len();
     let quote = *tag.as_bytes().get(at)?;
@@ -43,7 +43,7 @@ fn cor_do_retangulo_svg_embutido(dom: &Dom, id: NodeIdx) -> Option<u32> {
 pub(in crate::layout) fn layout_svg_placeholder(
     dom: &Dom,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -123,14 +123,14 @@ pub(in crate::layout) fn layout_svg_placeholder(
         color: 0xE8EAEDFF,
         radius: Corners::same(2.0),
     });
-    record_box_rect(list, caixa, rect);
+    record_box_rect(list, box_id, rect);
     Some((w + ml + mr, h + mt + mb))
 }
 
 pub(in crate::layout) fn layout_image(
     dom: &Dom,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -201,7 +201,7 @@ pub(in crate::layout) fn layout_image(
     // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
     let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (forced_w, forced_h), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
-    record_box_rect(list, caixa, rect);
+    record_box_rect(list, box_id, rect);
     // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com
     // `background` é uma caixa como as outras enquanto a imagem não chega
     // (`claude-object-fit`: o Blink mostra o `#eee` por baixo, e aqui a régua
@@ -241,7 +241,7 @@ pub(in crate::layout) fn layout_image(
             img_w: iw,
             img_h: ih,
         });
-    } else if let Some(color) = cor_do_retangulo_svg_embutido(dom, id) {
+    } else if let Some(color) = embedded_svg_rect_fill_color(dom, id) {
         list.push_item(DisplayItem::SolidRect {
             rect: content_rect,
             color,
@@ -270,7 +270,7 @@ pub(in crate::layout) fn layout_image(
 pub(in crate::layout) fn layout_canvas(
     dom: &Dom,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -294,7 +294,7 @@ pub(in crate::layout) fn layout_canvas(
     // A caixa devolvida é a BORDER-BOX, como no `<img>`.
     let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (None, None), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
-    record_box_rect(list, caixa, rect);
+    record_box_rect(list, box_id, rect);
     if let Some(color) = css.bg {
         list.push_item(DisplayItem::SolidRect {
             rect,

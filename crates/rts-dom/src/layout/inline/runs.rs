@@ -3,7 +3,7 @@
 
 use super::*;
 /// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).
-/// `atomic: Some((idx, caixa, kind))` = uma CAIXA em vez de texto — um widget de
+/// `atomic: Some((idx, box_id, kind))` = uma CAIXA em vez de texto — um widget de
 /// formulário, um replaced element (`<img>`), ou o marcador de um inline vazio.
 /// As duas primeiras fluem como uma "palavra" inquebrável de `ww × wh` pontos
 /// (item 8 do handoff #1793; os botões 'Pesquisa Google' do google legado vivem
@@ -41,12 +41,12 @@ pub(in crate::layout) fn collect_runs(
     // `<div>` continua a estar: descia nele como se o `<span>` fosse
     // transparente, e `width`, `height`, `background`, `padding` e `margin` do
     // bloco eram deitados fora. Com a caixa, os filhos vêm de
-    // `tree.children(caixa)` — e a caixa de um FRAGMENTO do inline partido só
+    // `tree.children(box_id)` — e a caixa de um FRAGMENTO do inline partido só
     // tem a corrida dela, sem o bloco, que a árvore já pôs como irmão.
     //
     // E dá a um ÁTOMO (inline-flex, inline-block, widget) a sua caixa, pela
     // qual `layout_block` o dispõe e lhe reserva a ordem de hit-test.
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     tree: &crate::boxes::BoxTree,
     parent_css: &ComputedStyle,
     avail_w: f32,
@@ -60,7 +60,7 @@ pub(in crate::layout) fn collect_runs(
         ctx,
         avail_w,
         id,
-        caixa,
+        box_id,
         cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF)),
         decoration_code(parent_css),
         parent_css.text_transform,
@@ -77,7 +77,7 @@ pub(in crate::layout) fn collect_runs(
     /// inline, porque ele já não é filho do fragmento. Um comentário não gera
     /// caixa e este varredor já o ignorava; um `display:none` gera caixa e
     /// continua a ser recusado por `e_display_none`.
-    fn filhos_do_varrimento(
+    fn walk_children(
         tree: &crate::boxes::BoxTree,
         b: crate::boxes::BoxId,
     ) -> Vec<(NodeIdx, crate::boxes::BoxId)> {
@@ -89,10 +89,10 @@ pub(in crate::layout) fn collect_runs(
                 // Uma caixa ANÓNIMA aqui seria a partição a criar uma onde não
                 // cria — ela só aparece no CONTENTOR. Deixá-la cair em silêncio
                 // perdia a corrida inteira que ela envolve.
-                let no = tree
+                let node = tree
                     .node_of(cb)
                     .expect("uma caixa anonima dentro de um fragmento inline");
-                (no, cb)
+                (node, cb)
             })
             .collect()
     }
@@ -104,7 +104,7 @@ pub(in crate::layout) fn collect_runs(
         ctx: &LayoutCtx,
         avail_w: f32,
         id: NodeIdx,
-        caixa: crate::boxes::BoxId,
+        box_id: crate::boxes::BoxId,
         inherited_color: u32,
         inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
@@ -158,10 +158,10 @@ pub(in crate::layout) fn collect_runs(
                 }
                 // A FLOAT in the middle of the flow: only an anchor (`in_line.rs`).
                 // An absolutely positioned box: the anchor of its static position.
-                let ancora = crate::layout::float::in_line::anchor(dom, id, caixa, inherited_color)
-                    .or_else(|| super::static_anchor::anchor(dom, id, caixa, inherited_color));
-                if let Some(ancora) = ancora {
-                    out.push(ancora);
+                let anchor_run = crate::layout::float::in_line::anchor(dom, id, box_id, inherited_color)
+                    .or_else(|| super::static_anchor::anchor(dom, id, box_id, inherited_color));
+                if let Some(anchor_run) = anchor_run {
+                    out.push(anchor_run);
                     return;
                 }
                 // WIDGET inline: um `<input>` no meio do fluxo (botão/campo) vira
@@ -190,7 +190,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, caixa, AtomicKind::Widget)),
+                        atomic: Some((id, box_id, AtomicKind::Widget)),
                         ww,
                         wh,
                     });
@@ -211,7 +211,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, caixa, AtomicKind::Break)),
+                        atomic: Some((id, box_id, AtomicKind::Break)),
                         ww: 0.0,
                         wh: 0.0,
                     });
@@ -235,7 +235,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, caixa, AtomicKind::Replaced)),
+                        atomic: Some((id, box_id, AtomicKind::Replaced)),
                         ww,
                         wh,
                     });
@@ -247,7 +247,7 @@ pub(in crate::layout) fn collect_runs(
                 // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
                 // real isso multiplicava a altura do documento por ~2,7.
                 if is_inline_block(dom, id) {
-                    let (bw, bh) = measure_block(dom, id, caixa, avail_w, None, None, None, true, ctx);
+                    let (bw, bh) = measure_block(dom, id, box_id, avail_w, None, None, None, true, ctx);
                     let mut owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
@@ -257,7 +257,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners: std::mem::take(&mut owners),
-                        atomic: Some((id, caixa, AtomicKind::Block)),
+                        atomic: Some((id, box_id, AtomicKind::Block)),
                         ww: bw,
                         wh: bh,
                     });
@@ -313,33 +313,33 @@ pub(in crate::layout) fn collect_runs(
                 // As ARESTAS de um inline por fragmentos (`AtomicKind::Aresta*`):
                 // padding+borda esquerdo antes do conteúdo, direito depois —
                 // largura na linha, sem altura, colados ao texto vizinho.
-                let arestas = css
+                let edges = css
                     .as_deref()
                     .filter(|c| is_container && crate::inline_box::inline_por_fragmentos(c))
                     .filter(|_| crate::layout::block::box_kind::tem_conteudo_para_fragmento(dom, id))
                     .map(|c| {
-                        let fonte = font_px(c, DEFAULT_FONT_SIZE);
-                        crate::inline_box::arestas_do_inline(c, fonte, avail_w, ctx)
+                        let font = font_px(c, DEFAULT_FONT_SIZE);
+                        crate::inline_box::arestas_do_inline(c, font, avail_w, ctx)
                     });
-                let aresta = |kind: AtomicKind, ww: f32, owners: &[NodeIdx]| InlineRun {
+                let edge_run = |kind: AtomicKind, ww: f32, owners: &[NodeIdx]| InlineRun {
                     text: String::new(),
                     color,
                     bold: false,
                     italic: false,
                     deco: 0,
                     owners: owners.to_vec(),
-                    atomic: Some((id, caixa, kind)),
+                    atomic: Some((id, box_id, kind)),
                     ww,
                     wh: 0.0,
                 };
-                if let Some([esq, ..]) = arestas {
+                if let Some([left, ..]) = edges {
                     crate::bump!(inline_runs);
-                    out.push(aresta(AtomicKind::ArestaInicio, esq, &owners));
+                    out.push(edge_run(AtomicKind::ArestaInicio, left, &owners));
                 }
                 // A cadeia que o fragmento gerado herda. `owners` só contém
                 // `id` quando ele é container inline; um `inline-block` com
                 // `::before` continua a ser dono da sua própria caixa gerada.
-                let donos_do_pseudo = if owners.last() == Some(&id) {
+                let pseudo_owners = if owners.last() == Some(&id) {
                     owners.clone()
                 } else {
                     let mut v = owners.clone();
@@ -352,12 +352,12 @@ pub(in crate::layout) fn collect_runs(
                 // without one still emitted the run from `Dom::pseudo_box`, and a
                 // split inline painted its pseudo once per fragment: the "found,
                 // not fixed" of BT-5. Requiring the box is what closes it.
-                if let Some(gerada) = tree.generated_child(caixa, crate::style::PseudoElement::Before) {
-                    out.extend(super::pseudo_inline::pseudo_run_da_caixa(
+                if let Some(generated) = tree.generated_child(box_id, crate::style::PseudoElement::Before) {
+                    out.extend(super::pseudo_inline::pseudo_run_of_box(
                         dom,
                         id,
-                        gerada,
-                        &donos_do_pseudo,
+                        generated,
+                        &pseudo_owners,
                         crate::style::PseudoElement::Before,
                         color,
                         italic,
@@ -365,18 +365,18 @@ pub(in crate::layout) fn collect_runs(
                         ctx,
                     ));
                 }
-                for (c, cb) in filhos_do_varrimento(tree, caixa) {
+                for (c, cb) in walk_children(tree, box_id) {
                     walk(
                         dom, tree, ctx, avail_w, c, cb, color, deco, tt, bold, italic, &owners,
                         out,
                     );
                 }
-                if let Some(gerada) = tree.generated_child(caixa, crate::style::PseudoElement::After) {
-                    out.extend(super::pseudo_inline::pseudo_run_da_caixa(
+                if let Some(generated) = tree.generated_child(box_id, crate::style::PseudoElement::After) {
+                    out.extend(super::pseudo_inline::pseudo_run_of_box(
                         dom,
                         id,
-                        gerada,
-                        &donos_do_pseudo,
+                        generated,
+                        &pseudo_owners,
                         crate::style::PseudoElement::After,
                         color,
                         italic,
@@ -384,9 +384,9 @@ pub(in crate::layout) fn collect_runs(
                         ctx,
                     ));
                 }
-                if let Some([_, dir, ..]) = arestas {
+                if let Some([_, right, ..]) = edges {
                     crate::bump!(inline_runs);
-                    out.push(aresta(AtomicKind::ArestaFim, dir, &owners));
+                    out.push(edge_run(AtomicKind::ArestaFim, right, &owners));
                 }
                 // Um inline VAZIO (`<source>`, `<br>`, `<span></span>`) não gerou run
                 // e ficaria sem caixa. O marker dá-lhe a posição na linha sem lhe dar
@@ -400,7 +400,7 @@ pub(in crate::layout) fn collect_runs(
                         italic: false,
                         deco: 0,
                         owners,
-                        atomic: Some((id, caixa, AtomicKind::Marker)),
+                        atomic: Some((id, box_id, AtomicKind::Marker)),
                         ww: 0.0,
                         wh: 0.0,
                     });

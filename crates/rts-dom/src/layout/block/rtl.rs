@@ -53,7 +53,7 @@ pub(in crate::layout) fn margin_left_usado(
     id: NodeIdx,
     margin_left_ltr: f32,
     margin_right: f32,
-    free_com_sinal: f32,
+    signed_free: f32,
 ) -> f32 {
     let Some(parent) = dom.node(id).parent else {
         return margin_left_ltr;
@@ -61,7 +61,7 @@ pub(in crate::layout) fn margin_left_usado(
     let Some(parent_css) = dom.computed_style_idx(parent) else {
         return margin_left_ltr;
     };
-    let e_flex_ou_grid = matches!(
+    let is_flex_or_grid = matches!(
         parent_css.effective_display(),
         Some(
             crate::style::DisplayKind::Flex
@@ -73,8 +73,8 @@ pub(in crate::layout) fn margin_left_usado(
         )
     );
     let horizontal = parent_css.writing_mode.unwrap_or_default().is_horizontal();
-    if e_flex_ou_grid || !horizontal || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl)) {
+    if is_flex_or_grid || !horizontal || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl)) {
         return margin_left_ltr;
     }
-    free_com_sinal - margin_right
+    signed_free - margin_right
 }

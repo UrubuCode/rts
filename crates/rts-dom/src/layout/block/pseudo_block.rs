@@ -11,7 +11,7 @@
 //! estabelece um BFC próprio e a margem do pseudo não escapa para fora).
 //!
 //! O pseudo entra na MESMA máquina de colapso de margem que um filho real —
-//! `Strut`/`junta_ao_strut`/`strut_colapsado`/`atravessa_se`, reusadas de
+//! `Strut`/`join_strut`/`collapsed_strut`/`collapses_through`, reusadas de
 //! `vertical_flow.rs` — porque ele PARTICIPA do fluxo como qualquer outro bloco
 //! (CSS 2.1 §12.1: "generated content ... treated ... as if inserted...
 //! immediately before/after the ... content"), só que sem nó DOM próprio para
@@ -39,102 +39,102 @@ use super::pseudo_box::{montar, resolve_arestas};
 /// ver `pseudo_box::CaixaGerada`.
 pub(in crate::layout) type PseudoBlockBox = super::pseudo_box::CaixaGerada;
 
-/// O pseudo `pe` de `id`, se existe, tem conteúdo NÃO-VAZIO e é de BLOCO — a
+/// O pseudo `pseudo_el` de `id`, se existe, tem conteúdo NÃO-VAZIO e é de BLOCO — a
 /// mesma pergunta de `clearfix.rs::fundo_do_clearfix`, sem exigir `clear` e
 /// exigindo texto (um `content:""` é o caso do clearfix, já coberto por ele;
 /// os dois nunca disputam o mesmo pseudo).
 #[allow(clippy::too_many_arguments)]
-fn medir(
+fn measure_pseudo(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: crate::boxes::BoxId,
-    pe: crate::style::PseudoElement,
+    owner: crate::boxes::BoxId,
+    pseudo_el: crate::style::PseudoElement,
     content_w: f32,
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> Option<PseudoBlockBox> {
-    let (gerada, caixa) = super::pseudo_box::da_arvore(dom, tree, dono, pe)?;
-    if caixa.texto.is_empty() {
+    let (generated, box_id) = super::pseudo_box::da_arvore(dom, tree, owner, pseudo_el)?;
+    if box_id.texto.is_empty() {
         return None;
     }
-    let de_bloco = matches!(
-        caixa.css.effective_display(),
+    let block_level = matches!(
+        box_id.css.effective_display(),
         Some(
             crate::style::DisplayKind::Block
                 | crate::style::DisplayKind::Flex
                 | crate::style::DisplayKind::Grid
         )
     );
-    if !de_bloco {
+    if !block_level {
         return None;
     }
-    let css = &caixa.css;
-    let fonte = font_px(css, font_size);
+    let css = &box_id.css;
+    let font = font_px(css, font_size);
     let r = ResolveCtx {
         parent_content_w: content_w,
-        node_font_size: fonte,
+        node_font_size: font,
         root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let arestas = resolve_arestas(css, &r);
-    let texto = crate::layout::inline::segment::collapse_ws(&caixa.texto, false).into_owned();
+    let edges = resolve_arestas(css, &r);
+    let source_text = crate::layout::inline::segment::collapse_ws(&box_id.texto, false).into_owned();
     // BLOCO: largura AUTO enche o content-box do pai (menos as margens) — o
     // default de qualquer bloco sem `width`. `flex/pseudo.rs::medir` encolhe
     // ao conteúdo porque ali o pseudo é um ITEM flex (shrink-to-fit); este é
     // o outro papel, o de CONTENTOR de bloco normal. É a única conta que os
     // dois ficheiros não partilham (ver `pseudo_box.rs`).
-    let conteudo_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or_else(|| {
-        (content_w - arestas.ml - arestas.mr - arestas.valores[1] - arestas.valores[3]).max(0.0)
+    let inner_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or_else(|| {
+        (content_w - edges.ml - edges.mr - edges.valores[1] - edges.valores[3]).max(0.0)
     });
-    let linhas = super::pseudo_box::linhas_do_texto(css, &texto, conteudo_w, fonte, ctx);
-    let conteudo_h = css
+    let lines = super::pseudo_box::linhas_do_texto(css, &source_text, inner_w, font, ctx);
+    let inner_h = css
         .height
         .and_then(|d| d.resolve(&r))
-        .unwrap_or_else(|| super::pseudo_box::altura_das_linhas(css, &linhas, fonte, ctx));
-    Some(montar((gerada, caixa), arestas, conteudo_w, conteudo_h, linhas, fonte))
+        .unwrap_or_else(|| super::pseudo_box::altura_das_linhas(css, &lines, font, ctx));
+    Some(montar((generated, box_id), edges, inner_w, inner_h, lines, font))
 }
 
-/// Mede, posiciona e pinta o pseudo `pe` de `id` como o próximo (`::before`)
+/// Mede, posiciona e pinta o pseudo `pseudo_el` de `id` como o próximo (`::before`)
 /// ou o último (`::after`) filho do fluxo vertical — a MESMA máquina de
 /// colapso de margem que `vertical_flow.rs` usa para um filho real de bloco
-/// (`borda`/`strut`/`child_y` são os três valores dela). Não faz nada
-/// (`borda`/`strut`/`child_y` inalterados) quando o pseudo não existe, tem
-/// `content` vazio ou não é de bloco — ver [`medir`].
+/// (`border`/`strut`/`child_y` são os três valores dela). Não faz nada
+/// (`border`/`strut`/`child_y` inalterados) quando o pseudo não existe, tem
+/// `content` vazio ou não é de bloco — ver [`measure_pseudo`].
 ///
 /// Gancho de UMA chamada em `vertical_flow.rs`, que não cresce: a lógica inteira
 /// vive aqui.
-pub(in crate::layout) fn aplicar(
+pub(in crate::layout) fn apply(
     dom: &Dom,
     // The box of `id` this flow is the children of — where the tree put the
     // generated box (`boxes/build/generated.rs`). `None` without a tree.
-    dono: crate::boxes::BoxId,
+    owner: crate::boxes::BoxId,
     id: NodeIdx,
-    pe: crate::style::PseudoElement,
+    pseudo_el: crate::style::PseudoElement,
     content_x: f32,
     content_w: f32,
     font_size: f32,
-    borda: &mut f32,
+    border: &mut f32,
     strut: &mut super::vertical_flow::Strut,
     child_y: &mut f32,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) {
-    use super::vertical_flow::{atravessa_se, junta_ao_strut, strut_colapsado};
-    let arvore = std::rc::Rc::clone(&list.tree);
-    let Some(caixa) = medir(dom, &arvore, dono, pe, content_w, font_size, ctx) else {
+    use super::vertical_flow::{collapses_through, join_strut, collapsed_strut};
+    let from_tree = std::rc::Rc::clone(&list.tree);
+    let Some(box_id) = measure_pseudo(dom, &from_tree, owner, pseudo_el, content_w, font_size, ctx) else {
         return;
     };
-    let (m, m_baixo) = (caixa.mt, caixa.mb);
-    let com_topo = junta_ao_strut(*strut, m);
-    let aresta = *borda + strut_colapsado(com_topo);
-    let y = aresta - m;
-    super::pseudo_box::pintar(list, &caixa, content_x, y, ctx);
-    if atravessa_se(caixa.h, m, m_baixo) {
-        *strut = junta_ao_strut(com_topo, m_baixo);
+    let (m, m_bottom) = (box_id.mt, box_id.mb);
+    let with_top = join_strut(*strut, m);
+    let edge = *border + collapsed_strut(with_top);
+    let y = edge - m;
+    super::pseudo_box::pintar(list, &box_id, content_x, y, ctx);
+    if collapses_through(box_id.h, m, m_bottom) {
+        *strut = join_strut(with_top, m_bottom);
     } else {
-        *borda = aresta + (caixa.h - m - m_baixo);
-        *strut = junta_ao_strut((0.0, 0.0), m_baixo);
+        *border = edge + (box_id.h - m - m_bottom);
+        *strut = join_strut((0.0, 0.0), m_bottom);
     }
-    *child_y = *borda + strut_colapsado(*strut);
+    *child_y = *border + collapsed_strut(*strut);
 }

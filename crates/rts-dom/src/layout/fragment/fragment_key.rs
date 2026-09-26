@@ -2,7 +2,7 @@
 //! container) and `fragment_key` (the per-child key built from it).
 //!
 //! Split out of `fragment.rs`, which was past the 500-line ceiling. Kept
-//! apart from the reuse/stitch algorithm that CONSUMES this key (`costurar`
+//! apart from the reuse/stitch algorithm that CONSUMES this key (`stitch`
 //! and `layout_block_reusing`, still in `fragment.rs`) rather than from the
 //! `Fragment`/`ChildRef` types (`types.rs`) or the emit/build entry point,
 //! because the key's own header already explains why its two pieces belong

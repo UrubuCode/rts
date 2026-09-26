@@ -32,9 +32,9 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
     // The style half lives in `bfc_style.rs` since BT-5, so a box with no
     // node — a generated one — can ask it too. What stays is what only a node
     // answers: being the root, and `overflow` propagating to the viewport.
-    let pai = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
-    super::bfc_style::pelo_estilo(css, pai.as_deref())
-        || (super::bfc_style::overflow_estabelece(css) && !super::overflow_viewport::propagado_para_viewport(dom, id))
+    let parent_css = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
+    super::bfc_style::pelo_estilo(css, parent_css.as_deref())
+        || (super::bfc_style::overflow_estabelece(css) && !super::overflow_viewport::propagated_to_viewport(dom, id))
         || dom.node(id).parent == Some(dom.root)
 }
 
@@ -48,7 +48,7 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
 pub(crate) fn layout_block(
     dom: &Dom,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     x: f32,
     y: f32,
     avail_w: f32,
@@ -81,7 +81,7 @@ pub(crate) fn layout_block(
     shrink_to_fit: bool,
     // O bloco de formatação AMBIENTE, do antepassado que o estabeleceu — não
     // necessariamente o pai imediato. Ignorado se `id` estabelece o SEU
-    // PRÓPRIO BFC (um novo é criado abaixo, em `bfc_filhos`). Ver `block/bfc.rs`.
+    // PRÓPRIO BFC (um novo é criado abaixo, em `children_bfc`). Ver `block/bfc.rs`.
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
@@ -105,7 +105,7 @@ pub(crate) fn layout_block(
             }
             if tag == "select" {
                 return layout_select(
-                    caixa, &css, x, y, avail_w, avail_h, forced_outer_w,
+                    box_id, &css, x, y, avail_w, avail_h, forced_outer_w,
                     forced_outer_h, ctx, list,
                 );
             }
@@ -126,12 +126,12 @@ pub(crate) fn layout_block(
                 // `type=submit/button/reset`: BOTÃO — caixa cinza UA com o value
                 // como rótulo (não editável). O suficiente p/ o "Pesquisa Google".
                 if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                    return layout_button(dom, id, caixa, &css, x, y, forced_outer_h, ctx, list);
+                    return layout_button(dom, id, box_id, &css, x, y, forced_outer_h, ctx, list);
                 }
                 return layout_input(
                     dom,
                     id,
-                    caixa,
+                    box_id,
                     &css,
                     x,
                     y,
@@ -150,13 +150,13 @@ pub(crate) fn layout_block(
             // o desenho aparece quando o programa pinta — antes disso a caixa
             // existe e fica vazia, que é o que o browser também faz.
             if tag == "canvas" {
-                if let Some(r) = layout_canvas(dom, id, caixa, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) = layout_canvas(dom, id, box_id, &css, x, y, avail_w, ctx, list) {
                     return r;
                 }
             }
             if tag == "img" {
                 if let Some(img) =
-                    layout_image(dom, id, caixa, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
+                    layout_image(dom, id, box_id, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
                 {
                     return img;
                 }
@@ -168,7 +168,7 @@ pub(crate) fn layout_block(
             // página fica correta mesmo sem o SVG (logo/ícones do google ocupam o
             // espaço certo em vez de colapsar pra 0×0).
             if tag == "svg" {
-                if let Some(r) = layout_svg_placeholder(dom, id, caixa, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) = layout_svg_placeholder(dom, id, box_id, &css, x, y, avail_w, ctx, list) {
                     return r;
                 }
             }
@@ -176,7 +176,7 @@ pub(crate) fn layout_block(
         }
         // Texto solto ao nível de bloco: uma linha com a fonte do PAI
         // (`bare_text.rs`); whitespace estrutural não cria linha nenhuma.
-        NodeKind::Text(t) => return super::bare_text::layout_texto_solto(dom, id, t, x, y, ctx, list),
+        NodeKind::Text(t) => return super::bare_text::layout_bare_text(dom, id, t, x, y, ctx, list),
         _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
     };
 
@@ -277,7 +277,7 @@ pub(crate) fn layout_block(
         // morde: o conteúdo pede 166,6. Se um dia bater nos 200, é sinal de que
         // esta medição passou a calcular a mais.
         let base = if css.width == Some(crate::style::Dimension::MaxContent) {
-            crate::layout::flex::column_wrap_width::max_content_width(dom, id, caixa, font_for_content, avail_h, &css, ctx)
+            crate::layout::flex::column_wrap_width::max_content_width(dom, id, box_id, font_for_content, avail_h, &css, ctx)
         } else {
             match css.width.and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref())) {
                 // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
@@ -356,8 +356,8 @@ pub(crate) fn layout_block(
         // COM SINAL (não `.max(0.0)`): o ramo `direction:rtl` de
         // `rtl::margin_left_usado` precisa do valor negativo quando o
         // filho é mais largo do que o disponível — ver o módulo.
-        let free_com_sinal = avail_w - box_outer;
-        let free = free_com_sinal.max(0.0);
+        let signed_free = avail_w - box_outer;
+        let free = signed_free.max(0.0);
         match (m.left.is_auto(), m.right.is_auto()) {
             (true, true) => {
                 margin_left = free / 2.0;
@@ -367,7 +367,7 @@ pub(crate) fn layout_block(
             (false, true) => margin_right = (free - margin_left).max(0.0),
             (false, false) => {
                 margin_left =
-                    super::rtl::margin_left_usado(dom, id, margin_left, margin_right, free_com_sinal);
+                    super::rtl::margin_left_usado(dom, id, margin_left, margin_right, signed_free);
             }
         }
     }
@@ -376,7 +376,7 @@ pub(crate) fn layout_block(
     // (margin+border+padding daquele lado), não a soma do eixo.
     let content_x = x + margin_left + border_left + pad_left;
     // MARGIN-COLLAPSE PAI→PRIMEIRO-FILHO — porquê em `escaped_margin.rs`.
-    let escaped_top_pre = crate::layout::block::escaped_margin::escapada_no_topo(
+    let escaped_top_pre = crate::layout::block::escaped_margin::escaped_at_top(
         dom, id, &css, content_w, font_for_content, pad_top, border_top, ctx,
     );
     let content_y =
@@ -391,7 +391,7 @@ pub(crate) fn layout_block(
     let box_start = list.pieces.len();
     // Reserva a posição do pai antes dos filhos; a geometria final é preenchida
     // depois que a altura natural do conteúdo for conhecida.
-    reserve_box_order(list, caixa);
+    reserve_box_order(list, box_id);
 
     // ── Filhos: o EIXO depende do `display` do bloco ─────────────────────────────
     // vertical (default): cada filho ABAIXO do anterior, ocupando a largura.
@@ -404,10 +404,10 @@ pub(crate) fn layout_block(
     // filhos — eles transbordam e a div rola. Nesse caso layoutamos os filhos com a
     // largura NATURAL do conteúdo (intrinsic), não a do container. (overflow-y já não
     // comprime: o vertical empilha e a altura é a soma — só precisamos do clip+barra.)
-    let ov_x_declarado = css
+    let ov_x_declared = css
         .overflow_x
         .unwrap_or(crate::scrollbar::Overflow::Visible);
-    let ov_y_declarado = css
+    let ov_y_declared = css
         .overflow_y
         .unwrap_or(crate::scrollbar::Overflow::Visible);
     // CSS Overflow 1 §3: se só UM eixo é `visible` e o outro não, o `visible`
@@ -417,16 +417,16 @@ pub(crate) fn layout_block(
     // pintura mediu: sem esta regra o nosso lado deixava a coluna Y aberta e
     // divergia 1,95% onde deveria bater). Sem a marca `visible` PURA (os
     // dois iguais) a exceção não se aplica — só quando os eixos DIVERGEM.
-    let mistos = ov_x_declarado != ov_y_declarado;
-    let visible_vira_auto = |o: crate::scrollbar::Overflow| {
-        if mistos && o == crate::scrollbar::Overflow::Visible {
+    let mixed = ov_x_declared != ov_y_declared;
+    let visible_becomes_auto = |o: crate::scrollbar::Overflow| {
+        if mixed && o == crate::scrollbar::Overflow::Visible {
             crate::scrollbar::Overflow::Auto
         } else {
             o
         }
     };
-    let ov_x = visible_vira_auto(ov_x_declarado);
-    let ov_y = visible_vira_auto(ov_y_declarado);
+    let ov_x = visible_becomes_auto(ov_x_declared);
+    let ov_y = visible_becomes_auto(ov_y_declared);
     // `scroll_children_width` (overflow_viewport.rs, tecto): decide se os
     // filhos recebem a largura NATURAL (sem comprimir — #1744) e se isso
     // ainda vale quando `flex-wrap:wrap` precisa de saber ONDE quebrar linha
@@ -534,9 +534,9 @@ pub(crate) fn layout_block(
     // Novo BFC (fresco, vazio) só se `id` o estabelece — senão os filhos
     // recebem a mesma referência ambiente, e um float lá dentro alcança os
     // IRMÃOS do antepassado que a possui. Ver `block/bfc.rs`.
-    let estabelece_bfc = establishes_block_formatting_context(dom, id, &css);
-    let bfc_proprio = estabelece_bfc.then(BlockFormattingContext::new);
-    let bfc_filhos = bfc_proprio.as_ref().unwrap_or(bfc);
+    let establishes_bfc = establishes_block_formatting_context(dom, id, &css);
+    let own_bfc = establishes_bfc.then(BlockFormattingContext::new);
+    let children_bfc = own_bfc.as_ref().unwrap_or(bfc);
 
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
@@ -596,7 +596,7 @@ pub(crate) fn layout_block(
         // ver o comentário no parâmetro `wrap` lá.
         _ if is_flex && is_column => layout_children_column(
             dom,
-            caixa,
+            box_id,
             content_x,
             content_y,
             children_w,
@@ -613,7 +613,7 @@ pub(crate) fn layout_block(
         d if d == crate::block::DISPLAY_HORIZONTAL => layout_children_horizontal(
             dom,
             id,
-            caixa,
+            box_id,
             content_x,
             content_y,
             scroll_children_w,
@@ -637,7 +637,7 @@ pub(crate) fn layout_block(
         _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => crate::table::layout_table(
             dom,
             id,
-            caixa,
+            box_id,
             content_x,
             content_y,
             children_w,
@@ -658,7 +658,7 @@ pub(crate) fn layout_block(
             layout_children_grid(
                 dom,
                 id,
-                caixa,
+                box_id,
                 content_x,
                 content_y,
                 children_w,
@@ -673,7 +673,7 @@ pub(crate) fn layout_block(
         d if d == crate::block::DISPLAY_WRAP => layout_children_horizontal(
             dom,
             id,
-            caixa,
+            box_id,
             content_x,
             content_y,
             scroll_children_w,
@@ -693,26 +693,26 @@ pub(crate) fn layout_block(
             layout_children_vertical(
                 dom,
                 id,
-                caixa,
+                box_id,
                 content_x,
                 content_y,
                 children_w,
                 avail_children,
                 &css,
                 font_size,
-                bfc_filhos,
+                children_bfc,
                 ctx,
                 list,
             )
         }
     };
     // CSS 2.1 §10.6.7: só o BFC responsável cresce para conter os SEUS
-    // floats — `bfc_proprio` só existe quando `id` é ele (senão é `None` e
+    // floats — `own_bfc` só existe quando `id` é ele (senão é `None` e
     // este `match` não mexe em nada). `flex/grid/tabela` acima nunca
-    // acrescentam floats a `bfc_proprio` (floats não se aplicam lá dentro).
-    let content_h = match &bfc_proprio {
-        Some(proprio) => match proprio.fundo_lado(true, true) {
-            Some(fundo) => content_h.max((fundo - content_y).max(0.0)),
+    // acrescentam floats a `own_bfc` (floats não se aplicam lá dentro).
+    let content_h = match &own_bfc {
+        Some(own) => match own.fundo_lado(true, true) {
+            Some(floats_bottom) => content_h.max((floats_bottom - content_y).max(0.0)),
             None => content_h,
         },
         None => content_h,
@@ -744,14 +744,14 @@ pub(crate) fn layout_block(
     // even when its `display` is only the tag's default — `effective_display`
     // cannot say so, having no tag — and a block's height is its LINES, not the
     // font's content area: a floated `<span>` is 18px tall, not 17.
-    let blockificada = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
+    let blockified = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
         || css.position.is_some_and(|p| p.out_of_flow());
-    let caixa_inline = used.is_none()
+    let inline_box_id = used.is_none()
         && css.effective_display().is_none()
         && css.height.is_none()
-        && !blockificada
+        && !blockified
         && is_inline_block(dom, id);
-    let content_h = if caixa_inline {
+    let content_h = if inline_box_id {
         crate::inline_box::altura_do_conteudo(font_size, css.font_family.as_deref(), ctx.measurer)
     } else {
         content_h
@@ -823,7 +823,7 @@ pub(crate) fn layout_block(
     );
     // A fronteira pública agrega por nó, mas este bloco conhece a caixa exata:
     // não pode preencher com o mesmo rect os demais fragmentos do inline.
-    record_box_rect(list, caixa, box_rect);
+    record_box_rect(list, box_id, box_rect);
 
     // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_start` põe o
     // fundo antes dos itens dos filhos (z-order); `at` ends past the box items,
@@ -833,7 +833,7 @@ pub(crate) fn layout_block(
         let radius = css.corner_radius.unwrap_or(0.0);
         // O FUNDO pinta por canto; a borda e a sombra continuam a ler o campo
         // único, e é isso que as deixa responder hoje o que respondiam ontem.
-        let cantos = Corners::from_style(&css, 0.0);
+        let corners = Corners::from_style(&css, 0.0);
         // `opacity` do elemento: multiplica o ALPHA das cores próprias (fundo/borda).
         // Cobre o caso comum (card/botão/overlay com fade) sem grupo de compositing.
         // `visibility:hidden`/`collapse` zera o alpha de tudo o que ESTE
@@ -864,7 +864,7 @@ pub(crate) fn layout_block(
         let fx = crate::painteffects::filtro(css.filter.as_deref().unwrap_or(""));
         // Compõe as duas numa função só, para que nenhum dos pontos de emissão
         // abaixo possa aplicar uma e esquecer a outra.
-        let cor = |c: u32| apply_opacity(fx.aplicar(c), op);
+        let paint_color = |c: u32| apply_opacity(fx.aplicar(c), op);
         // Insere na ordem: primeiro o fundo, depois a borda por cima dele (ambos
         // atrás dos filhos).
         // SOMBRA primeiro (atrás de tudo): box-shadow.
@@ -877,7 +877,7 @@ pub(crate) fn layout_block(
                     dy: sh.dy,
                     blur: sh.blur,
                     spread: sh.spread,
-                    color: cor(sh.color),
+                    color: paint_color(sh.color),
                     radius,
                 }),
             );
@@ -885,7 +885,7 @@ pub(crate) fn layout_block(
         }
         // FUNDO: gradiente (se houver) OU cor sólida — a menos que uma MÁSCARA
         // dê a forma da caixa (ver `deve_suprimir_fundo`).
-        let fundo = !deve_suprimir_fundo(&css);
+        let paints_background = !deve_suprimir_fundo(&css);
         // A cor de fundo começa no border-box por omissão, mas `content-box`
         // exclui padding e borda. O rect já calculado usa a caixa final (após
         // min/max e flex), portanto não volta a resolver percentagens aqui.
@@ -904,26 +904,26 @@ pub(crate) fn layout_block(
             ),
             _ => box_rect,
         };
-        if let Some(g) = css.gradient.filter(|_| fundo) {
+        if let Some(g) = css.gradient.filter(|_| paints_background) {
             list.pieces.insert(
                 at,
                 Piece::Item(DisplayItem::GradientRect {
                     rect: background_rect,
-                    c0: cor(g.c0),
-                    c1: cor(g.c1),
+                    c0: paint_color(g.c0),
+                    c1: paint_color(g.c1),
                     angle_deg: g.angle_deg,
                     radius,
                 }),
             );
             at += 1;
-        } else if let Some(color) = css.bg.filter(|_| fundo) {
-            let color = cor(color);
+        } else if let Some(color) = css.bg.filter(|_| paints_background) {
+            let color = paint_color(color);
             list.pieces.insert(
                 at,
                 Piece::Item(DisplayItem::SolidRect {
                     rect: background_rect,
                     color,
-                    radius: cantos,
+                    radius: corners,
                 }),
             );
             at += 1;
@@ -952,7 +952,7 @@ pub(crate) fn layout_block(
         ov_x != crate::scrollbar::Overflow::Visible || ov_y != crate::scrollbar::Overflow::Visible;
     if clips {
         // Os dois eixos recortam sempre que `clips` é verdade: a regra
-        // `visible_vira_auto` acima já garante que um `visible` sozinho
+        // `visible_becomes_auto` acima já garante que um `visible` sozinho
         // (`overflow-x:hidden;overflow-y:visible`, o caso `so-x` de
         // `claude-overflow.html`) nunca chega aqui — computou como `auto`, e
         // `ov_x`/`ov_y` já refletem isso. Um único `BeginClip` retangular
@@ -1032,7 +1032,7 @@ pub(crate) fn layout_block(
 
     // POSITION:RELATIVE — porquê e o que desloca em `relative.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    aplica_offset_relativo(caixa, &css, avail_w, avail_h, font_size, box_start, ctx, list);
+    aplica_offset_relativo(box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list);
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE
@@ -1055,8 +1055,8 @@ pub(crate) fn layout_block(
             // descendente (herdam a transformação do pai). Corre ANTES do
             // atalho abaixo e para os dois ramos: a bbox de um rect só
             // transladado é só transladada, a mesma chamada serve os dois.
-            let arvore = std::rc::Rc::clone(&list.tree);
-            crate::layout::fragment::transform_rects::transform_box_rects(&arvore, caixa, &mat, list);
+            let from_tree = std::rc::Rc::clone(&list.tree);
+            crate::layout::fragment::transform_rects::transform_box_rects(&from_tree, box_id, &mat, list);
 
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo

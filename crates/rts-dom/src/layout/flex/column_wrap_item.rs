@@ -17,7 +17,7 @@ use super::*;
 /// saber a largura da coluna).
 pub(super) struct Item {
     pub(super) node: NodeIdx,
-    pub(super) caixa: crate::boxes::BoxId,
+    pub(super) box_id: crate::boxes::BoxId,
     pub(super) main: f32,
     pub(super) cross: f32,
     pub(super) is_text: bool,

@@ -85,7 +85,7 @@ pub struct Fragment {
     /// own list, `ultima_linha` counting its child fragments too. Re-announced
     /// on every emission (`crate::layout::inline::line_baseline::regista_do_fragmento`), because a
     /// cached fragment runs no flow; the split is what lets a stitch replace a
-    /// child and recompute the total (`fragment::costurar`).
+    /// child and recompute the total (`fragment::stitch`).
     pub linha_directa: Option<f32>,
     pub ultima_linha: Option<f32>,
     /// The static positions the inline flows of THIS fragment's own list
@@ -189,8 +189,8 @@ impl Fragment {
         shrink_to_fit: bool,
     ) {
         let (dx, dy) = (x - self.origin.0, y - self.origin.1);
-        if let (Some(b), Some(dono)) = (self.ultima_linha, self.tree.node_of(self.caixa)) {
-            crate::layout::inline::line_baseline::regista_do_fragmento(dono, b + dy);
+        if let (Some(baseline), Some(owner)) = (self.ultima_linha, self.tree.node_of(self.caixa)) {
+            crate::layout::inline::line_baseline::regista_do_fragmento(owner, baseline + dy);
         }
         // APONTA, não copia: os itens desta subárvore já existem e não mudaram.
         // Os RETÂNGULOS abaixo continuam sendo materializados, porque a consulta

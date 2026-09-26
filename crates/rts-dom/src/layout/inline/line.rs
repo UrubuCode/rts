@@ -9,7 +9,7 @@ use super::*;
 /// Um `<canvas>` na linha: a pergunta é da TAG e não do estilo, e aparece em
 /// dois sítios desta função (quem pinta, e quem já gravou a caixa) — ter o
 /// `match` escrito duas vezes era convidar as duas respostas a divergirem.
-pub(in crate::layout) fn e_canvas(dom: &Dom, id: NodeIdx) -> bool {
+pub(in crate::layout) fn is_canvas(dom: &Dom, id: NodeIdx) -> bool {
     matches!(&dom.node(id).kind, crate::dom::NodeKind::Element { tag } if tag == "canvas")
 }
 
@@ -24,7 +24,7 @@ pub(in crate::layout) fn layout_inline_flow(
     dom: &Dom,
     // O elemento DONO deste fluxo — de quem são as caixas geradas
     // (`::before`/`::after`) que envolvem o grupo. Ver `pseudo_run`.
-    dono: NodeIdx,
+    owner: NodeIdx,
     // Cada membro do grupo com a sua CAIXA — é por ela que `collect_runs`
     // desce, e para um FRAGMENTO de um inline partido (CSS 2.1 §9.2.1.1) é o
     // que o impede de descer no bloco que partiu o inline.
@@ -52,15 +52,15 @@ pub(in crate::layout) fn layout_inline_flow(
     // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
-    let dono_inteiro = inline_fragments::group_is_whole_owner(dom, dono, group);
-    let cor_base = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
-    if dono_inteiro {
+    let whole_owner = inline_fragments::group_is_whole_owner(dom, owner, group);
+    let base_color = cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF));
+    if whole_owner {
         runs.extend(pseudo_run(
             dom,
-            dono,
-            &[dono],
+            owner,
+            &[owner],
             crate::style::PseudoElement::Before,
-            cor_base,
+            base_color,
             parent_css.italic.unwrap_or(false),
             content_w,
             ctx,
@@ -68,17 +68,17 @@ pub(in crate::layout) fn layout_inline_flow(
     }
     // `Rc` clonado antes do laço: `list` é escrito ao longo da função inteira, e
     // é a mesma razão pela qual `layout_children_vertical` o clona.
-    let arvore = std::rc::Rc::clone(&list.tree);
-    for &(id, caixa) in group {
-        runs.extend(collect_runs(dom, id, caixa, &arvore, parent_css, content_w, ctx));
+    let tree = std::rc::Rc::clone(&list.tree);
+    for &(id, box_id) in group {
+        runs.extend(collect_runs(dom, id, box_id, &tree, parent_css, content_w, ctx));
     }
-    if dono_inteiro {
+    if whole_owner {
         runs.extend(pseudo_run(
             dom,
-            dono,
-            &[dono],
+            owner,
+            &[owner],
             crate::style::PseudoElement::After,
-            cor_base,
+            base_color,
             parent_css.italic.unwrap_or(false),
             content_w,
             ctx,
@@ -128,80 +128,80 @@ pub(in crate::layout) fn layout_inline_flow(
     // pinned exactly this. Gated per-FLOW rather than per-container-property,
     // so a flow with one wrapping run (`a_normal_span_inside_pre_still_
     // wraps`) keeps the finite width that run's own clusters still check.
-    // `offset_da_linha` is unaffected either way — a nowrap line still
+    // `line_start_offset` is unaffected either way — a nowrap line still
     // starts past a float crossing it; only the width question here changes.
-    let espacos_do_fluxo = super::preserved_spaces::Spaces::from_flow(dom, &runs, parent_css);
-    let nunca_quebra = (0..runs.len()).all(|i| !espacos_do_fluxo.of(i).wraps());
-    let largura_da_linha = |exclusoes: &[Exclusao], i: usize| -> f32 {
-        if nunca_quebra {
+    let flow_spaces = super::preserved_spaces::Spaces::from_flow(dom, &runs, parent_css);
+    let never_wraps = (0..runs.len()).all(|i| !flow_spaces.of(i).wraps());
+    let line_width = |exclusions: &[Exclusao], i: usize| -> f32 {
+        if never_wraps {
             return f32::INFINITY;
         }
-        if exclusoes.is_empty() {
+        if exclusions.is_empty() {
             return content_w;
         }
-        banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).1
+        banda_livre(exclusions, y + i as f32 * lh, lh, x, content_w).1
     };
     // The same band's LEFT edge, minus the content edge (`x`): how far line
     // `i` starts from the content edge because a float shortens it from the
     // left. A tab stop is measured from the content edge (CSS Text 3 §4.2),
     // not from where the line happens to start after a float — the defect
     // this offset exists to fix (`tab-stop-with-float`).
-    // Unlike `largura_da_linha`, this ignores `nowrap`: a `white-space: pre`
+    // Unlike `line_width`, this ignores `nowrap`: a `white-space: pre`
     // line still STARTS past a float that crosses it (the float only stops
     // affecting the WIDTH question, which no longer applies once the line
     // cannot wrap) — the tab stop must see where the line actually begins.
-    let offset_da_linha = |exclusoes: &[Exclusao], i: usize| -> f32 {
-        if exclusoes.is_empty() {
+    let line_start_offset = |exclusions: &[Exclusao], i: usize| -> f32 {
+        if exclusions.is_empty() {
             return 0.0;
         }
-        banda_livre(exclusoes, y + i as f32 * lh, lh, x, content_w).0 - x
+        banda_livre(exclusions, y + i as f32 * lh, lh, x, content_w).0 - x
     };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
-    let fontes = super::run_font::Fontes::do_fluxo(dom, &runs, family, font_size, mono);
-    let quebrar = |exclusoes: &[Exclusao]| {
+    let fonts = super::run_font::Fontes::of_flow(dom, &runs, family, font_size, mono);
+    let wrap = |exclusions: &[Exclusao]| {
         wrap_runs(
             &runs,
-            &mut |i| largura_da_linha(exclusoes, i),
-            &mut |i| offset_da_linha(exclusoes, i),
+            &mut |i| line_width(exclusions, i),
+            &mut |i| line_start_offset(exclusions, i),
             font_size,
             mono,
             crate::inline_box::quebra_dentro(parent_css),
             super::preserved_spaces::Spaces::from_flow(dom, &runs, parent_css),
             parent_css.word_spacing.unwrap_or(0.0),
             parent_css.hyphens != Some(crate::style::vocab::Hyphens::None),
-            &fontes, ctx.measurer,
+            &fonts, ctx.measurer,
         )
     };
     // Floats that appear in the MIDDLE of this flow are placed BEFORE the final
     // line breaking: each shortens the lines it crosses. See `in_line.rs`.
-    crate::layout::float::in_line::place_anchored_floats(dom, &arvore, &runs, &quebrar, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
+    crate::layout::float::in_line::place_anchored_floats(dom, &tree, &runs, &wrap, (x, y, content_w, lh), nowrap, parent_css, font_size, bfc, ctx, list);
     // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
     if runs.iter().all(|r| r.text.trim().is_empty() && !r.atomic.is_some_and(|(_, _, k)| k.tem_corpo())) {
         // Continua sem linha; cada Marker ganha 0×0 (`inline_fragmentos`).
-        inline_fragments::registar_markers_sem_linha(list, x, y, &runs, group);
+        inline_fragments::register_markers_without_line(list, x, y, &runs, group);
         return y;
     }
-    let exclusoes = bfc.snapshot();
-    let lines = quebrar(&exclusoes);
+    let exclusions = bfc.snapshot();
+    let lines = wrap(&exclusions);
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
     // o que se corta é uma LINHA já formada. Ver [`aplicar_elipse`].
-    let fonte_de = |owners: &[NodeIdx]| match super::run_font::do_segmento(dom, owners, family, font_size, ctx.measurer) {
-        Some(f) => (f.fonte.size, f.fonte.mono, f.ahem),
+    let font_of = |owners: &[NodeIdx]| match super::run_font::of_segment(dom, owners, family, font_size, ctx.measurer) {
+        Some(f) => (f.font.size, f.font.mono, f.ahem),
         None => (font_size, mono, ahem),
     };
     let lines = match elipse_pedida(parent_css, nowrap) {
-        true => aplicar_elipse(lines, content_w, &fonte_de, ctx.measurer),
+        true => aplicar_elipse(lines, content_w, &font_of, ctx.measurer),
         false => lines,
     };
     // `-webkit-line-clamp`/`line-clamp` — limita a N linhas, com "…" na
-    // última. Ver `tab_size::aplicar_line_clamp` para porque a altura da
+    // última. Ver `tab_size::apply_line_clamp` para porque a altura da
     // caixa não precisa de um segundo cálculo.
     let lines = match parent_css.line_clamp {
-        Some(n) if n > 0 => crate::layout::inline::tab_size::aplicar_line_clamp(
+        Some(n) if n > 0 => crate::layout::inline::tab_size::apply_line_clamp(
             lines,
             n as usize,
             content_w,
-            &fonte_de, ctx.measurer,
+            &font_of, ctx.measurer,
         ),
         _ => lines,
     };
@@ -226,9 +226,9 @@ pub(in crate::layout) fn layout_inline_flow(
     let mut first_line = true;
     let mut cy = y;
     // The last line's baseline, for an atom measuring its own (`line_baseline.rs`).
-    let mut ultima_baseline: Option<f32> = None;
+    let mut last_baseline: Option<f32> = None;
     // A generated inline broken across lines carries its open surface over.
-    let mut transporte = super::inline_fragments::Superficies::default();
+    let mut carried = super::inline_fragments::Surfaces::default();
     // CONSUMINDO as linhas: o texto de cada segmento vai direto para o
     // `DisplayItem`, em vez de ser clonado. Eram milhares de `String` alocadas
     // por passada de layout, uma por segmento, para copiar algo que ninguém mais
@@ -239,7 +239,7 @@ pub(in crate::layout) fn layout_inline_flow(
         // absolute box is out of flow and generates none (CSS 2.1 §9.5).
         // `a<br><float>` made a phantom second line — a full line of height, and
         // the LAST line box an enclosing inline-block then took its baseline from.
-        if super::static_anchor::linha_so_de_ancoras(dom, &line, x, cy, list) {
+        if super::static_anchor::anchors_only_line(dom, &line, x, cy, list) {
             continue;
         }
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.
@@ -262,40 +262,40 @@ pub(in crate::layout) fn layout_inline_flow(
         // A CAIXA de cada inline desta linha: a content area da fonte, centrada na
         // linha pela meia-entrelinha. A linha continua a avançar `line_h` — quem
         // decide o espaçamento é o `line-height`, quem decide a caixa é a fonte.
-        let conteudo = crate::inline_box::altura_do_conteudo(font_size, family, ctx.measurer);
-        let meia = crate::inline_box::meia_entrelinha(line_h, conteudo);
-        let tem_texto = line
+        let content = crate::inline_box::altura_do_conteudo(font_size, family, ctx.measurer);
+        let half_leading = crate::inline_box::meia_entrelinha(line_h, content);
+        let has_text = line
             .iter()
             .any(|s| s.atomic.is_none() && !s.text.trim().is_empty());
-        let imagem_alta_sem_texto = super::line_baseline::imagem_alta_sem_texto(&line, line_h, lh, tem_texto);
+        let tall_image_without_text = super::line_baseline::tall_image_without_text(&line, line_h, lh, has_text);
         // As superfícies (fundo/borda) dos inlines por fragmentos desta
         // linha: acumulam-se ao longo dos segmentos e inserem-se ATRÁS deles.
-        let at_linha = list.pieces.len();
-        let mut superficies = std::mem::take(&mut transporte);
+        let line_at = list.pieces.len();
+        let mut surfaces = std::mem::take(&mut carried);
         // A line holding an inline-block is placed by the §10.8.1 envelope
         // (`line_baseline.rs`): one baseline, each item's extent above and below
         // it. It replaced a special case that sat every inline-block on its bottom
         // edge. Lines of text and images alone keep the half-leading placement.
         let ascent = ctx.measurer.font_ascent_family(font_size, family);
-        let envelope = super::line_baseline::envelope_da_linha(dom, &line, font_size, lh, family, content_w, ctx);
-        let na_baseline = envelope.is_some();
+        let envelope = super::line_baseline::line_envelope(dom, &line, font_size, lh, family, content_w, ctx);
+        let on_baseline = envelope.is_some();
         let (text_top, text_owner_anchor, line_advance) = match &envelope {
-            Some(env) => (cy + env.acima - ascent, cy + env.acima, env.altura()),
-            None if imagem_alta_sem_texto => (cy + line_h - ascent, cy + meia, line_h),
-            None => (cy + meia, cy + meia, line_h),
+            Some(env) => (cy + env.above - ascent, cy + env.above, env.height()),
+            None if tall_image_without_text => (cy + line_h - ascent, cy + half_leading, line_h),
+            None => (cy + half_leading, cy + half_leading, line_h),
         };
         // A banda desta linha, no `cy` VERDADEIRO — é aqui que o texto passa a
         // correr ao lado do float em vez de por baixo dele.
-        let (linha_x, linha_w) = if exclusoes.is_empty() {
+        let (band_x, band_w) = if exclusions.is_empty() {
             (x, content_w)
         } else {
-            banda_livre(&exclusoes, cy, line_h, x, content_w)
+            banda_livre(&exclusions, cy, line_h, x, content_w)
         };
-        let free = (linha_w - line_w).max(0.0);
+        let free = (band_w - line_w).max(0.0);
         let mut seg_x = match parent_css.text_align {
-            Some(crate::style::TextAlign::Right) => linha_x + free,
-            Some(crate::style::TextAlign::Center) => linha_x + free / 2.0,
-            _ => linha_x, // left/justify
+            Some(crate::style::TextAlign::Right) => band_x + free,
+            Some(crate::style::TextAlign::Center) => band_x + free / 2.0,
+            _ => band_x, // left/justify
         };
         if first_line {
             seg_x += indent;
@@ -311,21 +311,21 @@ pub(in crate::layout) fn layout_inline_flow(
                 // The whole atom branch — widget, replaced, inline-block,
                 // generated atom — moved to `line_atoms.rs` (teto de 500):
                 // a pure move, see that file's header.
-                super::line_atoms::emitir_atomo(
-                    dom, ctx, list, &seg, &mut seg_x, x, cy, line_advance, at_linha,
-                    &mut superficies, text_top, ascent, font_size, family,
-                    &envelope, content_w, na_baseline, text_owner_anchor, conteudo,
+                super::line_atoms::emit_atom(
+                    dom, ctx, list, &seg, &mut seg_x, x, cy, line_advance, line_at,
+                    &mut surfaces, text_top, ascent, font_size, family,
+                    &envelope, content_w, on_baseline, text_owner_anchor, content,
                     &line_id,
                 );
                 continue;
             }
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
             let w = seg.text_width + ls * seg.text.chars().count() as f32;
-            superficies.ver(dom, &seg.owners, seg_x, seg_x + w);
+            surfaces.cover(dom, &seg.owners, seg_x, seg_x + w);
             // Its OWN font on the shared baseline (`run_font.rs`), shifted with a relative inline.
-            let propria = super::run_font::do_segmento(dom, &seg.owners, family, font_size, ctx.measurer);
-            let (seg_y, seg_size, seg_mono, seg_ahem) = match &propria {
-                Some(f) => (text_top + ascent - f.ascent, f.fonte.size, f.fonte.mono, f.ahem),
+            let own_font = super::run_font::of_segment(dom, &seg.owners, family, font_size, ctx.measurer);
+            let (seg_y, seg_size, seg_mono, seg_ahem) = match &own_font {
+                Some(f) => (text_top + ascent - f.ascent, f.font.size, f.font.mono, f.ahem),
                 None => (text_top, font_size, mono, ahem),
             };
             let (rx, ry) = crate::layout::positioned::relative::offset_do_inline(dom, seg.owners.last().copied(), ctx);
@@ -346,32 +346,32 @@ pub(in crate::layout) fn layout_inline_flow(
                 crate::inline_box::union_rect(
                     list,
                     owner,
-                    super::inline_fragments::fragmento_do_dono(
+                    super::inline_fragments::owner_fragment(
                         dom,
                         owner,
                         seg_x,
                         text_owner_anchor,
                         w.max(0.0),
-                        conteudo,
+                        content,
                         ctx,
-                        na_baseline,
+                        on_baseline,
                     ), &line_id,
                 );
             }
             seg_x += w;
         }
-        transporte = superficies.pintar(
-            dom, list, at_linha, line_id.id,
+        carried = surfaces.paint(
+            dom, list, line_at, line_id.id,
             text_owner_anchor,
-            conteudo,
-            na_baseline,
+            content,
+            on_baseline,
             ctx,
         );
-        ultima_baseline = Some(text_top + ctx.measurer.font_ascent_family(font_size, family));
+        last_baseline = Some(text_top + ctx.measurer.font_ascent_family(font_size, family));
         cy += line_advance;
     }
-    if let Some(b) = ultima_baseline {
-        super::line_baseline::regista_ultima_linha(dono, b);
+    if let Some(b) = last_baseline {
+        super::line_baseline::register_last_line(owner, b);
     }
     cy
 }

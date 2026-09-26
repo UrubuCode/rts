@@ -48,9 +48,9 @@ pub(in crate::layout) fn scroll_children_width(
     ov_x: crate::scrollbar::Overflow,
     content_w: f32,
 ) -> f32 {
-    let quebra_livre = display == crate::block::DISPLAY_WRAP && !ov_x.scrollable();
-    let nao_comprime = ov_x.scrollable() || ov_x.clips();
-    if nao_comprime && !quebra_livre {
+    let free_break = display == crate::block::DISPLAY_WRAP && !ov_x.scrollable();
+    let no_compress = ov_x.scrollable() || ov_x.clips();
+    if no_compress && !free_break {
         crate::layout::measure::measure::intrinsic_content_width(dom, id, font_size, ctx).max(content_w)
     } else {
         content_w
@@ -62,9 +62,9 @@ pub(in crate::layout) fn scroll_children_width(
 /// para o próprio `<body>` — ou seja, quando `overflow_bfc` deve ser
 /// IGNORADO para efeitos de BFC. Só se aplica ao PRÓPRIO `<body>`; um `<div>`
 /// com `overflow:hidden` estabelece BFC normalmente, com ou sem isto.
-pub(in crate::layout) fn propagado_para_viewport(dom: &Dom, id: NodeIdx) -> bool {
-    let e_body = matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == "body");
-    if !e_body {
+pub(in crate::layout) fn propagated_to_viewport(dom: &Dom, id: NodeIdx) -> bool {
+    let is_body = matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == "body");
+    if !is_body {
         return false;
     }
     // O `<html>` (pai do `<body>`) precisa de ficar no overflow INICIAL —
@@ -88,21 +88,21 @@ mod tests {
 
     /// A PRIMEIRA ocorrência de `tag` na árvore, em pré-ordem — evita supor a
     /// profundidade exacta de `<html>`/`<head>`/`<body>` que o parser insere.
-    fn achar_tag(dom: &Dom, id: NodeIdx, tag_alvo: &str) -> Option<NodeIdx> {
-        if matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == tag_alvo) {
+    fn find_tag(dom: &Dom, id: NodeIdx, target_tag: &str) -> Option<NodeIdx> {
+        if matches!(&dom.node(id).kind, NodeKind::Element { tag } if tag == target_tag) {
             return Some(id);
         }
         dom.node(id)
             .children
             .iter()
-            .find_map(|&c| achar_tag(dom, c, tag_alvo))
+            .find_map(|&c| find_tag(dom, c, target_tag))
     }
 
     #[test]
     fn body_com_overflow_hidden_e_html_visivel_propaga() {
         let dom = parse_html_to_dom("<style>body{overflow:hidden}</style><body></body>");
-        let body = achar_tag(&dom, dom.root, "body").expect("body");
-        assert!(propagado_para_viewport(&dom, body));
+        let body = find_tag(&dom, dom.root, "body").expect("body");
+        assert!(propagated_to_viewport(&dom, body));
     }
 
     #[test]
@@ -110,14 +110,14 @@ mod tests {
         let dom = parse_html_to_dom(
             "<style>html{overflow:hidden}body{overflow:hidden}</style><body></body>",
         );
-        let body = achar_tag(&dom, dom.root, "body").expect("body");
-        assert!(!propagado_para_viewport(&dom, body));
+        let body = find_tag(&dom, dom.root, "body").expect("body");
+        assert!(!propagated_to_viewport(&dom, body));
     }
 
     #[test]
     fn um_div_qualquer_nunca_propaga() {
         let dom = parse_html_to_dom("<div style='overflow:hidden'></div>");
-        let d = achar_tag(&dom, dom.root, "div").expect("div");
-        assert!(!propagado_para_viewport(&dom, d));
+        let d = find_tag(&dom, dom.root, "div").expect("div");
+        assert!(!propagated_to_viewport(&dom, d));
     }
 }
