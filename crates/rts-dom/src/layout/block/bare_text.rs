@@ -44,6 +44,7 @@ pub(super) fn layout_bare_text(dom: &Dom, id: NodeIdx, t: &str, x: f32, y: f32, 
         italic: false,
         letter_spacing: parent_css.letter_spacing.unwrap_or(0.0),
         decoration: 0,
+        orientation: crate::paint::item::Orientation::Horizontal,
     });
     (tw, lh)
 }

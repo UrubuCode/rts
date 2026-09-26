@@ -195,6 +195,7 @@ pub(crate) fn emit_marker(
                 italic: false,
                 letter_spacing: 0.0,
                 decoration: 0,
+                orientation: crate::paint::item::Orientation::Horizontal,
             });
         }
     }

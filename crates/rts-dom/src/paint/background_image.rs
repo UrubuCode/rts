@@ -78,6 +78,9 @@ pub(crate) fn background_pixels_items(
     }
     let repeat = css.bg_repeat.unwrap_or_default();
     let pos = css.bg_position.unwrap_or_default();
+    if let Some(wm) = crate::layout::rotated_frame_mode() {
+        return rotated_frame_tiles(id, area, &data, (img_w, img_h), repeat, pos, wm);
+    }
     let resolve = crate::style::ResolveCtx {
         parent_content_w: area.w,
         node_font_size: crate::layout::DEFAULT_FONT_SIZE,
@@ -156,5 +159,67 @@ fn tile_starts(area_start: f32, area_len: f32, pos: f32, size: f32, repeats: boo
         x += size;
         n += 1;
     }
+    out
+}
+
+/// The tiles of a background laid out inside a rotated frame
+/// (`layout/block/rotated.rs`). The frame is turned back onto the page after
+/// layout, and a background must come out UPRIGHT and positioned against the
+/// physical box: so the tiling is computed physically — `background-position`
+/// x along the page's width, the image's own width across it — and each tile
+/// is written in the frame's coordinates, pre-turned, so that the turn back
+/// lands it where the physical computation put it.
+#[allow(clippy::too_many_arguments)]
+fn rotated_frame_tiles(
+    id: NodeIdx,
+    area: Rect,
+    data: &std::rc::Rc<Vec<u8>>,
+    (img_w, img_h): (u32, u32),
+    repeat: BgRepeat,
+    pos: crate::style::BgPosition,
+    wm: crate::style::WritingMode,
+) -> Vec<DisplayItem> {
+    // The frame's width is the page's height and the reverse.
+    let (page_w, page_h) = (area.h, area.w);
+    let resolve = crate::style::ResolveCtx {
+        parent_content_w: page_w,
+        node_font_size: crate::layout::DEFAULT_FONT_SIZE,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: page_w,
+        viewport_h: page_h,
+    };
+    let (iw, ih) = (img_w as f32, img_h as f32);
+    let off_x = resolve_bg_offset(pos.x, page_w, iw, &resolve);
+    let off_y = resolve_bg_offset(pos.y, page_h, ih, &resolve);
+    let repeats_x = matches!(repeat, BgRepeat::Repeat | BgRepeat::RepeatX | BgRepeat::Space | BgRepeat::Round);
+    let repeats_y = matches!(repeat, BgRepeat::Repeat | BgRepeat::RepeatY | BgRepeat::Space | BgRepeat::Round);
+    let xs = tile_starts(0.0, page_w, off_x, iw, repeats_x);
+    let ys = tile_starts(0.0, page_h, off_y, ih, repeats_y);
+    if xs.is_empty() || ys.is_empty() {
+        return Vec::new();
+    }
+    use crate::style::WritingMode as W;
+    let from_left = matches!(wm, W::VerticalLr | W::SidewaysLr);
+    let upwards = wm == W::SidewaysLr;
+    let mut out = Vec::with_capacity(xs.len() * ys.len() + 2);
+    out.push(DisplayItem::BeginClip { rect: area, node: id, offset_x: 0.0, offset_y: 0.0 });
+    for &ty in &ys {
+        for &tx in &xs {
+            // Page offset (tx, ty) from the area's physical top-left, in the
+            // frame: the page's x is the frame's y, counted from the
+            // block-start edge (left or right); the page's y is the frame's
+            // x, counted from the inline-start edge (top, or the bottom in
+            // `sideways-lr`).
+            let fy = if from_left { area.y + tx } else { area.y + area.h - tx - iw };
+            let fx = if upwards { area.x + area.w - ty - ih } else { area.x + ty };
+            out.push(DisplayItem::Pixels {
+                rect: Rect::new(fx, fy, ih, iw),
+                data: std::rc::Rc::clone(data),
+                w: img_w,
+                h: img_h,
+            });
+        }
+    }
+    out.push(DisplayItem::EndClip);
     out
 }

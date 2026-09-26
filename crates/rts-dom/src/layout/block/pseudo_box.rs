@@ -251,6 +251,7 @@ pub(in crate::layout) fn paint(list: &mut DisplayList, caixa: &GeneratedBox, x: 
             italic: css.italic.unwrap_or(false),
             letter_spacing: css.letter_spacing.unwrap_or(0.0),
             decoration: 0,
+            orientation: crate::paint::item::Orientation::Horizontal,
         });
     }
 }
