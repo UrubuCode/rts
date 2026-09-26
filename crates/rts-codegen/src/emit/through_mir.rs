@@ -106,6 +106,27 @@ fn attempt(
     if let Some((_, why)) = refused.iter().find(|(held, _)| *held) {
         return Err((*why).to_owned());
     }
+    // A BODY THAT MENTIONS `eval`, itself or inside something it holds: a direct `eval`
+    // is a syntactic form `emit/call.rs::direct_eval` recognises, and it reaches this
+    // body's bindings by name at run time. Lowered here it was a GLOBAL read of `eval`
+    // and an indirect call, so `function g() { function f() {} eval("f = h"); f(); }`
+    // called the old `f` -- a wrong answer on the tree before this line, measured
+    // against Node. The running emitter forces every binding such a body has into an
+    // environment for that reason; this stage lays none out that way.
+    let eval_name = ctx.names.intern("eval");
+    let mentions_eval = match &function.body {
+        crate::syntax::FunctionBody::Block(statements) => super::capture::mentions(statements, eval_name),
+        crate::syntax::FunctionBody::Expression(value) => super::capture::mentions(
+            &[crate::syntax::Stmt {
+                kind: crate::syntax::StmtKind::Expr(value.as_ref().clone()),
+                at: value.at,
+            }],
+            eval_name,
+        ),
+    };
+    if mentions_eval {
+        return Err("a body that mentions `eval`, which reaches its bindings by name".to_owned());
+    }
     let resolution = ctx
         .mir_resolution
         .clone()
