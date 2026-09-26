@@ -38,10 +38,46 @@ pub struct Substitute {
     pub parameters: Vec<Name>,
     /// The one expression it answers.
     pub body: Expr,
+    /// That it is `(...rest) => rest.length`: the answer is how many arguments were
+    /// WRITTEN, after they are evaluated -- `emit/inline.rs`'s `rest_length` shape.
+    pub counts_arguments: bool,
+    /// That the body reads `this`, which a METHOD substituted at `o.m(...)` binds to
+    /// the receiver's value -- `emit/receiver.rs` proves which method `o.m` is.
+    pub reads_this: bool,
 }
 
 impl Lowering<'_> {
     /// `name(arguments)` as its body, or `None` where it stays a call.
+    /// `o.m(arguments)` as the method's body, with `this` bound to `o`'s value, or
+    /// `None` where it stays a call.
+    pub(super) fn substituted_method(
+        &mut self,
+        receiver: Name,
+        method: Name,
+        object: &Expr,
+        arguments: &[Spreadable],
+    ) -> Result<Option<ValueId>, Unsupported> {
+        let shadowed = self
+            .resolution
+            .binding_in(self.scope, receiver)
+            .is_some_and(|held| self.declared_in_this_function(held));
+        if shadowed
+            || self.substituted_name(receiver).is_some()
+            || self.substituting.iter().any(|(held, _)| *held == receiver)
+            || arguments.iter().any(|held| matches!(held, Spreadable::Spread(_)))
+        {
+            return Ok(None);
+        }
+        let Some(substitute) = self.callees.method(receiver, method).cloned() else {
+            return Ok(None);
+        };
+        // THE RECEIVER, then the arguments: the order the language evaluates a member
+        // call in. The method is not read -- the proof says which one it is, and that
+        // read is the piece this removes.
+        let this = self.expression(object)?;
+        self.substitute_body(receiver, &substitute, arguments, Some(this))
+    }
+
     pub(super) fn substituted(
         &mut self,
         name: Name,
@@ -70,15 +106,30 @@ impl Lowering<'_> {
                 None => return Ok(None),
             },
         };
-        if arguments.iter().any(|held| matches!(held, Spreadable::Spread(_))) {
+        if arguments.iter().any(|held| matches!(held, Spreadable::Spread(_))) || substitute.reads_this {
             return Ok(None);
         }
+        self.substitute_body(name, &substitute, arguments, None)
+    }
+
+    /// The arguments in order, each parameter bound to its value, `this` to `this`,
+    /// and the body lowered with those in force.
+    fn substitute_body(
+        &mut self,
+        name: Name,
+        substitute: &Substitute,
+        arguments: &[Spreadable],
+        this: Option<ValueId>,
+    ) -> Result<Option<ValueId>, Unsupported> {
         let mut values = Vec::with_capacity(arguments.len());
         for argument in arguments {
             let Spreadable::Single(value) = argument else {
                 return Ok(None);
             };
             values.push(self.expression(value)?);
+        }
+        if substitute.counts_arguments {
+            return Ok(Some(self.integer(values.len() as i64, &substitute.body)));
         }
         let mut bound = std::collections::BTreeMap::new();
         for (at, parameter) in substitute.parameters.iter().enumerate() {
@@ -89,8 +140,10 @@ impl Lowering<'_> {
             bound.insert(*parameter, value);
         }
         self.substituting.push((name, bound));
+        self.substituted_this.push(this);
         let answered = self.expression(&substitute.body);
         self.substituting.pop();
+        self.substituted_this.pop();
         answered.map(Some)
     }
 
@@ -135,8 +188,18 @@ impl Lowering<'_> {
         let Some(binding) = self.resolution.binding_in(self.scope, name) else {
             return;
         };
-        self.local_arrows
-            .insert(binding, (Substitute { parameters, body }, self.scope));
+        self.local_arrows.insert(
+            binding,
+            (
+                Substitute {
+                    parameters,
+                    body,
+                    counts_arguments: false,
+                    reads_this: false,
+                },
+                self.scope,
+            ),
+        );
     }
 
     /// Whether every name `substitute`'s body reads, other than its parameters, resolves
@@ -152,6 +215,11 @@ impl Lowering<'_> {
             })
     }
 
+    /// `this` inside a method body being substituted: the receiver's value.
+    pub(super) fn substituted_receiver(&self) -> Option<ValueId> {
+        self.substituted_this.last().copied().flatten()
+    }
+
     /// A spelling the body being substituted binds, as the value it was bound to.
     pub(super) fn substituted_name(&self, name: Name) -> Option<ValueId> {
         self.substituting.last()?.1.get(&name).copied()
@@ -163,8 +231,14 @@ impl Lowering<'_> {
 /// passing this can be lowered anywhere without turning a function the door takes into
 /// one it declines.
 pub fn substitutable(expr: &Expr) -> bool {
+    substitutable_reading(expr, false)
+}
+
+/// [`substitutable`], also admitting `this` where the body is a method's.
+pub fn substitutable_reading(expr: &Expr, this: bool) -> bool {
     use crate::syntax::ExprKind;
-    let here = matches!(
+    let here = (this && matches!(expr.kind, ExprKind::This))
+        || matches!(
         expr.kind,
         ExprKind::Literal(_)
             | ExprKind::Ident(_)
@@ -181,7 +255,7 @@ pub fn substitutable(expr: &Expr) -> bool {
     }
     let mut every = true;
     crate::emit::capture::walk_expr(expr, &mut |child| match child {
-        crate::emit::capture::Child::Expr(inner) => every &= substitutable(inner),
+        crate::emit::capture::Child::Expr(inner) => every &= substitutable_reading(inner, this),
         _ => every = false,
     });
     every

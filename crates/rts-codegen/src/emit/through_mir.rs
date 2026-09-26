@@ -210,6 +210,7 @@ fn attempt(
     let callees = crate::lower::Callees::of_positions(&positions)
         .with_templates(sites)
         .with_substitutes(substitutes(ctx, enclosing, function))
+        .with_methods(methods(ctx, enclosing, function))
         .with_math_primordial(ctx.math_primordial);
     let mut domain = crate::domain::Js::new();
     // THE RUNNING EMITTER'S LAYOUT for every name this function does not own: it makes
@@ -514,11 +515,11 @@ fn substitutes(
         let Some(candidate) = ctx.inlinable_here(name) else {
             continue;
         };
+        let counts_arguments = candidate.rest_length.is_some();
         if !candidate.statements.is_empty()
-            || candidate.rest_length.is_some()
             || candidate.defaults.iter().any(Option::is_some)
             || !candidate.free_proved
-            || !crate::lower::substitutable(&candidate.body)
+            || !(counts_arguments || crate::lower::substitutable(&candidate.body))
         {
             continue;
         }
@@ -528,10 +529,89 @@ fn substitutes(
             crate::lower::Substitute {
                 parameters: candidate.parameters.clone(),
                 body: candidate.body.clone(),
+                counts_arguments,
+                reads_this: false,
             },
         );
     }
     out
+}
+
+/// The methods an `o.m(...)` in `function` may be replaced by: what `emit/receiver.rs`
+/// proved about `o`, in the one-expression shape, `this` admitted and bound to `o`'s
+/// value at the site.
+fn methods(
+    ctx: &Ctx,
+    enclosing: &Scope,
+    function: &Function,
+) -> std::collections::BTreeMap<(crate::names::Name, crate::names::Name), crate::lower::Substitute> {
+    let mut sites = Vec::new();
+    let mut collect = |expr: &crate::syntax::Expr| method_sites(expr, &mut sites);
+    match &function.body {
+        crate::syntax::FunctionBody::Block(statements) => {
+            let mut exprs = Vec::new();
+            statements.iter().for_each(|held| exprs_in_statement(held, &mut exprs));
+            exprs.into_iter().for_each(&mut collect);
+        }
+        crate::syntax::FunctionBody::Expression(expr) => collect(expr),
+    }
+    let mut out = std::collections::BTreeMap::new();
+    for (receiver, method) in sites {
+        if out.contains_key(&(receiver, method)) || enclosing.lookup(receiver).is_none() {
+            continue;
+        }
+        let Some(candidate) = ctx.static_method(receiver, method) else {
+            continue;
+        };
+        if !candidate.statements.is_empty()
+            || candidate.rest_length.is_some()
+            || candidate.defaults.iter().any(Option::is_some)
+            || !candidate.free_proved
+            || !crate::lower::substitutable_reading(&candidate.body, true)
+        {
+            continue;
+        }
+        out.insert(
+            (receiver, method),
+            crate::lower::Substitute {
+                parameters: candidate.parameters.clone(),
+                body: candidate.body.clone(),
+                counts_arguments: false,
+                reads_this: true,
+            },
+        );
+    }
+    out
+}
+
+/// Every `o.m(...)` in an expression, nested functions aside.
+fn method_sites(expr: &crate::syntax::Expr, into: &mut Vec<(crate::names::Name, crate::names::Name)>) {
+    if let crate::syntax::ExprKind::Call { callee, .. } = &expr.kind
+        && let Some(site) = super::receiver::receiver_of(callee)
+    {
+        into.push(site);
+    }
+    crate::emit::capture::walk_expr(expr, &mut |child| {
+        if let crate::emit::capture::Child::Expr(inner) = child {
+            method_sites(inner, into);
+        }
+    });
+}
+
+/// The top-level expressions of a statement, at any depth, nested functions aside.
+fn exprs_in_statement<'a>(statement: &'a crate::syntax::Stmt, into: &mut Vec<&'a crate::syntax::Expr>) {
+    use crate::emit::capture::StmtChild;
+    crate::emit::capture::walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => exprs_in_statement(inner, into),
+        StmtChild::Expr(expr) => into.push(expr),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                into.push(value);
+            }
+        }
+        StmtChild::Catch(clause) => clause.body.iter().for_each(|held| exprs_in_statement(held, into)),
+        StmtChild::Function(_) | StmtChild::Class(_) => {}
+    });
 }
 
 /// Every name called directly in an expression, nested functions aside.

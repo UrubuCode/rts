@@ -45,7 +45,7 @@ use crate::syntax::{
 use crate::values::Singleton;
 use named::{expression_name, name_of, primitive};
 pub use callees::Callees;
-pub use substitute::{Substitute, substitutable};
+pub use substitute::{Substitute, substitutable, substitutable_reading};
 pub(crate) use object::built_elsewhere;
 
 mod branch;
@@ -222,6 +222,7 @@ pub fn lower_within(
         returns_to: Vec::new(),
         substituting: Vec::new(),
         local_arrows: BTreeMap::new(),
+        substituted_this: Vec::new(),
         prologue: true,
         lexical_this: function.captures_this,
         arguments: None,
@@ -407,6 +408,8 @@ struct Lowering<'a> {
     /// The `const` arrows of this function a direct call may be substituted for, and
     /// the scope each was written in -- `substitute.rs`.
     local_arrows: BTreeMap<BindingId, (Substitute, ScopeId)>,
+    /// `this` for each body being substituted, parallel to `substituting`.
+    substituted_this: Vec<Option<ValueId>>,
     /// Whether the parameters are still being bound. A captured parameter is held in
     /// a register until the guards have run and the environment exists -- see
     /// `environment.rs`.
@@ -690,6 +693,10 @@ impl Lowering<'_> {
             // which for an arrow is whatever the caller passed -- usually `undefined` --
             // so reading it would be a wrong answer that compiles. Refused until this
             // stage carries the enclosing `this` the way it carries a captured binding.
+            // `this` INSIDE A METHOD BODY BEING SUBSTITUTED is the receiver's value.
+            ExprKind::This if self.substituted_receiver().is_some() => {
+                Ok(self.substituted_receiver().expect("just asked"))
+            }
             ExprKind::This if self.lexical_this => self.lexical("__rts_this", expr).ok_or(
                 Unsupported::Expression(
                     "`this` in an arrow is the enclosing function's, which this stage does not carry",
@@ -832,6 +839,17 @@ impl Lowering<'_> {
                 optional: false,
             } => {
                 if let Some(answered) = self.intrinsic(callee, arguments, expr)? {
+                    return Ok(answered);
+                }
+                if let ExprKind::Member {
+                    object,
+                    property,
+                    optional: false,
+                } = &callee.kind
+                    && let ExprKind::Ident(receiver) = &object.kind
+                    && let Some(answered) =
+                        self.substituted_method(*receiver, *property, object, arguments)?
+                {
                     return Ok(answered);
                 }
                 if let ExprKind::Ident(name) = &callee.kind

@@ -34,6 +34,8 @@ pub struct Callees {
     /// The functions a call by name may be SUBSTITUTED for -- `substitute.rs` -- as the
     /// compiler that proved each one handed them over.
     substitutes: std::collections::BTreeMap<crate::names::Name, super::Substitute>,
+    /// The methods an `o.m(...)` may be substituted for, by receiver and name.
+    methods: std::collections::BTreeMap<(crate::names::Name, crate::names::Name), super::Substitute>,
     /// Whether the whole program leaves `Math` as the language defines it --
     /// `intrinsic.rs`.
     math_primordial: bool,
@@ -53,6 +55,7 @@ impl Callees {
         Self {
             templates: std::collections::BTreeMap::new(),
             substitutes: std::collections::BTreeMap::new(),
+            methods: std::collections::BTreeMap::new(),
             math_primordial: false,
             by_binding: held,
             by_position: functions
@@ -69,6 +72,7 @@ impl Callees {
         Self {
             templates: std::collections::BTreeMap::new(),
             substitutes: std::collections::BTreeMap::new(),
+            methods: std::collections::BTreeMap::new(),
             math_primordial: false,
             by_binding: std::collections::BTreeMap::new(),
             by_position: positions
@@ -95,6 +99,24 @@ impl Callees {
     ) -> Self {
         self.substitutes = substitutes;
         self
+    }
+
+    /// The same map, with the methods an `o.m(...)` may be substituted for.
+    pub fn with_methods(
+        mut self,
+        methods: std::collections::BTreeMap<(crate::names::Name, crate::names::Name), super::Substitute>,
+    ) -> Self {
+        self.methods = methods;
+        self
+    }
+
+    /// What `receiver.method(...)` may be substituted for.
+    pub fn method(
+        &self,
+        receiver: crate::names::Name,
+        method: crate::names::Name,
+    ) -> Option<&super::Substitute> {
+        self.methods.get(&(receiver, method))
     }
 
     /// The same map, saying whether the program leaves `Math` alone.
