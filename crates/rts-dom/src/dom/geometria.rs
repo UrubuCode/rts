@@ -52,8 +52,11 @@ impl Dom {
                 viewport_h: vh,
                 measurer,
             };
+            // The list and its geometry, both memoised on the `Dom` (PQ-C4):
+            // `rect_of` alone would rebuild the geometry on every call.
             let list = crate::layout::layout_cached(self, &ctx);
-            let Some(rect) = list.rect_of(idx) else {
+            let geometry = self.geometry_cached(&ctx);
+            let Some(rect) = list.rect_of_in(&geometry, idx) else {
                 return 0.0;
             };
             match which {
@@ -96,6 +99,7 @@ impl Dom {
                 measurer,
             };
             let list = crate::layout::layout_cached(self, &ctx);
+            let geometry = self.geometry_cached(&ctx);
             let mut out = Vec::with_capacity(ids.len() * 4);
             for &id in ids {
                 // `rect_of` e NAO `rect_of_node`, e a diferenca importa: o
@@ -110,7 +114,7 @@ impl Dom {
                 // A agregacao por caixa acontece na mesma, uma camada abaixo:
                 // e `collect_geometry` que une as caixas de um no ao montar a
                 // `Geometry`.
-                match self.resolve(id).and_then(|idx| list.rect_of(idx)) {
+                match self.resolve(id).and_then(|idx| list.rect_of_in(&geometry, idx)) {
                     Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
                     None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
                 }

@@ -25,19 +25,30 @@
 
 use crate::dom::NodeIdx;
 use crate::paint::list::{DisplayList, Rect};
+use crate::query::Geometry;
 
 impl DisplayList {
     /// `getBoundingClientRect` — NÃO é só `Geometry::rects`; ver o topo deste ficheiro.
+    ///
+    /// The ONE-SHOT path (`bounding_rect`, tests): it builds this list's
+    /// geometry through `geometry_now` on every call. A caller that asks many
+    /// nodes of one list builds the geometry once and calls [`Self::rect_of_in`];
+    /// the `Dom`'s read loop reads `Dom::geometry_cached` (PQ-C4).
     pub fn rect_of(&self, node: NodeIdx) -> Option<Rect> {
-        rect_cliente(self, node)
+        rect_cliente(self, &self.geometry_now(), node)
+    }
+
+    /// [`Self::rect_of`] against a geometry the caller already holds, which
+    /// must be THIS list's.
+    pub fn rect_of_in(&self, geometry: &Geometry, node: NodeIdx) -> Option<Rect> {
+        rect_cliente(self, geometry, node)
     }
 }
 
 /// A união das caixas de `node` e das dos blocos em fluxo que o partiram, ou
 /// `None` quando nenhuma das duas existe (texto não desenhado, `display:none`,
 /// um nó ainda não layoutado).
-pub(super) fn rect_cliente(list: &DisplayList, node: NodeIdx) -> Option<Rect> {
-    let g = list.geometry();
+fn rect_cliente(list: &DisplayList, g: &Geometry, node: NodeIdx) -> Option<Rect> {
     let mut acc = g.rects.get(&node).copied();
     for &bloco in list.tree.blocks_splitting(node) {
         let Some(rect) = list.tree.node_of(bloco).and_then(|n| g.rects.get(&n)) else {

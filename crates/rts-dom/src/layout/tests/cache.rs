@@ -31,13 +31,13 @@
         };
         let lista = layout_document(&dom, &ctx);
         let meio = dom.resolve(dom.query("#meio").unwrap()).unwrap();
-        let rect = lista.geometry().rects[&meio];
+        let rect = lista.geometry_now().rects[&meio];
         assert!(
             (rect.w - 920.0).abs() < 1.0,
             "100% da caixa (1000 - 80 de padding) e não do conteúdo: {rect:?}"
         );
         // E o conteúdo largo continua transbordando — o container rola, não corta.
-        let geo = lista.geometry();
+        let geo = lista.geometry_now();
         let largo = dom
             .node(meio)
             .children
@@ -196,13 +196,13 @@
                 "altura divergente no passo {passo}"
             );
             let mut a: Vec<_> = cacheado
-                .geometry()
+                .geometry_now()
                 .rects
                 .iter()
                 .map(|(i, r)| (*i, *r))
                 .collect();
             let mut b: Vec<_> = recalculado
-                .geometry()
+                .geometry_now()
                 .rects
                 .iter()
                 .map(|(i, r)| (*i, *r))
@@ -295,9 +295,9 @@
 
         let first = layout_document(&dom, &ctx);
         let _warm = layout_document(&dom, &ctx);
-        let before = first.geometry().rects[&card_idx].w;
+        let before = first.geometry_now().rects[&card_idx].w;
         dom.set_style_property(card, "width", "200px");
-        let after = layout_document(&dom, &ctx).geometry().rects[&card_idx].w;
+        let after = layout_document(&dom, &ctx).geometry_now().rects[&card_idx].w;
 
         assert!((before - 100.0).abs() < 0.1);
         assert!((after - 200.0).abs() < 0.1);
@@ -317,10 +317,10 @@
             measurer: &ApproxMeasurer,
         };
 
-        let before = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
+        let before = layout_document(&dom, &ctx).geometry_now().rects[&text_idx].w;
         let _warm = layout_document(&dom, &ctx);
         dom.set_text(text, "uma linha de texto bem mais comprida");
-        let after = layout_document(&dom, &ctx).geometry().rects[&text_idx].w;
+        let after = layout_document(&dom, &ctx).geometry_now().rects[&text_idx].w;
 
         assert!(
             after > before,
@@ -367,8 +367,8 @@
         for (a, b) in reusado.materialized().iter().zip(zero.materialized()) {
             assert!(itens_equivalentes(a, &b), "reuso diverge do cálculo do zero");
         }
-        let a = reusado.geometry().rects[&partido_idx];
-        let b = zero.geometry().rects[&partido_idx];
+        let a = reusado.geometry_now().rects[&partido_idx];
+        let b = zero.geometry_now().rects[&partido_idx];
         assert!(rects_equivalentes(&a, &b), "inline partido diverge: {a:?} != {b:?}");
     }
 
@@ -397,9 +397,9 @@
 
         let _primeiro = layout_cached(&dom, &ctx);
         dom.set_text(dom.query("#mutado").unwrap(), "texto que reconstrói a árvore de caixas");
-        let reusado = layout_cached(&dom, &ctx).geometry();
+        let reusado = layout_cached(&dom, &ctx).geometry_now();
         dom.clear_fragment_cache();
-        let zero = layout_document(&dom, &ctx).geometry();
+        let zero = layout_document(&dom, &ctx).geometry_now();
 
         for id in ids {
             let a = reusado.rects[&id];

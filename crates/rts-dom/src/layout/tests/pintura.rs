@@ -83,7 +83,7 @@
             let list = layout_document(&dom, &ctx);
             let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
             *list
-                .geometry()
+                .geometry_now()
                 .rects
                 .get(&idx)
                 .expect("o input devia ter caixa")
@@ -130,7 +130,7 @@
         );
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
-        let r = *list.geometry().rects.get(&idx).expect("sem caixa");
+        let r = *list.geometry_now().rects.get(&idx).expect("sem caixa");
         assert_eq!(r.h, 400.0, "100% da ALTURA do pai, não da largura: {r:?}");
     }
 
@@ -148,7 +148,7 @@
             measurer: &ApproxMeasurer,
         };
         let list = layout_document(&dom, &ctx);
-        let r = |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let r = |sel: &str| list.geometry_now().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let logo = r("#logo");
         assert!(
             (logo.w - 272.0).abs() < 1.0 && (logo.h - 92.0).abs() < 1.0,

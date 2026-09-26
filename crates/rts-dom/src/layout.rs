@@ -340,7 +340,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // negativo primeiro) e o filtro preserva essa ordem — a mesma que o
     // Apêndice E pede DENTRO do grupo. `resto` (≥0/auto) segue exatamente o
     // caminho de sempre, por cima do fluxo.
-    let mut rects_conhecidos = list.geometry_now().rects;
+    let mut rects_conhecidos = self::fragment::known_rects::known_rects(&list);
     // Where each box that appeared in the middle of a line WOULD have been: the
     // flow skips an out-of-flow box, so its node has no rect here, and the
     // entry is its static position (`inline/static_anchor.rs`).
@@ -349,7 +349,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     for alvo in out_of_flow {
         let mut fragment = DisplayList::for_dom(dom);
         layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
-        rects_conhecidos.extend(fragment.geometry_now().rects);
+        rects_conhecidos.extend(self::fragment::known_rects::known_rects(&fragment));
         rects_conhecidos.extend(inline::static_anchor::all(&fragment));
         positioned.push((stacking::stacking_key(dom, alvo.node), alvo.node, fragment));
     }
@@ -366,7 +366,13 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let arvore = std::rc::Rc::clone(&list.tree);
     for (key, node, fragment) in positioned {
         if key.first().copied().unwrap_or(0) < 0 {
-            stacking::merge_after(&mut negativos, fragment);
+            // A fragment with neither pieces nor rects merges nothing — not
+            // its grid tracks or scroll regions either, as it never did.
+            if !(fragment.pieces.is_empty() && fragment.box_rects.is_empty()) {
+                let mut fragment = fragment;
+                negativos.box_rects.extend(std::mem::take(&mut fragment.box_rects));
+                stacking::merge_after(&mut negativos, fragment);
+            }
             continue;
         }
         let DisplayList { pieces, box_rects, grid_column_tracks, scroll_regions, .. } = fragment;
@@ -390,6 +396,11 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         // Numa lista À PARTE: os itens negativos só entram em `list` depois
         // de prontos, PREPENDIDOS — nunca escritos directamente nela, senão
         // sairiam na mesma posição (depois do fluxo) que este lote corrige.
+        // `paints` implies pieces, so the empty-merge guard `merge_before`
+        // used to carry cannot fire here. `stacking` merges pieces; the rects
+        // are layout's (F3).
+        let mut negativos = negativos;
+        list.box_rects.extend(std::mem::take(&mut negativos.box_rects));
         stacking::merge_before(&mut list, negativos);
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita

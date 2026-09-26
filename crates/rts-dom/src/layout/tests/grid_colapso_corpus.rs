@@ -19,7 +19,7 @@ fn itens_relativos(html: &str) -> Vec<(f32, f32, f32, f32)> {
         measurer: &ApproxMeasurer,
     };
     let list = layout_document(&dom, &ctx);
-    let geo = list.geometry();
+    let geo = list.geometry_now();
     let grelha = dom.resolve(dom.query(".grid").unwrap()).unwrap();
     let g = geo.rects[&grelha];
     dom.node(grelha)

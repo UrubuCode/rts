@@ -1,53 +1,14 @@
-//! Transformar itens já desenhados: deslocar, aplicar `transform`, e registar
-//! a ordem e o retângulo de uma caixa. (Walking the pieces is `pieces.rs`.)
+//! The three producer writers of a list's geometry: reserve a box's place in
+//! the hit order, record its rectangle, add one line fragment of an inline.
+//! (Walking the pieces is `paint/pieces.rs`; shifting an item is
+//! `paint/item.rs::translate_item`, moved there in PQ-C1 because it touches
+//! nothing of layout.)
 //!
 //! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
 //! alterada — a reconstrução destes pedaços é byte a byte a do original.
 
 use super::*;
 use crate::boxes::BoxId;
-/// DESLOCA um item de pintura por `(dx, dy)`.
-///
-/// É a operação que torna um fragmento de layout REUSÁVEL: o desenho de uma
-/// subárvore cujo conteúdo e constraints não mudaram é o mesmo desenho, na
-/// posição nova. Tudo o que um item carrega é geometria absoluta em coordenadas
-/// de conteúdo, então deslocar é somar — exceto o que é tamanho (`radius`,
-/// `blur`, `size` do texto), que não se move.
-pub(crate) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
-    let shift = |r: &mut Rect| {
-        r.x += dx;
-        r.y += dy;
-    };
-    match it {
-        DisplayItem::SolidRect { rect, .. }
-        | DisplayItem::Shadow { rect, .. }
-        | DisplayItem::GradientRect { rect, .. }
-        | DisplayItem::Border { rect, .. }
-        | DisplayItem::Image { rect, .. }
-        | DisplayItem::Pixels { rect, .. }
-        | DisplayItem::BeginClip { rect, .. } => shift(rect),
-        DisplayItem::Text { x, y, .. } => {
-            *x += dx;
-            *y += dy;
-        }
-        DisplayItem::Quad { pts, .. } => {
-            for p in pts.iter_mut() {
-                p.0 += dx;
-                p.1 += dy;
-            }
-        }
-        // A matriz descreve pontos em coordenadas de CONTEÚDO já absolutas —
-        // deslocar a subárvore por (dx,dy) é compor uma translação PURA
-        // depois dela: `nova(p) = mat(p) + (dx,dy)`, que em `e`/`f` é somar
-        // direto (a parte linear a/b/c/d não muda por uma translação).
-        DisplayItem::PushTransform { mat } => {
-            mat.e += dx;
-            mat.f += dy;
-        }
-        DisplayItem::EndClip | DisplayItem::PopTransform => {}
-    }
-}
-
 /// Reserva uma posição de pintura antes de layoutar os descendentes. Um retângulo
 /// placeholder fica invisível para o hit-test até ser preenchido por
 /// [`record_box_rect`]. The position is a `Piece::Rect` pushed NOW, before the

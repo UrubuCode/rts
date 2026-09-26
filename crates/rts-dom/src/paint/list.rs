@@ -5,8 +5,7 @@
 
 use crate::boxes::{BoxId, BoxTree};
 use crate::dom::NodeIdx;
-use crate::layout::fragment::items::translate_item;
-use crate::query::Geometry;
+use crate::paint::item::translate_item;
 use crate::paint::item::DisplayItem;
 use crate::paint::pieces::Piece;
 
@@ -115,18 +114,15 @@ pub struct DisplayList {
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
     /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,
-    /// A geometria completa, montada sob demanda a partir da árvore. Não entra
-    /// no `PartialEq` nem no `Clone` lógico: é derivada.
-    pub(crate) geometry_cache: std::cell::RefCell<Option<std::rc::Rc<Geometry>>>,
 }
 
 /// Equal when everything a repaint or a hit-test could observe is equal.
 ///
-/// `tree` and `geometry_cache` are excluded on purpose — both, the comment on
-/// `geometry_cache` already said before `tree` existed, are DERIVED from the
-/// same document that produced `box_rects` and the pieces. Comparing `tree`
-/// would add nothing and would force `BoxTree`/`LayoutBox` to carry `PartialEq`
-/// for no other reason.
+/// `tree` is excluded on purpose: it is DERIVED from the same document that
+/// produced `box_rects` and the pieces. Comparing it would add nothing and
+/// would force `BoxTree`/`LayoutBox` to carry `PartialEq` for no other reason.
+/// (The geometry memo that used to be excluded beside it left the list in
+/// PQ-C4: it lives on the `Dom`, `Dom::geometry_cached`.)
 impl PartialEq for DisplayList {
     fn eq(&self, other: &Self) -> bool {
         self.pieces == other.pieces

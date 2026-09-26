@@ -7,6 +7,7 @@ pub(super) mod box_rects;
 pub(super) mod fragment;
 pub(super) mod fragment_key;
 pub(crate) mod items;
+pub(crate) mod known_rects;
 pub(super) mod stitching;
 pub(super) mod transform_rects;
 pub(super) mod types;

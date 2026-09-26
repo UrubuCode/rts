@@ -408,7 +408,7 @@ pub fn explicar_pagina(html: &str, vw: f32, vh: f32, m: &CountingMeasurer) {
     use std::collections::BTreeMap;
     let dom = parse_html_to_dom(html);
     let lista = rts_dom::layout::layout_document(&dom, &ctx(m, vw, vh));
-    let geo = lista.geometry();
+    let geo = lista.geometry_now();
 
     let mut com_caixa = 0usize;
     let mut sem_caixa = 0usize;

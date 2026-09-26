@@ -6,9 +6,8 @@
 //! because a rect per node is exactly what cannot tell a wrapped link's two
 //! lines from the gap between them.
 
-use crate::boxes::{BoxId, BoxTree};
+use crate::boxes::BoxId;
 use crate::dom::NodeIdx;
-use crate::layout::Fragment;
 use crate::paint::list::{DisplayList, Rect, ScrollRegion};
 use crate::paint::pieces::Piece;
 
@@ -21,43 +20,22 @@ pub struct Geometry {
 
 impl DisplayList {
     /// A geometria COMPLETA desta lista: os retângulos próprios mais os das
-    /// subárvores reusadas, já deslocados. Construída na primeira consulta e
-    /// guardada — o layout mesmo só a pede quando há elemento fora do fluxo.
-    pub fn geometry(&self) -> std::rc::Rc<Geometry> {
-        if let Some(g) = self.geometry_cache.borrow().as_ref() {
-            return std::rc::Rc::clone(g);
-        }
-        let g = std::rc::Rc::new(self.geometry_now());
-        *self.geometry_cache.borrow_mut() = Some(std::rc::Rc::clone(&g));
-        g
-    }
-
-    /// A geometria SEM cachear — para uso DURANTE a montagem da lista, quando
-    /// ainda vão entrar itens (a passada de fora do fluxo). Cachear ali deixaria
-    /// o hit-test lendo uma geometria anterior aos `position:absolute`, que foi
-    /// exatamente o que um teste de `z-index` acusou.
+    /// subárvores reusadas, já deslocados. Built on every call.
+    ///
+    /// **The memo is the `Dom`'s, not the list's** (PQ-C4): the repeated
+    /// reader is `bounding_component` in a read loop, and it reads
+    /// `Dom::geometry_cached`, which keeps ONE geometry beside the ONE cached
+    /// list. The list used to carry a `RefCell` for it, which made paint's
+    /// type name query's.
     pub fn geometry_now(&self) -> Geometry {
-        // Agrega `box_rects` (por CAIXA) em `rects` (por NÓ) — o limite de
-        // agregação que o §6 do desenho da árvore de caixas pede. Enquanto a
-        // árvore for o espelho, cada nó tem no máximo uma caixa e isto é uma
-        // cópia; deixa de ser quando um nó vier a ter várias.
-        let mut rects: crate::fasthash::FastMap<NodeIdx, Rect> = crate::fasthash::FastMap::default();
-        for (box_id, rect) in self.box_rects.unions() {
-            if let Some(node) = self.tree.node_of(box_id) {
-                match rects.get_mut(&node) {
-                    Some(existing) => *existing = existing.union(rect),
-                    None => {
-                        rects.insert(node, rect);
-                    }
-                }
-            }
-        }
+        // The rects are layout's fold (`layout/fragment/known_rects.rs`, PQ-C3),
+        // the same one the out-of-flow pass reads mid-layout.
         let mut g = Geometry {
-            rects,
+            rects: crate::layout::fragment::known_rects::known_rects(self),
             scroll_regions: self.scroll_regions.clone(),
         };
-        // The reused subtrees' rects and scroll regions, in paint order.
-        add_children(&self.tree, &self.pieces, 0.0, 0.0, &mut g);
+        // The reused subtrees' scroll regions, in the order they always came.
+        add_scroll_regions(&self.pieces, 0.0, 0.0, &mut g.scroll_regions);
         g
     }
 
@@ -94,34 +72,21 @@ impl DisplayList {
     }
 }
 
-/// The geometry of the subtrees `pieces` reuses, offset, into `out`.
-fn add_children(tree: &BoxTree, pieces: &[Piece], dx: f32, dy: f32, out: &mut Geometry) {
+/// The scroll regions of the subtrees `pieces` reuses, offset, into `out`:
+/// each subtree's subtrees' first, then its own — the order `geometry_now`
+/// always produced them in.
+fn add_scroll_regions(pieces: &[Piece], dx: f32, dy: f32, out: &mut Vec<ScrollRegion>) {
     for c in crate::paint::pieces::children(pieces) {
-        add_fragment(tree, &c.fragment, dx + c.dx, dy + c.dy, out);
-    }
-}
-
-/// A reused fragment's rects (several boxes of one node unite, which is what
-/// `getBoundingClientRect` asks), then its subtrees', then its scroll regions —
-/// the order `geometry_now` always produced them in.
-fn add_fragment(tree: &BoxTree, fragment: &Fragment, dx: f32, dy: f32, out: &mut Geometry) {
-    let moved = dx != 0.0 || dy != 0.0;
-    for (box_id, rect) in fragment.rects.iter() {
-        let mut rect = *rect;
-        if moved {
-            rect.x += dx;
-            rect.y += dy;
+        let (dx, dy) = (dx + c.dx, dy + c.dy);
+        let moved = dx != 0.0 || dy != 0.0;
+        add_scroll_regions(&c.fragment.pieces, dx, dy, out);
+        for region in c.fragment.scroll_regions.iter() {
+            let mut region = *region;
+            if moved {
+                region.visible.x += dx;
+                region.visible.y += dy;
+            }
+            out.push(region);
         }
-        let Some(node) = tree.node_of(*box_id) else { continue };
-        out.rects.entry(node).and_modify(|r| *r = r.union(rect)).or_insert(rect);
-    }
-    add_children(tree, &fragment.pieces, dx, dy, out);
-    for region in fragment.scroll_regions.iter() {
-        let mut region = *region;
-        if moved {
-            region.visible.x += dx;
-            region.visible.y += dy;
-        }
-        out.scroll_regions.push(region);
     }
 }

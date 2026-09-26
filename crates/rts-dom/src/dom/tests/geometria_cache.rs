@@ -112,3 +112,35 @@ fn bounding_component_repetido_sem_mutacao_da_a_mesma_resposta() {
     let segunda = dom.bounding_component(id, 3);
     assert_eq!(primeira, segunda);
 }
+
+/// The read loop builds ONE geometry, not one per call (PQ-C4). The memo left
+/// `DisplayList` for `Dom::geometry_cached`; were `bounding_component` to read
+/// `rect_of`, it would run `geometry_now` on every call — the per-call cost of
+/// the 13.7 ms class, one layer below the layout. Pinned by identity: the
+/// geometry held in the slot after the first call is the same allocation after
+/// a thousand more, and so is the list (one layout).
+#[test]
+fn bounding_component_read_loop_builds_one_geometry() {
+    let dom = parse_html_to_dom("<div id='a' style='width:100px;height:20px'></div><div>texto</div>");
+    let id = dom.query("#a").unwrap();
+    let slot = |dom: &Dom| {
+        let cache = dom.display_cache.borrow();
+        let (_, list, geometry) = cache.as_ref().expect("the slot is filled");
+        let geometry = geometry.get().expect("bounding_component built the geometry through the memo");
+        (std::rc::Rc::clone(list), std::rc::Rc::clone(geometry))
+    };
+    let expected = [
+        dom.bounding_component(id, 0),
+        dom.bounding_component(id, 1),
+        dom.bounding_component(id, 2),
+        dom.bounding_component(id, 3),
+    ];
+    assert_eq!(expected[2..], [100.0, 20.0]);
+    let (list, geometry) = slot(&dom);
+    for which in 0..1000_i64 {
+        assert_eq!(dom.bounding_component(id, which % 4), expected[(which % 4) as usize]);
+    }
+    let (list_after, geometry_after) = slot(&dom);
+    assert!(std::rc::Rc::ptr_eq(&list, &list_after), "one layout for the whole loop");
+    assert!(std::rc::Rc::ptr_eq(&geometry, &geometry_after), "one geometry for the whole loop");
+}

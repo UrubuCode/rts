@@ -108,7 +108,7 @@ fn main() {
 
     // Excesso de altura por TAG, para comparar com o que o Chrome dá: só as
     // caixas de elementos inline interessam aqui.
-    let geo = list.geometry();
+    let geo = list.geometry_now();
     {
         let mut soma_por_tag: std::collections::BTreeMap<String, (usize, f32)> = Default::default();
         for tag in ["a", "span", "i", "b", "sup", "cite", "small"] {
