@@ -131,6 +131,14 @@ fn attempt(
         .mir_resolution
         .clone()
         .ok_or("no scope tree for this program")?;
+    // AN ARROW FOLDED INTO ITS FUNCTION reaches here only when that function was not
+    // compiled by this stage, so nothing substituted its calls and it is a real function
+    // after all -- one the scope tree describes as a block of its declarer, reading
+    // every name around it as the declarer's own. Declined, so the running emitter,
+    // which folded nothing, compiles it.
+    if resolution.omitted(function.at) {
+        return Err("an arrow folded into a function this stage did not compile".to_owned());
+    }
     // THE FUNCTIONS WRITTEN DIRECTLY INSIDE, whose closures this function makes. Their
     // BODIES are emitted by the running emitter -- in the scope this function sits in,
     // which is what they reach: a function this door takes builds no environment, so

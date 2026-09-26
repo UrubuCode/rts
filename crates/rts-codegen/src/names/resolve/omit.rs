@@ -140,6 +140,13 @@ impl Resolution {
             return false;
         };
         let declaring = self.owner(self.binding(arrow.binding).scope);
+        // NOT INTO A MODULE: a module's own code is compiled by the running emitter,
+        // never by the MIR stage, so it substitutes no call and the arrow is a real
+        // function there -- whose body the door would then lower with a scope tree
+        // that calls it a block, reading every name around it as its own.
+        if self.scope(declaring).kind == ScopeKind::Module {
+            return false;
+        }
         let name = self.binding(arrow.binding).name;
         let Some(written) = self.scope(own).parent else {
             return false;
