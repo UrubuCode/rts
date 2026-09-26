@@ -414,6 +414,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::JsonParse => (CoreEntry::JsonParse, {
             rts_core::entry::json_parse as extern "C" fn(u64) -> u64 as *const u8
         }),
+        RuntimeOp::TextWalk => (CoreEntry::TextWalk, {
+            rts_core::entry::text_walk as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::UnaryPlus => (CoreEntry::UnaryPlus, {
             rts_core::entry::unary_plus as extern "C" fn(u64) -> u64 as *const u8
         }),

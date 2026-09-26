@@ -1049,6 +1049,13 @@ pub enum RuntimeOp {
     /// `JSON.parse(text)`, the same way. Raises a `SyntaxError`.
     /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
     JsonParse,
+
+    /// A string's code points as a list, where a `for`-`of` may walk them rather
+    /// than step the iterator, and `undefined` where it may not --
+    /// [`rts_core::entry::text_walk`]. A call because what it answers is the state
+    /// of two prototypes a program may write to.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    TextWalk,
 }
 
 impl RuntimeOp {
@@ -1165,6 +1172,7 @@ impl RuntimeOp {
         RuntimeOp::UnaryPlus,
         RuntimeOp::JsonStringify,
         RuntimeOp::JsonParse,
+        RuntimeOp::TextWalk,
     ];
 
     /// The linker name the runtime must define.
@@ -1281,6 +1289,7 @@ impl RuntimeOp {
             RuntimeOp::UnaryPlus => "__rts_unary_plus",
             RuntimeOp::JsonStringify => "__rts_json_stringify",
             RuntimeOp::JsonParse => "__rts_json_parse",
+            RuntimeOp::TextWalk => "__rts_text_walk",
         }
     }
 
@@ -1550,6 +1559,7 @@ impl RuntimeOp {
             RuntimeOp::PageGlobalSet => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::UnaryPlus => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::JsonStringify | RuntimeOp::JsonParse => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::TextWalk => (vec![UNPROVEN], vec![UNPROVEN]),
         };
         Signature {
             params,

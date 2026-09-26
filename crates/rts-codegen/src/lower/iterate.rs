@@ -173,20 +173,48 @@ impl Lowering<'_> {
         let yes = self.boolean(true, subject);
         self.builder.end(Terminator::Jump {
             target: opened,
-            args: vec![none, yes],
+            args: vec![none, yes, subject_value],
         });
+        // A STRING WALKED AS ITS LIST OF CODE POINTS, where that is what its iterator
+        // would step: `TextWalk` answers the list the primordial iterator builds before
+        // its first `next()`, or `undefined` where a program changed the protocol --
+        // `rts_core::entry::text_walk` says which changes. Nothing is owed a close on
+        // this path either: it answers a list only where no `return` can be found.
         self.builder.switch_to(stepped_entry);
+        let walked = self.entry(RuntimeOp::TextWalk, vec![subject_value], subject);
+        let undefined = self.singleton_at(crate::values::Singleton::Undefined, subject);
+        let refused = self.prim(JsPrim::StrictEquals, vec![walked, undefined], subject);
+        let listed_entry = self.builder.block();
+        let protocol_entry = self.builder.block();
+        self.builder.end(Terminator::Branch {
+            condition: refused,
+            then_block: protocol_entry,
+            then_args: Vec::new(),
+            else_block: listed_entry,
+            else_args: Vec::new(),
+        });
+        self.builder.switch_to(listed_entry);
+        let none = self.singleton_at(crate::values::Singleton::Undefined, subject);
+        let yes = self.boolean(true, subject);
+        self.builder.end(Terminator::Jump {
+            target: opened,
+            args: vec![none, yes, walked],
+        });
+        self.builder.switch_to(protocol_entry);
         let made = self.call_method(method, subject_value, subject);
         let no = self.boolean(false, subject);
         self.builder.end(Terminator::Jump {
             target: opened,
-            args: vec![made, no],
+            args: vec![made, no, subject_value],
         });
         self.builder.switch_to(opened);
         let iterator = self.builder.param(opened);
         self.types.insert(iterator, self.domain.top());
         let indexed = self.builder.param(opened);
         self.types.insert(indexed, crate::domain::Type::Bool(None));
+        // WHAT the indexed walk reads: the array itself, or the string's list.
+        let source = self.builder.param(opened);
+        self.types.insert(source, self.domain.top());
 
         let mut written = self.assigned_in(body)?;
         written.extend(self.assigned_by_pattern(pattern));
@@ -233,7 +261,7 @@ impl Lowering<'_> {
         });
 
         self.builder.switch_to(by_index);
-        let length = self.entry(RuntimeOp::ArrayLength, vec![subject_value], subject);
+        let length = self.entry(RuntimeOp::ArrayLength, vec![source], subject);
         let more = self.prim(JsPrim::LessThan, vec![counter, length], subject);
         self.builder.end(Terminator::Branch {
             condition: more,
@@ -243,7 +271,7 @@ impl Lowering<'_> {
             else_args: params.clone(),
         });
         self.builder.switch_to(at_index);
-        let element = self.entry(RuntimeOp::ElementAt, vec![subject_value, counter], subject);
+        let element = self.entry(RuntimeOp::ElementAt, vec![source, counter], subject);
         self.builder.end(Terminator::Jump {
             target: into_body,
             args: vec![element],

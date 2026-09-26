@@ -64,6 +64,7 @@ use super::array::{
     ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
 };
 use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
+use super::text_walk::TEXT_WALK_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
 use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
 use super::bitwise::{
@@ -743,6 +744,9 @@ pub enum CoreEntry {
     JsonStringify = 104,
     /// [`super::json_parse`] — `JSON.parse(text)`, the same way.
     JsonParse = 105,
+    /// [`super::text_walk`] — a string's code points as a list, where a
+    /// `for`-`of` may walk them instead of stepping the iterator.
+    TextWalk = 106,
 }
 
 /// How many entry points exist.
@@ -750,7 +754,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 106;
+pub const CORE_ENTRY_COUNT: usize = 107;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -861,6 +865,7 @@ impl CoreEntry {
         CoreEntry::SerdeDeclare,
         CoreEntry::JsonStringify,
         CoreEntry::JsonParse,
+        CoreEntry::TextWalk,
     ];
 
     /// The number a call site holds.
@@ -982,6 +987,7 @@ impl CoreEntry {
             CoreEntry::SerdeDeclare => SERDE_DECLARE_ENTRY,
             CoreEntry::JsonStringify => JSON_STRINGIFY_ENTRY,
             CoreEntry::JsonParse => JSON_PARSE_ENTRY,
+            CoreEntry::TextWalk => TEXT_WALK_ENTRY,
         }
     }
 

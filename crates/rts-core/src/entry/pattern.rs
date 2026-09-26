@@ -148,20 +148,23 @@ fn cursor_step_is_primordial(context: &mut Context) -> bool {
         _ => return false,
     }
 
-    if carries_return(context, cell) {
-        return false;
-    }
+    !carries_return(context, cell) && !iterator_carries_return(context)
+}
+
+/// Whether `%IteratorPrototype%`, above every primordial iterator, has an own
+/// `return` -- or cannot be read, which answers the same way.
+pub(super) fn iterator_carries_return(context: &mut Context) -> bool {
     match class_support::prototype(context, "Iterator") {
         Some(above) => match Value(above).as_slot() {
-            Some(above) => !carries_return(context, above),
-            None => false,
+            Some(above) => carries_return(context, above),
+            None => true,
         },
-        None => true,
+        None => false,
     }
 }
 
 /// Whether an object has an own `return`, which `IteratorClose` would find.
-fn carries_return(context: &mut Context, cell: u32) -> bool {
+pub(super) fn carries_return(context: &mut Context, cell: u32) -> bool {
     let key = context.well_known("return");
     objects::own_property(context, cell, key).is_some()
 }

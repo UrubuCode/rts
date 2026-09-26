@@ -2448,6 +2448,11 @@ fn nothing_commutes_with_a_suspension() {
 /// the live length and the element each pass, which is what its `next()` does -- so the
 /// only entry points are those two and the question whether the protocol has anything
 /// left to observe, and nothing is ever copied out of the source.
+///
+/// A STRING is the one source listed, by `TextWalk`, and that is not draining in the
+/// sense above: its primordial iterator builds the same list before its first `next()`,
+/// a string cannot change under the walk, and the entry answers a list only where the
+/// protocol is the primordial one -- `rts_core::entry::text_walk`.
 #[test]
 fn a_for_of_steps_the_protocol_rather_than_draining_it() {
     let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
@@ -2470,6 +2475,7 @@ fn a_for_of_steps_the_protocol_rather_than_draining_it() {
             crate::runtime::RuntimeOp::ArrayLength
                 | crate::runtime::RuntimeOp::ElementAt
                 | crate::runtime::RuntimeOp::ArrayPatternDirect
+                | crate::runtime::RuntimeOp::TextWalk
         )),
         "nothing is drained: {entries:?}"
     );

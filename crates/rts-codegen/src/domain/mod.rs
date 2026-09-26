@@ -199,6 +199,8 @@ impl Js {
         // A template's pieces and up to three substitutions, joined in one crossing --
         // `lower/template.rs`, after `emit/template.rs`.
         RuntimeOp::TemplateJoin,
+        // A string's code points, where a `for`-`of` may walk them -- `lower/iterate.rs`.
+        RuntimeOp::TextWalk,
     ];
 
     /// The index the IR carries for an entry point.
