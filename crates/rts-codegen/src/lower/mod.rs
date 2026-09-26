@@ -608,6 +608,16 @@ impl Lowering<'_> {
                             )),
                         }
                     }
+                    // `undefined` AS A GLOBAL is the value: the global object's property
+                    // is non-writable and non-configurable, so no program changes what
+                    // it reads -- only a binding can, and there is none here or in the
+                    // layout around. Read through the global object it was a lookup per
+                    // evaluation, the whole cost of `m.get(k) === undefined` in a loop.
+                    None if self.names.spelled(*name) == Some("undefined")
+                        && self.outer.is_none_or(|outer| outer(*name).is_none()) =>
+                    {
+                        Ok(self.singleton_at(Singleton::Undefined, expr))
+                    }
                     // NO SCOPE DECLARES IT, so it is a global -- read through the
                     // global object, which is what the language does with one.
                     None => Ok(self.global(*name, expr)),
