@@ -705,10 +705,13 @@ impl Domain for Js {
             // typed a concatenation.
             Some(RuntimeOp::StringOf | RuntimeOp::TemplateJoin) => Type::Str,
             Some(RuntimeOp::BigIntNew) => Type::BigInt,
-            // A truth value, and answered unboxed -- the representation is the proof.
-            Some(
-                RuntimeOp::DeleteProperty | RuntimeOp::ForInHas | RuntimeOp::ArrayPatternDirect,
-            ) => Type::Bool(None),
+            // A truth value wherever the row answers one unboxed -- the representation
+            // is the proof, so it is read off the signature rather than listed. A list
+            // missed `TypeOfIs`, and every `if (typeof x === "object")` then asked the
+            // runtime for the truth of a boolean it had just been handed.
+            Some(op) if op.signature().returns == [rts_cranelift::Repr::Bool] => Type::Bool(None),
+            // Boxed, and a boolean all the same: the runtime answers nothing else.
+            Some(RuntimeOp::ArrayPatternDirect) => Type::Bool(None),
             // A fresh array of the keys, which nothing else can name.
             Some(RuntimeOp::EnumerateKeys) => Type::Object,
             // A length is a number, answered unboxed -- the representation and the
