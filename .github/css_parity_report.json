@@ -241,6 +241,7 @@
       "GRID-2 — `display: inline-grid` (e `inline-table`) são inline-level",
       "GRID-3 — `grid-area`, `grid-row`, `grid-column` com números e nomes de linha (Grid §8.3/§8.4)",
       "TX-3 — T3 do plano de texto: a JANELA mede com o `RealMeasurer`; e o quebrador re-mede a junção quando o kerning atravessa um espaço",
+      "INSP-1 — o F12: inspetor do DOM por CDP, o DevTools do Chrome liga-se ao motor; opt-in, custo zero desligado (pedido do Marcos)",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
       "DISP — o `display` para de perder informacao no parse",
       "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",
