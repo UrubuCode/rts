@@ -180,11 +180,21 @@ pub enum DisplayItem {
         /// item de texto pagaria uma alocacao por fragmento reusado para
         /// responder a um booleano.
         ///
-        /// Fora da Ahem o rasterizador continua a mascarar o texto, e isso e
-        /// deliberado: desenhar uma fonte real precisa de um motor de fontes
-        /// que este crate nao tem, e inventar retangulos para ela faria falhar
-        /// reftests que hoje passam por outra razao.
+        /// It stays beside `family` because it is the one bit a consumer asks
+        /// without resolving anything (the raster's solid-rectangle path, and
+        /// tests).
         is_ahem: bool,
+        /// The computed `font-family` list the layout MEASURED this text with
+        /// — the very string its `text_width_family` received — so a painter
+        /// that resolves it draws the face that decided the width. `None`
+        /// where the measurement asked with no family (no style, a list
+        /// marker, a flex text item measured by `text_width`), which the
+        /// measurer answers with the default face, and a painter should too.
+        ///
+        /// `Rc<str>` for the reason `text` is: items are cloned whenever a
+        /// layout fragment is reused, and a flow shares one allocation across
+        /// all of its runs in the container's font.
+        family: Option<std::rc::Rc<str>>,
         bold: bool,
         /// `font-style: italic`/`oblique`. Um bit à parte do `bold` e não um
         /// "peso" — no browser são dois eixos independentes (`<em><strong>` é

@@ -395,10 +395,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 // próprio, medido à parte, para que o efeito seja atribuível.
                 let explicit_block = effective
                     .map(|d| {
-                        d != crate::style::DisplayKind::Inline
-                            && d != crate::style::DisplayKind::InlineBlock
-                            && d != crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
-                            && d != crate::style::DisplayKind::InlineFlexWrap
+                        !d.is_inline_level()
                     })
                     .unwrap_or(false);
                 // `display:inline` DECLARADO vence a tag e a UA-stylesheet: um
@@ -439,14 +436,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     // contentor. São 27 dos 55 inline-blocks desta página.
                     // `inline-flex` (com ou sem wrap) responde pela MESMA razão
                     // (`claude-inline-flex-outer-display`, `claude-inline-flex-wrap`).
-                    if matches!(
-                        effective,
-                        Some(
-                            crate::style::DisplayKind::InlineBlock
-                                | crate::style::DisplayKind::InlineFlex
-                                | crate::style::DisplayKind::InlineFlexWrap
-                        )
-                    ) {
+                    if effective.is_some_and(|d| d != crate::style::DisplayKind::Inline && d.is_inline_level()) {
                         true
                     } else if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
                         !explicit_block

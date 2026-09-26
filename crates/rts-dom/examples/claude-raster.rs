@@ -153,7 +153,7 @@ fn main() {
     }
     let base_dir = Path::new(entrada).parent().unwrap_or_else(|| Path::new("."));
     carregar_imagens(&mut dom, base_dir);
-    let measurer = text::Recording::new(text::font_store());
+    let measurer = rts_text::adapter::RealMeasurer::new(text::font_store());
     let ctx = layout::LayoutCtx { viewport_w: W as f32, viewport_h: H as f32, measurer: &measurer };
     let list: DisplayList = layout::layout_document(&dom, &ctx);
     // Um `<img>` com `src` e SEM pixels a esta altura: `carregar_imagens`
@@ -186,7 +186,7 @@ fn main() {
     let mut mask: Vec<[f32; 4]> = mascara_de_imagens; // [x,y,w,h] dos rects ignorados (texto, imagens)
     let mut pintados = 0usize;
     let mut painter = TextPainter::new(&measurer);
-    let (mut texto_pintado, mut sem_face, mut sem_familia) = (0usize, 0usize, 0usize);
+    let (mut texto_pintado, mut masked) = (0usize, 0usize);
     let mut saltados_imagem = 0usize;
 
     list.walk(|item, dx, dy| {
@@ -225,7 +225,7 @@ fn main() {
                 }
                 pintados += 1;
             }
-            DisplayItem::Text { x, y, text, size, mono, is_ahem, color, bold, italic, letter_spacing, .. } => {
+            DisplayItem::Text { x, y, text, size, mono, is_ahem, family, color, bold, italic, letter_spacing, .. } => {
                 // Only the origin goes through a `transform`, as it always
                 // has here: glyphs are not rotated or skewed.
                 let (mx, my) = match mat {
@@ -240,6 +240,7 @@ fn main() {
                     color: *color,
                     mono: *mono,
                     is_ahem: *is_ahem,
+                    family: family.as_deref(),
                     bold: *bold,
                     italic: *italic,
                     letter_spacing: *letter_spacing,
@@ -251,11 +252,7 @@ fn main() {
                     }
                     Outcome::NoFace(r) => {
                         mask.push([r.x, r.y, r.w, r.h]);
-                        sem_face += 1;
-                    }
-                    Outcome::Unknown(r) => {
-                        mask.push([r.x, r.y, r.w, r.h]);
-                        sem_familia += 1;
+                        masked += 1;
                     }
                 }
             }
@@ -351,7 +348,6 @@ fn main() {
     // The masked text count, beside `.pintados` for the same reason: the WPT
     // runner records it per test without parsing stderr. It is the ruler for
     // how much of the corpus this instrument still cannot see (plan, F3).
-    let masked = sem_face + sem_familia;
     let masked_path = format!("{saida}.mascarados");
     std::fs::write(&masked_path, masked.to_string()).unwrap_or_else(|e| {
         eprintln!("não escrevi {masked_path}: {e}");
@@ -361,7 +357,6 @@ fn main() {
     eprintln!(
         "rts-raster: {pintados} itens pintados, {saltados_imagem} imagem (mascaradas, sem handle table aqui)"
     );
-    eprintln!("rts-raster: masked text: {sem_face} family with no face, {sem_familia} family not known from the layout");
     eprintln!("rts-raster: {texto_pintado} text items painted, {masked} masked");
 }
 
