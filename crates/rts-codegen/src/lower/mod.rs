@@ -54,6 +54,7 @@ mod callees;
 mod chain;
 mod calls;
 mod choice;
+mod compound;
 mod claim;
 mod class;
 mod declare;
@@ -629,37 +630,17 @@ impl Lowering<'_> {
                 value,
                 op: AssignOp::Plain,
             } => self.assign(target, value, expr),
-            // A COMPOUND ASSIGNMENT to a plain local.
-            //
-            // `a += b` is not `a = a + b` and the tree says so by carrying the
-            // operator: the target is evaluated ONCE. For a plain name that
-            // distinction costs nothing — reading a binding has no effect to
-            // duplicate — so the rewrite is legal here and only here. A member
-            // target is refused below for exactly the reason the tree gives:
-            // `a[i()] += 1` calls `i` a single time.
+            // A COMPOUND or LOGICAL ASSIGNMENT reads its target once -- `compound.rs`.
             ExprKind::Assign {
-                target,
+                target: AssignTarget::Place(place),
                 value,
                 op: AssignOp::Compound(op),
-            } => {
-                let AssignTarget::Place(place) = target else {
-                    return Err(Unsupported::Pattern);
-                };
-                let ExprKind::Ident(name) = &place.kind else {
-                    return Err(Unsupported::Expression(
-                        "a compound assignment to a property reads and writes the heap, once",
-                    ));
-                };
-                let Some(prim) = primitive(*op) else {
-                    return Err(Unsupported::Operator(*op));
-                };
-                let held = self.expression(place)?;
-                let with = self.expression(value)?;
-                let answered = self.prim(prim, vec![held, with], expr);
-                let of = self.type_of(answered);
-                self.bind(*name, answered, of, expr)?;
-                Ok(answered)
-            }
+            } => self.compound_assign(*op, place, value, expr),
+            ExprKind::Assign {
+                target: AssignTarget::Place(place),
+                value,
+                op: AssignOp::Logical(op),
+            } => self.logical_assign(*op, place, value, expr),
             // READING A PROPERTY BY NAME.
             //
             // The key is a constant of this language's table rather than an operand

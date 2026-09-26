@@ -31,6 +31,9 @@ pub(super) enum Arm<'a> {
     /// SUBJECT. A lowering that answered `false` here would be wrong for every falsy
     /// value that is not `false`, which is five of the seven.
     Subject(ValueId),
+    /// Evaluate this expression and store it -- the writing arm of a logical
+    /// assignment (`compound.rs`), which answers what it wrote.
+    Store(&'a Expr, super::compound::Store),
 }
 
 impl Lowering<'_> {
@@ -161,6 +164,11 @@ impl Lowering<'_> {
         match which {
             Arm::Eval(expr) => self.expression(expr),
             Arm::Subject(held) => Ok(held),
+            Arm::Store(value, store) => {
+                let held = self.expression(value)?;
+                self.store(&store, held, value)?;
+                Ok(held)
+            }
         }
     }
 }

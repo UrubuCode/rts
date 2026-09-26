@@ -675,12 +675,35 @@ fn a_compound_assignment_answers_the_value_it_stored() {
     );
 }
 
-/// A member target is refused for the reason the tree carries the operator at all:
-/// `a[i()] += 1` calls `i` once, and the rewrite would call it twice.
+/// A member target is read and written through ONE evaluation of its key, for the
+/// reason the tree carries the operator at all: `a[i()] += 1` calls `i` once, where
+/// the rewrite `a[i()] = a[i()] + 1` would call it twice.
 #[test]
-fn a_compound_assignment_to_a_property_is_refused_by_that_reason() {
-    let refused = only("function f(o) { o.x += 1; }").expect_err("a member target");
-    assert!(matches!(refused, Unsupported::Expression(_)));
+fn a_compound_assignment_to_a_property_evaluates_its_key_once() {
+    let lowered = only("function f(o, i) { o[i()] += 1; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let calls = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(held.op, rts_mir::Op::Call { .. }))
+        .count();
+    assert_eq!(calls, 1, "`i` is called once");
+    let (read, write): (Vec<_>, Vec<_>) = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Prim { prim, args } => match lowered.domain.meaning(*prim) {
+                Some(JsPrim::IndexRead) => Some((true, args[1])),
+                Some(JsPrim::IndexWrite) => Some((false, args[1])),
+                _ => None,
+            },
+            _ => None,
+        })
+        .partition(|(reading, _)| *reading);
+    assert_eq!((read.len(), write.len()), (1, 1));
+    assert_eq!(read[0].1, write[0].1, "the read and the write share one key");
 }
 
 /// A compound assignment of any operator is that operator's row and a rebind: `b >>>= a`
