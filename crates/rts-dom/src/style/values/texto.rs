@@ -153,7 +153,7 @@ impl Visibility {
     /// Se este valor USADO suprime a pintura (fundo, borda, texto, sombra) —
     /// `Hidden` e `Collapse` têm o mesmo efeito fora de tabelas (CSS2 §11.2).
     /// Um sítio só para os dois call-sites de layout perguntarem
-    /// (`bloco.rs`, `pintura.rs`), em vez de repetir o `matches!` nos dois.
+    /// (`layout/block/block.rs`, `paint/style.rs`), em vez de repetir o `matches!` nos dois.
     pub fn suppresses_paint(&self) -> bool {
         matches!(self, Visibility::Hidden | Visibility::Collapse)
     }

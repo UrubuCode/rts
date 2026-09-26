@@ -19,7 +19,7 @@ fixes it is the person editing the crate).
 Everything in this section was measured on 2026-09-16, not inferred.
 
 **The central case does not fail — it is absent.** A `<div>` inside a `<span>`
-is not laid out wrongly; it is **ignored as a box**. `layout/runs.rs` walks the
+is not laid out wrongly; it is **ignored as a box**. `layout/inline/runs.rs` walks the
 children of an inline container and tests, in order, for non-rendered metadata,
 `display:none`, form widgets, `<br>`, replaced elements and inline-blocks. It
 never tests for block level. The `<div>` matches none of them, falls into the
@@ -33,9 +33,9 @@ that family**, and there is nowhere to put them.
 `NodeIdx` — a deliberate decision recorded in `pseudo/mod.rs`, taken so the
 arena would not gain and lose a node on every re-cascade. The cost is that
 `Dom::pseudo_box` returns a `PseudoBox` that each consumer then re-integrates by
-hand: `layout/pseudo_bloco.rs` as a block with its own margin-collapse
-machinery, `layout/flex_pseudo.rs` as a counterfeit `FlexItem`, `layout/runs.rs`
-as an inline run, `layout/clearfix.rs` for the `clear` effect only. All three of
+hand: `layout/block/pseudo_block.rs` as a block with its own margin-collapse
+machinery, `layout/flex/pseudo.rs` as a counterfeit `FlexItem`, `layout/inline/runs.rs`
+as an inline run, `layout/float/clearfix.rs` for the `clear` effect only. All three of
 the first record the same cuts — no `border-radius`, no `flex-basis`, text does
 not wrap — because each would have to implement them again.
 
@@ -50,7 +50,7 @@ one value, so the render order the table spec asks for cannot be expressed.
 **Anonymous table rows and cells exist; the anonymous table does not.**
 `table/grid.rs` closes loose cells into a row and wraps a stray child as a cell.
 But a `<div style="display:table-cell">` with no table above it becomes an
-ordinary block: `layout/bloco.rs` only reaches `layout_table` when the node
+ordinary block: `layout/block/block.rs` only reaches `layout_table` when the node
 itself is `DisplayKind::Table`. CSS 2.1 §17.2.1 asks for the table to be
 generated around it.
 
@@ -373,7 +373,7 @@ and a float or an absolutely positioned box is block-level (it is blockified)
 but out of flow. Asking only the outer display split
 `<span>a<div style="float:left"></div>b</span>` in three and put `b` on a line
 of its own. Such a child now stays in the inline run: a float becomes an
-ANCHOR there (`AtomicKind::Float`), and `layout/float_in_line.rs` places it at
+ANCHOR there (`AtomicKind::Float`), and `layout/float/in_line.rs` places it at
 the top of the line it appears in when it fits — CSS 2.1 §9.5.1 — which is
 also what happens to a float that is a DIRECT child in the middle of text,
 since the block flow stopped closing the inline group on it. What an
@@ -424,7 +424,7 @@ that wants to know "is this an inline formatting context" asks the tree.
 ### What the base does NOT do yet, and must not be assumed
 
 - **The fragments of a split or wrapped inline EXIST** (BT-2c, 2026-09-25).
-  `layout/box_fragments.rs` keeps a `Vec<Rect>` per box, one per line
+  `layout/fragment/box_rects.rs` keeps a `Vec<Rect>` per box, one per line
   (`LineId`); `DisplayList::rects_of_box` answers them, `rect_of`/`Geometry`
   union at the bridge boundary, and the hit-test uses each box's OWN rect.
   Invariant I4 is closed. `getClientRects` is now possible and not added.
@@ -435,7 +435,7 @@ that wants to know "is this an inline formatting context" asks the tree.
   nowhere else. What lies between a `BeginClip` and its `EndClip` is inside
   the clip — there is no child count to keep in step. Invariant I5 is closed.
   Four answers the old arithmetic gave were kept on purpose and are named in
-  `layout/pecas.rs` (`legacy_tie_start`); each is a lot of its own.
+  `paint/pieces.rs` (`legacy_tie_start`); each is a lot of its own.
 - **Every layout function takes a `BoxId`, never an `Option<BoxId>`** (BT-2a,
   2026-09-25). `layout_block`, the inline flow, the atoms, the leaves, the
   intrinsic-width walkers and the generated-box roles all name the exact box;
@@ -461,7 +461,7 @@ that wants to know "is this an inline formatting context" asks the tree.
   child. Said plainly rather than dressed up as equivalent.
 - **An anonymous box IS laid out as the block box it is**, and this line
   replaces one that said it was expanded into its children instead.
-  `layout/bloco_caixa.rs` is the block path that accepts a box with no node: it
+  `layout/block/block_box.rs` is the block path that accepts a box with no node: it
   takes the container's content box and stacks the run in it, which is all an
   anonymous box needs — no width to resolve, no margin, no border, no
   background, no `float`, no `clear`, no generated content. What it does NOT do
@@ -518,7 +518,7 @@ that wants to know "is this an inline formatting context" asks the tree.
   it — because Blink's client rects of a split inline include them (four
   `claude-bloco-*` fixtures, Edge 153). `Geometry::rects` keeps the boxes
   alone: it is also the hit-test table, and there the second fragment, later
-  in hit order, would steal every click on the block. `layout/rect_cliente.rs`
+  in hit order, would steal every click on the block. `query/rect.rs`
   carries the reason; the paint of the inline is untouched.
 - **No formatting context is IMPLEMENTED here.** `inner` says which algorithm
   applies; running it is still `layout`'s.

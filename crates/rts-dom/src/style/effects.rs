@@ -128,7 +128,7 @@ impl LinearGradient {
 /// Uma `transform` CSS: a lista de funções (`translate`/`scale`/`rotate`/`skewX`/
 /// `skewY`/`matrix`, com aliases `*X`/`*Y`/`Z`), guardada NA ORDEM em que aparecem
 /// — a composição em matriz e a bounding box são cálculo de geometria e vivem no
-/// layout (`crate::layout::transformacao`), que tem o tamanho da caixa; aqui só o
+/// layout (`crate::paint::transform`), que tem o tamanho da caixa; aqui só o
 /// que a cascade produz. `Copy` como o resto de `ComputedStyle`.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Transform {

@@ -157,7 +157,7 @@ fn textarea_with_width_in_ch_without_ahem_uses_the_familys_zero_advance() {
     ">XX    XX</textarea>"#;
     let (dom, list) = geometria(HTML, 400.0);
     let r = rect(&dom, &list, "#ta", 0);
-    let expected = 4.0 * 20.0 * crate::layout::fonte_metricas::FontMetricsModel::ch_advance_em(Some("Arial"));
+    let expected = 4.0 * 20.0 * crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("Arial"));
     assert!(
         (r.w - expected).abs() < 0.5,
         "the width of a <textarea> with width:4ch in Arial should be 4 times Arial's 0 advance (~{}), was {}",

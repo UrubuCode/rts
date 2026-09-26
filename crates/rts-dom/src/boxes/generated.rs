@@ -102,7 +102,7 @@ impl BoxTree {
     /// child: trimming both ends is the whole filter, with no allocation.
     ///
     /// What keeps `children`: the walks that must see every box, and a
-    /// generated one is a box — `relativo.rs` and `transformacao.rs` move the
+    /// generated one is a box — `positioned/relative.rs` and `paint/transform.rs` move the
     /// rectangles of a subtree, and a `::before` moves with its element.
     pub fn children_without_generated(&self, id: BoxId) -> &[BoxId] {
         let filhos = self.children(id);
@@ -125,7 +125,7 @@ impl BoxTree {
     /// be reused across a rebuild — every fragment with a `::before` in it.
     ///
     /// The rest is the `remap_box_id` that lived beside the fragment in
-    /// `layout/fragmento.rs`, moved here unchanged because translating between
+    /// `layout/fragment/fragment.rs`, moved here unchanged because translating between
     /// node and box is this module's alone — including its refusal when a
     /// node's box COUNT changed: guessing which box a fragment meant is the
     /// silent answer.

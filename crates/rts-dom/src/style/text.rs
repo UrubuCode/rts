@@ -231,12 +231,12 @@ impl Direction {
 /// `writing-mode` — a direção do eixo de BLOCO. Herdável.
 ///
 /// **O FLEX troca de eixo de verdade** (lote `flex-writing-mode`,
-/// `layout/eixos_flex.rs`): `flex-direction:row`/`column` despacham para o
+/// `layout/flex/axes.rs`): `flex-direction:row`/`column` despacham para o
 /// algoritmo físico certo (X ou Y) e correm no sentido que o `writing-mode` +
 /// `direction` pedem — `row` num contentor VERTICAL é o eixo inline, que aí
 /// é o Y; `column` vertical é o eixo de bloco, que aí é o X e corre RTL em
 /// `vertical-rl`/`sideways-rl`. CORTE que continua: o fluxo de BLOCO normal
-/// (não-flex — `layout/vertical.rs`, `bloco.rs`) e o texto dentro de uma
+/// (não-flex — `layout/block/vertical_flow.rs`, `bloco.rs`) e o texto dentro de uma
 /// caixa continuam tratados como `horizontal-tb` sempre — só as CAIXAS do
 /// flex trocam de eixo, não os glifos lá dentro nem um `<div>` empilhado
 /// fora de um flex. [`is_horizontal`](WritingMode::is_horizontal) é o que os

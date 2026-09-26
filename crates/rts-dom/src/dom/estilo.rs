@@ -144,7 +144,7 @@ impl Dom {
             && style.grid_template_columns.is_some()
         {
             let (viewport_w, viewport_h) = self.viewport.get();
-            let tracks_str = crate::layout::medidor_ativo::with_active(|measurer| {
+            let tracks_str = crate::layout::measure::active_measurer::with_active(|measurer| {
                 let context = crate::layout::LayoutCtx {
                     viewport_w,
                     viewport_h,
@@ -217,7 +217,7 @@ impl Dom {
     fn used_size(&self, id: NodeId, style: &crate::style::ComputedStyle, largura: bool) -> Option<f32> {
         let idx = self.resolve(id)?;
         let (vw, vh) = self.viewport.get();
-        let (w, h) = crate::layout::medidor_ativo::with_active(|measurer| {
+        let (w, h) = crate::layout::measure::active_measurer::with_active(|measurer| {
             let context = crate::layout::LayoutCtx { viewport_w: vw, viewport_h: vh, measurer };
             crate::layout::bounding_rect(self, idx, &context).map(|r| (r.w, r.h))
         })?;

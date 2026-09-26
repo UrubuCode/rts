@@ -230,7 +230,7 @@ pub(crate) fn deve_suprimir_fundo(css: &ComputedStyle) -> bool {
 ///   onde a página pediu um: errado de forma mais visível do que ignorar.
 ///
 /// CORTE FECHADO (estava documentado aqui como aberto): a largura por lado JÁ
-/// entra na geometria da caixa. `bloco.rs` lê `style::borders::used_widths` —
+/// entra na geometria da caixa. `layout/block/block.rs` lê `style::borders::used_widths` —
 /// as quatro larguras por lado, não o escalar — e alimenta `border_h`/`border_v`,
 /// `content_w`, `content_x` e o `box_rect` com elas; esta função já recebe os
 /// quatro valores separados (`border_top`/`right`/`bottom`/`left`) de quem a

@@ -217,7 +217,7 @@ pub(crate) fn is_before_in_tree(dom: &Dom, a: NodeIdx, b: NodeIdx) -> bool {
 /// deleted (this module's header), and every `Piece::Child` this walks
 /// through would need its own index space anyway, since it is a REUSED
 /// subtree potentially built by an earlier frame or shared with another box
-/// entirely (`fragmento.rs`'s cache).
+/// entirely (`layout/fragment/fragment.rs`'s cache).
 fn is_layer8_relative(dom: &Dom, node: NodeIdx) -> bool {
     dom.computed_style_idx(node)
         .is_some_and(|css| css.position == Some(crate::style::Position::Relative) && z_index_of(dom, node) == 0)
@@ -228,7 +228,7 @@ fn is_layer8_relative(dom: &Dom, node: NodeIdx) -> bool {
 /// depth-first in paint order — descending into a `Piece::Child`'s own
 /// subtree when its root box is not itself the match, since the relative box
 /// this out-of-flow sibling has to land before can be nested inside a cached
-/// container (`fragmento.rs` wraps EVERY ordinary block child as one, so the
+/// container (`layout/fragment/fragment.rs` wraps EVERY ordinary block child as one, so the
 /// two are direct DOM siblings far more often than they are direct
 /// `pieces`-array neighbours).
 ///
@@ -272,7 +272,7 @@ pub(crate) fn splice_layer8(
     for i in 0..pieces.len() {
         // `Piece::Rect(box_id)` is the mark EVERY box leaves at its own paint
         // position, reserved before its own content and descendants
-        // (`itens.rs::reserve_box_order`) — unlike `Piece::Child`, it exists
+        // (`layout/fragment/items.rs::reserve_box_order`) — unlike `Piece::Child`, it exists
         // whether or not this box went through the fragment cache, which is
         // what a table's internals (`table/mod.rs` calls `layout_block`
         // straight, never `layout_block_reusing`) need: a `<tbody>` never
@@ -283,11 +283,11 @@ pub(crate) fn splice_layer8(
                 .is_some_and(|n| is_layer8_relative(dom, n) && is_before_in_tree(dom, target, n))
             {
                 // `Piece::Rect(box_id)` is NOT this box's earliest paint
-                // position: `bloco.rs` reserves it at `box_start`, lays out
+                // position: `layout/block/block.rs` reserves it at `box_start`, lays out
                 // the children (appended after), and only THEN inserts the
                 // box's own background/border AT `box_start` — pushing the
                 // `Rect` one slot later than where the box's OWN paint
-                // actually starts (`bloco.rs` around `record_box_rect`,
+                // actually starts (`layout/block/block.rs` around `record_box_rect`,
                 // comment "o fundo... insert no box_start"). Walking
                 // backward over plain `Item`s is safe: the previous sibling
                 // finished its ENTIRE insert cycle before this box's

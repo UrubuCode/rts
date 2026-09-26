@@ -213,7 +213,7 @@ impl Construcao<'_> {
     ///
     /// It needs no split to apply, and before BT-3 finished it applied only
     /// where one had happened; the flow then grouped the loose runs by hand
-    /// (`inline_group` in `layout/vertical.rs`), which is the same arithmetic
+    /// (`inline_group` in `layout/block/vertical_flow.rs`), which is the same arithmetic
     /// with no box to answer for it. "Inline content" is asked with the same
     /// test [`Construcao::fecha_corrida`] applies to a run
     /// ([`run_without_line_content`]), so a container of blocks separated

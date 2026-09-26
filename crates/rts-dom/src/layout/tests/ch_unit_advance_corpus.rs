@@ -23,9 +23,9 @@ fn ch_of_a_monospace_block_matches_the_table_advance_of_zero_exactly() {
     let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
 
     // The table's own advance of "0" in Consolas, not `MONO_ADVANCE`
-    // (0.5498): `crates/rts-dom/src/layout/fonte_avancos.rs` carries the raw
+    // (0.5498): `crates/rts-dom/src/layout/measure/font_advances.rs` carries the raw
     // `hmtx` unit and `fonte_metricas.rs::CONSOLAS` states it as `1126/2048`.
-    let zero_em = crate::layout::fonte_metricas::FontMetricsModel::ch_advance_em(Some("monospace"));
+    let zero_em = crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("monospace"));
     let expected = 4.0 * 16.0 * zero_em;
     assert!(
         (rect.w - expected).abs() < 0.01,
@@ -51,7 +51,7 @@ fn ch_of_a_proportional_block_uses_its_own_familys_zero_not_mono_advance() {
     let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
     let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
 
-    let zero_em = crate::layout::fonte_metricas::FontMetricsModel::ch_advance_em(Some("Arial"));
+    let zero_em = crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("Arial"));
     // Arial's "0" is NOT the Consolas fraction MONO_ADVANCE resolved into.
     assert!(
         (zero_em - crate::style::MONO_ADVANCE).abs() > 0.001,

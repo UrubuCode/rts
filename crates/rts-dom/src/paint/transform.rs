@@ -53,7 +53,7 @@ impl Mat2d {
         }
     }
 
-    /// Sentido horário (CSS), como o cálculo antigo em `itens.rs` já fazia:
+    /// Sentido horário (CSS), como o cálculo antigo em `layout/fragment/items.rs` já fazia:
     /// `rx = dx·cos − dy·sin; ry = dx·sin + dy·cos`.
     pub fn rotate_deg(deg: f32) -> Mat2d {
         let (sin, cos) = deg.to_radians().sin_cos();
@@ -253,7 +253,7 @@ pub(crate) fn resolve_origin_axis(
 /// A matriz FINAL de uma declaração `transform`: a lista de funções, composta e
 /// envolvida pela origem (default `50% 50%` — CSS Transforms 1 §6). Junta
 /// `TransformList::resolve` + `resolve_origin_axis` + `Mat2d::around` numa
-/// chamada só, para `bloco.rs` não repetir os quatro passos na região do
+/// chamada só, para `layout/block/block.rs` não repetir os quatro passos na região do
 /// `transform` — só o CHAMA e decide o que fazer com a matriz.
 pub(crate) fn matriz_transform(
     tf: crate::style::effects::Transform,
