@@ -239,6 +239,8 @@
       "GRID-1 — grid: static position de abspos lê `align-items`/`justify-items` (causa 1 da triagem); `aspect-ratio` no sizing de item e trilha (causa 2)",
       "TX-2 — T2b do plano de texto: `DisplayItem::Text` leva a FAMÍLIA com que foi medido",
       "GRID-2 — `display: inline-grid` (e `inline-table`) são inline-level",
+      "GRID-3 — `grid-area`, `grid-row`, `grid-column` com números e nomes de linha (Grid §8.3/§8.4)",
+      "TX-3 — T3 do plano de texto: a JANELA mede com o `RealMeasurer`; e o quebrador re-mede a junção quando o kerning atravessa um espaço",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
       "DISP — o `display` para de perder informacao no parse",
       "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",
