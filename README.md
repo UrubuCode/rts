@@ -285,7 +285,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-absoluto-posicao-estatica-linha-vazia.html` — `claude-absoluto-posicao-estatica-linha-vazia` (2026-09-21): its six static positions pass; the two deviations are the WIDTH of a span with a border (`#s2`, `#s3`: 51.39 for Blink's 33.8, two spaces too many), the same on main. The span's border edge enters `quebra.rs` as a piece with width (`juntar!`), so the whitespace after the START edge and before the END edge counts as content and survives the line-edge trim (CSS Text 3 §4.1.2). A lot of its own.
 - `claude-margem-atraves-de-inline-vazio.html` — rect de um inline VAZIO (so um espaco colapsavel): o Blink da 0x0 na posicao da linha (y=140); este motor nao regista rect nenhum (y=0). As margens a volta (a2/b2) batem — e a geometria do inline sem conteudo, lote da geometria de caixas vazias (BT-2c deixou `rects_of_box` pronto para isso). 2026-09-25.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **91/113 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **93/115 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
 *Updated 2026-09-26 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
