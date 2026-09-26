@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4530) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4674) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -1205,16 +1205,16 @@
 ,
 {
   "name": "claude-slice-and-at-index-coercion",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "none=0,1,2,3,4|\nzero=0,1,2,3,4|\ntwo=2,3,4|\nneg2=3,4|\nneg99=0,1,2,3,4|\npos99=|\nnan=0,1,2,3,4|\nundef=0,1,2,3,4|\nnull=0,1,2,3,4|\ntrue=1,2,3,4|\nfrac=1,2,3,4|\nnegFrac=4|\nstr=2,3,4|\nstrNeg=3,4|\nstrJunk=0,1,2,3,4|\nemptyStr=0,1,2,3,4|\nrange=1,2|\nnegRange=2,3|\ncrossed=|\nendUndef=1,2,3,4|\nendNull=|\ninf=0,1,2,3,4|\nat0=0 atNeg1=4 atNeg99=undefined\natFrac=1 atNegFrac=4\natNaN=0 atUndef=0\natStr=2 atTrue=1\natNegZero=0 atLen=undefined\nobjIndex=2,3,4 at=2\nobjStrIndex=3,4\ncoercionOrder=start,end\nsliceHoles=yny at1=undefined\ngenericIsArray=true in=yny\ngenericAt=c\nabort=RangeError elementsRead=0",
   "node": "none=0,1,2,3,4|\nzero=0,1,2,3,4|\ntwo=2,3,4|\nneg2=3,4|\nneg99=0,1,2,3,4|\npos99=|\nnan=0,1,2,3,4|\nundef=0,1,2,3,4|\nnull=0,1,2,3,4|\ntrue=1,2,3,4|\nfrac=1,2,3,4|\nnegFrac=4|\nstr=2,3,4|\nstrNeg=3,4|\nstrJunk=0,1,2,3,4|\nemptyStr=0,1,2,3,4|\nrange=1,2|\nnegRange=2,3|\ncrossed=|\nendUndef=1,2,3,4|\nendNull=|\ninf=0,1,2,3,4|\nat0=0 atNeg1=4 atNeg99=undefined\natFrac=1 atNegFrac=4\natNaN=0 atUndef=0\natStr=2 atTrue=1\natNegZero=0 atLen=undefined\nobjIndex=2,3,4 at=2\nobjStrIndex=3,4\ncoercionOrder=start,end\nsliceHoles=yny at1=undefined\ngenericIsArray=true in=yny\ngenericAt=c\nabort=RangeError elementsRead=0",
-  "rts": "none=0,1,2,3,4|\nzero=0,1,2,3,4|\ntwo=2,3,4|\nneg2=3,4|\nneg99=0,1,2,3,4|\npos99=|\nnan=0,1,2,3,4|\nundef=0,1,2,3,4|\nnull=0,1,2,3,4|\ntrue=1,2,3,4|\nfrac=1,2,3,4|\nnegFrac=4|\nstr=2,3,4|\nstrNeg=3,4|\nstrJunk=0,1,2,3,4|\nemptyStr=0,1,2,3,4|\nrange=1,2|\nnegRange=2,3|\ncrossed=|\nendUndef=1,2,3,4|\nendNull=|\ninf=0,1,2,3,4|\nat0=0 atNeg1=4 atNeg99=undefined\natFrac=1 atNegFrac=4\natNaN=0 atUndef=0\natStr=2 atTrue=1\natNegZero=0 atLen=undefined\nobjIndex=2,3,4 at=2\nobjStrIndex=3,4\ncoercionOrder=start,end\nsliceHoles=yny at1=undefined\ngenericIsArray=true in=yny\ngenericAt=c\nabort=RangeError elementsRead=0",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Array.prototype.slice called on undefined"
 }
 ,
 {
@@ -1289,16 +1289,16 @@
 ,
 {
   "name": "claude-splice-negative-and-overflow-args",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "start2 removed=[2,3,4] rest=[0,1] len=2\nstartNeg2 removed=[3,4] rest=[0,1,2] len=3\nstartNeg99 removed=[0,1,2,3,4] rest=[] len=0\nstart99 removed=[] rest=[0,1,2,3,4] len=5\nstartNaN removed=[0,1,2,3,4] rest=[] len=0\nstartUndef removed=[0,1,2,3,4] rest=[] len=0\ncount_neg5 removed=[] rest=[0,1,2,3,4] len=5\ncount_99 removed=[1,2,3,4] rest=[0] len=1\ncount_NaN removed=[] rest=[0,1,2,3,4] len=5\ncount0_ins removed=[] rest=[0,a,b,1,2,3,4] len=7\nneg1_1_ins removed=[4] rest=[0,1,2,3,x] len=5\nnone removed=[] rest=[0,1,2,3,4] len=5\nfrac removed=[1,2,3,4] rest=[0] len=1\nstrings removed=[2] rest=[0,1,3,4] len=4\ngrow=1,a,b,c,2 retIsArray=true retLen=0\nremIn=nyn rem=,3,\nleftIn=yy left=1,5",
   "node": "start2 removed=[2,3,4] rest=[0,1] len=2\nstartNeg2 removed=[3,4] rest=[0,1,2] len=3\nstartNeg99 removed=[0,1,2,3,4] rest=[] len=0\nstart99 removed=[] rest=[0,1,2,3,4] len=5\nstartNaN removed=[0,1,2,3,4] rest=[] len=0\nstartUndef removed=[0,1,2,3,4] rest=[] len=0\ncount_neg5 removed=[] rest=[0,1,2,3,4] len=5\ncount_99 removed=[1,2,3,4] rest=[0] len=1\ncount_NaN removed=[] rest=[0,1,2,3,4] len=5\ncount0_ins removed=[] rest=[0,a,b,1,2,3,4] len=7\nneg1_1_ins removed=[4] rest=[0,1,2,3,x] len=5\nnone removed=[] rest=[0,1,2,3,4] len=5\nfrac removed=[1,2,3,4] rest=[0] len=1\nstrings removed=[2] rest=[0,1,3,4] len=4\ngrow=1,a,b,c,2 retIsArray=true retLen=0\nremIn=nyn rem=,3,\nleftIn=yy left=1,5",
-  "rts": "start2 removed=[2,3,4] rest=[0,1] len=2\nstartNeg2 removed=[3,4] rest=[0,1,2] len=3\nstartNeg99 removed=[0,1,2,3,4] rest=[] len=0\nstart99 removed=[] rest=[0,1,2,3,4] len=5\nstartNaN removed=[0,1,2,3,4] rest=[] len=0\nstartUndef removed=[0,1,2,3,4] rest=[] len=0\ncount_neg5 removed=[] rest=[0,1,2,3,4] len=5\ncount_99 removed=[1,2,3,4] rest=[0] len=1\ncount_NaN removed=[] rest=[0,1,2,3,4] len=5\ncount0_ins removed=[] rest=[0,a,b,1,2,3,4] len=7\nneg1_1_ins removed=[4] rest=[0,1,2,3,x] len=5\nnone removed=[] rest=[0,1,2,3,4] len=5\nfrac removed=[1,2,3,4] rest=[0] len=1\nstrings removed=[2] rest=[0,1,3,4] len=4\ngrow=1,a,b,c,2 retIsArray=true retLen=0\nremIn=nyn rem=,3,\nleftIn=yy left=1,5",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'map')"
 }
 ,
 {
@@ -2454,7 +2454,7 @@
   "status": "rts_diverge",
   "bun": "break=ok:b1,b2\nbreak-log=b.iterator|b.next0|b.next1|b.return(undefined)\nreturn=ok:returned-r1\nreturn-log=r.iterator|r.next0|r.return(undefined)\nbody-throw=URIError\nbody-throw-log=t.iterator|t.next0|t.return(undefined)\nboth-throw=URIError\nboth-throw-log=x.iterator|x.next0|x.return(undefined)\nbreak-return-throws=EvalError\nbreak-return-throws-log=y.iterator|y.next0|y.return(undefined)\nbad-return-result=TypeError\nbad-return-result-log=z.iterator|z.next0|z.return(undefined)\nnext-throws=RangeError\nnext-throws-log=n.iterator|n.next0|n.next1|n.next2\ndestructure-partial=ok:d1,d2\ndestructure-partial-log=d.iterator|d.next0|d.next1|d.return(undefined)\ndestructure-rest=ok:e1+e2,e3\ndestructure-rest-log=e.iterator|e.next0|e.next1|e.next2|e.next3\ndestructure-default-throws=ok:f1f2\ndestructure-default-log=f.iterator|f.next0|f.next1|f.return(undefined)\nspread=ok:s1,s2,s3\nspread-log=s.iterator|s.next0|s.next1|s.next2|s.next3\nfrom-mapper-throws=URIError\nfrom-mapper-log=m.iterator|m.next0|m.return(undefined)\ngenerator=g-1|body-1|g-finally",
   "node": "break=ok:b1,b2\nbreak-log=b.iterator|b.next0|b.next1|b.return(undefined)\nreturn=ok:returned-r1\nreturn-log=r.iterator|r.next0|r.return(undefined)\nbody-throw=URIError\nbody-throw-log=t.iterator|t.next0|t.return(undefined)\nboth-throw=URIError\nboth-throw-log=x.iterator|x.next0|x.return(undefined)\nbreak-return-throws=EvalError\nbreak-return-throws-log=y.iterator|y.next0|y.return(undefined)\nbad-return-result=TypeError\nbad-return-result-log=z.iterator|z.next0|z.return(undefined)\nnext-throws=RangeError\nnext-throws-log=n.iterator|n.next0|n.next1|n.next2\ndestructure-partial=ok:d1,d2\ndestructure-partial-log=d.iterator|d.next0|d.next1|d.return(undefined)\ndestructure-rest=ok:e1+e2,e3\ndestructure-rest-log=e.iterator|e.next0|e.next1|e.next2|e.next3\ndestructure-default-throws=ok:f1f2\ndestructure-default-log=f.iterator|f.next0|f.next1|f.return(undefined)\nspread=ok:s1,s2,s3\nspread-log=s.iterator|s.next0|s.next1|s.next2|s.next3\nfrom-mapper-throws=URIError\nfrom-mapper-log=m.iterator|m.next0|m.return(undefined)\ngenerator=g-1|body-1|g-finally",
-  "rts": "break=ok:b1,b2\nbreak-log=b.iterator|b.next0|b.next1|b.return(undefined)\nreturn=ok:returned-r1\nreturn-log=r.iterator|r.next0|r.return(undefined)\nbody-throw=URIError\nbody-throw-log=t.iterator|t.next0|t.return(undefined)\nboth-throw=EvalError\nboth-throw-log=x.iterator|x.next0|x.return(undefined)\nbreak-return-throws=EvalError\nbreak-return-throws-log=y.iterator|y.next0|y.return(undefined)\nbad-return-result=ok:finished\nbad-return-result-log=z.iterator|z.next0|z.return(undefined)\nnext-throws=RangeError\nnext-throws-log=n.iterator|n.next0|n.next1|n.next2|n.return(undefined)\ndestructure-partial=ok:d1,d2\ndestructure-partial-log=d.iterator|d.next0|d.next1|d.return(undefined)\ndestructure-rest=ok:e1+e2,e3\ndestructure-rest-log=e.iterator|e.next0|e.next1|e.next2|e.next3\ndestructure-default-throws=ok:f1f2\ndestructure-default-log=f.iterator|f.next0|f.next1|f.return(undefined)\nspread=ok:s1,s2,s3\nspread-log=s.iterator|s.next0|s.next1|s.next2|s.next3\nfrom-mapper-throws=URIError\nfrom-mapper-log=m.iterator|m.next0|m.return(undefined)\ngenerator=g-1|body-1|g-finally",
+  "rts": "break=ok:b1,b2\nbreak-log=b.iterator|b.next0|b.next1|b.return(undefined)\nreturn=ok:returned-r1\nreturn-log=r.iterator|r.next0|r.return(undefined)\nbody-throw=URIError\nbody-throw-log=t.iterator|t.next0|t.return(undefined)\nboth-throw=URIError\nboth-throw-log=x.iterator|x.next0|x.return(undefined)\nbreak-return-throws=EvalError\nbreak-return-throws-log=y.iterator|y.next0|y.return(undefined)\nbad-return-result=ok:finished\nbad-return-result-log=z.iterator|z.next0|z.return(undefined)\nnext-throws=RangeError\nnext-throws-log=n.iterator|n.next0|n.next1|n.next2\ndestructure-partial=ok:d1,d2\ndestructure-partial-log=d.iterator|d.next0|d.next1|d.return(undefined)\ndestructure-rest=ok:e1+e2,e3\ndestructure-rest-log=e.iterator|e.next0|e.next1|e.next2|e.next3\ndestructure-default-throws=ok:f1f2\ndestructure-default-log=f.iterator|f.next0|f.next1|f.return(undefined)\nspread=ok:s1,s2,s3\nspread-log=s.iterator|s.next0|s.next1|s.next2|s.next3\nfrom-mapper-throws=URIError\nfrom-mapper-log=m.iterator|m.next0|m.return(undefined)\ngenerator=g-1|body-1|g-finally",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2524,7 +2524,7 @@
   "status": "rts_diverge",
   "bun": "let-read=ok:ReferenceError/then:1\ntypeof-tdz=ok:ReferenceError/after:number\ntypeof-missing-global=undefined\nlet-write=ok:ReferenceError/final:1\nconst-tdz=ok:ReferenceError/value:2\nclass-tdz=ok:ReferenceError/then:function\nextends-self=ReferenceError\nstatic-self=ok:ok-again\nparam-forward=ReferenceError\nparam-forward-supplied=ok:1,2\nparam-backward=ok:1,2\nparam-body-let=ReferenceError\nparam-body-let-supplied=ok:given/body\nblock-shadow=ok:ReferenceError|inner-value:inner|outer-value:outer\nloop=ok:ReferenceError:0|ok:ReferenceError:1|ok:ReferenceError:2\nswitch-0=ReferenceError\nswitch-1=declared:one\nswitch-2=none\nvar-hoisted=undefined/function/1\nnever-run=ok:no/yes",
   "node": "let-read=ok:ReferenceError/then:1\ntypeof-tdz=ok:ReferenceError/after:number\ntypeof-missing-global=undefined\nlet-write=ok:ReferenceError/final:1\nconst-tdz=ok:ReferenceError/value:2\nclass-tdz=ok:ReferenceError/then:function\nextends-self=ReferenceError\nstatic-self=ok:ok-again\nparam-forward=ReferenceError\nparam-forward-supplied=ok:1,2\nparam-backward=ok:1,2\nparam-body-let=ReferenceError\nparam-body-let-supplied=ok:given/body\nblock-shadow=ok:ReferenceError|inner-value:inner|outer-value:outer\nloop=ok:ReferenceError:0|ok:ReferenceError:1|ok:ReferenceError:2\nswitch-0=ReferenceError\nswitch-1=declared:one\nswitch-2=none\nvar-hoisted=undefined/function/1\nnever-run=ok:no/yes",
-  "rts": "let-read=ok:ok:undefined/then:1\ntypeof-tdz=ok:ok:undefined/after:number\ntypeof-missing-global=undefined\nlet-write=ok:ok:wrote/final:1\nconst-tdz=ok:ok:undefined/value:2\nclass-tdz=ok:TypeError/then:function\nextends-self=ReferenceError\nstatic-self=ok:ok-again\nparam-forward=ReferenceError\nparam-forward-supplied=ok:1,2\nparam-backward=ok:1,2\nparam-body-let=ReferenceError\nparam-body-let-supplied=ok:given/body\nblock-shadow=ok:ok:undefined|inner-value:inner|outer-value:outer\nloop=ok:ok:undefined:0|ok:ok:undefined:1|ok:ok:undefined:2\nswitch-0=ok:undefined\nswitch-1=declared:one\nswitch-2=none\nvar-hoisted=undefined/function/1\nnever-run=ok:no/yes",
+  "rts": "let-read=ok:ok:undefined/then:1\ntypeof-tdz=ok:ok:undefined/after:number\ntypeof-missing-global=undefined\nlet-write=ok:ok:wrote/final:1\nconst-tdz=ok:ok:undefined/value:2\nclass-tdz=ok:TypeError/then:function\nextends-self=TypeError\nstatic-self=ok:ok-again\nparam-forward=ok:undefined,2\nparam-forward-supplied=ok:1,2\nparam-backward=ok:1,2\nparam-body-let=ReferenceError\nparam-body-let-supplied=ok:given/body\nblock-shadow=ok:ok:undefined|inner-value:inner|outer-value:outer\nloop=ok:ok:undefined:0|ok:ok:undefined:1|ok:ok:undefined:2\nswitch-0=ok:undefined\nswitch-1=declared:one\nswitch-2=none\nvar-hoisted=undefined/function/1\nnever-run=ok:no/yes",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5139,10 +5139,10 @@
 ,
 {
   "name": "claude2-date-setter-clamping-and-arity",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "setUTCFullYear_1 ret=1907749230400 iso=2030-06-15T10:20:30.400Z\nsetUTCFullYear_2 ret=1894702830400 iso=2030-01-15T10:20:30.400Z\nsetUTCFullYear_3 ret=1893579630400 iso=2030-01-02T10:20:30.400Z\nsetUTCMonth_1 ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nsetUTCMonth_2 ret=1706696430400 iso=2024-01-31T10:20:30.400Z\nsetUTCHours_1 ret=1718414430400 iso=2024-06-15T01:20:30.400Z\nsetUTCHours_4 ret=1718413323004 iso=2024-06-15T01:02:03.004Z\nsetUTCMinutes_3 ret=1718445662003 iso=2024-06-15T10:01:02.003Z\nsetUTCSeconds_2 ret=1718446801002 iso=2024-06-15T10:20:01.002Z\nsetUTCMilliseconds ret=1718446830999 iso=2024-06-15T10:20:30.999Z\nmonth12 ret=1736936430400 iso=2025-01-15T10:20:30.400Z\nmonth_neg1 ret=1702635630400 iso=2023-12-15T10:20:30.400Z\ndate0 ret=1717150830400 iso=2024-05-31T10:20:30.400Z\ndate32 ret=1719915630400 iso=2024-07-02T10:20:30.400Z\ndate_neg5 ret=1716718830400 iso=2024-05-26T10:20:30.400Z\nhours25 ret=1718500830400 iso=2024-06-16T01:20:30.400Z\nhours_neg1 ret=1718407230400 iso=2024-06-14T23:20:30.400Z\nms_huge ret=1718533230000 iso=2024-06-16T10:20:30.000Z\nseconds_neg ret=1718446799400 iso=2024-06-15T10:19:59.400Z\nnanMonth ret=NaN iso=Invalid\nnanThenDate ret=NaN iso=Invalid\nnanThenTime ret=0 iso=1970-01-01T00:00:00.000Z\nnanThenFullYear ret=946684800000 iso=2000-01-01T00:00:00.000Z\nstrMonth ret=1713176430400 iso=2024-04-15T10:20:30.400Z\nboolMonth ret=1707992430400 iso=2024-02-15T10:20:30.400Z\nobjMonth ret=1710498030400 iso=2024-03-15T10:20:30.400Z\nundefMonth ret=NaN iso=Invalid\nnullMonth ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nfracHours ret=1718421630400 iso=2024-06-15T03:20:30.400Z\nnoArgMonth ret=NaN iso=Invalid\narities=3,2,1,4,3,2,1,1\nreturnIsTime=true v=978307200000",
   "node": "setUTCFullYear_1 ret=1907749230400 iso=2030-06-15T10:20:30.400Z\nsetUTCFullYear_2 ret=1894702830400 iso=2030-01-15T10:20:30.400Z\nsetUTCFullYear_3 ret=1893579630400 iso=2030-01-02T10:20:30.400Z\nsetUTCMonth_1 ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nsetUTCMonth_2 ret=1706696430400 iso=2024-01-31T10:20:30.400Z\nsetUTCHours_1 ret=1718414430400 iso=2024-06-15T01:20:30.400Z\nsetUTCHours_4 ret=1718413323004 iso=2024-06-15T01:02:03.004Z\nsetUTCMinutes_3 ret=1718445662003 iso=2024-06-15T10:01:02.003Z\nsetUTCSeconds_2 ret=1718446801002 iso=2024-06-15T10:20:01.002Z\nsetUTCMilliseconds ret=1718446830999 iso=2024-06-15T10:20:30.999Z\nmonth12 ret=1736936430400 iso=2025-01-15T10:20:30.400Z\nmonth_neg1 ret=1702635630400 iso=2023-12-15T10:20:30.400Z\ndate0 ret=1717150830400 iso=2024-05-31T10:20:30.400Z\ndate32 ret=1719915630400 iso=2024-07-02T10:20:30.400Z\ndate_neg5 ret=1716718830400 iso=2024-05-26T10:20:30.400Z\nhours25 ret=1718500830400 iso=2024-06-16T01:20:30.400Z\nhours_neg1 ret=1718407230400 iso=2024-06-14T23:20:30.400Z\nms_huge ret=1718533230000 iso=2024-06-16T10:20:30.000Z\nseconds_neg ret=1718446799400 iso=2024-06-15T10:19:59.400Z\nnanMonth ret=NaN iso=Invalid\nnanThenDate ret=NaN iso=Invalid\nnanThenTime ret=0 iso=1970-01-01T00:00:00.000Z\nnanThenFullYear ret=946684800000 iso=2000-01-01T00:00:00.000Z\nstrMonth ret=1713176430400 iso=2024-04-15T10:20:30.400Z\nboolMonth ret=1707992430400 iso=2024-02-15T10:20:30.400Z\nobjMonth ret=1710498030400 iso=2024-03-15T10:20:30.400Z\nundefMonth ret=NaN iso=Invalid\nnullMonth ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nfracHours ret=1718421630400 iso=2024-06-15T03:20:30.400Z\nnoArgMonth ret=NaN iso=Invalid\narities=3,2,1,4,3,2,1,1\nreturnIsTime=true v=978307200000",
-  "rts": "setUTCFullYear_1 ret=1907749230400 iso=2030-06-15T10:20:30.400Z\nsetUTCFullYear_2 ret=1894702830400 iso=2030-01-15T10:20:30.400Z\nsetUTCFullYear_3 ret=1893579630400 iso=2030-01-02T10:20:30.400Z\nsetUTCMonth_1 ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nsetUTCMonth_2 ret=1706696430400 iso=2024-01-31T10:20:30.400Z\nsetUTCHours_1 ret=1718414430400 iso=2024-06-15T01:20:30.400Z\nsetUTCHours_4 ret=1718413323004 iso=2024-06-15T01:02:03.004Z\nsetUTCMinutes_3 ret=1718445662003 iso=2024-06-15T10:01:02.003Z\nsetUTCSeconds_2 ret=1718446801002 iso=2024-06-15T10:20:01.002Z\nsetUTCMilliseconds ret=1718446830999 iso=2024-06-15T10:20:30.999Z\nmonth12 ret=1736936430400 iso=2025-01-15T10:20:30.400Z\nmonth_neg1 ret=1702635630400 iso=2023-12-15T10:20:30.400Z\ndate0 ret=1717150830400 iso=2024-05-31T10:20:30.400Z\ndate32 ret=1719915630400 iso=2024-07-02T10:20:30.400Z\ndate_neg5 ret=1716718830400 iso=2024-05-26T10:20:30.400Z\nhours25 ret=1718500830400 iso=2024-06-16T01:20:30.400Z\nhours_neg1 ret=1718407230400 iso=2024-06-14T23:20:30.400Z\nms_huge ret=1718533230000 iso=2024-06-16T10:20:30.000Z\nseconds_neg ret=1718446799400 iso=2024-06-15T10:19:59.400Z\nnanMonth ret=NaN iso=Invalid\nnanThenDate ret=NaN iso=Invalid\nnanThenTime ret=0 iso=1970-01-01T00:00:00.000Z\nnanThenFullYear ret=946684800000 iso=2000-01-01T00:00:00.000Z\nstrMonth ret=1713176430400 iso=2024-04-15T10:20:30.400Z\nboolMonth ret=1707992430400 iso=2024-02-15T10:20:30.400Z\nobjMonth ret=1710498030400 iso=2024-03-15T10:20:30.400Z\nundefMonth ret=NaN iso=Invalid\nnullMonth ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nfracHours ret=1718421630400 iso=2024-06-15T03:20:30.400Z\nnoArgMonth ret=NaN iso=Invalid\narities=3,2,1,4,3,2,1,1\nreturnIsTime=true v=978307200000",
+  "rts": "setUTCFullYear_1 ret=1907749230400 iso=2030-06-15T10:20:30.400Z\nsetUTCFullYear_2 ret=1894702830400 iso=2030-01-15T10:20:30.400Z\nsetUTCFullYear_3 ret=1893579630400 iso=2030-01-02T10:20:30.400Z\nsetUTCMonth_1 ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nsetUTCMonth_2 ret=1706696430400 iso=2024-01-31T10:20:30.400Z\nsetUTCHours_1 ret=1718414430400 iso=2024-06-15T01:20:30.400Z\nsetUTCHours_4 ret=1718413323004 iso=2024-06-15T01:02:03.004Z\nsetUTCMinutes_3 ret=1718445662003 iso=2024-06-15T10:01:02.003Z\nsetUTCSeconds_2 ret=1718446801002 iso=2024-06-15T10:20:01.002Z\nsetUTCMilliseconds ret=1718446830999 iso=2024-06-15T10:20:30.999Z\nmonth12 ret=1736936430400 iso=2025-01-15T10:20:30.400Z\nmonth_neg1 ret=1702635630400 iso=2023-12-15T10:20:30.400Z\ndate0 ret=1717150830400 iso=2024-05-31T10:20:30.400Z\ndate32 ret=1719915630400 iso=2024-07-02T10:20:30.400Z\ndate_neg5 ret=1716718830400 iso=2024-05-26T10:20:30.400Z\nhours25 ret=1718500830400 iso=2024-06-16T01:20:30.400Z\nhours_neg1 ret=1718407230400 iso=2024-06-14T23:20:30.400Z\nms_huge ret=1718533230000 iso=2024-06-16T10:20:30.000Z\nseconds_neg ret=1718446799400 iso=2024-06-15T10:19:59.400Z\nnanMonth ret=NaN iso=Invalid\nnanThenDate ret=NaN iso=Invalid\nnanThenTime ret=0 iso=1970-01-01T00:00:00.000Z\nnanThenFullYear ret=946684800000 iso=2000-01-01T00:00:00.000Z\nstrMonth ret=1713176430400 iso=2024-04-15T10:20:30.400Z\nboolMonth ret=1707992430400 iso=2024-02-15T10:20:30.400Z\nobjMonth ret=1710498030400 iso=2024-03-15T10:20:30.400Z\nundefMonth ret=NaN iso=Invalid\nnullMonth ret=1705314030400 iso=2024-01-15T10:20:30.400Z\nfracHours ret=1718421630400 iso=2024-06-15T03:20:30.400Z\nnoArgMonth ret=NaN iso=2024-06-15T10:20:30.400Z\narities=3,2,1,4,3,2,1,1\nreturnIsTime=true v=978307200000",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6268,7 +6268,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: walk is not a function"
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: object is not a function"
 }
 ,
 {
@@ -7421,16 +7421,16 @@
 ,
 {
   "name": "claude-yield-star-forwards-next-throw-return",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1 g1a=o1:false\n2 g1b=i1:false\n3 g1c=i2:false\n4 g1d=o2:false\n5 g1e=outerReturn:true\n6 g1f=undefined:true\n7 trace1=outer got A|inner got B|inner got C|star produced innerReturn|outer got D\n8 g2a=i1:false\n9 g2b=i-recovered:false\n10 g2c=o-last:false\n11 g2d=outerDone:true\n12 trace2=inner caught RangeError|inner finally|star produced innerDone\n13 g3a=i1:false\n14 g3b=o-recovered:false\n15 g3c=outer3Done:true\n16 trace3=inner3 finally|outer3 caught TypeError\n17 g4a=i1:false\n18 g4b=closed:true\n19 g4c=undefined:true\n20 trace4=inner4 finally|outer4 finally\n21 g5a=10:false\n22 g5b=20:false\n23 g5c=arrayStar=undefined:true\n24 g6a=d1:false\n25 g6b=top:mid:deepReturn:true\n26 trace6=deep got through\nend",
   "node": "1 g1a=o1:false\n2 g1b=i1:false\n3 g1c=i2:false\n4 g1d=o2:false\n5 g1e=outerReturn:true\n6 g1f=undefined:true\n7 trace1=outer got A|inner got B|inner got C|star produced innerReturn|outer got D\n8 g2a=i1:false\n9 g2b=i-recovered:false\n10 g2c=o-last:false\n11 g2d=outerDone:true\n12 trace2=inner caught RangeError|inner finally|star produced innerDone\n13 g3a=i1:false\n14 g3b=o-recovered:false\n15 g3c=outer3Done:true\n16 trace3=inner3 finally|outer3 caught TypeError\n17 g4a=i1:false\n18 g4b=closed:true\n19 g4c=undefined:true\n20 trace4=inner4 finally|outer4 finally\n21 g5a=10:false\n22 g5b=20:false\n23 g5c=arrayStar=undefined:true\n24 g6a=d1:false\n25 g6b=top:mid:deepReturn:true\n26 trace6=deep got through\nend",
-  "rts": "1 g1a=o1:false\n2 g1b=i1:false\n3 g1c=i2:false\n4 g1d=o2:false\n5 g1e=outerReturn:true\n6 g1f=undefined:true\n7 trace1=outer got A|inner got B|inner got C|star produced innerReturn|outer got D\n8 g2a=i1:false\n9 g2b=i-recovered:false\n10 g2c=o-last:false\n11 g2d=outerDone:true\n12 trace2=inner caught RangeError|inner finally|star produced innerDone\n13 g3a=i1:false",
+  "rts": "1 g1a=o1:false\n2 g1b=i1:false\n3 g1c=i2:false\n4 g1d=o2:false\n5 g1e=outerReturn:true\n6 g1f=undefined:true\n7 trace1=outer got A|inner got B|inner got C|star produced innerReturn|outer got D\n8 g2a=i1:false\n9 g2b=i-recovered:false\n10 g2c=o-last:false\n11 g2d=outerDone:true\n12 trace2=inner caught RangeError|inner finally|star produced innerDone\n13 g3a=i1:false\n14 g3b=o-recovered:false\n15 g3c=outer3Done:true\n16 trace3=inner3 finally|outer3 caught TypeError\n17 g4a=i1:false\n18 g4b=closed:true\n19 g4c=undefined:true\n20 trace4=inner4 finally|outer4 finally\n21 g5a=10:false\n22 g5b=20:false\n23 g5c=arrayStar=undefined:true\n24 g6a=d1:false\n25 g6b=top:mid:deepReturn:true\n26 trace6=deep got through\nend",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: t"
+  "rts_error": ""
 }
 ,
 {
@@ -7449,16 +7449,16 @@
 ,
 {
   "name": "claude2-generator-reentrancy-is-a-typeerror",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "1 firstValue=after\n2 selfNext=TypeError\n3 stillAlive={\"value\":\"done\",\"done\":true}\n4 selfThrow=TypeError\n5 selfReturn=TypeError\n6 viaCallback=TypeError\n7 returnResult={\"value\":\"R\",\"done\":true}\n8 inFinally=TypeError\n9 driven=d:n1,d:n2\n10 targetLeftover={\"value\":\"n3\",\"done\":false}\n11 alternating=ping0,pong:0,ping1,pong:1,ping2,pong:2\n12 completedNext={\"done\":true} completedReturn={\"value\":\"q\",\"done\":true}\n13 nestedValue=caught outerReentry=TypeError\n14 g1Rest={\"done\":true}\n15 spread=1,2 inSpread=TypeError\n16 selfForOf=TypeError\n17 delegateValue=inner inDelegate=TypeError\nend",
   "node": "1 firstValue=after\n2 selfNext=TypeError\n3 stillAlive={\"value\":\"done\",\"done\":true}\n4 selfThrow=TypeError\n5 selfReturn=TypeError\n6 viaCallback=TypeError\n7 returnResult={\"value\":\"R\",\"done\":true}\n8 inFinally=TypeError\n9 driven=d:n1,d:n2\n10 targetLeftover={\"value\":\"n3\",\"done\":false}\n11 alternating=ping0,pong:0,ping1,pong:1,ping2,pong:2\n12 completedNext={\"done\":true} completedReturn={\"value\":\"q\",\"done\":true}\n13 nestedValue=caught outerReentry=TypeError\n14 g1Rest={\"done\":true}\n15 spread=1,2 inSpread=TypeError\n16 selfForOf=TypeError\n17 delegateValue=inner inDelegate=TypeError\nend",
-  "rts": "1 firstValue=after\n2 selfNext=TypeError\n3 stillAlive={\"value\":\"done\",\"done\":true}\n4 selfThrow=TypeError\n5 selfReturn=TypeError\n6 viaCallback=TypeError\n7 returnResult={\"value\":\"R\",\"done\":true}\n8 inFinally=TypeError\n9 driven=d:n1,d:n2\n10 targetLeftover={\"value\":\"n3\",\"done\":false}\n11 alternating=ping0,pong:0,ping1,pong:1,ping2,pong:2\n12 completedNext={\"done\":true} completedReturn={\"value\":\"q\",\"done\":true}\n13 nestedValue=caught outerReentry=TypeError\n14 g1Rest={\"done\":true}\n15 spread=1,2 inSpread=TypeError\n16 selfForOf=TypeError\n17 delegateValue=inner inDelegate=TypeError\nend",
+  "rts": "1 firstValue=after\n2 selfNext=TypeError\n3 stillAlive={\"value\":\"done\",\"done\":true}\n4 selfThrow=TypeError\n5 selfReturn=TypeError\n6 viaCallback=TypeError",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Generator is already running"
 }
 ,
 {
@@ -7715,16 +7715,16 @@
 ,
 {
   "name": "claude-for-of-close-without-return-method",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "1 1 trace=a:next1,a:next2\n2 2 trace=b:next1,b:next2,b:return:undefined\n3 3 caught=TypeError\n4 3 trace=c:next1\n5 4 caught=TypeError\n6 4 trace=d:next1,d:return\n7 5 caught=RangeError\n8 5 trace=e:next1,e:return\n9 6 caught=EvalError\n10 7 caught=URIError\n11 7 trace=g:next1,g:return\n12 8 reads=1 trace=h:next1,h:next2,h:return\n13 9 seen=1,2 trace=i:next1,i:next2,i:next3\n14 10 kept=2 trace=i:next1,i:next2,i:next3\n15 11 trace=j:next1,j:return\n16 12 trace=k:next1\nend",
   "node": "1 1 trace=a:next1,a:next2\n2 2 trace=b:next1,b:next2,b:return:undefined\n3 3 caught=TypeError\n4 3 trace=c:next1\n5 4 caught=TypeError\n6 4 trace=d:next1,d:return\n7 5 caught=RangeError\n8 5 trace=e:next1,e:return\n9 6 caught=EvalError\n10 7 caught=URIError\n11 7 trace=g:next1,g:return\n12 8 reads=1 trace=h:next1,h:next2,h:return\n13 9 seen=1,2 trace=i:next1,i:next2,i:next3\n14 10 kept=2 trace=i:next1,i:next2,i:next3\n15 11 trace=j:next1,j:return\n16 12 trace=k:next1\nend",
-  "rts": "1 1 trace=a:next1,a:next2\n2 2 trace=b:next1,b:next2,b:return:undefined\n3 3 caught=TypeError\n4 3 trace=c:next1\n5 4 caught=no\n6 4 trace=d:next1,d:return\n7 5 caught=RangeError\n8 5 trace=e:next1,e:return\n9 6 caught=EvalError\n10 7 caught=EvalError\n11 7 trace=g:next1,g:return\n12 8 reads=1 trace=h:next1,h:next2,h:return\n13 9 seen=1,2 trace=i:next1,i:next2,i:next3\n14 10 kept=2 trace=i:next1,i:next2,i:next3\n15 11 trace=j:next1,j:return\n16 12 trace=k:next1\nend",
+  "rts": "1 1 trace=a:next1,a:next2\n2 2 trace=b:next1,b:next2,b:return:undefined\n3 3 caught=TypeError\n4 3 trace=c:next1\n5 4 caught=no\n6 4 trace=d:next1,d:return\n7 5 caught=RangeError\n8 5 trace=e:next1,e:return\n9 6 caught=EvalError",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): EvalError: fromReturn"
 }
 ,
 {
@@ -7914,7 +7914,7 @@
   "status": "rts_diverge",
   "bun": "next_number_5_spread=TypeError pulls=1\nnext_string_\"s\"_spread=TypeError pulls=1\nnext_boolean_true_spread=TypeError pulls=1\nnext_null_spread=TypeError pulls=1\nnext_undefined_spread=TypeError pulls=1\nnext_number_0_spread=TypeError pulls=1\nnext_string_\"\"_spread=TypeError pulls=1\nnext_symbol_spread=TypeError pulls=1\nnext_bigint_spread=TypeError pulls=1\nforOf=TypeError pulls=1\narrayFrom=TypeError pulls=1\nnewSet=TypeError pulls=1\nnewMap=TypeError pulls=1\ndestructure=TypeError pulls=1\nyieldStar=TypeError pulls=1\nobjectSpreadIsNotIterable=ok:{} pulls=0\nmissingNext=TypeError pulls=0\nnonCallableNext=TypeError pulls=0\nprimitiveIterator=TypeError pulls=0\nnullIterator=TypeError pulls=0\nmissingDone=0,1,2 (undefined is falsy, so not done)\ngetterDone=0,1,2 reads=4 bounded=true\nthrowingDone=RangeError pulls=1\nlazyValue=2 valueReads=2\npromiseAll=TypeError",
   "node": "next_number_5_spread=TypeError pulls=1\nnext_string_\"s\"_spread=TypeError pulls=1\nnext_boolean_true_spread=TypeError pulls=1\nnext_null_spread=TypeError pulls=1\nnext_undefined_spread=TypeError pulls=1\nnext_number_0_spread=TypeError pulls=1\nnext_string_\"\"_spread=TypeError pulls=1\nnext_symbol_spread=TypeError pulls=1\nnext_bigint_spread=TypeError pulls=1\nforOf=TypeError pulls=1\narrayFrom=TypeError pulls=1\nnewSet=TypeError pulls=1\nnewMap=TypeError pulls=1\ndestructure=TypeError pulls=1\nyieldStar=TypeError pulls=1\nobjectSpreadIsNotIterable=ok:{} pulls=0\nmissingNext=TypeError pulls=0\nnonCallableNext=TypeError pulls=0\nprimitiveIterator=TypeError pulls=0\nnullIterator=TypeError pulls=0\nmissingDone=0,1,2 (undefined is falsy, so not done)\ngetterDone=0,1,2 reads=4 bounded=true\nthrowingDone=RangeError pulls=1\nlazyValue=2 valueReads=2\npromiseAll=TypeError",
-  "rts": "next_number_5_spread=TypeError pulls=1\nnext_string_\"s\"_spread=TypeError pulls=1\nnext_boolean_true_spread=TypeError pulls=1\nnext_null_spread=TypeError pulls=1\nnext_undefined_spread=TypeError pulls=1\nnext_number_0_spread=TypeError pulls=1\nnext_string_\"\"_spread=TypeError pulls=1\nnext_symbol_spread=TypeError pulls=1\nnext_bigint_spread=TypeError pulls=1\nforOf=TypeError pulls=1\narrayFrom=TypeError pulls=1\nnewSet=TypeError pulls=1\nnewMap=TypeError pulls=1\ndestructure=ok:undefined pulls=1\nyieldStar=ok:500 pulls=501\nobjectSpreadIsNotIterable=ok:{} pulls=0\nmissingNext=TypeError pulls=0\nnonCallableNext=TypeError pulls=0\nprimitiveIterator=TypeError pulls=0\nnullIterator=TypeError pulls=0\nmissingDone=0,1,2 (undefined is falsy, so not done)\ngetterDone=0,1,2 reads=4 bounded=true\nthrowingDone=RangeError pulls=1\nlazyValue=2 valueReads=0\npromiseAll=TypeError",
+  "rts": "next_number_5_spread=TypeError pulls=1\nnext_string_\"s\"_spread=TypeError pulls=1\nnext_boolean_true_spread=TypeError pulls=1\nnext_null_spread=TypeError pulls=1\nnext_undefined_spread=TypeError pulls=1\nnext_number_0_spread=TypeError pulls=1\nnext_string_\"\"_spread=TypeError pulls=1\nnext_symbol_spread=TypeError pulls=1\nnext_bigint_spread=TypeError pulls=1\nforOf=ok:500 pulls=501\narrayFrom=TypeError pulls=1\nnewSet=TypeError pulls=1\nnewMap=TypeError pulls=1\ndestructure=ok:undefined pulls=1\nyieldStar=ok:500 pulls=501\nobjectSpreadIsNotIterable=ok:{} pulls=0\nmissingNext=TypeError pulls=0\nnonCallableNext=TypeError pulls=0\nprimitiveIterator=TypeError pulls=0\nnullIterator=TypeError pulls=0\nmissingDone=0,1,2 (undefined is falsy, so not done)\ngetterDone=0,1,2 reads=4 bounded=true\nthrowingDone=RangeError pulls=1\nlazyValue=2 valueReads=0\npromiseAll=TypeError",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9507,10 +9507,10 @@
 ,
 {
   "name": "claude2-math-argument-coercion-table",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "abs | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:3\nsign | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-1 hex_string:1 bin_string:1 inf_string:1 bad_string:NaN empty_array:0 one_array:1 two_array:NaN plain_object:NaN date_like:1 string_only:-1\nfloor | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nceil | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\nround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\ntrunc | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nsqrt | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:NaN hex_string:4 bin_string:2.23606797749979 inf_string:Infinity bad_string:NaN empty_array:0 one_array:3 two_array:NaN plain_object:NaN date_like:2.7386127875258306 string_only:NaN\nclz32 | undefined:32 null:32 true:31 false:32 empty_string:32 space_string:32 num_string:0 hex_string:27 bin_string:29 inf_string:32 bad_string:32 empty_array:32 one_array:28 two_array:32 plain_object:32 date_like:29 string_only:0\nfround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:-3\ntoPrimitive_floor=12\ntoPrimitive_abs=12.7\nhints=number,number\npow=1024\npow_order=base,exp\natan2_sign=true\natan2_order=y,x\nimul=12\nimul_order=a,b\nhypot=5\nhypot_order=h1,h2\npow_throwing_exponent!RangeError\npow_throwing_base!RangeError\natan2_throwing_second!RangeError\nhypot_throwing_third!RangeError\nabs_throwing!RangeError\nimul_throwing_second!RangeError\ncoerced_before_throw=first,threw:RangeError\nabs_bigint!TypeError\nfloor_bigint!TypeError\nmax_bigint!TypeError\nclz32_bigint!TypeError\nabs_symbol!TypeError\ntrunc_symbol!TypeError\nabs_extra_args=1\nsqrt_extra_args=4",
   "node": "abs | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:3\nsign | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-1 hex_string:1 bin_string:1 inf_string:1 bad_string:NaN empty_array:0 one_array:1 two_array:NaN plain_object:NaN date_like:1 string_only:-1\nfloor | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nceil | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\nround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\ntrunc | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nsqrt | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:NaN hex_string:4 bin_string:2.23606797749979 inf_string:Infinity bad_string:NaN empty_array:0 one_array:3 two_array:NaN plain_object:NaN date_like:2.7386127875258306 string_only:NaN\nclz32 | undefined:32 null:32 true:31 false:32 empty_string:32 space_string:32 num_string:0 hex_string:27 bin_string:29 inf_string:32 bad_string:32 empty_array:32 one_array:28 two_array:32 plain_object:32 date_like:29 string_only:0\nfround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:-3\ntoPrimitive_floor=12\ntoPrimitive_abs=12.7\nhints=number,number\npow=1024\npow_order=base,exp\natan2_sign=true\natan2_order=y,x\nimul=12\nimul_order=a,b\nhypot=5\nhypot_order=h1,h2\npow_throwing_exponent!RangeError\npow_throwing_base!RangeError\natan2_throwing_second!RangeError\nhypot_throwing_third!RangeError\nabs_throwing!RangeError\nimul_throwing_second!RangeError\ncoerced_before_throw=first,threw:RangeError\nabs_bigint!TypeError\nfloor_bigint!TypeError\nmax_bigint!TypeError\nclz32_bigint!TypeError\nabs_symbol!TypeError\ntrunc_symbol!TypeError\nabs_extra_args=1\nsqrt_extra_args=4",
-  "rts": "abs | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:3\nsign | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-1 hex_string:1 bin_string:1 inf_string:1 bad_string:NaN empty_array:0 one_array:1 two_array:NaN plain_object:NaN date_like:1 string_only:-1\nfloor | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nceil | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\nround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\ntrunc | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nsqrt | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:NaN hex_string:4 bin_string:2.23606797749979 inf_string:Infinity bad_string:NaN empty_array:0 one_array:3 two_array:NaN plain_object:NaN date_like:2.7386127875258306 string_only:NaN\nclz32 | undefined:32 null:32 true:31 false:32 empty_string:32 space_string:32 num_string:0 hex_string:27 bin_string:29 inf_string:32 bad_string:32 empty_array:32 one_array:28 two_array:32 plain_object:32 date_like:29 string_only:0\nfround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:-3\ntoPrimitive_floor=12\ntoPrimitive_abs=12.7\nhints=number,number\npow=1024\npow_order=base,exp\natan2_sign=true\natan2_order=y,x\nimul=12\nimul_order=a,b\nhypot=5\nhypot_order=h1,h2\npow_throwing_exponent!RangeError\npow_throwing_base!RangeError\natan2_throwing_second!RangeError\nhypot_throwing_third!RangeError\nabs_throwing!RangeError\nimul_throwing_second!RangeError\ncoerced_before_throw=first,threw:RangeError\nabs_bigint!TypeError\nfloor_bigint!TypeError\nmax_bigint!TypeError\nclz32_bigint!TypeError\nabs_symbol!TypeError\ntrunc_symbol!TypeError\nabs_extra_args=1\nsqrt_extra_args=4",
+  "rts": "abs | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:3\nsign | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-1 hex_string:1 bin_string:1 inf_string:1 bad_string:NaN empty_array:0 one_array:1 two_array:NaN plain_object:NaN date_like:1 string_only:-1\nfloor | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nceil | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\nround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:8 string_only:-3\ntrunc | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7 string_only:-3\nsqrt | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:NaN hex_string:4 bin_string:2.23606797749979 inf_string:Infinity bad_string:NaN empty_array:0 one_array:3 two_array:NaN plain_object:NaN date_like:2.7386127875258306 string_only:NaN\nclz32 | undefined:32 null:32 true:31 false:32 empty_string:32 space_string:32 num_string:0 hex_string:27 bin_string:29 inf_string:32 bad_string:32 empty_array:32 one_array:28 two_array:32 plain_object:32 date_like:29 string_only:0\nfround | undefined:NaN null:0 true:1 false:0 empty_string:0 space_string:0 num_string:-4.5 hex_string:16 bin_string:5 inf_string:Infinity bad_string:NaN empty_array:0 one_array:9 two_array:NaN plain_object:NaN date_like:7.5 string_only:-3\ntoPrimitive_floor=12\ntoPrimitive_abs=12.7\nhints=number,number\npow=1024\npow_order=base,exp\natan2_sign=true\natan2_order=y,x\nimul=12\nimul_order=a,b\nhypot=5\nhypot_order=h1,h2\npow_throwing_exponent!RangeError\npow_throwing_base!RangeError\natan2_throwing_second!RangeError\nhypot_throwing_third!RangeError\nabs_throwing!RangeError\nimul_throwing_second!RangeError\ncoerced_before_throw=first,threw:RangeError\nabs_bigint!TypeError\nfloor_bigint!TypeError\nmax_bigint!TypeError\nclz32_bigint!TypeError\nabs_symbol=NaN\ntrunc_symbol=NaN\nabs_extra_args=1\nsqrt_extra_args=4",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -11565,16 +11565,16 @@
 ,
 {
   "name": "obf_arrays_higher_order_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
-  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11607,16 +11607,16 @@
 ,
 {
   "name": "obf_arrays_higher_order_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
   "node": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
-  "rts": "1,2,3,4,5|1,2,3,4,5|35|3|4|1,2,3|1,10,2,20|3|false|[1,null,3]|3|0,2,4|7,8|a-b-c|1,2,3|3,2,1|1,9,3|3|odd,even|135|true|-1|17",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11635,16 +11635,16 @@
 ,
 {
   "name": "obf_closures_scope_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "0,3,6,9|12|inner|outer|12|3:2",
   "node": "0,3,6,9|12|inner|outer|12|3:2",
-  "rts": "0,3,6,9|12|inner|outer|12|3:2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11677,16 +11677,16 @@
 ,
 {
   "name": "obf_closures_scope_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "0,3,6,9|12|inner|outer|12|3:2",
   "node": "0,3,6,9|12|inner|outer|12|3:2",
-  "rts": "0,3,6,9|12|inner|outer|12|3:2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11705,16 +11705,16 @@
 ,
 {
   "name": "obf_control_flow_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
-  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11747,16 +11747,16 @@
 ,
 {
   "name": "obf_control_flow_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
   "node": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
-  "rts": "00|01|10|11|20|21|zootd|fin0|fin1|RangeError|ok1|dflt||falsy|truthy|8",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11775,16 +11775,16 @@
 ,
 {
   "name": "obf_destructure_spread_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
-  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11817,16 +11817,16 @@
 ,
 {
   "name": "obf_destructure_spread_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
   "node": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
-  "rts": "1|9|{\"c\":3,\"d\":4}|1|7|4,5|3|14|dyn1,dyn2|3|1+2+3|1|2.3|k1,j2|k=1|j=2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11845,16 +11845,16 @@
 ,
 {
   "name": "obf_errors_throw_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
   "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
-  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11887,16 +11887,16 @@
 ,
 {
   "name": "obf_errors_throw_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
   "node": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
-  "rts": "AppError|bad|42|true|true|f1|f2|f1|f2|RangeError:wrapped:inner|no|root|TypeError|TypeError|SyntaxError|caught,ok",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11915,16 +11915,16 @@
 ,
 {
   "name": "obf_generators_async_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
   "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
-  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11957,16 +11957,16 @@
 ,
 {
   "name": "obf_generators_async_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
   "node": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
-  "rts": "pre|got:iend|i1,i2,o1|{\"value\":\"i1\",\"done\":false}|{\"value\":\"i2\",\"done\":false}|{\"value\":\"iend\",\"done\":true}|{\"done\":true}|0|3|6|genfin|{\"value\":\"bye\",\"done\":true}|0+1+2|m0",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -11985,16 +11985,16 @@
 ,
 {
   "name": "obf_getters_proxy_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
   "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
-  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12013,16 +12013,16 @@
 ,
 {
   "name": "obf_getters_proxy_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
   "node": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
-  "rts": "50|5|_v,v|function|function|true|g:a,s:b,h:a|2|2,z,a|up|own|up|1|2|2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12041,16 +12041,16 @@
 ,
 {
   "name": "obf_numbers_ops_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
   "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
-  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12083,16 +12083,16 @@
 ,
 {
   "name": "obf_numbers_ops_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
   "node": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
-  "rts": "0.30000000000000004|0.30|Infinity|-Infinity|NaN|2|-2|1024|3|15|2|-8|32|-4|15|10|52|52|3.5|-2||[object Object]|1|NaN|true|false|false|9|2|ff|255|5|true|9007199254740991|12|7",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12111,16 +12111,16 @@
 ,
 {
   "name": "obf_objects_meta_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
   "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
-  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12153,16 +12153,16 @@
 ,
 {
   "name": "obf_objects_meta_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
   "node": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
-  "rts": "1,2,b,a|1,2,b,a|9|{\"value\":9,\"writable\":false,\"enumerable\":false,\"configurable\":false}|false|1|true|plain|s|1|v|{\"n\":[1,{\"d\":true}],\"s\":null}|z1y2",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12181,16 +12181,16 @@
 ,
 {
   "name": "obf_proto_classes_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
   "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
-  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot set property undefined of #<Object> which has only a getter"
 }
 ,
 {
@@ -12223,16 +12223,16 @@
 ,
 {
   "name": "obf_proto_classes_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
   "node": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
-  "rts": "shape:circle:3|C<Shape>|true|true|true|hi you|who|42",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12251,16 +12251,16 @@
 ,
 {
   "name": "obf_strings_regex_everything",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
   "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
-  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -12293,16 +12293,16 @@
 ,
 {
   "name": "obf_strings_regex_strings",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
   "node": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
-  "rts": "QUICK|3-5-5-3|quick The Brown fox|The quick Br[12]wn f[17]x|Brown|0,10|a#b#c/1+2|---abc|c|{\"q\":\"he said \\\"hi\\\"\",\"n\":\"\\n\"}",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: undefined is not a function"
 }
 ,
 {
@@ -13542,7 +13542,7 @@
   "status": "rts_diverge",
   "bun": "read_index=20|get:1\nread_length=3|get:length\nwrite_in_range=99|set:0=99,def:0\nwrite_past_end=6:undefined|set:5=1,def:5\nshrink_length=10|set:length=1,def:length\ndelete_index=3:undefined|del:1\npush=10/20/30/40|get:length,set:3=40,def:3,set:length=4,def:length\npop=30:10/20|get:length,get:2,del:2,set:length=2,def:length\njoin=10-20-30|get:length,get:0,get:1,get:2\nindex_of=1|get:length,has:0,get:0,has:1,get:1\nfor_of=10/20/30|get:Symbol(Symbol.iterator),get:length,get:0,get:length,get:1,get:length,get:2,get:length\nspread_array=10/20/30|get:Symbol(Symbol.iterator),get:length,get:0,get:length,get:1,get:length,get:2,get:length\nconcat=10/20/30|get:Symbol(Symbol.isConcatSpreadable),get:length,has:0,get:0,has:1,get:1,has:2,get:2\nhole_has=true,value=INVENTED\nhole_map=1/INVENTED/3\nhole_target_map=3\nlie_length=2\nlie_join=1,2\nlie_slice=1,2\nlie_isArray=true\nlie_ownKeys=0|1|2|3|4|length\nshrink_guarded=false\nguarded_len=2,contents=1/2\nslice_is_array=true,proto=true\nnested_json=[[1,2],{\"a\":1}]",
   "node": "read_index=20|get:1\nread_length=3|get:length\nwrite_in_range=99|set:0=99,def:0\nwrite_past_end=6:undefined|set:5=1,def:5\nshrink_length=10|set:length=1,def:length\ndelete_index=3:undefined|del:1\npush=10/20/30/40|get:length,set:3=40,def:3,set:length=4,def:length\npop=30:10/20|get:length,get:2,del:2,set:length=2,def:length\njoin=10-20-30|get:length,get:0,get:1,get:2\nindex_of=1|get:length,has:0,get:0,has:1,get:1\nfor_of=10/20/30|get:Symbol(Symbol.iterator),get:length,get:0,get:length,get:1,get:length,get:2,get:length\nspread_array=10/20/30|get:Symbol(Symbol.iterator),get:length,get:0,get:length,get:1,get:length,get:2,get:length\nconcat=10/20/30|get:Symbol(Symbol.isConcatSpreadable),get:length,has:0,get:0,has:1,get:1,has:2,get:2\nhole_has=true,value=INVENTED\nhole_map=1/INVENTED/3\nhole_target_map=3\nlie_length=2\nlie_join=1,2\nlie_slice=1,2\nlie_isArray=true\nlie_ownKeys=0|1|2|3|4|length\nshrink_guarded=false\nguarded_len=2,contents=1/2\nslice_is_array=true,proto=true\nnested_json=[[1,2],{\"a\":1}]",
-  "rts": "read_index=20|get:1\nread_length=3|get:length\nwrite_in_range=99|set:0=99,def:0\nwrite_past_end=6:undefined|set:5=1,def:5\nshrink_length=10|set:length=1,def:length\ndelete_index=3:undefined|del:1\npush=10/20/30/40|get:length,set:3=40,def:3,set:length=4,def:length\npop=30:10/20|get:length,get:2,del:2,set:length=2,def:length\njoin=10-20-30|get:length,get:0,get:1,get:2\nindex_of=1|get:length,has:0,get:0,has:1,get:1\nfor_of=10/20/30|get:@@iterator,get:@@iterator,get:length,get:0,get:length,get:1,get:length,get:2,get:length\nspread_array=10/20/30|get:@@iterator,get:length,get:0,get:length,get:1,get:length,get:2,get:length\nconcat=10/20/30|get:length,get:0,get:1,get:2\nhole_has=true,value=INVENTED\nhole_map=1/INVENTED/3\nhole_target_map=3\nlie_length=2\nlie_join=1,2\nlie_slice=1,2\nlie_isArray=true\nlie_ownKeys=0|1|2|3|4|length\nshrink_guarded=false\nguarded_len=2,contents=1/2\nslice_is_array=true,proto=true\nnested_json=[{\"0\":1,\"1\":2},{\"a\":1}]",
+  "rts": "read_index=20|get:1\nread_length=3|get:length\nwrite_in_range=99|set:0=99,def:0\nwrite_past_end=6:undefined|set:5=1,def:5\nshrink_length=10|set:length=1,def:length\ndelete_index=3:undefined|del:1\npush=10/20/30/40|get:length,set:3=40,def:3,set:length=4,def:length\npop=30:10/20|get:length,get:2,del:2,set:length=2,def:length\njoin=10-20-30|get:length,get:0,get:1,get:2\nindex_of=1|get:length,has:0,get:0,has:1,get:1\nfor_of=10/20/30|get:@@iterator,get:length,get:0,get:length,get:1,get:length,get:2,get:length\nspread_array=10/20/30|get:@@iterator,get:length,get:0,get:length,get:1,get:length,get:2,get:length\nconcat=10/20/30|get:length,get:0,get:1,get:2\nhole_has=true,value=INVENTED\nhole_map=1/INVENTED/3\nhole_target_map=3\nlie_length=2\nlie_join=1,2\nlie_slice=1,2\nlie_isArray=true\nlie_ownKeys=0|1|2|3|4|length\nshrink_guarded=false\nguarded_len=2,contents=1/2\nslice_is_array=true,proto=true\nnested_json=[{\"0\":1,\"1\":2},{\"a\":1}]",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -13850,7 +13850,7 @@
   "status": "rts_error",
   "bun": "index_read=20|get:1\nindex_write=true,target=99|set:0\nout_of_range_write=true,len=3|set:9\nownKeys=0|1|2|ownKeys\nkeys=0|1|2\nhas_index=true,has_missing=false\nlength=throw:TypeError\nbyteLength=throw:TypeError\nbyteOffset=throw:TypeError\nbuffer=throw:TypeError\niterate=throw:TypeError\njoin=throw:TypeError\nsubarray=throw:TypeError\nset_method=throw:TypeError\narray_from=throw:TypeError\ngeneric_join=99-20-30\ngeneric_slice=99-20-30\ngeneric_map=100-21-31\nisView=false\nisView_target=true\nisArray=false\ntag=[object Object]\ntag_target=[object Uint8Array]\ninstanceof=true\nproto=true\ndefine_index=true\ndefine_index_value=7\ndefine_out_of_range=false\ndelete_index=false,still=99\nnamed_prop=true,read=N\njson={\"0\":99,\"1\":7,\"2\":30,\"note\":\"N\"}\njson_target={\"0\":99,\"1\":7,\"2\":30,\"note\":\"N\"}\ndataview_get=throw:TypeError\ndataview_via_target=42\ndataview_isView=false",
   "node": "index_read=20|get:1\nindex_write=true,target=99|set:0\nout_of_range_write=true,len=3|set:9\nownKeys=0|1|2|ownKeys\nkeys=0|1|2\nhas_index=true,has_missing=false\nlength=throw:TypeError\nbyteLength=throw:TypeError\nbyteOffset=throw:TypeError\nbuffer=throw:TypeError\niterate=throw:TypeError\njoin=throw:TypeError\nsubarray=throw:TypeError\nset_method=throw:TypeError\narray_from=throw:TypeError\ngeneric_join=99-20-30\ngeneric_slice=99-20-30\ngeneric_map=100-21-31\nisView=false\nisView_target=true\nisArray=false\ntag=[object Object]\ntag_target=[object Uint8Array]\ninstanceof=true\nproto=true\ndefine_index=true\ndefine_index_value=7\ndefine_out_of_range=false\ndelete_index=false,still=99\nnamed_prop=true,read=N\njson={\"0\":99,\"1\":7,\"2\":30,\"note\":\"N\"}\njson_target={\"0\":99,\"1\":7,\"2\":30,\"note\":\"N\"}\ndataview_get=throw:TypeError\ndataview_via_target=42\ndataview_isView=false",
-  "rts": "index_read=20|get:1\nindex_write=true,target=10|set:0\nout_of_range_write=true,len=3|set:9\nownKeys=0|9|byteLength|byteOffset|length|buffer|ownKeys\nkeys=0|9|byteLength|byteOffset|length|buffer\nhas_index=false,has_missing=false\nlength=3\nbyteLength=3\nbyteOffset=0\nbuffer=object\niterate=0\njoin=undefined\nsubarray=throw:TypeError\nset_method=ok\narray_from=throw:TypeError",
+  "rts": "index_read=20|get:1\nindex_write=true,target=10|set:0\nout_of_range_write=true,len=3|set:9\nownKeys=0|9|byteLength|byteOffset|length|buffer|ownKeys\nkeys=0|9|byteLength|byteOffset|length|buffer\nhas_index=false,has_missing=false\nlength=3\nbyteLength=3\nbyteOffset=0\nbuffer=object\niterate=throw:TypeError\njoin=undefined\nsubarray=throw:TypeError\nset_method=ok\narray_from=throw:TypeError",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
@@ -18333,10 +18333,10 @@
   "rts": "ok: for_of=ok(v0,v1) spread_array=ok(v0,v1) spread_call=ok(v0,v1) destructure=ok(v0,v1) array_from=ok(v0,v1) new_set=ok(v0,v1) yield_star=ok(v0,v1) object_fromEntries=ok()\nmissing: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=ok(a,b) new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nundefined: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=ok(a,b) new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nnull: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=TypeError new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nnumber: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=TypeError new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nobject: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=TypeError new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nreturns_primitive: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=TypeError new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nreturns_null: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=TypeError new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nno_next: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=TypeError new_set=TypeError yield_star=TypeError object_fromEntries=TypeError\nnext_not_callable: for_of=TypeError spread_array=TypeError spread_call=TypeError destructure=TypeError array_from=TypeError new_set=TypeError yield_star=TypeError object_fromEntries=TypeError",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 124,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "timeout apos 10s"
+  "rts_error": "rts: heap exhausted — the region grew to its whole reservation of 524288 cells and all of them are in use even after a collection.\n     Nothing left to reclaim, and the program cannot continue.\n     What would have happened instead is `undefined` from the allocation, which computes a wrong answer quietly."
 }
 ,
 {
@@ -19167,16 +19167,16 @@
 ,
 {
   "name": "400_eval_scope_edges",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "local:missing\n7",
   "node": "local:missing\n7",
-  "rts": "local:missing\n7",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: x is not defined"
 }
 ,
 {
@@ -19769,16 +19769,16 @@
 ,
 {
   "name": "claude2-for-of-throw-closes-iterator",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "body_throws=caught:RangeError\nbody_throws_log=body.next body.next body.return\nboth_throw=caught:RangeError\nboth_throw_log=both.next both.return\nbreak_throwing_return=caught:TypeError\nbreak_throwing_return_log=brk.next brk.return\nnext_throws=caught:RangeError\nnext_throws_log=nx.next body:1 nx.next\ngen_body_throws=caught:RangeError\ngen_body_throws_log=body1,gen-finally\ngen_after_throw=gen-finally,outer:RangeError|done=true\nbody_vs_finally=caught:RangeError\nbreak_vs_finally=caught:TypeError\npattern_throws=caught:RangeError\npattern_throws_log=pat.next body:1 pat.next pat.return\nbody_finally_order=caught:RangeError\nbody_finally_order_log=ord.next body-finally ord.return\nbad_iterable=caught:TypeError\nnot_iterable=caught:TypeError|entered=false\nnested_close=caught:RangeError\nnested_close_log=O.next I.next I.return O.return",
   "node": "body_throws=caught:RangeError\nbody_throws_log=body.next body.next body.return\nboth_throw=caught:RangeError\nboth_throw_log=both.next both.return\nbreak_throwing_return=caught:TypeError\nbreak_throwing_return_log=brk.next brk.return\nnext_throws=caught:RangeError\nnext_throws_log=nx.next body:1 nx.next\ngen_body_throws=caught:RangeError\ngen_body_throws_log=body1,gen-finally\ngen_after_throw=gen-finally,outer:RangeError|done=true\nbody_vs_finally=caught:RangeError\nbreak_vs_finally=caught:TypeError\npattern_throws=caught:RangeError\npattern_throws_log=pat.next body:1 pat.next pat.return\nbody_finally_order=caught:RangeError\nbody_finally_order_log=ord.next body-finally ord.return\nbad_iterable=caught:TypeError\nnot_iterable=caught:TypeError|entered=false\nnested_close=caught:RangeError\nnested_close_log=O.next I.next I.return O.return",
-  "rts": "body_throws=caught:RangeError\nbody_throws_log=body.next body.next body.return\nboth_throw=caught:TypeError\nboth_throw_log=both.next both.return\nbreak_throwing_return=caught:TypeError\nbreak_throwing_return_log=brk.next brk.return\nnext_throws=caught:RangeError\nnext_throws_log=nx.next body:1 nx.next nx.return\ngen_body_throws=caught:RangeError\ngen_body_throws_log=body1,gen-finally\ngen_after_throw=gen-finally,outer:RangeError|done=true\nbody_vs_finally=caught:TypeError\nbreak_vs_finally=caught:TypeError\npattern_throws=caught:RangeError\npattern_throws_log=pat.next body:1 pat.next pat.return\nbody_finally_order=caught:RangeError\nbody_finally_order_log=ord.next body-finally ord.return\nbad_iterable=caught:TypeError\nnot_iterable=caught:TypeError|entered=false\nnested_close=caught:RangeError\nnested_close_log=O.next I.next I.return O.return",
+  "rts": "body_throws=caught:RangeError\nbody_throws_log=body.next body.next body.return",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: return failed"
 }
 ,
 {
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1294,"reachable":1515,"rts_diverge":170,"bun_node_diverge":0,"errors":51,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1267,"reachable":1515,"rts_diverge":170,"bun_node_diverge":0,"errors":78,"rejected":0,"upstream_defect":1}}
