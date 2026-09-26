@@ -166,16 +166,20 @@ impl Resolution {
             })
     }
 
-    /// Records which of `declarations` is used only as the callee of a direct call.
+    /// Records which of `declarations` nothing writes.
     ///
     /// The lowering substitutes such a function's calls the way it does a `const`
-    /// arrow's (`lower/substitute.rs`), and what makes that sound is what this
-    /// establishes: nothing writes the binding, so the function a call names is the one
-    /// declared. A write is a use that is not a call, which is why "every use is a call"
-    /// is the whole test -- over-strict for a function also read as a value, which only
-    /// keeps its calls calls. It is NOT folded as an arrow is: its body has its own
-    /// `arguments` and `this`, which only the lowering can spell, so it stays a function.
-    pub(super) fn settle_only_called(&mut self, declarations: &[BindingId], references: &[Reference]) {
+    /// arrow's (`lower/substitute.rs`), and this is what makes that sound: the binding
+    /// holds the function declared, from the top of its function to the end. A write is
+    /// an assignment, an update, a pattern's leaf or a loop head's target -- each
+    /// recorded as one by the walk -- or Annex B's block-level declaration of the same
+    /// name, which writes the function's own binding when it is evaluated. A direct
+    /// `eval` could write it too, by name; the MIR door declines any body that mentions
+    /// one.
+    ///
+    /// It is NOT folded as an arrow is: its body has its own `arguments` and `this`,
+    /// which only the lowering can spell, so it stays a function.
+    pub(super) fn settle_never_written(&mut self, declarations: &[BindingId], references: &[Reference]) {
         for &declared in declarations {
             let record = self.binding(declared);
             let (name, scope) = (record.name, record.scope);
@@ -184,20 +188,22 @@ impl Resolution {
                 .bindings
                 .iter()
                 .all(|held| *held == declared || self.binding(*held).name != name);
-            let called = references
-                .iter()
-                .filter(|held| held.name == name && self.binding_in(held.scope, held.name) == Some(declared))
-                .all(|held| held.called);
-            if alone && called {
-                self.only_called.insert(declared);
+            let annexed = self.annex.values().any(|held| *held == declared);
+            let written = references.iter().any(|held| {
+                held.written
+                    && held.name == name
+                    && self.binding_in(held.scope, held.name) == Some(declared)
+            });
+            if alone && !annexed && !written {
+                self.never_written.insert(declared);
             }
         }
     }
 
-    /// Whether `binding` is a function declaration only ever called -- so a call to it
+    /// Whether `binding` is a function declaration nothing writes -- so a call to it
     /// calls the function declared.
-    pub fn only_called(&self, binding: BindingId) -> bool {
-        self.only_called.contains(&binding)
+    pub fn never_written(&self, binding: BindingId) -> bool {
+        self.never_written.contains(&binding)
     }
 
     /// Whether `scope` is `outer` or written inside it.

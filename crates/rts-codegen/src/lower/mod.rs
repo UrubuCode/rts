@@ -410,7 +410,7 @@ struct Lowering<'a> {
     /// Parallel to `substituting`: the parameters whose argument was a name of a local
     /// substitute, so a call of the parameter substitutes that -- `substitute.rs`.
     aliases: Vec<BTreeMap<Name, BindingId>>,
-    /// The `const` arrows and only-called declarations of this function a direct call
+    /// The `const` arrows and unwritten declarations of this function a direct call
     /// may be substituted for, and the scope each was written in -- `substitute.rs`.
     local_arrows: BTreeMap<BindingId, (Substitute, ScopeId)>,
     /// `this` for each body being substituted, parallel to `substituting`.

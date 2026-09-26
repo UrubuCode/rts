@@ -580,6 +580,7 @@ fn substitutes(
             name,
             crate::lower::Substitute {
                 parameters: candidate.parameters.clone(),
+                defaults: Vec::new(),
                 body: candidate.body.clone(),
                 counts_arguments,
                 reads_this: false,
@@ -627,6 +628,7 @@ fn methods(
             (receiver, method),
             crate::lower::Substitute {
                 parameters: candidate.parameters.clone(),
+                defaults: Vec::new(),
                 body: candidate.body.clone(),
                 counts_arguments: false,
                 reads_this: true,

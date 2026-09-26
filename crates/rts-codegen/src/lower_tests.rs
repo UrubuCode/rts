@@ -2751,6 +2751,7 @@ fn a_substituted_call_is_its_body_over_the_argument_values() {
     };
     let substitute = super::Substitute {
         parameters: vec![names.intern("x"), names.intern("y")],
+        defaults: Vec::new(),
         body: answer.clone(),
         counts_arguments: false,
         reads_this: false,

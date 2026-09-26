@@ -36,6 +36,10 @@ use crate::syntax::{Expr, Spreadable};
 pub struct Substitute {
     /// Its parameters, in order.
     pub parameters: Vec<Name>,
+    /// Each parameter's default, by position; shorter than `parameters` where the rest
+    /// have none. Applied where the argument is missing or `undefined`, in order, so a
+    /// default reads the parameters before it with their defaults applied.
+    pub defaults: Vec<Option<Expr>>,
     /// The one expression it answers.
     pub body: Expr,
     /// That it is `(...rest) => rest.length`: the answer is how many arguments were
@@ -185,12 +189,37 @@ impl Lowering<'_> {
         let mut bound = std::collections::BTreeMap::new();
         let mut aliases = std::collections::BTreeMap::new();
         for (at, parameter) in substitute.parameters.iter().enumerate() {
-            let value = match values.get(at) {
-                Some(held) => *held,
-                None => self.singleton_at(crate::values::Singleton::Undefined, &substitute.body),
+            let default = substitute.defaults.get(at).and_then(Option::as_ref);
+            let value = match (values.get(at), default) {
+                (Some(held), None) => *held,
+                (None, None) => self.singleton_at(crate::values::Singleton::Undefined, &substitute.body),
+                // WITH THE PARAMETERS BEFORE IT IN FORCE, which is what a default reads.
+                (arrived, Some(default)) => {
+                    self.substituting.push((name, bound.clone()));
+                    self.aliases.push(aliases.clone());
+                    self.substituted_this.push(this);
+                    let applied = match arrived {
+                        None => self.expression(default),
+                        // `p === undefined ? default : p`, the language's own definition.
+                        Some(held) => {
+                            let undefined = self.singleton_at(crate::values::Singleton::Undefined, default);
+                            let absent =
+                                self.prim(crate::domain::JsPrim::StrictEquals, vec![*held, undefined], default);
+                            self.choice(
+                                absent,
+                                super::choice::Arm::Eval(default),
+                                super::choice::Arm::Subject(*held),
+                            )
+                        }
+                    };
+                    self.substituting.pop();
+                    self.aliases.pop();
+                    self.substituted_this.pop();
+                    applied?
+                }
             };
             bound.insert(*parameter, value);
-            match named.get(at).copied().flatten() {
+            match named.get(at).copied().flatten().filter(|_| default.is_none()) {
                 Some(aliased) => aliases.insert(*parameter, aliased),
                 // A LATER parameter of the same spelling is the one the body reads.
                 None => aliases.remove(parameter),
@@ -218,8 +247,8 @@ impl Lowering<'_> {
         self.remember_local(name, function);
     }
 
-    /// Remembers a function DECLARED at the top of this one and only ever called --
-    /// `names::resolve::Resolution::only_called` -- for [`Self::substituted`].
+    /// Remembers a function DECLARED at the top of this one that nothing writes --
+    /// `names::resolve::Resolution::never_written` -- for [`Self::substituted`].
     ///
     /// Not an arrow, so its `arguments` is its own: a body reading that name is left a
     /// call, since substituted it would read the caller's. Its `this` needs no check,
@@ -228,7 +257,7 @@ impl Lowering<'_> {
         let Some(binding) = self.resolution.binding_in(self.scope, name) else {
             return;
         };
-        if !self.resolution.only_called(binding) {
+        if !self.resolution.never_written(binding) {
             return;
         }
         if let Some(body) = single_expression(function) {
@@ -249,14 +278,27 @@ impl Lowering<'_> {
             return;
         }
         let mut parameters = Vec::with_capacity(function.parameters.len());
+        let mut defaults = Vec::with_capacity(function.parameters.len());
         for parameter in &function.parameters {
             let crate::syntax::Pattern::Name(held) = parameter.target else {
                 return;
             };
-            if parameter.default.is_some() {
-                return;
+            // A DEFAULT reads the parameters before it and not its own or a later one,
+            // which the language leaves in their temporal dead zone -- a read the
+            // substitution would answer with a value instead of raising.
+            if let Some(default) = &parameter.default {
+                let mut read = Vec::new();
+                names_read(default, &mut read);
+                let later = function.parameters[parameters.len()..].iter().filter_map(|held| match held.target {
+                    crate::syntax::Pattern::Name(name) => Some(name),
+                    _ => None,
+                });
+                if !substitutable(default) || later.into_iter().any(|name| read.contains(&name)) {
+                    return;
+                }
             }
             parameters.push(held);
+            defaults.push(parameter.default.clone());
         }
         let Some(body) = single_expression(function).cloned() else {
             return;
@@ -272,6 +314,7 @@ impl Lowering<'_> {
             (
                 Substitute {
                     parameters,
+                    defaults,
                     body,
                     counts_arguments: false,
                     reads_this: false,
@@ -286,6 +329,9 @@ impl Lowering<'_> {
     fn same_names(&self, substitute: &Substitute, written: crate::names::resolve::ScopeId) -> bool {
         let mut read = Vec::new();
         names_read(&substitute.body, &mut read);
+        for default in substitute.defaults.iter().flatten() {
+            names_read(default, &mut read);
+        }
         read.iter()
             .filter(|held| !substitute.parameters.contains(held))
             .all(|held| {
