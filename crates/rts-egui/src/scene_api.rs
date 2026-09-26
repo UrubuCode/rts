@@ -7,7 +7,7 @@
 //! do rasterizador software. Só o braço `Backend::Wgpu` age; no glow é no-op.
 
 use crate::ctx::with_ctx;
-use crate::frame::scene3d::{model_matrix, view_proj, view_proj_lookat, Scene3D};
+use crate::frame::scene3d::{model_matrix, model_matrix_quat, view_proj, view_proj_lookat, Scene3D};
 use crate::frame::Backend;
 
 /// Garante o pipeline 3D criado na 1ª chamada e roda `f(scene, device)`.
@@ -173,6 +173,9 @@ pub fn set_shadow(
 /// duas grafias da mesma decisão é como a cor de um lote passaria a divergir da
 /// cor de um desenho solto sem que nada acusasse. A regra do alpha em especial
 /// é uma decisão, não uma fórmula: cor sem byte de alpha é OPACA.
+///
+/// `quat`: `Some([x,y,z,w])` usa `model_matrix_quat` (rotação livre) em vez de
+/// `model_matrix(rx, ry)` — `rx`/`ry` são ignorados nesse caso.
 #[allow(clippy::too_many_arguments)]
 fn draw_record(
     px: f32,
@@ -185,8 +188,12 @@ fn draw_record(
     sz: f32,
     color: u32,
     emissive: bool,
+    quat: Option<[f32; 4]>,
 ) -> ([f32; 16], [f32; 4], f32) {
-    let m = model_matrix(px, py, pz, rx, ry, sx, sy, sz);
+    let m = match quat {
+        Some(q) => model_matrix_quat(px, py, pz, q, sx, sy, sz),
+        None => model_matrix(px, py, pz, rx, ry, sx, sy, sz),
+    };
     let a = (color >> 24) & 0xFF;
     let col = [
         ((color >> 16) & 0xFF) as f32 / 255.0,
@@ -200,6 +207,9 @@ fn draw_record(
 /// Enfileira 1 draw da mesh `mesh` com transform (pos/rot/escala) + cor
 /// (0xAARRGGBB) + emissivo (0/1) + textura procedural (0=nenhuma, 1=xadrez).
 /// O draw acontece no scene pass, no `endFrame`.
+///
+/// `quat`: `Some([x,y,z,w])` troca a rotação yaw/pitch (`rx`/`ry`, ignorados
+/// nesse caso) por um quaternion livre, normalizado em `model_matrix_quat`.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_mesh(
     win: u64,
@@ -216,11 +226,13 @@ pub fn draw_mesh(
     emissive: i64,
     tex: i64,
     tile: f64,
+    quat: Option<[f64; 4]>,
 ) {
     let (m, col, em) = draw_record(
         px as f32, py as f32, pz as f32, rx as f32, ry as f32, sx as f32, sy as f32, sz as f32,
         color as u32,
         emissive != 0,
+        quat.map(|q| [q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32]),
     );
     // tex: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (textureUpload).
     with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em, tex.max(0) as u64, tile.max(0.0) as f32), ());
@@ -259,7 +271,7 @@ pub fn draw_mesh_batch(win: u64, floats: &[f32], codes: &[u32]) -> i64 {
                 let f = &floats[i * 8..i * 8 + 8];
                 let c = &codes[i * 4..i * 4 + 4];
                 let (m, col, em) =
-                    draw_record(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], c[1], c[2] != 0);
+                    draw_record(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], c[1], c[2] != 0, None);
                 s.queue_draw(c[0] as u64, m, col, em, c[3] as u64, 0.0);
             }
             count as i64

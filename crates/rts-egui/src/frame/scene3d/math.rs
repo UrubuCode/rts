@@ -185,6 +185,33 @@ pub fn model_matrix(
     ]
 }
 
+/// Produto de quaternions [x, y, z, w]: aplica `b` e depois `a`.
+pub fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
+/// model = T · R(q) · S (column-major) — mesma composição de `model_matrix`,
+/// mas com a rotação vinda de um quaternion [x, y, z, w] em vez de yaw/pitch.
+/// `q` é normalizado aqui (quaternion degenerado ~0 cai pra identidade).
+pub fn model_matrix_quat(px: f32, py: f32, pz: f32, q: [f32; 4], sx: f32, sy: f32, sz: f32) -> [f32; 16] {
+    let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    let (x, y, z, w) = if n > 1e-12 { (q[0] / n, q[1] / n, q[2] / n, q[3] / n) } else { (0.0, 0.0, 0.0, 1.0) };
+    let r00 = 1.0 - 2.0 * (y * y + z * z); let r01 = 2.0 * (x * y - z * w); let r02 = 2.0 * (x * z + y * w);
+    let r10 = 2.0 * (x * y + z * w); let r11 = 1.0 - 2.0 * (x * x + z * z); let r12 = 2.0 * (y * z - x * w);
+    let r20 = 2.0 * (x * z - y * w); let r21 = 2.0 * (y * z + x * w); let r22 = 1.0 - 2.0 * (x * x + y * y);
+    [
+        r00 * sx, r10 * sx, r20 * sx, 0.0,
+        r01 * sy, r11 * sy, r21 * sy, 0.0,
+        r02 * sz, r12 * sz, r22 * sz, 0.0,
+        px, py, pz, 1.0,
+    ]
+}
+
 /// a·b para matrizes 4x4 column-major.
 fn mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     let mut o = [0f32; 16];

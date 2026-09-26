@@ -160,7 +160,7 @@ extern "C" fn set_shadow(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64
     value::nothing()
 }
 
-/// `drawMesh(win, { mesh, x, y, z, rx, ry, sx, sy, sz, color, emissive, tex, tile })`.
+/// `drawMesh(win, { mesh, x, y, z, rx, ry, sx, sy, sz, color, emissive, tex, tile, qx, qy, qz, qw })`.
 ///
 /// Cor `0xAARRGGBB`; `tex` 0=nenhuma, 1=xadrez procedural, ≥2 = id de
 /// `textureUpload`. A escala vale 1 por default, porque uma escala 0 é uma malha
@@ -169,12 +169,25 @@ extern "C" fn set_shadow(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64
 /// `tile` > 0 amostra a textura em coordenada de MUNDO (repetições por unidade),
 /// projetada pelo eixo dominante da normal: uma caixa de 40 u com textura
 /// repete a imagem em vez de esticá-la. 0 (default) = UV da malha, como antes.
+///
+/// `qx, qy, qz, qw` (default 0) formam um quaternion; se ALGUM for ≠ 0, a
+/// rotação vem dele (normalizado no lado nativo) em vez de `rx`/`ry`, que são
+/// ignorados nesse caso. Ausentes/todos-zero = comportamento de hoje, idêntico
+/// byte a byte.
 extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
     let read = options(
         spec,
-        &["mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex", "tile"],
-        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0, 0.0],
+        &[
+            "mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex", "tile",
+            "qx", "qy", "qz", "qw",
+        ],
+        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     );
+    let quat = if read[13] != 0.0 || read[14] != 0.0 || read[15] != 0.0 || read[16] != 0.0 {
+        Some([read[13], read[14], read[15], read[16]])
+    } else {
+        None
+    };
     rts_egui::draw_mesh(
         handle(win),
         read[0] as u64,
@@ -183,6 +196,7 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
         read[10] as i64,
         read[11] as i64,
         read[12],
+        quat,
     );
     value::nothing()
 }
