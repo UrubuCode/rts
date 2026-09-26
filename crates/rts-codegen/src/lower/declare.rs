@@ -130,7 +130,9 @@ impl Lowering<'_> {
         };
         let held = self.closure(id, &at);
         let of = self.type_of(held);
-        self.bind(name, held, of, &at)
+        self.bind(name, held, of, &at)?;
+        self.remember_declared(name, function);
+        Ok(())
     }
 
     /// Annex B.3.3: where a function declared in a block also has a `var` of its

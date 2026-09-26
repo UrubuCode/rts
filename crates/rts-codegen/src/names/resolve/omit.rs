@@ -166,6 +166,40 @@ impl Resolution {
             })
     }
 
+    /// Records which of `declarations` is used only as the callee of a direct call.
+    ///
+    /// The lowering substitutes such a function's calls the way it does a `const`
+    /// arrow's (`lower/substitute.rs`), and what makes that sound is what this
+    /// establishes: nothing writes the binding, so the function a call names is the one
+    /// declared. A write is a use that is not a call, which is why "every use is a call"
+    /// is the whole test -- over-strict for a function also read as a value, which only
+    /// keeps its calls calls. It is NOT folded as an arrow is: its body has its own
+    /// `arguments` and `this`, which only the lowering can spell, so it stays a function.
+    pub(super) fn settle_only_called(&mut self, declarations: &[BindingId], references: &[Reference]) {
+        for &declared in declarations {
+            let record = self.binding(declared);
+            let (name, scope) = (record.name, record.scope);
+            let alone = self
+                .scope(scope)
+                .bindings
+                .iter()
+                .all(|held| *held == declared || self.binding(*held).name != name);
+            let called = references
+                .iter()
+                .filter(|held| held.name == name && self.binding_in(held.scope, held.name) == Some(declared))
+                .all(|held| held.called);
+            if alone && called {
+                self.only_called.insert(declared);
+            }
+        }
+    }
+
+    /// Whether `binding` is a function declaration only ever called -- so a call to it
+    /// calls the function declared.
+    pub fn only_called(&self, binding: BindingId) -> bool {
+        self.only_called.contains(&binding)
+    }
+
     /// Whether `scope` is `outer` or written inside it.
     fn within(&self, scope: ScopeId, outer: ScopeId) -> bool {
         let mut at = Some(scope);

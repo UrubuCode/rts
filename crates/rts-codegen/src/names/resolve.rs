@@ -177,6 +177,9 @@ pub struct Resolution {
     /// The arrows folded into the function that declares them -- `omit.rs` -- by
     /// their position, and the `const` each is bound to.
     omitted: BTreeMap<Position, BindingId>,
+    /// The functions declared at the top of a function whose every use is a direct
+    /// call -- never written, never read as a value -- `omit.rs`.
+    only_called: std::collections::BTreeSet<BindingId>,
 }
 
 mod annex;
@@ -334,6 +337,7 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
         references: Vec::new(),
         annex: Vec::new(),
         arrows: Vec::new(),
+        declarations: Vec::new(),
     };
     for item in items {
         match item {
@@ -360,8 +364,10 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
     let mut references = std::mem::take(&mut walker.references);
     let annex = std::mem::take(&mut walker.annex);
     let arrows = std::mem::take(&mut walker.arrows);
+    let declarations = std::mem::take(&mut walker.declarations);
     out.settle_annex(&annex);
     out.settle_omitted(&arrows, &mut references);
+    out.settle_only_called(&declarations, &references);
     out.settle_capture(&references);
     out
 }
@@ -393,13 +399,16 @@ pub fn resolve_program(body: &[Stmt], imports: &[crate::syntax::Import]) -> Reso
         references: Vec::new(),
         annex: Vec::new(),
         arrows: Vec::new(),
+        declarations: Vec::new(),
     };
     walker.statements(body, module);
     let mut references = std::mem::take(&mut walker.references);
     let annex = std::mem::take(&mut walker.annex);
     let arrows = std::mem::take(&mut walker.arrows);
+    let declarations = std::mem::take(&mut walker.declarations);
     out.settle_annex(&annex);
     out.settle_omitted(&arrows, &mut references);
+    out.settle_only_called(&declarations, &references);
     out.settle_capture(&references);
     out
 }
@@ -447,6 +456,9 @@ struct Walker<'a> {
     annex: Vec<annex::Candidate>,
     /// Every `const` bound to an arrow `omit.rs` might fold into its function.
     arrows: Vec<omit::Arrow>,
+    /// Every function declared at the top of a function's own body, for `omit.rs` to
+    /// ask whether it is only ever called.
+    declarations: Vec<BindingId>,
     /// The class body whose field initialiser or static block is being walked. That
     /// code runs in a constructor or a class evaluation, not in the activation the
     /// class is written in, so a use there is attributed to the class body.
@@ -522,7 +534,13 @@ impl Walker<'_> {
                 // A function DECLARATION binds its name where it is written, in
                 // the scope that holds the statement — never in the body.
                 if let Some(name) = function.name {
-                    self.out.declare(name, Origin::Lexical, scope);
+                    let declared = self.out.declare(name, Origin::Lexical, scope);
+                    if scope == self.function
+                        && self.field_code.is_none()
+                        && self.out.scope(scope).kind == ScopeKind::Function
+                    {
+                        self.declarations.push(declared);
+                    }
                     if scope != self.function && self.field_code.is_none() {
                         self.annex.push(annex::Candidate {
                             name,

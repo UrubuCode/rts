@@ -222,6 +222,7 @@ pub fn lower_within(
         made_in: BTreeMap::new(),
         returns_to: Vec::new(),
         substituting: Vec::new(),
+        aliases: Vec::new(),
         local_arrows: BTreeMap::new(),
         substituted_this: Vec::new(),
         prologue: true,
@@ -406,8 +407,11 @@ struct Lowering<'a> {
     /// The calls being substituted, innermost last, each with its parameters' values
     /// -- `substitute.rs`.
     substituting: Vec<(Name, BTreeMap<Name, ValueId>)>,
-    /// The `const` arrows of this function a direct call may be substituted for, and
-    /// the scope each was written in -- `substitute.rs`.
+    /// Parallel to `substituting`: the parameters whose argument was a name of a local
+    /// substitute, so a call of the parameter substitutes that -- `substitute.rs`.
+    aliases: Vec<BTreeMap<Name, BindingId>>,
+    /// The `const` arrows and only-called declarations of this function a direct call
+    /// may be substituted for, and the scope each was written in -- `substitute.rs`.
     local_arrows: BTreeMap<BindingId, (Substitute, ScopeId)>,
     /// `this` for each body being substituted, parallel to `substituting`.
     substituted_this: Vec<Option<ValueId>>,
