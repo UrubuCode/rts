@@ -353,6 +353,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 italic: seg.italic,
                 letter_spacing: ls,
                 decoration: seg.deco,
+                orientation: crate::paint::item::Orientation::Horizontal,
             });
             for &owner in &seg.owners {
                 crate::inline_box::union_rect(

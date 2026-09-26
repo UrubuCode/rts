@@ -123,10 +123,10 @@ or `rts-egui` learns about frames except the text orientation.
 
 ## Tasks
 
-- [ ] **WM-0 — the base.** `git -C Documents/wpt-corpus sparse-checkout add
+- [x] **WM-0 — the base.** `git -C Documents/wpt-corpus sparse-checkout add
   css/css-writing-modes`; base sweep with the current raster; record the
   count in PLAN.md §0 (coordinator).
-- [ ] **WM-1 — the rotated frame for block flow, Ahem and replaced content
+- [x] **WM-1 — the rotated frame for block flow, Ahem and replaced content
   only** (one agent, Opus): `logical.rs` block-axis half; `block/rotated.rs`
   (rotate in, lay out, rotate out); `Text.orientation` with the raster
   rotating bitmaps and squares exact; the sub-cases (a) and (b) above are the

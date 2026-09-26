@@ -185,6 +185,7 @@ mod flex_scroll_overflow_corpus;
                     decoration: dea,
                     is_ahem: _,
                     family: fa,
+                    orientation: oa,
                 },
                 D::Text {
                     x: xb,
@@ -199,6 +200,7 @@ mod flex_scroll_overflow_corpus;
                     decoration: deb,
                     is_ahem: _,
                     family: fb,
+                    orientation: ob,
                 },
             ) => {
                 (xa - xb).abs() < TOL
@@ -212,6 +214,7 @@ mod flex_scroll_overflow_corpus;
                     && ia == ib
                     && (la - lb).abs() < TOL
                     && dea == deb
+                    && oa == ob
             }
             (D::EndClip { .. }, D::EndClip { .. }) => true,
             // As demais variantes não aparecem neste corpus; comparar por
@@ -371,3 +374,4 @@ mod ch_unit_advance_corpus;
 mod grid_abspos_static_alignment;
 mod grid_area_line_numbers;
 mod unicode_break_opportunities;
+mod writing_mode_rotated;

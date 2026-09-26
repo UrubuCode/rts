@@ -41,6 +41,12 @@ pub(in crate::layout) fn measure_float(
         .style(dom, box_id)
         .or_else(|| dom.computed_style_idx(child))
         .unwrap_or_default();
+    // A vertical float is laid out in a rotated frame (`block/rotated.rs`),
+    // and only that layout knows its physical size: the width below would
+    // measure its text across the page.
+    if crate::layout::block::rotated::opens_frame(dom, child, &ccss) {
+        return measure_block(dom, child, box_id, content_w, avail_h, None, None, true, ctx);
+    }
     let rc = ResolveCtx {
         parent_content_w: content_w,
         node_font_size: font_size,

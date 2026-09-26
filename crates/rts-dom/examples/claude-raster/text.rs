@@ -28,12 +28,22 @@
 //!
 //! What is still not drawn, as before: `decoration` (underline/line-through)
 //! and anything a `transform` does to a glyph beyond moving its origin.
+//!
+//! # Sideways runs
+//!
+//! A run in a vertical writing mode carries `Orientation::SidewaysRl` (or
+//! `SidewaysLr`), and `(x, y)` is where its own top-left lands on the page.
+//! It is laid out exactly as a horizontal run, in the run's own coordinates,
+//! and each glyph is then turned a quarter: a solid Ahem rectangle is turned
+//! as a rectangle — so the squares stay exact squares stacked down the line —
+//! and a coverage bitmap pixel by pixel. The horizontal path is not touched,
+//! so a horizontal page paints the same bytes as before.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use rts_dom::layout::{ApproxMeasurer, TextMeasurer};
-use rts_dom::paint::Rect;
+use rts_dom::paint::{Orientation, Rect};
 use rts_text::adapter::RealMeasurer;
 use rts_text::{Bitmap, Face, FontStore, Style};
 
@@ -69,6 +79,7 @@ pub struct TextRun<'a> {
     pub bold: bool,
     pub italic: bool,
     pub letter_spacing: f32,
+    pub orientation: Orientation,
 }
 
 /// What happened to one item.
@@ -105,9 +116,13 @@ impl<'m> TextPainter<'m> {
         } else {
             self.measurer.font_ascent_family(run.size, family)
         };
-        let baseline = run.y + ascent;
         let (r, g, b, a) = crate::canvas::argb_bytes(run.color);
         let rgb = (u32::from(r) << 24) | (u32::from(g) << 16) | (u32::from(b) << 8);
+        if run.orientation != Orientation::Horizontal {
+            self.paint_sideways(canvas, &face, run, ascent, (rgb, a), clip);
+            return Outcome::Painted;
+        }
+        let baseline = run.y + ascent;
         let mut pen = run.x;
         for glyph in rts_text::shape(&face, run.text, run.size, true) {
             let (gx, gy) = (pen + glyph.x_offset, baseline - glyph.y_offset);
@@ -121,6 +136,47 @@ impl<'m> TextPainter<'m> {
             pen += glyph.x_advance + run.letter_spacing;
         }
         Outcome::Painted
+    }
+
+    /// A sideways run: the horizontal layout in the run's own coordinates,
+    /// each glyph turned a quarter onto the page about `(run.x, run.y)`.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_sideways(&mut self, canvas: &mut Canvas, face: &Face, run: &TextRun, ascent: f32, (rgb, a): (u32, u8), clip: Option<Rect>) {
+        let turn = |l: Rect| turn_rect(run, l);
+        let mut pen = 0.0f32;
+        for glyph in rts_text::shape(face, run.text, run.size, true) {
+            let (gx, gy) = (pen + glyph.x_offset, ascent - glyph.y_offset);
+            match run.is_ahem.then(|| self.solid_rect(face, glyph.id)).flatten() {
+                Some([l, t, w, h]) => {
+                    let s = run.size;
+                    canvas.fill_rect(turn(Rect::new(gx + l * s, gy - t * s, w * s, h * s)), run.color, clip);
+                }
+                None => {
+                    let key = (face.id(), glyph.id, run.size.to_bits());
+                    if let Some(bm) = self.glyphs.entry(key).or_insert_with(|| rts_text::rasterise(face, glyph.id, run.size)) {
+                        let ox = gx.round() as i32 + bm.left;
+                        let oy = gy.round() as i32 - bm.top;
+                        let (px0, py0) = (run.x.round() as i32, run.y.round() as i32);
+                        for row in 0..bm.h as i32 {
+                            for col in 0..bm.w as i32 {
+                                let cov = u32::from(bm.alpha[(row * bm.w as i32 + col) as usize]);
+                                let alpha = (cov * u32::from(a) + 127) / 255;
+                                if alpha == 0 {
+                                    continue;
+                                }
+                                let (u, v) = (ox + col, oy + row);
+                                let (px, py) = match run.orientation {
+                                    Orientation::SidewaysLr => (px0 + v, py0 - u - 1),
+                                    _ => (px0 - v - 1, py0 + u),
+                                };
+                                canvas.blend(px, py, rgb | alpha, clip);
+                            }
+                        }
+                    }
+                }
+            }
+            pen += glyph.x_advance + run.letter_spacing;
+        }
     }
 
     /// Composites glyph `id`'s coverage with its origin at `(x, y)` (the
@@ -182,6 +238,19 @@ impl<'m> TextPainter<'m> {
     /// masked item masks exactly what it masked before this lot.
     fn mask(&self, run: &TextRun) -> Rect {
         let w = ApproxMeasurer.text_width(run.text, run.size, run.mono, false, false);
-        Rect::new(run.x, run.y - run.size, w, run.size * 1.3)
+        match run.orientation {
+            Orientation::Horizontal => Rect::new(run.x, run.y - run.size, w, run.size * 1.3),
+            _ => turn_rect(run, Rect::new(0.0, -run.size, w, run.size * 1.3)),
+        }
+    }
+}
+
+/// A rectangle in a sideways run's own coordinates, on the page.
+/// `SidewaysRl` turns `(u, v)` to `(x − v, y + u)`; `SidewaysLr` to
+/// `(x + v, y − u)`.
+fn turn_rect(run: &TextRun, l: Rect) -> Rect {
+    match run.orientation {
+        Orientation::SidewaysLr => Rect::new(run.x + l.y, run.y - (l.x + l.w), l.h, l.w),
+        _ => Rect::new(run.x - (l.y + l.h), run.y + l.x, l.h, l.w),
     }
 }

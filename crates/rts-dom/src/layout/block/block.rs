@@ -36,6 +36,7 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
     super::bfc_style::by_style(css, parent_css.as_deref())
         || (super::bfc_style::overflow_establishes(css) && !super::overflow_viewport::propagated_to_viewport(dom, id))
         || dom.node(id).parent == Some(dom.root)
+        || super::rotated::is_frame_root(id)
 }
 
 
@@ -102,6 +103,13 @@ pub(crate) fn layout_block(
             // `display:none` — não renderiza nem ocupa espaço (some da árvore visual).
             if is_display_none(dom, id) {
                 return (0.0, 0.0);
+            }
+            // A vertical writing mode met at its boundary is laid out in a
+            // rotated frame (`rotated.rs`); every other box answers `None`.
+            if let Some(size) = super::rotated::layout_if_boundary(
+                dom, id, box_id, &css, tag, x, y, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx, list,
+            ) {
+                return size;
             }
             if tag == "select" {
                 return layout_select(

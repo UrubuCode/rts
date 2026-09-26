@@ -73,6 +73,25 @@ impl Corners {
     }
 }
 
+/// How a text run stands on the page (`DisplayItem::Text::orientation`).
+///
+/// `Upright` (CSS `text-orientation: upright`, CJK) is not here: the lot that
+/// added this (WM-1 of `docs/superpowers/plans/2026-09-26-writing-mode.md`)
+/// lays Latin text only, which a vertical mode sets sideways.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Orientation {
+    #[default]
+    Horizontal,
+    /// Turned 90° clockwise — the tops of the glyphs face right, the line runs
+    /// down. What `vertical-rl`, `vertical-lr` and `sideways-rl` do to Latin
+    /// text. A local
+    /// point `(u, v)` of the horizontal run lands at `(x − v, y + u)`.
+    SidewaysRl,
+    /// Turned 90° counter-clockwise — the line runs up (`sideways-lr`). A
+    /// local point `(u, v)` lands at `(x + v, y − u)`.
+    SidewaysLr,
+}
+
 /// UM item da display list — uma instrução de pintura ATÔMICA e já posicionada. O
 /// backend percorre a lista em ordem (a ordem É o z-order: o que vem depois pinta
 /// por cima) e desenha cada item, sem nenhuma decisão de layout. Egui-free: cor é
@@ -202,6 +221,12 @@ pub enum DisplayItem {
         italic: bool,
         letter_spacing: f32,
         decoration: u8,
+        /// Which way the glyphs stand. `Horizontal` everywhere but inside a
+        /// vertical writing mode, where the rotated frame (`layout/block/
+        /// rotated.rs`) turns Latin text sideways; `(x, y)` is then where the
+        /// run's own top-left corner lands on the page, the pivot a painter
+        /// rotates about.
+        orientation: Orientation,
     },
     /// Começa a RECORTAR a um retângulo (scroll container interno): os itens
     /// seguintes, até o `EndClip`, só pintam DENTRO deste rect E são transladados por
@@ -288,6 +313,84 @@ pub(crate) fn translate_item(it: &mut DisplayItem, dx: f32, dy: f32) {
         DisplayItem::PushTransform { mat } => {
             mat.e += dx;
             mat.f += dy;
+        }
+        DisplayItem::EndClip | DisplayItem::PopTransform => {}
+    }
+}
+
+/// Maps an item laid out in a rotated frame onto the page through `frame`
+/// (`layout/block/rotated.rs`) — the rotation's counterpart of
+/// [`translate_item`]. `frame` is a quarter turn (`vertical-rl`) or a
+/// transposition (`vertical-lr`): rectangles map to rectangles exactly, and
+/// what has a direction (a shadow's offset, a gradient's angle, a clip's
+/// scroll offset, the corners) turns with it.
+///
+/// Text is the one item that is not a rectangle: its origin maps as a point,
+/// and it becomes sideways. A transposition would MIRROR the glyphs, so under
+/// one the pivot moves to the far side of the run's box — `size` across, the
+/// glyph box of Ahem exactly and an approximation for other faces — and the
+/// run still turns clockwise, as Latin does in `vertical-lr`.
+pub(crate) fn rotate_item(it: &mut DisplayItem, frame: &crate::paint::transform::Mat2d) {
+    let m = *frame;
+    let mirrored = m.a * m.d - m.b * m.c < 0.0;
+    // A quarter turn clockwise has `b > 0` (frame x runs down the page);
+    // counter-clockwise (`sideways-lr`) has `b < 0` (it runs up).
+    let clockwise = m.b > 0.0;
+    let vector = |dx: f32, dy: f32| (m.a * dx + m.c * dy, m.b * dx + m.d * dy);
+    match it {
+        DisplayItem::SolidRect { rect, radius, .. } => {
+            *rect = m.transform_rect_bbox(*rect);
+            let c = *radius;
+            *radius = if mirrored {
+                Corners { tl: c.tl, tr: c.bl, br: c.br, bl: c.tr }
+            } else if clockwise {
+                Corners { tl: c.bl, tr: c.tl, br: c.tr, bl: c.br }
+            } else {
+                Corners { tl: c.tr, tr: c.br, br: c.bl, bl: c.tl }
+            };
+        }
+        DisplayItem::Shadow { rect, dx, dy, .. } => {
+            *rect = m.transform_rect_bbox(*rect);
+            (*dx, *dy) = vector(*dx, *dy);
+        }
+        DisplayItem::GradientRect { rect, angle_deg, .. } => {
+            *rect = m.transform_rect_bbox(*rect);
+            // CSS angles point at (sin a, -cos a).
+            let (s, c) = angle_deg.to_radians().sin_cos();
+            let (vx, vy) = vector(s, -c);
+            *angle_deg = vx.atan2(-vy).to_degrees();
+        }
+        DisplayItem::Border { rect, .. }
+        | DisplayItem::Image { rect, .. }
+        | DisplayItem::Pixels { rect, .. } => *rect = m.transform_rect_bbox(*rect),
+        DisplayItem::BeginClip { rect, offset_x, offset_y, .. } => {
+            *rect = m.transform_rect_bbox(*rect);
+            (*offset_x, *offset_y) = vector(*offset_x, *offset_y);
+        }
+        DisplayItem::Text { x, y, size, orientation, .. } => {
+            let (px, py) = m.apply(*x, *y);
+            *x = if mirrored { px + *size } else { px };
+            *y = py;
+            *orientation = if mirrored || clockwise { Orientation::SidewaysRl } else { Orientation::SidewaysLr };
+        }
+        DisplayItem::Quad { pts, .. } => {
+            for p in pts.iter_mut() {
+                *p = m.apply(p.0, p.1);
+            }
+        }
+        // A matrix over frame points becomes `frame · mat · frame⁻¹` over
+        // page points.
+        DisplayItem::PushTransform { mat } => {
+            let det = m.a * m.d - m.b * m.c;
+            let inv = crate::paint::transform::Mat2d {
+                a: m.d / det,
+                b: -m.b / det,
+                c: -m.c / det,
+                d: m.a / det,
+                e: (m.c * m.f - m.d * m.e) / det,
+                f: (m.b * m.e - m.a * m.f) / det,
+            };
+            *mat = m.then(*mat).then(inv);
         }
         DisplayItem::EndClip | DisplayItem::PopTransform => {}
     }
