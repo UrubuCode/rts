@@ -53,15 +53,62 @@ pub fn emit_chain(
     ctx: &mut Ctx,
     inner: &Expr,
 ) -> EmitResult<ValueId> {
+    let mut exits = Vec::new();
+    let value = walk(builder, scope, ctx, &mut exits, inner)?;
+    let value = expr::tagged(builder, value);
+    exits.push(Exit {
+        block: builder.current(),
+        bindings: scope.snapshot(),
+        value,
+    });
+
+    // ONE JOIN FOR EVERY WAY IN, merging what they disagree about -- `choice.rs`'s
+    // merge over two paths, taken over however many links short-circuit. A link
+    // skipped before an argument's `x = 1` ran leaves with `x` as it was, so a chain
+    // that assigns has paths holding different values for one name; jumping each
+    // with only the result made the verifier refuse `o?.m(x = 1)` outright.
     let join = builder.create_block();
     let result = builder.add_block_param(join, super::UNPROVEN);
-
-    let value = walk(builder, scope, ctx, join, inner)?;
-    let value = expr::tagged(builder, value);
-    builder.jump(join, &[value])?;
+    let first = &exits[0].bindings;
+    let mut merged: Vec<usize> = Vec::new();
+    for exit in &exits[1..] {
+        for position in super::merge::disagreements(first, &exit.bindings) {
+            if !merged.contains(&position) {
+                merged.push(position);
+            }
+        }
+    }
+    merged.sort_unstable();
+    let params: Vec<ValueId> = merged
+        .iter()
+        .map(|&position| {
+            let repr = exits
+                .iter()
+                .map(|exit| builder.repr_of(exit.bindings[position].value()))
+                .reduce(|held, next| held.join(next))
+                .expect("a chain has at least the way through");
+            builder.add_block_param(join, repr)
+        })
+        .collect();
+    for exit in &exits {
+        builder.switch_to(exit.block);
+        let mut args = vec![exit.value];
+        args.extend(merged.iter().map(|&at| exit.bindings[at].value()));
+        builder.jump(join, &args)?;
+    }
+    let after = exits.swap_remove(0).bindings;
+    super::merge::settle(scope, after, &merged, params);
 
     builder.switch_to(join);
     Ok(result)
+}
+
+/// One way into the chain's join: where it left, what every name meant there, and
+/// what the chain answered along it.
+struct Exit {
+    block: BlockId,
+    bindings: Vec<super::scope::Binding>,
+    value: ValueId,
 }
 
 /// Walks one node of the spine a `Chain` wraps, short-circuiting to `join`
@@ -77,7 +124,7 @@ fn walk(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
-    join: BlockId,
+    exits: &mut Vec<Exit>,
     expr: &Expr,
 ) -> EmitResult<ValueId> {
     match &expr.kind {
@@ -96,7 +143,7 @@ fn walk(
         // turning "the whole chain is undefined" into a `TypeError`.
         // Unwrapping here instead reuses the SAME join, so a link's
         // short-circuit reaches all the way out and the receiver survives.
-        ExprKind::Chain(inner) => walk(builder, scope, ctx, join, inner),
+        ExprKind::Chain(inner) => walk(builder, scope, ctx, exits, inner),
         ExprKind::Member {
             object,
             property,
@@ -111,8 +158,8 @@ fn walk(
             if let Some(field) = super::escape::field_of(ctx, object, *property, *optional) {
                 return super::binding::read(builder, scope, ctx, field);
             }
-            let receiver = walk(builder, scope, ctx, join, object)?;
-            let receiver = maybe_short_circuit(builder, ctx, join, receiver, *optional)?;
+            let receiver = walk(builder, scope, ctx, exits, object)?;
+            let receiver = maybe_short_circuit(builder, scope, ctx, exits, receiver, *optional)?;
             super::property::emit_read(builder, ctx, receiver, *property)
         }
         // `o?.[k]` and `o[k]` inside a chain. The literal-key fast path
@@ -128,8 +175,8 @@ fn walk(
             index,
             optional,
         } => {
-            let receiver = walk(builder, scope, ctx, join, object)?;
-            let receiver = maybe_short_circuit(builder, ctx, join, receiver, *optional)?;
+            let receiver = walk(builder, scope, ctx, exits, object)?;
+            let receiver = maybe_short_circuit(builder, scope, ctx, exits, receiver, *optional)?;
             let key = emit_expr(builder, scope, ctx, index)?;
             Ok(expr::call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0])
         }
@@ -138,8 +185,8 @@ fn walk(
             arguments,
             optional,
         } => {
-            let (receiver, function) = walk_callee(builder, scope, ctx, join, callee)?;
-            let function = maybe_short_circuit(builder, ctx, join, function, *optional)?;
+            let (receiver, function) = walk_callee(builder, scope, ctx, exits, callee)?;
+            let function = maybe_short_circuit(builder, scope, ctx, exits, function, *optional)?;
             // Same "not a function" naming a plain call gets, from the same
             // spelling rule (`call.rs::callee_spelling`) — this was the one
             // remaining source of the bare `undefined is not a function`
@@ -176,7 +223,7 @@ fn walk_callee(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
-    join: BlockId,
+    exits: &mut Vec<Exit>,
     callee: &Expr,
 ) -> EmitResult<(ValueId, ValueId)> {
     let pair = match &callee.kind {
@@ -184,7 +231,7 @@ fn walk_callee(
         // `callee` whose kind is `Chain`, wrapping the `Member` that actually
         // carries the `?.`. Recursing keeps the receiver rather than losing it
         // to the catch-all's `undefined`.
-        ExprKind::Chain(inner) => walk_callee(builder, scope, ctx, join, inner)?,
+        ExprKind::Chain(inner) => walk_callee(builder, scope, ctx, exits, inner)?,
         ExprKind::Member {
             object,
             property,
@@ -200,8 +247,8 @@ fn walk_callee(
                 let undefined = expr::undefined(builder, ctx);
                 return Ok((undefined, value));
             }
-            let receiver = walk(builder, scope, ctx, join, object)?;
-            let receiver = maybe_short_circuit(builder, ctx, join, receiver, *optional)?;
+            let receiver = walk(builder, scope, ctx, exits, object)?;
+            let receiver = maybe_short_circuit(builder, scope, ctx, exits, receiver, *optional)?;
             // Callee position, like `call.rs` — `o?.m()` and `o.m()` must not
             // disagree about which form they emit.
             let function = super::property::emit_read_indirect(builder, ctx, receiver, *property)?;
@@ -212,14 +259,14 @@ fn walk_callee(
             index,
             optional,
         } => {
-            let receiver = walk(builder, scope, ctx, join, object)?;
-            let receiver = maybe_short_circuit(builder, ctx, join, receiver, *optional)?;
+            let receiver = walk(builder, scope, ctx, exits, object)?;
+            let receiver = maybe_short_circuit(builder, scope, ctx, exits, receiver, *optional)?;
             let key = emit_expr(builder, scope, ctx, index)?;
             let function = expr::call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0];
             (receiver, function)
         }
         _ => {
-            let function = walk(builder, scope, ctx, join, callee)?;
+            let function = walk(builder, scope, ctx, exits, callee)?;
             let undefined = expr::undefined(builder, ctx);
             (undefined, function)
         }
@@ -236,8 +283,9 @@ fn walk_callee(
 /// language names, nothing wider.
 fn maybe_short_circuit(
     builder: &mut FuncBuilder,
+    scope: &Scope,
     ctx: &mut Ctx,
-    join: BlockId,
+    exits: &mut Vec<Exit>,
     value: ValueId,
     optional: bool,
 ) -> EmitResult<ValueId> {
@@ -251,7 +299,11 @@ fn maybe_short_circuit(
 
     builder.switch_to(nullish);
     let undefined = expr::undefined(builder, ctx);
-    builder.jump(join, &[undefined])?;
+    exits.push(Exit {
+        block: nullish,
+        bindings: scope.snapshot(),
+        value: undefined,
+    });
 
     builder.switch_to(present);
     Ok(value)

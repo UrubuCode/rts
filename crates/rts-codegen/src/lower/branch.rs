@@ -156,7 +156,7 @@ impl Lowering<'_> {
     /// Gives `lacking` a value for each binding `having` made that is still in scope
     /// after the arms, and makes it `undefined` -- read in `lacking_exit`, the arm whose
     /// path did not assign it.
-    fn settle_one_sided(
+    pub(super) fn settle_one_sided(
         &mut self,
         lacking: &mut std::collections::BTreeMap<BindingId, rts_mir::ValueId>,
         having: &std::collections::BTreeMap<BindingId, rts_mir::ValueId>,

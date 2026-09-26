@@ -8,8 +8,10 @@
 //! A nested `Chain` is walked with the SAME join, which is the bug `optional.rs` records
 //! finding when the parser wraps every optional link in its own node.
 //!
-//! A chain that ASSIGNS a binding is refused: the links it skips would have to hand the
-//! join what each binding holds on every way in, and nothing here merges them.
+//! A chain that ASSIGNS a binding hands the join what each such binding holds on every
+//! way in -- a skipped link leaves before an argument's `x = 1` ran, so `x` arrives
+//! from there unchanged -- which is the merge `branch.rs` makes for an `if`. The
+//! running emitter makes none, and its verifier refuses `o?.m(x = 1)` outright.
 
 use rts_mir::cfg::{Callee, Terminator, ValueId};
 use rts_mir::BlockId;
@@ -19,26 +21,45 @@ use crate::domain::{JsConst, JsPrim};
 use crate::syntax::{Expr, ExprKind};
 use crate::values::Singleton;
 
+/// The chain's one join, and the bindings its links may leave holding different values.
+struct Join {
+    block: BlockId,
+    carried: Vec<crate::names::resolve::BindingId>,
+}
+
 impl Lowering<'_> {
     /// The whole chain, answering its value or `undefined`.
     pub(super) fn chain(&mut self, inner: &Expr) -> Result<ValueId, Unsupported> {
-        if !self.assigned_in_expr(inner)?.is_empty() {
-            return Err(Unsupported::Expression(
-                "an optional chain that assigns, whose skipped links would need a merge",
-            ));
-        }
-        let join = self.builder.block();
-        let value = self.link(inner, join)?;
+        let assigned = self.assigned_in_expr(inner)?;
+        let join = Join {
+            block: self.builder.block(),
+            carried: self.carried_now(assigned),
+        };
+        let value = self.link(inner, &join)?;
+        let args = self.leaving(value, &join);
         self.builder.end(Terminator::Jump {
-            target: join,
-            args: vec![value],
+            target: join.block,
+            args,
         });
-        self.builder.switch_to(join);
-        Ok(self.top_param(join))
+        self.builder.switch_to(join.block);
+        let answered = self.top_param(join.block);
+        for binding in &join.carried {
+            let param = self.top_param(join.block);
+            self.values.insert(*binding, param);
+        }
+        Ok(answered)
+    }
+
+    /// What a way into the join hands it: the value, then each carried binding as it
+    /// stands on that path.
+    fn leaving(&self, value: ValueId, join: &Join) -> Vec<ValueId> {
+        let mut args = vec![value];
+        args.extend(join.carried.iter().map(|binding| self.values[binding]));
+        args
     }
 
     /// One node of the chain's spine.
-    fn link(&mut self, expr: &Expr, join: BlockId) -> Result<ValueId, Unsupported> {
+    fn link(&mut self, expr: &Expr, join: &Join) -> Result<ValueId, Unsupported> {
         match &expr.kind {
             ExprKind::Chain(inner) => self.link(inner, join),
             ExprKind::Member {
@@ -79,7 +100,7 @@ impl Lowering<'_> {
     fn callee(
         &mut self,
         callee: &Expr,
-        join: BlockId,
+        join: &Join,
     ) -> Result<(Option<ValueId>, ValueId), Unsupported> {
         match &callee.kind {
             ExprKind::Chain(inner) => self.callee(inner, join),
@@ -115,7 +136,7 @@ impl Lowering<'_> {
         &mut self,
         value: ValueId,
         optional: bool,
-        join: BlockId,
+        join: &Join,
         at: &Expr,
     ) -> ValueId {
         if !optional {
@@ -134,9 +155,10 @@ impl Lowering<'_> {
         });
         self.builder.switch_to(absent);
         let undefined = self.singleton_at(Singleton::Undefined, at);
+        let args = self.leaving(undefined, join);
         self.builder.end(Terminator::Jump {
-            target: join,
-            args: vec![undefined],
+            target: join.block,
+            args,
         });
         self.builder.switch_to(present);
         value
