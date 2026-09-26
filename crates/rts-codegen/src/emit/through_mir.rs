@@ -97,10 +97,6 @@ fn attempt(
     function: &Function,
 ) -> Result<MachineFunction, String> {
     let refused = [
-        (
-            function.is_async && function.is_generator,
-            "an async generator, whose await drains where its yield parks",
-        ),
         (!ctx.with_objects.is_empty(), "inside `with`"),
     ];
     if let Some((_, why)) = refused.iter().find(|(held, _)| *held) {

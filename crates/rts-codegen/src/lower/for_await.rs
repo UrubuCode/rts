@@ -90,7 +90,7 @@ impl Lowering<'_> {
         }
         let next = self.well_known(WellKnown::Next, iterator, subject);
         let pending = self.call_method(next, iterator, subject);
-        let step = self.suspend(Some(pending), subject);
+        let step = self.awaited(pending, subject);
         let done = self.well_known(WellKnown::Done, step, subject);
         let ended = self.prim(JsPrim::Truthy, vec![done], subject);
         self.builder.end(Terminator::Branch {
@@ -114,7 +114,7 @@ impl Lowering<'_> {
             else_args: vec![value],
         });
         self.builder.switch_to(awaiting);
-        let settled = self.suspend(Some(value), subject);
+        let settled = self.awaited(value, subject);
         self.builder.end(Terminator::Jump {
             target: bound,
             args: vec![settled],
@@ -168,7 +168,7 @@ impl Lowering<'_> {
         });
         self.builder.switch_to(calling);
         let answered = self.call_method(method, iterator, subject);
-        self.suspend(Some(answered), subject);
+        self.awaited(answered, subject);
         self.builder.end(Terminator::Jump {
             target: closed,
             args: Vec::new(),

@@ -136,6 +136,13 @@ pub enum JsPrim {
     MathTrunc,
     /// See [`JsPrim::MathSqrt`].
     MathAbs,
+    /// `await v` in an `async function*`, which DRAINS until the promise settles
+    /// instead of parking the frame: the frame is already stepped by the generator's
+    /// own `next()`, so a second party resuming it could not be told apart from one --
+    /// `emit/expr.rs`'s `ctx.async_parks`, the same split. The machine's
+    /// `Inst::Await` is what does it, which is why this is an operation and not an
+    /// entry point of this language's catalogue.
+    AwaitDrain,
     /// The receiver of this activation.
     ///
     /// # Why an operation and not a parameter
