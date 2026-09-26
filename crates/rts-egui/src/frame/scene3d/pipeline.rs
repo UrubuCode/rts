@@ -8,34 +8,60 @@ impl Scene3D {
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
 
-        // uniform: view_proj(16) + light(4) + cam_pos(4) + right(4) + up(4) + fwd(4)
-        //          + light_vp(16) + water(4) = 56 f32 = 224 bytes
+        // uniform `Cam`: um slot de CAM_STRIDE bytes por vista (offset dinâmico
+        // no group 0); ver `views::cam_floats` para o layout.
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d cam"),
-            size: 224,
+            size: views::MAX_VIEWS as u64 * views::CAM_STRIDE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // uniform `Env`: luzes, céu e neblina, um por frame (`lights::env_floats`).
+        let env_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scene3d env"),
+            size: lights::ENV_BYTES,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let cam_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("scene3d cam bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(views::CAM_STRIDE),
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
         let cam_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("scene3d cam bg"),
             layout: &cam_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: cam_buf.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &cam_buf,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(views::CAM_STRIDE),
+                    }),
+                },
+                wgpu::BindGroupEntry { binding: 1, resource: env_buf.as_entire_binding() },
+            ],
         });
 
         // shadow map: textura depth 2048² (render target + amostrada) + comparison sampler
@@ -122,12 +148,6 @@ impl Scene3D {
             bind_group_layouts: &[Some(&cam_bgl), Some(&shadow_bgl), Some(&tex_bgl)],
             immediate_size: 0,
         });
-        // layout do sky: group 0 (câmera) + group 1 (shadow) — sem textura de albedo.
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("scene3d layout"),
-            bind_group_layouts: &[Some(&cam_bgl), Some(&shadow_bgl)],
-            immediate_size: 0,
-        });
         // layout do shadow pass: só group 0 (light_vp vem do uniform da câmera)
         let cam_only_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene3d shadow layout"),
@@ -198,9 +218,10 @@ impl Scene3D {
         });
 
         // pipeline da SKYBOX: triângulo fullscreen, sem depth write (fica no fundo).
+        // Mesmo layout das malhas: o group 2 carrega o panorama equirretangular.
         let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("scene3d sky pipeline"),
-            layout: Some(&layout),
+            layout: Some(&mesh_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("sky_vs"),
@@ -333,21 +354,18 @@ impl Scene3D {
             depth_h: 1,
             meshes: HashMap::new(),
             next_mesh: 1,
-            view_proj: identity(),
+            vq: views::ViewQueue::new(view_proj(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0)),
+            env_buf,
+            lights: lights::PackedLights::empty(),
+            sky: lights::SkyParams::padrao(),
+            fog: [0.0; 4],
             light: [0.4, 0.8, 0.4, 0.25],
             light_vp: identity(),
-            cam_pos: [0.0, 0.0, 0.0],
-            cright: [1.0, 0.0, 0.0],
-            cup: [0.0, 1.0, 0.0],
-            cfwd: [0.0, 0.0, 1.0],
-            tan_h: 1.0,
-            tan_v: 1.0,
             draws: Vec::new(),
             water_pipeline,
             water_draws: Vec::new(),
             inst_buf,
             inst_cap: 64,
-            bg: None,
         }
     }
 }

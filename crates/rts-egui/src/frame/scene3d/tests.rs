@@ -298,3 +298,55 @@
         q.skybox(true);
         assert_eq!(cam_floats(q.get(0), [0.0; 4], &lvp, 0.0)[59], 0.0, "ceu: sem fundo chapado");
     }
+
+    use super::shader::SHADER;
+    use super::views::CAM_STRIDE;
+    use super::lights::ENV_BYTES;
+
+    fn struct_layout(m: &naga::Module, nome: &str) -> (u32, Vec<(String, u32)>) {
+        for (_, t) in m.types.iter() {
+            if t.name.as_deref() == Some(nome) {
+                if let naga::TypeInner::Struct { members, span } = &t.inner {
+                    return (*span, members.iter().map(|mm| (mm.name.clone().unwrap_or_default(), mm.offset)).collect());
+                }
+            }
+        }
+        panic!("struct {nome} ausente do shader");
+    }
+    fn offset(campos: &[(String, u32)], nome: &str) -> u32 {
+        campos.iter().find(|c| c.0 == nome).map(|c| c.1).unwrap_or_else(|| panic!("campo {nome} ausente"))
+    }
+
+    /// O shader compila e valida no naga (o mesmo validador do wgpu): um erro de
+    /// WGSL aparece aqui, sem abrir janela.
+    #[test]
+    fn shader_valida_no_naga() {
+        let m = naga::front::wgsl::parse_str(SHADER).unwrap_or_else(|e| panic!("{}", e.emit_to_string(SHADER)));
+        naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
+            .validate(&m)
+            .unwrap_or_else(|e| panic!("validação: {e:?}"));
+    }
+
+    /// O layout do WGSL bate com `cam_floats` e `env_floats`, float por float.
+    #[test]
+    fn layout_do_uniform_bate_com_o_empacotamento() {
+        let m = naga::front::wgsl::parse_str(SHADER).unwrap();
+        let (cam, c) = struct_layout(&m, "Cam");
+        assert_eq!(cam as u64, CAM_STRIDE, "um slot de câmera = 256 bytes");
+        assert_eq!(offset(&c, "light"), 16 * 4);
+        assert_eq!(offset(&c, "cam_pos"), 20 * 4);
+        assert_eq!(offset(&c, "cam_right"), 24 * 4);
+        assert_eq!(offset(&c, "cam_fwd"), 32 * 4);
+        assert_eq!(offset(&c, "light_vp"), 36 * 4);
+        assert_eq!(offset(&c, "water"), 52 * 4);
+        assert_eq!(offset(&c, "view_bg"), 56 * 4);
+        assert_eq!(offset(&c, "proj"), 60 * 4);
+        let (env, e) = struct_layout(&m, "Env");
+        assert_eq!(env as u64, ENV_BYTES);
+        assert_eq!(offset(&e, "sky0"), 8 * 4);
+        assert_eq!(offset(&e, "sun_dir"), 24 * 4);
+        assert_eq!(offset(&e, "fog"), 28 * 4);
+        assert_eq!(offset(&e, "lights"), 32 * 4);
+        let (luz, _) = struct_layout(&m, "LuzGpu");
+        assert_eq!(luz, 64, "16 floats por luz");
+    }

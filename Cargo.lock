@@ -4800,6 +4800,7 @@ dependencies = [
  "glow 0.16.0",
  "glutin",
  "glutin-winit",
+ "naga",
  "pollster",
  "raw-window-handle",
  "rts-dom",

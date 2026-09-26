@@ -4,7 +4,6 @@
 //! Aritmética pura, testável sem GPU. `attenuation`, `spot_factor` e
 //! `fog_factor` são o CONTRATO do shader: `shader.rs` repete a mesma conta em
 //! WGSL, e os testes fixam os números.
-#![cfg_attr(not(test), allow(dead_code))] // ligado ao render na Task 2
 
 pub const MAX_LIGHTS: usize = 8;
 /// Floats por luz no buffer do TS: tipo, pos(3), dir(3), cor(3), intensidade,
@@ -19,8 +18,6 @@ pub const LIGHT_GPU: usize = 16;
 pub const SKY_IN: usize = 22;
 /// Floats do uniform `Env`: 8 vec4 de cabeçalho + 8 luzes de 16.
 pub const ENV_FLOATS: usize = 160;
-/// Sem chamador nos testes (dimensiona o buffer wgpu na Task 2).
-#[allow(dead_code)]
 pub const ENV_BYTES: u64 = (ENV_FLOATS * 4) as u64;
 const ENV_LIGHTS_AT: usize = 32;
 
@@ -78,7 +75,11 @@ pub fn pack_lights(src: &[f64], n: usize) -> PackedLights {
     out
 }
 
+// `attenuation`, `spot_factor` e `fog_factor` só rodam nos testes: o render
+// usa as cópias em WGSL (`atenuacao`, `cone`, `neblina` em shader.rs).
+
 /// `(1 - (d/alcance)²)²`, cortado em zero. Alcance <= 0 apaga a luz.
+#[cfg(test)]
 pub fn attenuation(d: f32, range: f32) -> f32 {
     if range <= 0.0 { return 0.0; }
     let r = d / range;
@@ -87,6 +88,7 @@ pub fn attenuation(d: f32, range: f32) -> f32 {
 }
 
 /// Smoothstep entre o cosseno externo (0) e o interno (1); cones iguais = degrau.
+#[cfg(test)]
 pub fn spot_factor(cos_ang: f32, cos_in: f32, cos_out: f32) -> f32 {
     if cos_in - cos_out <= 1e-4 { return if cos_ang >= cos_out { 1.0 } else { 0.0 }; }
     let t = ((cos_ang - cos_out) / (cos_in - cos_out)).clamp(0.0, 1.0);
@@ -94,6 +96,7 @@ pub fn spot_factor(cos_ang: f32, cos_in: f32, cos_out: f32) -> f32 {
 }
 
 /// Fração da cor do objeto que sobra a `dist` com neblina exponencial.
+#[cfg(test)]
 pub fn fog_factor(dist: f32, density: f32) -> f32 {
     if density <= 0.0 { 1.0 } else { (-density * dist).exp() }
 }
@@ -134,6 +137,7 @@ impl SkyParams {
     /// Lê o buffer do `setSky`; o que faltar ou for NaN fica no padrão.
     pub fn from_f64(s: &[f64]) -> SkyParams {
         let p = SkyParams::padrao();
+        let s = &s[..s.len().min(SKY_IN)]; // floats a mais são ignorados
         let at = |i: usize, d: f32| -> f32 { if i < s.len() { num(s[i], d) } else { d } };
         let rgb = |i: usize, d: [f32; 3]| [at(i, d[0]).max(0.0), at(i + 1, d[1]).max(0.0), at(i + 2, d[2]).max(0.0)];
         let tex = at(16, 0.0);

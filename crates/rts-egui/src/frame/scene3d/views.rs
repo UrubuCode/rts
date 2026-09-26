@@ -3,14 +3,11 @@
 //! vista: a primeira chamada do frame só define o retângulo da vista corrente;
 //! as seguintes guardam a anterior. Sem chamada nenhuma há uma vista cheia —
 //! o comportamento de antes. Câmera e fundo persistem entre frames, como antes.
-#![cfg_attr(not(test), allow(dead_code))] // ligado ao render na Task 2
 
 use super::math::Cam3D;
 
 pub const MAX_VIEWS: usize = 8;
 /// Bytes de um slot de câmera no uniform (alinhamento de offset dinâmico).
-/// Sem chamador nos testes (dimensiona o buffer wgpu na Task 2).
-#[allow(dead_code)]
 pub const CAM_STRIDE: u64 = 256;
 pub const CAM_FLOATS: usize = 64;
 pub const FULL: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
@@ -79,7 +76,7 @@ pub fn viewport_px(rect: [f32; 4], w: u32, h: u32) -> Option<[u32; 4]> {
     if x1 <= x0 || y1 <= y0 { None } else { Some([x0, y0, x1 - x0, y1 - y0]) }
 }
 
-/// Um slot do uniform `Cam` (ver o teste de layout na Task 2).
+/// Um slot do uniform `Cam` (ver `layout_do_uniform_bate_com_o_empacotamento`).
 pub fn cam_floats(v: &View, light: [f32; 4], light_vp: &[f32; 16], water: f32) -> [f32; CAM_FLOATS] {
     let c = &v.cam;
     let mut f = [0f32; CAM_FLOATS];
