@@ -64,7 +64,7 @@ pub(in crate::layout) fn split_piece_that_does_not_fit(
             // Numa caixa mais estreita que um glifo, nada cabe e descer de
             // linha não muda isso: sem um carácter forçado o laço não
             // termina. Transbordar um carácter é o que o browser também faz.
-            n = rest.chars().next().map_or(0, char::len_utf8);
+            n = super::break_opportunities::first_cluster(m, rest);
             w = fonts.width(m, piece_run, &rest[..n], run.bold, run.italic);
         }
         if n == 0 {
