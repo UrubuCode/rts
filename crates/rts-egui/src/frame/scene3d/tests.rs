@@ -265,7 +265,7 @@
         assert_eq!(q.len(), 1);
         assert_eq!(q.get(0).rect, FULL, "o frame seguinte volta a vista cheia");
         assert!(q.get(0).limpar);
-        assert_eq!(q.get(0).cam.cam_pos, [2.0, 0.0, 0.0], "a camera persiste entre frames, como hoje");
+        assert_eq!(q.get(0).cam.cam_pos, [1.0, 0.0, 0.0], "com varias vistas, o frame seguinte comeca com a camera da 1a");
         for _ in 0..(MAX_VIEWS + 3) { q.set_viewport([0.0, 0.0, 1.0, 1.0], true); }
         assert_eq!(q.len(), MAX_VIEWS, "teto de vistas");
     }
@@ -349,4 +349,36 @@
         assert_eq!(offset(&e, "lights"), 32 * 4);
         let (luz, _) = struct_layout(&m, "LuzGpu");
         assert_eq!(luz, 64, "16 floats por luz");
+    }
+
+    /// Várias vistas: o frame seguinte começa com fundo e câmera da PRIMEIRA vista,
+    /// não da última (senão a tela dividida perde o céu da vista 1 no frame 2).
+    /// Uma vista só: tudo persiste como antes.
+    #[test]
+    fn fim_do_frame_restaura_a_primeira_vista() {
+        let a = view_proj(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0);
+        let b = view_proj(2.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0);
+        let mut q = ViewQueue::new(a);
+        // frame 1: vista A (céu, câmera A) e vista B (cor chapada, câmera B)
+        q.set_viewport(FULL, true);
+        q.set_viewport([0.7, 0.0, 0.3, 0.3], true);
+        q.set_fundo(Fundo::Cor([0.1, 0.1, 0.1, 1.0]));
+        q.set_camera(b);
+        q.end_frame();
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.get(0).fundo, Fundo::Ceu, "fundo da vista A");
+        assert_eq!(q.get(0).cam.cam_pos, [1.0, 0.0, 0.0], "camera da vista A");
+        assert_eq!(q.get(0).rect, FULL);
+        // vista única: fundo e câmera persistem como hoje
+        q.set_fundo(Fundo::Cor([0.3, 0.3, 0.3, 1.0]));
+        q.set_camera(b);
+        q.end_frame();
+        assert_eq!(q.get(0).fundo, Fundo::Cor([0.3, 0.3, 0.3, 1.0]));
+        assert_eq!(q.get(0).cam.cam_pos, [2.0, 0.0, 0.0]);
+        // setViewport chamado uma vez só também é vista única
+        q.set_viewport([0.0, 0.0, 0.5, 0.5], true);
+        q.set_camera(a);
+        q.end_frame();
+        assert_eq!(q.get(0).cam.cam_pos, [1.0, 0.0, 0.0]);
+        assert_eq!(q.get(0).rect, FULL);
     }

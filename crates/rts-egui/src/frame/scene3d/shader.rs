@@ -115,8 +115,12 @@ fn sky_fs(i: SkyOut) -> @location(0) vec4<f32> {
   var ray = normalize(cam.cam_fwd.xyz
     + cam.cam_right.xyz * (i.ndc.x * cam.cam_right.w)
     + cam.cam_up.xyz * (i.ndc.y * cam.cam_up.w));
-  if (cam.proj.x > 0.5) { ray = normalize(cam.cam_fwd.xyz); }   // ortográfica: um raio só
-  // amostra SEMPRE (fluxo uniforme); só vale no modo panorama
+  // ortográfica: um raio só, então o fundo da vista é UMA cor chapada (a do
+  // céu na direção do olhar); não há gradiente nem disco do sol.
+  if (cam.proj.x > 0.5) { ray = normalize(cam.cam_fwd.xyz); }
+  // amostra SEMPRE (fluxo uniforme); só vale no modo panorama. A costura do
+  // equirretangular (atan2 salta de 1 para 0) é inofensiva sem mipmaps; se a
+  // textura ganhar mips, usar textureSampleLevel(..., 0.0) aqui.
   let pano = textureSample(albedo_tex, albedo_samp, equiret(ray)).rgb;
   if (cam.view_bg.w > 0.5) { return vec4<f32>(cam.view_bg.rgb, 1.0); }
   return vec4<f32>(cor_do_ceu(ray, pano), 1.0);
@@ -210,6 +214,8 @@ fn ambiente(n: vec3<f32>) -> vec3<f32> {
   if (modo < 1.5) { return env.amb.rgb * env.info.w; }          // cor
   return mix(env.sky_ground.rgb, env.sky_top.rgb, n.y * 0.5 + 0.5) * env.info.w;   // céu
 }
+// A neblina vale só para malhas iluminadas: emissivos (retornam antes) e o
+// céu não a recebem.
 fn neblina(rgb: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
   if (env.fog.w <= 0.0) { return rgb; }
   return mix(env.fog.rgb, rgb, exp(-env.fog.w * length(cam.cam_pos.xyz - world)));

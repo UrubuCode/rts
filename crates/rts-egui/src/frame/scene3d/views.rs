@@ -49,7 +49,14 @@ impl ViewQueue {
     }
     pub fn len(&self) -> usize { self.done.len() + 1 }
     pub fn get(&self, i: usize) -> &View { if i < self.done.len() { &self.done[i] } else { &self.cur } }
+    /// Fecha o frame. Com várias vistas, o próximo frame começa com o fundo e a
+    /// câmera da PRIMEIRA (não da última, que é quase sempre um detalhe como um
+    /// minimapa); com uma vista só, tudo persiste como antes.
     pub fn end_frame(&mut self) {
+        if let Some(primeira) = self.done.first() {
+            self.cur.fundo = primeira.fundo;
+            self.cur.cam = primeira.cam;
+        }
         self.done.clear();
         self.aberta = false;
         self.cur.rect = FULL;

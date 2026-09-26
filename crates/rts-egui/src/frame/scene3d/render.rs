@@ -120,6 +120,8 @@ impl Scene3D {
 
         // Clear da janela inteira: com UMA vista cheia é o de antes (a cor do
         // fundo chapado ou o escuro sob o céu); com várias, o escuro (faixas).
+        // É o PRIMEIRO pass com área que limpa a janela inteira, mesmo que a
+        // vista dele tenha `limpar = false` — "nada" só vale dentro do frame.
         let v0 = *self.vq.get(0);
         let base = match v0.fundo {
             Fundo::Cor(c) if nviews == 1 && v0.rect == FULL =>
