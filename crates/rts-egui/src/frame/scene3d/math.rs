@@ -185,8 +185,13 @@ pub fn model_matrix(
     ]
 }
 
-/// Produto de quaternions [x, y, z, w]: aplica `b` e depois `a`.
-pub fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+/// Produto de quaternions [x, y, z, w]: aplica `b` e depois `a`. Sem chamador
+/// de produção hoje (drawMesh só recebe o quaternion final, não compõe dois);
+/// existe pra fixar/testar a composição que a próxima task (bones) vai
+/// precisar. `#[cfg(test)]` até ter um chamador real, pra não gerar
+/// dead_code warning em build normal.
+#[cfg(test)]
+pub(crate) fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     [
         a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
         a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],

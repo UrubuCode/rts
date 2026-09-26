@@ -40,7 +40,7 @@ mod shader;
 mod tests;
 
 use math::{identity, light_view_proj};
-pub use math::{Cam3D, model_matrix, model_matrix_quat, quat_mul, view_proj, view_proj_lookat};
+pub use math::{Cam3D, model_matrix, model_matrix_quat, view_proj, view_proj_lookat};
 
 const SHADOW_SIZE: u32 = 2048;
 

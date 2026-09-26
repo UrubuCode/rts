@@ -1,5 +1,6 @@
     use super::*;
     use super::math::v_len;
+    use super::math::quat_mul;
 
     /// Aplica a matriz column-major `m` (4×4) ao ponto homogêneo `(p,1)`.
     fn apply(m: &[f32; 16], p: [f32; 3]) -> [f32; 4] {
