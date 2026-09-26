@@ -30,7 +30,7 @@ pub(in crate::layout) use super::fragment_key::KeyBase;
 /// desenho anterior ou ele não tinha subárvores; a sujeira não tem alvo ou está
 /// espalhada demais; a lista de filhos mudou; ou a subárvore refeita mudou de
 /// ALTURA ou de margem, e aí tudo abaixo dela desloca.
-fn costurar(
+fn stitch(
     dom: &Dom,
     id: NodeIdx,
     key: crate::dom::FragmentKey,
@@ -39,27 +39,27 @@ fn costurar(
     if dom.is_self_dirty(id) {
         return None;
     }
-    let (antiga, anterior) = dom.last_fragment_of(key.target)?;
+    let (old, previous) = dom.last_fragment_of(key.target)?;
     // Só o epoch do nó pode diferir: viewport, constraints, estilo global e
     // animação mudam o desenho inteiro, não uma parte dele.
     if (
-        antiga.tree,
-        antiga.avail_w,
-        antiga.avail_h,
-        antiga.viewport_w,
-        antiga.viewport_h,
+        old.tree,
+        old.avail_w,
+        old.avail_h,
+        old.viewport_w,
+        old.viewport_h,
     ) != (
         key.tree,
         key.avail_w,
         key.avail_h,
         key.viewport_w,
         key.viewport_h,
-    ) || (antiga.style_epoch, antiga.anim_epoch, antiga.measurer)
+    ) || (old.style_epoch, old.anim_epoch, old.measurer)
         != (key.style_epoch, key.anim_epoch, key.measurer)
     {
         return None;
     }
-    if crate::paint::pieces::children(&anterior.pieces).next().is_none() {
+    if crate::paint::pieces::children(&previous.pieces).next().is_none() {
         return None;
     }
     // Um container cujos filhos carregam tamanho IMPOSTO (flex, grid,
@@ -73,27 +73,27 @@ fn costurar(
     // cada ITEM, individualmente, bater no cache por `FragmentKey` exata
     // (ver `layout_block_reusing`). Bloco normal nunca tem `forced_outer_*`
     // definido, então este guard não custa nada ao caminho comum.
-    if crate::paint::pieces::children(&anterior.pieces)
+    if crate::paint::pieces::children(&previous.pieces)
         .any(|c| c.forced_outer_w.is_some() || c.forced_outer_h.is_some())
     {
         return None;
     }
-    let sujos = dom.dirty_children_of(id)?;
+    let dirty = dom.dirty_children_of(id)?;
     let tree = dom.box_tree();
     // A árvore que emitiu o desenho antigo, guardada ANTES de reidratar: é
     // contra a caixa dela que a sequência de filhos se compara.
-    let (arvore_antiga, caixa_antiga) = (std::rc::Rc::clone(&anterior.tree), anterior.caixa);
+    let (old_tree, old_box) = (std::rc::Rc::clone(&previous.tree), previous.caixa);
     // O fragmento pode ter sido produzido pela árvore anterior. Reidratar na
     // entrada é a única fronteira permitida para os `BoxId`s que ele guarda.
-    let anterior = anterior.remapped_to(&tree)?;
+    let previous = previous.remapped_to(&tree)?;
     // Inserção, remoção, reordenação ou uma caixa anónima nova mudam quem
     // desenha o quê, e trocar uma referência não daria conta disso.
     if !super::stitching::mesma_sequencia_de_filhos(
-        &arvore_antiga,
-        caixa_antiga,
+        &old_tree,
+        old_box,
         &tree,
-        anterior.caixa,
-    ) || !super::stitching::sujeira_coberta(&tree, &sujos, &anterior.pieces)
+        previous.caixa,
+    ) || !super::stitching::dirt_covered(&tree, &dirty, &previous.pieces)
     {
         return None;
     }
@@ -102,15 +102,15 @@ fn costurar(
     // The dirty child is replaced WHERE IT STANDS, found by its box: its
     // `Piece::Child` keeps its place in the sequence, so nothing painted around
     // it moves and there is no index to correct.
-    let mut pieces = (*anterior.pieces).clone();
-    let mut grid_column_tracks = (*anterior.grid_column_tracks).clone();
-    let mut trocou = false;
+    let mut pieces = (*previous.pieces).clone();
+    let mut grid_column_tracks = (*previous.grid_column_tracks).clone();
+    let mut replaced = false;
     for piece in &mut pieces {
         let super::Piece::Child(child) = piece else { continue };
         let Some(child_node) = tree.node_of(child.caixa) else {
             return None;
         };
-        if !sujos.contains(&child_node) {
+        if !dirty.contains(&child_node) {
             continue;
         }
         let previous_grid_nodes: Vec<NodeIdx> = child
@@ -124,20 +124,20 @@ fn costurar(
         // mais o deslocamento com que entrou aqui. Somar à origem do PAI daria
         // uma posição sem sentido — foi o que o teste de equivalência mostrou,
         // com o texto reaparecendo em (0,16) em vez de (12, 67.4).
-        let origem = (
+        let origin = (
             child.fragment.origin.0 + child.dx,
             child.fragment.origin.1 + child.dy,
         );
-        let margem = (child.margin_top, child.margin_bottom);
-        let ((_, altura), nova_margem) = layout_block_reusing(
+        let margin = (child.margin_top, child.margin_bottom);
+        let ((_, height), new_margin) = layout_block_reusing(
             dom,
             child_node,
             child.caixa,
-            origem.0,
-            origem.1,
+            origin.0,
+            origin.1,
             child.avail_w,
             child.avail_h,
-            || margem,
+            || margin,
             // O guard acima já recusa costura quando algum filho tem tamanho
             // imposto — estes dois são sempre `None`/`false` aqui, mas lidos
             // do `ChildRef` (em vez de escritos `None`/`false` à mão) para que
@@ -166,9 +166,9 @@ fn costurar(
             ctx,
             &mut own,
         );
-        if (altura - child.height).abs() > 0.001
-            || (nova_margem.0 - child.margin_top).abs() > 0.001
-            || (nova_margem.1 - child.margin_bottom).abs() > 0.001
+        if (height - child.height).abs() > 0.001
+            || (new_margin.0 - child.margin_top).abs() > 0.001
+            || (new_margin.1 - child.margin_bottom).abs() > 0.001
         {
             return None;
         }
@@ -178,33 +178,33 @@ fn costurar(
         // novo pode ter sido calculado já em `origem` (deslocamento zero) ou ser
         // uma costura que herdou a origem do velho. Manter o `dx`/`dy` antigo
         // aplicava o deslocamento duas vezes a um filho que tinha subido.
-        let novo = crate::paint::pieces::children(&own.pieces).next()?;
+        let stitched_ref = crate::paint::pieces::children(&own.pieces).next()?;
         grid_column_tracks.retain(|(node, _)| !previous_grid_nodes.contains(node));
-        grid_column_tracks.extend(novo.fragment.grid_column_tracks.iter().cloned());
-        (child.dx, child.dy) = (novo.dx, novo.dy);
-        child.fragment = novo.fragment.clone();
-        trocou = true;
+        grid_column_tracks.extend(stitched_ref.fragment.grid_column_tracks.iter().cloned());
+        (child.dx, child.dy) = (stitched_ref.dx, stitched_ref.dy);
+        child.fragment = stitched_ref.fragment.clone();
+        replaced = true;
     }
-    if !trocou {
+    if !replaced {
         return None;
     }
-    let ultima_linha = crate::layout::inline::line_baseline::total_da_costura(dom, id, &anterior, &pieces, &tree);
+    let ultima_linha = crate::layout::inline::line_baseline::total_da_costura(dom, id, &previous, &pieces, &tree);
     let fragment = std::rc::Rc::new(Fragment {
         caixa: tree.boxes_of(key.target.node).get(key.target.ordinal as usize).copied()?,
         tree: std::rc::Rc::clone(&tree),
         // Shares what did NOT change; the sequence is new because a subtree in
         // it is.
         pieces: std::rc::Rc::new(pieces),
-        rects: std::rc::Rc::clone(&anterior.rects),
+        rects: std::rc::Rc::clone(&previous.rects),
         grid_column_tracks: std::rc::Rc::new(grid_column_tracks),
-        scroll_regions: anterior.scroll_regions.clone(),
-        linha_directa: anterior.linha_directa,
+        scroll_regions: previous.scroll_regions.clone(),
+        linha_directa: previous.linha_directa,
         ultima_linha,
-        ancoras_estaticas: std::rc::Rc::clone(&anterior.ancoras_estaticas),
-        origin: anterior.origin,
-        size: anterior.size,
-        margin_top: anterior.margin_top,
-        margin_bottom: anterior.margin_bottom,
+        ancoras_estaticas: std::rc::Rc::clone(&previous.ancoras_estaticas),
+        origin: previous.origin,
+        size: previous.size,
+        margin_top: previous.margin_top,
+        margin_bottom: previous.margin_bottom,
     });
     dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     Some(fragment)
@@ -252,7 +252,7 @@ pub(in crate::layout) fn layout_block_reusing(
     y: f32,
     avail_w: f32,
     avail_h: Option<f32>,
-    margens: impl FnOnce() -> (f32, f32),
+    margins: impl FnOnce() -> (f32, f32),
     forced_outer_w: Option<f32>,
     forced_outer_h: Option<f32>,
     // Ver o comentário em `layout_block` (`block.rs`) — só
@@ -292,7 +292,7 @@ pub(in crate::layout) fn layout_block_reusing(
             ctx,
             list,
         );
-        return (size, margens());
+        return (size, margins());
     }
     let key = fragment_key(
         dom,
@@ -329,9 +329,9 @@ pub(in crate::layout) fn layout_block_reusing(
     // de mil entradas de 48 bytes — a primeira versão disto (revertida) copiava
     // 3000 itens com String e por isso não ganhava nada.
     // The stitch re-lays dirty children into its own lists; their lines are already in `ultima_linha`.
-    let (linhas_antes, costurado) = (crate::layout::inline::line_baseline::marca(), costurar(dom, id, key, ctx));
-    crate::layout::inline::line_baseline::descarta(linhas_antes);
-    if let Some(fragment) = costurado {
+    let (lines_before, stitched) = (crate::layout::inline::line_baseline::marca(), stitch(dom, id, key, ctx));
+    crate::layout::inline::line_baseline::descarta(lines_before);
+    if let Some(fragment) = stitched {
         crate::bump!(fragment_patches);
         emit_fragment(
             &fragment,
@@ -348,7 +348,7 @@ pub(in crate::layout) fn layout_block_reusing(
     }
     // Resolvidas AQUI e não dentro do literal: o `FnOnce` só se consome uma vez,
     // e os dois campos precisam do mesmo par.
-    let margens_resolvidas = margens();
+    let resolved_margins = margins();
     crate::bump!(fragment_misses);
     let _phase = crate::metrics::phases::scope("fragment-build");
     // Lista PRÓPRIA: o fragmento precisa saber exatamente quais itens são dele,
@@ -358,8 +358,8 @@ pub(in crate::layout) fn layout_block_reusing(
     // estabelecer BFC próprio e conter um float que precisa de ESCAPAR para
     // este mesmo `bfc` (ver `block/bfc.rs`). O comprimento antes/depois é
     // como se sabe se isso aconteceu: `floats_escaparam` abaixo.
-    let floats_antes = bfc.len();
-    let linhas_antes = crate::layout::inline::line_baseline::marca();
+    let floats_before = bfc.len();
+    let lines_before = crate::layout::inline::line_baseline::marca();
     let size = layout_block(
         dom,
         id,
@@ -384,8 +384,8 @@ pub(in crate::layout) fn layout_block_reusing(
     // exclusões produzidas dentro do `Fragment` e reinjectá-las em cada
     // emissão, mesmo em cache-hit) fica para quando um caso real o pedir —
     // documentado, não escondido, no cabeçalho de `block/bfc.rs`.
-    let floats_escaparam = bfc.len() != floats_antes;
-    let (linha_directa, ultima_linha) = crate::layout::inline::line_baseline::colhe_do_bloco(dom, id, linhas_antes, y, size.1);
+    let floats_escaped = bfc.len() != floats_before;
+    let (linha_directa, ultima_linha) = crate::layout::inline::line_baseline::colhe_do_bloco(dom, id, lines_before, y, size.1);
     // O desenho guardado conserva a identidade que o produziu: `BoxId`. A
     // chave também a carrega; a passagem seguinte é fazer cada chamador levar
     // a caixa EXACTA, em vez de este caminho ainda obter a primeira do nó.
@@ -407,10 +407,10 @@ pub(in crate::layout) fn layout_block_reusing(
         ancoras_estaticas: std::rc::Rc::new(std::mem::take(&mut own.ancoras_estaticas)),
         origin: (x, y),
         size,
-        margin_top: margens_resolvidas.0,
-        margin_bottom: margens_resolvidas.1,
+        margin_top: resolved_margins.0,
+        margin_bottom: resolved_margins.1,
     });
-    if !floats_escaparam {
+    if !floats_escaped {
         dom.fragment_put(key, std::rc::Rc::clone(&fragment));
     }
     fragment.emit_at(

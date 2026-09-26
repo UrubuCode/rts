@@ -51,7 +51,7 @@ pub(in crate::layout) fn main_no_eixo_y(wm: WritingMode, is_column_keyword: bool
 pub(in crate::layout) fn reverse_efetivo(
     wm: WritingMode,
     dir: Direction,
-    main_no_eixo_y: bool,
+    main_on_y_axis: bool,
     reverse_keyword: bool,
 ) -> bool {
     // `writing-mode` horizontal + eixo principal FÍSICO X (`row`) + SEM
@@ -70,10 +70,10 @@ pub(in crate::layout) fn reverse_efetivo(
     // acerta esse caso — `flexbox_justifycontent-start-rtl`/`-end-rtl`
     // pinam-no: visualmente 1,2,3, não invertido) — só o `reverse_keyword`
     // falso é que precisa do corte, nunca o verdadeiro.
-    if wm.is_horizontal() && !main_no_eixo_y && !reverse_keyword {
+    if wm.is_horizontal() && !main_on_y_axis && !reverse_keyword {
         return false;
     }
-    let forward = if main_no_eixo_y {
+    let forward = if main_on_y_axis {
         eixo_y_forward(wm, dir)
     } else {
         eixo_x_forward(wm, dir)
@@ -84,13 +84,13 @@ pub(in crate::layout) fn reverse_efetivo(
 /// O `wrap-reverse` FINAL do eixo CRUZADO (o eixo físico oposto ao
 /// principal) — mesma combinação que [`reverse_efetivo`], só que para a
 /// ORDEM DAS LINHAS/COLUNAS do `flex-wrap` em vez da ordem dos itens.
-pub(in crate::layout) fn wrap_reverse_efetivo(
+pub(in crate::layout) fn effective_wrap_reverse(
     wm: WritingMode,
     dir: Direction,
-    main_no_eixo_y: bool,
+    main_on_y_axis: bool,
     wrap: Option<FlexWrap>,
 ) -> bool {
-    let forward = if main_no_eixo_y {
+    let forward = if main_on_y_axis {
         eixo_x_forward(wm, dir)
     } else {
         eixo_y_forward(wm, dir)
@@ -103,7 +103,7 @@ pub(in crate::layout) fn wrap_reverse_efetivo(
 /// exposto à parte porque `cross_x` não conhece `main_no_eixo_y` (o seu
 /// eixo é sempre X, seja ele o cruzado de uma coluna real ou o cruzado de
 /// um `row` despachado por escrita vertical — ver o cabeçalho).
-pub(in crate::layout) fn eixo_x_invertido(wm: WritingMode, dir: Direction) -> bool {
+pub(in crate::layout) fn x_axis_inverted(wm: WritingMode, dir: Direction) -> bool {
     !eixo_x_forward(wm, dir)
 }
 
@@ -122,8 +122,8 @@ pub(in crate::layout) fn fisico_para_eixo(
     direction: Direction,
 ) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
-    let (inicio, fim) = if direction == Direction::Rtl { (J::Right, J::Left) } else { (J::Left, J::Right) };
-    let j = match j { J::Start => inicio, J::End => fim, outro => outro };
+    let (start, end) = if direction == Direction::Rtl { (J::Right, J::Left) } else { (J::Left, J::Right) };
+    let j = match j { J::Start => start, J::End => end, other => other };
     match (j, reverse) {
         (J::Left, false) | (J::Right, true) => J::FlexStart,
         (J::Left, true) | (J::Right, false) => J::FlexEnd,

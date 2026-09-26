@@ -12,10 +12,10 @@
 use crate::style::{ComputedStyle, DisplayKind, FloatSide};
 
 /// `true` when `css`, as the style of a box whose parent box has style
-/// `pai`, establishes its own block formatting context by the style alone —
+/// `parent_css`, establishes its own block formatting context by the style alone —
 /// every trigger except the document root and `overflow`, which the caller
 /// adds with [`overflow_estabelece`] once it knows `overflow` applies here.
-pub(crate) fn pelo_estilo(css: &ComputedStyle, pai: Option<&ComputedStyle>) -> bool {
+pub(crate) fn pelo_estilo(css: &ComputedStyle, parent_css: Option<&ComputedStyle>) -> bool {
     let display_bfc = matches!(
         css.effective_display(),
         Some(
@@ -43,7 +43,7 @@ pub(crate) fn pelo_estilo(css: &ComputedStyle, pai: Option<&ComputedStyle>) -> b
     // `<header class="mb-auto">` do Bootstrap cover — um `float-md-start` e um
     // `float-md-end` lá dentro — media 0px onde o Blink dá 36
     // (`claude-flex-item-contem-floats`).
-    let item_bfc = pai.is_some_and(|pc| {
+    let item_bfc = parent_css.is_some_and(|pc| {
         matches!(
             pc.effective_display(),
             Some(

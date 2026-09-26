@@ -64,10 +64,10 @@ pub(in crate::layout) struct CaixaGerada {
     pub(in crate::layout) fonte: f32,
 }
 
-/// The text of a generated box broken into lines at `largura` (its content
+/// The text of a generated box broken into lines at `line_width` (its content
 /// width), by the line flow's own `wrap_runs`, under the pseudo's own
 /// `white-space`, `word-spacing` and `hyphens`. Empty text gives no line.
-pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largura: f32, fonte: f32, ctx: &LayoutCtx) -> Vec<String> {
+pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, line_width: f32, fonte: f32, ctx: &LayoutCtx) -> Vec<String> {
     if texto.is_empty() {
         return Vec::new();
     }
@@ -83,18 +83,18 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
         ww: 0.0,
         wh: 0.0,
     };
-    let familia = css.font_family.as_deref();
+    let family = css.font_family.as_deref();
     let linhas = wrap_runs(
         std::slice::from_ref(&run),
-        &mut |_| if nowrap { f32::INFINITY } else { largura },
+        &mut |_| if nowrap { f32::INFINITY } else { line_width },
         &mut |_| 0.0,
         fonte,
-        familia.is_some_and(crate::style::is_mono_family),
+        family.is_some_and(crate::style::is_mono_family),
         crate::inline_box::quebra_dentro(css),
         crate::layout::inline::preserved_spaces::Spaces::from_css(css),
         css.word_spacing.unwrap_or(0.0),
         css.hyphens != Some(crate::style::vocab::Hyphens::None),
-        &crate::layout::inline::run_font::Fontes::uniforme(familia, fonte, familia.is_some_and(crate::style::is_mono_family)),
+        &crate::layout::inline::run_font::Fontes::uniforme(family, fonte, family.is_some_and(crate::style::is_mono_family)),
         ctx.measurer,
     );
     linhas
@@ -104,8 +104,8 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
         .collect()
 }
 
-/// The generated box `pe` of `id` as the TREE has it: its `BoxId` — the child
-/// of `dono`, the box of `id` being laid out — and its content, asked of the
+/// The generated box `pseudo_el` of `id` as the TREE has it: its `BoxId` — the child
+/// of `owner`, the box of `id` being laid out — and its content, asked of the
 /// cascade now (`BoxTree::pseudo_box`), never a copy.
 ///
 /// This is where the block and flex roles stopped re-deriving the pseudo from
@@ -115,10 +115,10 @@ pub(in crate::layout) fn linhas_do_texto(css: &ComputedStyle, texto: &str, largu
 pub(in crate::layout) fn da_arvore(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
-    dono: crate::boxes::BoxId,
-    pe: crate::style::PseudoElement,
+    owner: crate::boxes::BoxId,
+    pseudo_el: crate::style::PseudoElement,
 ) -> Option<(crate::boxes::BoxId, crate::pseudo::PseudoBox)> {
-    let gerada = tree.generated_child(dono, pe)?;
+    let gerada = tree.generated_child(owner, pseudo_el)?;
     Some((gerada, tree.pseudo_box(dom, gerada)?))
 }
 
@@ -154,15 +154,15 @@ pub(in crate::layout) fn resolve_arestas(css: &ComputedStyle, r: &ResolveCtx) ->
 /// OUTER (com margens). Igual nos dois papéis — `border-box` só muda o que
 /// `width`/`height` mede, e só quando a propriedade foi DECLARADA; sem
 /// declaração o resultado já é content-box nos dois.
-fn dimensionar(css: &ComputedStyle, arestas: &Arestas, conteudo_w: f32, conteudo_h: f32) -> (f32, f32) {
+fn size_box(css: &ComputedStyle, arestas: &Arestas, inner_w: f32, inner_h: f32) -> (f32, f32) {
     let [at, ar, ab, al] = arestas.valores;
     let (w, h) = if css.border_box.unwrap_or(false) && (css.width.is_some() || css.height.is_some()) {
         (
-            css.width.map_or(conteudo_w + al + ar, |_| conteudo_w),
-            css.height.map_or(conteudo_h + at + ab, |_| conteudo_h),
+            css.width.map_or(inner_w + al + ar, |_| inner_w),
+            css.height.map_or(inner_h + at + ab, |_| inner_h),
         )
     } else {
-        (conteudo_w + al + ar, conteudo_h + at + ab)
+        (inner_w + al + ar, inner_h + at + ab)
     };
     (w + arestas.ml + arestas.mr, h + arestas.mt + arestas.mb)
 }
@@ -174,12 +174,12 @@ fn dimensionar(css: &ComputedStyle, arestas: &Arestas, conteudo_w: f32, conteudo
 pub(in crate::layout) fn montar(
     (gerada, caixa): (crate::boxes::BoxId, crate::pseudo::PseudoBox),
     arestas: Arestas,
-    conteudo_w: f32,
-    conteudo_h: f32,
+    inner_w: f32,
+    inner_h: f32,
     linhas: Vec<String>,
     fonte: f32,
 ) -> CaixaGerada {
-    let (w, h) = dimensionar(&caixa.css, &arestas, conteudo_w, conteudo_h);
+    let (w, h) = size_box(&caixa.css, &arestas, inner_w, inner_h);
     CaixaGerada {
         caixa,
         gerada,
@@ -220,13 +220,13 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
     }
     let sides = crate::style::borders::resolved_sides(css);
     let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
-    let barras = [
+    let bars = [
         (Rect::new(r.x, r.y, r.w, bt), sides[0]),
         (Rect::new(r.x + r.w - br, r.y, br, r.h), sides[1]),
         (Rect::new(r.x, r.y + r.h - bb, r.w, bb), sides[2]),
         (Rect::new(r.x, r.y, bl, r.h), sides[3]),
     ];
-    for (rect, side) in barras {
+    for (rect, side) in bars {
         if side.paints() && side.color & 0xFF != 0 {
             list.push_item(DisplayItem::SolidRect { rect, color: side.color, radius: Corners::ZERO });
         }
@@ -234,12 +234,12 @@ pub(in crate::layout) fn pintar(list: &mut DisplayList, caixa: &CaixaGerada, x: 
     let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
     let is_ahem = crate::layout::measure::font_metrics::usa_ahem(css.font_family.as_deref());
     let lh = crate::inline_box::altura_da_linha(css, caixa.fonte, ctx.measurer);
-    let conteudo = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
-    for (i, linha) in caixa.linhas.iter().enumerate() {
+    let content = crate::inline_box::altura_do_conteudo(caixa.fonte, css.font_family.as_deref(), ctx.measurer);
+    for (i, line) in caixa.linhas.iter().enumerate() {
         list.push_item(DisplayItem::Text {
             x: r.x + caixa.arestas[3],
-            y: r.y + caixa.arestas[0] + i as f32 * lh + crate::inline_box::meia_entrelinha(lh, conteudo),
-            text: linha.clone().into(),
+            y: r.y + caixa.arestas[0] + i as f32 * lh + crate::inline_box::meia_entrelinha(lh, content),
+            text: line.clone().into(),
             color: css.color.unwrap_or(0x000000FF),
             size: caixa.fonte,
             mono,
@@ -287,7 +287,7 @@ mod tests {
         let arestas = resolve_arestas(&css, &r);
         // Sem borda declarada, "arestas" é só o padding: 5 em cada lado.
         assert_eq!(arestas.valores, [5.0, 5.0, 5.0, 5.0]);
-        let (w, h) = dimensionar(&css, &arestas, 100.0, 40.0);
+        let (w, h) = size_box(&css, &arestas, 100.0, 40.0);
         // border-box: os 100/40 declarados JÁ são a caixa border+padding+
         // conteúdo; só a margem soma por cima.
         assert_eq!((w, h), (120.0, 60.0), "w=100+10+10, h=40+10+10");
@@ -304,7 +304,7 @@ mod tests {
         css.height = Some(Dimension::Px(40.0));
         let r = ctx();
         let arestas = resolve_arestas(&css, &r);
-        let (w, h) = dimensionar(&css, &arestas, 100.0, 40.0);
+        let (w, h) = size_box(&css, &arestas, 100.0, 40.0);
         assert_eq!((w, h), (110.0, 50.0), "100+5+5, 40+5+5 — padding somado");
     }
 
@@ -317,16 +317,16 @@ mod tests {
         let mut css = ComputedStyle::default();
         css.margin = crate::style::values::Edges::all(Side::Len(Dimension::Px(10.0)));
         let r = ctx();
-        let arestas_bloco = resolve_arestas(&css, &r);
-        let arestas_item = resolve_arestas(&css, &r);
-        let caixa_bloco = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
-        let caixa_item = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
+        let block_edges = resolve_arestas(&css, &r);
+        let item_edges = resolve_arestas(&css, &r);
+        let block_box_id = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
+        let item_box = crate::pseudo::PseudoBox { texto: "x".into(), css: css.clone() };
         // Any box of any tree: `montar` only carries it, it never reads it.
         let dom = crate::parse_html_to_dom("<p></p>");
         let gerada = dom.box_tree().roots().next().expect("the document has a root box");
-        let bloco = montar((gerada, caixa_bloco), arestas_bloco, 50.0, 20.0, vec!["x".into()], 16.0);
-        let item = montar((gerada, caixa_item), arestas_item, 50.0, 20.0, vec!["x".into()], 16.0);
-        assert_eq!((bloco.w, bloco.h), (item.w, item.h));
-        assert_eq!(bloco.arestas, item.arestas);
+        let block_role = montar((gerada, block_box_id), block_edges, 50.0, 20.0, vec!["x".into()], 16.0);
+        let item = montar((gerada, item_box), item_edges, 50.0, 20.0, vec!["x".into()], 16.0);
+        assert_eq!((block_role.w, block_role.h), (item.w, item.h));
+        assert_eq!(block_role.arestas, item.arestas);
     }
 }

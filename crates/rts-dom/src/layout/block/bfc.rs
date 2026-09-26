@@ -35,7 +35,7 @@
 //! muda durante a construção) e o fragmento correspondente deixa de ser
 //! GRAVADO — nunca fica em cache, então a próxima passada refaz a subárvore
 //! inteira e os floats voltam a ser empurrados corretamente. O que isto NÃO
-//! cobre é a COSTURA (`costurar`): um filho que se torna sujo e ganha um float
+//! cobre é a COSTURA (`stitch`): um filho que se torna sujo e ganha um float
 //! novo que precisa de escapar é reconstruído com um contexto ISOLADO (o
 //! comentário em `layout/fragmento.rs` explica porquê) — um caso raro
 //! (alternar `float` num elemento já cacheado, dentro de um pai sem BFC, numa
@@ -86,21 +86,21 @@ impl BlockFormattingContext {
     /// este BFC agora — o ponto em que um float dentro de um container SEM
     /// BFC próprio "escapa": a referência é a mesma do antepassado que criou
     /// este valor, então o `push` fica visível a ele sem retorno nenhum.
-    pub(in crate::layout) fn push(&self, exclusao: Exclusao) {
-        self.floats.borrow_mut().push(exclusao);
+    pub(in crate::layout) fn push(&self, exclusion: Exclusao) {
+        self.floats.borrow_mut().push(exclusion);
     }
 
-    /// A banda livre entre `y` e `y + altura`, considerando TODOS os floats
+    /// A banda livre entre `y` e `y + height`, considerando TODOS os floats
     /// abertos — delega em [`crate::layout::float::float::banda_livre`], a mesma fórmula de
     /// sempre, só que lendo do `RefCell` em vez de um `Vec` local.
     pub(in crate::layout) fn banda_livre(
         &self,
         y: f32,
-        altura: f32,
+        height: f32,
         content_x: f32,
         content_w: f32,
     ) -> (f32, f32) {
-        crate::layout::float::float::banda_livre(&self.floats.borrow(), y, altura, content_x, content_w)
+        crate::layout::float::float::banda_livre(&self.floats.borrow(), y, height, content_x, content_w)
     }
 
     /// Os fundos dos floats abertos, um por float, sem ordenar — para o laço
@@ -125,17 +125,17 @@ impl BlockFormattingContext {
     /// havia UMA lista combinada (ver `style::text::Clear`, que documentava o
     /// corte). `(true, true)` é o `both` e também o que o crescimento do pai
     /// usa (10.6.7: um BFC contém floats dos dois lados).
-    pub(in crate::layout) fn fundo_lado(&self, esquerda: bool, direita: bool) -> Option<f32> {
+    pub(in crate::layout) fn fundo_lado(&self, left: bool, right: bool) -> Option<f32> {
         let floats = self.floats.borrow();
-        let filtrados: Vec<Exclusao> = floats
+        let filtered: Vec<Exclusao> = floats
             .iter()
             .copied()
             .filter(|e| match e.side {
-                FloatSide::Left => esquerda,
-                FloatSide::Right => direita,
+                FloatSide::Left => left,
+                FloatSide::Right => right,
                 FloatSide::None => false,
             })
             .collect();
-        crate::layout::float::float::fundo_dos_floats(&filtrados)
+        crate::layout::float::float::fundo_dos_floats(&filtered)
     }
 }

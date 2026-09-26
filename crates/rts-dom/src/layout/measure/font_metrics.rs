@@ -35,28 +35,28 @@
 //! copies of it across `text_measurer.rs` is the defect this module first
 //! closed — and Ahem is NOT rounded: 0.8 + 0.2 is the font's definition.
 
-use super::font_advances as avancos;
+use super::font_advances as advances_table;
 
 /// The `hhea` metrics of one font, as fractions of the em, and its advances.
 #[derive(Clone, Copy)]
-struct Tabela {
+struct FontTable {
     ascent: f32,
     descent: f32,
     gap: f32,
     /// `[regular, bold]`, indexed like `font_advances::CHARS`.
-    avancos: &'static [[u16; avancos::CHARS.len()]; 2],
+    advances: &'static [[u16; advances_table::CHARS.len()]; 2],
     /// Fraction of the em for a character the tables do not cover.
-    fora_da_tabela: f32,
+    fallback_fraction: f32,
 }
 
 /// Times New Roman — Blink's `serif`, and its default font.
-const TIMES: Tabela = Tabela { ascent: 1825.0 / 2048.0, descent: 443.0 / 2048.0, gap: 87.0 / 2048.0, avancos: &avancos::TIMES, fora_da_tabela: crate::style::PROP_ADVANCE };
+const TIMES: FontTable = FontTable { ascent: 1825.0 / 2048.0, descent: 443.0 / 2048.0, gap: 87.0 / 2048.0, advances: &advances_table::TIMES, fallback_fraction: crate::style::PROP_ADVANCE };
 /// Arial — `sans-serif`.
-const ARIAL: Tabela = Tabela { ascent: 1854.0 / 2048.0, descent: 434.0 / 2048.0, gap: 67.0 / 2048.0, avancos: &avancos::ARIAL, fora_da_tabela: crate::style::PROP_ADVANCE };
+const ARIAL: FontTable = FontTable { ascent: 1854.0 / 2048.0, descent: 434.0 / 2048.0, gap: 67.0 / 2048.0, advances: &advances_table::ARIAL, fallback_fraction: crate::style::PROP_ADVANCE };
 /// Consolas — `monospace`.
-const CONSOLAS: Tabela = Tabela { ascent: 1884.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, avancos: &avancos::CONSOLAS, fora_da_tabela: crate::style::MONO_ADVANCE };
+const CONSOLAS: FontTable = FontTable { ascent: 1884.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, advances: &advances_table::CONSOLAS, fallback_fraction: crate::style::MONO_ADVANCE };
 /// Segoe UI — `system-ui`, which is what Bootstrap's font stack reaches first.
-const SEGOE_UI: Tabela = Tabela { ascent: 2210.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, avancos: &avancos::SEGOE_UI, fora_da_tabela: crate::style::PROP_ADVANCE };
+const SEGOE_UI: FontTable = FontTable { ascent: 2210.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, advances: &advances_table::SEGOE_UI, fallback_fraction: crate::style::PROP_ADVANCE };
 
 /// The table of the FIRST family of the list this engine can place, as a
 /// browser walks a `font-family` list to the first font it has. A name it
@@ -66,7 +66,7 @@ const SEGOE_UI: Tabela = Tabela { ascent: 2210.0 / 2048.0, descent: 514.0 / 2048
 /// Named fonts map to the table of their class (Georgia to Times, Helvetica
 /// and Verdana to Arial, Courier to Consolas): their own tables differ by a
 /// pixel here and there, and adding one is a row here plus a row in the ruler.
-fn tabela(family: Option<&str>) -> Tabela {
+fn font_table(family: Option<&str>) -> FontTable {
     for nome in family.unwrap_or("").split(',') {
         let n = nome.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
         if n.is_empty() {
@@ -108,7 +108,7 @@ impl FontMetricsModel {
         if usa_ahem(family) {
             return size * crate::style::AHEM_ASCENT_RATIO;
         }
-        (size * tabela(family).ascent).round()
+        (size * font_table(family).ascent).round()
     }
 
     /// Descent in pixels, rounded on its own — NOT `content − ascent`: at 10px
@@ -118,7 +118,7 @@ impl FontMetricsModel {
         if usa_ahem(family) {
             return size * crate::style::AHEM_DESCENT_RATIO;
         }
-        (size * tabela(family).descent).round()
+        (size * font_table(family).descent).round()
     }
 
     /// The width of `text`: the sum of its characters' advances in the font
@@ -129,17 +129,17 @@ impl FontMetricsModel {
         if usa_ahem(family) {
             return text.chars().count() as f32 * size * crate::style::AHEM_ADVANCE;
         }
-        let t = if family.is_none() && mono { CONSOLAS } else { tabela(family) };
-        let face = &t.avancos[usize::from(bold)];
-        let unidades: f32 = text
+        let t = if family.is_none() && mono { CONSOLAS } else { font_table(family) };
+        let face = &t.advances[usize::from(bold)];
+        let units: f32 = text
             .chars()
-            .map(|c| match avancos::CHARS.binary_search(&(c as u32)) {
+            .map(|c| match advances_table::CHARS.binary_search(&(c as u32)) {
                 Ok(i) => f32::from(face[i]),
                 Err(_) if (c as u32) >= 0x2E80 => 2048.0,
-                Err(_) => t.fora_da_tabela * 2048.0,
+                Err(_) => t.fallback_fraction * 2048.0,
             })
             .sum();
-        unidades * size / 2048.0
+        units * size / 2048.0
     }
 
     /// The advance of the "0" glyph (U+0030), as a fraction of the em, in the
@@ -149,16 +149,16 @@ impl FontMetricsModel {
     /// instead of `MONO_ADVANCE`'s single number calibrated for Consolas
     /// alone: Arial's "0" advances 0.556em and Segoe UI's 0.539em, not
     /// 0.5498, so a proportional family's `ch` used to be off by up to 1.6%.
-    /// Falls back to the family's `fora_da_tabela` fraction — `MONO_ADVANCE`
+    /// Falls back to the family's `fallback_fraction` fraction — `MONO_ADVANCE`
     /// for Consolas — only for a family with no table entry for "0", which
-    /// does not happen for the four families [`tabela`] ever returns, so
+    /// does not happen for the four families [`font_table`] ever returns, so
     /// that arm is here for the same reason [`text_width`](Self::text_width)
     /// keeps one: defence, not a live path.
     pub fn ch_advance_em(family: Option<&str>) -> f32 {
-        let t = tabela(family);
-        match avancos::CHARS.binary_search(&('0' as u32)) {
-            Ok(i) => f32::from(t.avancos[0][i]) / 2048.0,
-            Err(_) => t.fora_da_tabela,
+        let t = font_table(family);
+        match advances_table::CHARS.binary_search(&('0' as u32)) {
+            Ok(i) => f32::from(t.advances[0][i]) / 2048.0,
+            Err(_) => t.fallback_fraction,
         }
     }
 
@@ -170,7 +170,7 @@ impl FontMetricsModel {
         if usa_ahem(family) {
             return size * (crate::style::AHEM_ASCENT_RATIO + crate::style::AHEM_DESCENT_RATIO);
         }
-        (Self::ascent(size, family) + Self::descent(size, family) + size * tabela(family).gap).round()
+        (Self::ascent(size, family) + Self::descent(size, family) + size * font_table(family).gap).round()
     }
 }
 

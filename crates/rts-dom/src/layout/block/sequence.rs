@@ -6,9 +6,9 @@
 //! does not have — an anonymous box, the whole point of the layer — could not be
 //! reached by anyone descending, however well the build had constructed it.
 //!
-//! **The sequence is `tree.children(caixa)`, in the tree's order.** A TEXT box
+//! **The sequence is `tree.children(box_id)`, in the tree's order.** A TEXT box
 //! is in it with its box, and an ANONYMOUS box is a STEP OF ITS OWN —
-//! [`PassoDoFluxo::Anonima`] — which the flow lays out through
+//! [`FlowStep::AnonymousBox`] — which the flow lays out through
 //! [`super::block_box`], as the block box CSS 2.1 §9.2.1.1 says it is.
 //!
 //! **That replaced an `expande_anonima` that poured the box's children into the
@@ -58,14 +58,14 @@ use crate::boxes::{BoxId, BoxTree};
 /// invariant I6 of `docs/ui/html-engine/box-tree.md` failing in silence. Here
 /// the node is not reachable without matching the variant that has one.
 #[derive(Debug)]
-pub(in crate::layout) enum PassoDoFluxo {
+pub(in crate::layout) enum FlowStep {
     /// A step that names a node AND its box: an element box or a text box.
-    No { no: NodeIdx, caixa: BoxId },
+    Node { dom_node: NodeIdx, box_id: BoxId },
     /// A DOM child that generates NO box — a comment, a whitespace-only run the
     /// split declined to wrap, an element the cascade refused — spliced back at
     /// its DOM position (see the module header for why it is here at all).
     ///
-    /// Its own variant and not `No` with an `Option<BoxId>`: the flow has one
+    /// Its own variant and not `Node` with an `Option<BoxId>`: the flow has one
     /// arm for it, which reproduces what the box-less child did before — it
     /// opens an inline group and nothing else — and no layout function below
     /// that arm ever receives a "maybe box". BT-2a, `box-tree.md` §7 I1.
@@ -73,17 +73,17 @@ pub(in crate::layout) enum PassoDoFluxo {
     /// An ANONYMOUS block box. It has no node, and nothing in this step may be
     /// translated back into one: what it needs — its style source, its children
     /// — it asks the tree for.
-    Anonima(BoxId),
+    AnonymousBox(BoxId),
 }
 
-/// The children of `caixa`, in the tree's order, with the no-box DOM children
+/// The children of `box_id`, in the tree's order, with the no-box DOM children
 /// spliced back at their own positions.
 pub(in crate::layout) fn sequencia_do_fluxo(
     dom: &Dom,
     tree: &BoxTree,
     id: NodeIdx,
-    caixa: BoxId,
-) -> Vec<PassoDoFluxo> {
+    box_id: BoxId,
+) -> Vec<FlowStep> {
     // The box being descended into must belong to the tree this list was laid
     // out against. It is the check the generation field exists for: an id kept
     // across a rebuild indexes an arena that has moved, and reading it answers
@@ -95,28 +95,28 @@ pub(in crate::layout) fn sequencia_do_fluxo(
     // that evaporates in the profile the merge gate runs under is not a check.
     // It is one `u32` comparison per block container.
     assert_eq!(
-        caixa.generation(),
+        box_id.generation(),
         tree.generation(),
-        "a caixa {caixa:?} de {id:?} nao e desta arvore (geracao {}): a lista carrega uma arvore de outra construcao",
+        "a caixa {box_id:?} de {id:?} nao e desta arvore (geracao {}): a lista carrega uma arvore de outra construcao",
         tree.generation()
     );
     // WITHOUT the generated boxes (`::before`/`::after`): `pseudo_bloco` lays a
     // block-level one out around this very loop, and a generated box here would
     // be a second, anonymous-looking step for the same box — laid out twice.
     // The equality below counts what the flow owns, not what the tree holds.
-    let caixas = tree.children_without_generated(caixa);
+    let box_ids = tree.children_without_generated(box_id);
     // The tree's own order, first and on its own. ONE STEP PER BOX, anonymous
     // included: the flow has a path for a box with no node now.
-    let mut da_arvore: Vec<PassoDoFluxo> = Vec::with_capacity(caixas.len());
-    for &b in caixas {
+    let mut da_arvore: Vec<FlowStep> = Vec::with_capacity(box_ids.len());
+    for &b in box_ids {
         debug_assert_eq!(
             tree.parent(b),
-            Some(caixa),
-            "a caixa {b:?} nao e filha de {caixa:?}, e a descida chegou a ela na mesma"
+            Some(box_id),
+            "a caixa {b:?} nao e filha de {box_id:?}, e a descida chegou a ela na mesma"
         );
         match tree.node_of(b) {
-            Some(no) => da_arvore.push(PassoDoFluxo::No { no, caixa: b }),
-            None => da_arvore.push(PassoDoFluxo::Anonima(b)),
+            Some(dom_node) => da_arvore.push(FlowStep::Node { dom_node, box_id: b }),
+            None => da_arvore.push(FlowStep::AnonymousBox(b)),
         }
     }
     // Every box of this container came out the other side, one for one. It is an
@@ -124,32 +124,32 @@ pub(in crate::layout) fn sequencia_do_fluxo(
     // the left counted its GRANDCHILDREN and no arithmetic related the two sides.
     debug_assert_eq!(
         da_arvore.len(),
-        caixas.len(),
-        "a sequencia de {caixa:?} perdeu caixas: {} passos para {} filhas",
+        box_ids.len(),
+        "a sequencia de {box_id:?} perdeu caixas: {} passos para {} filhas",
         da_arvore.len(),
-        caixas.len()
+        box_ids.len()
     );
-    // The whole child list belongs to the OWNER alone — see [`emenda_os_sem_caixa`]
+    // The whole child list belongs to the OWNER alone — see [`splice_boxless`]
     // for why an anonymous box gets a window over one run instead.
-    let janela = if tree.node_of(caixa) == Some(id) {
-        Janela::TodoOContentor
+    let window = if tree.node_of(box_id) == Some(id) {
+        RunWindow::WholeContainer
     } else {
-        janela_do_run(dom, tree, id, caixas)
+        run_window(dom, tree, id, box_ids)
     };
-    emenda_os_sem_caixa(dom, tree, id, da_arvore, janela)
+    splice_boxless(dom, tree, id, da_arvore, window)
 }
 
 /// Which DOM children of `id` a sequence may have spliced into it.
 #[derive(Clone, Copy)]
-enum Janela {
+enum RunWindow {
     /// The box IS `id`'s: every child of it that generates no box belongs.
-    TodoOContentor,
+    WholeContainer,
     /// The box holds one RUN of `id`'s children, between these two DOM
     /// positions, both excluded.
     Run(usize, usize),
     /// The run could not be located in the child list. Nothing is spliced, which
     /// is the conservative half of the two.
-    Nenhuma,
+    Empty,
 }
 
 /// The DOM positions an anonymous box's run COVERS, as an exclusive interval.
@@ -157,43 +157,43 @@ enum Janela {
 /// An anonymous box encloses a contiguous run of its container's children (see
 /// `boxes/build.rs`), and which children those are is not recorded anywhere — it
 /// is recoverable, and only recoverable, from where the nodes under it sit in
-/// the DOM child list. [`Janela::Nenhuma`] is the answer when that fails: a box
+/// the DOM child list. [`RunWindow::Empty`] is the answer when that fails: a box
 /// naming a node that is not a child of `id` at all, which the table fixups of
 /// BT-4 will produce. It means "splice nothing", which is the conservative half
 /// of the two — a comment that was in the sequence stops being in it, never the
 /// reverse.
-fn janela_do_run(dom: &Dom, tree: &BoxTree, id: NodeIdx, caixas: &[BoxId]) -> Janela {
-    let mut menor = usize::MAX;
-    let mut maior = 0usize;
-    for &b in caixas {
-        let Some(pos) = posicao_no_contentor(dom, tree, id, b) else {
-            return Janela::Nenhuma;
+fn run_window(dom: &Dom, tree: &BoxTree, id: NodeIdx, box_ids: &[BoxId]) -> RunWindow {
+    let mut lower = usize::MAX;
+    let mut upper = 0usize;
+    for &b in box_ids {
+        let Some(pos) = position_in_container(dom, tree, id, b) else {
+            return RunWindow::Empty;
         };
-        menor = menor.min(pos);
-        maior = maior.max(pos);
+        lower = lower.min(pos);
+        upper = upper.max(pos);
     }
-    if menor == usize::MAX {
-        return Janela::Nenhuma;
+    if lower == usize::MAX {
+        return RunWindow::Empty;
     }
-    Janela::Run(menor, maior)
+    RunWindow::Run(lower, upper)
 }
 
 /// Where the content under `b` sits among the DOM children of `id`.
 ///
 /// A box that names a node answers directly. An ANONYMOUS box answers with the
 /// FIRST position any box below it reaches, and that recursion is not decoration:
-/// without it an anonymous step has no position, and `emenda_os_sem_caixa` then
+/// without it an anonymous step has no position, and `splice_boxless` then
 /// lets every pending comment slide past it to the end of the container — where
 /// it stops breaking the margin collapse it used to break. That is an answer
 /// moving for a reason nothing in this lot measured.
-fn posicao_no_contentor(dom: &Dom, tree: &BoxTree, id: NodeIdx, b: BoxId) -> Option<usize> {
-    let filhos = &dom.node(id).children;
-    if let Some(no) = tree.node_of(b) {
-        return filhos.iter().position(|&d| d == no);
+fn position_in_container(dom: &Dom, tree: &BoxTree, id: NodeIdx, b: BoxId) -> Option<usize> {
+    let child_list = &dom.node(id).children;
+    if let Some(dom_node) = tree.node_of(b) {
+        return child_list.iter().position(|&d| d == dom_node);
     }
     tree.children_without_generated(b)
         .iter()
-        .filter_map(|&neto| posicao_no_contentor(dom, tree, id, neto))
+        .filter_map(|&grandchild| position_in_container(dom, tree, id, grandchild))
         .min()
 }
 
@@ -209,7 +209,7 @@ fn posicao_no_contentor(dom: &Dom, tree: &BoxTree, id: NodeIdx, b: BoxId) -> Opt
 /// after it in the DOM. A box whose node is not a DOM child of `id` at all has
 /// no position, sorts last, and therefore never drags a comment past anything.
 ///
-/// **`janela` is what an ANONYMOUS box gets instead of the whole child list.**
+/// **`window` is what an ANONYMOUS box gets instead of the whole child list.**
 /// The children of `id` are not the children of one anonymous box: the box holds
 /// ONE RUN of them. Without the window, every comment anywhere in the container
 /// would be spliced into every anonymous box the split produced — the same
@@ -218,18 +218,18 @@ fn posicao_no_contentor(dom: &Dom, tree: &BoxTree, id: NodeIdx, b: BoxId) -> Opt
 /// at both ends on purpose: a comment at the edge of a run sits next to the
 /// block-level child that ended it, where the flush it would have caused happens
 /// anyway.
-fn emenda_os_sem_caixa(
+fn splice_boxless(
     dom: &Dom,
     tree: &BoxTree,
     id: NodeIdx,
-    da_arvore: Vec<PassoDoFluxo>,
-    janela: Janela,
-) -> Vec<PassoDoFluxo> {
-    let filhos_dom = &dom.node(id).children;
-    let dentro = |pos: usize| match janela {
-        Janela::TodoOContentor => true,
-        Janela::Run(menor, maior) => pos > menor && pos < maior,
-        Janela::Nenhuma => false,
+    da_arvore: Vec<FlowStep>,
+    window: RunWindow,
+) -> Vec<FlowStep> {
+    let dom_children = &dom.node(id).children;
+    let inside = |pos: usize| match window {
+        RunWindow::WholeContainer => true,
+        RunWindow::Run(lower, upper) => pos > lower && pos < upper,
+        RunWindow::Empty => false,
     };
     // **An ELEMENT with no box is not one of those.** The cascade accepted it,
     // so the build gave it a box unless the split consumed it: an inline whose
@@ -239,33 +239,33 @@ fn emenda_os_sem_caixa(
     // second time as an inline atom with no box, and the block inside it then
     // reached the fragment cache without an identity
     // (`CSS2/normal-flow/height-inherit-001.xht`).
-    let absorvido = |d: NodeIdx| {
+    let absorbed = |d: NodeIdx| {
         matches!(dom.node(d).kind, NodeKind::Element { .. }) && dom.computed_style_idx(d).is_some()
     };
-    let sem_caixa: Vec<(usize, NodeIdx)> = filhos_dom
+    let boxless: Vec<(usize, NodeIdx)> = dom_children
         .iter()
         .copied()
         .enumerate()
-        .filter(|&(pos, d)| tree.boxes_of(d).is_empty() && !absorvido(d) && dentro(pos))
+        .filter(|&(pos, d)| tree.boxes_of(d).is_empty() && !absorbed(d) && inside(pos))
         .collect();
-    if sem_caixa.is_empty() {
+    if boxless.is_empty() {
         return da_arvore;
     }
-    let mut out = Vec::with_capacity(da_arvore.len() + sem_caixa.len());
+    let mut out = Vec::with_capacity(da_arvore.len() + boxless.len());
     let mut s = 0usize;
     for f in da_arvore {
-        let posicao = match &f {
-            PassoDoFluxo::No { no, .. } | PassoDoFluxo::NoBox(no) => filhos_dom.iter().position(|d| d == no),
-            PassoDoFluxo::Anonima(b) => posicao_no_contentor(dom, tree, id, *b),
+        let index = match &f {
+            FlowStep::Node { dom_node, .. } | FlowStep::NoBox(dom_node) => dom_children.iter().position(|d| d == dom_node),
+            FlowStep::AnonymousBox(b) => position_in_container(dom, tree, id, *b),
         };
-        while s < sem_caixa.len() && Some(sem_caixa[s].0) < posicao {
-            out.push(PassoDoFluxo::NoBox(sem_caixa[s].1));
+        while s < boxless.len() && Some(boxless[s].0) < index {
+            out.push(FlowStep::NoBox(boxless[s].1));
             s += 1;
         }
         out.push(f);
     }
-    for &(_, d) in &sem_caixa[s..] {
-        out.push(PassoDoFluxo::NoBox(d));
+    for &(_, d) in &boxless[s..] {
+        out.push(FlowStep::NoBox(d));
     }
     out
 }
@@ -276,27 +276,27 @@ mod tests {
     use crate::boxes::BoxKind;
 
     /// Finds the first element with a given tag.
-    fn no_da_tag(dom: &Dom, procurada: &str) -> NodeIdx {
+    fn node_of_tag(dom: &Dom, wanted: &str) -> NodeIdx {
         (0..dom.node_count())
-            .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == procurada))
-            .unwrap_or_else(|| panic!("a fixture nao tem <{procurada}>"))
+            .find(|&i| matches!(&dom.node(i).kind, NodeKind::Element { tag } if tag == wanted))
+            .unwrap_or_else(|| panic!("a fixture nao tem <{wanted}>"))
     }
 
     /// O nó de um passo, ou `None` quando o passo é uma caixa anónima — que é a
     /// resposta certa e não uma falha de conversão: essa caixa não tem nó.
     /// A caixa que um passo traz, anónima ou não. `None` só para um filho do DOM
     /// que não gera caixa nenhuma.
-    fn caixa_do_passo(p: &PassoDoFluxo) -> Option<BoxId> {
+    fn box_of_step(p: &FlowStep) -> Option<BoxId> {
         match *p {
-            PassoDoFluxo::No { caixa, .. } | PassoDoFluxo::Anonima(caixa) => Some(caixa),
-            PassoDoFluxo::NoBox(_) => None,
+            FlowStep::Node { box_id, .. } | FlowStep::AnonymousBox(box_id) => Some(box_id),
+            FlowStep::NoBox(_) => None,
         }
     }
 
-    fn no_do_passo(p: &PassoDoFluxo) -> Option<NodeIdx> {
+    fn node_of_step(p: &FlowStep) -> Option<NodeIdx> {
         match *p {
-            PassoDoFluxo::No { no, .. } | PassoDoFluxo::NoBox(no) => Some(no),
-            PassoDoFluxo::Anonima(_) => None,
+            FlowStep::Node { dom_node, .. } | FlowStep::NoBox(dom_node) => Some(dom_node),
+            FlowStep::AnonymousBox(_) => None,
         }
     }
 
@@ -307,22 +307,22 @@ mod tests {
     fn a_particao_aparece_na_sequencia_do_contentor_e_nao_na_do_inline() {
         let dom = crate::parse_html_to_dom("<section><span>texto<div>bloco</div>texto</span></section>");
         let tree = dom.box_tree();
-        let p = no_da_tag(&dom, "section");
-        let div = no_da_tag(&dom, "div");
+        let p = node_of_tag(&dom, "section");
+        let div = node_of_tag(&dom, "div");
 
         let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
         assert_eq!(seq.len(), 3, "anonima, o bloco, anonima: {seq:?}");
         assert!(
-            matches!(seq[0], PassoDoFluxo::Anonima(_)),
+            matches!(seq[0], FlowStep::AnonymousBox(_)),
             "a corrida da frente e uma caixa anonima do <section>, nao o texto la dentro"
         );
         assert_eq!(
-            no_do_passo(&seq[1]),
+            node_of_step(&seq[1]),
             Some(div),
             "o bloco e IRMAO das anonimas, na ordem da arvore"
         );
-        assert!(matches!(seq[2], PassoDoFluxo::Anonima(_)));
-        assert!(seq.iter().all(|p| caixa_do_passo(p).is_some()));
+        assert!(matches!(seq[2], FlowStep::AnonymousBox(_)));
+        assert!(seq.iter().all(|p| box_of_step(p).is_some()));
     }
 
     /// Dentro da caixa anónima está o FRAGMENTO do `<span>` — um caixa de
@@ -335,8 +335,8 @@ mod tests {
             "<section><span style='background:red'>a<div>b</div>c</span></section>",
         );
         let tree = dom.box_tree();
-        let p = no_da_tag(&dom, "section");
-        let span = no_da_tag(&dom, "span");
+        let p = node_of_tag(&dom, "section");
+        let span = node_of_tag(&dom, "span");
 
         assert_eq!(
             tree.boxes_of(span).len(),
@@ -344,7 +344,7 @@ mod tests {
             "o inline partido tem DUAS caixas suas, uma por corrida"
         );
         let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
-        let PassoDoFluxo::Anonima(anon) = seq[0] else {
+        let FlowStep::AnonymousBox(anon) = seq[0] else {
             panic!("o primeiro passo devia ser anonimo: {seq:?}");
         };
         assert!(matches!(tree.kind(anon), BoxKind::Anonymous { .. }));
@@ -352,11 +352,11 @@ mod tests {
         // caixa não-anónima que a envolve.
         assert_eq!(tree.style_source(anon), p);
 
-        let dentro = sequencia_do_fluxo(&dom, &tree, p, anon);
-        assert_eq!(dentro.len(), 1, "a corrida da frente e o fragmento do span");
-        assert_eq!(no_do_passo(&dentro[0]), Some(span));
+        let inside = sequencia_do_fluxo(&dom, &tree, p, anon);
+        assert_eq!(inside.len(), 1, "a corrida da frente e o fragmento do span");
+        assert_eq!(node_of_step(&inside[0]), Some(span));
         assert_eq!(
-            caixa_do_passo(&dentro[0]),
+            box_of_step(&inside[0]),
             Some(tree.boxes_of(span)[0]),
             "e e o PRIMEIRO fragmento, nao o segundo"
         );
@@ -369,17 +369,17 @@ mod tests {
     fn um_irmao_inline_entra_na_mesma_anonima_que_o_fragmento() {
         let dom = crate::parse_html_to_dom("<section>x<span>a<div>b</div>c</span>y</section>");
         let tree = dom.box_tree();
-        let p = no_da_tag(&dom, "section");
+        let p = node_of_tag(&dom, "section");
 
         let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
         assert_eq!(seq.len(), 3, "anonima, bloco, anonima: {seq:?}");
-        let PassoDoFluxo::Anonima(frente) = seq[0] else {
+        let FlowStep::AnonymousBox(ahead) = seq[0] else {
             panic!("{seq:?}");
         };
-        let dentro = sequencia_do_fluxo(&dom, &tree, p, frente);
-        assert_eq!(dentro.len(), 2, "o texto 'x' E o fragmento do span");
+        let inside = sequencia_do_fluxo(&dom, &tree, p, ahead);
+        assert_eq!(inside.len(), 2, "o texto 'x' E o fragmento do span");
         assert!(
-            matches!(&dom.node(no_do_passo(&dentro[0]).unwrap()).kind, NodeKind::Text(t) if t == "x")
+            matches!(&dom.node(node_of_step(&inside[0]).unwrap()).kind, NodeKind::Text(t) if t == "x")
         );
     }
 
@@ -388,13 +388,13 @@ mod tests {
     fn um_no_de_texto_entra_na_sequencia_com_a_sua_caixa() {
         let dom = crate::parse_html_to_dom("<div>ola</div>");
         let tree = dom.box_tree();
-        let div = no_da_tag(&dom, "div");
+        let div = node_of_tag(&dom, "div");
         let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 1);
-        assert!(caixa_do_passo(&seq[0]).is_some(), "o texto tem caixa desde que a arvore a da");
-        let no = no_do_passo(&seq[0]).expect("um no de texto tem no");
-        assert!(matches!(&dom.node(no).kind, NodeKind::Text(_)));
+        assert!(box_of_step(&seq[0]).is_some(), "o texto tem caixa desde que a arvore a da");
+        let dom_node = node_of_step(&seq[0]).expect("um no de texto tem no");
+        assert!(matches!(&dom.node(dom_node).kind, NodeKind::Text(_)));
     }
 
     /// Um COMENTÁRIO não gera caixa e continua na sequência, na posição do DOM.
@@ -402,13 +402,13 @@ mod tests {
     fn um_comentario_nao_tem_caixa_e_fica_na_sequencia_onde_o_dom_o_poe() {
         let dom = crate::parse_html_to_dom("<div><p>a</p><!--c--><p>b</p></div>");
         let tree = dom.box_tree();
-        let div = no_da_tag(&dom, "div");
+        let div = node_of_tag(&dom, "div");
         let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 3, "dois <p> e o comentario entre eles");
-        assert!(caixa_do_passo(&seq[1]).is_none(), "um comentario nao gera caixa");
-        let no = no_do_passo(&seq[1]).expect("um comentario e um no, so nao tem caixa");
-        assert!(matches!(&dom.node(no).kind, NodeKind::Comment(_)));
+        assert!(box_of_step(&seq[1]).is_none(), "um comentario nao gera caixa");
+        let dom_node = node_of_step(&seq[1]).expect("um comentario e um no, so nao tem caixa");
+        assert!(matches!(&dom.node(dom_node).kind, NodeKind::Comment(_)));
     }
 
     /// **Um comentário não é emendado em TODAS as corridas do contentor.** Sem
@@ -418,27 +418,27 @@ mod tests {
     fn a_emenda_de_um_comentario_nao_se_repete_por_corrida() {
         let dom = crate::parse_html_to_dom("<div>a<!--c-->b<span>s<p>x</p>f</span></div>");
         let tree = dom.box_tree();
-        let div = no_da_tag(&dom, "div");
+        let div = node_of_tag(&dom, "div");
         let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
-        let anonimas: Vec<BoxId> = seq
+        let anonymous_boxes: Vec<BoxId> = seq
             .iter()
             .filter_map(|p| match *p {
-                PassoDoFluxo::Anonima(b) => Some(b),
+                FlowStep::AnonymousBox(b) => Some(b),
                 _ => None,
             })
             .collect();
-        assert_eq!(anonimas.len(), 2, "uma corrida de cada lado do <p>: {seq:?}");
+        assert_eq!(anonymous_boxes.len(), 2, "uma corrida de cada lado do <p>: {seq:?}");
 
-        let comentarios = |b: BoxId| {
+        let comments = |b: BoxId| {
             sequencia_do_fluxo(&dom, &tree, div, b)
                 .iter()
                 .filter(|p| {
-                    no_do_passo(p).is_some_and(|n| matches!(&dom.node(n).kind, NodeKind::Comment(_)))
+                    node_of_step(p).is_some_and(|n| matches!(&dom.node(n).kind, NodeKind::Comment(_)))
                 })
                 .count()
         };
-        assert_eq!(comentarios(anonimas[0]), 1, "o comentario esta nesta corrida");
-        assert_eq!(comentarios(anonimas[1]), 0, "e nao na outra");
+        assert_eq!(comments(anonymous_boxes[0]), 1, "o comentario esta nesta corrida");
+        assert_eq!(comments(anonymous_boxes[1]), 0, "e nao na outra");
     }
 
     /// Uma `BoxId` de OUTRA construção da árvore é recusada.
@@ -446,11 +446,11 @@ mod tests {
     #[should_panic(expected = "nao e desta arvore")]
     fn uma_caixa_de_outra_arvore_e_recusada() {
         let dom = crate::parse_html_to_dom("<div><p>a</p></div>");
-        let antiga = dom.box_tree();
-        let div = no_da_tag(&dom, "div");
-        let caixa = antiga.boxes_of(div)[0];
-        let nova = crate::boxes::build_mirror(&dom);
+        let old = dom.box_tree();
+        let div = node_of_tag(&dom, "div");
+        let box_id = old.boxes_of(div)[0];
+        let fresh = crate::boxes::build_mirror(&dom);
 
-        let _ = sequencia_do_fluxo(&dom, &nova, div, caixa);
+        let _ = sequencia_do_fluxo(&dom, &fresh, div, box_id);
     }
 }

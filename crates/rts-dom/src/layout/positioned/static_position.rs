@@ -30,7 +30,7 @@ use super::*;
 /// A posição estática de `id`, em coordenadas ABSOLUTAS de página — a mesma
 /// origem de `flow_rects`. `layout_out_of_flow` só lê o eixo que precisar (o
 /// outro já veio de um `top`/`left`/`right`/`bottom` declarado).
-pub(in crate::layout) fn posicao_estatica(
+pub(in crate::layout) fn static_position_of(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,
@@ -42,8 +42,8 @@ pub(in crate::layout) fn posicao_estatica(
 ) -> (f32, f32) {
     // The box appeared in the middle of a LINE: the inline flow recorded where
     // it would have been, which no sibling's rectangle can say (`static_anchor.rs`).
-    if let Some(ancora) = flow_rects.get(&id) {
-        return (ancora.x, ancora.y);
+    if let Some(anchor) = flow_rects.get(&id) {
+        return (anchor.x, anchor.y);
     }
     let Some(parent) = dom.node(id).parent else {
         return (0.0, 0.0);
@@ -63,15 +63,15 @@ pub(in crate::layout) fn posicao_estatica(
                 | crate::style::DisplayKind::InlineFlexWrap
         )
     ) {
-        return posicao_estatica_flex(css, &parent_css, content, outer_w, outer_h, containing_block);
+        return static_position_flex(css, &parent_css, content, outer_w, outer_h, containing_block);
     }
-    posicao_estatica_bloco(dom, id, parent, content, flow_rects)
+    static_position_block(dom, id, parent, content, flow_rects)
 }
 
 /// Caso do contentor de bloco normal: o próximo irmão em fluxo já está onde
 /// `id` estaria. Sem um seguinte, o fim do anterior; sem nenhum, o topo do
 /// content — o `x` é sempre o do content (block-level começa à esquerda).
-fn posicao_estatica_bloco(
+fn static_position_block(
     dom: &Dom,
     id: NodeIdx,
     parent: NodeIdx,
@@ -87,20 +87,20 @@ fn posicao_estatica_bloco(
     // para este efeito, mas também não deve PARAR a procura: `find_map`
     // continua para o irmão seguinte, ao contrário de `find` (que já tinha
     // parado no nó de texto, sem geometria, e caía sempre no fallback).
-    let rect_em_fluxo = |&s: &NodeIdx| {
+    let in_flow_rect = |&s: &NodeIdx| {
         (!super::positioned::e_display_none(dom, s) && !super::positioned::is_out_of_flow(dom, s))
             .then(|| flow_rects.get(&s).copied())
             .flatten()
     };
     let y = siblings[i + 1..]
         .iter()
-        .find_map(rect_em_fluxo)
+        .find_map(in_flow_rect)
         .map(|r| r.y)
         .or_else(|| {
             siblings[..i]
                 .iter()
                 .rev()
-                .find_map(rect_em_fluxo)
+                .find_map(in_flow_rect)
                 .map(|r| r.y + r.h)
         })
         .unwrap_or(content.y);
@@ -110,7 +110,7 @@ fn posicao_estatica_bloco(
 /// Flex-container case (Flexbox §4.1): position the measured box using
 /// `justify-content`/`align-self`. The physical axis has already been resolved
 /// for `row-reverse`/`column-reverse` by the same mapping used by `column.rs`.
-fn posicao_estatica_flex(
+fn static_position_flex(
     css: &ComputedStyle,
     parent_css: &ComputedStyle,
     content: Rect,
@@ -180,7 +180,7 @@ fn posicao_estatica_flex(
 // `layout/tests/posicao_estatica_corpus.rs` — os dois casos de bloco normal
 // (com/sem irmão em fluxo) precisam de uma árvore real para exercitar a
 // procura de irmãos. O que segue é só a matemática PURA de
-// `posicao_estatica_flex`, que não precisa de `Dom` nenhum.
+// `static_position_flex`, que não precisa de `Dom` nenhum.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,7 +195,7 @@ mod tests {
         parent_css.justify = Some(crate::style::JustifyContent::Center);
         parent_css.align_items = Some(crate::style::AlignItems::FlexEnd);
         let content = Rect::new(10.0, 20.0, 200.0, 100.0);
-        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0, content);
+        let (x, y) = static_position_flex(&css, &parent_css, content, 40.0, 20.0, content);
         assert_eq!(x, 10.0 + 80.0);
         assert_eq!(y, 20.0 + 80.0);
     }
@@ -210,7 +210,7 @@ mod tests {
         parent_css.justify = Some(crate::style::JustifyContent::FlexEnd);
         parent_css.align_items = Some(crate::style::AlignItems::Center);
         let content = Rect::new(0.0, 0.0, 200.0, 100.0);
-        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0, content);
+        let (x, y) = static_position_flex(&css, &parent_css, content, 40.0, 20.0, content);
         assert_eq!(x, 80.0, "align-items:center on the horizontal cross axis");
         assert_eq!(y, 80.0, "justify-content:flex-end on the vertical main axis");
     }
@@ -221,7 +221,7 @@ mod tests {
         css.align_self = Some(crate::style::AlignItems::SafeEnd);
         let parent_css = ComputedStyle::default();
         let content = Rect::new(0.0, 0.0, 100.0, 100.0);
-        let (x, y) = posicao_estatica_flex(&css, &parent_css, content, 20.0, 30.0, content);
+        let (x, y) = static_position_flex(&css, &parent_css, content, 20.0, 30.0, content);
         assert_eq!((x, y), (0.0, 70.0));
     }
 
@@ -241,7 +241,7 @@ mod tests {
         parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
         let content = Rect::new(0.0, 0.0, 50.0, 50.0); // the flex container itself
         let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0); // the real CB, wider
-        let (x, _y) = posicao_estatica_flex(&css, &parent_css, content, 100.0, 20.0, containing_block);
+        let (x, _y) = static_position_flex(&css, &parent_css, content, 100.0, 20.0, containing_block);
         assert_eq!(x, 0.0, "falls back to the CB start, not a negative centred offset");
     }
 
@@ -255,7 +255,7 @@ mod tests {
         parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
         let content = Rect::new(0.0, 0.0, 50.0, 50.0);
         let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0);
-        let (x, _y) = posicao_estatica_flex(&css, &parent_css, content, 40.0, 20.0, containing_block);
+        let (x, _y) = static_position_flex(&css, &parent_css, content, 40.0, 20.0, containing_block);
         assert_eq!(x, 5.0, "0 + (50-40)/2, fits inside the CB");
     }
 
@@ -265,8 +265,8 @@ mod tests {
         let content = Rect::new(0.0, 0.0, 100.0, 100.0);
         let mut parent_css = ComputedStyle::default();
         parent_css.justify = Some(crate::style::JustifyContent::SpaceAround);
-        assert_eq!(posicao_estatica_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 40.0);
+        assert_eq!(static_position_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 40.0);
         parent_css.justify = Some(crate::style::JustifyContent::SpaceBetween);
-        assert_eq!(posicao_estatica_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 0.0);
+        assert_eq!(static_position_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 0.0);
     }
 }

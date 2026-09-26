@@ -59,7 +59,7 @@ pub(crate) fn aplica_offset_relativo(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) {
-    let (dx, dy) = offset_relativo(css, avail_w, avail_h, font_size, ctx);
+    let (dx, dy) = relative_offset(css, avail_w, avail_h, font_size, ctx);
     desloca_desde(list, box_start, Some(id), dx, dy);
 }
 
@@ -69,7 +69,7 @@ pub(crate) fn aplica_offset_relativo(
 /// `left` beats `right` and `top` beats `bottom` in LTR (CSS 2.1 §9.4.3): with
 /// both of an axis present only the reading-side one shifts, and with neither
 /// the box stays where it was.
-pub(in crate::layout) fn offset_relativo(css: &ComputedStyle, avail_w: f32, avail_h: Option<f32>, font_size: f32, ctx: &LayoutCtx) -> (f32, f32) {
+pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avail_h: Option<f32>, font_size: f32, ctx: &LayoutCtx) -> (f32, f32) {
     if css.position != Some(crate::style::Position::Relative) {
         return (0.0, 0.0);
     }
@@ -95,7 +95,7 @@ pub(in crate::layout) fn offset_relativo(css: &ComputedStyle, avail_w: f32, avai
 /// own, so `aplica_offset_relativo` — which shifts what a BLOCK emitted —
 /// never reached it and a relative `<span>` stayed where it was
 /// (`claude-relativo-em-inline`, WPT `position-relative-033`). The line asks
-/// here instead, for each segment's innermost owner, and `fragmento_do_dono`
+/// here instead, for each segment's innermost owner, and `owner_fragment`
 /// asks for each owner — so text, client rects and painted surface move
 /// together and nothing around them reflows.
 ///
@@ -103,14 +103,14 @@ pub(in crate::layout) fn offset_relativo(css: &ComputedStyle, avail_w: f32, avai
 /// an atom shifts ITS OWN subtree through `aplica_offset_relativo`, and adding
 /// it here would shift the content twice. Cut: a percentage inset resolves
 /// against the viewport, the line not knowing its containing block's size.
-pub(in crate::layout) fn offset_do_inline(dom: &Dom, mut no: Option<NodeIdx>, ctx: &LayoutCtx) -> (f32, f32) {
+pub(in crate::layout) fn offset_do_inline(dom: &Dom, mut node: Option<NodeIdx>, ctx: &LayoutCtx) -> (f32, f32) {
     let (mut dx, mut dy) = (0.0, 0.0);
-    while let Some(n) = no.filter(|&n| !is_block_level(dom, n) && !is_inline_block(dom, n)) {
+    while let Some(n) = node.filter(|&n| !is_block_level(dom, n) && !is_inline_block(dom, n)) {
         if let Some(css) = dom.computed_style_idx(n) {
-            let (x, y) = offset_relativo(&css, ctx.viewport_w, Some(ctx.viewport_h), font_px(&css, DEFAULT_FONT_SIZE), ctx);
+            let (x, y) = relative_offset(&css, ctx.viewport_w, Some(ctx.viewport_h), font_px(&css, DEFAULT_FONT_SIZE), ctx);
             (dx, dy) = (dx + x, dy + y);
         }
-        no = dom.node(n).parent;
+        node = dom.node(n).parent;
     }
     (dx, dy)
 }
@@ -132,9 +132,9 @@ pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, rec
     // no entry in `list.box_rects`: the walk below does not find them, rightly —
     // their `ChildRef`'s `dx`/`dy` is added on read by `geometry_now`. A second
     // source of truth for one answer, reconciled by hand until BT-2 removes it.
-    if let Some(caixa) = rects_of {
+    if let Some(box_id) = rects_of {
         let tree = list.tree.clone();
-        shift_box_rects(&tree, caixa, dx, dy, list);
+        shift_box_rects(&tree, box_id, dx, dy, list);
     }
 }
 

@@ -23,7 +23,7 @@
 //! deixou de ser o eixo inline (que `direction` decide) e passou a ser o
 //! eixo de BLOCO, cujo sentido `direction` nunca toca: é `vertical-rl`/
 //! `sideways-rl` (RTL) contra `vertical-lr`/`sideways-lr` (LTR) que decidem,
-//! não o `direction` do contentor. `axes::eixo_x_invertido` é a
+//! não o `direction` do contentor. `axes::x_axis_inverted` é a
 //! resposta única — o mesmo cálculo, direction OU writing-mode, consoante o
 //! caso, que este ficheiro delegava a duas condições soltas antes.
 
@@ -50,7 +50,7 @@ pub(in crate::layout) fn cross_x(
 ) -> f32 {
     let wm = writing_mode.unwrap_or_default();
     let dir = direction.unwrap_or_default();
-    if super::axes::eixo_x_invertido(wm, dir) {
+    if super::axes::x_axis_inverted(wm, dir) {
         content_x + (content_x + content_w) - (x + w)
     } else {
         x

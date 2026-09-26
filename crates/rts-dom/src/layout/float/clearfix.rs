@@ -19,17 +19,17 @@ pub(in crate::layout) fn fundo_do_clearfix(
     id: NodeIdx,
     bfc: &BlockFormattingContext,
 ) -> Option<f32> {
-    let caixa = dom.pseudo_box(id, crate::style::PseudoElement::After)?;
-    let de_bloco = matches!(
-        caixa.css.effective_display(),
+    let pseudo = dom.pseudo_box(id, crate::style::PseudoElement::After)?;
+    let is_block = matches!(
+        pseudo.css.effective_display(),
         Some(crate::style::DisplayKind::Block | crate::style::DisplayKind::Flex | crate::style::DisplayKind::Grid)
     );
-    if !de_bloco {
+    if !is_block {
         return None;
     }
-    let (esq, dir) = caixa.css.clear?.sides();
-    if !esq && !dir {
+    let (left, right) = pseudo.css.clear?.sides();
+    if !left && !right {
         return None;
     }
-    bfc.fundo_lado(esq, dir)
+    bfc.fundo_lado(left, right)
 }

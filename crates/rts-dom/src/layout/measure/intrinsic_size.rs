@@ -85,7 +85,7 @@ pub(in crate::layout) fn intrinsic_size(
     id: NodeIdx,
     // A caixa de `id` que o eixo de BLOCO dispõe; o eixo inline pergunta
     // pelo nó (as duas funções que ele chama já andam a árvore por dentro).
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     axis: Axis,
     kind: IntrinsicKind,
     inline_size: Option<f32>,
@@ -99,7 +99,7 @@ pub(in crate::layout) fn intrinsic_size(
         }),
         Axis::Block => {
             let w = inline_size?;
-            let (_, outer_h) = super::measure_block(dom, id, caixa, w, None, None, None, true, ctx);
+            let (_, outer_h) = super::measure_block(dom, id, box_id, w, None, None, None, true, ctx);
             Some(outer_h)
         }
     }

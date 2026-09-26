@@ -11,7 +11,7 @@
 //! `dom.node(id).children` que decidia por que filhos se desce e por que ordem,
 //! e era essa linha que impedia uma caixa que o DOM não tem de chegar aqui, por
 //! melhor construída que estivesse. Agora a sequência é
-//! [`super::sequence::sequencia_do_fluxo`] sobre `tree.children(caixa)`, e é lá
+//! [`super::sequence::sequencia_do_fluxo`] sobre `tree.children(box_id)`, e é lá
 //! que está escrito o que ainda vem do DOM (um comentário, que não gera caixa).
 //!
 //! **Uma caixa ANÓNIMA é um passo deste laço, e é disposta como o bloco que é**
@@ -27,7 +27,7 @@
 //! corrida.
 //!
 //! **O AGRUPAMENTO inline é o mesmo algoritmo, e continua a ser.** O que mudou
-//! é DE ONDE vem a sequência, não quem agrupa: `e_caixa` continua a excluir
+//! é DE ONDE vem a sequência, não quem agrupa: `is_box` continua a excluir
 //! texto de propósito, porque responder `true` ali manda cada palavra pelo
 //! caminho de bloco e parte-a numa linha própria. Quem dispõe o texto é
 //! `collect_runs`, através do grupo inline.
@@ -45,8 +45,8 @@
 
 use super::*;
 use crate::boxes::BoxId;
-use super::sequence::{sequencia_do_fluxo, PassoDoFluxo};
-pub(in crate::layout) use super::margin_collapse::{atravessa_se, junta_ao_strut, strut_colapsado, Strut};
+use super::sequence::{sequencia_do_fluxo, FlowStep};
+pub(in crate::layout) use super::margin_collapse::{collapses_through, join_strut, collapsed_strut, Strut};
 
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
@@ -63,7 +63,7 @@ pub(in crate::layout) fn layout_children_vertical(
     // A CAIXA de `id` — ao lado do `NodeIdx`, não em vez dele. É ela que dá a
     // SEQUÊNCIA dos filhos, por [`super::sequence::sequencia_do_fluxo`]: quem
     // desce já não pergunta ao DOM por que filhos desce nem por que ordem.
-    caixa: BoxId,
+    box_id: BoxId,
     content_x: f32,
     content_y: f32,
     content_w: f32,
@@ -88,15 +88,15 @@ pub(in crate::layout) fn layout_children_vertical(
     // só, não somam — e colapsam TODAS DE UMA VEZ, não duas a duas. São por
     // isso dois valores e não um:
     //
-    // `borda` é onde acabou a última caixa que ocupou espaço (a aresta de baixo
+    // `border` é onde acabou a última caixa que ocupou espaço (a aresta de baixo
     // dela, sem a margem), e `strut` é o conjunto de margens adjacentes aberto
     // desde então. A aresta de topo do bloco seguinte é
-    // `borda + strut_colapsado(strut)` — uma SOMA, e não a subtração de um
+    // `border + collapsed_strut(strut)` — uma SOMA, e não a subtração de um
     // excesso, que é o que permite ao conjunto ter mais de dois membros.
     //
     // A invariante que liga isto ao resto do laço: `child_y` — o cursor que o
-    // fluxo inline e os floats usam — é sempre `borda + strut_colapsado(strut)`.
-    let mut borda = content_y;
+    // fluxo inline e os floats usam — é sempre `border + collapsed_strut(strut)`.
+    let mut border = content_y;
     let mut strut: Strut = (0.0, 0.0);
     // ── CONTEXTO INLINE (P4): irmãos inline CONSECUTIVOS (texto + <a>/<b>/<span>)
     // fluem JUNTOS numa sequência de linhas — acumulados aqui e descarregados por
@@ -107,11 +107,11 @@ pub(in crate::layout) fn layout_children_vertical(
     // de texto é disposto pela caixa exacta, e sem ela `layout_block` não a
     // tinha para dar ao contentor flex nem à ordem de hit-test.
     let mut inline_group: Vec<(NodeIdx, BoxId)> = Vec::new();
-    // A box-less DOM child (`PassoDoFluxo::NoBox`: a comment, a whitespace
+    // A box-less DOM child (`FlowStep::NoBox`: a comment, a whitespace
     // run the split declined to wrap) OPENS the inline group without joining
     // it — it has no box to be collected by. What it did before BT-2a, as a
     // member with no box, was exactly that: `collect_runs` produced nothing
-    // for it, and the flush that closed the group reset `borda` and `strut`,
+    // for it, and the flush that closed the group reset `border` and `strut`,
     // breaking the margin collapse of the two blocks around it. Whether it
     // SHOULD is a lot of its own, measured on its own; this flag keeps the
     // answer where it was.
@@ -127,7 +127,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     dom, id, &ib_run, content_x, $y, content_w, avail_h, css, font_size, ctx, list,
                 );
                 ib_run.clear();
-                borda = $y;
+                border = $y;
                 strut = (0.0, 0.0);
             }
         };
@@ -158,7 +158,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 inline_group.clear();
                 group_open = false;
                 // texto quebra a sequência de margin-collapse
-                borda = $y;
+                border = $y;
                 strut = (0.0, 0.0);
             }
         };
@@ -167,21 +167,21 @@ pub(in crate::layout) fn layout_children_vertical(
     // empréstimo de `list.tree`: `list` é escrito ao longo do laço inteiro — a
     // mesma razão pela qual `layout_document` o clona antes de tocar em
     // `box_rects`.
-    let arvore = std::rc::Rc::clone(&list.tree);
+    let from_tree = std::rc::Rc::clone(&list.tree);
     // **ESTA descida é a de uma caixa ANÓNIMA?** Se for, `id` não é o dono do
     // fluxo: é o contentor de quem a anónima herda, e ele já está a correr o SEU
     // próprio `layout_children_vertical` mais acima. Tudo o que pertence ao
     // ELEMENTO e não a cada corrida dele — as caixas geradas de bloco e o
     // clearfix — é emitido lá e tem de ser recusado aqui, ou aparece uma vez por
     // corrida. Ver `block_box.rs`.
-    let e_anonima = matches!(arvore.kind(caixa), crate::boxes::BoxKind::Anonymous { .. });
+    let is_anonymous = matches!(from_tree.kind(box_id), crate::boxes::BoxKind::Anonymous { .. });
     // `::before` de BLOCO com conteúdo — o primeiro do fluxo, antes de
     // qualquer filho real. Ver `pseudo_block.rs`.
-    if !e_anonima {
-        super::pseudo_block::aplicar(dom, caixa, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
+    if !is_anonymous {
+        super::pseudo_block::apply(dom, box_id, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut border, &mut strut, &mut child_y, ctx, list);
     }
-    let sequencia = sequencia_do_fluxo(dom, &arvore, id, caixa);
-    for item in &sequencia {
+    let steps = sequencia_do_fluxo(dom, &from_tree, id, box_id);
+    for item in &steps {
         // **A CAIXA ANÓNIMA É UM PASSO, e é disposta como o BLOCO que é.** Ela
         // não tem margem, borda nem padding (CSS 2.1 §9.2.1.1: nenhuma
         // declaração é sua), por isso não há um `m` a colapsar — o conjunto
@@ -190,23 +190,23 @@ pub(in crate::layout) fn layout_children_vertical(
         // Uma anónima de altura zero ATRAVESSA-SE: a corrida que ela envolve não
         // pintou nada, e fechar o colapso ali separaria dois blocos que o
         // browser junta.
-        let anonima = match *item {
-            PassoDoFluxo::Anonima(b) => Some(b),
-            PassoDoFluxo::No { .. } | PassoDoFluxo::NoBox(_) => None,
+        let anonymous = match *item {
+            FlowStep::AnonymousBox(b) => Some(b),
+            FlowStep::Node { .. } | FlowStep::NoBox(_) => None,
         };
-        if let Some(anon) = anonima {
+        if let Some(anon) = anonymous {
             flush_inline!(child_y);
-            let aresta = borda + strut_colapsado(strut);
-            child_y = aresta;
-            let h = super::block_box::layout_anonima(
-                dom, &arvore, anon, content_x, child_y, content_w, avail_h, css, font_size, bfc,
+            let edge = border + collapsed_strut(strut);
+            child_y = edge;
+            let h = super::block_box::layout_anonymous(
+                dom, &from_tree, anon, content_x, child_y, content_w, avail_h, css, font_size, bfc,
                 ctx, list,
             );
-            if !atravessa_se(h, 0.0, 0.0) {
-                borda = aresta + h;
+            if !collapses_through(h, 0.0, 0.0) {
+                border = edge + h;
                 strut = (0.0, 0.0);
             }
-            child_y = borda + strut_colapsado(strut);
+            child_y = border + collapsed_strut(strut);
             continue;
         }
         // A box-less child: the same three answers it got as a `(child, None)`
@@ -214,10 +214,10 @@ pub(in crate::layout) fn layout_children_vertical(
         // whitespace between blocks is skipped; anything else — a comment, a
         // separator whitespace — closes the inline-block run and opens the
         // inline group (see `group_open`).
-        if let PassoDoFluxo::NoBox(no) = *item {
-            match &dom.node(no).kind {
+        if let FlowStep::NoBox(dom_node) = *item {
+            match &dom.node(dom_node).kind {
                 NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
-                NodeKind::Text(t) if t.trim().is_empty() && !whitespace_is_inline_separator(dom, id, no) => {}
+                NodeKind::Text(t) if t.trim().is_empty() && !whitespace_is_inline_separator(dom, id, dom_node) => {}
                 _ => {
                     flush_ib!(child_y);
                     group_open = true;
@@ -225,14 +225,14 @@ pub(in crate::layout) fn layout_children_vertical(
             }
             continue;
         }
-        let PassoDoFluxo::No { no: child, caixa: caixa_do_filho } = *item else {
+        let FlowStep::Node { dom_node: child, box_id: child_box } = *item else {
             unreachable!("the anonymous and the box-less steps left the loop above");
         };
         // Um FRAGMENTO de inline partido — o único nó com mais de uma caixa — é
         // conteúdo de linha e nunca serve o fragmento guardado do nó (abaixo).
-        let fragmento_do_filho = (arvore.boxes_of(child).len() > 1).then_some(caixa_do_filho);
-        let e_texto = matches!(dom.node(child).kind, NodeKind::Text(_));
-        // **O agrupamento é o MESMO algoritmo, e `e_caixa` só fala de caixas
+        let child_fragment = (from_tree.boxes_of(child).len() > 1).then_some(child_box);
+        let is_text = matches!(dom.node(child).kind, NodeKind::Text(_));
+        // **O agrupamento é o MESMO algoritmo, e `is_box` só fala de caixas
         // que não são de texto.** Um nó de texto tem caixa, mas quem o dispõe
         // continua a ser `collect_runs`, que o agrupa com os irmãos inline.
         // Responder `true` aqui para texto mandá-lo-ia pelo caminho de bloco e
@@ -241,7 +241,7 @@ pub(in crate::layout) fn layout_children_vertical(
         //
         // Quem decide se este filho é uma caixa é a ÁRVORE: um nó sem caixa
         // já saiu do laço acima.
-        let e_caixa = !e_texto;
+        let is_box = !is_text;
         // CAMINHO RÁPIDO: se existe fragmento para este filho com estas
         // constraints, ele já foi classificado como BLOCO NORMAL quando foi
         // criado — é o único caminho que produz fragmento. Encontrá-lo responde
@@ -252,16 +252,16 @@ pub(in crate::layout) fn layout_children_vertical(
         // pelo fragmento guardado — ele foi medido com a linha inteira e a banda
         // livre não faz parte da chave. É a mesma recusa de
         // `layout_block_reusing`, no caminho rápido que a antecede.
-        // `fragmento_do_filho.is_none()`: um FRAGMENTO de inline partido aparece
+        // `child_fragment.is_none()`: um FRAGMENTO de inline partido aparece
         // no fluxo uma vez por corrida, e a chave de fragmento é do NÓ — servir
         // o mesmo fragmento guardado a cada corrida pintava o conteúdo inteiro
         // do inline uma vez por metade. Um nó com uma caixa só não é afectado,
         // que é toda a gente menos o inline que se partiu.
-        if bfc.is_empty() && e_caixa && fragmento_do_filho.is_none() {
+        if bfc.is_empty() && is_box && child_fragment.is_none() {
             let key = key_base.key(
                 dom,
                 child,
-                caixa_do_filho,
+                child_box,
                 None,
                 None,
                 false,
@@ -273,24 +273,24 @@ pub(in crate::layout) fn layout_children_vertical(
             {
                 crate::bump!(fragment_hits);
                 flush_inline!(child_y);
-                let (topo, baixo) = (fragment.margin_top, fragment.margin_bottom);
+                let (top_margin, bottom_margin) = (fragment.margin_top, fragment.margin_bottom);
                 let (_, escaped_bottom) = crate::layout::block::block::escaped_margins_for_box(
                     dom, child, content_w, font_size, ctx,
                 );
-                let baixo = crate::layout::block::block::collapse_margin(baixo, escaped_bottom);
-                let com_topo = junta_ao_strut(strut, topo);
-                let aresta = borda + strut_colapsado(com_topo);
-                child_y = aresta - topo;
+                let bottom_margin = crate::layout::block::block::collapse_margin(bottom_margin, escaped_bottom);
+                let with_top = join_strut(strut, top_margin);
+                let edge = border + collapsed_strut(with_top);
+                child_y = edge - top_margin;
                 emit_fragment(
                     &fragment, list, content_x, child_y, content_w, avail_h, None, None, false,
                 );
-                if atravessa_se(fragment.size.1, topo, baixo) {
-                    strut = junta_ao_strut(com_topo, baixo);
+                if collapses_through(fragment.size.1, top_margin, bottom_margin) {
+                    strut = join_strut(with_top, bottom_margin);
                 } else {
-                    borda = aresta + (fragment.size.1 - topo - baixo);
-                    strut = junta_ao_strut((0.0, 0.0), baixo);
+                    border = edge + (fragment.size.1 - top_margin - bottom_margin);
+                    strut = join_strut((0.0, 0.0), bottom_margin);
                 }
-                child_y = borda + strut_colapsado(strut);
+                child_y = border + collapsed_strut(strut);
                 continue;
             }
         }
@@ -304,9 +304,9 @@ pub(in crate::layout) fn layout_children_vertical(
         // Para uma caixa de ELEMENTO a resposta é exactamente
         // `dom.computed_style_idx(child)`, que é o que estava aqui — a troca não
         // muda valor nenhum hoje e deixa de ter um `NodeIdx` no caminho.
-        let child_css = e_caixa.then(|| {
-            arvore
-                .style(dom, caixa_do_filho)
+        let child_css = is_box.then(|| {
+            from_tree
+                .style(dom, child_box)
                 .or_else(|| dom.computed_style_idx(child))
                 .unwrap_or_default()
         });
@@ -331,7 +331,7 @@ pub(in crate::layout) fn layout_children_vertical(
         // margem negativa isso devolvia o bloco para baixo em vez de o puxar
         // para cima.
         let mut clearance: Option<f32> = None;
-        // (a referência de onde a aresta é medida é a `borda`, que o
+        // (a referência de onde a aresta é medida é a `border`, que o
         // `flush_inline!` do próprio `clear` acaba de pôr no cursor.)
         // `clear` — o par do `float`: este filho começa ABAIXO dos floats
         // correntes DO LADO que declara. Fica ANTES do dispatch por tipo de
@@ -344,21 +344,21 @@ pub(in crate::layout) fn layout_children_vertical(
         // corte): `left` só lê o lado esquerdo do BFC, `right` só o direito,
         // `both` os dois — a mesma pergunta que `bfc.fundo_lado` existe para
         // responder.
-        if let Some((esquerda, direita)) = child_css
+        if let Some((left, right)) = child_css
             .as_ref()
             .and_then(|c| c.clear)
             .map(|c| c.sides())
             .filter(|&(e, d)| e || d)
         {
             flush_inline!(child_y);
-            clearance = bfc.fundo_lado(esquerda, direita);
+            clearance = bfc.fundo_lado(left, right);
             // Desce o cursor para BAIXO do float — já não é "fechar a linha": é
             // o que o `clear` pede. Um irmão sem `clear` NÃO passa por aqui:
             // passa ao lado do float. Só usado pelos caminhos que leem
             // `child_y` diretamente (inline/inline-block); o de bloco usa
             // `clearance` sozinho, combinado com a margem em vez de somado.
-            if let Some(fundo) = clearance {
-                child_y = child_y.max(fundo);
+            if let Some(clear_to) = clearance {
+                child_y = child_y.max(clear_to);
             }
         }
         let (child_block, child_inline_block) = match &dom.node(child).kind {
@@ -410,8 +410,8 @@ pub(in crate::layout) fn layout_children_vertical(
                 // `has_box()`: esta última conta a margem e a `height` que o
                 // próprio `display:inline` torna inoperantes, e devolvia o
                 // elemento ao caminho de bloco de onde a declaração o tirou.
-                let inline_declarado = effective == Some(crate::style::DisplayKind::Inline);
-                let block = if inline_declarado {
+                let declared_inline = effective == Some(crate::style::DisplayKind::Inline);
+                let block = if declared_inline {
                     replaced
                         || child_css.as_deref().is_some_and(|c| {
                             !crate::layout::block::box_kind::ignores_inline_dimensions(c)
@@ -473,7 +473,7 @@ pub(in crate::layout) fn layout_children_vertical(
         // outra coisa: um `<span style="background:red;height:20px">` cai em
         // `child_block` por declarar `height`. A classificação precisa mantê-lo
         // no fluxo inline; um caminho de bloco só aceita agora o `BoxId` exato.
-        let (child_block, child_inline_block) = match fragmento_do_filho {
+        let (child_block, child_inline_block) = match child_fragment {
             Some(_) => (false, false),
             None => (child_block, child_inline_block),
         };
@@ -491,7 +491,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     && ib_run.is_empty()
                     && group_has_content(dom, &inline_group) =>
             {
-                inline_group.push((child, caixa_do_filho));
+                inline_group.push((child, child_box));
             }
             // Fora do fluxo sem texto pendente: não ocupa espaço aqui — pintado
             // na passada out-of-flow de layout_document.
@@ -500,11 +500,11 @@ pub(in crate::layout) fn layout_children_vertical(
             // partir do cursor onde CAIBA ao lado dos floats já postos.
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {
                 flush_inline!(child_y);
-                let caixa_float = caixa_do_filho;
-                let medida = crate::layout::float::placement::measure_float(dom, &arvore, child, caixa_float, content_w, avail_h, css, font_size, ctx);
-                crate::layout::float::placement::place_float(dom, child, caixa_float, child_float, medida, child_y, content_x, content_w, avail_h, bfc, ctx, list);
+                let float_box = child_box;
+                let measured = crate::layout::float::placement::measure_float(dom, &from_tree, child, float_box, content_w, avail_h, css, font_size, ctx);
+                crate::layout::float::placement::place_float(dom, child, float_box, child_float, measured, child_y, content_x, content_w, avail_h, bfc, ctx, list);
                 // float quebra a sequência de collapse
-                borda = child_y;
+                border = child_y;
                 strut = (0.0, 0.0);
             }
             NodeKind::Element { .. } if child_block && !child_inline_block => {
@@ -527,7 +527,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 // O `margin_v` da UA só vale no lado que o AUTOR não declarou,
                 // lado a lado — é a mesma regra de `layout_block`, e escrevê-la
                 // aqui outra vez é uma cópia que um lote futuro deve juntar.
-                let (m, m_baixo) = child_css
+                let (m, m_bottom) = child_css
                     .as_ref()
                     .map(|c| {
                         // unidades relativas resolvem contra o content deste
@@ -540,54 +540,54 @@ pub(in crate::layout) fn layout_children_vertical(
                             viewport_h: ctx.viewport_h,
                         };
                         let mv = c.margin_v.unwrap_or(0.0);
-                        let mv_topo = if c.margin.top == crate::style::Side::Unset {
+                        let mv_top = if c.margin.top == crate::style::Side::Unset {
                             mv
                         } else {
                             0.0
                         };
-                        let mv_baixo = if c.margin.bottom == crate::style::Side::Unset {
+                        let mv_bottom = if c.margin.bottom == crate::style::Side::Unset {
                             mv
                         } else {
                             0.0
                         };
                         (
-                            c.margin.top.resolve(&r).unwrap_or(0.0) + mv_topo,
-                            c.margin.bottom.resolve(&r).unwrap_or(0.0) + mv_baixo,
+                            c.margin.top.resolve(&r).unwrap_or(0.0) + mv_top,
+                            c.margin.bottom.resolve(&r).unwrap_or(0.0) + mv_bottom,
                         )
                     })
                     .unwrap_or((0.0, 0.0));
                 // A aresta de topo deste bloco: onde a última caixa acabou,
                 // mais o conjunto de margens adjacentes já com a dele dentro.
-                let com_topo = junta_ao_strut(strut, m);
-                let mut aresta = borda + strut_colapsado(com_topo);
+                let with_top = join_strut(strut, m);
+                let mut edge = border + collapsed_strut(with_top);
                 // CLEARANCE (CSS 2.1 §9.5.2): com `clear`, a aresta fica no
                 // MAIOR entre a hipotética e o fundo do float (só do LADO que o
                 // `clear` pede — ver acima). Somar a margem por cima da descida
                 // era o defeito medido — o bloco ficava 10 px abaixo do fundo do
                 // float onde o Chrome o põe exactamente no fundo.
-                if let Some(fundo) = clearance {
-                    aresta = aresta.max(fundo);
+                if let Some(clear_to) = clearance {
+                    edge = edge.max(clear_to);
                 }
                 // Um filho que ESTABELECE BFC não pode sobrepor um float
                 // anterior (causa 9, `bfc_evita_float.rs`) — distinto do
                 // `clear`: aqui é a natureza do filho, não uma declaração dele.
-                if let Some(fundo) = child_css.as_deref().and_then(|cs| {
-                    super::bfc_avoids_float::empurra_para_baixo(
-                        dom, child, cs, aresta, content_x, content_w, font_size, bfc, ctx,
+                if let Some(clear_to) = child_css.as_deref().and_then(|cs| {
+                    super::bfc_avoids_float::push_down(
+                        dom, child, cs, edge, content_x, content_w, font_size, bfc, ctx,
                     )
                 }) {
-                    aresta = aresta.max(fundo);
+                    edge = edge.max(clear_to);
                 }
-                child_y = aresta - m;
+                child_y = edge - m;
                 let ((_, h), _) = layout_block_reusing(
                     dom,
                     child,
-                    caixa_do_filho,
+                    child_box,
                     content_x,
                     child_y,
                     content_w,
                     avail_h,
-                    || (m, m_baixo),
+                    || (m, m_bottom),
                     None,
                     None,
                     false,
@@ -600,16 +600,16 @@ pub(in crate::layout) fn layout_children_vertical(
                     dom, child, content_w, font_size, ctx,
                 );
                 let effective_bottom =
-                    crate::layout::block::block::collapse_margin(m_baixo, escaped_bottom);
-                if atravessa_se(h, m, effective_bottom) {
-                    // Não ocupou espaço: a `borda` fica onde estava e a margem
+                    crate::layout::block::block::collapse_margin(m_bottom, escaped_bottom);
+                if collapses_through(h, m, effective_bottom) {
+                    // Não ocupou espaço: a `border` fica onde estava e a margem
                     // de baixo entra no MESMO conjunto que a de cima.
-                    strut = junta_ao_strut(com_topo, effective_bottom);
+                    strut = join_strut(with_top, effective_bottom);
                 } else {
-                    borda = aresta + (h - m - effective_bottom);
-                    strut = junta_ao_strut((0.0, 0.0), effective_bottom);
+                    border = edge + (h - m - effective_bottom);
+                    strut = join_strut((0.0, 0.0), effective_bottom);
                 }
-                child_y = borda + strut_colapsado(strut);
+                child_y = border + collapsed_strut(strut);
             }
             // INLINE-BLOCK (pill/botão solto): NÃO pinta agora — acumula na
             // "linha de inline-blocks" corrente (irmãos consecutivos fluem LADO A
@@ -626,7 +626,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 if child_inline_block && em_contexto_inline(dom, id, child) =>
             {
                 flush_ib!(child_y);
-                inline_group.push((child, caixa_do_filho));
+                inline_group.push((child, child_box));
             }
             NodeKind::Element { .. } if child_inline_block => {
                 // descarrega só o TEXTO inline pendente (não o ib_run — este b
@@ -647,8 +647,8 @@ pub(in crate::layout) fn layout_children_vertical(
                     );
                     inline_group.clear();
                 }
-                ib_run.push((child, caixa_do_filho));
-                borda = child_y;
+                ib_run.push((child, child_box));
+                border = child_y;
                 strut = (0.0, 0.0);
             }
             // Whitespace estrutural continua no DOM, mas não cria uma linha entre
@@ -660,7 +660,7 @@ pub(in crate::layout) fn layout_children_vertical(
             // com os irmãos inline adjacentes (o flush pinta o grupo inteiro).
             _ => {
                 flush_ib!(child_y); // fecha a corrida de inline-blocks
-                inline_group.push((child, caixa_do_filho));
+                inline_group.push((child, child_box));
             }
         }
     }
@@ -671,12 +671,12 @@ pub(in crate::layout) fn layout_children_vertical(
     // `::after` de BLOCO com conteúdo — o último do fluxo. Ver `pseudo_block.rs`.
     // Recusado numa caixa anónima pela mesma razão do `::before`: a caixa gerada
     // é do ELEMENTO, e é emitida na descida dele.
-    if !e_anonima {
-        super::pseudo_block::aplicar(dom, caixa, id, crate::style::PseudoElement::After, content_x, content_w, font_size, &mut borda, &mut strut, &mut child_y, ctx, list);
+    if !is_anonymous {
+        super::pseudo_block::apply(dom, box_id, id, crate::style::PseudoElement::After, content_x, content_w, font_size, &mut border, &mut strut, &mut child_y, ctx, list);
         // o clearfix (`::after{display:block;clear:both}`) desce o fim do fluxo
         // até ao fundo dos floats — ver `clearfix.rs`.
-        if let Some(fundo) = crate::layout::float::clearfix::fundo_do_clearfix(dom, id, bfc) {
-            child_y = child_y.max(fundo);
+        if let Some(clear_to) = crate::layout::float::clearfix::fundo_do_clearfix(dom, id, bfc) {
+            child_y = child_y.max(clear_to);
         }
     }
     (child_y - content_y).max(0.0)
@@ -685,8 +685,8 @@ pub(in crate::layout) fn layout_children_vertical(
 /// Does the pending inline group hold anything besides collapsible space? The
 /// question that decides whether a following float appears in the MIDDLE of a
 /// line or before it.
-fn group_has_content(dom: &Dom, grupo: &[(NodeIdx, BoxId)]) -> bool {
-    grupo.iter().any(|&(n, _)| match &dom.node(n).kind {
+fn group_has_content(dom: &Dom, group: &[(NodeIdx, BoxId)]) -> bool {
+    group.iter().any(|&(n, _)| match &dom.node(n).kind {
         NodeKind::Text(t) => !t.trim().is_empty(),
         _ => true,
     })

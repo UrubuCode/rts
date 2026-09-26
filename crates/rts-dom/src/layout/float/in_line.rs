@@ -54,18 +54,18 @@ pub(in crate::layout) fn place_anchored_floats(
     let anchors: Vec<(NodeIdx, BoxId)> = runs
         .iter()
         .filter_map(|r| match r.atomic {
-            Some((node, caixa, AtomicKind::Float)) => Some((node, caixa)),
+            Some((node, box_id, AtomicKind::Float)) => Some((node, box_id)),
             _ => None,
         })
         .collect();
-    for (node, caixa) in anchors {
+    for (node, box_id) in anchors {
         let exclusions = bfc.snapshot();
         let lines = break_lines(&exclusions);
         let Some((i, occupied)) = where_it_landed(&lines, node, nowrap) else { continue };
         // A percentage size on the float resolves against an indefinite height
         // here: the inline flow does not know its container's height, and this
         // is the same `None` an atom of the line already gets.
-        let size = super::placement::measure_float(dom, tree, node, caixa, content_w, None, parent_css, font_size, ctx);
+        let size = super::placement::measure_float(dom, tree, node, box_id, content_w, None, parent_css, font_size, ctx);
         let line_top = y + i as f32 * lh;
         let (_, free) = banda_livre(&exclusions, line_top, lh, x, content_w);
         // Does it fit in what the line still has? An anchor at the START of the
@@ -78,7 +78,7 @@ pub(in crate::layout) fn place_anchored_floats(
             .computed_style_idx(node)
             .and_then(|c| c.float_side)
             .unwrap_or(crate::style::FloatSide::Left);
-        super::placement::place_float(dom, node, caixa, side, size, top, x, content_w, None, bfc, ctx, list);
+        super::placement::place_float(dom, node, box_id, side, size, top, x, content_w, None, bfc, ctx, list);
     }
 }
 
@@ -123,7 +123,7 @@ fn where_it_landed(lines: &[Vec<Segment>], node: NodeIdx, nowrap: bool) -> Optio
 /// Zero width and nothing else: the walk does not descend into the float (its
 /// content is its own, laid out by `layout_block` when it is placed), and the
 /// inlines around it do not count it as their content — empty `owners`. With no
-pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32) -> Option<InlineRun> {
+pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, box_id: BoxId, color: u32) -> Option<InlineRun> {
     // `float` declared and not cancelled by `position: absolute/fixed` (CSS 2.1
     // §9.7 — an absolutely positioned box does not float).
     let floats = dom.computed_style_idx(id).is_some_and(|c| {
@@ -137,7 +137,7 @@ pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32
         italic: false,
         deco: 0,
         owners: Vec::new(),
-        atomic: Some((id, caixa, AtomicKind::Float)),
+        atomic: Some((id, box_id, AtomicKind::Float)),
         ww: 0.0,
         wh: 0.0,
     })

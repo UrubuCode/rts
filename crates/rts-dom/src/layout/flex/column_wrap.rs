@@ -26,7 +26,7 @@
 //! vai para o fim do eixo cruzado, nunca troca item de coluna.
 
 use super::*;
-use crate::layout::flex::column::{align_offset, justify_e_align, justify_offsets};
+use crate::layout::flex::column::{align_offset, justify_and_align, justify_offsets};
 use super::column_wrap_item::Item;
 
 #[allow(clippy::too_many_arguments)]
@@ -69,14 +69,14 @@ pub(in crate::layout) fn layout_children_column_wrap(
         .and_then(|d| d.resolve(&resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    let (justify, align) = justify_e_align(css, reverse);
+    let (justify, align) = justify_and_align(css, reverse);
 
     // ── PASSO 1: mede cada filho nos DOIS eixos (mesma base de `column.rs`,
     // mais a largura NATURAL para decidir a largura de cada coluna) ─────────
     let mut items: Vec<Item> = Vec::new();
     let tree = std::rc::Rc::clone(&list.tree);
-    for &caixa in tree.children_without_generated(container) {
-        let Some(child) = tree.node_of(caixa) else {
+    for &box_id in tree.children_without_generated(container) {
+        let Some(child) = tree.node_of(box_id) else {
             continue;
         };
         if let NodeKind::Element { tag } = &dom.node(child).kind {
@@ -101,7 +101,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 .text_width(&text, font_size, false, false, false);
             items.push(Item {
                 node: child,
-                caixa,
+                box_id,
                 main: h,
                 cross: w,
                 is_text: true,
@@ -117,11 +117,11 @@ pub(in crate::layout) fn layout_children_column_wrap(
             continue;
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
-        let estica = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
-        let natural_h = if estica {
-            measure_block(dom, child, caixa, content_w, Some(container_content_h), None, None, false, ctx).1
+        let stretched = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
+        let natural_h = if stretched {
+            measure_block(dom, child, box_id, content_w, Some(container_content_h), None, None, false, ctx).1
         } else {
-            child_outer_height(dom, child, caixa, content_w, Some(container_content_h), css, font_size, ctx)
+            child_outer_height(dom, child, box_id, content_w, Some(container_content_h), css, font_size, ctx)
         };
         let child_font = font_px(&ccss, font_size);
         let main = super::column_shrink::base_outer(
@@ -132,7 +132,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
             child_font,
             ctx,
         );
-        let resolve_filho = ResolveCtx {
+        let child_resolve = ResolveCtx {
             parent_content_w: content_w,
             node_font_size: child_font,
             root_font_size: crate::style::root_font_size(),
@@ -143,7 +143,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         // decide entre o declarado, `min-content` (§4.5, não some sob
         // overflow não-visível) e o automático — a mesma pergunta que
         // `column.rs` faz, agora numa função só.
-        let min_main = super::column_shrink::min_main(dom, child, caixa, &ccss, natural_h, Some(container_content_h), &resolve_filho, ctx);
+        let min_main = super::column_shrink::min_main(dom, child, box_id, &ccss, natural_h, Some(container_content_h), &child_resolve, ctx);
         // Largura NATURAL (shrink-to-fit): para um item de `width` explícito
         // é essa largura, qualquer que seja a coluna — layout_block honra o
         // `width` declarado antes de olhar para o `avail_w`. É o que permite
@@ -152,7 +152,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let (cross, _) = measure_block(
             dom,
             child,
-            caixa,
+            box_id,
             content_w,
             Some(container_content_h),
             None,
@@ -162,7 +162,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         );
         items.push(Item {
             node: child,
-            caixa,
+            box_id,
             main,
             cross,
             is_text: false,
@@ -304,9 +304,9 @@ pub(in crate::layout) fn layout_children_column_wrap(
     let mut leading_cross = 0.0f32;
     let mut between_cross = 0.0f32;
     if content_w > 0.0 {
-        let usado: f32 = col_cross.iter().sum::<f32>()
+        let used_cross: f32 = col_cross.iter().sum::<f32>()
             + (columns.len().saturating_sub(1)) as f32 * cross_gap;
-        let free = (content_w - usado).max(0.0);
+        let free = (content_w - used_cross).max(0.0);
         match css.align_content {
             // `align-content` declarado não tem efeito com uma LINHA só
             // (Flexbox §8.3, "this property has no effect when the flex
@@ -390,13 +390,13 @@ pub(in crate::layout) fn layout_children_column_wrap(
         // `column-reverse`: só a ORDEM DE POSIÇÃO dentro desta coluna espelha
         // (ver o comentário do cabeçalho — o agrupamento em colunas já
         // aconteceu na ordem normal, acima).
-        let posicoes: Vec<&Item> = if reverse {
+        let positions: Vec<&Item> = if reverse {
             col.iter().rev().collect()
         } else {
             col.iter().collect()
         };
         let mut y = content_y + leading;
-        for (j, it) in posicoes.iter().enumerate() {
+        for (j, it) in positions.iter().enumerate() {
             if j > 0 {
                 y += main_gap + between;
             }
@@ -463,7 +463,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 layout_block_reusing(
                     dom,
                     it.node,
-                    it.caixa,
+                    it.box_id,
                     child_x,
                     y,
                     avail_w,

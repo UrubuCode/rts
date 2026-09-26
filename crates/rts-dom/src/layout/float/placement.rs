@@ -18,11 +18,11 @@ use crate::boxes::BoxId;
 /// put it.
 pub(in crate::layout) fn measure_float(
     dom: &Dom,
-    // The tree that ISSUED `caixa` — the current `DisplayList`'s. A `BoxId` is
+    // The tree that ISSUED `box_id` — the current `DisplayList`'s. A `BoxId` is
     // only valid in the tree that built it (`box-tree.md` §10).
     tree: &crate::boxes::BoxTree,
     child: NodeIdx,
-    caixa: BoxId,
+    box_id: BoxId,
     content_w: f32,
     avail_h: Option<f32>,
     parent_css: &ComputedStyle,
@@ -38,7 +38,7 @@ pub(in crate::layout) fn measure_float(
     // `child_outer_width` answers, and clamping the raw outer cut the MARGIN
     // too. The style comes from the TREE (invariant I6 of `box-tree.md`).
     let ccss = tree
-        .style(dom, caixa)
+        .style(dom, box_id)
         .or_else(|| dom.computed_style_idx(child))
         .unwrap_or_default();
     let rc = ResolveCtx {
@@ -54,7 +54,7 @@ pub(in crate::layout) fn measure_float(
         ccss.min_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
         ccss.max_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
     );
-    let h = child_outer_height(dom, child, caixa, content_w, avail_h, parent_css, font_size, ctx);
+    let h = child_outer_height(dom, child, box_id, content_w, avail_h, parent_css, font_size, ctx);
     (w, h)
 }
 
@@ -69,7 +69,7 @@ pub(in crate::layout) fn measure_float(
 pub(in crate::layout) fn place_float(
     dom: &Dom,
     child: NodeIdx,
-    caixa: BoxId,
+    box_id: BoxId,
     side: crate::style::FloatSide,
     (w, h): (f32, f32),
     top_from: f32,
@@ -95,7 +95,7 @@ pub(in crate::layout) fn place_float(
     layout_block(
         dom,
         child,
-        caixa,
+        box_id,
         x,
         top,
         content_w,

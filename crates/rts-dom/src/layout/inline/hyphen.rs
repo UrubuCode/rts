@@ -26,8 +26,8 @@ pub(in crate::layout) const SHY: char = '\u{00AD}';
 
 /// O texto que uma peça guarda: com os hífens suaves quando `hyphens` os deixa
 /// ser oportunidade, sem eles quando é `none` (aí nunca serão vistos).
-pub(in crate::layout) fn texto_da_peca(s: &str, hifen_manual: bool) -> String {
-    match hifen_manual {
+pub(in crate::layout) fn piece_text(s: &str, manual_hyphen: bool) -> String {
+    match manual_hyphen {
         true => s.to_string(),
         false => sem_shy(s).into_owned(),
     }
@@ -41,11 +41,11 @@ pub(in crate::layout) fn sem_shy(s: &str) -> Cow<'_, str> {
     }
 }
 
-/// O maior prefixo de `texto` que termina num hífen suave e cuja largura,
+/// O maior prefixo de `text` que termina num hífen suave e cuja largura,
 /// com o "-" visível, cabe em `disp`. Devolve o prefixo já com o hífen, a
 /// largura dele e o resto (que pode ainda ter hífens suaves).
-fn maior_prefixo_que_cabe(
-    texto: &str,
+fn longest_fitting_prefix(
+    text: &str,
     disp: f32,
     font_size: f32,
     mono: bool,
@@ -55,48 +55,48 @@ fn maior_prefixo_que_cabe(
     ahem: bool,
     m: &dyn TextMeasurer,
 ) -> Option<(String, f32, String)> {
-    let mut melhor: Option<(String, f32, String)> = None;
-    for (i, c) in texto.char_indices() {
+    let mut best: Option<(String, f32, String)> = None;
+    for (i, c) in text.char_indices() {
         if c != SHY {
             continue;
         }
-        let mut prefixo = sem_shy(&texto[..i]).into_owned();
-        if prefixo.is_empty() {
+        let mut prefix = sem_shy(&text[..i]).into_owned();
+        if prefix.is_empty() {
             continue;
         }
-        prefixo.push('-');
+        prefix.push('-');
         let w = if ahem {
-            prefixo.chars().count() as f32 * font_size
+            prefix.chars().count() as f32 * font_size
         } else {
-            m.text_width(&prefixo, font_size, mono, bold, italic)
+            m.text_width(&prefix, font_size, mono, bold, italic)
         };
         if w <= disp {
-            melhor = Some((prefixo, w, texto[i + SHY.len_utf8()..].to_string()));
+            best = Some((prefix, w, text[i + SHY.len_utf8()..].to_string()));
         } else {
             break;
         }
     }
-    melhor
+    best
 }
 
-/// Emite `texto` (que contém pelo menos um hífen suave) a partir da linha
+/// Emite `text` (que contém pelo menos um hífen suave) a partir da linha
 /// corrente, quebrando nos hífens suaves sempre que o que resta não cabe.
 /// Devolve `true` se emitiu tudo; `false` se não conseguiu quebrar em lado
 /// nenhum (a palavra segue então o caminho normal, inteira).
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn emitir_com_hifen(
+pub(in crate::layout) fn emit_with_hyphen(
     cur: &mut Vec<Segment>,
     lines: &mut Vec<Vec<Segment>>,
     cur_w: &mut f32,
     at_line_start: &mut bool,
     run: &InlineRun,
-    texto: &str,
-    largura_inteira: f32,
+    text: &str,
+    whole_width: f32,
     // largura do espaço que separa esta palavra da anterior na linha corrente
     // (0 no início de linha), e se esse espaço veio de um run ANTERIOR — a
     // mesma distinção do `lead_w` do `Segment`.
     sep_w: f32,
-    vao_de_fora: bool,
+    gap_outside: bool,
     max_w: &mut dyn FnMut(usize) -> f32,
     font_size: f32,
     mono: bool,
@@ -104,49 +104,49 @@ pub(in crate::layout) fn emitir_com_hifen(
     m: &dyn TextMeasurer,
 ) -> bool {
     let disp = max_w(lines.len()) - *cur_w;
-    if largura_inteira + sep_w <= disp {
+    if whole_width + sep_w <= disp {
         return false;
     }
-    let Some((prefixo, w, resto)) = maior_prefixo_que_cabe(
-        texto, disp - sep_w, font_size, mono, run.bold, run.italic, ahem, m,
+    let Some((prefix, w, rest)) = longest_fitting_prefix(
+        text, disp - sep_w, font_size, mono, run.bold, run.italic, ahem, m,
     ) else {
         return false;
     };
     // O espaço viaja no texto e `push_segment` decide se vira vão, exactamente
     // como no caminho sem hífen.
-    let (texto_emitido, w_emitido, lead) = match sep_w > 0.0 {
-        true => (format!(" {prefixo}"), w + sep_w, if vao_de_fora { sep_w } else { 0.0 }),
-        false => (prefixo, w, 0.0),
+    let (emitted_text, emitted_w, lead) = match sep_w > 0.0 {
+        true => (format!(" {prefix}"), w + sep_w, if gap_outside { sep_w } else { 0.0 }),
+        false => (prefix, w, 0.0),
     };
-    push_segment(cur, run, &texto_emitido, w_emitido, lead);
+    push_segment(cur, run, &emitted_text, emitted_w, lead);
     lines.push(std::mem::take(cur));
     *cur_w = 0.0;
     *at_line_start = true;
-    let mut resto = resto;
+    let mut rest = rest;
     loop {
-        let limpo = sem_shy(&resto).into_owned();
+        let clean = sem_shy(&rest).into_owned();
         let w = if ahem {
-            limpo.chars().count() as f32 * font_size
+            clean.chars().count() as f32 * font_size
         } else {
-            m.text_width(&limpo, font_size, mono, run.bold, run.italic)
+            m.text_width(&clean, font_size, mono, run.bold, run.italic)
         };
         let disp = max_w(lines.len());
-        if w <= disp || !resto.contains(SHY) {
-            push_segment(cur, run, &limpo, w, 0.0);
+        if w <= disp || !rest.contains(SHY) {
+            push_segment(cur, run, &clean, w, 0.0);
             *cur_w += w;
             *at_line_start = false;
             return true;
         }
-        match maior_prefixo_que_cabe(&resto, disp, font_size, mono, run.bold, run.italic, ahem, m) {
-            Some((prefixo, w, r)) => {
-                push_segment(cur, run, &prefixo, w, 0.0);
+        match longest_fitting_prefix(&rest, disp, font_size, mono, run.bold, run.italic, ahem, m) {
+            Some((prefix, w, r)) => {
+                push_segment(cur, run, &prefix, w, 0.0);
                 lines.push(std::mem::take(cur));
-                resto = r;
+                rest = r;
             }
             None => {
                 // nem o primeiro pedaço cabe numa linha inteira: transborda,
                 // como o browser.
-                push_segment(cur, run, &limpo, w, 0.0);
+                push_segment(cur, run, &clean, w, 0.0);
                 *cur_w += w;
                 *at_line_start = false;
                 return true;

@@ -32,29 +32,29 @@ pub(crate) struct Exclusao {
 /// A altura entra na pergunta porque uma linha de texto só é estorvada pelo
 /// float com que se CRUZA: a última linha ao lado de uma figura curta usa a
 /// banda estreita, e a primeira linha abaixo dela usa a largura toda.
-pub(in crate::layout) fn banda_livre(ex: &[Exclusao], y: f32, altura: f32, content_x: f32, content_w: f32) -> (f32, f32) {
-    let (mut esq, mut dir) = (content_x, content_x + content_w);
+pub(in crate::layout) fn banda_livre(exclusions: &[Exclusao], y: f32, altura: f32, content_x: f32, content_w: f32) -> (f32, f32) {
+    let (mut left, mut right) = (content_x, content_x + content_w);
     // Uma linha de altura zero ainda cruza o float que começa exatamente nela —
     // sem esta espessura mínima, `y == top` não intersectava nada e a primeira
     // linha ao lado de um float saía com a largura toda.
-    let fim = y + altura.max(0.01);
-    for e in ex {
-        if e.bottom <= y || e.top >= fim {
+    let end = y + altura.max(0.01);
+    for excl in exclusions {
+        if excl.bottom <= y || excl.top >= end {
             continue;
         }
-        match e.side {
-            crate::style::FloatSide::Left => esq = esq.max(e.edge),
-            crate::style::FloatSide::Right => dir = dir.min(e.edge),
+        match excl.side {
+            crate::style::FloatSide::Left => left = left.max(excl.edge),
+            crate::style::FloatSide::Right => right = right.min(excl.edge),
             crate::style::FloatSide::None => {}
         }
     }
-    (esq, (dir - esq).max(0.0))
+    (left, (right - left).max(0.0))
 }
 
 /// O fundo do float mais baixo — para onde desce quem tem `clear`, e onde o
 /// container fecha para os conter.
-pub(in crate::layout) fn fundo_dos_floats(ex: &[Exclusao]) -> Option<f32> {
-    ex.iter()
+pub(in crate::layout) fn fundo_dos_floats(exclusions: &[Exclusao]) -> Option<f32> {
+    exclusions.iter()
         .map(|e| e.bottom)
         .fold(None, |a: Option<f32>, b| Some(a.map_or(b, |a| a.max(b))))
 }

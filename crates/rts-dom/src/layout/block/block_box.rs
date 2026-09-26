@@ -47,25 +47,25 @@ use crate::boxes::{AnonymousRole, BoxId, BoxKind, BoxTree};
 /// `BoxId` because the box has no node: that keeps transforms and any later
 /// per-box operation complete without inventing a DOM geometry.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn layout_anonima(
+pub(in crate::layout) fn layout_anonymous(
     dom: &Dom,
     tree: &BoxTree,
-    anonima: BoxId,
+    anonymous: BoxId,
     x: f32,
     y: f32,
     content_w: f32,
     avail_h: Option<f32>,
-    css_pai: &ComputedStyle,
+    parent_style: &ComputedStyle,
     font_size: f32,
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    if matches!(tree.kind(anonima), BoxKind::Anonymous { role: AnonymousRole::Table, .. }) {
-        return crate::table::layout_anonymous_table(dom, tree, anonima, x, y, content_w, font_size, ctx, list).1;
+    if matches!(tree.kind(anonymous), BoxKind::Anonymous { role: AnonymousRole::Table, .. }) {
+        return crate::table::layout_anonymous_table(dom, tree, anonymous, x, y, content_w, font_size, ctx, list).1;
     }
-    let h = layout_caixa_anonima(dom, tree, anonima, x, y, content_w, avail_h, css_pai, font_size, bfc, ctx, list);
-    record_box_rect(list, anonima, Rect::new(x, y, content_w, h));
+    let h = layout_anonymous_box(dom, tree, anonymous, x, y, content_w, avail_h, parent_style, font_size, bfc, ctx, list);
+    record_box_rect(list, anonymous, Rect::new(x, y, content_w, h));
     h
 }
 
@@ -76,7 +76,7 @@ pub(in crate::layout) fn layout_anonima(
 /// an inline is split around a block-level child. Its content box IS the box —
 /// no margin, no border, no padding — so `(x, y, content_w)` go straight down.
 ///
-/// `css_pai` is the style of the box that CONTAINS this one, used only when the
+/// `parent_style` is the style of the box that CONTAINS this one, used only when the
 /// tree cannot answer. It is the same value in every reachable case today: the
 /// parent of an anonymous box is the box of the very container it inherits from.
 /// Keeping the parameter rather than an `unwrap_or_default()` is the difference
@@ -84,23 +84,23 @@ pub(in crate::layout) fn layout_anonima(
 /// default — which would change the font of the text inside and answer plausibly
 /// while being wrong.
 #[allow(clippy::too_many_arguments)]
-fn layout_caixa_anonima(
+fn layout_anonymous_box(
     dom: &Dom,
     tree: &BoxTree,
-    anonima: BoxId,
+    anonymous: BoxId,
     x: f32,
     y: f32,
     content_w: f32,
     avail_h: Option<f32>,
-    css_pai: &ComputedStyle,
+    parent_style: &ComputedStyle,
     font_size: f32,
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
     debug_assert!(
-        matches!(tree.kind(anonima), BoxKind::Anonymous { .. }),
-        "{anonima:?} nao e anonima: este caminho existe para a caixa SEM no, e uma \
+        matches!(tree.kind(anonymous), BoxKind::Anonymous { .. }),
+        "{anonymous:?} nao e anonima: este caminho existe para a caixa SEM no, e uma \
          caixa de elemento tem de ir por `layout_block`, que lhe resolve a caixa"
     );
     // The style is asked of the TREE and of the document through it, never
@@ -108,8 +108,8 @@ fn layout_caixa_anonima(
     // `style` asks `computed_style_idx` fresh. A copy taken when the tree was
     // built would be one frame behind for the whole of an animation — the tree is
     // memoised without `anim_epoch` on purpose (see `BoxKind`).
-    let da_arvore = tree.style(dom, anonima);
-    let css: &ComputedStyle = da_arvore.as_deref().unwrap_or(css_pai);
+    let da_arvore = tree.style(dom, anonymous);
+    let css: &ComputedStyle = da_arvore.as_deref().unwrap_or(parent_style);
     // `style_source` and not a node of its own. It is the CONTAINER, and it is
     // the right answer for the four questions `layout_children_vertical` still
     // asks of a node: the DOM child list the window of `sequencia` is cut from,
@@ -125,8 +125,8 @@ fn layout_caixa_anonima(
     // that is where they are emitted.
     layout_children_vertical(
         dom,
-        tree.style_source(anonima),
-        anonima,
+        tree.style_source(anonymous),
+        anonymous,
         x,
         y,
         content_w,

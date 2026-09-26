@@ -14,7 +14,7 @@ use crate::boxes::{BoxId, BoxTree};
 #[derive(Clone, Copy)]
 pub(in crate::layout) struct OutOfFlowBox {
     pub(in crate::layout) node: NodeIdx,
-    pub(in crate::layout) caixa: BoxId,
+    pub(in crate::layout) box_id: BoxId,
 }
 /// O rect do CONTAINING BLOCK de um `position:absolute` = o ancestral mais próximo
 /// com `position != static` (relative/absolute/fixed), lido de `flow_rects` — a
@@ -67,7 +67,7 @@ fn containing_block_rect(
 }
 
 /// DFS over the BOX tree that collects the `position:absolute/fixed` boxes —
-/// `caixa` itself included, which is how a positioned ROOT element is found —
+/// `box_id` itself included, which is how a positioned ROOT element is found —
 /// parent before child (the layout pass reads the parent's rect as the
 /// containing block).
 ///
@@ -80,10 +80,10 @@ fn containing_block_rect(
 pub(in crate::layout) fn collect_out_of_flow(
     dom: &Dom,
     tree: &BoxTree,
-    caixa: BoxId,
+    box_id: BoxId,
     out: &mut Vec<OutOfFlowBox>,
 ) {
-    if let Some(child) = tree.node_of(caixa) {
+    if let Some(child) = tree.node_of(box_id) {
         // `display:none` num ANCESTRAL remove a subárvore inteira do layout, e o
         // fora de fluxo não é exceção: um `position:absolute` dentro de um ramo
         // escondido não gera caixa nenhuma no browser.
@@ -97,11 +97,11 @@ pub(in crate::layout) fn collect_out_of_flow(
             return;
         }
         if is_out_of_flow(dom, child) {
-            out.push(OutOfFlowBox { node: child, caixa });
+            out.push(OutOfFlowBox { node: child, box_id });
         }
     }
-    for &caixa_filho in tree.children(caixa) {
-        collect_out_of_flow(dom, tree, caixa_filho, out);
+    for &child_box in tree.children(box_id) {
+        collect_out_of_flow(dom, tree, child_box, out);
     }
 }
 
@@ -121,12 +121,12 @@ pub(in crate::layout) fn e_display_none(dom: &Dom, id: NodeIdx) -> bool {
 /// dos dois no eixo → 0).
 pub(in crate::layout) fn layout_out_of_flow(
     dom: &Dom,
-    alvo: OutOfFlowBox,
+    target: OutOfFlowBox,
     ctx: &LayoutCtx,
     flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
     list: &mut DisplayList,
 ) {
-    let id = alvo.node;
+    let id = target.node;
     let css = dom.computed_style_idx(id).unwrap_or_default();
     // CONTAINING BLOCK: `absolute` posiciona contra o ancestral positioned mais
     // próximo, e `transform` faz o mesmo mesmo no ancestral static; `fixed`
@@ -167,7 +167,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     let (w, h) = measure_block(
         dom,
         id,
-        alvo.caixa,
+        target.box_id,
         cb.w,
         Some(cb.h),
         forced_outer_w,
@@ -181,24 +181,24 @@ pub(in crate::layout) fn layout_out_of_flow(
     // `id` cairia se estivesse em fluxo normal, no seu PAI de verdade (que
     // pode não ser `cb`, quando o ancestral positioned está mais acima). Só
     // resolve o eixo que falta: o outro já veio de um inset declarado.
-    let precisa_estatica = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
-    let estatica = precisa_estatica.then(|| {
-        super::static_position::posicao_estatica(dom, id, &css, flow_rects, ctx, w, h, cb)
+    let needs_static = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
+    let static_pos = needs_static.then(|| {
+        super::static_position::static_position_of(dom, id, &css, flow_rects, ctx, w, h, cb)
     });
     let x = match (left, right) {
         (Some(l), _) => cb.x + l,
         (None, Some(r)) => cb.x + cb.w - w - r,
-        (None, None) => estatica.unwrap().0,
+        (None, None) => static_pos.unwrap().0,
     };
     let y = match (top, bottom) {
         (Some(t), _) => cb.y + t,
         (None, Some(b)) => cb.y + cb.h - h - b,
-        (None, None) => estatica.unwrap().1,
+        (None, None) => static_pos.unwrap().1,
     };
     layout_block(
         dom,
         id,
-        alvo.caixa,
+        target.box_id,
         x,
         y,
         cb.w,

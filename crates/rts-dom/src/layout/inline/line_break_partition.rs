@@ -5,10 +5,10 @@
 //! both functions here only touch the ordinary line cursor (`cur`/`lines`/
 //! `cur_w`/`at_line_start`) and take everything else as a parameter.
 //!
-//! - [`dividir_peca_que_nao_cabe`]: what `overflow-wrap`/`word-break` do once
+//! - [`split_piece_that_does_not_fit`]: what `overflow-wrap`/`word-break` do once
 //!   a piece has to split — walk grapheme-safe prefixes that fit, one line
 //!   each.
-//! - [`run_inteiro_cabe`]: the whole-run fast path — when a run both opens
+//! - [`whole_run_fits`]: the whole-run fast path — when a run both opens
 //!   and closes a cluster and fits the current line as ONE string, skip the
 //!   per-word scanner (`wrap-runs` was 38% of a large page's relayout at
 //!   11 000 `text_width` calls a frame; this is why).
@@ -17,7 +17,7 @@ use super::*;
 
 /// The one line `wrap_runs` emits when a flow produced no run at all — moved
 /// from the tail of that function, verbatim.
-pub(in crate::layout) fn linha_vazia() -> Segment {
+pub(in crate::layout) fn empty_line() -> Segment {
     Segment {
         text: String::new(),
         text_width: 0.0,
@@ -37,35 +37,35 @@ pub(in crate::layout) fn linha_vazia() -> Segment {
 /// line at a time — `overflow-wrap: break-word`/`word-break: break-all`.
 /// Moved verbatim from inside `fechar_cluster!`'s emission loop.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn dividir_peca_que_nao_cabe(
+pub(in crate::layout) fn split_piece_that_does_not_fit(
     cur: &mut Vec<Segment>,
     lines: &mut Vec<Vec<Segment>>,
     cur_w: &mut f32,
     at_line_start: &mut bool,
     max_w: &mut dyn FnMut(usize) -> f32,
     run: &InlineRun,
-    peca_run: usize,
-    texto: &str,
-    vao: f32,
+    piece_run: usize,
+    text: &str,
+    gap: f32,
     font_size: f32,
     mono: bool,
     ahem: bool,
-    fontes: &super::run_font::Fontes,
+    fonts: &super::run_font::Fontes,
     m: &dyn TextMeasurer,
 ) {
-    let mut resto = texto;
-    let mut lead = vao;
-    while !resto.is_empty() {
+    let mut rest = text;
+    let mut lead = gap;
+    while !rest.is_empty() {
         let disp = max_w(lines.len()) - *cur_w;
         let (mut n, mut w) = crate::inline_box::prefixo_que_cabe(
-            resto, disp, font_size, mono, run.bold, run.italic, ahem, m,
+            rest, disp, font_size, mono, run.bold, run.italic, ahem, m,
         );
         if n == 0 && *at_line_start {
             // Numa caixa mais estreita que um glifo, nada cabe e descer de
             // linha não muda isso: sem um carácter forçado o laço não
             // termina. Transbordar um carácter é o que o browser também faz.
-            n = resto.chars().next().map_or(0, char::len_utf8);
-            w = fontes.largura(m, peca_run, &resto[..n], run.bold, run.italic);
+            n = rest.chars().next().map_or(0, char::len_utf8);
+            w = fonts.width(m, piece_run, &rest[..n], run.bold, run.italic);
         }
         if n == 0 {
             lines.push(std::mem::take(cur));
@@ -73,12 +73,12 @@ pub(in crate::layout) fn dividir_peca_que_nao_cabe(
             *at_line_start = true;
             continue;
         }
-        push_segment(cur, run, &resto[..n], w, lead);
+        push_segment(cur, run, &rest[..n], w, lead);
         lead = 0.0;
         *cur_w += w;
         *at_line_start = false;
-        resto = &resto[n..];
-        if !resto.is_empty() {
+        rest = &rest[n..];
+        if !rest.is_empty() {
             lines.push(std::mem::take(cur));
             *cur_w = 0.0;
             *at_line_start = true;
@@ -95,36 +95,36 @@ pub(in crate::layout) fn dividir_peca_que_nao_cabe(
 /// decided by the caller, which already has `cluster`/`run.text` at hand;
 /// this only does the measuring, the fit check, and the emission.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn run_inteiro_cabe(
+pub(in crate::layout) fn whole_run_fits(
     cur: &mut Vec<Segment>,
     cur_w: &mut f32,
     at_line_start: &mut bool,
     pending_space: &mut bool,
-    espaco_de_fora: &mut bool,
+    space_outside: &mut bool,
     max_w: &mut dyn FnMut(usize) -> f32,
     lines_len: usize,
     run: &InlineRun,
     i: usize,
-    normalizado: &str,
-    fontes: &super::run_font::Fontes,
+    normalized: &str,
+    fonts: &super::run_font::Fontes,
     m: &dyn TextMeasurer,
 ) -> bool {
-    if normalizado.is_empty() {
+    if normalized.is_empty() {
         return false;
     }
-    let w = fontes.largura(m, i, normalizado, run.bold, run.italic);
+    let w = fonts.width(m, i, normalized, run.bold, run.italic);
     if *at_line_start || *cur_w + w > max_w(lines_len) {
         return false;
     }
-    let vao = if *pending_space && *espaco_de_fora {
-        fontes.largura(m, i.wrapping_sub(1), " ", false, false)
+    let gap = if *pending_space && *space_outside {
+        fonts.width(m, i.wrapping_sub(1), " ", false, false)
     } else {
         0.0
     };
-    push_segment(cur, run, normalizado, w, vao);
+    push_segment(cur, run, normalized, w, gap);
     *cur_w += w;
     *at_line_start = false;
     *pending_space = true;
-    *espaco_de_fora = true;
+    *space_outside = true;
     true
 }

@@ -30,16 +30,16 @@
 use super::*;
 
 /// O `y` para onde `child` (que estabelece BFC) tem de descer se a largura
-/// que ocuparia em `y_provisorio` não coubesse na banda livre — o fundo dos
+/// que ocuparia em `y_provisional` não coubesse na banda livre — o fundo dos
 /// floats dos dois lados, como um `clear:both` implícito (CSS 2.1 §9.5: sem
 /// espaço para "shrink to avoid" numa largura fixa, resta empurrar). `None`
 /// quando cabe, quando `child` não estabelece BFC, ou quando não há float
 /// nenhum aberto no `bfc` ambiente.
-pub(in crate::layout) fn empurra_para_baixo(
+pub(in crate::layout) fn push_down(
     dom: &Dom,
     child: NodeIdx,
     child_css: &ComputedStyle,
-    y_provisorio: f32,
+    y_provisional: f32,
     content_x: f32,
     content_w: f32,
     font_size: f32,
@@ -50,8 +50,8 @@ pub(in crate::layout) fn empurra_para_baixo(
         return None;
     }
     let w = child_outer_width(dom, child, content_w, font_size, ctx);
-    let (_, banda_w) = bfc.banda_livre(y_provisorio, 0.0, content_x, content_w);
-    if w <= banda_w + 0.01 {
+    let (_, band_w) = bfc.banda_livre(y_provisional, 0.0, content_x, content_w);
+    if w <= band_w + 0.01 {
         return None;
     }
     bfc.fundo_lado(true, true)

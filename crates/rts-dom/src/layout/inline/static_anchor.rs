@@ -33,7 +33,7 @@ use crate::boxes::BoxId;
 /// line and the inlines around it do not count it as content. Returning early
 /// here is also what keeps the walk from descending into the box and leaking
 /// its text into the line.
-pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32) -> Option<InlineRun> {
+pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, box_id: BoxId, color: u32) -> Option<InlineRun> {
     is_out_of_flow(dom, id).then(|| InlineRun {
         text: String::new(),
         color,
@@ -41,7 +41,7 @@ pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32
         italic: false,
         deco: 0,
         owners: Vec::new(),
-        atomic: Some((id, caixa, AtomicKind::Estatica)),
+        atomic: Some((id, box_id, AtomicKind::Estatica)),
         ww: 0.0,
         wh: 0.0,
     })
@@ -59,20 +59,20 @@ pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, caixa: BoxId, color: u32
 /// a START BORDER of the enclosing inline as content either, whatever §9.4.2
 /// says of it.
 ///
-/// `inicio_da_linha` is `list.pieces.len()` as it stood when the line began:
+/// `line_start` is `list.pieces.len()` as it stood when the line began:
 /// "nothing before it" is asked as "the line has PAINTED nothing yet" — a
 /// geometry mark alone (a marker's rect) does not count, as it did not when
 /// this compared the item and subtree counts — since the surfaces of the
 /// inlines are inserted only after the line's last segment. Cut, stated: text that paints nothing
 /// (`visibility: hidden`) reads as an empty line here.
-pub(in crate::layout) fn fora_da_linha(
+pub(in crate::layout) fn outside_line(
     dom: &Dom,
     atomic: (NodeIdx, BoxId, AtomicKind),
     seg_x: f32,
     flow_x: f32,
     line_top: f32,
     line_bottom: f32,
-    inicio_da_linha: usize,
+    line_start: usize,
     list: &mut DisplayList,
 ) -> bool {
     match atomic {
@@ -80,14 +80,14 @@ pub(in crate::layout) fn fora_da_linha(
         // the boxes of the inlines around it pass through the line — Blink
         // leaves it out of the client rects of the inline that contains it.
         (_, _, AtomicKind::Float) => true,
-        (id, caixa, AtomicKind::Estatica) => {
-            let vazia = !crate::paint::pieces::paints(&list.pieces[inicio_da_linha..]);
-            let (x, y) = match (era_de_bloco(dom, id), vazia) {
+        (id, box_id, AtomicKind::Estatica) => {
+            let empty = !crate::paint::pieces::paints(&list.pieces[line_start..]);
+            let (x, y) = match (was_block(dom, id), empty) {
                 (true, true) => (flow_x, line_top),
                 (true, false) => (flow_x, line_bottom),
                 (false, _) => (seg_x, line_top),
             };
-            list.ancoras_estaticas.push((caixa, x, y));
+            list.ancoras_estaticas.push((box_id, x, y));
             true
         }
         _ => false,
@@ -98,21 +98,21 @@ pub(in crate::layout) fn fora_da_linha(
 /// no line box and the caller skips it; but the static positions still have to
 /// be said, and with no line they are all the same place: where the line would
 /// have started (Blink, `claude-absoluto-posicao-estatica-linha-vazia` case 5).
-pub(in crate::layout) fn linha_so_de_ancoras(dom: &Dom, line: &[Segment], flow_x: f32, cy: f32, list: &mut DisplayList) -> bool {
-    let so_ancoras = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::Estatica))));
-    if so_ancoras {
-        let inicio = list.pieces.len();
+pub(in crate::layout) fn anchors_only_line(dom: &Dom, line: &[Segment], flow_x: f32, cy: f32, list: &mut DisplayList) -> bool {
+    let anchors_only = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::Estatica))));
+    if anchors_only {
+        let start = list.pieces.len();
         for atomic in line.iter().filter_map(|s| s.atomic) {
-            fora_da_linha(dom, atomic, flow_x, flow_x, cy, cy, inicio, list);
+            outside_line(dom, atomic, flow_x, flow_x, cy, cy, start, list);
         }
     }
-    so_ancoras
+    anchors_only
 }
 
 /// Was this box block-level BEFORE `position: absolute` blockified it? The
 /// declared `display` decides, and the tag's default when none is declared —
 /// `effective_display` cannot be asked, since it answers after blockification.
-fn era_de_bloco(dom: &Dom, id: NodeIdx) -> bool {
+fn was_block(dom: &Dom, id: NodeIdx) -> bool {
     match dom.computed_style_idx(id).and_then(|c| c.display) {
         Some(d) => !d.is_inline_level(),
         None => matches!(&dom.node(id).kind, NodeKind::Element { tag } if crate::block::lookup(tag).is_some()),
@@ -123,14 +123,14 @@ fn era_de_bloco(dom: &Dom, id: NodeIdx) -> bool {
 /// coordinates, including those inside the fragments it reuses.
 pub(in crate::layout) fn todas(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
     let mut out = Vec::new();
-    let mut por = |tree: &crate::boxes::BoxTree, a: &[(BoxId, f32, f32)], dx: f32, dy: f32| {
+    let mut add = |tree: &crate::boxes::BoxTree, a: &[(BoxId, f32, f32)], dx: f32, dy: f32| {
         out.extend(a.iter().filter_map(|&(b, x, y)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, 0.0, 0.0)))));
     };
-    por(&list.tree, &list.ancoras_estaticas, 0.0, 0.0);
-    let mut pilha: Vec<(&ChildRef, f32, f32)> = crate::paint::pieces::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();
-    while let Some((c, dx, dy)) = pilha.pop() {
-        por(&c.fragment.tree, &c.fragment.ancoras_estaticas, dx, dy);
-        pilha.extend(crate::paint::pieces::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)));
+    add(&list.tree, &list.ancoras_estaticas, 0.0, 0.0);
+    let mut stack: Vec<(&ChildRef, f32, f32)> = crate::paint::pieces::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();
+    while let Some((c, dx, dy)) = stack.pop() {
+        add(&c.fragment.tree, &c.fragment.ancoras_estaticas, dx, dy);
+        stack.extend(crate::paint::pieces::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)));
     }
     out
 }

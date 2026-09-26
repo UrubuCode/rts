@@ -11,7 +11,7 @@ use super::*;
 pub(in crate::layout) fn layout_button(
     dom: &Dom,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -21,8 +21,8 @@ pub(in crate::layout) fn layout_button(
 ) -> (f32, f32) {
     let font = font_px(css, DEFAULT_FONT_SIZE - 3.0);
     let label = dom.node(id).attr("value").unwrap_or("").to_string();
-    let tw = ctx.measurer.text_width_family(&label, font, FONTE_DOS_CONTROLOS, false, false, false);
-    let lh = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
+    let tw = ctx.measurer.text_width_family(&label, font, CONTROL_FONT_FAMILY, false, false, false);
+    let lh = ctx.measurer.line_height_family(font, CONTROL_FONT_FAMILY);
     // Blink's button frame: 6px of padding plus a 2px border per side. It was
     // 8.5 while text was measured by an average advance, tuned until
     // `value="Enviar"` gave Blink's 53.8px; with Arial's own advances the text
@@ -66,7 +66,7 @@ pub(in crate::layout) fn layout_button(
         decoration: 0,
     });
     let rect = Rect::new(x, y, w, h);
-    record_box_rect(list, caixa, rect);
+    record_box_rect(list, box_id, rect);
     (w + 6.0, h + 4.0) // margenzinha UA entre botões
 }
 
@@ -74,27 +74,27 @@ pub(in crate::layout) fn layout_button(
 /// whatever the page's font is: a control does not inherit it. The line of a
 /// control is therefore Arial's (15px), not the document default's (Times, 16).
 /// Cut: an author `font-family` ON the control does not reach its metrics.
-const FONTE_DOS_CONTROLOS: Option<&str> = Some("Arial");
+const CONTROL_FONT_FAMILY: Option<&str> = Some("Arial");
 
 /// O lado do quadrado de um `checkbox`/`radio` sem tamanho declarado. 13px é o
 /// intrínseco que os browsers dão a estes controlos; não sai de fonte nenhuma,
 /// por isso é uma constante e não uma medida.
-const CAIXA_DE_MARCA: f32 = 13.0;
+const MARK_BOX_SIZE: f32 = 13.0;
 
 /// Largura de CONTEÚDO natural de um `<input>` de texto sem `width` — medido
 /// no Edge (`tests/css/claude-controlos-tamanho-natural.esperado.json`, campo
 /// `#txt`): 177px de caixa (border-box com padding 1px 2px + border 2px de
 /// cada lado, 8px de frame) menos esse frame. Não sai de fonte nenhuma (é o
 /// mesmo "20 caracteres" que todo browser reserva para `size` por omissão),
-/// por isso é uma constante e não uma medida — como `CAIXA_DE_MARCA`.
-const LARGURA_CAMPO_TEXTO: f32 = 169.0;
+/// por isso é uma constante e não uma medida — como `MARK_BOX_SIZE`.
+const TEXT_FIELD_WIDTH: f32 = 169.0;
 
 /// Largura de CONTEÚDO natural de um `<textarea>` sem `cols` — medida no
 /// mesmo corpus (`#txa`): 168px de caixa menos o mesmo frame de 8px. É MENOR
 /// que a de um `<input>` (169) apesar do mesmo `size`/`cols`=20 nominal — o
 /// Blink reserva a faixa da scrollbar vertical mesmo sem overflow nenhum, e
 /// não há fórmula aqui que a derive; é o número medido.
-const LARGURA_TEXTAREA: f32 = 160.0;
+const TEXTAREA_WIDTH: f32 = 160.0;
 
 /// A caixa de um `<input>` de texto/marca: `(outer_w, outer_h)` e o frame com
 /// que ela foi construída.
@@ -131,28 +131,28 @@ pub(in crate::layout) fn medida_do_input(
     // intrínseco, não um campo de texto. E não levam o padding/borda com que a
     // UA veste um campo — no browser são 13x13 e mais nada, por isso os defaults
     // do frame são ZERO para eles (o CSS do autor continua a mandar).
-    let tipo = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
-    let quadrado = matches!(tipo.as_deref(), Some("checkbox") | Some("radio"));
+    let kind = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
+    let is_square = matches!(kind.as_deref(), Some("checkbox") | Some("radio"));
     // `<textarea>` E `<input>` chegam aqui pelo mesmo `is_text_input_tag`
     // (`block.rs`/`runs.rs`), mas o tamanho por omissão de um NÃO é o do
-    // outro — ver `LARGURA_TEXTAREA` e as duas linhas por omissão abaixo.
-    let e_textarea = matches!(&dom.node(id).kind, crate::dom::NodeKind::Element { tag } if tag == "textarea");
+    // outro — ver `TEXTAREA_WIDTH` e as duas linhas por omissão abaixo.
+    let is_textarea = matches!(&dom.node(id).kind, crate::dom::NodeKind::Element { tag } if tag == "textarea");
     // `type=range` também não leva a moldura do campo de texto: a folha da UA
     // do Blink dá-lhe `padding: initial; border: initial` (0 e 0) — num flex de
     // 80px o campo computa `height: 80px`, não 74 (`claude-flex-stretch-input-height`).
-    let sem_moldura = quadrado || matches!(tipo.as_deref(), Some("range"));
-    let (pad_ua_h, pad_ua_v, borda_ua) = if sem_moldura {
+    let frameless = is_square || matches!(kind.as_deref(), Some("range"));
+    let (ua_pad_h, ua_pad_v, ua_border) = if frameless {
         (0.0, 0.0, 0.0)
     } else {
         (4.0, 3.0, 1.0)
     };
-    let pad_left = p.left.resolve(&resolve).unwrap_or(pad_ua_h).max(0.0);
-    let pad_right = p.right.resolve(&resolve).unwrap_or(pad_ua_h).max(0.0);
-    let pad_top = p.top.resolve(&resolve).unwrap_or(pad_ua_v).max(0.0);
-    let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(pad_ua_v).max(0.0);
+    let pad_left = p.left.resolve(&resolve).unwrap_or(ua_pad_h).max(0.0);
+    let pad_right = p.right.resolve(&resolve).unwrap_or(ua_pad_h).max(0.0);
+    let pad_top = p.top.resolve(&resolve).unwrap_or(ua_pad_v).max(0.0);
+    let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(ua_pad_v).max(0.0);
     // See `input_sizing::used_border_width` for why this is not just
-    // `css.border_width.unwrap_or(borda_ua)`.
-    let border = super::input_sizing::used_border_width(css.border_width, borda_ua, css.border_style);
+    // `css.border_width.unwrap_or(ua_border)`.
+    let border = super::input_sizing::used_border_width(css.border_width, ua_border, css.border_style);
     let padding_h = pad_left + pad_right;
     let frame = margin_left + margin_right + 2.0 * border + padding_h;
     let border_box = css.border_box.unwrap_or(false);
@@ -167,19 +167,19 @@ pub(in crate::layout) fn medida_do_input(
         } else {
             w
         }
-    } else if quadrado {
-        CAIXA_DE_MARCA
-    } else if e_textarea {
-        LARGURA_TEXTAREA.min((avail_w - frame).max(0.0))
+    } else if is_square {
+        MARK_BOX_SIZE
+    } else if is_textarea {
+        TEXTAREA_WIDTH.min((avail_w - frame).max(0.0))
     } else {
-        LARGURA_CAMPO_TEXTO.min((avail_w - frame).max(0.0))
+        TEXT_FIELD_WIDTH.min((avail_w - frame).max(0.0))
     };
     // `resolve_height` e não `resolve`: uma percentagem no eixo VERTICAL mede-se
     // contra a altura do containing block. Com o `resolve` genérico media-se
     // contra a LARGURA — os `<input type=checkbox>` do "checkbox hack" da
     // Wikipédia declaram `height:100%` e vinham com a largura da viewport de
     // altura, oito deles, o pior rácio de erro da página inteira.
-    let declarada = resolve_height(css.height, avail_h, &resolve).map(|h| {
+    let declared = resolve_height(css.height, avail_h, &resolve).map(|h| {
         if border_box {
             (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0)
         } else {
@@ -190,16 +190,16 @@ pub(in crate::layout) fn medida_do_input(
     // `height`, como no `layout_block`: um `<input>` num flex-row de 80px
     // estica até aos 80 (`claude-flex-stretch-input-height`). O canal não
     // existia e o campo caía sempre na altura da linha, 21.
-    let imposta = forced_outer_h
+    let imposed = forced_outer_h
         .map(|fh| (fh - margin_top - margin_bottom - pad_top - pad_bottom - 2.0 * border).max(0.0));
-    let content_h = imposta.or(declarada).unwrap_or(if quadrado {
-        CAIXA_DE_MARCA
-    } else if e_textarea {
+    let content_h = imposed.or(declared).unwrap_or(if is_square {
+        MARK_BOX_SIZE
+    } else if is_textarea {
         // `rows` por omissão de um `<textarea>` é 2 (HTML Standard §4.10.11),
         // não 1 — a mesma altura medida em `#txa` (30 = 2×15).
-        2.0 * ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS)
+        2.0 * ctx.measurer.line_height_family(font, CONTROL_FONT_FAMILY)
     } else {
-        ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS)
+        ctx.measurer.line_height_family(font, CONTROL_FONT_FAMILY)
     });
     MedidaDoInput {
         content_w,
@@ -246,7 +246,7 @@ impl MedidaDoInput {
     /// (`layout/medida.rs`) precisa: o frame (padding/borda) é somado pelo
     /// CHAMADOR de lá (`intrinsic_outer_width`), como em qualquer outro ramo
     /// dessa função; somá-lo aqui também contava-o duas vezes.
-    pub(in crate::layout) fn conteudo(&self) -> (f32, f32) {
+    pub(in crate::layout) fn content(&self) -> (f32, f32) {
         (self.content_w, self.content_h)
     }
 }
@@ -254,7 +254,7 @@ impl MedidaDoInput {
 pub(in crate::layout) fn layout_input(
     dom: &Dom,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     css: &ComputedStyle,
     x: f32,
     y: f32,
@@ -267,7 +267,7 @@ pub(in crate::layout) fn layout_input(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
-    let med = medida_do_input(dom, id, css, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx);
+    let measured = medida_do_input(dom, id, css, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx);
     let MedidaDoInput {
         content_w,
         content_h,
@@ -281,11 +281,11 @@ pub(in crate::layout) fn layout_input(
         margin_h,
         margin_v,
         font,
-    } = med;
+    } = measured;
     let pad_bottom = padding_v - pad_top;
     let margin_right = margin_h - margin_left;
     let margin_bottom = margin_v - margin_top;
-    let line_h = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
+    let line_h = ctx.measurer.line_height_family(font, CONTROL_FONT_FAMILY);
     let _ = (pad_bottom, margin_right, margin_bottom, line_h);
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
@@ -301,11 +301,11 @@ pub(in crate::layout) fn layout_input(
         content_w + padding_h + 2.0 * border,
         content_h + pad_top + pad_bottom + 2.0 * border,
     );
-    record_box_rect(list, caixa, box_rect);
+    record_box_rect(list, box_id, box_rect);
 
     // Fundo: o `background` do CSS, senão branco (campo de texto clássico).
     let radius = css.corner_radius.unwrap_or(0.0);
-    let cantos = Corners::from_style(css, 0.0);
+    let corners = Corners::from_style(css, 0.0);
     // A OPACIDADE também vale aqui. Este era o único sítio que emite caixa sem
     // passar por `apply_opacity`, e o preço foi uma página inteira em branco: a
     // Wikipédia usa o "checkbox hack" — `<input type=checkbox>` com
@@ -316,12 +316,12 @@ pub(in crate::layout) fn layout_input(
     //
     // `unwrap_or(0xFFFFFFFF)` é o fundo que a UA dá a um campo de texto, e um
     // campo com `opacity: 0` não o pinta.
-    let opacidade = css.opacity.unwrap_or(1.0);
-    let bg = apply_opacity(css.bg.unwrap_or(0xFFFFFFFF), opacidade);
+    let opacity = css.opacity.unwrap_or(1.0);
+    let bg = apply_opacity(css.bg.unwrap_or(0xFFFFFFFF), opacity);
     list.push_item(DisplayItem::SolidRect {
         rect: box_rect,
         color: bg,
-        radius: cantos,
+        radius: corners,
     });
     // Borda: sempre desenha (o input tem contorno por padrão). Cor do CSS ou cinza.
     // Se o campo tem foco, realça a borda (azul), como o browser.
@@ -331,7 +331,7 @@ pub(in crate::layout) fn layout_input(
     } else {
         css.border_color.unwrap_or(0x9AA0A6FF)
     };
-    let border_color = apply_opacity(border_color, opacidade);
+    let border_color = apply_opacity(border_color, opacity);
     let bw = if border > 0.0 { border } else { 1.0 };
     list.push_item(DisplayItem::Border {
         rect: box_rect,
@@ -343,9 +343,9 @@ pub(in crate::layout) fn layout_input(
     // Texto: o valor digitado, ou o placeholder apagado. Posicionado no content-box.
     let text_x = x + margin_left + bw + pad_left;
     let text_y = y + margin_top + bw + pad_top;
-    let (shown, tcolor) = if dom.input_is_empty(id) {
-        let ph = dom.node(id).attr("placeholder").unwrap_or("").to_string();
-        (ph, 0x9AA0A6FF) // cinza apagado
+    let (shown, text_color) = if dom.input_is_empty(id) {
+        let placeholder_text = dom.node(id).attr("placeholder").unwrap_or("").to_string();
+        (placeholder_text, 0x9AA0A6FF) // cinza apagado
     } else {
         (dom.input_value(id), css.color.unwrap_or(0x111111FF))
     };
@@ -354,7 +354,7 @@ pub(in crate::layout) fn layout_input(
             x: text_x,
             y: text_y,
             text: shown.as_str().into(),
-            color: tcolor,
+            color: text_color,
             size: font,
             mono: false,
             // Same rule as `layout_button` above (`crate::layout::measure::font_metrics::usa_ahem`).
@@ -367,8 +367,8 @@ pub(in crate::layout) fn layout_input(
     }
     // Cursor: barrinha vertical após o texto do VALOR (não do placeholder), só com foco.
     if focused {
-        let val = dom.input_value(id);
-        let caret_x = text_x + ctx.measurer.text_width_family(&val, font, FONTE_DOS_CONTROLOS, false, false, false) + 1.0;
+        let value = dom.input_value(id);
+        let caret_x = text_x + ctx.measurer.text_width_family(&value, font, CONTROL_FONT_FAMILY, false, false, false) + 1.0;
         let caret = Rect::new(caret_x, text_y, 1.5, line_h.min(content_h.max(line_h)));
         list.push_item(DisplayItem::SolidRect {
             rect: caret,
@@ -389,7 +389,7 @@ pub(in crate::layout) fn layout_input(
 /// para cada tipo de controlo, subtrai o mesmo frame que o chamador vai somar
 /// depois, e os dois cancelam. `avail_w = INFINITY` porque isto é sempre uma
 /// pergunta de max-content (a mesma razão de `replaced_inline_size`).
-fn conteudo_para_outer(
+fn content_to_outer(
     css: &ComputedStyle,
     font: f32,
     ctx: &LayoutCtx,
@@ -404,9 +404,9 @@ fn conteudo_para_outer(
         viewport_h: ctx.viewport_h,
     };
     let border = css.border_width.unwrap_or(0.0).max(0.0);
-    let ph = css.padding.left.resolve(&resolve).unwrap_or(0.0) + css.padding.right.resolve(&resolve).unwrap_or(0.0);
-    let pv = css.padding.top.resolve(&resolve).unwrap_or(0.0) + css.padding.bottom.resolve(&resolve).unwrap_or(0.0);
-    ((outer_w - ph - 2.0 * border).max(0.0), (outer_h - pv - 2.0 * border).max(0.0))
+    let pad_h = css.padding.left.resolve(&resolve).unwrap_or(0.0) + css.padding.right.resolve(&resolve).unwrap_or(0.0);
+    let pad_v = css.padding.top.resolve(&resolve).unwrap_or(0.0) + css.padding.bottom.resolve(&resolve).unwrap_or(0.0);
+    ((outer_w - pad_h - 2.0 * border).max(0.0), (outer_h - pad_v - 2.0 * border).max(0.0))
 }
 
 /// Chamada por `intrinsic_content_width` (`layout/medida.rs`, que só
@@ -440,28 +440,28 @@ pub(in crate::layout) fn tamanho_natural_controlo(
     };
     match tag.as_str() {
         "input" => {
-            let tipo = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
-            if matches!(tipo.as_deref(), Some("submit") | Some("button") | Some("reset")) {
+            let kind = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
+            if matches!(kind.as_deref(), Some("submit") | Some("button") | Some("reset")) {
                 // A MESMA fórmula de `layout_button` (`tw+2*12`, `lh+2*5`) —
                 // são o mesmo widget, uma pergunta de tamanho e outra de
                 // pintura; reescrevê-la aqui teria as duas a poder divergir.
                 let label = dom.node(id).attr("value").unwrap_or("").to_string();
                 let bf = font_px(css, DEFAULT_FONT_SIZE - 3.0);
-                let tw = ctx.measurer.text_width_family(&label, bf, FONTE_DOS_CONTROLOS, false, false, false);
-                let lh = ctx.measurer.line_height_family(bf, FONTE_DOS_CONTROLOS);
+                let tw = ctx.measurer.text_width_family(&label, bf, CONTROL_FONT_FAMILY, false, false, false);
+                let lh = ctx.measurer.line_height_family(bf, CONTROL_FONT_FAMILY);
                 // The flex uses the same border box the native emitter draws
                 // (8px of frame per side), not the inline run's advance.
-                Some(conteudo_para_outer(css, bf, ctx, tw + 16.0, lh + 10.0))
+                Some(content_to_outer(css, bf, ctx, tw + 16.0, lh + 10.0))
             } else {
                 // texto, password, checkbox, radio, range, … — o MESMO
                 // cálculo que já pinta o widget (`medida_do_input`), com
                 // `avail_w = INFINITY`: max-content não tem linha nenhuma
                 // para encolher contra.
-                Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).conteudo())
+                Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).content())
             }
         }
         "textarea" => {
-            Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).conteudo())
+            Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).content())
         }
         "select" => Some(super::select::natural_content(css, ctx)),
         _ => None,
@@ -481,8 +481,8 @@ pub(in crate::layout) fn inline_widget_size(
     if matches!(itype, "submit" | "button" | "reset") {
         let font = font_px(&css, DEFAULT_FONT_SIZE - 3.0);
         let label = dom.node(id).attr("value").unwrap_or("").to_string();
-        let tw = ctx.measurer.text_width_family(&label, font, FONTE_DOS_CONTROLOS, false, false, false);
-        let lh = ctx.measurer.line_height_family(font, FONTE_DOS_CONTROLOS);
+        let tw = ctx.measurer.text_width_family(&label, font, CONTROL_FONT_FAMILY, false, false, false);
+        let lh = ctx.measurer.line_height_family(font, CONTROL_FONT_FAMILY);
         return (tw + 24.0 + 6.0, lh + 10.0 + 4.0); // espelha layout_button
     }
     // Campo de texto ou marca: a MESMA medida que a emissão vai usar, pedida à

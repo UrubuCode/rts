@@ -32,7 +32,7 @@ use crate::style::JustifyContent;
 /// `None` devolve a decisão ao chamador (contentor sem altura definida, ou
 /// mais de uma linha — aí quem decide é `items_h` + o que o
 /// `align-content` de [`distribuir_align_content`] tiver esticado).
-pub(in crate::layout) fn cross_unica_linha(n_lines: usize, container_cross_h: f32) -> Option<f32> {
+pub(in crate::layout) fn single_line_cross(n_lines: usize, container_cross_h: f32) -> Option<f32> {
     (n_lines == 1 && container_cross_h > 0.0).then_some(container_cross_h)
 }
 
@@ -40,7 +40,7 @@ pub(in crate::layout) fn cross_unica_linha(n_lines: usize, container_cross_h: f3
 /// devolve `(leading, between, stretch_extra)` para o chamador somar à
 /// posição/altura de cada linha.
 ///
-/// O espaço livre (`container_cross_h - estimativa`) pode ficar NEGATIVO
+/// O espaço livre (`container_cross_h - estimate`) pode ficar NEGATIVO
 /// quando as linhas transbordam a altura do contentor — a spec não dá
 /// `center`/`flex-end` um fallback `safe` por omissão, então o `leading`
 /// fica negativo e o bloco de linhas transborda SIMETRICAMENTE para cima e
@@ -55,19 +55,19 @@ pub(in crate::layout) fn cross_unica_linha(n_lines: usize, container_cross_h: f3
 /// próprio conteúdo, e nada na spec pede isso — o piso de conteúdo já é
 /// aplicado antes (`items_h`), não é este cálculo que o violaria.
 pub(in crate::layout) fn distribuir_align_content(
-    declarado: Option<JustifyContent>,
+    declared: Option<JustifyContent>,
     container_cross_h: f32,
-    estimativa: f32,
+    estimate: f32,
     n_lines: usize,
 ) -> (f32, f32, f32) {
-    match declarado {
+    match declared {
         Some(v) => {
-            let free = container_cross_h - estimativa;
+            let free = container_cross_h - estimate;
             let (leading, between) = super::column::justify_offsets(v, free, n_lines);
             (leading, between, 0.0)
         }
         None => {
-            let free = (container_cross_h - estimativa).max(0.0);
+            let free = (container_cross_h - estimate).max(0.0);
             (0.0, 0.0, free / n_lines as f32)
         }
     }

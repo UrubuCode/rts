@@ -21,14 +21,14 @@
 
 /// O deslocamento transversal do item quando alguma margem é `auto`; `None`
 /// quando nenhuma é — o chamador cai então no `align-items`/stretch.
-pub(super) fn off_cross(auto_inicio: bool, auto_fim: bool, linha: f32, item: f32) -> Option<f32> {
-    if !auto_inicio && !auto_fim {
+pub(super) fn off_cross(auto_start: bool, auto_end: bool, line: f32, item: f32) -> Option<f32> {
+    if !auto_start && !auto_end {
         return None;
     }
-    let livre = (linha - item).max(0.0);
-    Some(match (auto_inicio, auto_fim) {
-        (true, true) => livre / 2.0,
-        (true, false) => livre,
+    let free = (line - item).max(0.0);
+    Some(match (auto_start, auto_end) {
+        (true, true) => free / 2.0,
+        (true, false) => free,
         _ => 0.0,
     })
 }

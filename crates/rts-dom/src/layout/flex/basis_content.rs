@@ -31,7 +31,7 @@ use super::*;
 /// literalmente `content`: o conteúdo do item (`content_natural_width`, que
 /// nunca olha para o `width` do próprio nó — só para os filhos) mais o
 /// frame (margem + borda + padding). Nunca consulta `css.width`.
-pub(in crate::layout) fn base_outer_linha_forcado_pelo_conteudo(
+pub(in crate::layout) fn row_base_outer_forced_by_content(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,

@@ -91,8 +91,8 @@ pub(in crate::layout) fn resolve_tracks(
     // A soma das calhas, e não o `gap`: com `auto-fit` a calha ao lado de uma
     // trilha colapsada colapsa com ela (`collapse::calhas`).
     total_gap: f32,
-    conteudo_max: Option<&[f32]>,
-    conteudo_min: Option<&[f32]>,
+    content_max: Option<&[f32]>,
+    content_min: Option<&[f32]>,
     ctx: &ResolveCtx,
 ) -> Vec<f32> {
     use crate::style::{GridTrack as T, TrackBound as B};
@@ -104,16 +104,16 @@ pub(in crate::layout) fn resolve_tracks(
         }
         .max(0.0)
     };
-    let max_de = |i: usize| conteudo_max.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
-    let min_de = |i: usize| conteudo_min.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+    let max_of = |i: usize| content_max.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+    let min_of = |i: usize| content_min.and_then(|c| c.get(i)).copied().unwrap_or(0.0);
     // Um lado de `minmax()`/`fit-content()` avaliado contra o conteúdo da
     // trilha `i`. `FitContent` é `min(<len>, max-content)` na letra da spec.
     let eval_bound = |b: &B, i: usize| -> f32 {
         match b {
             B::Fixed(d) => dim(d),
-            B::MinContent => min_de(i),
-            B::MaxContent => max_de(i),
-            B::FitContent(d) => dim(d).min(max_de(i)),
+            B::MinContent => min_of(i),
+            B::MaxContent => max_of(i),
+            B::FitContent(d) => dim(d).min(max_of(i)),
         }
     };
 
@@ -124,7 +124,7 @@ pub(in crate::layout) fn resolve_tracks(
         sizes[i] = match t {
             T::Fixed(d) => dim(d),
             T::Bounded { min, .. } => dim(min),
-            T::Auto => max_de(i),
+            T::Auto => max_of(i),
             T::Intrinsic { min, .. } => eval_bound(min, i),
             T::Fr(f) => {
                 sum_fr += f.max(0.0);
@@ -154,19 +154,19 @@ pub(in crate::layout) fn resolve_tracks(
     // "máximo" é o próprio conteúdo e por isso cresce na 4ª) crescem até ao
     // seu máximo, e só o que sobrar depois disso é que estica as intrínsecas
     // sem tecto — `align-content: stretch`, o default.
-    let mut sobra = free;
-    let limitadas: Vec<usize> = tracks
+    let mut remaining = free;
+    let bounded: Vec<usize> = tracks
         .iter()
         .enumerate()
         .filter(|(_, t)| matches!(t, T::Bounded { .. } | T::Intrinsic { .. }))
         .map(|(i, _)| i)
         .collect();
-    if !limitadas.is_empty() && sobra > 0.0 {
+    if !bounded.is_empty() && remaining > 0.0 {
         // Reparte por igual e não em proporção: a proporção seria contra as
         // bases, que num `minmax(0, x)` são todas zero.
-        let quota = sobra / limitadas.len() as f32;
-        for i in limitadas {
-            let teto = match &tracks[i] {
+        let quota = remaining / bounded.len() as f32;
+        for i in bounded {
+            let ceiling = match &tracks[i] {
                 T::Bounded { max, .. } => dim(max),
                 // O mínimo pode exceder o máximo declarado (uma palavra mais
                 // larga do que o `minmax(min-content, 200px)` permite) — a
@@ -175,21 +175,21 @@ pub(in crate::layout) fn resolve_tracks(
                 T::Intrinsic { max, .. } => eval_bound(max, i).max(sizes[i]),
                 _ => unreachable!("filtrado acima"),
             };
-            let novo = (sizes[i] + quota).min(teto);
-            sobra -= novo - sizes[i];
-            sizes[i] = novo;
+            let new_size = (sizes[i] + quota).min(ceiling);
+            remaining -= new_size - sizes[i];
+            sizes[i] = new_size;
         }
     }
-    let autos: Vec<usize> = tracks
+    let auto_tracks: Vec<usize> = tracks
         .iter()
         .enumerate()
         .filter(|(_, t)| matches!(t, T::Auto))
         .map(|(i, _)| i)
         .collect();
-    if !autos.is_empty() && sobra > 0.0 {
-        let cada = sobra / autos.len() as f32;
-        for i in autos {
-            sizes[i] += cada;
+    if !auto_tracks.is_empty() && remaining > 0.0 {
+        let each = remaining / auto_tracks.len() as f32;
+        for i in auto_tracks {
+            sizes[i] += each;
         }
     }
     sizes

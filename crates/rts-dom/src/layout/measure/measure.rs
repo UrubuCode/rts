@@ -16,7 +16,7 @@
 
 use super::*;
 pub use super::text_measurer::{ApproxMeasurer, TextMeasurer};
-use super::tree::{intrinsic_content_width_sem_cache, intrinsic_outer_width_de};
+use super::tree::{intrinsic_content_width_no_cache, intrinsic_outer_width_of};
 
 /// Largura NATURAL do conteúdo de um nó (sem `width` explícito): a maior largura
 /// de uma linha de texto entre os descendentes. É o "preferred width" do
@@ -43,7 +43,7 @@ pub(in crate::layout) fn content_natural_width(
 /// Recursivo: a largura de um filho é a SUA intrínseca + frame (ou seu `width` fixo).
 ///
 /// O corpo que percorre a árvore de caixas vive em `measure/tree.rs`
-/// (`intrinsic_content_width_sem_cache`); esta função só resolve a CACHE, que
+/// (`intrinsic_content_width_no_cache`); esta função só resolve a CACHE, que
 /// é chaveada por `id` e por isso só pode responder pela pergunta "todas as
 /// caixas deste nó, dobradas pelo máximo" — nunca por UM fragmento
 /// específico (ver o comentário lá).
@@ -69,13 +69,13 @@ pub(in crate::layout) fn intrinsic_content_width(
         return hit;
     }
     // `caixa: None` = "sem caixa concreta em mãos": dobra sobre TODAS as
-    // caixas de `id` (ver o comentário em `intrinsic_content_width_sem_cache`).
+    // caixas de `id` (ver o comentário em `intrinsic_content_width_no_cache`).
     // A CACHE fica só aqui, chaveada por `id` — nunca dentro da função sem
     // cache, que também é chamada com uma caixa ESPECÍFICA por
-    // `intrinsic_outer_width_de` (um fragmento entre vários de `id`), e
+    // `intrinsic_outer_width_of` (um fragmento entre vários de `id`), e
     // cachear por `id` misturaria a resposta de um fragmento com a do outro.
     let tree = dom.box_tree();
-    let width = intrinsic_content_width_sem_cache(dom, &tree, id, None, font, ctx);
+    let width = intrinsic_content_width_no_cache(dom, &tree, id, None, font, ctx);
     dom.intrinsic_width_put(key, width);
     width
 }
@@ -88,7 +88,7 @@ pub(crate) fn intrinsic_outer_width(
     parent_font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    intrinsic_outer_width_de(dom, &dom.box_tree(), id, None, parent_font, ctx)
+    intrinsic_outer_width_of(dom, &dom.box_tree(), id, None, parent_font, ctx)
 }
 
 /// Altura OUTER que um filho QUER, para o align-items/cross-axis. Para nós-bloco,
@@ -104,7 +104,7 @@ pub(crate) fn intrinsic_outer_width(
 pub(in crate::layout) fn child_outer_height(
     dom: &Dom,
     id: NodeIdx,
-    caixa: crate::boxes::BoxId,
+    box_id: crate::boxes::BoxId,
     container_w: f32,
     container_h: Option<f32>,
     parent_css: &ComputedStyle,
@@ -117,7 +117,7 @@ pub(in crate::layout) fn child_outer_height(
         NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
             let (_, outer_h) =
-                measure_block(dom, id, caixa, container_w, container_h, None, None, true, ctx);
+                measure_block(dom, id, box_id, container_w, container_h, None, None, true, ctx);
             outer_h
         }
         // A MESMA altura que o fluxo dará a esta linha — medir com o default do

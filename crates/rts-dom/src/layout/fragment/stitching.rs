@@ -1,5 +1,5 @@
 //! As duas perguntas que a COSTURA faz antes de reusar o desenho de um
-//! container trocando só os filhos sujos (`fragment::costurar`).
+//! container trocando só os filhos sujos (`fragment::stitch`).
 //!
 //! Vivem fora de `fragment.rs` porque aquele ficheiro já passou do teto e não
 //! cresce, e porque são exatamente as duas perguntas cujo erro não se vê: uma
@@ -39,15 +39,15 @@ pub(in crate::layout) fn mesma_sequencia_de_filhos(
         && a
             .iter()
             .zip(b)
-            .all(|(&x, &y)| mesma_caixa(antiga, x, nova, y))
+            .all(|(&x, &y)| same_box(antiga, x, nova, y))
 }
 
-fn mesma_caixa(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
-    let tipo = antiga.kind(x);
-    if tipo != nova.kind(y) {
+fn same_box(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
+    let kind = antiga.kind(x);
+    if kind != nova.kind(y) {
         return false;
     }
-    match tipo {
+    match kind {
         BoxKind::Anonymous { .. } => mesma_sequencia_de_filhos(antiga, x, nova, y),
         // A generated box is named whole by its `BoxKind` — originating element
         // AND which pseudo — and has no children, so equal kinds at the same
@@ -58,7 +58,7 @@ fn mesma_caixa(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
         // What this cannot see is a change of its CONTENT: the text is not in
         // the tree at all, it is asked of the cascade. That is not a structure
         // question, and the pseudo is painted into its originating element's
-        // own items — which `costurar` never reuses when that element is the
+        // own items — which `stitch` never reuses when that element is the
         // root of the `touch_*` (self-dirty) or inside it (no dirty-children
         // marks). A `counter()` fed by a DESCENDANT is the case neither covers,
         // and it predates the tree.
@@ -82,12 +82,12 @@ fn mesma_caixa(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
 /// reusa esses itens tal como estavam. A comparação antiga com a lista de
 /// elementos do DOM garantia isto por tabela, e só para filhos ELEMENTO;
 /// comparando caixas deixou de garantir, e a pergunta passa a ser explícita.
-pub(in crate::layout) fn sujeira_coberta(
+pub(in crate::layout) fn dirt_covered(
     tree: &BoxTree,
-    sujos: &[NodeIdx],
+    dirty: &[NodeIdx],
     pieces: &[Piece],
 ) -> bool {
-    sujos
+    dirty
         .iter()
-        .all(|&sujo| children(pieces).any(|child| tree.node_of(child.caixa) == Some(sujo)))
+        .all(|&dirty_node| children(pieces).any(|child| tree.node_of(child.caixa) == Some(dirty_node)))
 }
