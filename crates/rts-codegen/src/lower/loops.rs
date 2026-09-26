@@ -285,13 +285,18 @@ impl Lowering<'_> {
                     if is_var && binding.value.is_none() {
                         continue;
                     }
-                    let Some(value) = &binding.value else {
-                        return Err(Unsupported::Statement(
-                            "a loop head declaration with no initialiser",
-                        ));
+                    // `for (let x; ...)` BINDS `undefined`, as `let x;` anywhere does --
+                    // the head's binding exists, it just starts empty. A `const` with no
+                    // initialiser is a syntax error and never reaches here.
+                    let at = Expr {
+                        kind: ExprKind::This,
+                        at: binding.value.as_ref().map_or(Default::default(), |held| held.at),
                     };
-                    let held = self.expression(value)?;
-                    self.destructure(&binding.target, held, value)?;
+                    let held = match &binding.value {
+                        Some(value) => self.expression(value)?,
+                        None => self.singleton_at(crate::values::Singleton::Undefined, &at),
+                    };
+                    self.destructure(&binding.target, held, binding.value.as_ref().unwrap_or(&at))?;
                 }
             }
             Some(ForInit::Expr(expr)) => {
