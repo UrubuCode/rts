@@ -143,7 +143,16 @@ pub(super) extern "C" fn post(_e: u64, this: u64, method: u64, params: u64, call
                 let wrapper = entry::make_object(context);
                 entry::put_member(context, wrapper, "value", value);
                 entry::put_member(context, object, "result", wrapper);
-                (entry::null_value(), object)
+                // `null_in` AND NOT `null_value`, which is the whole of this defect: the
+                // borrow-free form takes its own borrow, and this closure already holds
+                // one. It aborted the process rather than failing -- a `RefCell already
+                // borrowed` panic inside an `extern "C"` frame cannot unwind, so it
+                // becomes `STATUS_STACK_BUFFER_OVERRUN` with no message a caller sees.
+                //
+                // The `Refused` arm three lines down had it right with `undefined_in`,
+                // which is what makes this a slip rather than a misunderstanding -- and
+                // what makes the pair worth reading together.
+                (entry::null_in(context), object)
             })
         }
         Answer::Refused(reason) => entry::with_runtime(|context| {

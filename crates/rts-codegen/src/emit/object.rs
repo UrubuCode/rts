@@ -82,7 +82,6 @@ pub(super) fn define_accessor(
     Ok(call(builder, ctx, op, &[object, key, function, flag])?[0])
 }
 
-
 /// Emits an object literal.
 ///
 /// A fresh object, then one write per property, in source order. Not a shape
@@ -367,4 +366,3 @@ pub(super) fn define_computed_accessor(
     let flag = builder.bool_constant(enumerable);
     Ok(call(builder, ctx, op, &[object, key, function, flag])?[0])
 }
-

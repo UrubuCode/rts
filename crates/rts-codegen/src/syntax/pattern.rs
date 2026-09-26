@@ -164,7 +164,11 @@ impl Element {
 /// `[a, , b, ...rest]`.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ArrayPattern {
-    /// The slots, in order. `None` is a hole.
+    /// The slots, in order. `None` is a hole -- except the LAST entry when [`Self::rest`]
+    /// is present, which is the rest's placeholder: both roles of a pattern (a binding
+    /// and an assignment target) keep the rest's position here so the two have one
+    /// shape, and every reader drops it. A reader that stepped it as a hole gathered one
+    /// element too few into the rest.
     ///
     /// A hole still takes a step from the iterator and binds nothing — which is
     /// why it is an absent element rather than an omitted one. Dropping holes

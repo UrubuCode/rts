@@ -213,7 +213,12 @@ fn own_declared_stmt(statement: &Stmt, declared: &mut BTreeSet<Name>) {
 
 /// The walk that finds assignments, descending into everything including
 /// nested functions and classes — each of which pushes its own scope first.
-fn walk_stmt(statement: &Stmt, globals: &mut BTreeSet<Name>, shadow: &mut Shadow, global_this: Name) {
+fn walk_stmt(
+    statement: &Stmt,
+    globals: &mut BTreeSet<Name>,
+    shadow: &mut Shadow,
+    global_this: Name,
+) {
     match &statement.kind {
         StmtKind::Declare { bindings, .. } | StmtKind::Using { bindings, .. } => {
             for binding in bindings {
@@ -334,7 +339,12 @@ fn walk_stmt(statement: &Stmt, globals: &mut BTreeSet<Name>, shadow: &mut Shadow
 /// declares directly are pushed before the body is walked for assignments, and
 /// popped once it is done — so a name that scope claims cannot shadow anything
 /// outside it, and nothing outside it can be mistaken for a declaration here.
-fn walk_function(function: &Function, globals: &mut BTreeSet<Name>, shadow: &mut Shadow, global_this: Name) {
+fn walk_function(
+    function: &Function,
+    globals: &mut BTreeSet<Name>,
+    shadow: &mut Shadow,
+    global_this: Name,
+) {
     let mut own = BTreeSet::new();
     for parameter in &function.parameters {
         names_in_pattern(&parameter.target, &mut own);

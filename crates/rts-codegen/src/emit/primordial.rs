@@ -166,8 +166,7 @@ impl Disturbance {
                 return;
             }
             ExprKind::Ident(seen) if Some(*seen) == self.watched => self.seen += 1,
-            ExprKind::Member { object, .. }
-                if matches!(&object.kind, ExprKind::Ident(base) if Some(*base) == self.watched) =>
+            ExprKind::Member { object, .. } if matches!(&object.kind, ExprKind::Ident(base) if Some(*base) == self.watched) =>
             {
                 self.bases += 1;
             }

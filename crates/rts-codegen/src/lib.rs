@@ -30,7 +30,13 @@
 #![deny(dead_code)]
 
 mod check;
+pub mod domain;
+pub mod lower;
+pub mod lower_module;
+pub mod machine;
+pub mod mir_dump;
 pub mod names;
+pub mod optimize;
 pub mod parse;
 pub mod syntax;
 pub mod values;

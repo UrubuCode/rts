@@ -33,7 +33,7 @@ use crate::syntax::{
 };
 
 /// Whether any statement in `body` suspends the frame it is written in.
-pub(super) fn body_suspends(body: &[Stmt]) -> bool {
+pub(crate) fn body_suspends(body: &[Stmt]) -> bool {
     body.iter().any(stmt_suspends)
 }
 
@@ -108,9 +108,7 @@ fn stmt_suspends(statement: &Stmt) -> bool {
         }
         // Their own frame, set where they are emitted — see the module doc.
         StmtKind::Function(_) | StmtKind::Class(_) => false,
-        StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Debugger | StmtKind::Empty => {
-            false
-        }
+        StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Debugger | StmtKind::Empty => false,
     }
 }
 
@@ -149,9 +147,7 @@ fn expr_suspends(expr: &Expr) -> bool {
             target: operand, ..
         }
         | ExprKind::Chain(operand)
-        | ExprKind::Asserted {
-            value: operand, ..
-        } => expr_suspends(operand),
+        | ExprKind::Asserted { value: operand, .. } => expr_suspends(operand),
 
         ExprKind::Member { object, .. } => expr_suspends(object),
         ExprKind::Index { object, index, .. } => expr_suspends(object) || expr_suspends(index),
@@ -181,9 +177,9 @@ fn expr_suspends(expr: &Expr) -> bool {
         ExprKind::Yield { .. } => true,
 
         ExprKind::Template { expressions, .. } => expressions.iter().any(expr_suspends),
-        ExprKind::TaggedTemplate { tag, expressions, .. } => {
-            expr_suspends(tag) || expressions.iter().any(expr_suspends)
-        }
+        ExprKind::TaggedTemplate {
+            tag, expressions, ..
+        } => expr_suspends(tag) || expressions.iter().any(expr_suspends),
 
         ExprKind::Object { properties } => properties.iter().any(property_suspends),
         ExprKind::Array { elements } => elements.iter().flatten().any(argument_suspends),

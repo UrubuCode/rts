@@ -430,7 +430,14 @@ fn a_template_keeps_raw_and_cooked() {
             // representa isso. `as_rust` é a conversão que falha nesse caso — é
             // por isso que devolve `Option`, e por isso que o teste passa por
             // ela em vez de tratar o `Text` como texto de Rust.
-            assert_eq!(parts[0].cooked.as_ref().and_then(|t| t.as_rust()).as_deref(), Some("a"));
+            assert_eq!(
+                parts[0]
+                    .cooked
+                    .as_ref()
+                    .and_then(|t| t.as_rust())
+                    .as_deref(),
+                Some("a")
+            );
         }
         other => panic!("{other:?}"),
     }
@@ -841,10 +848,19 @@ fn two_namespace_blocks_with_one_name_merge_into_one_object() {
     assert_eq!(body.len(), 2, "one statement per block, not one per name");
 
     let StmtKind::Block(first) = &body[0].kind else {
-        panic!("the first block hoists its `var N;` under it: {:?}", body[0].kind);
+        panic!(
+            "the first block hoists its `var N;` under it: {:?}",
+            body[0].kind
+        );
     };
     assert!(
-        matches!(first[0].kind, StmtKind::Declare { kind: BindingKind::Var, .. }),
+        matches!(
+            first[0].kind,
+            StmtKind::Declare {
+                kind: BindingKind::Var,
+                ..
+            }
+        ),
         "the first block's own `var N;`: {:?}",
         first[0].kind
     );

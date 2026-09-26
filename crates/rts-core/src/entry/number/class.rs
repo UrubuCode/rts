@@ -409,10 +409,16 @@ fn in_range(asked: f64, low: f64, high: f64, message: &str) -> Option<usize> {
     Some(asked as usize)
 }
 
-/// The double a value holds, when it genuinely holds one.
+/// The number a value holds, when it genuinely holds one -- in EITHER encoding.
 ///
 /// `None` for everything else, which is what makes `Number.isNaN` answer false
 /// for a string rather than converting it.
+///
+/// Both encodings, because a JavaScript number is one kind held two ways: a proved
+/// 32-bit integer widened by compiled code is tagged `Int`, and it is as much a number
+/// as a double is. This read `Value::as_f64`, which answers for the double encoding
+/// only, so `Number.isFinite(42)` answered `false` for the integer form -- found when
+/// functions compiled through the MIR stage passed their integer literals that way.
 fn as_double(value: u64) -> Option<f64> {
-    Value(value).as_f64()
+    Value(value).numeric()
 }

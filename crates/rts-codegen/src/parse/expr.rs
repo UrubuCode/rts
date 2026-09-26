@@ -516,9 +516,9 @@ fn assign_target(cx: &mut Cx, target: &swc::AssignTarget) -> Result<AssignTarget
             swc::SimpleAssignTarget::Member(member) => Ok(AssignTarget::Place(Box::new(
                 member_expr(cx, member, false)?,
             ))),
-            swc::SimpleAssignTarget::Paren(paren) => Ok(AssignTarget::Place(Box::new(place(expr(
-                cx, &paren.expr,
-            )?)))),
+            swc::SimpleAssignTarget::Paren(paren) => {
+                Ok(AssignTarget::Place(Box::new(place(expr(cx, &paren.expr)?))))
+            }
             swc::SimpleAssignTarget::TsAs(as_) => {
                 Ok(AssignTarget::Place(Box::new(place(expr(cx, &as_.expr)?))))
             }

@@ -49,7 +49,11 @@ use crate::syntax::{AssignTarget, Claim, Expr, ExprKind, Pattern, Stmt};
 ///
 /// Takes no `Ctx`, for the reason `proven` takes none: interning inside a pass
 /// is interning inside something that may run more than once.
-pub(in crate::emit) fn analyse(body: &[Stmt], parameters: &[(Name, Claim)], numeric: &Numeric) -> Facts {
+pub(in crate::emit) fn analyse(
+    body: &[Stmt],
+    parameters: &[(Name, Claim)],
+    numeric: &Numeric,
+) -> Facts {
     let mut facts = Facts::default();
 
     for (name, claim) in parameters {

@@ -260,7 +260,9 @@ pub(super) fn typeof_is_proof(
     // drift `TypeName` exists to prevent.
     let which = ctx.literal_units(spelled.units());
     let index = count_constant(builder, which as usize);
-    Ok(Some(call(builder, ctx, RuntimeOp::TypeOfIs, &[value, index])?[0]))
+    Ok(Some(
+        call(builder, ctx, RuntimeOp::TypeOfIs, &[value, index])?[0],
+    ))
 }
 
 /// `typeof v === "…"` for the three names the TAG decides, as a proven boolean.
@@ -318,11 +320,7 @@ fn tag_decidable(
         // A number is a double OR a small integer, and the encoding keeps them
         // apart — so it is the one name that needs two tests. The second is
         // asked only where the first failed.
-        "number" => Ok(Some(has_any_repr(
-            builder,
-            value,
-            &[Repr::F64, Repr::I32],
-        )?)),
+        "number" => Ok(Some(has_any_repr(builder, value, &[Repr::F64, Repr::I32])?)),
         _ => Ok(None),
     }
 }
@@ -340,11 +338,7 @@ fn tag_decidable(
 /// needs two tests. They are CHAINED on failure rather than both computed and
 /// merged — the second is asked only where the first did not hold, which is what
 /// a short circuit means and what a merge would have thrown away.
-fn has_any_repr(
-    builder: &mut FuncBuilder,
-    value: ValueId,
-    reprs: &[Repr],
-) -> EmitResult<ValueId> {
+fn has_any_repr(builder: &mut FuncBuilder, value: ValueId, reprs: &[Repr]) -> EmitResult<ValueId> {
     let join = builder.create_block();
     let answer = builder.add_block_param(join, Repr::Bool);
     let no = builder.create_block();

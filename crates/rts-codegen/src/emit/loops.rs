@@ -346,7 +346,14 @@ fn emit_for_inner(
                         continue;
                     }
                     let value = super::expr::undefined(builder, ctx);
-                    super::destructure::declare(builder, scope, ctx, &binding.target, value, body.at)?;
+                    super::destructure::declare(
+                        builder,
+                        scope,
+                        ctx,
+                        &binding.target,
+                        value,
+                        body.at,
+                    )?;
                     continue;
                 };
                 let value = super::expr::emit_expr(builder, scope, ctx, expr)?;
@@ -355,9 +362,23 @@ fn emit_for_inner(
                 // fast path for the plain case too, since a name is the leaf
                 // that introduces (or writes) itself.
                 if is_var {
-                    super::destructure::assign(builder, scope, ctx, &binding.target, value, body.at)?;
+                    super::destructure::assign(
+                        builder,
+                        scope,
+                        ctx,
+                        &binding.target,
+                        value,
+                        body.at,
+                    )?;
                 } else {
-                    super::destructure::declare(builder, scope, ctx, &binding.target, value, body.at)?;
+                    super::destructure::declare(
+                        builder,
+                        scope,
+                        ctx,
+                        &binding.target,
+                        value,
+                        body.at,
+                    )?;
                 }
             }
         }
@@ -943,7 +964,6 @@ pub(super) fn assigned_in_stmt(statement: &Stmt, into: &mut Vec<Name>) {
         _ => {}
     }
 }
-
 
 /// Collects the names an expression writes.
 ///

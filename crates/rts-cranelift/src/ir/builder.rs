@@ -26,6 +26,8 @@ use crate::repr::Repr;
 use crate::types::{TypeId, TypeRegistry};
 use crate::unwind::{Handler, RegionId, Tag};
 
+mod regions;
+
 /// Why a program could not be built.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum BuildError {
@@ -156,6 +158,9 @@ pub struct FuncBuilder<'a> {
     /// a `catch` that reads correctly and never runs. So membership is derived
     /// from where building was when the block was made.
     open_regions: Vec<RegionId>,
+    /// Whether a block made while no region is open joins the region of the block
+    /// being built. See [`FuncBuilder::inherit_block_regions`].
+    inherit_block_regions: bool,
 }
 
 impl<'a> FuncBuilder<'a> {
@@ -166,6 +171,7 @@ impl<'a> FuncBuilder<'a> {
             types,
             block,
             open_regions: Vec::new(),
+            inherit_block_regions: false,
         }
     }
 
@@ -278,7 +284,12 @@ impl<'a> FuncBuilder<'a> {
     /// answers the same thing anyway.
     pub fn create_block(&mut self) -> BlockId {
         let block = self.func.push_block();
-        if let Some(&region) = self.open_regions.last() {
+        let region = match self.open_regions.last() {
+            Some(&open) => Some(open),
+            None if self.inherit_block_regions => self.func.region_of(self.block),
+            None => None,
+        };
+        if let Some(region) = region {
             self.func.set_block_region(block, region);
         }
         block

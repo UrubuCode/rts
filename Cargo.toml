@@ -10,6 +10,7 @@ members = [
     "crates/rts-egui",
     "crates/rts-macro",
     "crates/rts-cranelift",
+    "crates/rts-mir",
     "crates/rts-codegen",
     "crates/rts-core",
     "crates/rts-ui",

@@ -752,9 +752,8 @@ fn is_group_name(name: &str) -> bool {
     if !(first.is_alphabetic() || first == '_' || first == '$') {
         return false;
     }
-    characters.all(|c| {
-        c.is_alphanumeric() || c == '_' || c == '$' || c == '\u{200c}' || c == '\u{200d}'
-    })
+    characters
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '\u{200c}' || c == '\u{200d}')
 }
 
 /// The text a name stands for, or `None` if an escape in it is not one.

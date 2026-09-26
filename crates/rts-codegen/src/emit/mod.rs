@@ -55,66 +55,69 @@
 //! rather than a rumour. `PLAN.md` §E has the order and why.
 
 mod binding;
+pub(crate) use binding::OUTER;
 mod body_state;
 mod call;
-mod capture;
+pub(crate) mod capture;
 mod choice;
-mod common_js;
 mod class;
 mod close;
+mod common_js;
 mod delegate;
 mod destructure;
+mod dynamic;
 mod escape;
 mod eval;
-mod page;
-mod dynamic;
 mod expr;
 mod fold;
 mod for_await;
 mod foreach;
 mod function;
+mod through_mir;
+pub(crate) use function::signature as convention;
 mod globals;
 mod heritage;
+mod hoist;
 mod home;
 mod inline;
+mod int32;
 mod json_call;
 mod loops;
 mod merge;
 mod module;
 mod nonstrict;
 mod object;
+mod omit;
 mod optional;
+mod page;
 mod primordial;
+mod program_facts;
 mod property;
-mod protect;
-mod int32;
+pub(crate) mod protect;
 mod proven;
+mod receiver;
 mod regex;
 mod scope;
+mod serde_names;
+mod settled;
 mod sloppy;
 mod stmt;
 mod suspends;
-mod types;
 mod switch;
 mod tail;
 mod template;
-mod omit;
-mod hoist;
-mod program_facts;
-mod serde_names;
-mod receiver;
-mod settled;
+mod types;
 mod unary;
 mod with_scope;
 mod wrap;
 
 pub use dynamic::{Survey, Wanted, dynamic_specifiers, specifiers, survey, survey_statements};
 pub use eval::emit_eval_program;
-pub use page::emit_page_program;
 pub use expr::emit_expr;
 pub use loops::Loops;
-pub use proven::Numeric;
+pub use page::emit_page_program;
 use program_facts::whole_program_facts;
+pub use proven::Numeric;
 use proven::analyse;
 pub use scope::Scope;
 pub use stmt::emit_stmt;
@@ -262,6 +265,13 @@ pub struct CapturedWrite {
     pub value: rts_cranelift::ir::ValueId,
     /// The block the write's join landed in.
     pub block: rts_cranelift::ir::BlockId,
+    /// The environment the hops were counted from.
+    ///
+    /// The same spelling at the same depth can still be two bindings: a block that
+    /// shadows a name kept in memory gets an environment of its own, so the `x` it
+    /// writes and the outer `x` read right after it are both zero links away. Without
+    /// this, `try { … } finally { let x = 3; x = 5 } return x` answered 5.
+    pub environment: Option<rts_cranelift::ir::ValueId>,
 }
 
 /// What emission needs that is not the function being built.
@@ -377,6 +387,16 @@ pub struct Ctx<'a> {
     /// ver `process` de borla), e só `vm.runInThisContext` — que partilha o
     /// OBJETO GLOBAL real — o quer `false`. `rts-host`'s `live.rs` decide qual.
     pub hide_node_globals: bool,
+    /// The scope tree of the program being emitted, for the functions
+    /// `through_mir` compiles through the MIR stage. `None` where that door is shut.
+    mir_resolution: Option<std::rc::Rc<crate::names::resolve::Resolution>>,
+    /// Whether the function about to be emitted is one `through_mir` may take: set by
+    /// the two call sites that make an ordinary function -- an expression and a hoisted
+    /// declaration -- and TAKEN by `emit_function`, so nothing nested inherits it. A
+    /// class constructor reaches `emit_function` down the same path as a function
+    /// expression and gets a body this emitter shapes -- fields, the derived `this` --
+    /// so the question is where the function came from, which only the caller knows.
+    mir_candidate: bool,
     /// The objects a `with` put on the scope chain, innermost LAST.
     ///
     /// Empty everywhere except inside a `with` body. What reads it is
@@ -508,7 +528,7 @@ pub struct Ctx<'a> {
     /// numbering, and what crosses at every use is the number. A literal is
     /// referred to by its index here exactly as a property is referred to by its
     /// key.
-    literals: Vec<Vec<u16>>,
+    literals: crate::runtime::Literals,
     /// The pieces of each tagged-template site, in the order the sites were met.
     templates: Vec<Vec<u32>>,
     /// Which locals were proved to hold a number.
@@ -696,7 +716,9 @@ impl<'a> Ctx<'a> {
             generators: Vec::new(),
             inferred_name: None,
             function_names: Vec::new(),
-            literals: Vec::new(),
+            literals: crate::runtime::Literals::new(),
+            mir_resolution: None,
+            mir_candidate: false,
             templates: Vec::new(),
             numeric: Numeric::default(),
             integers: crate::emit::int32::Int32::default(),
@@ -747,7 +769,10 @@ impl<'a> Ctx<'a> {
         self.static_methods.get(&(receiver, method)).cloned()
     }
 
-    pub(in crate::emit) fn inlinable_here(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
+    pub(in crate::emit) fn inlinable_here(
+        &self,
+        name: Name,
+    ) -> Option<std::rc::Rc<inline::Inlinable>> {
         self.local_inlinable
             .get(&name)
             .cloned()
@@ -825,8 +850,7 @@ impl<'a> Ctx<'a> {
         // the same string as one the program wrote with those characters. Rust
         // text loses nothing on the way in: `encode_utf16` of valid UTF-8 is
         // exactly its code units.
-        let units: Vec<u16> = text.encode_utf16().collect();
-        self.literal_units(&units)
+        self.literals.intern_str(text)
     }
 
     /// The same, for text that is already code units.
@@ -835,11 +859,7 @@ impl<'a> Ctx<'a> {
     /// delegates here rather than the other way round: `"\uD83D"` is a legal
     /// one-unit string, and there is no `&str` that spells it.
     pub fn literal_units(&mut self, units: &[u16]) -> u32 {
-        if let Some(found) = self.literals.iter().position(|held| held == units) {
-            return found as u32;
-        }
-        self.literals.push(units.to_vec());
-        (self.literals.len() - 1) as u32
+        self.literals.intern(units)
     }
 
     /// Records a tagged-template site and answers its number.
@@ -973,9 +993,7 @@ impl<'a> Ctx<'a> {
     /// cannot establish, and `false` is the emission that changes nothing.
     pub(super) fn reads_own_field(&self, receiver: Name, member: Name) -> bool {
         match self.claimed(receiver).map(|held| held.kind()) {
-            Some(types::Kind::Instance(class)) => {
-                self.class_fields.declares_field(class, member)
-            }
+            Some(types::Kind::Instance(class)) => self.class_fields.declares_field(class, member),
             _ => false,
         }
     }
@@ -1006,10 +1024,7 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
 /// The split lives here rather than in the host because what an `import` means
 /// for a scope and what an `export` costs are language decisions, and the host
 /// is not where a language decision is taken.
-pub fn emit_module(
-    items: &[crate::syntax::ModuleItem],
-    ctx: &mut Ctx,
-) -> EmitResult<Program> {
+pub fn emit_module(items: &[crate::syntax::ModuleItem], ctx: &mut Ctx) -> EmitResult<Program> {
     emit_module_as(items, None, ctx)
 }
 
@@ -1105,6 +1120,11 @@ pub(super) fn emit_program_into(
     // Whole-program, once, before anything is emitted: a claim in one function
     // names a class declared in another, so this cannot be built per body.
     whole_program_facts(body, ctx);
+    // The scope tree the MIR stage lowers against, once per program for the reason the
+    // facts above are: a function is lowered where it is emitted, and the tree is the
+    // whole program's.
+    ctx.mir_resolution = through_mir::open()
+        .then(|| std::rc::Rc::new(crate::names::resolve::resolve_program(body, imports)));
 
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
@@ -1184,7 +1204,7 @@ fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
         generators: std::mem::take(&mut ctx.generators),
         function_names: std::mem::take(&mut ctx.function_names),
         entry,
-        literals: std::mem::take(&mut ctx.literals),
+        literals: std::mem::take(&mut ctx.literals).into_units(),
         templates: std::mem::take(&mut ctx.templates),
     }
 }
@@ -1311,7 +1331,6 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         .flat_map(|(_, _, body, _)| body.iter().cloned())
         .collect();
 
-
     // ONCE, not once per unit. `program` is the same slice on every iteration
     // and `whole_program_facts` is a pure function of it, so calling it inside
     // the loop ran the whole-program analysis N times and produced the same two
@@ -1376,6 +1395,12 @@ fn emit_unit(
 ) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
+    // The scope tree the MIR stage lowers against, per unit because a unit's top level
+    // is a scope of its own. Without it every function of a GRAPH declined -- which is
+    // every program `rts ir` shows, so the one command whose job is to show what runs
+    // showed the other stage's output.
+    ctx.mir_resolution = through_mir::open()
+        .then(|| std::rc::Rc::new(crate::names::resolve::resolve_program(body, imports)));
     let global_this = ctx.names.intern("globalThis");
     ctx.globals = sloppy::created(body, global_this);
     // Which file is being compiled, for `import.meta` and `import()`. Recorded
@@ -1590,8 +1615,8 @@ mod tests {
         // runtime does not have. Written inside a function because the checker
         // refuses one at a script's top level before emission is reached — a
         // different refusal, and pinning it here would be testing the checker.
-        let error = emit_source("function f() { using r = {}; }")
-            .expect_err("`using` is not emitted");
+        let error =
+            emit_source("function f() { using r = {}; }").expect_err("`using` is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
@@ -1797,10 +1822,9 @@ mod tests {
         // between two strings compares their TEXT, which reads the heap. The
         // call is the correct emission, and this is the twin that stops the
         // fold above from being applied where it would be wrong.
-        let func = emit_source(
-            "function f() { return 1; } let s = f(); switch (s) { case 1: break; }",
-        )
-        .expect("emits");
+        let func =
+            emit_source("function f() { return 1; } let s = f(); switch (s) { case 1: break; }")
+                .expect("emits");
         let calls = instructions(&func)
             .iter()
             .filter(|inst| matches!(inst, Inst::Call { .. }))
@@ -2047,4 +2071,3 @@ mod tests {
             .expect("emits");
     }
 }
-

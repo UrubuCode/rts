@@ -144,8 +144,7 @@ pub fn emit_switch(
         // building the string and comparing its text.
         if let Some(operand) = typed
             && let ExprKind::Literal(crate::syntax::Literal::String(spelled)) = &test.kind
-            && let Some(matched) =
-                super::settled::typeof_is_proof(builder, ctx, operand, spelled)?
+            && let Some(matched) = super::settled::typeof_is_proof(builder, ctx, operand, spelled)?
         {
             let next = builder.create_block();
             let here = scope.snapshot();

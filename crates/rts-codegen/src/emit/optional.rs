@@ -153,7 +153,9 @@ fn walk(
                 _ => callee,
             };
             let name = super::call::callee_spelling(ctx, spelled);
-            super::call::emit_call_with_name(builder, scope, ctx, function, receiver, arguments, name)
+            super::call::emit_call_with_name(
+                builder, scope, ctx, function, receiver, arguments, name,
+            )
         }
         _ => emit_expr(builder, scope, ctx, expr),
     }

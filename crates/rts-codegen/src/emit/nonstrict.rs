@@ -81,6 +81,11 @@ pub(super) fn define_callee(
     let name = ctx.names.intern("callee");
     let key = super::property::key_constant(builder, ctx, name);
     let running = expr::call(builder, ctx, RuntimeOp::RunningFunction, &[])?[0];
-    expr::call(builder, ctx, RuntimeOp::DefineMethod, &[arguments, key, running])?;
+    expr::call(
+        builder,
+        ctx,
+        RuntimeOp::DefineMethod,
+        &[arguments, key, running],
+    )?;
     Ok(())
 }

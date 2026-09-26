@@ -4739,6 +4739,7 @@ name = "rts-codegen"
 version = "0.1.0"
 dependencies = [
  "rts-cranelift",
+ "rts-mir",
  "swc_common",
  "swc_ecma_ast",
  "swc_ecma_parser",
@@ -4855,6 +4856,13 @@ dependencies = [
  "quote",
  "rts-cranelift",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "rts-mir"
+version = "0.1.0"
+dependencies = [
+ "rts-cranelift",
 ]
 
 [[package]]

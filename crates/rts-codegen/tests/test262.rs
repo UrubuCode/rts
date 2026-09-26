@@ -282,8 +282,16 @@ fn the_front_end_reads_test262() {
     // thing to measure, a subset of an unknown corpus is not.
     let only = std::env::var("RTS_TEST262_ONLY").ok();
     if let Some(fragment) = &only {
-        files.retain(|path| path.display().to_string().replace('\\', "/").contains(fragment));
-        println!("note: filtered to {} files matching {fragment:?}", files.len());
+        files.retain(|path| {
+            path.display()
+                .to_string()
+                .replace('\\', "/")
+                .contains(fragment)
+        });
+        println!(
+            "note: filtered to {} files matching {fragment:?}",
+            files.len()
+        );
     }
 
     // Every verdict, one line each, for comparing two runs PER FILE. The
@@ -410,7 +418,10 @@ fn the_front_end_reads_test262() {
     let readable = tally.correct + tally.unsupported;
     let rate = 100.0 * tally.correct as f64 / considered as f64;
 
-    println!("\n=== test262 — front end reading: {} ===", areas.join(", "));
+    println!(
+        "\n=== test262 — front end reading: {} ===",
+        areas.join(", ")
+    );
     println!("files considered      {considered}");
     println!("read correctly        {} ({rate:.1}%)", tally.correct);
     println!("refused, named        {}", tally.unsupported);

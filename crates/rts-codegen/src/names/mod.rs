@@ -14,6 +14,8 @@ use std::collections::HashMap;
 
 use rts_cranelift::shape::{Key, KeyRegistry};
 
+pub mod resolve;
+
 /// An identifier, interned.
 ///
 /// Two names are the same identifier when their numbers match. Nothing else is
@@ -63,12 +65,30 @@ impl Names {
         name
     }
 
+    /// The identifier some text already is, without interning it.
+    ///
+    /// For a reader holding the interner shared -- a text nobody wrote is a name no
+    /// program mentions, which is the whole answer a question like "does this body
+    /// mention `arguments`" needs.
+    pub fn find(&self, text: &str) -> Option<Name> {
+        self.interned.get(text).copied()
+    }
+
     /// What an identifier is called.
     ///
     /// For diagnostics, and for nothing else: a decision that reads the text of a
     /// name is a decision that could have compared numbers and did not.
     pub fn text(&self, name: Name) -> &str {
         &self.text[name.index()]
+    }
+
+    /// The same, or `None` for a name this interner never minted.
+    ///
+    /// For a caller handed an interner that may not be the one that read the program
+    /// -- `lower::lower` takes one function out of context with an empty one, which
+    /// answers every text question with nothing rather than with another name's text.
+    pub fn spelled(&self, name: Name) -> Option<&str> {
+        self.text.get(name.index()).map(String::as_str)
     }
 
     /// What the machine calls this identifier, minting one the first time.

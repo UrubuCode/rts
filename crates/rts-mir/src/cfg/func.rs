@@ -1,0 +1,338 @@
+//! A block, a function, and the builder that writes one.
+//!
+//! Apart from the rest of the graph for the ceiling rule 11 states, along the seam the
+//! file already had: everything here is about a function's SHAPE and its construction,
+//! where `mod.rs` is the vocabulary an instruction is written in.
+
+use rts_cranelift::fault::Position;
+
+use super::{BlockId, Callee, Inst, InstId, Op, Terminator, ValueId};
+use crate::effect::Effect;
+use crate::guard::{PointId, Tier};
+/// A block: its parameters, its instructions, and how it ends.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Block {
+    /// The values its predecessors supply, in order.
+    pub params: Vec<ValueId>,
+    /// Its instructions, in order.
+    pub insts: Vec<InstId>,
+    /// How it ends. `None` while it is still being built, which `verify`
+    /// refuses.
+    pub terminator: Option<Terminator>,
+}
+
+/// A function in MIR form.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Func {
+    /// Which tier this is.
+    pub tier: Tier,
+    /// Whether the frame may be parked in it.
+    ///
+    /// A property of the FUNCTION and not of the call site, which is the same shape
+    /// `rts_cranelift::ir::Signature` gives it and for the same reason: whether a call
+    /// parks the caller follows from what the callee is, so a site does not choose it.
+    pub may_suspend: bool,
+    /// Its blocks. `BlockId(0)` is the entry.
+    pub blocks: Vec<Block>,
+    /// Its instructions, flat, referenced by the blocks in order.
+    pub insts: Vec<Inst>,
+    /// How many values it defines.
+    pub values: u32,
+    /// Its protected regions.
+    pub regions: Vec<crate::region::Region>,
+    /// Which region each block belongs to, parallel to [`Self::blocks`].
+    ///
+    /// A parallel vector rather than a field on `Block`, because a pass that rewrites
+    /// a block body has no business touching its protection and a field invites it to.
+    pub block_regions: Vec<Option<crate::region::RegionId>>,
+    /// Every deoptimisation point it declares, in ascending order.
+    ///
+    /// Held on the function so that `guard::pair` can compare two tiers without
+    /// walking either one's blocks — the check runs on every lowering and the
+    /// walk would be the expensive part of it.
+    pub points: Vec<PointId>,
+}
+
+impl Func {
+    /// The entry block, which every function has.
+    pub fn entry(&self) -> BlockId {
+        BlockId(0)
+    }
+
+    /// One block.
+    pub fn block(&self, block: BlockId) -> &Block {
+        &self.blocks[block.0 as usize]
+    }
+
+    /// One instruction.
+    pub fn inst(&self, inst: InstId) -> &Inst {
+        &self.insts[inst.0 as usize]
+    }
+
+    /// One region.
+    pub fn region(&self, region: crate::region::RegionId) -> &crate::region::Region {
+        &self.regions[region.0 as usize]
+    }
+
+    /// Which region a block is protected by, if any.
+    pub fn region_of(&self, block: BlockId) -> Option<crate::region::RegionId> {
+        self.block_regions.get(block.0 as usize).copied().flatten()
+    }
+
+    /// Every block, by id.
+    pub fn block_ids(&self) -> impl Iterator<Item = BlockId> + use<> {
+        (0..self.blocks.len() as u32).map(BlockId)
+    }
+
+    /// Which blocks jump to this one.
+    ///
+    /// Computed rather than stored, because a stored predecessor list is a second
+    /// statement of the same fact and the failure mode is a pass that updates the
+    /// terminator and not the list.
+    pub fn predecessors(&self, block: BlockId) -> Vec<BlockId> {
+        self.block_ids()
+            .filter(|held| {
+                self.block(*held)
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|end| end.successors().contains(&block))
+            })
+            .collect()
+    }
+
+    /// The values an instruction reads.
+    pub fn reads(&self, inst: InstId) -> Vec<ValueId> {
+        match &self.inst(inst).op {
+            Op::Const(_) => Vec::new(),
+            Op::Prim { args, .. } => args.clone(),
+            Op::Call {
+                callee,
+                receiver,
+                args,
+            } => {
+                let mut all = match callee {
+                    Callee::Dynamic(value) => vec![*value],
+                    Callee::Entry(_) | Callee::Func(_) => Vec::new(),
+                };
+                all.extend(receiver.iter().copied());
+                all.extend(args.iter().copied());
+                all
+            }
+            Op::Guard { on, .. } => vec![*on],
+            Op::Suspend { value } => value.iter().copied().collect(),
+        }
+    }
+}
+
+/// Builds one function, minting values and blocks.
+///
+/// # Why a builder rather than public fields
+///
+/// Because SSA's one property — a value defined exactly once — is the kind of
+/// invariant that a caller assembling `Vec`s by hand breaks in a way that
+/// compiles. The builder mints every value, so defining one twice is not
+/// expressible; `verify` then checks what the builder cannot, which is order.
+pub struct FuncBuilder {
+    func: Func,
+    current: BlockId,
+    /// The regions open where building is, innermost last.
+    open: Vec<crate::region::RegionId>,
+}
+
+impl FuncBuilder {
+    /// A function with an empty entry block.
+    pub fn new(tier: Tier) -> Self {
+        Self {
+            func: Func {
+                tier,
+                may_suspend: false,
+                blocks: vec![Block {
+                    params: Vec::new(),
+                    insts: Vec::new(),
+                    terminator: None,
+                }],
+                insts: Vec::new(),
+                values: 0,
+                regions: Vec::new(),
+                block_regions: vec![None],
+                points: Vec::new(),
+            },
+            current: BlockId(0),
+            open: Vec::new(),
+        }
+    }
+
+    /// A new, empty block.
+    pub fn block(&mut self) -> BlockId {
+        self.func.blocks.push(Block {
+            params: Vec::new(),
+            insts: Vec::new(),
+            terminator: None,
+        });
+        // A block made while a region is open is INSIDE it. Anything else would make
+        // protection depend on the order a lowering happens to create blocks in.
+        self.func.block_regions.push(self.open.last().copied());
+        BlockId(self.func.blocks.len() as u32 - 1)
+    }
+
+    /// Where instructions are appended.
+    pub fn switch_to(&mut self, block: BlockId) {
+        self.current = block;
+    }
+
+    /// The block being appended to.
+    pub fn current(&self) -> BlockId {
+        self.current
+    }
+
+    /// A parameter of a block, which its predecessors supply.
+    pub fn param(&mut self, block: BlockId) -> ValueId {
+        let value = self.mint();
+        self.func.blocks[block.0 as usize].params.push(value);
+        value
+    }
+
+    /// The parameters a block declares so far.
+    ///
+    /// For a client that merges paths into a block and has to tell a value the merge
+    /// made -- one of these -- from one a single path left behind.
+    pub fn params_of(&self, block: BlockId) -> &[ValueId] {
+        &self.func.blocks[block.0 as usize].params
+    }
+
+    /// Opens a protected region, which every block made until it closes belongs to.
+    ///
+    /// The block being built joins it too, and that is not an accident: a raise emitted
+    /// before any new block is created would otherwise be planned as if it were
+    /// outside, and "the first statement of a `try`" is not a corner case.
+    /// `rts_cranelift::ir::FuncBuilder::open_region` states the same thing about its
+    /// own regions, which is where this discipline comes from.
+    pub fn open_region(
+        &mut self,
+        handler: Option<BlockId>,
+        cleanup: Option<BlockId>,
+    ) -> crate::region::RegionId {
+        let parent = self.open.last().copied();
+        self.func.regions.push(crate::region::Region {
+            parent,
+            handler,
+            cleanup,
+            resume_return: None,
+        });
+        let region = crate::region::RegionId(self.func.regions.len() as u32 - 1);
+        let held = self.current;
+        self.func.block_regions[held.0 as usize] = Some(region);
+        self.open.push(region);
+        region
+    }
+
+    /// Says where a resumption that returns carries on, for the innermost open region
+    /// -- see [`crate::region::Region::resume_return`].
+    pub fn set_region_return(&mut self, block: BlockId) {
+        if let Some(region) = self.open.last() {
+            self.func.regions[region.0 as usize].resume_return = Some(block);
+        }
+    }
+
+    /// Closes the innermost open region.
+    ///
+    /// Takes no argument for the reason the machine's own does not: a client that could
+    /// name a region could name one that does not enclose the block it is building.
+    pub fn close_region(&mut self) {
+        self.open.pop();
+    }
+
+    /// Which tier this builder is building.
+    ///
+    /// Asked rather than remembered by the client, because the one decision that
+    /// turns on it -- whether a guard may exist at all -- is taken in a different
+    /// crate from the one that chose the tier. A client keeping its own copy is two
+    /// places for the answer, and the drift is a guard with nowhere to fall.
+    pub fn tier(&self) -> Tier {
+        self.func.tier
+    }
+
+    /// The entry block, for a client that switched away from it.
+    pub fn entry_block(&self) -> BlockId {
+        BlockId(0)
+    }
+
+    /// Appends an instruction to the current block and answers its result.
+    pub fn push(&mut self, op: Op, effect: Effect, at: Position) -> ValueId {
+        let result = self.mint();
+        if let Op::Guard { point, .. } = &op {
+            self.declare(*point);
+        }
+        // THE FUNCTION'S FLAG IS DERIVED AND NEVER PASSED IN. A builder that asked
+        // its client to set `may_suspend` as well as to push the suspension would be
+        // holding one fact in two places, and the two would drift the first time a
+        // lowering grew a path it forgot to mark -- which is a function the machine
+        // would compile with an ordinary frame and then park.
+        //
+        // Read from the EFFECT rather than from the operation, because that is where
+        // the fact lives: a language that parks inside a primitive of its own says so
+        // in its effect table, and this stays true without naming its primitives.
+        if effect.may_suspend() {
+            self.func.may_suspend = true;
+        }
+        self.func.insts.push(Inst {
+            op,
+            result,
+            at,
+            effect,
+        });
+        let inst = InstId(self.func.insts.len() as u32 - 1);
+        self.func.blocks[self.current.0 as usize].insts.push(inst);
+        result
+    }
+
+    /// Ends the current block.
+    ///
+    /// Terminating one twice is refused rather than overwritten: the second call
+    /// is a bug in the lowering, and silently keeping one of the two would make
+    /// which one arbitrary.
+    pub fn end(&mut self, terminator: Terminator) {
+        if let Terminator::Fall(point) = &terminator {
+            self.declare(*point);
+        }
+        let block = &mut self.func.blocks[self.current.0 as usize];
+        assert!(
+            block.terminator.is_none(),
+            "a block was terminated twice, which makes which terminator survives arbitrary"
+        );
+        block.terminator = Some(terminator);
+    }
+
+    /// Declares a point this body can be resumed at, emitting nothing.
+    ///
+    /// # Why the generic tier needs this and the specialised one does not
+    ///
+    /// Because the specialised body declares a point by EMITTING the guard that falls
+    /// to it, and the generic body emits no guard at all -- it is where a fall lands.
+    /// Without this it declares no points, so `guard::pair` answers `Unresumable` for
+    /// every function that speculates about anything: the specialised tier falls to a
+    /// point the generic tier never claimed.
+    ///
+    /// That was live and unnoticed, and it is exactly what `pair`'s own doc predicted
+    /// about itself: *"a property nothing checks is a property nobody finds out about"*.
+    pub fn resumable(&mut self, point: PointId) {
+        self.declare(point);
+    }
+
+    /// The finished function. `verify` is what says it is well formed.
+    pub fn finish(self) -> Func {
+        self.func
+    }
+
+    fn mint(&mut self) -> ValueId {
+        let value = ValueId(self.func.values);
+        self.func.values += 1;
+        value
+    }
+
+    fn declare(&mut self, point: PointId) {
+        if let Err(at) = self.func.points.binary_search(&point) {
+            self.func.points.insert(at, point);
+        }
+    }
+}

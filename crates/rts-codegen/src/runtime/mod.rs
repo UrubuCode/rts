@@ -37,7 +37,10 @@
 //! and the machine emits them itself. A language layer naming them would be
 //! reaching past the boundary to do work the machine already does.
 
+mod literals;
 mod raising;
+
+pub use literals::Literals;
 
 pub use raising::{CANNOT_RAISE, IS_THE_CHECK};
 
@@ -1326,9 +1329,10 @@ impl RuntimeOp {
             // O quarto argumento é o MODO de quem escreve: `1` para sloppy.
             // Uma escrita que o objeto recusa é um `TypeError` em strict e um
             // no-op em sloppy, e só o sítio de onde foi escrita sabe qual.
-            RuntimeOp::SetProperty => {
-                (vec![UNPROVEN, Repr::I64, UNPROVEN, Repr::I64], vec![UNPROVEN])
-            }
+            RuntimeOp::SetProperty => (
+                vec![UNPROVEN, Repr::I64, UNPROVEN, Repr::I64],
+                vec![UNPROVEN],
+            ),
             // The code address is `I64` and not a value: it is a machine
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
@@ -1411,9 +1415,10 @@ impl RuntimeOp {
             // The key is a VALUE, where the named read takes the number the
             // compiler resolved. That is the whole difference between them.
             RuntimeOp::GetIndexed => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
-            RuntimeOp::SetIndexed => {
-                (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN])
-            }
+            RuntimeOp::SetIndexed => (
+                vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64],
+                vec![UNPROVEN],
+            ),
             RuntimeOp::HasProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::WithHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ForInHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
@@ -1486,7 +1491,10 @@ impl RuntimeOp {
             RuntimeOp::MarkClassConstructor => (vec![UNPROVEN], vec![UNPROVEN]),
             // The declaration, WHICH literals spell its module and name, and
             // the number its private names carry (`-1` for none).
-            RuntimeOp::SerdeDeclare => (vec![UNPROVEN, Repr::I64, Repr::I64, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::SerdeDeclare => (
+                vec![UNPROVEN, Repr::I64, Repr::I64, Repr::I64],
+                vec![UNPROVEN],
+            ),
             // The callee, the receiver, and the arguments as one array.
             RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes
@@ -1503,9 +1511,10 @@ impl RuntimeOp {
                 (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN])
             }
             // How many are declared, then the four the convention carried.
-            RuntimeOp::RestArguments => {
-                (vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
-            }
+            RuntimeOp::RestArguments => (
+                vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN],
+                vec![UNPROVEN],
+            ),
             // The four the convention carried. No leading count: `arguments`
             // always starts at zero, and a parameter for a constant is a
             // parameter that can be passed wrongly.
@@ -1525,9 +1534,10 @@ impl RuntimeOp {
             RuntimeOp::GetSuperProperty => (vec![UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
             // The same two objects, plus the value. Answers the value, because
             // an assignment is an expression.
-            RuntimeOp::SetSuperProperty => {
-                (vec![UNPROVEN, UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
-            }
+            RuntimeOp::SetSuperProperty => (
+                vec![UNPROVEN, UNPROVEN, Repr::I64, UNPROVEN],
+                vec![UNPROVEN],
+            ),
             // A key the compiler resolved, like `GlobalGet` — and for the same
             // reason: both sides hold the same number, so no text crosses.
             RuntimeOp::UnboundGlobalGet => (vec![Repr::I64], vec![UNPROVEN]),

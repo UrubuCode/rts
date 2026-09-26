@@ -19,11 +19,13 @@ not background reading, and the rules in it are binding for changes inside it.
 | Editing | Read first |
 |---|---|
 | `crates/rts-cranelift/` | its `README.md` (13 rules) |
+| `crates/rts-mir/` | its `README.md` (12 rules). Two of them are checked by a command rather than by reading, and the README says which |
 | `crates/rts-codegen/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-core/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-host/` | its `README.md` (6 rules) + `PLAN.md` |
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
 | `crates/rts-dom/`, `crates/rts-dom-bridge/` | the row above, PLUS `crates/rts-dom/PLAN.md` — §0 is the state (which lot is in flight, on which branch, measured how) and §1–§2 are the rules and the three rulers — and the verdict in `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/README.md`, which is the current picture of the engine where the roadmap of June is the picture from before. **For anything that touches the LAYOUT itself, also read `docs/ui/html-engine/box-tree.md`** — the box tree is the layer this engine does not have and every other CSS engine does, and that document is binding for the five `BT-*` lots of PLAN.md §9. It carries the nine invariants that break SILENTLY when box identity stops being the DOM node; seven of them compile and lie |
+| the PIPELINE itself — a new stage, a new IR, a type domain, a guard, speculation, deoptimisation | `docs/engine/four-stages.md`, and `docs/engine/deopt-lateral.md` for the second tier. The first records why `AST → machine IR` is two stages short, and the measured wrong answer that shortfall produces |
 | anything else | this file, and `docs/README.md` for where things live |
 
 If a change requires breaking a rule, **change the rule first, with the reason,
@@ -675,16 +677,25 @@ the new engine's rules, not this one with a path changed.
 
 ## Repository map
 
-Eighteen crates, and every one of them is on the path a program takes. Sixteen
+**Twenty-one crates, counted on 2026-09-20 rather than carried forward.** Every
+one of them is on the path a program takes. Sixteen
 were deleted on 2026-08-10 — the whole old runtime and its tooling — so a name
 that is not here does not exist, and `git log --diff-filter=D` is where it went.
-This line said "Fifteen" while the block below listed sixteen and the directory
-held eighteen — the structural audit of 2026-09-04 caught it, which is how a
-map of crates gets to be wrong about the one thing it exists to say.
+
+This line has now been wrong twice in the same way. It said "Fifteen" while the
+block below listed sixteen and the directory held eighteen; the structural audit
+of 2026-09-04 corrected it to eighteen, and the directory held **twenty** that
+day — `rts-runtime-boot` and `rts-runtime-jit` are in the workspace and have
+never been in this block. So the count is now taken from `ls crates | wc -l` and
+the two missing names are listed, which is the only form the honesty floor's
+"verify the input" takes for a map.
 
 ```
 crates/
   rts-cranelift/     the machine: IR, repr, GC contract, frames, calls, unwind
+  rts-mir/           the shared mid-level IR: CFG in SSA, effects, guards, two
+                     tiers, and a type domain the LANGUAGE declares. Neither
+                     front end's, which is why it is not inside either
   rts-codegen/       the language: JS/TS tree, parser bridge, emit, type pass
   rts-core/          the runtime: values, heap, objects, coercion, entry points
   rts-host/          where the three meet, and where a program runs
@@ -693,6 +704,10 @@ crates/
   rts-node/          the `node:` surface
   rts-ui/            `rts:egui` + `rts:input`, where a target has a screen
   rts-runtime/       the AOT staticlib the compiled program links against
+  rts-runtime-boot/  and rts-runtime-jit/ — the two halves of that archive a
+                     compiled program and a JIT run need separately. Absent from
+                     this block until 2026-09-20, which is why the count was two
+                     short twice
   rts-physics/       `rts:rigid` — the rayon rigid-body solver, the CPU
                      fallback for a GPU-first scene; its own crate because wasm
                      has no threads

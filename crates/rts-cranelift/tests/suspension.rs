@@ -168,7 +168,7 @@ fn resume_labels_number_the_points_in_program_order() {
     b.ret(&[]);
 
     let plan = plan_suspension(&func);
-    let labels: Vec<_> = plan.points.iter().map(|(_, label)| label.0).collect();
+    let labels: Vec<_> = plan.points.iter().map(|held| held.label.0).collect();
     assert_eq!(
         labels,
         vec![0, 1, 2],

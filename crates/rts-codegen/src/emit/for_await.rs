@@ -59,8 +59,8 @@
 
 use rts_cranelift::ir::FuncBuilder;
 
-use super::{Ctx, EmitResult, Scope};
 use super::loops::Loops;
+use super::{Ctx, EmitResult, Scope};
 use crate::names::Name;
 use crate::syntax::{Expr, ExprKind, Pattern, Stmt};
 
@@ -89,7 +89,9 @@ pub fn emit_for_await(
         } => pattern,
         ForEachTarget::Assign(pattern) => pattern,
         ForEachTarget::Dispose { .. } => {
-            return super::expr::gap("`await using` in a `for await`-head, which needs `Symbol.asyncDispose`");
+            return super::expr::gap(
+                "`await using` in a `for await`-head, which needs `Symbol.asyncDispose`",
+            );
         }
     };
     let fresh_binding = matches!(target, ForEachTarget::Declare { .. });
@@ -239,11 +241,9 @@ pub fn emit_for_await(
                             kind: ExprKind::Assign {
                                 target: AssignTarget::Place(Box::new(name(iter))),
                                 value: Box::new(Expr {
-                                    kind: ExprKind::Literal(
-                                        crate::syntax::Literal::Singleton(
-                                            crate::values::Singleton::Undefined,
-                                        ),
-                                    ),
+                                    kind: ExprKind::Literal(crate::syntax::Literal::Singleton(
+                                        crate::values::Singleton::Undefined,
+                                    )),
                                     at,
                                 }),
                                 op: AssignOp::Plain,
@@ -309,7 +309,8 @@ pub fn emit_for_await(
         at,
     };
 
-    let result = super::loops::emit_for(builder, scope, ctx, loops, None, None, None, &inner, label);
+    let result =
+        super::loops::emit_for(builder, scope, ctx, loops, None, None, None, &inner, label);
     // `AsyncIteratorClose`, on the one exit that reaches here — see the module
     // doc for which exits do not. The rule itself is `foreach.rs`'s, called
     // rather than copied: the synchronous loop and this one closing an iterator

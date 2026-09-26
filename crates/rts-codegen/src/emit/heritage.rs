@@ -106,6 +106,11 @@ fn from_constructor(
     )?;
     // The link an implementation forgets, and whose absence shows only when a
     // program calls an inherited STATIC method.
-    expr::call(builder, ctx, RuntimeOp::SetPrototype, &[constructor, parent])?;
+    expr::call(
+        builder,
+        ctx,
+        RuntimeOp::SetPrototype,
+        &[constructor, parent],
+    )?;
     Ok(())
 }

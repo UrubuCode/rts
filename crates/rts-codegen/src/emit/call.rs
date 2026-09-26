@@ -75,9 +75,7 @@ pub(super) fn emit_call_as(
     // A `with` can carry an `eval` of its own, and then the bare name is not
     // the global one at all — which is the same proof about a name the two
     // paths below need.
-    if scope_is_lexical
-        && let Some(value) = direct_eval(builder, scope, ctx, callee, arguments)?
-    {
+    if scope_is_lexical && let Some(value) = direct_eval(builder, scope, ctx, callee, arguments)? {
         return Ok(value);
     }
 
@@ -427,7 +425,16 @@ pub(super) fn emit_call_with_name(
     arguments: &[Spreadable],
     name: Option<u32>,
 ) -> EmitResult<ValueId> {
-    emit_call_with_name_as(builder, scope, ctx, function, receiver, arguments, name, RuntimeOp::Call)
+    emit_call_with_name_as(
+        builder,
+        scope,
+        ctx,
+        function,
+        receiver,
+        arguments,
+        name,
+        RuntimeOp::Call,
+    )
 }
 
 /// [`emit_call_with_name`] through `op`. A tail call never takes the vector
@@ -477,7 +484,11 @@ fn emit_call_with_name_as(
 /// one — emitted last, after every argument, so an argument that calls
 /// something of its own cannot overwrite what this call site just recorded
 /// for itself. See `RuntimeOp::SetCallName`.
-fn emit_set_call_name(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Option<u32>) -> EmitResult<()> {
+fn emit_set_call_name(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    name: Option<u32>,
+) -> EmitResult<()> {
     let Some(literal) = name else {
         return Ok(());
     };
@@ -508,7 +519,15 @@ pub(super) fn issue(
     values: &[ValueId],
     name: Option<u32>,
 ) -> EmitResult<ValueId> {
-    issue_as(builder, ctx, function, receiver, values, name, RuntimeOp::Call)
+    issue_as(
+        builder,
+        ctx,
+        function,
+        receiver,
+        values,
+        name,
+        RuntimeOp::Call,
+    )
 }
 
 /// [`issue`] through `op`, which is `Call` or `TailCall`: same operands.
@@ -588,7 +607,14 @@ pub fn emit_construct(
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
     let function = emit_expr(builder, scope, ctx, callee)?;
-    emit_construction(builder, scope, ctx, function, arguments, RuntimeOp::Construct)
+    emit_construction(
+        builder,
+        scope,
+        ctx,
+        function,
+        arguments,
+        RuntimeOp::Construct,
+    )
 }
 
 /// The same, for a callee that is already a value.
@@ -606,7 +632,14 @@ pub fn emit_super_construct(
     function: ValueId,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
-    emit_construction(builder, scope, ctx, function, arguments, RuntimeOp::SuperConstruct)
+    emit_construction(
+        builder,
+        scope,
+        ctx,
+        function,
+        arguments,
+        RuntimeOp::SuperConstruct,
+    )
 }
 
 /// The written arguments, as an ordinary array.

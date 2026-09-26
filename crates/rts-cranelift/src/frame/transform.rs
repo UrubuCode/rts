@@ -36,7 +36,7 @@
 use std::collections::HashMap;
 
 use super::layout::FrameLayout;
-use super::{ResumeLabel, ResumeMode, SuspendPlan, plan_suspension};
+use super::{ResumeLabel, ResumeMode, SuspendPlan};
 use crate::ir::{
     BlockCall, BlockId, CmpOp, ConstDecl, Function, Inst, ScalarBits, Signature, Terminator,
     ValueId,
@@ -91,11 +91,31 @@ pub fn resumable_form(
     types: &mut TypeRegistry,
     abrupt: Tag,
 ) -> Result<Resumable, TransformError> {
-    if !func.signature.may_suspend {
+    resumable_form_with_arrivals(func, types, abrupt, &[])
+}
+
+/// The same, plus points a deoptimisation may ARRIVE at.
+///
+/// # Why a function with arrivals and no suspension is still rewritten
+///
+/// [`TransformError::NotSuspending`] guards the ordinary case, and its reason is that
+/// rewriting a function that does not park would change what it is without anything
+/// having said so. Naming an arrival IS that something: a caller asking for one has
+/// said it intends this body to be enterable in the middle, which is the same statement
+/// `may_suspend` makes for the other half.
+///
+/// So the refusal is kept for a caller that names neither, and only for that caller.
+pub fn resumable_form_with_arrivals(
+    func: &Function,
+    types: &mut TypeRegistry,
+    abrupt: Tag,
+    arrivals: &[crate::ir::InstId],
+) -> Result<Resumable, TransformError> {
+    if !func.signature.may_suspend && arrivals.is_empty() {
         return Err(TransformError::NotSuspending);
     }
 
-    let plan = plan_suspension(func);
+    let plan = super::plan_with_arrivals(func, &crate::gc::Liveness::compute(func), arrivals);
     let layout = FrameLayout::declare(func, &plan, types);
     Rewrite::new(func, &plan, layout, abrupt).run()
 }
@@ -133,12 +153,7 @@ struct Rewrite<'a> {
 }
 
 impl<'a> Rewrite<'a> {
-    fn new(
-        source: &'a Function,
-        plan: &'a SuspendPlan,
-        layout: FrameLayout,
-        abrupt: Tag,
-    ) -> Self {
+    fn new(source: &'a Function, plan: &'a SuspendPlan, layout: FrameLayout, abrupt: Tag) -> Self {
         let out = Function::new(Signature {
             params: vec![Repr::Ref(RefKind::Aggregate(layout.ty))],
             returns: vec![Repr::Bool],
@@ -263,7 +278,15 @@ impl<'a> Rewrite<'a> {
     }
 
     fn rewrite_blocks(&mut self) -> Result<(), TransformError> {
-        for (source_block, data) in self.source.blocks().map(|(id, d)| (id, d.clone())) {
+        // IN CONTROL ORDER and not in creation order: every value is read from the map
+        // its definition filled, so a block has to be rewritten after the ones that
+        // define what it reads. A client that makes a continuation before the blocks
+        // feeding it -- the MIR stage does -- panicked here otherwise.
+        let order = self.source.control_order();
+        for source_block in order {
+            let Some(data) = self.source.block(source_block).cloned() else {
+                continue;
+            };
             let mut current = self.blocks[&source_block];
 
             // A parameter that outlives a suspension is written down on arrival,
@@ -284,6 +307,14 @@ impl<'a> Rewrite<'a> {
                 if matches!(inst.inst, Inst::Suspend) {
                     current = self.split_at_suspension(current, inst_id, &inst.results)?;
                     continue;
+                }
+                // AN ARRIVAL SPLITS AND DOES NOT PARK. Control lands ON this
+                // instruction, so the block the dispatch enters is the one that STARTS
+                // here -- the instruction itself is then emitted into it below, exactly
+                // as on the path that reached it normally. One copy of the code, two
+                // ways in.
+                if self.plan.entered_at(inst_id) == Some(super::Entered::Arrival) {
+                    current = self.split_at_arrival(current, inst_id);
                 }
 
                 let rewritten = self.rewrite_inst(current, &inst.inst);
@@ -309,6 +340,34 @@ impl<'a> Rewrite<'a> {
             self.rewrite_terminator(current, &terminator);
         }
         Ok(())
+    }
+
+    /// Opens the block a deoptimisation arrives at, and falls into it.
+    ///
+    /// # Why the normal path falls through rather than being duplicated
+    ///
+    /// Because an arrival is one place with two ways in, and a copy per way would be two
+    /// places a later change has to find. So the block starting here is jumped to from
+    /// what came before AND entered by the dispatch, which is what makes the code after
+    /// an arrival identical on both paths by construction rather than by review.
+    ///
+    /// No park is emitted, and that is the whole difference from a suspension: nothing
+    /// LEAVES through an arrival. A park here would stop a normal run at the very point a
+    /// speculation-free execution has to pass straight through.
+    fn split_at_arrival(&mut self, current: BlockId, inst: crate::ir::InstId) -> BlockId {
+        let label = self
+            .plan
+            .label_of(inst)
+            .expect("an arrival was named by the plan that is being walked");
+        // INSIDE WHATEVER THE POINT WAS INSIDE, for the reason a resumption is: a block
+        // created with no region puts the code after the point outside the `try` it was
+        // written in, which is invisible until something throws there.
+        let region = self.out.region_of(current);
+        let arrived = self.block_in(region);
+        self.resume_targets.insert(label, arrived);
+        self.out
+            .set_terminator(current, Terminator::Jump(BlockCall::to(arrived)));
+        arrived
     }
 
     /// Ends the current block at a suspension and opens the one that resumes.
@@ -712,7 +771,11 @@ impl<'a> Rewrite<'a> {
             .plan
             .points
             .iter()
-            .filter_map(|(_, label)| self.resume_targets.get(label).map(|&b| (*label, b)))
+            .filter_map(|held| {
+                self.resume_targets
+                    .get(&held.label)
+                    .map(|&block| (held.label, block))
+            })
             .collect();
 
         for (resume_label, target) in targets {
