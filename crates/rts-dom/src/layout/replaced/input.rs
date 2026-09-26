@@ -60,6 +60,8 @@ pub(in crate::layout) fn layout_button(
         // The single site of this question (`crate::layout::measure::font_metrics::uses_ahem`), not
         // a copy of it — Ahem is the one family whose PAINT differs.
         is_ahem: crate::layout::measure::font_metrics::uses_ahem(css.font_family.as_deref()),
+        // The family the label was measured with; `is_ahem` still wins.
+        family: CONTROL_FONT_FAMILY.map(Into::into),
         bold: false,
         italic: false,
         letter_spacing: 0.0,
@@ -359,6 +361,8 @@ pub(in crate::layout) fn layout_input(
             mono: false,
             // Same rule as `layout_button` above (`crate::layout::measure::font_metrics::uses_ahem`).
             is_ahem: crate::layout::measure::font_metrics::uses_ahem(css.font_family.as_deref()),
+            // The family the caret below measures the value with.
+            family: CONTROL_FONT_FAMILY.map(Into::into),
             bold: false,
             italic: false,
             letter_spacing: 0.0,

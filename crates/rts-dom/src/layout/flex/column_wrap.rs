@@ -412,8 +412,9 @@ pub(in crate::layout) fn layout_children_column_wrap(
                     color: cor_visivel(css, css.color.unwrap_or(0x000000FF)),
                     size: font_size,
                     mono: false,
-                    // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
+                    // Measured by `text_width`, with no family: none to paint with either.
                     is_ahem: false,
+                    family: None,
                     bold: css.bold.unwrap_or(false),
                     italic: italico(Some(css), tag_of(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),

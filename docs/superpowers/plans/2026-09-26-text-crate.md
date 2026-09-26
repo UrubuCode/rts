@@ -173,6 +173,7 @@ the generated table is what Blink measured and the loader is wrong.
   var the runner sets; `scripts/wpt_reftests.mjs` passes it), measures with
   `RealMeasurer`, paints glyphs, keeps the mask for unresolved families,
   prints the masked count. Ruler 3 in full, both tables.
+- [x] **T2b — the family on `DisplayItem::Text`** (2026-09-26): masked text 280 → 0, +6 WPT; `bare_text.rs` measured without a family and with bold/mono swapped, fixed.
 - [ ] **T3 — the window** (one agent, after T1): `EguiMeasurer` → `RealMeasurer`;
   rulers 4, 5, 6.
 - [ ] **T4 — the inline layout consumes breaks and clusters** (after T2): the

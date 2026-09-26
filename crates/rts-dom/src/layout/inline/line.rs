@@ -94,6 +94,8 @@ pub(in crate::layout) fn layout_inline_flow(
     // A pergunta "e Ahem?" ja vivia aqui para `line_break::wrap_runs`; o item de
     // texto passa a carregar a MESMA resposta em vez de a fazer outra vez.
     let ahem = crate::layout::measure::font_metrics::uses_ahem(family);
+    // One allocation for every run painted in the container's font.
+    let family_rc: Option<std::rc::Rc<str>> = family.map(Into::into);
     // line-height: do CSS (multiplicador ou px), senão o default do measurer —
     // #1749. O medidor é também quem responde por `line-height: normal`, porque
     // esse valor sai das MÉTRICAS DA FONTE e não de uma constante: sem isto, o
@@ -342,6 +344,11 @@ pub(in crate::layout) fn layout_inline_flow(
                 size: seg_size,
                 mono: seg_mono,
                 is_ahem: seg_ahem,
+                // The family `Fonts::width` measured this run with.
+                family: match &own_font {
+                    Some(f) => f.font.family.as_deref().map(Into::into),
+                    None => family_rc.clone(),
+                },
                 bold: seg.bold,
                 italic: seg.italic,
                 letter_spacing: ls,

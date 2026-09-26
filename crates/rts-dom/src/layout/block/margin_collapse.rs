@@ -59,12 +59,9 @@ fn margin_child_role(
             }
             let effective = css.effective_display();
             let block_candidate = match effective {
+                Some(d) if d.is_inline_level() => false,
                 Some(
-                    crate::style::DisplayKind::Inline
-                    | crate::style::DisplayKind::InlineBlock
-                    | crate::style::DisplayKind::InlineFlex // inline-level por fora, idem
-                    | crate::style::DisplayKind::InlineFlexWrap
-                    | crate::style::DisplayKind::TableRowGroup
+                    crate::style::DisplayKind::TableRowGroup
                     | crate::style::DisplayKind::TableHeaderGroup
                     | crate::style::DisplayKind::TableFooterGroup
                     | crate::style::DisplayKind::TableRow
