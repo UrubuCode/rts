@@ -185,7 +185,27 @@ impl MachineOps for JsMachine<'_> {
             && let [only] = of.as_slice()
             && matches!(self.types.of(*only), Type::Bool(_))
         {
-            return Ok(args[0]);
+            // A PROVED boolean the representation did not follow -- an entry point
+            // answering one tagged -- is narrowed by a guard, with the runtime's rule on
+            // the edge that never runs. Handed straight on, a tagged word reached a
+            // branch that takes a truth value.
+            if into.repr_of(args[0]) != Repr::Tagged {
+                return Ok(args[0]);
+            }
+            let narrowed = into.create_block();
+            let as_bool = into.add_block_param(narrowed, Repr::Bool);
+            let slow = into.create_block();
+            let join = into.create_block();
+            let answer = into.add_block_param(join, Repr::Bool);
+            into.guard(args[0], Repr::Bool, (narrowed, &[]), (slow, &[]))
+                .map_err(machine)?;
+            into.switch_to(narrowed);
+            into.jump(join, &[as_bool]).map_err(machine)?;
+            into.switch_to(slow);
+            let asked = self.call_runtime(into, crate::runtime::RuntimeOp::ToBoolean, &[args[0]])?;
+            into.jump(join, &[asked]).map_err(machine)?;
+            into.switch_to(join);
+            return Ok(answer);
         }
 
         // `ToNumber` OVER A PROVED NUMBER IS THE IDENTITY, for the reason `Truthy` over a

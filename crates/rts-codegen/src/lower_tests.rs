@@ -2446,7 +2446,8 @@ fn nothing_commutes_with_a_suspension() {
 ///
 /// An array whose iterator is the one a fresh `[]` has is walked by INDEX instead --
 /// the live length and the element each pass, which is what its `next()` does -- so the
-/// only entry points are those two, and nothing is ever copied out of the source.
+/// only entry points are those two and the question whether the protocol has anything
+/// left to observe, and nothing is ever copied out of the source.
 #[test]
 fn a_for_of_steps_the_protocol_rather_than_draining_it() {
     let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
@@ -2466,7 +2467,9 @@ fn a_for_of_steps_the_protocol_rather_than_draining_it() {
     assert!(
         entries.iter().all(|held| matches!(
             held,
-            crate::runtime::RuntimeOp::ArrayLength | crate::runtime::RuntimeOp::ElementAt
+            crate::runtime::RuntimeOp::ArrayLength
+                | crate::runtime::RuntimeOp::ElementAt
+                | crate::runtime::RuntimeOp::ArrayPatternDirect
         )),
         "nothing is drained: {entries:?}"
     );

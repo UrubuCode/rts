@@ -148,38 +148,21 @@ impl Lowering<'_> {
         let subject_value = self.expression(subject)?;
         let method = self.well_known(WellKnown::IteratorSymbol, subject_value, subject);
 
-        // AN ARRAY WALKED BY INDEX, where that is what its iterator would do. The method
-        // is the one a fresh `[]` has -- made here, so no name a program can rebind
-        // decides it, `emit/foreach.rs`'s test -- and the source has elements, which
-        // only an array has an element store for. Then `next()` would read the live
+        // AN ARRAY WALKED BY INDEX, where that is what its iterator would do:
+        // `ArrayPatternDirect` answers whether the source holds its own elements, is no
+        // proxy, and has the primordial `@@iterator` and `next` -- the current state of
+        // each, so a replaced `next` is observed. Then `next()` would read the live
         // length and the element at a counter each pass, and so does this, WITHOUT the
         // copy the running emitter walks: an element pushed during the loop is visited,
-        // as the language says. Nothing is owed a close on this path either -- an array
-        // iterator has no `return`. An empty array takes the protocol, which is exact
-        // for it too.
-        //
-        // What it does not re-check is `%ArrayIteratorPrototype%.next` itself, which a
-        // program could replace; the running emitter does not either.
-        let fresh = self.prim(JsPrim::NewArray, Vec::new(), subject);
-        let walked = self.well_known(WellKnown::IteratorSymbol, fresh, subject);
-        let same = self.prim(JsPrim::StrictEquals, vec![method, walked], subject);
-        let checking = self.builder.block();
+        // as the language says. Nothing is owed a close on this path -- an array
+        // iterator has no `return`.
+        let direct = self.entry(RuntimeOp::ArrayPatternDirect, vec![subject_value], subject);
+        let direct = self.prim(JsPrim::Truthy, vec![direct], subject);
         let indexed_entry = self.builder.block();
         let stepped_entry = self.builder.block();
         let opened = self.builder.block();
         self.builder.end(Terminator::Branch {
-            condition: same,
-            then_block: checking,
-            then_args: Vec::new(),
-            else_block: stepped_entry,
-            else_args: Vec::new(),
-        });
-        self.builder.switch_to(checking);
-        let length = self.entry(RuntimeOp::ArrayLength, vec![subject_value], subject);
-        let zero = self.integer(0, subject);
-        let filled = self.prim(JsPrim::LessThan, vec![zero, length], subject);
-        self.builder.end(Terminator::Branch {
-            condition: filled,
+            condition: direct,
             then_block: indexed_entry,
             then_args: Vec::new(),
             else_block: stepped_entry,

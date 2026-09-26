@@ -143,6 +143,25 @@ impl Lowering<'_> {
         // `Symbol.iterator`. A hand-written one need not, and then the drain restarts
         // the source or raises -- the same class of defect as reading `value` past
         // `done`, correct until someone writes their own iterator.
+        // PLAIN NAMES, no default, no rest: the shape an array is walked by index for.
+        let names: Option<Vec<Option<Name>>> = match pattern.rest {
+            Some(_) => None,
+            None => pattern
+                .elements
+                .iter()
+                .map(|slot| match slot {
+                    None => Some(None),
+                    Some(element) => match (&element.pattern, &element.default) {
+                        (Pattern::Name(name), None) => Some(Some(*name)),
+                        _ => None,
+                    },
+                })
+                .collect(),
+        };
+        if let Some(names) = names {
+            return self.destructure_names(&names, from, at);
+        }
+
         let method = self.well_known(WellKnown::IteratorSymbol, from, at);
         let iterator = self.call_method(method, from, at);
 
@@ -252,6 +271,126 @@ impl Lowering<'_> {
             // NO ELEMENTS: `const [] = xs` asks for the iterator and steps nothing, so
             // it never reached `done` and owes the close unconditionally.
             None => self.close_iterator(iterator, at),
+        }
+        Ok(bound)
+    }
+
+    /// `[a, , b] = from` -- plain names, no default, no rest -- with an ARRAY whose
+    /// protocol has nothing left to observe read by index, as `iterate.rs` walks one:
+    /// what `next()` would answer at each position is the element there, or `undefined`
+    /// past the end, and an array iterator owes no close. Anything else steps the
+    /// protocol exactly as the general form does. Both paths hand the slot values to one
+    /// block, and the names are bound there, once -- no default or target is evaluated
+    /// between the steps, so nothing observable moves.
+    fn destructure_names(
+        &mut self,
+        names: &[Option<Name>],
+        from: ValueId,
+        at: &Expr,
+    ) -> Result<Vec<Name>, Unsupported> {
+        // WHETHER THE PROTOCOL HAS ANYTHING LEFT TO OBSERVE: own elements, no proxy,
+        // and the iterator and its `next` both primordial -- `ArrayPatternDirect`
+        // reads the current state of all four. A replaced `next` is observed.
+        let method = self.well_known(WellKnown::IteratorSymbol, from, at);
+        let direct = self.entry(RuntimeOp::ArrayPatternDirect, vec![from], at);
+        let direct = self.prim(JsPrim::Truthy, vec![direct], at);
+        let indexed = self.builder.block();
+        let stepped = self.builder.block();
+        let joined = self.builder.block();
+        self.builder.end(Terminator::Branch {
+            condition: direct,
+            then_block: indexed,
+            then_args: Vec::new(),
+            else_block: stepped,
+            else_args: Vec::new(),
+        });
+
+        self.builder.switch_to(indexed);
+        let mut values = Vec::new();
+        for (position, slot) in names.iter().enumerate() {
+            if slot.is_some() {
+                let index = self.integer(position as i64, at);
+                values.push(self.entry(RuntimeOp::ElementAt, vec![from, index], at));
+            }
+        }
+        self.builder.end(Terminator::Jump {
+            target: joined,
+            args: values,
+        });
+
+        // THE PROTOCOL, the general form's steps without its bindings.
+        self.builder.switch_to(stepped);
+        let iterator = self.call_method(method, from, at);
+        let mut values = Vec::new();
+        let mut exhausted = None;
+        for slot in names {
+            let next = self.well_known(WellKnown::Next, iterator, at);
+            let step = self.call_method(next, iterator, at);
+            let done = self.well_known(WellKnown::Done, step, at);
+            let ended = self.prim(JsPrim::Truthy, vec![done], at);
+            exhausted = Some(ended);
+            if slot.is_none() {
+                continue;
+            }
+            let past = self.builder.block();
+            let within = self.builder.block();
+            let settled = self.builder.block();
+            self.builder.end(Terminator::Branch {
+                condition: ended,
+                then_block: past,
+                then_args: Vec::new(),
+                else_block: within,
+                else_args: Vec::new(),
+            });
+            self.builder.switch_to(past);
+            let absent = self.singleton_at(crate::values::Singleton::Undefined, at);
+            self.builder.end(Terminator::Jump {
+                target: settled,
+                args: vec![absent],
+            });
+            self.builder.switch_to(within);
+            let held = self.well_known(WellKnown::Element, step, at);
+            self.builder.end(Terminator::Jump {
+                target: settled,
+                args: vec![held],
+            });
+            self.builder.switch_to(settled);
+            let value = self.builder.param(settled);
+            self.types.insert(value, self.domain.top());
+            values.push(value);
+        }
+        match exhausted {
+            Some(ended) => {
+                let closing = self.builder.block();
+                let after = self.builder.block();
+                self.builder.end(Terminator::Branch {
+                    condition: ended,
+                    then_block: after,
+                    then_args: Vec::new(),
+                    else_block: closing,
+                    else_args: Vec::new(),
+                });
+                self.builder.switch_to(closing);
+                self.close_iterator(iterator, at);
+                self.builder.end(Terminator::Jump {
+                    target: after,
+                    args: Vec::new(),
+                });
+                self.builder.switch_to(after);
+            }
+            None => self.close_iterator(iterator, at),
+        }
+        self.builder.end(Terminator::Jump {
+            target: joined,
+            args: values,
+        });
+
+        self.builder.switch_to(joined);
+        let mut bound = Vec::new();
+        for name in names.iter().flatten() {
+            let value = self.builder.param(joined);
+            self.types.insert(value, self.domain.top());
+            bound.extend(self.bind_leaf(*name, value, at)?);
         }
         Ok(bound)
     }

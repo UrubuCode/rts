@@ -190,6 +190,9 @@ impl Js {
         RuntimeOp::MathRandom,
         // An element of an array a `for`-`of` walks by index -- `lower/iterate.rs`.
         RuntimeOp::ElementAt,
+        // Whether an array may be read by index where its iterator would step it --
+        // `lower/iterate.rs` and `lower/destructure.rs`.
+        RuntimeOp::ArrayPatternDirect,
     ];
 
     /// The index the IR carries for an entry point.
@@ -695,7 +698,9 @@ impl Domain for Js {
             Some(RuntimeOp::StringOf) => Type::Str,
             Some(RuntimeOp::BigIntNew) => Type::BigInt,
             // A truth value, and answered unboxed -- the representation is the proof.
-            Some(RuntimeOp::DeleteProperty | RuntimeOp::ForInHas) => Type::Bool(None),
+            Some(
+                RuntimeOp::DeleteProperty | RuntimeOp::ForInHas | RuntimeOp::ArrayPatternDirect,
+            ) => Type::Bool(None),
             // A fresh array of the keys, which nothing else can name.
             Some(RuntimeOp::EnumerateKeys) => Type::Object,
             // A length is a number, answered unboxed -- the representation and the
