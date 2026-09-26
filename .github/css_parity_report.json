@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-25",
+  "date": "2026-09-26",
   "fixtures": {
     "passing": 168,
     "total": 170,
@@ -230,6 +230,8 @@
       "WS-1 — `white-space` como família: `break-spaces`, espaços preservados, `ch`, por-inline, largura intrínseca por inline, tab stops, entidades HTML",
       "WS-2 — `nowrap` por inline na LINHA; ordem de pintura da camada 8 (Apêndice E); `Response.headers` real",
       "PQ-A — `paint/` e `query/`: os leitores da lista saem de `layout/` (item 2 da ordem, Fase A)",
+      "PQ-B — `query::hit` lê os FRAGMENTOS (item 2 da ordem, Fase B): o hit-test sem tabela",
+      "LR — `layout/` reagrupado por contexto de formatação (item 3 da ordem)",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
       "DISP — o `display` para de perder informacao no parse",
       "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",
@@ -252,6 +254,8 @@
       "flex-writing-mode-2 — `writing-mode` troca de verdade o eixo do flex (retrabalho do `414147c88`/`5e9130c65`, nunca merged) — a família WPT `flexbox-writing-mode-*`, `-slr`/`-srl`, `gap-*-{lr,rl,rtl}`",
       "BT-1 — árvore de caixas: a identidade passa a ser a CAIXA",
       "PCT — a percentagem sabe em que EIXO esta",
+      "LR-teto — os seis ficheiros de `layout/` acima do teto: o que desce por MOVES",
+      "LR-en — identificadores de `layout/` em inglês — o que é PRIVADO a cada pasta",
       "SC — contexto de empilhamento aninhado"
     ],
     "pendentes": [
