@@ -9,6 +9,8 @@
 //! Each is run by whoever lowers a function, after the lowering and before the types
 //! are inferred, so the inference sees the graph the machine will.
 
+mod fold;
 mod scalar;
 
+pub use fold::fold_constants;
 pub use scalar::{Replaced, replace_scalars};

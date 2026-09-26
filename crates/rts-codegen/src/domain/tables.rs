@@ -387,6 +387,10 @@ pub enum JsConst {
     /// Not a number of the language: nothing reads one as a value, and a `Const::Int`
     /// would be one, typed and boxed as the program's numbers are.
     Count(u32),
+    /// WHICH LITERAL a text is, as the machine word an entry point takes -- the index
+    /// in the program's literal table, minted by whoever lowers to the machine, which
+    /// is the table `StringConst` reads. Not the string: no string is built.
+    LiteralIndex(crate::syntax::Text),
     /// The marker an array holds at a position nothing was written to -- a hole.
     ///
     /// Not a value of the language: nothing reads one as a value, and an append is the

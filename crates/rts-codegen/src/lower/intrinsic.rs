@@ -23,7 +23,8 @@ use rts_mir::cfg::ValueId;
 
 use super::{Lowering, Unsupported};
 use crate::domain::JsPrim;
-use crate::syntax::{Expr, ExprKind, Spreadable};
+use crate::domain::JsConst;
+use crate::syntax::{BinaryOp, Expr, ExprKind, Literal, Spreadable, UnaryOp};
 
 impl Lowering<'_> {
     /// `Math.f(...)` as an operation, or `None` where it stays a call.
@@ -71,4 +72,55 @@ impl Lowering<'_> {
         let number = self.prim(JsPrim::ToNumber, vec![value], at);
         Ok(Some(self.prim(op, vec![number], at)))
     }
+
+    /// `typeof x === "name"` (or `==`, `!==`, `!=`, either side) as `TypeOfIs`, which
+    /// compares against the literal by its index and builds no string -- the one
+    /// crossing `emit/settled.rs` makes where the plain form makes two and a string.
+    /// `typeof` has one answer type, so the loose forms are the strict ones.
+    pub(super) fn typeof_is(
+        &mut self,
+        op: BinaryOp,
+        left: &Expr,
+        right: &Expr,
+        at: &Expr,
+    ) -> Result<ValueId, Unsupported> {
+        let negated = matches!(op, BinaryOp::StrictNotEqual | BinaryOp::LooseNotEqual);
+        let (operand, text) = match (&left.kind, &right.kind) {
+            (
+                ExprKind::Unary {
+                    op: UnaryOp::TypeOf,
+                    operand,
+                },
+                ExprKind::Literal(Literal::String(text)),
+            )
+            | (
+                ExprKind::Literal(Literal::String(text)),
+                ExprKind::Unary {
+                    op: UnaryOp::TypeOf,
+                    operand,
+                },
+            ) => (operand, text),
+            _ => return Err(Unsupported::Expression("a typeof comparison of another shape")),
+        };
+        let value = self.expression(operand)?;
+        let index = self.domain.constant(JsConst::LiteralIndex(text.clone()));
+        let index = self.declared(index, at);
+        let is = self.entry(crate::runtime::RuntimeOp::TypeOfIs, vec![value, index], at);
+        Ok(match negated {
+            true => self.prim(JsPrim::Not, vec![is], at),
+            false => is,
+        })
+    }
+}
+
+/// Whether a binary expression is `typeof x` compared by equality with a string
+/// literal -- the shape [`Lowering::typeof_is`] takes.
+pub(super) fn compares_typeof(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
+    let equality = matches!(
+        op,
+        BinaryOp::StrictEqual | BinaryOp::LooseEqual | BinaryOp::StrictNotEqual | BinaryOp::LooseNotEqual
+    );
+    let typeof_of = |held: &Expr| matches!(held.kind, ExprKind::Unary { op: UnaryOp::TypeOf, .. });
+    let text = |held: &Expr| matches!(held.kind, ExprKind::Literal(Literal::String(_)));
+    equality && ((typeof_of(left) && text(right)) || (text(left) && typeof_of(right)))
 }

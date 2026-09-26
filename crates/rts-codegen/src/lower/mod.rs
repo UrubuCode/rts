@@ -890,6 +890,11 @@ impl Lowering<'_> {
                 }
                 Ok(self.call(callee, receiver, args, expr))
             }
+            ExprKind::Binary { op, left, right }
+                if intrinsic::compares_typeof(*op, left, right) =>
+            {
+                self.typeof_is(*op, left, right, expr)
+            }
             ExprKind::Binary { op, left, right } => {
                 let left = self.expression(left)?;
                 let right = self.expression(right)?;

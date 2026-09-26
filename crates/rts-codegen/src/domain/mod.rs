@@ -193,6 +193,9 @@ impl Js {
         // Whether an array may be read by index where its iterator would step it --
         // `lower/iterate.rs` and `lower/destructure.rs`.
         RuntimeOp::ArrayPatternDirect,
+        // `typeof x === "..."` without building the string -- `lower::Lowering`'s
+        // binary arm, after `emit/settled.rs`.
+        RuntimeOp::TypeOfIs,
     ];
 
     /// The index the IR carries for an entry point.
@@ -538,7 +541,9 @@ impl Domain for Js {
                 // A function NAME is not a value of the language, so it has no type
                 // in this lattice. Nothing reads one as a value: it is only ever the
                 // operand of the operation that makes a closure of it.
-                Some(JsConst::Function(_) | JsConst::Count(_)) => Type::Nothing,
+                Some(JsConst::Function(_) | JsConst::Count(_) | JsConst::LiteralIndex(_)) => {
+                    Type::Nothing
+                }
                 // Handed to an append and nothing else, so nothing is known of it.
                 Some(JsConst::Hole) => Type::Anything,
                 // A key is text, wherever the key came from.
@@ -785,6 +790,7 @@ impl rts_mir::text::Legend for Js {
             Some(JsConst::Key(_)) => format!("key#{index}"),
             Some(JsConst::Function(held)) => format!("f{held}"),
             Some(JsConst::Count(held)) => format!("count#{held}"),
+            Some(JsConst::LiteralIndex(_)) => "literal#".to_owned(),
             Some(JsConst::Hole) => "hole".to_owned(),
             Some(JsConst::WellKnown(which)) => format!(".{}", format!("{which:?}").to_lowercase()),
             Some(JsConst::Text(_)) => format!("str#{index}"),

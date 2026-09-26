@@ -239,6 +239,7 @@ fn attempt(
     .map_err(|held| format!("lowering: {held:?}"))?;
     // THE LANGUAGE'S PASSES, before the checks and the inference read the graph --
     // `optimize/` says which and why each is this crate's rather than `rts_mir`'s.
+    crate::optimize::fold_constants(&mut graph, &domain);
     crate::optimize::replace_scalars(&mut graph, &domain);
     rts_mir::passes::remove_dead(&mut graph);
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
@@ -652,6 +653,15 @@ fn typeof_reads(
     graph.insts.iter().any(|inst| match &inst.op {
         rts_mir::Op::Prim { prim, args } => {
             domain.meaning(*prim) == Some(JsPrim::TypeOf) && args.contains(&value)
+        }
+        // `typeof x === "..."`, asked in one crossing, reads `x` as `typeof` does.
+        rts_mir::Op::Call {
+            callee: rts_mir::cfg::Callee::Entry(entry),
+            args,
+            ..
+        } => {
+            domain.entry_meaning(*entry) == Some(crate::runtime::RuntimeOp::TypeOfIs)
+                && args.first() == Some(&value)
         }
         _ => false,
     })

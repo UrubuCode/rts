@@ -124,6 +124,16 @@ impl MachineOps for JsMachine<'_> {
             let held = u64::from(*held);
             return Ok(self.word(into, held));
         }
+        // A LITERAL'S INDEX is a machine word too: the program's table, the same numbering
+        // `StringConst` reads, and no string made.
+        if let Some(JsConst::LiteralIndex(text)) = self.domain.declared(index) {
+            let units = text.units().to_vec();
+            let Some(shared) = self.shared.as_mut() else {
+                return Err("a literal's index needs the program's literal table".to_owned());
+            };
+            let which = shared.literals.intern(&units);
+            return Ok(self.word(into, u64::from(which)));
+        }
         // A FUNCTION VALUE NEEDS THE MACHINE'S ID FOR THAT FUNCTION -- its code address
         // is what `ClosureNew` takes -- and this boundary compiles one function at a
         // time, so no other function of the module has an id here. That is the same
