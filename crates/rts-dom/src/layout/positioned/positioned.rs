@@ -44,7 +44,7 @@ fn containing_block_rect(
         if establishes_cb {
             // O containing block é a PADDING BOX do ancestral (CSS 2.1 §10.1),
             // não a border box guardada em `flow_rects` (a geometria por nó) —
-            // ver `caixa_contentora.rs` para o achado (a referência de 31 dos 33
+            // ver `containing_block.rs` para o achado (a referência de 31 dos 33
             // reftests `flex-align-justify-familia` tem um `border` no
             // ancestral e desviava 1px nos dois eixos sem esta conversão).
             if let (Some(r), Some(css_p)) = (flow_rects.get(&p), css_p) {
@@ -208,7 +208,7 @@ pub(in crate::layout) fn layout_out_of_flow(
         false,
         true,
         // `position:absolute/fixed` estabelece o seu próprio BFC (CSS 2.1
-        // §9.4.1); `bloco.rs` cria um novo internamente de qualquer forma.
+        // §9.4.1); `block.rs` cria um novo internamente de qualquer forma.
         &BlockFormattingContext::new(),
         ctx,
         list,
@@ -217,7 +217,7 @@ pub(in crate::layout) fn layout_out_of_flow(
 
 /// Resolve um offset de posicionamento (`top`/`left`/…): px SEM clamp (negativo
 /// desloca para fora — badges/tooltips); `%` contra o eixo do viewport dado.
-/// `pub(in crate::layout)`: reusado por `relativo.rs` para os mesmos quatro
+/// `pub(in crate::layout)`: reusado por `relative.rs` para os mesmos quatro
 /// insets no caminho de `position:relative` — mesma resolução, containing
 /// block diferente.
 pub(in crate::layout) fn resolve_inset(

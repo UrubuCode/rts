@@ -9,12 +9,12 @@
 //! Achado por `flexbox_align-self-stretch.html` (lote
 //! `flex-align-justify-familia`): `height: auto` DECLARADO — para vencer o
 //! `height: 3em` de um seletor anterior mais fraco — bloqueava `can_stretch`
-//! em `flex.rs`, e o item ficava na altura do texto (18px) em vez de esticar
+//! em `row.rs`, e o item ficava na altura do texto (18px) em vez de esticar
 //! aos 96px do container (o `align-self: stretch` do mesmo item nunca chegava
-//! a ser lido). Só o caminho de linha (`flex.rs`, ROW) é corrigido com isto;
-//! os mesmos `.is_none()` em `coluna_wrap.rs`, `grid.rs` e `posicionado.rs`
+//! a ser lido). Só o caminho de linha (`row.rs`, ROW) é corrigido com isto;
+//! os mesmos `.is_none()` em `column_wrap.rs`, `grid.rs` e `positioned.rs`
 //! são o corte IDÊNTICO que outro lote já tinha registado
-//! (`grid.rs:355`/`coluna.rs:310`, citado em `flex-justify-logico` no PLAN) —
+//! (`grid.rs:355`/`column.rs:310`, citado em `flex-justify-logico` no PLAN) —
 //! ficam por tocar, fora do âmbito deste.
 
 use crate::style::Dimension;

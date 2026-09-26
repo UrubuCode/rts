@@ -159,7 +159,7 @@ pub(in crate::layout) fn aplicar_elipse(
     lines: Vec<Vec<Segment>>,
     content_w: f32,
     // `(size, mono, ahem)` of the font a segment's text is in — the container's,
-    // or its innermost inline's (`fonte_do_trecho.rs`). An ellipsis cut in the
+    // or its innermost inline's (`run_font.rs`). An ellipsis cut in the
     // container's font mis-cut a 16px span inside a 64px block.
     fonte_de: &dyn Fn(&[NodeIdx]) -> (f32, bool, bool),
     m: &dyn TextMeasurer,

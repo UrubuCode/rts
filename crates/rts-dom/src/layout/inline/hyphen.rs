@@ -16,7 +16,7 @@
 //! um dicionário de padrões — é uma dependência e uma decisão de tamanho que o
 //! PLAN §5 pede que se tome à parte.
 //!
-//! Vive fora de `quebra.rs` porque esse ficheiro está a 30 linhas do teto de
+//! Vive fora de `line_break.rs` porque esse ficheiro está a 30 linhas do teto de
 //! 500 e o `wrap_runs` não se parte por dentro.
 
 use super::*;

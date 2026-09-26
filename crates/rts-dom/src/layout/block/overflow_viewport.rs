@@ -6,7 +6,7 @@
 //! `<body>` em si fica como se `overflow` nunca tivesse sido escrito.
 //!
 //! Isto importa aqui porque `establishes_block_formatting_context`
-//! (`bloco.rs`) trata `overflow != visible` como um gatilho de BFC (CSS 2.1
+//! (`block.rs`) trata `overflow != visible` como um gatilho de BFC (CSS 2.1
 //! §9.4.1) — e um BFC SUPRIME o colapso de margem entre uma caixa e o seu
 //! primeiro filho (§8.3.1). Sem esta exceção, o idioma comum
 //! `body { overflow: hidden }` (esconder um scroll indesejado — nada a ver
@@ -20,7 +20,7 @@
 use super::*;
 
 /// A largura que os filhos de um flex-row/wrap recebem quando `overflow_x`
-/// não é `visible` — parte de `bloco.rs::layout_children` (movida para aqui
+/// não é `visible` — parte de `block.rs::layout_children` (movida para aqui
 /// por já estar no teto de 500/1000 linhas, RULE de tecto do `CLAUDE.md`).
 ///
 /// Duas perguntas distintas partilhavam uma variável só (`scrolls_x`, #1744):

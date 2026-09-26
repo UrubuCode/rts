@@ -5,7 +5,7 @@
 //! Measured in Blink (`claude-absoluto-posicao-estatica-na-linha`): a box that
 //! was BLOCK-level before `position` blockified it goes below the line it
 //! appears in, at the flow's start edge; one that was INLINE-level stays where
-//! it appears on the line, at the line's top. `posicao_estatica.rs` could
+//! it appears on the line, at the line's top. `static_position.rs` could
 //! answer neither: it looks at the box's DOM siblings, and inside a line the
 //! "sibling" is text, which has no rectangle — every such box landed at the
 //! top of the enclosing element.

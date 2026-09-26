@@ -1,6 +1,6 @@
 //! Margens `auto` no EIXO TRANSVERSAL de um item flex (Flexbox §8.1).
 //!
-//! No eixo principal `flex.rs` e `coluna.rs` já repartiam o espaço livre pelas
+//! No eixo principal `row.rs` e `column.rs` já repartiam o espaço livre pelas
 //! margens `auto` (é o `mx-auto`). No transversal nada as lia: `margin: auto`
 //! centrava na horizontal e ficava colado ao topo. O `auto-margins-001` do WPT
 //! passava VAZIO até as bordas em `em` pintarem (lote borda-em); com bordas

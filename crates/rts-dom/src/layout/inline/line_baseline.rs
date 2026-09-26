@@ -3,7 +3,7 @@
 //! above and below one shared baseline, and the line box is the largest of
 //! each side.
 //!
-//! The text flow (`linha.rs`) did not ask this. It took the line's height as
+//! The text flow (`line.rs`) did not ask this. It took the line's height as
 //! the tallest atom and treated every inline-block as sitting on its bottom
 //! edge, with a special case for "taller than the strut and next to text".
 //! That gave an empty 20px inline-block a 20px line where Blink gives 25 (the
@@ -13,8 +13,8 @@
 //! (`claude-inline-block-baseline`).
 //!
 //! The model already existed — [`Envelope`] and
-//! [`topo_do_item_com_baseline`] in `alinhamento_vertical.rs`, used by the
-//! run of sibling inline-blocks (`linha_ib.rs`) — and its module doc named
+//! [`topo_do_item_com_baseline`] in `vertical_align.rs`, used by the
+//! run of sibling inline-blocks (`line_inline_block.rs`) — and its module doc named
 //! this migration as the cut still open. This module only feeds it the atoms
 //! of a text line. A line with NO inline-block keeps the old path untouched:
 //! text and images alone were already right, and moving them is a separate,
@@ -128,7 +128,7 @@ fn atomo(dom: &Dom, seg: &Segment, content_w: f32, ctx: &LayoutCtx) -> Option<At
             })
         }
         // A replaced element has no baseline of its own: its bottom margin edge
-        // sits on the line's (CSS 2.1 §10.8.1), which is where `linha.rs`
+        // sits on the line's (CSS 2.1 §10.8.1), which is where `line.rs`
         // already puts it.
         AtomicKind::Replaced => Some(Atomo { altura, ascent: altura, valign: VerticalAlign::Baseline }),
         AtomicKind::Widget => Some(Atomo {

@@ -6,13 +6,13 @@
 //! do `align-items: stretch` (o default) esticar o eixo cruzado.
 //!
 //! Duas perguntas, uma implementação (`transferido`, abaixo): o ITEM em si —
-//! usado no pré-passo de `flex.rs`, onde a altura do contentor já é um
+//! usado no pré-passo de `row.rs`, onde a altura do contentor já é um
 //! parâmetro — e o CONTENTOR que encolhe ao conteúdo
-//! (`largura_intrinseca_transferida`, usado por `bloco.rs`/`flex_limites.rs`
+//! (`largura_intrinseca_transferida`, usado por `block.rs`/`limits.rs`
 //! ANTES do layout real: sem isto um `<div style="display:flex;height:100px">`
 //! só com uma imagem lá dentro mede-se pela largura NATURAL da imagem — 1px
 //! para um PNG 1×1 — e nunca chega a oferecer ao filho o espaço que ele
-//! precisava de ocupar. `bloco.rs`/`medida.rs` estão no tecto de 500/1000
+//! precisava de ocupar. `block.rs`/`measure.rs` estão no tecto de 500/1000
 //! linhas e não crescem: só chamam esta função.
 
 use super::*;
@@ -69,7 +69,7 @@ pub(in crate::layout) fn transferido(
     Some((w_content + margin_h + bl + br, cross_h))
 }
 
-/// `(base, h, transferiu)` de um item do pré-passo de `flex.rs`: a versão
+/// `(base, h, transferiu)` de um item do pré-passo de `row.rs`: a versão
 /// TRANSFERIDA (`transferido`, acima) quando o item é um `<img>` esticado no
 /// eixo cruzado, senão a de sempre (`flex_base_outer`/`child_outer_height`)
 /// — uma chamada só, para o pré-passo (que já está no tecto de 500 linhas)
@@ -97,7 +97,7 @@ pub(in crate::layout) fn transferido(
 pub(in crate::layout) fn base_e_altura_do_item(
     dom: &Dom,
     child: NodeIdx,
-    // A caixa do item, recolhida pelo pré-passe de `flex.rs` ao andar a árvore.
+    // A caixa do item, recolhida pelo pré-passe de `row.rs` ao andar a árvore.
     caixa: crate::boxes::BoxId,
     content_w: f32,
     container_content_h: Option<f32>,
@@ -138,7 +138,7 @@ pub(in crate::layout) fn base_e_altura_do_item(
 ///
 /// `own_cross_h`: a altura de conteúdo JÁ CONHECIDA de `id`, quando o
 /// chamador a tem à mão (o `forced_outer_h` de um esticado por
-/// `position:absolute` com os dois insets, `bloco.rs`) — senão `None` e esta
+/// `position:absolute` com os dois insets, `block.rs`) — senão `None` e esta
 /// função tenta a altura DECLARADA do próprio `id` (`#dentro{height:100px}`
 /// como item de outro flex: a altura não depende de nada externo).
 pub(in crate::layout) fn largura_intrinseca_transferida(

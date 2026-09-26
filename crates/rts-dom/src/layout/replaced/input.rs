@@ -134,7 +134,7 @@ pub(in crate::layout) fn medida_do_input(
     let tipo = dom.node(id).attr("type").map(|t| t.to_ascii_lowercase());
     let quadrado = matches!(tipo.as_deref(), Some("checkbox") | Some("radio"));
     // `<textarea>` E `<input>` chegam aqui pelo mesmo `is_text_input_tag`
-    // (`bloco.rs`/`runs.rs`), mas o tamanho por omissão de um NÃO é o do
+    // (`block.rs`/`runs.rs`), mas o tamanho por omissão de um NÃO é o do
     // outro — ver `LARGURA_TEXTAREA` e as duas linhas por omissão abaixo.
     let e_textarea = matches!(&dom.node(id).kind, crate::dom::NodeKind::Element { tag } if tag == "textarea");
     // `type=range` também não leva a moldura do campo de texto: a folha da UA

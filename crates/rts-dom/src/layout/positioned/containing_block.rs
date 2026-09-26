@@ -3,7 +3,7 @@
 //! block is formed by the padding edge of the ancestor"). A borda fica FORA
 //! do container onde `top`/`right`/`bottom`/`left` são medidos.
 //!
-//! `posicionado.rs` só tinha o BORDER-BOX guardado na geometria por nó (era
+//! `positioned.rs` só tinha o BORDER-BOX guardado na geometria por nó (era
 //! `node_rects`; hoje `box_rects`, agregado por `DisplayList::rect_of_node` —
 //! o mesmo retângulo que `getBoundingClientRect` reporta) e usava-o direto
 //! como origem do containing block — um ancestral com QUALQUER borda
@@ -42,7 +42,7 @@ pub(in crate::layout) fn padding_box(border_box: Rect, css: &ComputedStyle) -> R
 /// Converte o border-box para a CONTENT box do MESMO nó — onde os filhos em
 /// fluxo normal começam. Diferente de [`padding_box`]: o CONTAINING BLOCK de
 /// um `position:absolute` é a padding box (CSS 2.1 §10.1), mas a STATIC
-/// POSITION de um fora-de-fluxo (`posicao_estatica.rs`) é onde o CONTEÚDO
+/// POSITION de um fora-de-fluxo (`static_position.rs`) é onde o CONTEÚDO
 /// começaria — um passo mais para dentro, através do padding.
 ///
 /// O padding pode ser percentual; sem o `avail_w` que o layout do PAI de
@@ -149,7 +149,7 @@ mod tests {
     }
 
     /// `content_box` desce um passo A MAIS que `padding_box` (usado pela
-    /// `posicao_estatica.rs`): um `padding:20px` sem borda nenhuma NÃO desloca
+    /// `static_position.rs`): um `padding:20px` sem borda nenhuma NÃO desloca
     /// o containing block (a padding box começa na mesma origem do border box
     /// quando não há borda) mas DESLOCA onde o conteúdo — e a posição estática
     /// de um fora-de-fluxo — começaria.

@@ -5,7 +5,7 @@
 //! not ask it: a generated box (`::before`/`::after`, lot BT-5) has a style and
 //! a parent but no node. Copying the list of triggers into `boxes::context`
 //! would have been a second answer to "does this establish a BFC", so the
-//! style half moved here and both callers ask it. What stays in `bloco.rs` is
+//! style half moved here and both callers ask it. What stays in `block.rs` is
 //! what only a NODE can answer: whether it is the document root, and whether
 //! its `overflow` propagates to the viewport instead of applying to itself.
 

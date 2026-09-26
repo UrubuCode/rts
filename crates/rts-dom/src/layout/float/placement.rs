@@ -1,9 +1,9 @@
 //! PLACING a float: measure its box, find the first band where it fits from a
 //! given top, lay it out and register it in the BFC.
 //!
-//! This lived whole in the float branch of `vertical.rs`. It moved out because
+//! This lived whole in the float branch of `vertical_flow.rs`. It moved out because
 //! it gained a SECOND caller asking the same question: the block stack, for a
-//! float that is a direct child, and the inline flow (`float_in_line.rs`), for
+//! float that is a direct child, and the inline flow (`in_line.rs`), for
 //! a float that appears in the middle of a line — CSS 2.1 §9.5.1 puts it at the
 //! top of the line it appears in. Two copies of the band search would be the
 //! second truth this crate has already paid for elsewhere.
@@ -104,7 +104,7 @@ pub(in crate::layout) fn place_float(
         None,
         false,
         true,
-        // A float establishes its OWN BFC (CSS 2.1 §9.4.1) — `bloco.rs` makes
+        // A float establishes its OWN BFC (CSS 2.1 §9.4.1) — `block.rs` makes
         // a new one inside for its content anyway; this value is never read.
         &BlockFormattingContext::new(),
         ctx,
@@ -112,7 +112,7 @@ pub(in crate::layout) fn place_float(
     );
     // Registered in the responsible BFC — the SHARED reference, not a local
     // copy: that is what lets this float reach the SIBLINGS of the ancestor
-    // that established the BFC, not only this container's (see `layout/bfc.rs`
+    // that established the BFC, not only this container's (see `block/bfc.rs`
     // and `claude-float-clear.html`).
     bfc.push(Exclusao {
         top,

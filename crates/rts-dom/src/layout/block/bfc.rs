@@ -105,7 +105,7 @@ impl BlockFormattingContext {
 
     /// Os fundos dos floats abertos, um por float, sem ordenar — para o laço
     /// de colocação de um float NOVO, que desce até ao fundo de cada um que
-    /// estorve a banda pedida (ver o uso em `vertical.rs`).
+    /// estorve a banda pedida (ver o uso em `vertical_flow.rs`).
     pub(in crate::layout) fn fundos(&self) -> Vec<f32> {
         self.floats.borrow().iter().map(|e| e.bottom).collect()
     }

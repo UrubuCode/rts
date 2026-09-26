@@ -38,7 +38,7 @@
 //! divergiam da MESMA forma do Chrome (os dois à esquerda, sem nenhum saber
 //! de `direction`), passaram a divergir um do outro.
 //!
-//! Extraído de `bloco.rs` (a mais de 1000 linhas) para não crescer lá.
+//! Extraído de `block.rs` (a mais de 1000 linhas) para não crescer lá.
 
 use crate::dom::{Dom, NodeIdx};
 

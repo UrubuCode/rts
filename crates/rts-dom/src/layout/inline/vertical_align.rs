@@ -2,7 +2,7 @@
 //!
 //! Até aqui o motor só sabia posicionar dois dos oito valores CSS
 //! (`middle`/`bottom`), e só dentro da "corrida" de inline-blocks
-//! (`layout_inline_block_line`, em `linha_ib.rs`) — o resto caía num `_ => 0.0`
+//! (`layout_inline_block_line`, em `line_inline_block.rs`) — o resto caía num `_ => 0.0`
 //! que alinhava pelo TOPO. A causa não era um valor por implementar de cada
 //! vez: era a falta de uma ENTIDADE. Cada átomo de uma linha (um `inline-block`
 //! vazio, hoje; um run de texto, amanhã) só tem ALTURA — não tem onde guardar

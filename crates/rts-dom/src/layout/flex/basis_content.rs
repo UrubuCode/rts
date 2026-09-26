@@ -2,13 +2,13 @@
 //! SEMPRE o conteúdo — ao contrário de `flex-basis: auto`, que primeiro olha
 //! para o `width` do item e só cai no conteúdo quando ele também é `auto`.
 //!
-//! `flex_base_outer` (`flex_limites.rs`) resolve os dois casos ao mesmo
+//! `flex_base_outer` (`limits.rs`) resolve os dois casos ao mesmo
 //! `None` (`Dimension::MaxContent.resolve()` devolve `None`, tal como
 //! `Dimension::Auto`) e por isso caíam os dois no MESMO fallback
 //! (`child_outer_width`, que olha para `width` primeiro) — um
 //! `flex-basis:content` com `width` declarado usava o `width`, quando a
 //! spec pede que a keyword `content` o IGNORE sempre. Módulo próprio (e não
-//! mais uma função em `flex_limites.rs`) porque a resposta é por EIXO.
+//! mais uma função em `limits.rs`) porque a resposta é por EIXO.
 //!
 //! O espelho para COLUNA **não vive aqui**: está em `layout_children_column`,
 //! onde o item já é montado, e usa `column_shrink::altura_conteudo_sem_height`

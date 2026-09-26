@@ -9,7 +9,7 @@
 //! boxes a real element would be:
 //!
 //! - **`inline-block`**: one atom (`AtomicKind::Gerada(_, Atomo)`), measured
-//!   and painted as a [`CaixaGerada`] by `pseudo_caixa.rs` — the same
+//!   and painted as a [`CaixaGerada`] by `pseudo_box.rs` — the same
 //!   `montar`/`pintar` the block and flex-item roles use, not a fourth copy.
 //! - **`inline`**: its text, bracketed by a start and an end edge
 //!   (`Gerada(_, Inicio | Fim)`) that carry margin + border + padding as
@@ -41,7 +41,7 @@ use crate::inline_box::ParteGerada;
 /// ancestrais como qualquer outro, e é `uniontests.rs` que o fixa.
 ///
 /// `display:block`/`flex`/`grid` não entra aqui: esse pseudo gera uma caixa
-/// de BLOCO própria — `pseudo_bloco.rs`, só para o DONO de um fluxo vertical
+/// de BLOCO própria — `pseudo_block.rs`, só para o DONO de um fluxo vertical
 /// — e não pode ser entregue aqui também, ou o conteúdo pinta DUAS vezes. Um
 /// pseudo de bloco de um elemento que NÃO é dono de fluxo vertical (um
 /// `<span>` a meio de uma linha) não tem hoje onde a caixa de bloco se
@@ -53,7 +53,7 @@ use crate::inline_box::ParteGerada;
 ///
 /// **The atom's box is looked up by NODE here** (`BoxTree::generated_of`), in
 /// the document's memoised tree — the one every layout list carries — because
-/// `linha.rs` calls this with the owner's node and no box. `runs.rs` has the
+/// `line.rs` calls this with the owner's node and no box. `runs.rs` has the
 /// box it is walking and calls [`pseudo_run_da_caixa`] with the exact one:
 /// for a split inline, the node's first box is not the fragment being walked.
 #[allow(clippy::too_many_arguments)]
@@ -204,7 +204,7 @@ fn medir_atomo((gerada, caixa): (crate::boxes::BoxId, crate::pseudo::PseudoBox),
 
 /// Paints the `inline-block` pseudo `pe` of `id` at the place the line gave
 /// it: `x` and its `topo`, which the line decides by the same §10.8.1
-/// envelope as a real `inline-block` (`linha_baseline.rs`).
+/// envelope as a real `inline-block` (`line_baseline.rs`).
 ///
 /// `gerada` is the atom's box as the line has it — the exact box of THIS
 /// fragment when the originating inline is split, so each fragment records

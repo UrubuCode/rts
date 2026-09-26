@@ -1,7 +1,7 @@
 //! The TYPES of the fragment cache — [`ChildRef`] and [`Fragment`] — apart from
-//! the algorithm that builds, stitches and reuses them (`fragmento.rs`), which
+//! the algorithm that builds, stitches and reuses them (`fragment.rs`), which
 //! was past the file ceiling and was about to gain the fragment's last-line
-//! baseline (`linha_baseline.rs`). Moved verbatim.
+//! baseline (`line_baseline.rs`). Moved verbatim.
 
 use super::*;
 
@@ -89,7 +89,7 @@ pub struct Fragment {
     pub linha_directa: Option<f32>,
     pub ultima_linha: Option<f32>,
     /// The static positions the inline flows of THIS fragment's own list
-    /// recorded (`ancora_estatica.rs`), in the coordinates of `origin`. A cached
+    /// recorded (`static_anchor.rs`), in the coordinates of `origin`. A cached
     /// fragment runs no flow, so they have to travel with it.
     pub ancoras_estaticas: std::rc::Rc<Vec<(crate::boxes::BoxId, f32, f32)>>,
     /// Onde este fragmento foi calculado.

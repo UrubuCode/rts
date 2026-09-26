@@ -1,6 +1,6 @@
 //! Os LIMITES de um item flex no eixo principal: a base (`flex-basis` ou a
 //! largura natural) e o tecto/piso de `max-width`/`min-width`, ambos como
-//! OUTER — o que `FlexItem::base`/`main` são. Extraído de `flex.rs` (no teto
+//! OUTER — o que `FlexItem::base`/`main` são. Extraído de `row.rs` (no teto
 //! de 500) com o lote que deu ao item o `max-width` que lhe faltava
 //! (`claude-flex-item-max-width`: o `.cover-container` do Bootstrap).
 
@@ -36,7 +36,7 @@ pub(in crate::layout) fn flex_base_outer(
         // flex, `claude-flex-abspos-img-aspect-ratio`): a largura natural
         // dessa imagem (o que `child_outer_width` mediria) é o tamanho dos
         // pixels, não o que ela vai ocupar depois do `align-items: stretch`
-        // — ver `replaced_transferido.rs`. Verificada ANTES da keyword
+        // — ver `transferred_size.rs`. Verificada ANTES da keyword
         // `content` abaixo porque é uma pergunta ortogonal (estrutura do
         // contentor, não o valor de `flex-basis`) e já valia para `auto`
         // antes deste lote.
@@ -77,7 +77,7 @@ pub(in crate::layout) fn flex_base_outer(
 /// `min-content`/`max-content` explícitos (`Dimension::MinContent`/
 /// `MaxContent`, só possíveis em `min-width`/`max-width` — `style/lengths.rs`)
 /// resolvem para a intrínseca REAL do item (`crate::layout::measure::intrinsic_min_max::resolve` —
-/// partilhado com `bloco.rs`, que precisa da mesma pergunta para um
+/// partilhado com `block.rs`, que precisa da mesma pergunta para um
 /// DESCENDENTE do item, não só para o item em si) em vez de caírem no `None`
 /// genérico que `Dimension::resolve` dá a uma keyword que só a árvore
 /// resolve — sem isto `min-width:min-content` empatava com "não declarado" e
@@ -118,7 +118,7 @@ pub(in crate::layout) fn limites_do_item(
 /// Shrink-to-fit (CSS2 §10.3.5): `width = min(max(pref-min, disponível),
 /// pref)` — o PISO (min-content) e o TECTO (`disponível`/max-content), na
 /// escala de CONTEÚDO (sem o frame de `id`, que o chamador já descontou de
-/// `disponivel`). Extraído de `bloco.rs` (já acima do tecto de 500, não
+/// `disponivel`). Extraído de `block.rs` (já acima do tecto de 500, não
 /// cresce) com este lote: faltava o piso — um bloco/float sem `width` num
 /// pai de largura zero (o truque que o WPT usa para simular
 /// `width:min-content`) colapsava a 0 em vez de parar no min-content
@@ -138,7 +138,7 @@ pub(in crate::layout) fn largura_shrink_to_fit(
 /// GROW/SHRINK de uma linha (Flexbox §9.7): espaço livre positivo distribui
 /// ∝ `flex-grow` (o `.col { flex:1 0 0% }` divide igual); negativo encolhe ∝
 /// `shrink×base` (itens maiores cedem mais), com PISO (`min_main`) e TECTO
-/// (`max_main`). Extraído de `flex.rs` (no tecto de 500) com o lote que deu
+/// (`max_main`). Extraído de `row.rs` (no tecto de 500) com o lote que deu
 /// ao encolhimento o tecto que só o piso tinha
 /// (`claude-flex-base-size-max-width`).
 pub(in crate::layout) fn resolve_grow_encolhe(
@@ -276,16 +276,16 @@ pub(in crate::layout) fn resolve_grow_encolhe(
 /// conflito. Chamado para TODO item depois de resolvido o grow/shrink da
 /// linha, incluindo o item que não cresceu nem encolheu (`free_pre>=0` sem
 /// `flex-grow`): antes deste lote a BASE vinha pré-capada pelo `max-width`
-/// no construtor do item (`flex.rs`), e por isso um item assim nunca
+/// no construtor do item (`row.rs`), e por isso um item assim nunca
 /// precisava de tecto aqui — sem a pré-capagem (ver o comentário na
-/// construção do item, `flex.rs`), este é o ÚNICO sítio onde o tecto ainda
+/// construção do item, `row.rs`), este é o ÚNICO sítio onde o tecto ainda
 /// se aplica para esse caso (`claude-flex-base-size-max-width`). O piso
 /// (`min_main`) já vivia aqui antes: um item `flex-grow:0` congela direto na
 /// sua base sem nunca entrar no laço de grow/shrink, e o piso tem de valer
 /// lá também. Grow e shrink redistribuem no próprio laço; este clamp também
 /// cobre itens que não participaram da distribuição. `grid_cols` fica de
 /// fora: uma coluna de grid tem largura FIXA por desenho (a base já veio
-/// zerada de grow/shrink em `flex.rs`), não pelo conteúdo.
+/// zerada de grow/shrink em `row.rs`), não pelo conteúdo.
 pub(in crate::layout) fn com_limites_finais(
     main: f32,
     min_main: f32,

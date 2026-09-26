@@ -1,7 +1,7 @@
 //! `tab-size` e `-webkit-line-clamp` — os dois cortam o fluxo já quebrado, não
-//! a medida de texto, por isso vivem à parte de `quebra.rs`/`segmento.rs`.
+//! a medida de texto, por isso vivem à parte de `line_break.rs`/`segment.rs`.
 //!
-//! Movido para módulo próprio (e não acrescentado a `quebra.rs`, que já está
+//! Movido para módulo próprio (e não acrescentado a `line_break.rs`, que já está
 //! perto do teto de 500) na entrada do lote de texto — ver `PLAN.md` §5.S.
 
 use super::Segment;

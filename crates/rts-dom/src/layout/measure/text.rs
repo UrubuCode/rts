@@ -130,7 +130,7 @@ impl Lines {
         let regime = css.map(WhiteSpaceRegime::from_css).unwrap_or_else(|| WhiteSpaceRegime::from_css(&Default::default()));
         let ws = css.and_then(|c| c.white_space).unwrap_or(crate::style::WhiteSpace::Normal);
         let soft_breaks = self.min && !matches!(ws, crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre);
-        // The soft hyphen has no width unless a line breaks at it (`hifen.rs`, rule 1).
+        // The soft hyphen has no width unless a line breaks at it (`hyphen.rs`, rule 1).
         let t = crate::layout::inline::hyphen::sem_shy(t);
         if regime.preserves() {
             for token in tokens(&t) {

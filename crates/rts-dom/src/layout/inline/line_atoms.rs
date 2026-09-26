@@ -1,8 +1,8 @@
-//! The ATOM branch of `linha.rs`'s per-segment emission loop: what happens
+//! The ATOM branch of `line.rs`'s per-segment emission loop: what happens
 //! when a `Segment` in a line is a widget, a replaced element, an
 //! inline-block, or a generated atom, rather than text.
 //!
-//! Moved out of `layout_inline_flow` (`linha.rs`, teto de 500) — a pure move,
+//! Moved out of `layout_inline_flow` (`line.rs`, teto de 500) — a pure move,
 //! nothing changed. It is its own function rather than a smaller one because
 //! the `for seg in line` loop's atomic arm ends in `continue`, never falling
 //! through to the text arm below it, so the whole branch is a single unit
@@ -40,7 +40,7 @@ pub(in crate::layout) fn emitir_atomo(
     let Some((a_idx, caixa, kind)) = seg.atomic else {
         return;
     };
-    // Float and static-position anchors have nothing on the line (`ancora_estatica.rs`).
+    // Float and static-position anchors have nothing on the line (`static_anchor.rs`).
     if super::static_anchor::fora_da_linha(dom, (a_idx, caixa, kind), *seg_x, x, cy, cy + line_advance, at_linha, list) {
         return;
     }

@@ -2,7 +2,7 @@
 //! num eixo (`top`/`left`/`right`/`bottom` todos ausentes nesse eixo, CSS 2.1
 //! §10.3.7/§10.6.4): a posição que a caixa teria SE estivesse em fluxo normal.
 //!
-//! Hoje `posicionado.rs::layout_out_of_flow` cai na origem do CONTAINING BLOCK
+//! Hoje `positioned.rs::layout_out_of_flow` cai na origem do CONTAINING BLOCK
 //! (`cb.x`/`cb.y`) quando os dois insets de um eixo faltam — errado sempre que
 //! o nó não é o primeiro filho do seu contentor de fluxo, e sempre dentro de um
 //! flex (Flexbox §4.1: a posição estática aí é alinhada por
@@ -41,7 +41,7 @@ pub(in crate::layout) fn posicao_estatica(
     containing_block: Rect,
 ) -> (f32, f32) {
     // The box appeared in the middle of a LINE: the inline flow recorded where
-    // it would have been, which no sibling's rectangle can say (`ancora_estatica.rs`).
+    // it would have been, which no sibling's rectangle can say (`static_anchor.rs`).
     if let Some(ancora) = flow_rects.get(&id) {
         return (ancora.x, ancora.y);
     }
@@ -109,7 +109,7 @@ fn posicao_estatica_bloco(
 
 /// Flex-container case (Flexbox §4.1): position the measured box using
 /// `justify-content`/`align-self`. The physical axis has already been resolved
-/// for `row-reverse`/`column-reverse` by the same mapping used by `coluna.rs`.
+/// for `row-reverse`/`column-reverse` by the same mapping used by `column.rs`.
 fn posicao_estatica_flex(
     css: &ComputedStyle,
     parent_css: &ComputedStyle,

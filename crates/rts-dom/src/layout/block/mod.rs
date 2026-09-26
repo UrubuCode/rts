@@ -11,6 +11,7 @@ pub(crate) mod block;
 pub(super) mod block_box;
 pub(crate) mod box_kind;
 pub(super) mod escaped_margin;
+pub(super) mod margin_collapse;
 pub(super) mod overflow_viewport;
 pub(super) mod pseudo_block;
 pub(super) mod pseudo_box;

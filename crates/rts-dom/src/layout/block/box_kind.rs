@@ -98,12 +98,12 @@ pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             // pelo CSS, e quem responde isso são as regras no fim desta função.
             // `<img>` deixou de ser bloco por ter pixels ou atributos: é inline
             // por natureza e o fluxo inline dá-lhe caixa e pintura como átomo
-            // `Replaced` (ver `vertical.rs`, o mesmo comentário). O que o torna
+            // `Replaced` (ver `vertical_flow.rs`, o mesmo comentário). O que o torna
             // bloco é só o `display` — as regras no fim desta função.
             let _ = tag;
             // `<canvas>` também NÃO está aqui, e pela mesma razão do `<img>`:
             // é inline por natureza, e o fluxo inline dispõe-no como átomo
-            // `Replaced` e pinta-lhe a superfície (`linha.rs`). Forçá-lo a
+            // `Replaced` e pinta-lhe a superfície (`line.rs`). Forçá-lo a
             // bloco — o que esta função fazia, para que houvesse quem emitisse
             // os pixels — empilhava dois canvas irmãos um sobre o outro onde o
             // Blink os põe lado a lado.

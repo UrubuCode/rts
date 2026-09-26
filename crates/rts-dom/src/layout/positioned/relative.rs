@@ -4,11 +4,11 @@
 //! e o que a segue (`getBoundingClientRect`) — sem reservar nem libertar
 //! espaço nenhum: o irmão seguinte fica exactamente onde ficaria se não
 //! houvesse deslocamento. É por isso que este módulo corre DEPOIS de
-//! `bloco.rs` já ter medido e posicionado a caixa e os filhos na posição
+//! `block.rs` já ter medido e posicionado a caixa e os filhos na posição
 //! NATURAL — nada aqui volta a medir, só translada o que já existe.
 //!
 //! O mecanismo de "deslocar uma subárvore já pintada, in-place" já existe
-//! para `transform` (`bloco.rs`, atalho `so_translate`) e é reusado aqui para
+//! para `transform` (`block.rs`, atalho `so_translate`) e é reusado aqui para
 //! a metade da PINTURA (`pieces::shift_from`). A diferença, e a razão
 //! de não bastar chamar essa função: `transform` nunca toca `list.box_rects`
 //! — é visual, não move o `getBoundingClientRect` (decisão já tomada nesse
@@ -35,7 +35,7 @@ use super::*;
 use crate::boxes::{BoxId, BoxTree};
 
 /// Aplica o deslocamento de `position:relative` a um bloco já layoutado.
-/// `box_start` é o mesmo marcador que `bloco.rs` usa para o `transform` — o
+/// `box_start` é o mesmo marcador que `block.rs` usa para o `transform` — o
 /// início, em `list.pieces`, da pintura desta caixa e dos seus descendentes.
 /// Sem efeito quando `css.position` não é `Relative`, ou quando os quatro
 /// insets resolvem a deslocamento nulo (não vale andar a subárvore à toa).

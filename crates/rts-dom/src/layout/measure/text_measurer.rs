@@ -1,6 +1,6 @@
 //! O `TextMeasurer` e o medidor aproximado do headless (`ApproxMeasurer`).
 //!
-//! Extraído de `medida.rs` no lote `medidor-ahem`: o ficheiro já estava no
+//! Extraído de `measure.rs` no lote `medidor-ahem`: o ficheiro já estava no
 //! teto de 500 linhas do resto do workspace (531, na lista de ficheiros a
 //! NÃO crescer), e os quatro métodos `_family` novos (deteção de Ahem — ver
 //! `style::ahem`) não cabiam sem passar o teto. Nenhuma linha de LÓGICA das
@@ -118,7 +118,7 @@ pub struct ApproxMeasurer;
 impl TextMeasurer for ApproxMeasurer {
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, _italic: bool) -> f32 {
         // `_italic` is ignored on purpose: there is no italic table, and the
-        // upright advances stand in (`fonte_metricas.rs` says what else the
+        // upright advances stand in (`font_metrics.rs` says what else the
         // tables leave out). A made-up factor would be an error dressed as
         // precision.
         super::font_metrics::FontMetricsModel::text_width(text, size, None, mono, bold)

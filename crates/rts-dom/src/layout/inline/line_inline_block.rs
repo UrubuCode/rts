@@ -17,7 +17,7 @@ use crate::style::VerticalAlign;
 /// dele — a última linha, que a spec pede, é a mesma num item de uma linha, o
 /// caso de um botão); vazio, o fundo da margem (a altura toda).
 ///
-/// `pub(in crate::layout)`, não privado: `flex_baseline.rs` reusa esta MESMA
+/// `pub(in crate::layout)`, não privado: `baseline.rs` reusa esta MESMA
 /// distância (do topo da BORDER-BOX à baseline) para o grupo
 /// `align-items:baseline` do flex — só soma a margem própria do item, que
 /// aqui não entra (`h` já é a altura da border-box, não a outer).
@@ -28,7 +28,7 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
     // 1º item em fluxo). Sem este desvio, um `<div class=flexContainer>` com
     // FILHOS ELEMENTO caía em `tem_conteudo_para_fragmento` (tem filhos) e
     // usava a fonte do CONTENTOR — que é a mesma pergunta errada, no mesmo
-    // sentido, que a doc de `caixa.rs` descreve para "é de bloco?": um
+    // sentido, que a doc de `box_kind.rs` descreve para "é de bloco?": um
     // contentor tem baseline PRÓPRIA por definição, um flex não.
     if matches!(
         dom.computed_style_idx(id).and_then(|c| c.effective_display()),
@@ -97,7 +97,7 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
 pub(in crate::layout) fn layout_inline_block_line(
     dom: &Dom,
     // The owner of the flow these atoms sit in — whose last line's baseline an
-    // enclosing atom may ask for (`linha_baseline.rs`).
+    // enclosing atom may ask for (`line_baseline.rs`).
     dono: NodeIdx,
     run: &[(NodeIdx, crate::boxes::BoxId)],
     content_x: f32,
@@ -227,7 +227,7 @@ pub(in crate::layout) fn layout_inline_block_line(
                 false,
                 true,
                 // Corrida de inline-blocks irmãos: mesma razão da linha, ver
-                // `linha.rs`.
+                // `line.rs`.
                 &BlockFormattingContext::new(),
                 ctx,
                 list,

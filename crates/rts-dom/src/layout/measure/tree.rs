@@ -1,4 +1,4 @@
-//! A parte de `medida.rs` que percorre a ÁRVORE DE CAIXAS — extraída para
+//! A parte de `measure.rs` que percorre a ÁRVORE DE CAIXAS — extraída para
 //! manter aquele ficheiro abaixo do tecto de 500 linhas depois de este lote
 //! corrigir 147cb3e53/02bc7088d (que introduziram a travessia, mas com um
 //! `continue` a saltar toda caixa sem nó).

@@ -7,8 +7,8 @@
 //! `css.direction`: um item não esticado (largura declarada) em RTL saía
 //! encostado à esquerda onde o Chrome encosta à direita.
 //!
-//! Extraído de `coluna.rs` (que já está perto do teto de 500 linhas) em vez
-//! de crescer lá — mesma razão de `coluna_shrink.rs` ao lado. Achado em
+//! Extraído de `column.rs` (que já está perto do teto de 500 linhas) em vez
+//! de crescer lá — mesma razão de `column_shrink.rs` ao lado. Achado em
 //! `claude-flex-column-rtl-cross-start` (WPT `flexbox_rtl-direction`).
 //!
 //! RETRABALHO (lote `flex-justify-logico`, `overflow-top-left` do WPT): o
@@ -18,7 +18,7 @@
 //! contentor que já não era disposto corretamente só divergia mais.
 //!
 //! **Lote `flex-writing-mode`**: agora que `writing-mode` troca de verdade
-//! qual eixo físico é o principal (`eixos_flex.rs`), o eixo X CONTINUA a ser
+//! qual eixo físico é o principal (`axes.rs`), o eixo X CONTINUA a ser
 //! o que este ficheiro espelha — só que quando `writing-mode` é vertical, X
 //! deixou de ser o eixo inline (que `direction` decide) e passou a ser o
 //! eixo de BLOCO, cujo sentido `direction` nunca toca: é `vertical-rl`/

@@ -5,8 +5,8 @@
 //! `glue_space`) que capturam uma dúzia de locais cada — mover UM deles para
 //! outro ficheiro obriga a mover TODOS os locais que captura, e o que sobra
 //! deixa de ser um movimento de código. O que não toca nos macros já saiu:
-//! o hífen suave em `hifen.rs`, e a partição de peça/o atalho de run inteiro
-//! em `quebra_particao.rs`.
+//! o hífen suave em `hyphen.rs`, e a partição de peça/o atalho de run inteiro
+//! em `line_break_partition.rs`.
 
 use super::*;
 use super::preserved_spaces::{trim_hanging, tokens, atomic_segment, Token};
@@ -34,10 +34,10 @@ pub(in crate::layout) fn wrap_runs(
     // vice-versa) seriam as "duas verdades" que `letter-spacing` já pagou.
     word_spacing: f32,
     // `hyphens` do container: `manual`/`auto` deixam o U+00AD ser oportunidade
-    // de quebra (`hifen.rs`); `none` apaga-o antes de medir.
+    // de quebra (`hyphen.rs`); `none` apaga-o antes de medir.
     hifen_manual: bool,
     // The font of each run — the container's, or its innermost inline's where
-    // that differs (`fonte_do_trecho.rs`). See `medir`.
+    // that differs (`run_font.rs`). See `medir`.
     fontes: &super::run_font::Fontes,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
@@ -111,7 +111,7 @@ pub(in crate::layout) fn wrap_runs(
                 let so_texto = cluster.iter().all(|p| p.atomico.is_none());
                 let enche_a_linha =
                     quebra == crate::inline_box::QuebraDentro::Sempre && so_texto;
-                // HÍFEN SUAVE (`hifen.rs`): a palavra que não cabe deixa na linha
+                // HÍFEN SUAVE (`hyphen.rs`): a palavra que não cabe deixa na linha
                 // o prefixo com "-" e o aglomerado esvazia — o laço abaixo não emite.
                 if hifen_manual
                     && !enche_a_linha
@@ -186,7 +186,7 @@ pub(in crate::layout) fn wrap_runs(
                                 }
                             };
                             if partir {
-                                // Moved to `quebra_particao.rs` (teto de 500).
+                                // Moved to `line_break_partition.rs` (teto de 500).
                                 super::line_break_partition::dividir_peca_que_nao_cabe(
                                     &mut cur, &mut lines, &mut cur_w, &mut at_line_start,
                                     &mut *max_w, run, peca.run, &texto, vao,
@@ -426,7 +426,7 @@ pub(in crate::layout) fn wrap_runs(
             && !run.text.contains(hyphen::SHY)
         {
             let normalizado = collapse_ws(&run.text, pending_space && !at_line_start);
-            // Moved to `quebra_particao.rs` (teto de 500).
+            // Moved to `line_break_partition.rs` (teto de 500).
             if super::line_break_partition::run_inteiro_cabe(
                 &mut cur, &mut cur_w, &mut at_line_start, &mut pending_space, &mut espaco_de_fora,
                 &mut *max_w, lines.len(), run, i, &normalizado, fontes, m,

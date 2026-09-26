@@ -1,7 +1,7 @@
 //! O inline como FRAGMENTOS de linha (CSS 2.1 §9.2.2): a caixa de um
 //! `<span>` que quebra é a união dos pedaços que ficam em cada linha, e o
 //! fundo/borda/padding pintam-se por pedaço — a borda esquerda só no primeiro,
-//! a direita só no último, o topo e o fundo em todos. Extraído de `linha.rs`
+//! a direita só no último, o topo e o fundo em todos. Extraído de `line.rs`
 //! (no teto de 500 linhas): o fragmento de cada dono, e as superfícies de uma
 //! linha.
 //!

@@ -40,13 +40,13 @@ pub(in crate::layout) struct FlexItem {
     pub(in crate::layout) max_main: Option<f32>,
     /// margens `auto`: no eixo principal absorvem o espaço livre antes do
     /// `justify-content` (`mx-auto`); no transversal vencem o `align-self`
-    /// (`flex_margens_auto.rs`).
+    /// (`auto_margins.rs`).
     pub(in crate::layout) auto_esq: bool,
     pub(in crate::layout) auto_dir: bool,
     pub(in crate::layout) auto_topo: bool,
     pub(in crate::layout) auto_fundo: bool,
     /// um `::before`/`::after` do contentor, que é item flex (Flexbox §4) —
-    /// medido e pintado por `flex_pseudo.rs`; `node` é o do contentor.
+    /// medido e pintado por `flex/pseudo.rs`; `node` é o do contentor.
     pub(in crate::layout) pseudo: Option<super::pseudo::PseudoItem>,
 }
 
@@ -95,7 +95,7 @@ pub(in crate::layout) fn layout_children_horizontal(
     // `resolve_height`, não `Dimension::resolve`: `row-gap` é sempre o eixo
     // de BLOCO — `%` contra a ALTURA do container, nunca a largura, e vira
     // `normal` (0) quando ela é indefinida (CSS Align 3 §column-row-gap;
-    // espelho em `coluna.rs`, onde `row-gap` é o eixo PRINCIPAL).
+    // espelho em `column.rs`, onde `row-gap` é o eixo PRINCIPAL).
     let row_gap = resolve_height(css.row_gap, container_content_h, &resolve)
         .unwrap_or(0.0)
         .max(0.0);
@@ -184,7 +184,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         // Um `<img>` DIRETO desta linha sem width/height, esticado
         // (`align-items: stretch`): base/h vêm da razão transferida, não do
-        // natural — `replaced_transferido.rs` decide quando (Flexbox §9.2).
+        // natural — `transferred_size.rs` decide quando (Flexbox §9.2).
         // No caminho SEM transferência, a altura CRUZADA mede-se com a
         // largura que o item VAI TER (`base`, a "flex base size" — Flexbox
         // §9.2 passo 3), não com a do contentor inteiro (`content_w`): ver o
@@ -202,7 +202,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         // `transferiu`: o candidato (d) do automático (§4.5) é a MESMA conta
         // do transferido (§9.2) — `table::min_content` não sabe nada de eixo
         // cruzado/stretch e mediria o `<img>` pelo natural, erguendo-o de
-        // volta acima do que o stretch já decidiu (`replaced_transferido.rs`
+        // volta acima do que o stretch já decidiu (`transferred_size.rs`
         // documenta o WPT que isto media errado).
         let (max_main, min_declarado) =
             super::limits::limites_do_item(dom, child, &ccss, content_w, font_size, ctx);
@@ -236,7 +236,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             align_self: ccss.align_self,
             order: ccss.order.unwrap_or(0),
             // `height:auto` DECLARADO conta como indefinido, não só a ausência
-            // (`dimensao_indefinida.rs` — achado por `align-self-stretch`).
+            // (`indefinite_size.rs` — achado por `align-self-stretch`).
             can_stretch: super::indefinite_size::e_auto_ou_ausente(ccss.height),
             min_main,
             max_main,
@@ -375,7 +375,7 @@ pub(in crate::layout) fn layout_children_horizontal(
     // linhas, não antes (ACHADO deste lote, `flexbox-writing-mode-001`: o
     // reftest "CMYK" já falhava em `horizontal-tb` puro, sem nada de
     // `writing-mode`). Reverter a lista ANTES da grupagem muda QUAIS itens
-    // partilham linha — `coluna_wrap.rs` já documentava a mesma regra para
+    // partilham linha — `column_wrap.rs` já documentava a mesma regra para
     // `column-reverse` ("a ordem do agrupamento é sempre a do documento");
     // faltava aqui. Só a ORDEM dentro de cada linha já formada inverte.
     if reverse {
@@ -444,7 +444,7 @@ pub(in crate::layout) fn layout_children_horizontal(
 
         // GROW/SHRINK (spec flexbox §9.7): espaço livre positivo distribui ∝
         // flex-grow; negativo encolhe ∝ shrink×base, com PISO e TECTO —
-        // extraído para `flex_limites.rs` (no tecto de 500 linhas aqui).
+        // extraído para `limits.rs` (no tecto de 500 linhas aqui).
         super::limits::resolve_grow_encolhe(line, content_w, total_gap);
         // re-mede a ALTURA com o main final (mais largura → menos linhas de texto);
         // só quando o main mudou (senão a medição do pré-pass vale).
@@ -574,9 +574,9 @@ pub(in crate::layout) fn layout_children_horizontal(
                     || (0.0, 0.0),
                     Some(it.main),
                     forced_h,
-                    false, // `forced_h` é o stretch cruzado (nunca encolhe); o `hard` é de `coluna.rs`.
+                    false, // `forced_h` é o stretch cruzado (nunca encolhe); o `hard` é de `column.rs`.
                     true,
-                    // Item de flex-row: mesma razão do flex-column, ver `coluna.rs`.
+                    // Item de flex-row: mesma razão do flex-column, ver `column.rs`.
                     &BlockFormattingContext::new(),
                     ctx,
                     list,
