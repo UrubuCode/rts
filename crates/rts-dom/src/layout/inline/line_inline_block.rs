@@ -21,12 +21,12 @@ use crate::style::VerticalAlign;
 /// distância (do topo da BORDER-BOX à baseline) para o grupo
 /// `align-items:baseline` do flex — só soma a margem própria do item, que
 /// aqui não entra (`h` já é a altura da border-box, não a outer).
-pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+pub(in crate::layout) fn item_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
     // Um flex/inline-flex é um CONTENTOR: a sua baseline vista de fora não é
     // a da sua PRÓPRIA fonte (a fórmula abaixo) — é a de `crate::layout::flex::baseline::
-    // ascent_do_contentor` (Flexbox §8.5: o grupo baseline da 1ª linha, ou o
+    // container_ascent` (Flexbox §8.5: o grupo baseline da 1ª linha, ou o
     // 1º item em fluxo). Sem este desvio, um `<div class=flexContainer>` com
-    // FILHOS ELEMENTO caía em `tem_conteudo_para_fragmento` (tem filhos) e
+    // FILHOS ELEMENTO caía em `has_content_for_fragment` (tem filhos) e
     // usava a fonte do CONTENTOR — que é a mesma pergunta errada, no mesmo
     // sentido, que a doc de `box_kind.rs` descreve para "é de bloco?": um
     // contentor tem baseline PRÓPRIA por definição, um flex não.
@@ -38,14 +38,14 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
                 | crate::style::DisplayKind::InlineFlex
                 | crate::style::DisplayKind::InlineFlexWrap
         )
-    ) && crate::layout::flex::baseline::tem_itens_elemento(dom, id)
+    ) && crate::layout::flex::baseline::has_element_items(dom, id)
     {
         // The container's baseline seen from OUTSIDE is its first item's,
         // pushed down by the container's own top border and padding —
-        // `ascent_do_contentor` measures from the content box, and without the
+        // `container_ascent` measures from the content box, and without the
         // frame an `inline-flex` with `padding: 4px` sat 4px low next to text.
         // A flex container whose only content is TEXT has that text as its
-        // anonymous item; `ascent_do_contentor` counts only elements and
+        // anonymous item; `container_ascent` counts only elements and
         // answered the bottom edge for it, so it falls to the text formula
         // below, which is the anonymous item's baseline (WPT
         // `flexbox-baseline-single-item-001a`).
@@ -59,7 +59,7 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
         };
         let [bt, ..] = crate::style::borders::used_widths(&css);
         let pt = css.padding.top.resolve(&r).unwrap_or(0.0);
-        let inner = crate::layout::flex::baseline::ascent_do_contentor(dom, id, h, content_w, ctx);
+        let inner = crate::layout::flex::baseline::container_ascent(dom, id, h, content_w, ctx);
         return if inner >= h { h } else { (bt + pt + inner).min(h) };
     }
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
@@ -73,7 +73,7 @@ pub(in crate::layout) fn ascent_do_item(dom: &Dom, id: NodeIdx, h: f32, content_
         // linha de texto interna do controle.
         return h;
     }
-    if !is_control && !crate::layout::block::box_kind::tem_conteudo_para_fragmento(dom, id) {
+    if !is_control && !crate::layout::block::box_kind::has_content_for_fragment(dom, id) {
         return h;
     }
     let Some(css) = dom.computed_style_idx(id) else { return h };
@@ -197,11 +197,11 @@ pub(in crate::layout) fn layout_inline_block_line(
         // envelope no mesmo valor que o `max(alturas)` antigo dava quando
         // nada na linha declara `vertical-align`.
         // O default é `baseline` (CSS 2.1 §10.8.1) com a baseline PRÓPRIA de
-        // cada item (`ascent_do_item`): o `Top` que aqui estava era o corte
+        // cada item (`item_ascent`): o `Top` que aqui estava era o corte
         // que punha o caret `::after` do Bootstrap no topo da linha.
         let atoms: Vec<(f32, f32, VerticalAlign)> = items
             .iter()
-            .map(|&(n, _, _, h, va, _, _)| (h, ascent_do_item(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
+            .map(|&(n, _, _, h, va, _, _)| (h, item_ascent(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
             .collect();
         let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
         let family = parent_css.font_family.as_deref();

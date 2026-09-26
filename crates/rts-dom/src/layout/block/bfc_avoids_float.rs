@@ -50,9 +50,9 @@ pub(in crate::layout) fn push_down(
         return None;
     }
     let w = child_outer_width(dom, child, content_w, font_size, ctx);
-    let (_, band_w) = bfc.banda_livre(y_provisional, 0.0, content_x, content_w);
+    let (_, band_w) = bfc.free_band(y_provisional, 0.0, content_x, content_w);
     if w <= band_w + 0.01 {
         return None;
     }
-    bfc.fundo_lado(true, true)
+    bfc.side_bottom(true, true)
 }

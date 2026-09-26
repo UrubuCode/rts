@@ -12,7 +12,7 @@
 //!    `writing-mode` que decide qual DELES é X e qual é Y. Em
 //!    `horizontal-tb` inline=X, bloco=Y (o caso que os dois algoritmos já
 //!    tratavam); em qualquer modo vertical inline=Y, bloco=X — TROCADOS.
-//!    Por isso `main_no_eixo_y` é um XOR entre a keyword e
+//!    Por isso `main_on_y_axis` é um XOR entre a keyword e
 //!    `!writing_mode.is_horizontal()`: as DUAS trocas ao mesmo tempo
 //!    cancelam-se (uma `column` vertical volta a ser X, o caso comum de
 //!    `row.rs`).
@@ -40,15 +40,15 @@ use crate::style::text::{eixo_x_forward, eixo_y_forward};
 /// `true` quando o eixo PRINCIPAL do flex é o físico Y — a pergunta 1 do
 /// cabeçalho. Quem despacha (`block.rs`) troca de algoritmo por isto, no
 /// lugar de perguntar só pela keyword `flex-direction:column`.
-pub(in crate::layout) fn main_no_eixo_y(wm: WritingMode, is_column_keyword: bool) -> bool {
+pub(in crate::layout) fn main_on_y_axis(wm: WritingMode, is_column_keyword: bool) -> bool {
     is_column_keyword ^ !wm.is_horizontal()
 }
 
 /// O `reverse` FINAL passado ao algoritmo físico (`row-reverse`/
 /// `column-reverse` da keyword, combinado com o sentido físico do eixo que
 /// ficou principal) — nunca o sentido do eixo original da keyword, que já
-/// pode não ser mais o principal depois da troca de [`main_no_eixo_y`].
-pub(in crate::layout) fn reverse_efetivo(
+/// pode não ser mais o principal depois da troca de [`main_on_y_axis`].
+pub(in crate::layout) fn effective_reverse(
     wm: WritingMode,
     dir: Direction,
     main_on_y_axis: bool,
@@ -82,7 +82,7 @@ pub(in crate::layout) fn reverse_efetivo(
 }
 
 /// O `wrap-reverse` FINAL do eixo CRUZADO (o eixo físico oposto ao
-/// principal) — mesma combinação que [`reverse_efetivo`], só que para a
+/// principal) — mesma combinação que [`effective_reverse`], só que para a
 /// ORDEM DAS LINHAS/COLUNAS do `flex-wrap` em vez da ordem dos itens.
 pub(in crate::layout) fn effective_wrap_reverse(
     wm: WritingMode,
@@ -100,7 +100,7 @@ pub(in crate::layout) fn effective_wrap_reverse(
 
 /// `true` quando o eixo físico X corre invertido (RTL) — o que
 /// `column_rtl::cross_x` espelha. É o mesmo [`eixo_x_forward`] negado,
-/// exposto à parte porque `cross_x` não conhece `main_no_eixo_y` (o seu
+/// exposto à parte porque `cross_x` não conhece `main_on_y_axis` (o seu
 /// eixo é sempre X, seja ele o cruzado de uma coluna real ou o cruzado de
 /// um `row` despachado por escrita vertical — ver o cabeçalho).
 pub(in crate::layout) fn x_axis_inverted(wm: WritingMode, dir: Direction) -> bool {
@@ -116,7 +116,7 @@ pub(in crate::layout) fn x_axis_inverted(wm: WritingMode, dir: Direction) -> boo
 /// do mapa — deixaram de ser sinónimos FIXOS de `left`/`right`
 /// (`flex-justify-logico` só tratava `row-reverse`; `direction` não tinha
 /// efeito físico no eixo principal até este lote inverter o eixo em `rtl`).
-pub(in crate::layout) fn fisico_para_eixo(
+pub(in crate::layout) fn physical_to_axis(
     j: crate::style::JustifyContent,
     reverse: bool,
     direction: Direction,

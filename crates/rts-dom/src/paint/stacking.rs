@@ -305,7 +305,7 @@ pub(crate) fn splice_layer8(
         }
         let Piece::Child(c) = &pieces[i] else { continue };
         if tree
-            .node_of(c.caixa)
+            .node_of(c.box_id)
             .is_some_and(|n| is_layer8_relative(dom, n) && is_before_in_tree(dom, target, n))
         {
             pieces::shift_from(&mut insert, 0, -dx, -dy);

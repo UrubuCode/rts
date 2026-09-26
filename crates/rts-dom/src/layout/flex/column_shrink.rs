@@ -62,7 +62,7 @@ pub(in crate::layout) fn base_outer(
 /// Com `height` declarado e SEM razão de aspeto, o automático é o MENOR
 /// entre a "specified size suggestion" (`natural_h`, que já É o `height`
 /// convertido a outer) e a "content size suggestion" — a altura que os
-/// FILHOS exigem, ignorando este `height` (`altura_conteudo_sem_height`,
+/// FILHOS exigem, ignorando este `height` (`content_height_without_height`,
 /// abaixo: soma cada filho pela SUA própria altura, sem forçar a do item,
 /// em vez de uma segunda passada de `layout_block` completa). Antes deste
 /// lote devolvia 0 sempre que `height` estava presente sem razão de aspeto —
@@ -79,7 +79,7 @@ pub(in crate::layout) fn min_main_auto(
 ) -> f32 {
     // `Clip` conta como `Visible` — não é um scroll container (CSS Overflow
     // 3 §clip), e só um eixo que PODE rolar desliga este automático
-    // (espelho do retrabalho em `limits::min_automatico`,
+    // (espelho do retrabalho em `limits::automatic_min`,
     // `min-size-auto-overflow-clip`, WPT — não tinha fixture neste eixo
     // ainda, mas é a MESMA pergunta).
     use crate::scrollbar::Overflow::{Clip, Visible};
@@ -103,7 +103,7 @@ pub(in crate::layout) fn min_main_auto(
         }
         None => {
             let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
-            let content = altura_conteudo_sem_height(
+            let content = content_height_without_height(
                 dom, box_id, ccss, resolve.parent_content_w, resolve.node_font_size, ctx,
             ) + bt + bb;
             natural_h.min(content)
@@ -135,7 +135,7 @@ pub(in crate::layout) fn min_main_auto(
 /// pelo nó corria o layout de bloco sem árvore no primeiro caso — pânico no
 /// cache de fragmentos, WPT `css-flexbox/percentage-heights-023` — e não
 /// sabia qual fragmento medir no segundo.
-pub(in crate::layout) fn altura_conteudo_sem_height(
+pub(in crate::layout) fn content_height_without_height(
     dom: &Dom,
     box_id: crate::boxes::BoxId,
     ccss: &ComputedStyle,
@@ -165,7 +165,7 @@ fn stacked(
         .iter()
         .map(|&child| match tree.node_of(child) {
             None => stacked(dom, tree, child, ccss, container_w, font_size, ctx),
-            Some(c) if is_out_of_flow(dom, c) || e_display_none(dom, c) => 0.0,
+            Some(c) if is_out_of_flow(dom, c) || is_display_none(dom, c) => 0.0,
             Some(c) => match &dom.node(c).kind {
                 NodeKind::Text(_) if collect_text(dom, c).trim().is_empty() => 0.0,
                 NodeKind::Text(_) => crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer),

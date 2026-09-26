@@ -88,7 +88,7 @@ fn static_position_block(
     // continua para o irmão seguinte, ao contrário de `find` (que já tinha
     // parado no nó de texto, sem geometria, e caía sempre no fallback).
     let in_flow_rect = |&s: &NodeIdx| {
-        (!super::positioned::e_display_none(dom, s) && !super::positioned::is_out_of_flow(dom, s))
+        (!super::positioned::is_display_none(dom, s) && !super::positioned::is_out_of_flow(dom, s))
             .then(|| flow_rects.get(&s).copied())
             .flatten()
     };
@@ -125,7 +125,7 @@ fn static_position_flex(
         fd,
         crate::style::FlexDirection::RowReverse | crate::style::FlexDirection::ColumnReverse
     );
-    let justify = crate::layout::flex::axes::fisico_para_eixo(
+    let justify = crate::layout::flex::axes::physical_to_axis(
         parent_css
             .justify
             .unwrap_or(crate::style::JustifyContent::FlexStart),

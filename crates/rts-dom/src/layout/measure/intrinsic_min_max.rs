@@ -2,7 +2,7 @@
 //! Sizing 3 §intrinsic-sizes) em vez de um comprimento — uma palavra-chave
 //! que só a ÁRVORE resolve, nunca uma fórmula. `Dimension::resolve` não a
 //! conhece (devolve `None`), e antes deste módulo só um sítio a entendia:
-//! `crate::layout::flex::limits::limites_do_item`, e só para `MinContent`, e só na largura
+//! `crate::layout::flex::limits::item_limits`, e só para `MinContent`, e só na largura
 //! do PRÓPRIO item flex. Um clamp de bloco comum (`block.rs`) descartava a
 //! palavra por inteiro — `min-width: max-content` numa `<div>` qualquer
 //! dentro de um item flex (não o item em si) não alargava nada

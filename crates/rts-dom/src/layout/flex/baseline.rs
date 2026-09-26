@@ -6,7 +6,7 @@
 //! `writing-mode` — a pergunta deixou de ser só do `flex_wrap` do CSS.
 //!
 //! O ascent de um item (topo da MARGIN-BOX até à baseline do seu conteúdo) é
-//! `margin-top + ascent_do_item` — [`crate::layout::inline::line_inline_block::ascent_do_item`] já
+//! `margin-top + item_ascent` — [`crate::layout::inline::line_inline_block::item_ascent`] já
 //! resolve a distância do topo da BORDER-BOX (borda+padding+meia-entrelinha+
 //! ascent da fonte, ou o fundo quando o item não tem conteúdo próprio); só
 //! não soma a margem do item, que aqui é conhecida por linha. O grupo
@@ -41,35 +41,35 @@ use super::*;
 /// Filhos ELEMENTO deste contentor que são itens de flex EM FLUXO — a mesma
 /// filtragem que `row.rs` aplica antes de construir cada `FlexItem` (tag não
 /// renderizável, fora do fluxo, `display:none`), MENOS texto solto e pseudo:
-/// nenhum dos dois tem uma baseline própria que [`ascent_do_contentor`] saiba
+/// nenhum dos dois tem uma baseline própria que [`container_ascent`] saiba
 /// medir — o mesmo corte que o doc deste módulo já declara para o GRUPO da
 /// linha ("pseudo-item e texto solto fora do grupo").
 /// Does this flex container have an in-flow ELEMENT item? Without one its
-/// items are anonymous (text) or absent, and `ascent_do_contentor` has no item
+/// items are anonymous (text) or absent, and `container_ascent` has no item
 /// to ask.
-pub(in crate::layout) fn tem_itens_elemento(dom: &Dom, id: NodeIdx) -> bool {
-    !filhos_flex_em_fluxo(dom, id).is_empty()
+pub(in crate::layout) fn has_element_items(dom: &Dom, id: NodeIdx) -> bool {
+    !in_flow_flex_children(dom, id).is_empty()
 }
 
-fn filhos_flex_em_fluxo(dom: &Dom, id: NodeIdx) -> Vec<NodeIdx> {
+fn in_flow_flex_children(dom: &Dom, id: NodeIdx) -> Vec<NodeIdx> {
     dom.node(id)
         .children
         .iter()
         .copied()
         .filter(|&c| matches!(&dom.node(c).kind, NodeKind::Element { tag } if !is_non_rendered_tag(tag)))
-        .filter(|&c| !is_out_of_flow(dom, c) && !e_display_none(dom, c))
+        .filter(|&c| !is_out_of_flow(dom, c) && !is_display_none(dom, c))
         .collect()
 }
 
-/// O ascent de um FILHO para efeitos de [`ascent_do_contentor`]: a sua margem
+/// O ascent de um FILHO para efeitos de [`container_ascent`]: a sua margem
 /// própria + a distância do topo da sua BORDER-BOX à baseline — a mesma soma
 /// que [`flex_item_ascent`] faz, só que sem precisar do `outer_h` do item:
 /// o ascent de um item de conteúdo normal (ancorado ao TOPO da própria caixa)
 /// não muda com a altura final que o `stretch`/`grow` do eixo cruzado lhe dão
 /// — só a margem e a fonte decidem, e é por isso que este cálculo não precisa
 /// de reexecutar o algoritmo de flex do filho para saber a resposta. Reusa
-/// `crate::layout::inline::line_inline_block::ascent_do_item` com uma altura que nunca é o limite — é essa
-/// função que, RECURSIVAMENTE, volta para `ascent_do_contentor` quando `id`
+/// `crate::layout::inline::line_inline_block::item_ascent` com uma altura que nunca é o limite — é essa
+/// função que, RECURSIVAMENTE, volta para `container_ascent` quando `id`
 /// é, ele próprio, um flex/inline-flex (um flex dentro de outro).
 fn grandchild_ascent(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> f32 {
     let css = dom.computed_style_idx(id).unwrap_or_default();
@@ -82,7 +82,7 @@ fn grandchild_ascent(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) ->
         viewport_h: ctx.viewport_h,
     };
     let mt = css.margin.top.resolve(&resolve).unwrap_or(0.0);
-    mt + crate::layout::inline::line_inline_block::ascent_do_item(dom, id, f32::MAX, content_w, ctx)
+    mt + crate::layout::inline::line_inline_block::item_ascent(dom, id, f32::MAX, content_w, ctx)
 }
 
 /// Os filhos, na ORDEM DE FLUXO que a spec usa para decidir "qual item é o
@@ -90,11 +90,11 @@ fn grandchild_ascent(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) ->
 /// ascendente, empates pela ordem do documento (`sort_by_key` é ESTÁVEL, e
 /// `children` já chega em ordem de documento — sem precisar de índice
 /// explícito para o desempate). RETRABALHO (2026-09-05, WPT
-/// `flex-order-wrap-reverse-baseline`): antes disto, `ascent_do_contentor`
+/// `flex-order-wrap-reverse-baseline`): antes disto, `container_ascent`
 /// lia os filhos pela ordem do DOM crua, e um `order` que trocasse a
 /// sequência (o `.a{order:1}`/`.b{order:2}` do WPT, que aqui coincide com a
 /// ordem do DOM, mas o `flex-wrap:wrap-reverse` do teste TROCA qual linha é
-/// a primeira — ver [`ascent_do_contentor`]) dava uma resposta que não batia
+/// a primeira — ver [`container_ascent`]) dava uma resposta que não batia
 /// com a REFERÊNCIA (que não declara `order` nem `align-self`, e por isso
 /// caía sempre no PRIMEIRO item — o item ERRADO sob `wrap-reverse`).
 fn in_flex_order(dom: &Dom, children: &[NodeIdx]) -> Vec<NodeIdx> {
@@ -105,7 +105,7 @@ fn in_flex_order(dom: &Dom, children: &[NodeIdx]) -> Vec<NodeIdx> {
 
 /// A largura de CONTEÚDO do PRÓPRIO contentor — não a do ancestral
 /// (`content_w`, o parâmetro de todo o resto deste ficheiro) — para decidir
-/// onde as linhas de [`linhas_por_largura`] quebram. Só a `width`
+/// onde as linhas de [`lines_by_width`] quebram. Só a `width`
 /// DECLARADA entra; sem ela, cai no `content_w` do ancestral como
 /// aproximação de "tanto quanto houver" — medir o shrink-to-fit de verdade
 /// exigiria reexecutar o layout do contentor, o mesmo corte que o resto do
@@ -127,7 +127,7 @@ fn own_width(css: &ComputedStyle, content_w: f32, font_size: f32, ctx: &LayoutCt
 /// nunca do tamanho FINAL (a mesma classe de aproximação estrutural que
 /// [`grandchild_ascent`] já assume). Um item sem `width` conta 0 (nunca
 /// força quebra sozinho) — corte declarado.
-fn linhas_por_largura(dom: &Dom, children: &[NodeIdx], content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Vec<Vec<NodeIdx>> {
+fn lines_by_width(dom: &Dom, children: &[NodeIdx], content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Vec<Vec<NodeIdx>> {
     let mut lines: Vec<Vec<NodeIdx>> = vec![Vec::new()];
     let mut used = 0.0f32;
     for &c in children {
@@ -151,10 +151,10 @@ fn linhas_por_largura(dom: &Dom, children: &[NodeIdx], content_w: f32, font_size
 }
 
 /// A baseline do CONTENTOR flex, vista de FORA (Flexbox §8.5) — o que
-/// [`crate::layout::inline::line_inline_block::ascent_do_item`] usa quando o nó que ele mede é, ele
+/// [`crate::layout::inline::line_inline_block::item_ascent`] usa quando o nó que ele mede é, ele
 /// próprio, um flex/inline-flex, em vez da fórmula genérica (fonte do
 /// CONTENTOR) que só está certa para um bloco comum. `h` é a altura outer já
-/// resolvida do contentor (a mesma que `ascent_do_item` recebe).
+/// resolvida do contentor (a mesma que `item_ascent` recebe).
 ///
 /// A "PRIMEIRA LINHA" desta secção é a primeira na ORDEM DE LAYOUT, não a do
 /// DOM: os itens contam pela ordem de `order` ([`in_flex_order`]), e sob
@@ -179,16 +179,16 @@ fn linhas_por_largura(dom: &Dom, children: &[NodeIdx], content_w: f32, font_size
 ///    que recorre de volta a este ficheiro quando esse item é OUTRO flex.
 /// 3. Sem item NENHUM em fluxo: devolve `h` tal e qual — Flexbox §8.5
 ///    sintetiza a baseline do bottom margin edge quando não há itens, que é
-///    exactamente o que `h` já significa para quem chama `ascent_do_item`.
+///    exactamente o que `h` já significa para quem chama `item_ascent`.
 ///
 /// CORTES declarados: o ascent de cada item calcula por ESTRUTURA (margem +
 /// recursão), sem reexecutar o algoritmo de flex do filho — ver o porquê no
-/// doc de [`grandchild_ascent`]; o AGRUPAMENTO em linhas ([`linhas_por_largura`])
+/// doc de [`grandchild_ascent`]; o AGRUPAMENTO em linhas ([`lines_by_width`])
 /// é pela largura DECLARADA, sem `grow`/`shrink`/`gap` — a mesma aproximação,
 /// generalizada de "um item" para "que linha ele ocupa". `content_w` que
 /// chega aos NETOS continua a ser o do CONTENTOR ANCESTRAL, não o deste flex
 /// — percentagens de margem num NETO ficam por essa aproximação.
-pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+pub(in crate::layout) fn container_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
     baseline_item(dom, id, content_w, ctx).map_or(h, |(_, ascent)| ascent.min(h))
 }
 
@@ -205,7 +205,7 @@ pub(in crate::layout) fn ascent_do_contentor(dom: &Dom, id: NodeIdx, h: f32, con
 /// `column-reverse` container and expects its top item) agree on; reading
 /// "first" as source order satisfied one of them and never both.
 fn baseline_item(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> Option<(NodeIdx, f32)> {
-    let children = filhos_flex_em_fluxo(dom, id);
+    let children = in_flow_flex_children(dom, id);
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     let row_axis = !css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
@@ -213,7 +213,7 @@ fn baseline_item(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> Opt
     let first_line = if row_axis && css.flex_wrap.map(crate::style::FlexWrap::wraps).unwrap_or(false) {
         let font = font_px(&css, DEFAULT_FONT_SIZE);
         let width = own_width(&css, content_w, font, ctx);
-        let mut lines = linhas_por_largura(dom, &flex_ordered, width, font, ctx);
+        let mut lines = lines_by_width(dom, &flex_ordered, width, font, ctx);
         if matches!(css.flex_wrap, Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)) {
             lines.reverse();
         }
@@ -238,11 +238,11 @@ fn baseline_item(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> Opt
 
 /// The `y` of this flex container's baseline IN A LIST IT WAS LAID OUT INTO:
 /// where its baseline item really sits, plus that item's ascent. What the
-/// structural [`ascent_do_contentor`] cannot see is the item's POSITION — under
+/// structural [`container_ascent`] cannot see is the item's POSITION — under
 /// `align-content: center` the first line does not start at the container's
 /// top, and a container guessed from structure sat 3.6px off its reference
 /// (WPT `flexbox-baseline-multi-line-horiz-004`).
-pub(in crate::layout) fn baseline_no_layout(dom: &Dom, id: NodeIdx, list: &DisplayList, content_w: f32, ctx: &LayoutCtx) -> Option<f32> {
+pub(in crate::layout) fn layout_baseline(dom: &Dom, id: NodeIdx, list: &DisplayList, content_w: f32, ctx: &LayoutCtx) -> Option<f32> {
     let (mut item, mut ascent) = baseline_item(dom, id, content_w, ctx)?;
     // A COLUMN container that wraps in reverse puts its first column at the far
     // side: the physically first item is the top of the LEFTMOST column, which
@@ -251,7 +251,7 @@ pub(in crate::layout) fn baseline_no_layout(dom: &Dom, id: NodeIdx, list: &Displ
     let container = dom.computed_style_idx(id).unwrap_or_default();
     let column = container.flex_direction.is_some_and(|f| f.is_column());
     if column && matches!(container.flex_wrap, Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)) {
-        let first_physical = filhos_flex_em_fluxo(dom, id)
+        let first_physical = in_flow_flex_children(dom, id)
             .into_iter()
             .filter_map(|c| list.rect_of_node(c).map(|r| (c, r)))
             .min_by(|a, b| a.1.x.total_cmp(&b.1.x).then(a.1.y.total_cmp(&b.1.y)));
@@ -287,7 +287,7 @@ fn flex_item_ascent(dom: &Dom, node: NodeIdx, outer_h: f32, content_w: f32, ctx:
     let mt = css.margin.top.resolve(&resolve).unwrap_or(0.0);
     let mb = css.margin.bottom.resolve(&resolve).unwrap_or(0.0);
     let border_h = (outer_h - mt - mb).max(0.0);
-    mt + crate::layout::inline::line_inline_block::ascent_do_item(dom, node, border_h, content_w, ctx)
+    mt + crate::layout::inline::line_inline_block::item_ascent(dom, node, border_h, content_w, ctx)
 }
 
 /// O cross-size e os offsets de UMA linha, à luz do grupo

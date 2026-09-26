@@ -28,7 +28,7 @@
 //! What is genuinely new is the other half of the question, which no single
 //! place answered: which physical axis IS the inline one. Two files rebuild it
 //! today — `style::logical::to_physical` from `is_horizontal()`, and
-//! `layout::eixos_flex::main_no_eixo_y` as a XOR against the `column` keyword
+//! `layout::eixos_flex::main_on_y_axis` as a XOR against the `column` keyword
 //! — and they are the two sites this type exists to converge.
 //!
 //! ## Why it lives in `style/values/` and not in `layout/`

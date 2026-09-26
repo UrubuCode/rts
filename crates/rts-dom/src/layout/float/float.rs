@@ -16,7 +16,7 @@ use super::*;
 /// topo do float, com a largura cheia da coluna (752). O parágrafo não desceu e
 /// não encolheu: sobrepôs-se ao float, e só as suas LINHAS ficaram curtas.
 #[derive(Clone, Copy)]
-pub(crate) struct Exclusao {
+pub(crate) struct Exclusion {
     pub(in crate::layout) top: f32,
     pub(in crate::layout) bottom: f32,
     pub(in crate::layout) side: crate::style::FloatSide,
@@ -32,7 +32,7 @@ pub(crate) struct Exclusao {
 /// A altura entra na pergunta porque uma linha de texto só é estorvada pelo
 /// float com que se CRUZA: a última linha ao lado de uma figura curta usa a
 /// banda estreita, e a primeira linha abaixo dela usa a largura toda.
-pub(in crate::layout) fn banda_livre(exclusions: &[Exclusao], y: f32, altura: f32, content_x: f32, content_w: f32) -> (f32, f32) {
+pub(in crate::layout) fn free_band(exclusions: &[Exclusion], y: f32, altura: f32, content_x: f32, content_w: f32) -> (f32, f32) {
     let (mut left, mut right) = (content_x, content_x + content_w);
     // Uma linha de altura zero ainda cruza o float que começa exatamente nela —
     // sem esta espessura mínima, `y == top` não intersectava nada e a primeira
@@ -53,7 +53,7 @@ pub(in crate::layout) fn banda_livre(exclusions: &[Exclusao], y: f32, altura: f3
 
 /// O fundo do float mais baixo — para onde desce quem tem `clear`, e onde o
 /// container fecha para os conter.
-pub(in crate::layout) fn fundo_dos_floats(exclusions: &[Exclusao]) -> Option<f32> {
+pub(in crate::layout) fn floats_bottom(exclusions: &[Exclusion]) -> Option<f32> {
     exclusions.iter()
         .map(|e| e.bottom)
         .fold(None, |a: Option<f32>, b| Some(a.map_or(b, |a| a.max(b))))
@@ -81,7 +81,7 @@ pub(in crate::layout) fn float_of(dom: &Dom, id: NodeIdx) -> crate::style::Float
 /// MAIOR em vez da SOMA (32 em vez de 160 para 5 floats de 32px lado a lado
 /// — `flexbox-flex-wrap-horiz-002`/`-vert-001/002`, WPT, lote
 /// `flex-basis-content-wrap`).
-pub(in crate::layout) fn fecha_a_corrida(dom: &Dom, id: NodeIdx) -> bool {
+pub(in crate::layout) fn close_run(dom: &Dom, id: NodeIdx) -> bool {
     if let NodeKind::Element { tag } = &dom.node(id).kind {
         if tag == "br" {
             return true;

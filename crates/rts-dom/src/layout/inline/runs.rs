@@ -76,7 +76,7 @@ pub(in crate::layout) fn collect_runs(
     /// A ÁRVORE decide: é o que exclui o filho de bloco que partiu este
     /// inline, porque ele já não é filho do fragmento. Um comentário não gera
     /// caixa e este varredor já o ignorava; um `display:none` gera caixa e
-    /// continua a ser recusado por `e_display_none`.
+    /// continua a ser recusado por `is_display_none`.
     fn walk_children(
         tree: &crate::boxes::BoxTree,
         b: crate::boxes::BoxId,
@@ -141,7 +141,7 @@ pub(in crate::layout) fn collect_runs(
                     return;
                 }
                 // `display:none` DENTRO de uma linha. O comentário de
-                // `e_display_none` diz que a herança vem de "quem varre já não
+                // `is_display_none` diz que a herança vem de "quem varre já não
                 // desce nele" — e este varredor descia: um
                 // `<span><span style=display:none>Z39.88…</span></span>` (o
                 // COinS de cada citação da Wikipédia, ~280 na página) era
@@ -153,7 +153,7 @@ pub(in crate::layout) fn collect_runs(
                 // que já existia para o inline vazio. A alternativa — um caminho
                 // novo para "inline cujo conteúdo todo é invisível" — era pôr a
                 // mesma resposta num segundo sítio.
-                if e_display_none(dom, id) {
+                if is_display_none(dom, id) {
                     return;
                 }
                 // A FLOAT in the middle of the flow: only an anchor (`in_line.rs`).
@@ -316,7 +316,7 @@ pub(in crate::layout) fn collect_runs(
                 let edges = css
                     .as_deref()
                     .filter(|c| is_container && crate::inline_box::inline_por_fragmentos(c))
-                    .filter(|_| crate::layout::block::box_kind::tem_conteudo_para_fragmento(dom, id))
+                    .filter(|_| crate::layout::block::box_kind::has_content_for_fragment(dom, id))
                     .map(|c| {
                         let font = font_px(c, DEFAULT_FONT_SIZE);
                         crate::inline_box::arestas_do_inline(c, font, avail_w, ctx)
@@ -334,7 +334,7 @@ pub(in crate::layout) fn collect_runs(
                 };
                 if let Some([left, ..]) = edges {
                     crate::bump!(inline_runs);
-                    out.push(edge_run(AtomicKind::ArestaInicio, left, &owners));
+                    out.push(edge_run(AtomicKind::EdgeStart, left, &owners));
                 }
                 // A cadeia que o fragmento gerado herda. `owners` só contém
                 // `id` quando ele é container inline; um `inline-block` com
@@ -386,7 +386,7 @@ pub(in crate::layout) fn collect_runs(
                 }
                 if let Some([_, right, ..]) = edges {
                     crate::bump!(inline_runs);
-                    out.push(edge_run(AtomicKind::ArestaFim, right, &owners));
+                    out.push(edge_run(AtomicKind::EdgeEnd, right, &owners));
                 }
                 // Um inline VAZIO (`<source>`, `<br>`, `<span></span>`) não gerou run
                 // e ficaria sem caixa. O marker dá-lhe a posição na linha sem lhe dar

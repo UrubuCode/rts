@@ -11,9 +11,9 @@
 //! top of the enclosing element.
 //!
 //! So the inline flow says where the box WOULD be. The walk leaves a
-//! zero-width ANCHOR for it (`AtomicKind::Estatica`, as a float leaves one),
+//! zero-width ANCHOR for it (`AtomicKind::StaticAnchor`, as a float leaves one),
 //! and when the line places the anchor, the position is recorded in
-//! `DisplayList::ancoras_estaticas`.
+//! `DisplayList::static_anchors`.
 //!
 //! **Not in `box_rects`, and the alternative was measured against the code,
 //! not guessed:** `geometry_now` UNIONS every rect recorded for a node, so a
@@ -21,7 +21,7 @@
 //! rectangle whenever an inset moved it away from there. The anchors are a
 //! table of their own, and — because a block served from the FRAGMENT CACHE
 //! runs no flow — a fragment carries the anchors recorded while it was built
-//! and [`todas`] finds them through the tree of reused fragments, the way
+//! and [`all`] finds them through the tree of reused fragments, the way
 //! `rect_of_box` finds a rectangle. Without that the second layout pass would
 //! silently fall back to the old position: the class `lost-roots.md` names.
 
@@ -41,7 +41,7 @@ pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, box_id: BoxId, color: u3
         italic: false,
         deco: 0,
         owners: Vec::new(),
-        atomic: Some((id, box_id, AtomicKind::Estatica)),
+        atomic: Some((id, box_id, AtomicKind::StaticAnchor)),
         ww: 0.0,
         wh: 0.0,
     })
@@ -80,14 +80,14 @@ pub(in crate::layout) fn outside_line(
         // the boxes of the inlines around it pass through the line — Blink
         // leaves it out of the client rects of the inline that contains it.
         (_, _, AtomicKind::Float) => true,
-        (id, box_id, AtomicKind::Estatica) => {
+        (id, box_id, AtomicKind::StaticAnchor) => {
             let empty = !crate::paint::pieces::paints(&list.pieces[line_start..]);
             let (x, y) = match (was_block(dom, id), empty) {
                 (true, true) => (flow_x, line_top),
                 (true, false) => (flow_x, line_bottom),
                 (false, _) => (seg_x, line_top),
             };
-            list.ancoras_estaticas.push((box_id, x, y));
+            list.static_anchors.push((box_id, x, y));
             true
         }
         _ => false,
@@ -99,7 +99,7 @@ pub(in crate::layout) fn outside_line(
 /// be said, and with no line they are all the same place: where the line would
 /// have started (Blink, `claude-absoluto-posicao-estatica-linha-vazia` case 5).
 pub(in crate::layout) fn anchors_only_line(dom: &Dom, line: &[Segment], flow_x: f32, cy: f32, list: &mut DisplayList) -> bool {
-    let anchors_only = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::Estatica))));
+    let anchors_only = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::StaticAnchor))));
     if anchors_only {
         let start = list.pieces.len();
         for atomic in line.iter().filter_map(|s| s.atomic) {
@@ -121,15 +121,15 @@ fn was_block(dom: &Dom, id: NodeIdx) -> bool {
 
 /// Every static-position anchor of `list`, by NODE and in the list's own
 /// coordinates, including those inside the fragments it reuses.
-pub(in crate::layout) fn todas(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
+pub(in crate::layout) fn all(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
     let mut out = Vec::new();
     let mut add = |tree: &crate::boxes::BoxTree, a: &[(BoxId, f32, f32)], dx: f32, dy: f32| {
         out.extend(a.iter().filter_map(|&(b, x, y)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, 0.0, 0.0)))));
     };
-    add(&list.tree, &list.ancoras_estaticas, 0.0, 0.0);
+    add(&list.tree, &list.static_anchors, 0.0, 0.0);
     let mut stack: Vec<(&ChildRef, f32, f32)> = crate::paint::pieces::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();
     while let Some((c, dx, dy)) = stack.pop() {
-        add(&c.fragment.tree, &c.fragment.ancoras_estaticas, dx, dy);
+        add(&c.fragment.tree, &c.fragment.static_anchors, dx, dy);
         stack.extend(crate::paint::pieces::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)));
     }
     out

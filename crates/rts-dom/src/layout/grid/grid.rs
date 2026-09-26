@@ -118,7 +118,7 @@ pub(in crate::layout) fn layout_children_grid(
     };
     let explicit_rows_n = explicit_rows.len();
     let auto_flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
-        coluna: false,
+        column: false,
         dense: false,
     });
     let (cells, ncols_colocados) =

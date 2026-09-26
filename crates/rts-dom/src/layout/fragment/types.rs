@@ -11,7 +11,7 @@ use super::*;
 pub struct ChildRef {
     /// A caixa que esta subárvore desenha. O nó deixa de ser suficiente quando
     /// um inline partido tem dois fragmentos no mesmo container.
-    pub caixa: crate::boxes::BoxId,
+    pub box_id: crate::boxes::BoxId,
     /// Altura externa que ele ocupou e a margem de topo resolvida: se qualquer
     /// uma mudar ao refazê-lo, tudo abaixo desloca e a costura não serve.
     pub height: f32,
@@ -61,7 +61,7 @@ impl PartialEq for ChildRef {
 #[derive(Clone, Debug)]
 pub struct Fragment {
     /// A caixa que este fragmento desenha.
-    pub caixa: crate::boxes::BoxId,
+    pub box_id: crate::boxes::BoxId,
     /// A árvore que emitiu todos os `BoxId`s deste fragmento. Um fragmento pode
     /// sobreviver à reconstrução da árvore; nesses casos ele é reidratado para
     /// a árvore nova antes de voltar à `DisplayList`.
@@ -81,17 +81,17 @@ pub struct Fragment {
     /// Regiões roláveis internas descobertas dentro da subárvore.
     pub scroll_regions: Vec<ScrollRegion>,
     /// The baseline of this subtree's lowest OWN line box, in the coordinates
-    /// of `origin`: `linha_directa` from the flows that ran in this fragment's
-    /// own list, `ultima_linha` counting its child fragments too. Re-announced
-    /// on every emission (`crate::layout::inline::line_baseline::regista_do_fragmento`), because a
+    /// of `origin`: `direct_line` from the flows that ran in this fragment's
+    /// own list, `last_line` counting its child fragments too. Re-announced
+    /// on every emission (`crate::layout::inline::line_baseline::register_from_fragment`), because a
     /// cached fragment runs no flow; the split is what lets a stitch replace a
     /// child and recompute the total (`fragment::stitch`).
-    pub linha_directa: Option<f32>,
-    pub ultima_linha: Option<f32>,
+    pub direct_line: Option<f32>,
+    pub last_line: Option<f32>,
     /// The static positions the inline flows of THIS fragment's own list
     /// recorded (`static_anchor.rs`), in the coordinates of `origin`. A cached
     /// fragment runs no flow, so they have to travel with it.
-    pub ancoras_estaticas: std::rc::Rc<Vec<(crate::boxes::BoxId, f32, f32)>>,
+    pub static_anchors: std::rc::Rc<Vec<(crate::boxes::BoxId, f32, f32)>>,
     /// Onde este fragmento foi calculado.
     pub origin: (f32, f32),
     /// Tamanho externo devolvido pelo `layout_block` (o que o chamador usa para
@@ -132,7 +132,7 @@ impl Fragment {
         // `BoxTree::translate_from` (`boxes/generated.rs`): the address of a box
         // is the tree's knowledge since a generated box has no `(node, ordinal)`.
         let map_box = |old| tree.translate_from(&self.tree, old);
-        let caixa = map_box(self.caixa)?;
+        let caixa = map_box(self.box_id)?;
         let rects = self
             .rects
             .iter()
@@ -149,7 +149,7 @@ impl Fragment {
                     super::Piece::Item(item) => super::Piece::Item(item.clone()),
                     super::Piece::Rect(old) => super::Piece::Rect(map_box(*old)?),
                     super::Piece::Child(child) => super::Piece::Child(ChildRef {
-                        caixa: map_box(child.caixa)?,
+                        box_id: map_box(child.box_id)?,
                         fragment: child.fragment.remapped_to(tree)?,
                         ..child.clone()
                     }),
@@ -157,16 +157,16 @@ impl Fragment {
             })
             .collect::<Option<Vec<_>>>()?;
         Some(std::rc::Rc::new(Fragment {
-            caixa,
+            box_id: caixa,
             tree: std::rc::Rc::clone(tree),
             pieces: std::rc::Rc::new(pieces),
             rects: std::rc::Rc::new(rects),
             grid_column_tracks: std::rc::Rc::clone(&self.grid_column_tracks),
             scroll_regions: self.scroll_regions.clone(),
-            linha_directa: self.linha_directa,
-            ultima_linha: self.ultima_linha,
-            ancoras_estaticas: std::rc::Rc::new(
-                self.ancoras_estaticas.iter().map(|&(b, x, y)| Some((map_box(b)?, x, y))).collect::<Option<Vec<_>>>()?,
+            direct_line: self.direct_line,
+            last_line: self.last_line,
+            static_anchors: std::rc::Rc::new(
+                self.static_anchors.iter().map(|&(b, x, y)| Some((map_box(b)?, x, y))).collect::<Option<Vec<_>>>()?,
             ),
             origin: self.origin,
             size: self.size,
@@ -189,8 +189,8 @@ impl Fragment {
         shrink_to_fit: bool,
     ) {
         let (dx, dy) = (x - self.origin.0, y - self.origin.1);
-        if let (Some(baseline), Some(owner)) = (self.ultima_linha, self.tree.node_of(self.caixa)) {
-            crate::layout::inline::line_baseline::regista_do_fragmento(owner, baseline + dy);
+        if let (Some(baseline), Some(owner)) = (self.last_line, self.tree.node_of(self.box_id)) {
+            crate::layout::inline::line_baseline::register_from_fragment(owner, baseline + dy);
         }
         // APONTA, não copia: os itens desta subárvore já existem e não mudaram.
         // Os RETÂNGULOS abaixo continuam sendo materializados, porque a consulta
@@ -200,7 +200,7 @@ impl Fragment {
             list.grid_column_tracks.insert(*node, tracks.clone());
         }
         list.pieces.push(super::Piece::Child(ChildRef {
-            caixa: self.caixa,
+            box_id: self.box_id,
             height: self.size.1,
             margin_top: self.margin_top,
             margin_bottom: self.margin_bottom,

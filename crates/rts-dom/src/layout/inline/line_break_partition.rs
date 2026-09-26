@@ -50,7 +50,7 @@ pub(in crate::layout) fn split_piece_that_does_not_fit(
     font_size: f32,
     mono: bool,
     ahem: bool,
-    fonts: &super::run_font::Fontes,
+    fonts: &super::run_font::Fonts,
     m: &dyn TextMeasurer,
 ) {
     let mut rest = text;
@@ -106,7 +106,7 @@ pub(in crate::layout) fn whole_run_fits(
     run: &InlineRun,
     i: usize,
     normalized: &str,
-    fonts: &super::run_font::Fontes,
+    fonts: &super::run_font::Fonts,
     m: &dyn TextMeasurer,
 ) -> bool {
     if normalized.is_empty() {

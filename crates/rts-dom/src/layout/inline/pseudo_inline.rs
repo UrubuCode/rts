@@ -8,12 +8,12 @@
 //! pseudo generates a BOX, and it now arrives at the line as one of the two
 //! boxes a real element would be:
 //!
-//! - **`inline-block`**: one atom (`AtomicKind::Gerada(_, Atomo)`), measured
-//!   and painted as a [`CaixaGerada`] by `pseudo_box.rs` — the same
-//!   `montar`/`pintar` the block and flex-item roles use, not a fourth copy.
+//! - **`inline-block`**: one atom (`AtomicKind::Generated(_, Atom)`), measured
+//!   and painted as a [`GeneratedBox`] by `pseudo_box.rs` — the same
+//!   `build`/`paint` the block and flex-item roles use, not a fourth copy.
 //! - **`inline`**: its text, bracketed by a start and an end edge
-//!   (`Gerada(_, Inicio | Fim)`) that carry margin + border + padding as
-//!   width on the line, exactly as `ArestaInicio`/`ArestaFim` do for a real
+//!   (`Generated(_, Start | End)`) that carry margin + border + padding as
+//!   width on the line, exactly as `EdgeStart`/`EdgeEnd` do for a real
 //!   inline with a surface. The background and borders are painted per line
 //!   fragment by `inline_fragments::Superficies`, behind the text.
 //!
@@ -22,8 +22,8 @@
 //! long generated string (a citation, a `content: attr(href)`) must.
 
 use super::*;
-use crate::layout::block::pseudo_box::{CaixaGerada, altura_das_linhas, linhas_do_texto, montar, resolve_arestas};
-use crate::inline_box::ParteGerada;
+use crate::layout::block::pseudo_box::{GeneratedBox, lines_height, text_lines, build, resolve_edges};
+use crate::inline_box::GeneratedPart;
 
 /// The runs a generated box (`::before`/`::after`) of `id` hands to the line,
 /// or none if the cascade generates no box or the box is block-level.
@@ -106,14 +106,14 @@ pub(in crate::layout) fn pseudo_run_of_box(
     if matches!(display, Some(DisplayKind::Block | DisplayKind::Flex | DisplayKind::Grid)) {
         return Vec::new();
     }
-    let atom = |part: ParteGerada, ww: f32, wh: f32| InlineRun {
+    let atom = |part: GeneratedPart, ww: f32, wh: f32| InlineRun {
         text: String::new(),
         color: inherited_color,
         bold: false,
         italic: false,
         deco: 0,
         owners: owners.to_vec(),
-        atomic: Some((id, generated, AtomicKind::Gerada(pe, part))),
+        atomic: Some((id, generated, AtomicKind::Generated(pe, part))),
         ww,
         wh,
     };
@@ -125,12 +125,12 @@ pub(in crate::layout) fn pseudo_run_of_box(
     if display == Some(DisplayKind::InlineBlock) && !boxless {
         let measured = measure_atom((generated, pseudo), base_w, ctx);
         crate::bump!(inline_runs);
-        return vec![atom(ParteGerada::Atomo, measured.w, measured.h)];
+        return vec![atom(GeneratedPart::Atom, measured.w, measured.h)];
     }
     let edges = if boxless { None } else { generated_inline_edges(&pseudo.css, base_w, ctx) };
     crate::bump!(inline_runs);
     let text_run = InlineRun {
-        text: pseudo.texto,
+        text: pseudo.text,
         color: cor_visivel(&pseudo.css, pseudo.css.color.unwrap_or(inherited_color)),
         bold: pseudo.css.bold.unwrap_or(false),
         // a caixa gerada é do PRÓPRIO elemento: nenhuma tag nova entra, por isso
@@ -143,7 +143,7 @@ pub(in crate::layout) fn pseudo_run_of_box(
         wh: 0.0,
     };
     match edges {
-        Some([left, right]) => vec![atom(ParteGerada::Inicio, left, 0.0), text_run, atom(ParteGerada::Fim, right, 0.0)],
+        Some([left, right]) => vec![atom(GeneratedPart::Start, left, 0.0), text_run, atom(GeneratedPart::End, right, 0.0)],
         None => vec![text_run],
     }
 }
@@ -180,26 +180,26 @@ fn resolve_ctx(base_w: f32, font: f32, ctx: &LayoutCtx) -> ResolveCtx {
 /// `width`/`height`, or shrink-to-fit — the max-content width of its text,
 /// capped by what the line offers (CSS 2.1 §10.3.9) — with its text broken
 /// at that width and one line box per line.
-fn measure_atom((generated, pseudo): (crate::boxes::BoxId, crate::pseudo::PseudoBox), base_w: f32, ctx: &LayoutCtx) -> CaixaGerada {
+fn measure_atom((generated, pseudo): (crate::boxes::BoxId, crate::pseudo::PseudoBox), base_w: f32, ctx: &LayoutCtx) -> GeneratedBox {
     let css = &pseudo.css;
     let font = font_px(css, DEFAULT_FONT_SIZE);
     let r = resolve_ctx(base_w, font, ctx);
-    let edges = resolve_arestas(css, &r);
-    let text = super::segment::collapse_ws(&pseudo.texto, false).into_owned();
+    let edges = resolve_edges(css, &r);
+    let text = super::segment::collapse_ws(&pseudo.text, false).into_owned();
     let content_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or_else(|| {
-        let available = base_w - edges.ml - edges.mr - edges.valores[1] - edges.valores[3];
-        let max_content = linhas_do_texto(css, &text, f32::INFINITY, font, ctx)
+        let available = base_w - edges.ml - edges.mr - edges.values[1] - edges.values[3];
+        let max_content = text_lines(css, &text, f32::INFINITY, font, ctx)
             .iter()
             .map(|l| ctx.measurer.text_width(l, font, css.font_family.as_deref().is_some_and(crate::style::is_mono_family), css.bold.unwrap_or(false), css.italic.unwrap_or(false)))
             .fold(0.0, f32::max);
         max_content.min(available.max(0.0))
     });
-    let lines = linhas_do_texto(css, &text, content_w, font, ctx);
+    let lines = text_lines(css, &text, content_w, font, ctx);
     let content_h = css
         .height
         .and_then(|d| d.resolve(&r))
-        .unwrap_or_else(|| altura_das_linhas(css, &lines, font, ctx));
-    montar((generated, pseudo), edges, content_w, content_h, lines, font)
+        .unwrap_or_else(|| lines_height(css, &lines, font, ctx));
+    build((generated, pseudo), edges, content_w, content_h, lines, font)
 }
 
 /// Paints the `inline-block` pseudo `pe` of `id` at the place the line gave
@@ -225,5 +225,5 @@ pub(in crate::layout) fn paint_atom(
         return;
     };
     let measured = measure_atom((generated, pseudo), base_w, ctx);
-    crate::layout::block::pseudo_box::pintar(list, &measured, x, top, ctx);
+    crate::layout::block::pseudo_box::paint(list, &measured, x, top, ctx);
 }

@@ -14,8 +14,8 @@ use crate::style::{ComputedStyle, DisplayKind, FloatSide};
 /// `true` when `css`, as the style of a box whose parent box has style
 /// `parent_css`, establishes its own block formatting context by the style alone —
 /// every trigger except the document root and `overflow`, which the caller
-/// adds with [`overflow_estabelece`] once it knows `overflow` applies here.
-pub(crate) fn pelo_estilo(css: &ComputedStyle, parent_css: Option<&ComputedStyle>) -> bool {
+/// adds with [`overflow_establishes`] once it knows `overflow` applies here.
+pub(crate) fn by_style(css: &ComputedStyle, parent_css: Option<&ComputedStyle>) -> bool {
     let display_bfc = matches!(
         css.effective_display(),
         Some(
@@ -64,7 +64,7 @@ pub(crate) fn pelo_estilo(css: &ComputedStyle, parent_css: Option<&ComputedStyle
 /// `clip` entrou no lote `flex-min-auto-content`, retrabalho: antes de
 /// `Overflow::Clip` existir como variante própria, `hidden`/`clip` eram a
 /// MESMA e este `any` já os cobria os dois sem saber).
-pub(crate) fn overflow_estabelece(css: &ComputedStyle) -> bool {
+pub(crate) fn overflow_establishes(css: &ComputedStyle) -> bool {
     [css.overflow_x, css.overflow_y]
         .into_iter()
         .any(|value| value.is_some_and(|o| o.scrollable() || o.clips()))

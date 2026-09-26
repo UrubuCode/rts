@@ -151,7 +151,7 @@ pub(in crate::layout) fn layout_children_column(
         }
         // `display:none` não é item — mesmo motivo do eixo horizontal; aqui o
         // que ele roubava era altura e um `gap` vertical.
-        if e_display_none(dom, child) {
+        if is_display_none(dom, child) {
             continue;
         }
         // Blockificação, como no eixo horizontal — ver o comentário lá.
@@ -202,7 +202,7 @@ pub(in crate::layout) fn layout_children_column(
         // `flex-basis: content` (e `max-content`) IGNORA o `height` do proprio
         // item — mas so ha o que ignorar quando ele foi declarado. Sem
         // `height`, o `natural_h` medido acima JA e a altura do conteudo, e e
-        // a boa: `altura_conteudo_sem_height` soma cada filho pela sua propria
+        // a boa: `content_height_without_height` soma cada filho pela sua propria
         // altura, um modelo de blocos EMPILHADOS que erra sempre que o
         // conteudo nao empilha. Medido no Blink com os seis casos de
         // `flexbox-flex-basis-content-004a` (WPT): tres inline-blocks ficam na
@@ -220,7 +220,7 @@ pub(in crate::layout) fn layout_children_column(
         let base_natural_h = if basis_from_content
         {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
-            super::column_shrink::altura_conteudo_sem_height(
+            super::column_shrink::content_height_without_height(
                 dom, box_id, &ccss, content_w, child_font, ctx,
             ) + bt + bb + ccss.padding.resolve_v(&child_resolve) + ccss.margin.resolve_v(&child_resolve)
         } else {
@@ -351,7 +351,7 @@ pub(in crate::layout) fn layout_children_column(
                 // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
                 is_ahem: false,
                 bold: css.bold.unwrap_or(false),
-                italic: italico(Some(&css), tag_de(dom, it.node), false),
+                italic: italico(Some(&css), tag_of(dom, it.node), false),
                 letter_spacing: css.letter_spacing.unwrap_or(0.0),
                 decoration: decoration_code(css),
             });
@@ -378,7 +378,7 @@ pub(in crate::layout) fn layout_children_column(
             // `stretch-flex-item-checkbox-input`/`-radio-input`) —
             // `flex_stretch_replaced` decide os dois; um campo de texto ou
             // `<table>` já se enchem sozinhos e ficam de fora.
-            let needs_forced_w = super::stretch_replaced::precisa_de_forced_w_no_stretch(dom, it.node);
+            let needs_forced_w = super::stretch_replaced::needs_forced_w_on_stretch(dom, it.node);
             let forced_w = (stretch && ccss.width.is_none() && needs_forced_w).then_some(content_w);
             let child_x = if stretch && ccss.width.is_none() {
                 super::column_rtl::cross_x(
@@ -455,7 +455,7 @@ pub(in crate::layout) fn layout_children_column(
     (y - content_y).max(0.0)
 }
 
-/// A MESMA ideia de [`super::axes::fisico_para_eixo`], mas para o eixo PRINCIPAL de uma
+/// A MESMA ideia de [`super::axes::physical_to_axis`], mas para o eixo PRINCIPAL de uma
 /// COLUNA — e o mapa é diferente porque o eixo aí não é o mesmo: `left`/
 /// `right` não têm eixo NENHUM numa coluna (Box Alignment §5.1) e os DOIS
 /// colapsam em "início" (topo); `start`/`end` continuam assimétricos, porque

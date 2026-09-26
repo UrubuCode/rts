@@ -44,7 +44,7 @@ pub(in crate::layout) fn emit_atom(
     if super::static_anchor::outside_line(dom, (a_idx, box_id, kind), *seg_x, x, cy, cy + line_advance, line_at, list) {
         return;
     }
-    let (start_index, (rx, ry)) = (list.pieces.len(), crate::layout::positioned::relative::offset_do_inline(dom, seg.owners.last().copied(), ctx));
+    let (start_index, (rx, ry)) = (list.pieces.len(), crate::layout::positioned::relative::inline_offset(dom, seg.owners.last().copied(), ctx));
     match kind {
         AtomicKind::Widget => {
             // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
@@ -126,7 +126,7 @@ pub(in crate::layout) fn emit_atom(
                 list,
             );
         }
-        AtomicKind::Gerada(pe, ParteGerada::Atomo) => {
+        AtomicKind::Generated(pe, GeneratedPart::Atom) => {
             // A generated inline-block always makes `envelope` Some.
             let top = envelope
                 .as_ref()
@@ -135,19 +135,19 @@ pub(in crate::layout) fn emit_atom(
         }
         AtomicKind::Marker
         | AtomicKind::Break
-        | AtomicKind::ArestaInicio
-        | AtomicKind::ArestaFim
-        | AtomicKind::Gerada(..)
+        | AtomicKind::EdgeStart
+        | AtomicKind::EdgeEnd
+        | AtomicKind::Generated(..)
         | AtomicKind::Float
-        | AtomicKind::Estatica => {}
+        | AtomicKind::StaticAnchor => {}
     }
-    crate::layout::positioned::relative::desloca_desde(list, start_index, kind.tem_corpo().then_some(box_id), rx, ry);
+    crate::layout::positioned::relative::shift_from(list, start_index, kind.tem_corpo().then_some(box_id), rx, ry);
     surfaces.cover(dom, &seg.owners, *seg_x, *seg_x + seg.ww);
     match kind {
-        AtomicKind::ArestaInicio => surfaces.mark(a_idx, true),
-        AtomicKind::ArestaFim => surfaces.mark(a_idx, false),
-        AtomicKind::Gerada(pe, ParteGerada::Inicio) => surfaces.open_generated(dom, a_idx, pe, *seg_x, seg.ww, content_w, ctx),
-        AtomicKind::Gerada(pe, ParteGerada::Fim) => surfaces.close_generated(dom, a_idx, pe, content_w, ctx),
+        AtomicKind::EdgeStart => surfaces.mark(a_idx, true),
+        AtomicKind::EdgeEnd => surfaces.mark(a_idx, false),
+        AtomicKind::Generated(pe, GeneratedPart::Start) => surfaces.open_generated(dom, a_idx, pe, *seg_x, seg.ww, content_w, ctx),
+        AtomicKind::Generated(pe, GeneratedPart::End) => surfaces.close_generated(dom, a_idx, pe, content_w, ctx),
         _ => {}
     }
     // A CAIXA DO PRÓPRIO: só regista aqui quem NADA mais registou.
@@ -167,7 +167,7 @@ pub(in crate::layout) fn emit_atom(
     // recebe-a como fragmento no laço abaixo.
     let already_registered = matches!(
         kind,
-        AtomicKind::Widget | AtomicKind::Block | AtomicKind::ArestaInicio | AtomicKind::ArestaFim | AtomicKind::Gerada(..)
+        AtomicKind::Widget | AtomicKind::Block | AtomicKind::EdgeStart | AtomicKind::EdgeEnd | AtomicKind::Generated(..)
     ) || (kind == AtomicKind::Replaced
         && (dom.image_dims(a_idx).is_some() || super::line::is_canvas(dom, a_idx)));
     if !already_registered {

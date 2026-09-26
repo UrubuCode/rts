@@ -41,7 +41,7 @@ pub(in crate::layout) fn place_anchored_floats(
     runs: &[InlineRun],
     // Breaks the runs against these exclusions — the caller's `wrap_runs`,
     // with the container's parameters already fixed.
-    break_lines: &dyn Fn(&[Exclusao]) -> Vec<Vec<Segment>>,
+    break_lines: &dyn Fn(&[Exclusion]) -> Vec<Vec<Segment>>,
     (x, y, content_w, lh): (f32, f32, f32, f32),
     // The container's `white-space: nowrap`/`pre`: the whole line is one word.
     nowrap: bool,
@@ -67,7 +67,7 @@ pub(in crate::layout) fn place_anchored_floats(
         // is the same `None` an atom of the line already gets.
         let size = super::placement::measure_float(dom, tree, node, box_id, content_w, None, parent_css, font_size, ctx);
         let line_top = y + i as f32 * lh;
-        let (_, free) = banda_livre(&exclusions, line_top, lh, x, content_w);
+        let (_, free) = free_band(&exclusions, line_top, lh, x, content_w);
         // Does it fit in what the line still has? An anchor at the START of the
         // line always fits by this question — if the float fits in no band on
         // its own, `place_float`'s search moves it down, and that search knows

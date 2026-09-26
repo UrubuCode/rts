@@ -8,7 +8,7 @@
 //! function, neither knowing the other exists as "the same question on a
 //! different axis". The BLOCK axis had no equivalent at all — every site that
 //! needed an intrinsic height improvised, and the improvisation in general use
-//! is `crate::layout::flex::column_shrink::altura_conteudo_sem_height`: it sums each child's own
+//! is `crate::layout::flex::column_shrink::content_height_without_height`: it sums each child's own
 //! outer height, which is a model of children STACKED. Measured against the
 //! Blink on 2026-09-16 (`PLAN.md` §11, INTR): three inline-blocks that share a
 //! line come out 22px there and 40 (the sum) here, and three floats side by
@@ -49,7 +49,7 @@
 //! reach every existing improvisation — that exact move (`avail_h` through
 //! five signatures) was tried, MEASURED and REVERTED elsewhere in this crate
 //! (`containing_block.rs`, header). Nothing here replaces
-//! `altura_conteudo_sem_height`'s call sites; this lot delivers the question,
+//! `content_height_without_height`'s call sites; this lot delivers the question,
 //! with the number now demonstrably closer to what a real layout gives, and
 //! leaves converting a call site to a follow-up that can measure that
 //! conversion on its own.
@@ -181,7 +181,7 @@ mod tests {
     }
 
     /// The case the module doc opens with: two inline-blocks that share ONE
-    /// line. The stacking approximation (`altura_conteudo_sem_height`) sums
+    /// line. The stacking approximation (`content_height_without_height`) sums
     /// their heights (20+40=60); a real layout at a width wide enough for
     /// both to sit side by side gives the line's own height, close to the
     /// TALLER child (40) and strictly less than the stacked sum.
@@ -195,7 +195,7 @@ mod tests {
             intrinsic_size(&dom, id, caixa_de(&dom, id), Axis::Block, IntrinsicKind::Max, Some(200.0), 16.0, &c)
                 .expect("com largura, o eixo de bloco responde");
         let css = dom.computed_style_idx(id).unwrap_or_default();
-        let soma_empilhada = crate::layout::flex::column_shrink::altura_conteudo_sem_height(
+        let soma_empilhada = crate::layout::flex::column_shrink::content_height_without_height(
             &dom, caixa_de(&dom, id), &css, 200.0, 16.0, &c,
         );
         assert!(

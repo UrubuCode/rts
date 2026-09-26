@@ -28,7 +28,7 @@ use crate::paint::pieces::{Piece, children};
 /// identidade da caixa entre construções (o nó que a gera, ou o nó de que
 /// herda quando é anónima), mais a posição dela entre as caixas do seu nó — e
 /// DESCE às anónimas, cujo conteúdo é uma partição que pode mudar sozinha.
-pub(in crate::layout) fn mesma_sequencia_de_filhos(
+pub(in crate::layout) fn same_children_sequence(
     antiga: &BoxTree,
     pai_antigo: BoxId,
     nova: &BoxTree,
@@ -48,7 +48,7 @@ fn same_box(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
         return false;
     }
     match kind {
-        BoxKind::Anonymous { .. } => mesma_sequencia_de_filhos(antiga, x, nova, y),
+        BoxKind::Anonymous { .. } => same_children_sequence(antiga, x, nova, y),
         // A generated box is named whole by its `BoxKind` — originating element
         // AND which pseudo — and has no children, so equal kinds at the same
         // position are the same box. One that appeared or went away changes
@@ -89,5 +89,5 @@ pub(in crate::layout) fn dirt_covered(
 ) -> bool {
     dirty
         .iter()
-        .all(|&dirty_node| children(pieces).any(|child| tree.node_of(child.caixa) == Some(dirty_node)))
+        .all(|&dirty_node| children(pieces).any(|child| tree.node_of(child.box_id) == Some(dirty_node)))
 }

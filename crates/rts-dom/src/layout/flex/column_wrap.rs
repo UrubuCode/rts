@@ -87,7 +87,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
         if is_out_of_flow(dom, child) {
             continue;
         }
-        if e_display_none(dom, child) {
+        if is_display_none(dom, child) {
             continue;
         }
         if matches!(dom.node(child).kind, NodeKind::Text(_)) {
@@ -415,7 +415,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                     // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
                     is_ahem: false,
                     bold: css.bold.unwrap_or(false),
-                    italic: italico(Some(css), tag_de(dom, it.node), false),
+                    italic: italico(Some(css), tag_of(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),
                     decoration: decoration_code(css),
                 });

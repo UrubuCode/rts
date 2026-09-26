@@ -3,7 +3,7 @@
 //! contexto ancestral (outro flex com `align-items:baseline`, ou uma linha de
 //! texto comum). `flex_baseline.rs` já resolvia o grupo baseline INTERNO de
 //! um contentor; nada usava essa resposta quando o PRÓPRIO contentor era, ele
-//! mesmo, o item a posicionar — `linha_ib::ascent_do_item` tratava-o como um
+//! mesmo, o item a posicionar — `linha_ib::item_ascent` tratava-o como um
 //! bloco genérico (fonte própria), que é a pergunta certa para um bloco e
 //! errada para um flex (Flexbox §8.5 pede o grupo baseline da 1ª linha, ou o
 //! 1º item em fluxo, nunca a fonte do CONTENTOR).
@@ -47,10 +47,10 @@ fn baseline_de_flex_aninhado_propaga_para_o_contentor_exterior() {
     // font-size, só `#a` com margin-top:8) — por Flexbox §8.5 a baseline de
     // `#inner` VISTA DE FORA é a do seu PRÓPRIO grupo (8+intrínseco a partir
     // do topo de `#inner`), não a fonte do `#inner`. Sem este lote,
-    // `ascent_do_item` usava a fórmula genérica (fonte do contentor,
+    // `item_ascent` usava a fórmula genérica (fonte do contentor,
     // ascent=intrínseco puro) e `#sib` — que devia descer 8px para partilhar
     // a baseline de `#inner` — ficava em y=0 (verificado: comentando o
-    // desvio de `linha_ib::ascent_do_item` este teste falha com
+    // desvio de `linha_ib::item_ascent` este teste falha com
     // `#sib` em (0.0,0.0,…) em vez de (0.0,8.0,…)).
     const HTML: &str = r#"<style>
   body { margin: 0; font: 16px/20px monospace; }
@@ -122,7 +122,7 @@ fn o_primeiro_item_conta_pela_ordem_de_order_nao_pela_ordem_do_dom() {
     // (primeiro item), numa única linha. `#p1` é o PRIMEIRO no DOM mas
     // `order:2` (ÚLTIMO na ordem de flex); `#p2` é o SEGUNDO no DOM mas
     // `order:1` (PRIMEIRO). A resposta certa usa `#p2` (margin-top:4);
-    // antes deste retrabalho, `ascent_do_contentor` lia `filhos_flex_em_fluxo`
+    // antes deste retrabalho, `container_ascent` lia `in_flow_flex_children`
     // pela ordem do DOM crua e usava `#p1` (margin-top:20) — 20 em vez de 4.
     const HTML: &str = r#"<style>
   body { margin: 0; font: 16px/20px monospace; }
@@ -143,7 +143,7 @@ fn a_primeira_linha_sob_wrap_reverse_e_a_ultima_na_ordem_de_flex() {
     // RETRABALHO (2026-09-05, o mesmo achado do teste acima, na forma
     // ORIGINAL do WPT: `flex-wrap:wrap-reverse` em vez de `order` puro).
     // `#q1`/`#q2` medem 40px cada num `#inner5` de 40px — cada um força a
-    // sua PRÓPRIA linha (`linhas_por_largura`); `wrap-reverse` desenha a
+    // sua PRÓPRIA linha (`lines_by_width`); `wrap-reverse` desenha a
     // linha que o documento escreve DEPOIS (a de `#q2`) no INÍCIO do eixo
     // cruzado (Flexbox §8.3), que é a que conta como "primeira" para a
     // baseline (Flexbox §8.5). A resposta certa usa `#q2` (margin-top:10);

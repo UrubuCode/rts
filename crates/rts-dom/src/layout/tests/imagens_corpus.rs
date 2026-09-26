@@ -156,7 +156,7 @@ fn min_height_auto_deriva_da_razao_quando_a_largura_tambem_esta_declarada() {
 /// já dava a base certa (25), mas `table::min_content` mede o `<img>` pelo
 /// NATURAL dos pixels (60, sem saber nada de eixo cruzado) e
 /// `com_piso_minimo` erguia o item de volta ao natural, anulando o
-/// transferido. `base_e_altura_do_item` devolve agora se transferiu, e
+/// transferido. `item_basis_and_height` devolve agora se transferiu, e
 /// `flex.rs` usa a própria base transferida como piso nesse caso.
 #[test]
 fn item_transferido_nao_e_erguido_de_volta_ao_natural_pelo_piso() {

@@ -93,7 +93,7 @@ pub(in crate::layout) fn collect_out_of_flow(
         // ancestral posicionado muito acima: na Wikipédia, um
         // `<input type=checkbox height:100%>` de um menu escondido resolvia
         // contra um contentor com a altura do DOCUMENTO e vinha com 96 665px.
-        if e_display_none(dom, child) {
+        if is_display_none(dom, child) {
             return;
         }
         if is_out_of_flow(dom, child) {
@@ -108,7 +108,7 @@ pub(in crate::layout) fn collect_out_of_flow(
 /// `true` se este nó declara `display:none` — a pergunta que tira uma subárvore
 /// inteira do layout. Só o próprio nó: quem varre a árvore de cima para baixo já
 /// não desce nele, e é isso que a torna hereditária na prática.
-pub(in crate::layout) fn e_display_none(dom: &Dom, id: NodeIdx) -> bool {
+pub(in crate::layout) fn is_display_none(dom: &Dom, id: NodeIdx) -> bool {
     matches!(&dom.node(id).kind, NodeKind::Element { .. })
         && dom
             .computed_style_idx(id)

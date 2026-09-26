@@ -8,7 +8,7 @@
 //! Duas perguntas, uma implementação (`transferred`, abaixo): o ITEM em si —
 //! usado no pré-passo de `row.rs`, onde a altura do contentor já é um
 //! parâmetro — e o CONTENTOR que encolhe ao conteúdo
-//! (`largura_intrinseca_transferida`, usado por `block.rs`/`limits.rs`
+//! (`transferred_intrinsic_width`, usado por `block.rs`/`limits.rs`
 //! ANTES do layout real: sem isto um `<div style="display:flex;height:100px">`
 //! só com uma imagem lá dentro mede-se pela largura NATURAL da imagem — 1px
 //! para um PNG 1×1 — e nunca chega a oferecer ao filho o espaço que ele
@@ -94,7 +94,7 @@ pub(in crate::layout) fn transferred(
 /// `flex-basis-content-wrap`). Um item que ainda vai CRESCER/ENCOLHER
 /// (`main != base`) é remedido pelo chamador com o `main` FINAL.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn base_e_altura_do_item(
+pub(in crate::layout) fn item_basis_and_height(
     dom: &Dom,
     child: NodeIdx,
     // A caixa do item, recolhida pelo pré-passe de `row.rs` ao andar a árvore.
@@ -141,7 +141,7 @@ pub(in crate::layout) fn base_e_altura_do_item(
 /// `position:absolute` com os dois insets, `block.rs`) — senão `None` e esta
 /// função tenta a altura DECLARADA do próprio `id` (`#dentro{height:100px}`
 /// como item de outro flex: a altura não depende de nada externo).
-pub(in crate::layout) fn largura_intrinseca_transferida(
+pub(in crate::layout) fn transferred_intrinsic_width(
     dom: &Dom,
     id: NodeIdx,
     font: f32,
@@ -203,7 +203,7 @@ pub(in crate::layout) fn largura_intrinseca_transferida(
             continue;
         }
         if let NodeKind::Element { tag } = &dom.node(child).kind {
-            if is_non_rendered_tag(tag) || e_display_none(dom, child) {
+            if is_non_rendered_tag(tag) || is_display_none(dom, child) {
                 continue;
             }
         }

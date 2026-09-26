@@ -69,7 +69,7 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
             return w;
         }
     }
-    if let Some(w) = dom.computed_style_idx(id).and_then(|css| crate::layout::replaced::input::tamanho_natural_controlo(dom, id, &css, ctx)).map(|(w, _)| w) { return w; }
+    if let Some(w) = dom.computed_style_idx(id).and_then(|css| crate::layout::replaced::input::control_natural_size(dom, id, &css, ctx)).map(|(w, _)| w) { return w; }
     // An element whose children are all text: its lines, run by run
     // (`text_measure`). Each text node answers to its own `white-space`,
     // `tab-size`, weight, family and spacings — this element's, inherited —
@@ -203,7 +203,7 @@ fn intrinsic_content_width_general(
     // `::before`/`::after` de um flex em linha são itens (Flexbox §4) e entram
     // na largura natural do contentor — o caret do botão do Bootstrap.
     for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
-        let w = crate::layout::flex::pseudo::largura(dom, tree, box_id, pe, font, ctx);
+        let w = crate::layout::flex::pseudo::width(dom, tree, box_id, pe, font, ctx);
         if w > 0.0 {
             sum += w;
             count += 1;
@@ -286,7 +286,7 @@ fn walk_children(
         let w = intrinsic_outer_width_of(dom, tree, child, Some(child_box), font, ctx);
         if matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "br") {
             lines.forced_break(ctx);
-        } else if fecha_a_corrida(dom, child) {
+        } else if close_run(dom, child) {
             lines.block(w, ctx);
         } else if crate::layout::float::float::float_of(dom, child) != crate::style::FloatSide::None {
             lines.float(w, ctx);
@@ -356,7 +356,7 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
             // filtrá-los em cada CHAMADOR — foi rejeitada por ser a mesma
             // pergunta respondida em cinco sítios; quem sabe que uma caixa não
             // existe é quem mede a caixa.
-            if e_display_none(dom, id) {
+            if is_display_none(dom, id) {
                 return 0.0;
             }
             let css = dom.computed_style_idx(id).unwrap_or_default();

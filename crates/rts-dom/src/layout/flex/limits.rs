@@ -40,7 +40,7 @@ pub(in crate::layout) fn flex_base_outer(
         // `content` abaixo porque é uma pergunta ortogonal (estrutura do
         // contentor, não o valor de `flex-basis`) e já valia para `auto`
         // antes deste lote.
-        if let Some(w) = crate::layout::replaced::transferred_size::largura_intrinseca_transferida(
+        if let Some(w) = crate::layout::replaced::transferred_size::transferred_intrinsic_width(
             dom, id, parent_font, None, ctx,
         ) {
             return w;
@@ -83,7 +83,7 @@ pub(in crate::layout) fn flex_base_outer(
 /// resolve — sem isto `min-width:min-content` empatava com "não declarado" e
 /// um `max-width` menor vencia, ao contrário do CSS2 §10.4 (min sempre vence
 /// max em conflito; `claude-flex-min-width-min-content`).
-pub(in crate::layout) fn limites_do_item(
+pub(in crate::layout) fn item_limits(
     dom: &Dom,
     id: NodeIdx,
     ccss: &ComputedStyle,
@@ -123,7 +123,7 @@ pub(in crate::layout) fn limites_do_item(
 /// pai de largura zero (o truque que o WPT usa para simular
 /// `width:min-content`) colapsava a 0 em vez de parar no min-content
 /// (`claude-shrink-to-fit-sem-piso-min-content`).
-pub(in crate::layout) fn largura_shrink_to_fit(
+pub(in crate::layout) fn shrink_to_fit_width(
     dom: &Dom,
     id: NodeIdx,
     available: f32,
@@ -308,7 +308,7 @@ pub(in crate::layout) fn with_final_limits(
 /// o próprio teste diz que sem ele o item "cabe" na primeira linha, e é isso
 /// que o Chrome faz; por isso o piso depende de `balanced` em vez de valer
 /// para toda a quebra.
-pub(in crate::layout) fn hipotetico_para_quebra(
+pub(in crate::layout) fn hypothetical_for_wrap(
     main: f32,
     min_main: f32,
     max_main: Option<f32>,
@@ -347,7 +347,7 @@ pub(in crate::layout) fn hipotetico_para_quebra(
 /// `overflow-x:visible` a `auto` sempre que `overflow-y` não é visível
 /// (`flexbox-min-width-auto-004`, WPT — o inverso de `-003`, que já cobria só
 /// o próprio `overflow-x`).
-pub(in crate::layout) fn min_automatico(
+pub(in crate::layout) fn automatic_min(
     dom: &Dom,
     id: NodeIdx,
     min_content: f32,

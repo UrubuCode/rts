@@ -24,7 +24,7 @@ pub(in crate::layout) fn wrap_runs(
     // corpus real escreve-as sempre no container (13 folhas, zero excepções).
     // Guardá-las por run era a alternativa e custava um campo em cada `InlineRun`
     // para responder o mesmo valor em todos eles.
-    break_within: crate::inline_box::QuebraDentro,
+    break_within: crate::inline_box::BreakWithin,
     // `white-space`/`tab-size` of EACH RUN (unlike `break_within` above): whether a
     // `\n` forces a break, and whether spaces are content (`preserved_spaces.rs`).
     spaces: super::preserved_spaces::Spaces,
@@ -38,7 +38,7 @@ pub(in crate::layout) fn wrap_runs(
     manual_hyphen: bool,
     // The font of each run — the container's, or its innermost inline's where
     // that differs (`run_font.rs`). See `measure`.
-    fonts: &super::run_font::Fontes,
+    fonts: &super::run_font::Fonts,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
     let _phase = crate::metrics::phases::scope("wrap-runs");
@@ -110,7 +110,7 @@ pub(in crate::layout) fn wrap_runs(
                 // widget) é inquebrável e continua a descer inteira.
                 let text_only = cluster.iter().all(|p| p.atomic.is_none());
                 let fills_line =
-                    break_within == crate::inline_box::QuebraDentro::Sempre && text_only;
+                    break_within == crate::inline_box::BreakWithin::Always && text_only;
                 // HÍFEN SUAVE (`hyphen.rs`): a palavra que não cabe deixa na linha
                 // o prefixo com "-" e o aglomerado esvazia — o laço abaixo não emite.
                 if manual_hyphen
@@ -162,7 +162,7 @@ pub(in crate::layout) fn wrap_runs(
                             if with_space {
                                 text.push(' ');
                             }
-                            text.push_str(&hyphen::sem_shy(&chunk.text));
+                            text.push_str(&hyphen::without_shy(&chunk.text));
                             let width = chunk.width + space;
                             // PARTIR DENTRO DA PALAVRA — o que `overflow-wrap` e
                             // `word-break` ligam. A pergunta faz-se aqui, na
@@ -174,14 +174,14 @@ pub(in crate::layout) fn wrap_runs(
                             // A hanging sequence (`pre-wrap`) is never split; a
                             // `break-spaces` space may move down alone.
                             let split = (spaces.of(chunk.run).breaks_after_each() || !so_espaco_css(&chunk.text)) && match break_within {
-                                crate::inline_box::QuebraDentro::Nao => false,
+                                crate::inline_box::BreakWithin::Never => false,
                                 // `break-word`: só quando a palavra não cabe NEM
                                 // numa linha vazia. Se cabe, ela já desceu inteira
                                 // na quebra prévia e parti-la seria errado.
-                                crate::inline_box::QuebraDentro::SePreciso => {
+                                crate::inline_box::BreakWithin::IfNeeded => {
                                     chunk.width > available
                                 }
-                                crate::inline_box::QuebraDentro::Sempre => {
+                                crate::inline_box::BreakWithin::Always => {
                                     cur_w + width > available
                                 }
                             };
@@ -271,7 +271,7 @@ pub(in crate::layout) fn wrap_runs(
             // pendente -- so marca uma posicao para quem lhe quiser a caixa.
             // A float's ANCHOR is the same: it only says which line the float
             // appeared on; its width enters through the exclusions, not the line.
-            if matches!(kind, AtomicKind::Marker | AtomicKind::Float | AtomicKind::Estatica) {
+            if matches!(kind, AtomicKind::Marker | AtomicKind::Float | AtomicKind::StaticAnchor) {
                 close_cluster!();
                 cur.push(atomic_segment(run, (a_idx, box_id, kind), 0.0, 0.0, 0.0));
                 continue;
@@ -302,7 +302,7 @@ pub(in crate::layout) fn wrap_runs(
                         (cur_w, at_line_start) = (0.0, true);
                         continue;
                     }
-                    Token::Word(p) => (hyphen::piece_text(p, manual_hyphen), measure(m, i, &hyphen::sem_shy(p), run.bold, run.italic)),
+                    Token::Word(p) => (hyphen::piece_text(p, manual_hyphen), measure(m, i, &hyphen::without_shy(p), run.bold, run.italic)),
                     Token::Space => (" ".to_string(), space_w(m, i)),
                     Token::Tab => regime.tab(cur_w + cluster_w + line_offset(lines.len()), space_w(m, i)),
                 };
@@ -378,7 +378,7 @@ pub(in crate::layout) fn wrap_runs(
         // grande, com 11 000 `text_width` por frame.
         let trimmed = apara_css(&run.text);
         if !trimmed.contains(e_espaco_css) && !has_forced_break {
-            let w = measure(m, i, &hyphen::sem_shy(trimmed), run.bold, run.italic);
+            let w = measure(m, i, &hyphen::without_shy(trimmed), run.bold, run.italic);
             let ended_in_space = run.text.ends_with(e_espaco_css);
             join!(
                 Chunk {
@@ -468,7 +468,7 @@ pub(in crate::layout) fn wrap_runs(
             let end = rest.find(e_espaco_css).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
-            let ww = measure(m, i, &hyphen::sem_shy(word), run.bold, run.italic);
+            let ww = measure(m, i, &hyphen::without_shy(word), run.bold, run.italic);
             join!(
                 Chunk {
                     run: i,

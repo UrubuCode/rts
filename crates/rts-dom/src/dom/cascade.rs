@@ -145,7 +145,7 @@ impl Dom {
         if css.effective_display() == Some(crate::style::DisplayKind::None) {
             return None;
         }
-        Some(crate::pseudo::PseudoBox { texto, css })
+        Some(crate::pseudo::PseudoBox { text: texto, css })
     }
 
     /// A COR do `::marker` deste `<li>` (lote O), se alguma regra `::marker`

@@ -57,9 +57,9 @@ pub(in crate::layout) fn layout_button(
         color: fg,
         size: font,
         mono: false,
-        // The single site of this question (`crate::layout::measure::font_metrics::usa_ahem`), not
+        // The single site of this question (`crate::layout::measure::font_metrics::uses_ahem`), not
         // a copy of it — Ahem is the one family whose PAINT differs.
-        is_ahem: crate::layout::measure::font_metrics::usa_ahem(css.font_family.as_deref()),
+        is_ahem: crate::layout::measure::font_metrics::uses_ahem(css.font_family.as_deref()),
         bold: false,
         italic: false,
         letter_spacing: 0.0,
@@ -103,7 +103,7 @@ const TEXTAREA_WIDTH: f32 = 160.0;
 /// o `inline_widget_size`, que reserva o espaço na linha. O segundo dizia
 /// espelhar o primeiro e não espelhava — um `checkbox` reservava 190x26 (um
 /// campo de texto) e pintava outra coisa. Uma pergunta, uma resposta.
-pub(in crate::layout) fn medida_do_input(
+pub(in crate::layout) fn input_measure(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,
@@ -112,7 +112,7 @@ pub(in crate::layout) fn medida_do_input(
     forced_outer_w: Option<f32>,
     forced_outer_h: Option<f32>,
     ctx: &LayoutCtx,
-) -> MedidaDoInput {
+) -> InputMeasure {
     let font = font_px(css, DEFAULT_FONT_SIZE);
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
@@ -201,7 +201,7 @@ pub(in crate::layout) fn medida_do_input(
     } else {
         ctx.measurer.line_height_family(font, CONTROL_FONT_FAMILY)
     });
-    MedidaDoInput {
+    InputMeasure {
         content_w,
         content_h,
         pad_left,
@@ -217,8 +217,8 @@ pub(in crate::layout) fn medida_do_input(
     }
 }
 
-/// O que `medida_do_input` responde: a caixa e o frame com que foi construída.
-pub(in crate::layout) struct MedidaDoInput {
+/// O que `input_measure` responde: a caixa e o frame com que foi construída.
+pub(in crate::layout) struct InputMeasure {
     content_w: f32,
     content_h: f32,
     pad_left: f32,
@@ -233,7 +233,7 @@ pub(in crate::layout) struct MedidaDoInput {
     font: f32,
 }
 
-impl MedidaDoInput {
+impl InputMeasure {
     /// A caixa EXTERNA (com margens) — o que o fluxo reserva para o widget.
     pub(in crate::layout) fn outer(&self) -> (f32, f32) {
         (
@@ -267,8 +267,8 @@ pub(in crate::layout) fn layout_input(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
-    let measured = medida_do_input(dom, id, css, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx);
-    let MedidaDoInput {
+    let measured = input_measure(dom, id, css, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx);
+    let InputMeasure {
         content_w,
         content_h,
         pad_left,
@@ -357,8 +357,8 @@ pub(in crate::layout) fn layout_input(
             color: text_color,
             size: font,
             mono: false,
-            // Same rule as `layout_button` above (`crate::layout::measure::font_metrics::usa_ahem`).
-            is_ahem: crate::layout::measure::font_metrics::usa_ahem(css.font_family.as_deref()),
+            // Same rule as `layout_button` above (`crate::layout::measure::font_metrics::uses_ahem`).
+            is_ahem: crate::layout::measure::font_metrics::uses_ahem(css.font_family.as_deref()),
             bold: false,
             italic: false,
             letter_spacing: 0.0,
@@ -429,7 +429,7 @@ fn content_to_outer(
 /// origina este lote (`flex-vertical-align-effect`, WPT) era exactamente
 /// este vazio — um `<input>` sem `width` caía no ramo de bloco-por-filhos
 /// vazio e media 0.
-pub(in crate::layout) fn tamanho_natural_controlo(
+pub(in crate::layout) fn control_natural_size(
     dom: &Dom,
     id: NodeIdx,
     css: &ComputedStyle,
@@ -454,14 +454,14 @@ pub(in crate::layout) fn tamanho_natural_controlo(
                 Some(content_to_outer(css, bf, ctx, tw + 16.0, lh + 10.0))
             } else {
                 // texto, password, checkbox, radio, range, … — o MESMO
-                // cálculo que já pinta o widget (`medida_do_input`), com
+                // cálculo que já pinta o widget (`input_measure`), com
                 // `avail_w = INFINITY`: max-content não tem linha nenhuma
                 // para encolher contra.
-                Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).content())
+                Some(input_measure(dom, id, css, f32::INFINITY, None, None, None, ctx).content())
             }
         }
         "textarea" => {
-            Some(medida_do_input(dom, id, css, f32::INFINITY, None, None, None, ctx).content())
+            Some(input_measure(dom, id, css, f32::INFINITY, None, None, None, ctx).content())
         }
         "select" => Some(super::select::natural_content(css, ctx)),
         _ => None,
@@ -492,5 +492,5 @@ pub(in crate::layout) fn inline_widget_size(
     //
     // `None` de altura disponível: uma caixa numa linha não tem containing block
     // de altura definida, logo `height:%` vale `auto`, como no browser.
-    medida_do_input(dom, id, &css, avail_w, None, None, None, ctx).outer()
+    input_measure(dom, id, &css, avail_w, None, None, None, ctx).outer()
 }

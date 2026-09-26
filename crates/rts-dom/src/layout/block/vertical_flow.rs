@@ -11,7 +11,7 @@
 //! `dom.node(id).children` que decidia por que filhos se desce e por que ordem,
 //! e era essa linha que impedia uma caixa que o DOM não tem de chegar aqui, por
 //! melhor construída que estivesse. Agora a sequência é
-//! [`super::sequence::sequencia_do_fluxo`] sobre `tree.children(box_id)`, e é lá
+//! [`super::sequence::flow_sequence`] sobre `tree.children(box_id)`, e é lá
 //! que está escrito o que ainda vem do DOM (um comentário, que não gera caixa).
 //!
 //! **Uma caixa ANÓNIMA é um passo deste laço, e é disposta como o bloco que é**
@@ -45,7 +45,7 @@
 
 use super::*;
 use crate::boxes::BoxId;
-use super::sequence::{sequencia_do_fluxo, FlowStep};
+use super::sequence::{flow_sequence, FlowStep};
 pub(in crate::layout) use super::margin_collapse::{collapses_through, join_strut, collapsed_strut, Strut};
 
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
@@ -61,7 +61,7 @@ pub(in crate::layout) fn layout_children_vertical(
     dom: &Dom,
     id: NodeIdx,
     // A CAIXA de `id` — ao lado do `NodeIdx`, não em vez dele. É ela que dá a
-    // SEQUÊNCIA dos filhos, por [`super::sequence::sequencia_do_fluxo`]: quem
+    // SEQUÊNCIA dos filhos, por [`super::sequence::flow_sequence`]: quem
     // desce já não pergunta ao DOM por que filhos desce nem por que ordem.
     box_id: BoxId,
     content_x: f32,
@@ -180,7 +180,7 @@ pub(in crate::layout) fn layout_children_vertical(
     if !is_anonymous {
         super::pseudo_block::apply(dom, box_id, id, crate::style::PseudoElement::Before, content_x, content_w, font_size, &mut border, &mut strut, &mut child_y, ctx, list);
     }
-    let steps = sequencia_do_fluxo(dom, &from_tree, id, box_id);
+    let steps = flow_sequence(dom, &from_tree, id, box_id);
     for item in &steps {
         // **A CAIXA ANÓNIMA É UM PASSO, e é disposta como o BLOCO que é.** Ela
         // não tem margem, borda nem padding (CSS 2.1 §9.2.1.1: nenhuma
@@ -342,7 +342,7 @@ pub(in crate::layout) fn layout_children_vertical(
         // `Clear::sides()` é o que faltava para os três valores deixarem de
         // responder o mesmo fundo (ver `style::text::Clear`, que documentava o
         // corte): `left` só lê o lado esquerdo do BFC, `right` só o direito,
-        // `both` os dois — a mesma pergunta que `bfc.fundo_lado` existe para
+        // `both` os dois — a mesma pergunta que `bfc.side_bottom` existe para
         // responder.
         if let Some((left, right)) = child_css
             .as_ref()
@@ -351,7 +351,7 @@ pub(in crate::layout) fn layout_children_vertical(
             .filter(|&(e, d)| e || d)
         {
             flush_inline!(child_y);
-            clearance = bfc.fundo_lado(left, right);
+            clearance = bfc.side_bottom(left, right);
             // Desce o cursor para BAIXO do float — já não é "fechar a linha": é
             // o que o `clear` pede. Um irmão sem `clear` NÃO passa por aqui:
             // passa ao lado do float. Só usado pelos caminhos que leem
@@ -512,7 +512,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 // Sem descer o cursor pelos floats aqui: pelo CSS a caixa de
                 // bloco ao lado de um float NÃO desce nem encolhe — mantém a
                 // largura e sobrepõe-se ao float; quem encolhe são as linhas lá
-                // dentro. Ver [`Exclusao`] para os números do Chrome que o fixam.
+                // dentro. Ver [`Exclusion`] para os números do Chrome que o fixam.
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
                 // As DUAS margens verticais do filho. A de baixo entrou aqui
@@ -623,7 +623,7 @@ pub(in crate::layout) fn layout_children_vertical(
             // google. Sem esta distinção um `<span>` com fundo no meio de um
             // parágrafo fechava o fluxo e abria linha nova.
             NodeKind::Element { .. }
-                if child_inline_block && em_contexto_inline(dom, id, child) =>
+                if child_inline_block && in_inline_context(dom, id, child) =>
             {
                 flush_ib!(child_y);
                 inline_group.push((child, child_box));
@@ -675,7 +675,7 @@ pub(in crate::layout) fn layout_children_vertical(
         super::pseudo_block::apply(dom, box_id, id, crate::style::PseudoElement::After, content_x, content_w, font_size, &mut border, &mut strut, &mut child_y, ctx, list);
         // o clearfix (`::after{display:block;clear:both}`) desce o fim do fluxo
         // até ao fundo dos floats — ver `clearfix.rs`.
-        if let Some(clear_to) = crate::layout::float::clearfix::fundo_do_clearfix(dom, id, bfc) {
+        if let Some(clear_to) = crate::layout::float::clearfix::clearfix_bottom(dom, id, bfc) {
             child_y = child_y.max(clear_to);
         }
     }

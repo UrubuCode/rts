@@ -33,8 +33,8 @@ pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: 
     // node — a generated one — can ask it too. What stays is what only a node
     // answers: being the root, and `overflow` propagating to the viewport.
     let parent_css = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
-    super::bfc_style::pelo_estilo(css, parent_css.as_deref())
-        || (super::bfc_style::overflow_estabelece(css) && !super::overflow_viewport::propagated_to_viewport(dom, id))
+    super::bfc_style::by_style(css, parent_css.as_deref())
+        || (super::bfc_style::overflow_establishes(css) && !super::overflow_viewport::propagated_to_viewport(dom, id))
         || dom.node(id).parent == Some(dom.root)
 }
 
@@ -100,7 +100,7 @@ pub(crate) fn layout_block(
             }
             let css = dom.computed_style_idx(id).unwrap_or_default();
             // `display:none` — não renderiza nem ocupa espaço (some da árvore visual).
-            if e_display_none(dom, id) {
+            if is_display_none(dom, id) {
                 return (0.0, 0.0);
             }
             if tag == "select" {
@@ -287,11 +287,11 @@ pub(crate) fn layout_block(
                 Some(w) => w,
                 // Sem width: shrink-to-fit → largura do conteúdo (com o piso
                 // de min-content e o tecto do disponível, CSS2 §10.3.5 —
-                // `crate::layout::flex::limits::largura_shrink_to_fit`, extraída para não
+                // `crate::layout::flex::limits::shrink_to_fit_width`, extraída para não
                 // crescer este ficheiro); senão (fluxo block normal) →
                 // ocupa a largura disponível.
                 //
-                // `largura_intrinseca_transferida` decide PRIMEIRO quando um
+                // `transferred_intrinsic_width` decide PRIMEIRO quando um
                 // `<img>` sem tamanho lá dentro pesa pela razão×altura
                 // esticada em vez do natural (`transferred_size.rs`) —
                 // `None` em qualquer outro caso, e cai no shrink-to-fit de
@@ -299,9 +299,9 @@ pub(crate) fn layout_block(
                 None if shrink_to_fit => {
                     let h = forced_outer_h
                         .map(|h| (h - pad_top - pad_bottom - border_top - border_bottom).max(0.0));
-                    crate::layout::replaced::transferred_size::largura_intrinseca_transferida(dom, id, font_for_content, h, ctx)
+                    crate::layout::replaced::transferred_size::transferred_intrinsic_width(dom, id, font_for_content, h, ctx)
                         .unwrap_or_else(|| {
-                            crate::layout::flex::limits::largura_shrink_to_fit(
+                            crate::layout::flex::limits::shrink_to_fit_width(
                                 dom, id, (avail_w - frame).max(0.0), frame, font_for_content, ctx,
                             )
                         })
@@ -354,7 +354,7 @@ pub(crate) fn layout_block(
     } else if has_width {
         let box_outer = content_w + padding_h + border_h; // sem a margin
         // COM SINAL (não `.max(0.0)`): o ramo `direction:rtl` de
-        // `rtl::margin_left_usado` precisa do valor negativo quando o
+        // `rtl::used_margin_left` precisa do valor negativo quando o
         // filho é mais largo do que o disponível — ver o módulo.
         let signed_free = avail_w - box_outer;
         let free = signed_free.max(0.0);
@@ -367,7 +367,7 @@ pub(crate) fn layout_block(
             (false, true) => margin_right = (free - margin_left).max(0.0),
             (false, false) => {
                 margin_left =
-                    super::rtl::margin_left_usado(dom, id, margin_left, margin_right, signed_free);
+                    super::rtl::used_margin_left(dom, id, margin_left, margin_right, signed_free);
             }
         }
     }
@@ -542,15 +542,15 @@ pub(crate) fn layout_block(
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
     // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
     // `is_column` é o eixo FÍSICO e não a keyword crua — `writing-mode` troca
-    // qual eixo lógico é X e qual é Y (`crate::layout::flex::axes::main_no_eixo_y`): um
+    // qual eixo lógico é X e qual é Y (`crate::layout::flex::axes::main_on_y_axis`): um
     // `row` VERTICAL é o eixo inline, que aí é o Y, e desce por
     // `layout_children_column` como se fosse `column` (e vice-versa).
     let wm = css.writing_mode.unwrap_or_default();
     let dir = css.direction.unwrap_or_default();
     let is_column_kw = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
-    let is_column = crate::layout::flex::axes::main_no_eixo_y(wm, is_column_kw);
+    let is_column = crate::layout::flex::axes::main_on_y_axis(wm, is_column_kw);
     // `row-reverse`/`column-reverse` × o sentido FÍSICO do eixo que ficou
-    // principal (`crate::layout::flex::axes::reverse_efetivo`), nunca o do eixo original da
+    // principal (`crate::layout::flex::axes::effective_reverse`), nunca o do eixo original da
     // keyword — que já pode não ser mais o principal. Aplicado DEPOIS do
     // `order` (spec §5.1) — cada função inverte a lista já ordenada por
     // `order`, o que é equivalente a inverter a atribuição de posições no
@@ -564,7 +564,7 @@ pub(crate) fn layout_block(
             )
         })
         .unwrap_or(false);
-    let is_reverse = crate::layout::flex::axes::reverse_efetivo(wm, dir, is_column, is_reverse_kw);
+    let is_reverse = crate::layout::flex::axes::effective_reverse(wm, dir, is_column, is_reverse_kw);
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     // `gap`/`row-gap` seguem a KEYWORD, nunca o eixo físico que `writing-mode`
@@ -576,7 +576,7 @@ pub(crate) fn layout_block(
     // `row_gap`=principal/`gap`=cruzado, respetivamente — os papéis que já
     // tinham antes deste lote. Quando o DESPACHO físico diverge da keyword
     // (`is_column != is_column_kw`, que só acontece em `writing-mode`
-    // vertical — `main_no_eixo_y` troca-o), o algoritmo que corre é o do
+    // vertical — `main_on_y_axis` troca-o), o algoritmo que corre é o do
     // eixo físico ERRADO para os nomes que já lê; troca-se os dois campos
     // aqui, uma vez, para o algoritmo continuar a ler o nome que já lia e
     // acertar mesmo assim (achado pelo WPT `gap-*-lr/rl/rtl` e
@@ -711,7 +711,7 @@ pub(crate) fn layout_block(
     // este `match` não mexe em nada). `flex/grid/tabela` acima nunca
     // acrescentam floats a `own_bfc` (floats não se aplicam lá dentro).
     let content_h = match &own_bfc {
-        Some(own) => match own.fundo_lado(true, true) {
+        Some(own) => match own.side_bottom(true, true) {
             Some(floats_bottom) => content_h.max((floats_bottom - content_y).max(0.0)),
             None => content_h,
         },
@@ -1032,7 +1032,7 @@ pub(crate) fn layout_block(
 
     // POSITION:RELATIVE — porquê e o que desloca em `relative.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    aplica_offset_relativo(box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list);
+    apply_relative_offset(box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list);
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE

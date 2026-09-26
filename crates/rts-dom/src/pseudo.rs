@@ -30,7 +30,7 @@ use crate::style::ComputedStyle;
 #[derive(Clone, Debug, PartialEq)]
 pub struct PseudoBox {
     /// O texto de `content`, já com `attr()` substituído.
-    pub texto: String,
+    pub text: String,
     /// O estilo computado da caixa — herdado do elemento originante e depois
     /// sobreposto pelas regras `::before`/`::after` que casaram.
     pub css: ComputedStyle,

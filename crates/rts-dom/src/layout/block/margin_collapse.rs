@@ -45,7 +45,7 @@ fn margin_child_role(
         NodeKind::Element { tag } if is_non_rendered_tag(tag) => MarginChildRole::Ignore,
         NodeKind::Element { .. } => {
             let css = dom.computed_style_idx(child).unwrap_or_default();
-            if e_display_none(dom, child)
+            if is_display_none(dom, child)
                 || css
                     .position
                     .map(|position| position.out_of_flow())

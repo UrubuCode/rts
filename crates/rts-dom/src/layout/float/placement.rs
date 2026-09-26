@@ -81,15 +81,15 @@ pub(in crate::layout) fn place_float(
     list: &mut DisplayList,
 ) -> f32 {
     let mut top = top_from;
-    let mut bottoms = bfc.fundos();
+    let mut bottoms = bfc.bottoms();
     bottoms.sort_by(f32::total_cmp);
-    let (mut bx, mut bw) = bfc.banda_livre(top, h, content_x, content_w);
+    let (mut bx, mut bw) = bfc.free_band(top, h, content_x, content_w);
     for f in bottoms {
         if bw >= w || f <= top {
             continue;
         }
         top = f;
-        (bx, bw) = bfc.banda_livre(top, h, content_x, content_w);
+        (bx, bw) = bfc.free_band(top, h, content_x, content_w);
     }
     let x = if side == crate::style::FloatSide::Left { bx } else { bx + bw - w };
     layout_block(
@@ -114,7 +114,7 @@ pub(in crate::layout) fn place_float(
     // copy: that is what lets this float reach the SIBLINGS of the ancestor
     // that established the BFC, not only this container's (see `block/bfc.rs`
     // and `claude-float-clear.html`).
-    bfc.push(Exclusao {
+    bfc.push(Exclusion {
         top,
         bottom: top + h,
         side,

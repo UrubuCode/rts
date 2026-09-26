@@ -11,7 +11,7 @@ use crate::table::tests::{geometria, rect};
 
 /// `text-overflow: ellipsis` corta o TEXTO PINTADO, não a caixa: a largura de
 /// `#caixa` é a declarada (120px), com ou sem elipse — é a garantia que
-/// `segmento::aplicar_elipse` documenta ("a caixa não muda de tamanho").
+/// `segmento::apply_ellipsis` documenta ("a caixa não muda de tamanho").
 #[test]
 fn ellipsis_nao_altera_a_largura_da_caixa() {
     let html = r#"<style>
