@@ -34,6 +34,34 @@ impl FuncBuilder<'_> {
         self.inherit_block_regions = true;
     }
 
+    /// How many regions are open.
+    pub fn open_depth(&self) -> usize {
+        self.open_regions.len()
+    }
+
+    /// Steps out of every region opened after `depth`, answering them, so the blocks
+    /// made next belong to what encloses them.
+    ///
+    /// # Who this is for
+    ///
+    /// A jump that LEAVES a protected region and owes something on the way out -- a
+    /// `break` past a `finally` -- runs that code before it jumps. Run inside the
+    /// region, a throw from it is caught by the handler beside it and cleaned up by
+    /// the very cleanup it is running; the code belongs to what encloses the region,
+    /// and the blocks it makes have to be born there.
+    ///
+    /// The only way back is [`FuncBuilder::step_back_in`] with what this answered, so
+    /// a client still cannot name a region that does not enclose it -- the property
+    /// [`FuncBuilder::open_region`] keeps by taking no parent.
+    pub fn step_out_to(&mut self, depth: usize) -> Vec<RegionId> {
+        self.open_regions.split_off(depth.min(self.open_regions.len()))
+    }
+
+    /// Re-enters the regions [`FuncBuilder::step_out_to`] left.
+    pub fn step_back_in(&mut self, regions: Vec<RegionId>) {
+        self.open_regions.extend(regions);
+    }
+
     /// Which region protects the block being built, if any.
     ///
     /// For a client that keeps something per region -- a shared block a raise is

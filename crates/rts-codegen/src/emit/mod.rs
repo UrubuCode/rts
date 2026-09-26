@@ -274,6 +274,24 @@ pub struct CapturedWrite {
     pub environment: Option<rts_cranelift::ir::ValueId>,
 }
 
+/// What a `break` or `continue` owes a construct it leaves -- a `finally`, or a
+/// `for`-`of`'s close -- and where that runs.
+///
+/// The two depths are what put the copy OUTSIDE the construct: a copy emitted inside
+/// the `try`'s regions had a throw from the `finally` caught by the `catch` beside it,
+/// and a `return` from it routed through the `finally` again.
+#[derive(Clone)]
+pub struct OwedJump {
+    /// The statements owed.
+    pub body: Vec<crate::syntax::Stmt>,
+    /// How many loop frames were open at the construct: a jump to any of them leaves it.
+    pub loops: usize,
+    /// How many regions were open outside the construct.
+    pub open: usize,
+    /// How many `return` targets were set outside it.
+    pub returns: usize,
+}
+
 /// What emission needs that is not the function being built.
 ///
 /// One struct rather than four parameters threaded through every emitter, and
@@ -452,7 +470,7 @@ pub struct Ctx<'a> {
     /// The count is what decides which ones run: only a `finally` entered
     /// INSIDE the loop being left is on the way out. Leaving an inner loop does
     /// not run a `finally` wrapped around the outer one.
-    pub finally_jumps: Vec<(Vec<crate::syntax::Stmt>, usize)>,
+    pub finally_jumps: Vec<OwedJump>,
     /// What the language's singletons are numbered.
     pub model: &'a ValueModel,
     /// Every function this compilation can name.

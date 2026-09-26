@@ -343,3 +343,40 @@ fn an_inheriting_builder_keeps_a_continuation_in_the_region_of_the_block_it_cont
     let continuation = b.create_block();
     assert_eq!(func.region_of(continuation), None);
 }
+
+/// A block made after stepping out of a region belongs to what encloses it, so a
+/// throw from it is not caught by the handler it stepped past -- and stepping back
+/// in restores the regions for what is made after.
+#[test]
+fn a_block_made_after_stepping_out_belongs_to_the_enclosing_region() {
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::Tagged], &[]);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let outer_caught = b.create_block();
+    b.add_block_param(outer_caught, Repr::Tagged);
+    let outer = b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: outer_caught,
+        }],
+        None,
+    );
+    let depth = b.open_depth();
+    let inner_caught = b.create_block();
+    b.add_block_param(inner_caught, Repr::Tagged);
+    let inner = b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: inner_caught,
+        }],
+        None,
+    );
+    let left = b.step_out_to(depth);
+    assert_eq!(left, vec![inner]);
+    let outside = b.create_block();
+    b.step_back_in(left);
+    let inside = b.create_block();
+    assert_eq!(func.region_of(outside), Some(outer));
+    assert_eq!(func.region_of(inside), Some(inner));
+}

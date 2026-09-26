@@ -494,21 +494,32 @@ pub fn emit_jump_out(
     // out — the order the language states, and the reason the bodies are
     // carried rather than routed to one block the way a `return` is: a jump's
     // destination is known HERE and not at the `try`.
+    // Each copy runs OUTSIDE its construct's regions, in a block born there: inside
+    // them, a throw from a `finally` was caught by the `catch` beside it and a
+    // `return` from it ran the `finally` again. What was left is re-entered once the
+    // jump is emitted, for whatever the caller emits next.
+    let mut left = Vec::new();
     if let Some((index, _)) = loops.at(label, breaking) {
-        let owed: Vec<Vec<Stmt>> = ctx
-            .finally_jumps
-            .iter()
-            .filter(|(_, depth)| *depth > index)
-            .map(|(body, _)| body.clone())
+        let owed: Vec<usize> = (0..ctx.finally_jumps.len())
+            .rev()
+            .filter(|at| ctx.finally_jumps[*at].loops > index)
             .collect();
-        for body in owed.into_iter().rev() {
-            // The stack is TAKEN while a body is emitted: a `break` written
-            // inside a `finally` belongs to a loop outside it, and leaving the
-            // entry in place would make that body owe itself.
+        for at in owed {
+            // Only what is OUTSIDE this entry is owed while its body is emitted: a
+            // `break` written inside a `finally` belongs to a loop outside it, and
+            // leaving the entry in place would make that body owe itself.
             let held = std::mem::take(&mut ctx.finally_jumps);
+            let owed = held[at].clone();
+            ctx.finally_jumps = held[..at].to_vec();
+            let returns = std::mem::take(&mut ctx.finally_returns);
+            ctx.finally_returns = returns[..owed.returns.min(returns.len())].to_vec();
+            left.push(builder.step_out_to(owed.open));
+            let copy = builder.create_block();
+            builder.jump(copy, &[])?;
+            builder.switch_to(copy);
             scope.enter();
             let mut terminated = false;
-            for statement in &body {
+            for statement in &owed.body {
                 if emit_stmt(builder, scope, ctx, loops, statement)? {
                     terminated = true;
                     break;
@@ -516,9 +527,13 @@ pub fn emit_jump_out(
             }
             scope.leave();
             ctx.finally_jumps = held;
+            ctx.finally_returns = returns;
             if terminated {
                 // The `finally` completed abruptly, which REPLACES the jump
                 // that was on its way out.
+                for regions in left.into_iter().rev() {
+                    builder.step_back_in(regions);
+                }
                 return Ok(true);
             }
         }
@@ -555,6 +570,9 @@ pub fn emit_jump_out(
         block
     };
     builder.jump(target, &merged_args(visible, &frame.merged))?;
+    for regions in left.into_iter().rev() {
+        builder.step_back_in(regions);
+    }
     Ok(true)
 }
 
