@@ -223,6 +223,10 @@ pub fn emit_try(
     // the region, and every block anything nested creates until it closes. A
     // nested `if` inside a `try` does not have to know it is inside one.
     let outer = finally.is_some();
+    // Where a jump out of this `try` runs its copy of the `finally`: outside both
+    // regions, returning past this `try` -- `loops::emit_jump_out`.
+    let owed_open = builder.open_depth();
+    let owed_returns = ctx.finally_returns.len();
     if outer {
         // A cleanup for the ordinary shape, a catch-all HANDLER for the abrupt
         // one. Same region, same nesting, different way of leaving it — which
@@ -269,7 +273,12 @@ pub fn emit_try(
         ctx.finally_returns.push(block);
     }
     if let Some(body) = finally {
-        ctx.finally_jumps.push((body.to_vec(), loops.depth()));
+        ctx.finally_jumps.push(super::OwedJump {
+            body: body.to_vec(),
+            loops: loops.depth(),
+            open: owed_open,
+            returns: owed_returns,
+        });
     }
     let body_terminated = emit_block(builder, scope, ctx, loops, body)?;
     scope.leave();

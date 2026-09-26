@@ -536,6 +536,8 @@ pub fn emit_for_each(
             Some((block, held))
         }
     };
+    let owed_open = builder.open_depth();
+    let owed_returns = ctx.finally_returns.len();
     let closing_region = match stepping {
         false => None,
         true => {
@@ -562,7 +564,12 @@ pub fn emit_for_each(
     // closes it once.
     if stepping {
         let close = close_iterator_stmt(ctx, at, iterator, still_open(iterator, at), false);
-        ctx.finally_jumps.push((vec![close], loops.depth()));
+        ctx.finally_jumps.push(super::OwedJump {
+            body: vec![close],
+            loops: loops.depth(),
+            open: owed_open,
+            returns: owed_returns,
+        });
     }
     if let Some((block, _)) = returning {
         ctx.finally_returns.push(block);
