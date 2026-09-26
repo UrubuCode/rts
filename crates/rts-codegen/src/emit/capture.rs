@@ -460,6 +460,22 @@ fn referenced_inside_statement(
             ..
         } => pattern_exprs(target, found, everything, omitted),
 
+        // An ASSIGNED head writes an existing binding on every pass -- `for (k of
+        // xs)`, `for ([k] of xs)`, `for (k in o)` -- so inside nested code its names
+        // count, as a destructuring assignment's leaves do in the expression walk.
+        // Missing them left `k` uncaptured and the closure answered `Unbound("k")`.
+        StmtKind::ForEach {
+            target: crate::syntax::ForEachTarget::Assign(target),
+            ..
+        } => {
+            if everything {
+                let mut written = Vec::new();
+                target.bound_names(&mut written);
+                found.extend(written);
+            }
+            pattern_exprs(target, found, everything, omitted);
+        }
+
         _ => {}
     }
     walk_stmt(statement, &mut |child| match child {
@@ -905,6 +921,20 @@ fn referenced_inside_expr(
 ) {
     if everything && let ExprKind::Ident(name) = &expr.kind {
         found.insert(*name);
+    }
+    // A DESTRUCTURING ASSIGNMENT names what it writes at its leaves, and the shared
+    // walk reports only the expressions inside a pattern -- so `[k] = xs` written in a
+    // closure left `k` uncaptured, and the closure answered `Unbound("k")`. The scope
+    // tree (`names/resolve.rs`) records the same leaves for the same reason.
+    if everything
+        && let ExprKind::Assign {
+            target: AssignTarget::Pattern(pattern),
+            ..
+        } = &expr.kind
+    {
+        let mut written = Vec::new();
+        pattern.bound_names(&mut written);
+        found.extend(written);
     }
     walk_expr(expr, &mut |child| match child {
         Child::Expr(inner) => referenced_inside_expr(inner, found, everything, omitted),

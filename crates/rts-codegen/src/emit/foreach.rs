@@ -696,7 +696,16 @@ fn open_sequence(
     let walked_name = ctx.names.intern("__rts_of_walked");
     super::binding::declare(builder, scope, ctx, walked_name, walked)?;
 
-    let steppable = steppable_expr(at, source_name, method_name, walked_name);
+    // Whether a STRING may be walked as its list: `TextWalk` answers the list where
+    // the string's iterator would step exactly it, and `undefined` where a program
+    // changed that protocol -- `rts_core::entry::text_walk`. `typeof src ===
+    // "string"` asked this too little, and a replaced `String.prototype
+    // [Symbol.iterator]` was never called.
+    let text = super::expr::call(builder, ctx, RuntimeOp::TextWalk, &[source])?[0];
+    let text_name = ctx.names.intern("__rts_of_text");
+    super::binding::declare(builder, scope, ctx, text_name, text)?;
+
+    let steppable = steppable_expr(at, text_name, method_name, walked_name);
     let asked = super::expr::emit_expr(builder, scope, ctx, &steppable)?;
     let asked = super::expr::to_boolean(builder, ctx, asked)?;
 
@@ -741,15 +750,17 @@ fn open_sequence(
     Ok(elements)
 }
 
-/// `m !== walked && typeof src !== "string" && typeof m === "function"` — is
-/// this source one that has to be STEPPED rather than copied?
+/// `m !== walked && text === void 0 && typeof m === "function"` — is this
+/// source one that has to be STEPPED rather than copied? `text` is what
+/// `TextWalk` answered for it: a list only for a string whose protocol is the
+/// primordial one.
 ///
 /// The identity comparison is FIRST, and the order is the only thing about this
 /// expression that is a performance decision rather than a semantic one: none of
 /// the three has a side effect, so `&&` may hold them in any order, and an array
 /// — by a wide margin the most common source — fails the first and evaluates
 /// neither of the other two.
-fn steppable_expr(at: Position, source: Name, method: Name, walked: Name) -> Expr {
+fn steppable_expr(at: Position, text: Name, method: Name, walked: Name) -> Expr {
     let is_function = Expr {
         kind: ExprKind::Binary {
             op: BinaryOp::StrictEqual,
@@ -774,15 +785,18 @@ fn steppable_expr(at: Position, source: Name, method: Name, walked: Name) -> Exp
     };
     let not_text = Expr {
         kind: ExprKind::Binary {
-            op: BinaryOp::StrictNotEqual,
-            left: Box::new(Expr {
+            op: BinaryOp::StrictEqual,
+            left: Box::new(ident(text, at)),
+            right: Box::new(Expr {
                 kind: ExprKind::Unary {
-                    op: UnaryOp::TypeOf,
-                    operand: Box::new(ident(source, at)),
+                    op: UnaryOp::Void,
+                    operand: Box::new(Expr {
+                        kind: ExprKind::Literal(crate::syntax::Literal::Number(0.0)),
+                        at,
+                    }),
                 },
                 at,
             }),
-            right: Box::new(text_expr("string", at)),
         },
         at,
     };

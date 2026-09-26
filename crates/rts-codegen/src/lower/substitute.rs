@@ -36,6 +36,10 @@ use crate::syntax::{Expr, Spreadable};
 pub struct Substitute {
     /// Its parameters, in order.
     pub parameters: Vec<Name>,
+    /// Each parameter's default, by position; shorter than `parameters` where the rest
+    /// have none. Applied where the argument is missing or `undefined`, in order, so a
+    /// default reads the parameters before it with their defaults applied.
+    pub defaults: Vec<Option<Expr>>,
     /// The one expression it answers.
     pub body: Expr,
     /// That it is `(...rest) => rest.length`: the answer is how many arguments were
@@ -127,13 +131,19 @@ impl Lowering<'_> {
         arguments: &[Spreadable],
     ) -> Result<Option<ValueId>, Unsupported> {
         // A NAME THE BODY BEING SUBSTITUTED BINDS is that body's parameter, whatever
-        // else the spelling names; and one already being substituted is a cycle.
-        if self.substituted_name(name).is_some()
-            || self.substituting.iter().any(|(held, _)| *held == name)
-        {
+        // else the spelling names -- substituted only where its argument named a local
+        // substitute; and one already being substituted is a cycle.
+        let local = match self.substituted_name(name) {
+            Some(_) => match self.aliases.last().and_then(|held| held.get(&name)) {
+                Some(aliased) => Some(*aliased),
+                None => return Ok(None),
+            },
+            None => self.resolution.binding_in(self.scope, name),
+        };
+        let name = local.map_or(name, |held| self.resolution.binding(held).name);
+        if self.substituting.iter().any(|(held, _)| *held == name) {
             return Ok(None);
         }
-        let local = self.resolution.binding_in(self.scope, name);
         let substitute = match local {
             // A `const` OF THIS FUNCTION bound to an arrow it could substitute: the same
             // function, so the body reads the same variables -- where every free name
@@ -165,65 +175,133 @@ impl Lowering<'_> {
         this: Option<ValueId>,
     ) -> Result<Option<ValueId>, Unsupported> {
         let mut values = Vec::with_capacity(arguments.len());
+        let mut named = Vec::with_capacity(arguments.len());
         for argument in arguments {
             let Spreadable::Single(value) = argument else {
                 return Ok(None);
             };
+            named.push(self.local_substitute_named(value));
             values.push(self.expression(value)?);
         }
         if substitute.counts_arguments {
             return Ok(Some(self.integer(values.len() as i64, &substitute.body)));
         }
         let mut bound = std::collections::BTreeMap::new();
+        let mut aliases = std::collections::BTreeMap::new();
         for (at, parameter) in substitute.parameters.iter().enumerate() {
-            let value = match values.get(at) {
-                Some(held) => *held,
-                None => self.singleton_at(crate::values::Singleton::Undefined, &substitute.body),
+            let default = substitute.defaults.get(at).and_then(Option::as_ref);
+            let value = match (values.get(at), default) {
+                (Some(held), None) => *held,
+                (None, None) => self.singleton_at(crate::values::Singleton::Undefined, &substitute.body),
+                // WITH THE PARAMETERS BEFORE IT IN FORCE, which is what a default reads.
+                (arrived, Some(default)) => {
+                    self.substituting.push((name, bound.clone()));
+                    self.aliases.push(aliases.clone());
+                    self.substituted_this.push(this);
+                    let applied = match arrived {
+                        None => self.expression(default),
+                        // `p === undefined ? default : p`, the language's own definition.
+                        Some(held) => {
+                            let undefined = self.singleton_at(crate::values::Singleton::Undefined, default);
+                            let absent =
+                                self.prim(crate::domain::JsPrim::StrictEquals, vec![*held, undefined], default);
+                            self.choice(
+                                absent,
+                                super::choice::Arm::Eval(default),
+                                super::choice::Arm::Subject(*held),
+                            )
+                        }
+                    };
+                    self.substituting.pop();
+                    self.aliases.pop();
+                    self.substituted_this.pop();
+                    applied?
+                }
             };
             bound.insert(*parameter, value);
+            match named.get(at).copied().flatten().filter(|_| default.is_none()) {
+                Some(aliased) => aliases.insert(*parameter, aliased),
+                // A LATER parameter of the same spelling is the one the body reads.
+                None => aliases.remove(parameter),
+            };
         }
         self.substituting.push((name, bound));
+        self.aliases.push(aliases);
         self.substituted_this.push(this);
         let answered = self.expression(&substitute.body);
         self.substituting.pop();
+        self.aliases.pop();
         self.substituted_this.pop();
         answered.map(Some)
     }
 
     /// Remembers `const name = (params) => expression` for [`Self::substituted`]: an
-    /// ARROW (its `this` and `arguments` are the caller's, as they are here), plain
-    /// parameters with no defaults or rest, one expression that
-    /// [`substitutable`] accepts.
+    /// ARROW (its `this` and `arguments` are the caller's, as they are here).
     pub(super) fn remember_arrow(&mut self, name: Name, value: &Expr) {
         let crate::syntax::ExprKind::Function(function) = &value.kind else {
             return;
         };
-        if !function.captures_this
-            || function.is_async
-            || function.is_generator
-            || function.rest_parameter.is_some()
-        {
+        if !function.captures_this {
+            return;
+        }
+        self.remember_local(name, function);
+    }
+
+    /// Remembers a function DECLARED at the top of this one that nothing writes --
+    /// `names::resolve::Resolution::never_written` -- for [`Self::substituted`].
+    ///
+    /// Not an arrow, so its `arguments` is its own: a body reading that name is left a
+    /// call, since substituted it would read the caller's. Its `this` needs no check,
+    /// because [`substitutable`] admits no `this` at all.
+    pub(super) fn remember_declared(&mut self, name: Name, function: &crate::syntax::Function) {
+        let Some(binding) = self.resolution.binding_in(self.scope, name) else {
+            return;
+        };
+        if !self.resolution.never_written(binding) {
+            return;
+        }
+        if let Some(body) = single_expression(function) {
+            let mut read = Vec::new();
+            names_read(body, &mut read);
+            if read.iter().any(|held| self.names.spelled(*held) == Some("arguments")) {
+                return;
+            }
+        }
+        self.remember_local(name, function);
+    }
+
+    /// `name` as `function`'s substitute, where its shape is one: plain parameters with
+    /// no defaults or rest, not async or a generator, one expression that
+    /// [`substitutable`] accepts.
+    fn remember_local(&mut self, name: Name, function: &crate::syntax::Function) {
+        if function.is_async || function.is_generator || function.rest_parameter.is_some() {
             return;
         }
         let mut parameters = Vec::with_capacity(function.parameters.len());
+        let mut defaults = Vec::with_capacity(function.parameters.len());
         for parameter in &function.parameters {
             let crate::syntax::Pattern::Name(held) = parameter.target else {
                 return;
             };
-            if parameter.default.is_some() {
-                return;
+            // A DEFAULT reads the parameters before it and not its own or a later one,
+            // which the language leaves in their temporal dead zone -- a read the
+            // substitution would answer with a value instead of raising.
+            if let Some(default) = &parameter.default {
+                let mut read = Vec::new();
+                names_read(default, &mut read);
+                let later = function.parameters[parameters.len()..].iter().filter_map(|held| match held.target {
+                    crate::syntax::Pattern::Name(name) => Some(name),
+                    _ => None,
+                });
+                if !substitutable(default) || later.into_iter().any(|name| read.contains(&name)) {
+                    return;
+                }
             }
             parameters.push(held);
+            defaults.push(parameter.default.clone());
         }
-        let body = match &function.body {
-            crate::syntax::FunctionBody::Expression(expr) => expr.as_ref().clone(),
-            crate::syntax::FunctionBody::Block(statements) => match statements.as_slice() {
-                [crate::syntax::Stmt {
-                    kind: crate::syntax::StmtKind::Return(Some(expr)),
-                    ..
-                }] => expr.clone(),
-                _ => return,
-            },
+        let Some(body) = single_expression(function).cloned() else {
+            return;
         };
         if !substitutable(&body) {
             return;
@@ -236,6 +314,7 @@ impl Lowering<'_> {
             (
                 Substitute {
                     parameters,
+                    defaults,
                     body,
                     counts_arguments: false,
                     reads_this: false,
@@ -250,12 +329,32 @@ impl Lowering<'_> {
     fn same_names(&self, substitute: &Substitute, written: crate::names::resolve::ScopeId) -> bool {
         let mut read = Vec::new();
         names_read(&substitute.body, &mut read);
+        for default in substitute.defaults.iter().flatten() {
+            names_read(default, &mut read);
+        }
         read.iter()
             .filter(|held| !substitute.parameters.contains(held))
             .all(|held| {
                 self.resolution.binding_in(written, *held)
                     == self.resolution.binding_in(self.scope, *held)
             })
+    }
+
+    /// The local substitute an argument names, where it is a bare name of one: so
+    /// `apply(inc, a)` with `apply` answering `g(x)` substitutes `inc` for `g(x)` too.
+    ///
+    /// Sound because what the name holds cannot change between the argument and the
+    /// call: a local substitute is a `const` or a declaration nothing writes. A name that
+    /// is itself a parameter being substituted passes on what its own argument named.
+    fn local_substitute_named(&self, value: &Expr) -> Option<crate::names::resolve::BindingId> {
+        let crate::syntax::ExprKind::Ident(name) = value.kind else {
+            return None;
+        };
+        let binding = match self.substituted_name(name) {
+            Some(_) => *self.aliases.last()?.get(&name)?,
+            None => self.resolution.binding_in(self.scope, name)?,
+        };
+        self.local_arrows.contains_key(&binding).then_some(binding)
     }
 
     /// `this` inside a method body being substituted: the receiver's value.
@@ -302,6 +401,21 @@ pub fn substitutable_reading(expr: &Expr, this: bool) -> bool {
         _ => every = false,
     });
     every
+}
+
+/// The one expression a function answers: a concise body, or a block that is only
+/// `return expression;`.
+fn single_expression(function: &crate::syntax::Function) -> Option<&Expr> {
+    match &function.body {
+        crate::syntax::FunctionBody::Expression(expr) => Some(expr),
+        crate::syntax::FunctionBody::Block(statements) => match statements.as_slice() {
+            [crate::syntax::Stmt {
+                kind: crate::syntax::StmtKind::Return(Some(expr)),
+                ..
+            }] => Some(expr),
+            _ => None,
+        },
+    }
 }
 
 /// Every identifier an expression reads.

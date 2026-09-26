@@ -7,10 +7,13 @@
 //! `k` is this crate's, and lives here.
 //!
 //! Each is run by whoever lowers a function, after the lowering and before the types
-//! are inferred, so the inference sees the graph the machine will.
+//! are inferred, so the inference sees the graph the machine will -- all but
+//! `fuse_templates`, whose own module says why it has to come after.
 
 mod fold;
 mod scalar;
+mod template;
 
 pub use fold::fold_constants;
 pub use scalar::{Replaced, replace_scalars};
+pub use template::fuse_templates;

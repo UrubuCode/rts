@@ -62,6 +62,9 @@ pub(super) struct Reference {
     pub(super) called: bool,
     /// Where it was written.
     pub(super) at: rts_cranelift::fault::Position,
+    /// That the use WRITES the binding -- an assignment, an update, a pattern's leaf, a
+    /// loop head's target -- which `omit.rs` asks of a function declaration.
+    pub(super) written: bool,
 }
 
 /// What the finished walk says about capture.

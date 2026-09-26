@@ -204,8 +204,16 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // they replace is a global read, a property read through the chain cache
     // and the generic call, three crossings for a function the compiler can
     // name; measured, `JSON.stringify(42)` went from 242 ns to 169.
+    //
+    // Moved to 107 on 2026-09-26 for `TextWalk`, asked the same way: it is not
+    // arithmetic -- it reads two prototypes a program may write to and answers
+    // a list it allocates -- and it REMOVES crossings, which is the only
+    // argument this list has accepted. A `for`-`of` over a string stepped the
+    // iterator, a `next` call and a `{ value, done }` record per character;
+    // `bench/analytic.ts` `for-of chars 16` read 432 ns per character through
+    // the MIR stage against 181 for the running emitter's list.
     assert!(
-        CORE_ENTRY_COUNT <= 106,
+        CORE_ENTRY_COUNT <= 107,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

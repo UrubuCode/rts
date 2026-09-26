@@ -473,3 +473,42 @@ fn an_allocation_survives_the_pass() {
     assert_eq!(refined.narrowed, 0);
     assert!(func.inst(rts_mir::InstId(0)).effect.may_collect());
 }
+
+/// A handler's parameter is what was raised, which no edge of the graph supplies --
+/// an exception edge is not an edge here. So it is as unknown as the entry's, and
+/// joining it with a known value answers the join, never that value alone.
+#[test]
+fn what_a_handler_catches_is_unknown_and_not_nothing() {
+    let mut build = FuncBuilder::new(Tier::Generic);
+    let handler = build.block();
+    let caught = build.param(handler);
+    let join = build.block();
+    let merged = build.param(join);
+    let protected = build.block();
+    build.end(Terminator::Jump {
+        target: protected,
+        args: Vec::new(),
+    });
+    build.switch_to(protected);
+    build.open_region(Some(handler), None);
+    let raised = build.push(Op::Const(Const::Int(1)), Effect::PURE, at());
+    build.end(Terminator::Raise(raised));
+    build.close_region();
+    build.switch_to(handler);
+    let known = build.push(Op::Const(Const::Bool(true)), Effect::PURE, at());
+    build.end(Terminator::Branch {
+        condition: known,
+        then_block: join,
+        then_args: vec![known],
+        else_block: join,
+        else_args: vec![caught],
+    });
+    build.switch_to(join);
+    build.end(Terminator::Return(Some(merged)));
+    let func = build.finish();
+    assert_eq!(verify(&func), Ok(()));
+
+    let types = rts_mir::infer::infer(&func, &ToyDomain);
+    assert_eq!(*types.of(caught), Toy::Anything);
+    assert_eq!(*types.of(merged), Toy::Anything);
+}

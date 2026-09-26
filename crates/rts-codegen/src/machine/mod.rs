@@ -999,6 +999,7 @@ pub fn tail_positions(func: &rts_mir::cfg::Func) -> std::collections::BTreeSet<V
 
 mod generic;
 mod guarded;
+mod keyed;
 mod ops;
 mod reach;
 

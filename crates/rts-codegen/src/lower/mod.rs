@@ -47,12 +47,14 @@ use named::{expression_name, name_of, primitive};
 pub use callees::Callees;
 pub use substitute::{Substitute, substitutable, substitutable_reading};
 pub(crate) use object::built_elsewhere;
+pub(crate) use template::JOINED;
 
 mod branch;
 mod callees;
 mod chain;
 mod calls;
 mod choice;
+mod compound;
 mod claim;
 mod class;
 mod declare;
@@ -221,6 +223,7 @@ pub fn lower_within(
         made_in: BTreeMap::new(),
         returns_to: Vec::new(),
         substituting: Vec::new(),
+        aliases: Vec::new(),
         local_arrows: BTreeMap::new(),
         substituted_this: Vec::new(),
         prologue: true,
@@ -405,8 +408,11 @@ struct Lowering<'a> {
     /// The calls being substituted, innermost last, each with its parameters' values
     /// -- `substitute.rs`.
     substituting: Vec<(Name, BTreeMap<Name, ValueId>)>,
-    /// The `const` arrows of this function a direct call may be substituted for, and
-    /// the scope each was written in -- `substitute.rs`.
+    /// Parallel to `substituting`: the parameters whose argument was a name of a local
+    /// substitute, so a call of the parameter substitutes that -- `substitute.rs`.
+    aliases: Vec<BTreeMap<Name, BindingId>>,
+    /// The `const` arrows and unwritten declarations of this function a direct call
+    /// may be substituted for, and the scope each was written in -- `substitute.rs`.
     local_arrows: BTreeMap<BindingId, (Substitute, ScopeId)>,
     /// `this` for each body being substituted, parallel to `substituting`.
     substituted_this: Vec<Option<ValueId>>,
@@ -603,6 +609,16 @@ impl Lowering<'_> {
                             )),
                         }
                     }
+                    // `undefined` AS A GLOBAL is the value: the global object's property
+                    // is non-writable and non-configurable, so no program changes what
+                    // it reads -- only a binding can, and there is none here or in the
+                    // layout around. Read through the global object it was a lookup per
+                    // evaluation, the whole cost of `m.get(k) === undefined` in a loop.
+                    None if self.names.spelled(*name) == Some("undefined")
+                        && self.outer.is_none_or(|outer| outer(*name).is_none()) =>
+                    {
+                        Ok(self.singleton_at(Singleton::Undefined, expr))
+                    }
                     // NO SCOPE DECLARES IT, so it is a global -- read through the
                     // global object, which is what the language does with one.
                     None => Ok(self.global(*name, expr)),
@@ -614,37 +630,17 @@ impl Lowering<'_> {
                 value,
                 op: AssignOp::Plain,
             } => self.assign(target, value, expr),
-            // A COMPOUND ASSIGNMENT to a plain local.
-            //
-            // `a += b` is not `a = a + b` and the tree says so by carrying the
-            // operator: the target is evaluated ONCE. For a plain name that
-            // distinction costs nothing — reading a binding has no effect to
-            // duplicate — so the rewrite is legal here and only here. A member
-            // target is refused below for exactly the reason the tree gives:
-            // `a[i()] += 1` calls `i` a single time.
+            // A COMPOUND or LOGICAL ASSIGNMENT reads its target once -- `compound.rs`.
             ExprKind::Assign {
-                target,
+                target: AssignTarget::Place(place),
                 value,
                 op: AssignOp::Compound(op),
-            } => {
-                let AssignTarget::Place(place) = target else {
-                    return Err(Unsupported::Pattern);
-                };
-                let ExprKind::Ident(name) = &place.kind else {
-                    return Err(Unsupported::Expression(
-                        "a compound assignment to a property reads and writes the heap, once",
-                    ));
-                };
-                let Some(prim) = primitive(*op) else {
-                    return Err(Unsupported::Operator(*op));
-                };
-                let held = self.expression(place)?;
-                let with = self.expression(value)?;
-                let answered = self.prim(prim, vec![held, with], expr);
-                let of = self.type_of(answered);
-                self.bind(*name, answered, of, expr)?;
-                Ok(answered)
-            }
+            } => self.compound_assign(*op, place, value, expr),
+            ExprKind::Assign {
+                target: AssignTarget::Place(place),
+                value,
+                op: AssignOp::Logical(op),
+            } => self.logical_assign(*op, place, value, expr),
             // READING A PROPERTY BY NAME.
             //
             // The key is a constant of this language's table rather than an operand

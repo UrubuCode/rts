@@ -92,6 +92,7 @@ mod objects;
 mod ordinary;
 mod page_scope;
 mod pattern;
+mod text_walk;
 mod operators;
 mod primitive;
 mod primitive_proto;
@@ -165,6 +166,7 @@ pub use modules::{
 pub use function_proto::{is_user_function, running_function};
 pub use host_class::{declare_host_class, describe_callable};
 pub use pattern::array_pattern_direct;
+pub use text_walk::text_walk;
 pub use objects::{
     get_property, get_super_property, object_new, object_spread, set_property,
     set_super_property,
@@ -747,6 +749,13 @@ pub struct Context {
     /// learn that the class is absent, on every pattern. `None` here answers the
     /// same question by not looking.
     pub(super) array_cursor_prototype: Option<u32>,
+    /// The list iterator's prototype and its `next` as installed -- what a string's
+    /// iterator steps with -- recorded and read as the two array-cursor fields
+    /// above are, by `text_walk`. No root, for their reason: the prototype is held
+    /// by `classes`, which nothing ever removes from.
+    pub(super) list_cursor_prototype: Option<u32>,
+    /// The list iterator's `next` as installed, beside the prototype above.
+    pub(super) list_cursor_next: Option<u64>,
     /// The prototype backing buffers created internally for typed arrays.
     ///
     /// `new_buffer` asks for it on every typed-array allocation, so the first
@@ -1321,6 +1330,8 @@ impl Context {
             array_iterator_method: None,
             array_cursor_next: None,
             array_cursor_prototype: None,
+            list_cursor_prototype: None,
+            list_cursor_next: None,
             array_buffer_prototype: None,
             resolves: 0,
             array_layout: None,

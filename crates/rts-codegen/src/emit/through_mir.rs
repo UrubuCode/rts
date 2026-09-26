@@ -106,10 +106,39 @@ fn attempt(
     if let Some((_, why)) = refused.iter().find(|(held, _)| *held) {
         return Err((*why).to_owned());
     }
+    // A BODY THAT MENTIONS `eval`, itself or inside something it holds: a direct `eval`
+    // is a syntactic form `emit/call.rs::direct_eval` recognises, and it reaches this
+    // body's bindings by name at run time. Lowered here it was a GLOBAL read of `eval`
+    // and an indirect call, so `function g() { function f() {} eval("f = h"); f(); }`
+    // called the old `f` -- a wrong answer on the tree before this line, measured
+    // against Node. The running emitter forces every binding such a body has into an
+    // environment for that reason; this stage lays none out that way.
+    let eval_name = ctx.names.intern("eval");
+    let mentions_eval = match &function.body {
+        crate::syntax::FunctionBody::Block(statements) => super::capture::mentions(statements, eval_name),
+        crate::syntax::FunctionBody::Expression(value) => super::capture::mentions(
+            &[crate::syntax::Stmt {
+                kind: crate::syntax::StmtKind::Expr(value.as_ref().clone()),
+                at: value.at,
+            }],
+            eval_name,
+        ),
+    };
+    if mentions_eval {
+        return Err("a body that mentions `eval`, which reaches its bindings by name".to_owned());
+    }
     let resolution = ctx
         .mir_resolution
         .clone()
         .ok_or("no scope tree for this program")?;
+    // AN ARROW FOLDED INTO ITS FUNCTION reaches here only when that function was not
+    // compiled by this stage, so nothing substituted its calls and it is a real function
+    // after all -- one the scope tree describes as a block of its declarer, reading
+    // every name around it as the declarer's own. Declined, so the running emitter,
+    // which folded nothing, compiles it.
+    if resolution.omitted(function.at) {
+        return Err("an arrow folded into a function this stage did not compile".to_owned());
+    }
     // THE FUNCTIONS WRITTEN DIRECTLY INSIDE, whose closures this function makes. Their
     // BODIES are emitted by the running emitter -- in the scope this function sits in,
     // which is what they reach: a function this door takes builds no environment, so
@@ -191,14 +220,28 @@ fn attempt(
         .map(|(inner, _)| inner.at)
         .chain(helpers.iter().map(|helper| helper.at))
         .collect();
-    // A SITE PER TAGGED TEMPLATE, minted as `emit/template.rs` mints one: the cooked
+    // A SITE PER TEMPLATE THAT READS ONE, minted as `emit/template.rs` mints one: the cooked
     // text then the raw, per piece. Minted before the lowering, so a function this door
     // then declines leaves rows nothing reads -- a cost in table size, never in meaning,
     // since the running emitter mints its own for what it emits.
     let mut sites = std::collections::BTreeMap::new();
     for template in &nested.templates {
-        let crate::syntax::ExprKind::TaggedTemplate { parts, .. } = &template.kind else {
-            continue;
+        let parts = match &template.kind {
+            // AN UNTAGGED ONE holds the cooked text alone, which is what `TemplateJoin`
+            // joins -- `emit/template.rs` mints the same shape for the same call.
+            crate::syntax::ExprKind::Template { parts, .. } => {
+                let Some(pieces) = parts
+                    .iter()
+                    .map(|part| part.cooked.as_ref().map(|text| ctx.literal_units(text.units())))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    continue;
+                };
+                sites.insert(template.at, ctx.template(pieces));
+                continue;
+            }
+            crate::syntax::ExprKind::TaggedTemplate { parts, .. } => parts,
+            _ => continue,
         };
         let mut pieces = Vec::with_capacity(parts.len() * 2);
         for part in parts {
@@ -245,6 +288,20 @@ fn attempt(
     crate::optimize::fold_constants(&mut graph, &domain);
     crate::optimize::replace_scalars(&mut graph, &domain);
     rts_mir::passes::remove_dead(&mut graph);
+    // A TEXT CONSTANT IS A CALL (`machine/ops.rs`), so one written inside a loop moves to
+    // the entry -- `emit/expr.rs::string_const` makes the same decision, for the same
+    // two reasons, and says why nothing cheaper is worth the live range.
+    rts_mir::passes::hoist_loop_constants(&mut graph, |held| {
+        matches!(held, rts_mir::cfg::Const::Declared(index)
+            if matches!(domain.declared(*index), Some(crate::domain::JsConst::Text(_))))
+    });
+    // AND ONE AFTER THE INFERENCE, because what it removes is only removable where a type
+    // was proved -- inferred again when it changed anything, since what the machine reads
+    // is the types of the graph it is handed.
+    let mut inferred = rts_mir::infer::infer(&graph, &domain);
+    if crate::optimize::fuse_templates(&mut graph, &domain, &inferred) > 0 {
+        inferred = rts_mir::infer::infer(&graph, &domain);
+    }
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
     if std::env::var(TRACE).as_deref() == Ok("graph") {
         eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
@@ -255,7 +312,6 @@ fn attempt(
         return Err("more parameters than the convention has slots".to_owned());
     }
 
-    let inferred = rts_mir::infer::infer(&graph, &domain);
     // A FUNCTION THAT PARKS says so on its signature, which the machine's verifier reads
     // before it accepts a suspension -- the same flag `emit_function` sets on the body
     // the running emitter builds.
@@ -532,6 +588,7 @@ fn substitutes(
             name,
             crate::lower::Substitute {
                 parameters: candidate.parameters.clone(),
+                defaults: Vec::new(),
                 body: candidate.body.clone(),
                 counts_arguments,
                 reads_this: false,
@@ -579,6 +636,7 @@ fn methods(
             (receiver, method),
             crate::lower::Substitute {
                 parameters: candidate.parameters.clone(),
+                defaults: Vec::new(),
                 body: candidate.body.clone(),
                 counts_arguments: false,
                 reads_this: true,
@@ -693,7 +751,8 @@ struct Nested<'a> {
     classes: Vec<&'a crate::syntax::Class>,
     /// The object literals this stage does not build, which a helper does.
     objects: Vec<&'a crate::syntax::Expr>,
-    /// The tagged templates, each of which needs a site minted.
+    /// The templates that need a site minted: every tagged one, and an untagged one
+    /// `TemplateJoin` can take.
     templates: Vec<&'a crate::syntax::Expr>,
     /// The name each anonymous definition is given by where it is written --
     /// NamedEvaluation, which the running emitter carries in `Ctx::lend_name` from the
@@ -753,6 +812,11 @@ impl<'a> Nested<'a> {
                 return self.objects.push(value);
             }
             ExprKind::TaggedTemplate { .. } => self.templates.push(value),
+            ExprKind::Template { expressions, .. }
+                if (1..=crate::lower::JOINED).contains(&expressions.len()) =>
+            {
+                self.templates.push(value)
+            }
             // `f = () => {}` and `f ??= () => {}` name the arrow; `f += ...` names
             // nothing, and neither does `o.f = ...` -- the rule is attached to an
             // identifier reference on the left.

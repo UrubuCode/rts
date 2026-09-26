@@ -177,6 +177,9 @@ pub struct Resolution {
     /// The arrows folded into the function that declares them -- `omit.rs` -- by
     /// their position, and the `const` each is bound to.
     omitted: BTreeMap<Position, BindingId>,
+    /// The functions declared at the top of a function that nothing writes --
+    /// `omit.rs`.
+    never_written: std::collections::BTreeSet<BindingId>,
 }
 
 mod annex;
@@ -334,6 +337,7 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
         references: Vec::new(),
         annex: Vec::new(),
         arrows: Vec::new(),
+        declarations: Vec::new(),
     };
     for item in items {
         match item {
@@ -360,8 +364,10 @@ pub fn resolve_module(items: &[ModuleItem]) -> Resolution {
     let mut references = std::mem::take(&mut walker.references);
     let annex = std::mem::take(&mut walker.annex);
     let arrows = std::mem::take(&mut walker.arrows);
+    let declarations = std::mem::take(&mut walker.declarations);
     out.settle_annex(&annex);
     out.settle_omitted(&arrows, &mut references);
+    out.settle_never_written(&declarations, &references);
     out.settle_capture(&references);
     out
 }
@@ -393,13 +399,16 @@ pub fn resolve_program(body: &[Stmt], imports: &[crate::syntax::Import]) -> Reso
         references: Vec::new(),
         annex: Vec::new(),
         arrows: Vec::new(),
+        declarations: Vec::new(),
     };
     walker.statements(body, module);
     let mut references = std::mem::take(&mut walker.references);
     let annex = std::mem::take(&mut walker.annex);
     let arrows = std::mem::take(&mut walker.arrows);
+    let declarations = std::mem::take(&mut walker.declarations);
     out.settle_annex(&annex);
     out.settle_omitted(&arrows, &mut references);
+    out.settle_never_written(&declarations, &references);
     out.settle_capture(&references);
     out
 }
@@ -447,6 +456,9 @@ struct Walker<'a> {
     annex: Vec<annex::Candidate>,
     /// Every `const` bound to an arrow `omit.rs` might fold into its function.
     arrows: Vec<omit::Arrow>,
+    /// Every function declared at the top of a function's own body, for `omit.rs` to
+    /// ask whether anything writes it.
+    declarations: Vec<BindingId>,
     /// The class body whose field initialiser or static block is being walked. That
     /// code runs in a constructor or a class evaluation, not in the activation the
     /// class is written in, so a use there is attributed to the class body.
@@ -470,9 +482,12 @@ impl Walker<'_> {
         self.in_loop = outer;
     }
 
-    /// Records a use of `name` from `scope`, to be resolved when the walk ends.
-    fn used(&mut self, name: crate::names::Name, scope: ScopeId) {
+    /// Records a WRITE of `name` from `scope`, to be resolved when the walk ends.
+    fn wrote(&mut self, name: crate::names::Name, scope: ScopeId) {
         self.used_at(name, scope, Position::default(), false);
+        if let Some(last) = self.references.last_mut() {
+            last.written = true;
+        }
     }
 
     /// A use with where it was written and whether it is a direct call's callee.
@@ -489,6 +504,7 @@ impl Walker<'_> {
             function: self.field_code.unwrap_or(self.function),
             called,
             at,
+            written: false,
         });
     }
 
@@ -522,7 +538,13 @@ impl Walker<'_> {
                 // A function DECLARATION binds its name where it is written, in
                 // the scope that holds the statement — never in the body.
                 if let Some(name) = function.name {
-                    self.out.declare(name, Origin::Lexical, scope);
+                    let declared = self.out.declare(name, Origin::Lexical, scope);
+                    if scope == self.function
+                        && self.field_code.is_none()
+                        && self.out.scope(scope).kind == ScopeKind::Function
+                    {
+                        self.declarations.push(declared);
+                    }
                     if scope != self.function && self.field_code.is_none() {
                         self.annex.push(annex::Candidate {
                             name,
@@ -657,6 +679,7 @@ impl Walker<'_> {
                         function: protected,
                         called: false,
                         at: Position::default(),
+                        written: true,
                     });
                 }
                 self.statements(body, protected);
@@ -757,7 +780,7 @@ impl Walker<'_> {
     /// and each name it holds as a USE where the pattern writes existing bindings.
     fn pattern_walk(&mut self, pattern: &Pattern, scope: ScopeId, writes: bool) {
         match pattern {
-            Pattern::Name(name) if writes => self.used(*name, scope),
+            Pattern::Name(name) if writes => self.wrote(*name, scope),
             Pattern::Name(_) => {}
             Pattern::Target(expr) => self.expression(expr, scope),
             Pattern::Object(object) => {
@@ -917,6 +940,19 @@ impl Walker<'_> {
                 }
                 return;
             }
+            // A WRITE to a name, recorded as one beside the read the walk below records
+            // of the same identifier: `omit.rs` asks which declarations nothing writes.
+            ExprKind::Assign {
+                target: crate::syntax::AssignTarget::Place(place),
+                ..
+            }
+            | ExprKind::Update { target: place, .. }
+                if matches!(place.kind, ExprKind::Ident(_)) =>
+            {
+                if let ExprKind::Ident(name) = place.kind {
+                    self.wrote(name, scope);
+                }
+            }
             // A destructuring ASSIGNMENT writes the names at its leaves, and the shared
             // walk reports only the expressions inside a pattern -- its own comment
             // records the gap. Reported here rather than there, because a binding this
@@ -928,7 +964,7 @@ impl Walker<'_> {
                 let mut names = Vec::new();
                 pattern.bound_names(&mut names);
                 for name in names {
-                    self.used(name, scope);
+                    self.wrote(name, scope);
                 }
             }
             _ => {}

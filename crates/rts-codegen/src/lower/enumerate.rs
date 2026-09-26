@@ -77,7 +77,11 @@ impl Lowering<'_> {
 
         // THE GUARD: a key deleted since the snapshot is skipped, straight to the step.
         self.builder.switch_to(checking);
-        let key = self.prim(JsPrim::IndexRead, vec![keys, counter], subject);
+        // `ElementAt` and not an ordinary `keys[i]`: the list is the fresh array
+        // `EnumerateKeys` answered, which no program can name, and the counter is
+        // below its length -- every question `GetIndexed` would ask is answered by
+        // construction, which is `emit/foreach.rs`'s reason for the same entry.
+        let key = self.entry(RuntimeOp::ElementAt, vec![keys, counter], subject);
         let present = self.entry(RuntimeOp::ForInHas, vec![key, object], subject);
         let present = self.prim(JsPrim::Truthy, vec![present], subject);
         self.builder.end(Terminator::Branch {

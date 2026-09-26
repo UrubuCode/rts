@@ -63,6 +63,22 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
     for param in &func.block(func.entry()).params {
         of[param.0 as usize] = domain.top();
     }
+    // SO ARE A HANDLER'S, and a resumed return's: no edge of the graph reaches either --
+    // an exception edge is not an edge here, which `Terminator::Raise` states -- so
+    // joining over predecessors found none and left the parameter at the BOTTOM. A
+    // caught value typed as nothing then joined with anything answered the other side,
+    // and a `catch (e) { e && ... }` compiled `e` as a boolean it never was.
+    let entered_aside: Vec<crate::cfg::BlockId> = func
+        .regions
+        .iter()
+        .flat_map(|region| [region.handler, region.resume_return])
+        .flatten()
+        .collect();
+    for block in &entered_aside {
+        for param in &func.block(*block).params {
+            of[param.0 as usize] = domain.top();
+        }
+    }
     // WHO LOOKS AGAIN when a value moves -- see the module's note.
     let mut dependents: Vec<Vec<crate::cfg::BlockId>> = vec![Vec::new(); func.values as usize];
     for block in func.block_ids() {
@@ -89,7 +105,7 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
         let mut changed = false;
         let mut moved = Vec::new();
         // The parameters, joined from every predecessor that supplies them.
-        if block != func.entry() {
+        if block != func.entry() && !entered_aside.contains(&block) {
             let params = func.block(block).params.clone();
             for (at, param) in params.iter().enumerate() {
                 let mut joined = domain.bottom();

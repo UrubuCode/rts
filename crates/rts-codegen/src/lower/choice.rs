@@ -31,6 +31,9 @@ pub(super) enum Arm<'a> {
     /// SUBJECT. A lowering that answered `false` here would be wrong for every falsy
     /// value that is not `false`, which is five of the seven.
     Subject(ValueId),
+    /// Evaluate this expression and store it -- the writing arm of a logical
+    /// assignment (`compound.rs`), which answers what it wrote.
+    Store(&'a Expr, super::compound::Store),
 }
 
 impl Lowering<'_> {
@@ -96,34 +99,63 @@ impl Lowering<'_> {
             else_args: Vec::new(),
         });
 
+        // EACH ARM FROM THE SAME MAP, and what they disagree about merged at the join
+        // -- `branch.rs`'s reason, for an expression: `c ? (x = 1) : 2` writes `x` on
+        // one path only. Lowering the second arm over the first one's map answered
+        // `x === 1` on BOTH paths, silently, and once the constant moved it was a
+        // value that does not dominate the join, which the verifier refused.
+        let before = self.values.clone();
         self.builder.switch_to(then_block);
         let from_then = self.arm(when_true)?;
+        let mut then_values = std::mem::replace(&mut self.values, before);
         let then_exit = self.builder.current();
 
         self.builder.switch_to(else_block);
         let from_else = self.arm(when_false)?;
+        let mut else_values = std::mem::take(&mut self.values);
         let else_exit = self.builder.current();
+
+        self.settle_one_sided(&mut then_values, &else_values, then_exit)?;
+        self.settle_one_sided(&mut else_values, &then_values, else_exit)?;
+        let merged: Vec<crate::names::resolve::BindingId> = then_values
+            .iter()
+            .filter(|(binding, held)| else_values.get(binding).is_some_and(|other| other != *held))
+            .map(|(binding, _)| *binding)
+            .collect();
 
         let held = self.builder.param(join);
         let of = self
             .domain
             .join(&self.type_of(from_then), &self.type_of(from_else));
         self.types.insert(held, of);
+        let mut params = Vec::with_capacity(merged.len());
+        for binding in &merged {
+            let param = self.builder.param(join);
+            let of = self.domain.join(
+                &self.type_of(then_values[binding]),
+                &self.type_of(else_values[binding]),
+            );
+            self.types.insert(param, of);
+            params.push(param);
+        }
 
         // The jumps are written AFTER both arms are lowered, because an arm that
         // nests another choice moves where building is — `builder.current()` is what
         // says where each one actually ended, and using the block it started in would
         // terminate the wrong one.
         self.builder.switch_to(then_exit);
-        self.builder.end(Terminator::Jump {
-            target: join,
-            args: vec![from_then],
-        });
+        let mut args = vec![from_then];
+        args.extend(merged.iter().map(|binding| then_values[binding]));
+        self.builder.end(Terminator::Jump { target: join, args });
         self.builder.switch_to(else_exit);
-        self.builder.end(Terminator::Jump {
-            target: join,
-            args: vec![from_else],
-        });
+        let mut args = vec![from_else];
+        args.extend(merged.iter().map(|binding| else_values[binding]));
+        self.builder.end(Terminator::Jump { target: join, args });
+
+        self.values = then_values;
+        for (binding, param) in merged.iter().zip(params) {
+            self.values.insert(*binding, param);
+        }
         self.builder.switch_to(join);
         Ok(held)
     }
@@ -132,6 +164,11 @@ impl Lowering<'_> {
         match which {
             Arm::Eval(expr) => self.expression(expr),
             Arm::Subject(held) => Ok(held),
+            Arm::Store(value, store) => {
+                let held = self.expression(value)?;
+                self.store(&store, held, value)?;
+                Ok(held)
+            }
         }
     }
 }

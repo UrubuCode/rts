@@ -196,6 +196,11 @@ impl Js {
         // `typeof x === "..."` without building the string -- `lower::Lowering`'s
         // binary arm, after `emit/settled.rs`.
         RuntimeOp::TypeOfIs,
+        // A template's pieces and up to three substitutions, joined in one crossing --
+        // `lower/template.rs`, after `emit/template.rs`.
+        RuntimeOp::TemplateJoin,
+        // A string's code points, where a `for`-`of` may walk them -- `lower/iterate.rs`.
+        RuntimeOp::TextWalk,
     ];
 
     /// The index the IR carries for an entry point.
@@ -700,12 +705,15 @@ impl Domain for Js {
             // ToString answers a string or raises -- a symbol raises -- and never answers
             // anything else, which is what lets the `+` joining a template's pieces be
             // typed a concatenation.
-            Some(RuntimeOp::StringOf) => Type::Str,
+            Some(RuntimeOp::StringOf | RuntimeOp::TemplateJoin) => Type::Str,
             Some(RuntimeOp::BigIntNew) => Type::BigInt,
-            // A truth value, and answered unboxed -- the representation is the proof.
-            Some(
-                RuntimeOp::DeleteProperty | RuntimeOp::ForInHas | RuntimeOp::ArrayPatternDirect,
-            ) => Type::Bool(None),
+            // A truth value wherever the row answers one unboxed -- the representation
+            // is the proof, so it is read off the signature rather than listed. A list
+            // missed `TypeOfIs`, and every `if (typeof x === "object")` then asked the
+            // runtime for the truth of a boolean it had just been handed.
+            Some(op) if op.signature().returns == [rts_cranelift::Repr::Bool] => Type::Bool(None),
+            // Boxed, and a boolean all the same: the runtime answers nothing else.
+            Some(RuntimeOp::ArrayPatternDirect) => Type::Bool(None),
             // A fresh array of the keys, which nothing else can name.
             Some(RuntimeOp::EnumerateKeys) => Type::Object,
             // A length is a number, answered unboxed -- the representation and the
