@@ -32,15 +32,21 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
     buf
 }
 
+mod lights;
 mod math;
 mod pipeline;
 mod render;
 mod shader;
+mod views;
 #[cfg(test)]
 mod tests;
 
 use math::{identity, light_view_proj};
 pub use math::{Cam3D, model_matrix, model_matrix_quat, view_proj, view_proj_lookat};
+// CamSpec/view_proj_spec ainda não têm chamador fora dos testes (a Task 2 liga
+// o render/API a eles); reexportados aqui para não duplicar o caminho depois.
+#[allow(unused_imports)]
+pub use math::{CamSpec, view_proj_spec};
 
 const SHADOW_SIZE: u32 = 2048;
 
