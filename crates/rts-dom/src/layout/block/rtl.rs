@@ -48,7 +48,7 @@ use crate::dom::{Dom, NodeIdx};
 /// — ver o porquê no cabeçalho); só num pai `direction:rtl` de fluxo normal
 /// E horizontal resolve a equação do §10.3.3
 /// (`espaço_livre_com_sinal - margin_right`), negativo incluído.
-pub(in crate::layout) fn margin_left_usado(
+pub(in crate::layout) fn used_margin_left(
     dom: &Dom,
     id: NodeIdx,
     margin_left_ltr: f32,

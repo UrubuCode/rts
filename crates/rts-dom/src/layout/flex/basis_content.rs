@@ -11,7 +11,7 @@
 //! mais uma função em `limits.rs`) porque a resposta é por EIXO.
 //!
 //! O espelho para COLUNA **não vive aqui**: está em `layout_children_column`,
-//! onde o item já é montado, e usa `column_shrink::altura_conteudo_sem_height`
+//! onde o item já é montado, e usa `column_shrink::content_height_without_height`
 //! — a mesma aproximação que `min_main_auto` documenta, e com o mesmo limite.
 //! Ela soma cada filho pela SUA própria altura, um modelo de blocos
 //! EMPILHADOS, por isso só é consultada quando há um `height` declarado para

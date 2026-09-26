@@ -39,7 +39,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // CSS a caixa de bloco ao lado de um float não desce nem encolhe — mantém a
     // largura e sobrepõe-se ao float —, e quem encolhe são as CAIXAS DE LINHA
     // lá dentro. Parar de empurrar o bloco sem encurtar as linhas trocava um
-    // erro de posição por texto pintado por baixo da figura. Ver [`Exclusao`].
+    // erro de posição por texto pintado por baixo da figura. Ver [`Exclusion`].
     //
     // The BFC and not a copy of its exclusions: a float that appears in the
     // MIDDLE of this flow is placed here (`in_line.rs`) and has to reach
@@ -88,7 +88,7 @@ pub(in crate::layout) fn layout_inline_flow(
     let mono = family.is_some_and(crate::style::is_mono_family);
     // A pergunta "e Ahem?" ja vivia aqui para `line_break::wrap_runs`; o item de
     // texto passa a carregar a MESMA resposta em vez de a fazer outra vez.
-    let ahem = crate::layout::measure::font_metrics::usa_ahem(family);
+    let ahem = crate::layout::measure::font_metrics::uses_ahem(family);
     // line-height: do CSS (multiplicador ou px), senão o default do measurer —
     // #1749. O medidor é também quem responde por `line-height: normal`, porque
     // esse valor sai das MÉTRICAS DA FONTE e não de uma constante: sem isto, o
@@ -132,14 +132,14 @@ pub(in crate::layout) fn layout_inline_flow(
     // starts past a float crossing it; only the width question here changes.
     let flow_spaces = super::preserved_spaces::Spaces::from_flow(dom, &runs, parent_css);
     let never_wraps = (0..runs.len()).all(|i| !flow_spaces.of(i).wraps());
-    let line_width = |exclusions: &[Exclusao], i: usize| -> f32 {
+    let line_width = |exclusions: &[Exclusion], i: usize| -> f32 {
         if never_wraps {
             return f32::INFINITY;
         }
         if exclusions.is_empty() {
             return content_w;
         }
-        banda_livre(exclusions, y + i as f32 * lh, lh, x, content_w).1
+        free_band(exclusions, y + i as f32 * lh, lh, x, content_w).1
     };
     // The same band's LEFT edge, minus the content edge (`x`): how far line
     // `i` starts from the content edge because a float shortens it from the
@@ -150,15 +150,15 @@ pub(in crate::layout) fn layout_inline_flow(
     // line still STARTS past a float that crosses it (the float only stops
     // affecting the WIDTH question, which no longer applies once the line
     // cannot wrap) — the tab stop must see where the line actually begins.
-    let line_start_offset = |exclusions: &[Exclusao], i: usize| -> f32 {
+    let line_start_offset = |exclusions: &[Exclusion], i: usize| -> f32 {
         if exclusions.is_empty() {
             return 0.0;
         }
-        banda_livre(exclusions, y + i as f32 * lh, lh, x, content_w).0 - x
+        free_band(exclusions, y + i as f32 * lh, lh, x, content_w).0 - x
     };
     // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
-    let fonts = super::run_font::Fontes::of_flow(dom, &runs, family, font_size, mono);
-    let wrap = |exclusions: &[Exclusao]| {
+    let fonts = super::run_font::Fonts::of_flow(dom, &runs, family, font_size, mono);
+    let wrap = |exclusions: &[Exclusion]| {
         wrap_runs(
             &runs,
             &mut |i| line_width(exclusions, i),
@@ -184,13 +184,13 @@ pub(in crate::layout) fn layout_inline_flow(
     let exclusions = bfc.snapshot();
     let lines = wrap(&exclusions);
     // `text-overflow: ellipsis` — depois da quebra e antes da colocação, porque
-    // o que se corta é uma LINHA já formada. Ver [`aplicar_elipse`].
+    // o que se corta é uma LINHA já formada. Ver [`apply_ellipsis`].
     let font_of = |owners: &[NodeIdx]| match super::run_font::of_segment(dom, owners, family, font_size, ctx.measurer) {
         Some(f) => (f.font.size, f.font.mono, f.ahem),
         None => (font_size, mono, ahem),
     };
-    let lines = match elipse_pedida(parent_css, nowrap) {
-        true => aplicar_elipse(lines, content_w, &font_of, ctx.measurer),
+    let lines = match requested_ellipsis(parent_css, nowrap) {
+        true => apply_ellipsis(lines, content_w, &font_of, ctx.measurer),
         false => lines,
     };
     // `-webkit-line-clamp`/`line-clamp` — limita a N linhas, com "…" na
@@ -289,7 +289,7 @@ pub(in crate::layout) fn layout_inline_flow(
         let (band_x, band_w) = if exclusions.is_empty() {
             (x, content_w)
         } else {
-            banda_livre(&exclusions, cy, line_h, x, content_w)
+            free_band(&exclusions, cy, line_h, x, content_w)
         };
         let free = (band_w - line_w).max(0.0);
         let mut seg_x = match parent_css.text_align {
@@ -328,7 +328,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 Some(f) => (text_top + ascent - f.ascent, f.font.size, f.font.mono, f.ahem),
                 None => (text_top, font_size, mono, ahem),
             };
-            let (rx, ry) = crate::layout::positioned::relative::offset_do_inline(dom, seg.owners.last().copied(), ctx);
+            let (rx, ry) = crate::layout::positioned::relative::inline_offset(dom, seg.owners.last().copied(), ctx);
             list.push_item(DisplayItem::Text {
                 x: seg_x + rx,
                 y: seg_y + ry,

@@ -22,7 +22,7 @@ use crate::style::Dimension;
 /// `true` quando `d` não impõe um tamanho definido: ausente OU `auto`
 /// explícito. É a pergunta que o stretch do eixo cruzado faz — não "a
 /// propriedade foi escrita?", mas "o valor computado é `auto`?".
-pub(in crate::layout) fn e_auto_ou_ausente(d: Option<Dimension>) -> bool {
+pub(in crate::layout) fn is_auto_or_absent(d: Option<Dimension>) -> bool {
     matches!(d, None | Some(Dimension::Auto))
 }
 
@@ -32,17 +32,17 @@ mod tests {
 
     #[test]
     fn ausente_e_indefinida() {
-        assert!(e_auto_ou_ausente(None));
+        assert!(is_auto_or_absent(None));
     }
 
     #[test]
     fn auto_declarado_e_indefinida() {
-        assert!(e_auto_ou_ausente(Some(Dimension::Auto)));
+        assert!(is_auto_or_absent(Some(Dimension::Auto)));
     }
 
     #[test]
     fn um_comprimento_declarado_e_definido() {
-        assert!(!e_auto_ou_ausente(Some(Dimension::Px(96.0))));
-        assert!(!e_auto_ou_ausente(Some(Dimension::Percent(50.0))));
+        assert!(!is_auto_or_absent(Some(Dimension::Px(96.0))));
+        assert!(!is_auto_or_absent(Some(Dimension::Percent(50.0))));
     }
 }

@@ -108,7 +108,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         .unwrap_or(crate::style::JustifyContent::FlexStart);
     // `left`/`right` são físicos: resolvem-se ANTES do espelho de `row-reverse`.
     let declared_justify =
-        super::axes::fisico_para_eixo(declared_justify, reverse, css.direction.unwrap_or_default());
+        super::axes::physical_to_axis(declared_justify, reverse, css.direction.unwrap_or_default());
     let justify = if reverse {
         crate::layout::flex::column::mirror_justify(declared_justify)
     } else {
@@ -141,7 +141,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         // `display:none` não é item de flex: não conta para o wrap, não come um
         // `gap` e não recebe main size. `layout_block` já lhe dava caixa zero, o
         // que escondia o defeito — a caixa era invisível mas o LUGAR dela não.
-        if e_display_none(dom, child) {
+        if is_display_none(dom, child) {
             continue;
         }
         // BLOCKIFICAÇÃO: um filho de flex é item de nível BLOCO, mesmo sendo
@@ -188,10 +188,10 @@ pub(in crate::layout) fn layout_children_horizontal(
         // No caminho SEM transferência, a altura CRUZADA mede-se com a
         // largura que o item VAI TER (`base`, a "flex base size" — Flexbox
         // §9.2 passo 3), não com a do contentor inteiro (`content_w`): ver o
-        // comentário em `base_e_altura_do_item` (lote `flex-basis-content-
+        // comentário em `item_basis_and_height` (lote `flex-basis-content-
         // wrap`, `flexbox-flex-basis-content-003a/003b`, WPT).
         let effective_align = ccss.align_self.unwrap_or(align);
-        let (base, h, transferred) = crate::layout::replaced::transferred_size::base_e_altura_do_item(
+        let (base, h, transferred) = crate::layout::replaced::transferred_size::item_basis_and_height(
             dom, child, box_id, content_w, container_content_h, effective_align, font_size, ctx,
         );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
@@ -205,12 +205,12 @@ pub(in crate::layout) fn layout_children_horizontal(
         // volta acima do que o stretch já decidiu (`transferred_size.rs`
         // documenta o WPT que isto media errado).
         let (max_main, declared_min) =
-            super::limits::limites_do_item(dom, child, &ccss, content_w, font_size, ctx);
+            super::limits::item_limits(dom, child, &ccss, content_w, font_size, ctx);
         let min_main = if transferred {
             base
         } else {
             let min_main = crate::table::min_content(dom, child, font_size, ctx);
-            super::limits::min_automatico(dom, child, min_main, &ccss, content_w, font_size, ctx, max_main)
+            super::limits::automatic_min(dom, child, min_main, &ccss, content_w, font_size, ctx, max_main)
         };
         let min_main = declared_min.unwrap_or(min_main); // declarado vence o automático inteiro
         // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
@@ -237,7 +237,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             order: ccss.order.unwrap_or(0),
             // `height:auto` DECLARADO conta como indefinido, não só a ausência
             // (`indefinite_size.rs` — achado por `align-self-stretch`).
-            can_stretch: super::indefinite_size::e_auto_ou_ausente(ccss.height),
+            can_stretch: super::indefinite_size::is_auto_or_absent(ccss.height),
             min_main,
             max_main,
             auto_left: auto(ccss.margin.left),
@@ -276,10 +276,10 @@ pub(in crate::layout) fn layout_children_horizontal(
     // dois itens que deviam quebrar (100+100 > 150 pelo seu PISO) cabiam
     // juntos na mesma linha (`claude-flex-wrap-quebra-com-min-width`).
     let balanced = css.flex_wrap.is_some_and(crate::style::FlexWrap::balances);
-    // Sob `balance` a quebra pisa em zero (`hipotetico_para_quebra`); o main final não.
+    // Sob `balance` a quebra pisa em zero (`hypothetical_for_wrap`); o main final não.
     let hypothetical: Vec<f32> = items
         .iter()
-        .map(|it| super::limits::hipotetico_para_quebra(it.base, it.min_main, it.max_main, grid_cols, balanced))
+        .map(|it| super::limits::hypothetical_for_wrap(it.base, it.min_main, it.max_main, grid_cols, balanced))
         .collect();
     // Primeiro descobre o número mínimo de linhas que o wrap ordinário pede.
     // `flex-line-count` só pode aumentar esse mínimo; não pode fazer uma linha
@@ -359,7 +359,7 @@ pub(in crate::layout) fn layout_children_horizontal(
         lines.push(Vec::new());
         let mut line_w = 0.0f32;
         for it in items {
-            let hyp = super::limits::hipotetico_para_quebra(it.base, it.min_main, it.max_main, grid_cols, balanced);
+            let hyp = super::limits::hypothetical_for_wrap(it.base, it.min_main, it.max_main, grid_cols, balanced);
             let cur = lines.last_mut().unwrap();
             let with_gap = if cur.is_empty() { 0.0 } else { gap };
             if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
@@ -410,7 +410,7 @@ pub(in crate::layout) fn layout_children_horizontal(
     // cresce a sua fatia do livre — achado ao medir
     // `claude-gap-row-percentual-eixo` (#a2 dava y=60 na leitura ingénua; o
     // Blink dá 110). O grampo a `≥0` e o negativo em overflow são de
-    // `lines::distribuir_align_content`.
+    // `lines::distribute_align_content`.
     let (line_align_leading, line_align_between, line_stretch_extra) =
         if wrap && lines.len() > 1 && container_cross_h > 0.0 {
             let estimate: f32 = lines
@@ -422,7 +422,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                 })
                 .sum::<f32>()
                 + (lines.len().saturating_sub(1)) as f32 * row_gap;
-            super::lines::distribuir_align_content(
+            super::lines::distribute_align_content(
                 css.align_content,
                 container_cross_h,
                 estimate,
@@ -534,7 +534,7 @@ pub(in crate::layout) fn layout_children_horizontal(
             });
             let item_y = line_y + off_cross;
             if let Some(p) = &it.pseudo {
-                super::pseudo::pintar(list, p, x, item_y, ctx);
+                super::pseudo::paint(list, p, x, item_y, ctx);
             } else if it.is_text {
                 let text = collect_text(dom, it.node);
                 let color = cor_visivel(&css, css.color.unwrap_or(0x000000FF));
@@ -548,7 +548,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                     // Sem familia a mao neste caminho; ver `DisplayItem::Text::is_ahem`.
                     is_ahem: false,
                     bold: css.bold.unwrap_or(false),
-                    italic: italico(Some(&css), tag_de(dom, it.node), false),
+                    italic: italico(Some(&css), tag_of(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),
                     decoration: decoration_code(css),
                 });

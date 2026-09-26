@@ -5,7 +5,7 @@
 //! (`tests/css/claude-hyphens-manual.html`):
 //!
 //! 1. o U+00AD não ocupa largura e não se pinta enquanto a palavra não quebra
-//!    ali — por isso o texto é medido e emitido SEM ele (`sem_shy`);
+//!    ali — por isso o texto é medido e emitido SEM ele (`without_shy`);
 //! 2. quando a palavra não cabe, a linha corrente recebe o maior prefixo que
 //!    termina num hífen suave e cabe COM o hífen visível "-" pintado no fim;
 //! 3. com `hyphens: none` o U+00AD é ignorado de todo — a palavra fica
@@ -29,12 +29,12 @@ pub(in crate::layout) const SHY: char = '\u{00AD}';
 pub(in crate::layout) fn piece_text(s: &str, manual_hyphen: bool) -> String {
     match manual_hyphen {
         true => s.to_string(),
-        false => sem_shy(s).into_owned(),
+        false => without_shy(s).into_owned(),
     }
 }
 
 /// O texto sem hífens suaves — o que se mede e o que se pinta.
-pub(in crate::layout) fn sem_shy(s: &str) -> Cow<'_, str> {
+pub(in crate::layout) fn without_shy(s: &str) -> Cow<'_, str> {
     match s.contains(SHY) {
         true => Cow::Owned(s.chars().filter(|&c| c != SHY).collect()),
         false => Cow::Borrowed(s),
@@ -60,7 +60,7 @@ fn longest_fitting_prefix(
         if c != SHY {
             continue;
         }
-        let mut prefix = sem_shy(&text[..i]).into_owned();
+        let mut prefix = without_shy(&text[..i]).into_owned();
         if prefix.is_empty() {
             continue;
         }
@@ -124,7 +124,7 @@ pub(in crate::layout) fn emit_with_hyphen(
     *at_line_start = true;
     let mut rest = rest;
     loop {
-        let clean = sem_shy(&rest).into_owned();
+        let clean = without_shy(&rest).into_owned();
         let w = if ahem {
             clean.chars().count() as f32 * font_size
         } else {

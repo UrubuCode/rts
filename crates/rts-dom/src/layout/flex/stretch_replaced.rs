@@ -11,7 +11,7 @@
 //! (`layout/input.rs::CAIXA_DE_MARCA`) — e por isso fica curto sem a
 //! imposição. `<input>` (fora de checkbox/radio) e `<table>` continuam de
 //! fora: um campo de texto já reserva 180px OU `avail_w` sozinho
-//! (`medida_do_input`), e uma tabela já ocupa a largura toda pelo algoritmo
+//! (`input_measure`), e uma tabela já ocupa a largura toda pelo algoritmo
 //! de colunas — nenhum dos dois precisa de ajuda.
 //!
 //! Achado no lote `flex-desvios-pequenos` (WPT
@@ -24,7 +24,7 @@ use crate::dom::{Dom, NodeIdx, NodeKind};
 
 /// `true` para `<img>` e `<input type=checkbox|radio>` — os replaced cujo
 /// tamanho natural (sem `width` declarado) não enche o contentor sozinho.
-pub(in crate::layout) fn precisa_de_forced_w_no_stretch(dom: &Dom, id: NodeIdx) -> bool {
+pub(in crate::layout) fn needs_forced_w_on_stretch(dom: &Dom, id: NodeIdx) -> bool {
     let NodeKind::Element { tag } = &dom.node(id).kind else {
         return false;
     };

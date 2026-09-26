@@ -297,7 +297,7 @@
         // encolhe: sobrepõe-se a ele, e só as suas linhas contornam. Medido no
         // Chrome, na Wikipédia: a `<figure>` com `float:right` fica em y=5877 e
         // o `<p>` seguinte em y=5869, ACIMA do topo do float, com a largura
-        // cheia da coluna. Ver [`Exclusao`].
+        // cheia da coluna. Ver [`Exclusion`].
         assert_eq!(
             r[3].y, 0.0,
             "o não-float sobrepõe-se ao float, não desce: {r:?}"

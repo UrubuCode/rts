@@ -135,7 +135,7 @@ pub(in crate::layout) fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, t
 /// que transborda por outras razões. Aqui é só a linha única horizontal, que é
 /// o que as 29 declarações `ellipsis` do corpus escrevem — todas num container
 /// com `overflow:hidden` e `white-space:nowrap`.
-pub(in crate::layout) fn elipse_pedida(css: &ComputedStyle, nowrap: bool) -> bool {
+pub(in crate::layout) fn requested_ellipsis(css: &ComputedStyle, nowrap: bool) -> bool {
     // `clips()` (hidden/clip) OU `scrollable()` (auto/scroll) — qualquer
     // `overflow-x` que não seja `visible` pede a elipse; `clip` entrou no
     // lote `flex-min-auto-content` como variante própria (antes era a
@@ -155,7 +155,7 @@ pub(in crate::layout) fn elipse_pedida(css: &ComputedStyle, nowrap: bool) -> boo
 /// Uma caixa atómica no ponto de corte é DESCARTADA em vez de encolhida: um
 /// `<img>` não tem prefixo, e escalá-lo para caber inventaria uma geometria que
 /// o Chrome não produz.
-pub(in crate::layout) fn aplicar_elipse(
+pub(in crate::layout) fn apply_ellipsis(
     lines: Vec<Vec<Segment>>,
     content_w: f32,
     // `(size, mono, ahem)` of the font a segment's text is in — the container's,
@@ -167,7 +167,7 @@ pub(in crate::layout) fn aplicar_elipse(
     apply_forced_ellipsis(lines, content_w, font_of, m, false)
 }
 
-/// O mesmo corte de [`aplicar_elipse`], mas com um `force` que salta a saída
+/// O mesmo corte de [`apply_ellipsis`], mas com um `force` que salta a saída
 /// antecipada "já cabe, não corta nada" — `-webkit-line-clamp`
 /// (`layout::inline::tab_size::aplicar_line_clamp`) chama a última linha mantida
 /// SEMPRE com reticências, mesmo quando essa linha por si só caberia na

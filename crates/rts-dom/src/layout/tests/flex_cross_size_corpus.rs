@@ -61,7 +61,7 @@ fn linha_unica_com_wrap_tambem_usa_a_altura_do_contentor() {
 fn multiplas_linhas_com_wrap_continuam_a_esticar_por_align_content_normal() {
     // O caso de VÁRIAS linhas já funcionava (lote da coluna,
     // `line_stretch_extra`) — este teste fixa que a extração para
-    // `flex_linhas::distribuir_align_content` não regrediu: 2 linhas de 2
+    // `flex_linhas::distribute_align_content` não regrediu: 2 linhas de 2
     // itens cada, altura do contentor 100, sem `height` própria nos itens
     // (natural 0 cada) — `align-content:normal` reparte os 100px igualmente,
     // 50 por linha.

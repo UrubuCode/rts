@@ -54,8 +54,8 @@ pub(crate) enum AtomicKind {
     /// à palavra vizinha (um átomo nunca abre oportunidade de quebra) — é o que
     /// faz `<span style="padding:0 4px">aaa` medir 4px a mais na primeira linha
     /// e nada nas seguintes, como o Blink.
-    ArestaInicio,
-    ArestaFim,
+    EdgeStart,
+    EdgeEnd,
     /// The ANCHOR of a float that appears in the middle of the inline flow:
     /// zero width, no box on the line and nothing painted there. It only says
     /// WHICH LINE the float appeared on — CSS 2.1 §9.5.1 puts its top at that
@@ -69,24 +69,24 @@ pub(crate) enum AtomicKind {
     /// start/end edge of an `inline` one that has a surface. The originating
     /// element is the run's node, because the generated box has no node of
     /// its own (`pseudo/mod.rs`); the pseudo-element is what tells it apart
-    /// from that element's own `Block`/`ArestaInicio`/`ArestaFim`, which a
+    /// from that element's own `Block`/`EdgeStart`/`EdgeEnd`, which a
     /// second meaning on those kinds would have confused.
-    Gerada(crate::style::PseudoElement, ParteGerada),
+    Generated(crate::style::PseudoElement, GeneratedPart),
     /// The ANCHOR of an absolutely positioned box that appears in the middle of
     /// the inline flow: zero width, nothing on the line. It only says WHERE the
     /// box would have been — its static position (`layout/inline/static_anchor.rs`).
-    Estatica,
+    StaticAnchor,
 }
 
-/// Which piece of a generated box an `AtomicKind::Gerada` run is.
+/// Which piece of a generated box an `AtomicKind::Generated` run is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum ParteGerada {
+pub(crate) enum GeneratedPart {
     /// The whole box, sized by its own `width`/`height` or its content.
-    Atomo,
+    Atom,
     /// Margin + border + padding before the text of an `inline` pseudo.
-    Inicio,
+    Start,
     /// The same after it.
-    Fim,
+    End,
 }
 
 impl AtomicKind {
@@ -96,14 +96,14 @@ impl AtomicKind {
     pub(crate) fn tem_corpo(self) -> bool {
         matches!(
             self,
-            Self::Widget | Self::Replaced | Self::Block | Self::Break | Self::Gerada(_, ParteGerada::Atomo)
+            Self::Widget | Self::Replaced | Self::Block | Self::Break | Self::Generated(_, GeneratedPart::Atom)
         )
     }
 
     /// An inline-level box laid out as a block (an `inline-block` element or
     /// an atomic generated box): it sits on the baseline by its own rules.
     pub(crate) fn e_bloco_na_linha(self) -> bool {
-        matches!(self, Self::Block | Self::Gerada(_, ParteGerada::Atomo))
+        matches!(self, Self::Block | Self::Generated(_, GeneratedPart::Atom))
     }
 }
 
@@ -357,34 +357,34 @@ pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect, l
 /// combiná-las em cada aglomerado — punha a mesma regra em dois sítios, que é a
 /// duplicação que este motor já pagou várias vezes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum QuebraDentro {
+pub(crate) enum BreakWithin {
     /// `normal` — nunca. Uma palavra que não cabe transborda.
-    Nao,
+    Never,
     /// `overflow-wrap: break-word|anywhere`, `word-break: break-word` — parte-se
     /// só quando a palavra não cabe NEM numa linha inteira e vazia. Descer
     /// primeiro e partir depois é o que o Chrome faz.
-    SePreciso,
+    IfNeeded,
     /// `word-break: break-all` — parte-se assim que não cabe no que resta da
     /// linha, sem esperar por oportunidade nenhuma.
-    Sempre,
+    Always,
 }
 
 /// A resolução, e a razão de `word-break` ganhar a `overflow-wrap`: `break-all`
 /// é estritamente mais agressivo, e a spec dá-lhe precedência sobre o
 /// `overflow-wrap` do mesmo elemento.
 ///
-/// `keep-all` e `auto-phrase` respondem `Nao` — as duas são sobre onde partir
+/// `keep-all` e `auto-phrase` respondem `Never` — as duas são sobre onde partir
 /// texto CJK, e este motor mede por carácter sem análise de escrita. Mapeá-las
-/// para `Nao` é o comportamento certo em texto latino (que é todo o corpus) e é
+/// para `Never` é o comportamento certo em texto latino (que é todo o corpus) e é
 /// honesto no resto: não partir é o que `keep-all` pede.
-pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
+pub(crate) fn quebra_dentro(css: &ComputedStyle) -> BreakWithin {
     use crate::style::{painting::LineBreak, OverflowWrap, WordBreak};
     match css.word_break {
-        Some(WordBreak::BreakAll) => return QuebraDentro::Sempre,
+        Some(WordBreak::BreakAll) => return BreakWithin::Always,
         // Legado: `word-break: break-word` é, por MDN, o mesmo que
         // `overflow-wrap: break-word`. Aparece 15 vezes no corpus de 13 folhas —
         // mais do que `break-all` — por isso não é um caso de canto.
-        Some(WordBreak::BreakWord) => return QuebraDentro::SePreciso,
+        Some(WordBreak::BreakWord) => return BreakWithin::IfNeeded,
         _ => {}
     }
     // CSS Text 3 §5.1: `line-break: anywhere` é "a soft wrap opportunity
@@ -392,14 +392,14 @@ pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
     // words" — a mesma quebra INCONDICIONAL de `word-break: break-all`, não a
     // quebra "só se preciso" de `overflow-wrap`.
     if css.line_break == Some(LineBreak::Anywhere) {
-        return QuebraDentro::Sempre;
+        return BreakWithin::Always;
     }
     match css.overflow_wrap {
         // `anywhere` difere de `break-word` só no cálculo da largura MÍNIMA
         // intrínseca (`min-content`), que este motor não distingue; na quebra da
         // linha as duas fazem o mesmo, e é isso que aqui se decide.
-        Some(OverflowWrap::BreakWord | OverflowWrap::Anywhere) => QuebraDentro::SePreciso,
-        _ => QuebraDentro::Nao,
+        Some(OverflowWrap::BreakWord | OverflowWrap::Anywhere) => BreakWithin::IfNeeded,
+        _ => BreakWithin::Never,
     }
 }
 

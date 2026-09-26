@@ -12,7 +12,7 @@
 //! `owners`, the inline elements around it, and the INNERMOST one is the
 //! element whose computed style is the text's — size, family, line height.
 //! This module is that lookup, in the two shapes the flow needs: per RUN while
-//! breaking lines ([`Fontes`]), per SEGMENT while placing them
+//! breaking lines ([`Fonts`]), per SEGMENT while placing them
 //! ([`of_segment`]). A run whose font is the container's answers `None` on
 //! both, and nothing changes for it — which is every run of most lines.
 
@@ -27,7 +27,7 @@ pub(in crate::layout) struct Font {
 
 impl Font {
     fn ahem(&self) -> bool {
-        crate::layout::measure::font_metrics::usa_ahem(self.family.as_deref())
+        crate::layout::measure::font_metrics::uses_ahem(self.family.as_deref())
     }
 }
 
@@ -46,29 +46,29 @@ fn of_owner(dom: &Dom, owners: &[NodeIdx], base_family: Option<&str>, base_size:
 
 /// The fonts of a flow's runs, for line breaking: the container's, and each
 /// run's own where it differs.
-pub(in crate::layout) struct Fontes<'a> {
+pub(in crate::layout) struct Fonts<'a> {
     base_family: Option<&'a str>,
     base_size: f32,
     base_mono: bool,
     per_run: Vec<Option<Font>>,
 }
 
-impl<'a> Fontes<'a> {
+impl<'a> Fonts<'a> {
     pub(in crate::layout) fn of_flow(dom: &Dom, runs: &[InlineRun], family: Option<&'a str>, size: f32, mono: bool) -> Self {
         let per_run = runs
             .iter()
             .map(|r| if r.atomic.is_some() { None } else { of_owner(dom, &r.owners, family, size).map(|(f, _)| f) })
             .collect();
-        Fontes { base_family: family, base_size: size, base_mono: mono, per_run }
+        Fonts { base_family: family, base_size: size, base_mono: mono, per_run }
     }
 
     /// A flow of one font — the generated box's own text.
-    pub(in crate::layout) fn uniforme(family: Option<&'a str>, size: f32, mono: bool) -> Self {
-        Fontes { base_family: family, base_size: size, base_mono: mono, per_run: Vec::new() }
+    pub(in crate::layout) fn uniform(family: Option<&'a str>, size: f32, mono: bool) -> Self {
+        Fonts { base_family: family, base_size: size, base_mono: mono, per_run: Vec::new() }
     }
 
     pub(in crate::layout) fn base_ahem(&self) -> bool {
-        crate::layout::measure::font_metrics::usa_ahem(self.base_family)
+        crate::layout::measure::font_metrics::uses_ahem(self.base_family)
     }
 
     /// The width of `t` in the font of run `i` (any index past the runs — the

@@ -78,7 +78,7 @@ pub(in crate::layout) fn max_content_width(
                 continue;
             }
         }
-        if is_out_of_flow(dom, child) || e_display_none(dom, child) {
+        if is_out_of_flow(dom, child) || is_display_none(dom, child) {
             continue;
         }
         if matches!(dom.node(child).kind, NodeKind::Text(_)) {

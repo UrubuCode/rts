@@ -12,7 +12,7 @@
 
 /// `Start`/`End` entram aqui só para `align-content` (multi-linha), que chama
 /// isto DIRETO com o valor cru — `justify-content` já os resolveu para
-/// `FlexStart`/`FlexEnd` em `fisico_para_eixo`/`physical_to_column` antes de
+/// `FlexStart`/`FlexEnd` em `physical_to_axis`/`physical_to_column` antes de
 /// chegar aqui. Tratados como `FlexStart`/`FlexEnd` (mesma posição física
 /// que já tinham); `wrap-reverse` não os espelha aqui — nenhum valor é
 /// espelhado no `align-content` hoje, o que fica fora deste lote.

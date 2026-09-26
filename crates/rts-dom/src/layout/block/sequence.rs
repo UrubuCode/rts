@@ -40,7 +40,7 @@
 //! when text gained a box. With the order coming from the tree there are no
 //! longer two sequences to compare, so the check it made is not expressible.
 //!
-//! [`sequencia_do_fluxo`] asserts what remains checkable and is just as silent
+//! [`flow_sequence`] asserts what remains checkable and is just as silent
 //! when it breaks: that the box being descended into belongs to the tree the
 //! `DisplayList` carries (the GENERATION), that every box emitted is a child of
 //! that box in that tree, and that no box of the tree is dropped on the way.
@@ -78,7 +78,7 @@ pub(in crate::layout) enum FlowStep {
 
 /// The children of `box_id`, in the tree's order, with the no-box DOM children
 /// spliced back at their own positions.
-pub(in crate::layout) fn sequencia_do_fluxo(
+pub(in crate::layout) fn flow_sequence(
     dom: &Dom,
     tree: &BoxTree,
     id: NodeIdx,
@@ -310,7 +310,7 @@ mod tests {
         let p = node_of_tag(&dom, "section");
         let div = node_of_tag(&dom, "div");
 
-        let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
+        let seq = flow_sequence(&dom, &tree, p, tree.boxes_of(p)[0]);
         assert_eq!(seq.len(), 3, "anonima, o bloco, anonima: {seq:?}");
         assert!(
             matches!(seq[0], FlowStep::AnonymousBox(_)),
@@ -343,7 +343,7 @@ mod tests {
             2,
             "o inline partido tem DUAS caixas suas, uma por corrida"
         );
-        let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
+        let seq = flow_sequence(&dom, &tree, p, tree.boxes_of(p)[0]);
         let FlowStep::AnonymousBox(anon) = seq[0] else {
             panic!("o primeiro passo devia ser anonimo: {seq:?}");
         };
@@ -352,7 +352,7 @@ mod tests {
         // caixa não-anónima que a envolve.
         assert_eq!(tree.style_source(anon), p);
 
-        let inside = sequencia_do_fluxo(&dom, &tree, p, anon);
+        let inside = flow_sequence(&dom, &tree, p, anon);
         assert_eq!(inside.len(), 1, "a corrida da frente e o fragmento do span");
         assert_eq!(node_of_step(&inside[0]), Some(span));
         assert_eq!(
@@ -371,12 +371,12 @@ mod tests {
         let tree = dom.box_tree();
         let p = node_of_tag(&dom, "section");
 
-        let seq = sequencia_do_fluxo(&dom, &tree, p, tree.boxes_of(p)[0]);
+        let seq = flow_sequence(&dom, &tree, p, tree.boxes_of(p)[0]);
         assert_eq!(seq.len(), 3, "anonima, bloco, anonima: {seq:?}");
         let FlowStep::AnonymousBox(ahead) = seq[0] else {
             panic!("{seq:?}");
         };
-        let inside = sequencia_do_fluxo(&dom, &tree, p, ahead);
+        let inside = flow_sequence(&dom, &tree, p, ahead);
         assert_eq!(inside.len(), 2, "o texto 'x' E o fragmento do span");
         assert!(
             matches!(&dom.node(node_of_step(&inside[0]).unwrap()).kind, NodeKind::Text(t) if t == "x")
@@ -389,7 +389,7 @@ mod tests {
         let dom = crate::parse_html_to_dom("<div>ola</div>");
         let tree = dom.box_tree();
         let div = node_of_tag(&dom, "div");
-        let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
+        let seq = flow_sequence(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 1);
         assert!(box_of_step(&seq[0]).is_some(), "o texto tem caixa desde que a arvore a da");
@@ -403,7 +403,7 @@ mod tests {
         let dom = crate::parse_html_to_dom("<div><p>a</p><!--c--><p>b</p></div>");
         let tree = dom.box_tree();
         let div = node_of_tag(&dom, "div");
-        let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
+        let seq = flow_sequence(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 3, "dois <p> e o comentario entre eles");
         assert!(box_of_step(&seq[1]).is_none(), "um comentario nao gera caixa");
@@ -419,7 +419,7 @@ mod tests {
         let dom = crate::parse_html_to_dom("<div>a<!--c-->b<span>s<p>x</p>f</span></div>");
         let tree = dom.box_tree();
         let div = node_of_tag(&dom, "div");
-        let seq = sequencia_do_fluxo(&dom, &tree, div, tree.boxes_of(div)[0]);
+        let seq = flow_sequence(&dom, &tree, div, tree.boxes_of(div)[0]);
         let anonymous_boxes: Vec<BoxId> = seq
             .iter()
             .filter_map(|p| match *p {
@@ -430,7 +430,7 @@ mod tests {
         assert_eq!(anonymous_boxes.len(), 2, "uma corrida de cada lado do <p>: {seq:?}");
 
         let comments = |b: BoxId| {
-            sequencia_do_fluxo(&dom, &tree, div, b)
+            flow_sequence(&dom, &tree, div, b)
                 .iter()
                 .filter(|p| {
                     node_of_step(p).is_some_and(|n| matches!(&dom.node(n).kind, NodeKind::Comment(_)))
@@ -451,6 +451,6 @@ mod tests {
         let box_id = old.boxes_of(div)[0];
         let fresh = crate::boxes::build_mirror(&dom);
 
-        let _ = sequencia_do_fluxo(&dom, &fresh, div, box_id);
+        let _ = flow_sequence(&dom, &fresh, div, box_id);
     }
 }

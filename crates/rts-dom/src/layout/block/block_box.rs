@@ -114,7 +114,7 @@ fn layout_anonymous_box(
     // the right answer for the four questions `layout_children_vertical` still
     // asks of a node: the DOM child list the window of `sequencia` is cut from,
     // the owner of the inline flow (`dono`), and the two sibling questions
-    // (`em_contexto_inline`, `whitespace_is_inline_separator`) which look a child
+    // (`in_inline_context`, `whitespace_is_inline_separator`) which look a child
     // up among the container's DOM children — where the children of this run
     // genuinely are.
     //

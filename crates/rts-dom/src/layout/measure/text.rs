@@ -123,7 +123,7 @@ impl Lines {
             mono: family.as_deref().is_some_and(crate::style::is_mono_family),
             family,
             bold: css.and_then(|c| c.bold).unwrap_or(false),
-            italic: italico(css, parent.and_then(|p| tag_de(dom, p)), false),
+            italic: italico(css, parent.and_then(|p| tag_of(dom, p)), false),
             letter: css.and_then(|c| c.letter_spacing).unwrap_or(0.0),
             word: css.and_then(|c| c.word_spacing).unwrap_or(0.0),
         };
@@ -131,7 +131,7 @@ impl Lines {
         let ws = css.and_then(|c| c.white_space).unwrap_or(crate::style::WhiteSpace::Normal);
         let soft_breaks = self.min && !matches!(ws, crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre);
         // The soft hyphen has no width unless a line breaks at it (`hyphen.rs`, rule 1).
-        let t = crate::layout::inline::hyphen::sem_shy(t);
+        let t = crate::layout::inline::hyphen::without_shy(t);
         if regime.preserves() {
             for token in tokens(&t) {
                 match token {
@@ -254,7 +254,7 @@ pub(in crate::layout) fn is_open_inline(
         && !fc.is_atomic_inline()
         && float_of(dom, id) == crate::style::FloatSide::None
         && crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx).is_none()
-        && crate::layout::replaced::input::tamanho_natural_controlo(dom, id, &css, ctx).is_none()
+        && crate::layout::replaced::input::control_natural_size(dom, id, &css, ctx).is_none()
 }
 
 /// An inline box's margin + border + padding on its start and end sides:

@@ -14,7 +14,7 @@ use super::*;
 /// O `y` a que o fluxo do contentor `id` tem de descer por causa do seu
 /// `::after` de bloco com `clear`, se existir e houver floats abertos no
 /// `bfc` do lado pedido.
-pub(in crate::layout) fn fundo_do_clearfix(
+pub(in crate::layout) fn clearfix_bottom(
     dom: &Dom,
     id: NodeIdx,
     bfc: &BlockFormattingContext,
@@ -31,5 +31,5 @@ pub(in crate::layout) fn fundo_do_clearfix(
     if !left && !right {
         return None;
     }
-    bfc.fundo_lado(left, right)
+    bfc.side_bottom(left, right)
 }

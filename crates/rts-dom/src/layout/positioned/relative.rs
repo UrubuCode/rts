@@ -49,7 +49,7 @@ use crate::boxes::{BoxId, BoxTree};
 /// offset routine is the point — a table-internal box's offset is computed
 /// and applied exactly like any other block's.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn aplica_offset_relativo(
+pub(crate) fn apply_relative_offset(
     id: BoxId,
     css: &ComputedStyle,
     avail_w: f32,
@@ -60,7 +60,7 @@ pub(crate) fn aplica_offset_relativo(
     list: &mut DisplayList,
 ) {
     let (dx, dy) = relative_offset(css, avail_w, avail_h, font_size, ctx);
-    desloca_desde(list, box_start, Some(id), dx, dy);
+    shift_from(list, box_start, Some(id), dx, dy);
 }
 
 /// The `(dx, dy)` a `position: relative` box is shifted by; `(0, 0)` for any
@@ -92,7 +92,7 @@ pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avai
 /// of every inline box around it, up to the block that owns the line.
 ///
 /// An inline's text is painted by the line it sits in, under no box of its
-/// own, so `aplica_offset_relativo` — which shifts what a BLOCK emitted —
+/// own, so `apply_relative_offset` — which shifts what a BLOCK emitted —
 /// never reached it and a relative `<span>` stayed where it was
 /// (`claude-relativo-em-inline`, WPT `position-relative-033`). The line asks
 /// here instead, for each segment's innermost owner, and `owner_fragment`
@@ -100,10 +100,10 @@ pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avai
 /// together and nothing around them reflows.
 ///
 /// The walk stops at the first ancestor that is not an inline box: a block or
-/// an atom shifts ITS OWN subtree through `aplica_offset_relativo`, and adding
+/// an atom shifts ITS OWN subtree through `apply_relative_offset`, and adding
 /// it here would shift the content twice. Cut: a percentage inset resolves
 /// against the viewport, the line not knowing its containing block's size.
-pub(in crate::layout) fn offset_do_inline(dom: &Dom, mut node: Option<NodeIdx>, ctx: &LayoutCtx) -> (f32, f32) {
+pub(in crate::layout) fn inline_offset(dom: &Dom, mut node: Option<NodeIdx>, ctx: &LayoutCtx) -> (f32, f32) {
     let (mut dx, mut dy) = (0.0, 0.0);
     while let Some(n) = node.filter(|&n| !is_block_level(dom, n) && !is_inline_block(dom, n)) {
         if let Some(css) = dom.computed_style_idx(n) {
@@ -123,7 +123,7 @@ pub(in crate::layout) fn offset_do_inline(dom: &Dom, mut node: Option<NodeIdx>, 
 /// `layout_block`, which knows nothing of the inline around it. `rects_of` is `None` for an atom with no body (an anchor, an edge):
 /// there is no rect of its own to move. Every atom HAS a box; the `Option`
 /// says whether it recorded a rect.
-pub(in crate::layout) fn desloca_desde(list: &mut DisplayList, desde: usize, rects_of: Option<BoxId>, dx: f32, dy: f32) {
+pub(in crate::layout) fn shift_from(list: &mut DisplayList, desde: usize, rects_of: Option<BoxId>, dx: f32, dy: f32) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }

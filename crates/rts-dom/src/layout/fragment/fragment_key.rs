@@ -93,7 +93,7 @@ impl KeyBase {
             node_epoch: dom.layout_epoch(id),
             style_epoch: self.style_epoch,
             anim_epoch: self.anim_epoch,
-            target: super::caixa_cache_target(dom, id, caixa),
+            target: super::box_cache_target(dom, id, caixa),
             avail_w: self.avail_w,
             avail_h: self.avail_h,
             forced_outer_w: forced_outer_w.map(f32::to_bits),

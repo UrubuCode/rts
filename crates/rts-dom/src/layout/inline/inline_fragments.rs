@@ -58,7 +58,7 @@ pub(in crate::layout) fn owner_fragment(
     let with_edges = css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
     // A relative inline — or one inside a relative inline — is shifted HERE, the
     // one place its fragment is made: client rects and painted surface move together.
-    let (dx, dy) = crate::layout::positioned::relative::offset_do_inline(dom, Some(owner), ctx);
+    let (dx, dy) = crate::layout::positioned::relative::inline_offset(dom, Some(owner), ctx);
     styled_fragment(css.as_deref(), with_edges, x + dx, y + dy, w, line_content, ctx, align_to_baseline)
 }
 

@@ -40,7 +40,7 @@
 //!   main vertical, justify no Y). `flex-grow`/`shrink`/`basis` também fora.
 
 use crate::dom::{BoxCacheTarget, Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeIdx, NodeKind};
-use crate::inline_box::{AtomicKind, ParteGerada, apara_css, e_espaco_css, so_espaco_css};
+use crate::inline_box::{AtomicKind, GeneratedPart, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 pub(crate) mod block;
@@ -61,7 +61,7 @@ use self::inline::line::layout_inline_flow;
 use self::inline::line_break::wrap_runs;
 use self::inline::runs::{InlineRun, collect_runs};
 use self::inline::pseudo_inline::pseudo_run;
-use self::inline::segment::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
+use self::inline::segment::{Segment, apply_ellipsis, collapse_ws, requested_ellipsis, push_segment};
 pub(crate) use self::block::block::layout_block;
 pub use self::fragment::types::{ChildRef, Fragment};
 use crate::paint::pieces::Piece;
@@ -73,35 +73,35 @@ use self::inline::line_inline_block::layout_inline_block_line;
 // `pub(crate)`, not a plain `use`: `table/relative.rs` calls it too, for the
 // table-internal boxes (`<tr>`/`<tbody>`/`<thead>`/`<tfoot>`) that never go
 // through `layout_block` and so never asked this question on their own.
-pub(crate) use self::positioned::relative::aplica_offset_relativo;
+pub(crate) use self::positioned::relative::apply_relative_offset;
 
 use crate::paint::item::{Corners, DisplayItem};
 use crate::paint::list::{DisplayList, Rect, ScrollRegion};
 pub use self::measure::text_measurer::{ApproxMeasurer, TextMeasurer};
 pub(crate) use self::block::bfc::BlockFormattingContext;
 pub(crate) use self::block::box_kind::{font_px, is_non_rendered_tag, used_display};
-pub(crate) use self::float::float::Exclusao;
+pub(crate) use self::float::float::Exclusion;
 pub(crate) use self::fragment::items::{add_line_fragment, record_box_rect, reserve_box_order};
 pub(crate) use self::measure::measure::intrinsic_outer_width;
 use crate::paint::decor::border_items;
 pub(crate) use self::positioned::positioned::is_out_of_flow;
-use self::block::box_kind::{css_display, em_contexto_inline, is_block_level, is_inline_block, is_inline_text_container, whitespace_is_inline_separator};
-use self::float::float::{banda_livre, fecha_a_corrida, float_of};
+use self::block::box_kind::{css_display, in_inline_context, is_block_level, is_inline_block, is_inline_text_container, whitespace_is_inline_separator};
+use self::float::float::{free_band, close_run, float_of};
 use self::replaced::input::{layout_button, layout_input};
 use self::replaced::select::layout_select;
 use self::measure::measure::{child_outer_height, child_outer_width, collect_text, content_natural_width};
-use self::block::box_kind::{is_text_input_tag, tag_de};
+use self::block::box_kind::{is_text_input_tag, tag_of};
 use crate::paint::decor::{body_background, deve_suprimir_fundo};
 use crate::paint::pieces;
 use crate::paint::stacking;
 use crate::paint::style::{apply_opacity, cor_visivel, decoration_code, italico};
-use self::positioned::positioned::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
+use self::positioned::positioned::{collect_out_of_flow, is_display_none, layout_out_of_flow, resolve_height};
 use self::replaced::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
 
 /// Endereço estável de uma caixa para caches que sobrevivem à reconstrução da
 /// árvore. O `BoxId` é a identidade operacional dentro de uma passada; o par
 /// `(nó, ordinal)` é usado somente na fronteira persistente do cache.
-pub(crate) fn caixa_cache_target(
+pub(crate) fn box_cache_target(
     dom: &Dom,
     no: NodeIdx,
     caixa: crate::boxes::BoxId,
@@ -144,7 +144,7 @@ pub(crate) fn measure_block(
     // segundo caso, o layout de bloco SEM árvore sobre um nó que a tem, e o
     // caminho rápido do cache de fragmentos rebentava no primeiro filho
     // (WPT `css-flexbox/percentage-heights-023`). Quem só conhece o nó anda
-    // a árvore até à caixa — `flex::column_shrink::altura_conteudo_sem_height`.
+    // a árvore até à caixa — `flex::column_shrink::content_height_without_height`.
     caixa: crate::boxes::BoxId,
     avail_w: f32,
     avail_h: Option<f32>,
@@ -158,7 +158,7 @@ pub(crate) fn measure_block(
         tree: dom.cache_identity(),
         node_epoch: dom.layout_epoch(id),
         style_epoch: crate::style::props::style_epoch(),
-        target: caixa_cache_target(dom, id, caixa),
+        target: box_cache_target(dom, id, caixa),
         avail_w: avail_w.to_bits(),
         avail_h: avail_h.map(f32::to_bits),
         forced_outer_w: forced_outer_w.map(f32::to_bits),
@@ -177,7 +177,7 @@ pub(crate) fn measure_block(
     // The lines this throwaway layout records are in ITS coordinates: dropped
     // on the way out, or the fragment being built around this measure would
     // read them as its own (`inline/line_baseline.rs`).
-    let linhas_antes = inline::line_baseline::marca();
+    let linhas_antes = inline::line_baseline::mark();
     let size = layout_block(
         dom,
         id,
@@ -201,7 +201,7 @@ pub(crate) fn measure_block(
         ctx,
         &mut scratch,
     );
-    inline::line_baseline::descarta(linhas_antes);
+    inline::line_baseline::discard(linhas_antes);
     dom.layout_measure_put(key, size);
     size
 }
@@ -247,7 +247,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // informa o viewport à CASCADE (base de vw/vh no font-size fluido/calc; o
     // memo de estilo do Dom invalida sozinho se mudou).
     dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
-    inline::line_baseline::limpa();
+    inline::line_baseline::clear();
     let mut list = DisplayList::for_dom(dom);
     // A árvore de caixas deste documento, memoizada no `Dom`. Vive na lista
     // para que `record_node_rect`/`reserve_node_order` (em `fragment/items.rs`)
@@ -344,13 +344,13 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // Where each box that appeared in the middle of a line WOULD have been: the
     // flow skips an out-of-flow box, so its node has no rect here, and the
     // entry is its static position (`inline/static_anchor.rs`).
-    rects_conhecidos.extend(inline::static_anchor::todas(&list));
+    rects_conhecidos.extend(inline::static_anchor::all(&list));
     let mut positioned = Vec::with_capacity(out_of_flow.len());
     for alvo in out_of_flow {
         let mut fragment = DisplayList::for_dom(dom);
         layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
         rects_conhecidos.extend(fragment.geometry_now().rects);
-        rects_conhecidos.extend(inline::static_anchor::todas(&fragment));
+        rects_conhecidos.extend(inline::static_anchor::all(&fragment));
         positioned.push((stacking::stacking_key(dom, alvo.node), alvo.node, fragment));
     }
     positioned.sort_by(|(a, ..), (b, ..)| a.cmp(b));

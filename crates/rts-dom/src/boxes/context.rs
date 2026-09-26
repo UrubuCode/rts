@@ -205,7 +205,7 @@ fn generated_formatting_context(
         _ => OuterDisplay::Inline,
     };
     let independent = css.is_some_and(|c| {
-        crate::layout::block::bfc_style::pelo_estilo(c, pai) || crate::layout::block::bfc_style::overflow_estabelece(c)
+        crate::layout::block::bfc_style::by_style(c, pai) || crate::layout::block::bfc_style::overflow_establishes(c)
     });
     FormattingContext {
         outer,

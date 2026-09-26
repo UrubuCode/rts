@@ -9,7 +9,7 @@
 //! |---|---|---|
 //! | 1 | `is_block_level`, neste ficheiro | função — **aqui** |
 //! | 2 | `is_inline_block`, neste ficheiro | função — **aqui** |
-//! | 3 | `em_contexto_inline` e `whitespace_is_inline_separator`, neste ficheiro | `!is_block_level(..) && !is_inline_block(..)`, à mão — **aqui** |
+//! | 3 | `in_inline_context` e `whitespace_is_inline_separator`, neste ficheiro | `!is_block_level(..) && !is_inline_block(..)`, à mão — **aqui** |
 //! | 4 | `inline_box::cria_caixa_apesar_de_inline` | função, **noutro ficheiro** — o `layout` chama-a de dois sítios |
 //! | 5 | dentro do laço de `layout_children_vertical` | escrita à mão no corpo da função — **não é movível** sem extrair uma função, o que deixa de ser um `move` |
 //!
@@ -52,8 +52,8 @@ pub(in crate::layout) fn ignores_inline_dimensions(css: &ComputedStyle) -> bool 
 /// fragmento, não há onde a caixa se apoiar. Não desce a árvore inteira à
 /// procura de texto de verdade — um filho `display:none` sozinho fica do
 /// lado conservador (marca caixa em vez de 0×0), nunca o contrário, e
-/// perguntar isso aqui duplicaria `e_display_none`.
-pub(in crate::layout) fn tem_conteudo_para_fragmento(dom: &Dom, id: NodeIdx) -> bool {
+/// perguntar isso aqui duplicaria `is_display_none`.
+pub(in crate::layout) fn has_content_for_fragment(dom: &Dom, id: NodeIdx) -> bool {
     dom.node(id).children.iter().any(|&c| match &dom.node(c).kind {
         NodeKind::Text(t) => !t.trim().is_empty(),
         NodeKind::Element { .. } => true,
@@ -134,7 +134,7 @@ pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             if css.as_ref().and_then(|c| c.effective_display())
                 == Some(crate::style::DisplayKind::Inline)
             {
-                // `tem_conteudo_para_fragmento`: um `display:inline` VAZIO
+                // `has_content_for_fragment`: um `display:inline` VAZIO
                 // (`<span style="display:inline;background:red"></span>`) não
                 // tem fragmento de linha nenhum a pintar — a caixa que
                 // `cria_caixa_apesar_de_inline` pediria ficaria pendurada do
@@ -142,7 +142,7 @@ pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 return css
                     .as_deref()
                     .is_some_and(crate::inline_box::cria_caixa_apesar_de_inline)
-                    && tem_conteudo_para_fragmento(dom, id)
+                    && has_content_for_fragment(dom, id)
                     && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
             }
             css.as_ref().and_then(|c| c.effective_display()).is_some()
@@ -154,12 +154,12 @@ pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                 // radius/width; +height.)
                 // Uma tag inline só vira bloco quando o estilo CRIA caixa — ver
                 // `inline_box::cria_caixa_de_bloco` para porque não é `has_box`. E só
-                // quando tem CONTEÚDO — ver `tem_conteudo_para_fragmento` acima, a
+                // quando tem CONTEÚDO — ver `has_content_for_fragment` acima, a
                 // mesma razão do ramo `display:inline` logo atrás.
                 // …e não quando flui por FRAGMENTOS (`inline_por_fragmentos`):
                 // aí a superfície pinta-se por linha e a caixa é a união.
                 || (css.as_deref().is_some_and(crate::inline_box::cria_caixa_de_bloco)
-                    && tem_conteudo_para_fragmento(dom, id)
+                    && has_content_for_fragment(dom, id)
                     && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos))
         }
         _ => false,
@@ -227,11 +227,11 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
                 return false;
             }
             // é inline-com-box (tem caixa mas é tag inline) → inline-block. Só
-            // quando tem CONTEÚDO (`tem_conteudo_para_fragmento`): um inline
+            // quando tem CONTEÚDO (`has_content_for_fragment`): um inline
             // vazio com fundo/padding não tem fragmento nenhum a que essa
             // caixa se prenda — fica `Marker` (0×0), não `inline-block`.
             css.as_deref().is_some_and(crate::inline_box::cria_caixa_de_bloco)
-                && tem_conteudo_para_fragmento(dom, id)
+                && has_content_for_fragment(dom, id)
                 && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos)
         }
         _ => false,
@@ -313,7 +313,7 @@ pub(crate) fn font_px(css: &ComputedStyle, fallback: f32) -> f32 {
 /// A pergunta é a mesma que o whitespace faz, com um vizinho a mais: o texto
 /// pode estar antes OU depois, e um `<span>` com fundo no fim de um parágrafo
 /// pertence à linha do texto que o antecede.
-pub(in crate::layout) fn em_contexto_inline(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
+pub(in crate::layout) fn in_inline_context(dom: &Dom, parent: NodeIdx, child: NodeIdx) -> bool {
     let siblings = &dom.node(parent).children;
     let Some(pos) = siblings.iter().position(|&c| c == child) else {
         return false;
@@ -382,7 +382,7 @@ pub(in crate::layout) fn is_inline_text_container(dom: &Dom, id: NodeIdx) -> boo
 
 /// O nome da tag de um nó, ou `None` se for texto. Existe para o [`italico`]
 /// poder consultar a UA-stylesheet sem que quem chama tenha de desmontar o nó.
-pub(in crate::layout) fn tag_de(dom: &Dom, id: NodeIdx) -> Option<&str> {
+pub(in crate::layout) fn tag_of(dom: &Dom, id: NodeIdx) -> Option<&str> {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => Some(tag.as_str()),
         _ => None,

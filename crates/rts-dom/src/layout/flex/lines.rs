@@ -31,7 +31,7 @@ use crate::style::JustifyContent;
 ///
 /// `None` devolve a decisão ao chamador (contentor sem altura definida, ou
 /// mais de uma linha — aí quem decide é `items_h` + o que o
-/// `align-content` de [`distribuir_align_content`] tiver esticado).
+/// `align-content` de [`distribute_align_content`] tiver esticado).
 pub(in crate::layout) fn single_line_cross(n_lines: usize, container_cross_h: f32) -> Option<f32> {
     (n_lines == 1 && container_cross_h > 0.0).then_some(container_cross_h)
 }
@@ -50,11 +50,11 @@ pub(in crate::layout) fn single_line_cross(n_lines: usize, container_cross_h: f3
 /// principal usa para overflow — por isso não duplicamos essa lógica aqui.
 ///
 /// Só o ramo SEM `align-content` declarado (stretch por omissão,
-/// `distribuir_align_content` devolve `stretch_extra`) grampeia o livre a
+/// `distribute_align_content` devolve `stretch_extra`) grampeia o livre a
 /// `≥0`: aí um livre negativo significaria ENCOLHER uma linha abaixo do seu
 /// próprio conteúdo, e nada na spec pede isso — o piso de conteúdo já é
 /// aplicado antes (`items_h`), não é este cálculo que o violaria.
-pub(in crate::layout) fn distribuir_align_content(
+pub(in crate::layout) fn distribute_align_content(
     declared: Option<JustifyContent>,
     container_cross_h: f32,
     estimate: f32,

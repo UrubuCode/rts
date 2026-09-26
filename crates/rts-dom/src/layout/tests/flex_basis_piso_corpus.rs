@@ -23,7 +23,7 @@
 //! `claude-raster` encravava num canvas desse tamanho
 //! (`flex-aspect-ratio-resize-001` do WPT). Fix: o piso automático nunca
 //! ultrapassa a "specified size suggestion" (Flexbox §4.5) — o `width` do
-//! item, quando definido; `min_automatico` em `flex_limites.rs`.
+//! item, quando definido; `automatic_min` em `flex_limites.rs`.
 
 use crate::table::tests::{geometria, rect};
 

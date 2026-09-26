@@ -232,7 +232,7 @@ pub(in crate::layout) fn place_grid_items(
     let mut cursor = 0usize;
     let mut col_cursor = 0usize;
     for child in auto {
-        let (r, c) = if auto_flow.coluna {
+        let (r, c) = if auto_flow.column {
             let start = if auto_flow.dense { 0 } else { col_cursor };
             free_col_major(&taken, row_bound, start)
         } else {
@@ -245,7 +245,7 @@ pub(in crate::layout) fn place_grid_items(
         col_cursor = c;
         // flow `column`: as colunas implícitas contam para o `ncols` final,
         // que `grid.rs` usa para estender `grid-auto-columns` e dimensionar.
-        if auto_flow.coluna {
+        if auto_flow.column {
             ncols = ncols.max(c + 1);
         }
     }

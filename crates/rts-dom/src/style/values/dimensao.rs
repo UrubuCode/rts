@@ -187,7 +187,7 @@ pub enum Dimension {
     ///
     /// No eixo INLINE (`min-width`/`max-width`) resolve para o min-content
     /// REAL do item via `crate::table::min_content` em
-    /// `flex_limites::limites_do_item` — a mesma travessia que já serve o
+    /// `flex_limites::item_limits` — a mesma travessia que já serve o
     /// piso automático do encolhimento (Flexbox §9.9/§4.5: um filho bloco
     /// com `width` fixa entra pela sua própria largura); min sempre vence
     /// max em conflito (CSS2 §10.4, `claude-flex-min-width-min-content`). No

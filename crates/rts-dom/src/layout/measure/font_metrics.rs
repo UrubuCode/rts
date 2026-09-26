@@ -94,7 +94,7 @@ fn font_table(family: Option<&str>) -> FontTable {
 
 /// `true` when the computed `font-family` list resolves to Ahem, by the rule of
 /// `style::is_ahem_family`. The single site of this question.
-pub(in crate::layout) fn usa_ahem(family: Option<&str>) -> bool {
+pub(in crate::layout) fn uses_ahem(family: Option<&str>) -> bool {
     family.is_some_and(crate::style::is_ahem_family)
 }
 
@@ -105,7 +105,7 @@ pub(crate) struct FontMetricsModel;
 impl FontMetricsModel {
     /// Ascent in pixels, rounded to a whole pixel as Blink rounds it.
     pub fn ascent(size: f32, family: Option<&str>) -> f32 {
-        if usa_ahem(family) {
+        if uses_ahem(family) {
             return size * crate::style::AHEM_ASCENT_RATIO;
         }
         (size * font_table(family).ascent).round()
@@ -115,7 +115,7 @@ impl FontMetricsModel {
     /// Consolas is 9 + 3 = 12, where rounding the sum would give 12 and
     /// rounding 11.7 then subtracting would give 3 by luck and 2 elsewhere.
     pub fn descent(size: f32, family: Option<&str>) -> f32 {
-        if usa_ahem(family) {
+        if uses_ahem(family) {
             return size * crate::style::AHEM_DESCENT_RATIO;
         }
         (size * font_table(family).descent).round()
@@ -126,7 +126,7 @@ impl FontMetricsModel {
     /// what a caller that lost the list still knows — and Times otherwise.
     /// See the module header for what the sum leaves out.
     pub fn text_width(text: &str, size: f32, family: Option<&str>, mono: bool, bold: bool) -> f32 {
-        if usa_ahem(family) {
+        if uses_ahem(family) {
             return text.chars().count() as f32 * size * crate::style::AHEM_ADVANCE;
         }
         let t = if family.is_none() && mono { CONSOLAS } else { font_table(family) };
@@ -167,7 +167,7 @@ impl FontMetricsModel {
     /// and is measured: Times 12px is 11 + 3 + 0.51 → 15, where rounding the
     /// raw sum (13.80) would give 14.
     pub fn normal_line_height(size: f32, family: Option<&str>) -> f32 {
-        if usa_ahem(family) {
+        if uses_ahem(family) {
             return size * (crate::style::AHEM_ASCENT_RATIO + crate::style::AHEM_DESCENT_RATIO);
         }
         (Self::ascent(size, family) + Self::descent(size, family) + size * font_table(family).gap).round()

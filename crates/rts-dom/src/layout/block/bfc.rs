@@ -6,13 +6,13 @@
 //! finding 1 e 2) nomeia exatamente a falta: **"sem contexto de BFC como valor
 //! propagado não há como saber, no ponto em que um float é fechado, se o
 //! container CORRENTE é o BFC responsável"**. Antes deste módulo,
-//! `layout_block`/`layout_children_vertical` recebiam um `&[Exclusao]` — as
+//! `layout_block`/`layout_children_vertical` recebiam um `&[Exclusion]` — as
 //! exclusões HERDADAS de cima, uma cópia local a cada nível — e por isso dois
 //! defeitos coexistiam: (a) um float dentro de um `<div>` sem BFC nunca
 //! alcançava os IRMÃOS do `<div>` (só os do próprio `<div>`, porque a lista
 //! morria no fim da chamada), e (b) o pai crescia para conter os SEUS floats
 //! mesmo sem ser o BFC responsável — não havia como perguntar "sou eu quem
-//! decide isto?" a um `&[Exclusao]`.
+//! decide isto?" a um `&[Exclusion]`.
 //!
 //! **Por que uma entidade e não um `Vec` devolvido.** Mudar o tipo de retorno
 //! de `layout_block`/`layout_children_vertical` para carregar as exclusões
@@ -42,21 +42,21 @@
 //! passada incremental) que fica sem cobertura nesta entrega, documentado em
 //! vez de escondido.
 
-use crate::layout::float::float::Exclusao;
+use crate::layout::float::float::Exclusion;
 use crate::style::FloatSide;
 use std::cell::RefCell;
 
 /// As exclusões de float ABERTAS de um bloco de formatação, partilhadas por
 /// referência com todo o descendente que não estabelece o seu próprio BFC.
 ///
-/// Guarda os dois lados NUMA lista (o campo `side` de [`Exclusao`] já os
+/// Guarda os dois lados NUMA lista (o campo `side` de [`Exclusion`] já os
 /// distingue) em vez de dois `Vec`: um `clear:both` e o crescimento do pai
 /// pedem os dois lados juntos tantas vezes quanto um só, e duas listas
 /// obrigariam a mesclar/ordenar de volta sempre que fosse preciso o conjunto
 /// inteiro (a busca de banda livre de um novo float, por exemplo).
 #[derive(Default)]
 pub(crate) struct BlockFormattingContext {
-    floats: RefCell<Vec<Exclusao>>,
+    floats: RefCell<Vec<Exclusion>>,
 }
 
 impl BlockFormattingContext {
@@ -86,36 +86,36 @@ impl BlockFormattingContext {
     /// este BFC agora — o ponto em que um float dentro de um container SEM
     /// BFC próprio "escapa": a referência é a mesma do antepassado que criou
     /// este valor, então o `push` fica visível a ele sem retorno nenhum.
-    pub(in crate::layout) fn push(&self, exclusion: Exclusao) {
+    pub(in crate::layout) fn push(&self, exclusion: Exclusion) {
         self.floats.borrow_mut().push(exclusion);
     }
 
     /// A banda livre entre `y` e `y + height`, considerando TODOS os floats
-    /// abertos — delega em [`crate::layout::float::float::banda_livre`], a mesma fórmula de
+    /// abertos — delega em [`crate::layout::float::float::free_band`], a mesma fórmula de
     /// sempre, só que lendo do `RefCell` em vez de um `Vec` local.
-    pub(in crate::layout) fn banda_livre(
+    pub(in crate::layout) fn free_band(
         &self,
         y: f32,
         height: f32,
         content_x: f32,
         content_w: f32,
     ) -> (f32, f32) {
-        crate::layout::float::float::banda_livre(&self.floats.borrow(), y, height, content_x, content_w)
+        crate::layout::float::float::free_band(&self.floats.borrow(), y, height, content_x, content_w)
     }
 
     /// Os fundos dos floats abertos, um por float, sem ordenar — para o laço
     /// de colocação de um float NOVO, que desce até ao fundo de cada um que
     /// estorve a banda pedida (ver o uso em `vertical_flow.rs`).
-    pub(in crate::layout) fn fundos(&self) -> Vec<f32> {
+    pub(in crate::layout) fn bottoms(&self) -> Vec<f32> {
         self.floats.borrow().iter().map(|e| e.bottom).collect()
     }
 
     /// Uma CÓPIA das exclusões abertas — para o único consumidor que precisa
-    /// do `&[Exclusao]` bruto ([`crate::layout::inline::line::layout_inline_flow`], que só
+    /// do `&[Exclusion]` bruto ([`crate::layout::inline::line::layout_inline_flow`], que só
     /// LÊ, nunca escreve, e não tem por que aprender o `RefCell`). Correr o
     /// clone uma vez por flush de linha é barato: o número de floats abertos
     /// é o de floats na página, não de linhas.
-    pub(in crate::layout) fn snapshot(&self) -> Vec<Exclusao> {
+    pub(in crate::layout) fn snapshot(&self) -> Vec<Exclusion> {
         self.floats.borrow().clone()
     }
 
@@ -125,9 +125,9 @@ impl BlockFormattingContext {
     /// havia UMA lista combinada (ver `style::text::Clear`, que documentava o
     /// corte). `(true, true)` é o `both` e também o que o crescimento do pai
     /// usa (10.6.7: um BFC contém floats dos dois lados).
-    pub(in crate::layout) fn fundo_lado(&self, left: bool, right: bool) -> Option<f32> {
+    pub(in crate::layout) fn side_bottom(&self, left: bool, right: bool) -> Option<f32> {
         let floats = self.floats.borrow();
-        let filtered: Vec<Exclusao> = floats
+        let filtered: Vec<Exclusion> = floats
             .iter()
             .copied()
             .filter(|e| match e.side {
@@ -136,6 +136,6 @@ impl BlockFormattingContext {
                 FloatSide::None => false,
             })
             .collect();
-        crate::layout::float::float::fundo_dos_floats(&filtered)
+        crate::layout::float::float::floats_bottom(&filtered)
     }
 }

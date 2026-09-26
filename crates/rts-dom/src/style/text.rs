@@ -115,7 +115,7 @@ impl Clear {
     }
 
     /// Em quais lados este valor desce — `(esquerda, direita)`. É a resposta
-    /// por lado que `layout::bfc::BlockFormattingContext::fundo_lado` lê para
+    /// por lado que `layout::bfc::BlockFormattingContext::side_bottom` lê para
     /// `clear:left` só descer abaixo dos floats ESQUERDOS, `right` só dos
     /// direitos e `both` dos dois (CSS 2.1 §9.5.2).
     pub fn sides(self) -> (bool, bool) {

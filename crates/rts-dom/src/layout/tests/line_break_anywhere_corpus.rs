@@ -40,7 +40,7 @@ fn line_break_anywhere_alone_splits_every_two_ahem_chars() {
 /// SHORT word that would fit whole on the next line — which
 /// `overflow-wrap: break-word` (and the absent `word-break` here) would let
 /// drop down. Pins that `quebra_dentro` reads `line-break` as a third path
-/// to `QuebraDentro::Sempre`, not only `word-break: break-all`.
+/// to `BreakWithin::Always`, not only `word-break: break-all`.
 #[test]
 fn line_break_anywhere_breaks_a_word_that_break_word_would_drop_down() {
     let narrow = "width:60px;font-size:16px";
