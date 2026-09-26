@@ -224,6 +224,7 @@ pub fn lower_within(
         made_in: BTreeMap::new(),
         returns_to: Vec::new(),
         owed_finally: Vec::new(),
+        drains_await: function.is_async && function.is_generator,
         substituting: Vec::new(),
         aliases: Vec::new(),
         local_arrows: BTreeMap::new(),
@@ -410,6 +411,8 @@ struct Lowering<'a> {
     /// The `finally` clauses and `for`-`of` closes a `break` or `continue` from here would leave, innermost
     /// last -- `leaving.rs`.
     owed_finally: Vec<leaving::Owed>,
+    /// Whether an `await` here drains rather than parks -- `suspend.rs::awaited`.
+    drains_await: bool,
     /// The calls being substituted, innermost last, each with its parameters' values
     /// -- `substitute.rs`.
     substituting: Vec<(Name, BTreeMap<Name, ValueId>)>,

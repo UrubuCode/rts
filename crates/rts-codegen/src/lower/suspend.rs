@@ -78,7 +78,16 @@ impl Lowering<'_> {
     /// `await e`.
     pub(super) fn await_on(&mut self, operand: &Expr) -> Result<ValueId, Unsupported> {
         let value = self.expression(operand)?;
-        Ok(self.suspend(Some(value), operand))
+        Ok(self.awaited(value, operand))
+    }
+
+    /// Awaits `value`: parks the frame, or -- in an `async function*`, whose frame its
+    /// own `next()` steps -- drains until the promise settles (`JsPrim::AwaitDrain`).
+    pub(super) fn awaited(&mut self, value: ValueId, at: &Expr) -> ValueId {
+        match self.drains_await {
+            true => self.prim(crate::domain::JsPrim::AwaitDrain, vec![value], at),
+            false => self.suspend(Some(value), at),
+        }
     }
 
     /// `yield e`, `yield`, or `yield* e`.
@@ -89,6 +98,11 @@ impl Lowering<'_> {
         at: &Expr,
     ) -> Result<ValueId, Unsupported> {
         if delegate {
+            // IN AN `async function*` it delegates to an ASYNC iterator, awaiting each
+            // step, which the synchronous loop `delegate.rs` builds does not.
+            if self.drains_await {
+                return Err(Unsupported::Expression("`yield*` in an async generator"));
+            }
             // A LOOP AROUND A SUSPENSION, not one -- `delegate.rs`.
             let Some(subject) = value else {
                 return Err(Unsupported::Expression("`yield*` with nothing to delegate to"));

@@ -232,6 +232,20 @@ impl MachineOps for JsMachine<'_> {
         // THE RECEIVER, which takes no operands and is not arithmetic, so it goes ahead of
         // both gates below. Reading it is reading a parameter: the signature declared one
         // and the caller said which.
+        // AN `await` THAT DRAINS is the machine's own instruction over the generic form,
+        // and a rejection raises through the in-flight throw inside it -- so the check
+        // follows, as `emit/expr.rs` follows its `await_` with `raise_if_thrown`.
+        if which == JsPrim::AwaitDrain
+            && let [promise] = args
+        {
+            let promise = match into.repr_of(*promise) {
+                Repr::Tagged => *promise,
+                _ => into.widen(*promise),
+            };
+            let settled = into.await_(promise);
+            self.recheck_throw(into)?;
+            return Ok(settled);
+        }
         if which == JsPrim::ThisValue {
             return self.receiver.ok_or_else(|| {
                 "the signature declared no receiver, and `this` is one of its parameters".to_owned()
