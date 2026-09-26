@@ -39,7 +39,11 @@ impl RealMeasurer {
 
     /// The face for a computed family list; with no list, `mono` chooses
     /// between Blink's two defaults as `ApproxMeasurer` does.
-    fn face(&self, family: Option<&str>, mono: bool, bold: bool, italic: bool) -> Option<Arc<Face>> {
+    ///
+    /// Public so a painter draws with the face that decided the width — the
+    /// window (rts-egui) hands its bytes (`Face::data`) to its own renderer.
+    /// Resolving again outside this rule is the second answer F4 forbids.
+    pub fn face(&self, family: Option<&str>, mono: bool, bold: bool, italic: bool) -> Option<Arc<Face>> {
         let list = family.unwrap_or(if mono { "monospace" } else { "serif" });
         let style = if italic { Style::Italic } else { Style::Normal };
         self.store.resolve(list, if bold { 700 } else { 400 }, style)

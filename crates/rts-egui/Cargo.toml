@@ -16,6 +16,10 @@ license.workspace = true
 # DOM retido: o egui CONSOME o tipo `Dom` do crate `rts-dom` (parser + árvore +
 # NodeId) e só adiciona o RENDER. O DOM não vive mais aqui.
 rts-dom = { path = "../rts-dom", default-features = false }
+# Text is measured by `rts_text::adapter::RealMeasurer` — the same implementation
+# the headless raster uses — so `getBoundingClientRect`, line breaks and the
+# painted face agree (docs/superpowers/plans/2026-09-26-text-crate.md, F4).
+rts-text = { path = "../rts-text", features = ["dom-measurer"] }
 # Interface de render abstrata: o egui IMPLEMENTA o trait `Renderer` e se registra
 # como backend ativo. O DOM/layout fala `render.*`, nunca `egui.*`.
 rts-render = { path = "../rts-render", default-features = false }
