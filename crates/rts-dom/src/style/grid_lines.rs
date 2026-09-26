@@ -1,108 +1,137 @@
-//! COLOCAÇÃO POR LINHA de grid: `grid-column`, `grid-row` e as quatro longhands
-//! `grid-{column,row}-{start,end}`.
+//! LINE PLACEMENT of grid items: `grid-area`, `grid-column`, `grid-row` and the
+//! four longhands `grid-{column,row}-{start,end}`, which `layout::grid::lines`
+//! resolves into cells (a name against `grid-template-areas` included).
 //!
-//! ## Guardadas, SEM geometria — e porquê não é um defeito visível
+//! ## Named lines, and ONE expansion for the three shorthands
 //!
-//! Este motor coloca os itens de grid por ordem de documento (colocação
-//! automática). Dizer `grid-column-start: 7` não move o item hoje: o valor fica
-//! no `ComputedStyle` e o `getComputedStyle` responde-o certo, mas a caixa sai
-//! onde saía. Isso é "não faz nada", que é diferente do caso do `clip` —
-//! nenhuma destas seis esconde ou revela conteúdo, portanto não há defeito
-//! visível a decidir antes.
-//!
-//! **O ponto de enxerto, para quem tiver o layout de grid na mão:** os quatro
-//! campos `grid_column_start`/`_end`/`grid_row_start`/`_end` de
-//! `style::props::ComputedStyle`, lidos onde hoje se atribui a célula seguinte
-//! por ordem. É `crate::layout` e não é deste módulo.
-//!
-//! ## Um SEGUNDO sistema de colocação, dito por extenso
-//!
-//! O `ComputedStyle` já tem `grid_area` — colocação por NOME de área, de
-//! `style::grid_areas`. Esta é a colocação por NÚMERO DE LINHA, e a spec define
-//! as duas: `grid-area` com um nome resolve para as quatro linhas da área, e uma
-//! longhand escrita a seguir sobrepõe-se ao lado dela. Não reconciliei as duas
-//! porque reconciliar é a decisão de quem colocar os itens — o que este módulo
-//! garante é que os dois valores chegam lá inteiros e distinguíveis, em vez de
-//! um deles se perder no caminho.
-//!
-//! ## O que a gramática NÃO tem, e porquê
-//!
-//! A spec aceita também `<custom-ident>` e `<ident> <integer>` (linhas com
-//! nome). **Nenhuma folha do corpus escreve uma linha com nome** — as 13 folhas,
-//! juntas, escrevem exatamente quatro formas: `auto`, `<inteiro>`,
-//! `-<inteiro>` e `span <inteiro>`. Um nome de linha cairia como não-declarado,
-//! que é a mesma resposta que dar hoje ao valor errado — e inventar um
-//! `GridLine::Named` sem nada que resolva nomes seria um campo que ninguém lê.
+//! `GridLine` carries the whole CSS Grid §8.3 grammar: `auto`, `<integer>`,
+//! `<custom-ident>` (optionally with an integer), `span <integer>` and
+//! `span <custom-ident>`. `grid-area`, `grid-row` and `grid-column` all go
+//! through [`expand_shorthand`] — the §8.4 rule that a missing `-end` (or a
+//! missing `grid-column-start`) copies a bare `<custom-ident>` and is `auto`
+//! otherwise — into the four longhands, which are the only thing placement
+//! (`layout::grid::lines`) reads. `grid-area: 2 / 2 / 3 / 3` used to be
+//! dropped whole, because only its single-name form had a reader.
+
+use std::sync::Arc;
 
 use super::props::ComputedStyle;
 use super::aplica::set_if;
 
-/// Uma extremidade de colocação. `Line(-1)` é a última linha do eixo (contagem
-/// a partir do fim), que é como `grid-column: 1 / -1` diz "todas as colunas".
-#[derive(Clone, Copy, PartialEq, Debug)]
+/// One placement edge. `Line(-1)` is the last line of the axis, which is how
+/// `grid-column: 1 / -1` says "every column". `Named(name, None)` is a BARE
+/// ident — the only form a missing shorthand edge copies — and `Some(n)` is
+/// `<integer> <ident>`.
+#[derive(Clone, PartialEq, Debug)]
 pub enum GridLine {
     Auto,
     Line(i32),
     Span(u32),
+    Named(Arc<str>, Option<i32>),
+    SpanNamed(Arc<str>, u32),
+}
+
+/// A `<custom-ident>` as grid placement admits it: not `span`/`auto` or a
+/// CSS-wide keyword, and not starting with a digit.
+fn is_ident(t: &str) -> bool {
+    let mut chars = t.chars();
+    let starts_ok = match chars.next() {
+        Some(c) if c.is_alphabetic() || c == '_' => true,
+        Some('-') => chars.next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '-'),
+        _ => false,
+    };
+    let low = t.to_ascii_lowercase();
+    starts_ok
+        && t.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        && !matches!(low.as_str(), "span" | "auto" | "inherit" | "initial" | "unset" | "default" | "revert")
 }
 
 impl GridLine {
-    /// `auto | <inteiro> | span <inteiro>`. `None` quando o valor não é nenhuma
-    /// das formas — incluindo `0`, que a spec proíbe explicitamente (as linhas
-    /// são numeradas a partir de 1, e -1 conta do fim).
+    /// One edge per §8.3, its tokens in any order. `None` for anything outside
+    /// the grammar — including `0` (lines count from 1, and -1 from the end),
+    /// `span 0` and `span3` (no separator is not a span).
     pub fn parse(v: &str) -> Option<GridLine> {
-        let low = v.trim().to_ascii_lowercase();
-        if low == "auto" {
+        let v = v.trim();
+        if v.eq_ignore_ascii_case("auto") {
             return Some(GridLine::Auto);
         }
-        if let Some(n) = low.strip_prefix("span") {
-            // `span 3` e `span3` não são o mesmo: sem separador não é um span.
-            let n = n.strip_prefix(|c: char| c.is_whitespace())?;
-            let n = n.trim().parse::<u32>().ok()?;
-            return (n >= 1).then_some(GridLine::Span(n));
+        let (mut span, mut int, mut name): (bool, Option<i32>, Option<&str>) = (false, None, None);
+        for t in v.split_whitespace() {
+            if t.eq_ignore_ascii_case("span") && !span {
+                span = true;
+            } else if let (Ok(n), None) = (t.parse::<i32>(), int) {
+                int = Some(n);
+            } else if is_ident(t) && name.is_none() {
+                name = Some(t);
+            } else {
+                return None;
+            }
         }
-        let n = low.parse::<i32>().ok()?;
-        (n != 0).then_some(GridLine::Line(n))
+        match (span, int, name) {
+            (true, Some(n), None) => (n >= 1).then_some(GridLine::Span(n as u32)),
+            (true, n, Some(id)) => {
+                let n = n.unwrap_or(1);
+                (n >= 1).then(|| GridLine::SpanNamed(id.into(), n as u32))
+            }
+            (false, Some(n), None) => (n != 0).then_some(GridLine::Line(n)),
+            (false, n, Some(id)) => (n != Some(0)).then(|| GridLine::Named(id.into(), n)),
+            _ => None,
+        }
     }
 
-    /// O que `getComputedStyle` responde para uma LONGHAND. As três formas são
-    /// as da spec e não têm variação de serialização — ao contrário do
-    /// shorthand, ver a nota em [`shorthand_css`].
-    pub fn css(self) -> String {
+    /// What `getComputedStyle` answers for a LONGHAND.
+    pub fn css(&self) -> String {
         match self {
             GridLine::Auto => "auto".to_string(),
             GridLine::Line(n) => n.to_string(),
             GridLine::Span(n) => format!("span {n}"),
+            GridLine::Named(id, None) => id.to_string(),
+            GridLine::Named(id, Some(n)) => format!("{n} {id}"),
+            GridLine::SpanNamed(id, 1) => format!("span {id}"),
+            GridLine::SpanNamed(id, n) => format!("span {n} {id}"),
         }
+    }
+
+    fn is_bare_ident(&self) -> bool {
+        matches!(self, GridLine::Named(_, None))
     }
 }
 
-/// O computado do SHORTHAND (`grid-column`/`grid-row`), a partir das duas pontas.
+/// The computed SHORTHAND (`grid-column`/`grid-row`), from the two edges.
 ///
-/// **Esta é a única serialização deste módulo que não foi medida contra o
-/// Chrome**, e fica escrito em vez de silenciado: o dump de referência
-/// (`tests/css/claude-computed-valor-inicial.esperado.json`) tem
-/// `grid-template-columns` mas não tem `grid-column`, portanto não há aqui de
-/// onde transcrever. Escolhi a forma `<start> / <end>` sempre, que é
-/// auto-consistente e faz round-trip com o parser. O que decide é
-/// `scripts/parity/chrome_extract.mjs` sobre um fixture em `tests/css/`, e se
-/// discordar é ESTA função que muda — as longhands acima não dependem dela.
-fn shorthand_css(start: Option<GridLine>, end: Option<GridLine>) -> String {
-    let l = |v: Option<GridLine>| v.unwrap_or(GridLine::Auto).css();
+/// **Not measured against Chrome**: the reference dump
+/// (`tests/css/claude-computed-valor-inicial.esperado.json`) has no
+/// `grid-column`. `<start> / <end>` was chosen for being self-consistent and
+/// round-tripping through the parser; `scripts/parity/chrome_extract.mjs` on a
+/// fixture decides, and if it disagrees it is THIS function that changes.
+fn shorthand_css(start: &Option<GridLine>, end: &Option<GridLine>) -> String {
+    let l = |v: &Option<GridLine>| v.clone().unwrap_or(GridLine::Auto).css();
     format!("{} / {}", l(start), l(end))
 }
 
-/// O shorthand `grid-column: <start> [/ <end>]`.
-///
-/// Com UM valor só, a spec diz que o `end` copia o `start` **apenas** se o valor
-/// for um `<custom-ident>`; para um inteiro ou um `span`, o `end` fica `auto`.
-/// Como este módulo não tem idents, a regra reduz-se a "um valor = start, end
-/// auto" — que é o que `grid-column: 5` significa em qualquer folha do corpus.
-fn parse_shorthand(val: &str) -> (Option<GridLine>, Option<GridLine>) {
-    let mut it = val.splitn(2, '/');
-    let start = it.next().and_then(GridLine::parse);
-    let end = it.next().and_then(GridLine::parse);
-    (start, end)
+/// The ONE expansion of `grid-area` (`max = 4`: row-start / column-start /
+/// row-end / column-end) and of `grid-row`/`grid-column` (`max = 2`: start /
+/// end), CSS Grid §8.4. A missing edge copies the edge it pairs with when that
+/// is a bare `<custom-ident>`, and is `auto` otherwise — so `grid-area: a`
+/// gives `a` four times and `grid-row: 2` gives `2 / auto`. `None` when a part
+/// is outside the grammar or there are too many parts: the declaration is
+/// invalid whole, never half-applied.
+pub fn expand_shorthand(val: &str, max: usize) -> Option<Vec<GridLine>> {
+    let parts: Vec<&str> = val.split('/').collect();
+    if parts.len() > max {
+        return None;
+    }
+    let mut out: Vec<GridLine> = parts.iter().map(|p| GridLine::parse(p)).collect::<Option<_>>()?;
+    while out.len() < max {
+        // The edge a missing one pairs with: two places back in the 4-value
+        // form (row-end ← row-start, column-end ← column-start), row-start for
+        // column-start itself, and the start in the 2-value form.
+        let i = out.len();
+        let pair = if max == 4 && i == 1 { 0 } else { i - max / 2 };
+        let copied = if out[pair].is_bare_ident() { out[pair].clone() } else { GridLine::Auto };
+        out.push(copied);
+    }
+    Some(out)
 }
 
 /// `grid-auto-flow` — a direção em que a colocação automática preenche a grelha,
@@ -156,15 +185,28 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "grid-column-end" => set_if(&mut css.grid_column_end, GridLine::parse(val)),
         "grid-row-start" => set_if(&mut css.grid_row_start, GridLine::parse(val)),
         "grid-row-end" => set_if(&mut css.grid_row_end, GridLine::parse(val)),
-        "grid-column" => {
-            let (s, e) = parse_shorthand(val);
-            css.grid_column_start = s;
-            css.grid_column_end = e;
+        "grid-column" | "grid-row" => {
+            if let Some(v) = expand_shorthand(val, 2) {
+                let mut v = v.into_iter().map(Some);
+                let (s, e) = (v.next().flatten(), v.next().flatten());
+                if prop == "grid-column" {
+                    (css.grid_column_start, css.grid_column_end) = (s, e);
+                } else {
+                    (css.grid_row_start, css.grid_row_end) = (s, e);
+                }
+            }
         }
-        "grid-row" => {
-            let (s, e) = parse_shorthand(val);
-            css.grid_row_start = s;
-            css.grid_row_end = e;
+        // All four longhands, as the spec expands it; `grid_area` keeps the
+        // single-name spelling only for `getComputedStyle("grid-area")`.
+        "grid-area" => {
+            if let Some(v) = expand_shorthand(val, 4) {
+                let mut v = v.into_iter().map(Some);
+                css.grid_area = super::grid_areas::parse_grid_area_name(val);
+                css.grid_row_start = v.next().flatten();
+                css.grid_column_start = v.next().flatten();
+                css.grid_row_end = v.next().flatten();
+                css.grid_column_end = v.next().flatten();
+            }
         }
         "grid-auto-flow" => set_if(&mut css.grid_auto_flow, GridAutoFlow::parse(val)),
         // `grid-auto-columns` — o tamanho das colunas IMPLÍCITAS. `grid-auto-rows`
@@ -187,19 +229,19 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
 /// cabeçalho de `style::initial`.
 pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
     let s = match name {
-        "grid-column-start" => css.grid_column_start.map(|v| v.css()).unwrap_or_default(),
-        "grid-column-end" => css.grid_column_end.map(|v| v.css()).unwrap_or_default(),
-        "grid-row-start" => css.grid_row_start.map(|v| v.css()).unwrap_or_default(),
-        "grid-row-end" => css.grid_row_end.map(|v| v.css()).unwrap_or_default(),
+        "grid-column-start" => css.grid_column_start.as_ref().map(|v| v.css()).unwrap_or_default(),
+        "grid-column-end" => css.grid_column_end.as_ref().map(|v| v.css()).unwrap_or_default(),
+        "grid-row-start" => css.grid_row_start.as_ref().map(|v| v.css()).unwrap_or_default(),
+        "grid-row-end" => css.grid_row_end.as_ref().map(|v| v.css()).unwrap_or_default(),
         // O shorthand só responde se ALGUMA das pontas foi declarada — senão
         // `el.style.gridColumn` responderia `auto / auto` em todo o elemento do
         // documento, que é o erro que o cabeçalho de `style::initial` descreve.
-        "grid-column" => match (css.grid_column_start, css.grid_column_end) {
+        "grid-column" => match (&css.grid_column_start, &css.grid_column_end) {
             (None, None) => String::new(),
             (s, e) => shorthand_css(s, e),
         },
         "grid-auto-flow" => css.grid_auto_flow.map(|v| v.css()).unwrap_or_default(),
-        "grid-row" => match (css.grid_row_start, css.grid_row_end) {
+        "grid-row" => match (&css.grid_row_start, &css.grid_row_end) {
             (None, None) => String::new(),
             (s, e) => shorthand_css(s, e),
         },

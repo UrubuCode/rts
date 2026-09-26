@@ -93,10 +93,17 @@ pub(in crate::layout) fn static_position_of(
     // alignment rect — Grid §11) still follow the block rule below; each moved
     // a WPT test from pass to fail when routed here.
     let horizontal = matches!(parent_css.writing_mode, None | Some(crate::style::WritingMode::HorizontalTb));
-    let auto_lines = [css.grid_row_start, css.grid_row_end, css.grid_column_start, css.grid_column_end]
+    let auto_lines = [&css.grid_row_start, &css.grid_row_end, &css.grid_column_start, &css.grid_column_end]
         .iter()
         .all(|l| matches!(l, None | Some(crate::style::grid_lines::GridLine::Auto)));
-    if horizontal && auto_lines && parent_css.effective_display().is_some_and(|d| d.is_grid_container()) {
+    // Grid §9.4: when the grid container is NOT the containing block, the
+    // static position ignores the item's lines — the item is aligned as the
+    // sole item of an area spanning the container's padding box. So the
+    // lines cut applies only to a positioned container (the `-002`/`-004`
+    // variants of `grid-abspos-staticpos-*` pin the other half).
+    let container_is_cb = parent_css.position.is_some_and(|p| p != crate::style::Position::Static)
+        || parent_css.transform.is_some();
+    if horizontal && (auto_lines || !container_is_cb) && parent_css.effective_display().is_some_and(|d| d.is_grid_container()) {
         return static_position_grid(css, &parent_css, content, outer_w, outer_h);
     }
     let (x, y) = static_position_block(dom, id, parent, content, flow_rects);
