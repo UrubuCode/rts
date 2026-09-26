@@ -2724,15 +2724,21 @@ fn a_finally_runs_on_the_ordinary_way_out_too() {
 }
 
 /// A `break` out of a `try` with a `finally` is a jump out of the region, where the
-/// machine runs no cleanup -- so it is refused rather than skipping the `finally`.
+/// machine runs no cleanup -- so the `finally` is copied onto the jump's path: three
+/// copies of `o.n()`, one per way out (the unwind's cleanup piece, falling off the
+/// body, and the `break`).
 #[test]
-fn a_break_out_of_a_try_with_a_finally_is_refused() {
-    let refused = only("function f(o) { while (o) { try { break; } finally { o.n(); } } }")
-        .expect_err("the finally would be skipped");
-    assert_eq!(
-        refused,
-        Unsupported::Statement("a break or continue inside a try with a finally skips the cleanup")
-    );
+fn a_break_out_of_a_try_with_a_finally_runs_a_copy_of_it() {
+    let lowered = only("function f(o) { while (o) { try { break; } finally { o.n(); } } }")
+        .expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let calls = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(held.op, rts_mir::Op::Call { receiver: Some(_), .. }))
+        .count();
+    assert_eq!(calls, 3, "the cleanup, the ordinary path, and the break");
 }
 
 /// `return c ? a : b` is two returns, which is what makes a call in either arm a TAIL

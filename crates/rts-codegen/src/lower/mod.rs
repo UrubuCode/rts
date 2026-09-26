@@ -55,6 +55,7 @@ mod chain;
 mod calls;
 mod choice;
 mod compound;
+mod leaving;
 mod claim;
 mod class;
 mod declare;
@@ -222,6 +223,7 @@ pub fn lower_within(
         passes: Vec::new(),
         made_in: BTreeMap::new(),
         returns_to: Vec::new(),
+        owed_finally: Vec::new(),
         substituting: Vec::new(),
         aliases: Vec::new(),
         local_arrows: BTreeMap::new(),
@@ -405,6 +407,9 @@ struct Lowering<'a> {
     /// Where a written `return` goes: the innermost abrupt `finally`'s returning
     /// block, or out of the function where there is none -- `protect.rs`.
     returns_to: Vec<rts_mir::BlockId>,
+    /// The `finally` clauses and `for`-`of` closes a `break` or `continue` from here would leave, innermost
+    /// last -- `leaving.rs`.
+    owed_finally: Vec<leaving::Owed>,
     /// The calls being substituted, innermost last, each with its parameters' values
     /// -- `substitute.rs`.
     substituting: Vec<(Name, BTreeMap<Name, ValueId>)>,

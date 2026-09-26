@@ -111,17 +111,9 @@ impl Lowering<'_> {
                 }
             }
         }
-        // A `break` OR `continue` LEAVING A `try` WITH A `finally` is a jump out of the
-        // region, and the machine runs a cleanup on a return and on a throw, not on a
-        // jump -- so the `finally` would be skipped. Refused, and counted over the whole
-        // body including loops written inside it, which over-refuses in the safe
-        // direction.
-        if finally.is_some() && (jumps_out(body) || catch.is_some_and(|held| jumps_out(&held.body)))
-        {
-            return Err(Unsupported::Statement(
-                "a break or continue inside a try with a finally skips the cleanup",
-            ));
-        }
+        // A `break` OR `continue` LEAVING A `try` WITH A `finally` runs a copy of it on
+        // the way out, outside this `try`'s regions -- `leaving.rs`.
+
         // A `try` WITH NO CATCH IS NOW ORDINARY, and the refusal that stood here
         // called it "only a finally". `Region::handler` is an `Option` precisely so
         // that a region can protect nothing and still clean up.
@@ -232,6 +224,9 @@ impl Lowering<'_> {
         // One region holding both ran the `finally` first, because the machine runs a
         // region's cleanup before its handler -- which a program that ran showed.
         let nested = finally.is_some() && catch.is_some();
+        // Where a copy of the `finally` runs: outside every region this `try` opens.
+        let owed_open = self.builder.open_depth();
+        let owed_returns = self.returns_to.len();
         if nested {
             self.builder.open_region(unwind.map(|(block, _)| block), cleanup);
             if let Some((block, _)) = returning {
@@ -258,6 +253,14 @@ impl Lowering<'_> {
             return Err(Unsupported::NoScope);
         };
         let finally_scope = after.unwrap_or(self.scope);
+        if let Some(statements) = finally {
+            self.owed_finally.push(super::leaving::Owed {
+                loops: self.loops.len(),
+                open: owed_open,
+                returns: owed_returns,
+                duty: super::leaving::Duty::Finally(statements.clone(), finally_scope),
+            });
+        }
         let enclosing = std::mem::replace(&mut self.scope, protected);
         let ended = self.statements(body);
         self.scope = enclosing;
@@ -348,6 +351,9 @@ impl Lowering<'_> {
         if returning.is_some() {
             self.returns_to.pop();
         }
+        if finally.is_some() {
+            self.owed_finally.pop();
+        }
         if nested {
             self.builder.close_region();
         }
@@ -436,27 +442,4 @@ impl Lowering<'_> {
             None => self.builder.end(Terminator::Return(Some(value))),
         }
     }
-}
-
-/// Whether a `break` or `continue` appears anywhere in these statements, nested
-/// functions aside -- a jump that may leave the region they are written in.
-fn jumps_out(statements: &[Stmt]) -> bool {
-    fn one(statement: &Stmt) -> bool {
-        use crate::syntax::StmtKind;
-        match &statement.kind {
-            StmtKind::Break(_) | StmtKind::Continue(_) => return true,
-            StmtKind::Function(_) | StmtKind::Class(_) => return false,
-            _ => {}
-        }
-        let mut found = false;
-        crate::emit::capture::walk_stmt(statement, &mut |child| {
-            if let crate::emit::capture::StmtChild::Stmt(inner) = child
-                && one(inner)
-            {
-                found = true;
-            }
-        });
-        found
-    }
-    statements.iter().any(one)
 }
