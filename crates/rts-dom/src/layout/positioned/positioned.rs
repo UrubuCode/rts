@@ -28,6 +28,7 @@ fn containing_block_rect(
     id: NodeIdx,
     flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
     fixed: bool,
+    ctx: &LayoutCtx,
 ) -> Option<Rect> {
     let mut cur = dom.node(id).parent;
     while let Some(p) = cur {
@@ -49,6 +50,14 @@ fn containing_block_rect(
             // ancestral e desviava 1px nos dois eixos sem esta conversão).
             if let (Some(r), Some(css_p)) = (flow_rects.get(&p), css_p) {
                 return Some(super::containing_block::padding_box(*r, &css_p));
+            }
+            // A positioned INLINE that made no line (only out-of-flow content
+            // in it) still establishes the block, at the place it would have
+            // started: the viewport is the wrong answer for it, not an
+            // approximation (`nested-inline-abspos-child`). Zero-size — the
+            // inline has no fragment to measure, which is the cut.
+            if let Some((x, y)) = super::static_position::boxless_inline_place(dom, p, flow_rects, ctx) {
+                return Some(Rect::new(x, y, 0.0, 0.0));
             }
             // Um ancestral que estabelece o bloco SEM caixa (não foi layoutado) não serve de
             // containing block, e continuar a subir escolhe um contentor que o
@@ -133,7 +142,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     // usa a viewport exceto quando um transform o captura. `cb` =
     // (origem_x, origem_y, largura, altura) do container.
     let is_fixed = matches!(css.position, Some(crate::style::Position::Fixed));
-    let cb = containing_block_rect(dom, id, flow_rects, is_fixed)
+    let cb = containing_block_rect(dom, id, flow_rects, is_fixed, ctx)
         .unwrap_or_else(|| Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h));
     let resolve = ResolveCtx {
         parent_content_w: cb.w,

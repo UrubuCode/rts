@@ -333,7 +333,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 Some(f) => (text_top + ascent - f.ascent, f.font.size, f.font.mono, f.ahem),
                 None => (text_top, font_size, mono, ahem),
             };
-            let (rx, ry) = crate::layout::positioned::relative::inline_offset(dom, seg.owners.last().copied(), ctx);
+            let (rx, ry) = crate::layout::positioned::relative::inline_offset(dom, seg.owners.last().copied(), content_w, cb_h, ctx);
             list.push_item(DisplayItem::Text {
                 x: seg_x + rx,
                 y: seg_y + ry,
@@ -360,6 +360,7 @@ pub(in crate::layout) fn layout_inline_flow(
                         content,
                         ctx,
                         on_baseline,
+                        (content_w, cb_h),
                     ), &line_id,
                 );
             }
@@ -370,6 +371,7 @@ pub(in crate::layout) fn layout_inline_flow(
             text_owner_anchor,
             content,
             on_baseline,
+            (content_w, cb_h),
             ctx,
         );
         last_baseline = Some(text_top + ctx.measurer.font_ascent_family(font_size, family));

@@ -252,3 +252,37 @@ pub(in crate::layout) fn place_grid_items(
 
     (cells, ncols)
 }
+
+/// The in-flow ITEMS of a grid container, in box-tree order: what the layout
+/// places, and what the intrinsic measure (`aspect::intrinsic_floor`) places
+/// again. Grid creates no anonymous boxes for its children — a grid item is
+/// blockified — but the sequence still belongs to the BoxTree, so each item
+/// carries this construction's `BoxId` rather than coming back through its
+/// `NodeIdx`. One list, two readers: a second filter in the measure would
+/// count an item the layout drops.
+pub(in crate::layout) fn collect_items(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    container: BoxId,
+) -> Vec<GridItem> {
+    use super::*;
+    let mut items = Vec::new();
+    for &box_id in tree.children_without_generated(container) {
+        let Some(child) = tree.node_of(box_id) else {
+            continue;
+        };
+        if let NodeKind::Element { tag } = &dom.node(child).kind {
+            if is_non_rendered_tag(tag) {
+                continue;
+            }
+        }
+        if is_out_of_flow(dom, child) {
+            continue;
+        }
+        if !is_block_level(dom, child) && collect_text(dom, child).trim().is_empty() {
+            continue;
+        }
+        items.push(GridItem { node: child, box_id });
+    }
+    items
+}

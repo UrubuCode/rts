@@ -91,7 +91,7 @@ pub struct Fragment {
     /// The static positions the inline flows of THIS fragment's own list
     /// recorded (`static_anchor.rs`), in the coordinates of `origin`. A cached
     /// fragment runs no flow, so they have to travel with it.
-    pub static_anchors: std::rc::Rc<Vec<(crate::boxes::BoxId, f32, f32)>>,
+    pub static_anchors: std::rc::Rc<Vec<(crate::boxes::BoxId, f32, f32, f32)>>,
     /// Onde este fragmento foi calculado.
     pub origin: (f32, f32),
     /// Tamanho externo devolvido pelo `layout_block` (o que o chamador usa para
@@ -166,7 +166,7 @@ impl Fragment {
             direct_line: self.direct_line,
             last_line: self.last_line,
             static_anchors: std::rc::Rc::new(
-                self.static_anchors.iter().map(|&(b, x, y)| Some((map_box(b)?, x, y))).collect::<Option<Vec<_>>>()?,
+                self.static_anchors.iter().map(|&(b, x, y, w)| Some((map_box(b)?, x, y, w))).collect::<Option<Vec<_>>>()?,
             ),
             origin: self.origin,
             size: self.size,
