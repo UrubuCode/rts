@@ -358,6 +358,19 @@ impl MachineOps for JsMachine<'_> {
             JsPrim::MathAbs => Some(rts_cranelift::ir::FloatOp::Abs),
             _ => None,
         };
+        // `Math.min`/`Math.max` OVER TWO NUMBERS: the binary float instruction, on the
+        // same terms. The operands were converted by `ToNumber`, so each is a number in
+        // one of the two encodings.
+        let pair = match which {
+            JsPrim::MathMin => Some(rts_cranelift::ir::NumOp::Min),
+            JsPrim::MathMax => Some(rts_cranelift::ir::NumOp::Max),
+            _ => None,
+        };
+        if let (Some(op), [left, right]) = (pair, args) {
+            let left = self.as_double(into, *left)?;
+            let right = self.as_double(into, *right)?;
+            return into.arith(op, left, right).map_err(machine);
+        }
         if let (Some(op), [only]) = (math, args) {
             // A TAGGED operand is still a number -- `ToNumber` answered it -- in either
             // of the two encodings, which `unbox_number` reads.

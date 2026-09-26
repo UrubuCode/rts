@@ -29,7 +29,6 @@
 //! cannot have a problem, since its parameters exist whether or not anything
 //! was passed.
 
-use rts_cranelift::ir::FloatOp;
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::repr::Repr;
 
@@ -82,7 +81,7 @@ pub(super) fn emit_call_as(
     // One machine instruction, when the whole program proves the name still
     // means what it means and the argument is already a proven double.
     if scope_is_lexical
-        && let Some(value) = machine_operation(builder, scope, ctx, callee, arguments)?
+        && let Some(value) = super::math::emit(builder, scope, ctx, callee, arguments)?
     {
         return Ok(value);
     }
@@ -169,78 +168,6 @@ fn direct_eval(
     Ok(Some(answered))
 }
 
-/// `Math.sqrt(x)` and its four siblings, as the instruction the hardware has.
-///
-/// # Three conditions, and each one is a proof rather than a guess
-///
-/// The program must not disturb `Math` anywhere — `primordial::untouched`,
-/// computed over the whole tree before anything was emitted. No enclosing scope
-/// may bind the name, which the scope answers exactly. And the argument must
-/// ALREADY be a proven double: a guard here would be correct too, but the
-/// operand of a square root in a loop is proven by the type pass in the case
-/// that matters, and emitting a guard for the rest would cost a branch to
-/// discover what the call would have found anyway.
-///
-/// Answers `None` for anything else, and the ordinary call follows.
-///
-/// # Why the language decides this and not the machine
-///
-/// `Inst::FloatUnary` knows nothing about `Math` — rule 2 of the machine's own
-/// README, no source-language knowledge there. Which name means a square root
-/// is a fact about JavaScript, so it is decided here, in the crate that is
-/// allowed to know.
-fn machine_operation(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    callee: &Expr,
-    arguments: &[Spreadable],
-) -> EmitResult<Option<ValueId>> {
-    if !ctx.math_primordial {
-        return Ok(None);
-    }
-    let ExprKind::Member {
-        object,
-        property,
-        optional: false,
-    } = &callee.kind
-    else {
-        return Ok(None);
-    };
-    let ExprKind::Ident(name) = &object.kind else {
-        return Ok(None);
-    };
-    if ctx.names.text(*name) != "Math" || scope.lookup(*name).is_some() {
-        return Ok(None);
-    }
-    // `Math.random()` takes no argument and answers a double, so it needs no
-    // proven operand — only the same whole-program proof. Not an instruction:
-    // there is no opcode for a generator. What it skips is the PATH — the
-    // property read through the chain cache and the generic call machinery —
-    // which is where its 40 ns were, since the generator itself is a
-    // thread-local xorshift.
-    if ctx.names.text(*property) == "random" && arguments.is_empty() {
-        let drawn = super::expr::call(builder, ctx, RuntimeOp::MathRandom, &[])?[0];
-        return Ok(Some(super::expr::tagged(builder, drawn)));
-    }
-    let op = match ctx.names.text(*property) {
-        "sqrt" => FloatOp::Sqrt,
-        "floor" => FloatOp::Floor,
-        "ceil" => FloatOp::Ceil,
-        "trunc" => FloatOp::Trunc,
-        "abs" => FloatOp::Abs,
-        _ => return Ok(None),
-    };
-    let [Spreadable::Single(only)] = arguments else {
-        return Ok(None);
-    };
-    let argument = super::expr::emit_expr(builder, scope, ctx, only)?;
-    if builder.repr_of(argument) != Repr::F64 {
-        return Ok(None);
-    }
-    let answered = builder.float_unary(op, argument)?;
-    Ok(Some(super::expr::tagged(builder, answered)))
-}
 
 /// What a `TypeError` should call the callee, from how it was spelled.
 ///
@@ -531,7 +458,7 @@ pub(super) fn issue(
 }
 
 /// [`issue`] through `op`, which is `Call` or `TailCall`: same operands.
-fn issue_as(
+pub(super) fn issue_as(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     function: ValueId,

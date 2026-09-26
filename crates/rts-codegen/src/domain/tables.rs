@@ -143,6 +143,13 @@ pub enum JsPrim {
     /// `Inst::Await` is what does it, which is why this is an operation and not an
     /// entry point of this language's catalogue.
     AwaitDrain,
+    /// `Math.min(a, b)` over two operands that are ALREADY numbers, on
+    /// [`JsPrim::MathSqrt`]'s terms. Two and not N: the machine's instruction is
+    /// binary, and the fold over more — or the identity a call with none
+    /// answers — stays the runtime's.
+    MathMin,
+    /// See [`JsPrim::MathMin`].
+    MathMax,
     /// The receiver of this activation.
     ///
     /// # Why an operation and not a parameter

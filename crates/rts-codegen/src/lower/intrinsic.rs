@@ -63,6 +63,23 @@ impl Lowering<'_> {
             Some("ceil") => JsPrim::MathCeil,
             Some("trunc") => JsPrim::MathTrunc,
             Some("abs") => JsPrim::MathAbs,
+            // Two written arguments, each through `ToNumber` in source order,
+            // which is what the runtime's fold does to them before comparing.
+            Some("min") | Some("max") if arguments.len() == 2 => {
+                let op = match self.names.spelled(*property) {
+                    Some("min") => JsPrim::MathMin,
+                    _ => JsPrim::MathMax,
+                };
+                let mut numbers = Vec::with_capacity(2);
+                for argument in arguments {
+                    let Spreadable::Single(argument) = argument else {
+                        return Ok(None);
+                    };
+                    let value = self.expression(argument)?;
+                    numbers.push(self.prim(JsPrim::ToNumber, vec![value], at));
+                }
+                return Ok(Some(self.prim(op, numbers, at)));
+            }
             _ => return Ok(None),
         };
         let [Spreadable::Single(only)] = arguments else {

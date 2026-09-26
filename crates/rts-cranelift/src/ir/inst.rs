@@ -81,6 +81,24 @@ pub enum NumOp {
     /// Remainder, truncated toward zero. **Integer domain only** — see the
     /// enum's documentation for why the float domain does not admit it.
     Rem,
+    /// The smaller operand.
+    ///
+    /// One instruction in both domains — `smin` and `fmin` — which is the bar
+    /// this enum sets. The float form follows the WebAssembly rules the code
+    /// generator documents for `fmin`: a NaN operand answers NaN, and `-0` is
+    /// below `+0`, so `min(+0, -0)` is `-0` whichever side it arrived on. That
+    /// is stated here because it is the property a client with a signed-zero
+    /// semantics depends on, and a client whose `min` is "the first operand
+    /// unless the second compares lower" cannot use this — IEEE says `-0 > +0`
+    /// is false, so such a client answers whichever arrived second.
+    ///
+    /// Measured before this existed: the only way a client could reach a
+    /// minimum was a call through its own dispatch, at 131 ns against 1.2 for
+    /// the unary float operations beside it (bench/analytic.ts, 2026-09-26).
+    Min,
+    /// The larger operand. Same rules as [`NumOp::Min`]: NaN propagates and
+    /// `max(-0, +0)` is `+0` from either side.
+    Max,
 }
 
 /// One-operand floating-point operations.

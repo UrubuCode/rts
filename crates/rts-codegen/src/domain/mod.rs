@@ -276,6 +276,8 @@ impl Js {
         JsPrim::MathTrunc,
         JsPrim::MathAbs,
         JsPrim::AwaitDrain,
+        JsPrim::MathMin,
+        JsPrim::MathMax,
     ];
 
     /// A domain holding only the fixed constants.
@@ -398,7 +400,9 @@ impl Js {
             | JsPrim::MathFloor
             | JsPrim::MathCeil
             | JsPrim::MathTrunc
-            | JsPrim::MathAbs => Effect::PURE,
+            | JsPrim::MathAbs
+            | JsPrim::MathMin
+            | JsPrim::MathMax => Effect::PURE,
             // Draining runs every reaction that settles first, which is code the program
             // wrote, and a rejection raises here.
             JsPrim::AwaitDrain => Effect::CALLS_USER.and(Effect::THROWS).and(Effect::ALLOCATES),
@@ -640,7 +644,9 @@ impl Domain for Js {
             | JsPrim::MathFloor
             | JsPrim::MathCeil
             | JsPrim::MathTrunc
-            | JsPrim::MathAbs => Type::Double,
+            | JsPrim::MathAbs
+            | JsPrim::MathMin
+            | JsPrim::MathMax => Type::Double,
             // What the promise settled with, which nothing here decided.
             JsPrim::AwaitDrain => Type::Anything,
             JsPrim::Negate => match args {

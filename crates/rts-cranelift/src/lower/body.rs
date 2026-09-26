@@ -189,6 +189,8 @@ impl<'a> Body<'a> {
                     // on `0` and on `INT_MIN % -1`, and nothing at this point
                     // can still see which value the divisor holds.
                     NumOp::Rem => builder.ins().srem(x, y),
+                    NumOp::Min => builder.ins().smin(x, y),
+                    NumOp::Max => builder.ins().smax(x, y),
                 }
             }
 
@@ -199,6 +201,14 @@ impl<'a> Body<'a> {
                     NumOp::Sub => builder.ins().fsub(x, y),
                     NumOp::Mul => builder.ins().fmul(x, y),
                     NumOp::Div => builder.ins().fdiv(x, y),
+                    // The code generator's `fmin`/`fmax` are the WebAssembly
+                    // forms — NaN propagates, `-0 < +0` — which `NumOp::Min`
+                    // promises. Read from `cranelift-codegen-meta`'s
+                    // `instructions.rs`; the x64 lowering's own sequence for
+                    // them was not read, and the running fixture is what pins
+                    // the two zero cases rather than this comment.
+                    NumOp::Min => builder.ins().fmin(x, y),
+                    NumOp::Max => builder.ins().fmax(x, y),
                     // Reached only for a power-of-two divisor no smaller than
                     // one — the builder and the verifier both refuse anything
                     // else, and `fold::divisor_is_power_of_two` carries the
