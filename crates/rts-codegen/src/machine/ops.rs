@@ -315,6 +315,23 @@ impl MachineOps for JsMachine<'_> {
             };
             return into.float_unary(op, held).map_err(machine);
         }
+        // `~x` OVER A PROVED NUMBER: `ToInt32`, then every bit flipped -- an exclusive or
+        // with all ones, which is what the runtime's call computes after its own
+        // conversion.
+        if which == JsPrim::BitwiseNot
+            && let [only] = of.as_slice()
+            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+        {
+            let held = super::guarded::int32_of(into, args[0])?;
+            let ones = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::I32,
+                bits: rts_cranelift::ir::ScalarBits(u32::MAX as u64),
+            });
+            let ones = into.use_const(ones);
+            return into
+                .bitwise(rts_cranelift::ir::BitOp::Xor, held, ones)
+                .map_err(machine);
+        }
         // A NEGATION OF A PROVED NUMBER flips the sign bit, which is not `0 - x`: that
         // answers `0` for `-0` where the language answers `-0`.
         if which == JsPrim::Negate

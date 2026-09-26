@@ -45,7 +45,7 @@ use crate::syntax::{
 use crate::values::Singleton;
 use named::{expression_name, name_of, primitive};
 pub use callees::Callees;
-pub use substitute::Substitute;
+pub use substitute::{Substitute, substitutable};
 pub(crate) use object::built_elsewhere;
 
 mod branch;
@@ -221,6 +221,7 @@ pub fn lower_within(
         made_in: BTreeMap::new(),
         returns_to: Vec::new(),
         substituting: Vec::new(),
+        local_arrows: BTreeMap::new(),
         prologue: true,
         lexical_this: function.captures_this,
         arguments: None,
@@ -403,6 +404,9 @@ struct Lowering<'a> {
     /// The calls being substituted, innermost last, each with its parameters' values
     /// -- `substitute.rs`.
     substituting: Vec<(Name, BTreeMap<Name, ValueId>)>,
+    /// The `const` arrows of this function a direct call may be substituted for, and
+    /// the scope each was written in -- `substitute.rs`.
+    local_arrows: BTreeMap<BindingId, (Substitute, ScopeId)>,
     /// Whether the parameters are still being bound. A captured parameter is held in
     /// a register until the guards have run and the environment exists -- see
     /// `environment.rs`.
@@ -707,6 +711,16 @@ impl Lowering<'_> {
                 // be deleted. It keeps its refusal by name.
                 if matches!(op, crate::syntax::UnaryOp::Delete) {
                     return self.delete(operand, expr);
+                }
+                // `-1` IS A NUMBER, folded here rather than negated at run time: as a
+                // negation of `1` the lattice could only call it a double, so a
+                // `let a = -1` made `a` a double for good and every `a & 255` paid the
+                // full `ToInt32`. `-0` stays the double it is.
+                if matches!(op, crate::syntax::UnaryOp::Negate)
+                    && let ExprKind::Literal(crate::syntax::Literal::Number(held)) = &operand.kind
+                    && *held != 0.0
+                {
+                    return self.literal(&crate::syntax::Literal::Number(-*held), expr);
                 }
                 let held = self.expression(operand)?;
                 let which = match op {

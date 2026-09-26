@@ -73,6 +73,11 @@ impl Lowering<'_> {
                 at: statement.at,
             };
             self.bind(*name, held, of, &at)?;
+            if kind == BindingKind::Const
+                && let Some(expr) = value
+            {
+                self.remember_arrow(*name, expr);
+            }
         }
         Ok(false)
     }

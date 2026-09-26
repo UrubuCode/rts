@@ -424,3 +424,63 @@ pub fn rewrite_uses(
         }
     }
 }
+
+/// Removes every instruction whose value nothing reads and whose effect nobody could
+/// see: a constant, or an operation claiming no more than reading and allocating. A
+/// write, a call into the program, a raise or a suspension stays whatever it answers.
+///
+/// Repeated until nothing changes, because removing one reader can leave its operand
+/// unread -- a closure that a substitution stopped calling leaves the environment it
+/// was made over. Answers how many went.
+pub fn remove_dead(func: &mut Func) -> usize {
+    let silent = Effect::READS.and(Effect::ALLOCATES);
+    let mut removed = 0;
+    loop {
+        let mut read: std::collections::BTreeSet<crate::cfg::ValueId> =
+            std::collections::BTreeSet::new();
+        for block in func.block_ids() {
+            for inst in &func.block(block).insts {
+                read.extend(func.reads(*inst));
+            }
+            if let Some(end) = &func.block(block).terminator {
+                read.extend(terminator_reads(end));
+            }
+        }
+        let dead: std::collections::BTreeSet<crate::cfg::InstId> = func
+            .block_ids()
+            .flat_map(|block| func.block(block).insts.clone())
+            .filter(|inst| {
+                let held = func.inst(*inst);
+                !read.contains(&held.result)
+                    && matches!(held.op, Op::Const(_) | Op::Prim { .. })
+                    && claims_no_more(held.effect, silent)
+            })
+            .collect();
+        if dead.is_empty() {
+            return removed;
+        }
+        removed += dead.len();
+        unlist(func, &dead);
+    }
+}
+
+/// The values a terminator reads.
+fn terminator_reads(end: &Terminator) -> Vec<crate::cfg::ValueId> {
+    match end {
+        Terminator::Jump { args, .. } => args.clone(),
+        Terminator::Branch {
+            condition,
+            then_args,
+            else_args,
+            ..
+        } => std::iter::once(*condition)
+            .chain(then_args.iter().copied())
+            .chain(else_args.iter().copied())
+            .collect(),
+        Terminator::Return(Some(held)) | Terminator::Raise(held) => vec![*held],
+        Terminator::Return(None)
+        | Terminator::Fall(_)
+        | Terminator::CleanupDone
+        | Terminator::Unreachable => Vec::new(),
+    }
+}

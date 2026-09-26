@@ -44,7 +44,9 @@ fn count(of: &[(rts_mir::ValueId, JsPrim, Vec<rts_mir::ValueId>)], which: JsPrim
 #[test]
 fn the_declarer_of_a_captured_local_writes_and_reads_it_through_its_environment() {
     let (lowered, mut names) = module(
-        "function f() { let n = 1; const g = () => n; n = 2; return n + g(); }",
+        // `h(g)` and not `g()`: a direct call to a `const` arrow is substituted now,
+        // which reads `n` a second time -- the closure has to be made and handed on.
+        "function f(h) { let n = 1; const g = () => n; n = 2; return n + h(g); }",
         Tier::Generic,
     );
     let ops = prims(&lowered, 0);

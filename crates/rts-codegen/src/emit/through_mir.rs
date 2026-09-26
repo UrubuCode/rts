@@ -239,6 +239,7 @@ fn attempt(
     // THE LANGUAGE'S PASSES, before the checks and the inference read the graph --
     // `optimize/` says which and why each is this crate's rather than `rts_mir`'s.
     crate::optimize::replace_scalars(&mut graph, &domain);
+    rts_mir::passes::remove_dead(&mut graph);
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
     if std::env::var(TRACE).as_deref() == Ok("graph") {
         eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
@@ -517,7 +518,7 @@ fn substitutes(
             || candidate.rest_length.is_some()
             || candidate.defaults.iter().any(Option::is_some)
             || !candidate.free_proved
-            || !substitutable(&candidate.body)
+            || !crate::lower::substitutable(&candidate.body)
         {
             continue;
         }
@@ -531,33 +532,6 @@ fn substitutes(
         );
     }
     out
-}
-
-/// Whether the lowering takes every node of `expr` with nothing numbered for it:
-/// no function, class, literal of an object or array, template, `this` or `super`.
-fn substitutable(expr: &crate::syntax::Expr) -> bool {
-    use crate::syntax::ExprKind;
-    let here = matches!(
-        expr.kind,
-        ExprKind::Literal(_)
-            | ExprKind::Ident(_)
-            | ExprKind::Binary { .. }
-            | ExprKind::Logical { .. }
-            | ExprKind::Conditional { .. }
-            | ExprKind::Member { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Asserted { .. }
-    ) || matches!(&expr.kind, ExprKind::Unary { op, .. } if *op != crate::syntax::UnaryOp::Delete);
-    if !here {
-        return false;
-    }
-    let mut every = true;
-    crate::emit::capture::walk_expr(expr, &mut |child| match child {
-        crate::emit::capture::Child::Expr(inner) => every &= substitutable(inner),
-        _ => every = false,
-    });
-    every
 }
 
 /// Every name called directly in an expression, nested functions aside.

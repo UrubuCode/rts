@@ -137,8 +137,17 @@ impl Lowering<'_> {
     }
 
     /// An integer constant, typed as the domain types one.
-    fn integer(&mut self, value: i64, at: &Expr) -> ValueId {
+    pub(super) fn integer(&mut self, value: i64, at: &Expr) -> ValueId {
         let value = Const::Int(value);
+        let of = self.domain.of_const(&value);
+        let pushed = self.builder.push(Op::Const(value), rts_mir::Effect::PURE, at.at);
+        self.types.insert(pushed, of);
+        pushed
+    }
+
+    /// A truth constant.
+    pub(super) fn boolean(&mut self, value: bool, at: &Expr) -> ValueId {
+        let value = Const::Bool(value);
         let of = self.domain.of_const(&value);
         let pushed = self.builder.push(Op::Const(value), rts_mir::Effect::PURE, at.at);
         self.types.insert(pushed, of);

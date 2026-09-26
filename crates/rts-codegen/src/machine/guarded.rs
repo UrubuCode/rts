@@ -130,8 +130,8 @@ impl JsMachine<'_> {
             JsPrim::ShiftRightUnsigned => (BitOp::ShrUnsigned, true),
             _ => return Ok(None),
         };
-        let left = into.to_int32(left).map_err(machine)?;
-        let mut right = into.to_int32(right).map_err(machine)?;
+        let left = int32_of(into, left)?;
+        let mut right = int32_of(into, right)?;
         if shifts {
             let mask = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
                 repr: Repr::I32,
@@ -241,5 +241,22 @@ impl JsMachine<'_> {
         into.jump(join, &[fast]).map_err(machine)?;
         into.switch_to(join);
         Ok(Some(result))
+    }
+}
+
+/// `ToInt32` of a number, where it is not one already: an operand that ARRIVES as an
+/// `I32` is its own answer, and sending it through a double and the language's full
+/// conversion -- the modulo and the checks around it -- cost a bitwise row twice the
+/// floor in `bench/analytic.ts`.
+pub(super) fn int32_of(into: &mut FuncBuilder, held: MachineValue) -> Result<MachineValue, String> {
+    match into.repr_of(held) {
+        Repr::I32 => Ok(held),
+        // A PROVED number the representation did not follow -- `unbox_number` says how
+        // that happens -- is unboxed first.
+        Repr::Tagged => {
+            let double = super::unbox_number(into, held)?;
+            into.to_int32(double).map_err(machine)
+        }
+        _ => into.to_int32(held).map_err(machine),
     }
 }

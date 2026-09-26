@@ -96,6 +96,12 @@ impl Lowering<'_> {
             let held = self.expression(callee)?;
             return Ok((rts_mir::cfg::Callee::Dynamic(held), None));
         };
+        // A PARAMETER OF A BODY BEING SUBSTITUTED is the argument's value, which is what
+        // the identifier arm answers too -- asked before any scope, `substitute.rs` says
+        // why. Called as a value, with no receiver, as a parameter holding a function is.
+        if let Some(held) = self.substituted_name(*name) {
+            return Ok((rts_mir::cfg::Callee::Dynamic(held), None));
+        }
         let binding = self.resolution.binding_in(self.scope, *name);
         // A CALL TO A GLOBAL: read it, then call what it held. No receiver
         // travels -- parseInt(x) passes none, and the global object is not

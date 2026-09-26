@@ -1491,10 +1491,20 @@ fn unary_plus_is_the_same_operation_an_increment_coerces_with() {
 
 /// `-a` answers a number and never an `Int32`: negating the most negative one does
 /// not fit, and negative zero is not a value this lattice names apart from zero.
-/// `~a` does answer an `Int32`, which is the difference worth pinning.
+/// `~a` does answer an `Int32`, which is the difference worth pinning. A negated
+/// LITERAL is the literal's constant: `-1` is an `Int32`, and `-0` stays a double.
 #[test]
 fn negation_is_a_number_and_a_bitwise_not_is_an_int32() {
-    let negated = only("function f() { return -1; }").expect("covered");
+    let folded = only("function f() { return -1; }").expect("covered");
+    let types = rts_mir::infer::infer(&folded.func, &folded.domain);
+    let Some(rts_mir::Terminator::Return(Some(answered))) =
+        folded.func.block(folded.func.entry()).terminator.clone()
+    else {
+        panic!("a return")
+    };
+    assert_eq!(*types.of(answered), Type::Int32, "-1 is folded to an integer");
+    // Over a binding and not a literal: `-1` written is folded into the constant.
+    let negated = only("function f() { const one = 1; return -one; }").expect("covered");
     let types = rts_mir::infer::infer(&negated.func, &negated.domain);
     let held = negated
         .func
@@ -2433,28 +2443,33 @@ fn nothing_commutes_with_a_suspension() {
 /// A `for`-`of` STEPS the protocol. Draining it through the entry point that already
 /// exists would have been one call and no loop, and it changes three answers: a `break`
 /// never closes, a mutated `Map` is walked as it was, and an endless source never ends.
+///
+/// An array whose iterator is the one a fresh `[]` has is walked by INDEX instead --
+/// the live length and the element each pass, which is what its `next()` does -- so the
+/// only entry points are those two, and nothing is ever copied out of the source.
 #[test]
 fn a_for_of_steps_the_protocol_rather_than_draining_it() {
     let lowered = only("function f(xs, o) { for (const x of xs) { o.m(x); } }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
-    // Four calls with a receiver: the iterator method, `next`, and the two closes --
-    // one in the cleanup and one on the breaking path. No call to an entry point,
-    // which is what says it did not drain.
-    let entries = lowered
+    let entries: Vec<_> = lowered
         .func
         .insts
         .iter()
-        .filter(|held| {
-            matches!(
-                &held.op,
-                rts_mir::Op::Call {
-                    callee: rts_mir::cfg::Callee::Entry(_),
-                    ..
-                }
-            )
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Call {
+                callee: rts_mir::cfg::Callee::Entry(entry),
+                ..
+            } => lowered.domain.entry_meaning(*entry),
+            _ => None,
         })
-        .count();
-    assert_eq!(entries, 0, "nothing is drained");
+        .collect();
+    assert!(
+        entries.iter().all(|held| matches!(
+            held,
+            crate::runtime::RuntimeOp::ArrayLength | crate::runtime::RuntimeOp::ElementAt
+        )),
+        "nothing is drained: {entries:?}"
+    );
     let dynamic = lowered
         .func
         .insts
@@ -2514,8 +2529,20 @@ fn done_is_a_truth_test_and_not_a_comparison() {
         })
         .collect();
     assert!(ops.contains(&crate::domain::JsPrim::Truthy));
+    // The one `===` there is compares the source's iterator method with a fresh
+    // array's; none has a truth constant for an operand.
+    let truths: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(held.op, rts_mir::Op::Const(rts_mir::Const::Bool(_))))
+        .map(|held| held.result)
+        .collect();
     assert!(
-        !ops.contains(&crate::domain::JsPrim::StrictEquals),
+        !lowered.func.insts.iter().any(|held| matches!(&held.op,
+            rts_mir::Op::Prim { prim, args }
+                if lowered.domain.meaning(*prim) == Some(crate::domain::JsPrim::StrictEquals)
+                    && args.iter().any(|arg| truths.contains(arg)))),
         "nothing is compared to true"
     );
 }

@@ -188,6 +188,8 @@ impl Js {
         RuntimeOp::SuperConstructWithArgs,
         // `Math.random()` where `Math` is the language's -- `lower/intrinsic.rs`.
         RuntimeOp::MathRandom,
+        // An element of an array a `for`-`of` walks by index -- `lower/iterate.rs`.
+        RuntimeOp::ElementAt,
     ];
 
     /// The index the IR carries for an entry point.

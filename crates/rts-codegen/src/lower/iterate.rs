@@ -142,18 +142,79 @@ impl Lowering<'_> {
             }
         };
 
-        // THE ITERATOR, once, before the loop. `xs[Symbol.iterator]()` with `xs` as the
-        // receiver -- a method read and called, which is what the specification says and
-        // what makes a source declaring one on its prototype work.
+        // THE METHOD, once, before the loop: `xs[Symbol.iterator]`, read with `xs` as the
+        // receiver -- what the specification says and what makes a source declaring one
+        // on its prototype work.
         let subject_value = self.expression(subject)?;
         let method = self.well_known(WellKnown::IteratorSymbol, subject_value, subject);
-        let iterator = self.call_method(method, subject_value, subject);
+
+        // AN ARRAY WALKED BY INDEX, where that is what its iterator would do. The method
+        // is the one a fresh `[]` has -- made here, so no name a program can rebind
+        // decides it, `emit/foreach.rs`'s test -- and the source has elements, which
+        // only an array has an element store for. Then `next()` would read the live
+        // length and the element at a counter each pass, and so does this, WITHOUT the
+        // copy the running emitter walks: an element pushed during the loop is visited,
+        // as the language says. Nothing is owed a close on this path either -- an array
+        // iterator has no `return`. An empty array takes the protocol, which is exact
+        // for it too.
+        //
+        // What it does not re-check is `%ArrayIteratorPrototype%.next` itself, which a
+        // program could replace; the running emitter does not either.
+        let fresh = self.prim(JsPrim::NewArray, Vec::new(), subject);
+        let walked = self.well_known(WellKnown::IteratorSymbol, fresh, subject);
+        let same = self.prim(JsPrim::StrictEquals, vec![method, walked], subject);
+        let checking = self.builder.block();
+        let indexed_entry = self.builder.block();
+        let stepped_entry = self.builder.block();
+        let opened = self.builder.block();
+        self.builder.end(Terminator::Branch {
+            condition: same,
+            then_block: checking,
+            then_args: Vec::new(),
+            else_block: stepped_entry,
+            else_args: Vec::new(),
+        });
+        self.builder.switch_to(checking);
+        let length = self.entry(RuntimeOp::ArrayLength, vec![subject_value], subject);
+        let zero = self.integer(0, subject);
+        let filled = self.prim(JsPrim::LessThan, vec![zero, length], subject);
+        self.builder.end(Terminator::Branch {
+            condition: filled,
+            then_block: indexed_entry,
+            then_args: Vec::new(),
+            else_block: stepped_entry,
+            else_args: Vec::new(),
+        });
+        self.builder.switch_to(indexed_entry);
+        let none = self.singleton_at(crate::values::Singleton::Undefined, subject);
+        let yes = self.boolean(true, subject);
+        self.builder.end(Terminator::Jump {
+            target: opened,
+            args: vec![none, yes],
+        });
+        self.builder.switch_to(stepped_entry);
+        let made = self.call_method(method, subject_value, subject);
+        let no = self.boolean(false, subject);
+        self.builder.end(Terminator::Jump {
+            target: opened,
+            args: vec![made, no],
+        });
+        self.builder.switch_to(opened);
+        let iterator = self.builder.param(opened);
+        self.types.insert(iterator, self.domain.top());
+        let indexed = self.builder.param(opened);
+        self.types.insert(indexed, crate::domain::Type::Bool(None));
 
         let mut written = self.assigned_in(body)?;
         written.extend(self.assigned_by_pattern(pattern));
         let carried = self.carried_now(written);
         let header = self.builder.block();
+        let by_index = self.builder.block();
+        let by_protocol = self.builder.block();
+        let at_index = self.builder.block();
         let into_body = self.builder.block();
+        // WHERE A PASS ENDS, and so where `continue` goes: the counter moves there.
+        let advance = self.builder.block();
         // THE CLOSING BLOCK, which is where `break` goes. Created before the region opens
         // so that it belongs outside it: closing an iterator is not itself protected by
         // the loop's own cleanup, or a `return()` that threw would close twice.
@@ -161,15 +222,18 @@ impl Lowering<'_> {
         let cleanup = self.builder.block();
         let exit = self.builder.block();
 
-        let entering: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
+        let mut entering = vec![self.integer(0, subject)];
+        entering.extend(carried.iter().map(|held| self.values[held]));
         self.builder.end(Terminator::Jump {
             target: header,
             args: entering,
         });
 
-        // THE HEADER steps the protocol and tests `done`, which is what makes the test
-        // happen before each pass including the first.
+        // THE HEADER takes the next element either way, and tests for the end, which is
+        // what makes the test happen before each pass including the first.
         self.builder.switch_to(header);
+        let counter = self.builder.param(header);
+        self.types.insert(counter, self.domain.top());
         let mut params = Vec::with_capacity(carried.len());
         for binding in &carried {
             let param = self.builder.param(header);
@@ -177,26 +241,60 @@ impl Lowering<'_> {
             self.values.insert(*binding, param);
             params.push(param);
         }
+        self.builder.end(Terminator::Branch {
+            condition: indexed,
+            then_block: by_index,
+            then_args: Vec::new(),
+            else_block: by_protocol,
+            else_args: Vec::new(),
+        });
+
+        self.builder.switch_to(by_index);
+        let length = self.entry(RuntimeOp::ArrayLength, vec![subject_value], subject);
+        let more = self.prim(JsPrim::LessThan, vec![counter, length], subject);
+        self.builder.end(Terminator::Branch {
+            condition: more,
+            then_block: at_index,
+            then_args: Vec::new(),
+            else_block: exit,
+            else_args: params.clone(),
+        });
+        self.builder.switch_to(at_index);
+        let element = self.entry(RuntimeOp::ElementAt, vec![subject_value, counter], subject);
+        self.builder.end(Terminator::Jump {
+            target: into_body,
+            args: vec![element],
+        });
+
+        self.builder.switch_to(by_protocol);
         let next = self.well_known(WellKnown::Next, iterator, subject);
         let step = self.call_method(next, iterator, subject);
         let done = self.well_known(WellKnown::Done, step, subject);
         // ToBoolean and not a comparison with `true`: an iterator answering `done: 1`
         // ends the loop, which is what the specification says.
         let ended = self.prim(JsPrim::Truthy, vec![done], subject);
+        let stepped = self.builder.block();
         self.builder.end(Terminator::Branch {
             condition: ended,
             // The sequence ended ITSELF, so nothing is owed. Straight to the exit, past
             // the closing block.
             then_block: exit,
             then_args: params.clone(),
-            else_block: into_body,
+            else_block: stepped,
             else_args: Vec::new(),
+        });
+        self.builder.switch_to(stepped);
+        let element = self.well_known(WellKnown::Element, step, subject);
+        self.builder.end(Terminator::Jump {
+            target: into_body,
+            args: vec![element],
         });
 
         // THE BODY, inside the region whose cleanup closes the iterator.
         self.builder.switch_to(into_body);
+        let element = self.builder.param(into_body);
+        self.types.insert(element, self.domain.top());
         self.builder.open_region(None, Some(cleanup));
-        let element = self.well_known(WellKnown::Element, step, subject);
         // A HEAD A CLOSURE CAPTURES is a fresh environment per pass, bound before the
         // body runs -- no copy, since nothing of one pass is the next one's.
         let pass = self.open_pass(self.scope, subject);
@@ -204,7 +302,7 @@ impl Lowering<'_> {
         self.loops.push(LoopFrame {
             labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Loop,
-            header,
+            header: advance,
             // `break` leaves through the CLOSE and not through the exit, which is the
             // whole of what makes this loop different from a `while`.
             exit: closing,
@@ -219,16 +317,33 @@ impl Lowering<'_> {
         if !left {
             let back: Vec<ValueId> = carried.iter().map(|held| self.values[held]).collect();
             self.builder.end(Terminator::Jump {
-                target: header,
+                target: advance,
                 args: back,
             });
         }
         self.builder.close_region();
 
+        self.builder.switch_to(advance);
+        let mut again = Vec::with_capacity(1 + carried.len());
+        let mut moved = Vec::with_capacity(carried.len());
+        for binding in &carried {
+            let param = self.builder.param(advance);
+            self.types.insert(param, self.domain.top());
+            self.values.insert(*binding, param);
+            moved.push(param);
+        }
+        let one = self.integer(1, subject);
+        again.push(self.prim(JsPrim::Add, vec![counter, one], subject));
+        again.extend(moved);
+        self.builder.end(Terminator::Jump {
+            target: header,
+            args: again,
+        });
+
         // THE CLEANUP PIECE, for the paths no block here is on: a `return` out of the
         // body and a raise from it.
         self.builder.switch_to(cleanup);
-        self.close_iterator(iterator, subject);
+        self.close_stepped(indexed, iterator, subject);
         self.builder.end(Terminator::CleanupDone);
 
         // THE CLOSING BLOCK, for `break`. Its parameters are what the breaking edge
@@ -242,7 +357,7 @@ impl Lowering<'_> {
                 param
             })
             .collect();
-        self.close_iterator(iterator, subject);
+        self.close_stepped(indexed, iterator, subject);
         self.builder.end(Terminator::Jump {
             target: exit,
             args: broke,
@@ -297,6 +412,27 @@ impl Lowering<'_> {
     /// `return` and calling `undefined` would raise where the specification says do
     /// nothing. Leaves the builder in the block that follows the call, which is what
     /// lets a caller terminate it however its own path requires.
+    /// The close a stepped loop owes, and nothing on the indexed path, where there is
+    /// no iterator to close.
+    fn close_stepped(&mut self, indexed: ValueId, iterator: ValueId, at: &Expr) {
+        let closing = self.builder.block();
+        let after = self.builder.block();
+        self.builder.end(Terminator::Branch {
+            condition: indexed,
+            then_block: after,
+            then_args: Vec::new(),
+            else_block: closing,
+            else_args: Vec::new(),
+        });
+        self.builder.switch_to(closing);
+        self.close_iterator(iterator, at);
+        self.builder.end(Terminator::Jump {
+            target: after,
+            args: Vec::new(),
+        });
+        self.builder.switch_to(after);
+    }
+
     pub(super) fn close_iterator(&mut self, iterator: ValueId, at: &Expr) {
         let method = self.well_known(WellKnown::Return, iterator, at);
         let absent = self.prim(JsPrim::IsNullish, vec![method], at);
