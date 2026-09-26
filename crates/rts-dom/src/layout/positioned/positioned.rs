@@ -248,7 +248,7 @@ pub(crate) fn is_out_of_flow(dom: &Dom, id: NodeIdx) -> bool {
 /// fazia `height:100%` virar 100% da largura do pai); as demais unidades usam o
 /// ctx normal. `avail_h = None` (pai com altura auto) → `%` vira auto (`None`),
 /// fiel ao browser.
-pub(in crate::layout) fn resolve_height(
+pub(crate) fn resolve_height(
     d: Option<crate::style::Dimension>,
     avail_h: Option<f32>,
     ctx: &ResolveCtx,

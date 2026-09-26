@@ -32,6 +32,11 @@ pub(in crate::layout) fn layout_inline_flow(
     x: f32,
     y: f32,
     content_w: f32,
+    // The owner's content height when DEFINITE - `layout_children_vertical`'s
+    // `avail_h`, and the basis of a replaced atom's `height: %`. It reaches
+    // both the measurement (`collect_runs`) and the painting (`emit_atom`) so
+    // the line reserves the box that is then drawn.
+    cb_h: Option<f32>,
     parent_css: &ComputedStyle,
     font_size: f32,
     // Os floats abertos que atravessam este fluxo. É a razão de a exclusão
@@ -70,7 +75,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // é a mesma razão pela qual `layout_children_vertical` o clona.
     let tree = std::rc::Rc::clone(&list.tree);
     for &(id, box_id) in group {
-        runs.extend(collect_runs(dom, id, box_id, &tree, parent_css, content_w, ctx));
+        runs.extend(collect_runs(dom, id, box_id, &tree, parent_css, content_w, cb_h, ctx));
     }
     if whole_owner {
         runs.extend(pseudo_run(
@@ -314,7 +319,7 @@ pub(in crate::layout) fn layout_inline_flow(
                 super::line_atoms::emit_atom(
                     dom, ctx, list, &seg, &mut seg_x, x, cy, line_advance, line_at,
                     &mut surfaces, text_top, ascent, font_size, family,
-                    &envelope, content_w, on_baseline, text_owner_anchor, content,
+                    &envelope, content_w, cb_h, on_baseline, text_owner_anchor, content,
                     &line_id,
                 );
                 continue;

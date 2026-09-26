@@ -50,6 +50,10 @@ pub(in crate::layout) fn collect_runs(
     tree: &crate::boxes::BoxTree,
     parent_css: &ComputedStyle,
     avail_w: f32,
+    // The block container's content height when definite: the basis of a
+    // replaced atom's `height: %`. An inline ancestor is not a containing
+    // block, so it passes through the walk unchanged.
+    cb_h: Option<f32>,
     ctx: &LayoutCtx,
 ) -> Vec<InlineRun> {
     let _phase = crate::metrics::phases::scope("collect-runs");
@@ -59,6 +63,7 @@ pub(in crate::layout) fn collect_runs(
         tree,
         ctx,
         avail_w,
+        cb_h,
         id,
         box_id,
         cor_visivel(parent_css, parent_css.color.unwrap_or(0x000000FF)),
@@ -103,6 +108,7 @@ pub(in crate::layout) fn collect_runs(
         tree: &crate::boxes::BoxTree,
         ctx: &LayoutCtx,
         avail_w: f32,
+        cb_h: Option<f32>,
         id: NodeIdx,
         box_id: crate::boxes::BoxId,
         inherited_color: u32,
@@ -222,7 +228,7 @@ pub(in crate::layout) fn collect_runs(
                 // nenhum e ficava sem caixa. Flui como palavra inquebrável.
                 let rcss = dom.computed_style_idx(id).unwrap_or_default();
                 if let Some((ww, wh)) =
-                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, (None, None), ctx)
+                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, cb_h, (None, None), ctx)
                 {
                     // Como no widget: a caixa do replaced é dele; os ancestrais
                     // inline recebem só a linha que ele ocupa.
@@ -367,7 +373,7 @@ pub(in crate::layout) fn collect_runs(
                 }
                 for (c, cb) in walk_children(tree, box_id) {
                     walk(
-                        dom, tree, ctx, avail_w, c, cb, color, deco, tt, bold, italic, &owners,
+                        dom, tree, ctx, avail_w, cb_h, c, cb, color, deco, tt, bold, italic, &owners,
                         out,
                     );
                 }

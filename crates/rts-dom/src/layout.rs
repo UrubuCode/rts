@@ -95,7 +95,10 @@ use crate::paint::decor::{body_background, deve_suprimir_fundo};
 use crate::paint::pieces;
 use crate::paint::stacking;
 use crate::paint::style::{apply_opacity, cor_visivel, decoration_code, italico};
-use self::positioned::positioned::{collect_out_of_flow, is_display_none, layout_out_of_flow, resolve_height};
+use self::positioned::positioned::{collect_out_of_flow, is_display_none, layout_out_of_flow};
+// `pub(crate)` for `inline_box::replaced_inline_size`: a replaced element's
+// `height: %` is the same rule, and a second copy is where they would drift.
+pub(crate) use self::positioned::positioned::resolve_height;
 use self::replaced::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
 
 /// Endereço estável de uma caixa para caches que sobrevivem à reconstrução da

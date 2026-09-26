@@ -114,7 +114,7 @@ fn the_inline_atom_of_a_generated_box_carries_its_box() {
     let caixa = list.tree.boxes_of(s)[0];
     let css = dom.computed_style_idx(s).unwrap();
     let ctx = crate::layout::LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &crate::layout::ApproxMeasurer };
-    let runs = super::super::inline::runs::collect_runs(&dom, s, caixa, &list.tree, &css, 800.0, &ctx);
+    let runs = super::super::inline::runs::collect_runs(&dom, s, caixa, &list.tree, &css, 800.0, None, &ctx);
     let atomo = runs
         .iter()
         .find_map(|r| match r.atomic {

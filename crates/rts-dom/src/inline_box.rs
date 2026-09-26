@@ -19,6 +19,7 @@ use crate::paint::{DisplayList, Rect};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod substituido;
+pub(crate) mod replaced_clamp;
 pub(crate) use self::substituido::{
     altura_min_content_por_razao, largura_min_content_por_razao, replaced_inline_size,
 };
