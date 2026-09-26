@@ -103,8 +103,8 @@ css_props! {
         /// `display: flow-root` — a caixa é de bloco E estabelece um contexto de
         /// formatação de bloco. Um `bool` ao lado do `display` em vez de uma
         /// variante de [`DisplayKind`], e a razão é medida: a variante obrigava
-        /// a tratar o caso novo em `table/grid.rs`, `layout/vertical.rs`,
-        /// `layout/bloco.rs` e `layout/caixa.rs` — quatro ficheiros fora deste
+        /// a tratar o caso novo em `table/grid.rs`, `layout/block/vertical_flow.rs`,
+        /// `layout/block/block.rs` e `layout/block/box_kind.rs` — quatro ficheiros fora deste
         /// crate-módulo, dois deles de outra gente. O campo à parte diz a mesma
         /// coisa sem partir um único `match` exaustivo, que é o mesmo arranjo
         /// que o `border_box` acima já faz para o `box-sizing`.
@@ -122,7 +122,7 @@ css_props! {
         /// `display:flex`; `Wrap`/`WrapReverse` promovem `Flex` a `FlexWrap` na
         /// resolução (`effective_display`). `None` = nowrap. UMA representação
         /// só: `WrapReverse` inverte a ordem das LINHAS/COLUNAS no eixo cruzado
-        /// (CSS Flexbox §5.3, `layout/coluna_wrap.rs` inclusive), nunca a ordem
+        /// (CSS Flexbox §5.3, `layout/flex/column_wrap.rs` inclusive), nunca a ordem
         /// dos itens dentro de cada uma — o `flex_wrap_reverse: bool` que o
         /// lote `flex-column-wrap` acrescentou ao lado foi absorvido aqui.
         [] flex_wrap: FlexWrap;

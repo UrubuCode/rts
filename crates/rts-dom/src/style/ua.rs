@@ -12,7 +12,7 @@
 //! findings 2 e 4): `block::ua::UA_TABLE`/`install_ua_defaults` (uma tabela de
 //! 5 campos fixos, sem seletor nem propriedade fora do conjunto) e
 //! `block::ua::ua_display` (um `match` chamado pelo LAYOUT depois da cascade,
-//! e não pela cascade em si). `used_display` (`layout/caixa.rs`) já não
+//! e não pela cascade em si). `used_display` (`layout/block/box_kind.rs`) já não
 //! consulta `ua_display`: o `display` de `<li>`/`<table>`/`<td>`/… agora
 //! chega pela mesma cascade que qualquer outra propriedade, e uma regra de
 //! autor (`td { display: block }`) vence-o naturalmente em vez de nunca ser

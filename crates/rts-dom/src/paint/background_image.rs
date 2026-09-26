@@ -14,7 +14,7 @@
 //! `<img>` já usa (`dom.pixel_data_of`), porque um nó com fundo é um nó como
 //! outro qualquer para essa tabela: não há necessidade de uma segunda.
 //! Sem pixels carregados, nada é emitido — a cor/gradiente do fundo (já
-//! pintados por `bloco.rs`) continuam a mostrar-se por baixo, como um
+//! pintados por `layout/block/block.rs`) continuam a mostrar-se por baixo, como um
 //! `<img>` sem `src` decodificado mostra só a caixa.
 //!
 //! ## O corte
@@ -38,7 +38,7 @@ use crate::style::ComputedStyle;
 use crate::style::BgRepeat;
 
 /// Os itens de `Pixels` (mais o `BeginClip`/`EndClip` que os recorta) para o
-/// `background-image` deste nó, na ordem em que `bloco.rs` os insere: depois
+/// `background-image` deste nó, na ordem em que `layout/block/block.rs` os insere: depois
 /// da cor/gradiente, antes da borda. Vazio quando não há `background-image`
 /// declarado, quando é `none`, ou quando os pixels ainda não carregaram.
 ///

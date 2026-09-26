@@ -74,7 +74,7 @@ pub(crate) enum AtomicKind {
     Gerada(crate::style::PseudoElement, ParteGerada),
     /// The ANCHOR of an absolutely positioned box that appears in the middle of
     /// the inline flow: zero width, nothing on the line. It only says WHERE the
-    /// box would have been — its static position (`layout/ancora_estatica.rs`).
+    /// box would have been — its static position (`layout/inline/static_anchor.rs`).
     Estatica,
 }
 
@@ -310,7 +310,7 @@ pub(crate) fn arestas_do_inline(
 /// differ by the font's line gap (Times 16px: 17 against 18), and an inline's
 /// box is the former — Blink reports a 17px `<span>` in an 18px line. This
 /// answered the line height until the metrics became real ones
-/// (`layout/fonte_metricas.rs`), when the gap stopped being zero.
+/// (`layout/measure/font_metrics.rs`), when the gap stopped being zero.
 pub(crate) fn altura_do_conteudo(font_size: f32, family: Option<&str>, m: &dyn TextMeasurer) -> f32 {
     m.font_ascent_family(font_size, family) + m.font_descent_family(font_size, family)
 }
@@ -337,7 +337,7 @@ pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
 /// `getBoundingClientRect` of an inline is the bounding box of its fragments'
 /// border boxes: an `<a>` wrapping onto two lines has two fragments and a rect
 /// holding both, wider than either — which is what the browser returns too.
-/// Since BT-2c that union is a VIEW (`layout/box_fragments.rs`, invariant I4):
+/// Since BT-2c that union is a VIEW (`layout/fragment/box_rects.rs`, invariant I4):
 /// what is recorded here is the fragment of `line`, and a box keeps one per line.
 pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect, line: &crate::layout::LineScope) {
     // A node with no box (text, `display:none`) has nowhere to record; the

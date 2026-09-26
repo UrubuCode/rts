@@ -1,0 +1,256 @@
+//! `flex-basis` e `flex-shrink` no eixo de COLUNA — espelha o que `flex.rs`
+//! já tem no eixo horizontal (base/min-content/shrink iterativo,
+//! `flex.rs:180-224` e `308-370`), só que a base é a ALTURA e o `%` do
+//! `flex-basis` resolve contra a altura do container, não a largura.
+//!
+//! Extraído de `coluna.rs` (que só tinha o ramo de `flex-grow`) para não
+//! passar o teto de 500 linhas com a lógica nova — `layout_children_column`
+//! ganharia ~90 linhas só com isto. Lote `flex-coluna-shrink` (2026-09-04):
+//! antes, `coluna.rs` nunca lia `flex-basis`/`flex-shrink`, e um item de
+//! coluna com conteúdo maior do que o espaço principal transbordava em vez de
+//! encolher (achado da auditoria de 2026-09-04, `04-layout.md`).
+
+use super::*;
+
+/// A BASE outer de um item de coluna no eixo principal (a ALTURA): `flex-basis`
+/// explícito (resolvido contra a altura do container — `%` fica `None`/`auto`
+/// quando ela é indefinida, como `resolve_height` já faz para `height`) mais
+/// margem-v e frame; `auto`/ausente cai no `natural_h` já medido em PASSO 1
+/// (que já reflete `height`/conteúdo — o que `flex-basis:auto` pede, CSS
+/// Flexbox §4.5: "use the specified size suggestion if it exists").
+pub(in crate::layout) fn base_outer(
+    ccss: &ComputedStyle,
+    natural_h: f32,
+    container_h: Option<f32>,
+    container_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    let resolve = ResolveCtx {
+        parent_content_w: container_w,
+        node_font_size: font_size,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let basis = ccss.flex_basis.and_then(|d| match d {
+        crate::style::Dimension::Auto => None,
+        other => resolve_height(Some(other), container_h, &resolve),
+    });
+    let Some(basis) = basis else {
+        return natural_h;
+    };
+    let margin_v = ccss.margin.resolve_v(&resolve);
+    if ccss.border_box.unwrap_or(false) {
+        basis + margin_v
+    } else {
+        let [t, _, b, _] = crate::style::borders::used_widths(ccss);
+        basis + margin_v + t + b + ccss.padding.resolve_v(&resolve)
+    }
+}
+
+/// O piso AUTOMÁTICO de `min-height` no eixo principal de coluna (CSS Flexbox
+/// §4.5, "automatic minimum size"): zero quando o overflow NÃO é visível no
+/// eixo vertical (a exceção que o próprio spec cita — um item com
+/// `overflow-y:scroll` pode encolher até nada, o conteúdo rola por dentro);
+/// senão, o conteúdo NÃO comprime no eixo de bloco como o texto comprime no
+/// eixo inline (não há "min-content height" por quebra de linha), então o
+/// piso é a própria altura natural — MAS só quando essa altura veio do
+/// CONTEÚDO (sem `height` declarado): um `height:50px` some do numerador,
+/// mas o item continua sem conteúdo próprio nenhum a proteger.
+///
+/// Com `height` declarado e SEM razão de aspeto, o automático é o MENOR
+/// entre a "specified size suggestion" (`natural_h`, que já É o `height`
+/// convertido a outer) e a "content size suggestion" — a altura que os
+/// FILHOS exigem, ignorando este `height` (`altura_conteudo_sem_height`,
+/// abaixo: soma cada filho pela SUA própria altura, sem forçar a do item,
+/// em vez de uma segunda passada de `layout_block` completa). Antes deste
+/// lote devolvia 0 sempre que `height` estava presente sem razão de aspeto —
+/// `flexbox-min-height-auto-001` (WPT): os blocos com `height`/`calc()`
+/// sem `max-height` encolhiam a zero em vez de pararem no menor dos dois.
+pub(in crate::layout) fn min_main_auto(
+    dom: &Dom,
+    id: NodeIdx,
+    caixa: crate::boxes::BoxId,
+    ccss: &ComputedStyle,
+    natural_h: f32,
+    resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
+) -> f32 {
+    // `Clip` conta como `Visible` — não é um scroll container (CSS Overflow
+    // 3 §clip), e só um eixo que PODE rolar desliga este automático
+    // (espelho do retrabalho em `limits::min_automatico`,
+    // `min-size-auto-overflow-clip`, WPT — não tinha fixture neste eixo
+    // ainda, mas é a MESMA pergunta).
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let overflow_visible = matches!(ccss.overflow_y.unwrap_or(Visible), Visible | Clip);
+    if !overflow_visible {
+        return 0.0;
+    }
+    if ccss.height.is_none() {
+        return natural_h;
+    }
+    // `height` DECLARADO: candidato (d) do `min-height:auto` (Flexbox §4.5,
+    // eixo de coluna) — com razão de aspeto E a largura já USADA
+    // (`altura_min_content_por_razao`, `inline_box`), o piso é a altura
+    // DERIVADA dela, não 0 — sem isto um `<img height=100>` cujo width=30
+    // constrangido dá 1:1 encolhia até quase 0 em vez de parar em 30
+    // (`flexbox-min-height-auto-002`, WPT).
+    match crate::inline_box::altura_min_content_por_razao(dom, id, ccss, resolve) {
+        Some(h) => {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
+            h + bt + bb
+        }
+        None => {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
+            let conteudo = altura_conteudo_sem_height(
+                dom, caixa, ccss, resolve.parent_content_w, resolve.node_font_size, ctx,
+            ) + bt + bb;
+            natural_h.min(conteudo)
+        }
+    }
+}
+
+/// A altura do CONTEÚDO de um item ignorando o `height` do PRÓPRIO item —
+/// candidato (c), sem razão de aspeto, de [`min_main_auto`]: soma a altura
+/// outer de cada filho (`child_outer_height`, que mede CADA FILHO pela sua
+/// própria altura — nada aqui força a do item) em vez de uma segunda
+/// passada de `layout_block` completa, que é o corte que o cabeçalho antigo
+/// desta função citava (nenhuma fixture precisava até `flexbox-min-height-
+/// auto-001`, WPT).
+///
+/// Um nó de texto só-espaços (a INDENTAÇÃO do HTML entre `<div>`s, comum em
+/// fixtures de mais de uma linha) não é conteúdo — o resto do motor já o
+/// descarta ao agrupar itens flex (`is_row && … trim().is_empty()`, `coluna.
+/// rs`/`coluna_wrap.rs`), mas esta função somava uma `altura_da_linha`
+/// inteira por CADA um (achado ao expor `flex-minimum-height-flex-items-003`,
+/// WPT, do fix de CDATA: dois nós assim ladeando o filho real inflavam o
+/// piso de 100 para 200, igualando o `natural_h` do item — `natural_h.min
+/// (conteudo)` deixava de clampar nada).
+///
+/// **Anda a ÁRVORE DE CAIXAS a partir de `caixa`, não os filhos do DOM.**
+/// Depois da partição bloco-em-inline (CSS 2.1 §9.2.1.1) os dois divergem: um
+/// `<span>` que só envolvia um bloco não tem caixa nenhuma (as do bloco sobem
+/// para aqui) e um com texto dos dois lados tem duas. Medir o filho do DOM
+/// pelo nó corria o layout de bloco sem árvore no primeiro caso — pânico no
+/// cache de fragmentos, WPT `css-flexbox/percentage-heights-023` — e não
+/// sabia qual fragmento medir no segundo.
+pub(in crate::layout) fn altura_conteudo_sem_height(
+    dom: &Dom,
+    caixa: crate::boxes::BoxId,
+    ccss: &ComputedStyle,
+    container_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    let tree = dom.box_tree();
+    empilhados(dom, &tree, caixa, ccss, container_w, font_size, ctx)
+}
+
+/// A soma empilhada dos filhos de UMA caixa. Uma caixa ANÓNIMA não tem
+/// moldura nem declarações suas (§9.2.1.1: herda do contentor, que é quem
+/// deu `ccss`), por isso conta o que envolve pela mesma regra, em vez de ser
+/// saltada — saltá-la apagava a corrida de texto dela, o erro que
+/// `medida_arvore.rs` documenta para a largura.
+fn empilhados(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    caixa: crate::boxes::BoxId,
+    ccss: &ComputedStyle,
+    container_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    tree.children_without_generated(caixa)
+        .iter()
+        .map(|&filho| match tree.node_of(filho) {
+            None => empilhados(dom, tree, filho, ccss, container_w, font_size, ctx),
+            Some(c) if is_out_of_flow(dom, c) || e_display_none(dom, c) => 0.0,
+            Some(c) => match &dom.node(c).kind {
+                NodeKind::Text(_) if collect_text(dom, c).trim().is_empty() => 0.0,
+                NodeKind::Text(_) => crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer),
+                _ => child_outer_height(dom, c, filho, container_w, None, ccss, font_size, ctx),
+            },
+        })
+        .sum()
+}
+
+/// O piso de `min-height` no eixo principal de coluna: DECLARADO vence
+/// sempre o automático. `min-content` é o caso à parte — resolve para
+/// `natural_h` (o motor não distingue min-content de max-content no eixo de
+/// bloco, CSS Sizing 3 §2.1) e, ao contrário do automático, NÃO some sob
+/// overflow não-visível: é um número que o autor escreveu, não uma
+/// inferência (achado ao medir `flex-item-min-height-min-content-overflow`
+/// — a régua contra a fixture anterior, onde `overflow:auto` zera o
+/// automático, tinha zerado este também).
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn min_main(
+    dom: &Dom,
+    id: NodeIdx,
+    caixa: crate::boxes::BoxId,
+    ccss: &ComputedStyle,
+    natural_h: f32,
+    container_h: Option<f32>,
+    resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
+) -> f32 {
+    if ccss.min_height == Some(crate::style::Dimension::MinContent) {
+        return natural_h;
+    }
+    resolve_height(ccss.min_height, container_h, resolve)
+        .unwrap_or_else(|| min_main_auto(dom, id, caixa, ccss, natural_h, resolve, ctx))
+}
+
+
+/// ENCOLHIMENTO com piso de `min_main` (CSS Flexbox §9.7) — a mesma iteração
+/// de congelamento de `flex.rs:319-370`, extraída para slices paralelas em
+/// vez de reusar `FlexItem` (que carrega campos do eixo horizontal, como
+/// `max_main`/`auto_esq`, que a coluna não tem ainda — ver o corte no
+/// cabeçalho de `coluna.rs`). Devolve o `main` final de cada item, na mesma
+/// ordem de `bases`. `free_pre >= 0.0` devolve `bases` sem tocar (sem
+/// défice: quem cresce é o `flex-grow`, tratado à parte em `coluna.rs`).
+pub(in crate::layout) fn shrink(bases: &[f32], shrinks: &[f32], mins: &[f32], free_pre: f32) -> Vec<f32> {
+    let n = bases.len();
+    let mut main: Vec<f32> = bases.to_vec();
+    if free_pre >= 0.0 {
+        return main;
+    }
+    let mut frozen = vec![false; n];
+    let sum_shrink: f32 = shrinks.iter().sum();
+    let mut deficit = if sum_shrink < 1.0 { free_pre * sum_shrink } else { free_pre };
+    loop {
+        let weighted: f32 = (0..n)
+            .filter(|&i| !frozen[i])
+            .map(|i| shrinks[i] * bases[i])
+            .sum();
+        if weighted <= 0.0 || deficit >= -0.01 {
+            break;
+        }
+        let mut novo_congelado = false;
+        for i in 0..n {
+            if frozen[i] {
+                continue;
+            }
+            let proposto = bases[i] + deficit * (shrinks[i] * bases[i]) / weighted;
+            if proposto <= mins[i] {
+                main[i] = mins[i];
+                frozen[i] = true;
+                novo_congelado = true;
+            } else {
+                main[i] = proposto;
+            }
+        }
+        if !novo_congelado {
+            break; // convergiu sem ninguém bater no piso: acabou.
+        }
+        deficit = (0..n)
+            .filter(|&i| !frozen[i])
+            .map(|i| main[i] - bases[i])
+            .sum::<f32>()
+            .min(0.0);
+        if deficit >= -0.01 {
+            break;
+        }
+    }
+    main
+}

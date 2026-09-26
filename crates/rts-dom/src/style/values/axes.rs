@@ -45,7 +45,7 @@
 //!
 //! Nothing here MAKES the engine lay out vertically. It answers the four
 //! combinations correctly; whether a caller asks is that caller's lot. The
-//! block flow (`layout/vertical.rs`, `bloco.rs`) and the text inside a box
+//! block flow (`layout/block/vertical_flow.rs`, `bloco.rs`) and the text inside a box
 //! still treat everything as `horizontal-tb`, exactly as before.
 
 use crate::style::borders::SideName;

@@ -229,7 +229,7 @@ impl Dimension {
             if family.is_some_and(crate::style::is_ahem_family) {
                 return Some((ctx.node_font_size * c).max(0.0));
             }
-            let em = crate::layout::fonte_metricas::FontMetricsModel::ch_advance_em(family);
+            let em = crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(family);
             return Some((ctx.node_font_size * em * c).max(0.0));
         }
         self.resolve(ctx)

@@ -223,7 +223,7 @@ impl Canvas {
 
     /// Borda como quatro tiras — não um retângulo vazado, para não assumir
     /// que `width` é igual nos quatro lados (a `DisplayList` já colapsou para
-    /// um valor só neste item; ver o comentário em `display.rs`).
+    /// um valor só neste item; ver o comentário em `paint/item.rs`).
     fn stroke_rect(&mut self, r: Rect, width: f32, color: u32, clip: Option<Rect>) {
         let w = width.max(1.0);
         self.fill_rect(Rect::new(r.x, r.y, r.w, w), color, clip); // topo
@@ -287,7 +287,7 @@ impl Canvas {
     }
 
     /// Gradiente linear por pixel. `angle_deg` na convenção do CSS (0 = para
-    /// cima, 90 = para a direita) — a mesma leitura que `pintura.rs` faz no
+    /// cima, 90 = para a direita) — a mesma leitura que `rts-egui`'s `pintura.rs` faz no
     /// backend egui, para que o mesh e este pixel-a-pixel concordem.
     fn fill_gradient(&mut self, r: Rect, c0: u32, c1: u32, angle_deg: f32, clip: Option<Rect>) {
         let rad = angle_deg.to_radians();
@@ -409,7 +409,7 @@ fn transformed_bbox(r: Rect, mat: &Mat2d) -> (i32, i32, i32, i32) {
 }
 
 fn argb_bytes(c: u32) -> (u8, u8, u8, u8) {
-    // A `DisplayList` guarda RGBA em u32 (ver comentário em `display.rs`:
+    // A `DisplayList` guarda RGBA em u32 (ver comentário em `paint/item.rs`:
     // "cor é u32 RGBA"). Byte mais significativo = R.
     (
         ((c >> 24) & 0xff) as u8,

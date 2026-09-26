@@ -12,7 +12,7 @@
 //! `lay_out_grid` measures its rect directly (from the rows/columns it
 //! already laid out) and paints it with `pinta_caixa`, so nothing ever asked
 //! whether its `position` was `Relative`. This module is that missing ask. It
-//! reuses `layout/relativo.rs::aplica_offset_relativo` rather than writing a
+//! reuses `layout/positioned/relative.rs::aplica_offset_relativo` rather than writing a
 //! second offset routine — CLAUDE.md's "one source, generated views" applies
 //! to a piece of LOGIC computing `(dx, dy)` just as much as to a data table,
 //! and two routines answering the same question is exactly the drift that
@@ -26,7 +26,7 @@
 //! height only when that height is DEFINITE — the table's own explicitly
 //! specified `height` (or its `aspect-ratio`/flex-forced equivalent), never
 //! the auto result of stacking the rows. `avail_h` is therefore
-//! `Option<f32>` here, the SAME shape `layout/posicionado.rs::resolve_height`
+//! `Option<f32>` here, the SAME shape `layout/positioned/positioned.rs::resolve_height`
 //! already uses for an ordinary block's `%` height against its parent
 //! (`None` = parent height auto → the percentage computes to `auto`, i.e. no
 //! offset): the caller in `table/mod.rs` passes exactly the

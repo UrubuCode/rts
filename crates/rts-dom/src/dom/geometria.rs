@@ -46,7 +46,7 @@ impl Dom {
             return 0.0;
         };
         let (vw, vh) = self.viewport.get();
-        crate::layout::medidor_ativo::with_active(|measurer| {
+        crate::layout::measure::active_measurer::with_active(|measurer| {
             let ctx = crate::layout::LayoutCtx {
                 viewport_w: vw,
                 viewport_h: vh,
@@ -89,7 +89,7 @@ impl Dom {
     /// `bounding_component` responde no mesmo caso.
     pub fn bounding_components_many(&self, ids: &[NodeId]) -> Vec<f32> {
         let (vw, vh) = self.viewport.get();
-        crate::layout::medidor_ativo::with_active(|measurer| {
+        crate::layout::measure::active_measurer::with_active(|measurer| {
             let ctx = crate::layout::LayoutCtx {
                 viewport_w: vw,
                 viewport_h: vh,

@@ -247,21 +247,21 @@ the order goes from the leaves of the call graph (measure, fragment) toward
 the hub (block). `cargo check -p rts-dom --tests` after each folder; the
 release build and the rulers ONCE at the end by the coordinator.
 
-- [ ] **R1 — `measure/` and `fragment/`.** The two leaf folders. Create
+- [x] **R1 — `measure/` and `fragment/`.** The two leaf folders. Create
   `mod.rs` for each, `git mv` the twelve + six files to their English names,
   rewrite `super::x::` cross-folder paths, add the `pub use` for
   `active_measurer` in `layout.rs`, fix the 17 module-path call sites, fix
   the output path in `scripts/fonte_avancos_gera.cjs`. Check.
-- [ ] **R2 — `replaced/`, `positioned/`, `float/`, `grid/`.** Four small
+- [x] **R2 — `replaced/`, `positioned/`, `float/`, `grid/`.** Four small
   folders, same procedure. Check after each.
-- [ ] **R3 — `flex/` and `inline/`.** The two large ones (14 and 16 files).
+- [x] **R3 — `flex/` and `inline/`.** The two large ones (14 and 16 files).
   Check after each.
-- [ ] **R4 — `block/`, and `layout.rs` reduced to the hub.** Fourteen files;
+- [x] **R4 — `block/`, and `layout.rs` reduced to the hub.** Fourteen files;
   then `layout.rs` holds nine `pub(crate) mod` lines, its own functions, and
   the five `pub use` lines. `layout/tests/mod.rs` paths updated last. Check
   the whole workspace with `--tests --examples`; `cargo test -p rts-dom --lib`
   and diff the sorted test-name list against the one taken before R1.
-- [ ] **R5 — docs and the PLAN row** (coordinator, after the rulers):
+- [x] **R5 — docs and the PLAN row** (coordinator, after the rulers):
   `docs/ui/html-engine/box-tree.md` names ten `layout/` files — update the
   paths (`rts-dom` has no README; its rules are PLAN.md §1); PLAN.md §0 gains a
   `LR` row with the four rulers' numbers; the stale comments item 2 listed

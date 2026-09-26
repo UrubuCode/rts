@@ -1,6 +1,6 @@
 // Measures the ADVANCE of every character the engine's text measurer knows,
 // in Blink, for the four fonts the generic families resolve to on Windows —
-// the horizontal half of `crates/rts-dom/src/layout/fonte_metricas.rs`, whose
+// the horizontal half of `crates/rts-dom/src/layout/measure/font_metrics.rs`, whose
 // vertical half came from `tests/css/claude-fm-metricas-por-familia`.
 //
 //   bun scripts/fonte_avancos_medir_edge.mjs avancos.json

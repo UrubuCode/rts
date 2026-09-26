@@ -5,7 +5,7 @@
 
 use crate::boxes::{BoxId, BoxTree};
 use crate::dom::NodeIdx;
-use crate::layout::itens::translate_item;
+use crate::layout::fragment::items::translate_item;
 use crate::query::Geometry;
 use crate::paint::item::DisplayItem;
 use crate::paint::pieces::Piece;
@@ -108,7 +108,7 @@ pub struct DisplayList {
     /// resposta nenhuma. `rect_of_node` e `geometry_now` são as vistas
     /// agregadas por nó, para quando um nó vier a ter mais do que uma caixa.
     pub box_rects: crate::layout::BoxRects,
-    pub ancoras_estaticas: Vec<(BoxId, f32, f32)>, // static positions, `ancora_estatica.rs`
+    pub ancoras_estaticas: Vec<(BoxId, f32, f32)>, // static positions, `layout/inline/static_anchor.rs`
     /// Tracks de coluna de grids explícitos, já resolvidas em px pelo layout. O
     /// `computedProperty` usa esta fonte de used values sem duplicar `resolve_tracks`.
     pub grid_column_tracks: crate::fasthash::FastMap<NodeIdx, Vec<f32>>,

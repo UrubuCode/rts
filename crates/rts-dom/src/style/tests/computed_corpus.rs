@@ -150,7 +150,7 @@ fn pointer_events_computado() {
 fn pointer_events_none_e_transparente_ao_hit_test() {
     let d = doc(CURSOR_HTML);
     let (vw, vh) = (1280.0, 800.0);
-    crate::layout::medidor_ativo::with_active(|measurer| {
+    crate::layout::measure::active_measurer::with_active(|measurer| {
         let ctx = crate::layout::LayoutCtx {
             viewport_w: vw,
             viewport_h: vh,

@@ -9,9 +9,9 @@
 //! answers that three times by hand, each in its own file and each with its own
 //! shape:
 //!
-//! - `layout/posicionado.rs::resolve_height` takes an `avail_h: Option<f32>`
+//! - `layout/positioned/positioned.rs::resolve_height` takes an `avail_h: Option<f32>`
 //!   and rebuilds the `calc()` sum on the block axis;
-//! - `layout/posicionado.rs::resolve_inset` takes the extent of the axis the
+//! - `layout/positioned/positioned.rs::resolve_inset` takes the extent of the axis the
 //!   caller happens to know it is on;
 //! - `inline_box/substituido.rs` keeps a `base_de_percentagem_definida` flag
 //!   beside a `declarado_altura` closure that drops a percentage height
@@ -103,7 +103,7 @@ impl PercentBasis {
 /// A containing block: its extent on each of the two axes, and which of them
 /// are known.
 ///
-/// It deliberately does NOT carry an origin. `layout/caixa_contentora.rs`
+/// It deliberately does NOT carry an origin. `layout/positioned/containing_block.rs`
 /// answers where the containing block starts — that is a positioning question —
 /// and this answers what a percentage inside it resolves against. Fusing them
 /// would put an origin on every measurement that has none.

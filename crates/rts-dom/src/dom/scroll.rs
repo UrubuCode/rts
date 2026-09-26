@@ -7,7 +7,7 @@
 //!
 //! ## A decisão: offset FORA da chave de cache, aplicado como translação
 //!
-//! O layout (`layout/bloco.rs`) emite cada `BeginClip` com o offset LIDO daqui
+//! O layout (`layout/block/block.rs`) emite cada `BeginClip` com o offset LIDO daqui
 //! (`scroll_of`) — mas isso é só o valor "como estava quando este fragmento
 //! foi montado"; nem a pintura nem uma consulta de geometria confiam nele.
 //! Os dois voltam a perguntar ao `Dom` o valor VIVO no momento em que
@@ -53,7 +53,7 @@ impl Dom {
         self.scroll_of_idx(idx)
     }
 
-    /// A mesma leitura, por índice CRU — o layout (`layout/bloco.rs`) já
+    /// A mesma leitura, por índice CRU — o layout (`layout/block/block.rs`) já
     /// trabalha em `NodeIdx`, e é o mesmo tipo que a `DisplayList` já expõe
     /// a quem pinta (`ScrollRegion::node_idx`, `DisplayItem::BeginClip::node`
     /// já cruzam para o `rts-egui` assim, sem passar por um `NodeId`

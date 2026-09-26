@@ -43,126 +43,60 @@ use crate::dom::{BoxCacheTarget, Dom, IntrinsicWidthKey, LayoutMeasureKey, NodeI
 use crate::inline_box::{AtomicKind, ParteGerada, apara_css, e_espaco_css, so_espaco_css};
 use crate::style::{ComputedStyle, ResolveCtx};
 
-mod bfc;
-pub(crate) mod bfc_estilo;
-mod bfc_evita_float;
-pub(crate) mod caixa;
-mod caixa_contentora;
-mod clearfix;
-mod dimensao_indefinida;
-mod box_fragments;
-mod float;
-mod float_placement;
-mod float_in_line;
-mod inline_fragmentos;
-mod input;
-mod input_sizing;
-mod select;
-mod intrinseco_min_max;
-mod tamanho_intrinseco;
-pub(crate) mod itens;
-mod fonte_avancos;
-mod fonte_do_trecho;
-pub(crate) mod fonte_metricas;
-mod medida;
-mod medida_arvore;
-pub(crate) mod text_measure;
-pub mod medidor_ativo;
-mod medidor_texto;
-mod margem_escapada;
-mod overflow_viewport;
-mod posicao_estatica;
-mod posicionado;
-mod pseudo_bloco;
-mod pseudo_caixa;
-mod pseudo_inline;
-mod relativo;
-mod replaced;
-mod replaced_transferido;
-pub(crate) mod bloco;
-mod bloco_caixa;
-mod costura_filhos;
-mod fragmento;
-mod fragmento_tipos;
-mod rtl_bloco;
-mod sequencia;
-mod vertical;
-mod linha_ib;
-mod alinhamento_vertical;
-mod ancora_estatica;
-use self::coluna::{align_offset, justify_offsets, layout_children_column};
-use self::flex::layout_children_horizontal;
-use self::grid::layout_children_grid;
-use self::linha::layout_inline_flow;
-use self::quebra::wrap_runs;
-use self::runs::{InlineRun, collect_runs};
-use self::pseudo_inline::pseudo_run;
-use self::segmento::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
-mod coluna;
-mod coluna_rtl;
-mod coluna_shrink;
-mod coluna_wrap;
-mod coluna_wrap_largura;
-mod eixos_flex;
-mod flex;
-mod flex_baseline;
-mod flex_basis_content;
-mod flex_limites;
-mod flex_linhas;
-mod flex_margens_auto;
-mod flex_pseudo;
-mod flex_stretch_replaced;
-mod grid;
-mod grid_linhas;
-mod grid_tracks;
-mod grid_colapso;
-mod hifen;
-mod linha;
-mod linha_atomos;
-mod linha_baseline;
-mod quebra;
-mod quebra_particao;
-mod preserved_spaces;
-mod runs;
-mod segmento;
-mod texto_solto;
-mod tabulacao;
-mod transform_rects;
-pub(crate) use self::bloco::layout_block;
-pub use self::fragmento_tipos::{ChildRef, Fragment};
+pub(crate) mod block;
+pub(crate) mod inline;
+pub(crate) mod flex;
+pub(crate) mod grid;
+pub(crate) mod float;
+pub(crate) mod positioned;
+pub(crate) mod replaced;
+pub(crate) mod measure;
+pub(crate) mod fragment;
+
+pub use measure::active_measurer;
+use self::flex::column::{align_offset, justify_offsets, layout_children_column};
+use self::flex::row::layout_children_horizontal;
+use self::grid::grid::layout_children_grid;
+use self::inline::line::layout_inline_flow;
+use self::inline::line_break::wrap_runs;
+use self::inline::runs::{InlineRun, collect_runs};
+use self::inline::pseudo_inline::pseudo_run;
+use self::inline::segment::{Segment, aplicar_elipse, collapse_ws, elipse_pedida, push_segment};
+pub(crate) use self::block::block::layout_block;
+pub use self::fragment::types::{ChildRef, Fragment};
 use crate::paint::pieces::Piece;
-pub use self::box_fragments::BoxRects;
-pub(crate) use self::box_fragments::{LineId, LineScope};
-use self::fragmento::{KeyBase, emit_fragment, layout_block_reusing};
-use self::vertical::layout_children_vertical;
-use self::linha_ib::layout_inline_block_line;
-// `pub(crate)`, not a plain `use`: `table/relativo.rs` calls it too, for the
+pub use self::fragment::box_rects::BoxRects;
+pub(crate) use self::fragment::box_rects::{LineId, LineScope};
+use self::fragment::fragment::{KeyBase, emit_fragment, layout_block_reusing};
+use self::block::vertical_flow::layout_children_vertical;
+use self::inline::line_inline_block::layout_inline_block_line;
+// `pub(crate)`, not a plain `use`: `table/relative.rs` calls it too, for the
 // table-internal boxes (`<tr>`/`<tbody>`/`<thead>`/`<tfoot>`) that never go
 // through `layout_block` and so never asked this question on their own.
-pub(crate) use self::relativo::aplica_offset_relativo;
+pub(crate) use self::positioned::relative::aplica_offset_relativo;
 
 use crate::paint::item::{Corners, DisplayItem};
 use crate::paint::list::{DisplayList, Rect, ScrollRegion};
-pub use self::medidor_texto::{ApproxMeasurer, TextMeasurer};
-pub(crate) use self::bfc::BlockFormattingContext;
-pub(crate) use self::caixa::{font_px, is_non_rendered_tag, used_display};
-pub(crate) use self::float::Exclusao;
-pub(crate) use self::itens::{add_line_fragment, record_box_rect, reserve_box_order};
-pub(crate) use self::medida::intrinsic_outer_width;
+pub use self::measure::text_measurer::{ApproxMeasurer, TextMeasurer};
+pub(crate) use self::block::bfc::BlockFormattingContext;
+pub(crate) use self::block::box_kind::{font_px, is_non_rendered_tag, used_display};
+pub(crate) use self::float::float::Exclusao;
+pub(crate) use self::fragment::items::{add_line_fragment, record_box_rect, reserve_box_order};
+pub(crate) use self::measure::measure::intrinsic_outer_width;
 use crate::paint::decor::border_items;
-pub(crate) use self::posicionado::is_out_of_flow;
-use self::caixa::{css_display, em_contexto_inline, is_block_level, is_inline_block, is_inline_text_container, whitespace_is_inline_separator};
-use self::float::{banda_livre, fecha_a_corrida, float_of};
-use self::input::{layout_button, layout_input};
-use self::select::layout_select;
-use self::medida::{child_outer_height, child_outer_width, collect_text, content_natural_width};
-use self::caixa::{is_text_input_tag, tag_de};
+pub(crate) use self::positioned::positioned::is_out_of_flow;
+use self::block::box_kind::{css_display, em_contexto_inline, is_block_level, is_inline_block, is_inline_text_container, whitespace_is_inline_separator};
+use self::float::float::{banda_livre, fecha_a_corrida, float_of};
+use self::replaced::input::{layout_button, layout_input};
+use self::replaced::select::layout_select;
+use self::measure::measure::{child_outer_height, child_outer_width, collect_text, content_natural_width};
+use self::block::box_kind::{is_text_input_tag, tag_de};
 use crate::paint::decor::{body_background, deve_suprimir_fundo};
 use crate::paint::pieces;
 use crate::paint::stacking;
 use crate::paint::style::{apply_opacity, cor_visivel, decoration_code, italico};
-use self::posicionado::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
-use self::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
+use self::positioned::positioned::{collect_out_of_flow, e_display_none, layout_out_of_flow, resolve_height};
+use self::replaced::replaced::{layout_canvas, layout_image, layout_svg_placeholder};
 
 /// Endereço estável de uma caixa para caches que sobrevivem à reconstrução da
 /// árvore. O `BoxId` é a identidade operacional dentro de uma passada; o par
@@ -210,7 +144,7 @@ pub(crate) fn measure_block(
     // segundo caso, o layout de bloco SEM árvore sobre um nó que a tem, e o
     // caminho rápido do cache de fragmentos rebentava no primeiro filho
     // (WPT `css-flexbox/percentage-heights-023`). Quem só conhece o nó anda
-    // a árvore até à caixa — `coluna_shrink::altura_conteudo_sem_height`.
+    // a árvore até à caixa — `flex::column_shrink::altura_conteudo_sem_height`.
     caixa: crate::boxes::BoxId,
     avail_w: f32,
     avail_h: Option<f32>,
@@ -242,8 +176,8 @@ pub(crate) fn measure_block(
     let mut scratch = DisplayList::for_dom(dom);
     // The lines this throwaway layout records are in ITS coordinates: dropped
     // on the way out, or the fragment being built around this measure would
-    // read them as its own (`linha_baseline.rs`).
-    let linhas_antes = linha_baseline::marca();
+    // read them as its own (`inline/line_baseline.rs`).
+    let linhas_antes = inline::line_baseline::marca();
     let size = layout_block(
         dom,
         id,
@@ -267,7 +201,7 @@ pub(crate) fn measure_block(
         ctx,
         &mut scratch,
     );
-    linha_baseline::descarta(linhas_antes);
+    inline::line_baseline::descarta(linhas_antes);
     dom.layout_measure_put(key, size);
     size
 }
@@ -313,10 +247,10 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // informa o viewport à CASCADE (base de vw/vh no font-size fluido/calc; o
     // memo de estilo do Dom invalida sozinho se mudou).
     dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
-    linha_baseline::limpa();
+    inline::line_baseline::limpa();
     let mut list = DisplayList::for_dom(dom);
     // A árvore de caixas deste documento, memoizada no `Dom`. Vive na lista
-    // para que `record_node_rect`/`reserve_node_order` (em `itens.rs`)
+    // para que `record_node_rect`/`reserve_node_order` (em `fragment/items.rs`)
     // traduzam nó→caixa por dentro, sem que nenhum dos chamadores mude.
     // PROPAGAÇÃO DO FUNDO do <body>/<html> (regra especial do CSS): o background
     // desses dois elementos "vaza" para o VIEWPORT inteiro, não só a caixa deles.
@@ -356,7 +290,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         //
         // O BFC passado aqui não é lido: `child` é o elemento RAIZ do documento
         // (tipicamente `<html>`), que estabelece sempre o seu próprio BFC (CSS
-        // 2.1 §9.4.1) — `bloco.rs` cria um novo internamente e ignora este.
+        // 2.1 §9.4.1) — `block/block.rs` cria um novo internamente e ignora este.
         let (_, h) = layout_block(
             dom,
             child,
@@ -409,14 +343,14 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let mut rects_conhecidos = list.geometry_now().rects;
     // Where each box that appeared in the middle of a line WOULD have been: the
     // flow skips an out-of-flow box, so its node has no rect here, and the
-    // entry is its static position (`ancora_estatica.rs`).
-    rects_conhecidos.extend(ancora_estatica::todas(&list));
+    // entry is its static position (`inline/static_anchor.rs`).
+    rects_conhecidos.extend(inline::static_anchor::todas(&list));
     let mut positioned = Vec::with_capacity(out_of_flow.len());
     for alvo in out_of_flow {
         let mut fragment = DisplayList::for_dom(dom);
         layout_out_of_flow(dom, alvo, ctx, &rects_conhecidos, &mut fragment);
         rects_conhecidos.extend(fragment.geometry_now().rects);
-        rects_conhecidos.extend(ancora_estatica::todas(&fragment));
+        rects_conhecidos.extend(inline::static_anchor::todas(&fragment));
         positioned.push((stacking::stacking_key(dom, alvo.node), alvo.node, fragment));
     }
     positioned.sort_by(|(a, ..), (b, ..)| a.cmp(b));

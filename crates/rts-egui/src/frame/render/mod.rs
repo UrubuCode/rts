@@ -78,7 +78,7 @@ fn context_identity(ctx: &egui::Context) -> u64 {
 /// não precisa de ter.
 fn measurer_for(ctx: &egui::Context) -> Rc<EguiMeasurer> {
     let measurer = Rc::new(EguiMeasurer { ctx: ctx.clone(), context_id: context_identity(ctx) });
-    rts_dom::layout::medidor_ativo::set_active(measurer.clone());
+    rts_dom::layout::active_measurer::set_active(measurer.clone());
     measurer
 }
 
@@ -89,7 +89,7 @@ fn measurer_for(ctx: &egui::Context) -> Rc<EguiMeasurer> {
 /// `medidor_ativo` existe para fechar, só que adiada até o processo morrer em
 /// vez de acontecer a cada pedido.
 pub fn clear_active_measurer() {
-    rts_dom::layout::medidor_ativo::clear_active();
+    rts_dom::layout::active_measurer::clear_active();
 }
 
 thread_local! {
