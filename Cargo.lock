@@ -4807,6 +4807,7 @@ dependencies = [
  "rts-dom",
  "rts-input",
  "rts-render",
+ "rts-text",
  "wgpu",
  "winit",
 ]

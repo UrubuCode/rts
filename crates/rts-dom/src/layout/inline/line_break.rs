@@ -1,12 +1,8 @@
 //! QUEBRA DE LINHA: decidir onde os runs passam para a linha seguinte.
 //!
-//! **No teto de 500.** O `wrap_runs` é a maior parte disto e não é partido
-//! por dentro: tem três `macro_rules!` no corpo (`close_cluster`, `join`,
-//! `glue_space`) que capturam uma dúzia de locais cada — mover UM deles para
-//! outro ficheiro obriga a mover TODOS os locais que captura, e o que sobra
-//! deixa de ser um movimento de código. O que não toca nos macros já saiu:
-//! o hífen suave em `hyphen.rs`, e a partição de peça/o atalho de run inteiro
-//! em `line_break_partition.rs`.
+//! **At the 500 ceiling.** The three `macro_rules!` in `wrap_runs` capture a
+//! dozen locals each, so none moves alone. The rest left for `hyphen.rs` and
+//! `line_break_partition.rs` (piece split, whole-run path, whole-line re-measure).
 
 use super::*;
 use super::preserved_spaces::{trim_hanging, tokens, atomic_segment, Token};
@@ -130,11 +126,11 @@ pub(in crate::layout) fn wrap_runs(
                         cluster.clear();
                     }
                 }
-                if !cluster.is_empty()
-                    && !at_line_start
-                    && !fills_line
-                    && cur_w + need - cluster_hang > max_w(lines.len())
-                {
+                let over = !cluster.is_empty() && !at_line_start && !fills_line && cur_w + need - cluster_hang > max_w(lines.len());
+                // The sum of pieces is not the shaped line: ask it whole first, and if
+                // it stays, its merged segment takes the shaped width (below, unless split).
+                let shaped = over.then(|| super::line_break_partition::shaped_join_fits(&cur, cur_w, runs, cluster.iter().map(|c| c.atomic.is_none().then_some((c.run, c.text.as_str()))), sep.then_some(from_run), (cluster_hang, word_spacing, max_w(lines.len())), fonts, m)).flatten().map(|w| (w, lines.len()));
+                if over && shaped.is_none() {
                     lines.push(trim_hanging(std::mem::take(&mut cur), posted_hang));
                     cur_w = 0.0;
                     at_line_start = true;
@@ -200,6 +196,10 @@ pub(in crate::layout) fn wrap_runs(
                     }
                     first = false;
                     at_line_start = false;
+                }
+                if let (Some((whole, _)), Some(last)) = (shaped.filter(|s| s.1 == lines.len()), cur.last_mut()) {
+                    last.text_width -= cur_w - whole;
+                    cur_w = whole;
                 }
                 (cluster_w, posted_hang) = (0.0, (cluster_hang, space_w(m, from_run)));
                 cluster_hang = 0.0;

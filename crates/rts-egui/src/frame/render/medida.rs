@@ -1,139 +1,95 @@
-use super::*;
+//! The window's text: measured by `rts_text::adapter::RealMeasurer`, painted
+//! by epaint with the SAME face (plan `2026-09-26-text-crate.md`, F4).
+//!
+//! This replaced `EguiMeasurer`, which measured with epaint's glyph advances
+//! (no kerning), took the ascent from epaint's `StyledMetrics` and had no
+//! descent at all (it fell back to the trait's `0.3125 × size`). It also
+//! measured unstyled text in Segoe UI while `claude-raster` and Blink use
+//! Times New Roman, so the window and the instrument disagreed on the same
+//! page. `RealMeasurer` is the one implementation both now share.
+//!
+//! Painting stays on epaint's galley in this lot. What must not diverge is
+//! the FACE: `painted_family` asks the measurer which face decided the width
+//! and hands those very bytes to egui under a name derived from the face's
+//! id. Choosing the egui font by a second rule (the old bold/italic table
+//! over `app/fonts.rs`'s hard-coded paths) is the two-answers class this
+//! module exists to close.
+
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use rts_text::adapter::RealMeasurer;
+use rts_text::FontStore;
 
 thread_local! {
-    /// Cache do ASCENT real (`StyledMetrics::ascent`) por (contexto, tamanho) —
-    /// mesmo padrão de `LINE_HEIGHT_CACHE` em `mod.rs`. Vive aqui e não lá
-    /// porque este ficheiro é quem o consome, e `mod.rs` — onde as duas caches
-    /// irmãs estão — é de outro agente nesta tarefa (o registo do medidor
-    /// ativo).
-    static FONT_ASCENT_CACHE: std::cell::RefCell<std::collections::HashMap<(usize, u32), f32>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// One measurer per UI thread, i.e. per app: its `FontStore` loads each
+    /// system face once and its `identity()` is stable across frames, so the
+    /// layout cache keyed by it hits frame after frame.
+    static MEASURER: Rc<RealMeasurer> = Rc::new(RealMeasurer::new(Arc::new(FontStore::new())));
+    /// egui font names already handed to `add_font`. egui installs a font at
+    /// the start of the NEXT pass and only dedups against installed ones, so
+    /// without this every frame until then would copy the face's bytes again.
+    static REQUESTED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
-impl EguiMeasurer {
-    /// A família egui p/ (mono, bold, italic). Peso e estilo são dois EIXOS, não
-    /// uma escala: `<em><strong>` pede a família "bold-italic", que é um ficheiro
-    /// de fonte próprio e não um bold inclinado. Mono vem depois porque nenhuma
-    /// mono itálica é carregada (ver `app::install_ui_fonts`); senão Proportional.
-    ///
-    /// É `pub(crate)` e usada TAMBÉM pela pintura. A alternativa rejeitada foi
-    /// deixar a pintura com a sua cópia da escolha — era o que estava, e uma
-    /// família nova tinha de ser acrescentada em dois sítios para medição e
-    /// pintura não divergirem.
-    pub(crate) fn family(mono: bool, bold: bool, italic: bool) -> egui::FontFamily {
-        match (bold, italic) {
-            (true, true) => egui::FontFamily::Name("bold-italic".into()),
-            (true, false) => egui::FontFamily::Name("bold".into()),
-            (false, true) => egui::FontFamily::Name("italic".into()),
-            (false, false) if mono => egui::FontFamily::Monospace,
-            (false, false) => egui::FontFamily::Proportional,
-        }
-    }
-    fn font_id(size: f32, mono: bool, bold: bool, italic: bool) -> egui::FontId {
-        egui::FontId::new(size, Self::family(mono, bold, italic))
-    }
+/// The app's measurer, registered as the thread's ACTIVE one so the geometry
+/// answered outside the frame (`getBoundingClientRect`, `computedProperty`)
+/// is the geometry this frame paints. Re-registered every frame because
+/// "last to paint wins" is the contract of `active_measurer`; it costs an
+/// `Rc` clone.
+pub(super) fn measurer() -> Rc<RealMeasurer> {
+    let measurer = MEASURER.with(Rc::clone);
+    rts_dom::layout::active_measurer::set_active(measurer.clone());
+    measurer
 }
 
-impl TextMeasurer for EguiMeasurer {
-    /// O `Context` do egui identifica as fontes; o `pixels_per_point` identifica
-    /// a escala, e mudar o zoom MUDA a largura do texto. Este medidor é
-    /// reconstruído (e reregistado como o activo) a cada frame — ver
-    /// `measurer_for` —, então nem o endereço DELE nem o do `Context` que
-    /// carrega servem (o segundo é o endereço do CAMPO, e muda com ele); é o
-    /// `context_id` cunhado uma vez por contexto — ver `EguiMeasurer`.
-    fn identity(&self) -> u64 {
-        self.context_id ^ ((self.ctx.pixels_per_point().to_bits() as u64) << 32)
+/// The egui family to paint a `DisplayItem::Text` with: the face the
+/// measurer resolved for `(family, mono, bold, italic)`, registered in egui
+/// from its own bytes on first sight.
+///
+/// Until egui has installed it (the next pass) — and on a machine where the
+/// family resolves to no face, where the measurer answers `ApproxMeasurer`'s
+/// numbers — the text is painted with `legacy_family`, the fonts
+/// `app/fonts.rs` loads at start-up. The first case lasts one frame and
+/// requests a repaint.
+pub(super) fn painted_family(
+    ctx: &egui::Context,
+    family: Option<&str>,
+    mono: bool,
+    bold: bool,
+    italic: bool,
+) -> egui::FontFamily {
+    let Some(face) = MEASURER.with(|m| m.face(family, mono, bold, italic)) else {
+        return legacy_family(mono, bold, italic);
+    };
+    let name = format!("rts-text:{:016x}", face.id());
+    let egui_family = egui::FontFamily::Name(name.as_str().into());
+    if ctx.fonts(|f| f.definitions().families.contains_key(&egui_family)) {
+        return egui_family;
     }
+    if REQUESTED.with(|r| r.borrow_mut().insert(name.clone())) {
+        let (bytes, index) = face.data();
+        let data = egui::FontData { index, ..egui::FontData::from_owned(bytes.to_vec()) };
+        let insert = egui::epaint::text::InsertFontFamily {
+            family: egui_family,
+            priority: egui::epaint::text::FontPriority::Highest,
+        };
+        ctx.add_font(egui::epaint::text::FontInsert::new(&name, data, vec![insert]));
+        ctx.request_repaint();
+    }
+    legacy_family(mono, bold, italic)
+}
 
-    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32 {
-        let context_key = self.context_id as usize;
-        // `italic` entra na CHAVE do cache: a família itálica tem avanços
-        // próprios, e sem este bit a primeira medição de uma palavra ficava a
-        // valer para as duas versões dela.
-        let font_key = (context_key, size.to_bits(), mono, bold, italic);
-        if let Some(width) = TEXT_WIDTH_CACHE.with(|cache| {
-            cache
-                .borrow()
-                .get(&font_key)
-                .and_then(|bucket| bucket.get(text))
-                .copied()
-        }) {
-            return width;
-        }
-        let font = Self::font_id(size, mono, bold, italic);
-        // `fonts_mut` dá um `&mut FontsView` (glyph_width exige `&mut`).
-        let width = self.ctx.fonts_mut(|f| text.chars().map(|c| f.glyph_width(&font, c)).sum());
-        TEXT_WIDTH_CACHE.with(|cache| {
-            let mut cache = cache.borrow_mut();
-            let bucket = cache.entry(font_key).or_default();
-            if bucket.len() >= 8192 && !bucket.contains_key(text) {
-                if let Some(old_text) = bucket.keys().next().cloned() {
-                    bucket.remove(&old_text);
-                }
-            }
-            bucket.insert(text.to_owned(), width);
-        });
-        width
-    }
-    fn line_height(&self, size: f32) -> f32 {
-        let key = (self.context_id as usize, size.to_bits());
-        if let Some(height) = LINE_HEIGHT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
-            return height;
-        }
-        let font = Self::font_id(size, false, false, false);
-        let height = self.ctx.fonts_mut(|f| f.row_height(&font));
-        LINE_HEIGHT_CACHE.with(|cache| {
-            let mut cache = cache.borrow_mut();
-            if cache.len() >= 256 && !cache.contains_key(&key) {
-                if let Some(old_key) = cache.keys().next().copied() {
-                    cache.remove(&old_key);
-                }
-            }
-            cache.insert(key, height);
-        });
-        height
-    }
-
-    /// ASCENT real da fonte carregada — `StyledMetrics::ascent` (epaint
-    /// 0.34.3, `text/font.rs`, "distance from the top to the baseline"),
-    /// substituindo a aproximação calibrada do trait (`style::ASCENT_RATIO`).
-    /// É a mesma pergunta que `line_height` já faz a `styled_metrics` para
-    /// `row_height` — só que aqui é o outro campo da mesma struct — daí o
-    /// mesmo padrão de cache por (contexto, tamanho).
-    ///
-    /// CORTE: `font_descent` continua na aproximação do trait.
-    /// `StyledMetrics` não tem um campo "descent" — só `ascent` e
-    /// `row_height` (que inclui leading) — e `row_height − ascent` não é o
-    /// descent da fonte. Sem uma medição própria contra o Chrome para essa
-    /// combinação, a aproximação de `0.3125×size` fica: é a que
-    /// `docs/ui/css-implementation-gaps.md` já confirma certa
-    /// (`claude-display-basico.html`, `depois-do-none.y`).
-    fn font_ascent(&self, size: f32) -> f32 {
-        let key = (self.context_id as usize, size.to_bits());
-        if let Some(ascent) = FONT_ASCENT_CACHE.with(|cache| cache.borrow().get(&key).copied()) {
-            return ascent;
-        }
-        let font = Self::font_id(size, false, false, false);
-        let pixels_per_point = self.ctx.pixels_per_point();
-        let ascent = self.ctx.fonts_mut(|f| {
-            f.fonts
-                .font(&font.family)
-                .styled_metrics(
-                    pixels_per_point,
-                    font.size,
-                    &egui::epaint::text::VariationCoords::default(),
-                )
-                .ascent
-        });
-        FONT_ASCENT_CACHE.with(|cache| {
-            let mut cache = cache.borrow_mut();
-            if cache.len() >= 256 && !cache.contains_key(&key) {
-                if let Some(old_key) = cache.keys().next().copied() {
-                    cache.remove(&old_key);
-                }
-            }
-            cache.insert(key, ascent);
-        });
-        ascent
+/// The families `app/fonts.rs` always installs. Weight and style are two
+/// axes: `<em><strong>` asks for "bold-italic", its own file.
+fn legacy_family(mono: bool, bold: bool, italic: bool) -> egui::FontFamily {
+    match (bold, italic) {
+        (true, true) => egui::FontFamily::Name("bold-italic".into()),
+        (true, false) => egui::FontFamily::Name("bold".into()),
+        (false, true) => egui::FontFamily::Name("italic".into()),
+        (false, false) if mono => egui::FontFamily::Monospace,
+        (false, false) => egui::FontFamily::Proportional,
     }
 }

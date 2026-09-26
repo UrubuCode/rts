@@ -101,6 +101,7 @@ mod ahem_corpus;
 mod line_break_anywhere_corpus;
 mod textarea_ahem_corpus;
 mod text_family_corpus;
+mod kerned_shrink_to_fit;
 mod bloco_quebra_paragrafo_corpus;
 mod caixa_gerada_arvore;
 mod flex_scroll_overflow_corpus;
