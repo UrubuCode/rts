@@ -71,6 +71,7 @@ mod loops;
 mod named;
 mod numeric_use;
 mod object;
+mod object_rest;
 mod places;
 mod protect;
 mod push;

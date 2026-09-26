@@ -201,6 +201,10 @@ impl Js {
         RuntimeOp::TemplateJoin,
         // A string's code points, where a `for`-`of` may walk them -- `lower/iterate.rs`.
         RuntimeOp::TextWalk,
+        // An object pattern's rest: a fresh object and the source's own keys --
+        // `lower/object_rest.rs`.
+        RuntimeOp::ObjectNew,
+        RuntimeOp::OwnKeys,
     ];
 
     /// The index the IR carries for an entry point.

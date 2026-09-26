@@ -52,15 +52,9 @@ impl Lowering<'_> {
                 }
             };
         };
-        if object.rest.is_some() {
-            // A rest target collects the own enumerable properties NOT already named,
-            // which needs the key set of the object at run time -- an operation this
-            // table does not have, and not one an ordinary read can stand in for.
-            return Err(Unsupported::Expression(
-                "an object rest target needs the own keys at run time",
-            ));
-        }
-
+        // What a rest target leaves out: each key the pattern read, as the value it
+        // compares with -- the text of a written name, the value of a computed one.
+        let mut excluded = Vec::new();
         let mut bound = Vec::with_capacity(object.properties.len());
         for property in &object.properties {
             // THE KEY, then the TARGET, then the read: a computed key runs before the
@@ -74,6 +68,19 @@ impl Lowering<'_> {
                 PropertyKey::Computed(expr) => Err(self.expression(expr)?),
             };
             let leaf = self.leaf(&property.value.pattern, at)?;
+            if object.rest.is_some() {
+                excluded.push(match (&key, &property.key) {
+                    (Err(computed), _) => *computed,
+                    (Ok(_), PropertyKey::Named(name)) => {
+                        let spelled = self.names.spelled(*name).unwrap_or_default().to_owned();
+                        let text = self
+                            .domain
+                            .constant(JsConst::Text(crate::syntax::Text::from(spelled)));
+                        self.declared(text, at)
+                    }
+                    (Ok(_), PropertyKey::Computed(_)) => unreachable!("a computed key is Err"),
+                });
+            }
             let read = match key {
                 Ok(named) => self.prim(JsPrim::FieldRead, vec![from, named], at),
                 Err(computed) => self.prim(JsPrim::IndexRead, vec![from, computed], at),
@@ -92,6 +99,10 @@ impl Lowering<'_> {
                 }
             };
             bound.extend(self.assign_leaf(leaf, &property.value.pattern, held, at)?);
+        }
+        if let Some(rest) = &object.rest {
+            let gathered = self.object_rest(from, &excluded, at)?;
+            bound.extend(self.destructure(rest, gathered, at)?);
         }
         Ok(bound)
     }

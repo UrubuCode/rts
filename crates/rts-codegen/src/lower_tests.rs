@@ -2030,16 +2030,39 @@ fn a_rest_target_owes_no_close_because_the_iterator_ended_itself() {
     assert_eq!(nullish(&stopping), 1, "the pattern stopped, so it closes");
 }
 
-/// An object rest collects the own enumerable properties NOT already named, which
-/// needs the key set at run time.
+/// An object rest reads the source's own keys once and never reads a key the pattern
+/// named: one `OwnKeys`, one `FieldRead` for the named `a`, and the copy's reads go
+/// through the key the loop holds.
 #[test]
-fn an_object_rest_is_refused_because_it_needs_the_keys() {
-    let refused =
-        only("function f(o) { const { a, ...rest } = o; return rest; }").expect_err("a rest");
+fn an_object_rest_walks_the_own_keys_and_skips_what_was_named() {
+    let lowered = only("function f(o) { const { a, ...rest } = o; return rest; }").expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let entries: Vec<_> = lowered
+        .func
+        .insts
+        .iter()
+        .filter_map(|held| match &held.op {
+            rts_mir::Op::Call {
+                callee: rts_mir::cfg::Callee::Entry(entry),
+                ..
+            } => lowered.domain.entry_meaning(*entry),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        refused,
-        Unsupported::Expression("an object rest target needs the own keys at run time")
+        entries.iter().filter(|held| **held == crate::runtime::RuntimeOp::OwnKeys).count(),
+        1
     );
+    let field_reads = lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| {
+            matches!(&held.op, rts_mir::Op::Prim { prim, .. }
+                if lowered.domain.meaning(*prim) == Some(JsPrim::FieldRead))
+        })
+        .count();
+    assert_eq!(field_reads, 1, "`a`, read once by the pattern");
 }
 
 /// A nested pattern is taken apart again from the value read, and a computed key
