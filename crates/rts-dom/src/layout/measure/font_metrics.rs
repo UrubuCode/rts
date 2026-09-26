@@ -1,3 +1,10 @@
+//! **2026-09-26, measured from the font files by `crates/rts-text`:** the rows below
+//! are `usWinAscent`/`usWinDescent` of `OS/2`, not `hhea` — Consolas is the font
+//! that tells them apart (hhea 1521/−527/gap 350 against win 1884/514, 7 vs 9 at
+//! 10 px); Times, Arial and Segoe UI have identical values in both tables. The
+//! line gap Blink adds is `max(0, (hheaAsc − hheaDesc + hheaGap) − (winAsc +
+//! winDesc))`. Where this file says `hhea`, read that. `rts-text/tests/blink_tables.rs`
+//! reproduces every row here from the real files.
 //! The ONE model of font metrics the `ApproxMeasurer` asks: ascent, descent
 //! and the line height under `line-height: normal`, per font family.
 //!

@@ -7,6 +7,13 @@ PLAN.md rows `FM`, `FM-H`, `T`, `REGUA`, `TEXTO`, and the two triages of
 `crates/rts-dom/PLAN.md` §1–§2, `docs/ui/html-engine/box-tree.md` §7 and
 `CLAUDE.md`.
 
+## Corrections measured by T1 (2026-09-26)
+
+- **Blink's vertical metrics are `usWinAscent`/`usWinDescent` of `OS/2`, not `hhea`**: Consolas gives 7 against 9 at 10 px from `hhea`; the line gap that reproduces all four fonts is `max(0, (hheaAsc − hheaDesc + hheaGap) − (winAsc + winDesc))`. Times, Arial and Segoe UI have identical `hhea` and win values, which is why the old header could say `hhea` and still be right for them. `USE_TYPO_METRICS` has no measured row (none of the four sets it).
+- **Kerning of "AVATAR Toy To." at 16 px in Times is 10 px, not 14** (Edge 153: 112.21875 kerned, 122.21875 unkerned; rts-text 112.2188 / 122.2109).
+- **The instrument's revealed set (T2):** 51 WPT tests passed only because their text was masked on both sides; painted, they differ (bidi, mixed-size baselines, wrapping beside floats, prose that differs between test and ref). They are layout findings, not paint regressions, and the ruler's base moves to the painted instrument from here.
+- **`DisplayItem::Text` carries no family**, so the raster infers it from the measurer's calls; 280 WPT items and 28 corpus items stay masked as "family unknown". A family (or face id) on the item is T2b.
+
 ## What is true today, measured
 
 - **Measurement** goes through one trait, `TextMeasurer`
@@ -155,13 +162,13 @@ the generated table is what Blink measured and the loader is wrong.
 
 ## Tasks
 
-- [ ] **T1 — the crate** (one agent, Opus): `rts-text` with `fonts/`,
+- [x] **T1 — the crate** (one agent, Opus): `rts-text` with `fonts/`,
   `face.rs`, `shape.rs`, `breaks.rs`, `raster.rs`, the `dom-measurer`
   feature with `adapter.rs::RealMeasurer`, and the F5 tests. Workspace
   member, README of six rules or fewer (what the crate owns, what it never
   decides — CSS is rts-dom's), files ≤ 500 lines. `cargo test -p rts-text`
   and `cargo check -p rts-text --features dom-measurer`.
-- [ ] **T2 — the instrument** (one agent, after T1 is merged): `claude-raster`
+- [x] **T2 — the instrument** (one agent, after T1 is merged): `claude-raster`
   loads Ahem from `Documents/wpt-corpus/css/fonts/Ahem.ttf` (path from an env
   var the runner sets; `scripts/wpt_reftests.mjs` passes it), measures with
   `RealMeasurer`, paints glyphs, keeps the mask for unresolved families,
