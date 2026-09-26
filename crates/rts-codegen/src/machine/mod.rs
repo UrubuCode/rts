@@ -210,6 +210,8 @@ fn coerced(
 ) -> Result<MachineValue, String> {
     let found = into.repr_of(value);
     match (found, want) {
+        // ALREADY THERE: nothing to convert.
+        (held, wanted) if held == wanted => Ok(value),
         // AN INTEGER JOINING A DOUBLE, which is the case this exists for: `let x = n;
         // if (c) { x = 2; }` joins a guarded double with a literal, the lattice proves
         // `Double`, and the literal arrives as an integer. Every value an `i32` holds

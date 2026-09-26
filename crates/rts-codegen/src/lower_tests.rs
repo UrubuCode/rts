@@ -2686,3 +2686,55 @@ fn a_conditional_return_is_two_returns() {
     let tails = crate::machine::tail_positions(&lowered.func);
     assert_eq!(tails.len(), 2, "each arm's call is in tail position");
 }
+
+/// A call to a function something proved substitutable is its body, with each
+/// parameter bound to its argument's value -- no call is left -- and a parameter the
+/// call does not pass is `undefined`. A name this function binds itself is some other
+/// function, and stays a call.
+#[test]
+fn a_substituted_call_is_its_body_over_the_argument_values() {
+    let mut names = Names::new();
+    let program = parse_script(
+        "function g(x, y) { return x * 2 + y; }\n\
+         function f(a) { return g(a, 1) + g(a); }\n\
+         function h(a, g) { return g(a); }",
+        &mut names,
+    )
+    .expect("parses");
+    let resolution = resolve_module(&program.body);
+    let functions: Vec<_> = program
+        .body
+        .iter()
+        .filter_map(|item| match item {
+            ModuleItem::Stmt(Stmt {
+                kind: StmtKind::Function(function),
+                ..
+            }) => Some(function),
+            _ => None,
+        })
+        .collect();
+    let crate::syntax::FunctionBody::Block(body) = &functions[0].body else {
+        panic!("a block body")
+    };
+    let StmtKind::Return(Some(answer)) = &body[0].kind else {
+        panic!("one return")
+    };
+    let substitute = super::Substitute {
+        parameters: vec![names.intern("x"), names.intern("y")],
+        body: answer.clone(),
+    };
+    let callees = super::Callees::default()
+        .with_substitutes([(names.intern("g"), substitute)].into_iter().collect());
+    let calls = |function: &crate::syntax::Function| {
+        let mut domain = crate::domain::Js::new();
+        let func = super::lower_with(function, &resolution, &callees, &mut domain, &names, Tier::Generic)
+            .expect("lowers");
+        assert_eq!(verify(&func), Ok(()));
+        func.insts
+            .iter()
+            .filter(|held| matches!(held.op, rts_mir::Op::Call { .. }))
+            .count()
+    };
+    assert_eq!(calls(functions[1]), 0, "both calls substituted");
+    assert!(calls(functions[2]) > 0, "a parameter `g` is not the proved one");
+}

@@ -296,6 +296,25 @@ impl MachineOps for JsMachine<'_> {
         if let Some(done) = self.guarded(into, which, &of, args)? {
             return Ok(done);
         }
+        // `Math.*` OVER A NUMBER: the float instruction. The operand came through
+        // `ToNumber`, so it is a number in whatever representation that answered.
+        let math = match which {
+            JsPrim::MathSqrt => Some(rts_cranelift::ir::FloatOp::Sqrt),
+            JsPrim::MathFloor => Some(rts_cranelift::ir::FloatOp::Floor),
+            JsPrim::MathCeil => Some(rts_cranelift::ir::FloatOp::Ceil),
+            JsPrim::MathTrunc => Some(rts_cranelift::ir::FloatOp::Trunc),
+            JsPrim::MathAbs => Some(rts_cranelift::ir::FloatOp::Abs),
+            _ => None,
+        };
+        if let (Some(op), [only]) = (math, args) {
+            // A TAGGED operand is still a number -- `ToNumber` answered it -- in either
+            // of the two encodings, which `unbox_number` reads.
+            let held = match into.repr_of(*only) {
+                Repr::Tagged => super::unbox_number(into, *only)?,
+                _ => coerced(into, *only, Repr::F64)?,
+            };
+            return into.float_unary(op, held).map_err(machine);
+        }
         // A NEGATION OF A PROVED NUMBER flips the sign bit, which is not `0 - x`: that
         // answers `0` for `-0` where the language answers `-0`.
         if which == JsPrim::Negate

@@ -45,6 +45,7 @@ use crate::syntax::{
 use crate::values::Singleton;
 use named::{expression_name, name_of, primitive};
 pub use callees::Callees;
+pub use substitute::Substitute;
 pub(crate) use object::built_elsewhere;
 
 mod branch;
@@ -61,6 +62,7 @@ mod enumerate;
 mod for_await;
 mod environment;
 mod gather;
+mod intrinsic;
 mod iterate;
 mod loops;
 mod named;
@@ -69,6 +71,7 @@ mod object;
 mod places;
 mod protect;
 mod push;
+mod substitute;
 mod suspend;
 mod switch;
 mod template;
@@ -217,6 +220,7 @@ pub fn lower_within(
         passes: Vec::new(),
         made_in: BTreeMap::new(),
         returns_to: Vec::new(),
+        substituting: Vec::new(),
         prologue: true,
         lexical_this: function.captures_this,
         arguments: None,
@@ -396,6 +400,9 @@ struct Lowering<'a> {
     /// Where a written `return` goes: the innermost abrupt `finally`'s returning
     /// block, or out of the function where there is none -- `protect.rs`.
     returns_to: Vec<rts_mir::BlockId>,
+    /// The calls being substituted, innermost last, each with its parameters' values
+    /// -- `substitute.rs`.
+    substituting: Vec<(Name, BTreeMap<Name, ValueId>)>,
     /// Whether the parameters are still being bound. A captured parameter is held in
     /// a register until the guards have run and the environment exists -- see
     /// `environment.rs`.
@@ -561,6 +568,11 @@ impl Lowering<'_> {
     fn expression(&mut self, expr: &Expr) -> Result<ValueId, Unsupported> {
         match &expr.kind {
             ExprKind::Literal(literal) => self.literal(literal, expr),
+            // A PARAMETER OF A BODY BEING SUBSTITUTED is the argument's value, asked
+            // before any scope -- `substitute.rs` says why.
+            ExprKind::Ident(name) if self.substituted_name(*name).is_some() => {
+                Ok(self.substituted_name(*name).expect("just asked"))
+            }
             ExprKind::Ident(name) => {
                 match self.resolution.binding_in(self.scope, *name) {
                     Some(binding) => self.read_binding(binding, *name, expr),
@@ -805,6 +817,14 @@ impl Lowering<'_> {
                 arguments,
                 optional: false,
             } => {
+                if let Some(answered) = self.intrinsic(callee, arguments, expr)? {
+                    return Ok(answered);
+                }
+                if let ExprKind::Ident(name) = &callee.kind
+                    && let Some(answered) = self.substituted(*name, arguments)?
+                {
+                    return Ok(answered);
+                }
                 let (callee, receiver) = self.callee_of(callee, expr)?;
                 self.call_written(callee, receiver, arguments, expr)
             }

@@ -122,6 +122,20 @@ pub enum JsPrim {
     Negate,
     /// `~a`, which answers an `Int32` like the binary bitwise row.
     BitwiseNot,
+    /// `Math.sqrt`, `Math.floor`, `Math.ceil`, `Math.trunc` and `Math.abs` over an
+    /// operand that is ALREADY a number -- the lowering applies `ToNumber` first,
+    /// which is what each of those does to its argument -- and only where the whole
+    /// program leaves `Math` as the language defines it (`emit/primordial.rs`).
+    /// Instructions the hardware has; which name means which is this language's.
+    MathSqrt,
+    /// See [`JsPrim::MathSqrt`].
+    MathFloor,
+    /// See [`JsPrim::MathSqrt`].
+    MathCeil,
+    /// See [`JsPrim::MathSqrt`].
+    MathTrunc,
+    /// See [`JsPrim::MathSqrt`].
+    MathAbs,
     /// The receiver of this activation.
     ///
     /// # Why an operation and not a parameter

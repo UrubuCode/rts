@@ -186,6 +186,8 @@ impl Js {
         // `super(...)` in an arrow -- `lower/class.rs::super_call_in_arrow`.
         RuntimeOp::SuperConstruct,
         RuntimeOp::SuperConstructWithArgs,
+        // `Math.random()` where `Math` is the language's -- `lower/intrinsic.rs`.
+        RuntimeOp::MathRandom,
     ];
 
     /// The index the IR carries for an entry point.
@@ -251,6 +253,11 @@ impl Js {
         JsPrim::ShiftLeft,
         JsPrim::ShiftRight,
         JsPrim::ShiftRightUnsigned,
+        JsPrim::MathSqrt,
+        JsPrim::MathFloor,
+        JsPrim::MathCeil,
+        JsPrim::MathTrunc,
+        JsPrim::MathAbs,
     ];
 
     /// A domain holding only the fixed constants.
@@ -367,7 +374,13 @@ impl Js {
             | JsPrim::IsNullish
             // Reading the receiver reads a slot the convention decided. It cannot
             // fail and it cannot call anything: the value is already there.
-            | JsPrim::ThisValue => Effect::PURE,
+            | JsPrim::ThisValue
+            // A float instruction over a number the lowering already converted.
+            | JsPrim::MathSqrt
+            | JsPrim::MathFloor
+            | JsPrim::MathCeil
+            | JsPrim::MathTrunc
+            | JsPrim::MathAbs => Effect::PURE,
             // The same boundary as arithmetic: only an object coerces through code
             // the program wrote.
             // Building one allocates, whatever it is built from, and it reaches
@@ -598,6 +611,13 @@ impl Domain for Js {
             // negative one does not fit, and negative zero is not a value this
             // lattice can name apart from zero. Unless the operand may be a BigInt,
             // where `-1n` is `-1n`.
+            // A double, whatever the number was: `Math.floor(2.5)` is 2 and still
+            // a double here, as `Math.abs(-0)` is `+0`.
+            JsPrim::MathSqrt
+            | JsPrim::MathFloor
+            | JsPrim::MathCeil
+            | JsPrim::MathTrunc
+            | JsPrim::MathAbs => Type::Double,
             JsPrim::Negate => match args {
                 [one] if Self::numeric_result(one) => Type::Double,
                 _ => Type::Anything,
@@ -678,7 +698,7 @@ impl Domain for Js {
             Some(RuntimeOp::EnumerateKeys) => Type::Object,
             // A length is a number, answered unboxed -- the representation and the
             // proof are one fact here.
-            Some(RuntimeOp::ArrayLength) => Type::Double,
+            Some(RuntimeOp::ArrayLength | RuntimeOp::MathRandom) => Type::Double,
             // EVERY OTHER ROW OF THE CATALOGUE answers the widest thing, and that is a
             // change of shape worth stating: the old table held only what this lowering
             // reached, so a row it did not know was unrepresentable. `RuntimeOp` holds

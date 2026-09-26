@@ -31,6 +31,12 @@ pub struct Callees {
     /// it cannot be keyed by position across a program. Within one function's
     /// lowering it can: every position is one node of one tree.
     templates: std::collections::BTreeMap<rts_cranelift::fault::Position, u32>,
+    /// The functions a call by name may be SUBSTITUTED for -- `substitute.rs` -- as the
+    /// compiler that proved each one handed them over.
+    substitutes: std::collections::BTreeMap<crate::names::Name, super::Substitute>,
+    /// Whether the whole program leaves `Math` as the language defines it --
+    /// `intrinsic.rs`.
+    math_primordial: bool,
 }
 
 impl Callees {
@@ -46,6 +52,8 @@ impl Callees {
         ));
         Self {
             templates: std::collections::BTreeMap::new(),
+            substitutes: std::collections::BTreeMap::new(),
+            math_primordial: false,
             by_binding: held,
             by_position: functions
                 .iter()
@@ -60,6 +68,8 @@ impl Callees {
     pub fn of_positions(positions: &[rts_cranelift::fault::Position]) -> Self {
         Self {
             templates: std::collections::BTreeMap::new(),
+            substitutes: std::collections::BTreeMap::new(),
+            math_primordial: false,
             by_binding: std::collections::BTreeMap::new(),
             by_position: positions
                 .iter()
@@ -76,6 +86,31 @@ impl Callees {
     ) -> Self {
         self.templates = sites;
         self
+    }
+
+    /// The same map, with the functions a call by name may be substituted for.
+    pub fn with_substitutes(
+        mut self,
+        substitutes: std::collections::BTreeMap<crate::names::Name, super::Substitute>,
+    ) -> Self {
+        self.substitutes = substitutes;
+        self
+    }
+
+    /// The same map, saying whether the program leaves `Math` alone.
+    pub fn with_math_primordial(mut self, untouched: bool) -> Self {
+        self.math_primordial = untouched;
+        self
+    }
+
+    /// Whether the program leaves `Math` alone.
+    pub fn math_primordial(&self) -> bool {
+        self.math_primordial
+    }
+
+    /// What a call to `name` may be substituted for, where something proved one.
+    pub fn substitute(&self, name: crate::names::Name) -> Option<&super::Substitute> {
+        self.substitutes.get(&name)
     }
 
     /// The site minted for the tagged template written at that position.

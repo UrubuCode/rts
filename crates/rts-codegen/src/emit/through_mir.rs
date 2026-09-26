@@ -207,7 +207,10 @@ fn attempt(
         }
         sites.insert(template.at, ctx.template(pieces));
     }
-    let callees = crate::lower::Callees::of_positions(&positions).with_templates(sites);
+    let callees = crate::lower::Callees::of_positions(&positions)
+        .with_templates(sites)
+        .with_substitutes(substitutes(ctx, enclosing, function))
+        .with_math_primordial(ctx.math_primordial);
     let mut domain = crate::domain::Js::new();
     // THE RUNNING EMITTER'S LAYOUT for every name this function does not own: it makes
     // the closure, from `enclosing`'s environment, so its scope is what says how many
@@ -481,6 +484,109 @@ fn inner_scope(
         reachable.extend(layer.iter().map(|name| (*name, hops as u32)));
     }
     Some(Scope::for_function(None, innermost.clone(), &innermost, &reachable))
+}
+
+/// The functions a call by name in `function` may be replaced by: what
+/// `emit/inline.rs` proved, narrowed to the one-expression shape the lowering
+/// substitutes -- no statements, no defaults, no `rest.length` form, every free name
+/// declared once program-wide -- and to a body whose every node the lowering takes
+/// without numbering anything, so a substitution never turns an accepted function
+/// into a declined one. Collected through the bodies it admits, so a substituted body
+/// calling another admitted one substitutes that one too.
+fn substitutes(
+    ctx: &Ctx,
+    enclosing: &Scope,
+    function: &Function,
+) -> std::collections::BTreeMap<crate::names::Name, crate::lower::Substitute> {
+    let mut called = Vec::new();
+    match &function.body {
+        crate::syntax::FunctionBody::Block(statements) => {
+            statements.iter().for_each(|held| called_in_statement(held, &mut called))
+        }
+        crate::syntax::FunctionBody::Expression(expr) => called_in(expr, &mut called),
+    }
+    let mut out = std::collections::BTreeMap::new();
+    while let Some(name) = called.pop() {
+        if out.contains_key(&name) || enclosing.lookup(name).is_none() || ctx.substituting(name) {
+            continue;
+        }
+        let Some(candidate) = ctx.inlinable_here(name) else {
+            continue;
+        };
+        if !candidate.statements.is_empty()
+            || candidate.rest_length.is_some()
+            || candidate.defaults.iter().any(Option::is_some)
+            || !candidate.free_proved
+            || !substitutable(&candidate.body)
+        {
+            continue;
+        }
+        called_in(&candidate.body, &mut called);
+        out.insert(
+            name,
+            crate::lower::Substitute {
+                parameters: candidate.parameters.clone(),
+                body: candidate.body.clone(),
+            },
+        );
+    }
+    out
+}
+
+/// Whether the lowering takes every node of `expr` with nothing numbered for it:
+/// no function, class, literal of an object or array, template, `this` or `super`.
+fn substitutable(expr: &crate::syntax::Expr) -> bool {
+    use crate::syntax::ExprKind;
+    let here = matches!(
+        expr.kind,
+        ExprKind::Literal(_)
+            | ExprKind::Ident(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Logical { .. }
+            | ExprKind::Conditional { .. }
+            | ExprKind::Member { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Asserted { .. }
+    ) || matches!(&expr.kind, ExprKind::Unary { op, .. } if *op != crate::syntax::UnaryOp::Delete);
+    if !here {
+        return false;
+    }
+    let mut every = true;
+    crate::emit::capture::walk_expr(expr, &mut |child| match child {
+        crate::emit::capture::Child::Expr(inner) => every &= substitutable(inner),
+        _ => every = false,
+    });
+    every
+}
+
+/// Every name called directly in an expression, nested functions aside.
+fn called_in(expr: &crate::syntax::Expr, into: &mut Vec<crate::names::Name>) {
+    if let crate::syntax::ExprKind::Call { callee, .. } = &expr.kind
+        && let crate::syntax::ExprKind::Ident(name) = callee.kind
+    {
+        into.push(name);
+    }
+    crate::emit::capture::walk_expr(expr, &mut |child| {
+        if let crate::emit::capture::Child::Expr(inner) = child {
+            called_in(inner, into);
+        }
+    });
+}
+
+fn called_in_statement(statement: &crate::syntax::Stmt, into: &mut Vec<crate::names::Name>) {
+    use crate::emit::capture::StmtChild;
+    crate::emit::capture::walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => called_in_statement(inner, into),
+        StmtChild::Expr(expr) => called_in(expr, into),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                called_in(value, into);
+            }
+        }
+        StmtChild::Catch(clause) => clause.body.iter().for_each(|held| called_in_statement(held, into)),
+        StmtChild::Function(_) | StmtChild::Class(_) => {}
+    });
 }
 
 /// Whether a `typeof` reads this value.
