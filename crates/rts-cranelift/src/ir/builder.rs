@@ -20,7 +20,7 @@ use super::entity::{BlockId, ConstId, ValueId};
 use super::func::{Function, Signature};
 use super::funcs::{FuncId, FuncRegistry, SigId};
 use super::inst::{
-    BitOp, BlockCall, CmpOp, FloatOp, GenericOp, Inst, NumOp, Region, Terminator, TrapCode,
+    BitOp, BlockCall, CmpOp, FloatOp, GenericOp, Inst, IntUnaryOp, NumOp, Region, Terminator, TrapCode,
 };
 use crate::repr::Repr;
 use crate::types::{TypeId, TypeRegistry};
@@ -384,6 +384,42 @@ impl<'a> FuncBuilder<'a> {
             None => {}
         }
         Ok(self.emit(Inst::ToInt32(value), Repr::I32))
+    }
+
+    /// A one-operand integer operation over a proven integer.
+    pub fn int_unary(&mut self, op: IntUnaryOp, value: ValueId) -> BuildResult<ValueId> {
+        let repr = self.repr_of(value);
+        if !repr.is_integer() {
+            return Err(BuildError::WrongDomain {
+                operation: "int_unary",
+                found: repr,
+            });
+        }
+        Ok(self.emit(Inst::IntUnary(op, value), repr))
+    }
+
+    /// One of two proven values of one representation, chosen by a boolean.
+    ///
+    /// Refused where the two disagree about their representation, or where the
+    /// condition is not a [`Repr::Bool`]: a select over a tagged pair would be a
+    /// choice between two words nothing has proved anything about, which is
+    /// what a generic operation is for.
+    pub fn select(&mut self, cond: ValueId, then: ValueId, otherwise: ValueId) -> BuildResult<ValueId> {
+        if self.repr_of(cond) != Repr::Bool {
+            return Err(BuildError::WrongDomain {
+                operation: "select",
+                found: self.repr_of(cond),
+            });
+        }
+        let repr = self.same_proven("select", then, otherwise)?;
+        Ok(self.emit(
+            Inst::Select {
+                cond,
+                then,
+                otherwise,
+            },
+            repr,
+        ))
     }
 
     /// A one-operand floating-point operation over a proven double.

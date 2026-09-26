@@ -415,7 +415,27 @@ impl<'a> Body<'a> {
                     crate::ir::FloatOp::Trunc => builder.ins().trunc(raw),
                     crate::ir::FloatOp::Abs => builder.ins().fabs(raw),
                     crate::ir::FloatOp::Neg => builder.ins().fneg(raw),
+                    crate::ir::FloatOp::RoundToSingle => {
+                        let narrow = builder.ins().fdemote(types::F32, raw);
+                        builder.ins().fpromote(types::F64, narrow)
+                    }
                 }
+            }
+
+            Inst::IntUnary(op, v) => {
+                let raw = self.value(*v);
+                match op {
+                    crate::ir::IntUnaryOp::LeadingZeros => builder.ins().clz(raw),
+                }
+            }
+
+            Inst::Select {
+                cond,
+                then,
+                otherwise,
+            } => {
+                let (c, x, y) = (self.value(*cond), self.value(*then), self.value(*otherwise));
+                builder.ins().select(c, x, y)
             }
 
             Inst::ToF64(v) => {

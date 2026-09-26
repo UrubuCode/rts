@@ -127,6 +127,22 @@ pub enum FloatOp {
     /// double. This flips a bit of a proven float and does nothing else, which
     /// is why it belongs beside `Abs` — the operation that clears the same bit.
     Neg,
+    /// Rounded to the nearest single-precision value and widened back.
+    ///
+    /// Two instructions — `fdemote` then `fpromote` — and admitted although
+    /// this enum's bar is one, because the pair IS the operation: there is no
+    /// single-precision representation in this vocabulary for the narrow value
+    /// to live in, so a client could not spell the two halves itself. Exact
+    /// by construction, `NaN` and the sign of zero included.
+    RoundToSingle,
+}
+
+/// One-operand operations over proven integers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IntUnaryOp {
+    /// How many leading bits are clear, in the operand's own width. Zero
+    /// answers the width. One instruction on every target here (`lzcnt`, `clz`).
+    LeadingZeros,
 }
 
 /// Bitwise operations over proven integers.
@@ -250,6 +266,28 @@ pub enum Inst {
     /// means this is the client's question, answered before it emits one —
     /// rule 2, no source-language knowledge here.
     FloatUnary(FloatOp, ValueId),
+
+    /// One-operand integer operation over a proven integer, answering the same
+    /// representation.
+    IntUnary(IntUnaryOp, ValueId),
+
+    /// One of two proven values of one representation, chosen by a boolean.
+    ///
+    /// A `select` rather than a branch: no block, no jump, and both operands
+    /// are already computed. That is the right shape for the small arithmetic
+    /// corrections a language has to make around an instruction — the sign of a
+    /// zero, a tie rounded the other way — where a branch would cost more than
+    /// the instruction it corrects. Not admitted over generic operands: a client
+    /// that has not proved both sides has nothing this can choose between
+    /// without a widening it would then have to undo.
+    Select {
+        /// A [`Repr::Bool`].
+        cond: ValueId,
+        /// Answered when `cond` holds.
+        then: ValueId,
+        /// Answered otherwise. Same representation as `then`.
+        otherwise: ValueId,
+    },
 
     /// Widens a proven value into the generic form.
     ///
@@ -591,7 +629,14 @@ impl Inst {
             | Inst::ToInt32(v)
             | Inst::ToF64(v)
             | Inst::ToF64Unsigned(v)
-            | Inst::FloatUnary(_, v) => vec![*v],
+            | Inst::FloatUnary(_, v)
+            | Inst::IntUnary(_, v) => vec![*v],
+
+            Inst::Select {
+                cond,
+                then,
+                otherwise,
+            } => vec![*cond, *then, *otherwise],
 
             Inst::IntArith(_, a, b)
             | Inst::FloatArith(_, a, b)

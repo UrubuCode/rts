@@ -818,7 +818,18 @@ fn replace_operands(inst: &mut Inst, replacements: &[ValueId]) {
         | Inst::ToF64Unsigned(v)
         | Inst::WordLoad { address: v }
         | Inst::IsSingleton { value: v, .. }
-        | Inst::FloatUnary(_, v) => *v = take(),
+        | Inst::FloatUnary(_, v)
+        | Inst::IntUnary(_, v) => *v = take(),
+
+        Inst::Select {
+            cond,
+            then,
+            otherwise,
+        } => {
+            *cond = take();
+            *then = take();
+            *otherwise = take();
+        }
 
         Inst::IntArith(_, a, b)
         | Inst::FloatArith(_, a, b)

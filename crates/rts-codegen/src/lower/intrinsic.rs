@@ -34,9 +34,6 @@ impl Lowering<'_> {
         arguments: &[Spreadable],
         at: &Expr,
     ) -> Result<Option<ValueId>, Unsupported> {
-        if !self.callees.math_primordial() {
-            return Ok(None);
-        }
         let ExprKind::Member {
             object,
             property,
@@ -45,49 +42,101 @@ impl Lowering<'_> {
         else {
             return Ok(None);
         };
-        let ExprKind::Ident(name) = &object.kind else {
-            return Ok(None);
-        };
-        if self.names.spelled(*name) != Some("Math")
-            || self.resolution.binding_in(self.scope, *name).is_some()
-            || self.outer.is_some_and(|outer| outer(*name).is_some())
-        {
+        if !self.is_math(object) {
             return Ok(None);
         }
-        let op = match self.names.spelled(*property) {
-            Some("random") if arguments.is_empty() => {
-                return Ok(Some(self.entry(crate::runtime::RuntimeOp::MathRandom, Vec::new(), at)));
-            }
-            Some("sqrt") => JsPrim::MathSqrt,
-            Some("floor") => JsPrim::MathFloor,
-            Some("ceil") => JsPrim::MathCeil,
-            Some("trunc") => JsPrim::MathTrunc,
-            Some("abs") => JsPrim::MathAbs,
-            // Two written arguments, each through `ToNumber` in source order,
-            // which is what the runtime's fold does to them before comparing.
-            Some("min") | Some("max") if arguments.len() == 2 => {
-                let op = match self.names.spelled(*property) {
-                    Some("min") => JsPrim::MathMin,
-                    _ => JsPrim::MathMax,
-                };
-                let mut numbers = Vec::with_capacity(2);
-                for argument in arguments {
-                    let Spreadable::Single(argument) = argument else {
-                        return Ok(None);
-                    };
-                    let value = self.expression(argument)?;
-                    numbers.push(self.prim(JsPrim::ToNumber, vec![value], at));
-                }
-                return Ok(Some(self.prim(op, numbers, at)));
-            }
+        let name = self.names.spelled(*property).unwrap_or("");
+        if name == "random" && arguments.is_empty() {
+            return Ok(Some(self.entry(crate::runtime::RuntimeOp::MathRandom, Vec::new(), at)));
+        }
+        // Decided BEFORE any operand is lowered, so a member this does not take
+        // leaves the graph exactly as it found it and the ordinary call lowers
+        // the arguments itself, once.
+        let shape = match (name, arguments.len()) {
+            ("sqrt", 1) => Shape::Prim(JsPrim::MathSqrt),
+            ("floor", 1) => Shape::Prim(JsPrim::MathFloor),
+            ("ceil", 1) => Shape::Prim(JsPrim::MathCeil),
+            ("trunc", 1) => Shape::Prim(JsPrim::MathTrunc),
+            ("abs", 1) => Shape::Prim(JsPrim::MathAbs),
+            ("round", 1) => Shape::Prim(JsPrim::MathRound),
+            ("sign", 1) => Shape::Prim(JsPrim::MathSign),
+            ("fround", 1) => Shape::Prim(JsPrim::MathFround),
+            ("clz32", 1) => Shape::Prim(JsPrim::MathClz32),
+            ("min", 2) => Shape::Prim(JsPrim::MathMin),
+            ("max", 2) => Shape::Prim(JsPrim::MathMax),
+            ("imul", 2) => Shape::Prim(JsPrim::MathImul),
+            // `Math.max(x)` is `ToNumber(x)`: the fold over one operand is the
+            // operand, and the conversion is what the argument pays anyway.
+            ("min" | "max", 1) => Shape::Identity,
+            (_, 1) => match crate::runtime::math_direct::unary_index(name) {
+                Some(which) => Shape::Direct(crate::runtime::RuntimeOp::MathDirect1, which),
+                None => return Ok(None),
+            },
+            (_, 2) => match crate::runtime::math_direct::binary_index(name) {
+                Some(which) => Shape::Direct(crate::runtime::RuntimeOp::MathDirect2, which),
+                None => return Ok(None),
+            },
             _ => return Ok(None),
         };
-        let [Spreadable::Single(only)] = arguments else {
+        // Every operand in source order, each through `ToNumber`: that IS what
+        // each member does to its argument, so a proven number pays nothing and
+        // anything else pays the conversion the call would have paid too.
+        let mut numbers = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let Spreadable::Single(argument) = argument else {
+                return Ok(None);
+            };
+            let value = self.expression(argument)?;
+            numbers.push(self.prim(JsPrim::ToNumber, vec![value], at));
+        }
+        Ok(Some(match shape {
+            Shape::Prim(op) => self.prim(op, numbers, at),
+            Shape::Identity => numbers[0],
+            Shape::Direct(door, which) => {
+                let selector = self.domain.constant(JsConst::Count(which as u32));
+                let selector = self.declared(selector, at);
+                let mut args = vec![selector];
+                args.extend(numbers);
+                self.entry(door, args, at)
+            }
+        }))
+    }
+
+    /// `Math.PI` and its siblings as the number, under the same proof, or `None`
+    /// for a read this does not decide. The table of values is `emit/math`'s,
+    /// asked here so the two emitters cannot disagree about a digit.
+    pub(super) fn math_constant(
+        &mut self,
+        object: &Expr,
+        property: crate::names::Name,
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        if !self.is_math(object) {
+            return Ok(None);
+        }
+        let Some(spelled) = self.names.spelled(property) else {
             return Ok(None);
         };
-        let value = self.expression(only)?;
-        let number = self.prim(JsPrim::ToNumber, vec![value], at);
-        Ok(Some(self.prim(op, vec![number], at)))
+        let Some(value) = crate::emit::math::constant_named(spelled) else {
+            return Ok(None);
+        };
+        Ok(Some(self.literal(&Literal::Number(value), at)?))
+    }
+
+    /// Whether `object` is the language's `Math` here: the whole program leaves it
+    /// alone (the running emitter's proof, handed over as one flag), and nothing
+    /// this function sees binds the name — its own scope, or the layout it was
+    /// made in.
+    fn is_math(&self, object: &Expr) -> bool {
+        if !self.callees.math_primordial() {
+            return false;
+        }
+        let ExprKind::Ident(name) = &object.kind else {
+            return false;
+        };
+        self.names.spelled(*name) == Some("Math")
+            && self.resolution.binding_in(self.scope, *name).is_none()
+            && !self.outer.is_some_and(|outer| outer(*name).is_some())
     }
 
     /// `typeof x === "name"` (or `==`, `!==`, `!=`, either side) as `TypeOfIs`, which
@@ -140,4 +189,14 @@ pub(super) fn compares_typeof(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
     let typeof_of = |held: &Expr| matches!(held.kind, ExprKind::Unary { op: UnaryOp::TypeOf, .. });
     let text = |held: &Expr| matches!(held.kind, ExprKind::Literal(Literal::String(_)));
     equality && ((typeof_of(left) && text(right)) || (text(left) && typeof_of(right)))
+}
+
+/// How a `Math` member is answered, decided before its operands are lowered.
+enum Shape {
+    /// A primitive of this language over the converted operands.
+    Prim(JsPrim),
+    /// The converted operand itself.
+    Identity,
+    /// A library door, by number.
+    Direct(crate::runtime::RuntimeOp, i64),
 }

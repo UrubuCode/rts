@@ -108,6 +108,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::MathRandom => (CoreEntry::MathRandom, {
             rts_core::entry::math_random as extern "C" fn() -> f64 as *const u8
         }),
+        RuntimeOp::MathDirect1 => (CoreEntry::MathDirect1, {
+            rts_core::entry::math_direct1 as extern "C" fn(i64, f64) -> f64 as *const u8
+        }),
+        RuntimeOp::MathDirect2 => (CoreEntry::MathDirect2, {
+            rts_core::entry::math_direct2 as extern "C" fn(i64, f64, f64) -> f64 as *const u8
+        }),
         RuntimeOp::StringOf => (CoreEntry::StringOf, {
             rts_core::entry::string_of as extern "C" fn(u64) -> u64 as *const u8
         }),
@@ -493,6 +499,20 @@ const _: () = assert!(
     "the compiler and the runtime disagree about how many arguments a call \
      carries, which is a jump with a corrupt stack rather than a wrong answer"
 );
+
+/// The compiler names a `Math` library member by its position in a list, and
+/// the runtime indexes a table of functions by that number. Two lists, one
+/// order, asserted here for the same reason `ARGUMENT_SLOTS` is above: a
+/// disagreement would call the wrong function silently, not fail.
+const _: () = {
+    assert!(
+        rts_codegen::runtime::math_direct::UNARY_NAMES.len() == rts_core::entry::MATH_UNARY_NAMES.len()
+    );
+    assert!(
+        rts_codegen::runtime::math_direct::BINARY_NAMES.len()
+            == rts_core::entry::MATH_BINARY_NAMES.len()
+    );
+};
 
 mod machine;
 pub(crate) use machine::machine_entry;

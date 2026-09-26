@@ -67,6 +67,9 @@ impl Lowering<'_> {
                 property,
                 optional,
             } => {
+                if let Some(fixed) = self.math_constant(object, *property, expr)? {
+                    return Ok(fixed);
+                }
                 let receiver = self.link(object, join)?;
                 let receiver = self.short_circuit(receiver, *optional, join, expr);
                 let key = self.domain.constant(JsConst::Key(*property));

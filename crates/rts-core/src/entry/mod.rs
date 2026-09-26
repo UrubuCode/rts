@@ -82,6 +82,7 @@ pub use json::{json_parse, json_stringify};
 pub(in crate::entry) mod list_iterator;
 mod loops;
 mod math;
+mod math_direct;
 mod native;
 mod number;
 mod object_global;
@@ -120,6 +121,7 @@ mod uri;
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_length, array_new, array_of, element_at, enumerate_keys, own_keys};
 pub use math::math_random;
+pub use math_direct::{BINARY_NAMES as MATH_BINARY_NAMES, UNARY_NAMES as MATH_UNARY_NAMES, math_direct1, math_direct2};
 pub use array_proto::arguments_at;
 pub use arguments::arguments_object;
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};

@@ -669,6 +669,11 @@ impl Lowering<'_> {
                 property,
                 optional: false,
             } => {
+                // `Math.PI` under the proof that `Math` is the language's: the
+                // number, and no read.
+                if let Some(fixed) = self.math_constant(object, *property, expr)? {
+                    return Ok(fixed);
+                }
                 let held = self.expression(object)?;
                 let key = self.domain.constant(JsConst::Key(*property));
                 let key = self.declared(key, expr);

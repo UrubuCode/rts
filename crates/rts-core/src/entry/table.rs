@@ -66,6 +66,7 @@ use super::array::{
 use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
 use super::text_walk::TEXT_WALK_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
+use super::math_direct::{MATH_DIRECT1_ENTRY, MATH_DIRECT2_ENTRY};
 use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY,
@@ -747,6 +748,11 @@ pub enum CoreEntry {
     /// [`super::text_walk`] — a string's code points as a list, where a
     /// `for`-`of` may walk them instead of stepping the iterator.
     TextWalk = 106,
+    /// [`super::math_direct1`] — a one-operand `Math` member by number, over an
+    /// unboxed double, where the whole program proves the name still means it.
+    MathDirect1 = 107,
+    /// [`super::math_direct2`] — the two-operand form.
+    MathDirect2 = 108,
 }
 
 /// How many entry points exist.
@@ -754,7 +760,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 107;
+pub const CORE_ENTRY_COUNT: usize = 109;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -866,6 +872,8 @@ impl CoreEntry {
         CoreEntry::JsonStringify,
         CoreEntry::JsonParse,
         CoreEntry::TextWalk,
+        CoreEntry::MathDirect1,
+        CoreEntry::MathDirect2,
     ];
 
     /// The number a call site holds.
@@ -988,6 +996,8 @@ impl CoreEntry {
             CoreEntry::JsonStringify => JSON_STRINGIFY_ENTRY,
             CoreEntry::JsonParse => JSON_PARSE_ENTRY,
             CoreEntry::TextWalk => TEXT_WALK_ENTRY,
+            CoreEntry::MathDirect1 => MATH_DIRECT1_ENTRY,
+            CoreEntry::MathDirect2 => MATH_DIRECT2_ENTRY,
         }
     }
 

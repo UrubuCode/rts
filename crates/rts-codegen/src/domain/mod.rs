@@ -188,6 +188,8 @@ impl Js {
         RuntimeOp::SuperConstructWithArgs,
         // `Math.random()` where `Math` is the language's -- `lower/intrinsic.rs`.
         RuntimeOp::MathRandom,
+        RuntimeOp::MathDirect1,
+        RuntimeOp::MathDirect2,
         // An element of an array a `for`-`of` walks by index -- `lower/iterate.rs`.
         RuntimeOp::ElementAt,
         // Whether an array may be read by index where its iterator would step it --
@@ -278,6 +280,11 @@ impl Js {
         JsPrim::AwaitDrain,
         JsPrim::MathMin,
         JsPrim::MathMax,
+        JsPrim::MathRound,
+        JsPrim::MathSign,
+        JsPrim::MathFround,
+        JsPrim::MathImul,
+        JsPrim::MathClz32,
     ];
 
     /// A domain holding only the fixed constants.
@@ -402,7 +409,12 @@ impl Js {
             | JsPrim::MathTrunc
             | JsPrim::MathAbs
             | JsPrim::MathMin
-            | JsPrim::MathMax => Effect::PURE,
+            | JsPrim::MathMax
+            | JsPrim::MathRound
+            | JsPrim::MathSign
+            | JsPrim::MathFround
+            | JsPrim::MathImul
+            | JsPrim::MathClz32 => Effect::PURE,
             // Draining runs every reaction that settles first, which is code the program
             // wrote, and a rejection raises here.
             JsPrim::AwaitDrain => Effect::CALLS_USER.and(Effect::THROWS).and(Effect::ALLOCATES),
@@ -646,7 +658,12 @@ impl Domain for Js {
             | JsPrim::MathTrunc
             | JsPrim::MathAbs
             | JsPrim::MathMin
-            | JsPrim::MathMax => Type::Double,
+            | JsPrim::MathMax
+            | JsPrim::MathRound
+            | JsPrim::MathSign
+            | JsPrim::MathFround
+            | JsPrim::MathImul
+            | JsPrim::MathClz32 => Type::Double,
             // What the promise settled with, which nothing here decided.
             JsPrim::AwaitDrain => Type::Anything,
             JsPrim::Negate => match args {
@@ -734,7 +751,12 @@ impl Domain for Js {
             Some(RuntimeOp::EnumerateKeys) => Type::Object,
             // A length is a number, answered unboxed -- the representation and the
             // proof are one fact here.
-            Some(RuntimeOp::ArrayLength | RuntimeOp::MathRandom) => Type::Double,
+            Some(
+                RuntimeOp::ArrayLength
+                | RuntimeOp::MathRandom
+                | RuntimeOp::MathDirect1
+                | RuntimeOp::MathDirect2,
+            ) => Type::Double,
             // EVERY OTHER ROW OF THE CATALOGUE answers the widest thing, and that is a
             // change of shape worth stating: the old table held only what this lowering
             // reached, so a row it did not know was unrepresentable. `RuntimeOp` holds

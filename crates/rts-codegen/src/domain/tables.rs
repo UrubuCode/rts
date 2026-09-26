@@ -150,6 +150,19 @@ pub enum JsPrim {
     MathMin,
     /// See [`JsPrim::MathMin`].
     MathMax,
+    /// `Math.round(x)` over a number: the sequence `emit/math/sequence.rs`
+    /// states once for both emitters — a floor, a select on the fraction, the
+    /// zero's sign restored. Answers a double.
+    MathRound,
+    /// `Math.sign(x)`, on [`JsPrim::MathRound`]'s terms.
+    MathSign,
+    /// `Math.fround(x)`: one machine operation, to single precision and back.
+    MathFround,
+    /// `Math.imul(a, b)`: two `ToInt32`s, a wrapping multiply, and back to a
+    /// double.
+    MathImul,
+    /// `Math.clz32(x)`: `ToInt32`, a leading-zero count, and back to a double.
+    MathClz32,
     /// The receiver of this activation.
     ///
     /// # Why an operation and not a parameter

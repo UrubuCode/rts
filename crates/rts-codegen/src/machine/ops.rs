@@ -380,6 +380,26 @@ impl MachineOps for JsMachine<'_> {
             };
             return into.float_unary(op, held).map_err(machine);
         }
+        // THE `Math` SEQUENCES, stated once in `emit/math/sequence.rs` for both emitters:
+        // the operand came through `ToNumber`, so it is a number in one of the two
+        // encodings, and `as_double` reads either.
+        if let (JsPrim::MathRound | JsPrim::MathSign | JsPrim::MathFround | JsPrim::MathClz32, [only]) =
+            (which, args)
+        {
+            let held = self.as_double(into, *only)?;
+            return match which {
+                JsPrim::MathRound => crate::emit::math::sequence::round(into, held),
+                JsPrim::MathSign => crate::emit::math::sequence::sign(into, held),
+                JsPrim::MathFround => into.float_unary(rts_cranelift::ir::FloatOp::RoundToSingle, held),
+                _ => crate::emit::math::sequence::clz32(into, held),
+            }
+            .map_err(machine);
+        }
+        if let (JsPrim::MathImul, [left, right]) = (which, args) {
+            let left = self.as_double(into, *left)?;
+            let right = self.as_double(into, *right)?;
+            return crate::emit::math::sequence::imul(into, left, right).map_err(machine);
+        }
         // `~x` OVER A PROVED NUMBER: `ToInt32`, then every bit flipped -- an exclusive or
         // with all ones, which is what the runtime's call computes after its own
         // conversion.

@@ -193,6 +193,12 @@ pub fn emit_expr(
             if let Some(field) = super::escape::field_of(ctx, object, *property, *optional) {
                 return super::binding::read(builder, scope, ctx, field);
             }
+            // `Math.PI` under the proof that `Math` is the language's: the
+            // number, and no read. `emit/math` is where the table and the proof
+            // live.
+            if let Some(value) = super::math::constant(scope, ctx, object, *property) {
+                return Ok(super::math::fixed(builder, value));
+            }
             // `property` is a name, not a key: `o[e]` is `Index`, a different
             // node. So there is no computed case to refuse here.
             let receiver = emit_expr(builder, scope, ctx, object)?;

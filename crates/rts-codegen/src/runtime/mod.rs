@@ -38,6 +38,7 @@
 //! reaching past the boundary to do work the machine already does.
 
 mod literals;
+pub mod math_direct;
 mod raising;
 
 pub use literals::Literals;
@@ -225,6 +226,13 @@ pub enum RuntimeOp {
     ArrayOf,
     /// `Math.random()`, reached directly.
     MathRandom,
+    /// A one-operand `Math` library member — a sine, a logarithm — reached
+    /// directly with the operand unboxed, by the number [`math_direct`]
+    /// assigns its name. Not an instruction: no hardware has one. What it
+    /// skips is the path, exactly as [`RuntimeOp::MathRandom`] does.
+    MathDirect1,
+    /// The two-operand form: `atan2`, `pow`, `hypot`.
+    MathDirect2,
     /// A template literal, joined in one crossing.
     TemplateJoin,
     /// `ToString(value)` — the conversion with the STRING hint.
@@ -1077,6 +1085,8 @@ impl RuntimeOp {
         RuntimeOp::ObjectNew,
         RuntimeOp::ArrayOf,
         RuntimeOp::MathRandom,
+        RuntimeOp::MathDirect1,
+        RuntimeOp::MathDirect2,
         RuntimeOp::TemplateJoin,
         RuntimeOp::StringOf,
         RuntimeOp::GetProperty,
@@ -1199,6 +1209,8 @@ impl RuntimeOp {
             RuntimeOp::ObjectNew => "__rts_object_new",
             RuntimeOp::ArrayOf => "__rts_array_of",
             RuntimeOp::MathRandom => "__rts_math_random",
+            RuntimeOp::MathDirect1 => "__rts_math_direct1",
+            RuntimeOp::MathDirect2 => "__rts_math_direct2",
             RuntimeOp::TemplateJoin => "__rts_template_join",
             RuntimeOp::StringOf => "__rts_string_of",
             RuntimeOp::GetProperty => "__rts_get_property",
@@ -1325,6 +1337,8 @@ impl RuntimeOp {
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ObjectNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
+            RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
+            RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TemplateJoin => (
                 vec![Repr::I64, Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN],

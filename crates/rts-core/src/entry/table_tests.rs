@@ -212,8 +212,17 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // iterator, a `next` call and a `{ value, done }` record per character;
     // `bench/analytic.ts` `for-of chars 16` read 432 ns per character through
     // the MIR stage against 181 for the running emitter's list.
+    //
+    // Moved to 109 on 2026-09-26 for `MathDirect1` and `MathDirect2`, and the
+    // question was asked the same way. Two rows and not twenty-three, which is
+    // what one entry per library member would have been — a sine, a logarithm,
+    // `atan2`, `hypot` — because a selector and a table of function pointers
+    // say the same thing, and the indirect call costs a nanosecond against the
+    // thirty the door removes: `Math.sin(x)` went from 75 ns to 6, `Math.hypot`
+    // from 126 to 4.6, on `bench/analytic.ts`'s shape. They REMOVE crossings,
+    // which is still the only argument this list accepts.
     assert!(
-        CORE_ENTRY_COUNT <= 107,
+        CORE_ENTRY_COUNT <= 109,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );
