@@ -38,6 +38,8 @@
 pub mod describe;
 pub mod prove;
 mod entries;
+#[cfg(feature = "inspector")]
+pub mod inspector;
 pub mod graph;
 pub mod jsonc;
 mod link;

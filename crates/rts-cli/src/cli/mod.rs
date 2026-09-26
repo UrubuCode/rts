@@ -263,6 +263,10 @@ struct CliFlags {
     /// is still a flag, and an argument matched anywhere else lands in `positional` and
     /// is read as a file name.
     machine: bool,
+    /// `--inspect[=port]`, Node's spelling: the DevTools endpoint on this port
+    /// (9229 when none is given). Handed to the host before anything runs; see
+    /// `docs/superpowers/plans/2026-09-26-dom-inspector.md`.
+    inspect: Option<u16>,
 }
 
 impl Default for CliFlags {
@@ -276,6 +280,7 @@ impl Default for CliFlags {
             machine: false,
             embed_compiler: true,
             html: Vec::new(),
+            inspect: None,
         }
     }
 }
@@ -322,6 +327,9 @@ where
         return run::eval_command(source, CompileOptions::default());
     }
     let (flags, positional) = parse_flags(raw)?;
+    if let Some(port) = flags.inspect {
+        rts_host::inspector::request(port);
+    }
 
     if positional.is_empty() {
         print_help(&bin_name);
@@ -467,6 +475,14 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
                 })?;
                 flags.windows_subsystem = Some(parsed);
             }
+            "--inspect" => flags.inspect = Some(9229),
+            _ if arg.starts_with("--inspect=") => {
+                let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
+                let port = value
+                    .parse::<u16>()
+                    .map_err(|_| anyhow!("invalid port for --inspect: {value}"))?;
+                flags.inspect = Some(port);
+            }
             _ if arg.starts_with('-') => return Err(anyhow!("unknown option: {arg}")),
             _ => positional.push(arg.clone()),
         }
@@ -508,6 +524,7 @@ fn print_help(bin_name: &str) {
     println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
     println!("  --no-embed-compiler                     (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
     println!("                                          aliases: --no-compiler, --sem-compilador");
+    println!("  --inspect[=port]                        (run) open the DevTools endpoint on 127.0.0.1 (default 9229; also RTS_INSPECT)");
     println!("  --html <file>                           (compile) precompile this page's <script> tags and embed its local files (repeatable)");
     println!();
     println!("An `.html` entry needs no TypeScript at all: `{bin_name} compile pagina.html [out]` writes the");

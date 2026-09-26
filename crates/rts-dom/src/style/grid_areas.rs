@@ -160,12 +160,9 @@ pub fn strip_quoted(v: &str) -> String {
 
 /// `grid-area: <nome>` — só a forma de NOME ÚNICO.
 ///
-/// A forma numérica (`grid-area: 1 / 2 / 3 / 4`, e as variantes com `span`) é
-/// IGNORADA de propósito: aceitá-la sem a colocação por índice no layout daria um
-/// nome que o layout procuraria na matriz de áreas e nunca acharia — silenciosamente
-/// caindo na colocação automática, que é o que já acontece. Um valor com `/` ou que
-/// comece por dígito devolve `None` aqui para que a intenção fique legível no parse
-/// e não pareça um nome esquisito mais abaixo.
+/// Only the spelling kept for `getComputedStyle("grid-area")`: placement reads
+/// the four longhands `style::grid_lines::expand_shorthand` fills for EVERY
+/// form, `1 / 2 / 3 / 4` included, so a value with `/` is simply not a name.
 pub fn parse_grid_area_name(v: &str) -> Option<String> {
     let v = v.trim();
     if v.is_empty() || v.contains('/') || v.eq_ignore_ascii_case("auto") {

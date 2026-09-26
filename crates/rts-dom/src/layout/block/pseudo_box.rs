@@ -244,6 +244,8 @@ pub(in crate::layout) fn paint(list: &mut DisplayList, caixa: &GeneratedBox, x: 
             size: caixa.font,
             mono,
             is_ahem,
+            // The family `text_lines` broke these lines with.
+            family: css.font_family.as_deref().map(Into::into),
             bold: css.bold.unwrap_or(false),
             // The same `italic` the lines were broken with (`text_lines`).
             italic: css.italic.unwrap_or(false),

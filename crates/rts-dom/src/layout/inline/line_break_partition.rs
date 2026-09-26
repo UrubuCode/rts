@@ -64,7 +64,7 @@ pub(in crate::layout) fn split_piece_that_does_not_fit(
             // Numa caixa mais estreita que um glifo, nada cabe e descer de
             // linha não muda isso: sem um carácter forçado o laço não
             // termina. Transbordar um carácter é o que o browser também faz.
-            n = rest.chars().next().map_or(0, char::len_utf8);
+            n = super::break_opportunities::first_cluster(m, rest);
             w = fonts.width(m, piece_run, &rest[..n], run.bold, run.italic);
         }
         if n == 0 {
@@ -127,4 +127,59 @@ pub(in crate::layout) fn whole_run_fits(
     *pending_space = true;
     *space_outside = true;
     true
+}
+
+/// The candidate line measured the way it is SHAPED: when the per-piece sum
+/// says a cluster does not fit, the line's last segment, the separating space
+/// and the cluster are measured again as ONE string, and the cluster stays if
+/// that fits. Returns the line's total width with the cluster in it.
+///
+/// Why: a measurer is not additive. Kerning pairs cross a space (Times New
+/// Roman kerns " T"), so "AVATAR" + " " + "Toy" + " " + "To." is 0.58 px
+/// wider than "AVATAR Toy To." at 16px — and the max-content width
+/// (`measure/text.rs`) measures the whole string, as CSS Sizing 3 §4.1.1 and
+/// Blink do. A shrink-to-fit box sized by that width then wrapped its own last
+/// word. Summing pieces in `measure/text.rs` instead was the alternative: it
+/// would size every box by a width no line is painted at.
+///
+/// Only asked at a would-be break, so the per-word cost of the breaker is
+/// unchanged. The opposite error — a positive kern making the whole WIDER than
+/// the sum — is not caught here, since a cluster that fits by the sum never
+/// asks. `None` also when the cluster cannot merge into the last segment
+/// (another font, colour or owner, an atomic, a soft hyphen, word-spacing).
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn shaped_join_fits<'t>(
+    cur: &[Segment],
+    cur_w: f32,
+    runs: &[InlineRun],
+    pieces: impl Iterator<Item = Option<(usize, &'t str)>>,
+    sep_run: Option<usize>,
+    (hang, word_spacing, available): (f32, f32, f32),
+    fonts: &super::run_font::Fonts,
+    m: &dyn TextMeasurer,
+) -> Option<f32> {
+    let last = cur.last().filter(|s| s.atomic.is_none() && !s.text.is_empty())?;
+    let merges = |i: usize| {
+        runs.get(i).is_some_and(|r| {
+            r.atomic.is_none() && r.color == last.color && r.bold == last.bold && r.italic == last.italic && r.deco == last.deco && r.owners == last.owners
+        })
+    };
+    if word_spacing != 0.0 || sep_run.is_some_and(|i| !merges(i)) {
+        return None;
+    }
+    let mut joined = last.text.clone();
+    if sep_run.is_some() {
+        joined.push(' ');
+    }
+    let mut run = None;
+    for piece in pieces {
+        let (i, text) = piece?;
+        if !merges(i) || text.contains(super::hyphen::SHY) {
+            return None;
+        }
+        run = Some(i);
+        joined.push_str(text);
+    }
+    let whole = cur_w - last.text_width + fonts.width(m, run?, &joined, last.bold, last.italic);
+    (whole - hang <= available).then_some(whole)
 }

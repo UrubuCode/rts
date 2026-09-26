@@ -106,6 +106,43 @@ pub trait TextMeasurer {
     fn identity(&self) -> u64 {
         0
     }
+
+    /// Byte indices of `text` at which a line MAY end (UAX #14), in
+    /// increasing order, the end of the text left out. Which of them a line
+    /// takes — `white-space`, `word-break: keep-all` — is the breaker's
+    /// decision (`layout/inline/break_opportunities.rs`), applied on top.
+    ///
+    /// The default is what this engine broke at before it had a UAX #14
+    /// table: after a run of CSS white space and after a soft hyphen (which
+    /// `hyphen.rs` turns into a visible "-"). The breaker only asks about
+    /// text with no white space in it, and drops the soft-hyphen positions
+    /// (`hyphen.rs` owns those), so a measurer without an override —
+    /// `ApproxMeasurer`, a host without `rts-text` — adds no opportunity and
+    /// lays out exactly as before. `rts_text::adapter::RealMeasurer`
+    /// overrides it with `rts_text::breaks`.
+    fn line_break_opportunities(&self, text: &str) -> Vec<usize> {
+        let white = crate::inline_box::e_espaco_css;
+        let mut out = Vec::new();
+        let mut prev: Option<char> = None;
+        for (i, c) in text.char_indices() {
+            if prev.is_some_and(|p| (white(p) && !white(c)) || p == '\u{00AD}') {
+                out.push(i);
+            }
+            prev = Some(c);
+        }
+        out
+    }
+
+    /// Byte indices of every grapheme cluster boundary of `text`, `0` and
+    /// `text.len()` included — where an emergency break (`overflow-wrap`,
+    /// `word-break: break-all`, `line-break: anywhere`) may cut a word.
+    ///
+    /// The default is every `char` boundary, which is what the cut was
+    /// before; `RealMeasurer` answers UAX #29 extended clusters, so `e` +
+    /// U+0301 and an emoji ZWJ sequence stay whole.
+    fn grapheme_boundaries(&self, text: &str) -> Vec<usize> {
+        text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect()
+    }
 }
 
 /// Medidor APROXIMADO, sem backend — para teste e para o caminho headless puro

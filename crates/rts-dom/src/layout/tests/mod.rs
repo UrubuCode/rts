@@ -94,11 +94,14 @@ mod replaced_percent_height;
 mod grid_item_aspect_ratio;
 mod posicao_estatica_corpus;
 mod inline_abspos_beside_float;
+mod inline_grid_sits_on_the_line;
 mod controlo_natural_corpus;
 mod box_tree_anonimas_largura_corpus;
 mod ahem_corpus;
 mod line_break_anywhere_corpus;
 mod textarea_ahem_corpus;
+mod text_family_corpus;
+mod kerned_shrink_to_fit;
 mod bloco_quebra_paragrafo_corpus;
 mod caixa_gerada_arvore;
 mod flex_scroll_overflow_corpus;
@@ -181,6 +184,7 @@ mod flex_scroll_overflow_corpus;
                     letter_spacing: la,
                     decoration: dea,
                     is_ahem: _,
+                    family: fa,
                 },
                 D::Text {
                     x: xb,
@@ -194,11 +198,13 @@ mod flex_scroll_overflow_corpus;
                     letter_spacing: lb,
                     decoration: deb,
                     is_ahem: _,
+                    family: fb,
                 },
             ) => {
                 (xa - xb).abs() < TOL
                     && (ya - yb).abs() < TOL
                     && ta == tb
+                    && fa == fb
                     && ca == cb
                     && (sa - sb).abs() < TOL
                     && ma == mb
@@ -363,3 +369,5 @@ mod flex_scroll_overflow_corpus;
 mod medida_por_caixa_corpus;
 mod ch_unit_advance_corpus;
 mod grid_abspos_static_alignment;
+mod grid_area_line_numbers;
+mod unicode_break_opportunities;

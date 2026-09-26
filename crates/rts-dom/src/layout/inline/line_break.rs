@@ -1,15 +1,12 @@
 //! QUEBRA DE LINHA: decidir onde os runs passam para a linha seguinte.
 //!
-//! **No teto de 500.** O `wrap_runs` é a maior parte disto e não é partido
-//! por dentro: tem três `macro_rules!` no corpo (`close_cluster`, `join`,
-//! `glue_space`) que capturam uma dúzia de locais cada — mover UM deles para
-//! outro ficheiro obriga a mover TODOS os locais que captura, e o que sobra
-//! deixa de ser um movimento de código. O que não toca nos macros já saiu:
-//! o hífen suave em `hyphen.rs`, e a partição de peça/o atalho de run inteiro
-//! em `line_break_partition.rs`.
+//! **At the 500 ceiling.** The three `macro_rules!` in `wrap_runs` capture a
+//! dozen locals each, so none moves alone. The rest left for `hyphen.rs` and
+//! `line_break_partition.rs` (piece split, whole-run path, whole-line re-measure).
 
 use super::*;
 use super::preserved_spaces::{trim_hanging, tokens, atomic_segment, Token};
+#[allow(unused_assignments)] // a `close_cluster!` expanded last in `word!` resets state nothing reads after
 pub(in crate::layout) fn wrap_runs(
     runs: &[InlineRun],
     // A largura disponível DA LINHA `i` — não uma largura só para todas. Um
@@ -130,11 +127,11 @@ pub(in crate::layout) fn wrap_runs(
                         cluster.clear();
                     }
                 }
-                if !cluster.is_empty()
-                    && !at_line_start
-                    && !fills_line
-                    && cur_w + need - cluster_hang > max_w(lines.len())
-                {
+                let over = !cluster.is_empty() && !at_line_start && !fills_line && cur_w + need - cluster_hang > max_w(lines.len());
+                // The sum of pieces is not the shaped line: ask it whole first, and if
+                // it stays, its merged segment takes the shaped width (below, unless split).
+                let shaped = over.then(|| super::line_break_partition::shaped_join_fits(&cur, cur_w, runs, cluster.iter().map(|c| c.atomic.is_none().then_some((c.run, c.text.as_str()))), sep.then_some(from_run), (cluster_hang, word_spacing, max_w(lines.len())), fonts, m)).flatten().map(|w| (w, lines.len()));
+                if over && shaped.is_none() {
                     lines.push(trim_hanging(std::mem::take(&mut cur), posted_hang));
                     cur_w = 0.0;
                     at_line_start = true;
@@ -174,7 +171,7 @@ pub(in crate::layout) fn wrap_runs(
                             // A hanging sequence (`pre-wrap`) is never split; a
                             // `break-spaces` space may move down alone.
                             let split = (spaces.of(chunk.run).breaks_after_each() || !so_espaco_css(&chunk.text)) && match break_within {
-                                crate::inline_box::BreakWithin::Never => false,
+                                crate::inline_box::BreakWithin::Never | crate::inline_box::BreakWithin::KeepAll => false,
                                 // `break-word`: só quando a palavra não cabe NEM
                                 // numa linha vazia. Se cabe, ela já desceu inteira
                                 // na quebra prévia e parti-la seria errado.
@@ -200,6 +197,10 @@ pub(in crate::layout) fn wrap_runs(
                     }
                     first = false;
                     at_line_start = false;
+                }
+                if let (Some((whole, _)), Some(last)) = (shaped.filter(|s| s.1 == lines.len()), cur.last_mut()) {
+                    last.text_width -= cur_w - whole;
+                    cur_w = whole;
                 }
                 (cluster_w, posted_hang) = (0.0, (cluster_hang, space_w(m, from_run)));
                 cluster_hang = 0.0;
@@ -253,6 +254,20 @@ pub(in crate::layout) fn wrap_runs(
         }};
     }
 
+    // A word (no white space): one piece per UAX #14 opportunity inside it, each
+    // closing the cluster before the next (`break_opportunities.rs`).
+    macro_rules! word {
+        ($i:expr, $word:expr, $wraps:expr) => {{
+            let keep_all = break_within == crate::inline_box::BreakWithin::KeepAll;
+            for (k, piece) in super::break_opportunities::pieces(m, $word, $wraps, keep_all).enumerate() {
+                if k > 0 {
+                    close_cluster!();
+                }
+                let w = measure(m, $i, &hyphen::without_shy(piece), runs[$i].bold, runs[$i].italic);
+                join!(Chunk { run: $i, text: hyphen::piece_text(piece, manual_hyphen), width: w, atomic: None }, w);
+            }
+        }};
+    }
     for (i, run) in runs.iter().enumerate() {
         // WIDGET: uma "palavra" inquebravel de run.ww pontos, segmento proprio.
         if let Some((a_idx, box_id, kind)) = run.atomic {
@@ -302,7 +317,10 @@ pub(in crate::layout) fn wrap_runs(
                         (cur_w, at_line_start) = (0.0, true);
                         continue;
                     }
-                    Token::Word(p) => (hyphen::piece_text(p, manual_hyphen), measure(m, i, &hyphen::without_shy(p), run.bold, run.italic)),
+                    Token::Word(p) => {
+                        word!(i, p, regime.wraps());
+                        continue;
+                    }
                     Token::Space => (" ".to_string(), space_w(m, i)),
                     Token::Tab => regime.tab(cur_w + cluster_w + line_offset(lines.len()), space_w(m, i)),
                 };
@@ -378,17 +396,8 @@ pub(in crate::layout) fn wrap_runs(
         // grande, com 11 000 `text_width` por frame.
         let trimmed = apara_css(&run.text);
         if !trimmed.contains(e_espaco_css) && !has_forced_break {
-            let w = measure(m, i, &hyphen::without_shy(trimmed), run.bold, run.italic);
             let ended_in_space = run.text.ends_with(e_espaco_css);
-            join!(
-                Chunk {
-                    run: i,
-                    text: hyphen::piece_text(trimmed, manual_hyphen),
-                    width: w,
-                    atomic: None
-                },
-                w
-            );
+            word!(i, trimmed, regime.wraps());
             if ended_in_space {
                 if regime.wraps() {
                     close_cluster!();
@@ -468,16 +477,7 @@ pub(in crate::layout) fn wrap_runs(
             let end = rest.find(e_espaco_css).unwrap_or(rest.len());
             let word = &rest[..end];
             rest = &rest[end..];
-            let ww = measure(m, i, &hyphen::without_shy(word), run.bold, run.italic);
-            join!(
-                Chunk {
-                    run: i,
-                    text: hyphen::piece_text(word, manual_hyphen),
-                    width: ww,
-                    atomic: None
-                },
-                ww
-            );
+            word!(i, word, regime.wraps());
         }
         if run.text.ends_with(e_espaco_css) {
             if regime.wraps() {

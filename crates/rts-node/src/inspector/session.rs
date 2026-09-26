@@ -19,7 +19,7 @@
 use rts_core::entry::{self, Context};
 
 /// What one method answered.
-enum Answer {
+pub(super) enum Answer {
     /// A result object built into the context in hand.
     Value(u64),
     /// A protocol-shaped failure, by its message.
@@ -39,7 +39,7 @@ enum Answer {
 /// for the ambient form would abort. Taking the context makes that
 /// unrepresentable instead of a rule to remember — the shape this crate's other
 /// modules converged on after nine aborts.
-fn dispatch(context: &mut Context, method: &str, params: u64) -> Answer {
+pub(super) fn dispatch(context: &mut Context, method: &str, params: u64) -> Answer {
     match method {
         // Real acknowledgements with no state. Node code sends these
         // unconditionally before using a domain, so refusing them would make

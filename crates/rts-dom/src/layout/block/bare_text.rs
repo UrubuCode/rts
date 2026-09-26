@@ -26,7 +26,11 @@ pub(super) fn layout_bare_text(dom: &Dom, id: NodeIdx, t: &str, x: f32, y: f32, 
     let mono = parent_css.font_family.as_deref().map(crate::style::is_mono_family).unwrap_or(false);
     let is_ahem = crate::layout::measure::font_metrics::uses_ahem(parent_css.font_family.as_deref());
     let lh = crate::inline_box::altura_da_linha(&parent_css, size, ctx.measurer);
-    let tw = ctx.measurer.text_width(t, size, bold, false, mono);
+    let family = parent_css.font_family.as_deref();
+    // Measured in the parent's family, the one the item carries to the
+    // painter. It was `text_width(t, size, bold, false, mono)` — no family,
+    // and `bold`/`mono` in each other's places.
+    let tw = ctx.measurer.text_width_family(t, size, family, mono, bold, false);
     list.push_item(DisplayItem::Text {
         x,
         y,
@@ -35,6 +39,7 @@ pub(super) fn layout_bare_text(dom: &Dom, id: NodeIdx, t: &str, x: f32, y: f32, 
         size,
         mono,
         is_ahem,
+        family: family.map(Into::into),
         bold,
         italic: false,
         letter_spacing: parent_css.letter_spacing.unwrap_or(0.0),

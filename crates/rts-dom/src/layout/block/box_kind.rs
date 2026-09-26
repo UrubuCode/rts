@@ -200,14 +200,10 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
             // disposto pelo algoritmo de flex em vez do de bloco. Sem isto um
             // `display:inline-flex` batia em `crate::block::lookup(tag)` (uma
             // `<div>`, por exemplo, é bloco por default) e saía `false`.
-            if matches!(
-                css.as_ref().and_then(|c| c.effective_display()),
-                Some(
-                    crate::style::DisplayKind::InlineBlock
-                        | crate::style::DisplayKind::InlineFlex
-                        | crate::style::DisplayKind::InlineFlexWrap
-                )
-            ) {
+            // `inline-grid` and `inline-table` are the same atomic inline-level
+            // box (CSS Display §2.2); the hand list here omitted both.
+            let display = css.as_ref().and_then(|c| c.effective_display());
+            if display.is_some_and(|d| d != crate::style::DisplayKind::Inline && d.is_inline_level()) {
                 return true;
             }
             let explicit_block = css
