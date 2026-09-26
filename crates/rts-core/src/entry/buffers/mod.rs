@@ -108,7 +108,7 @@ pub(in crate::entry) use shared_array_buffer::register_shared_array_buffer;
 // The argument rules, re-exported rather than moved at the call sites: every
 // member reads them as `super::range` and `super::optional_number`, and where
 // they are written is not a fact any of them should have to know.
-pub(in crate::entry) use bounds::{as_count, optional_number, range, undefined};
+pub(in crate::entry) use bounds::{as_count, optional_number, range, to_index, undefined};
 // The eleven wrappers rather than the eleven names `#[rtse::class]` derives:
 // each also installs `BYTES_PER_ELEMENT` on the constructor, which is a
 // property the language puts on both halves and the attribute can only put on
@@ -363,10 +363,14 @@ pub(in crate::entry) fn attach(context: &mut Context, cell: u32, view: View) {
         (context.well_known("length"), Value::from_f64(view.count() as f64).bits()),
         (context.well_known("buffer"), buffer),
     ];
-    // `Raw` is an ArrayBuffer view with no element count, so it takes three of
-    // the four — the same set the loop below would have stamped.
+    // `Raw` is a `DataView`: no element count, so every fact but `length`. It
+    // took `named[..2]` — which the comment beside it counted as three — and so
+    // a DataView had no `buffer` at all, and `new Uint8Array(dv.buffer)` was a
+    // view over `undefined`. Built by dropping `length` rather than by a second
+    // ordering, so a typed array's layout is the one it always had.
+    let raw: [(crate::object::Key, u64); 3] = [named[0], named[1], named[3]];
     let wanted = match view.kind {
-        Kind::Raw => &named[..2],
+        Kind::Raw => &raw[..],
         _ => &named[..],
     };
 

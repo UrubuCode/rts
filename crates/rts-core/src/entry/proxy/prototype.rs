@@ -93,10 +93,20 @@ pub(in crate::entry) fn prototype_of(object: u64) -> Option<u64> {
     // prototype is only describing something that could still become true. A
     // target that refuses to grow cannot be relinked at all, which makes its
     // prototype a fact rather than a current state.
-    if invariant::extensible(trap.target) {
+    //
+    // Each of the two target reads may be a trap of a proxy target (§10.5.1
+    // steps 8-10), so each is followed by the rule-8 question.
+    let open = invariant::extensible(trap.target);
+    if throw::in_flight() {
+        return Some(super::absent());
+    }
+    if open {
         return Some(answered);
     }
     let actual = chain::get_prototype(trap.target);
+    if throw::in_flight() {
+        return Some(super::absent());
+    }
     if !primitives::same_value(answered, actual) {
         throw::type_error(
             "'getPrototypeOf' on proxy: proxy target is non-extensible but the trap did not \
@@ -129,10 +139,23 @@ pub(in crate::entry) fn set_prototype_verdict(object: u64, prototype: u64) -> Op
         return Some(false);
     }
     let answered = primitives::to_boolean(answered);
-    if answered
-        && !invariant::extensible(trap.target)
-        && !primitives::same_value(prototype, chain::get_prototype(trap.target))
-    {
+    // §10.5.2 steps 9-13: a refusal needs no check; a success is checked against
+    // the target only when the target is closed, and both reads may be traps.
+    if !answered {
+        return Some(false);
+    }
+    let open = invariant::extensible(trap.target);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    if open {
+        return Some(true);
+    }
+    let actual = chain::get_prototype(trap.target);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    if !primitives::same_value(prototype, actual) {
         throw::type_error(
             "'setPrototypeOf' on proxy: trap returned truthy for setting a new prototype on the \
              non-extensible proxy target",
@@ -153,12 +176,17 @@ pub(in crate::entry) fn extensible(object: u64) -> Option<bool> {
     if trap.refused {
         return Some(false);
     }
-    let actual = invariant::extensible(trap.target);
     let Some(callee) = trap.callee else {
-        return Some(actual);
+        return Some(invariant::extensible(trap.target));
     };
     let absent = super::absent();
     let answered = functions::call(callee, trap.handler, trap.target, absent, absent, absent);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    // The TARGET is asked after the trap (§10.5.3 steps 7-8), which a target
+    // that is a proxy makes observable: its own `isExtensible` runs second.
+    let actual = invariant::extensible(trap.target);
     if throw::in_flight() {
         return Some(false);
     }
@@ -190,12 +218,44 @@ pub(in crate::entry) fn prevent_extensions(object: u64) -> Option<bool> {
     // `Object.isExtensible(proxy)` answering false and the target still
     // growable, which is the two-answers-to-one-question this whole layer is
     // about.
-    if answered && invariant::extensible(trap.target) {
+    if !answered {
+        return Some(false);
+    }
+    let open = invariant::extensible(trap.target);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    if open {
         throw::type_error(
             "'preventExtensions' on proxy: trap returned truthy but the proxy target is \
              extensible",
         );
         return Some(false);
     }
-    Some(answered)
+    Some(true)
+}
+
+/// The rest of `OrdinaryHasInstance`'s walk (steps 4–6), from a level that is a
+/// proxy: every link through `[[GetPrototypeOf]]`, which runs the trap.
+///
+/// `functions::instance_of` walks the ordinary part of the chain inside its
+/// borrow and hands over here at the first proxy, because a trap may not run
+/// inside a borrow. Bounded by `CHAIN_LIMIT` for the reason every chain walk
+/// is: a handler can answer a cycle.
+pub(in crate::entry) fn inherits(from: u64, wanted: u64) -> bool {
+    let mut level = from;
+    for _ in 0..objects::CHAIN_LIMIT {
+        let next = chain::get_prototype(level);
+        if throw::in_flight() {
+            return false;
+        }
+        if !crate::entry::with_current(|context| objects::is_object(context, next)) {
+            return false;
+        }
+        if next == wanted {
+            return true;
+        }
+        level = next;
+    }
+    false
 }

@@ -30,6 +30,7 @@
 //! larger half of the operation.
 
 mod arrays;
+mod compatible;
 mod copy;
 mod define;
 mod descriptor;
@@ -45,6 +46,11 @@ pub(in crate::entry) use describe::{describe_of, describe_own, own_symbols};
 pub(in crate::entry) use descriptor::read as descriptor_read;
 /// The other half of that round trip — see [`descriptor::object_of`].
 pub(in crate::entry) use descriptor::object_of as descriptor_object;
+/// What a proxy's `defineProperty` trap is handed — see
+/// [`descriptor::object_of_present`].
+pub(in crate::entry) use descriptor::object_of_present as descriptor_present;
+pub(in crate::entry) use descriptor::Descriptor;
+pub(in crate::entry) use compatible::{Existing, compatible};
 
 use super::native::Native;
 use super::objects::undefined_of;
@@ -230,7 +236,34 @@ extern "C" fn set_prototype_of(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    super::chain::set_prototype(object, prototype)
+    // ES2025 §20.1.2.23, and its refusals are THROWS in this spelling: the
+    // shared act `chain::apply_prototype` only reports, because
+    // `Reflect.setPrototypeOf` answers `false` for the same verdicts. A
+    // non-extensible object, a cycle or a handler answering `false` used to
+    // leave the object unchanged in silence.
+    let (coercible, linkable, is_object) = with_current(|context| {
+        (
+            super::objects::nullish(context, object).is_none(),
+            super::primitive::is_object_in(context, prototype)
+                || prototype == Value::from_singleton(context.singletons.null).bits(),
+            super::primitive::is_object_in(context, object),
+        )
+    });
+    if !coercible {
+        super::throw::type_error("Object.setPrototypeOf called on null or undefined");
+        return object;
+    }
+    if !linkable {
+        super::throw::type_error("Object prototype may only be an Object or null");
+        return object;
+    }
+    if !is_object {
+        return object;
+    }
+    if !super::chain::apply_prototype(object, prototype) && !super::throw::in_flight() {
+        super::throw::type_error("Cannot set the prototype of this object");
+    }
+    object
 }
 
 /// `Object.defineProperty(o, k, descriptor)`.
@@ -301,6 +334,9 @@ extern "C" fn from_entries(_e: u64, _this: u64, entries: u64, _a1: u64, _a2: u64
 /// and it answers for a key holding `undefined`, which is why it cannot be
 /// written as a read compared against `undefined`.
 extern "C" fn has_own(_e: u64, _this: u64, object: u64, name: u64, _a2: u64, _a3: u64) -> u64 {
+    if let Some(owned) = super::proxy::owns(object, name) {
+        return Value::from_bool(owned).bits();
+    }
     let owns = with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             return false;
