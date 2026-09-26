@@ -4,6 +4,7 @@
 use super::*;
 
 pub mod active_measurer;
+pub(super) mod aspect_ratio;
 pub(super) mod font_advances;
 pub(crate) mod font_metrics;
 pub(super) mod intrinsic_min_max;

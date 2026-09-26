@@ -5,7 +5,8 @@
 //! alterada — a reconstrução deste ficheiro é byte a byte a do original.
 
 use super::*;
-use super::lines::{GridItem, place_grid_items};
+use super::lines::{GridItem, collect_items, place_grid_items};
+use super::aspect;
 use super::tracks;
 use super::collapse;
 /// GRID real (css-grid track-sizing simplificado): resolve as trilhas de coluna
@@ -80,28 +81,8 @@ pub(in crate::layout) fn layout_children_grid(
     let ncols = col_tracks.len().max(1);
 
     // ── ITENS: os filhos renderizáveis (auto-placement row-by-row) ───────────────
-    let mut children: Vec<GridItem> = Vec::new();
-    // Grid não cria caixas anónimas para os filhos: o filho de grid é
-    // blockificado. A sequência, porém, continua a pertencer à BoxTree; assim
-    // cada item recebe o `BoxId` desta construção sem voltar por `NodeIdx`.
     let tree = std::rc::Rc::clone(&list.tree);
-    for &box_id in tree.children_without_generated(container) {
-        let Some(child) = tree.node_of(box_id) else {
-            continue;
-        };
-        if let NodeKind::Element { tag } = &dom.node(child).kind {
-            if is_non_rendered_tag(tag) {
-                continue;
-            }
-        }
-        if is_out_of_flow(dom, child) {
-            continue;
-        }
-        if !is_block_level(dom, child) && collect_text(dom, child).trim().is_empty() {
-            continue;
-        }
-        children.push(GridItem { node: child, box_id });
-    }
+    let children: Vec<GridItem> = collect_items(dom, &tree, container);
     if children.is_empty() {
         return 0.0;
     }
@@ -167,9 +148,23 @@ pub(in crate::layout) fn layout_children_grid(
             if c.c1 - c.c0 != 1 || c.c0 >= ncols {
                 continue;
             }
-            wmax[c.c0] = wmax[c.c0].max(intrinsic_outer_width(dom, c.child, font_size, ctx));
+            // An item whose ratio turns a height definite against its FIXED
+            // rows into a width contributes that width to both sizes (Sizing 4
+            // §5.1: the transferred size is the min- and max-content size).
+            let area_h = aspect::definite_area_height(
+                &explicit_rows,
+                css.grid_auto_rows.as_ref(),
+                (c.r0, c.r1),
+                row_gap,
+                container_content_h,
+                &resolve,
+            );
+            let ratio_w = aspect::ratio_outer_width(dom, c.child, area_h, content_w, font_size, ctx);
+            let max = ratio_w.unwrap_or_else(|| intrinsic_outer_width(dom, c.child, font_size, ctx));
+            wmax[c.c0] = wmax[c.c0].max(max);
             if needs_min {
-                wmin[c.c0] = wmin[c.c0].max(crate::table::min_content(dom, c.child, font_size, ctx));
+                let min = ratio_w.unwrap_or_else(|| crate::table::min_content(dom, c.child, font_size, ctx));
+                wmin[c.c0] = wmin[c.c0].max(min);
             }
         }
         (Some(wmax), needs_min.then_some(wmin))
@@ -336,10 +331,25 @@ pub(in crate::layout) fn layout_children_grid(
         // NENHUM `align-self`, logo caem no `align-items:stretch` default do
         // container) ganhavam a altura da CÉLULA (50px) em vez da declarada
         // (30px) — medido pelo orquestrador contra o Chrome.
-        let stretch_x = justify == crate::style::AlignItems::Stretch && item_css.width.is_none();
+        // A ratio fed by a height definite against the (now sized) area owns
+        // the width, and may overflow the cell. Only `normal` yields to it —
+        // Grid §6.6.1: `normal` "behaves as start" for an item with a
+        // preferred aspect ratio — while a DECLARED `stretch` (on the item or
+        // as the container's `justify-items`) still stretches, which is what
+        // Blink paints for `grid-aspect-ratio-018`/`-036`/`-037`.
+        let ratio_w = aspect::ratio_outer_width(dom, child, Some(cell_h), cell_w, font_size, ctx);
+        let declared_x = item_css.justify_self.is_some() || css.grid_justify_items.is_some();
+        let stretch_x = justify == crate::style::AlignItems::Stretch
+            && item_css.width.is_none()
+            && (ratio_w.is_none() || declared_x);
+        let ratio_w = ratio_w.filter(|_| !stretch_x);
         let stretch_y = align == crate::style::AlignItems::Stretch && item_css.height.is_none();
-        let (nat_w, nat_h) = measure_block(dom, child, cell.box_id, cell_w, Some(cell_h), None, None, true, ctx);
-        let iw = if stretch_x { cell_w } else { nat_w.min(cell_w) };
+        let (nat_w, nat_h) = measure_block(dom, child, cell.box_id, cell_w, Some(cell_h), ratio_w, None, true, ctx);
+        let iw = match ratio_w {
+            Some(w) => w,
+            None if stretch_x => cell_w,
+            None => nat_w.min(cell_w),
+        };
         let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
         let x = cell_x + cell_align_offset(justify, cell_w, iw);
         let y = cell_y + cell_align_offset(align, cell_h, ih);

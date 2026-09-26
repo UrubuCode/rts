@@ -17,8 +17,9 @@
 //!   dois, o topo do content.
 //! - **flex container** (row/column, including `wrap`): positions the box at
 //!   its MEASURED SIZE, aligned by `justify-content` (main axis) and
-//!   `align-self`/`align-items` (cross axis). `grid` still follows the block
-//!   path because there is no fixture requiring it yet.
+//!   `align-self`/`align-items` (cross axis).
+//! - **grid container**: `static_position_grid`, as the sole item of an area
+//!   that is the container's content box (css-align-3 §4.4 / Grid §9.2).
 //!
 //! Cortes documentados: a margem PRÓPRIA de `id` não entra na conta (todos os
 //! casos medidos usam margem 0, o default); `space-between`/`space-around`/
@@ -42,13 +43,35 @@ pub(in crate::layout) fn static_position_of(
 ) -> (f32, f32) {
     // The box appeared in the middle of a LINE: the inline flow recorded where
     // it would have been, which no sibling's rectangle can say (`static_anchor.rs`).
+    let Some(parent) = dom.node(id).parent else {
+        return flow_rects.get(&id).map_or((0.0, 0.0), |a| (a.x, a.y));
+    };
+    if let Some(place) = boxless_inline_place(dom, parent, flow_rects, ctx) {
+        return place;
+    }
+    let parent_css = dom.computed_style_idx(parent).unwrap_or_default();
+    let rtl = parent_css.direction == Some(crate::style::Direction::Rtl);
     if let Some(anchor) = flow_rects.get(&id) {
+        // A zero-width anchor is a point on a placed line. A wider one is the
+        // free BAND of the line the box would have opened in the block flow
+        // (`static_anchor::in_block_flow`): the line's `text-align` places a
+        // zero-width box in it, and under rtl the box's RIGHT edge goes there
+        // (§10.3.7). Cut, stated: a band squeezed to zero by floats reads as a
+        // point.
+        if anchor.w > 0.0 {
+            let end = anchor.x + anchor.w;
+            let at = match parent_css.text_align {
+                Some(crate::style::TextAlign::Right) => end,
+                Some(crate::style::TextAlign::Center) => anchor.x + anchor.w / 2.0,
+                Some(_) => anchor.x,
+                // The initial value is `start`: the right edge of an rtl line.
+                None if rtl => end,
+                None => anchor.x,
+            };
+            return (if rtl { at - outer_w } else { at }, anchor.y);
+        }
         return (anchor.x, anchor.y);
     }
-    let Some(parent) = dom.node(id).parent else {
-        return (0.0, 0.0);
-    };
-    let parent_css = dom.computed_style_idx(parent).unwrap_or_default();
     let parent_box = flow_rects
         .get(&parent)
         .copied()
@@ -65,7 +88,64 @@ pub(in crate::layout) fn static_position_of(
     ) {
         return static_position_flex(css, &parent_css, content, outer_w, outer_h, containing_block);
     }
-    static_position_block(dom, id, parent, content, flow_rects)
+    // Cuts, stated: a vertical grid (the axes would have to be swapped) and an
+    // item placed on explicit lines (its area, not the content box, is the
+    // alignment rect — Grid §11) still follow the block rule below; each moved
+    // a WPT test from pass to fail when routed here.
+    let horizontal = matches!(parent_css.writing_mode, None | Some(crate::style::WritingMode::HorizontalTb));
+    let auto_lines = [css.grid_row_start, css.grid_row_end, css.grid_column_start, css.grid_column_end]
+        .iter()
+        .all(|l| matches!(l, None | Some(crate::style::grid_lines::GridLine::Auto)));
+    if horizontal && auto_lines && parent_css.effective_display().is_some_and(|d| d.is_grid_container()) {
+        return static_position_grid(css, &parent_css, content, outer_w, outer_h);
+    }
+    let (x, y) = static_position_block(dom, id, parent, content, flow_rects);
+    // A block-level box starts at the START edge of its flow: the right one
+    // under rtl (§10.3.7). This used to come out right only by accident, when
+    // `rtl::used_margin_left` shifted the absolute box as if it were in flow.
+    (if rtl { content.x + content.w - outer_w } else { x }, y)
+}
+
+/// Where an inline that generated NO box would start, with the relative offsets
+/// of it and of every inline around it applied; `None` when `inline` has a
+/// rect or is not an inline.
+///
+/// An inline whose only content is out-of-flow boxes and collapsible space
+/// makes no line (`boxes::build::run_without_line_content`): its out-of-flow
+/// children become children of the block container and nothing records a
+/// rect for the inline. Asking `flow_rects` for it then fell back to the
+/// VIEWPORT, and a `position: fixed`/`absolute` box inside it was drawn at
+/// (0, 0) (`position-relative-003`, `nested-inline-abspos-child`). In flow it
+/// would sit where the empty line starts — the container's content edge, below
+/// the in-flow siblings before it — which is what `static_position_block`
+/// answers for the inline's outermost box-less ancestor. The offsets are
+/// resolved against that container (CSS 2.1 §10.1): its content width, and
+/// its height only when declared, as for the inlines of a real line.
+pub(in crate::layout) fn boxless_inline_place(
+    dom: &Dom,
+    inline: NodeIdx,
+    flow_rects: &crate::fasthash::FastMap<NodeIdx, Rect>,
+    ctx: &LayoutCtx,
+) -> Option<(f32, f32)> {
+    let boxless_inline = |n: NodeIdx| {
+        !flow_rects.contains_key(&n) && matches!(&dom.node(n).kind, NodeKind::Element { .. }) && !is_block_level(dom, n) && !is_inline_block(dom, n)
+    };
+    if !boxless_inline(inline) {
+        return None;
+    }
+    let mut outermost = inline;
+    let mut container = dom.node(inline).parent?;
+    while boxless_inline(container) {
+        outermost = container;
+        container = dom.node(container).parent?;
+    }
+    let container_box = *flow_rects.get(&container)?;
+    let container_css = dom.computed_style_idx(container).unwrap_or_default();
+    let content = super::containing_block::content_box(container_box, &container_css, ctx);
+    let (x, y) = static_position_block(dom, outermost, container, content, flow_rects);
+    let cb_h = crate::inline_box::replaced_clamp::definite_cb_height(&container_css, Some(content.h));
+    let (dx, dy) = super::relative::inline_offset(dom, Some(inline), content.w, cb_h, ctx);
+    Some((x + dx, y + dy))
 }
 
 /// Caso do contentor de bloco normal: o próximo irmão em fluxo já está onde
@@ -174,6 +254,35 @@ fn static_position_flex(
     } else {
         (main(content.x, content.w, outer_w), cross(content.y, content.h, outer_h, containing_block.y, containing_block.h))
     }
+}
+
+/// Grid-container case: the box is aligned as the SOLE item of a grid area
+/// whose edges are the container's CONTENT box — the rect
+/// `grid-abspos-staticpos-*` measures (the `-large-border-padding` refs put
+/// the centred box at the content box's centre, not the padding box's). The
+/// item's `align-self`/`justify-self` win over the container's
+/// `align-items`/`justify-items`; `normal` (absent) and `stretch` behave as
+/// `start`, because the box's size is already resolved by the abspos rules.
+/// Under `direction: rtl` the inline axis runs from the right edge.
+/// Rejected: the in-flow grid's `cell_align_offset` — it maps an absent value
+/// to `stretch` and knows no rtl.
+fn static_position_grid(css: &ComputedStyle, parent_css: &ComputedStyle, content: Rect, outer_w: f32, outer_h: f32) -> (f32, f32) {
+    use crate::layout::flex::offsets::align_offset;
+    use crate::style::AlignItems as A;
+    let start_if_stretch = |a: Option<A>| match a.unwrap_or(A::FlexStart) {
+        A::Stretch => A::FlexStart,
+        a => a,
+    };
+    let align = start_if_stretch(css.align_self.or(parent_css.align_items));
+    let justify = start_if_stretch(css.justify_self.or(parent_css.grid_justify_items));
+    let y = content.y + align_offset(align, content.h, outer_h);
+    let dx = align_offset(justify, content.w, outer_w);
+    let x = if parent_css.direction == Some(crate::style::Direction::Rtl) {
+        content.x + content.w - outer_w - dx
+    } else {
+        content.x + dx
+    };
+    (x, y)
 }
 
 // Testes de comportamento (Dom real, via `layout()`) ficam em

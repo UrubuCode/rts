@@ -87,7 +87,7 @@ pub(in crate::layout) fn outside_line(
                 (true, false) => (flow_x, line_bottom),
                 (false, _) => (seg_x, line_top),
             };
-            list.static_anchors.push((box_id, x, y));
+            list.static_anchors.push((box_id, x, y, 0.0));
             true
         }
         _ => false,
@@ -109,6 +109,40 @@ pub(in crate::layout) fn anchors_only_line(dom: &Dom, line: &[Segment], flow_x: 
     anchors_only
 }
 
+/// An absolutely positioned box met by the BLOCK flow — no text pending, so it
+/// joins no line — that was INLINE-level before `position` blockified it. In
+/// flow it would have opened a line at `y`, and that line is shortened by the
+/// floats that cross it (CSS 2.1 §9.5): the static position is where the line's
+/// `text-align` puts a zero-width box inside the FREE band, not the content
+/// edge. The DOM-sibling answer of `static_position.rs` knew no float at all,
+/// and read a preceding float as the previous in-flow block — so the box also
+/// landed BELOW the float (WPT `inline-level-absolute-in-block-level-context-*`).
+///
+/// A block-level box is left to that sibling answer: it would not have been
+/// shortened, since a block box beside a float keeps its full width.
+///
+/// What is recorded is the free BAND of that line, `(x, y, width)`, not a
+/// point: where the box goes in it depends on `text-align`, on `direction`
+/// (under rtl the box's RIGHT edge sits on the line's position) and on the
+/// box's own width, which only the reader knows — `static_position.rs`. A
+/// line anchor records width zero: it is already a point on a placed line.
+pub(in crate::layout) fn in_block_flow(
+    dom: &Dom,
+    id: NodeIdx,
+    box_id: BoxId,
+    content_x: f32,
+    content_w: f32,
+    y: f32,
+    bfc: &crate::layout::block::bfc::BlockFormattingContext,
+    list: &mut DisplayList,
+) {
+    if was_block(dom, id) {
+        return;
+    }
+    let (band_x, band_w) = bfc.free_band(y, 0.0, content_x, content_w);
+    list.static_anchors.push((box_id, band_x, y, band_w));
+}
+
 /// Was this box block-level BEFORE `position: absolute` blockified it? The
 /// declared `display` decides, and the tag's default when none is declared —
 /// `effective_display` cannot be asked, since it answers after blockification.
@@ -123,8 +157,8 @@ fn was_block(dom: &Dom, id: NodeIdx) -> bool {
 /// coordinates, including those inside the fragments it reuses.
 pub(in crate::layout) fn all(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
     let mut out = Vec::new();
-    let mut add = |tree: &crate::boxes::BoxTree, a: &[(BoxId, f32, f32)], dx: f32, dy: f32| {
-        out.extend(a.iter().filter_map(|&(b, x, y)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, 0.0, 0.0)))));
+    let mut add = |tree: &crate::boxes::BoxTree, a: &[(BoxId, f32, f32, f32)], dx: f32, dy: f32| {
+        out.extend(a.iter().filter_map(|&(b, x, y, w)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, w, 0.0)))));
     };
     add(&list.tree, &list.static_anchors, 0.0, 0.0);
     let mut stack: Vec<(&ChildRef, f32, f32)> = crate::paint::pieces::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();

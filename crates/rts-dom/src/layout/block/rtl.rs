@@ -73,7 +73,12 @@ pub(in crate::layout) fn used_margin_left(
         )
     );
     let horizontal = parent_css.writing_mode.unwrap_or_default().is_horizontal();
-    if is_flex_or_grid || !horizontal || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl)) {
+    // §10.3.3 is the IN-FLOW equation. An absolutely positioned box is placed
+    // by §10.3.7 in `layout_out_of_flow`, whose `x` already is its border edge
+    // (an inset, or the static position mirrored for rtl in
+    // `static_position.rs`); shifting it again here moved it by the free space.
+    let out_of_flow = crate::layout::positioned::positioned::is_out_of_flow(dom, id);
+    if out_of_flow || is_flex_or_grid || !horizontal || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl)) {
         return margin_left_ltr;
     }
     signed_free - margin_right

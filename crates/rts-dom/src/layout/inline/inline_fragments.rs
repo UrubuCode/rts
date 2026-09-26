@@ -53,12 +53,15 @@ pub(in crate::layout) fn owner_fragment(
     line_content: f32,
     ctx: &LayoutCtx,
     align_to_baseline: bool,
+    // The line's containing block (content width, definite height), which a
+    // percentage `top`/`left` of a relative inline resolves against.
+    cb: (f32, Option<f32>),
 ) -> Rect {
     let css = dom.computed_style_idx(owner);
     let with_edges = css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
     // A relative inline — or one inside a relative inline — is shifted HERE, the
     // one place its fragment is made: client rects and painted surface move together.
-    let (dx, dy) = crate::layout::positioned::relative::inline_offset(dom, Some(owner), ctx);
+    let (dx, dy) = crate::layout::positioned::relative::inline_offset(dom, Some(owner), cb.0, cb.1, ctx);
     styled_fragment(css.as_deref(), with_edges, x + dx, y + dy, w, line_content, ctx, align_to_baseline)
 }
 
@@ -206,6 +209,7 @@ impl Surfaces {
         y: f32,
         line_content: f32,
         align_to_baseline: bool,
+        cb: (f32, Option<f32>),
         ctx: &LayoutCtx,
     ) -> Surfaces {
         let mut at = at;
@@ -225,7 +229,7 @@ impl Surfaces {
             let (css, r) = match s.owner {
                 Owner::Node(n) => {
                     let Some(css) = dom.computed_style_idx(n) else { continue };
-                    let r = owner_fragment(dom, n, s.x0, y, s.x1 - s.x0, line_content, ctx, align_to_baseline);
+                    let r = owner_fragment(dom, n, s.x0, y, s.x1 - s.x0, line_content, ctx, align_to_baseline, cb);
                     (css, r)
                 }
                 Owner::Generated(n, pe) => {

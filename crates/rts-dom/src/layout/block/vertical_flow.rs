@@ -495,8 +495,16 @@ pub(in crate::layout) fn layout_children_vertical(
                 inline_group.push((child, child_box));
             }
             // Fora do fluxo sem texto pendente: não ocupa espaço aqui — pintado
-            // na passada out-of-flow de layout_document.
-            NodeKind::Element { .. } if child_out => {}
+            // na passada out-of-flow de layout_document. An inline-level one
+            // still says where its line would have been, beside the floats.
+            // (Not after a pending inline-block run: its line is not placed yet.)
+            NodeKind::Element { .. } if child_out => {
+                if ib_run.is_empty() {
+                    crate::layout::inline::static_anchor::in_block_flow(
+                        dom, child, child_box, content_x, content_w, child_y, bfc, list,
+                    );
+                }
+            }
             // FLOAT left/right: encosta ao lado pedido, na primeira faixa a
             // partir do cursor onde CAIBA ao lado dos floats já postos.
             NodeKind::Element { .. } if child_float != crate::style::FloatSide::None => {

@@ -107,7 +107,7 @@ pub struct DisplayList {
     /// resposta nenhuma. `rect_of_node` e `geometry_now` são as vistas
     /// agregadas por nó, para quando um nó vier a ter mais do que uma caixa.
     pub box_rects: crate::layout::BoxRects,
-    pub static_anchors: Vec<(BoxId, f32, f32)>, // static positions, `layout/inline/static_anchor.rs`
+    pub static_anchors: Vec<(BoxId, f32, f32, f32)>, // static positions (x, y, band width), `layout/inline/static_anchor.rs`
     /// Tracks de coluna de grids explícitos, já resolvidas em px pelo layout. O
     /// `computedProperty` usa esta fonte de used values sem duplicar `resolve_tracks`.
     pub grid_column_tracks: crate::fasthash::FastMap<NodeIdx, Vec<f32>>,

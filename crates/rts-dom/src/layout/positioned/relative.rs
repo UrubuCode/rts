@@ -80,11 +80,18 @@ pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avai
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let left = super::positioned::resolve_inset(css.inset_left, avail_w, &resolve);
-    let right = super::positioned::resolve_inset(css.inset_right, avail_w, &resolve);
-    let avail_h_axis = avail_h.unwrap_or(0.0);
-    let top = super::positioned::resolve_inset(css.inset_top, avail_h_axis, &resolve);
-    let bottom = super::positioned::resolve_inset(css.inset_bottom, avail_h_axis, &resolve);
+    // Percentages against the containing block, each on ITS axis (CSS 2.1
+    // §9.4.3 → §10.3.7/§10.6.4): `left`/`right` against the width, `top`/
+    // `bottom` against the height — and a height that is not definite makes
+    // them `auto` rather than `0px`, so `top: 50%; bottom: 10px` in an
+    // auto-height block shifts by the `bottom` (Blink). `unwrap_or(0.0)` on the
+    // height answered a number where the property computes to `auto`.
+    let cb = crate::style::ContainingBlock::horizontal_tb(avail_w, avail_h);
+    let inset = |d: Option<crate::style::Dimension>, axis| d.and_then(|d| cb.resolve_signed(d, axis, &resolve));
+    let left = inset(css.inset_left, crate::style::Axis::Inline);
+    let right = inset(css.inset_right, crate::style::Axis::Inline);
+    let top = inset(css.inset_top, crate::style::Axis::Block);
+    let bottom = inset(css.inset_bottom, crate::style::Axis::Block);
     (left.or(right.map(|r| -r)).unwrap_or(0.0), top.or(bottom.map(|b| -b)).unwrap_or(0.0))
 }
 
@@ -101,13 +108,21 @@ pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avai
 ///
 /// The walk stops at the first ancestor that is not an inline box: a block or
 /// an atom shifts ITS OWN subtree through `apply_relative_offset`, and adding
-/// it here would shift the content twice. Cut: a percentage inset resolves
-/// against the viewport, the line not knowing its containing block's size.
-pub(in crate::layout) fn inline_offset(dom: &Dom, mut node: Option<NodeIdx>, ctx: &LayoutCtx) -> (f32, f32) {
+/// it here would shift the content twice.
+///
+/// `cb_w`/`cb_h` are the containing block of every inline on the walk — the
+/// block that owns the line (CSS 2.1 §10.1: an inline's containing block is
+/// its nearest block container), its content width and its height when
+/// DEFINITE. They used to be the viewport, so `top: 100%` inside a 100px box
+/// moved the span by the viewport's height (`position-relative-003`).
+/// The offsets of nested relative inlines are summed innermost first; the
+/// order does not change a sum, but every one of them is resolved against the
+/// same block, which is why the chain needs no per-level base.
+pub(in crate::layout) fn inline_offset(dom: &Dom, mut node: Option<NodeIdx>, cb_w: f32, cb_h: Option<f32>, ctx: &LayoutCtx) -> (f32, f32) {
     let (mut dx, mut dy) = (0.0, 0.0);
     while let Some(n) = node.filter(|&n| !is_block_level(dom, n) && !is_inline_block(dom, n)) {
         if let Some(css) = dom.computed_style_idx(n) {
-            let (x, y) = relative_offset(&css, ctx.viewport_w, Some(ctx.viewport_h), font_px(&css, DEFAULT_FONT_SIZE), ctx);
+            let (x, y) = relative_offset(&css, cb_w, cb_h, font_px(&css, DEFAULT_FONT_SIZE), ctx);
             (dx, dy) = (dx + x, dy + y);
         }
         node = dom.node(n).parent;

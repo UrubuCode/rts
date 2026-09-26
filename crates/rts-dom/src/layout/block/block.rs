@@ -469,12 +469,10 @@ pub(crate) fn layout_block(
                     h
                 }
             })
-            // `aspect-ratio`: sem height explícito, a altura vem da largura / razão. Só
-            // quando há largura resolvida (content_w) e uma razão > 0.
+            // `aspect-ratio`: without a declared height, the width transfers
+            // through the ratio (`measure::aspect_ratio`, shared with the grid).
             .or_else(|| {
-                css.aspect_ratio
-                    .filter(|r| *r > 0.0)
-                    .map(|r| (content_w / r).max(0.0))
+                crate::layout::measure::aspect_ratio::height_for_width(&css, content_w, padding_h + border_h, frame_v)
             })
             // ALTURA IMPOSTA pelo flex (grow/stretch): o `forced_outer_h` é a altura
             // OUTER do item — o content-box é ela menos margem-v/frame. Vira o

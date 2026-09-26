@@ -209,8 +209,11 @@ fn intrinsic_content_width_general(
             count += 1;
         }
     }
-    // soma + gaps entre os itens.
-    sum + (count.saturating_sub(1)) as f32 * gap
+    // soma + gaps entre os itens. A grid lands here too (its axis code is
+    // `wrap`), and a grid item sized by its ratio against a fixed row is as
+    // wide as the row makes it — which its empty content cannot say.
+    let ratio_floor = crate::layout::grid::aspect::intrinsic_floor(dom, tree, id, box_id, font, ctx);
+    (sum + (count.saturating_sub(1)) as f32 * gap).max(ratio_floor.unwrap_or(0.0))
 }
 
 /// The lines of one box's in-flow children, fed into `lines`.
