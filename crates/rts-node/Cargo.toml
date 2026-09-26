@@ -123,3 +123,12 @@ hickory-resolver = "0.26"
 # dependency of `hickory-resolver` above) already requests of this same
 # crate, so this only makes explicit what was already compiled in.
 tokio = { version = "1", features = ["rt", "time", "net"] }
+
+# The Chrome DevTools Protocol endpoint behind `--inspect` (see
+# `src/inspector/cdp/mod.rs`). A feature so a build that never inspects — the
+# AOT `.exe` — does not carry the transport; `serde_json` is already in the
+# lockfile through `rts-std`/`rts-host`.
+serde_json = { version = "1.0", optional = true }
+
+[features]
+cdp = ["dep:serde_json"]

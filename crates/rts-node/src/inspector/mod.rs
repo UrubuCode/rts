@@ -32,6 +32,8 @@
 //! discovery and nothing else, so a DevTools-class frontend that probes and then
 //! tries to attach fails at the upgrade. That is `inspector.md` §5.1's named
 //! deferral, and it is the whole difference between this and scope (a).
+//! With the `cdp` feature (`--inspect`, [`cdp`]) the upgrade and the command
+//! loop exist, over this same dispatch; without it, the paragraph stands.
 //!
 //! `Profiler.start`/`stop` and `HeapProfiler.takeHeapSnapshot` — there is no
 //! sampling profiler in this engine, the identical gap `node:v8`'s
@@ -50,6 +52,11 @@
 //! loopback: widening it is a security decision, and honouring an argument that
 //! widens it silently is how such a decision gets made by accident.
 
+/// The Chrome DevTools Protocol endpoint (`--inspect`): the WebSocket upgrade
+/// and command loop the paragraph above names as missing, behind the `cdp`
+/// feature. `node:inspector`'s own surface is unchanged by it.
+#[cfg(feature = "cdp")]
+pub mod cdp;
 mod endpoint;
 mod session;
 

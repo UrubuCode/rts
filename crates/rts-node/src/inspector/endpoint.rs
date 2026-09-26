@@ -78,10 +78,21 @@ pub(super) fn open(port: u16) -> Result<u16, String> {
                 // sends a byte still counts — which is what a frontend probing
                 // for liveness does.
                 let _ = sender.send(());
-                let mut request = [0u8; 1024];
-                let read = stream.read(&mut request).unwrap_or(0);
-                let text = String::from_utf8_lossy(&request[..read]);
+                let request = read_head(&mut stream);
+                // The upgrade a DevTools frontend attaches with, served by
+                // `cdp::transport` on a thread of its own so this loop keeps
+                // answering discovery. Without the `cdp` feature there is no
+                // protocol behind the upgrade and it is answered like any
+                // other path, which is the state the module doc describes.
+                #[cfg(feature = "cdp")]
+                if super::cdp::transport::is_upgrade(&request) {
+                    super::cdp::transport::attach(stream, request);
+                    continue;
+                }
+                let text = String::from_utf8_lossy(&request);
                 let target = text.split_whitespace().nth(1).unwrap_or("/");
+                // `/json/list?for_tab` is what Chrome's discovery asks.
+                let target = target.split('?').next().unwrap_or(target);
                 let body = respond(target, bound, &served);
                 let head = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\
@@ -111,6 +122,15 @@ pub(super) fn open(port: u16) -> Result<u16, String> {
 /// would be a dependency for two braces.
 fn respond(target: &str, port: u16, id: &str) -> String {
     let websocket = format!("ws://127.0.0.1:{port}/{id}");
+    // A `page` target is what DevTools opens with an Elements panel, and it is
+    // offered only when a document domain is actually behind the socket.
+    #[cfg(feature = "cdp")]
+    let kind = if super::cdp::page_mode() { "page" } else { "node" };
+    #[cfg(not(feature = "cdp"))]
+    let kind = "node";
+    let frontend = format!(
+        "devtools://devtools/bundled/inspector.html?ws=127.0.0.1:{port}/{id}"
+    );
     match target {
         "/json/version" => format!(
             "{{\"Browser\":\"rts\",\"Protocol-Version\":\"1.3\",\"webSocketDebuggerUrl\":\"{websocket}\"}}"
@@ -118,10 +138,31 @@ fn respond(target: &str, port: u16, id: &str) -> String {
         // `/json` and `/json/list` are the same answer in Node too.
         "/json" | "/json/list" => format!(
             "[{{\"description\":\"rts instance\",\"id\":\"{id}\",\"title\":\"rts\",\
-             \"type\":\"node\",\"url\":\"file://\",\"webSocketDebuggerUrl\":\"{websocket}\"}}]"
+             \"type\":\"{kind}\",\"url\":\"file://\",\"devtoolsFrontendUrl\":\"{frontend}\",\
+             \"webSocketDebuggerUrl\":\"{websocket}\"}}]"
         ),
         _ => "{}".to_owned(),
     }
+}
+
+/// Reads a request's head — up to the blank line, or 8 KiB, or what one read
+/// gave when the peer sent nothing more. One `read` of 1 KiB was enough for
+/// the three discovery paths; a WebSocket upgrade from Chrome carries more
+/// headers than that, and a head cut short fails the handshake.
+fn read_head(stream: &mut std::net::TcpStream) -> Vec<u8> {
+    let mut head = Vec::new();
+    let mut chunk = [0u8; 2048];
+    while head.len() < 8192 {
+        let Ok(read) = stream.read(&mut chunk) else { break };
+        if read == 0 {
+            break;
+        }
+        head.extend_from_slice(&chunk[..read]);
+        if head.windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+    }
+    head
 }
 
 /// The identifier in the URL.

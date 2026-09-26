@@ -4789,6 +4789,7 @@ version = "0.1.0"
 dependencies = [
  "rts-core",
  "rts-dom",
+ "serde_json",
 ]
 
 [[package]]
@@ -4908,6 +4909,7 @@ dependencies = [
  "rts-core",
  "rustls",
  "scrypt",
+ "serde_json",
  "sha1",
  "sha2 0.11.0",
  "sha3",
