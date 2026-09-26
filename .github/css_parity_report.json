@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 594,
+    "passing": 598,
     "total": 870,
-    "pct": 68.3,
+    "pct": 68.7,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -43,11 +43,11 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 133,
+        "passing": 134,
         "total": 160
       },
       "item": {
-        "passing": 49,
+        "passing": 51,
         "total": 77
       },
       "align": {
@@ -63,7 +63,7 @@
         "total": 46
       },
       "percentage": {
-        "passing": 19,
+        "passing": 20,
         "total": 39
       },
       "baseline": {
@@ -233,6 +233,7 @@
       "PQ-B — `query::hit` lê os FRAGMENTOS (item 2 da ordem, Fase B): o hit-test sem tabela",
       "LR — `layout/` reagrupado por contexto de formatação (item 3 da ordem)",
       "LR-en — identificadores de `layout/` em inglês",
+      "RPH — `height:%` num substituído em fluxo inline resolve contra a altura DEFINIDA do containing block (CSS 2.1 §10.5), e a transferência pela razão de aspecto respeita a ordem dos clamps (Sizing 4 §5)",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
       "DISP — o `display` para de perder informacao no parse",
       "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",
@@ -256,6 +257,7 @@
       "BT-1 — árvore de caixas: a identidade passa a ser a CAIXA",
       "PCT — a percentagem sabe em que EIXO esta",
       "LR-teto — os seis ficheiros de `layout/` acima do teto: o que desce por MOVES",
+      "PQ-C — as três costuras paint/layout/query apontam para o lado certo (Fase C do item 2)",
       "SC — contexto de empilhamento aninhado"
     ],
     "pendentes": [
