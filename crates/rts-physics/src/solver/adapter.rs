@@ -64,9 +64,10 @@ impl Backend for GatherBackend {
 
     fn supports(&self, needs: &Needs) -> bool {
         // Every one of these is `false` for a measured or stated reason, and
-        //answering `true` to any of them would be the silent approximation
+        // answering `true` to any of them would be the silent approximation
         // README rule 9 exists to forbid.
         //
+        //   level              today only Level::Simples is implemented.
         //   hull_against_hull  `docs/colisores.md` §3: 2.2 billion dot products
         //                      a frame at 2000 bodies. The solver degrades the
         //                      pair to a sphere, deliberately.
@@ -74,7 +75,20 @@ impl Backend for GatherBackend {
         //                      the speed clamp is a net rather than a fix.
         //   angular            no torque, no angular velocity, anywhere.
         //   joints             none, and no articulation to hang one from.
-        !needs.hull_against_hull && !needs.continuous && !needs.angular && !needs.joints
+        //   deterministic      supported: gather reads a top-of-step snapshot and writes
+        //                      only itself, giving bit-exact replay across 1, 2 and 16 threads
+        //                      on the same binary and same machine (desenho §9, §15.3).
+        //   raycast            spatial queries are not implemented on gather solver.
+        //   overlap            spatial overlap queries are not implemented.
+        //   contact_events     contact event stream is not implemented.
+        needs.level == crate::backend::Level::Simples
+            && !needs.hull_against_hull
+            && !needs.continuous
+            && !needs.angular
+            && !needs.joints
+            && !needs.raycast
+            && !needs.overlap
+            && !needs.contact_events
     }
 
     fn supports_shape(&self, kind: ShapeKind) -> bool {
@@ -92,8 +106,9 @@ impl Backend for GatherBackend {
     fn step(&self, scene: &mut Scene<'_>, needs: &Needs) -> StepOutcome {
         if !self.supports(needs) {
             return StepOutcome::Unsupported {
-                needs: "the gather solver has no hull-against-hull, continuous \
-                        collision, angular velocity or joints",
+                needs: "the gather solver only supports Level::Simples, and has no \
+                        hull-against-hull, continuous collision, angular velocity, joints, \
+                        raycast, overlap or contact events",
             };
         }
         let count = scene.body_count();
@@ -171,5 +186,22 @@ mod tests {
         assert!(b.supports_shape(ShapeKind::Sphere));
         assert!(b.supports_shape(ShapeKind::Box));
         assert!(!b.supports_shape(ShapeKind::Hull(1)));
+    }
+
+    #[test]
+    fn raycast_and_unsupported_queries_are_refused() {
+        let b = GatherBackend::new();
+        assert!(!b.supports(&Needs { raycast: true, ..Needs::default() }));
+        assert!(!b.supports(&Needs { overlap: true, ..Needs::default() }));
+        assert!(!b.supports(&Needs { contact_events: true, ..Needs::default() }));
+        assert!(!b.supports(&Needs { level: crate::backend::Level::Orientada, ..Needs::default() }));
+        assert!(!b.supports(&Needs { level: crate::backend::Level::Completa, ..Needs::default() }));
+        assert!(b.supports(&Needs { level: crate::backend::Level::Simples, ..Needs::default() }));
+    }
+
+    #[test]
+    fn deterministic_is_supported() {
+        let b = GatherBackend::new();
+        assert!(b.supports(&Needs { deterministic: true, ..Needs::default() }));
     }
 }

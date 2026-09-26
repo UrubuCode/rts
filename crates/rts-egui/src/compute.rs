@@ -508,3 +508,8 @@ pub(crate) fn buffer_handle(id: u64) -> Option<wgpu::Buffer> {
 pub fn adapter_name() -> Option<String> {
     with_gpu(None, |c| Some(c.gpu.adapter.get_info().name))
 }
+
+/// Limite de storage buffers por estágio do shader no device ativo.
+pub fn max_storage_buffers_per_shader_stage() -> u32 {
+    with_gpu(0, |c| c.gpu.device.limits().max_storage_buffers_per_shader_stage)
+}

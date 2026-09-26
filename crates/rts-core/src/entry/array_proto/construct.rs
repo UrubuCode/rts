@@ -91,12 +91,43 @@ pub(super) extern "C" fn is_array(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    with_current(|context| {
-        let held = Value(value)
-            .as_slot()
-            .is_some_and(|cell| context.elements_at(cell).is_some());
-        Value::from_bool(held).bits()
-    })
+    match with_current(|context| array_in(context, value)) {
+        Some(held) => Value::from_bool(held).bits(),
+        None => {
+            super::super::throw::type_error(
+                "Cannot perform 'IsArray' on a proxy that has been revoked",
+            );
+            Value::from_bool(false).bits()
+        }
+    }
+}
+
+/// `IsArray(value)` (ES2025 §7.2.2): the element store, or — for a `Proxy` —
+/// the same question of its target, as deep as proxies nest. `None` is a
+/// REVOKED proxy, which the specification makes a `TypeError` rather than an
+/// answer; the caller raises it outside this borrow.
+///
+/// It asked the element store alone, so `Array.isArray(new Proxy([], {}))`
+/// was `false` and `concat` appended such a proxy as one element.
+pub(super) fn array_in(context: &super::super::Context, value: u64) -> Option<bool> {
+    let mut cell = match Value(value).as_slot() {
+        Some(cell) => cell,
+        None => return Some(false),
+    };
+    loop {
+        if context.elements_at(cell).is_some() {
+            return Some(true);
+        }
+        let Some((target, handler)) = context.proxy_at(cell) else {
+            return Some(false);
+        };
+        // A revoked proxy is recorded with a handler that is not an object —
+        // `proxy::revocable` says why that is the one record of it.
+        if !super::super::objects::is_object(context, handler) {
+            return None;
+        }
+        cell = Value(target).as_slot()?;
+    }
 }
 
 /// Links a constructed array to the prototype of the class `new` actually named.

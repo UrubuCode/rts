@@ -3,13 +3,60 @@
 use super::*;
 
 /// A world record: fixed step, `statics` static boxes, cells of `size`.
+///
+/// It stops where it always did, at the end of the static block, which makes
+/// every test written before materials existed a test of their ABSENCE too —
+/// the legacy defaults are what all of these assert against.
 fn world(statics: &[([f32; 3], [f32; 3])], size: f32) -> Vec<f32> {
-    let mut world = vec![1.0 / 60.0, statics.len() as f32, size, 0.0];
+    let mut world = vec![
+        1.0 / 60.0,
+        statics.len() as f32,
+        size,
+        1.0,
+        material::PHYSICS_LAYOUT_VERSION,
+        0.0,
+        0.0,
+        0.0,
+    ];
     for (centre, half) in statics {
         world.extend_from_slice(&[centre[0], centre[1], centre[2], 0.0]);
         world.extend_from_slice(&[half[0], half[1], half[2], 0.0]);
     }
     world
+}
+
+/// The same, with room for a material region, and every record at the legacy
+/// value — so a test changes the ONE number it is about and nothing else.
+fn world_with_materials(statics: &[([f32; 3], [f32; 3])], size: f32, bodies: usize) -> Vec<f32> {
+    let mut world = world(statics, size);
+    world.resize(material::MATERIALS_AT, 0.0);
+    let def_layer = f32::from_bits(1);
+    let def_mask = f32::from_bits(0xFFFF_FFFF);
+    for _ in 0..256 {
+        world.extend_from_slice(&[0.0, 0.35, def_layer, def_mask]);
+    }
+    for _ in 0..bodies {
+        world.extend_from_slice(&[9.8, 0.0, 0.0, 0.35, -1.0e30, material::BODY_DYNAMIC, def_layer, def_mask]);
+    }
+    world
+}
+
+/// The five numbers of body `i`'s material, to overwrite in place.
+fn body_material(world: &mut [f32], i: usize) -> &mut [f32] {
+    let at = material::MATERIALS_AT + 256 * 4 + i * 8;
+    &mut world[at..at + 5]
+}
+
+/// The two numbers of static `k`'s material.
+fn static_material(world: &mut [f32], k: usize) -> &mut [f32] {
+    let at = material::MATERIALS_AT + k * 4;
+    &mut world[at..at + 2]
+}
+
+/// Marks static `k` ROUND: `w` of its centre. See the layout note in the
+/// module doc for why 1 is the sphere and 0 the box.
+fn round(world: &mut [f32], k: usize) {
+    world[(2 + k * 2) * 4 + 3] = 1.0;
 }
 
 /// A body: position, half-extent, shape, mass. `mass = 0` is immovable.
@@ -262,4 +309,434 @@ fn a_sleeping_body_is_woken_by_a_fast_one_touching_it_and_not_by_a_slow_one() {
     let mut solver = Solver::new();
     solver.step(&mut pos, &mut vel, &ext, &floor, 1);
     assert!(pos[3] >= SLEEP_STEPS, "a nudge woke it");
+}
+
+// ── materials: what a body and a static are MADE of ────────────────────────
+
+#[test]
+fn a_world_that_stops_at_the_statics_simulates_exactly_as_it_did_before_materials() {
+    // The rule that makes the region safe to add: an older caller's buffer must
+    // produce the SAME trajectory, bit for bit, or every number measured against
+    // the GPU backend stops meaning anything.
+    let start = body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0);
+    let floor = ([0.0, 0.0, 0.0], [10.0, 0.5, 10.0]);
+
+    let (mut short_pos, mut short_vel, ext) = scene(&[start]);
+    Solver::new().step(&mut short_pos, &mut short_vel, &ext, &world(&[floor], 2.0), 120);
+
+    let (mut long_pos, mut long_vel, ext) = scene(&[start]);
+    let long = world_with_materials(&[floor], 2.0, 1);
+    Solver::new().step(&mut long_pos, &mut long_vel, &ext, &long, 120);
+
+    assert_eq!(short_pos, long_pos, "the same scene landed somewhere else");
+    assert_eq!(short_vel, long_vel);
+}
+
+#[test]
+fn a_body_whose_material_says_no_gravity_hangs_where_it_was_put() {
+    // The case with no workaround before this: a floating platform, a scripted
+    // mover, anything the game moves itself. Its only alternative was `stationary`,
+    // which also stops it colliding with what rests on it.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let mut world = world_with_materials(&[], 1.0, 1);
+    body_material(&mut world, 0)[0] = 0.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 120);
+    assert_eq!(pos[1], 6.0, "it moved: y = {}", pos[1]);
+}
+
+#[test]
+fn a_bouncy_body_leaves_the_floor_again_and_a_dead_one_does_not() {
+    // Restitution reaches the solver at all, and reaches it from the BODY: the
+    // two runs differ in one number and nowhere else.
+    let start = body([0.0, 6.0, 0.0], [0.5; 3], SPHERE, 1.0);
+    let floor = ([0.0, 0.0, 0.0], [10.0, 0.5, 10.0]);
+    let mut peak = [0.0f32; 2];
+    for (which, restitution) in [(0usize, 0.0f32), (1, 0.9)] {
+        let (mut pos, mut vel, ext) = scene(&[start]);
+        let mut world = world_with_materials(&[floor], 2.0, 1);
+        body_material(&mut world, 0)[1] = restitution;
+        let mut solver = Solver::new();
+        // One step at a time, and the peak counted only AFTER the first landing:
+        // the body starts at 6, so a peak measured from the beginning is the
+        // drop itself on both runs and the test compares nothing.
+        let mut landed = false;
+        for _ in 0..240 {
+            solver.step(&mut pos, &mut vel, &ext, &world, 1);
+            landed = landed || pos[1] < 1.0;
+            if landed {
+                peak[which] = peak[which].max(pos[1]);
+            }
+        }
+    }
+    assert!(peak[1] > peak[0] + 0.5, "bounce {} vs dead {}", peak[1], peak[0]);
+}
+
+#[test]
+fn drag_takes_the_speed_of_a_body_that_nothing_else_slows() {
+    // Sideways, where gravity does not reach: drag on its own.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 500.0, 0.0], [0.5; 3], SPHERE, 1.0)]);
+    vel[0] = 10.0;
+    let mut world = world_with_materials(&[], 1.0, 1);
+    body_material(&mut world, 0)[0] = 0.0;
+    body_material(&mut world, 0)[2] = 4.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 120);
+    // Under the sleep threshold rather than under zero, and the difference is
+    // the point: drag carries the body down to a crawl, and SLEEP is what ends
+    // the decay there — below 0.45 u/s for ten steps and nothing integrates it
+    // any more. A test demanding 0.0 would be demanding that sleeping not work.
+    assert!(vel[0] < 0.45, "drag did not bite: vx = {}", vel[0]);
+    assert!(vel[0] >= 0.0, "drag reversed the body: vx = {}", vel[0]);
+}
+
+#[test]
+fn a_body_with_its_own_floor_rests_on_it_with_no_static_in_the_scene() {
+    // The Rigidbody's implicit ground, which the game side integrated itself
+    // until this backend took the body over.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let mut world = world_with_materials(&[], 1.0, 1);
+    body_material(&mut world, 0)[4] = 2.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 300);
+    assert!((pos[1] - 2.0).abs() < 1e-3, "it should rest at 2.0: y = {}", pos[1]);
+}
+
+#[test]
+fn ice_lets_a_body_slide_where_rubber_stops_it() {
+    // Friction reaches the solver from BOTH sides of the contact: the two runs
+    // differ only in the floor's number, and the body's is the reference one.
+    let floor = ([0.0, 0.0, 0.0], [40.0, 0.5, 40.0]);
+    let mut travelled = [0.0f32; 2];
+    for (which, friction) in [(0usize, 0.02f32), (1, 1.0)] {
+        let (mut pos, mut vel, ext) = scene(&[body([0.0, 1.0, 0.0], [0.5; 3], BOX, 1.0)]);
+        vel[0] = 12.0;
+        let mut world = world_with_materials(&[floor], 2.0, 1);
+        static_material(&mut world, 0)[1] = friction;
+        Solver::new().step(&mut pos, &mut vel, &ext, &world, 180);
+        travelled[which] = pos[0];
+    }
+    assert!(
+        travelled[0] > travelled[1] * 2.0,
+        "ice {} should carry much further than rubber {}",
+        travelled[0],
+        travelled[1]
+    );
+}
+
+#[test]
+fn a_round_static_is_round_and_a_body_lands_on_top_of_it_rather_than_inside() {
+    // A spherical static was silently a box: a ball dropped on a dome landed on
+    // a flat lid at the dome's full height. The contact is what moves, so the
+    // test is the RESTING HEIGHT — a box of half-extent 2 holds the body at 2.5,
+    // a sphere of radius 2 at the same spot holds it at 2.5 too but only over
+    // the pole, and rejects it sideways. Dropping off-centre is what tells them
+    // apart: on the box the body rests flat, off the sphere it slides away.
+    let dome = ([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+    let mut drift = [0.0f32; 2];
+    for which in 0..2 {
+        let (mut pos, mut vel, ext) = scene(&[body([1.2, 5.0, 0.0], [0.5; 3], SPHERE, 1.0)]);
+        let mut world = world_with_materials(&[dome], 4.0, 1);
+        if which == 1 {
+            round(&mut world, 0);
+        }
+        Solver::new().step(&mut pos, &mut vel, &ext, &world, 180);
+        drift[which] = pos[0];
+    }
+    assert!((drift[0] - 1.2).abs() < 0.05, "on a box it should sit still: x = {}", drift[0]);
+    assert!(drift[1] > 1.6, "off a sphere it should slide: x = {}", drift[1]);
+}
+
+#[test]
+fn a_bouncing_body_does_not_fall_asleep_in_mid_air() {
+    // Sleeping asked only about SPEED, and at the top of a bounce a body is slow
+    // for as many steps as the arc is shallow. Ten of those and it hung there,
+    // awake to nothing — a sleeping body is only woken by a fast neighbour, and
+    // empty space is not one. A dropped box with bounce 0.5 stopped at y = 1.135
+    // and stayed for as long as anyone watched.
+    //
+    // Unreachable while restitution was a constant zero, which is why it arrived
+    // with the material region rather than with the sleep rule.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 6.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let floor = ([0.0, 0.0, 0.0], [10.0, 0.5, 10.0]);
+    let mut world = world_with_materials(&[floor], 2.0, 1);
+    body_material(&mut world, 0)[1] = 0.5;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 900);
+    // On the floor (half-extents 0.5 + 0.5), not hanging above it.
+    assert!(pos[1] < 1.1, "it fell asleep in the air at y = {}", pos[1]);
+    assert!(pos[1] > 0.8, "it sank into the floor: y = {}", pos[1]);
+}
+
+#[test]
+fn a_kinematic_body_moves_by_velocity_with_no_gravity_or_drag_and_never_sleeps() {
+    // Kinematic (body_type = 2.0): moves strictly by p += v * dt.
+    // Velocity must be preserved exactly, position must advance linearly,
+    // gravity and drag must not affect it.
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 10.0, 0.0], [1.0; 3], BOX, 0.0)]);
+    vel[0] = 5.0; // vx = 5.0
+    vel[1] = 0.0; // vy = 0.0
+    let mut world = world_with_materials(&[], 4.0, 1);
+    // Set body_type = 2.0 (kinematic)
+    body_material(&mut world, 0)[0] = 9.8; // gravity declared
+    body_material(&mut world, 0)[2] = 0.5; // drag declared
+    let at = material::MATERIALS_AT + 256 * 4;
+    world[at + 5] = material::BODY_KINEMATIC; // 2.0!
+
+    let dt = world[0];
+    let steps = 60;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, steps);
+
+    let expected_x = 5.0 * (steps as f32) * dt;
+    assert!((pos[0] - expected_x).abs() < 1e-3, "x was {}, expected {}", pos[0], expected_x);
+    assert!((pos[1] - 10.0).abs() < 1e-3, "y was {} (should stay 10.0, no gravity)", pos[1]);
+    assert!((vel[0] - 5.0).abs() < 1e-3, "vx was {} (should stay 5.0, no drag)", vel[0]);
+    assert_eq!(vel[1], 0.0, "vy was {} (should stay 0.0)", vel[1]);
+    assert_eq!(pos[3], 0.0, "kinematic bodies must not sleep");
+}
+
+#[test]
+fn a_dynamic_body_resting_on_a_moving_kinematic_platform_is_carried_along() {
+    // Platform (body 0, kinematic): y = 0.0, h = [5.0, 0.5, 5.0], vx = 3.0
+    // Dynamic body (body 1): dropped at y = 1.0, h = [0.5, 0.5, 0.5], mass = 1.0
+    let (mut pos, mut vel, ext) = scene(&[
+        body([0.0, 0.0, 0.0], [5.0, 0.5, 5.0], BOX, 0.0), // Kinematic platform
+        body([0.0, 1.0, 0.0], [0.5, 0.5, 0.5], BOX, 1.0), // Dynamic body resting on it
+    ]);
+    vel[0] = 3.0; // platform moves at vx = 3.0
+
+    let mut world = world_with_materials(&[], 10.0, 2);
+    // Body 0 is kinematic (tipo = 2.0)
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    world[at0 + 5] = material::BODY_KINEMATIC;
+    // Body 1 is dynamic (tipo = 3.0)
+    let at1 = material::MATERIALS_AT + 256 * 4 + 8;
+    world[at1 + 5] = material::BODY_DYNAMIC;
+
+    let mut solver = Solver::new();
+    // Step 120 steps (~2 seconds)
+    solver.step(&mut pos, &mut vel, &ext, &world, 120);
+
+    // Platform moved to x = 3.0 * (120/60) = 6.0
+    assert!((pos[0] - 6.0).abs() < 0.05, "platform x = {}, expected 6.0", pos[0]);
+    assert!((vel[0] - 3.0).abs() < 1e-3, "platform vx = {}", vel[0]);
+
+    // Dynamic body on top (body 1) must stay around y = 1.0 (top of platform 0.5 + half 0.5)
+    assert!((pos[5] - 1.0).abs() < 0.2, "dynamic body y = {}, expected ~1.0", pos[5]);
+    // Dynamic body must have been carried horizontally along with platform
+    assert!(pos[4] > 4.0, "dynamic body x = {} was not carried by platform", pos[4]);
+}
+
+#[test]
+fn unassigned_body_type_0_defaults_to_dynamic() {
+    let (mut pos, mut vel, ext) = scene(&[body([0.0, 10.0, 0.0], [0.5; 3], BOX, 1.0)]);
+    let mut world = world_with_materials(&[], 4.0, 1);
+    let at = material::MATERIALS_AT + 256 * 4;
+    world[at + 5] = 0.0; // unassigned
+    body_material(&mut world, 0)[0] = 9.8; // gravity
+
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 60);
+    // Body should fall under gravity because 0.0 defaults to dynamic
+    assert!(pos[1] < 9.0, "unassigned body type 0.0 did not fall under gravity: y = {}", pos[1]);
+}
+
+#[test]
+fn layer_and_mask_filters_collision_pairs() {
+    // Two overlapping bodies: body 0 at x=0, body 1 at x=0.5 (both h=0.5)
+    let (mut pos, mut vel, ext) = scene(&[
+        body([0.0, 0.0, 0.0], [0.5; 3], BOX, 1.0),
+        body([0.5, 0.0, 0.0], [0.5; 3], BOX, 1.0),
+    ]);
+    let mut world = world_with_materials(&[], 4.0, 2);
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    let at1 = material::MATERIALS_AT + 256 * 4 + 8;
+
+    // Set body 0: layer = 1, mask = 2 (only collides with layer 2)
+    world[at0 + 6] = f32::from_bits(1);
+    world[at0 + 7] = f32::from_bits(2);
+
+    // Set body 1: layer = 4, mask = 1 (only collides with layer 1, but body 0 is layer 1 and body 1 is layer 4 != mask 2)
+    world[at1 + 6] = f32::from_bits(4);
+    world[at1 + 7] = f32::from_bits(1);
+
+    // 1. With any_mask = 0.0, the solver skips the mask filter (recurso desligado custa zero):
+    world[material::WORLD_PARAM_ANY_MASK] = 0.0;
+    let initial_x0 = pos[0];
+    let initial_x1 = pos[4];
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert!(pos[0] < initial_x0, "with any_mask=0 bodies should separate regardless of masks");
+    assert!(pos[4] > initial_x1, "with any_mask=0 bodies should separate regardless of masks");
+
+    // Reset positions
+    pos[0] = initial_x0;
+    pos[4] = initial_x1;
+
+    // 2. With any_mask = 1.0, masks ARE checked: (2 & 4) == 0 -> no collision!
+    world[material::WORLD_PARAM_ANY_MASK] = 1.0;
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert_eq!(pos[0], initial_x0, "body 0 was moved despite mask mismatch");
+    assert_eq!(pos[4], initial_x1, "body 1 was moved despite mask mismatch");
+
+    // Now change body 1 layer to 2 (so body 0 mask 2 matches body 1 layer 2, AND body 1 mask 1 matches body 0 layer 1)
+    world[at1 + 6] = f32::from_bits(2);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 10);
+    assert!(pos[0] < initial_x0, "body 0 did not separate when masks matched");
+    assert!(pos[4] > initial_x1, "body 1 did not separate when masks matched");
+}
+
+#[test]
+fn acordar_respeita_a_mesma_flag_any_mask_que_os_pares() {
+    // Um corpo dormindo e um vizinho rápido que o toca, em layers que a máscara
+    // separa. Com `any_mask = 0` a máscara é ignorada em TUDO — pares e acordar
+    // —, então ele acorda; com `any_mask = 1` o vizinho não o enxerga e ele
+    // continua dormindo. Antes, acordar filtrava máscara mesmo com a flag
+    // desligada, divergindo dos pares.
+    let asleep = ([0.0, 0.5, 0.0, SLEEP_STEPS], [0.0, 0.0, 0.0, BOX], [0.5, 0.5, 0.5, 1.0]);
+    let mover = ([0.9, 0.5, 0.0, 0.0], [-4.0, 0.0, 0.0, BOX], [0.5, 0.5, 0.5, 1.0]);
+    let mut world = world_with_materials(&[([0.0, -0.5, 0.0], [40.0, 0.5, 40.0])], 2.0, 2);
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    let at1 = at0 + 8;
+    world[at0 + 6] = f32::from_bits(1);
+    world[at0 + 7] = f32::from_bits(2);
+    world[at1 + 6] = f32::from_bits(4);
+    world[at1 + 7] = f32::from_bits(1);
+
+    world[material::WORLD_PARAM_ANY_MASK] = 0.0;
+    let (mut pos, mut vel, ext) = scene(&[asleep, mover]);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 1);
+    assert!(pos[3] < SLEEP_STEPS, "com any_mask = 0 a máscara não deveria impedir o acordar");
+
+    world[material::WORLD_PARAM_ANY_MASK] = 1.0;
+    let (mut pos, mut vel, ext) = scene(&[asleep, mover]);
+    Solver::new().step(&mut pos, &mut vel, &ext, &world, 1);
+    assert!(pos[3] >= SLEEP_STEPS, "com any_mask = 1 um vizinho mascarado não deveria acordá-lo");
+}
+
+#[test]
+fn replay_bit_a_bit_e_independente_de_threads_1_2_16() {
+    // Replay bit a bit: mesma cena rodada N passos com 1, 2 e 16 threads.
+    // O hash de posição + sono (pos) e velocidade + forma (vel) deve ser rigorosamente
+    // idêntico entre execuções repetidas e entre contagens de thread.
+    let mut bodies = Vec::new();
+    for i in 0..400 {
+        let f = i as f32;
+        bodies.push(body(
+            [(f * 0.37).sin() * 6.0, 2.0 + f * 0.25, (f * 0.71).cos() * 6.0],
+            [0.5; 3],
+            match i % 2 {
+                0 => BOX,
+                _ => SPHERE,
+            },
+            1.0,
+        ));
+    }
+    let (initial_pos, initial_vel, ext) = scene(&bodies);
+    let floor = world(&[([0.0, -0.5, 0.0], [40.0, 0.5, 40.0])], 2.0);
+
+    fn hash_state(pos: &[f32], vel: &[f32]) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for &x in pos.iter().chain(vel.iter()) {
+            let bits = x.to_bits() as u64;
+            h ^= bits;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h
+    }
+
+    let assert_deterministic = |scene_name: &str,
+                                init_pos: &[f32],
+                                init_vel: &[f32],
+                                ext_buf: &[f32],
+                                world_buf: &[f32],
+                                steps: usize| {
+        let run = |threads: usize| -> (u64, Vec<f32>, Vec<f32>) {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .expect("private pool");
+            let (mut pos, mut vel) = (init_pos.to_vec(), init_vel.to_vec());
+            pool.install(|| {
+                let mut solver = Solver::new();
+                solver.step(&mut pos, &mut vel, ext_buf, world_buf, steps);
+            });
+            let h = hash_state(&pos, &vel);
+            (h, pos, vel)
+        };
+
+        // 1. Rodar 2 vezes com 1 thread e verificar que o replay é idêntico
+        let (h1_a, pos1_a, vel1_a) = run(1);
+        let (h1_b, pos1_b, vel1_b) = run(1);
+        assert_eq!(h1_a, h1_b, "{scene_name}: replay com 1 thread divergiu entre duas rodadas");
+        assert_eq!(pos1_a, pos1_b);
+        assert_eq!(vel1_a, vel1_b);
+
+        // 2. Rodar 2 vezes com 2 threads
+        let (h2_a, pos2_a, vel2_a) = run(2);
+        let (h2_b, pos2_b, vel2_b) = run(2);
+        assert_eq!(h2_a, h2_b, "{scene_name}: replay com 2 threads divergiu entre duas rodadas");
+        assert_eq!(pos2_a, pos2_b);
+        assert_eq!(vel2_a, vel2_b);
+
+        // 3. Rodar 2 vezes com 16 threads
+        let (h16_a, pos16_a, vel16_a) = run(16);
+        let (h16_b, pos16_b, vel16_b) = run(16);
+        assert_eq!(h16_a, h16_b, "{scene_name}: replay com 16 threads divergiu entre duas rodadas");
+        assert_eq!(pos16_a, pos16_b);
+        assert_eq!(vel16_a, vel16_b);
+
+        // 4. Comparar os hashes entre 1, 2 e 16 threads
+        if h1_a != h2_a || h1_a != h16_a {
+            for i in 0..pos1_a.len() {
+                if pos1_a[i].to_bits() != pos2_a[i].to_bits() || pos1_a[i].to_bits() != pos16_a[i].to_bits() {
+                    let body = i / 4;
+                    let field = match i % 4 { 0 => "x", 1 => "y", 2 => "z", _ => "sleep" };
+                    panic!(
+                        "{scene_name}: Divergência no corpo {body} campo pos.{field}: 1t={:08x} ({}), 2t={:08x} ({}), 16t={:08x} ({})",
+                        pos1_a[i].to_bits(), pos1_a[i],
+                        pos2_a[i].to_bits(), pos2_a[i],
+                        pos16_a[i].to_bits(), pos16_a[i],
+                    );
+                }
+            }
+            for i in 0..vel1_a.len() {
+                if vel1_a[i].to_bits() != vel2_a[i].to_bits() || vel1_a[i].to_bits() != vel16_a[i].to_bits() {
+                    let body = i / 4;
+                    let field = match i % 4 { 0 => "vx", 1 => "vy", 2 => "vz", _ => "shape" };
+                    panic!(
+                        "{scene_name}: Divergência no corpo {body} campo vel.{field}: 1t={:08x} ({}), 2t={:08x} ({}), 16t={:08x} ({})",
+                        vel1_a[i].to_bits(), vel1_a[i],
+                        vel2_a[i].to_bits(), vel2_a[i],
+                        vel16_a[i].to_bits(), vel16_a[i],
+                    );
+                }
+            }
+        }
+
+        assert_eq!(h1_a, h2_a, "{scene_name}: hash 1 thread vs 2 threads divergiu");
+        assert_eq!(h1_a, h16_a, "{scene_name}: hash 1 thread vs 16 threads divergiu");
+    };
+
+    // Cena 1: 400 corpos na cena padrão (legada)
+    assert_deterministic("cena legado", &initial_pos, &initial_vel, &ext, &floor, 180);
+
+    // Cena 2: cena com região de materiais, corpo cinemático em movimento e any_mask = 1.0
+    let mut world_mat = world_with_materials(&[([0.0, -0.5, 0.0], [40.0, 0.5, 40.0])], 2.0, bodies.len());
+    world_mat[material::WORLD_PARAM_ANY_MASK] = 1.0;
+
+    let mat_pos = initial_pos.clone();
+    let mut mat_vel = initial_vel.clone();
+
+    // Corpo 0: cinemático com velocidade inicial
+    let at0 = material::MATERIALS_AT + 256 * 4;
+    world_mat[at0 + 5] = material::BODY_KINEMATIC;
+    world_mat[at0 + 6] = f32::from_bits(2); // layer 2
+    world_mat[at0 + 7] = f32::from_bits(1); // mask 1
+    mat_vel[0] = 3.0; // vx em movimento
+
+    // Demais corpos com máscaras alternadas para exercitar o filtro de máscara e const FILTRO
+    for i in 1..bodies.len() {
+        let at_i = material::MATERIALS_AT + 256 * 4 + i * 8;
+        let layer_bit = 1u32 << (i % 4);
+        let mask_bit = 1u32 << ((i + 1) % 4);
+        world_mat[at_i + 6] = f32::from_bits(layer_bit);
+        world_mat[at_i + 7] = f32::from_bits(mask_bit);
+    }
+
+    assert_deterministic("cena com materiais, cinemático e máscaras", &mat_pos, &mat_vel, &ext, &world_mat, 180);
 }

@@ -54,22 +54,35 @@
 //! the block reaches the outermost splitting ancestor's container while each
 //! inline's fragments still nest inside the fragment that encloses them.
 //!
-//! ## The one scope refusal, stated
+//! ## The second family: text in a block container (BT-3)
 //!
-//! Anonymous block boxes are generated ONLY in a container where a split
-//! actually happened. A container that is mixed by ordinary means
-//! (`<div>text<p>x</p></div>`) keeps its shape: that is the *text in a block
-//! container* anonymous family, which is a different lot and would move answers
-//! across the whole corpus for a reason this one does not measure. Inside a
-//! container that DID split, every inline run is wrapped — including the split
-//! inline's inline-level SIBLINGS, because leaving them out would put `x` and
-//! `a` of `<p>x<span>a<div/>c</span></p>` on different lines, which no browser
-//! does.
+//! A flow container whose OWN children mix in-flow block-level boxes with
+//! inline content (`<div>text<p>x</p>more</div>`) gets the same treatment with
+//! no split: each maximal run of inline-level children is enclosed in an
+//! anonymous block box by the same [`Construcao::fecha_corrida`]. Until BT-3
+//! finished, anonymous boxes existed only where a split happened, and the flow
+//! grouped the other runs by hand — the same arithmetic with no box to answer
+//! for it. A container with ONLY inline content gets no anonymous box: it IS
+//! the inline formatting context. A run of collapsible whitespace and comments,
+//! or of floats and absolutely positioned boxes with only such space around
+//! them, is not inline content and is not wrapped either (see
+//! [`run_without_line_content`]).
+//!
+//! Inside a container that split, every inline run is wrapped — including the
+//! split inline's inline-level SIBLINGS, because leaving them out would put `x`
+//! and `a` of `<p>x<span>a<div/>c</span></p>` on different lines, which no
+//! browser does.
 //!
 use super::{BoxId, BoxTree};
 
 mod anonymous_table;
+mod items;
 mod generated;
+use anonymous_table::is_table_part_child;
+use items::{
+    run_without_line_content, e_item_de_bloco, fecha_fragmento, out_of_flow,
+    is_block_level_child, is_inline_flow_box, FlowItem,
+};
 use crate::dom::{Dom, NodeIdx, NodeKind};
 use crate::style::DisplayKind;
 
@@ -181,21 +194,72 @@ impl Construcao<'_> {
         // The question is asked HERE and not per child so that it costs a style
         // read only where something was about to split; everywhere else `partiu`
         // is already `false` and the `&&` never reaches it.
-        if !partiu
-            || crate::boxes::context::element_formatting_context(self.dom, node).inner
-                != crate::boxes::InnerDisplay::Flow
-        {
+        if !partiu && !self.mixes_block_and_inline(node, &children) {
             self.descend_children(node, id, children);
             return;
         }
-        self.materializa_contentor(node, id, itens);
+        if !self.is_block_container(node) {
+            self.descend_children(node, id, children);
+            return;
+        }
+        self.materialize_container(node, id, itens);
+    }
+
+    /// `true` for a container whose OWN children mix in-flow block-level boxes
+    /// with inline-level content — the second family of CSS 2.1 §9.2.1.1:
+    /// *"if a block container box has a block-level box inside it, then we
+    /// force it to have only block-level boxes inside it"*, each run of inline
+    /// content enclosed in an anonymous block box.
+    ///
+    /// It needs no split to apply, and before BT-3 finished it applied only
+    /// where one had happened; the flow then grouped the loose runs by hand
+    /// (`inline_group` in `layout/block/vertical_flow.rs`), which is the same arithmetic
+    /// with no box to answer for it. "Inline content" is asked with the same
+    /// test [`Construcao::fecha_corrida`] applies to a run
+    /// ([`run_without_line_content`]), so a container of blocks separated
+    /// only by source indentation, comments and floats keeps the plain mirror.
+    ///
+    /// A table-part child defers to the anonymous-table fixup
+    /// (`anonymous_table.rs`): wrapping its text siblings here as well would
+    /// be two builders deciding one child list, and that rule owns it today.
+    fn mixes_block_and_inline(&self, node: NodeIdx, children: &[NodeIdx]) -> bool {
+        let mut block = false;
+        let mut inline: Vec<FlowItem> = Vec::new();
+        for &c in children {
+            if is_table_part_child(self.dom, c) {
+                return false;
+            }
+            if is_block_level_child(self.dom, c) {
+                block = true;
+            } else {
+                inline.push(FlowItem::Plain(c));
+            }
+        }
+        let inline = !inline.is_empty() && !run_without_line_content(self.dom, node, &inline);
+        block && inline
+    }
+
+    /// `true` for a BLOCK CONTAINER — the only box §9.2.1.1 wraps runs in. A
+    /// flex, grid or table container has no line box for an anonymous block to
+    /// enclose (its children are blockified). A table CELL is a block container
+    /// for its content although `inner_of` files it under `Table`, the same
+    /// exception `wraps_table_parts` makes.
+    fn is_block_container(&self, node: NodeIdx) -> bool {
+        let cell = self
+            .dom
+            .computed_style_idx(node)
+            .and_then(|c| c.effective_display())
+            == Some(DisplayKind::TableCell);
+        cell
+            || crate::boxes::context::element_formatting_context(self.dom, node).inner
+                == crate::boxes::InnerDisplay::Flow
     }
 
     /// Lays the flattened items of a container that SPLIT into boxes: each run
     /// of inline-level items is enclosed in one anonymous block box, and every
     /// block-level item becomes a direct child — a sibling of those anonymous
     /// boxes, which is the words of §9.2.1.1.
-    fn materializa_contentor(&mut self, contentor: NodeIdx, id: BoxId, itens: Vec<FlowItem>) {
+    fn materialize_container(&mut self, contentor: NodeIdx, id: BoxId, itens: Vec<FlowItem>) {
         let partidos = generated::nos_partidos(&itens);
         let mut corrida: Vec<FlowItem> = Vec::new();
         for item in itens {
@@ -236,7 +300,19 @@ impl Construcao<'_> {
             return;
         }
         let itens = std::mem::take(corrida);
-        if corrida_so_de_espaco(self.dom, contentor, &itens) {
+        // A run of floats and absolutely positioned boxes with only collapsible
+        // space around them is not wrapped (see [`run_without_line_content`]);
+        // the out-of-flow boxes become direct children of the container, which
+        // is where the unsplit mirror had them. The whitespace between them
+        // generates no box, exactly as a whitespace-only run does.
+        if run_without_line_content(self.dom, contentor, &itens) {
+            for item in itens {
+                if let FlowItem::Plain(n) = item {
+                    if out_of_flow(self.dom, n) {
+                        self.descend(n, Some(caixa_pai));
+                    }
+                }
+            }
             return;
         }
         // `inherits_from` is the CONTAINER and not the split inline: §9.2.1.1
@@ -337,161 +413,4 @@ impl Construcao<'_> {
         self.bolhas.insert(node, r);
         r
     }
-}
-
-/// `true` for an item that is block-level to its siblings inside the container.
-///
-/// A `Block` came out of a split and is block-level by construction; a `Plain`
-/// is asked the ordinary question, because a container that split may also hold
-/// block children of its own; a `Fragment` is a piece of an inline element and
-/// is never block-level.
-fn e_item_de_bloco(dom: &Dom, item: &FlowItem) -> bool {
-    match *item {
-        FlowItem::Block(_) => true,
-        FlowItem::Plain(n) => is_block_level_child(dom, n),
-        FlowItem::Fragment { .. } => false,
-    }
-}
-
-/// `true` when a run holds nothing that could paint: only whitespace-only text
-/// and comments.
-///
-/// `white-space` is asked of the CONTAINER, because that is the element whose
-/// value decides whether the whitespace of this run collapses. Under `pre` and
-/// friends it does not collapse, the run is real content, and it gets its box.
-fn corrida_so_de_espaco(dom: &Dom, contentor: NodeIdx, itens: &[FlowItem]) -> bool {
-    let preserva = dom
-        .computed_style_idx(contentor)
-        .and_then(|c| c.white_space)
-        .is_some_and(|w| w.preserves_spaces());
-    if preserva {
-        return false;
-    }
-    itens.iter().all(|item| item_so_de_espaco(dom, item))
-}
-
-/// The same question for ONE item, recursing into a fragment.
-///
-/// A fragment has to be entered rather than refused outright: the whitespace of
-/// `<span> <div/> </span>` lives inside the span, not beside it, so a test that
-/// only looks at `Plain` answers `false` and wraps a whole empty line between
-/// the two blocks. That was this function's behaviour and the test above caught
-/// it.
-///
-/// **But a fragment whose element PAINTS is not empty**, however little text it
-/// holds: a `<span>` with a background, a border or padding draws something on
-/// that line, and the anonymous box is what gives it a line to draw on. The
-/// question "does this inline paint despite being inline" is one the engine
-/// already answers in `inline_box`, and asking it here rather than re-deriving
-/// it is what keeps the two from drifting.
-fn item_so_de_espaco(dom: &Dom, item: &FlowItem) -> bool {
-    match item {
-        FlowItem::Plain(n) => match &dom.node(*n).kind {
-            NodeKind::Text(t) => t.trim().is_empty(),
-            NodeKind::Comment(_) => true,
-            _ => false,
-        },
-        FlowItem::Fragment { node, items } => {
-            let pinta = dom
-                .computed_style_idx(*node)
-                .is_some_and(|css| crate::inline_box::cria_caixa_apesar_de_inline(&css));
-            !pinta && items.iter().all(|i| item_so_de_espaco(dom, i))
-        }
-        FlowItem::Block(_) => false,
-    }
-}
-
-/// `true` for an element that is an inline BOX: inline-level to its siblings,
-/// flow inside, and establishing no formatting context of its own. Only a box
-/// like this can be split by a block-level descendant (CSS 2.1 §9.2.1.1) —
-/// `inline-block` and `inline-flex` pass the outer test and fail the other two,
-/// and a block-level child inside one of those is ordinary content.
-///
-/// This used to ask `!is_block_level`, which answered the question by accident:
-/// that function routes to `layout_block`, and an `inline-block` routes there, so
-/// it fell out of the criterion for a reason unrelated to what the criterion
-/// means. `context.rs` carries the divergence in full. Asking
-/// `effective_display() == Some(Inline)` was tried before that and never fired at
-/// all — a plain `<span>` declares no display, inline being the tag default, so
-/// the test was against `None` every time.
-fn is_inline_flow_box(dom: &Dom, node: NodeIdx) -> bool {
-    if !matches!(&dom.node(node).kind, NodeKind::Element { .. }) {
-        return false;
-    }
-    if dom.computed_style_idx(node).is_none() {
-        return false;
-    }
-    let fc = crate::boxes::context::element_formatting_context(dom, node);
-    fc.is_inline_level() && fc.inner == crate::boxes::InnerDisplay::Flow && !fc.independent
-}
-
-/// `true` for an ELEMENT child that is an IN-FLOW block-level box — the one
-/// question the split needs about a DIRECT child, asked through
-/// `element_formatting_context` so that "what is this to its siblings" has a
-/// single answer in this crate. A non-element is never block-level: a text node
-/// stays in the inline run, and a comment generates no box at all.
-///
-/// `display: none` is excluded because it generates no box: a child that does not
-/// exist cannot split anything, and counting it would produce an anonymous box
-/// around nothing.
-///
-/// **A float or an absolutely positioned box is excluded too, although it IS
-/// block-level.** §9.2.1.1 splits around "an in-flow block-level box", and both
-/// are out of flow (§9.3); `effective_display` blockifies them, so asking only
-/// the outer display split `<span>a<div style="float:left"/>b</span>` in three
-/// and put `b` on a line of its own, where Blink keeps one line shortened
-/// around the float. Such a child stays in the inline run as ordinary content —
-/// which is also where the inline flow already knew how to place it.
-fn is_block_level_child(dom: &Dom, node: NodeIdx) -> bool {
-    if !matches!(&dom.node(node).kind, NodeKind::Element { .. }) {
-        return false;
-    }
-    let Some(css) = dom.computed_style_idx(node) else {
-        return crate::boxes::context::element_formatting_context(dom, node).is_block_level();
-    };
-    if css.effective_display() == Some(DisplayKind::None) {
-        return false;
-    }
-    let fora_do_fluxo = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
-        || css.position.is_some_and(|p| p.out_of_flow());
-    !fora_do_fluxo && crate::boxes::context::element_formatting_context(dom, node).is_block_level()
-}
-
-/// One item of the flattened sequence a splitting inline's children resolve to,
-/// in document order.
-///
-/// `Fragment` is what gives a split inline SEVERAL boxes rather than one: each
-/// run of inline-level content between (or beside) the block-level children it
-/// encloses becomes its own `Fragment`, and each `Fragment` for the same node is
-/// a separate `push_element` call — which is what lets `by_node` list every one
-/// of them.
-enum FlowItem {
-    /// A block-level child, promoted here from however deep inside the nested
-    /// inlines it sat. It is materialised as a sibling of the anonymous boxes
-    /// around it, never as a child of one.
-    Block(NodeIdx),
-    /// One run of `node`'s own inline-level content.
-    ///
-    /// `items` nest instead of flattening further, so that a nested inline with
-    /// nothing to bubble past THIS run keeps its own fragment as a child of this
-    /// one — only the actual block-level content rises past every enclosing
-    /// inline, all the way to the outermost splitting ancestor's container.
-    Fragment { node: NodeIdx, items: Vec<FlowItem> },
-    /// Ordinary content: text, a comment, or an element that needs no special
-    /// handling at this level. It may still turn out to split ITS OWN
-    /// descendants — that is decided when the descent reaches it.
-    Plain(NodeIdx),
-}
-
-/// Wraps the accumulated run into one `Fragment` of `node`, or does nothing when
-/// the run is empty — see the "no empty fragment" note on
-/// [`Construcao::itens_do_inline`].
-fn fecha_fragmento(node: NodeIdx, run: &mut Vec<FlowItem>, out: &mut Vec<FlowItem>) {
-    if run.is_empty() {
-        return;
-    }
-    out.push(FlowItem::Fragment {
-        node,
-        items: std::mem::take(run),
-    });
 }

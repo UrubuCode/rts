@@ -12,13 +12,13 @@ const TOL: f32 = 1.0;
 
 /// The rect the bridge answers (`boundingRect`) and the one `.esperado.json`
 /// measures — `rect_of`, not the hit-test table, which leaves out the blocks
-/// that split an inline (`layout/rect_cliente.rs`).
-fn rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, _n: usize) -> Rect {
+/// that split an inline (`query/rect.rs`).
+fn rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, _n: usize) -> Rect {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"))
 }
 
-fn assert_rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, expected: (f32, f32, f32, f32)) {
+fn assert_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, expected: (f32, f32, f32, f32)) {
     let r = rect(dom, list, sel, 0);
     let got = (r.x, r.y, r.w, r.h);
     let matches = (got.0 - expected.0).abs() <= TOL
@@ -30,7 +30,7 @@ fn assert_rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, e
 
 /// The span's `x`/`y`/`h` — what says it stayed on one line. Its width depends
 /// on the monospace text width, which this engine approximates.
-fn assert_line(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, x: f32, y: f32, h: f32) {
+fn assert_line(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, x: f32, y: f32, h: f32) {
     let r = rect(dom, list, sel, 0);
     assert!(
         (r.x - x).abs() <= TOL && (r.y - y).abs() <= TOL && (r.h - h).abs() <= TOL,

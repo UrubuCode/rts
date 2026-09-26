@@ -128,11 +128,11 @@ impl LinearGradient {
 /// Uma `transform` CSS: a lista de funções (`translate`/`scale`/`rotate`/`skewX`/
 /// `skewY`/`matrix`, com aliases `*X`/`*Y`/`Z`), guardada NA ORDEM em que aparecem
 /// — a composição em matriz e a bounding box são cálculo de geometria e vivem no
-/// layout (`crate::layout::transformacao`), que tem o tamanho da caixa; aqui só o
+/// layout (`crate::paint::transform`), que tem o tamanho da caixa; aqui só o
 /// que a cascade produz. `Copy` como o resto de `ComputedStyle`.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Transform {
-    pub ops: crate::layout::TransformList,
+    pub ops: crate::paint::TransformList,
 }
 
 impl Transform {
@@ -177,7 +177,7 @@ impl Transform {
                 "translate" | "translatex" | "translatey" => {
                     let (a, b) = length_pair(&parts);
                     let (x, y) = if name == "translatey" { ((0.0, 0.0), a) } else { (a, b) };
-                    t.ops.push(crate::layout::TransformOp::Translate {
+                    t.ops.push(crate::paint::TransformOp::Translate {
                         tx: x.0,
                         ty: y.0,
                         tx_pct: x.1,
@@ -199,24 +199,24 @@ impl Transform {
                         "scaley" => (1.0, s0),
                         _ => (s0, s1),
                     };
-                    t.ops.push(crate::layout::TransformOp::Scale { sx, sy });
+                    t.ops.push(crate::paint::TransformOp::Scale { sx, sy });
                     saw = true;
                 }
                 "rotate" | "rotatez" => {
                     if let Some(deg) = parts.first().and_then(parse_angle_deg) {
-                        t.ops.push(crate::layout::TransformOp::Rotate { deg });
+                        t.ops.push(crate::paint::TransformOp::Rotate { deg });
                         saw = true;
                     }
                 }
                 "skewx" => {
                     if let Some(deg) = parts.first().and_then(parse_angle_deg) {
-                        t.ops.push(crate::layout::TransformOp::SkewX { deg });
+                        t.ops.push(crate::paint::TransformOp::SkewX { deg });
                         saw = true;
                     }
                 }
                 "skewy" => {
                     if let Some(deg) = parts.first().and_then(parse_angle_deg) {
-                        t.ops.push(crate::layout::TransformOp::SkewY { deg });
+                        t.ops.push(crate::paint::TransformOp::SkewY { deg });
                         saw = true;
                     }
                 }
@@ -224,9 +224,9 @@ impl Transform {
                 // ordem (a spec define `skew()` exactamente como essa dupla).
                 "skew" => {
                     if let Some(dx) = parts.first().and_then(parse_angle_deg) {
-                        t.ops.push(crate::layout::TransformOp::SkewX { deg: dx });
+                        t.ops.push(crate::paint::TransformOp::SkewX { deg: dx });
                         if let Some(dy) = parts.get(1).and_then(parse_angle_deg) {
-                            t.ops.push(crate::layout::TransformOp::SkewY { deg: dy });
+                            t.ops.push(crate::paint::TransformOp::SkewY { deg: dy });
                         }
                         saw = true;
                     }
@@ -234,7 +234,7 @@ impl Transform {
                 "matrix" => {
                     let n: Vec<f32> = parts.iter().filter_map(|s| s.parse::<f32>().ok()).collect();
                     if n.len() == 6 {
-                        t.ops.push(crate::layout::TransformOp::Matrix {
+                        t.ops.push(crate::paint::TransformOp::Matrix {
                             a: n[0],
                             b: n[1],
                             c: n[2],

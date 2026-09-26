@@ -132,7 +132,7 @@ fn a_generated_box_answers_the_pseudos_own_style_not_its_elements() {
     assert_eq!(tree.style_source(gerada), p, "it inherits from its element");
     assert_eq!(tree.style(&dom, gerada).unwrap().color, Some(0xFF0000FF));
     assert_eq!(tree.style(&dom, tree.boxes_of(p)[0]).unwrap().color, Some(0x00FF00FF));
-    assert_eq!(tree.pseudo_box(&dom, gerada).unwrap().texto, "x");
+    assert_eq!(tree.pseudo_box(&dom, gerada).unwrap().text, "x");
 }
 
 /// The formatting context comes from the pseudo's OWN `display`: inline by

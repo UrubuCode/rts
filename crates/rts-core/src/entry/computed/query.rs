@@ -103,6 +103,12 @@ fn own_only(key: u64, object: u64) -> bool {
 /// nothing can remove.
 #[rtse::entry]
 pub fn for_in_has(key: u64, object: u64) -> bool {
+    // A chain with a proxy on it asks `HasEnumerableProperty` — descriptors,
+    // not `has` — which is where a proxy level's enumerability is decided; see
+    // `proxy::enumerate` for why that happens per pass and not in the snapshot.
+    if let Some(answered) = super::super::proxy::still_enumerable(key, object) {
+        return answered;
+    }
     match with_current(|context| super::super::objects::is_object(context, object)) {
         true => resolved(key, object),
         false => true,

@@ -32,6 +32,7 @@ pub mod imagem;
 /// uma resistência que não se usa. Ver as ressalvas no módulo.
 pub mod boxes;
 pub mod fasthash;
+mod entity_refs;
 mod html;
 mod inline_box;
 /// Motor de LAYOUT (egui-free): calcula a geometria (x,y,w,h) de cada nó via box
@@ -40,6 +41,10 @@ mod inline_box;
 /// só pinta a display-list. Medição de texto via trait `TextMeasurer` (o backend
 /// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
 pub mod layout;
+/// What the paint list is and how it is painted — `paint/mod.rs`.
+pub mod paint;
+/// What is asked of a laid-out paint list — `query/mod.rs`.
+pub mod query;
 /// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
 /// existir, sem que ela entre na árvore de nós.
 pub mod pseudo;

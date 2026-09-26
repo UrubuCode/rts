@@ -24,6 +24,12 @@ hull, no continuous collision. Two shapes exist: a sphere and an axis-aligned bo
 `docs/colisores.md` in the game project says which of those absences are decisions
 and which are waiting on something.
 
+What a body is MADE of does exist, and arrived with the material region:
+gravity, restitution, drag, friction and an implicit floor, per body, plus
+restitution and friction per static. They are read, never invented — a caller
+that writes no region gets the constants this solver had when they were
+constants, which is what keeps rule 10's measured parity meaning something.
+
 ---
 
 ## The rules
@@ -161,6 +167,8 @@ src/
     mod.rs        the sub-step: integrate, statics, pairs, clamp, park, sleep
     contact.rs    the narrow phase: sphere, box, and the mixed case
     grid.rs       the broad phase: a spatial hash rebuilt per sub-step
+    material.rs   what a body and a static are made of, read from `world`
+    step.rs       the phases of one sub-step: waking, statics, pairs
 ```
 
 ## The buffer layout, which is the GPU backend's unchanged
@@ -170,7 +178,19 @@ src/
 | `pos` | centre | sleep counter (>= 10 is asleep) |
 | `vel` | velocity | shape: 0 sphere, 1 box |
 | `ext` | half-extent | inverse mass (0 is immovable) |
-| `world` | `[0]` dt, static count, cell size, sub-steps; then static (centre, half-extent) pairs |
+| `world` | `[0]` dt, static count, cell size, sub-steps; then static (centre, half-extent) pairs; then the material region |
+
+A static's centre carries its ROUNDNESS in `w`: 0 is a box, 1 is a sphere of
+radius `min(half-extent)`. Inverted from a body's shape field, and deliberately:
+every writer that predates the field left 0 there and meant a box.
+
+The material region starts at a FIXED offset — after the header and the whole
+static capacity, not after the statics in use — so writing a material never
+depends on how many statics a frame has. It holds 256 static records of
+(restitution, friction, -, -) and then one record per body of (gravity,
+restitution, drag, friction, floor, -, -, -). `solver/material.rs` carries the
+reasoning, including why a `world` that stops before it is read as the legacy
+constants rather than as zeros.
 
 Unchanged so that one program can hand the same three arrays to either backend. A
 conversion step between them would be one more place for the two to disagree.

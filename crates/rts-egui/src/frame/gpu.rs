@@ -178,7 +178,10 @@ pub(crate) fn shared_gpu(cfg: GpuConfig) -> Result<SharedGpu, String> {
         let required_limits = if cfg.high_limits {
             wgpu::Limits::default()
         } else {
-            wgpu::Limits::downlevel_defaults()
+            let mut limits = wgpu::Limits::downlevel_defaults();
+            limits.max_storage_buffers_per_shader_stage =
+                8.min(adapter.limits().max_storage_buffers_per_shader_stage);
+            limits
         };
         let memory_hints = if cfg.mem_performance {
             wgpu::MemoryHints::Performance

@@ -1,0 +1,27 @@
+[package]
+name = "rts-text"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+# Fonts, shaping, line-break opportunities and glyph coverage — and nothing of
+# CSS. `README.md` is the rule; `docs/superpowers/plans/2026-09-26-text-crate.md`
+# is the plan it was built from.
+#
+# By default this crate depends on NOTHING of this workspace. The one edge in,
+# `dom-measurer`, is optional and exists only so `RealMeasurer` can implement
+# `rts_dom::layout::TextMeasurer` in one place both the window and the
+# headless instrument can reach (plan, F2).
+
+[features]
+dom-measurer = ["dep:rts-dom"]
+
+[dependencies]
+# Shaping (kerning, ligatures). Its `ttf_parser` re-export is the table reader
+# used for metrics, the `name` table and `OS/2` — not a second dependency.
+rustybuzz = "0.20"
+unicode-linebreak = "0.1"
+unicode-segmentation = "1.13"
+# Pinned to the version epaint already brings, so the lock gains no copy.
+skrifa = "=0.40.0"
+rts-dom = { path = "../rts-dom", optional = true }

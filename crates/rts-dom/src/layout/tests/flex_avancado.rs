@@ -32,7 +32,7 @@ fn flex_shrink_nao_encolhe_abaixo_do_min_content() {
     };
     let list = layout_document(&dom, &ctx);
     let idx = dom.resolve(dom.query("#longo").unwrap()).unwrap();
-    let longo = list.geometry().rects[&idx];
+    let longo = list.geometry_now().rects[&idx];
     // min-content de "umapalavracomprida" (19 chars) no ApproxMeasurer
     // (0.5×16=8px/char) = 152px — bem mais que os 200px que sobrariam sem
     // piso já não seria o caso aqui (200>152), então valida-se o piso com um
@@ -64,7 +64,7 @@ fn flex_shrink_min_content_e_o_piso_quando_o_espaco_livre_e_menor() {
     };
     let list = layout_document(&dom, &ctx);
     let idx = dom.resolve(dom.query("#longo").unwrap()).unwrap();
-    let longo = list.geometry().rects[&idx];
+    let longo = list.geometry_now().rects[&idx];
     // sem piso, o encolhimento puro por proporção daria 300-270=30px — bem
     // menos que a palavra mais larga (medida pelo `ApproxMeasurer` em ~132px
     // para "umapalavracomprida"). O piso venceu quando ficou acima disso.
@@ -96,7 +96,7 @@ fn flex_row_reverse_inverte_a_ordem_visual() {
     let list = layout_document(&dom, &ctx);
     let rect = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-        list.geometry().rects[&idx]
+        list.geometry_now().rects[&idx]
     };
     let (a, c) = (rect("#a"), rect("#c"));
     // em row-reverse, o PRIMEIRO do documento (#a) vai para o FIM visual: x
@@ -125,7 +125,7 @@ fn flex_column_reverse_inverte_a_ordem_visual() {
     let list = layout_document(&dom, &ctx);
     let rect = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-        list.geometry().rects[&idx]
+        list.geometry_now().rects[&idx]
     };
     let (a, c) = (rect("#a"), rect("#c"));
     assert!(a.y > c.y, "column-reverse: #a (1º no HTML) fica abaixo: a.y={} c.y={}", a.y, c.y);
@@ -161,7 +161,7 @@ fn flex_align_content_space_between_distribui_as_linhas() {
     let list = layout_document(&dom, &ctx);
     let rect = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-        list.geometry().rects[&idx]
+        list.geometry_now().rects[&idx]
     };
     let primeira = rect("#i0");
     let ultima = rect("#i4"); // 3ª linha (índices 4,5)

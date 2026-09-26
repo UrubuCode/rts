@@ -1,5 +1,5 @@
 use super::*;
-use rts_dom::layout::{Mat2d, Rect};
+use rts_dom::paint::{Mat2d, Rect};
 
 
 /// Percorre a [`DisplayList`] e pinta cada item via `ui.painter()`, em coordenadas

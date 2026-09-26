@@ -75,7 +75,7 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // `parse_dimension_min_max`, não `parse_dimension`, nos quatro: um
         // CLAMP aceita `min-content` — no eixo inline resolve para o
         // min-content REAL (`crate::table::min_content`, via
-        // `layout/flex_limites.rs`); no eixo de bloco é o piso DECLARADO de
+        // `layout/flex/limits.rs`); no eixo de bloco é o piso DECLARADO de
         // um item flex (encolhimento de coluna, `layout/coluna_shrink.rs` —
         // não pode desaparecer só porque o automático some sob overflow
         // não-visível). Ver `Dimension::MinContent`.
@@ -99,6 +99,7 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "word-break" => set_if(&mut css.word_break, crate::style::WordBreak::parse(val)),
         // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
         "overflow-wrap" | "word-wrap" => set_if(&mut css.overflow_wrap, crate::style::OverflowWrap::parse(val)),
+        "line-break" => set_if(&mut css.line_break, crate::style::painting::LineBreak::parse(val)),
         "direction" => set_if(&mut css.direction, crate::style::Direction::parse(val)),
         "writing-mode" => set_if(&mut css.writing_mode, crate::style::WritingMode::parse(val)),
         // `text-indent` aceita negativo (o truque de esconder texto atrás da

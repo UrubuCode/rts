@@ -18,7 +18,7 @@
 //! PRÓXIMO teste que corra nessa thread.
 
 use super::*;
-use crate::layout::medidor_ativo::{clear_active, set_active};
+use crate::layout::measure::active_measurer::{clear_active, set_active};
 use crate::layout::{ApproxMeasurer, LayoutCtx, TextMeasurer, bounding_rect};
 use std::rc::Rc;
 

@@ -9,13 +9,37 @@ impl Dom {
 
     // ── FORMULÁRIO: input editável (mini-browser) ────────────────────────────────
 
-    /// O texto a EXIBIR num `<input>`: o valor editado (`input_values`), senão o
-    /// atributo `value=`, senão `""`. É o que o layout pinta dentro da caixa.
+    /// O texto a EXIBIR num `<input>`/`<textarea>`: o valor editado
+    /// (`input_values`), senão a fonte que HTML §4.10.11 chama de "default
+    /// value" — que para os dois é uma coisa DIFERENTE. Um `<input>` não tem
+    /// filhos de conteúdo: a sua fonte é o atributo `value=`. Um `<textarea>`
+    /// não tem atributo `value` NENHUM — a spec não o define — e a sua fonte
+    /// é o texto FILHO da tag (`<textarea>abc</textarea>`), o "raw value".
+    /// Sem este ramo, `<textarea>abc</textarea>` pintava vazio: nenhum atributo
+    /// `value` existe para o fallback anterior ler.
     pub fn input_value(&self, id: NodeIdx) -> String {
         if let Some(v) = self.input_values.get(&id) {
             return v.clone();
         }
+        let is_textarea = matches!(&self.node(id).kind,
+            NodeKind::Element { tag } if tag == "textarea");
+        if is_textarea {
+            return self.textarea_raw_value(id);
+        }
         self.node(id).attr("value").unwrap_or("").to_string()
+    }
+
+    /// O "raw value" de um `<textarea>` (HTML §4.10.11): o `textContent` dos
+    /// filhos, com UMA quebra de linha inicial removida — o parser HTML
+    /// permite (mas não exige) escrever `<textarea>\nabc</textarea>` para
+    /// alinhar a marcação sem que a quebra entre na primeira linha do valor.
+    /// Quebras subsequentes ficam: um `<textarea>` é `white-space: pre-wrap`
+    /// pela folha da UA, e o layout pinta o que aqui sai.
+    fn textarea_raw_value(&self, id: NodeIdx) -> String {
+        // `text_content` já concatena os descendentes de texto em ordem de
+        // documento — a mesma pergunta que `element.textContent` faz.
+        let out = self.text_content(self.id_of_idx(id)).unwrap_or_default();
+        out.strip_prefix('\n').map(str::to_string).unwrap_or(out)
     }
 
     /// `true` se o input está vazio (nada digitado e sem `value=`) — o layout então

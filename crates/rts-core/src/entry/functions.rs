@@ -1586,6 +1586,7 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
     // the walk below already resolves by following the proxy to its target. The
     // loop is the one place that knows what "callable" means for a proxy and a
     // bound function, so the refusal is raised from inside it.
+    let mut resume: Option<(u64, u64)> = None;
     let held = with_current(|context| {
         let Some(mut function) = Value(callee).as_slot() else {
             return Err(Refusal::NotCallable);
@@ -1660,6 +1661,13 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         if context.text_at(cell).is_some() {
             return Ok(false);
         }
+        // A PROXY on the left-hand chain answers `[[GetPrototypeOf]]` through
+        // its trap, which is user code and cannot run in this borrow. The walk
+        // stops there and is resumed outside it — see `resume` below.
+        if context.proxy_at(cell).is_some() {
+            resume = Some((value, wanted.bits()));
+            return Ok(false);
+        }
         // Stepped with `inherited_from` rather than `prototype_at`, so the
         // prototypes that are SUBSTITUTED by kind rather than linked from the
         // cell count too. Without it `[] instanceof Array` and
@@ -1673,10 +1681,23 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
             if Value::from_slot(next).bits() == wanted.bits() {
                 return Ok(true);
             }
+            if context.proxy_at(next).is_some() {
+                resume = Some((Value::from_slot(next).bits(), wanted.bits()));
+                return Ok(false);
+            }
             cell = next;
         }
         Ok(false)
     });
+    // `OrdinaryHasInstance` steps 4–6 from the proxy on: each link through
+    // `[[GetPrototypeOf]]`, which is its trap — `x instanceof C` over a proxy
+    // logged no `getPrototypeOf` at all, and a REVOKED one answered from its
+    // dead cell instead of throwing.
+    if held.is_ok()
+        && let Some((from, wanted)) = resume
+    {
+        return super::proxy::inherits(from, wanted);
+    }
     match held {
         Ok(answer) => answer,
         Err(why) => {

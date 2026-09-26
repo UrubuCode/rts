@@ -53,7 +53,7 @@ pub(super) fn min_content_anonima(
         // SEMPRE `true`: dentro de uma caixa anónima já não há "topo" —
         // `floor_width` só distingue o nó que o CHAMADOR de `min_content`
         // pediu (ver o comentário do parâmetro em `mod.rs`).
-        let w = min_content_na_arvore(dom, tree, c, Some(filho), font, ctx, sem_quebra, mono, true);
+        let w = min_content_na_arvore(dom, tree, c, filho, font, ctx, mono, true);
         if sem_quebra && em_linha(dom, c) {
             linha += w;
         } else {

@@ -19,7 +19,7 @@ fixes it is the person editing the crate).
 Everything in this section was measured on 2026-09-16, not inferred.
 
 **The central case does not fail — it is absent.** A `<div>` inside a `<span>`
-is not laid out wrongly; it is **ignored as a box**. `layout/runs.rs` walks the
+is not laid out wrongly; it is **ignored as a box**. `layout/inline/runs.rs` walks the
 children of an inline container and tests, in order, for non-rendered metadata,
 `display:none`, form widgets, `<br>`, replaced elements and inline-blocks. It
 never tests for block level. The `<div>` matches none of them, falls into the
@@ -33,9 +33,9 @@ that family**, and there is nowhere to put them.
 `NodeIdx` — a deliberate decision recorded in `pseudo/mod.rs`, taken so the
 arena would not gain and lose a node on every re-cascade. The cost is that
 `Dom::pseudo_box` returns a `PseudoBox` that each consumer then re-integrates by
-hand: `layout/pseudo_bloco.rs` as a block with its own margin-collapse
-machinery, `layout/flex_pseudo.rs` as a counterfeit `FlexItem`, `layout/runs.rs`
-as an inline run, `layout/clearfix.rs` for the `clear` effect only. All three of
+hand: `layout/block/pseudo_block.rs` as a block with its own margin-collapse
+machinery, `layout/flex/pseudo.rs` as a counterfeit `FlexItem`, `layout/inline/runs.rs`
+as an inline run, `layout/float/clearfix.rs` for the `clear` effect only. All three of
 the first record the same cuts — no `border-radius`, no `flex-basis`, text does
 not wrap — because each would have to implement them again.
 
@@ -50,7 +50,7 @@ one value, so the render order the table spec asks for cannot be expressed.
 **Anonymous table rows and cells exist; the anonymous table does not.**
 `table/grid.rs` closes loose cells into a row and wraps a stray child as a cell.
 But a `<div style="display:table-cell">` with no table above it becomes an
-ordinary block: `layout/bloco.rs` only reaches `layout_table` when the node
+ordinary block: `layout/block/block.rs` only reaches `layout_table` when the node
 itself is `DisplayKind::Table`. CSS 2.1 §17.2.1 asks for the table to be
 generated around it.
 
@@ -178,6 +178,24 @@ paint list through `layout_cached` and hit-tests through it. The public surface
 is `layout_document`, `layout_cached` and `bounding_rect`; everything else in
 `crate::layout` is crate-private, which is what makes this migration possible at
 all.
+
+**Since 2026-09-25 the three readers of that surface have their own modules**
+(`docs/superpowers/plans/2026-09-25-paint-and-query.md`, Phase A): what the
+list IS and how it is painted lives in `crate::paint` (`DisplayItem`,
+`DisplayList`, `Piece`, stacking, transforms, decoration), what is ASKED of it
+after layout in `crate::query` (`Geometry`, `rect_of`, `hit_test`), and
+`crate::layout` only produces. A consumer imports `rts_dom::paint::DisplayList`
+and `rts_dom::query::Geometry`, never `rts_dom::layout::…` for those. The
+dependency direction is the plan's FORM 1, and since 2026-09-26 (Phase C,
+`docs/superpowers/plans/2026-09-26-paint-query-phase-c.md`) it is honoured
+except at one named point: `paint::pieces::Piece::Child` still holds a layout
+`ChildRef` with its full `Fragment`, because the stitch reads `origin`,
+`grid_column_tracks`, `last_line`, `static_anchors` and `tree` from it and no
+cache maps a `ChildRef` back to its fragment (the plan's C5, stopped with the
+fields named). `translate_item` lives in `paint/item.rs`; only `layout/`
+writes `box_rects`; the `Geometry` memo lives on the `Dom`
+(`Dom::geometry_cached`), not on the list; and the out-of-flow pass reads
+`layout::fragment::known_rects`, which `query::geometry_now` also calls.
 
 **Internally there may be N boxes per element; at that boundary they aggregate**,
 exactly as `union_rect` aggregates the line fragments of an inline today.
@@ -361,7 +379,7 @@ and a float or an absolutely positioned box is block-level (it is blockified)
 but out of flow. Asking only the outer display split
 `<span>a<div style="float:left"></div>b</span>` in three and put `b` on a line
 of its own. Such a child now stays in the inline run: a float becomes an
-ANCHOR there (`AtomicKind::Float`), and `layout/float_in_line.rs` places it at
+ANCHOR there (`AtomicKind::Float`), and `layout/float/in_line.rs` places it at
 the top of the line it appears in when it fits — CSS 2.1 §9.5.1 — which is
 also what happens to a float that is a DIRECT child in the middle of text,
 since the block flow stopped closing the inline group on it. What an
@@ -411,6 +429,28 @@ that wants to know "is this an inline formatting context" asks the tree.
 
 ### What the base does NOT do yet, and must not be assumed
 
+- **The fragments of a split or wrapped inline EXIST** (BT-2c, 2026-09-25).
+  `layout/fragment/box_rects.rs` keeps a `Vec<Rect>` per box, one per line
+  (`LineId`); `DisplayList::rects_of_box` answers them, `rect_of`/`Geometry`
+  union at the bridge boundary, and the hit-test uses each box's OWN rect.
+  Invariant I4 is closed. `getClientRects` is now possible and not added.
+- **The paint order is one sequence of pieces, never an index** (BT-2b,
+  2026-09-25). `DisplayList.pieces` and `Fragment.pieces` hold `Item`,
+  `Child` and `Rect` in paint order; nesting is the `ChildRef`; the hit-test
+  order is derived from the `Rect` marks at `geometry()` time and stored
+  nowhere else. What lies between a `BeginClip` and its `EndClip` is inside
+  the clip — there is no child count to keep in step. Invariant I5 is closed.
+  Four answers the old arithmetic gave were kept on purpose and are named in
+  `paint/pieces.rs` (`legacy_tie_start`); each is a lot of its own.
+- **Every layout function takes a `BoxId`, never an `Option<BoxId>`** (BT-2a,
+  2026-09-25). `layout_block`, the inline flow, the atoms, the leaves, the
+  intrinsic-width walkers and the generated-box roles all name the exact box;
+  the "list with no tree" branch they guarded is gone with the last
+  `DisplayList::default()` caller. A DOM child that generates no box reaches
+  the flow as `PassoDoFluxo::SemCaixa` and only OPENS the inline group — the
+  measured refusal of `sequencia.rs`, unchanged. The one node→boxes fold left
+  in layout is at the by-node entry of the intrinsic-width and table
+  min-content caches, where a split inline's answer is the widest fragment.
 - **Layout takes the child ORDER from the tree, and this line replaces one that
   said the opposite.** The block flow walks `tree.children(box)`: a text box
   arrives with its box, and an anonymous box is ENTERED rather than skipped.
@@ -427,7 +467,7 @@ that wants to know "is this an inline formatting context" asks the tree.
   child. Said plainly rather than dressed up as equivalent.
 - **An anonymous box IS laid out as the block box it is**, and this line
   replaces one that said it was expanded into its children instead.
-  `layout/bloco_caixa.rs` is the block path that accepts a box with no node: it
+  `layout/block/block_box.rs` is the block path that accepts a box with no node: it
   takes the container's content box and stacks the run in it, which is all an
   anonymous box needs — no width to resolve, no margin, no border, no
   background, no `float`, no `clear`, no generated content. What it does NOT do
@@ -484,7 +524,7 @@ that wants to know "is this an inline formatting context" asks the tree.
   it — because Blink's client rects of a split inline include them (four
   `claude-bloco-*` fixtures, Edge 153). `Geometry::rects` keeps the boxes
   alone: it is also the hit-test table, and there the second fragment, later
-  in hit order, would steal every click on the block. `layout/rect_cliente.rs`
+  in hit order, would steal every click on the block. `query/rect.rs`
   carries the reason; the paint of the inline is untouched.
 - **No formatting context is IMPLEMENTED here.** `inner` says which algorithm
   applies; running it is still `layout`'s.

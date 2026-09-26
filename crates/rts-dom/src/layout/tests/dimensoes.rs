@@ -125,9 +125,9 @@
         let c = dom.query("#c").unwrap();
         let idx = dom.resolve(c).unwrap();
         assert!(
-            (list.geometry().rects[&idx].h - 240.0).abs() < 2.0,
+            (list.geometry_now().rects[&idx].h - 240.0).abs() < 2.0,
             "calc height: {} (esperado 240 = 800-560)",
-            list.geometry().rects[&idx].h
+            list.geometry_now().rects[&idx].h
         );
     }
 
@@ -152,7 +152,7 @@
         let list = layout_document(&dom, &ctx);
         let alvo = dom.query("#alvo").unwrap();
         let idx = dom.resolve(alvo).unwrap();
-        let r = list.geometry().rects[&idx];
+        let r = list.geometry_now().rects[&idx];
         assert!(
             (r.h - 740.0).abs() < 2.0,
             "altura do filho 100%: {} (esperado 740)",

@@ -140,15 +140,20 @@ fn largura_em_ch_num_bloco_ahem_e_exata() {
     assert_eq!(r.w, 80.0, "{r:?}");
 }
 
-/// Uma família qualquer não muda: `ch` continua a resolver por
-/// `MONO_ADVANCE`, como sempre — este fecho não é um efeito colateral geral.
+/// Uma família proporcional usa o AVANÇO REAL do seu próprio "0" — o de
+/// Arial (1138/2048 = 0,55566em na tabela `hmtx`), não a fração
+/// `MONO_ADVANCE` (0,5498) calibrada só para a Consolas, que este teste
+/// pinava até aqui: era o MESMO bug do bloco Ahem acima, só que sem fecho —
+/// `resolve_family` só desviava de `MONO_ADVANCE` para a Ahem, nunca para as
+/// outras três famílias que `fonte_metricas` já sabia medir.
 #[test]
-fn largura_em_ch_com_familia_normal_continua_por_mono_advance() {
+fn largura_em_ch_com_familia_normal_usa_o_avanco_real_do_seu_zero() {
     let list = layout(
         "<div style='width:4ch;font:20px/1 Arial;background:#0f0'>XXXX</div>",
         600.0,
     );
     let r = first_rect(&list);
-    // 4 × 20 × 0.5498 = 43.984.
-    assert!((r.w - 43.984).abs() < 0.01, "{r:?}");
+    // 4 × 20 × 0,556152... (1138/2048), não 4 × 20 × 0.5498 = 43.984 que
+    // `MONO_ADVANCE` dava.
+    assert!((r.w - 44.492188).abs() < 0.01, "{r:?}");
 }

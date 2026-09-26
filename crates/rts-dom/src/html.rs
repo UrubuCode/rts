@@ -8,8 +8,11 @@
 //! Robustez: nome da tag normalizado para minúsculas; atributos preservados
 //! crus (`attrs_raw`, parseados em `dom.rs`); `>` dentro de valor de atributo
 //! com aspas não fecha a tag; `<!DOCTYPE …>` e declarações `<!…>` são ignorados
-//! (não modelamos DocumentType); entidades nomeadas comuns + numéricas
-//! decodificadas no texto.
+//! (não modelamos DocumentType); toda a tabela de 2231 referências nomeadas do
+//! HTML (`dom::entities`, gerada de entities.json) + numéricas decodificadas
+//! no texto e em valores de atributo, decodificadas em `entity_refs.rs`.
+
+pub(crate) use crate::entity_refs::{decode_entities, decode_entities_attr};
 
 /// Um token cru do HTML: ou uma tag (com flag de fechamento) ou texto literal.
 ///
@@ -173,57 +176,6 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
     tokens
 }
 
-/// Decodifica entidades HTML num único passe (sem `.replace` encadeado, que não
-/// pega as numéricas e arrisca dupla-decodificação). Cobre as nomeadas comuns
-/// (`&lt; &gt; &amp; &quot; &apos; &nbsp;`) e as numéricas decimais (`&#NN;`) e
-/// hex (`&#xNN;`). Uma entidade desconhecida ou malformada é deixada literal —
-/// robustez de parser real. `pub(crate)` — reusada por `dom.rs` ao decodar
-/// valores de atributo.
-pub(crate) fn decode_entities(s: &str) -> String {
-    // Atalho: sem `&`, nada a decodificar (caso comum).
-    if !s.contains('&') {
-        return s.to_string();
-    }
-    let mut out = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0usize;
-    while i < s.len() {
-        if bytes[i] != b'&' {
-            // Copia o char inteiro (UTF-8-safe).
-            let ch = s[i..].chars().next().unwrap();
-            out.push(ch);
-            i += ch.len_utf8();
-            continue;
-        }
-        // Acha o `;` de fechamento numa janela curta (entidades são curtas).
-        match s[i + 1..].find(';').filter(|&rel| rel <= 10) {
-            Some(rel) => {
-                let body = &s[i + 1..i + 1 + rel];
-                if let Some(ch) = decode_one_entity(body) {
-                    crate::bump!(entities_decoded);
-                    out.push(ch);
-                    i += 1 + rel + 1; // pula `&body;`
-                    continue;
-                }
-                // Desconhecida: deixa o `&` literal e segue.
-                crate::bump!(entities_unknown);
-                crate::note!(
-                    "entidade-desconhecida",
-                    format!("&{};", &s[i + 1..i + 1 + rel])
-                );
-                out.push('&');
-                i += 1;
-            }
-            None => {
-                // `&` solto sem `;`: literal.
-                out.push('&');
-                i += 1;
-            }
-        }
-    }
-    out
-}
-
 /// Re-encoda um texto para conteúdo HTML (inverso de `decode_entities` no caminho
 /// de TEXTO): `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`. É o que `innerHTML` (GET) usa
 /// para serializar um nó de texto de forma segura. `pub(crate)`.
@@ -263,90 +215,14 @@ pub(crate) fn encode_attr_entities(s: &str) -> String {
     out
 }
 
-/// Decodifica o MIOLO de uma entidade (sem o `&` e o `;`). `None` se desconhecida.
-fn decode_one_entity(body: &str) -> Option<char> {
-    if let Some(num) = body.strip_prefix('#') {
-        // Numérica: `#NN` decimal ou `#xNN`/`#XNN` hex.
-        let code = if let Some(hex) = num.strip_prefix(['x', 'X']) {
-            u32::from_str_radix(hex, 16).ok()?
-        } else {
-            num.parse::<u32>().ok()?
-        };
-        return char::from_u32(code);
-    }
-    Some(match body {
-        "lt" => '<',
-        "gt" => '>',
-        "amp" => '&',
-        "quot" => '"',
-        "apos" => '\'',
-        "nbsp" => '\u{00A0}',
-        // As nomeadas mais comuns em páginas reais (o rodapé do google usa
-        // `&copy;`; conteúdo editorial usa travessões/aspas tipográficas).
-        "copy" => '\u{00A9}',
-        "reg" => '\u{00AE}',
-        "trade" => '\u{2122}',
-        "hellip" => '\u{2026}',
-        "mdash" => '\u{2014}',
-        "ndash" => '\u{2013}',
-        "middot" => '\u{00B7}',
-        "bull" => '\u{2022}',
-        "laquo" => '\u{00AB}',
-        "raquo" => '\u{00BB}',
-        "lsquo" => '\u{2018}',
-        "rsquo" => '\u{2019}',
-        "ldquo" => '\u{201C}',
-        "rdquo" => '\u{201D}',
-        "deg" => '\u{00B0}',
-        "times" => '\u{00D7}',
-        "divide" => '\u{00F7}',
-        "plusmn" => '\u{00B1}',
-        "sect" => '\u{00A7}',
-        "para" => '\u{00B6}',
-        "euro" => '\u{20AC}',
-        "pound" => '\u{00A3}',
-        "yen" => '\u{00A5}',
-        "cent" => '\u{00A2}',
-        "shy" => '\u{00AD}',
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn entidades_nomeadas() {
-        assert_eq!(decode_entities("a &lt; b &gt; c &amp; d"), "a < b > c & d");
-        assert_eq!(
-            decode_entities("&quot;aspas&quot; &apos;simples&apos;"),
-            "\"aspas\" 'simples'"
-        );
-        assert_eq!(decode_entities("x&nbsp;y"), "x\u{00A0}y");
-        assert_eq!(
-            decode_entities("&copy; 2026 &mdash; ok&hellip;"),
-            "\u{00A9} 2026 \u{2014} ok\u{2026}"
-        );
-    }
-
-    #[test]
-    fn entidades_numericas() {
-        assert_eq!(decode_entities("&#65;&#66;&#67;"), "ABC"); // decimal
-        assert_eq!(decode_entities("&#x41;&#x42;"), "AB"); // hex minúsculo
-        assert_eq!(decode_entities("&#X41;"), "A"); // hex maiúsculo
-        assert_eq!(decode_entities("caf&#233;"), "café"); // não-ASCII decimal
-        assert_eq!(decode_entities("&#9731;"), "☃"); // BMP fora do Latin-1
-    }
-
-    #[test]
-    fn malformadas_ficam_literais() {
-        assert_eq!(decode_entities("Tom & Jerry"), "Tom & Jerry"); // `&` solto
-        assert_eq!(decode_entities("&naoexiste;"), "&naoexiste;"); // nome desconhecido
-        assert_eq!(decode_entities("&#abc;"), "&#abc;"); // numérica inválida
-        assert_eq!(decode_entities("100% & mais"), "100% & mais");
-        assert_eq!(decode_entities("sem ampersand"), "sem ampersand"); // atalho sem `&`
-    }
+    // As entidades nomeadas/numéricas em si (tabela completa, legadas sem
+    // `;`, casos especiais do §13.5) são testadas em `entity_refs.rs`, onde
+    // a implementação agora vive — aqui só o que é específico da tokenização
+    // (onde o texto acumulado é cortado e passado para decodificar).
 
     #[test]
     fn style_e_script_viram_raw_element() {
@@ -389,12 +265,6 @@ mod tests {
         // sem atributos → attrs vazio.
         let t2 = tokenize("<style>x{}</style>");
         assert!(matches!(&t2[0], Token::RawElement { attrs, .. } if attrs.is_empty()));
-    }
-
-    #[test]
-    fn entidade_no_fim_e_consecutivas() {
-        assert_eq!(decode_entities("fim &amp;"), "fim &");
-        assert_eq!(decode_entities("&lt;&lt;&gt;&gt;"), "<<>>");
     }
 
     #[test]

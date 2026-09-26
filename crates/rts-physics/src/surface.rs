@@ -47,6 +47,7 @@ const RIGID: &[(&str, Provided)] = &[
     ("threads", threads),
     ("backends", backends),
     ("supports", supports),
+    ("overflows", overflows),
 ];
 
 thread_local! {
@@ -84,11 +85,15 @@ extern "C" fn step(_e: u64, _this: u64, pos: u64, vel: u64, ext: u64, world: u64
     let (pos, vel) = unsafe { (floats_mut(pos), floats_mut(vel)) };
     let (ext, world) = unsafe { (floats(ext), floats(world)) };
 
-    let substeps = match world.len() >= 4 && world[3].is_finite() && world[3] >= 1.0 {
-        true => world[3] as usize,
-        // Absent is one step, not none: the field is `-` in the layout this
-        // shares with the GPU kernel, so a buffer written for that backend and
-        // handed here still advances rather than silently standing still.
+    use crate::solver::material::{
+        PHYSICS_LAYOUT_VERSION, WORLD_HEADER_FLOATS, WORLD_PARAM_LAYOUT_VERSION, WORLD_PARAM_SUBSTEPS,
+    };
+    if world.len() < WORLD_HEADER_FLOATS || world[WORLD_PARAM_LAYOUT_VERSION] != PHYSICS_LAYOUT_VERSION {
+        return entry::make_number(0.0);
+    }
+
+    let substeps = match world[WORLD_PARAM_SUBSTEPS].is_finite() && world[WORLD_PARAM_SUBSTEPS] >= 1.0 {
+        true => world[WORLD_PARAM_SUBSTEPS] as usize,
         false => 1,
     };
     SOLVER.with(|solver| solver.borrow_mut().step(pos, vel, ext, world, substeps));
@@ -139,6 +144,13 @@ extern "C" fn supports(_e: u64, _this: u64, need: u64, _a1: u64, _a2: u64, _a3: 
         2 => needs.continuous = true,
         3 => needs.angular = true,
         4 => needs.joints = true,
+        5 => needs.deterministic = true,
+        6 => needs.raycast = true,
+        7 => needs.overlap = true,
+        8 => needs.contact_events = true,
+        9 => needs.level = crate::backend::Level::Simples,
+        10 => needs.level = crate::backend::Level::Orientada,
+        11 => needs.level = crate::backend::Level::Completa,
         // An unknown need answers 0, which is the conservative direction: a
         // program asking about something this build has never heard of is told
         // "no" rather than "yes" by omission.
@@ -156,6 +168,12 @@ extern "C" fn supports(_e: u64, _this: u64, need: u64, _a1: u64, _a2: u64, _a3: 
 /// guess what `rayon` decided.
 extern "C" fn threads(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     entry::make_number(rayon::current_num_threads() as f64)
+}
+
+/// `rigid.overflows()` — answers the number of grid bucket overflows detected in the last step.
+extern "C" fn overflows(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let count = SOLVER.with(|solver| solver.borrow().grid_overflows());
+    entry::make_number(count as f64)
 }
 
 /// Where each argument's bytes are, once every one of them has been checked.

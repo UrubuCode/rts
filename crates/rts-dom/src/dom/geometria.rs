@@ -46,14 +46,17 @@ impl Dom {
             return 0.0;
         };
         let (vw, vh) = self.viewport.get();
-        crate::layout::medidor_ativo::with_active(|measurer| {
+        crate::layout::measure::active_measurer::with_active(|measurer| {
             let ctx = crate::layout::LayoutCtx {
                 viewport_w: vw,
                 viewport_h: vh,
                 measurer,
             };
+            // The list and its geometry, both memoised on the `Dom` (PQ-C4):
+            // `rect_of` alone would rebuild the geometry on every call.
             let list = crate::layout::layout_cached(self, &ctx);
-            let Some(rect) = list.rect_of(idx) else {
+            let geometry = self.geometry_cached(&ctx);
+            let Some(rect) = list.rect_of_in(&geometry, idx) else {
                 return 0.0;
             };
             match which {
@@ -89,13 +92,14 @@ impl Dom {
     /// `bounding_component` responde no mesmo caso.
     pub fn bounding_components_many(&self, ids: &[NodeId]) -> Vec<f32> {
         let (vw, vh) = self.viewport.get();
-        crate::layout::medidor_ativo::with_active(|measurer| {
+        crate::layout::measure::active_measurer::with_active(|measurer| {
             let ctx = crate::layout::LayoutCtx {
                 viewport_w: vw,
                 viewport_h: vh,
                 measurer,
             };
             let list = crate::layout::layout_cached(self, &ctx);
+            let geometry = self.geometry_cached(&ctx);
             let mut out = Vec::with_capacity(ids.len() * 4);
             for &id in ids {
                 // `rect_of` e NAO `rect_of_node`, e a diferenca importa: o
@@ -110,37 +114,12 @@ impl Dom {
                 // A agregacao por caixa acontece na mesma, uma camada abaixo:
                 // e `collect_geometry` que une as caixas de um no ao montar a
                 // `Geometry`.
-                match self.resolve(id).and_then(|idx| list.rect_of(idx)) {
+                match self.resolve(id).and_then(|idx| list.rect_of_in(&geometry, idx)) {
                     Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
                     None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
                 }
             }
             out
-        })
-    }
-
-    /// Igual a [`crate::layout::DisplayList::hit_test`], mas `pointer-events:
-    /// none` fica TRANSPARENTE ao clique — a espessura de `hit_order` sob o
-    /// nó de topo é revisitada até achar um nó cujo computado não seja
-    /// `none` (herda, como a spec pede, e o `ComputedStyle` de cada nó já
-    /// reflete a herança — não há necessidade de subir a árvore aqui).
-    ///
-    /// Vive no `Dom` e não em `DisplayList::hit_test` porque só o `Dom` tem a
-    /// cascade; a lista de exibição só tem retângulos e índices. Quem decide
-    /// clique (`rts-egui`) chamava `DisplayList::hit_test` direto — passar a
-    /// chamar este em vez daquele é a mudança mínima que fecha o gap.
-    pub fn hit_test_clickable(&self, list: &crate::layout::DisplayList, x: f32, y: f32) -> Option<NodeIdx> {
-        let g = list.geometry();
-        g.hit_order.iter().rev().copied().find(|&idx| {
-            let dentro = g
-                .rects
-                .get(&idx)
-                .is_some_and(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
-            dentro
-                && !matches!(
-                    self.computed_style_idx(idx).and_then(|s| s.pointer_events),
-                    Some(crate::style::vocab::PointerEvents::None)
-                )
         })
     }
 }

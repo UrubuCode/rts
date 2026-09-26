@@ -57,7 +57,8 @@
 //! svg+xml` (este motor só descodifica PNG, PLAN.md lote V-img) — um `<img>`
 //! desses continua sem pixels, com a caixa que a CSS/atributo decidir.
 
-use rts_dom::layout::{self, DisplayItem, DisplayList};
+use rts_dom::layout;
+use rts_dom::paint::{DisplayItem, DisplayList};
 use rts_dom::{Dom, NodeIdx, NodeKind};
 use std::path::Path;
 
@@ -364,13 +365,15 @@ fn main() {
     // elemento que o layout não posicionou é informação, e descontá-lo em
     // silêncio é encolher o denominador — a falha mais cara que uma régua tem.
     let els = elementos(&dom, raiz);
+    // One geometry for every element: `rect_of` alone builds it per call.
+    let geometry = list.geometry_now();
     let mut sem_caixa = 0usize;
     for (idx, caminho) in &els {
         let tag = match &dom.node(*idx).kind {
             NodeKind::Element { tag } => tag.to_lowercase(),
             _ => "?".to_string(),
         };
-        match list.rect_of(*idx) {
+        match list.rect_of_in(&geometry, *idx) {
             Some(r) => linhas.push(format!(
                 "{{\"k\":\"el\",\"p\":{},\"tag\":{},\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
                 jstr(caminho),

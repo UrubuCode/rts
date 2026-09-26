@@ -11,7 +11,7 @@
 //! NEGATIVO de propósito — sem o piso que CSS Flexbox 2 §algo-line-break pede
 //! ("floor the outer hypothetical main size... at zero", só sob `balance`), a segunda linha
 //! saía diferente e `#b` deixava de cobrir o resto do contentor. O fix mora
-//! em `flex_limites::hipotetico_para_quebra`; este teste pina a geometria
+//! em `flex_limites::hypothetical_for_wrap`; este teste pina a geometria
 //! (não só "sem vermelho") para não regredir em silêncio de novo.
 use crate::table::tests::{geometria, rect};
 
@@ -52,7 +52,7 @@ fn item_com_margem_negativa_nao_abre_segunda_linha_vazia() {
     // de fundo nunca aparece por baixo, mesmo sob `overflow:clip`). O
     // defeito era `#b` herdar o `min_main` NEGATIVO (a "specified size
     // suggestion" outer, §4.5, que inclui a margem) na CONTA DE QUEBRA em
-    // vez de um piso de zero (`flex_limites::hipotetico_para_quebra`) — sem
+    // vez de um piso de zero (`flex_limites::hypothetical_for_wrap`) — sem
     // ele, um nó de COMENTÁRIO entre `#a` e `#b` (como no WPT original)
     // deixava de contar como item quando a árvore de caixas passou a ser a
     // fonte da iteração (`e83b34321`), e a soma sem piso da decisão de

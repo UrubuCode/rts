@@ -187,7 +187,7 @@ pub enum Dimension {
     ///
     /// No eixo INLINE (`min-width`/`max-width`) resolve para o min-content
     /// REAL do item via `crate::table::min_content` em
-    /// `flex_limites::limites_do_item` — a mesma travessia que já serve o
+    /// `flex_limites::item_limits` — a mesma travessia que já serve o
     /// piso automático do encolhimento (Flexbox §9.9/§4.5: um filho bloco
     /// com `width` fixa entra pela sua própria largura); min sempre vence
     /// max em conflito (CSS2 §10.4, `claude-flex-min-width-min-content`). No
@@ -213,18 +213,24 @@ impl Dimension {
 
     /// Como [`resolve`](Dimension::resolve), mas com o `font-family` do nó —
     /// só muda a resposta de `Ch`: em Ahem `1ch = 1em` POR CONSTRUÇÃO (todo
-    /// glifo avança 1em, incluído o "0" que define `ch`), não a fração
-    /// `MONO_ADVANCE` (0,5498) calibrada contra uma fonte monoespaçada real.
-    /// Aditivo com um default que delega no antigo — não uma mudança de
-    /// `ResolveCtx` (que tem ~50 sítios de construção neste crate) — pela
-    /// MESMA razão de `TextMeasurer::text_width_family`: só quem já pergunta
-    /// pela família (aqui, o handful de sítios que resolvem `width`/`height`
-    /// de um bloco Ahem) paga a pergunta extra.
+    /// glifo avança 1em, incluído o "0" que define `ch`); nas outras três
+    /// famílias, o avanço REAL do "0" — `fonte_metricas::ch_advance_em`, a
+    /// mesma tabela `hmtx` que mede texto — em vez da fração `MONO_ADVANCE`
+    /// (0,5498) calibrada só para a Consolas, que servia à Arial e à Segoe UI
+    /// por aproximação (até 1,6% de erro num `10ch`; `0.5em` de fallback só
+    /// para uma família fora das quatro tabelas). Aditivo com um default que
+    /// delega no antigo — não uma mudança de `ResolveCtx` (que tem ~50 sítios
+    /// de construção neste crate) — pela MESMA razão de
+    /// `TextMeasurer::text_width_family`: só quem já pergunta pela família
+    /// (aqui, o handful de sítios que resolvem `width`/`height` de um bloco)
+    /// paga a pergunta extra.
     pub fn resolve_family(self, ctx: &ResolveCtx, family: Option<&str>) -> Option<f32> {
         if let Dimension::Ch(c) = self {
             if family.is_some_and(crate::style::is_ahem_family) {
                 return Some((ctx.node_font_size * c).max(0.0));
             }
+            let em = crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(family);
+            return Some((ctx.node_font_size * em * c).max(0.0));
         }
         self.resolve(ctx)
     }

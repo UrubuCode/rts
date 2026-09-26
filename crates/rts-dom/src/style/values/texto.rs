@@ -153,7 +153,7 @@ impl Visibility {
     /// Se este valor USADO suprime a pintura (fundo, borda, texto, sombra) —
     /// `Hidden` e `Collapse` têm o mesmo efeito fora de tabelas (CSS2 §11.2).
     /// Um sítio só para os dois call-sites de layout perguntarem
-    /// (`bloco.rs`, `pintura.rs`), em vez de repetir o `matches!` nos dois.
+    /// (`layout/block/block.rs`, `paint/style.rs`), em vez de repetir o `matches!` nos dois.
     pub fn suppresses_paint(&self) -> bool {
         matches!(self, Visibility::Hidden | Visibility::Collapse)
     }
@@ -172,6 +172,9 @@ pub enum WhiteSpace {
     PreWrap,
     /// `pre-line` — colapsa espaços mas preserva quebras explícitas.
     PreLine,
+    /// `break-spaces` — preserves like `pre-wrap`, but every preserved space
+    /// and tab is a wrap opportunity and none of them hangs (CSS Text 3 §4.1.3).
+    BreakSpaces,
 }
 
 impl WhiteSpace {
@@ -182,12 +185,13 @@ impl WhiteSpace {
             "pre" => WhiteSpace::Pre,
             "pre-wrap" => WhiteSpace::PreWrap,
             "pre-line" => WhiteSpace::PreLine,
+            "break-spaces" => WhiteSpace::BreakSpaces,
             _ => return None,
         })
     }
     /// `true` se preserva os espaços/quebras originais (pre/pre-wrap/pre-line p/ quebras).
     pub fn preserves_spaces(self) -> bool {
-        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap)
+        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::BreakSpaces)
     }
 
     /// `true` se um `\n` LITERAL do texto força uma quebra de linha — os três
@@ -198,7 +202,7 @@ impl WhiteSpace {
     pub fn preserves_newlines(self) -> bool {
         matches!(
             self,
-            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine
+            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine | WhiteSpace::BreakSpaces
         )
     }
 }

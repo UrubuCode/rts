@@ -286,7 +286,16 @@ impl Number {
 }
 
 /// `Boolean`.
-#[rtse::class("Boolean")]
+///
+/// `tag` because `Boolean.prototype` is ITSELF a boxed `false` — this class's
+/// own construct wraps `this` but never runs against `Boolean.prototype`
+/// itself, which [`primitive_proto::wrap`] never touches — so
+/// `Object.prototype.toString.call(Boolean.prototype)` fell through
+/// [`super::super::object_proto`]'s per-kind table to `"Object"` where every
+/// runtime answers `"Boolean"`. An ordinary `new Boolean(x)` was unaffected —
+/// its own boxed slot already answers the table's `Boolean` row — so this is
+/// the one cell in the whole class the internal-slot table cannot reach.
+#[rtse::class("Boolean", tag)]
 impl Boolean {
     /// `Boolean(x)` — `ToBoolean` of an argument.
     ///

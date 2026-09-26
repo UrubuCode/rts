@@ -88,6 +88,7 @@
 
 mod manifest;
 mod page_scripts;
+mod physics;
 mod resolver;
 mod stack;
 
@@ -120,7 +121,7 @@ pub fn keep() -> usize {
     let ui_install = rts_ui::install as usize;
     #[cfg(not(feature = "ui"))]
     let ui_install = 0usize;
-    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1)
+    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1) + physics::keep()
 }
 
 /// How the compiled program is entered — its script, and each module body that
@@ -455,6 +456,9 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
     // already found — see `resolver`'s own header for why, and for the one
     // specifier shape it therefore cannot answer.
     resolver::declare(manifest.resolutions);
+    // A compiled page's own files, read from this image before the disk — the
+    // same "answers travel" as the resolutions above (`recursos::tabela`).
+    rts_dom_bridge::recursos::tabela::declare(manifest.resources);
     rts_core::entry::declare_resolver(&mut context, resolver::resolve);
 
     // What `import.meta` answers, per module — built HERE, in this program's
@@ -473,6 +477,7 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
 
     rts_std::install(&mut context);
     rts_node::install(&mut context);
+    physics::install(&mut context);
     // O mesmo par e a mesma ordem do host JIT (`rts-host/src/run.rs`): o
     // documento é headless e vem sempre; a janela só com a feature `ui`. Sem
     // isto um `.exe` compilado de uma app de UI morria em "cannot resolve

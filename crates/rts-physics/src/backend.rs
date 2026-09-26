@@ -68,6 +68,21 @@ pub enum ParityGroup {
     Independent,
 }
 
+/// Nível de simulação da física.
+///
+/// Variants retain the Portuguese names directly from the normative spec §7.1.1
+/// (`simples`, `orientada`, `completa`) to stay aligned with the design document and the TS API.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Level {
+    /// Esfera e caixa alinhada, sem rotação (o solver de hoje).
+    #[default]
+    Simples,
+    /// Quaternion e OBB, sem torque (Lote C).
+    Orientada,
+    /// Manifold, warm starting, dinâmica angular, sono por ilha (Lotes D–F).
+    Completa,
+}
+
 /// What a caller needs a backend to be able to do.
 ///
 /// Asked BEFORE a step, so that "this backend cannot do what your scene needs"
@@ -75,6 +90,8 @@ pub enum ParityGroup {
 /// backend in this workspace genuinely differs on today.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Needs {
+    /// Nível de simulação pedido.
+    pub level: Level,
     /// A convex hull must collide as a hull against another hull, rather than
     /// degrading to a sphere. The gather solver answers `false`; the reason is
     /// measured and is in `docs/colisores.md` §3.
@@ -85,6 +102,16 @@ pub struct Needs {
     pub angular: bool,
     /// Joints, articulations, motors.
     pub joints: bool,
+    /// Deterministic bit-by-bit simulation across runs and thread counts on the same binary
+    /// and same machine (desenho §9, §15.3). Lockstep across different machines or OSes is not
+    /// promised or verified yet.
+    pub deterministic: bool,
+    /// Spatial raycast queries supported by the backend.
+    pub raycast: bool,
+    /// Spatial overlap queries supported by the backend.
+    pub overlap: bool,
+    /// Contact events (begin, persist, end, trigger) emitted after solver.
+    pub contact_events: bool,
 }
 
 /// The result of asking a backend to advance a scene.

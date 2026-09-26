@@ -160,7 +160,7 @@ fn line_height_normal_bate_com_as_alturas_do_chrome() {
     // Chrome's numbers from the corpus `tests/css/*.esperado.json`: the height
     // of a one-line box per font size under `line-height: normal`, default
     // (serif) font. All six match since the metrics are Times New Roman's own
-    // table with Blink's rounding (`layout/fonte_metricas.rs`); the single
+    // table with Blink's rounding (`layout/measure/font_metrics.rs`); the single
     // approximation `ceil(1.125 × size)` that stood here missed 32px by one.
     use crate::layout::TextMeasurer;
     let lh = |s: f32| crate::layout::ApproxMeasurer.line_height(s);

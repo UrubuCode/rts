@@ -129,7 +129,7 @@ const HTML_RTL_TRANSBORDA: &str = r#"<style>
 /// RETRABALHO (`claude-rtl-filho-transborda`, espelho do `overflow-top-left`
 /// do WPT): com `direction:rtl`, um filho MAIS LARGO do que o contentor
 /// transborda pela ESQUERDA (a margem direita encosta à direita do
-/// content-box) — tanto num bloco normal (`rtl_bloco::margin_left_usado`,
+/// content-box) — tanto num bloco normal (`rtl_bloco::used_margin_left`,
 /// CSS 2.1 §10.3.3) como num flex em coluna (`coluna_rtl::cross_x` com a
 /// largura VERDADEIRA do item, não grampeada ao `content_w`). Os dois têm de
 /// dar a MESMA caixa — é o mesmo `.column-wrapper`/`.row-wrapper` do WPT,

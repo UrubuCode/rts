@@ -33,6 +33,7 @@
 
 pub(in crate::entry) mod from;
 mod from_async;
+mod indexed;
 mod natural_run;
 mod sorting;
 mod splice;
@@ -47,8 +48,8 @@ use crate::value::Value;
 /// What an array's prototype holds beyond the eleven in [`super`] and the eight
 /// in [`super::iterate`].
 pub(in crate::entry) const NATIVES: &[(&str, Native, u32)] = &[
-    ("at", at, 1),
-    ("lastIndexOf", last_index_of, 1),
+    ("at", indexed::at, 1),
+    ("lastIndexOf", indexed::last_index_of, 1),
     ("toString", to_string_, 0),
     ("toLocaleString", to_locale_string, 0),
     ("keys", keys, 0),
@@ -71,80 +72,6 @@ pub(in crate::entry) const NATIVES: &[(&str, Native, u32)] = &[
 /// What `Array` itself holds beyond `isArray` and `of`.
 pub(in crate::entry) const STATICS: &[(&str, Native, u32)] =
     &[("from", from::from, 1), ("fromAsync", from_async::from_async, 1)];
-
-/// `a.at(i)` — negative counts from the end.
-///
-/// The index is converted BEFORE the borrow, and that is the whole reason this
-/// is two statements: `ToIntegerOrInfinity` reaches a `valueOf` the program
-/// wrote, and calling one inside `with_current` re-enters the `RefCell`. See
-/// [`super::numeric`] for the three answers the conversion changes.
-extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let asked = super::numeric::integer_or_infinity(index);
-    with_current(|context| {
-        // Generic, the same fallback `slice` takes and for the same reason: the
-        // specification defines `at` over `LengthOfArrayLike(ToObject(this))`,
-        // so `Array.prototype.at.call({ length: 3, 2: "c" }, -1)` is `"c"` and
-        // answered `undefined` here for every receiver that was not a real
-        // array.
-        let elements = match staged(context, this) {
-            Some((_, elements)) => elements,
-            None => match super::array_like(context, this) {
-                Some(elements) => elements,
-                None => return undefined_of(context),
-            },
-        };
-        let at = if asked < 0.0 {
-            elements.len() as f64 + asked
-        } else {
-            asked
-        };
-        // Out of range is `undefined` rather than clamped, which is the whole
-        // reason `at` was added beside indexing: `a.at(-1)` must be the last
-        // element and `a.at(-99)` must be nothing, not the first.
-        if at < 0.0 || at >= elements.len() as f64 {
-            return undefined_of(context);
-        }
-        // Ponto de saída direta, como `pop`/`shift`: `[,1].at(0)` é `undefined`.
-        super::super::array::visible(context, elements[at as usize])
-    })
-}
-
-/// `a.lastIndexOf(x, from)` — strict equality, from the end.
-///
-/// Strict, like `indexOf` and unlike `includes`: `[NaN].lastIndexOf(NaN)` is -1.
-///
-/// Not `super::forward_from`, because `relative` clamps a negative index to zero
-/// — right for a forward search, where `indexOf(x, -99)` scans everything, and
-/// wrong here: `lastIndexOf(x, -99)` searches NOTHING, and clamping would make it
-/// find an element at position 0 the caller asked it to look past.
-extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        let Some((_, elements)) = staged(context, this) else {
-            return undefined_of(context);
-        };
-        let count = elements.len();
-        let end = if absent(context, from) {
-            count
-        } else {
-            let asked = Value(from).numeric().unwrap_or(0.0).trunc();
-            let at = match asked < 0.0 {
-                true => count as f64 + asked,
-                // Past the end searches the whole array rather than nothing,
-                // which is the mirror of the negative case being empty.
-                false => asked.min(count as f64 - 1.0),
-            };
-            if at < 0.0 {
-                return Value::from_f64(-1.0).bits();
-            }
-            // Inclusive: `lastIndexOf(x, 2)` may answer 2.
-            at as usize + 1
-        };
-        let at = elements[..end].iter().rposition(|held| {
-            crate::value::strict_equals(Value(*held), Value(search), |a, b| context.same_text(a, b))
-        });
-        Value::from_f64(at.map_or(-1.0, |at| at as f64)).bits()
-    })
-}
 
 /// `a.toString()` — `join` with a comma, which is what the language defines it
 /// as.

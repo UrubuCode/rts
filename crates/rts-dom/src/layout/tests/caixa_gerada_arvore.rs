@@ -14,7 +14,7 @@ fn no(dom: &crate::Dom, sel: &str) -> crate::dom::NodeIdx {
     dom.resolve(dom.query(sel).expect(sel)).expect("live node")
 }
 
-fn gerada(list: &crate::layout::DisplayList, dom: &crate::Dom, sel: &str, pe: PseudoElement) -> BoxId {
+fn gerada(list: &crate::paint::DisplayList, dom: &crate::Dom, sel: &str, pe: PseudoElement) -> BoxId {
     list.tree.generated_of(no(dom, sel), pe).unwrap_or_else(|| panic!("{sel} has a generated box"))
 }
 
@@ -57,7 +57,7 @@ fn a_generated_box_moves_with_its_relatively_positioned_element() {
 }
 
 /// A FLEX-ITEM pseudo and an `inline-block` one answer too — the three roles
-/// record through the one `pseudo_caixa::pintar` they all paint with.
+/// record through the one `pseudo_caixa::paint` they all paint with.
 #[test]
 fn a_flex_item_pseudo_and_an_inline_block_pseudo_answer_rect_of_box() {
     let (dom, list) = geometria(
@@ -98,12 +98,12 @@ fn the_block_flow_does_not_step_through_a_generated_box() {
     let p = no(&dom, "#p");
     let caixa = list.tree.boxes_of(p)[0];
     assert_eq!(list.tree.children(caixa).len(), 3, "the tree has both pseudos");
-    let seq = super::super::sequencia::sequencia_do_fluxo(&dom, &list.tree, p, Some(caixa));
+    let seq = super::super::block::sequence::flow_sequence(&dom, &list.tree, p, caixa);
     assert_eq!(seq.len(), 1, "only the text is a step of the flow: {seq:?}");
 }
 
 /// The inline atom of an `inline-block` pseudo carries its box, from the box
-/// the line walk is in — it used to carry `None`.
+/// the line walk is in.
 #[test]
 fn the_inline_atom_of_a_generated_box_carries_its_box() {
     let (dom, list) = geometria(
@@ -114,16 +114,15 @@ fn the_inline_atom_of_a_generated_box_carries_its_box() {
     let caixa = list.tree.boxes_of(s)[0];
     let css = dom.computed_style_idx(s).unwrap();
     let ctx = crate::layout::LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &crate::layout::ApproxMeasurer };
-    let runs = super::super::runs::collect_runs(&dom, s, Some(caixa), &list.tree, &css, 800.0, &ctx);
+    let runs = super::super::inline::runs::collect_runs(&dom, s, caixa, &list.tree, &css, 800.0, None, &ctx);
     let atomo = runs
         .iter()
         .find_map(|r| match r.atomic {
-            Some((_, b, crate::inline_box::AtomicKind::Gerada(PseudoElement::Before, _))) => Some(b),
+            Some((_, b, crate::inline_box::AtomicKind::Generated(PseudoElement::Before, _))) => Some(b),
             _ => None,
         })
         .expect("the pseudo is an atom on the line");
-    assert_eq!(atomo, list.tree.generated_child(caixa, PseudoElement::Before));
-    assert!(atomo.is_some());
+    assert_eq!(Some(atomo), list.tree.generated_child(caixa, PseudoElement::Before));
 }
 
 /// After a mutation elsewhere the tree is REBUILT — new generation — and the
@@ -190,8 +189,8 @@ fn the_seam_sees_a_generated_box_appear() {
     let com = crate::parse_html_to_dom("<style>p::before{content:'x'}</style><p id=p>oi</p>");
     let (a, b) = (sem.box_tree(), com.box_tree());
     let (pa, pb) = (a.boxes_of(no(&sem, "#p"))[0], b.boxes_of(no(&com, "#p"))[0]);
-    assert!(!super::super::costura_filhos::mesma_sequencia_de_filhos(&a, pa, &b, pb));
+    assert!(!super::super::fragment::stitching::same_children_sequence(&a, pa, &b, pb));
     let b2 = crate::boxes::build_mirror(&com);
     let pb2 = b2.boxes_of(no(&com, "#p"))[0];
-    assert!(super::super::costura_filhos::mesma_sequencia_de_filhos(&b, pb, &b2, pb2));
+    assert!(super::super::fragment::stitching::same_children_sequence(&b, pb, &b2, pb2));
 }

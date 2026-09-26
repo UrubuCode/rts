@@ -300,7 +300,7 @@ pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
     // pintava cinzento (128,128,128) onde a referência do WPT pinta preto: a
     // geometria já batia (96×96 no sítio certo), só a cor divergia — cluster
     // de 9216px, 35 fixtures (`border-width-001` e vizinhos). O padrão certo
-    // já existe em `pintura.rs:391` para `outline`: `.or(css.color)` antes do
+    // já existe em `paint/decor.rs` para `outline`: `.or(css.color)` antes do
     // preto inicial.
     let uc = css.border_color.or(css.color).unwrap_or(0x000000FF);
     // `em`/`rem` num lado resolvem contra a fonte DESTE nó (a computada é px

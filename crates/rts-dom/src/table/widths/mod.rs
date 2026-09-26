@@ -146,7 +146,7 @@ pub(crate) fn cell_min_max_na_arvore(
         // Ainda assim não pode ficar ABAIXO do mínimo do conteúdo: uma largura
         // que não cabe é ignorada pelo browser, não respeitada com o texto a
         // transbordar.
-        let piso = min_content_na_arvore(dom, tree, id, Some(caixa), font, ctx, false, mono, true);
+        let piso = min_content_na_arvore(dom, tree, id, caixa, font, ctx, mono, true);
         return Coluna {
             min: w.max(piso),
             max: w.max(piso),
@@ -158,7 +158,7 @@ pub(crate) fn cell_min_max_na_arvore(
     // e somá-la aqui contava o padding da célula duas vezes. Ficou invisível
     // enquanto uma célula com `width` declarado devolvia a largura e voltava
     // atrás — o caminho que somava duas vezes só era percorrido pelas outras.
-    let min = min_content_na_arvore(dom, tree, id, Some(caixa), font, ctx, false, mono, true);
+    let min = min_content_na_arvore(dom, tree, id, caixa, font, ctx, mono, true);
     Coluna {
         min,
         percentagem,
@@ -281,19 +281,17 @@ pub(crate) fn largura_declarada(
 /// disponível zero e ler o resultado; não serve, porque um bloco sem `width`
 /// ocupa o que lhe derem e responderia zero.
 ///
-/// `sem_quebra` é o `white-space` do PAI a chegar ao texto: uma célula
-/// `white-space:nowrap` não tem palavra mais larga, tem a frase inteira, e por
-/// isso o seu mínimo iguala o máximo — folga zero. Ignorar isto era o defeito
-/// que a página real expunha: as `th` das navboxes do MediaWiki (`.navbox-group`
-/// é `nowrap`) declaravam uma folga que não existe, recebiam parte do espaço a
-/// repartir e ficavam com 231px onde o Chrome dá 123 — com a coluna do lado a
-/// pagar a diferença.
+/// A `white-space:nowrap` cell has no widest word, it has the whole phrase, so
+/// its minimum equals its maximum. That is read where it applies — a text's
+/// parent style (`layout::text_measure`) and each element's own, for its
+/// inline children — and no longer passed in by the caller: the MediaWiki
+/// navbox `th` (`.navbox-group` is `nowrap`) got 231px where Chrome gives 123
+/// when it was ignored.
 pub(in crate::table) fn min_content(
     dom: &Dom,
     id: NodeIdx,
     font: f32,
     ctx: &LayoutCtx,
-    sem_quebra: bool,
     // `true` quando a família herdada/declarada é MONOESPAÇADA — decide o
     // avanço por carácter no `TextMeasurer` (`MONO_ADVANCE` vs `PROP_ADVANCE`,
     // `style/text_metrics.rs`). Fixo em `false` era o bug que fazia o piso do
@@ -315,46 +313,35 @@ pub(in crate::table) fn min_content(
     // (`claude-flex-min-width-auto-block-child`, Flexbox §4.5 candidato (c)).
     floor_width: bool,
 ) -> f32 {
+    // The one node→boxes fold of this family: a split inline answers the
+    // widest of its fragments, a node with no box answers zero (an element the
+    // cascade refused; a text with no box is a collapsible run, zero wide).
     let tree = dom.box_tree();
-    let caixa = match tree.boxes_of(id) {
-        [caixa] => Some(*caixa),
-        [] => None,
-        caixas => {
-            return caixas
-                .iter()
-                .map(|&caixa| min_content_na_arvore(dom, &tree, id, Some(caixa), font, ctx, sem_quebra, mono, floor_width))
-                .fold(0.0, f32::max);
-        }
-    };
-    min_content_na_arvore(dom, &tree, id, caixa, font, ctx, sem_quebra, mono, floor_width)
+    tree.boxes_of(id)
+        .iter()
+        .map(|&caixa| min_content_na_arvore(dom, &tree, id, caixa, font, ctx, mono, floor_width))
+        .fold(0.0, f32::max)
 }
 
 pub(super) fn min_content_na_arvore(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     id: NodeIdx,
-    caixa: Option<crate::boxes::BoxId>,
+    caixa: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
-    sem_quebra: bool,
     mono: bool,
     floor_width: bool,
 ) -> f32 {
     match &dom.node(id).kind {
-        NodeKind::Text(t) => {
-            // Text has no style: family, weight and slant are its parent
-            // element's. Measured without them, a min-content floor in Times
-            // (144px for "XXXX" at 50px) beat an Arial item's own width (133).
-            let pai = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
-            let familia = pai.as_ref().and_then(|c| c.font_family.as_deref());
-            let (bold, italic) = (pai.as_ref().and_then(|c| c.bold).unwrap_or(false), pai.as_ref().and_then(|c| c.italic).unwrap_or(false));
-            let medir = |p: &str| ctx.measurer.text_width_family(p, font, familia, mono, bold, italic);
-            if sem_quebra {
-                // Espaços colapsados mas nenhuma quebra: mede-se o texto todo.
-                return medir(&t.split_whitespace().collect::<Vec<_>>().join(" "));
-            }
-            t.split_whitespace().map(medir).fold(0.0f32, f32::max)
-        }
+        // Text has no style: family, weight, slant and `white-space` are its
+        // parent element's, and the ONE text walk the max-content also uses
+        // reads them there (`layout::text_measure`) — with every soft wrap
+        // opportunity breaking. Measured without the family, a min-content
+        // floor in Times (144px for "XXXX" at 50px) beat an Arial item's own
+        // width (133); measured with the parent's `nowrap`/`pre` flag alone, a
+        // `pre` text's newline joined its lines into one.
+        NodeKind::Text(_) => crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx),
         NodeKind::Element { tag } => {
             if crate::layout::is_non_rendered_tag(tag) {
                 return 0.0;
@@ -403,7 +390,7 @@ pub(super) fn min_content_na_arvore(
             // largura da viewport devolveria o que coubesse nela, que é outra
             // pergunta.
             if let Some((w, _)) =
-                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
+                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx)
             {
                 // Candidato (d) do `min-width:auto` (Flexbox §4.5, `inline_box`):
                 // com razão de aspeto, o piso vem dela, não da `width` acima
@@ -438,9 +425,6 @@ pub(super) fn min_content_na_arvore(
             // empilhar-se, logo entram pelo máximo.
             let mut m = 0.0f32;
             let mut linha = 0.0f32;
-            let Some(caixa) = caixa else {
-                return 0.0;
-            };
             for &caixa_filho in tree.children_without_generated(caixa) {
                 let Some(c) = tree.node_of(caixa_filho) else {
                     // Caixa ANÓNIMA (§9.2.1.1): sem nó, mas o run que ela
@@ -459,7 +443,7 @@ pub(super) fn min_content_na_arvore(
                 }
                 // SEMPRE `true` para um descendente — só o TOPO usa o
                 // `floor_width` recebido (ver o comentário do parâmetro).
-                let w = min_content_na_arvore(dom, tree, c, Some(caixa_filho), f, ctx, sem_quebra, mono, true);
+                let w = min_content_na_arvore(dom, tree, c, caixa_filho, f, ctx, mono, true);
                 if sem_quebra && em_linha(dom, c) {
                     linha += w;
                 } else {

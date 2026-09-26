@@ -32,7 +32,7 @@ fn bloco_num_inline_sem_mais_nada_cobre_o_contentor_com_a_altura_herdada() {
         measurer: &ApproxMeasurer,
     };
     let list = layout_document(&dom, &ctx);
-    let geo = list.geometry();
+    let geo = list.geometry_now();
     let rect_de = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
         *geo.rects.get(&idx).unwrap_or_else(|| panic!("{sel} sem rect"))

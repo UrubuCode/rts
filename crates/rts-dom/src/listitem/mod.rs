@@ -24,7 +24,8 @@
 //! a alternativa está errada, e porque a varredura pára no primeiro irmão que
 //! não é item de lista.
 
-use crate::layout::{DisplayItem, DisplayList, LayoutCtx, Rect};
+use crate::layout::LayoutCtx;
+use crate::paint::{DisplayItem, DisplayList, Rect};
 use crate::style::{ComputedStyle, DisplayKind, ListStyleType};
 use crate::{Dom, NodeIdx};
 
@@ -98,7 +99,7 @@ pub(crate) fn emit_marker(
                 d,
                 d,
             );
-            list.items.push(DisplayItem::Image {
+            list.push_item(DisplayItem::Image {
                 rect,
                 pixels_handle: handle,
                 pixels_off: off,
@@ -146,22 +147,22 @@ pub(crate) fn emit_marker(
             match kind {
                 // `circle` é o ÚNICO vazado: um anel. Espessura 1px é o que o
                 // Chrome desenha em qualquer tamanho de fonte usual.
-                ListStyleType::Circle => list.items.push(DisplayItem::Border {
+                ListStyleType::Circle => list.push_item(DisplayItem::Border {
                     rect,
                     width: 1.0,
                     color,
                     radius: d / 2.0,
                 }),
                 // `square` é o mesmo rect sem raio — a única diferença.
-                ListStyleType::Square => list.items.push(DisplayItem::SolidRect {
+                ListStyleType::Square => list.push_item(DisplayItem::SolidRect {
                     rect,
                     color,
-                    radius: crate::layout::Corners::ZERO,
+                    radius: crate::paint::Corners::ZERO,
                 }),
-                _ => list.items.push(DisplayItem::SolidRect {
+                _ => list.push_item(DisplayItem::SolidRect {
                     rect,
                     color,
-                    radius: crate::layout::Corners::same(d / 2.0),
+                    radius: crate::paint::Corners::same(d / 2.0),
                 }),
             }
         }
@@ -174,7 +175,7 @@ pub(crate) fn emit_marker(
             let w = ctx
                 .measurer
                 .text_width(&text, font_size, false, false, false);
-            list.items.push(DisplayItem::Text {
+            list.push_item(DisplayItem::Text {
                 x: borda_direita - w,
                 y: content_y,
                 text: text.into(),

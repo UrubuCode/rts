@@ -115,7 +115,7 @@ fn parse_shorthand(val: &str) -> (Option<GridLine>, Option<GridLine>) {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct GridAutoFlow {
     /// `column` = preenche coluna a coluna. `row` (o inicial) = linha a linha.
-    pub coluna: bool,
+    pub column: bool,
     pub dense: bool,
 }
 
@@ -124,13 +124,13 @@ impl GridAutoFlow {
     /// spec não a fixa, e as folhas escrevem `row dense` e `column dense`.
     pub fn parse(v: &str) -> Option<GridAutoFlow> {
         let low = v.trim().to_ascii_lowercase();
-        let mut f = GridAutoFlow { coluna: false, dense: false };
+        let mut f = GridAutoFlow { column: false, dense: false };
         let mut viu_eixo = false;
         for t in low.split_whitespace() {
             match t {
                 "row" => viu_eixo = true,
                 "column" => {
-                    f.coluna = true;
+                    f.column = true;
                     viu_eixo = true;
                 }
                 "dense" => f.dense = true,
@@ -144,7 +144,7 @@ impl GridAutoFlow {
 
     /// O Chrome imprime `row` mesmo quando o autor o omitiu (`dense` → `row dense`).
     pub fn css(self) -> String {
-        let eixo = if self.coluna { "column" } else { "row" };
+        let eixo = if self.column { "column" } else { "row" };
         if self.dense { format!("{eixo} dense") } else { eixo.to_string() }
     }
 }

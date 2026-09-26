@@ -145,7 +145,7 @@ impl Dom {
         if css.effective_display() == Some(crate::style::DisplayKind::None) {
             return None;
         }
-        Some(crate::pseudo::PseudoBox { texto, css })
+        Some(crate::pseudo::PseudoBox { text: texto, css })
     }
 
     /// A COR do `::marker` deste `<li>` (lote O), se alguma regra `::marker`
@@ -155,7 +155,7 @@ impl Dom {
     ///
     /// Só a COR: o `font-size` do marcador não é lido daqui de propósito — ele
     /// mudaria a MEDIDA da linha (`ctx.measurer`), e essa medida é decidida em
-    /// `layout/linha.rs`/`layout/runs.rs`, fora deste lote (lote S). Aplicar
+    /// `layout/inline/line.rs`/`layout/inline/runs.rs`, fora deste lote (lote S). Aplicar
     /// só a cor é seguro porque pintar não muda geometria nenhuma.
     pub fn marker_color(
         &self,

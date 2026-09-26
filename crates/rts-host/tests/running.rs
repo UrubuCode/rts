@@ -5881,3 +5881,87 @@ fn a_call_in_tail_position_of_strict_code_costs_no_stack() {
     "#);
     assert_eq!(tags::decode_double(produced), 500000500001.0);
 }
+
+/// Each lie ES2025 §10.5 forbids a handler is a `TypeError`, counted one per
+/// case: a handler may say anything EXCEPT contradict what the target already
+/// promised — a pinned property, or a target that stopped growing.
+#[test]
+fn a_proxy_trap_contradicting_its_target_is_a_type_error() {
+    let refused = run(r#"
+        const throws = (f) => { try { f(); return 0; } catch (e) { return e instanceof TypeError ? 1 : 0; } };
+        const pinned = {}; Object.defineProperty(pinned, "k", { get() { return 1; } });
+        const closed = Object.preventExtensions({ a: 1 });
+        let n = 0;
+        // defineProperty: inventing a pinned property, and adding to a closed target.
+        n += throws(() => Object.defineProperty(new Proxy({}, { defineProperty() { return true; } }), "x", { value: 1, configurable: false }));
+        n += throws(() => Object.defineProperty(new Proxy(Object.preventExtensions({}), { defineProperty() { return true; } }), "x", { value: 1 }));
+        // getOwnPropertyDescriptor: a descriptor no definition could produce.
+        n += throws(() => Object.getOwnPropertyDescriptor(new Proxy(pinned, { getOwnPropertyDescriptor() { return { value: 2, configurable: false }; } }), "k"));
+        // set: reporting a store into a setterless pinned accessor.
+        n += throws(() => Reflect.set(new Proxy(pinned, { set() { return true; } }), "k", 2));
+        // deleteProperty: reporting a delete from a target that cannot shrink.
+        n += throws(() => Reflect.deleteProperty(new Proxy(closed, { deleteProperty() { return true; } }), "a"));
+        // has: hiding a key of a closed target.
+        n += throws(() => "a" in new Proxy(closed, { has() { return false; } }));
+        // preventExtensions: Object's spelling raises a refusal Reflect reports.
+        n += throws(() => Object.preventExtensions(new Proxy({}, { preventExtensions() { return false; } })));
+        n += Reflect.preventExtensions(new Proxy({}, { preventExtensions() { return false; } })) === false ? 1 : 0;
+        return n;
+    "#);
+    assert_eq!(tags::decode_double(refused), 8.0);
+}
+
+/// Without a `defineProperty` trap a define is `target.[[DefineOwnProperty]]`,
+/// which ANSWERS `false` — so a store through a proxy onto a closed target is a
+/// refusal, not the `Cannot redefine property` the raising spelling produced.
+#[test]
+fn a_forwarded_define_onto_a_closed_target_reports_rather_than_raises() {
+    let answered = run(r#"
+        const closed = Object.preventExtensions({ a: 1 });
+        const p = new Proxy(closed, { set(t, k, v, r) { return Reflect.set(t, k, v, r); } });
+        return (Reflect.set(p, "b", 1) === false ? 1 : 0)
+             + (Reflect.defineProperty(p, "c", { value: 1 }) === false ? 10 : 0)
+             + (Reflect.set(p, "a", 2) === true && closed.a === 2 ? 100 : 0);
+    "#);
+    assert_eq!(tags::decode_double(answered), 111.0);
+}
+
+/// `for`-`in` over a proxy collects with `ownKeys` and `getPrototypeOf`, and
+/// asks each key's descriptor when the loop reaches it — never `has`. The log
+/// is the proof: the answer alone is the same in every order.
+#[test]
+fn a_for_in_over_a_proxy_asks_descriptors_after_the_prototype_and_never_has() {
+    let ordered = run(r#"
+        const log = [];
+        const t = { a: 1 }; Object.defineProperty(t, "h", { value: 2, enumerable: false, configurable: true });
+        const p = new Proxy(t, {
+            ownKeys(t) { log.push("ownKeys"); return Reflect.ownKeys(t); },
+            getPrototypeOf(t) { log.push("proto"); return Reflect.getPrototypeOf(t); },
+            getOwnPropertyDescriptor(t, k) { log.push("gopd:" + k); return Reflect.getOwnPropertyDescriptor(t, k); },
+            has(t, k) { log.push("has:" + k); return Reflect.has(t, k); },
+        });
+        const seen = [];
+        for (const k in p) seen.push(k);
+        return seen.join() === "a" && log.join() === "ownKeys,proto,gopd:a,gopd:h" ? 1 : 0;
+    "#);
+    assert_eq!(tags::decode_double(ordered), 1.0);
+}
+
+/// A target that is itself a proxy is read through ITS traps when an outer
+/// invariant is checked — `target.[[GetOwnProperty]]` is a trap there — and so
+/// an outer handler cannot contradict what the inner one pins.
+#[test]
+fn a_proxy_target_is_checked_through_its_own_traps() {
+    let checked = run(r#"
+        const log = [];
+        const inner = new Proxy({ a: 1 }, { getOwnPropertyDescriptor(t, k) { log.push("inner:" + k); return Reflect.getOwnPropertyDescriptor(t, k); } });
+        const outer = new Proxy(inner, { get() { return 5; } });
+        const read = outer.a;
+        const pinned = {}; Object.defineProperty(pinned, "z", { value: 1 });
+        const lying = new Proxy(new Proxy(pinned, {}), { get() { return 2; } });
+        let refused = 0;
+        try { lying.z; } catch (e) { refused = e instanceof TypeError ? 1 : 0; }
+        return read === 5 && log.join() === "inner:a" && refused === 1 ? 1 : 0;
+    "#);
+    assert_eq!(tags::decode_double(checked), 1.0);
+}

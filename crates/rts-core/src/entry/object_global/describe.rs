@@ -80,7 +80,14 @@ extern "C" fn prevent_extensions(
     // A proxy's handler decides, exactly as it does for
     // `Reflect.preventExtensions` — which asked and this did not, so the two
     // spellings of one question disagreed and the trap never ran.
-    if super::super::proxy::prevent_extensions(object).is_some() {
+    //
+    // A handler answering `false` is a refusal, and `Object.preventExtensions`
+    // raises where `Reflect.preventExtensions` reports (ES2025 §20.1.2.18 step
+    // 2.b). Rule 8: a trap that threw already has its own error on the way out.
+    if let Some(accepted) = super::super::proxy::prevent_extensions(object) {
+        if !accepted && !super::super::throw::in_flight() {
+            super::super::throw::type_error("'preventExtensions' on proxy: trap returned falsish");
+        }
         return object;
     }
     super::super::integrity::restrict(object, Integrity::Closed)
@@ -320,6 +327,11 @@ extern "C" fn get_own_property_symbols(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    // A proxy's `ownKeys` is its `[[OwnPropertyKeys]]`; its own cell holds no
+    // symbols to walk.
+    if let Some(answered) = super::super::proxy::own_symbols(object) {
+        return answered;
+    }
     own_symbols(object)
 }
 
