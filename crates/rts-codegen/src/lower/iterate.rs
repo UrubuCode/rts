@@ -305,11 +305,24 @@ impl Lowering<'_> {
         self.builder.switch_to(into_body);
         let element = self.builder.param(into_body);
         self.types.insert(element, self.domain.top());
+        let owed_open = self.builder.open_depth();
         self.builder.open_region(None, Some(cleanup));
         // A HEAD A CLOSURE CAPTURES is a fresh environment per pass, bound before the
         // body runs -- no copy, since nothing of one pass is the next one's.
         let pass = self.open_pass(self.scope, subject);
         self.destructure(pattern, element, subject)?;
+        // A JUMP PAST THIS LOOP -- `break outer`, `continue outer` -- owes the close too,
+        // which its own frame's closing block cannot give it: `leaving.rs`.
+        self.owed_finally.push(super::leaving::Owed {
+            loops: self.loops.len(),
+            open: owed_open,
+            returns: self.returns_to.len(),
+            duty: super::leaving::Duty::Close {
+                indexed,
+                iterator,
+                at: subject.clone(),
+            },
+        });
         self.loops.push(LoopFrame {
             labels: std::mem::take(&mut self.pending_labels),
             kind: FrameKind::Loop,
@@ -321,6 +334,7 @@ impl Lowering<'_> {
         });
         let left = self.statement(body);
         self.loops.pop();
+        self.owed_finally.pop();
         if let Some((restored, _)) = pass {
             self.close_pass(restored);
         }
@@ -425,7 +439,7 @@ impl Lowering<'_> {
     /// lets a caller terminate it however its own path requires.
     /// The close a stepped loop owes, and nothing on the indexed path, where there is
     /// no iterator to close.
-    fn close_stepped(&mut self, indexed: ValueId, iterator: ValueId, at: &Expr) {
+    pub(super) fn close_stepped(&mut self, indexed: ValueId, iterator: ValueId, at: &Expr) {
         let closing = self.builder.block();
         let after = self.builder.block();
         self.builder.end(Terminator::Branch {

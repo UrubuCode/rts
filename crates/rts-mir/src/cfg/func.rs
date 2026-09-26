@@ -242,6 +242,26 @@ impl FuncBuilder {
         self.open.pop();
     }
 
+    /// How many regions are open.
+    pub fn open_depth(&self) -> usize {
+        self.open.len()
+    }
+
+    /// Steps out of every region opened after `depth`, answering them innermost last,
+    /// so that the blocks made next are outside them -- a jump that leaves a protected
+    /// region runs code on its way out that its own handler must not catch.
+    ///
+    /// The only way back in is [`Self::step_back_in`] with what this answered, so a
+    /// client still cannot name a region that does not enclose it.
+    pub fn step_out_to(&mut self, depth: usize) -> Vec<crate::region::RegionId> {
+        self.open.split_off(depth.min(self.open.len()))
+    }
+
+    /// Re-enters the regions [`Self::step_out_to`] left.
+    pub fn step_back_in(&mut self, regions: Vec<crate::region::RegionId>) {
+        self.open.extend(regions);
+    }
+
     /// Which tier this builder is building.
     ///
     /// Asked rather than remembered by the client, because the one decision that

@@ -176,32 +176,35 @@ impl Lowering<'_> {
         to_header: bool,
         label: Option<crate::names::Name>,
     ) -> Result<bool, Unsupported> {
-        let frame = match (to_header, label) {
+        let found = match (to_header, label) {
             // A LABEL names its frame, whichever kind: `break L` leaves it, `continue
             // L` takes that loop's next pass.
             (_, Some(label)) => self
                 .loops
                 .iter()
-                .rev()
-                .find(|held| held.labels.contains(&label)),
+                .rposition(|held| held.labels.contains(&label)),
             (true, None) => self
                 .loops
                 .iter()
-                .rev()
-                .find(|held| held.kind == FrameKind::Loop),
-            (false, None) => self.loops.last(),
+                .rposition(|held| held.kind == FrameKind::Loop),
+            (false, None) => self.loops.len().checked_sub(1),
         };
-        let Some(frame) = frame else {
+        let Some(at) = found else {
             return Err(Unsupported::Statement(
                 "a break or continue with nothing to leave",
             ));
         };
+        let frame = &self.loops[at];
         let target = match to_header {
             true => frame.header,
             false => frame.exit,
         };
         let carried = frame.carried.clone();
         let args: Vec<ValueId> = carried.iter().map(|binding| self.values[binding]).collect();
+        // THROUGH EVERY `finally` IT LEAVES, where there is one -- `leaving.rs`.
+        if self.jump_through_finally(at, target, args.clone())? {
+            return Ok(true);
+        }
         self.builder.end(Terminator::Jump { target, args });
         Ok(true)
     }
