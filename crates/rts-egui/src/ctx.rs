@@ -305,4 +305,6 @@ pub fn remove(h: u64) {
     CTXS.with(|m| {
         m.borrow_mut().remove(&h);
     });
+    // as texturas retidas (`imageRegister`) morrem com a janela
+    crate::canvas::esquecer_imagens(h);
 }

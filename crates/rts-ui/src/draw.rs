@@ -111,14 +111,10 @@ extern "C" fn draw_image_id(_e: u64, _t: u64, win: u64, data: u64, _b: u64, _c: 
     let Some(raw) = value::bytes(data) else {
         return value::nothing();
     };
-    let d: Vec<f64> = raw
-        .chunks_exact(8)
-        .map(|w| f64::from_ne_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]]))
-        .collect();
-    if d.len() < 5 || d[0] < 1.0 {
-        return value::nothing();
+    // os 5 doubles lidos direto dos bytes (sem Vec<f64> por chamada)
+    if let Some((id, x, y, w, h)) = rts_egui::ler_image_id(&raw) {
+        rts_egui::draw_image_id(handle(win), id, x, y, w, h);
     }
-    rts_egui::draw_image_id(handle(win), d[0] as u64, d[1], d[2], d[3], d[4]);
     value::nothing()
 }
 

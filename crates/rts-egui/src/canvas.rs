@@ -141,14 +141,47 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
+/// Largura e altura válidas para `len` bytes RGBA8, ou `None` (tamanho zero ou
+/// bytes a menos que `w * h * 4`).
+pub fn dimensoes_rgba(len: usize, img_w: i64, img_h: i64) -> Option<(usize, usize)> {
+    let width = img_w.max(0) as usize;
+    let height = img_h.max(0) as usize;
+    if width == 0 || height == 0 || len < width * height * 4 {
+        return None;
+    }
+    Some((width, height))
+}
+
+/// `[id, x, y, w, h]` de `drawImageId` lidos direto dos bytes de um Float64Array
+/// (sem `Vec<f64>` intermediário); `None` com menos de 5 doubles ou id < 1.
+pub fn ler_image_id(raw: &[u8]) -> Option<(u64, f64, f64, f64, f64)> {
+    if raw.len() < 40 {
+        return None;
+    }
+    let d = |i: usize| {
+        let o = i * 8;
+        f64::from_ne_bytes([raw[o], raw[o + 1], raw[o + 2], raw[o + 3], raw[o + 4], raw[o + 5], raw[o + 6], raw[o + 7]])
+    };
+    let id = d(0);
+    if !(id >= 1.0) {
+        return None;
+    }
+    Some((id as u64, d(1), d(2), d(3), d(4)))
+}
+
+/// Esquece as texturas retidas da janela `h` (chamado quando o `UiCtx` sai).
+pub fn esquecer_imagens(h: u64) {
+    RETIDAS.with(|r| {
+        r.borrow_mut().remove(&h);
+    });
+}
+
 /// `imageRegister(h, pixels, img_w, img_h)` — sobe os pixels RGBA8 UMA vez e
 /// devolve um id (>= 1) para `draw_image_id`; 0 se o tamanho não bate com os bytes.
 pub fn image_register(h: u64, pixels: &[u8], img_w: i64, img_h: i64) -> u64 {
-    let width = img_w.max(0) as usize;
-    let height = img_h.max(0) as usize;
-    if width == 0 || height == 0 || pixels.len() < width * height * 4 {
+    let Some((width, height)) = dimensoes_rgba(pixels.len(), img_w, img_h) else {
         return 0;
-    }
+    };
     let image = egui::ColorImage::from_rgba_unmultiplied([width, height], &pixels[..width * height * 4]);
     let proximo = RETIDAS.with(|r| r.borrow().get(&h).map(|t| t.proximo).unwrap_or(1));
     let tex = ctx::with_ctx(h, |c| {
@@ -199,6 +232,35 @@ mod testes_imagens_retidas {
         let c = t.inserir(30);
         assert_eq!(c, 3);
         assert_eq!(t.len(), 2);
+    }
+
+    #[test]
+    fn leitura_do_buffer_de_draw_image_id() {
+        use super::ler_image_id;
+        let mut b = Vec::new();
+        for v in [3.0f64, 10.0, 20.0, 48.0, 32.0] {
+            b.extend_from_slice(&v.to_ne_bytes());
+        }
+        assert_eq!(ler_image_id(&b), Some((3, 10.0, 20.0, 48.0, 32.0)));
+        // buffer curto: menos de 5 doubles
+        assert_eq!(ler_image_id(&b[..32]), None);
+        // id < 1 (0, negativo, NaN) não desenha
+        let mut z = b.clone();
+        z[..8].copy_from_slice(&0.0f64.to_ne_bytes());
+        assert_eq!(ler_image_id(&z), None);
+        z[..8].copy_from_slice(&(-2.0f64).to_ne_bytes());
+        assert_eq!(ler_image_id(&z), None);
+        z[..8].copy_from_slice(&f64::NAN.to_ne_bytes());
+        assert_eq!(ler_image_id(&z), None);
+    }
+
+    #[test]
+    fn tamanho_da_imagem_confere_com_os_bytes() {
+        use super::dimensoes_rgba;
+        assert_eq!(dimensoes_rgba(16, 2, 2), Some((2, 2)));
+        assert_eq!(dimensoes_rgba(15, 2, 2), None);
+        assert_eq!(dimensoes_rgba(16, 0, 2), None);
+        assert_eq!(dimensoes_rgba(16, -1, 2), None);
     }
 
     #[test]
