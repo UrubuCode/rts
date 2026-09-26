@@ -191,14 +191,28 @@ fn attempt(
         .map(|(inner, _)| inner.at)
         .chain(helpers.iter().map(|helper| helper.at))
         .collect();
-    // A SITE PER TAGGED TEMPLATE, minted as `emit/template.rs` mints one: the cooked
+    // A SITE PER TEMPLATE THAT READS ONE, minted as `emit/template.rs` mints one: the cooked
     // text then the raw, per piece. Minted before the lowering, so a function this door
     // then declines leaves rows nothing reads -- a cost in table size, never in meaning,
     // since the running emitter mints its own for what it emits.
     let mut sites = std::collections::BTreeMap::new();
     for template in &nested.templates {
-        let crate::syntax::ExprKind::TaggedTemplate { parts, .. } = &template.kind else {
-            continue;
+        let parts = match &template.kind {
+            // AN UNTAGGED ONE holds the cooked text alone, which is what `TemplateJoin`
+            // joins -- `emit/template.rs` mints the same shape for the same call.
+            crate::syntax::ExprKind::Template { parts, .. } => {
+                let Some(pieces) = parts
+                    .iter()
+                    .map(|part| part.cooked.as_ref().map(|text| ctx.literal_units(text.units())))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    continue;
+                };
+                sites.insert(template.at, ctx.template(pieces));
+                continue;
+            }
+            crate::syntax::ExprKind::TaggedTemplate { parts, .. } => parts,
+            _ => continue,
         };
         let mut pieces = Vec::with_capacity(parts.len() * 2);
         for part in parts {
@@ -245,6 +259,13 @@ fn attempt(
     crate::optimize::fold_constants(&mut graph, &domain);
     crate::optimize::replace_scalars(&mut graph, &domain);
     rts_mir::passes::remove_dead(&mut graph);
+    // AND ONE AFTER THE INFERENCE, because what it removes is only removable where a type
+    // was proved -- inferred again when it changed anything, since what the machine reads
+    // is the types of the graph it is handed.
+    let mut inferred = rts_mir::infer::infer(&graph, &domain);
+    if crate::optimize::fuse_templates(&mut graph, &domain, &inferred) > 0 {
+        inferred = rts_mir::infer::infer(&graph, &domain);
+    }
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
     if std::env::var(TRACE).as_deref() == Ok("graph") {
         eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
@@ -255,7 +276,6 @@ fn attempt(
         return Err("more parameters than the convention has slots".to_owned());
     }
 
-    let inferred = rts_mir::infer::infer(&graph, &domain);
     // A FUNCTION THAT PARKS says so on its signature, which the machine's verifier reads
     // before it accepts a suspension -- the same flag `emit_function` sets on the body
     // the running emitter builds.
@@ -693,7 +713,8 @@ struct Nested<'a> {
     classes: Vec<&'a crate::syntax::Class>,
     /// The object literals this stage does not build, which a helper does.
     objects: Vec<&'a crate::syntax::Expr>,
-    /// The tagged templates, each of which needs a site minted.
+    /// The templates that need a site minted: every tagged one, and an untagged one
+    /// `TemplateJoin` can take.
     templates: Vec<&'a crate::syntax::Expr>,
     /// The name each anonymous definition is given by where it is written --
     /// NamedEvaluation, which the running emitter carries in `Ctx::lend_name` from the
@@ -753,6 +774,11 @@ impl<'a> Nested<'a> {
                 return self.objects.push(value);
             }
             ExprKind::TaggedTemplate { .. } => self.templates.push(value),
+            ExprKind::Template { expressions, .. }
+                if (1..=crate::lower::JOINED).contains(&expressions.len()) =>
+            {
+                self.templates.push(value)
+            }
             // `f = () => {}` and `f ??= () => {}` name the arrow; `f += ...` names
             // nothing, and neither does `o.f = ...` -- the rule is attached to an
             // identifier reference on the left.

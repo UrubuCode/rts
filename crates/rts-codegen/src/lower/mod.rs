@@ -47,6 +47,7 @@ use named::{expression_name, name_of, primitive};
 pub use callees::Callees;
 pub use substitute::{Substitute, substitutable, substitutable_reading};
 pub(crate) use object::built_elsewhere;
+pub(crate) use template::JOINED;
 
 mod branch;
 mod callees;
