@@ -149,14 +149,21 @@ pub(crate) fn layout_block(
             // pixels. A caixa vem dos atributos `width`/`height` (ou do CSS), e
             // o desenho aparece quando o programa pinta — antes disso a caixa
             // existe e fica vazia, que é o que o browser também faz.
+            // The replaced element's `height: %` basis: its parent's height, kept
+            // only when the parent declares one (`definite_cb_height`).
+            let replaced_cb_h = dom
+                .node(id)
+                .parent
+                .and_then(|p| dom.computed_style_idx(p))
+                .and_then(|pcss| crate::inline_box::replaced_clamp::definite_cb_height(&pcss, avail_h));
             if tag == "canvas" {
-                if let Some(r) = layout_canvas(dom, id, box_id, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) = layout_canvas(dom, id, box_id, &css, x, y, avail_w, replaced_cb_h, ctx, list) {
                     return r;
                 }
             }
             if tag == "img" {
                 if let Some(img) =
-                    layout_image(dom, id, box_id, &css, x, y, avail_w, forced_outer_w, forced_outer_h, ctx, list)
+                    layout_image(dom, id, box_id, &css, x, y, avail_w, replaced_cb_h, forced_outer_w, forced_outer_h, ctx, list)
                 {
                     return img;
                 }

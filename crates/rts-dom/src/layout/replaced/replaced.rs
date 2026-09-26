@@ -135,6 +135,9 @@ pub(in crate::layout) fn layout_image(
     x: f32,
     y: f32,
     avail_w: f32,
+    // The containing block's DEFINITE content height, basis of `height: %`
+    // (`replaced_inline_size`); `None` when it is indefinite.
+    cb_h: Option<f32>,
     // Tamanho OUTER que o FLEX já decidiu (grow/shrink no eixo principal,
     // `align-items: stretch` no cruzado) — `None` fora de um item flex, ou
     // quando o eixo não é imposto (o `<img>` decide sozinho pela CSS/atributo/
@@ -199,7 +202,7 @@ pub(in crate::layout) fn layout_image(
     //
     // A alternativa — manter a subtração e corrigi-la só para o `calc` — punha a
     // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (forced_w, forced_h), ctx)?;
+    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, cb_h, (forced_w, forced_h), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_box_rect(list, box_id, rect);
     // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com
@@ -275,6 +278,8 @@ pub(in crate::layout) fn layout_canvas(
     x: f32,
     y: f32,
     avail_w: f32,
+    // As in `layout_image`: the definite basis of `height: %`, or `None`.
+    cb_h: Option<f32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
@@ -292,7 +297,7 @@ pub(in crate::layout) fn layout_canvas(
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
     // A caixa devolvida é a BORDER-BOX, como no `<img>`.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, (None, None), ctx)?;
+    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, cb_h, (None, None), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_box_rect(list, box_id, rect);
     if let Some(color) = css.bg {

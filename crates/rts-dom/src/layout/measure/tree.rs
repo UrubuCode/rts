@@ -55,7 +55,7 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
     // que coubesse em vez do que se quer.
     if let Some(css) = dom.computed_style_idx(id) {
         if let Some((w, _)) =
-            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
+            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx)
         {
             // `replaced_inline_size` devolve a caixa COM borda (o contrato
             // dela é border-box); esta função devolve CONTEÚDO, como o resto

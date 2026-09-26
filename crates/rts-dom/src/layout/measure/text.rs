@@ -253,7 +253,7 @@ pub(in crate::layout) fn is_open_inline(
         && fc.is_inline_level()
         && !fc.is_atomic_inline()
         && float_of(dom, id) == crate::style::FloatSide::None
-        && crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx).is_none()
+        && crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx).is_none()
         && crate::layout::replaced::input::control_natural_size(dom, id, &css, ctx).is_none()
 }
 

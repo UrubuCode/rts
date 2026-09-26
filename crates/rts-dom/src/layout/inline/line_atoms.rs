@@ -32,6 +32,7 @@ pub(in crate::layout) fn emit_atom(
     family: Option<&str>,
     envelope: &Option<Envelope>,
     content_w: f32,
+    cb_h: Option<f32>,
     on_baseline: bool,
     text_owner_anchor: f32,
     content: f32,
@@ -91,10 +92,10 @@ pub(in crate::layout) fn emit_atom(
                 // caixa entretanto — a mesma doutrina que o
                 // `<img>` segue no caminho de bloco.
                 let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                layout_canvas(dom, a_idx, box_id, &ccss, *seg_x, top, seg.ww.max(1.0), ctx, list);
+                layout_canvas(dom, a_idx, box_id, &ccss, *seg_x, top, seg.ww.max(1.0), cb_h, ctx, list);
             } else if dom.image_dims(a_idx).is_some() {
                 let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                layout_image(dom, a_idx, box_id, &icss, *seg_x, top, seg.ww.max(1.0), None, None, ctx, list);
+                layout_image(dom, a_idx, box_id, &icss, *seg_x, top, seg.ww.max(1.0), cb_h, None, None, ctx, list);
             }
         }
         AtomicKind::Block => {
