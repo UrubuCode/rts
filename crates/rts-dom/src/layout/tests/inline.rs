@@ -20,7 +20,7 @@
         let list = layout_document(&dom, &ctx);
         let span = dom.query("#s").unwrap();
         let span_idx = dom.resolve(span).unwrap();
-        let geo = list.geometry();
+        let geo = list.geometry_now();
         let rect = geo.rects.get(&span_idx).expect("inline deveria ter rect");
         assert!(rect.w > 0.0);
         assert!(rect.h > 0.0);
@@ -40,7 +40,7 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("o <a> devia ter caixa");
@@ -72,7 +72,7 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("o <a> devia ter caixa");
@@ -105,7 +105,7 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#i").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("o <img> devia ter caixa");
@@ -133,7 +133,7 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#s").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("o <source> devia ter caixa (sem área, mas registada)");
@@ -210,7 +210,7 @@
         assert_eq!(ys.len(), 2, "duas linhas, não uma: {ys:?}");
         let idx = dom.resolve(dom.query("#b").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("o <br> devia ter caixa");
@@ -243,7 +243,7 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#l").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("o <a> devia ter caixa");
@@ -274,7 +274,7 @@
             let dom = parse_html_to_dom(html);
             let list = layout_document(&dom, &ctx);
             let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
-            eprintln!("DIAG {:<66} -> {:?}", html, list.geometry().rects.get(&idx));
+            eprintln!("DIAG {:<66} -> {:?}", html, list.geometry_now().rects.get(&idx));
         }
     }
 
@@ -301,7 +301,7 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("o <a> devia ter caixa");
@@ -334,7 +334,7 @@
             "<style>body{margin:0}</style><div><span id='s'><a id='a'><img id='i' width='300' height='200'></a></span></div>",
         );
         let list = layout_document(&dom, &ctx);
-        let geo = list.geometry();
+        let geo = list.geometry_now();
         let caixa = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
             *geo.rects

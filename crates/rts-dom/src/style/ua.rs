@@ -192,7 +192,7 @@ mod tests {
             measurer: &crate::layout::ApproxMeasurer,
         };
         let list = crate::layout::layout_document(&dom, &ctx);
-        let geo = list.geometry();
+        let geo = list.geometry_now();
         let rect = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
             geo.rects[&idx]
@@ -226,7 +226,7 @@ mod tests {
         };
         let list = crate::layout::layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#linha").unwrap()).unwrap();
-        let r = list.geometry().rects[&idx];
+        let r = list.geometry_now().rects[&idx];
         assert_eq!(r.y, 2.0);
     }
 

@@ -216,7 +216,7 @@ impl Fragment {
         // A GEOMETRIA da subárvore (retângulos, ordem de hit-test, regiões
         // roláveis) também fica na referência: materializá-la aqui era metade do
         // custo de um frame parado — três inserções em mapa por fragmento, mil
-        // fragmentos. Quem precisa dela chama `geometry()`, que percorre a
-        // árvore uma vez e guarda o resultado.
+        // fragmentos. Quem precisa dela chama `geometry_now()`, que percorre a
+        // árvore uma vez; `Dom::geometry_cached` guarda o resultado.
     }
 }

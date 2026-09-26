@@ -121,7 +121,7 @@ impl Dom {
         key: DisplayKey,
     ) -> Option<std::rc::Rc<crate::paint::DisplayList>> {
         let cache = self.display_cache.borrow();
-        let (k, list) = cache.as_ref()?;
+        let (k, list, _) = cache.as_ref()?;
         (*k == key).then(|| std::rc::Rc::clone(list))
     }
 
@@ -130,7 +130,32 @@ impl Dom {
         key: DisplayKey,
         list: &std::rc::Rc<crate::paint::DisplayList>,
     ) {
-        *self.display_cache.borrow_mut() = Some((key, std::rc::Rc::clone(list)));
+        *self.display_cache.borrow_mut() =
+            Some((key, std::rc::Rc::clone(list), std::cell::OnceCell::new()));
+    }
+
+    /// The geometry of `layout::layout_cached(self, ctx)`, built ONCE per
+    /// cached list (PQ-C4, F4 of the phase-C plan).
+    ///
+    /// The ruler is the 13.7 ms-per-call class of 2026-09-16: a read loop of
+    /// `bounding_component` with no mutation in between must do one layout
+    /// and one geometry build, and this is the memo that makes the second
+    /// half true. It sits in the same slot as the list, so a new list (any
+    /// key change) starts with an empty cell and a stale geometry cannot be
+    /// read against it.
+    pub fn geometry_cached(
+        &self,
+        ctx: &crate::layout::LayoutCtx,
+    ) -> std::rc::Rc<crate::query::Geometry> {
+        let list = crate::layout::layout_cached(self, ctx);
+        let cache = self.display_cache.borrow();
+        match cache.as_ref() {
+            // The slot holds THIS list (`layout_cached` just put or hit it).
+            Some((_, cached, geometry)) if std::rc::Rc::ptr_eq(cached, &list) => {
+                std::rc::Rc::clone(geometry.get_or_init(|| std::rc::Rc::new(list.geometry_now())))
+            }
+            _ => std::rc::Rc::new(list.geometry_now()),
+        }
     }
 
 

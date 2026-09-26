@@ -122,14 +122,14 @@ change an answer:
 
 One agent, one worktree, in this order (each step compiles on its own):
 
-- [ ] **C1 — F1.** Move `translate_item`; fix the three callers; `items.rs` doc
+- [x] **C1 — F1.** Move `translate_item`; fix the three callers; `items.rs` doc
   says what it keeps.
-- [ ] **C2 — F3.** `stacking` stops writing `box_rects`; the caller merges.
-- [ ] **C3 — F5.** `known_rects`; `layout.rs` and `geometry_now` call it.
-- [ ] **C4 — F4.** Memo to the `Dom`; `DisplayList::geometry()` deleted;
+- [x] **C2 — F3.** `stacking` stops writing `box_rects`; the caller merges.
+- [x] **C3 — F5.** `known_rects`; `layout.rs` and `geometry_now` call it.
+- [x] **C4 — F4.** Memo to the `Dom`; `DisplayList::geometry()` deleted;
   `rts-egui`, `dom/`, `pseudo.rs`, `table/tests` callers repointed; the
   read-loop test.
-- [ ] **C5 — F2.** `Subtree` in paint; `Fragment` embeds it; `ChildRef` holds
+- [ ] **C5 — F2.** *(stopped 2026-09-26: the stitch reads `origin`, `grid_column_tracks`, `last_line`, `static_anchors`, `tree` through `ChildRef.fragment`, and `remapped_to`/`stitch_total`/`static_anchor` too; nothing maps a `ChildRef` to its `FragmentKey`. Needs either those fields on `ChildRef` or a keyed side table — a decision, not a move.)* `Subtree` in paint; `Fragment` embeds it; `ChildRef` holds
   it; the stitch reads the fragment cache. This is the largest step and the
   last so the four before it are measurable if it has to stop.
 - [ ] **C6** (coordinator): the rulers, the PLAN.md §0 `PQ-C` row, this file's

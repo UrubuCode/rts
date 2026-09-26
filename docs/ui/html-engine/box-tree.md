@@ -186,10 +186,16 @@ list IS and how it is painted lives in `crate::paint` (`DisplayItem`,
 after layout in `crate::query` (`Geometry`, `rect_of`, `hit_test`), and
 `crate::layout` only produces. A consumer imports `rts_dom::paint::DisplayList`
 and `rts_dom::query::Geometry`, never `rts_dom::layout::…` for those. The
-dependency direction is the plan's FORM 1 and is not fully honoured yet:
-`paint::pieces` holds a layout `Fragment`, `paint::list` a `BoxRects`, and
-`layout_document` reads `geometry_now` for its out-of-flow pass — three named
-seams Phase B narrows.
+dependency direction is the plan's FORM 1, and since 2026-09-26 (Phase C,
+`docs/superpowers/plans/2026-09-26-paint-query-phase-c.md`) it is honoured
+except at one named point: `paint::pieces::Piece::Child` still holds a layout
+`ChildRef` with its full `Fragment`, because the stitch reads `origin`,
+`grid_column_tracks`, `last_line`, `static_anchors` and `tree` from it and no
+cache maps a `ChildRef` back to its fragment (the plan's C5, stopped with the
+fields named). `translate_item` lives in `paint/item.rs`; only `layout/`
+writes `box_rects`; the `Geometry` memo lives on the `Dom`
+(`Dom::geometry_cached`), not on the list; and the out-of-flow pass reads
+`layout::fragment::known_rects`, which `query::geometry_now` also calls.
 
 **Internally there may be N boxes per element; at that boundary they aggregate**,
 exactly as `union_rect` aggregates the line fragments of an inline today.

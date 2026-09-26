@@ -27,11 +27,11 @@
         let filho = dom.query("#filho").unwrap();
         let pai_idx = dom.resolve(pai).unwrap();
         let filho_idx = dom.resolve(filho).unwrap();
-        let fr = list.geometry().rects[&filho_idx];
+        let fr = list.geometry_now().rects[&filho_idx];
         let hit = list.hit_test(fr.x + fr.w / 2.0, fr.y + fr.h / 2.0);
         assert_eq!(hit, Some(filho_idx));
         // canto do pai (dentro do padding, fora do filho).
-        let pr = list.geometry().rects[&pai_idx];
+        let pr = list.geometry_now().rects[&pai_idx];
         let hit2 = list.hit_test(pr.x + 5.0, pr.y + 5.0);
         assert_eq!(hit2, Some(pai_idx));
         // fora de tudo.
@@ -59,9 +59,9 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#x").unwrap()).unwrap();
         assert!(
-            list.geometry().rects.get(&idx).is_none(),
+            list.geometry_now().rects.get(&idx).is_none(),
             "um absoluto num ramo escondido não gera caixa: {:?}",
-            list.geometry().rects.get(&idx)
+            list.geometry_now().rects.get(&idx)
         );
         // e o que NÃO está escondido continua a ser posicionado.
         let dom = parse_html_to_dom(
@@ -70,7 +70,7 @@
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#y").unwrap()).unwrap();
         let r = *list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&idx)
             .expect("este devia ter caixa");
@@ -148,7 +148,7 @@
         let list = layout_document(&dom, &ctx);
         let child = dom.resolve(dom.query("#child").unwrap()).unwrap();
         let rect = list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&child)
             .copied()
@@ -172,7 +172,7 @@
         let list = layout_document(&dom, &ctx);
         let child = dom.resolve(dom.query("#child").unwrap()).unwrap();
         let rect = list
-            .geometry()
+            .geometry_now()
             .rects
             .get(&child)
             .copied()
@@ -238,7 +238,7 @@
         let list = layout_document(&dom, &ctx);
         let rect = |selector: &str| {
             let node = dom.resolve(dom.query(selector).unwrap()).unwrap();
-            list.geometry().rects[&node]
+            list.geometry_now().rects[&node]
         };
         assert_eq!((rect("#absolute").x, rect("#absolute").y), (90.0, 60.0));
         assert_eq!((rect("#fixed").x, rect("#fixed").y), (110.0, 80.0));

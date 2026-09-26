@@ -33,7 +33,7 @@ use crate::boxes::BoxId;
 use crate::layout::ChildRef;
 use crate::paint::item::DisplayItem;
 use crate::paint::list::Rect;
-use crate::layout::fragment::items::translate_item;
+use crate::paint::item::translate_item;
 
 /// One step of a list's output, in paint order.
 #[derive(Clone, Debug, PartialEq)]

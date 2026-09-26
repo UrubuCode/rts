@@ -141,15 +141,13 @@ fn creates_context(dom: &Dom, node: NodeIdx) -> bool {
 /// everything `target` already had. A splice: no clip already in `target` can come
 /// to "contain" the negative subtrees, because a clip contains what lies
 /// between its markers and they now lie before both.
+///
+/// **Pieces only, not geometry** (PQ-C2, F3): `box_rects` is layout's, and the
+/// layout caller merges it — and decides whether there is anything to merge at
+/// all — before calling this. The keys of the two lists never collide, since
+/// they come from disjoint subtrees, so the order of the two merges is free.
 pub(crate) fn merge_before(target: &mut DisplayList, antes: DisplayList) {
-    if antes.pieces.is_empty() && antes.box_rects.is_empty() {
-        return;
-    }
     target.pieces.splice(0..0, antes.pieces);
-    // `box_rects` é a geometria por CAIXA (era `node_rects`, por nó); a
-    // fusão continua sendo uma simples união de mapas — as chaves de `antes`
-    // e `target` não colidem, porque vêm de subárvores disjuntas.
-    target.box_rects.extend(antes.box_rects);
     target.grid_column_tracks.extend(antes.grid_column_tracks);
     target.scroll_regions.splice(0..0, antes.scroll_regions);
 }
@@ -161,12 +159,10 @@ pub(crate) fn merge_before(target: &mut DisplayList, antes: DisplayList) {
 /// `overflow:hidden` positioned box counted subtrees of `target` and let its own
 /// children be drawn after it — outside the clip. An append of pieces has no
 /// count to forget.
+///
+/// Pieces only, like [`merge_before`]: the caller merges `box_rects`.
 pub(crate) fn merge_after(target: &mut DisplayList, mut depois: DisplayList) {
-    if depois.pieces.is_empty() && depois.box_rects.is_empty() {
-        return;
-    }
     target.pieces.append(&mut depois.pieces);
-    target.box_rects.extend(depois.box_rects);
     target.grid_column_tracks.extend(depois.grid_column_tracks);
     target.scroll_regions.append(&mut depois.scroll_regions);
 }

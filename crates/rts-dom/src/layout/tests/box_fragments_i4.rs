@@ -30,7 +30,7 @@ fn an_inline_on_two_lines_has_two_fragments_and_one_union_at_the_boundary() {
     let union = union_of(&fragments);
     assert_eq!(list.rect_of(span), Some(union));
     assert_eq!(list.rect_of_box(*box_id), Some(union));
-    assert_eq!(list.geometry().rects.get(&span).copied(), Some(union));
+    assert_eq!(list.geometry_now().rects.get(&span).copied(), Some(union));
 }
 
 /// Three segments of one owner on ONE line are one fragment, not three: the
@@ -61,7 +61,7 @@ fn a_split_inline_has_a_rect_per_fragment_and_only_the_dom_rect_holds_the_block(
         fragments.extend(own);
     }
     assert!(fragments.len() >= 2, "the text before and after the block: {fragments:?}");
-    let hit = list.geometry().rects.get(&span).copied().expect("the span is hit-testable");
+    let hit = list.geometry_now().rects.get(&span).copied().expect("the span is hit-testable");
     assert_eq!(hit, union_of(&fragments));
     let dom_rect = list.rect_of(span).expect("the span has a DOM rect");
     assert_eq!(dom_rect, hit.union(block));

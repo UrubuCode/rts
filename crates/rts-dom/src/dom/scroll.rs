@@ -88,10 +88,11 @@ impl Dom {
             measurer: &crate::layout::ApproxMeasurer,
         };
         let list = crate::layout::layout_document(self, &ctx);
-        if let Some(region) = list.geometry().scroll_regions.iter().find(|r| r.node_idx == idx) {
+        let geometry = list.geometry_now();
+        if let Some(region) = geometry.scroll_regions.iter().find(|r| r.node_idx == idx) {
             return (region.content_w, region.content_h, region.visible.w, region.visible.h);
         }
-        match list.rect_of(idx) {
+        match list.rect_of_in(&geometry, idx) {
             Some(r) => (r.w, r.h, r.w, r.h),
             None => (0.0, 0.0, 0.0, 0.0),
         }
@@ -120,7 +121,7 @@ impl Dom {
             measurer: &crate::layout::ApproxMeasurer,
         };
         let list = crate::layout::layout_document(self, &ctx);
-        let geometry = list.geometry();
+        let geometry = list.geometry_now();
         let mut rect = *geometry.rects.get(&idx)?;
         let mut cur = self.nodes[idx].parent;
         while let Some(a) = cur {
@@ -153,7 +154,7 @@ impl Dom {
         };
         let list = crate::layout::layout_document(self, &ctx);
         let (max_x, max_y) = list
-            .geometry()
+            .geometry_now()
             .scroll_regions
             .iter()
             .find(|r| r.node_idx == idx)
@@ -250,7 +251,7 @@ impl Dom {
             measurer: &crate::layout::ApproxMeasurer,
         };
         let list = crate::layout::layout_document(self, &ctx);
-        let geometry = list.geometry();
+        let geometry = list.geometry_now();
         let Some(&target_rect) = geometry.rects.get(&idx) else { return };
         let mut cur = self.nodes[idx].parent;
         while let Some(a) = cur {

@@ -263,8 +263,12 @@ pub(crate) fn render_dom_scrolled(
     let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &*measurer };
     // A barra e o offset são aplicados SOBRE a lista, então esta cópia é
     // necessária — mas ela agora parte de uma lista cacheada pelo próprio DOM.
-    let mut list = rts_dom::store::with_dom(h, |d| (*layout::layout_cached(d, &lctx)).clone())
-        .unwrap_or_default();
+    // The geometry comes from the SAME slot as the list (`Dom::geometry_cached`,
+    // PQ-C4): built once per cached list, not once per frame on the copy.
+    let (mut list, geometry) = rts_dom::store::with_dom(h, |d| {
+        ((*layout::layout_cached(d, &lctx)).clone(), d.geometry_cached(&lctx))
+    })
+    .unwrap_or_default();
     let content_h = list.content_height;
 
     // OFFSET de scroll da PÁGINA: vive no `Dom` (`dom/scroll.rs`), não mais em
@@ -334,7 +338,7 @@ pub(crate) fn render_dom_scrolled(
     // barras dela — não mais injeta o offset na `DisplayList` (`paint_list`
     // volta a perguntar ao `Dom`, ver a nota de topo de `scroll.rs`). O
     // `base_origin` desloca o page-scroll p/ casar com o paint (que usa -offset).
-    process_scroll_regions(ui, h, &mut list, sb, -offset);
+    process_scroll_regions(ui, h, &mut list, &geometry, sb, -offset);
     // CANVAS da página: a cor vem do `rts-dom` (`DisplayList::canvas_background`),
     // que já resolve a propagação do `<body>`/`<html>` e o branco por omissão.
     // Perguntar aqui de novo era a MESMA regra escrita duas vezes, e as duas
