@@ -805,6 +805,17 @@ pub enum Terminator {
     /// its layout is not. A client that knows the layout has a type guard and an
     /// ordinary field read, which is both faster and more precise — this is for
     /// where it does not.
+    ///
+    /// # A site may remember an ANSWER, not only a place
+    ///
+    /// The resolver a miss calls may fill the site with a word to hand to `hit`
+    /// directly, beside a validity pair: the address of a word and the value it
+    /// held. The site then answers without a load for as long as that word is
+    /// unchanged, and asks again when it is not. The machine does not know what
+    /// the answer means or what the word counts — a client uses it for a read
+    /// whose result depends on state the receiver's layout does not carry, and
+    /// the validity word is how that state withdraws the answer. Rule 2: the
+    /// machine offers the mechanism and records no owner for it.
     CachedGet {
         /// The object read.
         object: ValueId,

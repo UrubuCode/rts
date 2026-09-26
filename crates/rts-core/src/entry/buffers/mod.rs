@@ -310,7 +310,7 @@ fn install_metadata(
     }
     let link = context.prototype_at(cell);
     let ty = context.typed_as(shape, link).index() as u32;
-    context.region.set_type(cell, ty);
+    context.retype_cell(cell, ty);
     for (index, (_, value)) in properties.iter().enumerate() {
         super::objects::set_slot_value(context, cell, slots[index], *value);
     }
@@ -403,7 +403,7 @@ pub(in crate::entry) fn attach(context: &mut Context, cell: u32, view: View) {
     // every typed array kind back on one layout.
     let link = context.prototype_at(cell);
     let ty = context.typed_as(shape, link).index() as u32;
-    context.region.set_type(cell, ty);
+    context.retype_cell(cell, ty);
     for (at, (_, value)) in slots.iter().zip(wanted) {
         super::objects::set_slot_value(context, cell, *at, *value);
     }

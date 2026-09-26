@@ -407,7 +407,7 @@ pub(in crate::entry) fn remove_own(
         // every other layout that happens to hold the same remainder.
         let link = context.prototype_at(slot);
         let ty = context.typed_as(shrunk, link).index() as u32;
-        context.region.set_type(slot, ty);
+        context.retype_cell(slot, ty);
         for (existing, value) in kept {
             if let Some(at) = context.shapes.slot_of(shrunk, existing) {
                 set_slot_value(context, slot, at, value);

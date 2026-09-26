@@ -729,14 +729,6 @@ impl<'a> Body<'a> {
 
         let cell = self.cache_address(builder, block, cache)?;
 
-        // Where the property is, and from which base — as PARAMETERS, because
-        // three predecessors now answer them: either remembered entry, and the
-        // resolver. Loading them from fixed words instead would mean the second
-        // entry could only ever be read by duplicating everything below.
-        let read = builder.create_block();
-        let offset = builder.append_block_param(read, types::I64);
-        let indirect = builder.append_block_param(read, types::I64);
-
         let load_word = |builder: &mut FunctionBuilder, at: i32| {
             builder.ins().load(
                 types::I64,
@@ -744,6 +736,67 @@ impl<'a> Body<'a> {
                 cell,
                 at,
             )
+        };
+
+        // The addressing, written ONCE here and emitted twice below — one copy
+        // per entry. It was one block reached from every entry through block
+        // parameters, and that shape cost the recognised path a nanosecond the
+        // day the second entry learned to hold a remembered answer: the extra
+        // successors moved the hot blocks apart. Two copies of the machine code
+        // keep the first entry's path exactly what it was, and the source still
+        // has one place where `base + offset` is decided.
+        //
+        // Zero in `indirect` means the cell asked about, which is every
+        // ordinary read. A byte offset means the answer is in the object's
+        // overflow, and that offset is where the object keeps its address:
+        // load it, and the same `base + offset` finishes the read. One load and
+        // one branch, on a path that was already two loads.
+        //
+        // The alternative was `CachedGetIndirect`, and it cannot serve this:
+        // that form validates a remembered ADDRESS by the header type it
+        // carried, and every overflow block carries one type, so two objects of
+        // one shape would share the site and the second would read the first's
+        // overflow. An overflow is per object, so its address has to come from
+        // the object.
+        let hit_target = self.blocks[&hit.block];
+        let hit_extra = self.block_args(&hit.args);
+        let finish_read = |builder: &mut FunctionBuilder,
+                           offset: Value,
+                           indirect: Value| {
+            let direct = builder.create_block();
+            let through = builder.create_block();
+            let based = builder.create_block();
+            let base = builder.append_block_param(based, types::I64);
+            builder.ins().brif(indirect, through, &[], direct, &[]);
+
+            builder.switch_to_block(direct);
+            builder
+                .ins()
+                .jump(based, &[cranelift_codegen::ir::BlockArg::Value(address)]);
+
+            builder.switch_to_block(through);
+            let holder = builder.ins().iadd(address, indirect);
+            let elsewhere = builder.ins().load(
+                types::I64,
+                cranelift_codegen::ir::MemFlags::trusted(),
+                holder,
+                0,
+            );
+            builder
+                .ins()
+                .jump(based, &[cranelift_codegen::ir::BlockArg::Value(elsewhere)]);
+
+            builder.switch_to_block(based);
+            let at = builder.ins().iadd(base, offset);
+            let value = builder.ins().load(
+                types::I64,
+                cranelift_codegen::ir::MemFlags::trusted(),
+                at,
+                0,
+            );
+            let mut hit_args = vec![cranelift_codegen::ir::BlockArg::Value(value)];
+            hit_args.extend(hit_extra.iter().copied());
+            builder.ins().jump(hit_target, &hit_args);
         };
 
         // A site remembers TWO layouts, in words 0-2 and 3-5. One was what a
@@ -766,16 +819,11 @@ impl<'a> Body<'a> {
         let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
         builder.ins().brif(recognized, first_hit, &[], second, &[]);
 
+        // The first entry only ever holds a PLACE: an offset and a base.
         builder.switch_to_block(first_hit);
         let first_offset = load_word(builder, 8);
         let first_indirect = load_word(builder, 16);
-        builder.ins().jump(
-            read,
-            &[
-                cranelift_codegen::ir::BlockArg::Value(first_offset),
-                cranelift_codegen::ir::BlockArg::Value(first_indirect),
-            ],
-        );
+        finish_read(builder, first_offset, first_indirect);
 
         // The second entry, off the fast path on purpose: a monomorphic site —
         // which the majority are — reaches its answer through one compare and
@@ -787,21 +835,63 @@ impl<'a> Body<'a> {
             .ins()
             .brif(recognized_alternate, second_hit, &[], ask, &[]);
 
+        // The second entry holds a place, OR an ANSWER: a negative base says
+        // word four is what the read produces, not where to load it. A site
+        // that remembers what a property read produced rather than where to
+        // find it — valid while the word at the address in word seven still
+        // holds what word six remembers, which the site checks on every such
+        // hit: two loads and a compare, against the call it replaces. What the
+        // answer means and what the validity word counts is the client's
+        // business; the machine only knows that a remembered answer needs
+        // something that can withdraw it, or it would be a constant.
+        //
+        // In the SECOND entry and never the first, so that the first entry's
+        // path carries no test for it. The client that writes an answer writes
+        // it here, and `rts-core`'s `cache::remember_absent` says so from the
+        // side that fills it.
         builder.switch_to_block(second_hit);
         let second_offset = load_word(builder, 32);
         let second_indirect = load_word(builder, 40);
-        builder.ins().jump(
-            read,
-            &[
-                cranelift_codegen::ir::BlockArg::Value(second_offset),
-                cranelift_codegen::ir::BlockArg::Value(second_indirect),
-            ],
-        );
+        let plain = builder.create_block();
+        let remembered_answer = builder.create_block();
+        let still_valid = builder.create_block();
+        let is_answer = builder
+            .ins()
+            .icmp_imm(IntCC::SignedLessThan, second_indirect, 0);
+        builder
+            .ins()
+            .brif(is_answer, remembered_answer, &[], plain, &[]);
 
-        // Neither: ask once, and the answer is written where the load below will
-        // find it. The resolver fills the FIRST entry always, demoting whatever
-        // stood there into the second, so the resolved path re-reads words one
-        // and two and never the alternate.
+        builder.switch_to_block(plain);
+        finish_read(builder, second_offset, second_indirect);
+
+        builder.switch_to_block(remembered_answer);
+        let validity_at = load_word(builder, 56);
+        let validity_now = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            validity_at,
+            0,
+        );
+        let validity_then = load_word(builder, 48);
+        let unchanged = builder
+            .ins()
+            .icmp(IntCC::Equal, validity_now, validity_then);
+        // Withdrawn: ask again, exactly as an unrecognised layout would.
+        builder
+            .ins()
+            .brif(unchanged, still_valid, &[], ask, &[]);
+
+        builder.switch_to_block(still_valid);
+        let mut answered_args = vec![cranelift_codegen::ir::BlockArg::Value(second_offset)];
+        answered_args.extend(hit_extra.iter().copied());
+        builder.ins().jump(hit_target, &answered_args);
+
+        // Neither: ask once. The resolver writes whichever entry the answer
+        // belongs in — a place into the first, demoting what stood there into
+        // the second; an answer into the second — so the resolved path asks
+        // the first entry's header again and takes the entry that now matches,
+        // rather than assuming which one was written.
         builder.switch_to_block(ask);
         let key_value = builder.ins().iconst(types::I64, i64::from(key.0));
         let resolved = self.call_entry_at(
@@ -822,70 +912,11 @@ impl<'a> Body<'a> {
             .brif(found, resolved_hit, &[], miss_target, &miss_args);
 
         builder.switch_to_block(resolved_hit);
-        let resolved_offset = load_word(builder, 8);
-        let resolved_indirect = load_word(builder, 16);
-        builder.ins().jump(
-            read,
-            &[
-                cranelift_codegen::ir::BlockArg::Value(resolved_offset),
-                cranelift_codegen::ir::BlockArg::Value(resolved_indirect),
-            ],
-        );
-
-        // Where the property is, read once, whichever path arrived here — and
-        // from WHICH base, which is the third word of whichever entry answered.
-        //
-        // Zero means the cell asked about, which is every ordinary read. A byte
-        // offset means the answer is in the object's overflow, and that offset
-        // is where the object keeps its address: load it, and the same
-        // `base + offset` finishes the read. One load and one branch, on a path
-        // that was already two loads.
-        //
-        // The alternative was `CachedGetIndirect`, and it cannot serve this:
-        // that form validates a remembered ADDRESS by the header type it
-        // carried, and every overflow block carries one type, so two objects of
-        // one shape would share the site and the second would read the first's
-        // overflow. An overflow is per object, so its address has to come from
-        // the object.
-        builder.switch_to_block(read);
-        let direct = builder.create_block();
-        let through = builder.create_block();
-        let based = builder.create_block();
-        let base = builder.append_block_param(based, types::I64);
+        let rewritten = load_word(builder, 0);
+        let in_first = builder.ins().icmp(IntCC::Equal, header, rewritten);
         builder
             .ins()
-            .brif(indirect, through, &[], direct, &[]);
-
-        builder.switch_to_block(direct);
-        builder
-            .ins()
-            .jump(based, &[cranelift_codegen::ir::BlockArg::Value(address)]);
-
-        builder.switch_to_block(through);
-        let holder = builder.ins().iadd(address, indirect);
-        let elsewhere = builder.ins().load(
-            types::I64,
-            cranelift_codegen::ir::MemFlags::trusted(),
-            holder,
-            0,
-        );
-        builder
-            .ins()
-            .jump(based, &[cranelift_codegen::ir::BlockArg::Value(elsewhere)]);
-
-        builder.switch_to_block(based);
-        let at = builder.ins().iadd(base, offset);
-        let value = builder.ins().load(
-            types::I64,
-            cranelift_codegen::ir::MemFlags::trusted(),
-            at,
-            0,
-        );
-
-        let mut hit_args = vec![cranelift_codegen::ir::BlockArg::Value(value)];
-        hit_args.extend(self.block_args(&hit.args));
-        let hit_target = self.blocks[&hit.block];
-        builder.ins().jump(hit_target, &hit_args);
+            .brif(in_first, first_hit, &[], second_hit, &[]);
         Ok(())
     }
 

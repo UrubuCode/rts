@@ -91,13 +91,16 @@ pub(super) enum SideTable {
     Attributes,
     /// Whether a constructor is a derived one.
     Derived,
+    /// Whether a cell has been walked as a PROTOTYPE LINK by a read site that
+    /// then cached the property as absent. See `cache::absent_answer`.
+    ChainLinks,
     /// What a foreign object is, to the host that made it.
     Foreign,
 }
 
 impl SideTable {
     /// Every table, which is what makes the walk over them total.
-    pub(super) const ALL: [SideTable; 22] = [
+    pub(super) const ALL: [SideTable; 23] = [
         SideTable::SpillOf,
         SideTable::ArrayElements,
         SideTable::Callables,
@@ -119,6 +122,7 @@ impl SideTable {
         SideTable::Integrity,
         SideTable::Attributes,
         SideTable::Derived,
+        SideTable::ChainLinks,
         SideTable::Foreign,
     ];
 
@@ -169,6 +173,8 @@ impl SideTable {
             SideTable::Attributes => false,
             // A boolean.
             SideTable::Derived => false,
+            // A boolean.
+            SideTable::ChainLinks => false,
             // An index into what the host holds, which the host roots through
             // `entry::external` rather than through the heap.
             SideTable::Foreign => false,

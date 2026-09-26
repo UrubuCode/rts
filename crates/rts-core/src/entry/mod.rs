@@ -826,6 +826,13 @@ pub struct Context {
     /// constructor and a plain function are the same kind of cell. Written at
     /// class definition time, read by `construct`.
     derived: Aside<bool>,
+    /// Which cells a read site has walked as a prototype LINK before caching a
+    /// property as absent. A key added to one of these — a shape transition, an
+    /// accessor, a relink, anything that changes its type — bumps
+    /// `cache::CHAIN_EPOCH`, which every absent entry compares against. An
+    /// object never on such a walk never bumps it. `Context::retype_cell` is
+    /// the one place the question is asked.
+    chain_links: Aside<bool>,
     /// The primitive a wrapper object stands for.
     ///
     /// `new Number(5)` is an object whose `[[NumberData]]` is `5`, and the
@@ -1289,6 +1296,7 @@ impl Context {
             pending_stacks: Aside::in_region(bits),
             stack_accessor: false,
             derived: Aside::in_region(bits),
+            chain_links: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
             foreign: Aside::in_region(bits),
             deaths: std::collections::HashMap::new(),
