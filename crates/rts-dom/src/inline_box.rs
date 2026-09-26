@@ -368,16 +368,20 @@ pub(crate) enum BreakWithin {
     /// `word-break: break-all` — parte-se assim que não cabe no que resta da
     /// linha, sem esperar por oportunidade nenhuma.
     Always,
+    /// `word-break: keep-all` — as `Never`, and it also drops the soft wrap
+    /// opportunity between two letters (the one between ideographs):
+    /// `layout/inline/break_opportunities.rs`.
+    KeepAll,
 }
 
 /// A resolução, e a razão de `word-break` ganhar a `overflow-wrap`: `break-all`
 /// é estritamente mais agressivo, e a spec dá-lhe precedência sobre o
 /// `overflow-wrap` do mesmo elemento.
 ///
-/// `keep-all` e `auto-phrase` respondem `Never` — as duas são sobre onde partir
-/// texto CJK, e este motor mede por carácter sem análise de escrita. Mapeá-las
-/// para `Never` é o comportamento certo em texto latino (que é todo o corpus) e é
-/// honesto no resto: não partir é o que `keep-all` pede.
+/// `keep-all` answers `KeepAll`: no split inside a word, and no opportunity
+/// between two letters either (the UAX #14 one between ideographs, dropped in
+/// `layout/inline/break_opportunities.rs`). `auto-phrase` (phrase analysis)
+/// answers `Never`: nothing here segments by phrase.
 pub(crate) fn quebra_dentro(css: &ComputedStyle) -> BreakWithin {
     use crate::style::{painting::LineBreak, OverflowWrap, WordBreak};
     match css.word_break {
@@ -400,6 +404,7 @@ pub(crate) fn quebra_dentro(css: &ComputedStyle) -> BreakWithin {
         // intrínseca (`min-content`), que este motor não distingue; na quebra da
         // linha as duas fazem o mesmo, e é isso que aqui se decide.
         Some(OverflowWrap::BreakWord | OverflowWrap::Anywhere) => BreakWithin::IfNeeded,
+        _ if css.word_break == Some(WordBreak::KeepAll) => BreakWithin::KeepAll,
         _ => BreakWithin::Never,
     }
 }
@@ -445,12 +450,9 @@ pub(crate) fn prefixo_que_cabe(
     }
     // As fronteiras candidatas, excluindo o zero (prefixo vazio nunca é resposta
     // útil) e incluindo o fim (o texto inteiro pode caber).
-    let cortes: Vec<usize> = texto
-        .char_indices()
-        .skip(1)
-        .map(|(i, _)| i)
-        .chain(std::iter::once(texto.len()))
-        .collect();
+    // Grapheme clusters, not `char`s: `e` + U+0301 and an emoji ZWJ sequence
+    // are one character to the reader and must never end a line apart.
+    let cortes = crate::layout::inline::break_opportunities::cluster_ends(m, texto);
     let (mut lo, mut hi) = (0usize, cortes.len());
     let mut melhor = (0usize, 0.0f32);
     while lo < hi {

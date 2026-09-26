@@ -3,6 +3,7 @@
 
 use super::*;
 
+pub(crate) mod break_opportunities;
 pub(super) mod hyphen;
 pub(super) mod inline_fragments;
 pub(super) mod line;

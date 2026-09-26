@@ -370,3 +370,4 @@ mod medida_por_caixa_corpus;
 mod ch_unit_advance_corpus;
 mod grid_abspos_static_alignment;
 mod grid_area_line_numbers;
+mod unicode_break_opportunities;

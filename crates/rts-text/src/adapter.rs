@@ -104,6 +104,16 @@ impl TextMeasurer for RealMeasurer {
         // Never 0: that is the stateless default, and ApproxMeasurer's.
         self.store.identity() | 1
     }
+
+    /// UAX #14, whatever the face: break classes are the text's, not the font's.
+    fn line_break_opportunities(&self, text: &str) -> Vec<usize> {
+        crate::breaks::line_break_opportunities(text)
+    }
+
+    /// UAX #29 extended grapheme clusters.
+    fn grapheme_boundaries(&self, text: &str) -> Vec<usize> {
+        crate::breaks::grapheme_boundaries(text)
+    }
 }
 
 #[cfg(test)]
@@ -121,6 +131,19 @@ mod tests {
             assert_eq!(m.font_ascent_family(13.0, fam), ApproxMeasurer.font_ascent_family(13.0, fam));
             assert_eq!(m.font_descent_family(13.0, fam), ApproxMeasurer.font_descent_family(13.0, fam));
         }
+    }
+
+    /// The two Unicode questions are answered from the text alone, with or
+    /// without a face: CJK breaks between ideographs, NBSP and WORD JOINER do
+    /// not break, a ZWSP does, and `e` + U+0301 is one cluster.
+    #[test]
+    fn breaks_and_clusters_come_from_unicode_not_the_face() {
+        let m = RealMeasurer::new(Arc::new(FontStore::with_system_dir(None)));
+        assert_eq!(m.line_break_opportunities("一二三"), vec![3, 6]);
+        assert!(m.line_break_opportunities("a\u{a0}b\u{2060}c").is_empty());
+        assert_eq!(m.line_break_opportunities("ab\u{200b}cd"), vec![5]);
+        assert_eq!(m.line_break_opportunities("abc-def"), vec![4]);
+        assert_eq!(m.grapheme_boundaries("xe\u{301}y"), vec![0, 1, 4, 5]);
     }
 
     /// With the real faces, widths are kerned and metrics match the tables;

@@ -132,10 +132,11 @@ impl Lines {
         let soft_breaks = self.min && !matches!(ws, crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre);
         // The soft hyphen has no width unless a line breaks at it (`hyphen.rs`, rule 1).
         let t = crate::layout::inline::hyphen::without_shy(t);
+        let keep_all = css.is_some_and(|c| c.word_break == Some(crate::style::WordBreak::KeepAll));
         if regime.preserves() {
             for token in tokens(&t) {
                 match token {
-                    Token::Word(p) => self.content(&style, p, ctx),
+                    Token::Word(p) => self.word(&style, p, soft_breaks, keep_all, ctx),
                     Token::Break => self.forced_break(ctx),
                     // `break-spaces`: the opportunity is AFTER the space, which
                     // stays on the line; `pre-wrap`: before it, and the space hangs.
@@ -166,7 +167,7 @@ impl Lines {
             let (chunk, after) = rest.split_at(end);
             rest = after;
             if !is_white(c) {
-                self.content(&style, chunk, ctx);
+                self.word(&style, chunk, soft_breaks, keep_all, ctx);
             } else if regime.preserves_newlines() && chunk.contains('\n') {
                 for _ in chunk.matches('\n') {
                     self.forced_break(ctx);
@@ -177,6 +178,19 @@ impl Lines {
                 self.space = Some(style.clone());
                 self.after_space = true;
             }
+        }
+    }
+
+    /// A word, broken at its UAX #14 opportunities when every soft wrap
+    /// opportunity breaks (min-content) — the same pieces `wrap_runs` makes
+    /// (`inline/break_opportunities.rs`), so a box sized by this width holds them.
+    fn word(&mut self, style: &RunStyle, s: &str, soft_breaks: bool, keep_all: bool, ctx: &LayoutCtx) {
+        let pieces = crate::layout::inline::break_opportunities::pieces(ctx.measurer, s, soft_breaks, keep_all);
+        for (k, piece) in pieces.enumerate() {
+            if k > 0 {
+                self.forced_break(ctx);
+            }
+            self.content(style, piece, ctx);
         }
     }
 
