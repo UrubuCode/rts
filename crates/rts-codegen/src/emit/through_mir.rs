@@ -259,6 +259,13 @@ fn attempt(
     crate::optimize::fold_constants(&mut graph, &domain);
     crate::optimize::replace_scalars(&mut graph, &domain);
     rts_mir::passes::remove_dead(&mut graph);
+    // A TEXT CONSTANT IS A CALL (`machine/ops.rs`), so one written inside a loop moves to
+    // the entry -- `emit/expr.rs::string_const` makes the same decision, for the same
+    // two reasons, and says why nothing cheaper is worth the live range.
+    rts_mir::passes::hoist_loop_constants(&mut graph, |held| {
+        matches!(held, rts_mir::cfg::Const::Declared(index)
+            if matches!(domain.declared(*index), Some(crate::domain::JsConst::Text(_))))
+    });
     // AND ONE AFTER THE INFERENCE, because what it removes is only removable where a type
     // was proved -- inferred again when it changed anything, since what the machine reads
     // is the types of the graph it is handed.
