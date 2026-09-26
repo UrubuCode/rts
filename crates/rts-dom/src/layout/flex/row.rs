@@ -552,6 +552,7 @@ pub(in crate::layout) fn layout_children_horizontal(
                     italic: italico(Some(&css), tag_of(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),
                     decoration: decoration_code(css),
+                    orientation: crate::paint::item::Orientation::Horizontal,
                 });
             } else {
                 // o main resolvido é IMPOSTO ao item (grow/shrink venceram o

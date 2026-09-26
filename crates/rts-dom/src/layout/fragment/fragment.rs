@@ -275,7 +275,10 @@ pub(in crate::layout) fn layout_block_reusing(
     // banda à chave era a outra saída; recusar custa só nos blocos que têm
     // float ao lado, que são poucos, e não põe um campo novo em todas as
     // chaves da página.
-    if !bfc.is_empty() {
+    // Inside a rotated frame nothing is cached either: the key is made of
+    // physical constraints and the styles read there are the frame's
+    // (`block/rotated.rs`).
+    if !bfc.is_empty() || crate::layout::in_rotated_frame() {
         let size = layout_block(
             dom,
             id,

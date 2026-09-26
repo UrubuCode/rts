@@ -419,6 +419,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                     italic: italico(Some(css), tag_of(dom, it.node), false),
                     letter_spacing: css.letter_spacing.unwrap_or(0.0),
                     decoration: decoration_code(css),
+                    orientation: crate::paint::item::Orientation::Horizontal,
                 });
             } else {
                 let item_align = it.align_self.unwrap_or(align);

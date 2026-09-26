@@ -125,7 +125,17 @@ pub(crate) fn replaced_inline_size(
     // Dentro de um `<picture>`, quem dá as dimensões é o `<source>` ESCOLHIDO —
     // o `<img>` é só o fallback de quem não sabe escolher.
     let node = dom.node(fonte_de_picture(dom, id, ctx.viewport_w).unwrap_or(id));
+    // Inside a rotated frame (`layout/block/rotated.rs`) the styles read
+    // `width` as the inline size, the page's HEIGHT; the element's own
+    // dimensions — its attributes and its pixels — are physical, so they are
+    // read crosswise to agree. Outside a frame nothing is swapped.
+    let rotated = crate::layout::in_rotated_frame();
     let attr_px = |name: &str| -> Option<f32> {
+        let name = match (rotated, name) {
+            (true, "width") => "height",
+            (true, "height") => "width",
+            _ => name,
+        };
         node.attr(name).and_then(|v| {
             let v = v.trim().trim_end_matches("px").trim();
             v.parse::<f32>().ok().filter(|n| *n >= 0.0)
@@ -209,13 +219,14 @@ pub(crate) fn replaced_inline_size(
     // `<source>` já lhe deu as duas dimensões), então a diferença não importa.
     let ratio = dom
         .image_dims(id)
-        .map(|(iw, ih)| (iw as f32, ih as f32))
+        .map(|(iw, ih)| if rotated { (ih as f32, iw as f32) } else { (iw as f32, ih as f32) })
         .or_else(|| match (attr_px("width"), attr_px("height")) {
             (Some(aw), Some(ah)) if aw > 0.0 && ah > 0.0 => Some((aw, ah)),
             // A canvas always has an intrinsic size: a missing attribute is
             // its default, 300 wide or 150 tall.
             (aw, ah) if is_canvas => {
-                Some((aw.unwrap_or(300.0), ah.unwrap_or(150.0))).filter(|(w, h)| *w > 0.0 && *h > 0.0)
+                let (dw, dh) = if rotated { (150.0, 300.0) } else { (300.0, 150.0) };
+                Some((aw.unwrap_or(dw), ah.unwrap_or(dh))).filter(|(w, h)| *w > 0.0 && *h > 0.0)
             }
             _ => None,
         });

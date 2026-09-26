@@ -15,6 +15,7 @@ pub(super) mod margin_collapse;
 pub(super) mod overflow_viewport;
 pub(super) mod pseudo_block;
 pub(super) mod pseudo_box;
+pub(crate) mod rotated;
 pub(super) mod rtl;
 pub(super) mod sequence;
 pub(super) mod vertical_flow;

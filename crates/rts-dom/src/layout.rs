@@ -63,6 +63,7 @@ use self::inline::runs::{InlineRun, collect_runs};
 use self::inline::pseudo_inline::pseudo_run;
 use self::inline::segment::{Segment, apply_ellipsis, collapse_ws, requested_ellipsis, push_segment};
 pub(crate) use self::block::block::layout_block;
+pub(crate) use self::block::rotated::{in_rotated_frame, rotated_frame_mode};
 pub use self::fragment::types::{ChildRef, Fragment};
 use crate::paint::pieces::Piece;
 pub use self::fragment::box_rects::BoxRects;
