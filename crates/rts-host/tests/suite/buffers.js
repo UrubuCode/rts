@@ -62,6 +62,25 @@ check("offset-aliases", (function () {
 let view = new DataView(new ArrayBuffer(8));
 check("view-byte-length", view.byteLength === 8);
 check("view-byte-offset", view.byteOffset === 0);
+// A DataView's `buffer` is the buffer it was built over — it was missing, so a
+// typed array over `dv.buffer` was a view of `undefined`.
+check("view-buffer-is-the-buffer", (function () {
+    let under = new ArrayBuffer(4);
+    let over = new DataView(under, 1, 2);
+    over.setUint8(0, 7);
+    return over.buffer === under && new Uint8Array(over.buffer)[1] === 7;
+})());
+// Out of the view's own window is a catchable RangeError, not a quiet NaN.
+check("view-read-past-window-throws-range-error", (function () {
+    let over = new DataView(new ArrayBuffer(10), 3, 4);
+    try { over.getUint32(1); return false; } catch (e) { return e instanceof RangeError; }
+})());
+check("view-over-a-non-buffer-throws-type-error", (function () {
+    try { new DataView({}); return false; } catch (e) { return e instanceof TypeError; }
+})());
+check("view-length-past-buffer-throws-range-error", (function () {
+    try { new DataView(new ArrayBuffer(4), 2, 3); return false; } catch (e) { return e instanceof RangeError; }
+})());
 
 view.setUint8(0, 200);
 check("get-uint8", view.getUint8(0) === 200);

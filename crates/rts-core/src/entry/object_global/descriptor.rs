@@ -44,16 +44,16 @@ use rts_cranelift::shape::Key as ShapeKey;
 /// second reading of a descriptor is where the two would come to disagree about
 /// what an absent `value` means.
 pub(in crate::entry) struct Descriptor {
-    pub(super) value: Option<u64>,
-    pub(super) get: Option<u64>,
-    pub(super) set: Option<u64>,
+    pub(in crate::entry) value: Option<u64>,
+    pub(in crate::entry) get: Option<u64>,
+    pub(in crate::entry) set: Option<u64>,
     // `pub(super)` like the three above, because `arrays.rs` folds them onto an
     // element's own flags: an array index never reaches the generic path that
     // reads them here, and the flags being unreadable there is why that path
     // recorded none at all.
-    pub(super) writable: Option<bool>,
-    pub(super) enumerable: Option<bool>,
-    pub(super) configurable: Option<bool>,
+    pub(in crate::entry) writable: Option<bool>,
+    pub(in crate::entry) enumerable: Option<bool>,
+    pub(in crate::entry) configurable: Option<bool>,
 }
 
 /// What [`apply`] decided, so that the two spellings can report it differently.
@@ -87,6 +87,24 @@ pub(in crate::entry) enum Verdict {
 /// second statement of them is where the two would disagree about what an absent
 /// `writable` means.
 pub(in crate::entry) fn object_of(described: &Descriptor) -> u64 {
+    object_from(described, true)
+}
+
+/// `FromPropertyDescriptor` WITHOUT completion — only the fields the record
+/// states, in the specification's order.
+///
+/// What a proxy's `defineProperty` trap is handed (ES2025 §10.5.6 step 7): the
+/// program's descriptor normalised, so a getter on it has already run once and
+/// `{enumerable: 1}` arrives as `true` — but a field the program left out is
+/// still absent, because absent and `false` mean different things to a
+/// definition (this module's second section).
+pub(in crate::entry) fn object_of_present(described: &Descriptor) -> u64 {
+    object_from(described, false)
+}
+
+/// The one construction both spellings above share: `complete` decides whether
+/// an absent field is filled with its default or left out.
+fn object_from(described: &Descriptor, complete: bool) -> u64 {
     let made = super::super::objects::object_new(0);
     let absent = with_current(|context| undefined_of(context));
     let put = |name: &str, value: u64| {
@@ -97,27 +115,34 @@ pub(in crate::entry) fn object_of(described: &Descriptor) -> u64 {
             }
         });
     };
-    match described.get.is_some() || described.set.is_some() {
-        true => {
-            put("get", described.get.unwrap_or(absent));
-            put("set", described.set.unwrap_or(absent));
+    let flag = |held: Option<bool>| held.or(complete.then_some(false));
+    let accessor = described.get.is_some() || described.set.is_some();
+    if complete && accessor {
+        put("get", described.get.unwrap_or(absent));
+        put("set", described.set.unwrap_or(absent));
+    } else if complete {
+        put("value", described.value.unwrap_or(absent));
+        put("writable", Value::from_bool(described.writable.unwrap_or(false)).bits());
+    } else {
+        if let Some(value) = described.value {
+            put("value", value);
         }
-        false => {
-            put("value", described.value.unwrap_or(absent));
-            put(
-                "writable",
-                Value::from_bool(described.writable.unwrap_or(false)).bits(),
-            );
+        if let Some(writable) = described.writable {
+            put("writable", Value::from_bool(writable).bits());
+        }
+        if let Some(get) = described.get {
+            put("get", get);
+        }
+        if let Some(set) = described.set {
+            put("set", set);
         }
     }
-    put(
-        "enumerable",
-        Value::from_bool(described.enumerable.unwrap_or(false)).bits(),
-    );
-    put(
-        "configurable",
-        Value::from_bool(described.configurable.unwrap_or(false)).bits(),
-    );
+    if let Some(enumerable) = flag(described.enumerable) {
+        put("enumerable", Value::from_bool(enumerable).bits());
+    }
+    if let Some(configurable) = flag(described.configurable) {
+        put("configurable", Value::from_bool(configurable).bits());
+    }
     made
 }
 
@@ -213,7 +238,7 @@ fn field(descriptor: u64, name: &str) -> Option<Option<u64>> {
 }
 
 /// The descriptor a cell already has for a key, if it has one at all.
-enum Current {
+pub(super) enum Current {
     /// A slot, already read, and what it permits.
     Data { value: u64, attributes: Attributes },
     /// A pair, either half of which may be absent.
@@ -285,7 +310,7 @@ fn own_of(context: &mut Context, cell: u32, key: ShapeKey) -> Option<Current> {
 /// would not change?" — which is why a descriptor naming only `enumerable: true`
 /// on an already-enumerable non-configurable property is accepted: it asks for
 /// nothing.
-fn permitted(
+pub(super) fn permitted(
     context: &Context,
     current: Option<&Current>,
     wanted: &Descriptor,

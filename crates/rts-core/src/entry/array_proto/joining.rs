@@ -13,6 +13,7 @@ use super::super::objects::undefined_of;
 use super::super::string::absent;
 use super::super::with_current;
 use super::staged;
+use super::super::rooted::Rooted;
 use crate::text::Str;
 use crate::value::Value;
 
@@ -47,7 +48,34 @@ pub(super) extern "C" fn join(
     // The separator converts too, and before the borrow like the elements do.
     // `undefined` passes through unchanged, so the absent case below still sees
     // what it expects.
+    //
+    // A receiver with no element vector is read FIRST for its length, then the
+    // separator converts, then every index is read with `Get` — the
+    // specification's order, and what makes a `Proxy` over an array answer
+    // through its traps rather than through `read_property`, which asks none.
+    // ROOTED until the end: a getter's answer may be named by nothing else
+    // while the loop below runs each element's `toString`.
+    let dense = with_current(|context| super::borrowed(context, this).is_some());
+    let claimed = match dense {
+        true => None,
+        false => {
+            let Some(object) = super::generic::object(this, "join") else {
+                return with_current(|context| undefined_of(context));
+            };
+            let Some(count) = super::generic::length(object) else {
+                return with_current(|context| undefined_of(context));
+            };
+            Some((object, count))
+        }
+    };
     let separator = super::super::primitive::to_primitive(separator, crate::coerce::Hint::String);
+    let read = match claimed {
+        None => None,
+        Some((object, count)) => match super::generic::read_all(object, count) {
+            Some(values) => Some(Rooted::with(values)),
+            None => return with_current(|context| undefined_of(context)),
+        },
+    };
     let staged = with_current(|context| {
         // Generic over an array-LIKE, the same fallback `at` and `slice` take.
         // The specification defines `join` over `LengthOfArrayLike(ToObject(this))`
@@ -56,9 +84,9 @@ pub(super) extern "C" fn join(
         // `"a-b"` — and it answered `undefined` here for every receiver that was
         // not a real array. That is the spelling `Array.prototype.toString`
         // reaches for a non-array receiver, so the two were wrong together.
-        let elements = match staged(context, this) {
-            Some((_, elements)) => elements,
-            None => super::array_like(context, this)?,
+        let elements = match &read {
+            Some(values) => values.as_slice().to_vec(),
+            None => staged(context, this)?.1,
         };
         // O buraco vira `undefined` AQUI, dentro do mesmo empréstimo que leu os
         // elementos. Sem isto ele escapava ao conjunto `empty` de baixo — que

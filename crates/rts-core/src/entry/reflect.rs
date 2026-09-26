@@ -243,6 +243,19 @@ impl Reflect {
     /// refuses to grow. `super::chain::apply_prototype` is the one place either
     /// is decided, and this is the spelling that reports rather than raises.
     fn set_prototype_of(target: u64, prototype: u64) -> bool {
+        if !object_target(target, "setPrototypeOf") {
+            return false;
+        }
+        // Step 2: only an object or null is a prototype — a refusal the
+        // specification raises even here, ahead of the verdict it reports.
+        let linkable = with_current(|context| {
+            super::primitive::is_object_in(context, prototype)
+                || prototype == Value::from_singleton(context.singletons.null).bits()
+        });
+        if !linkable {
+            super::throw::type_error("Object prototype may only be an Object or null");
+            return false;
+        }
         super::chain::apply_prototype(target, prototype)
     }
 
@@ -334,6 +347,9 @@ impl Reflect {
     /// two. A proxy asks its handler, whose answer the specification pins to the
     /// target's own.
     fn is_extensible(target: u64) -> bool {
+        if !object_target(target, "isExtensible") {
+            return false;
+        }
         if let Some(answered) = super::proxy::extensible(target) {
             return answered;
         }
@@ -352,10 +368,24 @@ impl Reflect {
     /// could close an object — which was a promise no write honoured, and
     /// `Object.preventExtensions` has honoured it since `integrity` landed.
     fn prevent_extensions(target: u64) -> bool {
+        if !object_target(target, "preventExtensions") {
+            return false;
+        }
         if let Some(answered) = super::proxy::prevent_extensions(target) {
             return answered;
         }
         super::integrity::restrict(target, super::integrity::Integrity::Closed);
         Value(target).as_slot().is_some()
     }
+}
+
+/// Step 1 of every `Reflect` method: the target is an object, or a
+/// `TypeError` — where `Object.isExtensible(1)` answers `false`, the
+/// `Reflect` spelling refuses, which is the difference between the two.
+fn object_target(target: u64, method: &str) -> bool {
+    if with_current(|context| super::primitive::is_object_in(context, target)) {
+        return true;
+    }
+    super::throw::type_error(&format!("Reflect.{method} called on non-object"));
+    false
 }

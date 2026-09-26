@@ -35,30 +35,36 @@ use crate::value::Value;
 impl DataView {
     /// `new DataView(buffer, byteOffset?, byteLength?)`.
     ///
-    /// An offset or length past the end of the buffer is clamped, where the
-    /// language throws a `RangeError`. The same stated gap every refusal in this
-    /// layer has: a throw here would end the program rather than reach a handler.
+    /// Something that is not an `ArrayBuffer` is a `TypeError`; an offset or
+    /// length that is not an index, or that runs past the buffer, is a
+    /// `RangeError`. Both are raised after the borrow ends — the error is built
+    /// by calling the program's own constructor, which needs the context.
     #[construct]
     fn build(this: u64, buffer: u64, offset: u64, length: u64) -> u64 {
         let offset = super::optional_number(offset);
         let length = super::optional_number(length);
-        with_current(|context| {
-            let absent = undefined_of(context);
+        let built = with_current(|context| {
             let Some(cell) = Value(this).as_slot() else {
-                return absent;
+                return Ok(undefined_of(context));
             };
-            let Some(over) = Value(buffer).as_slot() else {
-                return absent;
+            let Some((over, size)) = Value(buffer)
+                .as_slot()
+                .and_then(|over| context.bytes_at(over).map(|bytes| (over, bytes.len())))
+            else {
+                return Err(Refusal::NotABuffer);
             };
-            let Some(size) = context.bytes_at(over).map(Vec::len) else {
-                // Not a buffer. `new DataView({})` is a `TypeError`; the object
-                // this answers is inert instead, and every read off it is
-                // `undefined` — a value the program can notice.
-                return absent;
-            };
-            let start = super::range(size, offset, None).0;
+            let start = super::to_index(offset.unwrap_or(0.0)).ok_or(Refusal::Offset)?;
+            if start > size {
+                return Err(Refusal::Offset);
+            }
             let count = match length {
-                Some(asked) => super::as_count(asked).min(size - start),
+                Some(asked) => {
+                    let asked = super::to_index(asked).ok_or(Refusal::Length)?;
+                    if start + asked > size {
+                        return Err(Refusal::Length);
+                    }
+                    asked
+                }
                 None => size - start,
             };
             super::attach(
@@ -71,8 +77,22 @@ impl DataView {
                     kind: Kind::Raw,
                 },
             );
-            Value::from_slot(cell).bits()
-        })
+            Ok(Value::from_slot(cell).bits())
+        });
+        let refusal = match built {
+            Ok(made) => return made,
+            Err(refusal) => refusal,
+        };
+        match refusal {
+            Refusal::NotABuffer => crate::entry::throw::type_error(
+                "First argument to DataView constructor must be an ArrayBuffer",
+            ),
+            Refusal::Offset => crate::entry::throw::range_error(
+                "Start offset is outside the bounds of the buffer",
+            ),
+            Refusal::Length => crate::entry::throw::range_error("Invalid DataView length"),
+        }
+        super::undefined()
     }
 
     /// `v.getInt8(byteOffset)` — one byte has no order to choose.
@@ -178,11 +198,12 @@ impl DataView {
 
 /// One read, at a byte offset within the view's own window.
 ///
-/// `NaN` for an offset the width does not fit at, where the language throws a
-/// `RangeError`. `NaN` rather than zero because zero is a number the buffer could
-/// genuinely have held, and a caller comparing against it cannot tell a read that
-/// failed from one that succeeded.
+/// An offset the width does not fit at raises a `RangeError` in [`position`];
+/// the `NaN` answered then is never seen, because the throw is in flight.
 fn fetch(this: u64, at: f64, kind: Kind, little: bool) -> f64 {
+    let Some(index) = position(this, at, kind) else {
+        return f64::NAN;
+    };
     with_current(|context| {
         let Some(view) = super::view_of(context, this) else {
             return f64::NAN;
@@ -190,7 +211,6 @@ fn fetch(this: u64, at: f64, kind: Kind, little: bool) -> f64 {
         let Some(bytes) = super::window(context, &view) else {
             return f64::NAN;
         };
-        let index = super::as_count(at);
         super::element::read(bytes, index, kind, little).unwrap_or(f64::NAN)
     })
 }
@@ -209,17 +229,16 @@ fn fetch(this: u64, at: f64, kind: Kind, little: bool) -> f64 {
 /// arrays use, so a `DataView` and a `BigInt64Array` over one buffer cannot
 /// come to disagree about byte three.
 ///
-/// `undefined` for an offset the width does not fit at, where the language
-/// throws a `RangeError` — the same stated gap [`fetch`] records, answered with
-/// `undefined` rather than `NaN` because a bigint accessor has no `NaN` to
-/// answer with.
+/// An offset the width does not fit at raises in [`position`], as [`fetch`]'s.
 fn fetch_big(this: u64, at: f64, kind: Kind, little: bool) -> u64 {
+    let Some(index) = position(this, at, kind) else {
+        return super::undefined();
+    };
     with_current(|context| {
         let absent = undefined_of(context);
         let Some(view) = super::view_of(context, this) else {
             return absent;
         };
-        let index = super::as_count(at);
         let Some(bytes) = super::window(context, &view) else {
             return absent;
         };
@@ -239,8 +258,10 @@ fn fetch_big(this: u64, at: f64, kind: Kind, little: bool) -> u64 {
 /// and the bytes keep what they held. Coercing would make a program no other
 /// engine accepts run and answer something.
 fn store_big(this: u64, at: f64, value: u64, kind: Kind, little: bool) -> u64 {
+    let Some(index) = position(this, at, kind) else {
+        return super::undefined();
+    };
     with_current(|context| {
-        let index = super::as_count(at);
         let Some(view) = super::view_of(context, this) else {
             return undefined_of(context);
         };
@@ -258,16 +279,48 @@ fn store_big(this: u64, at: f64, value: u64, kind: Kind, little: bool) -> u64 {
 
 /// One write. Answers `undefined`, which is what a `set*` evaluates to.
 fn store(this: u64, at: f64, value: f64, kind: Kind, little: bool) -> u64 {
+    let Some(index) = position(this, at, kind) else {
+        return super::undefined();
+    };
     with_current(|context| {
-        let index = super::as_count(at);
         if let Some(view) = super::view_of(context, this)
             && let Some(bytes) = super::window_mut(context, &view)
         {
-            // The answer is discarded: a write that did not fit is silently
-            // nothing, for the reason `fetch` records about the missing
-            // `RangeError`.
+            // The answer is discarded: `position` already refused an offset
+            // the width does not fit at.
             super::element::write(bytes, index, kind, value, little);
         }
         undefined_of(context)
     })
+}
+
+/// Why `new DataView(…)` refused, carried out of the borrow to be raised.
+enum Refusal {
+    NotABuffer,
+    Offset,
+    Length,
+}
+
+/// The byte offset a get or set may use, or `None` once a `RangeError` has been
+/// raised for it.
+///
+/// Every accessor asks this first, OUTSIDE the context borrow, because raising
+/// constructs the error through the program's own `RangeError`. The width is
+/// checked against the view's own window — not the buffer's — which is what
+/// makes `new DataView(buf, 3, 4).getUint8(4)` a throw even though byte 7 of the
+/// buffer exists. A receiver that is not a view is left to the caller, which
+/// answers `NaN` or `undefined` as it did before.
+fn position(this: u64, at: f64, kind: Kind) -> Option<usize> {
+    let window = with_current(|context| super::view_of(context, this).map(|view| view.length));
+    let index = super::to_index(at);
+    match (index, window) {
+        (_, None) => Some(index.unwrap_or(0)),
+        (Some(index), Some(length)) if index.checked_add(kind.size()).is_some_and(|end| end <= length) => {
+            Some(index)
+        }
+        _ => {
+            crate::entry::throw::range_error("Offset is outside the bounds of the DataView");
+            None
+        }
+    }
 }

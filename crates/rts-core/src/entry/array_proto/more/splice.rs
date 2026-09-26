@@ -30,6 +30,13 @@ pub(super) extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u
     // `a.splice("2", "1")` read both as zero instead of the string coerced,
     // and `a.splice(2)` removed nothing past that.
     let asked_start = super::super::numeric::integer_or_infinity(start);
+    // The count too, and for the same reason: converting it inside the
+    // borrow below panicked with a re-entrant `RefCell` for `a.splice("2", "1")`
+    // — a string reaches `ToPrimitive`, which takes the context.
+    let asked_count = super::super::numeric::integer_or_infinity(count);
+    if super::super::super::throw::in_flight() {
+        return nothing();
+    }
     let removed = with_current(|context| {
         let (cell, mut elements) = staged(context, this)?;
         // How many arguments the SITE wrote, which is what decides the deletion
@@ -47,7 +54,7 @@ pub(super) extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u
         } else if absent(context, count) {
             left as usize
         } else {
-            super::super::numeric::integer_or_infinity(count).clamp(0.0, left) as usize
+            asked_count.clamp(0.0, left) as usize
         };
         let removed: Vec<u64> = elements.drain(from..from + taken).collect();
         // Every item PAST the two controls, not merely the two slots `x` and
@@ -87,6 +94,13 @@ pub(super) extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, 
     // folder is: `Value::numeric` answers `None` for anything not already a
     // number, so `a.toSpliced("1")` read the start as zero.
     let asked_start = super::super::numeric::integer_or_infinity(start);
+    // The count too, and for the same reason: converting it inside the
+    // borrow below panicked with a re-entrant `RefCell` for `a.splice("2", "1")`
+    // — a string reaches `ToPrimitive`, which takes the context.
+    let asked_count = super::super::numeric::integer_or_infinity(count);
+    if super::super::super::throw::in_flight() {
+        return nothing();
+    }
     let spliced = with_current(|context| {
         // Every hole materialised, the same rule `with` and `toReversed` follow:
         // a copying method reads its source with `Get`, so the result has an own
@@ -109,7 +123,7 @@ pub(super) extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, 
         } else if absent(context, count) {
             left as usize
         } else {
-            super::super::numeric::integer_or_infinity(count).clamp(0.0, left) as usize
+            asked_count.clamp(0.0, left) as usize
         };
         elements.drain(from..from + taken);
         let inserted = super::super::arguments_at(context, 2, [start, count, x, a3]);
