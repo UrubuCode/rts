@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4596) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4606) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -18336,7 +18336,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: heap exhausted — the region grew to its whole reservation of 524288 cells and all of them are in use even after a collection.\n     Nothing left to reclaim, and the program cannot continue.\n     What would have happened instead is `undefined` from the allocation, which computes a wrong answer quietly."
+  "rts_error": "rts: heap exhausted — the region grew to its whole reservation of 524288 cells and all of them are in use even after a collection.\n     Nothing left to reclaim, and the program cannot continue.\n     What would have happened instead is `undefined` from the allocation, which computes a wrong answer quietly.\n     If the program really holds that much, RTS_MAX_CELLS=<cells> raises the reservation (each cell is 128 bytes of address space)."
 }
 ,
 {
