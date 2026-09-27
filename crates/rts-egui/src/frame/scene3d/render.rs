@@ -81,11 +81,12 @@ impl Scene3D {
             queue.write_buffer(&self.inst_buf, 0, f32_bytes(&inst));
         }
 
-        // ── PARTÍCULAS: um lote por `queue_particles` (billboard instanciado,
-        // sem malha própria). Preparado FORA do laço por-vista, como as
-        // malhas acima: um `write_buffer` por frame, não um por vista.
-        let part_total: usize =
-            self.particle_draws.iter().map(|(f, _, _)| f.len() / particles::PART_FLOATS).sum();
+        // ── PARTÍCULAS: `part_pending`/`part_pending_batches` já vêm prontos
+        // de `queue_particles` (concatenados ali, sem alocação por lote aqui
+        // — ver o comentário desses campos em `mod.rs`). Só falta garantir
+        // capacidade do buffer de GPU e escrever, uma vez por frame (não por
+        // vista).
+        let part_total = self.part_pending.len() / particles::PART_FLOATS;
         if part_total as u64 > self.particle_inst_cap {
             let cap = (part_total as u64).next_power_of_two().max(64);
             self.particle_inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -96,20 +97,8 @@ impl Scene3D {
             });
             self.particle_inst_cap = cap;
         }
-        let mut part_inst: Vec<f32> = Vec::with_capacity(part_total * particles::PART_FLOATS);
-        // (início em INSTÂNCIAS, n, aditivo, textura opcional)
-        let mut part_batches: Vec<(u32, u32, bool, Option<u64>)> = Vec::new();
-        for (floats, aditivo, tex) in &self.particle_draws {
-            let n = (floats.len() / particles::PART_FLOATS) as u32;
-            if n == 0 {
-                continue;
-            }
-            let inicio = (part_inst.len() / particles::PART_FLOATS) as u32;
-            part_inst.extend_from_slice(floats);
-            part_batches.push((inicio, n, *aditivo, *tex));
-        }
-        if !part_inst.is_empty() {
-            queue.write_buffer(&self.particle_inst_buf, 0, f32_bytes(&part_inst));
+        if !self.part_pending.is_empty() {
+            queue.write_buffer(&self.particle_inst_buf, 0, f32_bytes(&self.part_pending));
         }
 
         // ── SHADOW PASS: depth da cena vista da luz (só quando há sombra ativa) ──
@@ -220,7 +209,7 @@ impl Scene3D {
             // `aditivo` (blend) × tem-textura (disco procedural ou amostra
             // `albedo_tex`), decidido por `particles::escolher_pipeline`
             // (pura, testada sem GPU) e só mapeado pro `RenderPipeline` aqui.
-            for &(inicio, n, aditivo, tex) in &part_batches {
+            for &(inicio, n, aditivo, tex) in &self.part_pending_batches {
                 let pipeline = match particles::escolher_pipeline(aditivo, tex.is_some()) {
                     particles::PipelineParticula::Alfa => &self.particle_pipeline_alfa,
                     particles::PipelineParticula::Aditivo => &self.particle_pipeline_aditivo,
@@ -275,7 +264,8 @@ impl Scene3D {
 
         self.draws.clear();
         self.water_draws.clear();
-        self.particle_draws.clear();
+        self.part_pending.clear();
+        self.part_pending_batches.clear();
         self.vq.end_frame();
         true
     }

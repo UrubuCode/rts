@@ -46,6 +46,47 @@
         assert!((v_len(cam.right) - 1.0).abs() < 1e-4);
     }
 
+    /// Contraparte de `lookat_straight_down_no_nan`: olhar reto pra CIMA
+    /// também cai no up alternativo (+Z) em vez de gerar NaN — mesmo ramo do
+    /// `if v_len(right) < 1e-4` em `view_proj_lookat`, só do outro lado.
+    #[test]
+    fn lookat_straight_up_no_nan() {
+        let cam = view_proj_lookat([0.0, -10.0, 0.0], [0.0, 0.0, 0.0], 1.0, 1.0, 0.1, 100.0);
+        for c in cam.view_proj {
+            assert!(c.is_finite(), "view_proj tem NaN/inf olhando reto pra cima");
+        }
+        assert!((v_len(cam.right) - 1.0).abs() < 1e-4);
+        assert!((v_len(cam.up) - 1.0).abs() < 1e-4);
+    }
+
+    /// `cam.right`/`cam.up` são o que `vs_particle` usa pra bilheteirar
+    /// (billboard) uma partícula no plano da câmera (`shader.rs`). A câmera
+    /// de VOO (`view_proj_spec`, o que `setCamera` monta) NUNCA passa por
+    /// `cross(forward, worldUp)` — right/up/fwd vêm direto de trigonometria
+    /// em yaw/pitch, então não há gimbal pra degenerar. Este teste prova isso
+    /// numericamente exatamente no ponto onde um `cross`-based basis
+    /// degeneraria: pitch = ±90° (olhando reto pra cima/baixo).
+    #[test]
+    fn fly_camera_basis_ortonormal_em_pitch_mais_ou_menos_90_graus() {
+        use std::f32::consts::FRAC_PI_2;
+        for pitch in [FRAC_PI_2, -FRAC_PI_2] {
+            let mut s = spec(false);
+            s.pitch = pitch;
+            s.yaw = 0.7; // yaw não-trivial: pega erro de sinal que um yaw=0 esconderia
+            let cam = view_proj_spec(&s);
+            for (nome, b) in [("right", cam.right), ("up", cam.up), ("fwd", cam.fwd)] {
+                for c in b {
+                    assert!(c.is_finite(), "pitch={pitch}: {nome} tem NaN/inf: {b:?}");
+                }
+                assert!((v_len(b) - 1.0).abs() < 1e-4, "pitch={pitch}: {nome} não é unitário: {}", v_len(b));
+            }
+            let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            assert!(dot(cam.right, cam.up).abs() < 1e-4, "pitch={pitch}: right·up != 0");
+            assert!(dot(cam.right, cam.fwd).abs() < 1e-4, "pitch={pitch}: right·fwd != 0");
+            assert!(dot(cam.up, cam.fwd).abs() < 1e-4, "pitch={pitch}: up·fwd != 0");
+        }
+    }
+
     /// `model_matrix` sem rotação/escala 1 é translação pura.
     #[test]
     fn model_translation_only() {
