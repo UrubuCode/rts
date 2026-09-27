@@ -88,6 +88,9 @@ struct VOut {
   @location(3) emissive: f32,
   @location(4) tex: f32,
   @location(5) uv: vec2<f32>,
+  // > 0: UV em coordenada de MUNDO (repetições por unidade), projetada pelo
+  // eixo dominante da normal — textura repete numa caixa grande em vez de esticar.
+  @location(6) tile: f32,
 };
 
 @vertex
@@ -112,6 +115,7 @@ fn vs(
   o.emissive = iparams.x;
   o.tex = iparams.y;
   o.uv = uv;
+  o.tile = iparams.z;
   return o;
 }
 
@@ -141,6 +145,7 @@ fn vs_water(
   o.emissive = 0.0;
   o.tex = 0.0;
   o.uv = uv;
+  o.tile = 0.0;
   return o;
 }
 
@@ -150,7 +155,14 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
   // UV-CORRETO: amostra a textura de albedo pela UV per-vértice (interpolada) —
   // mapeamento do modelo (OBJ vt / UVs geradas dos primitivos). Amostrada SEMPRE
   // (control flow uniforme p/ as derivadas do sampler); só APLICADA se tex real.
-  let texcol = textureSample(albedo_tex, albedo_samp, i.uv).rgb;
+  // UV em mundo (tile > 0): o eixo dominante da normal escolhe o plano. Só
+  // valores mudam aqui; a amostra continua em fluxo uniforme.
+  let an = abs(i.normal);
+  let face_y = an.y >= an.x && an.y >= an.z;
+  let face_x = !face_y && an.x >= an.z;
+  let uv_mundo = select(select(i.world.xy, i.world.zy, face_x), i.world.xz, face_y) * i.tile;
+  let uv = select(i.uv, uv_mundo, i.tile > 0.0);
+  let texcol = textureSample(albedo_tex, albedo_samp, uv).rgb;
   // i.tex: 0=nenhuma, 1=xadrez procedural, >=2 = textura real (imagem).
   if (i.tex > 1.5) {
     albedo = albedo * texcol;
