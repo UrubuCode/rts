@@ -197,7 +197,7 @@ pub(super) fn shape_of(context: &mut Context, value: u64, policy: Policy, known:
     // prototype, on every object of the graph.
     let key = *known.time.get_or_insert_with(|| context.well_known(super::super::date::TIME));
     if let Some(time) = super::super::objects::own_property(context, cell, key)
-        && let Some(ms) = time.as_f64()
+        && let Some(ms) = time.numeric()
     {
         return Ok(Shape::Date(cell, ms));
     }

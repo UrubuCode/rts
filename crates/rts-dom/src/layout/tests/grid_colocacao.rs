@@ -23,7 +23,7 @@ fn grid_column_start_end_numerico_poe_o_item_na_celula_certa() {
     };
     let list = layout_document(&dom, &ctx);
     let idx = dom.resolve(dom.query("#a").unwrap()).unwrap();
-    let a = list.geometry().rects[&idx];
+    let a = list.geometry_now().rects[&idx];
     assert!((a.x - 200.0).abs() < 1.0, "x da coluna 3: {}", a.x);
     assert!((a.w - 200.0).abs() < 1.0, "span 2 colunas: {}", a.w);
 }
@@ -44,7 +44,7 @@ fn grid_column_negativo_conta_do_fim_do_eixo_explicito() {
     };
     let list = layout_document(&dom, &ctx);
     let idx = dom.resolve(dom.query("#a").unwrap()).unwrap();
-    let a = list.geometry().rects[&idx];
+    let a = list.geometry_now().rects[&idx];
     assert!((a.x - 200.0).abs() < 1.0, "x das 2 últimas colunas: {}", a.x);
     assert!((a.w - 200.0).abs() < 1.0, "largura das 2 últimas: {}", a.w);
 }
@@ -64,7 +64,7 @@ fn grid_span_sem_ancora_de_fim_conta_a_partir_do_start() {
     };
     let list = layout_document(&dom, &ctx);
     let idx = dom.resolve(dom.query("#a").unwrap()).unwrap();
-    let a = list.geometry().rects[&idx];
+    let a = list.geometry_now().rects[&idx];
     assert!((a.x - 100.0).abs() < 1.0, "x da coluna 2: {}", a.x);
     assert!((a.w - 200.0).abs() < 1.0, "span 2: {}", a.w);
 }
@@ -87,7 +87,7 @@ fn grid_auto_flow_row_cria_linhas_implicitas_com_grid_auto_rows() {
     let list = layout_document(&dom, &ctx);
     let rect = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-        list.geometry().rects[&idx]
+        list.geometry_now().rects[&idx]
     };
     let e = rect("#e");
     // item 5 é o único da 3ª linha (row-major: 1,2 / 3,4 / 5) — y = 2 linhas
@@ -118,7 +118,7 @@ fn grid_auto_flow_column_cria_colunas_implicitas() {
     let list = layout_document(&dom, &ctx);
     let rect = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-        list.geometry().rects[&idx]
+        list.geometry_now().rects[&idx]
     };
     let (a, b, c, d) = (rect("#a"), rect("#b"), rect("#c"), rect("#d"));
     assert!((a.x - 0.0).abs() < 1.0, "1ª coluna explícita: {}", a.x);

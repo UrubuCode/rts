@@ -92,6 +92,9 @@ pub(super) const SPECIES: &str = concat!(prefix!(), "species");
 /// `format!("{PREFIX}iterator")` — a `String` and a hash for a name that cannot
 /// change — which is precisely what the constant above exists to stop.
 pub(super) const ITERATOR: &str = concat!(prefix!(), "iterator");
+/// `Symbol.toStringTag`'s key text, for the one object built per CALL that
+/// carries it as an own property: `arguments`.
+pub(super) const TO_STRING_TAG: &str = concat!(prefix!(), "toStringTag");
 
 /// The five protocols a string method offers its argument before falling back
 /// to the built-in scan, spelled at COMPILE time for [`HAS_INSTANCE`]'s reason.

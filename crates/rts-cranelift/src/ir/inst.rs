@@ -81,6 +81,24 @@ pub enum NumOp {
     /// Remainder, truncated toward zero. **Integer domain only** — see the
     /// enum's documentation for why the float domain does not admit it.
     Rem,
+    /// The smaller operand.
+    ///
+    /// One instruction in both domains — `smin` and `fmin` — which is the bar
+    /// this enum sets. The float form follows the WebAssembly rules the code
+    /// generator documents for `fmin`: a NaN operand answers NaN, and `-0` is
+    /// below `+0`, so `min(+0, -0)` is `-0` whichever side it arrived on. That
+    /// is stated here because it is the property a client with a signed-zero
+    /// semantics depends on, and a client whose `min` is "the first operand
+    /// unless the second compares lower" cannot use this — IEEE says `-0 > +0`
+    /// is false, so such a client answers whichever arrived second.
+    ///
+    /// Measured before this existed: the only way a client could reach a
+    /// minimum was a call through its own dispatch, at 131 ns against 1.2 for
+    /// the unary float operations beside it (bench/analytic.ts, 2026-09-26).
+    Min,
+    /// The larger operand. Same rules as [`NumOp::Min`]: NaN propagates and
+    /// `max(-0, +0)` is `+0` from either side.
+    Max,
 }
 
 /// One-operand floating-point operations.
@@ -109,6 +127,22 @@ pub enum FloatOp {
     /// double. This flips a bit of a proven float and does nothing else, which
     /// is why it belongs beside `Abs` — the operation that clears the same bit.
     Neg,
+    /// Rounded to the nearest single-precision value and widened back.
+    ///
+    /// Two instructions — `fdemote` then `fpromote` — and admitted although
+    /// this enum's bar is one, because the pair IS the operation: there is no
+    /// single-precision representation in this vocabulary for the narrow value
+    /// to live in, so a client could not spell the two halves itself. Exact
+    /// by construction, `NaN` and the sign of zero included.
+    RoundToSingle,
+}
+
+/// One-operand operations over proven integers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IntUnaryOp {
+    /// How many leading bits are clear, in the operand's own width. Zero
+    /// answers the width. One instruction on every target here (`lzcnt`, `clz`).
+    LeadingZeros,
 }
 
 /// Bitwise operations over proven integers.
@@ -232,6 +266,28 @@ pub enum Inst {
     /// means this is the client's question, answered before it emits one —
     /// rule 2, no source-language knowledge here.
     FloatUnary(FloatOp, ValueId),
+
+    /// One-operand integer operation over a proven integer, answering the same
+    /// representation.
+    IntUnary(IntUnaryOp, ValueId),
+
+    /// One of two proven values of one representation, chosen by a boolean.
+    ///
+    /// A `select` rather than a branch: no block, no jump, and both operands
+    /// are already computed. That is the right shape for the small arithmetic
+    /// corrections a language has to make around an instruction — the sign of a
+    /// zero, a tie rounded the other way — where a branch would cost more than
+    /// the instruction it corrects. Not admitted over generic operands: a client
+    /// that has not proved both sides has nothing this can choose between
+    /// without a widening it would then have to undo.
+    Select {
+        /// A [`Repr::Bool`].
+        cond: ValueId,
+        /// Answered when `cond` holds.
+        then: ValueId,
+        /// Answered otherwise. Same representation as `then`.
+        otherwise: ValueId,
+    },
 
     /// Widens a proven value into the generic form.
     ///
@@ -573,7 +629,14 @@ impl Inst {
             | Inst::ToInt32(v)
             | Inst::ToF64(v)
             | Inst::ToF64Unsigned(v)
-            | Inst::FloatUnary(_, v) => vec![*v],
+            | Inst::FloatUnary(_, v)
+            | Inst::IntUnary(_, v) => vec![*v],
+
+            Inst::Select {
+                cond,
+                then,
+                otherwise,
+            } => vec![*cond, *then, *otherwise],
 
             Inst::IntArith(_, a, b)
             | Inst::FloatArith(_, a, b)
@@ -787,6 +850,17 @@ pub enum Terminator {
     /// its layout is not. A client that knows the layout has a type guard and an
     /// ordinary field read, which is both faster and more precise — this is for
     /// where it does not.
+    ///
+    /// # A site may remember an ANSWER, not only a place
+    ///
+    /// The resolver a miss calls may fill the site with a word to hand to `hit`
+    /// directly, beside a validity pair: the address of a word and the value it
+    /// held. The site then answers without a load for as long as that word is
+    /// unchanged, and asks again when it is not. The machine does not know what
+    /// the answer means or what the word counts — a client uses it for a read
+    /// whose result depends on state the receiver's layout does not carry, and
+    /// the validity word is how that state withdraws the answer. Rule 2: the
+    /// machine offers the mechanism and records no owner for it.
     CachedGet {
         /// The object read.
         object: ValueId,

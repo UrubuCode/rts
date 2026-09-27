@@ -51,9 +51,8 @@ use words::{is_reserved, is_reserved_in_strict, legacy_escape_in_a_strict_prolog
 use crate::check::scope::{first_repeat, first_shared, lexical_names};
 use crate::names::{Name, Names};
 use crate::syntax::{
-    Class, ClassElement, ClassKey, Element, Expr, ExprKind, ForEachTarget,
-    ForInit, Function, FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt, StmtKind,
-    UnaryOp,
+    Class, ClassElement, ClassKey, Element, Expr, ExprKind, ForEachTarget, ForInit, Function,
+    FunctionBody, Goal, Pattern, Program, Property, PropertyKey, Stmt, StmtKind, UnaryOp,
 };
 
 /// What a statement list is a scope *of*.
@@ -308,7 +307,6 @@ impl<'a> Scan<'a> {
         }
     }
 
-
     /// The whole program, from its top level.
     ///
     /// A module's top level takes the block's rule rather than the script's: a
@@ -355,7 +353,11 @@ impl<'a> Scan<'a> {
                     .iter()
                     .map(|declared| declared.name),
             );
-            visible.extend(bound.into_iter().map(|name| self.names.text(name).to_owned()));
+            visible.extend(
+                bound
+                    .into_iter()
+                    .map(|name| self.names.text(name).to_owned()),
+            );
             if let Some(message) = super::module::unresolvable_export(program, &visible) {
                 return self.fail(message);
             }

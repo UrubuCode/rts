@@ -72,9 +72,16 @@ fn build(context: &mut Context, collected: Vec<u64>) -> u64 {
     held.values().push(object);
     let count = held.len() - 1;
 
+    // The index spelled on the stack: `at.to_string()` was a `String` per
+    // argument per call. It stays a NAME key and not `Key::Index`, because a
+    // plain object reads its indices through the interned text — `Key::Index`
+    // put here was invisible to `arguments[0]` and to a spread, measured
+    // before this comment was written.
+    let mut digits = [0u8; 10];
     for at in 0..count {
         let value = held.as_slice()[at];
-        let key = context.well_known(&at.to_string());
+        let spelled = spell(at as u32, &mut digits);
+        let key = context.well_known(spelled);
         super::objects::put(context, cell, key, value);
     }
 
@@ -87,7 +94,7 @@ fn build(context: &mut Context, collected: Vec<u64>) -> u64 {
     // `[...Array.from(arguments)]` walking the same sequence differently is the
     // bug that would be found last.
     if let Some(prototype) = super::array_proto::prototype_of(context) {
-        let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
+        let key = context.well_known(super::symbol::ITERATOR);
         if let Some(values) = super::objects::own_property(context, prototype, key) {
             super::objects::put(context, cell, key, values.bits());
             super::native::hidden(context, cell, key);
@@ -109,9 +116,106 @@ fn build(context: &mut Context, collected: Vec<u64>) -> u64 {
     // prototype, and that is not a choice: these inherit from
     // `Object.prototype`, so a tag installed there would label every object in
     // the program.
-    let tag = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
-    let value = context.intern_value(crate::text::Str::from_str("Arguments")).bits();
+    // Both cached: this runs once per call of any function that mentions
+    // `arguments`, and it formatted two symbol spellings, hashed them, and
+    // interned a fresh "Arguments" cell every time — about 1 500 ns for an
+    // object whose reader usually wants `length`.
+    let tag = context.well_known(super::symbol::TO_STRING_TAG);
+    let value = context.well_known_text("Arguments");
     super::objects::put(context, cell, tag, value);
     super::native::hidden(context, cell, tag);
     object
+}
+
+/// The decimal digits of `index`, written into `digits` from the end.
+fn spell(index: u32, digits: &mut [u8; 10]) -> &str {
+    let mut at = digits.len();
+    let mut left = index;
+    loop {
+        at -= 1;
+        digits[at] = b'0' + (left % 10) as u8;
+        left /= 10;
+        if left == 0 {
+            break;
+        }
+    }
+    std::str::from_utf8(&digits[at..]).expect("decimal digits are ASCII")
+}
+
+/// How many arguments the running call was given, for a body that reads
+/// `arguments.length` and nothing else of the object — the count the object's
+/// `length` would carry, from the same record `build` reads, with no object.
+///
+/// `emit/light_arguments.rs` says which bodies qualify and why the object is
+/// unobservable there. The count is the calling convention's: a counted call
+/// left it in `pending_counts`, a call past the slots left the vector, and a
+/// call that left neither is measured by its trailing `undefined`s — the same
+/// three answers `functions::collected` gives, so the light form and the object
+/// cannot disagree about a length.
+#[rtse::entry]
+pub fn arguments_count(a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    with_current(|context| Value::from_f64(count_of(context, [a0, a1, a2, a3]) as f64).bits())
+}
+
+/// The argument at `index` of the running call, for a body that reads
+/// `arguments[e]` and nothing else of the object.
+///
+/// An index that names a slot is answered from the slots; any other key — a
+/// string, a fraction, `"length"`, a symbol — builds the object and reads it,
+/// so every spelling the program can write answers what the object would.
+#[rtse::entry]
+pub fn argument_slot(a0: u64, a1: u64, a2: u64, a3: u64, index: u64) -> u64 {
+    let given = [a0, a1, a2, a3];
+    let answered = with_current(|context| {
+        let position = Value(index).numeric()?;
+        if position.fract() != 0.0 || position < 0.0 || position >= u32::MAX as f64 {
+            return None;
+        }
+        let at = position as usize;
+        let count = count_of(context, given);
+        let absent = super::objects::undefined_of(context);
+        if at >= count {
+            return Some(absent);
+        }
+        if let Some(vector) = context.pending_arguments.last().copied()
+            && let Some(cell) = Value(vector).as_slot()
+            && let Some(elements) = context.elements_at(cell)
+        {
+            return Some(match elements.get(at).copied() {
+                Some(value) if !super::array::is_hole(context, value) => value,
+                _ => absent,
+            });
+        }
+        given.get(at).copied()
+    });
+    match answered {
+        Some(value) => value,
+        None => {
+            // Not a slot's name: the object, and the read the program wrote.
+            let object = with_current(|context| {
+                let collected = super::functions::collected(context, 0, a0, a1, a2, a3);
+                build(context, collected)
+            });
+            super::computed::get_indexed(object, index)
+        }
+    }
+}
+
+/// The running call's argument count, by the three answers `functions::collected`
+/// gives, without collecting.
+fn count_of(context: &Context, given: [u64; 4]) -> usize {
+    if let Some(vector) = context.pending_arguments.last().copied()
+        && let Some(cell) = Value(vector).as_slot()
+    {
+        return context.elements_at(cell).map_or(0, |elements| elements.len());
+    }
+    if let Some(count) = context.pending_counts.last().copied().flatten() {
+        return count.min(given.len());
+    }
+    let absent = super::objects::undefined_of(context);
+    let mut real = given.len();
+    while real > 0 && given[real - 1] == absent {
+        real -= 1;
+    }
+    real
 }

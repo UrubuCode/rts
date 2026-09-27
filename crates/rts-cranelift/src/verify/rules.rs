@@ -694,6 +694,32 @@ pub(super) fn check_instructions(
                     }
                 }
 
+                Inst::IntUnary(_, value) => {
+                    if !func.repr_of(*value).is_integer() {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: func.repr_of(*value),
+                        });
+                    }
+                }
+
+                // The two arms agree with each other, and the condition is a
+                // boolean; the builder refuses both where the mistake is made
+                // and this refuses a representation that never went through it.
+                Inst::Select {
+                    cond,
+                    then,
+                    otherwise,
+                } => {
+                    if func.repr_of(*cond) != Repr::Bool {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: func.repr_of(*cond),
+                        });
+                    }
+                    check_proven_pair(func, inst_id, *then, *otherwise, Domain::Any, errors);
+                }
+
                 Inst::ToF64(value) | Inst::ToF64Unsigned(value) => {
                     if func.repr_of(*value) != Repr::I32 {
                         errors.push(VerifyError::WrongDomain {

@@ -9,6 +9,7 @@
 //! reaching the global object.
 
 mod class;
+mod fixed;
 mod format;
 mod parse;
 

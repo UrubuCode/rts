@@ -152,7 +152,7 @@ extern "C" fn promisified(environment: u64, this: u64, a0: u64, a1: u64, a2: u64
     // argument does not cost the callback its place.
     let mut arguments = array_items(entry::rest_arguments(0, a0, a1, a2, a3));
     arguments.push(callback);
-    entry::call_with_args(target, this, entry::make_array(arguments));
+    entry::call_with_args(target, this, entry::make_array(arguments), entry::NO_CALL_NAME);
     promise
 }
 

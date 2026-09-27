@@ -83,8 +83,11 @@ fn a_moved_exe_still_runs_once_its_sidecar_manifest_is_deleted() {
     let scratch = std::env::temp_dir().join("rts-aot-manifest-embedded");
     std::fs::create_dir_all(&scratch).expect("a scratch directory for this test's own output");
     let output_base = scratch.join("claude_pagina_eval_embedded");
-    let exe_path = output_base.with_extension("exe");
-    let obj_path = output_base.with_extension("obj");
+    // The PLATFORM's names, which the linker uses: `.exe` and `.obj` on Windows, no
+    // extension and `.o` elsewhere. Written as Windows names, this failed on every other
+    // system at "did not produce", with the executable sitting beside the path it named.
+    let exe_path = output_base.with_extension(std::env::consts::EXE_EXTENSION);
+    let obj_path = output_base.with_extension(if cfg!(windows) { "obj" } else { "o" });
     let manifest_path = output_base.with_extension("rtsdata");
     // A clean slate — a previous run's leftovers must not be what makes this
     // pass.

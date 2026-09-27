@@ -317,11 +317,10 @@ extern "C" fn proto_get(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u
 /// `({}).__proto__ = 5` leaves the object alone and evaluates to `5`.
 ///
 /// The refusals `apply_prototype` makes — a cycle, a non-extensible object —
-/// are reported by the specification as a `TypeError` here where
-/// `Object.setPrototypeOf` also throws. Neither throws in this engine today;
-/// `chain::apply_prototype`'s own documentation records that the throw belongs
-/// at the spellings rather than in the shared act, and this spelling inherits
-/// the same stated gap rather than growing a second answer to it.
+/// and a proxy's `setPrototypeOf` trap answering `false` — are a `TypeError`
+/// here (ES2025 §B.2.2.1.2 step 5), raised at this spelling because
+/// `chain::apply_prototype` is shared with `Reflect.setPrototypeOf`, which
+/// reports them instead.
 extern "C" fn proto_set(_e: u64, this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let (linkable, absent) = with_current(|context| {
         (
@@ -330,8 +329,14 @@ extern "C" fn proto_set(_e: u64, this: u64, value: u64, _a1: u64, _a2: u64, _a3:
             undefined_of(context),
         )
     });
-    if linkable {
-        super::chain::apply_prototype(this, value);
+    // Step 4: a primitive receiver is left alone, not refused.
+    let receiver = with_current(|context| super::primitive::is_object_in(context, this));
+    if linkable
+        && receiver
+        && !super::chain::apply_prototype(this, value)
+        && !super::throw::in_flight()
+    {
+        super::throw::type_error("Object.prototype.__proto__ setter: cannot set the prototype");
     }
     absent
 }
@@ -405,7 +410,19 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
     if super::objects::own_property(context, cell, time_key).is_some() {
         return "Date";
     }
-    if extends_class(context, cell, "Error") {
+    // Not `extends_class(context, cell, "Error")`: a chain walk answers for the
+    // WRONG cell both ways. `Error.prototype` reaches ITSELF in one step, so it
+    // called the prototype object an Error though nothing ever constructed it —
+    // Node answers `[object Object]` there. And a real instance whose chain was
+    // rerouted with `Object.setPrototypeOf` stops reaching `Error.prototype`,
+    // so the same walk then says "no" for an object the specification still
+    // calls an Error (`claude-error-subclass-prototype-repair`). `defer_stack`
+    // runs on `this` in every `error.rs` constructor before anything else can
+    // touch it, and `take_stack` leaves a tombstone, so its presence is the
+    // internal slot, tracking CONSTRUCTION rather than whatever the chain looks
+    // like now. An own `stack` is NOT evidence: `{ name, message, stack }` is a
+    // plain object (`claude2-thrown-non-error-values`).
+    if context.has_pending_stack(cell) {
         return "Error";
     }
     if let Some(boxed) = context.boxed_at(cell) {
@@ -455,6 +472,9 @@ pub(in crate::entry) fn extends_class(context: &mut Context, mut cell: u32, name
 /// content of `propertyIsEnumerable`'s documentation is that it answers the same
 /// as `hasOwnProperty` here, and two bodies is where that stops being true.
 fn owns(this: u64, key: u64) -> bool {
+    if let Some(owned) = super::proxy::owns(this, key) {
+        return owned;
+    }
     with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {
             return false;
@@ -504,4 +524,89 @@ fn own_key(context: &mut Context, key: u64) -> Option<Key> {
     }
     let text = super::text::to_text(context, Value(key))?;
     Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entry::with_context;
+    use crate::value::Singletons;
+
+    /// A context installed for the duration, the way a host installs one.
+    fn hosted<T>(body: impl FnOnce() -> T) -> T {
+        let singletons = Singletons { undefined: 0, null: 1, hole: 2 };
+        let context = Context::new(singletons, crate::value::Kinds::in_declaration_order());
+        with_context(context, body).1
+    }
+
+    #[test]
+    fn error_prototype_itself_answers_object_not_error() {
+        // `Error.prototype` was never CONSTRUCTED, so it carries no
+        // `[[ErrorData]]` — the built-in tag table's own rule, which a
+        // prototype-chain walk cannot see: walking from `Error.prototype`
+        // reaches `Error.prototype` in zero steps, so the old check called the
+        // prototype object an instance of itself. Node answers
+        // `[object Object]` for `Object.prototype.toString.call(Error.prototype)`.
+        hosted(|| {
+            with_current(|context| {
+                let made = super::super::error::register_error(context);
+                let key = context.well_known("prototype");
+                let cell = Value(made).as_slot().expect("Error is callable");
+                let prototype = super::super::objects::read_property(context, cell, key)
+                    .expect("Error.prototype exists");
+                assert_eq!(object_tag(context, prototype.bits()), "Object");
+            });
+        });
+    }
+
+    #[test]
+    fn a_cell_with_a_deferred_stack_is_tagged_error_off_its_own_prototype_chain() {
+        // `defer_stack` runs on `this` in every `error.rs` constructor before
+        // anything else can touch it — the internal slot the specification
+        // asks for. This pins that the tag follows THAT, and not whatever
+        // `Object.setPrototypeOf` later did to the chain: a real Error
+        // instance whose prototype was rerouted away from `Error.prototype`
+        // still answers `[object Error]` in Node, which a chain walk cannot
+        // reproduce.
+        hosted(|| {
+            with_current(|context| {
+                let cell = super::super::native::plain(context).expect("a cell");
+                context.defer_stack(cell, "Error");
+                // Rerouted off the Error chain entirely — the exact shape
+                // `Object.setPrototypeOf(Broken.prototype, Object.prototype)`
+                // produces in `claude-error-subclass-prototype-repair`.
+                if let Some(base) = prototype_of(context) {
+                    context.set_prototype(cell, Value::from_slot(base).bits());
+                }
+                let value = Value::from_slot(cell).bits();
+                assert_eq!(object_tag(context, value), "Error");
+            });
+        });
+    }
+
+    #[test]
+    fn boolean_prototype_declares_its_own_string_tag() {
+        // `Boolean.prototype` IS a boxed `false` (see `Boolean`'s own module
+        // doc), so the boxed-value branch of `object_tag` never runs against
+        // it — this class alone declares `tag`, which puts an explicit
+        // `Symbol.toStringTag` on the prototype so
+        // `Object.prototype.toString.call(Boolean.prototype)` still answers
+        // `[object Boolean]`, matching Node.
+        hosted(|| {
+            with_current(|context| {
+                let made = super::super::number::register_boolean(context);
+                let prototype_key = context.well_known("prototype");
+                let ctor = Value(made).as_slot().expect("Boolean is callable");
+                let prototype = super::super::objects::read_property(context, ctor, prototype_key)
+                    .and_then(|value| value.as_slot())
+                    .expect("Boolean.prototype exists");
+                let tag_key = context.well_known(&format!("{}toStringTag", super::super::symbol::PREFIX));
+                let tag = super::super::objects::own_property(context, prototype, tag_key)
+                    .and_then(|value| value.as_slot())
+                    .and_then(|cell| context.text_at(cell))
+                    .and_then(|text| text.to_rust());
+                assert_eq!(tag.as_deref(), Some("Boolean"));
+            });
+        });
+    }
 }

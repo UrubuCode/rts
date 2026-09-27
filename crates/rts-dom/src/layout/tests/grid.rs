@@ -26,7 +26,7 @@
         let list = layout_document(&dom, &ctx);
         let rect = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-            list.geometry().rects[&idx]
+            list.geometry_now().rects[&idx]
         };
         let a = rect("#a");
         let b = rect("#b");
@@ -62,7 +62,7 @@
         };
         let list = layout_document(&dom, &ctx);
         let rect =
-            |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+            |sel: &str| list.geometry_now().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let a = rect("#a");
         let b = rect("#b");
         assert!(
@@ -115,7 +115,7 @@
         };
         let list = layout_document(&dom, &ctx);
         let rect =
-            |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+            |sel: &str| list.geometry_now().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let t = rect("#t");
         let l = rect("#l");
         let c = rect("#c");
@@ -152,7 +152,7 @@
         };
         let list = layout_document(&dom, &ctx);
         let rect =
-            |sel: &str| list.geometry().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+            |sel: &str| list.geometry_now().rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
         let n = rect("#n");
         let s = rect("#s");
         assert!(
@@ -187,7 +187,7 @@
         };
         let list = layout_document(&dom, &ctx);
         let idx = dom.resolve(dom.query("#logo").unwrap()).unwrap();
-        let r = list.geometry().rects[&idx];
+        let r = list.geometry_now().rects[&idx];
         assert!(
             (r.y - 74.0).abs() < 2.0,
             "y centralizado: {} (esperado 74=(240-92)/2)",

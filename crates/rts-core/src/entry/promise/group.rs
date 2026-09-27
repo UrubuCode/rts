@@ -187,6 +187,10 @@ pub(super) fn aggregate(context: &mut Context, reasons: u64) -> u64 {
     if let Some(prototype) = super::super::class_support::prototype(context, "AggregateError") {
         context.set_prototype(cell, prototype);
     }
+    // Built here rather than through the constructor, so the construction
+    // mark every `error.rs` constructor leaves is left by hand: it is what
+    // `Object.prototype.toString` reads as the [[ErrorData]] slot.
+    context.defer_stack(cell, "AggregateError");
     let value = context
         .intern_value(Str::from_str("All promises were rejected"))
         .bits();

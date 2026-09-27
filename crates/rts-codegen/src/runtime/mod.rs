@@ -37,7 +37,11 @@
 //! and the machine emits them itself. A language layer naming them would be
 //! reaching past the boundary to do work the machine already does.
 
+mod literals;
+pub mod math_direct;
 mod raising;
+
+pub use literals::Literals;
 
 pub use raising::{CANNOT_RAISE, IS_THE_CHECK};
 
@@ -68,6 +72,30 @@ use crate::emit::UNPROVEN;
 /// agree — which is where a disagreement becomes a refusal instead of a jump
 /// with a corrupt stack.
 pub const ARGUMENT_SLOTS: usize = 4;
+
+/// How many substitutions [`RuntimeOp::TemplateJoin`] takes in one crossing.
+///
+/// Six, where it was three: `bench/analytic.ts` `template 4 holes` paid the
+/// chain of additions at 1 208 ns while two holes cost 327, and the arguments
+/// are scalars across an `extern "C"` boundary, so the count is fixed at the
+/// signature. `ArrayOf` already carries eight the same way. The runtime states
+/// the same number and `rts-host` asserts the two agree.
+pub const TEMPLATE_JOINED: usize = 6;
+
+/// How many values [`RuntimeOp::ArrayOf`] takes in one crossing.
+///
+/// Eight, because the row it serves most is the argument vector of a call past
+/// the convention, and a five-argument call was one crossing to make the array
+/// plus one per element to fill it. The same kind of agreement as
+/// [`ARGUMENT_SLOTS`]: `rts_core::entry::ARRAY_OF_SLOTS` restates it and the
+/// host asserts the two are equal.
+pub const ARRAY_OF_SLOTS: usize = 8;
+
+/// The `name` operand of a call whose callee has no spelling to report —
+/// `(a || b)()`, or a call the compiler itself wrote. `-1`, because the operand
+/// is an index into the literal table and that is the one number that cannot be
+/// one. Restated by the runtime as `NO_CALL_NAME` and asserted equal in the host.
+pub const NO_CALL_NAME: i64 = -1;
 
 /// An operation the language performs by calling the runtime.
 ///
@@ -222,6 +250,13 @@ pub enum RuntimeOp {
     ArrayOf,
     /// `Math.random()`, reached directly.
     MathRandom,
+    /// A one-operand `Math` library member — a sine, a logarithm — reached
+    /// directly with the operand unboxed, by the number [`math_direct`]
+    /// assigns its name. Not an instruction: no hardware has one. What it
+    /// skips is the path, exactly as [`RuntimeOp::MathRandom`] does.
+    MathDirect1,
+    /// The two-operand form: `atan2`, `pow`, `hypot`.
+    MathDirect2,
     /// A template literal, joined in one crossing.
     TemplateJoin,
     /// `ToString(value)` — the conversion with the STRING hint.
@@ -1046,6 +1081,60 @@ pub enum RuntimeOp {
     /// `JSON.parse(text)`, the same way. Raises a `SyntaxError`.
     /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
     JsonParse,
+
+    /// A string's code points as a list, where a `for`-`of` may walk them rather
+    /// than step the iterator, and `undefined` where it may not --
+    /// [`rts_core::entry::text_walk`]. A call because what it answers is the state
+    /// of two prototypes a program may write to.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    TextWalk,
+
+    /// One argument of the running call, by position — how a parameter past the
+    /// convention's slots arrives. A call because the vector is the runtime's.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    ArgumentAt,
+
+    /// `Object.is(a, b)` — `SameValue` over two words, reached directly where the
+    /// whole program proves `Object` is the language's. A call because a string
+    /// compares by its text, which is the heap.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    SameValue,
+    /// `Array.isArray(x)`, reached directly under the same proof. A call because
+    /// being an array is a side table the runtime keeps.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    ArrayIsArray,
+
+    /// `m.get(k)` where the whole program leaves `Map` alone: the brand checked in
+    /// the runtime, a real map answered from its table, anything else through the
+    /// method it has. Operands: receiver, key, and WHICH literal spells the callee.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    MapGetDirect,
+    /// See [`RuntimeOp::MapGetDirect`].
+    MapHasDirect,
+    /// See [`RuntimeOp::MapGetDirect`]: receiver, key, value, spelling.
+    MapSetDirect,
+    /// See [`RuntimeOp::MapGetDirect`], for `Set`.
+    SetHasDirect,
+    /// See [`RuntimeOp::MapGetDirect`], for `Set`.
+    SetAddDirect,
+    /// `a.push(v)` on the same terms: receiver, value, spelling.
+    ArrayPushDirect,
+    /// `f.call(thisArg, a0, a1, a2)` where the whole program leaves `Function`
+    /// alone: the callee, the receiver, three argument slots padded with
+    /// `undefined`, how many were WRITTEN, and the spelling. The runtime checks
+    /// the callee is a plain function and calls it in the convention's own
+    /// slots; anything else takes the member it has.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    FunctionCallDirect,
+    /// `f.apply(thisArg, list)` on the same terms: callee, receiver, list, spelling.
+    FunctionApplyDirect,
+    /// `arguments.length` for a body that reads nothing else of the object: the
+    /// four argument slots, and the count the object's `length` would carry.
+    /// `emit/light_arguments.rs` is the proof.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    ArgumentsCount,
+    /// `arguments[e]` on the same terms: the four slots and the index VALUE.
+    ArgumentSlot,
 }
 
 impl RuntimeOp {
@@ -1067,6 +1156,8 @@ impl RuntimeOp {
         RuntimeOp::ObjectNew,
         RuntimeOp::ArrayOf,
         RuntimeOp::MathRandom,
+        RuntimeOp::MathDirect1,
+        RuntimeOp::MathDirect2,
         RuntimeOp::TemplateJoin,
         RuntimeOp::StringOf,
         RuntimeOp::GetProperty,
@@ -1162,6 +1253,20 @@ impl RuntimeOp {
         RuntimeOp::UnaryPlus,
         RuntimeOp::JsonStringify,
         RuntimeOp::JsonParse,
+        RuntimeOp::TextWalk,
+        RuntimeOp::ArgumentAt,
+        RuntimeOp::SameValue,
+        RuntimeOp::ArrayIsArray,
+        RuntimeOp::MapGetDirect,
+        RuntimeOp::MapHasDirect,
+        RuntimeOp::MapSetDirect,
+        RuntimeOp::SetHasDirect,
+        RuntimeOp::SetAddDirect,
+        RuntimeOp::ArrayPushDirect,
+        RuntimeOp::FunctionCallDirect,
+        RuntimeOp::FunctionApplyDirect,
+        RuntimeOp::ArgumentsCount,
+        RuntimeOp::ArgumentSlot,
     ];
 
     /// The linker name the runtime must define.
@@ -1188,6 +1293,8 @@ impl RuntimeOp {
             RuntimeOp::ObjectNew => "__rts_object_new",
             RuntimeOp::ArrayOf => "__rts_array_of",
             RuntimeOp::MathRandom => "__rts_math_random",
+            RuntimeOp::MathDirect1 => "__rts_math_direct1",
+            RuntimeOp::MathDirect2 => "__rts_math_direct2",
             RuntimeOp::TemplateJoin => "__rts_template_join",
             RuntimeOp::StringOf => "__rts_string_of",
             RuntimeOp::GetProperty => "__rts_get_property",
@@ -1278,6 +1385,20 @@ impl RuntimeOp {
             RuntimeOp::UnaryPlus => "__rts_unary_plus",
             RuntimeOp::JsonStringify => "__rts_json_stringify",
             RuntimeOp::JsonParse => "__rts_json_parse",
+            RuntimeOp::TextWalk => "__rts_text_walk",
+            RuntimeOp::ArgumentAt => "__rts_argument_at",
+            RuntimeOp::SameValue => "__rts_same_value",
+            RuntimeOp::ArrayIsArray => "__rts_array_is_array",
+            RuntimeOp::MapGetDirect => "__rts_map_get_direct",
+            RuntimeOp::MapHasDirect => "__rts_map_has_direct",
+            RuntimeOp::MapSetDirect => "__rts_map_set_direct",
+            RuntimeOp::SetHasDirect => "__rts_set_has_direct",
+            RuntimeOp::SetAddDirect => "__rts_set_add_direct",
+            RuntimeOp::ArrayPushDirect => "__rts_array_push_direct",
+            RuntimeOp::FunctionCallDirect => "__rts_function_call_direct",
+            RuntimeOp::FunctionApplyDirect => "__rts_function_apply_direct",
+            RuntimeOp::ArgumentsCount => "__rts_arguments_count",
+            RuntimeOp::ArgumentSlot => "__rts_argument_slot",
         }
     }
 
@@ -1313,22 +1434,27 @@ impl RuntimeOp {
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ObjectNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
+            RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
+            RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf => (vec![UNPROVEN], vec![UNPROVEN]),
-            RuntimeOp::TemplateJoin => (
-                vec![Repr::I64, Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN],
-                vec![UNPROVEN],
-            ),
-            RuntimeOp::ArrayOf => (
-                vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN],
-                vec![UNPROVEN],
-            ),
+            RuntimeOp::TemplateJoin => {
+                let mut params = vec![Repr::I64, Repr::I64];
+                params.extend(std::iter::repeat_n(UNPROVEN, TEMPLATE_JOINED));
+                (params, vec![UNPROVEN])
+            }
+            RuntimeOp::ArrayOf => {
+                let mut params = vec![Repr::I64];
+                params.extend(std::iter::repeat_n(UNPROVEN, ARRAY_OF_SLOTS));
+                (params, vec![UNPROVEN])
+            }
             RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
             // O quarto argumento é o MODO de quem escreve: `1` para sloppy.
             // Uma escrita que o objeto recusa é um `TypeError` em strict e um
             // no-op em sloppy, e só o sítio de onde foi escrita sabe qual.
-            RuntimeOp::SetProperty => {
-                (vec![UNPROVEN, Repr::I64, UNPROVEN, Repr::I64], vec![UNPROVEN])
-            }
+            RuntimeOp::SetProperty => (
+                vec![UNPROVEN, Repr::I64, UNPROVEN, Repr::I64],
+                vec![UNPROVEN],
+            ),
             // The code address is `I64` and not a value: it is a machine
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
@@ -1411,9 +1537,10 @@ impl RuntimeOp {
             // The key is a VALUE, where the named read takes the number the
             // compiler resolved. That is the whole difference between them.
             RuntimeOp::GetIndexed => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
-            RuntimeOp::SetIndexed => {
-                (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN])
-            }
+            RuntimeOp::SetIndexed => (
+                vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64],
+                vec![UNPROVEN],
+            ),
             RuntimeOp::HasProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::WithHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ForInHas => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
@@ -1486,9 +1613,15 @@ impl RuntimeOp {
             RuntimeOp::MarkClassConstructor => (vec![UNPROVEN], vec![UNPROVEN]),
             // The declaration, WHICH literals spell its module and name, and
             // the number its private names carry (`-1` for none).
-            RuntimeOp::SerdeDeclare => (vec![UNPROVEN, Repr::I64, Repr::I64, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::SerdeDeclare => (
+                vec![UNPROVEN, Repr::I64, Repr::I64, Repr::I64],
+                vec![UNPROVEN],
+            ),
             // The callee, the receiver, and the arguments as one array.
-            RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
+            // The callee, the receiver, the vector, and WHICH literal spells the
+            // callee — the operand that replaced the `SetCallName` crossing here
+            // as it did on `call_counted`.
+            RuntimeOp::CallWithArgs => (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes
             // the one the callee gets.
             RuntimeOp::ConstructWithArgs => (vec![UNPROVEN; 2], vec![UNPROVEN]),
@@ -1503,14 +1636,18 @@ impl RuntimeOp {
                 (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN])
             }
             // How many are declared, then the four the convention carried.
-            RuntimeOp::RestArguments => {
-                (vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
-            }
+            RuntimeOp::RestArguments => (
+                vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN],
+                vec![UNPROVEN],
+            ),
             // The four the convention carried. No leading count: `arguments`
             // always starts at zero, and a parameter for a constant is a
             // parameter that can be passed wrongly.
-            RuntimeOp::ArgumentsObject => {
+            RuntimeOp::ArgumentsObject | RuntimeOp::ArgumentsCount => {
                 (vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
+            }
+            RuntimeOp::ArgumentSlot => {
+                (vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
             }
             // The fourth operand is `enumerable`, a compile-time constant: an
             // object literal's accessor is enumerable and a class body's is not.
@@ -1525,9 +1662,10 @@ impl RuntimeOp {
             RuntimeOp::GetSuperProperty => (vec![UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
             // The same two objects, plus the value. Answers the value, because
             // an assignment is an expression.
-            RuntimeOp::SetSuperProperty => {
-                (vec![UNPROVEN, UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
-            }
+            RuntimeOp::SetSuperProperty => (
+                vec![UNPROVEN, UNPROVEN, Repr::I64, UNPROVEN],
+                vec![UNPROVEN],
+            ),
             // A key the compiler resolved, like `GlobalGet` — and for the same
             // reason: both sides hold the same number, so no text crosses.
             RuntimeOp::UnboundGlobalGet => (vec![Repr::I64], vec![UNPROVEN]),
@@ -1540,6 +1678,23 @@ impl RuntimeOp {
             RuntimeOp::PageGlobalSet => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::UnaryPlus => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::JsonStringify | RuntimeOp::JsonParse => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::TextWalk => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ArgumentAt => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::SameValue => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::ArrayIsArray => (vec![UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::MapGetDirect
+            | RuntimeOp::MapHasDirect
+            | RuntimeOp::SetHasDirect
+            | RuntimeOp::SetAddDirect
+            | RuntimeOp::ArrayPushDirect => (vec![UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::MapSetDirect => (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::FunctionCallDirect => (
+                vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64, Repr::I64],
+                vec![UNPROVEN],
+            ),
+            RuntimeOp::FunctionApplyDirect => {
+                (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN])
+            }
         };
         Signature {
             params,

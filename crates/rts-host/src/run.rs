@@ -406,6 +406,9 @@ fn run_region(
         let _timing = rts_cranelift::probe::Phase::start("install-dom");
         rts_dom_bridge::install(&mut context);
     }
+    // After both halves exist; binds nothing unless `--inspect`/`RTS_INSPECT` asked.
+    #[cfg(feature = "inspector")]
+    crate::inspector::install(&mut context);
     #[cfg(feature = "ui")]
     rts_ui::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by

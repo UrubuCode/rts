@@ -40,7 +40,7 @@ pub(super) fn time_of(this: u64) -> f64 {
         };
         let key = context.well_known(TIME);
         read_property(context, cell, key)
-            .and_then(|found| found.as_f64())
+            .and_then(|found| found.numeric())
             .unwrap_or(f64::NAN)
     })
 }

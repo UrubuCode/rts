@@ -99,6 +99,22 @@ impl Context {
         self.pending_stacks.remove(cell)
     }
 
+    /// Whether `cell` still holds the frames `defer_stack` captured — read-only,
+    /// for a caller that only needs to know an `Error` was BUILT here, never
+    /// what it holds.
+    ///
+    /// This is `object_proto::object_tag`'s "Error" test: every constructor in
+    /// `error.rs` calls `defer_stack` unconditionally, before anything else can
+    /// observe the instance, so its presence is the internal slot the
+    /// specification's built-in tag table asks for — set once, at construction,
+    /// and never disturbed by a later `Object.setPrototypeOf` the way a
+    /// prototype-chain walk is. `Error.prototype` itself never passes through
+    /// here, which is what keeps it OUT of this test even though a chain walk
+    /// answers "yes" for it trivially (it IS its own target).
+    pub(in crate::entry) fn has_pending_stack(&self, cell: u32) -> bool {
+        self.pending_stacks.get(cell).is_some()
+    }
+
     pub(super) fn accessor_at(&self, cell: u32, key: u32) -> Option<Pair> {
         let defined = self.accessors.get(cell)?;
         defined

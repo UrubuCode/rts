@@ -29,7 +29,6 @@
 //! cannot have a problem, since its parameters exist whether or not anything
 //! was passed.
 
-use rts_cranelift::ir::FloatOp;
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::repr::Repr;
 
@@ -75,16 +74,28 @@ pub(super) fn emit_call_as(
     // A `with` can carry an `eval` of its own, and then the bare name is not
     // the global one at all — which is the same proof about a name the two
     // paths below need.
-    if scope_is_lexical
-        && let Some(value) = direct_eval(builder, scope, ctx, callee, arguments)?
-    {
+    if scope_is_lexical && let Some(value) = direct_eval(builder, scope, ctx, callee, arguments)? {
         return Ok(value);
     }
 
     // One machine instruction, when the whole program proves the name still
     // means what it means and the argument is already a proven double.
     if scope_is_lexical
-        && let Some(value) = machine_operation(builder, scope, ctx, callee, arguments)?
+        && let Some(value) = super::math::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
+    // `Number.isNaN(x)`, `Array.isArray(x)`, `Object.is(a, b)` and the global
+    // predicates, on the same terms. See `statics`.
+    if scope_is_lexical
+        && let Some(value) = super::statics::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
+    // `m.get(k)`, `s.has(v)`, `a.push(v)` and their siblings: one entry that
+    // checks the receiver's brand and falls back to the method. See `methods`.
+    if scope_is_lexical
+        && let Some(value) = super::methods::emit(builder, scope, ctx, callee, arguments)?
     {
         return Ok(value);
     }
@@ -171,78 +182,6 @@ fn direct_eval(
     Ok(Some(answered))
 }
 
-/// `Math.sqrt(x)` and its four siblings, as the instruction the hardware has.
-///
-/// # Three conditions, and each one is a proof rather than a guess
-///
-/// The program must not disturb `Math` anywhere — `primordial::untouched`,
-/// computed over the whole tree before anything was emitted. No enclosing scope
-/// may bind the name, which the scope answers exactly. And the argument must
-/// ALREADY be a proven double: a guard here would be correct too, but the
-/// operand of a square root in a loop is proven by the type pass in the case
-/// that matters, and emitting a guard for the rest would cost a branch to
-/// discover what the call would have found anyway.
-///
-/// Answers `None` for anything else, and the ordinary call follows.
-///
-/// # Why the language decides this and not the machine
-///
-/// `Inst::FloatUnary` knows nothing about `Math` — rule 2 of the machine's own
-/// README, no source-language knowledge there. Which name means a square root
-/// is a fact about JavaScript, so it is decided here, in the crate that is
-/// allowed to know.
-fn machine_operation(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    callee: &Expr,
-    arguments: &[Spreadable],
-) -> EmitResult<Option<ValueId>> {
-    if !ctx.math_primordial {
-        return Ok(None);
-    }
-    let ExprKind::Member {
-        object,
-        property,
-        optional: false,
-    } = &callee.kind
-    else {
-        return Ok(None);
-    };
-    let ExprKind::Ident(name) = &object.kind else {
-        return Ok(None);
-    };
-    if ctx.names.text(*name) != "Math" || scope.lookup(*name).is_some() {
-        return Ok(None);
-    }
-    // `Math.random()` takes no argument and answers a double, so it needs no
-    // proven operand — only the same whole-program proof. Not an instruction:
-    // there is no opcode for a generator. What it skips is the PATH — the
-    // property read through the chain cache and the generic call machinery —
-    // which is where its 40 ns were, since the generator itself is a
-    // thread-local xorshift.
-    if ctx.names.text(*property) == "random" && arguments.is_empty() {
-        let drawn = super::expr::call(builder, ctx, RuntimeOp::MathRandom, &[])?[0];
-        return Ok(Some(super::expr::tagged(builder, drawn)));
-    }
-    let op = match ctx.names.text(*property) {
-        "sqrt" => FloatOp::Sqrt,
-        "floor" => FloatOp::Floor,
-        "ceil" => FloatOp::Ceil,
-        "trunc" => FloatOp::Trunc,
-        "abs" => FloatOp::Abs,
-        _ => return Ok(None),
-    };
-    let [Spreadable::Single(only)] = arguments else {
-        return Ok(None);
-    };
-    let argument = super::expr::emit_expr(builder, scope, ctx, only)?;
-    if builder.repr_of(argument) != Repr::F64 {
-        return Ok(None);
-    }
-    let answered = builder.float_unary(op, argument)?;
-    Ok(Some(super::expr::tagged(builder, answered)))
-}
 
 /// What a `TypeError` should call the callee, from how it was spelled.
 ///
@@ -287,7 +226,7 @@ pub(super) fn callee_spelling(ctx: &mut Ctx, callee: &Expr) -> Option<u32> {
 /// `sloppy.rs` peels for its own question — whether an object names
 /// `globalThis` — and the two are not one rule stated twice: that one asks what
 /// an OBJECT is, this one asks what a CALL is.
-fn spelled(callee: &Expr) -> &Expr {
+pub(crate) fn spelled(callee: &Expr) -> &Expr {
     match &callee.kind {
         ExprKind::Asserted { value, .. } => spelled(value),
         _ => callee,
@@ -427,7 +366,16 @@ pub(super) fn emit_call_with_name(
     arguments: &[Spreadable],
     name: Option<u32>,
 ) -> EmitResult<ValueId> {
-    emit_call_with_name_as(builder, scope, ctx, function, receiver, arguments, name, RuntimeOp::Call)
+    emit_call_with_name_as(
+        builder,
+        scope,
+        ctx,
+        function,
+        receiver,
+        arguments,
+        name,
+        RuntimeOp::Call,
+    )
 }
 
 /// [`emit_call_with_name`] through `op`. A tail call never takes the vector
@@ -452,12 +400,15 @@ fn emit_call_with_name_as(
     // argument may become none or nine.
     if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
         let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
-        emit_set_call_name(builder, ctx, name)?;
+        // WHICH literal spells the callee travels as an operand, as on the
+        // ordinary call below; `SetCallName` was a whole crossing before every
+        // one of these calls, measured at 2.3-2.9 ns on the four-slot form.
+        let spelled = expr::name_constant(builder, name);
         return Ok(expr::call(
             builder,
             ctx,
             RuntimeOp::CallWithArgs,
-            &[function, receiver, vector],
+            &[function, receiver, vector, spelled],
         )?[0]);
     }
 
@@ -471,23 +422,6 @@ fn emit_call_with_name_as(
         values.push(emit_expr(builder, scope, ctx, value)?);
     }
     issue_as(builder, ctx, function, receiver, &values, name, op)
-}
-
-/// Records the callee's spelling for the call about to be issued, if it has
-/// one — emitted last, after every argument, so an argument that calls
-/// something of its own cannot overwrite what this call site just recorded
-/// for itself. See `RuntimeOp::SetCallName`.
-fn emit_set_call_name(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Option<u32>) -> EmitResult<()> {
-    let Some(literal) = name else {
-        return Ok(());
-    };
-    let id = builder.declare_const(ConstDecl::Scalar {
-        repr: Repr::I64,
-        bits: ScalarBits(u64::from(literal)),
-    });
-    let id = builder.use_const(id);
-    expr::call(builder, ctx, RuntimeOp::SetCallName, &[id])?;
-    Ok(())
 }
 
 /// Emits a call whose arguments are already values.
@@ -508,11 +442,19 @@ pub(super) fn issue(
     values: &[ValueId],
     name: Option<u32>,
 ) -> EmitResult<ValueId> {
-    issue_as(builder, ctx, function, receiver, values, name, RuntimeOp::Call)
+    issue_as(
+        builder,
+        ctx,
+        function,
+        receiver,
+        values,
+        name,
+        RuntimeOp::Call,
+    )
 }
 
 /// [`issue`] through `op`, which is `Call` or `TailCall`: same operands.
-fn issue_as(
+pub(super) fn issue_as(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     function: ValueId,
@@ -522,16 +464,16 @@ fn issue_as(
     op: RuntimeOp,
 ) -> EmitResult<ValueId> {
     if values.len() > ARGUMENT_SLOTS {
-        emit_set_call_name(builder, ctx, name)?;
-        // Through the shared list builder: the first four go in one crossing
-        // and the rest are appended, where this was one crossing to make the
-        // array and one per value. See `expr::value_list`.
+        // Through the shared list builder: up to eight go in one crossing and
+        // the rest are appended, where this was one crossing to make the array
+        // and one per value. See `expr::value_list`.
         let vector = expr::value_list(builder, ctx, values)?;
+        let spelled = expr::name_constant(builder, name);
         return Ok(expr::call(
             builder,
             ctx,
             RuntimeOp::CallWithArgs,
-            &[function, receiver, vector],
+            &[function, receiver, vector, spelled],
         )?[0]);
     }
 
@@ -553,9 +495,9 @@ fn issue_as(
     // carries what it was measured to cost.
     //
     // Ordering is strictly better than the crossing's, not merely preserved.
-    // `emit_set_call_name` had to be emitted LAST, after every argument, so an
-    // argument that called something of its own could not overwrite what this
-    // site had recorded. A constant operand cannot be overwritten by anything,
+    // the `SetCallName` crossing had to be emitted LAST, after every argument,
+    // so an argument that called something of its own could not overwrite what
+    // this site had recorded. A constant operand cannot be overwritten by anything,
     // because nothing runs between the operands and the jump.
     passed.push(expr::name_constant(builder, name));
     passed.extend_from_slice(values);
@@ -588,7 +530,14 @@ pub fn emit_construct(
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
     let function = emit_expr(builder, scope, ctx, callee)?;
-    emit_construction(builder, scope, ctx, function, arguments, RuntimeOp::Construct)
+    emit_construction(
+        builder,
+        scope,
+        ctx,
+        function,
+        arguments,
+        RuntimeOp::Construct,
+    )
 }
 
 /// The same, for a callee that is already a value.
@@ -606,7 +555,14 @@ pub fn emit_super_construct(
     function: ValueId,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
-    emit_construction(builder, scope, ctx, function, arguments, RuntimeOp::SuperConstruct)
+    emit_construction(
+        builder,
+        scope,
+        ctx,
+        function,
+        arguments,
+        RuntimeOp::SuperConstruct,
+    )
 }
 
 /// The written arguments, as an ordinary array.

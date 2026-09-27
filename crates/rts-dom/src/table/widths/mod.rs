@@ -341,7 +341,7 @@ pub(super) fn min_content_na_arvore(
         // floor in Times (144px for "XXXX" at 50px) beat an Arial item's own
         // width (133); measured with the parent's `nowrap`/`pre` flag alone, a
         // `pre` text's newline joined its lines into one.
-        NodeKind::Text(_) => crate::layout::text_measure::intrinsic_text_width(dom, id, font, true, ctx),
+        NodeKind::Text(_) => crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx),
         NodeKind::Element { tag } => {
             if crate::layout::is_non_rendered_tag(tag) {
                 return 0.0;
@@ -390,7 +390,7 @@ pub(super) fn min_content_na_arvore(
             // largura da viewport devolveria o que coubesse nela, que é outra
             // pergunta.
             if let Some((w, _)) =
-                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, (None, None), ctx)
+                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx)
             {
                 // Candidato (d) do `min-width:auto` (Flexbox §4.5, `inline_box`):
                 // com razão de aspeto, o piso vem dela, não da `width` acima

@@ -144,7 +144,9 @@ fn iterator_of(
         builder,
         ctx,
         RuntimeOp::Call,
-        &[method, source, written, unnamed, absent, absent, absent, absent],
+        &[
+            method, source, written, unnamed, absent, absent, absent, absent,
+        ],
     )?[0];
     let iterator = builder.widen(iterator);
     builder.jump(join, &[iterator])?;
@@ -187,8 +189,8 @@ fn emit_protocol(
     // something remembers that while the frame is parked, and a frame is parked
     // exactly where emitted code has stopped running. See
     // `rts-core`'s `entry/generator/delegate.rs`.
-    let answered = super::expr::call(builder, ctx, RuntimeOp::DelegateStep, &[step, source, sent])?
-        [0];
+    let answered =
+        super::expr::call(builder, ctx, RuntimeOp::DelegateStep, &[step, source, sent])?[0];
     let named = ctx.names.intern("value");
     let key = key_constant(builder, ctx, named);
     let value = super::expr::call(builder, ctx, RuntimeOp::GetProperty, &[answered, key])?[0];

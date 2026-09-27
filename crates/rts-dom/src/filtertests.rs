@@ -9,7 +9,7 @@
 //! é o certo. A display list é onde a decisão é tomada, portanto é aqui que se
 //! pina; a confirmação visual precisa de uma captura.
 
-use crate::layout::DisplayItem;
+use crate::paint::DisplayItem;
 use crate::table::tests::geometria;
 
 /// Todos os itens pintados, já materializados.

@@ -439,7 +439,7 @@ pub(super) fn list_from_array_like(arguments: u64) -> Option<u64> {
 /// The stack-slot convention removes that, and this is what the language can do
 /// correctly until the machine grows one.
 #[rtse::entry]
-pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
+pub fn call_with_args(callee: u64, this: u64, arguments: u64, name: i64) -> u64 {
     if is_bare_class_constructor_call(callee) {
         super::throw::type_error("Class constructor cannot be invoked without 'new'");
         return with_current(|context| undefined_of(context));
@@ -481,12 +481,21 @@ pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
         let spelled = context.pending_call_name.take();
         (first, spelled)
     });
+    // WHICH literal spells the callee arrives as an operand now, as it does on
+    // `call_counted` — the `SetCallName` crossing this door was preceded by is
+    // gone from its compiled sites. A native reaching this door has no site and
+    // passes [`NO_CALL_NAME`]; what `set_call_name` recorded, if anything, is
+    // still taken so it cannot outlive the call it was written for.
+    let spelling = match name {
+        NO_CALL_NAME => Spelling::Taken(spelled),
+        literal => Spelling::Literal(literal),
+    };
     // Not through `call`, which pushes a marker of its own — that marker on top
     // would hide the vector from exactly the callee it was made for.
     let produced = invoke(
         callee,
         this,
-        Spelling::Taken(spelled),
+        spelling,
         first[0],
         first[1],
         first[2],
@@ -614,6 +623,37 @@ pub fn call_counted(
 ) -> u64 {
     let counted = count.clamp(0, ARGUMENT_SLOTS as i64) as usize;
     called(callee, this, Some(counted), name, a0, a1, a2, a3)
+}
+
+/// The argument at `position` of the running call, or `undefined`.
+///
+/// # Why this exists beside [`rest_arguments`]
+///
+/// A function declaring a fifth parameter read it by building the WHOLE rest
+/// array and indexing it: an allocation per call, to read one word. This reads
+/// the word. The vector, when the caller built one, is the one `call_with_args`
+/// pushed for this activation; a caller that passed four or fewer built none, and
+/// a parameter past the slots then holds what a parameter nothing was passed for
+/// holds. A hole cannot arise — the vector is built from written arguments — but
+/// is read as `undefined` all the same, which is what an element read answers.
+#[rtse::entry]
+pub fn argument_at(position: i64) -> u64 {
+    with_current(|context| {
+        let absent = undefined_of(context);
+        let Ok(at) = usize::try_from(position) else {
+            return absent;
+        };
+        let Some(vector) = context.pending_arguments.last().copied() else {
+            return absent;
+        };
+        let Some(cell) = Value(vector).as_slot() else {
+            return absent;
+        };
+        match context.elements_at(cell).and_then(|held| held.get(at).copied()) {
+            Some(value) if !super::array::is_hole(context, value) => value,
+            _ => absent,
+        }
+    })
 }
 
 /// A callee with nothing to name, as the `name` operand spells it.
@@ -1586,6 +1626,7 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
     // the walk below already resolves by following the proxy to its target. The
     // loop is the one place that knows what "callable" means for a proxy and a
     // bound function, so the refusal is raised from inside it.
+    let mut resume: Option<(u64, u64)> = None;
     let held = with_current(|context| {
         let Some(mut function) = Value(callee).as_slot() else {
             return Err(Refusal::NotCallable);
@@ -1660,6 +1701,13 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         if context.text_at(cell).is_some() {
             return Ok(false);
         }
+        // A PROXY on the left-hand chain answers `[[GetPrototypeOf]]` through
+        // its trap, which is user code and cannot run in this borrow. The walk
+        // stops there and is resumed outside it — see `resume` below.
+        if context.proxy_at(cell).is_some() {
+            resume = Some((value, wanted.bits()));
+            return Ok(false);
+        }
         // Stepped with `inherited_from` rather than `prototype_at`, so the
         // prototypes that are SUBSTITUTED by kind rather than linked from the
         // cell count too. Without it `[] instanceof Array` and
@@ -1673,10 +1721,23 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
             if Value::from_slot(next).bits() == wanted.bits() {
                 return Ok(true);
             }
+            if context.proxy_at(next).is_some() {
+                resume = Some((Value::from_slot(next).bits(), wanted.bits()));
+                return Ok(false);
+            }
             cell = next;
         }
         Ok(false)
     });
+    // `OrdinaryHasInstance` steps 4–6 from the proxy on: each link through
+    // `[[GetPrototypeOf]]`, which is its trap — `x instanceof C` over a proxy
+    // logged no `getPrototypeOf` at all, and a REVOKED one answered from its
+    // dead cell instead of throwing.
+    if held.is_ok()
+        && let Some((from, wanted)) = resume
+    {
+        return super::proxy::inherits(from, wanted);
+    }
     match held {
         Ok(answer) => answer,
         Err(why) => {

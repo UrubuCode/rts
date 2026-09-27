@@ -78,7 +78,7 @@ fn intrinseco_de_bloco_com_floats_soma_os_floats_em_vez_do_maior() {
     // O max-content (`intrinsic_content_width`) de um bloco COMUM (não-flex)
     // cujos filhos são FLOATS soma-os, como eles fazem no fluxo real
     // (lado a lado até não caberem) — não toma o maior, que é a regra certa
-    // para filhos de BLOCO (empilhados). `fecha_a_corrida` tratava um float
+    // para filhos de BLOCO (empilhados). `close_run` tratava um float
     // como bloco (fecha a corrida, cada um a sua "linha" no cálculo do
     // max-content) — `flexbox-flex-wrap-horiz-002`/`-vert-001/002` (WPT)
     // simulam `flex-wrap` com floats lado a lado na REFERÊNCIA, e o
