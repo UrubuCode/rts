@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4519) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4596) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -9423,10 +9423,10 @@
 ,
 {
   "name": "claude-math-hypot-special-cases",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "empty hypot() = 0 neg0:false\none_pos hypot(3) = 3 neg0:false\none_neg hypot(-3) = 3 neg0:false\none_zero hypot(0) = 0 neg0:false\none_negzero hypot(0) = 0 neg0:false\none_nan hypot(NaN) = NaN neg0:false\none_inf hypot(Infinity) = Infinity neg0:false\none_neginf hypot(-Infinity) = Infinity neg0:false\ninf_then_nan hypot(Infinity,NaN) = Infinity neg0:false\nnan_then_inf hypot(NaN,Infinity) = Infinity neg0:false\nneginf_then_nan hypot(-Infinity,NaN) = Infinity neg0:false\nnan_nan_inf hypot(NaN,NaN,-Infinity) = Infinity neg0:false\nnan_only hypot(NaN,1) = NaN neg0:false\nnan_nan hypot(NaN,NaN) = NaN neg0:false\ninf_inf hypot(Infinity,-Infinity) = Infinity neg0:false\ninf_finite hypot(Infinity,3) = Infinity neg0:false\nzeros hypot(0,0) = 0 neg0:false\nnegzeros hypot(0,0) = 0 neg0:false\nmixed_zeros hypot(0,0) = 0 neg0:false\nthree_negzeros hypot(0,0,0) = 0 neg0:false\n3_4 hypot(3,4) = 5 neg0:false\n5_12 hypot(5,12) = 13 neg0:false\n8_15 hypot(8,15) = 17 neg0:false\n7_24 hypot(7,24) = 25 neg0:false\n20_21 hypot(20,21) = 29 neg0:false\n3_4_12 hypot(3,4,12) = 13 neg0:false\n1_2_2 hypot(1,2,2) = 3 neg0:false\n2_3_6 hypot(2,3,6) = 7 neg0:false\nneg3_neg4 hypot(-3,-4) = 5 neg0:false\n0_5 hypot(0,5) = 5 neg0:false\nneg0_neg5 hypot(0,-5) = 5 neg0:false\n--- scaling ---\nbig_finite=true\nbig_naive_overflows=true\nsmall_nonzero=true\nsmall_naive_underflows=true\nbig_scaled_exact=true\nsmall_scaled_close=true\nmaxvalue_finite=true\nmaxvalue_pair_overflows=true\n--- coercion ---\nstrings=5\nnull=5\nundefined=NaN\nbool=1\narr=5\nthrew=TypeError\nlog=boom\nsymbol_threw=TypeError\nlength=2\nname=hypot",
   "node": "empty hypot() = 0 neg0:false\none_pos hypot(3) = 3 neg0:false\none_neg hypot(-3) = 3 neg0:false\none_zero hypot(0) = 0 neg0:false\none_negzero hypot(0) = 0 neg0:false\none_nan hypot(NaN) = NaN neg0:false\none_inf hypot(Infinity) = Infinity neg0:false\none_neginf hypot(-Infinity) = Infinity neg0:false\ninf_then_nan hypot(Infinity,NaN) = Infinity neg0:false\nnan_then_inf hypot(NaN,Infinity) = Infinity neg0:false\nneginf_then_nan hypot(-Infinity,NaN) = Infinity neg0:false\nnan_nan_inf hypot(NaN,NaN,-Infinity) = Infinity neg0:false\nnan_only hypot(NaN,1) = NaN neg0:false\nnan_nan hypot(NaN,NaN) = NaN neg0:false\ninf_inf hypot(Infinity,-Infinity) = Infinity neg0:false\ninf_finite hypot(Infinity,3) = Infinity neg0:false\nzeros hypot(0,0) = 0 neg0:false\nnegzeros hypot(0,0) = 0 neg0:false\nmixed_zeros hypot(0,0) = 0 neg0:false\nthree_negzeros hypot(0,0,0) = 0 neg0:false\n3_4 hypot(3,4) = 5 neg0:false\n5_12 hypot(5,12) = 13 neg0:false\n8_15 hypot(8,15) = 17 neg0:false\n7_24 hypot(7,24) = 25 neg0:false\n20_21 hypot(20,21) = 29 neg0:false\n3_4_12 hypot(3,4,12) = 13 neg0:false\n1_2_2 hypot(1,2,2) = 3 neg0:false\n2_3_6 hypot(2,3,6) = 7 neg0:false\nneg3_neg4 hypot(-3,-4) = 5 neg0:false\n0_5 hypot(0,5) = 5 neg0:false\nneg0_neg5 hypot(0,-5) = 5 neg0:false\n--- scaling ---\nbig_finite=true\nbig_naive_overflows=true\nsmall_nonzero=true\nsmall_naive_underflows=true\nbig_scaled_exact=true\nsmall_scaled_close=true\nmaxvalue_finite=true\nmaxvalue_pair_overflows=true\n--- coercion ---\nstrings=5\nnull=5\nundefined=NaN\nbool=1\narr=5\nthrew=TypeError\nlog=boom\nsymbol_threw=TypeError\nlength=2\nname=hypot",
-  "rts": "empty hypot() = 0 neg0:false\none_pos hypot(3) = 3 neg0:false\none_neg hypot(-3) = 3 neg0:false\none_zero hypot(0) = 0 neg0:false\none_negzero hypot(0) = 0 neg0:false\none_nan hypot(NaN) = NaN neg0:false\none_inf hypot(Infinity) = Infinity neg0:false\none_neginf hypot(-Infinity) = Infinity neg0:false\ninf_then_nan hypot(Infinity,NaN) = Infinity neg0:false\nnan_then_inf hypot(NaN,Infinity) = Infinity neg0:false\nneginf_then_nan hypot(-Infinity,NaN) = Infinity neg0:false\nnan_nan_inf hypot(NaN,NaN,-Infinity) = Infinity neg0:false\nnan_only hypot(NaN,1) = NaN neg0:false\nnan_nan hypot(NaN,NaN) = NaN neg0:false\ninf_inf hypot(Infinity,-Infinity) = Infinity neg0:false\ninf_finite hypot(Infinity,3) = Infinity neg0:false\nzeros hypot(0,0) = 0 neg0:false\nnegzeros hypot(0,0) = 0 neg0:false\nmixed_zeros hypot(0,0) = 0 neg0:false\nthree_negzeros hypot(0,0,0) = 0 neg0:false\n3_4 hypot(3,4) = 5 neg0:false\n5_12 hypot(5,12) = 13 neg0:false\n8_15 hypot(8,15) = 17 neg0:false\n7_24 hypot(7,24) = 25 neg0:false\n20_21 hypot(20,21) = 29 neg0:false\n3_4_12 hypot(3,4,12) = 13 neg0:false\n1_2_2 hypot(1,2,2) = 3 neg0:false\n2_3_6 hypot(2,3,6) = 7 neg0:false\nneg3_neg4 hypot(-3,-4) = 5 neg0:false\n0_5 hypot(0,5) = 5 neg0:false\nneg0_neg5 hypot(0,-5) = 5 neg0:false\n--- scaling ---\nbig_finite=true\nbig_naive_overflows=true\nsmall_nonzero=true\nsmall_naive_underflows=true\nbig_scaled_exact=true\nsmall_scaled_close=true\nmaxvalue_finite=true\nmaxvalue_pair_overflows=true\n--- coercion ---\nstrings=5\nnull=5\nundefined=NaN\nbool=1\narr=5\nthrew=TypeError\nlog=boom\nsymbol_threw=TypeError\nlength=2\nname=hypot",
+  "rts": "empty hypot() = 0 neg0:false\none_pos hypot(3) = 3 neg0:false\none_neg hypot(-3) = 3 neg0:false\none_zero hypot(0) = 0 neg0:false\none_negzero hypot(0) = 0 neg0:false\none_nan hypot(NaN) = NaN neg0:false\none_inf hypot(Infinity) = Infinity neg0:false\none_neginf hypot(-Infinity) = Infinity neg0:false\ninf_then_nan hypot(Infinity,NaN) = Infinity neg0:false\nnan_then_inf hypot(NaN,Infinity) = Infinity neg0:false\nneginf_then_nan hypot(-Infinity,NaN) = Infinity neg0:false\nnan_nan_inf hypot(NaN,NaN,-Infinity) = Infinity neg0:false\nnan_only hypot(NaN,1) = NaN neg0:false\nnan_nan hypot(NaN,NaN) = NaN neg0:false\ninf_inf hypot(Infinity,-Infinity) = Infinity neg0:false\ninf_finite hypot(Infinity,3) = Infinity neg0:false\nzeros hypot(0,0) = 0 neg0:false\nnegzeros hypot(0,0) = 0 neg0:false\nmixed_zeros hypot(0,0) = 0 neg0:false\nthree_negzeros hypot(0,0,0) = 0 neg0:false\n3_4 hypot(3,4) = 5 neg0:false\n5_12 hypot(5,12) = 13 neg0:false\n8_15 hypot(8,15) = 17 neg0:false\n7_24 hypot(7,24) = 25 neg0:false\n20_21 hypot(20,21) = 29 neg0:false\n3_4_12 hypot(3,4,12) = 13 neg0:false\n1_2_2 hypot(1,2,2) = 3 neg0:false\n2_3_6 hypot(2,3,6) = 7 neg0:false\nneg3_neg4 hypot(-3,-4) = 5 neg0:false\n0_5 hypot(0,5) = 5 neg0:false\nneg0_neg5 hypot(0,-5) = 5 neg0:false\n--- scaling ---\nbig_finite=true\nbig_naive_overflows=true\nsmall_nonzero=true\nsmall_naive_underflows=true\nbig_scaled_exact=true\nsmall_scaled_close=true\nmaxvalue_finite=true\nmaxvalue_pair_overflows=true\n--- coercion ---\nstrings=5\nnull=5\nundefined=NaN\nbool=1\narr=5\nthrew=TypeError\nlog=boom,c\nsymbol_threw=TypeError\nlength=2\nname=hypot",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9451,10 +9451,10 @@
 ,
 {
   "name": "claude-math-max-min-coercion-order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "str_max=10\nstr_min=3\nmixed_max=2\narr_max=5\nobj_max=NaN\nundef_max=NaN\nemptystr_min=0\nhex_max=16\nwrapper_max=7\nwith_nan=NaN\ncoerced_after_nan=a,b\nplain=9\norder=a,b,c\nthrew=TypeError\nlog_after_throw=a,boom\nmin_threw=RangeError\nmin_log=a,boom\nsymbol_threw=TypeError\nbigint_threw=TypeError\nhinted=42\nhint=number\nspread=5\napply=5\napply_empty=-Infinity\nmin_spread=1\nmax_length=2\nmin_length=2\nmax_name=max\nmax_empty=-Infinity\nmin_empty=Infinity\nmax_nan_last=NaN\nmin_nan_first=NaN\nmax_inf=NaN\nmin_neginf=NaN",
   "node": "str_max=10\nstr_min=3\nmixed_max=2\narr_max=5\nobj_max=NaN\nundef_max=NaN\nemptystr_min=0\nhex_max=16\nwrapper_max=7\nwith_nan=NaN\ncoerced_after_nan=a,b\nplain=9\norder=a,b,c\nthrew=TypeError\nlog_after_throw=a,boom\nmin_threw=RangeError\nmin_log=a,boom\nsymbol_threw=TypeError\nbigint_threw=TypeError\nhinted=42\nhint=number\nspread=5\napply=5\napply_empty=-Infinity\nmin_spread=1\nmax_length=2\nmin_length=2\nmax_name=max\nmax_empty=-Infinity\nmin_empty=Infinity\nmax_nan_last=NaN\nmin_nan_first=NaN\nmax_inf=NaN\nmin_neginf=NaN",
-  "rts": "str_max=10\nstr_min=3\nmixed_max=2\narr_max=5\nobj_max=NaN\nundef_max=NaN\nemptystr_min=0\nhex_max=16\nwrapper_max=7\nwith_nan=NaN\ncoerced_after_nan=a,b\nplain=9\norder=a,b,c\nthrew=TypeError\nlog_after_throw=a,boom\nmin_threw=RangeError\nmin_log=a,boom\nsymbol_threw=TypeError\nbigint_threw=TypeError\nhinted=42\nhint=number\nspread=5\napply=5\napply_empty=-Infinity\nmin_spread=1\nmax_length=2\nmin_length=2\nmax_name=max\nmax_empty=-Infinity\nmin_empty=Infinity\nmax_nan_last=NaN\nmin_nan_first=NaN\nmax_inf=NaN\nmin_neginf=NaN",
+  "rts": "str_max=10\nstr_min=3\nmixed_max=2\narr_max=5\nobj_max=NaN\nundef_max=NaN\nemptystr_min=0\nhex_max=16\nwrapper_max=7\nwith_nan=NaN\ncoerced_after_nan=a,b\nplain=9\norder=a,b,c\nthrew=TypeError\nlog_after_throw=a,boom,c\nmin_threw=RangeError\nmin_log=a,boom,c\nsymbol_threw=TypeError\nbigint_threw=TypeError\nhinted=42\nhint=number\nspread=5\napply=5\napply_empty=-Infinity\nmin_spread=1\nmax_length=2\nmin_length=2\nmax_name=max\nmax_empty=-Infinity\nmin_empty=Infinity\nmax_nan_last=NaN\nmin_nan_first=NaN\nmax_inf=NaN\nmin_neginf=NaN",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9661,9 +9661,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1290,"reachable":1514,"rts_diverge":171,"bun_node_diverge":1,"errors":53,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1289,"reachable":1515,"rts_diverge":173,"bun_node_diverge":0,"errors":53,"rejected":0,"upstream_defect":1}}
