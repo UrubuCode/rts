@@ -26,6 +26,9 @@ rts-node = { path = "../rts-node" }
 # (headless, sempre) antes da janela (opcional, como no host: um alvo sem
 # ecrã não a liga).
 rts-dom-bridge = { path = "../rts-dom-bridge" }
+# `rts:particles`: mesma razão de `rts-dom-bridge` acima — sem dependência de
+# plataforma, não fica atrás de feature.
+rts-particles = { path = "../rts-particles" }
 rts-ui = { path = "../rts-ui", optional = true }
 rts-physics = { path = "../rts-physics", optional = true }
 rts-audio = { path = "../rts-audio", optional = true }

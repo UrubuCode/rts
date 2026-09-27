@@ -53,6 +53,10 @@ rts-ui = { path = "../rts-ui", optional = true }
 # como a UI: um DOM headless não precisa de tela, e é justamente sem tela que
 # ele se distingue de um Node com jsdom.
 rts-dom-bridge = { path = "../rts-dom-bridge" }
+# `rts:particles`: `particlesStep`, o kernel de simulação por-partícula. Sem
+# dependência de plataforma (ao contrário de `rts-physics`/`rts-audio`
+# acima) — não é opcional pela mesma razão de `rts-dom-bridge`.
+rts-particles = { path = "../rts-particles" }
 # O parser/árvore HTML por trás dos nativos `dom.*` acima — usado DIRETO por
 # `object::html_scripts` para extrair `<script>`s de um `--html` em tempo de
 # build, sem passar pela ponte JS: mesma árvore, mesma ordem, sem reimplementar

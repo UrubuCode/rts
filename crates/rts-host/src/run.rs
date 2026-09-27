@@ -411,6 +411,12 @@ fn run_region(
         let _timing = rts_cranelift::probe::Phase::start("install-dom");
         rts_dom_bridge::install(&mut context);
     }
+    {
+        // `rts:particles`: sem dependência de plataforma, como `rts:dom`
+        // acima — sempre instalado, sem feature.
+        let _timing = rts_cranelift::probe::Phase::start("install-particles");
+        rts_particles::install(&mut context);
+    }
     // After both halves exist; binds nothing unless `--inspect`/`RTS_INSPECT` asked.
     #[cfg(feature = "inspector")]
     crate::inspector::install(&mut context);
