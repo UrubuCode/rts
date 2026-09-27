@@ -30,6 +30,26 @@ pub(in crate::entry) fn as_count(length: f64) -> usize {
     }
 }
 
+/// The language's `ToIndex`: `None` where it throws a `RangeError`.
+///
+/// Beside [`as_count`] rather than replacing it, because the two disagree on
+/// purpose: `as_count` settles a bad length on zero for the callers that have
+/// not been taught to raise, and this refuses it for the ones that have. Nothing
+/// else in the crate computed `ToIndex` — `array_buffer.rs` and
+/// `bigint_class.rs` each test only the sign inline — so this is the first
+/// shared form, not a second one. `NaN` is index zero; `-0.5` truncates to
+/// zero and is accepted; infinities and anything past 2^53 - 1 are refused.
+pub(in crate::entry) fn to_index(number: f64) -> Option<usize> {
+    if number.is_nan() {
+        return Some(0);
+    }
+    let whole = number.trunc();
+    match (0.0..=9_007_199_254_740_991.0).contains(&whole) {
+        true => Some(whole as usize),
+        false => None,
+    }
+}
+
 /// `undefined`, from outside a borrow.
 pub(in crate::entry) fn undefined() -> u64 {
     with_current(|context: &mut Context| undefined_of(context))
@@ -96,6 +116,16 @@ mod tests {
         // An inverted range is empty, not reversed: `t.slice(5, 2)` answers
         // nothing rather than three elements backwards.
         assert_eq!(range(8, Some(5.0), Some(2.0)), (5, 5));
+    }
+
+    #[test]
+    fn dataview_to_index_refuses_negative_and_infinite_but_reads_nan_as_zero() {
+        assert_eq!(to_index(f64::NAN), Some(0));
+        assert_eq!(to_index(-0.5), Some(0));
+        assert_eq!(to_index(1.9), Some(1));
+        assert_eq!(to_index(-1.0), None);
+        assert_eq!(to_index(f64::INFINITY), None);
+        assert_eq!(to_index(9_007_199_254_740_992.0), None);
     }
 
     #[test]

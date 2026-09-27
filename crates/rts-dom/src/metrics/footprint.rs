@@ -123,7 +123,7 @@ pub fn type_sizes() -> Vec<(&'static str, usize)> {
         ("Rule (CSS)", crate::style::stylesheet::rule_size()),
         (
             "DisplayItem",
-            std::mem::size_of::<crate::layout::DisplayItem>(),
+            std::mem::size_of::<crate::paint::DisplayItem>(),
         ),
     ]
 }

@@ -68,6 +68,8 @@ pub mod external;
 mod finalize;
 mod foreign;
 mod function_proto;
+mod direct_call;
+mod function_direct;
 mod functions;
 mod generator;
 mod global;
@@ -82,6 +84,7 @@ pub use json::{json_parse, json_stringify};
 pub(in crate::entry) mod list_iterator;
 mod loops;
 mod math;
+mod math_direct;
 mod native;
 mod number;
 mod object_global;
@@ -92,6 +95,7 @@ mod objects;
 mod ordinary;
 mod page_scope;
 mod pattern;
+mod text_walk;
 mod operators;
 mod primitive;
 mod primitive_proto;
@@ -103,6 +107,7 @@ mod registers;
 mod regex;
 pub mod roots;
 mod rooted;
+mod template_join;
 mod source_hash;
 mod side_tables;
 pub(super) mod string;
@@ -119,8 +124,9 @@ mod uri;
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_length, array_new, array_of, element_at, enumerate_keys, own_keys};
 pub use math::math_random;
+pub use math_direct::{BINARY_NAMES as MATH_BINARY_NAMES, UNARY_NAMES as MATH_UNARY_NAMES, math_direct1, math_direct2};
 pub use array_proto::arguments_at;
-pub use arguments::arguments_object;
+pub use arguments::{argument_slot, arguments_count, arguments_object};
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, number_exponent, shift_left, shift_right,
@@ -129,9 +135,14 @@ pub use bitwise::{
 pub use computed::{
     delete_property, for_in_has, get_indexed, has_property, key_number, set_indexed, with_has,
 };
+pub use array::{ARRAY_OF_SLOTS, array_is_array};
+pub use array_proto::array_push_direct;
+pub use function_direct::{function_apply_direct, function_call_direct};
+pub use number::{number_to_fixed_direct, number_to_string_direct};
+pub use collections::{map_get_direct, map_has_direct, map_set_direct, set_add_direct, set_has_direct};
 pub use functions::{
-    call_counted, call_with_args, construct_with_args, rest_arguments,
-    ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
+    ARGUMENT_SLOTS, NO_CALL_NAME, argument_at, call, call_counted, call_with_args, closure_new,
+    construct, construct_with_args, instance_of, mark_class_constructor, rest_arguments,
     mark_derived, new_target, set_call_name, super_construct, super_construct_with_args,
 };
 pub use tail_call::tail_call;
@@ -165,6 +176,7 @@ pub use modules::{
 pub use function_proto::{is_user_function, running_function};
 pub use host_class::{declare_host_class, describe_callable};
 pub use pattern::array_pattern_direct;
+pub use text_walk::text_walk;
 pub use objects::{
     get_property, get_super_property, object_new, object_spread, set_property,
     set_super_property,
@@ -180,9 +192,10 @@ pub use bigint_class::bigint_new;
 pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
+pub use template_join::{TEMPLATE_JOINED, template_join};
 pub use text::{
     declare_keys, declare_literals, declare_templates, described, string_const, string_of,
-    template_join, template_strings,
+    template_strings,
 };
 pub use type_of::{type_of, type_of_is};
 pub use symbol::{is_symbol as is_symbol_in, well_known as well_known_symbol};
@@ -255,7 +268,7 @@ pub const TEXT_LENGTH_SLOT: u32 = 1;
 /// everything else, and moving a name on or off changes only the cost.
 /// `length` is asked before every property write, `prototype` by every `new`,
 /// and the last three are stamped onto every typed array as it is built.
-pub const CACHED_KEYS: [&str; 20] = [
+pub const CACHED_KEYS: [&str; 21] = [
     "length",
     "prototype",
     "byteLength",
@@ -311,6 +324,10 @@ pub const CACHED_KEYS: [&str; 20] = [
     "groups",
     "lastIndex",
     "indices",
+    // Stamped on every `arguments` object, which is built once per call of a
+    // function that mentions the name: the spelling was formatted and hashed
+    // on each of them.
+    symbol::TO_STRING_TAG,
 ];
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
@@ -338,7 +355,20 @@ pub(super) const LENGTH_KEY_AT: usize = 0;
 /// [`symbol::HAS_INSTANCE`] rather than written out, because the `@@` in it is
 /// that module's encoding and a second copy here is where the two would come to
 /// disagree.
-pub const CACHED_TEXTS: [&str; 3] = ["toJSON", "", symbol::HAS_INSTANCE];
+pub const CACHED_TEXTS: [&str; 9] = [
+    "toJSON",
+    "",
+    symbol::HAS_INSTANCE,
+    "Arguments",
+    // The `Symbol.toStringTag` of every iterator `list_iterator::over` makes:
+    // interned per iterator before, which was an allocation between the
+    // iterator's cell and its first root.
+    "Array Iterator",
+    "Map Iterator",
+    "Set Iterator",
+    "String Iterator",
+    "RegExp String Iterator",
+];
 
 /// Every string `typeof` can answer, in the order [`Context::type_names`]
 /// caches them.
@@ -747,6 +777,13 @@ pub struct Context {
     /// learn that the class is absent, on every pattern. `None` here answers the
     /// same question by not looking.
     pub(super) array_cursor_prototype: Option<u32>,
+    /// The list iterator's prototype and its `next` as installed -- what a string's
+    /// iterator steps with -- recorded and read as the two array-cursor fields
+    /// above are, by `text_walk`. No root, for their reason: the prototype is held
+    /// by `classes`, which nothing ever removes from.
+    pub(super) list_cursor_prototype: Option<u32>,
+    /// The list iterator's `next` as installed, beside the prototype above.
+    pub(super) list_cursor_next: Option<u64>,
     /// The prototype backing buffers created internally for typed arrays.
     ///
     /// `new_buffer` asks for it on every typed-array allocation, so the first
@@ -817,6 +854,13 @@ pub struct Context {
     /// constructor and a plain function are the same kind of cell. Written at
     /// class definition time, read by `construct`.
     derived: Aside<bool>,
+    /// Which cells a read site has walked as a prototype LINK before caching a
+    /// property as absent. A key added to one of these — a shape transition, an
+    /// accessor, a relink, anything that changes its type — bumps
+    /// `cache::CHAIN_EPOCH`, which every absent entry compares against. An
+    /// object never on such a walk never bumps it. `Context::retype_cell` is
+    /// the one place the question is asked.
+    chain_links: Aside<bool>,
     /// The primitive a wrapper object stands for.
     ///
     /// `new Number(5)` is an object whose `[[NumberData]]` is `5`, and the
@@ -1280,6 +1324,7 @@ impl Context {
             pending_stacks: Aside::in_region(bits),
             stack_accessor: false,
             derived: Aside::in_region(bits),
+            chain_links: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
             foreign: Aside::in_region(bits),
             deaths: std::collections::HashMap::new(),
@@ -1321,6 +1366,8 @@ impl Context {
             array_iterator_method: None,
             array_cursor_next: None,
             array_cursor_prototype: None,
+            list_cursor_prototype: None,
+            list_cursor_next: None,
             array_buffer_prototype: None,
             resolves: 0,
             array_layout: None,

@@ -39,9 +39,6 @@ use crate::syntax::Claim;
 /// private arm is where a `#x` becomes a name, and a second reading of the
 /// annotation beside it is exactly where the two would come to disagree about
 /// what `#x: number` claims.
-pub(super) fn field_claim(
-    cx: &mut Cx,
-    annotation: Option<&swc::TsTypeAnn>,
-) -> Option<Claim> {
+pub(super) fn field_claim(cx: &mut Cx, annotation: Option<&swc::TsTypeAnn>) -> Option<Claim> {
     Some(claim(cx, &annotation?.type_ann))
 }

@@ -55,66 +55,73 @@
 //! rather than a rumour. `PLAN.md` §E has the order and why.
 
 mod binding;
+pub(crate) use binding::OUTER;
 mod body_state;
-mod call;
-mod capture;
+pub(crate) mod call;
+pub(crate) mod math;
+pub(crate) mod methods;
+pub(crate) mod light_arguments;
+pub(crate) mod statics;
+pub(crate) mod capture;
 mod choice;
-mod common_js;
 mod class;
 mod close;
+mod common_js;
 mod delegate;
 mod destructure;
+mod dynamic;
 mod escape;
 mod eval;
-mod page;
-mod dynamic;
 mod expr;
 mod fold;
 mod for_await;
 mod foreach;
 mod function;
+mod through_mir;
+pub(crate) use function::signature as convention;
 mod globals;
 mod heritage;
+mod hoist;
 mod home;
 mod inline;
+mod int32;
 mod json_call;
 mod loops;
 mod merge;
 mod module;
 mod nonstrict;
 mod object;
+mod omit;
 mod optional;
+mod page;
 mod primordial;
+mod program_facts;
 mod property;
-mod protect;
-mod int32;
+pub(crate) mod protect;
 mod proven;
+mod receiver;
 mod regex;
 mod scope;
+mod serde_names;
+mod settled;
 mod sloppy;
 mod stmt;
 mod suspends;
-mod types;
 mod switch;
 mod tail;
 mod template;
-mod omit;
-mod hoist;
-mod program_facts;
-mod serde_names;
-mod receiver;
-mod settled;
+mod types;
 mod unary;
 mod with_scope;
 mod wrap;
 
 pub use dynamic::{Survey, Wanted, dynamic_specifiers, specifiers, survey, survey_statements};
 pub use eval::emit_eval_program;
-pub use page::emit_page_program;
 pub use expr::emit_expr;
 pub use loops::Loops;
-pub use proven::Numeric;
+pub use page::emit_page_program;
 use program_facts::whole_program_facts;
+pub use proven::Numeric;
 use proven::analyse;
 pub use scope::Scope;
 pub use stmt::emit_stmt;
@@ -262,6 +269,31 @@ pub struct CapturedWrite {
     pub value: rts_cranelift::ir::ValueId,
     /// The block the write's join landed in.
     pub block: rts_cranelift::ir::BlockId,
+    /// The environment the hops were counted from.
+    ///
+    /// The same spelling at the same depth can still be two bindings: a block that
+    /// shadows a name kept in memory gets an environment of its own, so the `x` it
+    /// writes and the outer `x` read right after it are both zero links away. Without
+    /// this, `try { … } finally { let x = 3; x = 5 } return x` answered 5.
+    pub environment: Option<rts_cranelift::ir::ValueId>,
+}
+
+/// What a `break` or `continue` owes a construct it leaves -- a `finally`, or a
+/// `for`-`of`'s close -- and where that runs.
+///
+/// The two depths are what put the copy OUTSIDE the construct: a copy emitted inside
+/// the `try`'s regions had a throw from the `finally` caught by the `catch` beside it,
+/// and a `return` from it routed through the `finally` again.
+#[derive(Clone)]
+pub struct OwedJump {
+    /// The statements owed.
+    pub body: Vec<crate::syntax::Stmt>,
+    /// How many loop frames were open at the construct: a jump to any of them leaves it.
+    pub loops: usize,
+    /// How many regions were open outside the construct.
+    pub open: usize,
+    /// How many `return` targets were set outside it.
+    pub returns: usize,
 }
 
 /// What emission needs that is not the function being built.
@@ -346,6 +378,10 @@ pub struct Ctx<'a> {
     /// emission, because the constructor's own body must still see the real
     /// answer. See `emit/class.rs::FIELD_INITIALISER`.
     pub in_field_initializer: bool,
+    /// The four argument slots of the function being emitted, where its body
+    /// reads `arguments` LIGHT — only `.length` and `[e]` — and so binds no
+    /// object for the name. `emit/light_arguments.rs` is the proof and the reads.
+    pub light_arguments: Option<[rts_cranelift::ir::ValueId; 4]>,
     /// Whether the code being emitted is NON-STRICT.
     ///
     /// `false` for everything a file compiles to: module code is strict by
@@ -377,6 +413,16 @@ pub struct Ctx<'a> {
     /// ver `process` de borla), e só `vm.runInThisContext` — que partilha o
     /// OBJETO GLOBAL real — o quer `false`. `rts-host`'s `live.rs` decide qual.
     pub hide_node_globals: bool,
+    /// The scope tree of the program being emitted, for the functions
+    /// `through_mir` compiles through the MIR stage. `None` where that door is shut.
+    mir_resolution: Option<std::rc::Rc<crate::names::resolve::Resolution>>,
+    /// Whether the function about to be emitted is one `through_mir` may take: set by
+    /// the two call sites that make an ordinary function -- an expression and a hoisted
+    /// declaration -- and TAKEN by `emit_function`, so nothing nested inherits it. A
+    /// class constructor reaches `emit_function` down the same path as a function
+    /// expression and gets a body this emitter shapes -- fields, the derived `this` --
+    /// so the question is where the function came from, which only the caller knows.
+    mir_candidate: bool,
     /// The objects a `with` put on the scope chain, innermost LAST.
     ///
     /// Empty everywhere except inside a `with` body. What reads it is
@@ -432,7 +478,7 @@ pub struct Ctx<'a> {
     /// The count is what decides which ones run: only a `finally` entered
     /// INSIDE the loop being left is on the way out. Leaving an inner loop does
     /// not run a `finally` wrapped around the outer one.
-    pub finally_jumps: Vec<(Vec<crate::syntax::Stmt>, usize)>,
+    pub finally_jumps: Vec<OwedJump>,
     /// What the language's singletons are numbered.
     pub model: &'a ValueModel,
     /// Every function this compilation can name.
@@ -508,7 +554,7 @@ pub struct Ctx<'a> {
     /// numbering, and what crosses at every use is the number. A literal is
     /// referred to by its index here exactly as a property is referred to by its
     /// key.
-    literals: Vec<Vec<u16>>,
+    literals: crate::runtime::Literals,
     /// The pieces of each tagged-template site, in the order the sites were met.
     templates: Vec<Vec<u32>>,
     /// Which locals were proved to hold a number.
@@ -601,6 +647,9 @@ pub struct Ctx<'a> {
     /// `primordial`. False is the safe answer and the default: a program this
     /// has not been computed for gets the call it has always got.
     math_primordial: bool,
+    /// Which of `Number`, `Array`, `Object`, `isNaN` and `isFinite` the whole
+    /// program leaves as the language's — `emit/statics`, on `Math`'s terms.
+    statics_primordial: statics::Primordials,
     /// Whether `JSON` is the primordial and never leaves a member base — the
     /// stricter proof `primordial::only_a_base` states, and `json_call` spends.
     json_primordial: bool,
@@ -678,6 +727,7 @@ impl<'a> Ctx<'a> {
             in_cleanup: false,
             in_static_method: false,
             in_field_initializer: false,
+            light_arguments: None,
             sloppy: false,
             hide_node_globals: false,
             with_objects: Vec::new(),
@@ -696,7 +746,9 @@ impl<'a> Ctx<'a> {
             generators: Vec::new(),
             inferred_name: None,
             function_names: Vec::new(),
-            literals: Vec::new(),
+            literals: crate::runtime::Literals::new(),
+            mir_resolution: None,
+            mir_candidate: false,
             templates: Vec::new(),
             numeric: Numeric::default(),
             integers: crate::emit::int32::Int32::default(),
@@ -711,6 +763,7 @@ impl<'a> Ctx<'a> {
             module_key: None,
             names_top_level: false,
             math_primordial: false,
+            statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             substituting: Vec::new(),
@@ -747,7 +800,10 @@ impl<'a> Ctx<'a> {
         self.static_methods.get(&(receiver, method)).cloned()
     }
 
-    pub(in crate::emit) fn inlinable_here(&self, name: Name) -> Option<std::rc::Rc<inline::Inlinable>> {
+    pub(in crate::emit) fn inlinable_here(
+        &self,
+        name: Name,
+    ) -> Option<std::rc::Rc<inline::Inlinable>> {
         self.local_inlinable
             .get(&name)
             .cloned()
@@ -825,8 +881,7 @@ impl<'a> Ctx<'a> {
         // the same string as one the program wrote with those characters. Rust
         // text loses nothing on the way in: `encode_utf16` of valid UTF-8 is
         // exactly its code units.
-        let units: Vec<u16> = text.encode_utf16().collect();
-        self.literal_units(&units)
+        self.literals.intern_str(text)
     }
 
     /// The same, for text that is already code units.
@@ -835,11 +890,7 @@ impl<'a> Ctx<'a> {
     /// delegates here rather than the other way round: `"\uD83D"` is a legal
     /// one-unit string, and there is no `&str` that spells it.
     pub fn literal_units(&mut self, units: &[u16]) -> u32 {
-        if let Some(found) = self.literals.iter().position(|held| held == units) {
-            return found as u32;
-        }
-        self.literals.push(units.to_vec());
-        (self.literals.len() - 1) as u32
+        self.literals.intern(units)
     }
 
     /// Records a tagged-template site and answers its number.
@@ -973,9 +1024,7 @@ impl<'a> Ctx<'a> {
     /// cannot establish, and `false` is the emission that changes nothing.
     pub(super) fn reads_own_field(&self, receiver: Name, member: Name) -> bool {
         match self.claimed(receiver).map(|held| held.kind()) {
-            Some(types::Kind::Instance(class)) => {
-                self.class_fields.declares_field(class, member)
-            }
+            Some(types::Kind::Instance(class)) => self.class_fields.declares_field(class, member),
             _ => false,
         }
     }
@@ -1006,10 +1055,7 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
 /// The split lives here rather than in the host because what an `import` means
 /// for a scope and what an `export` costs are language decisions, and the host
 /// is not where a language decision is taken.
-pub fn emit_module(
-    items: &[crate::syntax::ModuleItem],
-    ctx: &mut Ctx,
-) -> EmitResult<Program> {
+pub fn emit_module(items: &[crate::syntax::ModuleItem], ctx: &mut Ctx) -> EmitResult<Program> {
     emit_module_as(items, None, ctx)
 }
 
@@ -1105,6 +1151,11 @@ pub(super) fn emit_program_into(
     // Whole-program, once, before anything is emitted: a claim in one function
     // names a class declared in another, so this cannot be built per body.
     whole_program_facts(body, ctx);
+    // The scope tree the MIR stage lowers against, once per program for the reason the
+    // facts above are: a function is lowered where it is emitted, and the tree is the
+    // whole program's.
+    ctx.mir_resolution = through_mir::open()
+        .then(|| std::rc::Rc::new(crate::names::resolve::resolve_program(body, imports)));
 
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
@@ -1128,7 +1179,35 @@ pub(super) fn emit_program_into(
     let eval_name = ctx.names.intern("eval");
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
     let json = ctx.names.intern("JSON");
-    ctx.json_primordial = primordial::only_a_base(body, json, eval_name, global_this);
+    let prototype = ctx.names.intern("prototype");
+    ctx.json_primordial = primordial::only_a_base(body, json, eval_name, global_this, prototype);
+    // The same two proofs for the names `emit/statics` and `emit/methods`
+    // decide: the objects by the stricter one, the two global functions by the
+    // plain one.
+    let mut base_only = |spelled: &str, ctx: &mut Ctx| {
+        let name = ctx.names.intern(spelled);
+        primordial::only_a_base(body, name, eval_name, global_this, prototype)
+    };
+    let number = base_only("Number", ctx);
+    let array = base_only("Array", ctx);
+    let object = base_only("Object", ctx);
+    let map = base_only("Map", ctx);
+    let set = base_only("Set", ctx);
+    let function = base_only("Function", ctx);
+    let is_nan = ctx.names.intern("isNaN");
+    let is_finite = ctx.names.intern("isFinite");
+    let string = ctx.names.intern("String");
+    ctx.statics_primordial = statics::Primordials {
+        number,
+        array,
+        object,
+        map,
+        set,
+        is_nan: primordial::untouched(body, is_nan, eval_name, global_this),
+        is_finite: primordial::untouched(body, is_finite, eval_name, global_this),
+        function,
+        string: primordial::untouched(body, string, eval_name, global_this),
+    };
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");
@@ -1184,7 +1263,7 @@ fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
         generators: std::mem::take(&mut ctx.generators),
         function_names: std::mem::take(&mut ctx.function_names),
         entry,
-        literals: std::mem::take(&mut ctx.literals),
+        literals: std::mem::take(&mut ctx.literals).into_units(),
         templates: std::mem::take(&mut ctx.templates),
     }
 }
@@ -1281,9 +1360,35 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         .iter()
         .all(|(_, _, body, _)| primordial::untouched(body, math, eval_name, global_this));
     let json = ctx.names.intern("JSON");
-    let whole_program_json = lowered
-        .iter()
-        .all(|(_, _, body, _)| primordial::only_a_base(body, json, eval_name, global_this));
+    let prototype = ctx.names.intern("prototype");
+    let whole_program_json = lowered.iter().all(|(_, _, body, _)| {
+        primordial::only_a_base(body, json, eval_name, global_this, prototype)
+    });
+    // The same fold for the names `emit/statics` and `emit/methods` decide,
+    // each by its own proof.
+    let base_only = |name: &str, ctx: &mut Ctx| {
+        let name = ctx.names.intern(name);
+        lowered.iter().all(|(_, _, body, _)| {
+            primordial::only_a_base(body, name, eval_name, global_this, prototype)
+        })
+    };
+    let untouched = |name: &str, ctx: &mut Ctx| {
+        let name = ctx.names.intern(name);
+        lowered
+            .iter()
+            .all(|(_, _, body, _)| primordial::untouched(body, name, eval_name, global_this))
+    };
+    let whole_program_statics = statics::Primordials {
+        number: base_only("Number", ctx),
+        array: base_only("Array", ctx),
+        object: base_only("Object", ctx),
+        map: base_only("Map", ctx),
+        set: base_only("Set", ctx),
+        is_nan: untouched("isNaN", ctx),
+        is_finite: untouched("isFinite", ctx),
+        function: base_only("Function", ctx),
+        string: untouched("String", ctx),
+    };
 
     // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the
     // program rather than about a file.
@@ -1310,7 +1415,6 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         .iter()
         .flat_map(|(_, _, body, _)| body.iter().cloned())
         .collect();
-
 
     // ONCE, not once per unit. `program` is the same slice on every iteration
     // and `whole_program_facts` is a pure function of it, so calling it inside
@@ -1350,7 +1454,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             imports,
             Some(&unit.specifier),
             publications,
-            (whole_program_math, whole_program_json),
+            (whole_program_math, whole_program_json, whole_program_statics),
             ctx,
         )?);
     }
@@ -1371,11 +1475,17 @@ fn emit_unit(
     publications: &[module::Publication],
     // The one whole-program fact a single unit cannot answer, folded over every
     // lowered body by `emit_modules` before the first is emitted.
-    (whole_program_math, whole_program_json): (bool, bool),
+    (whole_program_math, whole_program_json, whole_program_statics): (bool, bool, statics::Primordials),
     ctx: &mut Ctx,
 ) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
+    // The scope tree the MIR stage lowers against, per unit because a unit's top level
+    // is a scope of its own. Without it every function of a GRAPH declined -- which is
+    // every program `rts ir` shows, so the one command whose job is to show what runs
+    // showed the other stage's output.
+    ctx.mir_resolution = through_mir::open()
+        .then(|| std::rc::Rc::new(crate::names::resolve::resolve_program(body, imports)));
     let global_this = ctx.names.intern("globalThis");
     ctx.globals = sloppy::created(body, global_this);
     // Which file is being compiled, for `import.meta` and `import()`. Recorded
@@ -1393,6 +1503,7 @@ fn emit_unit(
     // per-unit produced.
     ctx.math_primordial = whole_program_math;
     ctx.json_primordial = whole_program_json;
+    ctx.statics_primordial = whole_program_statics;
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");
@@ -1590,8 +1701,8 @@ mod tests {
         // runtime does not have. Written inside a function because the checker
         // refuses one at a script's top level before emission is reached — a
         // different refusal, and pinning it here would be testing the checker.
-        let error = emit_source("function f() { using r = {}; }")
-            .expect_err("`using` is not emitted");
+        let error =
+            emit_source("function f() { using r = {}; }").expect_err("`using` is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
@@ -1797,10 +1908,9 @@ mod tests {
         // between two strings compares their TEXT, which reads the heap. The
         // call is the correct emission, and this is the twin that stops the
         // fold above from being applied where it would be wrong.
-        let func = emit_source(
-            "function f() { return 1; } let s = f(); switch (s) { case 1: break; }",
-        )
-        .expect("emits");
+        let func =
+            emit_source("function f() { return 1; } let s = f(); switch (s) { case 1: break; }")
+                .expect("emits");
         let calls = instructions(&func)
             .iter()
             .filter(|inst| matches!(inst, Inst::Call { .. }))
@@ -2047,4 +2157,3 @@ mod tests {
             .expect("emits");
     }
 }
-

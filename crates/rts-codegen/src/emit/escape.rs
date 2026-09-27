@@ -162,7 +162,6 @@ impl Flattened {
     pub(super) fn array_length(&self, array: Name) -> Option<usize> {
         self.arrays.get(&array).copied()
     }
-
 }
 
 /// One local that might be replaceable, before the escape scan has run.
@@ -187,11 +186,7 @@ struct ArrayCandidate {
 /// recomputed: which names nested code can see is decided once, and a second
 /// answer to it would be a second chance to say "not captured" about a local a
 /// closure holds.
-pub(super) fn analyse(
-    body: &[Stmt],
-    parameters: &[Name],
-    captured: &BTreeSet<Name>,
-) -> Flattened {
+pub(super) fn analyse(body: &[Stmt], parameters: &[Name], captured: &BTreeSet<Name>) -> Flattened {
     let mut collected = Collected::default();
     for statement in body {
         collect(statement, 0, &mut collected);
@@ -291,12 +286,7 @@ pub(super) fn analyse(
 /// literal that escapes for a good reason or one this analysis merely cannot
 /// see through, and nothing downstream can tell the two apart — which is the
 /// difference between "working as designed" and "the next thing to fix".
-fn report(
-    candidates: usize,
-    kept: usize,
-    refused: [usize; 5],
-    why: &HashMap<&'static str, usize>,
-) {
+fn report(candidates: usize, kept: usize, refused: [usize; 5], why: &HashMap<&'static str, usize>) {
     if candidates == 0 || std::env::var_os("RTS_ESCAPE_STATS").is_none() {
         return;
     }
@@ -501,7 +491,11 @@ fn array_flattenable(elements: &[Option<Spreadable>]) -> Option<usize> {
     if elements.len() > 4 || elements.iter().any(Option::is_none) {
         return None;
     }
-    if elements.iter().flatten().any(|element| matches!(element, Spreadable::Spread(_))) {
+    if elements
+        .iter()
+        .flatten()
+        .any(|element| matches!(element, Spreadable::Spread(_)))
+    {
         return None;
     }
     Some(elements.len())
@@ -1096,7 +1090,8 @@ mod tests {
         };
         // The same answer the emitter uses, from the same place, rather than an
         // empty set that would make every capture test pass for no reason.
-        let captured = super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
+        let captured =
+            super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
         let decided = analyse(body, &[], &captured);
         // Re-interning is how a test turns a name back into text: interning is
         // idempotent, so asking for a spelling hands back the name it had.
@@ -1125,7 +1120,8 @@ mod tests {
         let FunctionBody::Block(body) = &function.body else {
             panic!("a block");
         };
-        let captured = super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
+        let captured =
+            super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
         let decided = analyse(body, &[], &captured);
         decided.array_length(names.intern("xs"))
     }
@@ -1140,23 +1136,25 @@ mod tests {
 
     #[test]
     fn an_array_with_a_dynamic_index_or_escape_stays_an_array() {
-        assert_eq!(array_length("let xs = [1, 2]; let i = 0; return xs[i];"), None);
+        assert_eq!(
+            array_length("let xs = [1, 2]; let i = 0; return xs[i];"),
+            None
+        );
         assert_eq!(array_length("let xs = [1, , 2]; return xs[0];"), None);
         assert_eq!(array_length("let xs = [1, 2]; return xs;"), None);
     }
 
     #[test]
     fn a_direct_property_added_after_the_literal_can_be_scalar_replaced() {
-        assert_eq!(
-            replaced("let o = {x: 1}; o.y = 2; return o.y;"),
-            ["o"]
-        );
+        assert_eq!(replaced("let o = {x: 1}; o.y = 2; return o.y;"), ["o"]);
     }
 
     #[test]
     fn reading_an_added_property_before_its_write_stays_conservative() {
         assert!(replaced("let o = {x: 1}; let before = o.y; o.y = 2; return before;").is_empty());
-        assert!(replaced("let o = {x: 1}; while (true) { o.y = 2; break; } return o.y;").is_empty());
+        assert!(
+            replaced("let o = {x: 1}; while (true) { o.y = 2; break; } return o.y;").is_empty()
+        );
     }
 
     #[test]
@@ -1289,7 +1287,10 @@ mod tests {
     fn a_property_value_that_names_another_candidate_lets_that_one_escape() {
         // `q` appears bare, which kills `q`. `p` is replaceable *because* `q` is
         // not — the dependency that makes this pass need no fixpoint.
-        assert_eq!(replaced("let q = {a: 1}; let p = {x: q}; return p.x;"), ["p"]);
+        assert_eq!(
+            replaced("let q = {a: 1}; let p = {x: q}; return p.x;"),
+            ["p"]
+        );
     }
 
     #[test]

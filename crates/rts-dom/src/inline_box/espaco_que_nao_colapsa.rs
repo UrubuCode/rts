@@ -14,7 +14,7 @@
 
     /// Uma caixa que pode nao existir: e a diferenca entre "sem geometria" e
     /// "geometria de largura zero", e os dois casos aparecem aqui.
-    fn caixa(html: &str, sel: &str, n: usize) -> Option<crate::layout::Rect> {
+    fn caixa(html: &str, sel: &str, n: usize) -> Option<crate::paint::Rect> {
         let (dom, list) = geometria(html, 800.0);
         let id = *dom.query_all(sel).get(n)?;
         let idx = dom.resolve(id)?;

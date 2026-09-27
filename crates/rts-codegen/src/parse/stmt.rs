@@ -16,9 +16,8 @@ use super::item::{
 use super::pat::{binding, target};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
-    Class, Function,
-    Binding, BindingKind, Catch, ForEachSource, ForEachTarget, ForInit, Stmt, StmtKind,
-    SwitchClause,
+    Binding, BindingKind, Catch, Class, ForEachSource, ForEachTarget, ForInit, Function, Stmt,
+    StmtKind, SwitchClause,
 };
 /// One statement.
 
@@ -277,4 +276,3 @@ fn binding_kind(kind: swc::VarDeclKind) -> BindingKind {
         swc::VarDeclKind::Const => BindingKind::Const,
     }
 }
-

@@ -47,7 +47,7 @@
         let pintadas = list
             .materialized()
             .iter()
-            .filter(|i| matches!(i, crate::layout::DisplayItem::Image { .. }))
+            .filter(|i| matches!(i, crate::paint::DisplayItem::Image { .. }))
             .count();
         assert_eq!(pintadas, 0, "pintou {pintadas} imagem(ns) sem pixels");
     }

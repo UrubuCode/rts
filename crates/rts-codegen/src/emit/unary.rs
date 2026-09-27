@@ -175,14 +175,22 @@ pub fn emit_unary(
             // the shape left over, and it is written here rather than
             // discovered.
             if let ExprKind::Chain(inner) = &operand.kind
-                && let ExprKind::Member { object, property, optional: true } = &inner.kind
+                && let ExprKind::Member {
+                    object,
+                    property,
+                    optional: true,
+                } = &inner.kind
             {
                 let text = ctx.names.text(*property).to_owned();
                 let key = expr::string_literal(builder, ctx, &text)?;
                 return delete_optional(builder, scope, ctx, object, key);
             }
             if let ExprKind::Chain(inner) = &operand.kind
-                && let ExprKind::Index { object, index, optional: true } = &inner.kind
+                && let ExprKind::Index {
+                    object,
+                    index,
+                    optional: true,
+                } = &inner.kind
             {
                 let key = emit_expr(builder, scope, ctx, index)?;
                 return delete_optional(builder, scope, ctx, object, key);

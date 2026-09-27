@@ -254,7 +254,7 @@ pub enum JustifyContent {
     /// essa invariância (`flexbox_justifycontent-start`/`-end` do WPT).
     /// Resolvidos ao mesmo físico que `Left`/`Right` (sem bidi implementado,
     /// `start`=esquerda/`end`=direita como `Left`/`Right` — ver
-    /// `coluna::fisico_para_eixo`), mas NUNCA colapsados nessas variantes:
+    /// `coluna::physical_to_axis`), mas NUNCA colapsados nessas variantes:
     /// `getComputedStyle` tem de responder o keyword usado.
     Start,
     End,
@@ -309,7 +309,7 @@ pub enum AlignItems {
     Baseline,
     /// `last baseline` (CSS Box Alignment §9): a spec manda alinhar pela
     /// ÚLTIMA baseline do item — este motor só mede a PRIMEIRA
-    /// (`linha_ib::ascent_do_item`, um valor por item, não por linha
+    /// (`linha_ib::item_ascent`, um valor por item, não por linha
     /// interna). CORTE dito: cai para o fallback pela MARGEM INFERIOR
     /// (`coluna.rs::align_offset` trata como `FlexEnd`) em vez de reusar o
     /// ascent da primeira baseline — reusar daria uma resposta plausível mas

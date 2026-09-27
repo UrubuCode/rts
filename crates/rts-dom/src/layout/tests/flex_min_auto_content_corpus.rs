@@ -106,7 +106,7 @@ fn min_height_auto_fica_no_conteudo_quando_height_e_maior() {
 }
 
 /// `min-width: max-content` num item flex — a mesma palavra-chave que
-/// `min-content` já resolvia (`limites_do_item`), agora também para
+/// `min-content` já resolvia (`item_limits`), agora também para
 /// `max-content`, partilhada com `bloco.rs` via `intrinseco_min_max`
 /// (`flex-item-content-is-min-width-max-content`, WPT — só a parte do item
 /// em SI; a de um DESCENDENTE dele fica por fazer, ver o PLAN).

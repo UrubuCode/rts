@@ -59,15 +59,19 @@ fn a_literal_that_is_never_a_double_is_not_asked_whether_it_is_one() {
 }
 
 #[test]
-fn undefined_is_a_name_and_is_still_guarded() {
+fn undefined_is_a_name_and_is_guarded_only_where_something_shadows_it() {
     // `null` is a keyword and parses as a literal; `undefined` is an ordinary
     // global binding that a parameter may shadow — `function f(undefined)` is
-    // legal — so nothing syntactic settles what it holds. It is guarded like
-    // any other name, and that is the correct answer rather than a gap.
-    //
-    // Written down because the two look alike in a source file, and the first
-    // version of the row above expected zero for it.
-    assert!(guards_for("undefined") >= 1);
+    // legal — so nothing SYNTACTIC settles what it holds. This asserted `>= 1`
+    // for that reason, and the MIR stage made the premise false in the right
+    // direction: it resolves names by identity, so an unshadowed `undefined` is
+    // the singleton, `undefined + i` can never take the numeric instruction, and
+    // no operand is asked whether it is a double — exactly the `null` row.
+    assert_eq!(guards_for("undefined"), 0);
+    // SHADOWED, it is a parameter like any other and the guard is back. This is
+    // the case the old assertion was protecting, stated as itself.
+    let shadowed = "function f(undefined, i) { return undefined + i; }\nconsole.log(f(1, 2));\n";
+    assert!(guards_in(shadowed, "f") >= 1, "a parameter named `undefined` is a value nothing proved");
 }
 
 #[test]

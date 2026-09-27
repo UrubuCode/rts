@@ -33,8 +33,8 @@ use super::loops::assigned_in_stmt as writes_of;
 
 use crate::names::Name;
 use crate::syntax::{
-    AssignTarget, Binding, Catch, Class, Expr, ExprKind, ForInit, Function, FunctionBody,
-    Pattern, Property, PropertyKey, Stmt, StmtKind,
+    AssignTarget, Binding, Catch, Class, Expr, ExprKind, ForInit, Function, FunctionBody, Pattern,
+    Property, PropertyKey, Stmt, StmtKind,
 };
 
 /// The names a function declares that some nested function could still see.
@@ -460,6 +460,22 @@ fn referenced_inside_statement(
             ..
         } => pattern_exprs(target, found, everything, omitted),
 
+        // An ASSIGNED head writes an existing binding on every pass -- `for (k of
+        // xs)`, `for ([k] of xs)`, `for (k in o)` -- so inside nested code its names
+        // count, as a destructuring assignment's leaves do in the expression walk.
+        // Missing them left `k` uncaptured and the closure answered `Unbound("k")`.
+        StmtKind::ForEach {
+            target: crate::syntax::ForEachTarget::Assign(target),
+            ..
+        } => {
+            if everything {
+                let mut written = Vec::new();
+                target.bound_names(&mut written);
+                found.extend(written);
+            }
+            pattern_exprs(target, found, everything, omitted);
+        }
+
         _ => {}
     }
     walk_stmt(statement, &mut |child| match child {
@@ -569,7 +585,7 @@ fn pattern_exprs(
 /// binding (target pattern plus optional initialiser), a `catch` clause — so a
 /// caller that wants only the nested statements can match one variant and
 /// ignore the rest, the same way [`walk_expr`]'s callers do.
-pub(super) enum StmtChild<'a> {
+pub(crate) enum StmtChild<'a> {
     /// A nested statement, walked by whichever traversal is running.
     Stmt(&'a Stmt),
     /// A sub-expression.
@@ -601,7 +617,7 @@ pub(super) enum StmtChild<'a> {
 /// `referenced_inside_statement`) want different things from them, so folding
 /// them into this enum would not remove a distinction, only hide one two
 /// callers still have to make.
-pub(super) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'a>)) {
+pub(crate) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'a>)) {
     match &statement.kind {
         StmtKind::Expr(expr) | StmtKind::Throw(expr) => on(StmtChild::Expr(expr)),
         StmtKind::Return(value) => {
@@ -862,7 +878,9 @@ fn own_function_scoped(statement: &Stmt, found: &mut BTreeSet<Name>) {
                 own_function_scoped(inner, found);
             }
         }
-        StmtChild::Binding(_) | StmtChild::Expr(_) | StmtChild::Function(_)
+        StmtChild::Binding(_)
+        | StmtChild::Expr(_)
+        | StmtChild::Function(_)
         | StmtChild::Class(_) => {}
     });
 }
@@ -904,6 +922,20 @@ fn referenced_inside_expr(
     if everything && let ExprKind::Ident(name) = &expr.kind {
         found.insert(*name);
     }
+    // A DESTRUCTURING ASSIGNMENT names what it writes at its leaves, and the shared
+    // walk reports only the expressions inside a pattern -- so `[k] = xs` written in a
+    // closure left `k` uncaptured, and the closure answered `Unbound("k")`. The scope
+    // tree (`names/resolve.rs`) records the same leaves for the same reason.
+    if everything
+        && let ExprKind::Assign {
+            target: AssignTarget::Pattern(pattern),
+            ..
+        } = &expr.kind
+    {
+        let mut written = Vec::new();
+        pattern.bound_names(&mut written);
+        found.extend(written);
+    }
     walk_expr(expr, &mut |child| match child {
         Child::Expr(inner) => referenced_inside_expr(inner, found, everything, omitted),
         Child::Function(function) => names_in_function(function, found),
@@ -916,7 +948,7 @@ fn referenced_inside_expr(
 /// One callback taking this rather than two callbacks, because two would each
 /// need `&mut` on the same accumulator and the borrow checker is right to
 /// refuse it — the traversal genuinely visits both kinds of child into one set.
-pub(super) enum Child<'a> {
+pub(crate) enum Child<'a> {
     /// A sub-expression, walked by whichever traversal is running.
     Expr(&'a Expr),
     /// A nested function, whose every name counts.
@@ -931,7 +963,7 @@ pub(super) enum Child<'a> {
 /// copies of this match is how a node comes to be walked by one analysis and
 /// silently skipped by the other — and the one that skips it decides a local is
 /// not captured when it is.
-pub(super) fn walk_expr<'a>(expr: &'a Expr, on: &mut impl FnMut(Child<'a>)) {
+pub(crate) fn walk_expr<'a>(expr: &'a Expr, on: &mut impl FnMut(Child<'a>)) {
     match &expr.kind {
         ExprKind::Function(function) => on(Child::Function(function)),
         ExprKind::Class(class) => on(Child::Class(class)),
@@ -1205,7 +1237,7 @@ fn names_in_pattern(pattern: &Pattern, found: &mut BTreeSet<Name>) {
 /// "what does this statement write" has exactly one answer, and a copy here
 /// would be a second place for it to be wrong. It is a `Vec` there because a
 /// merge needs the order.
-fn writes(statement: &Stmt) -> Vec<Name> {
+pub(crate) fn writes(statement: &Stmt) -> Vec<Name> {
     let mut names = Vec::new();
     writes_of(statement, &mut names);
     names
@@ -1254,10 +1286,7 @@ pub(super) fn children(expr: &Expr, on: &mut impl FnMut(Child)) {
 /// The statement-side pair of [`children`], exposed for the reason that one is:
 /// [`walk_stmt`] is the single description of the tree's shape on this side, and
 /// a second copy is a node one analysis walks and another silently skips.
-pub(super) fn statement_children<'a>(
-    statement: &'a Stmt,
-    on: &mut impl FnMut(StmtChild<'a>),
-) {
+pub(super) fn statement_children<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'a>)) {
     walk_stmt(statement, on);
 }
 
@@ -1314,7 +1343,7 @@ pub(super) fn has_with(body: &[Stmt]) -> bool {
     found
 }
 
-pub(super) fn mentions(body: &[Stmt], wanted: Name) -> bool {
+pub(crate) fn mentions(body: &[Stmt], wanted: Name) -> bool {
     let mut found = false;
     for statement in body {
         mentions_in_stmt(statement, wanted, &mut found);

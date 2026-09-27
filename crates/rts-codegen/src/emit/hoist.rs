@@ -63,6 +63,7 @@ pub fn hoist(
             let Some(name) = function.name else {
                 continue;
             };
+            ctx.mir_candidate = true;
             let closure = super::function::emit_closure_declared(builder, scope, ctx, function)?;
             binding::write(builder, scope, ctx, name, closure)?;
             if names_top_level {

@@ -15,3 +15,9 @@ license.workspace = true
 [dependencies]
 rts-core = { path = "../rts-core" }
 rts-dom = { path = "../rts-dom" }
+# The `DOM`/`CSS`/`Overlay` domains of the inspector (`src/inspector/`). Off
+# unless a host asks: an AOT `.exe` does not carry them.
+serde_json = { version = "1.0", optional = true }
+
+[features]
+inspector = ["dep:serde_json"]

@@ -208,6 +208,38 @@ impl Context {
         self.proxies.set(cell, (target, handler));
     }
 
+    /// Gives a cell a new type number, and tells the absent-property caches
+    /// when that cell was a link in a chain one of them walked.
+    ///
+    /// # Why every type change goes through here
+    ///
+    /// A read site that cached "absent" compares the RECEIVER's header, and a
+    /// receiver's header does not move when something ABOVE it gains the
+    /// property — `Object.prototype.zz = 1` changes `Object.prototype`'s type
+    /// and no instance's. So the caches need a second signal, and every event
+    /// that can make an absent property present on a link — a shape transition,
+    /// an accessor being defined, the link being relinked — changes the link's
+    /// type number. Making the one call that changes a type number the one
+    /// place that bumps the epoch is what makes the signal total: there is no
+    /// second writer to forget. `region.set_type` is not called from anywhere
+    /// else in `entry/` for that reason.
+    ///
+    /// Only for cells [`Self::mark_chain_link`] flagged, because bumping on
+    /// every transition would invalidate every absent entry in the program on
+    /// every `o.x = 1` that grows an object — the commonest write there is.
+    pub(super) fn retype_cell(&mut self, cell: u32, ty: u32) {
+        if self.chain_links.copied(cell).unwrap_or(false) {
+            super::cache::chain_changed();
+        }
+        self.region.set_type(cell, ty);
+    }
+
+    /// Records that a read site walked `cell` as a prototype link and then
+    /// cached an absence that depends on it. See [`Self::retype_cell`].
+    pub(super) fn mark_chain_link(&mut self, cell: u32) {
+        self.chain_links.set(cell, true);
+    }
+
     /// What a cell inherits from, if anything.
     pub(super) fn prototype_at(&self, cell: u32) -> Option<u64> {
         self.prototypes.copied(cell)
@@ -680,6 +712,7 @@ impl Context {
             "groups" => Some(17),
             "lastIndex" => Some(18),
             "indices" => Some(19),
+            super::symbol::TO_STRING_TAG => Some(20),
             _ => None,
         };
         if let Some(at) = held
@@ -710,6 +743,12 @@ impl Context {
             "toJSON" => Some(0),
             "" => Some(1),
             super::symbol::HAS_INSTANCE => Some(2),
+            "Arguments" => Some(3),
+            "Array Iterator" => Some(4),
+            "Map Iterator" => Some(5),
+            "Set Iterator" => Some(6),
+            "String Iterator" => Some(7),
+            "RegExp String Iterator" => Some(8),
             _ => None,
         };
         if let Some(at) = held

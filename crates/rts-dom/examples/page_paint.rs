@@ -6,7 +6,8 @@
 //!
 //!   cargo run -q -p rts-dom --example page_paint -- pagina.html pagina.css
 
-use rts_dom::layout::{self, DisplayItem};
+use rts_dom::layout;
+use rts_dom::paint::{self, DisplayItem};
 
 struct Medidor;
 
@@ -166,20 +167,20 @@ fn main() {
     {
         // The STRUCTURE of the top-level sequence: where the clip markers
         // stand among the pieces, and where the reused subtrees enter.
-        let conta = |f: fn(&layout::Piece) -> bool| list.pieces.iter().filter(|p| f(p)).count();
+        let conta = |f: fn(&paint::Piece) -> bool| list.pieces.iter().filter(|p| f(p)).count();
         println!(
             "topo: pieces={} items={} children={} rects={}",
             list.pieces.len(),
-            conta(|p| matches!(p, layout::Piece::Item(_))),
-            conta(|p| matches!(p, layout::Piece::Child(_))),
-            conta(|p| matches!(p, layout::Piece::Rect(_))),
+            conta(|p| matches!(p, paint::Piece::Item(_))),
+            conta(|p| matches!(p, paint::Piece::Child(_))),
+            conta(|p| matches!(p, paint::Piece::Rect(_))),
         );
         for (i, p) in list.pieces.iter().enumerate().take(2000) {
             match p {
-                layout::Piece::Item(DisplayItem::BeginClip { rect, node, .. }) => {
+                paint::Piece::Item(DisplayItem::BeginClip { rect, node, .. }) => {
                     println!("  pieces[{i}] Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h)
                 }
-                layout::Piece::Item(DisplayItem::EndClip) => println!("  pieces[{i}] End"),
+                paint::Piece::Item(DisplayItem::EndClip) => println!("  pieces[{i}] End"),
                 _ => {}
             }
         }
@@ -187,7 +188,7 @@ fn main() {
             .pieces
             .iter()
             .enumerate()
-            .filter(|(_, p)| matches!(p, layout::Piece::Child(_)))
+            .filter(|(_, p)| matches!(p, paint::Piece::Child(_)))
             .take(10)
             .map(|(i, _)| i)
             .collect();

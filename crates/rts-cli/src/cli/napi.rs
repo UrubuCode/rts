@@ -73,7 +73,7 @@ pub fn command(input: Option<String>) -> Result<()> {
                 }
                 let nothing = rts_core::entry::undefined_value();
                 let arguments = rts_core::entry::make_array(Vec::new());
-                let produced = rts_core::entry::call_with_args(member, nothing, arguments);
+                let produced = rts_core::entry::call_with_args(member, nothing, arguments, rts_core::entry::NO_CALL_NAME);
                 // A throw is reported as the answer rather than swallowed: an
                 // addon that raises has told us something, and printing
                 // `undefined` would hide it.

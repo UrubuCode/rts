@@ -206,6 +206,16 @@ pub(super) fn operands(left: u64, right: u64, order: [Side; 2], hint: Hint) -> (
             Side::Right => 1,
         };
         pair[at] = to_primitive(pair[at], hint);
+        // Rule 8: the first conversion is user code, and a throw it left behind
+        // ends the operator — the second operand's `valueOf` must not run. It
+        // DID run for as long as this loop went on regardless, and nothing
+        // said so: every side effect it could have was a native call, and a
+        // native called with a throw in flight refuses quietly. A direct entry
+        // that does its work without asking (`array_push_direct`) is what made
+        // the second call visible, in `bitwise_coercion.test.ts`.
+        if super::throw::in_flight() {
+            break;
+        }
     }
     (pair[0], pair[1])
 }

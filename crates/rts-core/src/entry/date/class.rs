@@ -59,7 +59,7 @@ impl Date {
                 let text = with_current(|context| {
                     super::super::text::to_text(context, Value(only)).and_then(|text| text.to_rust())
                 });
-                match Value(only).as_f64() {
+                match Value(only).numeric() {
                     Some(number) => clip(number),
                     // Parsed first, converted second. The other order loses every
                     // date literal there is, because `ToNumber("2020-01-01")` is

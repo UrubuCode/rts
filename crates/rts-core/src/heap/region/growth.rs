@@ -212,6 +212,21 @@ mod tests {
     }
 
     #[test]
+    fn a_stated_reservation_replaces_the_multiplier() {
+        // The embedder's way past GROWTH_CEILING: a region told how far it may
+        // grow, for a process that runs one program and has no neighbours to
+        // push out of reach. Below the start it is raised to the start, so a
+        // region never begins larger than it may ever be.
+        let mut region = Region::with_reservation(2, 100);
+        assert_eq!(region.reserved(), 100);
+        while region.grow() {}
+        assert_eq!(region.capacity(), 100);
+        let small = Region::with_reservation(8, 1);
+        assert_eq!(small.reserved(), 8);
+        assert_eq!(small.capacity(), 8);
+    }
+
+    #[test]
     fn a_cell_past_the_starting_capacity_reads_and_writes_its_own_fields() {
         // That the words behind the grown span are real and reachable by the
         // same arithmetic — the failure otherwise is a write landing in memory

@@ -40,7 +40,10 @@ use crate::runtime::RuntimeOp;
 /// programa aqui daria a um `"use strict"` distante o poder de mudar como um
 /// literal se constrói.
 pub(super) fn estrito(builder: &mut FuncBuilder, _ctx: &Ctx) -> ValueId {
-    let id = builder.declare_const(ConstDecl::Scalar { repr: Repr::I64, bits: ScalarBits(0) });
+    let id = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(0),
+    });
     builder.use_const(id)
 }
 

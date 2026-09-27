@@ -33,8 +33,8 @@
 mod api;
 mod client;
 mod conn;
-mod frame;
-mod handshake;
+pub(crate) mod frame;
+pub(crate) mod handshake;
 mod transport;
 
 use rts_core::entry::{self, Context, Pending};

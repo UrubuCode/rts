@@ -6,10 +6,11 @@
 //! célula com "aa" a 16px quer 16px de conteúdo. Um medidor real daria números
 //! diferentes e o teste passaria a afirmar coisas sobre a fonte.
 
-use crate::layout::{ApproxMeasurer, DisplayItem, LayoutCtx, Rect, layout_document};
+use crate::layout::{ApproxMeasurer, LayoutCtx, layout_document};
+use crate::paint::{DisplayItem, Rect};
 use crate::parse_html_to_dom;
 
-pub(crate) fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::layout::DisplayList) {
+pub(crate) fn geometria(html: &str, largura: f32) -> (crate::Dom, crate::paint::DisplayList) {
     // body{margin:0}: a folha de UA (lote I) dá 8px ao body; este corpus de
     // testes mede coordenadas a partir de (0,0), como o corpus real faz.
     let dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
@@ -29,7 +30,7 @@ pub(crate) fn geometria_com(
     html: &str,
     largura: f32,
     prepara: impl FnOnce(&mut crate::Dom),
-) -> (crate::Dom, crate::layout::DisplayList) {
+) -> (crate::Dom, crate::paint::DisplayList) {
     let mut dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
     prepara(&mut dom);
     let ctx = LayoutCtx {
@@ -44,7 +45,7 @@ pub(crate) fn geometria_com(
 /// O rect do n-ésimo elemento que casa com o seletor.
 pub(crate) fn rect(
     dom: &crate::Dom,
-    list: &crate::layout::DisplayList,
+    list: &crate::paint::DisplayList,
     sel: &str,
     n: usize,
 ) -> Rect {
@@ -59,7 +60,7 @@ pub(crate) fn rect(
 }
 
 /// Os textos emitidos na display list, na ordem de pintura.
-pub(crate) fn textos(list: &crate::layout::DisplayList) -> Vec<String> {
+pub(crate) fn textos(list: &crate::paint::DisplayList) -> Vec<String> {
     list.materialized()
         .iter()
         .filter_map(|i| match i {

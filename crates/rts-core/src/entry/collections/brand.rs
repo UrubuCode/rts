@@ -37,10 +37,7 @@ use crate::value::Value;
 /// The borrow is taken and given back before the raise, because building the
 /// error object takes one of its own.
 pub(in crate::entry) fn branded(this: u64, brand: Brand) -> Option<u32> {
-    let cell = with_current(|context| {
-        let cell = Value(this).as_slot()?;
-        (context.table_at(cell)?.brand() == brand).then_some(cell)
-    });
+    let cell = branded_quietly(this, brand);
     if cell.is_none() {
         let named = brand.named();
         crate::entry::throw::type_error(&format!(
@@ -48,6 +45,18 @@ pub(in crate::entry) fn branded(this: u64, brand: Brand) -> Option<u32> {
         ));
     }
     cell
+}
+
+/// The same question with no raise: the cell where the receiver IS one of the
+/// brand asked for, and `None` where it is not — for a caller that has
+/// somewhere else to send a foreign receiver. The direct doors of `direct.rs`
+/// are that caller: a receiver that is not a `Map` takes the method it has,
+/// and only that method decides whether to raise.
+pub(in crate::entry) fn branded_quietly(this: u64, brand: Brand) -> Option<u32> {
+    with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        (context.table_at(cell)?.brand() == brand).then_some(cell)
+    })
 }
 
 /// Whether the constructor was reached with `new`, raising if it was not.

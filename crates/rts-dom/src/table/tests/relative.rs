@@ -56,7 +56,7 @@ fn tr_relative_top_shifts_row_and_cell() {
 
 /// A `<thead>`'s offset composes with a `<tr>`'s own offset inside it —
 /// nested `position:relative` on table parts adds up, the same way it does
-/// on ordinary blocks (`layout/relativo.rs`'s own doc comment). Regression
+/// on ordinary blocks (`layout/positioned/relative.rs`'s own doc comment). Regression
 /// guard for shifting the row's pieces in place and then re-walking the same
 /// range for the group: the second walk must ADD to the first, not replace
 /// it or skip it.
