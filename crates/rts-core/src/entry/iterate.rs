@@ -112,10 +112,17 @@ pub fn iterate(value: u64) -> u64 {
         Found::Values(values) => values,
         // Each pair becomes its own array, which allocates — so it happens here
         // rather than inside the borrow that read the table.
-        Found::Pairs(pairs) => pairs
-            .into_iter()
-            .map(|(key, value)| super::array_proto::built(vec![key, value]))
-            .collect(),
+        // Rooted as they are built: every pair is an allocation, and the pairs
+        // already made sat in a plain `Vec` the collector cannot see
+        // (`docs/engine/lost-roots.md`, question 3).
+        Found::Pairs(pairs) => {
+            let mut held = super::rooted::Rooted::new();
+            for (key, value) in pairs {
+                let pair = super::array_proto::built(vec![key, value]);
+                held.values().push(pair);
+            }
+            held.take()
+        }
         // Neither an array nor a string, so ask the object whether it declares
         // how to be iterated. Outside the borrow above, because every step of
         // the protocol is a call into user code.

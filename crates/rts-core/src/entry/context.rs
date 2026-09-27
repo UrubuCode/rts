@@ -744,6 +744,11 @@ impl Context {
             "" => Some(1),
             super::symbol::HAS_INSTANCE => Some(2),
             "Arguments" => Some(3),
+            "Array Iterator" => Some(4),
+            "Map Iterator" => Some(5),
+            "Set Iterator" => Some(6),
+            "String Iterator" => Some(7),
+            "RegExp String Iterator" => Some(8),
             _ => None,
         };
         if let Some(at) = held

@@ -108,6 +108,18 @@ pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
                 }
             }
         };
+        // The tag's key and text BEFORE the cell exists. Interning the text
+        // allocates, and an allocation can collect; the cell was a bare `u32`
+        // in this frame across that call, which the stack scan cannot recognise
+        // (`docs/engine/lost-roots.md`, question 2). So an iterator made at the
+        // moment a collection ran was swept before it was returned, and
+        // `it.next` on it read whatever object took its cell next:
+        // `for (const v of set)` failed once every few hundred thousand
+        // iterations, and `bench/analytic.ts` saw it as `undefined is not a
+        // function` on a different `for-of` row each run. Both texts are cached
+        // now, so nothing here allocates but the cell.
+        let tag_key = context.well_known(super::symbol::TO_STRING_TAG);
+        let tag_value = context.well_known_text(tag);
         let Some(cell) = super::native::plain(context) else {
             return super::objects::undefined_of(context);
         };
@@ -128,8 +140,6 @@ pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
         // On the INSTANCE for the reason a symbol-keyed member always is here:
         // the attribute helper names a member with a string and this key is a
         // symbol.
-        let tag_key = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
-        let tag_value = context.intern_value(crate::text::Str::from_str(tag)).bits();
         super::objects::put(context, cell, tag_key, tag_value);
         Value::from_slot(cell).bits()
     })

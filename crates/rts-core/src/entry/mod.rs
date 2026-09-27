@@ -355,7 +355,20 @@ pub(super) const LENGTH_KEY_AT: usize = 0;
 /// [`symbol::HAS_INSTANCE`] rather than written out, because the `@@` in it is
 /// that module's encoding and a second copy here is where the two would come to
 /// disagree.
-pub const CACHED_TEXTS: [&str; 4] = ["toJSON", "", symbol::HAS_INSTANCE, "Arguments"];
+pub const CACHED_TEXTS: [&str; 9] = [
+    "toJSON",
+    "",
+    symbol::HAS_INSTANCE,
+    "Arguments",
+    // The `Symbol.toStringTag` of every iterator `list_iterator::over` makes:
+    // interned per iterator before, which was an allocation between the
+    // iterator's cell and its first root.
+    "Array Iterator",
+    "Map Iterator",
+    "Set Iterator",
+    "String Iterator",
+    "RegExp String Iterator",
+];
 
 /// Every string `typeof` can answer, in the order [`Context::type_names`]
 /// caches them.

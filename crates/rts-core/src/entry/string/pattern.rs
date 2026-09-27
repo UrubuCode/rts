@@ -280,11 +280,16 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
     });
 
     let Some((found, subject, positions)) = collected else {
-        return iterator_over(Vec::new());
+        return iterator_over(super::super::rooted::Rooted::new());
     };
-    let matches: Vec<u64> = found
-        .into_iter()
-        .map(|one| {
+    // ROOTED as they are made: each match array is built while the ones before
+    // it sit in this list, and building one allocates several cells — so a
+    // plain `Vec` lost the earlier arrays to a collection, and `m[1]` on one of
+    // them read `undefined` (`docs/engine/lost-roots.md`, question 3). The
+    // `matchAll` row of `bench/analytic.ts` failed on every run for it.
+    let mut matches = super::super::rooted::Rooted::new();
+    for one in found {
+        let array = {
             let at = units_before(&subject, one.from());
             let array = super::super::array::array_new(one.groups.len() as i64);
             with_current(|context| {
@@ -313,8 +318,9 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
                 fill(context, array, one.groups);
             });
             array
-        })
-        .collect();
+        };
+        matches.values().push(array);
+    }
     iterator_over(matches)
 }
 
@@ -334,8 +340,8 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
 /// The list is still built eagerly. That is [`super::super::list_iterator`]'s
 /// stated cost rather than a new one, and wrapping does not add to it: the
 /// matches were already all collected before this is reached.
-fn iterator_over(matches: Vec<u64>) -> u64 {
-    let listed = super::super::array_proto::built(matches);
+fn iterator_over(matches: super::super::rooted::Rooted) -> u64 {
+    let listed = with_current(|context| super::super::array::built_in_rooted(context, matches));
     super::super::list_iterator::over(listed, "RegExp String Iterator")
 }
 
