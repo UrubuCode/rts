@@ -9,9 +9,13 @@
 //! reaching the global object.
 
 mod class;
+mod direct;
 mod fixed;
 mod format;
 mod parse;
+
+pub use direct::{number_to_fixed_direct, number_to_string_direct};
+pub(super) use direct::{NUMBER_TO_FIXED_DIRECT_ENTRY, NUMBER_TO_STRING_DIRECT_ENTRY};
 
 // The declared views. `entry::declared` reads the two type lists and
 // `entry::global` reads `register_boolean`; both name them through this module,

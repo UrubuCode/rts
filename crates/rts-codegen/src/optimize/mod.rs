@@ -11,9 +11,11 @@
 //! `fuse_templates`, whose own module says why it has to come after.
 
 mod fold;
+mod number_methods;
 mod scalar;
 mod template;
 
 pub use fold::fold_constants;
 pub use scalar::{Replaced, replace_scalars};
+pub use number_methods::{NumberMembers, fuse_number_methods};
 pub use template::fuse_templates;

@@ -299,6 +299,17 @@ fn attempt(
     if crate::optimize::fuse_templates(&mut graph, &domain, &inferred) > 0 {
         inferred = rts_mir::infer::infer(&graph, &domain);
     }
+    // A number's `toString`/`toFixed` over a receiver the inference typed, under the
+    // same proof the lowering's own form rests on -- `optimize/number_methods.rs`.
+    let members = crate::optimize::NumberMembers {
+        to_string: ctx.names.find("toString"),
+        to_fixed: ctx.names.find("toFixed"),
+    };
+    if ctx.statics_primordial.number
+        && crate::optimize::fuse_number_methods(&mut graph, &domain, &inferred, members) > 0
+    {
+        inferred = rts_mir::infer::infer(&graph, &domain);
+    }
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
     if std::env::var(TRACE).as_deref() == Ok("graph") {
         eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));

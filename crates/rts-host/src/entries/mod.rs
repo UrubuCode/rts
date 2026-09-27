@@ -393,6 +393,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::argument_slot
                 as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::NumberToStringDirect => (CoreEntry::NumberToStringDirect, {
+            rts_core::entry::number_to_string_direct as extern "C" fn(f64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::NumberToFixedDirect => (CoreEntry::NumberToFixedDirect, {
+            rts_core::entry::number_to_fixed_direct as extern "C" fn(f64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
         }),

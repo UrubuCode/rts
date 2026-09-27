@@ -214,7 +214,8 @@ already documents for itself. This harness inherits them deliberately.
 | document | the question | settled |
 |---|---|---|
 | [`measurements.md`](measurements.md) | what does every action cost today, against `bun` and `node` | 2026-08-21 |
-| [`plan.md`](plan.md) | what is worth doing next, and what is already settled against | 2026-08-21 |
+| [`plan-2026-09-27.md`](plan-2026-09-27.md) | what is worth doing next, with the number each row costs and the experiment that settles it | 2026-09-27 |
+| [`plan.md`](plan.md) | the 08-21 list — its ranking is superseded; its refutations ("what I am NOT proposing") stand | 2026-08-21 |
 | [`entry-tax.md`](entry-tax.md) | is the `RefCell<Vec<Context>>` behind every entry point why the runtime costs 16–30 ns | **no** — 0.53 ns of it |
 | [`hot-path-hygiene.md`](hot-path-hygiene.md) | four things a hot path was doing that nothing asked it to | done, measured |
 | [`startup.md`](startup.md) | where the 19.9 ms of `rts run empty.ts` goes | attributed; three items fixed |

@@ -1,5 +1,12 @@
 # The performance work list, 2026-08-21
 
+**Superseded as a ranking on 2026-09-27** by
+[`plan-2026-09-27.md`](plan-2026-09-27.md), which carries what is still open,
+what moved in the six stages between the two, and the numbers each row costs
+now. What this file still holds that the new one does not repeat is the section
+"What I am NOT proposing": the fifty-five refuted candidates and the reason each
+one lost, which are as binding as they were.
+
 **What produced this.** Ten investigators, one per cost area of the engine, each
 reading the code against the measured table in [`measurements.md`](measurements.md)
 and required to cite a `file:line` for every claim. Their 79 candidates were then

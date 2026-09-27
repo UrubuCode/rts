@@ -71,6 +71,9 @@ impl Lowering<'_> {
         if let Some(answered) = self.method_intrinsic(callee, arguments, expr)? {
             return Ok(Some(answered));
         }
+        if let Some(answered) = self.number_method_intrinsic(callee, arguments, expr)? {
+            return Ok(Some(answered));
+        }
         if let ExprKind::Member {
             object,
             property,

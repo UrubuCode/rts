@@ -1135,6 +1135,13 @@ pub enum RuntimeOp {
     ArgumentsCount,
     /// `arguments[e]` on the same terms: the four slots and the index VALUE.
     ArgumentSlot,
+    /// `n.toString(radix)` where `n` is a PROVEN double and the whole program
+    /// leaves `Number` alone: the double itself and the radix value — `undefined`
+    /// where none was written — and no dispatch. `emit/methods` is the proof.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    NumberToStringDirect,
+    /// `n.toFixed(digits)` on the same terms.
+    NumberToFixedDirect,
 }
 
 impl RuntimeOp {
@@ -1267,6 +1274,8 @@ impl RuntimeOp {
         RuntimeOp::FunctionApplyDirect,
         RuntimeOp::ArgumentsCount,
         RuntimeOp::ArgumentSlot,
+        RuntimeOp::NumberToStringDirect,
+        RuntimeOp::NumberToFixedDirect,
     ];
 
     /// The linker name the runtime must define.
@@ -1399,6 +1408,8 @@ impl RuntimeOp {
             RuntimeOp::FunctionApplyDirect => "__rts_function_apply_direct",
             RuntimeOp::ArgumentsCount => "__rts_arguments_count",
             RuntimeOp::ArgumentSlot => "__rts_argument_slot",
+            RuntimeOp::NumberToStringDirect => "__rts_number_to_string_direct",
+            RuntimeOp::NumberToFixedDirect => "__rts_number_to_fixed_direct",
         }
     }
 
@@ -1648,6 +1659,9 @@ impl RuntimeOp {
             }
             RuntimeOp::ArgumentSlot => {
                 (vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
+            }
+            RuntimeOp::NumberToStringDirect | RuntimeOp::NumberToFixedDirect => {
+                (vec![Repr::F64, UNPROVEN], vec![UNPROVEN])
             }
             // The fourth operand is `enumerable`, a compile-time constant: an
             // object literal's accessor is enumerable and a class body's is not.
