@@ -101,6 +101,63 @@ fn a_full_heap_ends_the_program_and_says_so() {
     );
 }
 
+/// The environment variable of the OTHER child: one whose ceiling was raised.
+const RAISED_ROLE: &str = "raised";
+
+/// A program that holds more objects than the default reservation but fewer
+/// than a raised one: 600 000 kept against 524 288 cells.
+const JUST_TOO_MANY: &str = "let keep = []; \
+     for (let i = 0; i < 600000; i = i + 1) { keep.push({a: i}); } \
+     return keep.length;";
+
+#[test]
+fn the_ceiling_can_be_raised_for_a_process_that_runs_one_program() {
+    // Same subprocess shape as above, because the point is the CONTRAST: the
+    // very program that dies under the default finishes with RTS_MAX_CELLS,
+    // and the environment is read at compile time, so it has to be set on a
+    // process rather than in this one.
+    if std::env::var(ROLE).as_deref() == Ok(RAISED_ROLE) {
+        let mut program = rts_host::compile(JUST_TOO_MANY).expect("compiles");
+        let produced = program.run();
+        println!("returned {}", rts_cranelift::tags::decode_double(produced));
+        return;
+    }
+    if std::env::var(ROLE).is_ok() {
+        // Another test's child, re-executing every test by name filter: not ours.
+        return;
+    }
+    let exe = std::env::current_exe().expect("this test binary");
+    let name = "the_ceiling_can_be_raised_for_a_process_that_runs_one_program";
+
+    let default = Command::new(&exe)
+        .args([name, "--exact", "--nocapture"])
+        .env(ROLE, RAISED_ROLE)
+        .env_remove(rts_host::MAX_CELLS_VAR)
+        .output()
+        .expect("re-executing this test binary");
+    let err = String::from_utf8_lossy(&default.stderr);
+    assert!(
+        err.contains("heap exhausted") && err.contains(rts_host::MAX_CELLS_VAR),
+        "under the default the program must run out AND be told how to raise it.
+stderr: {err}"
+    );
+
+    let raised = Command::new(&exe)
+        .args([name, "--exact", "--nocapture"])
+        .env(ROLE, RAISED_ROLE)
+        .env(rts_host::MAX_CELLS_VAR, "2000000")
+        .output()
+        .expect("re-executing this test binary");
+    let out = String::from_utf8_lossy(&raised.stdout);
+    let err = String::from_utf8_lossy(&raised.stderr);
+    assert!(
+        out.contains("returned 600000"),
+        "with the ceiling raised the same program must finish.
+stdout: {out}
+stderr: {err}"
+    );
+}
+
 #[test]
 fn more_live_objects_than_the_region_starts_with_is_not_the_end_of_the_program() {
     // The limitation this file used to encode as normal: the region held 65 536
