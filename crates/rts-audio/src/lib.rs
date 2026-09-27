@@ -10,6 +10,7 @@
 #![deny(dead_code)]
 
 pub mod device;
+pub mod escuta;
 pub mod mix;
 pub mod ogg;
 pub mod ring;
