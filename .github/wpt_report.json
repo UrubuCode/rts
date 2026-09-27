@@ -1658,18 +1658,18 @@
       "estado": "passa-vazio"
     },
     {
-      "nome": "align-items-007",
-      "mascarados": [
-        3,
-        3
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "align-items-006",
       "mascarados": [
         1,
         1
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "align-items-007",
+      "mascarados": [
+        3,
+        3
       ],
       "estado": "passa"
     },
@@ -2633,15 +2633,6 @@
       "estado": "passa"
     },
     {
-      "nome": "dynamic-change-simplified-layout",
-      "mascarados": [
-        3,
-        3
-      ],
-      "estado": "falha",
-      "pct": 0.390625
-    },
-    {
       "nome": "dynamic-isize-change-001",
       "mascarados": [
         3,
@@ -2649,6 +2640,15 @@
       ],
       "estado": "falha",
       "pct": 0.050390625
+    },
+    {
+      "nome": "dynamic-change-simplified-layout",
+      "mascarados": [
+        3,
+        3
+      ],
+      "estado": "falha",
+      "pct": 0.390625
     },
     {
       "nome": "dynamic-isize-change-002",
@@ -2778,7 +2778,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-abspos-inset-nested-001",
+      "nome": "flex-abspos-inset-nested-002",
       "mascarados": [
         1,
         1
@@ -2786,7 +2786,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-abspos-inset-nested-002",
+      "nome": "flex-abspos-inset-nested-001",
       "mascarados": [
         1,
         1
@@ -3087,6 +3087,14 @@
       "estado": "passa"
     },
     {
+      "nome": "flex-aspect-ratio-img-row-014",
+      "mascarados": [
+        3,
+        3
+      ],
+      "estado": "passa"
+    },
+    {
       "nome": "flex-aspect-ratio-img-row-015",
       "mascarados": [
         1,
@@ -3094,14 +3102,6 @@
       ],
       "estado": "falha",
       "pct": 0.9765625
-    },
-    {
-      "nome": "flex-aspect-ratio-img-row-014",
-      "mascarados": [
-        3,
-        3
-      ],
-      "estado": "passa"
     },
     {
       "nome": "flex-aspect-ratio-img-row-016",
@@ -3137,15 +3137,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-percentage-height-stale-width",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "falha",
-      "pct": 0.0390625
-    },
-    {
       "nome": "flex-aspect-ratio-resize-001",
       "mascarados": [
         1,
@@ -3153,6 +3144,15 @@
       ],
       "estado": "falha",
       "pct": 20.5078125
+    },
+    {
+      "nome": "flex-aspect-ratio-percentage-height-stale-width",
+      "mascarados": [
+        0,
+        0
+      ],
+      "estado": "falha",
+      "pct": 0.0390625
     },
     {
       "nome": "flex-base-size-ignores-max-width",
@@ -3544,18 +3544,18 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-grow-009",
-      "mascarados": [
-        1,
-        1
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flex-height-min-content",
       "mascarados": [
         3,
         3
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "flex-grow-009",
+      "mascarados": [
+        1,
+        1
       ],
       "estado": "passa"
     },
@@ -3584,15 +3584,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-item-max-height-min-content",
-      "mascarados": [
-        1,
-        1
-      ],
-      "estado": "falha",
-      "pct": 0.9765625
-    },
-    {
       "nome": "flex-item-content-is-min-width-max-content",
       "mascarados": [
         0,
@@ -3600,6 +3591,15 @@
       ],
       "estado": "falha",
       "pct": 0.15625
+    },
+    {
+      "nome": "flex-item-max-height-min-content",
+      "mascarados": [
+        1,
+        1
+      ],
+      "estado": "falha",
+      "pct": 0.9765625
     },
     {
       "nome": "flex-item-max-width-min-content-002",
@@ -3702,18 +3702,18 @@
       "pct": 0.9765625
     },
     {
-      "nome": "flex-lines/multi-line-wrap-reverse-row-reverse",
-      "mascarados": [
-        6,
-        6
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flex-lines/multi-line-wrap-reverse-column-reverse",
       "mascarados": [
         0,
         0
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "flex-lines/multi-line-wrap-reverse-row-reverse",
+      "mascarados": [
+        6,
+        6
       ],
       "estado": "passa"
     },
@@ -3974,6 +3974,14 @@
       "estado": "passa"
     },
     {
+      "nome": "flex-minimum-width-flex-items-003",
+      "mascarados": [
+        3,
+        3
+      ],
+      "estado": "passa"
+    },
+    {
       "nome": "flex-minimum-width-flex-items-004",
       "mascarados": [
         3,
@@ -3983,14 +3991,6 @@
     },
     {
       "nome": "flex-minimum-width-flex-items-005",
-      "mascarados": [
-        3,
-        3
-      ],
-      "estado": "passa"
-    },
-    {
-      "nome": "flex-minimum-width-flex-items-003",
       "mascarados": [
         3,
         3
@@ -4288,15 +4288,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-baseline-multi-item-horiz-001a",
-      "mascarados": [
-        5,
-        5
-      ],
-      "estado": "falha",
-      "pct": 0.02373046875
-    },
-    {
       "nome": "flexbox-baseline-align-self-baseline-vert-001",
       "mascarados": [
         0,
@@ -4304,6 +4295,15 @@
       ],
       "estado": "falha",
       "pct": 0.37548828125
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001a",
+      "mascarados": [
+        5,
+        5
+      ],
+      "estado": "falha",
+      "pct": 0.02373046875
     },
     {
       "nome": "flexbox-baseline-multi-item-horiz-001b",
@@ -5198,15 +5198,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-writing-mode-011",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "falha",
-      "pct": 0.525
-    },
-    {
       "nome": "flexbox-writing-mode-010",
       "mascarados": [
         0,
@@ -5214,6 +5205,15 @@
       ],
       "estado": "falha",
       "pct": 3.3328125
+    },
+    {
+      "nome": "flexbox-writing-mode-011",
+      "mascarados": [
+        0,
+        0
+      ],
+      "estado": "falha",
+      "pct": 0.525
     },
     {
       "nome": "flexbox-writing-mode-012",
@@ -5268,14 +5268,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-writing-mode-slr",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flexbox-writing-mode-slr-row-mix",
       "mascarados": [
         0,
@@ -5283,6 +5275,14 @@
       ],
       "estado": "falha",
       "pct": 3.104296875
+    },
+    {
+      "nome": "flexbox-writing-mode-slr",
+      "mascarados": [
+        0,
+        0
+      ],
+      "estado": "passa"
     },
     {
       "nome": "flexbox-writing-mode-srl-rtl",
