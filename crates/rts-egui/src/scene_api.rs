@@ -7,7 +7,7 @@
 //! do rasterizador software. Só o braço `Backend::Wgpu` age; no glow é no-op.
 
 use crate::ctx::with_ctx;
-use crate::frame::scene3d::{model_matrix, view_proj, view_proj_lookat, Scene3D};
+use crate::frame::scene3d::{model_matrix, model_matrix_quat, view_proj_lookat, view_proj_spec, CamSpec, Scene3D};
 use crate::frame::Backend;
 
 /// Garante o pipeline 3D criado na 1ª chamada e roda `f(scene, device)`.
@@ -61,22 +61,31 @@ pub fn mesh_free(win: u64, mesh: u64) {
     with_scene(win, |s, _d| s.free_mesh(mesh), ());
 }
 
-/// Define a câmera do frame (fly: yaw/pitch/fov/aspect). Constrói view·proj.
+/// Define a câmera da vista corrente (fly: yaw/pitch/fov/aspect), com `near`/
+/// `far` e projeção ortográfica opcional (`ortho_size` = meia altura visível).
+/// Constrói view·proj.
 #[allow(clippy::too_many_arguments)]
-pub fn set_camera(
-    win: u64,
-    camx: f64,
-    camy: f64,
-    camz: f64,
-    yaw: f64,
-    pitch: f64,
-    fov_y: f64,
-    aspect: f64,
-) {
-    let cd = view_proj(
-        camx as f32, camy as f32, camz as f32, yaw as f32, pitch as f32, fov_y as f32, aspect as f32,
-    );
+pub fn set_camera(win: u64, camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64, fov_y: f64, aspect: f64,
+                  near: f64, far: f64, ortho: bool, ortho_size: f64) {
+    let cd = view_proj_spec(&CamSpec {
+        pos: [camx as f32, camy as f32, camz as f32], yaw: yaw as f32, pitch: pitch as f32, fov_y: fov_y as f32,
+        aspect: aspect as f32, near: near as f32, far: far as f32, ortho, ortho_size: ortho_size as f32,
+    });
     with_scene(win, |s, _d| s.set_camera(cd), ());
+}
+/// Até 8 luzes, 16 f64 por luz (ver `lights::LIGHT_IN`). n = 0 = shading legado.
+pub fn set_lights(win: u64, data: &[f64], n: usize) { with_scene(win, |s, _d| s.set_lights(data, n), ()); }
+/// Céu, sol e luz ambiente: 22 f64 (ver `lights::SKY_IN`).
+pub fn set_sky(win: u64, data: &[f64]) { with_scene(win, |s, _d| s.set_sky(data), ()); }
+/// Neblina exponencial; densidade 0 desliga.
+pub fn set_fog(win: u64, r: f64, g: f64, b: f64, densidade: f64) {
+    let f = crate::frame::scene3d::fog_params(r, g, b, densidade);
+    with_scene(win, |s, _d| s.set_fog(f), ());
+}
+/// Começa uma vista: retângulo em fração da janela (y do topo). `limpar = false` = fundo "nada".
+pub fn set_viewport(win: u64, rect: [f64; 4], limpar: bool) {
+    let r = [rect[0] as f32, rect[1] as f32, rect[2] as f32, rect[3] as f32];
+    with_scene(win, |s, _d| s.set_viewport(r, limpar), ());
 }
 
 /// Câmera LOOK-AT (olho→alvo) com `near`/`far` explícitos — NaN-safe (não trava
@@ -107,13 +116,13 @@ pub fn set_camera_lookat(
     with_scene(win, |s, _d| s.set_camera(cd), ());
 }
 
-/// Fundo CHAPADO do scene pass (r,g,b em 0..1) — desliga o skybox procedural.
+/// Fundo CHAPADO da vista corrente (r,g,b em 0..1) — desliga o céu nela.
 /// Ideal pro viewport do editor, que quer um fundo neutro em vez do starfield.
 pub fn set_clear_color(win: u64, r: f64, g: f64, b: f64) {
     with_scene(win, |s, _d| s.set_clear_color([r as f32, g as f32, b as f32, 1.0]), ());
 }
 
-/// Religa o skybox procedural (`on!=0`) desfazendo um `setClearColor`.
+/// Religa o céu na vista corrente (`on!=0`) desfazendo um `setClearColor`.
 pub fn set_skybox(win: u64, on: i64) {
     with_scene(win, |s, _d| s.set_skybox(on != 0), ());
 }
@@ -173,6 +182,9 @@ pub fn set_shadow(
 /// duas grafias da mesma decisão é como a cor de um lote passaria a divergir da
 /// cor de um desenho solto sem que nada acusasse. A regra do alpha em especial
 /// é uma decisão, não uma fórmula: cor sem byte de alpha é OPACA.
+///
+/// `quat`: `Some([x,y,z,w])` usa `model_matrix_quat` (rotação livre) em vez de
+/// `model_matrix(rx, ry)` — `rx`/`ry` são ignorados nesse caso.
 #[allow(clippy::too_many_arguments)]
 fn draw_record(
     px: f32,
@@ -185,8 +197,12 @@ fn draw_record(
     sz: f32,
     color: u32,
     emissive: bool,
+    quat: Option<[f32; 4]>,
 ) -> ([f32; 16], [f32; 4], f32) {
-    let m = model_matrix(px, py, pz, rx, ry, sx, sy, sz);
+    let m = match quat {
+        Some(q) => model_matrix_quat(px, py, pz, q, sx, sy, sz),
+        None => model_matrix(px, py, pz, rx, ry, sx, sy, sz),
+    };
     let a = (color >> 24) & 0xFF;
     let col = [
         ((color >> 16) & 0xFF) as f32 / 255.0,
@@ -200,6 +216,9 @@ fn draw_record(
 /// Enfileira 1 draw da mesh `mesh` com transform (pos/rot/escala) + cor
 /// (0xAARRGGBB) + emissivo (0/1) + textura procedural (0=nenhuma, 1=xadrez).
 /// O draw acontece no scene pass, no `endFrame`.
+///
+/// `quat`: `Some([x,y,z,w])` troca a rotação yaw/pitch (`rx`/`ry`, ignorados
+/// nesse caso) por um quaternion livre, normalizado em `model_matrix_quat`.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_mesh(
     win: u64,
@@ -216,11 +235,13 @@ pub fn draw_mesh(
     emissive: i64,
     tex: i64,
     tile: f64,
+    quat: Option<[f64; 4]>,
 ) {
     let (m, col, em) = draw_record(
         px as f32, py as f32, pz as f32, rx as f32, ry as f32, sx as f32, sy as f32, sz as f32,
         color as u32,
         emissive != 0,
+        quat.map(|q| [q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32]),
     );
     // tex: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (textureUpload).
     with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em, tex.max(0) as u64, tile.max(0.0) as f32), ());
@@ -259,7 +280,7 @@ pub fn draw_mesh_batch(win: u64, floats: &[f32], codes: &[u32]) -> i64 {
                 let f = &floats[i * 8..i * 8 + 8];
                 let c = &codes[i * 4..i * 4 + 4];
                 let (m, col, em) =
-                    draw_record(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], c[1], c[2] != 0);
+                    draw_record(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], c[1], c[2] != 0, None);
                 s.queue_draw(c[0] as u64, m, col, em, c[3] as u64, 0.0);
             }
             count as i64

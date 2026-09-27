@@ -1,9 +1,12 @@
 use super::*;
+use super::lights::{env_floats, ENV_FLOATS};
+use super::views::{cam_floats, viewport_px, Fundo, CAM_STRIDE, FULL};
 
 impl Scene3D {
 
-    /// Roda o scene pass no `encoder` compartilhado: limpa color(bg)+depth, desenha
-    /// a fila e a esvazia. Retorna `true` se limpou o color (o egui deve usar Load).
+    /// Roda o scene pass no `encoder` compartilhado: um pass por vista (câmera,
+    /// retângulo e fundo próprios), desenha a fila e a esvazia. Retorna `true`
+    /// (o color foi limpo; o egui deve usar Load).
     pub fn render(
         &mut self,
         device: &wgpu::Device,
@@ -15,20 +18,16 @@ impl Scene3D {
     ) -> bool {
         self.ensure_depth(device, w, h);
 
-        // uniform: view_proj(16) + light(4) + cam_pos(4) + right(4) + up(4) + fwd(4)
-        //          + light_vp(16) = 52 f32
-        let mut cam = [0f32; 56];
-        cam[..16].copy_from_slice(&self.view_proj);
-        cam[16..20].copy_from_slice(&self.light);
-        cam[20..23].copy_from_slice(&self.cam_pos);
-        cam[24..27].copy_from_slice(&self.cright);
-        cam[27] = self.tan_h;
-        cam[28..31].copy_from_slice(&self.cup);
-        cam[31] = self.tan_v;
-        cam[32..35].copy_from_slice(&self.cfwd);
-        cam[36..52].copy_from_slice(&self.light_vp);
-        cam[52] = self.water_draws.first().map(|w| w.3).unwrap_or(0.0);
-        queue.write_buffer(&self.cam_buf, 0, f32_bytes(&cam));
+        // um slot `Cam` por vista (offset dinâmico) + o `Env` do frame
+        let water = self.water_draws.first().map(|d| d.3).unwrap_or(0.0);
+        let nviews = self.vq.len();
+        for i in 0..nviews {
+            let floats = cam_floats(self.vq.get(i), self.light, &self.light_vp, water);
+            queue.write_buffer(&self.cam_buf, i as u64 * CAM_STRIDE, f32_bytes(&floats));
+        }
+        let has_pano = self.sky.modo > 2.5 && self.textures.contains_key(&self.sky.textura);
+        let env: [f32; ENV_FLOATS] = env_floats(&self.lights, &self.sky, has_pano, self.fog);
+        queue.write_buffer(&self.env_buf, 0, f32_bytes(&env));
 
         // instâncias
         let n = self.draws.len() as u64;
@@ -101,7 +100,7 @@ impl Scene3D {
                 multiview_mask: None,
             });
             sp.set_pipeline(&self.shadow_pipeline);
-            sp.set_bind_group(0, &self.cam_bg, &[]);
+            sp.set_bind_group(0, &self.cam_bg, &[0]); // light_vp é o mesmo em todos os slots
             // O pass de sombra não lê textura, então poderia agrupar só por
             // malha — mas reusa os MESMOS grupos de propósito: um segundo
             // critério de agrupamento seria uma segunda ordenação do buffer de
@@ -119,78 +118,106 @@ impl Scene3D {
             }
         }
 
-        // Cor de clear: fundo chapado (`bg`) OU o escuro padrão sob o skybox.
-        let clear = match self.bg {
-            Some(c) => wgpu::Color { r: c[0] as f64, g: c[1] as f64, b: c[2] as f64, a: c[3] as f64 },
-            None => wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 },
+        // Clear da janela inteira: com UMA vista cheia é o de antes (a cor do
+        // fundo chapado ou o escuro sob o céu); com várias, o escuro (faixas).
+        // É o PRIMEIRO pass com área que limpa a janela inteira, mesmo que a
+        // vista dele tenha `limpar = false` — "nada" só vale dentro do frame.
+        let v0 = *self.vq.get(0);
+        let base = match v0.fundo {
+            Fundo::Cor(c) if nviews == 1 && v0.rect == FULL =>
+                wgpu::Color { r: c[0] as f64, g: c[1] as f64, b: c[2] as f64, a: c[3] as f64 },
+            _ => wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 },
         };
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("scene3d pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.depth_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
+        let sky_bg = if has_pano { &self.textures[&self.sky.textura] } else { &self.default_tex_bg };
+        let mut limpou = false;
+        for i in 0..nviews {
+            let v = *self.vq.get(i);
+            let Some(px) = viewport_px(v.rect, w, h) else { continue };
+            let load = if limpou { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(base) };
+            limpou = true;
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene3d pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-
-        pass.set_bind_group(0, &self.cam_bg, &[]);
-        pass.set_bind_group(1, &self.shadow_bg, &[]);
-        // 1. SKYBOX (fullscreen, sem depth write) — fica no fundo. Pulado quando há
-        // fundo chapado (`bg`), que o clear acima já pintou.
-        if self.bg.is_none() {
-            pass.set_pipeline(&self.sky_pipeline);
-            pass.draw(0..3, 0..1);
-        }
-        // 2. meshes (depth test/write). Group 2 = textura de albedo: por-draw,
-        // a textura do objeto (tex_id>=2) ou a 1×1 branca default.
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(2, &self.default_tex_bg, &[]);
-        for &(mesh_id, tid, inicio, n) in &grupos {
-            if let Some(m) = self.meshes.get(&mesh_id) {
-                let tex_bg = self.textures.get(&tid).unwrap_or(&self.default_tex_bg);
-                pass.set_bind_group(2, tex_bg, &[]);
-                let off = (inicio as u64) * 96;
-                let bytes = (n as u64) * 96;
-                pass.set_vertex_buffer(0, m.vbuf.slice(..));
-                pass.set_vertex_buffer(1, self.inst_buf.slice(off..off + bytes));
-                pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..m.icount, 0, 0..n);
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_viewport(px[0] as f32, px[1] as f32, px[2] as f32, px[3] as f32, 0.0, 1.0);
+            pass.set_scissor_rect(px[0], px[1], px[2], px[3]);
+            pass.set_bind_group(0, &self.cam_bg, &[(i as u64 * CAM_STRIDE) as u32]);
+            pass.set_bind_group(1, &self.shadow_bg, &[]);
+            // 1. fundo da vista: céu, ou cor chapada (view_bg.w = 1) só dentro
+            // do retângulo. `limpar = false` não pinta nada (só a profundidade).
+            if v.limpar {
+                pass.set_pipeline(&self.sky_pipeline);
+                pass.set_bind_group(2, sky_bg, &[]);
+                pass.draw(0..3, 0..1);
             }
-        }
-        // 3. ÁGUA INSTANCIADA: 1 draw call por fila; instâncias direto do
-        // storage buffer da física. Sem sombra própria (v1): a água recebe a
-        // sombra do mundo pelo shadow_factor, mas não a projeta.
-        if !self.water_draws.is_empty() {
-            pass.set_pipeline(&self.water_pipeline);
+            // 2. meshes (depth test/write). Group 2 = textura de albedo: por-draw,
+            // a textura do objeto (tex_id>=2) ou a 1×1 branca default.
+            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(2, &self.default_tex_bg, &[]);
-            for (mesh_id, buf, count, _scale) in &self.water_draws {
-                if let Some(m) = self.meshes.get(mesh_id) {
+            for &(mesh_id, tid, inicio, n) in &grupos {
+                if let Some(m) = self.meshes.get(&mesh_id) {
+                    let tex_bg = self.textures.get(&tid).unwrap_or(&self.default_tex_bg);
+                    pass.set_bind_group(2, tex_bg, &[]);
+                    let off = (inicio as u64) * 96;
+                    let bytes = (n as u64) * 96;
                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
-                    pass.set_vertex_buffer(1, buf.slice(..));
+                    pass.set_vertex_buffer(1, self.inst_buf.slice(off..off + bytes));
                     pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..m.icount, 0, 0..*count);
+                    pass.draw_indexed(0..m.icount, 0, 0..n);
+                }
+            }
+            // 3. ÁGUA INSTANCIADA: 1 draw call por fila; instâncias direto do
+            // storage buffer da física. Sem sombra própria (v1): a água recebe a
+            // sombra do mundo pelo shadow_factor, mas não a projeta.
+            if !self.water_draws.is_empty() {
+                pass.set_pipeline(&self.water_pipeline);
+                pass.set_bind_group(2, &self.default_tex_bg, &[]);
+                for (mesh_id, buf, count, _scale) in &self.water_draws {
+                    if let Some(m) = self.meshes.get(mesh_id) {
+                        pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                        pass.set_vertex_buffer(1, buf.slice(..));
+                        pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..m.icount, 0, 0..*count);
+                    }
                 }
             }
         }
-        drop(pass);
+        if !limpou {
+            // nenhuma vista com área: ainda assim o frame precisa ser limpo
+            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene3d clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(base), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
 
         self.draws.clear();
         self.water_draws.clear();
+        self.vq.end_frame();
         true
     }
 }

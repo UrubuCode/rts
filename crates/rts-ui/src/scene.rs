@@ -47,6 +47,10 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("setSkybox", set_skybox),
     ("setLight", set_light),
     ("setShadow", set_shadow),
+    ("setLights", set_lights),
+    ("setSky", set_sky),
+    ("setFog", set_fog),
+    ("setViewport", set_viewport),
     ("drawMesh", draw_mesh),
     ("drawMeshBatch", draw_mesh_batch),
 ];
@@ -89,18 +93,43 @@ extern "C" fn texture_upload(_e: u64, _t: u64, win: u64, pixels: u64, w: u64, h:
     value::from_number(made as f64)
 }
 
-/// `setCamera(win, { x, y, z, yaw, pitch, fov, aspect })` — câmera de voo.
-/// Ângulos em RADIANOS; base canhota, `yaw` 0 olha para +Z.
+/// Reinterpreta os bytes de uma view como `f64` (Float64Array), em ordem nativa.
+fn doubles(raw: &[u8]) -> Vec<f64> {
+    raw.chunks_exact(8).map(|w| f64::from_ne_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]])).collect()
+}
+
+/// `setCamera(win, { x, y, z, yaw, pitch, fov, aspect, near, far, ortho, orthoSize })`
+/// — câmera de voo da vista corrente. Ângulos em RADIANOS; base canhota, `yaw` 0
+/// olha para +Z. `ortho != 0` = ortográfica com meia altura `orthoSize`.
 extern "C" fn set_camera(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
-    let read = options(
-        spec,
-        &["x", "y", "z", "yaw", "pitch", "fov", "aspect"],
-        &[0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0],
-    );
-    rts_egui::set_camera(
-        handle(win),
-        read[0], read[1], read[2], read[3], read[4], read[5], read[6],
-    );
+    let r = options(spec, &["x", "y", "z", "yaw", "pitch", "fov", "aspect", "near", "far", "ortho", "orthoSize"],
+        &[0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.1, 500.0, 0.0, 5.0]);
+    rts_egui::set_camera(handle(win), r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9] != 0.0, r[10]);
+    value::nothing()
+}
+/// `setLights(win, dados: Float64Array, n)` — até 8 luzes, 16 floats por luz;
+/// `n = 0` volta ao shading do `setLight`.
+extern "C" fn set_lights(_e: u64, _t: u64, win: u64, data: u64, n: u64, _c: u64) -> u64 {
+    let vals = bytes(data).map(|raw| doubles(&raw)).unwrap_or_default();
+    rts_egui::set_lights(handle(win), &vals, integer(n, 0).max(0) as usize);
+    value::nothing()
+}
+/// `setSky(win, dados: Float64Array)` — céu, sol e ambiente (22 floats).
+extern "C" fn set_sky(_e: u64, _t: u64, win: u64, data: u64, _b: u64, _c: u64) -> u64 {
+    let vals = bytes(data).map(|raw| doubles(&raw)).unwrap_or_default();
+    rts_egui::set_sky(handle(win), &vals);
+    value::nothing()
+}
+/// `setFog(win, { r, g, b, densidade })` — neblina exponencial; 0 desliga.
+extern "C" fn set_fog(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
+    let r = options(spec, &["r", "g", "b", "densidade"], &[0.0, 0.0, 0.0, 0.0]);
+    rts_egui::set_fog(handle(win), r[0], r[1], r[2], r[3]);
+    value::nothing()
+}
+/// `setViewport(win, { x, y, w, h, limpar })`, em fração da janela, y a partir do topo.
+extern "C" fn set_viewport(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
+    let r = options(spec, &["x", "y", "w", "h", "limpar"], &[0.0, 0.0, 1.0, 1.0, 1.0]);
+    rts_egui::set_viewport(handle(win), [r[0], r[1], r[2], r[3]], r[4] != 0.0);
     value::nothing()
 }
 
@@ -121,7 +150,8 @@ extern "C" fn set_camera_look_at(_e: u64, _t: u64, win: u64, spec: u64, _b: u64,
     value::nothing()
 }
 
-/// `setClearColor(win, r, g, b)` — fundo chapado (0..1), desligando o skybox.
+/// `setClearColor(win, r, g, b)` — fundo chapado (0..1) da vista corrente,
+/// desligando o céu nela.
 extern "C" fn set_clear_color(_e: u64, _t: u64, win: u64, r: u64, g: u64, b: u64) -> u64 {
     rts_egui::set_clear_color(
         handle(win),
@@ -132,7 +162,7 @@ extern "C" fn set_clear_color(_e: u64, _t: u64, win: u64, r: u64, g: u64, b: u64
     value::nothing()
 }
 
-/// `setSkybox(win, on)` — religa o skybox procedural.
+/// `setSkybox(win, on)` — religa o céu na vista corrente.
 extern "C" fn set_skybox(_e: u64, _t: u64, win: u64, on: u64, _b: u64, _c: u64) -> u64 {
     rts_egui::set_skybox(handle(win), integer(on, 1));
     value::nothing()
@@ -160,7 +190,7 @@ extern "C" fn set_shadow(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64
     value::nothing()
 }
 
-/// `drawMesh(win, { mesh, x, y, z, rx, ry, sx, sy, sz, color, emissive, tex, tile })`.
+/// `drawMesh(win, { mesh, x, y, z, rx, ry, sx, sy, sz, color, emissive, tex, tile, qx, qy, qz, qw })`.
 ///
 /// Cor `0xAARRGGBB`; `tex` 0=nenhuma, 1=xadrez procedural, ≥2 = id de
 /// `textureUpload`. A escala vale 1 por default, porque uma escala 0 é uma malha
@@ -169,12 +199,25 @@ extern "C" fn set_shadow(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64
 /// `tile` > 0 amostra a textura em coordenada de MUNDO (repetições por unidade),
 /// projetada pelo eixo dominante da normal: uma caixa de 40 u com textura
 /// repete a imagem em vez de esticá-la. 0 (default) = UV da malha, como antes.
+///
+/// `qx, qy, qz, qw` (default 0) formam um quaternion; se ALGUM for ≠ 0, a
+/// rotação vem dele (normalizado no lado nativo) em vez de `rx`/`ry`, que são
+/// ignorados nesse caso. Ausentes/todos-zero = comportamento de hoje, idêntico
+/// byte a byte.
 extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
     let read = options(
         spec,
-        &["mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex", "tile"],
-        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0, 0.0],
+        &[
+            "mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex", "tile",
+            "qx", "qy", "qz", "qw",
+        ],
+        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     );
+    let quat = if read[13] != 0.0 || read[14] != 0.0 || read[15] != 0.0 || read[16] != 0.0 {
+        Some([read[13], read[14], read[15], read[16]])
+    } else {
+        None
+    };
     rts_egui::draw_mesh(
         handle(win),
         read[0] as u64,
@@ -183,6 +226,7 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
         read[10] as i64,
         read[11] as i64,
         read[12],
+        quat,
     );
     value::nothing()
 }

@@ -78,11 +78,24 @@ extern "C" fn set_next_window_pos(_e: u64, _t: u64, x: u64, y: u64, _b: u64, _c:
     value::nothing()
 }
 
-/// `setVsync(win, on)` — `false` é o opt-out explícito: quem desliga assume o
-/// throttle e o consumo.
+/// `setVsync(win, on)` — `false` (ou 0) é o opt-out explícito: quem desliga
+/// assume o throttle e o consumo. Aceita `boolean` E `number`: antes um
+/// `false` caía no default de `integer` (1) e LIGAVA o vsync — o `vsync 0` pela
+/// porta de controle do rts-game (que passava `on !== 0`) nunca desligava.
 extern "C" fn set_vsync(_e: u64, _t: u64, win: u64, on: u64, _b: u64, _c: u64) -> u64 {
-    rts_egui::set_vsync(handle(win), integer(on, 1));
+    rts_egui::set_vsync(handle(win), vsync_flag(on));
     value::nothing()
+}
+
+/// 0/1 de um `boolean` ou `number` (qualquer outro valor = 1, o padrão Fifo).
+fn vsync_flag(on: u64) -> i64 {
+    if on == value::from_bool(false) {
+        0
+    } else if on == value::from_bool(true) {
+        1
+    } else {
+        integer(on, 1)
+    }
 }
 
 /// `mouseLock(win, on)` — confina e esconde o cursor, e passa

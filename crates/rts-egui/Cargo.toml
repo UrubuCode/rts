@@ -125,3 +125,8 @@ gpu-vulkan = ["wgpu/vulkan"]
 # se todas as fatias forem medidas pelo mesmo registro (ver
 # `rts_dom::metrics::phases`).
 metrics = ["rts-dom/metrics"]
+
+[dev-dependencies]
+# Valida o WGSL do scene3d e lê o layout dos uniforms nos testes, sem abrir
+# janela. Mesma versão que o wgpu já traz no Cargo.lock.
+naga = { version = "29.0", features = ["wgsl-in"] }
