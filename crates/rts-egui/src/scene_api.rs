@@ -10,6 +10,12 @@ use crate::ctx::with_ctx;
 use crate::frame::scene3d::{model_matrix, model_matrix_quat, view_proj_lookat, view_proj_spec, CamSpec, Scene3D};
 use crate::frame::Backend;
 
+// Re-exportadas na raiz do crate (`rts_egui::PART_FLOATS`, mesmo nome do lado
+// TS) — ver `frame::scene3d::particles` pelo layout completo dos 9 floats.
+// `pub use` também traz os nomes para este arquivo, então `draw_particles`
+// abaixo os usa sem outro import.
+pub use crate::frame::scene3d::{MODO_ADITIVO, MODO_ALFA, PART_FLOATS};
+
 /// Garante o pipeline 3D criado na 1ª chamada e roda `f(scene, device)`.
 fn with_scene<R: Copy>(win: u64, f: impl FnOnce(&mut Scene3D, &wgpu::Device) -> R, default: R) -> R {
     with_ctx(win, |c| {
@@ -287,6 +293,36 @@ pub fn draw_mesh_batch(win: u64, floats: &[f32], codes: &[u32]) -> i64 {
         },
         0,
     )
+}
+
+/// `drawParticles(win, buf, n, modo)` — um draw instanciado, billboard, sem
+/// textura (disco procedural). `buf` tem `PART_FLOATS` (9) floats por
+/// partícula; `n` partículas são desenhadas, das primeiras `n` linhas de `buf`.
+/// `n` maior do que `buf` comporta é recusado com 0 — nunca lê fora do slice.
+/// `modo` desconhecido (nem `MODO_ALFA` nem `MODO_ADITIVO`) cai em alfa.
+pub fn draw_particles(win: u64, floats: &[f32], n: i64, modo: i64) -> i64 {
+    if n <= 0 {
+        return 0;
+    }
+    let n = n as usize;
+    if n * PART_FLOATS > floats.len() {
+        return 0;
+    }
+    let aditivo = modo == MODO_ADITIVO;
+    with_scene(win, |s, _d| { s.queue_particles(&floats[..n * PART_FLOATS], aditivo, None); n as i64 }, 0)
+}
+
+/// Como [`draw_particles`], com textura (`tex`, id de `textureUpload`).
+pub fn draw_particles_tex(win: u64, floats: &[f32], tex: u64, n: i64, modo: i64) -> i64 {
+    if n <= 0 {
+        return 0;
+    }
+    let n = n as usize;
+    if n * PART_FLOATS > floats.len() {
+        return 0;
+    }
+    let aditivo = modo == MODO_ADITIVO;
+    with_scene(win, |s, _d| { s.queue_particles(&floats[..n * PART_FLOATS], aditivo, Some(tex)); n as i64 }, 0)
 }
 
 /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh` lendo cada

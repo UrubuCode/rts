@@ -81,6 +81,37 @@ impl Scene3D {
             queue.write_buffer(&self.inst_buf, 0, f32_bytes(&inst));
         }
 
+        // ── PARTÍCULAS: um lote por `queue_particles` (billboard instanciado,
+        // sem malha própria). Preparado FORA do laço por-vista, como as
+        // malhas acima: um `write_buffer` por frame, não um por vista.
+        let part_total: usize =
+            self.particle_draws.iter().map(|(f, _, _)| f.len() / particles::PART_FLOATS).sum();
+        if part_total as u64 > self.particle_inst_cap {
+            let cap = (part_total as u64).next_power_of_two().max(64);
+            self.particle_inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("scene3d particle inst"),
+                size: (particles::PART_FLOATS * 4) as u64 * cap,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.particle_inst_cap = cap;
+        }
+        let mut part_inst: Vec<f32> = Vec::with_capacity(part_total * particles::PART_FLOATS);
+        // (início em INSTÂNCIAS, n, aditivo, textura opcional)
+        let mut part_batches: Vec<(u32, u32, bool, Option<u64>)> = Vec::new();
+        for (floats, aditivo, tex) in &self.particle_draws {
+            let n = (floats.len() / particles::PART_FLOATS) as u32;
+            if n == 0 {
+                continue;
+            }
+            let inicio = (part_inst.len() / particles::PART_FLOATS) as u32;
+            part_inst.extend_from_slice(floats);
+            part_batches.push((inicio, n, *aditivo, *tex));
+        }
+        if !part_inst.is_empty() {
+            queue.write_buffer(&self.particle_inst_buf, 0, f32_bytes(&part_inst));
+        }
+
         // ── SHADOW PASS: depth da cena vista da luz (só quando há sombra ativa) ──
         let has_shadow = self.light_vp != identity();
         if has_shadow && !self.draws.is_empty() {
@@ -182,6 +213,24 @@ impl Scene3D {
                     pass.draw_indexed(0..m.icount, 0, 0..n);
                 }
             }
+            // 2.5 PARTÍCULAS: billboard instanciado, DEPOIS das malhas opacas
+            // (depth já escrito) e ANTES da água. Depth TEST ligado (ficam
+            // atrás de paredes), WRITE desligado (translúcidas entre si, não
+            // se ocultam na ordem de chegada). Um pipeline por lote conforme o
+            // `aditivo` do `queue_particles`; a textura do lote (se houver) ou
+            // a 1×1 branca default.
+            for &(inicio, n, aditivo, tex) in &part_batches {
+                let pipeline = if aditivo { &self.particle_pipeline_aditivo } else { &self.particle_pipeline_alfa };
+                pass.set_pipeline(pipeline);
+                let tex_bg = tex.and_then(|t| self.textures.get(&t)).unwrap_or(&self.default_tex_bg);
+                pass.set_bind_group(2, tex_bg, &[]);
+                let stride = (particles::PART_FLOATS * 4) as u64;
+                let off = inicio as u64 * stride;
+                let bytes = n as u64 * stride;
+                pass.set_vertex_buffer(0, self.particle_inst_buf.slice(off..off + bytes));
+                pass.draw(0..4, 0..n);
+            }
+
             // 3. ÁGUA INSTANCIADA: 1 draw call por fila; instâncias direto do
             // storage buffer da física. Sem sombra própria (v1): a água recebe a
             // sombra do mundo pelo shadow_factor, mas não a projeta.
@@ -217,6 +266,7 @@ impl Scene3D {
 
         self.draws.clear();
         self.water_draws.clear();
+        self.particle_draws.clear();
         self.vq.end_frame();
         true
     }

@@ -126,6 +126,40 @@ fn sky_fs(i: SkyOut) -> @location(0) vec4<f32> {
   return vec4<f32>(cor_do_ceu(ray, pano), 1.0);
 }
 
+struct ParticleOut {
+  @builtin(position) clip: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) color: vec4<f32>,
+};
+// Quad UNIT em [-0.5,0.5]^2, 4 vértices (TriangleStrip): sem buffer de vértice
+// por instância — só @location(0..2) da instância (slot 0, ver particle_ibl).
+@vertex
+fn vs_particle(
+  @builtin(vertex_index) vi: u32,
+  @location(0) pos_tam: vec4<f32>,   // x, y, z, tamanho
+  @location(1) rot_rgb: vec4<f32>,   // rotacao, r, g, b
+  @location(2) a: f32,
+) -> ParticleOut {
+  var corners = array<vec2<f32>, 4>(vec2<f32>(-0.5, -0.5), vec2<f32>(0.5, -0.5), vec2<f32>(-0.5, 0.5), vec2<f32>(0.5, 0.5));
+  let c = corners[vi];
+  let cr = cos(rot_rgb.x); let sr = sin(rot_rgb.x);
+  let rc = vec2<f32>(c.x * cr - c.y * sr, c.x * sr + c.y * cr) * pos_tam.w;
+  // billboard: desloca no plano da câmera (cam_right/cam_up já existem no uniform Cam).
+  let world = pos_tam.xyz + cam.cam_right.xyz * rc.x + cam.cam_up.xyz * rc.y;
+  var o: ParticleOut;
+  o.clip = cam.view_proj * vec4<f32>(world, 1.0);
+  o.uv = c + vec2<f32>(0.5, 0.5);
+  o.color = vec4<f32>(rot_rgb.y, rot_rgb.z, rot_rgb.w, a);
+  return o;
+}
+@fragment
+fn fs_particle(in: ParticleOut) -> @location(0) vec4<f32> {
+  // disco suave procedural (default sem textura): alpha cai a zero na borda.
+  let d = length(in.uv - vec2<f32>(0.5, 0.5)) * 2.0;
+  let borda = 1.0 - smoothstep(0.8, 1.0, d);
+  return vec4<f32>(in.color.rgb, in.color.a * borda);
+}
+
 struct VOut {
   @builtin(position) clip: vec4<f32>,
   @location(0) normal: vec3<f32>,

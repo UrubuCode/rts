@@ -34,6 +34,7 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
 
 mod lights;
 mod math;
+mod particles;
 mod pipeline;
 mod render;
 mod shader;
@@ -45,6 +46,7 @@ use math::{identity, light_view_proj};
 pub use math::{Cam3D, model_matrix, model_matrix_quat, view_proj, view_proj_lookat};
 pub use math::{CamSpec, view_proj_spec};
 pub use lights::fog_params;
+pub use particles::{PART_FLOATS, MODO_ALFA, MODO_ADITIVO};
 
 const SHADOW_SIZE: u32 = 2048;
 
@@ -95,6 +97,17 @@ pub struct Scene3D {
     water_draws: Vec<(u64, wgpu::Buffer, u32, f32)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
+    // PARTÍCULAS: billboard instanciado, sem malha própria (quad UNIT fixo no
+    // shader). Um pipeline por modo de blend (`particles::MODO_*`) — o alfa e
+    // o aditivo divergem só no `BlendState`, então dois pipelines em vez de um
+    // `if` por instância dentro do shader.
+    particle_pipeline_alfa: wgpu::RenderPipeline,
+    particle_pipeline_aditivo: wgpu::RenderPipeline,
+    /// (linhas de `PART_FLOATS` floats, aditivo?, textura opcional) — um lote
+    /// por chamada de `queue_particles`; drenada junto de `draws`/`water_draws`.
+    particle_draws: Vec<(Vec<f32>, bool, Option<u64>)>,
+    particle_inst_buf: wgpu::Buffer,
+    particle_inst_cap: u64,
 }
 
 impl Scene3D {
@@ -146,6 +159,16 @@ impl Scene3D {
     /// buffer da física (rts:gpu), sem readback. 1 draw call por chamada.
     pub fn queue_water(&mut self, mesh: u64, buf: wgpu::Buffer, count: u32, scale: f32) {
         self.water_draws.push((mesh, buf, count, scale));
+    }
+
+    /// PARTÍCULAS: enfileira um lote de `floats.len() / PART_FLOATS` billboards
+    /// (`floats` já validado pelo chamador — `scene_api::draw_particles*` nunca
+    /// deixa passar um `n` maior do que o buffer comporta). `aditivo` escolhe o
+    /// pipeline (blend soma vs. alpha blending); `tex`, quando presente, é o id
+    /// de uma `upload_texture` (bind group real no `render`; sem ela, a 1×1
+    /// branca default).
+    pub fn queue_particles(&mut self, floats: &[f32], aditivo: bool, tex: Option<u64>) {
+        self.particle_draws.push((floats.to_vec(), aditivo, tex));
     }
 
     /// Sobe uma imagem RGBA8 (`w×h`, `rgba` = w*h*4 bytes) pra VRAM e devolve um id

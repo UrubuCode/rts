@@ -1,6 +1,14 @@
 use super::shader::SHADER;
 use super::*;
 
+/// Blend ADITIVO: soma a cor da partícula à do destino sem multiplicar pelo
+/// alpha do destino (faíscas/fogo não escurecem o que está atrás). O modo
+/// alfa continua em `wgpu::BlendState::ALPHA_BLENDING`, como o pipeline de malha.
+pub(in crate::frame::scene3d) const BLEND_ADDITIVE: wgpu::BlendState = wgpu::BlendState {
+    color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+    alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+};
+
 impl Scene3D {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, color_format: wgpu::TextureFormat) -> Scene3D {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -336,6 +344,96 @@ impl Scene3D {
             mapped_at_creation: false,
         });
 
+        // PARTÍCULAS: quad billboard fixo (4 vértices, sem buffer por instância no
+        // slot 0 — vs_particle lê só @builtin(vertex_index)) + instância de 36 bytes
+        // (9 f32: pos, tamanho, rotação, cor). Depth TEST ligado, WRITE desligado:
+        // partículas ficam translúcidas entre si mas continuam atrás de paredes.
+        let particle_ibl = wgpu::VertexBufferLayout {
+            array_stride: (particles::PART_FLOATS * 4) as u64, // 36 bytes
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: (particles::PART_X * 4) as u64, shader_location: 0 },  // x,y,z,tamanho
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: (particles::PART_ROT * 4) as u64, shader_location: 1 }, // rotacao,r,g,b
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: (particles::PART_A * 4) as u64, shader_location: 2 }, // a
+            ],
+        };
+        let particle_pipeline_alfa = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scene3d particle pipeline (alfa)"),
+            layout: Some(&mesh_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_particle"),
+                buffers: &[particle_ibl.clone()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_particle"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multiview_mask: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+        });
+        let particle_pipeline_aditivo = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scene3d particle pipeline (aditivo)"),
+            layout: Some(&mesh_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_particle"),
+                buffers: &[particle_ibl],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_particle"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(BLEND_ADDITIVE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multiview_mask: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+        });
+        let particle_inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scene3d particle inst"),
+            size: (particles::PART_FLOATS * 4) as u64 * 64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Scene3D {
             pipeline,
             sky_pipeline,
@@ -366,6 +464,11 @@ impl Scene3D {
             water_draws: Vec::new(),
             inst_buf,
             inst_cap: 64,
+            particle_pipeline_alfa,
+            particle_pipeline_aditivo,
+            particle_draws: Vec::new(),
+            particle_inst_buf,
+            particle_inst_cap: 64,
         }
     }
 }
