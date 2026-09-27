@@ -25,6 +25,11 @@
 //! (`drop`), então nada lê os átomos enquanto a thread de captura ainda
 //! escreve neles.
 
+// Fora do Windows a captura não existe (`escutar`/`escuta_iniciar` devolvem
+// erro), então o acumulador e o Goertzel só são usados pelos testes; o CI
+// compila com avisos como erro.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 #[cfg(target_os = "windows")]
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
