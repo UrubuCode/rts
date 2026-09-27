@@ -1,4 +1,4 @@
-//! `rts:audio` — os treze membros, no molde de `rts-physics/src/surface.rs`:
+//! `rts:audio` — os quinze membros, no molde de `rts-physics/src/surface.rs`:
 //! views tipadas, ponteiros pegos num empréstimo curto e usados fora dele, e
 //! views sobrepostas recusadas.
 
@@ -19,6 +19,9 @@ pub const INFO_FLOATS: usize = 4;
 pub const STATS_FLOATS: usize = 6;
 /// `out` de `escutar`: rms, pico, silêncio (0|1), quadros, taxa, canais.
 pub const ESCUTA_FLOATS: usize = 6;
+/// `out` de `escuta_ler`: rms, pico, silêncio (0|1), quadros, taxa, canais,
+/// energia na frequência pedida, contagem de underruns.
+pub const ESCUTA_CONTINUA_FLOATS: usize = 8;
 
 /// O objeto do módulo.
 pub fn namespace(context: &mut Context) -> u64 {
@@ -39,6 +42,8 @@ const AUDIO: &[(&str, Provided)] = &[
     ("decode_ogg", decode_ogg),
     ("ogg_take", ogg_take),
     ("escutar", escutar),
+    ("escuta_iniciar", escuta_iniciar),
+    ("escuta_ler", escuta_ler),
 ];
 
 thread_local! {
@@ -286,6 +291,44 @@ extern "C" fn escutar(_e: u64, _t: u64, ms: u64, out: u64, _b: u64, _c: u64) -> 
             o[5] = 0.0;
             resposta(0.0)
         }
+    }
+}
+
+/// `escuta_iniciar(ms, freqHz)` → 1 iniciou uma escuta CONTÍNUA (não bloqueia:
+/// a captura roda numa thread própria), 0 se já houver uma em andamento (chame
+/// `escuta_ler` até `1` antes de iniciar outra) ou se o dispositivo/plataforma
+/// recusarem. `freqHz > 0` liga o detector de Goertzel nessa frequência sobre
+/// o sinal reduzido a mono; `freqHz <= 0` desliga (energia sempre 0).
+extern "C" fn escuta_iniciar(_e: u64, _t: u64, ms: u64, freq: u64, _b: u64, _c: u64) -> u64 {
+    let ms = numero(ms, 300.0).max(0.0) as u32;
+    let freq_hz = numero(freq, 0.0);
+    resposta(if escuta::escuta_iniciar(ms, freq_hz) { 1.0 } else { 0.0 })
+}
+
+/// `escuta_ler(out: Float64Array)` → 0 enquanto a escuta iniciada por
+/// `escuta_iniciar` ainda está rodando (ou se nenhuma foi iniciada), 1 quando
+/// termina — preenchendo `out` com
+/// `[rms, pico, silencio, quadros, taxa, canais, energiaFreq, underruns]` e
+/// liberando a escuta pra uma próxima chamada de `escuta_iniciar`. Nunca
+/// bloqueia.
+extern "C" fn escuta_ler(_e: u64, _t: u64, out: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let Some(j) = entry::with_runtime(|c| janela(c, out, 8)) else { return resposta(0.0) };
+    // SAFETY: como em `stats`.
+    let o = unsafe { doubles_mut(j) };
+    if o.len() < ESCUTA_CONTINUA_FLOATS { return resposta(0.0); }
+    match escuta::escuta_ler() {
+        Some(r) => {
+            o[0] = r.base.rms as f64;
+            o[1] = r.base.pico as f64;
+            o[2] = if r.base.silencio { 1.0 } else { 0.0 };
+            o[3] = r.base.quadros as f64;
+            o[4] = r.base.taxa as f64;
+            o[5] = r.base.canais as f64;
+            o[6] = r.energia_freq as f64;
+            o[7] = r.underruns as f64;
+            resposta(1.0)
+        }
+        None => resposta(0.0),
     }
 }
 
