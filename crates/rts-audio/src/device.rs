@@ -124,6 +124,37 @@ fn abrir_cpal(p: &Pedido) -> Result<Saida, String> {
     })
 }
 
+/// Maior número de QUADROS que a conversão I16/U16 processa por passada, sem
+/// alocar. O host pode pedir um `d` maior que isso (período variável); nesse
+/// caso `processar_em_blocos` dá várias passadas do mesmo `tmp`, nunca uma
+/// alocação nova. 4096 quadros a 48 kHz são ~85 ms, acima de qualquer período
+/// razoável de um dispositivo real.
+const QUADROS_BLOCO_CONVERSAO: usize = 4096;
+
+/// CONSUMIDOR, fora do callback de tempo real: preenche `dst` em fatias de no
+/// máximo `tmp.len()` amostras, chamando `preencher` (que escreve em floats) e
+/// depois `converter` por amostra. Não aloca — é por isso que existe: o
+/// callback do `cpal` não pode alocar, e isso vale mesmo quando `dst` é maior
+/// que `tmp` (defensivo; não deveria acontecer com `tmp` dimensionado acima do
+/// período do host, mas processar em blocos não custa e cobre o caso).
+fn processar_em_blocos<T: Copy>(
+    dst: &mut [T],
+    tmp: &mut [f32],
+    mut preencher: impl FnMut(&mut [f32]),
+    converter: impl Fn(f32) -> T,
+) {
+    if tmp.is_empty() { return; }
+    let mut i = 0;
+    while i < dst.len() {
+        let n = (dst.len() - i).min(tmp.len());
+        preencher(&mut tmp[..n]);
+        for (o, v) in dst[i..i + n].iter_mut().zip(tmp[..n].iter()) {
+            *o = converter(*v);
+        }
+        i += n;
+    }
+}
+
 fn construir(disp: &cpal::Device, cfg: cpal::StreamConfig, fmt: cpal::SampleFormat)
     -> Result<(cpal::Stream, Arc<Compartilhado>), String> {
     use cpal::traits::DeviceTrait;
@@ -139,26 +170,34 @@ fn construir(disp: &cpal::Device, cfg: cpal::StreamConfig, fmt: cpal::SampleForm
             None,
         ),
         cpal::SampleFormat::I16 => {
-            let mut tmp: Vec<f32> = Vec::new();
+            // Pré-alocado ANTES de `play()`: o callback nunca cresce este vetor.
+            let mut tmp: Vec<f32> = vec![0.0; QUADROS_BLOCO_CONVERSAO * canais.max(1)];
             disp.build_output_stream(
                 cfg,
                 move |d: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                    tmp.resize(d.len(), 0.0);
-                    drenar(&c, &mut tmp, canais);
-                    for (o, v) in d.iter_mut().zip(tmp.iter()) { *o = (v.clamp(-1.0, 1.0) * 32767.0) as i16; }
+                    processar_em_blocos(
+                        d,
+                        &mut tmp,
+                        |buf| drenar(&c, buf, canais),
+                        |v| (v.clamp(-1.0, 1.0) * 32767.0) as i16,
+                    );
                 },
                 erro,
                 None,
             )
         }
         cpal::SampleFormat::U16 => {
-            let mut tmp: Vec<f32> = Vec::new();
+            // Pré-alocado ANTES de `play()`: o callback nunca cresce este vetor.
+            let mut tmp: Vec<f32> = vec![0.0; QUADROS_BLOCO_CONVERSAO * canais.max(1)];
             disp.build_output_stream(
                 cfg,
                 move |d: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                    tmp.resize(d.len(), 0.0);
-                    drenar(&c, &mut tmp, canais);
-                    for (o, v) in d.iter_mut().zip(tmp.iter()) { *o = (v.clamp(-1.0, 1.0) * 32767.0 + 32768.0) as u16; }
+                    processar_em_blocos(
+                        d,
+                        &mut tmp,
+                        |buf| drenar(&c, buf, canais),
+                        |v| (v.clamp(-1.0, 1.0) * 32767.0 + 32768.0) as u16,
+                    );
                 },
                 erro,
                 None,
@@ -204,5 +243,46 @@ mod tests {
         let depois = comp.consumidos.load(Ordering::Relaxed);
         std::thread::sleep(Duration::from_millis(30));
         assert_eq!(comp.consumidos.load(Ordering::Relaxed), depois, "a thread parou no drop");
+    }
+
+    #[test]
+    fn processar_em_blocos_nao_alcanca_alem_do_tmp() {
+        // `tmp` bem menor que `dst`: força várias passadas, e cada passada só
+        // pode escrever em `tmp[..n]`, nunca além — é a garantia que o callback
+        // de tempo real precisa (não alocar) mesmo com um `tmp` pequeno.
+        let mut dst = [0u16; 10];
+        let mut tmp = vec![0.0f32; 3];
+        let mut passadas = 0usize;
+        let mut proximo = 1.0f32;
+        processar_em_blocos(
+            &mut dst,
+            &mut tmp,
+            |buf| {
+                passadas += 1;
+                for v in buf.iter_mut() { *v = proximo; proximo += 1.0; }
+            },
+            |v| v as u16,
+        );
+        assert_eq!(passadas, 4, "10 amostras em blocos de 3 = 4 passadas (3+3+3+1)");
+        assert_eq!(dst, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    }
+
+    #[test]
+    fn processar_em_blocos_tmp_maior_que_dst_faz_uma_passada() {
+        let mut dst = [0i16; 5];
+        let mut tmp = vec![0.0f32; 64];
+        let mut passadas = 0usize;
+        processar_em_blocos(&mut dst, &mut tmp, |buf| { passadas += 1; for v in buf.iter_mut() { *v = 2.0; } }, |v| v as i16);
+        assert_eq!(passadas, 1);
+        assert_eq!(dst, [2, 2, 2, 2, 2]);
+    }
+
+    #[test]
+    fn processar_em_blocos_dst_vazio_nao_chama_preencher() {
+        let mut dst: [i16; 0] = [];
+        let mut tmp = vec![0.0f32; 8];
+        let mut chamado = false;
+        processar_em_blocos(&mut dst, &mut tmp, |_| chamado = true, |v| v as i16);
+        assert!(!chamado);
     }
 }

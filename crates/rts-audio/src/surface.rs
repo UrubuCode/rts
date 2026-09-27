@@ -255,7 +255,7 @@ extern "C" fn ogg_take(_e: u64, _t: u64, handle: u64, dst: u64, _b: u64, _c: u64
 
 #[cfg(test)]
 mod tests {
-    use super::disjuntas;
+    use super::{disjuntas, doubles_mut, floats, floats_mut};
 
     #[test]
     fn janelas_sobrepostas_sao_recusadas() {
@@ -264,5 +264,20 @@ mod tests {
         assert!(!disjuntas(&[(1000, 16), (1000, 16)]), "a mesma view");
         assert!(!disjuntas(&[(1000, 64), (1016, 8)]), "uma dentro da outra");
         assert!(disjuntas(&[(1000, 0), (1000, 16)]), "janela vazia não sobrepõe");
+    }
+
+    #[test]
+    fn janela_vazia_com_ponteiro_nulo_nao_toca_o_ponteiro() {
+        // Uma view vazia pode vir com ponteiro nulo; `from_raw_parts[_mut]` com
+        // ponteiro nulo é UB mesmo de comprimento 0. `floats`/`floats_mut`/
+        // `doubles_mut` devem devolver a fatia vazia sem chegar lá.
+        let j = (std::ptr::null_mut::<u8>(), 0usize);
+        // SAFETY: comprimento 0 — as três funções tratam isso antes de tocar o
+        // ponteiro, então o nulo nunca é desreferenciado.
+        unsafe {
+            assert_eq!(floats(j).len(), 0);
+            assert_eq!(floats_mut(j).len(), 0);
+            assert_eq!(doubles_mut(j).len(), 0);
+        }
     }
 }
