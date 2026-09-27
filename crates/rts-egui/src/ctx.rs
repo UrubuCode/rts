@@ -186,6 +186,11 @@ pub struct UiCtx {
     /// devolve neste frame quando travado; o acumulador zera no snapshot).
     pub frame_dx: f64,
     pub frame_dy: f64,
+    /// Arquivos soltos/pairando sobre a janela (drag-and-drop do SO). Estado
+    /// puro (`crate::dropfiles`) alimentado pelos `WindowEvent::HoveredFile`/
+    /// `HoveredFileCancelled`/`DroppedFile` (`app::Pumper`) e pelo relógio do
+    /// quadro (`frame::begin_frame`, que faz o snapshot e o refresh de posição).
+    pub drop_state: crate::dropfiles::DropState,
 }
 
 /// Aloca um novo handle e insere o `UiCtx`. Retorna o handle.

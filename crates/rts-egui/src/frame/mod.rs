@@ -55,6 +55,17 @@ pub fn begin_frame(h: u64) {
         c.raw_dx = 0.0;
         c.raw_dy = 0.0;
 
+        // ARQUIVOS SOLTOS: publica a rajada acumulada desde o último quadro (o
+        // que `input.droppedCount/droppedPath` devolvem agora) e zera o
+        // acumulador — o quadro seguinte já vê zero sem o TS precisar consumir
+        // nada, como as bordas de tecla.
+        c.drop_state.snapshot_frame();
+        // ARQUIVOS PAIRANDO: o SO não manda `CursorMoved` durante o arrasto do
+        // Explorer/Finder, então a posição só anda se consultarmos o SO de novo
+        // a cada quadro (no-op sem nada pairando).
+        let hover_pos = crate::app::real_cursor_pos(c);
+        c.drop_state.refresh_hover_pos(hover_pos);
+
         c.egui_ctx.begin_pass(raw_input);
         c.frame_active = true;
         c.cmds.clear();

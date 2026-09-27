@@ -289,6 +289,7 @@ pub fn open_window(title: &str, w: i64, h: i64, config: i64) -> u64 {
         raw_dy: 0.0,
         frame_dx: 0.0,
         frame_dy: 0.0,
+        drop_state: crate::dropfiles::DropState::new(),
     };
     ctx::insert(uictx)
 }
@@ -357,6 +358,18 @@ impl ApplicationHandler for Pumper {
                     // DOM re-layouta na largura nova (cache por viewport) e o
                     // conteúdo acompanha a janela.
                     crate::frame::redraw_retained(c);
+                }
+                // ARQUIVOS SOLTOS/PAIRANDO (drag-and-drop do Explorer/Finder/etc.).
+                // O egui-winit já consome estes MESMOS eventos (linha acima,
+                // `on_window_event`) para o seu próprio `hovered_files`/
+                // `dropped_files` — sem posição e sem sobreviver ao `take_egui_input`
+                // do próximo `beginFrame`. `drop_state` é o estado que o `rts:input`
+                // expõe (posição incluída); os dois não colidem. `apply_drop_event`
+                // é extraído do match para ser testável com um `WindowEvent` de
+                // verdade sem abrir janela — ver os testes no fim do arquivo.
+                WindowEvent::HoveredFile(_) | WindowEvent::HoveredFileCancelled | WindowEvent::DroppedFile(_) => {
+                    let pos = real_cursor_pos(c);
+                    apply_drop_event(&mut c.drop_state, &event, pos);
                 }
                 _ => {}
             }
@@ -433,4 +446,146 @@ pub fn move_window(h: u64, x: i64, y: i64) {
 /// permite recriá-lo; ele fica vivo mesmo após a última janela fechar).
 pub fn close(h: u64) {
     ctx::remove(h);
+}
+
+/// Aplica um `WindowEvent` de arquivo solto/pairando ao `DropState` — extraído
+/// do match de `Pumper::window_event` para receber, em teste, o MESMO tipo que
+/// o winit entrega em produção (`winit::event::WindowEvent`), sem precisar de
+/// uma janela/`ActiveEventLoop` de verdade para construir um. `pos` é a posição
+/// já consultada pelo chamador (`real_cursor_pos`); ignorada pelos eventos que
+/// não a usam. `true` se o evento era um dos três tratados aqui.
+fn apply_drop_event(state: &mut crate::dropfiles::DropState, event: &WindowEvent, pos: (f32, f32)) -> bool {
+    match event {
+        WindowEvent::HoveredFile(_path) => {
+            state.hovered_file(pos);
+            true
+        }
+        WindowEvent::HoveredFileCancelled => {
+            state.hovered_cancelled();
+            true
+        }
+        WindowEvent::DroppedFile(path) => {
+            state.dropped_file(path.display().to_string(), pos);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Posição REAL do cursor (pontos lógicos), consultada diretamente ao SO — nem
+/// `WindowEvent::HoveredFile` nem `DroppedFile` trazem posição no winit, e o SO
+/// não manda `CursorMoved` durante o arrasto de arquivos (é um drag NATIVO do
+/// Explorer/Finder, fora do loop de eventos normal). No Windows usa
+/// `GetCursorPos`+`ScreenToClient` no HWND, dividido pelo `scale_factor`; nas
+/// demais plataformas cai na última posição conhecida do cursor pelo egui
+/// (`CursorMoved` continua chegando durante o arrasto nesses backends).
+pub(crate) fn real_cursor_pos(c: &UiCtx) -> (f32, f32) {
+    #[cfg(target_os = "windows")]
+    if let Some(pos) = win_cursor::cursor_pos_in_window(&c.window) {
+        return pos;
+    }
+    c.egui_ctx
+        .input(|i| i.pointer.hover_pos().map(|p| (p.x, p.y)))
+        .unwrap_or((-1.0, -1.0))
+}
+
+/// `GetCursorPos`/`ScreenToClient` via `user32` — sem depender de `windows-sys`
+/// (ou qualquer outra crate) por duas funções: FFI manual, gated ao Windows.
+#[cfg(target_os = "windows")]
+mod win_cursor {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use winit::window::Window;
+
+    #[repr(C)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetCursorPos(point: *mut Point) -> i32;
+        fn ScreenToClient(hwnd: isize, point: *mut Point) -> i32;
+    }
+
+    /// Posição do cursor (pontos lógicos) relativa ao client area de `window`.
+    /// `None` se o handle não é Win32 ou a consulta ao SO falhou.
+    pub fn cursor_pos_in_window(window: &Window) -> Option<(f32, f32)> {
+        let handle = window.window_handle().ok()?;
+        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+            return None;
+        };
+        let hwnd = win32.hwnd.get();
+        let mut pt = Point { x: 0, y: 0 };
+        unsafe {
+            if GetCursorPos(&mut pt) == 0 {
+                return None;
+            }
+            if ScreenToClient(hwnd, &mut pt) == 0 {
+                return None;
+            }
+        }
+        let scale = window.scale_factor();
+        Some((pt.x as f32 / scale as f32, pt.y as f32 / scale as f32))
+    }
+}
+
+#[cfg(test)]
+mod drop_event_tests {
+    //! Injeta `winit::event::WindowEvent` DE VERDADE (o mesmo tipo que
+    //! `Pumper::window_event` recebe do pump) em `apply_drop_event`, sem abrir
+    //! janela nem `ActiveEventLoop` — a fronteira testável descrita no doc do
+    //! módulo `rts-host/tests/ui_surface.rs`: o que quebra num porte da captura
+    //! não precisa do SO para ser pego. O comportamento de contagem/zeragem em
+    //! si já está coberto em `crate::dropfiles::tests`; aqui o que se verifica é
+    //! que o MATCH do winit está ligado ao `DropState` certo.
+
+    use super::apply_drop_event;
+    use crate::dropfiles::DropState;
+    use std::path::PathBuf;
+    use winit::event::WindowEvent;
+
+    #[test]
+    fn hovered_file_do_winit_incrementa_o_estado() {
+        let mut state = DropState::new();
+        let handled = apply_drop_event(
+            &mut state,
+            &WindowEvent::HoveredFile(PathBuf::from("C:\\clipes\\tiro.wav")),
+            (12.0, 34.0),
+        );
+        assert!(handled);
+        assert_eq!(state.hovered_files(), 1);
+        assert_eq!(state.hovered_pos(), (12.0, 34.0));
+    }
+
+    #[test]
+    fn hovered_file_cancelled_do_winit_zera() {
+        let mut state = DropState::new();
+        apply_drop_event(&mut state, &WindowEvent::HoveredFile(PathBuf::from("a")), (1.0, 1.0));
+        let handled =
+            apply_drop_event(&mut state, &WindowEvent::HoveredFileCancelled, (0.0, 0.0));
+        assert!(handled);
+        assert_eq!(state.hovered_files(), 0);
+    }
+
+    #[test]
+    fn dropped_file_do_winit_acumula_o_caminho_absoluto() {
+        let mut state = DropState::new();
+        let path = PathBuf::from("C:\\clipes\\explosao.wav");
+        let handled = apply_drop_event(&mut state, &WindowEvent::DroppedFile(path.clone()), (50.0, 60.0));
+        assert!(handled);
+        state.snapshot_frame();
+        assert_eq!(state.dropped_count(), 1);
+        assert_eq!(state.dropped_path(0), path.display().to_string());
+        assert_eq!(state.dropped_pos(), (50.0, 60.0));
+    }
+
+    #[test]
+    fn evento_nao_relacionado_a_drop_nao_e_tratado_aqui() {
+        let mut state = DropState::new();
+        let handled = apply_drop_event(&mut state, &WindowEvent::CloseRequested, (0.0, 0.0));
+        assert!(!handled);
+        assert_eq!(state.hovered_files(), 0);
+        assert_eq!(state.dropped_count(), 0);
+    }
 }
