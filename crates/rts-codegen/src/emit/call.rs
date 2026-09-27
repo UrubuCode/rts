@@ -386,12 +386,15 @@ fn emit_call_with_name_as(
     // argument may become none or nine.
     if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
         let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
-        emit_set_call_name(builder, ctx, name)?;
+        // WHICH literal spells the callee travels as an operand, as on the
+        // ordinary call below; `SetCallName` was a whole crossing before every
+        // one of these calls, measured at 2.3-2.9 ns on the four-slot form.
+        let spelled = expr::name_constant(builder, name);
         return Ok(expr::call(
             builder,
             ctx,
             RuntimeOp::CallWithArgs,
-            &[function, receiver, vector],
+            &[function, receiver, vector, spelled],
         )?[0]);
     }
 
@@ -405,27 +408,6 @@ fn emit_call_with_name_as(
         values.push(emit_expr(builder, scope, ctx, value)?);
     }
     issue_as(builder, ctx, function, receiver, &values, name, op)
-}
-
-/// Records the callee's spelling for the call about to be issued, if it has
-/// one — emitted last, after every argument, so an argument that calls
-/// something of its own cannot overwrite what this call site just recorded
-/// for itself. See `RuntimeOp::SetCallName`.
-fn emit_set_call_name(
-    builder: &mut FuncBuilder,
-    ctx: &mut Ctx,
-    name: Option<u32>,
-) -> EmitResult<()> {
-    let Some(literal) = name else {
-        return Ok(());
-    };
-    let id = builder.declare_const(ConstDecl::Scalar {
-        repr: Repr::I64,
-        bits: ScalarBits(u64::from(literal)),
-    });
-    let id = builder.use_const(id);
-    expr::call(builder, ctx, RuntimeOp::SetCallName, &[id])?;
-    Ok(())
 }
 
 /// Emits a call whose arguments are already values.
@@ -468,16 +450,16 @@ pub(super) fn issue_as(
     op: RuntimeOp,
 ) -> EmitResult<ValueId> {
     if values.len() > ARGUMENT_SLOTS {
-        emit_set_call_name(builder, ctx, name)?;
-        // Through the shared list builder: the first four go in one crossing
-        // and the rest are appended, where this was one crossing to make the
-        // array and one per value. See `expr::value_list`.
+        // Through the shared list builder: up to eight go in one crossing and
+        // the rest are appended, where this was one crossing to make the array
+        // and one per value. See `expr::value_list`.
         let vector = expr::value_list(builder, ctx, values)?;
+        let spelled = expr::name_constant(builder, name);
         return Ok(expr::call(
             builder,
             ctx,
             RuntimeOp::CallWithArgs,
-            &[function, receiver, vector],
+            &[function, receiver, vector, spelled],
         )?[0]);
     }
 
@@ -499,9 +481,9 @@ pub(super) fn issue_as(
     // carries what it was measured to cost.
     //
     // Ordering is strictly better than the crossing's, not merely preserved.
-    // `emit_set_call_name` had to be emitted LAST, after every argument, so an
-    // argument that called something of its own could not overwrite what this
-    // site had recorded. A constant operand cannot be overwritten by anything,
+    // the `SetCallName` crossing had to be emitted LAST, after every argument,
+    // so an argument that called something of its own could not overwrite what
+    // this site had recorded. A constant operand cannot be overwritten by anything,
     // because nothing runs between the operands and the jump.
     passed.push(expr::name_constant(builder, name));
     passed.extend_from_slice(values);

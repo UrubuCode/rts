@@ -221,8 +221,14 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // thirty the door removes: `Math.sin(x)` went from 75 ns to 6, `Math.hypot`
     // from 126 to 4.6, on `bench/analytic.ts`'s shape. They REMOVE crossings,
     // which is still the only argument this list accepts.
+    //
+    // Moved to 110 on 2026-09-26 for `ArgumentAt`, which REMOVES an allocation
+    // rather than a crossing: a fifth parameter was read by building the whole
+    // rest array (`RestArguments`) and indexing it, once per call. One word read
+    // out of the vector the call already holds is the same question with no
+    // array in the answer.
     assert!(
-        CORE_ENTRY_COUNT <= 109,
+        CORE_ENTRY_COUNT <= 110,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

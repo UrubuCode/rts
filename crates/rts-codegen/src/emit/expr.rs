@@ -46,7 +46,7 @@ use rts_cranelift::tags;
 
 use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
-use crate::runtime::RuntimeOp;
+use crate::runtime::{ARRAY_OF_SLOTS, RuntimeOp};
 use crate::syntax::{AssignOp, BinaryOp};
 use crate::syntax::{AssignTarget, Expr, ExprKind, Literal};
 use crate::values::Singleton;
@@ -1723,7 +1723,7 @@ pub(super) fn count_constant(builder: &mut FuncBuilder, count: usize) -> ValueId
 /// "no name" has to be a number, and the one number that cannot be an index is
 /// the honest choice.
 pub(super) fn name_constant(builder: &mut FuncBuilder, name: Option<u32>) -> ValueId {
-    let which = name.map_or(-1i64, i64::from);
+    let which = name.map_or(crate::runtime::NO_CALL_NAME, i64::from);
     let spelled = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
         repr: rts_cranelift::repr::Repr::I64,
         bits: rts_cranelift::ir::ScalarBits(which as u64),
@@ -1834,7 +1834,7 @@ pub(super) fn value_list(
     });
     let size = builder.use_const(size);
 
-    if values.len() <= 4 {
+    if values.len() <= ARRAY_OF_SLOTS {
         // Padding for the slots the count says are not real. Tagged rather
         // than `I64`, because the signature says so and a raw integer there
         // fails to widen — which is what the machine answered when the
@@ -1843,12 +1843,12 @@ pub(super) fn value_list(
             repr: UNPROVEN,
             bits: ScalarBits(0),
         });
-        let mut args = Vec::with_capacity(5);
+        let mut args = Vec::with_capacity(1 + ARRAY_OF_SLOTS);
         args.push(size);
         for value in values {
             args.push(tagged(builder, *value));
         }
-        while args.len() < 5 {
+        while args.len() < 1 + ARRAY_OF_SLOTS {
             args.push(builder.use_const(absent));
         }
         return Ok(call(builder, ctx, RuntimeOp::ArrayOf, &args)?[0]);
@@ -2611,7 +2611,7 @@ fn emit_array(
     // and a fifth would be a fifth register. A hole sends the literal down the
     // path below, which is what keeps an absent position absent: this entry
     // point writes exactly the elements it is given.
-    if elements.len() <= 4
+    if elements.len() <= ARRAY_OF_SLOTS
         && elements
             .iter()
             .all(|e| matches!(e, Some(crate::syntax::Spreadable::Single(_))))
@@ -2636,7 +2636,7 @@ fn emit_array(
             let value = emit_expr(builder, scope, ctx, value)?;
             args.push(tagged(builder, value));
         }
-        while args.len() < 5 {
+        while args.len() < 1 + ARRAY_OF_SLOTS {
             args.push(builder.use_const(absent));
         }
         return Ok(call(builder, ctx, RuntimeOp::ArrayOf, &args)?[0]);

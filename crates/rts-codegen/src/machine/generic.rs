@@ -29,7 +29,7 @@ use rts_cranelift::repr::Repr;
 
 use super::{JsMachine, machine};
 use crate::domain::JsPrim;
-use crate::runtime::{ARGUMENT_SLOTS, RuntimeOp};
+use crate::runtime::{ARGUMENT_SLOTS, ARRAY_OF_SLOTS, RuntimeOp};
 
 impl JsMachine<'_> {
     /// The runtime's answer to `which` over these operands, or `None` where the row
@@ -186,19 +186,19 @@ impl JsMachine<'_> {
 
     /// An array literal, through `ArrayOf` -- the count written, then the elements
     /// padded with `undefined`, the count keeping the padding out of the array. Past
-    /// four, the rest are APPENDED one by one, the running emitter's form for the same
+    /// eight, the rest are APPENDED one by one, the running emitter's form for the same
     /// literal and for the argument vector of a long call.
     pub(super) fn array_of(
         &mut self,
         into: &mut FuncBuilder,
         args: &[MachineValue],
     ) -> Result<MachineValue, String> {
-        let (first, rest) = args.split_at(args.len().min(ARGUMENT_SLOTS));
+        let (first, rest) = args.split_at(args.len().min(ARRAY_OF_SLOTS));
         let count = self.word(into, first.len() as u64);
         let undefined = self.undefined(into)?;
         let mut of_args = vec![count];
         of_args.extend_from_slice(first);
-        of_args.resize(1 + ARGUMENT_SLOTS, undefined);
+        of_args.resize(1 + ARRAY_OF_SLOTS, undefined);
         let mut array = self.call_runtime(into, RuntimeOp::ArrayOf, &of_args)?;
         for element in rest {
             array = self.call_runtime(into, RuntimeOp::ArrayAppend, &[array, *element])?;

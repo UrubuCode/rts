@@ -119,7 +119,8 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::ArrayOf => (CoreEntry::ArrayOf, {
             rts_core::entry::array_of
-                as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
+                as extern "C" fn(i64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::ObjectNew => (CoreEntry::ObjectNew, {
             rts_core::entry::object_new as extern "C" fn(i64) -> u64 as *const u8
@@ -374,7 +375,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
                 as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::CallWithArgs => (CoreEntry::CallWithArgs, {
-            rts_core::entry::call_with_args as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::call_with_args as extern "C" fn(u64, u64, u64, i64) -> u64 as *const u8
         }),
         RuntimeOp::RestArguments => (CoreEntry::RestArguments, {
             rts_core::entry::rest_arguments
@@ -422,6 +423,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::TextWalk => (CoreEntry::TextWalk, {
             rts_core::entry::text_walk as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArgumentAt => (CoreEntry::ArgumentAt, {
+            rts_core::entry::argument_at as extern "C" fn(i64) -> u64 as *const u8
         }),
         RuntimeOp::UnaryPlus => (CoreEntry::UnaryPlus, {
             rts_core::entry::unary_plus as extern "C" fn(u64) -> u64 as *const u8
@@ -494,6 +498,12 @@ fn describe(ours: Vec<Repr>, theirs: &[AbiType]) -> Result<(), String> {
 /// A `const` assertion rather than a test: a test that is not run proves
 /// nothing, and this one cannot fail to be checked because the crate does not
 /// compile without it.
+const _: () = assert!(
+    rts_codegen::runtime::ARRAY_OF_SLOTS == rts_core::entry::ARRAY_OF_SLOTS
+        && rts_codegen::runtime::NO_CALL_NAME == rts_core::entry::NO_CALL_NAME,
+    "the compiler and the runtime disagree about how many values one `ArrayOf` \
+     carries, or about which number spells a nameless callee"
+);
 const _: () = assert!(
     rts_codegen::runtime::ARGUMENT_SLOTS == rts_core::entry::ARGUMENT_SLOTS,
     "the compiler and the runtime disagree about how many arguments a call \

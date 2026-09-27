@@ -147,7 +147,7 @@ fn produced(callee: u64, subject: &str, one: &Found) -> String {
     });
     // Outside every borrow: the callee is user code whose first act may be to
     // call the runtime.
-    let answered = super::super::functions::call_with_args(callee, this, arguments);
+    let answered = super::super::functions::call_with_args(callee, this, arguments, super::super::functions::NO_CALL_NAME);
     with_current(|context| {
         text_of(context, answered)
             .and_then(|text| text.to_rust())

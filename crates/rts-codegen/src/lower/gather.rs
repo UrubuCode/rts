@@ -1,11 +1,11 @@
 //! The parameters that arrive in no register: a fifth one and beyond, and `...rest`.
 //!
 //! The convention carries four argument slots, and a call passing more hands the
-//! runtime a vector instead (`RuntimeOp::CallWithArgs`). `RestArguments` reads either
-//! back -- the vector when the caller built one, the four slots when it did not -- from a
-//! position the compiler fixes. So both shapes are the running emitter's
-//! `bind_parameters`, said in the graph: one entry-point call, and a read by index for
-//! each parameter past the slots.
+//! runtime a vector instead (`RuntimeOp::CallWithArgs`). `ArgumentAt` reads one position
+//! of that vector back, and `RestArguments` reads the tail -- the vector when the caller
+//! built one, the four slots when it did not -- from a position the compiler fixes. So
+//! both shapes are the running emitter's `bind_parameters`, said in the graph: one
+//! entry-point call per parameter past the slots, and one for the rest.
 //!
 //! A DEFAULT is the other thing a parameter list does at run time, and it is here for
 //! that reason: [`Lowering::defaults`].
@@ -14,8 +14,8 @@
 //! so a function that gathers declares every slot as an entry parameter and binds the
 //! ones the program wrote.
 
-use rts_mir::cfg::{Callee, Const, Op, ValueId};
-use rts_mir::{Domain as _, Effect};
+use rts_mir::cfg::{Callee, ValueId};
+use rts_mir::Domain as _;
 
 use super::{Lowering, Unsupported};
 use crate::domain::{JsConst, JsPrim, Type};
@@ -52,21 +52,19 @@ impl Lowering<'_> {
             slots.push(self.builder.param(entry));
         }
 
+        // One position of the vector each, through `ArgumentAt` -- the running
+        // emitter's form for the same parameters, and not the whole vector read back
+        // as a fresh array and indexed, which allocated once per call to read a word.
         if written > ARGUMENT_SLOTS {
-            let all = self.rest_arguments(0, &slots, &at);
+            let entry = self.domain.entry_point(RuntimeOp::ArgumentAt);
             for (position, parameter) in function.parameters.iter().enumerate().skip(ARGUMENT_SLOTS)
             {
                 let Pattern::Name(name) = &parameter.target else {
                     return Err(Unsupported::Pattern);
                 };
-                let index = {
-                    let value = Const::Int(position as i64);
-                    let of = self.domain.of_const(&value);
-                    let pushed = self.builder.push(Op::Const(value), Effect::PURE, at.at);
-                    self.types.insert(pushed, of);
-                    pushed
-                };
-                let value = self.prim(JsPrim::IndexRead, vec![all, index], &at);
+                let index = self.domain.constant(JsConst::Count(position as u32));
+                let index = self.declared(index, &at);
+                let value = self.call(Callee::Entry(entry), None, vec![index], &at);
                 self.bind(*name, value, Type::Anything, &at)?;
             }
         }

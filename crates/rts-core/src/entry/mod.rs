@@ -132,9 +132,10 @@ pub use bitwise::{
 pub use computed::{
     delete_property, for_in_has, get_indexed, has_property, key_number, set_indexed, with_has,
 };
+pub use array::ARRAY_OF_SLOTS;
 pub use functions::{
-    call_counted, call_with_args, construct_with_args, rest_arguments,
-    ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
+    ARGUMENT_SLOTS, NO_CALL_NAME, argument_at, call, call_counted, call_with_args, closure_new,
+    construct, construct_with_args, instance_of, mark_class_constructor, rest_arguments,
     mark_derived, new_target, set_call_name, super_construct, super_construct_with_args,
 };
 pub use tail_call::tail_call;

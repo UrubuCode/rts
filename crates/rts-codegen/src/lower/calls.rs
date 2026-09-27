@@ -38,9 +38,11 @@ impl Lowering<'_> {
                 Some(held) => held,
                 None => self.singleton_at(crate::values::Singleton::Undefined, at),
             };
+            let nameless = self.domain.constant(JsConst::Nameless);
+            let nameless = self.declared(nameless, at);
             return Ok(self.entry(
                 crate::runtime::RuntimeOp::CallWithArgs,
-                vec![function, receiver, vector],
+                vec![function, receiver, vector, nameless],
                 at,
             ));
         }

@@ -203,6 +203,7 @@ impl Js {
         RuntimeOp::TemplateJoin,
         // A string's code points, where a `for`-`of` may walk them -- `lower/iterate.rs`.
         RuntimeOp::TextWalk,
+        RuntimeOp::ArgumentAt,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,
@@ -575,6 +576,7 @@ impl Domain for Js {
                 }
                 // Handed to an append and nothing else, so nothing is known of it.
                 Some(JsConst::Hole) => Type::Anything,
+                Some(JsConst::Nameless) => Type::Nothing,
                 // A key is text, wherever the key came from.
                 Some(JsConst::WellKnown(_)) => Type::Str,
                 None => Type::Anything,
@@ -838,6 +840,7 @@ impl rts_mir::text::Legend for Js {
             Some(JsConst::Count(held)) => format!("count#{held}"),
             Some(JsConst::LiteralIndex(_)) => "literal#".to_owned(),
             Some(JsConst::Hole) => "hole".to_owned(),
+            Some(JsConst::Nameless) => "nameless".to_owned(),
             Some(JsConst::WellKnown(which)) => format!(".{}", format!("{which:?}").to_lowercase()),
             Some(JsConst::Text(_)) => format!("str#{index}"),
             None => format!("const#{index}"),

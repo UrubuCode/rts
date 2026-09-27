@@ -140,7 +140,7 @@ impl Function {
             // `built` takes the context itself, so it is reached with no borrow
             // held — and so is the call, whose callee is user code.
             let vector = super::array_proto::built(arguments);
-            return super::functions::call_with_args(this, receiver, vector);
+            return super::functions::call_with_args(this, receiver, vector, super::functions::NO_CALL_NAME);
         }
         let mut slots = [absent; super::functions::ARGUMENT_SLOTS];
         for (slot, value) in slots.iter_mut().zip(arguments) {
@@ -173,7 +173,7 @@ impl Function {
                 }
             },
         };
-        super::functions::call_with_args(this, receiver, list)
+        super::functions::call_with_args(this, receiver, list, super::functions::NO_CALL_NAME)
     }
 
     /// `f.bind(thisArg, …)` — a new function with the receiver fixed.
@@ -417,7 +417,7 @@ extern "C" fn forward(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -
         // one level over.
         return super::functions::construct_with_args(target, vector);
     }
-    super::functions::call_with_args(target, receiver, vector)
+    super::functions::call_with_args(target, receiver, vector, super::functions::NO_CALL_NAME)
 }
 
 /// Which bound function is running.

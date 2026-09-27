@@ -36,7 +36,7 @@ pub(in crate::entry) fn apply(object: u64, this: u64, arguments: [u64; 4]) -> Op
         // asks that question again — this is the forwarding every absent trap
         // does, through the vector spelling so that a call with more than four
         // arguments keeps them.
-        return Some(functions::call_with_args(trap.target, this, listed));
+        return Some(functions::call_with_args(trap.target, this, listed, functions::NO_CALL_NAME));
     };
     Some(functions::call(
         callee,

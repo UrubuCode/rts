@@ -842,8 +842,10 @@ fn a_method_call_reaches_the_machine_with_the_receiver_travelling() {
 ///
 /// `runtime/mod.rs` says why the arity is fixed at all: the machine has no stack slot to put
 /// a real argument vector in, so `rts-core` keeps the vector in a `Vec` of its own. It was
-/// refused here until the boundary built that vector; the fifth argument is appended, and
-/// a door that took four would have been a different call.
+/// refused here until the boundary built that vector. Five arguments now fit ONE `ArrayOf`
+/// — the builder takes `ARRAY_OF_SLOTS`, eight — where the fifth used to be an append of
+/// its own; a call past eight still appends, and a door that took four would have been a
+/// different call.
 #[test]
 fn a_call_with_more_arguments_than_slots_takes_the_vector_door() {
     for source in [
@@ -858,10 +860,22 @@ fn a_call_with_more_arguments_than_slots_takes_the_vector_door() {
             "{source}"
         );
         let declared: Vec<_> = shared.calls.declared().map(|(op, _)| op).collect();
-        for wanted in [RuntimeOp::CallWithArgs, RuntimeOp::ArrayOf, RuntimeOp::ArrayAppend] {
+        for wanted in [RuntimeOp::CallWithArgs, RuntimeOp::ArrayOf] {
             assert!(declared.contains(&wanted), "{source}: {wanted:?} in {declared:?}");
         }
+        assert!(
+            !declared.contains(&RuntimeOp::ArrayAppend),
+            "{source}: five arguments are one `ArrayOf`, not four and an append: {declared:?}"
+        );
         assert!(!declared.contains(&RuntimeOp::Call), "{source}: {declared:?}");
+    }
+    // Past the builder's eight, the rest ARE appended: the vector door still takes them.
+    let source = "function f(g) { return g(1, 2, 3, 4, 5, 6, 7, 8, 9); }";
+    let (func, _, shared) = reach_named(source, "f");
+    func.unwrap_or_else(|held| panic!("{source}: {held:?}"));
+    let declared: Vec<_> = shared.calls.declared().map(|(op, _)| op).collect();
+    for wanted in [RuntimeOp::CallWithArgs, RuntimeOp::ArrayOf, RuntimeOp::ArrayAppend] {
+        assert!(declared.contains(&wanted), "{source}: {wanted:?} in {declared:?}");
     }
 }
 

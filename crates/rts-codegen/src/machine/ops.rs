@@ -124,6 +124,10 @@ impl MachineOps for JsMachine<'_> {
             let held = u64::from(*held);
             return Ok(self.word(into, held));
         }
+        // SO IS THE NAMELESS CALLEE'S NAME OPERAND.
+        if let Some(JsConst::Nameless) = self.domain.declared(index) {
+            return Ok(self.word(into, crate::runtime::NO_CALL_NAME as u64));
+        }
         // A LITERAL'S INDEX is a machine word too: the program's table, the same numbering
         // `StringConst` reads, and no string made.
         if let Some(JsConst::LiteralIndex(text)) = self.domain.declared(index) {
@@ -598,10 +602,11 @@ impl MachineOps for JsMachine<'_> {
                 Some(held) => held,
                 None => self.undefined(into)?,
             };
+            let nameless = self.word(into, crate::runtime::NO_CALL_NAME as u64);
             return self.call_runtime(
                 into,
                 crate::runtime::RuntimeOp::CallWithArgs,
-                &[callee, receiver, vector],
+                &[callee, receiver, vector, nameless],
             );
         }
         let Some(shared) = self.shared.as_mut() else {

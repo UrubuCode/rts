@@ -47,13 +47,33 @@ use crate::value::Value;
 /// A hole is still a hole: this writes exactly `count` elements, so a literal
 /// with one takes the older path and keeps its absent positions.
 #[rtse::entry]
-pub fn array_of(count: i64, v0: u64, v1: u64, v2: u64, v3: u64) -> u64 {
+pub fn array_of(
+    count: i64,
+    v0: u64,
+    v1: u64,
+    v2: u64,
+    v3: u64,
+    v4: u64,
+    v5: u64,
+    v6: u64,
+    v7: u64,
+) -> u64 {
     with_current(|context| {
-        let held = [v0, v1, v2, v3];
-        let wanted = count.clamp(0, 4) as usize;
+        let held = [v0, v1, v2, v3, v4, v5, v6, v7];
+        let wanted = count.clamp(0, ARRAY_OF_SLOTS as i64) as usize;
         built_in(context, held[..wanted].to_vec())
     })
 }
+
+/// How many values [`array_of`] takes in one crossing.
+///
+/// Eight and not four, because the row it serves most is the ARGUMENT VECTOR of
+/// a call past the convention: `f(a, b, c, d, e)` built its five-element vector as
+/// one crossing to make the array and one per element to fill it, six crossings
+/// before the call itself. Eight covers every such call a program writes by hand
+/// in one. Restated by `rts_codegen::runtime::ARRAY_OF_SLOTS`, which the host
+/// asserts equal, the way `ARGUMENT_SLOTS` is.
+pub const ARRAY_OF_SLOTS: usize = 8;
 
 /// `new Array(n)` and the sized store an array literal starts from.
 ///

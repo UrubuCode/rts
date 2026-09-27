@@ -423,6 +423,11 @@ pub enum JsConst {
     /// Not a value of the language: nothing reads one as a value, and an append is the
     /// only operation handed one, which is how `[, 1]` keeps its first position absent.
     Hole,
+    /// The `name` operand of a call whose callee this graph does not spell --
+    /// `runtime::NO_CALL_NAME` as the machine word `CallWithArgs` takes. Not a number
+    /// of the language, [`JsConst::Count`]'s reason; a variant of its own because a
+    /// count is never negative and this word is.
+    Nameless,
 }
 
 /// A key this language fixes.

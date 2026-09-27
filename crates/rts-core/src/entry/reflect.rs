@@ -272,7 +272,7 @@ impl Reflect {
             super::throw::type_error("CreateListFromArrayLike called on non-object");
             return with_current(|context| super::objects::undefined_of(context));
         };
-        super::functions::call_with_args(target, receiver, list)
+        super::functions::call_with_args(target, receiver, list, super::functions::NO_CALL_NAME)
     }
 
     /// `Reflect.construct(target, argumentList, newTarget)`.

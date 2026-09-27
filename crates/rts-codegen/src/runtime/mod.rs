@@ -73,6 +73,21 @@ use crate::emit::UNPROVEN;
 /// with a corrupt stack.
 pub const ARGUMENT_SLOTS: usize = 4;
 
+/// How many values [`RuntimeOp::ArrayOf`] takes in one crossing.
+///
+/// Eight, because the row it serves most is the argument vector of a call past
+/// the convention, and a five-argument call was one crossing to make the array
+/// plus one per element to fill it. The same kind of agreement as
+/// [`ARGUMENT_SLOTS`]: `rts_core::entry::ARRAY_OF_SLOTS` restates it and the
+/// host asserts the two are equal.
+pub const ARRAY_OF_SLOTS: usize = 8;
+
+/// The `name` operand of a call whose callee has no spelling to report —
+/// `(a || b)()`, or a call the compiler itself wrote. `-1`, because the operand
+/// is an index into the literal table and that is the one number that cannot be
+/// one. Restated by the runtime as `NO_CALL_NAME` and asserted equal in the host.
+pub const NO_CALL_NAME: i64 = -1;
+
 /// An operation the language performs by calling the runtime.
 ///
 /// Membership is decided by the machine's rule, quoted rather than paraphrased
@@ -1064,6 +1079,11 @@ pub enum RuntimeOp {
     /// of two prototypes a program may write to.
     /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
     TextWalk,
+
+    /// One argument of the running call, by position — how a parameter past the
+    /// convention's slots arrives. A call because the vector is the runtime's.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    ArgumentAt,
 }
 
 impl RuntimeOp {
@@ -1183,6 +1203,7 @@ impl RuntimeOp {
         RuntimeOp::JsonStringify,
         RuntimeOp::JsonParse,
         RuntimeOp::TextWalk,
+        RuntimeOp::ArgumentAt,
     ];
 
     /// The linker name the runtime must define.
@@ -1302,6 +1323,7 @@ impl RuntimeOp {
             RuntimeOp::JsonStringify => "__rts_json_stringify",
             RuntimeOp::JsonParse => "__rts_json_parse",
             RuntimeOp::TextWalk => "__rts_text_walk",
+            RuntimeOp::ArgumentAt => "__rts_argument_at",
         }
     }
 
@@ -1344,10 +1366,11 @@ impl RuntimeOp {
                 vec![Repr::I64, Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN],
                 vec![UNPROVEN],
             ),
-            RuntimeOp::ArrayOf => (
-                vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN],
-                vec![UNPROVEN],
-            ),
+            RuntimeOp::ArrayOf => {
+                let mut params = vec![Repr::I64];
+                params.extend(std::iter::repeat_n(UNPROVEN, ARRAY_OF_SLOTS));
+                (params, vec![UNPROVEN])
+            }
             RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
             // O quarto argumento é o MODO de quem escreve: `1` para sloppy.
             // Uma escrita que o objeto recusa é um `TypeError` em strict e um
@@ -1519,7 +1542,10 @@ impl RuntimeOp {
                 vec![UNPROVEN],
             ),
             // The callee, the receiver, and the arguments as one array.
-            RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
+            // The callee, the receiver, the vector, and WHICH literal spells the
+            // callee — the operand that replaced the `SetCallName` crossing here
+            // as it did on `call_counted`.
+            RuntimeOp::CallWithArgs => (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes
             // the one the callee gets.
             RuntimeOp::ConstructWithArgs => (vec![UNPROVEN; 2], vec![UNPROVEN]),
@@ -1574,6 +1600,7 @@ impl RuntimeOp {
             RuntimeOp::UnaryPlus => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::JsonStringify | RuntimeOp::JsonParse => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TextWalk => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ArgumentAt => (vec![Repr::I64], vec![UNPROVEN]),
         };
         Signature {
             params,
