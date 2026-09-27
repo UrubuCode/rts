@@ -111,12 +111,13 @@ fn a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name() {
     // write-back lost the value at the loop's back edge and a loop that runs
     // while quietly leaving the name behind is worse than one that will not
     // compile.
-    let error = compile("async function f(a) { let v; for await (v of a) { } }")
-        .expect_err("`for await` over an existing binding is still refused");
-    assert!(
-        format!("{error:?}").contains("Unsupported"),
-        "expected a named refusal, got {error:?}"
-    );
+    // And that one moved on too, through the MIR stage, which carries the
+    // assigned name across the back edge as a block parameter — so nothing is
+    // left in this category at all. What the test pins now is that the last
+    // form it named compiles, and `tests/for_await_existing_binding.test.ts`
+    // pins that it also answers what the language answers.
+    compile("async function f(a) { let v; for await (v of a) { } }")
+        .expect("`for await` over an existing binding compiles through the MIR stage");
 }
 
 // ---------------------------------------------------------------------------
@@ -866,12 +867,12 @@ fn what_a_function_still_cannot_do_is_refused_by_name() {
         // and awaits each `next()`, reusing the suspension that already worked
         // rather than growing a second loop shape.
         //
-        // What is left is `for await` writing an EXISTING binding. That is
-        // refused on purpose and not for want of the protocol: the write-back
-        // for an assign target was losing the value at the loop's back edge, and
-        // a loop that runs and quietly leaves the name behind is worse than one
-        // that will not compile.
-        "async function f(xs) { let x; for await (x of xs) { return x; } } return 1;",
+        // `for await` writing an EXISTING binding was the last entry, refused
+        // because the running emitter's write-back lost the value at the loop's
+        // back edge. The MIR stage carries it as a block parameter and takes the
+        // function, so it compiles and runs — see the fixture named in
+        // `a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name`.
+        // Nothing is left on this list but the control.
     ] {
         // The first one is legal and emits — a missing argument is padded — so
         // it is here as the control: if this loop ever passes for it, the

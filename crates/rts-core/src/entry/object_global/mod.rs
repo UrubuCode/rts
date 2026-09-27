@@ -359,10 +359,13 @@ extern "C" fn has_own(_e: u64, _this: u64, object: u64, name: u64, _a2: u64, _a3
 /// Not `===`, and the two cases that differ are the reason it exists:
 /// `Object.is(NaN, NaN)` is true and `Object.is(0, -0)` is false.
 extern "C" fn is(_e: u64, _this: u64, left: u64, right: u64, _a2: u64, _a3: u64) -> u64 {
-    let same = with_current(|context| {
-        crate::value::same_value(Value(left), Value(right), |a, b| context.same_text(a, b))
-    });
-    Value::from_bool(same).bits()
+    // The ENTRY POINT and not `crate::value::same_value` directly: that one
+    // compares words and text, and a bigint compares by its digits, which only
+    // the runtime can read. `Object.is(1n, 1n)` answered `false` here while the
+    // compiled direct call (`RuntimeOp::SameValue`, the same entry) answered
+    // `true` — one question, two answers, which is what going through the one
+    // entry removes.
+    Value::from_bool(super::primitives::same_value(left, right)).bits()
 }
 
 /// `Object.groupBy(items, f)` — an object of arrays, keyed by what `f` answered.

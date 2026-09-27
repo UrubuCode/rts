@@ -257,6 +257,14 @@ pub fn lower(
                     ));
                 };
                 let value = one(*value, &values)?;
+                // A RAISED PAYLOAD LEAVES THE FUNCTION exactly as a returned value does:
+                // whoever catches it cannot know the raiser, so it travels in the
+                // representation the language's convention gives a value that leaves.
+                // Asked of the client through the same hook a `return` asks, because
+                // the answer is the same convention. It was widened as it stood, and a
+                // literal the lattice had proved an integer left under the integer
+                // encoding -- a word the catching side did not read as a number.
+                let value = ops.returned(into, value).map_err(Unlowerable::Machine)?;
                 into.throw(tag, value);
             }
             Terminator::Jump { target, args } => {

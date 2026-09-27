@@ -85,6 +85,9 @@ describe("the well-known predicates as instructions", () => {
     const o = {};
     expect(Object.is(o, o)).toBe(true);
     expect(Object.is(o, {})).toBe(false);
+    expect(Object.is(1n, 1n)).toBe(true);
+    expect(Object.is(1n, 2n)).toBe(false);
+    expect(Object.is(d(1n), d(1n))).toBe(true);
     expect(Object.is(null, undefined)).toBe(false);
   });
   test("the members are still values", () => {
