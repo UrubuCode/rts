@@ -98,11 +98,15 @@ pub struct Scene3D {
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
     // PARTÍCULAS: billboard instanciado, sem malha própria (quad UNIT fixo no
-    // shader). Um pipeline por modo de blend (`particles::MODO_*`) — o alfa e
-    // o aditivo divergem só no `BlendState`, então dois pipelines em vez de um
-    // `if` por instância dentro do shader.
+    // shader). Um pipeline por (modo de blend × com/sem textura) — ver
+    // `particles::escolher_pipeline`, que decide qual dos 4 usar por lote.
     particle_pipeline_alfa: wgpu::RenderPipeline,
     particle_pipeline_aditivo: wgpu::RenderPipeline,
+    /// Variantes TEXTURIZADAS (`drawParticlesTex`): mesmo blend das duas
+    /// acima, `fs_particle_tex` em vez de `fs_particle` — a forma vem do
+    /// alpha da textura, não do disco procedural.
+    particle_pipeline_tex_alfa: wgpu::RenderPipeline,
+    particle_pipeline_tex_aditivo: wgpu::RenderPipeline,
     /// (linhas de `PART_FLOATS` floats, aditivo?, textura opcional) — um lote
     /// por chamada de `queue_particles`; drenada junto de `draws`/`water_draws`.
     particle_draws: Vec<(Vec<f32>, bool, Option<u64>)>,

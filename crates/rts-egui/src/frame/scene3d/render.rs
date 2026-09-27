@@ -216,12 +216,21 @@ impl Scene3D {
             // 2.5 PARTÍCULAS: billboard instanciado, DEPOIS das malhas opacas
             // (depth já escrito) e ANTES da água. Depth TEST ligado (ficam
             // atrás de paredes), WRITE desligado (translúcidas entre si, não
-            // se ocultam na ordem de chegada). Um pipeline por lote conforme o
-            // `aditivo` do `queue_particles`; a textura do lote (se houver) ou
-            // a 1×1 branca default.
+            // se ocultam na ordem de chegada). Um dos 4 pipelines por lote —
+            // `aditivo` (blend) × tem-textura (disco procedural ou amostra
+            // `albedo_tex`), decidido por `particles::escolher_pipeline`
+            // (pura, testada sem GPU) e só mapeado pro `RenderPipeline` aqui.
             for &(inicio, n, aditivo, tex) in &part_batches {
-                let pipeline = if aditivo { &self.particle_pipeline_aditivo } else { &self.particle_pipeline_alfa };
+                let pipeline = match particles::escolher_pipeline(aditivo, tex.is_some()) {
+                    particles::PipelineParticula::Alfa => &self.particle_pipeline_alfa,
+                    particles::PipelineParticula::Aditivo => &self.particle_pipeline_aditivo,
+                    particles::PipelineParticula::AlfaTex => &self.particle_pipeline_tex_alfa,
+                    particles::PipelineParticula::AditivoTex => &self.particle_pipeline_tex_aditivo,
+                };
                 pass.set_pipeline(pipeline);
+                // A textura do lote (se houver) ou a 1×1 branca default — mas
+                // só importa VISUALMENTE quando o pipeline escolhido é uma
+                // variante `*Tex`; o disco procedural nunca a amostra.
                 let tex_bg = tex.and_then(|t| self.textures.get(&t)).unwrap_or(&self.default_tex_bg);
                 pass.set_bind_group(2, tex_bg, &[]);
                 let stride = (particles::PART_FLOATS * 4) as u64;

@@ -398,12 +398,89 @@ impl Scene3D {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_particle"),
-                buffers: &[particle_ibl],
+                buffers: &[particle_ibl.clone()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_particle"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(BLEND_ADDITIVE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multiview_mask: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+        });
+        // Variantes TEXTURIZADAS (`drawParticlesTex`): mesmo layout/depth, só
+        // troca `fs_particle` por `fs_particle_tex` (amostra `albedo_tex` do
+        // group 2 em vez do disco procedural) — ver o comentário de
+        // `fs_particle_tex` em `shader.rs` sobre por que é um fragment
+        // separado, e não um `if` dentro de `fs_particle`: um sprite não
+        // circular (fumaça, faísca alongada) não pode ser recortado pelo
+        // `smoothstep` do caminho sem textura.
+        let particle_pipeline_tex_alfa = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scene3d particle pipeline (alfa, texturizada)"),
+            layout: Some(&mesh_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_particle"),
+                buffers: &[particle_ibl.clone()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_particle_tex"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multiview_mask: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+        });
+        let particle_pipeline_tex_aditivo = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scene3d particle pipeline (aditivo, texturizada)"),
+            layout: Some(&mesh_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_particle"),
+                buffers: &[particle_ibl],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_particle_tex"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: color_format,
                     blend: Some(BLEND_ADDITIVE),
@@ -466,6 +543,8 @@ impl Scene3D {
             inst_cap: 64,
             particle_pipeline_alfa,
             particle_pipeline_aditivo,
+            particle_pipeline_tex_alfa,
+            particle_pipeline_tex_aditivo,
             particle_draws: Vec::new(),
             particle_inst_buf,
             particle_inst_cap: 64,

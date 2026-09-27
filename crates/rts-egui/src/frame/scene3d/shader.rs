@@ -160,6 +160,19 @@ fn fs_particle(in: ParticleOut) -> @location(0) vec4<f32> {
   return vec4<f32>(in.color.rgb, in.color.a * borda);
 }
 
+// Variante TEXTURIZADA de `fs_particle` (`drawParticlesTex`): a forma vem do
+// alpha da própria textura (`albedo_tex`, group 2 — a do lote, ou a 1×1
+// branca default se o id não resolver), não do disco procedural. Isso deixa
+// sprites não-circulares (fumaça, faísca alongada) intactos, em vez de
+// recortá-los num círculo. `pipeline::particle_pipeline_*_tex` é quem
+// seleciona ESTE fragment shader; o vértice (`vs_particle`/`uv`/`color`) é o
+// mesmo dos dois caminhos.
+@fragment
+fn fs_particle_tex(in: ParticleOut) -> @location(0) vec4<f32> {
+  let texcol = textureSample(albedo_tex, albedo_samp, in.uv);
+  return vec4<f32>(in.color.rgb * texcol.rgb, in.color.a * texcol.a);
+}
+
 struct VOut {
   @builtin(position) clip: vec4<f32>,
   @location(0) normal: vec3<f32>,

@@ -29,6 +29,33 @@ pub const PART_FLOATS: usize = 9;
 pub const MODO_ALFA: i64 = 0;
 pub const MODO_ADITIVO: i64 = 1;
 
+/// Qual dos 4 `RenderPipeline` de partícula (`Scene3D::particle_pipeline_*`)
+/// um lote usa — cruzamento de `aditivo` (o blend) com `tem_textura`
+/// (`fs_particle`, disco procedural, vs. `fs_particle_tex`, que amostra
+/// `albedo_tex`). Extraída como função PURA (sem `wgpu::Device`/`Scene3D`)
+/// pra ser testável sem GPU: a decisão de qual pipeline não depende de nada
+/// nativo, só de `aditivo`/`tem_textura` — só a ESCOLHA morre aqui, quem tem
+/// os 4 `wgpu::RenderPipeline` de verdade é `render.rs`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PipelineParticula {
+    Alfa,
+    Aditivo,
+    AlfaTex,
+    AditivoTex,
+}
+
+/// `aditivo`: `modo == MODO_ADITIVO` (ver `scene_api::draw_particles*`).
+/// `tem_textura`: `tex.is_some()` — só um lote de `drawParticlesTex` passa
+/// `true` (`drawParticles` sempre enfileira sem textura, `tex: None`).
+pub fn escolher_pipeline(aditivo: bool, tem_textura: bool) -> PipelineParticula {
+    match (aditivo, tem_textura) {
+        (false, false) => PipelineParticula::Alfa,
+        (true, false) => PipelineParticula::Aditivo,
+        (false, true) => PipelineParticula::AlfaTex,
+        (true, true) => PipelineParticula::AditivoTex,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,5 +74,40 @@ mod tests {
         // teste de superfície (Task 1, ui_surface.rs) confere que scene_api
         // trata assim; aqui só documentamos os dois valores válidos.
         assert_ne!(MODO_ALFA, MODO_ADITIVO);
+    }
+
+    /// `drawParticlesTex` (tem textura) SEMPRE escolhe uma variante `*Tex` —
+    /// é a garantia de que o caminho com textura de fato usa `fs_particle_tex`
+    /// (amostra a textura) e não silenciosamente cai de volta no disco
+    /// procedural de `drawParticles`.
+    #[test]
+    fn lote_com_textura_escolhe_variante_texturizada() {
+        assert_eq!(escolher_pipeline(false, true), PipelineParticula::AlfaTex);
+        assert_eq!(escolher_pipeline(true, true), PipelineParticula::AditivoTex);
+    }
+
+    /// `drawParticles` (sem textura) nunca escolhe uma variante `*Tex`.
+    #[test]
+    fn lote_sem_textura_nunca_escolhe_variante_texturizada() {
+        assert_eq!(escolher_pipeline(false, false), PipelineParticula::Alfa);
+        assert_eq!(escolher_pipeline(true, false), PipelineParticula::Aditivo);
+    }
+
+    /// As 4 combinações são distintas entre si — nenhuma colapsa noutra por
+    /// engano (o `match` de `escolher_pipeline` é exaustivo por construção,
+    /// mas isto fixa o contrato caso alguém troque por `if`s).
+    #[test]
+    fn as_quatro_combinacoes_sao_distintas() {
+        let todas = [
+            escolher_pipeline(false, false),
+            escolher_pipeline(true, false),
+            escolher_pipeline(false, true),
+            escolher_pipeline(true, true),
+        ];
+        for i in 0..todas.len() {
+            for j in (i + 1)..todas.len() {
+                assert_ne!(todas[i], todas[j], "colisão entre índices {i} e {j}");
+            }
+        }
     }
 }
