@@ -22,13 +22,6 @@ on:
       - ".github/workflows/particles-kernel.yml"
   workflow_dispatch:
 
-env:
-  # Warnings-as-errors nos três SOs — o pedido do brief. Escopado por env em
-  # vez de `#![deny(warnings)]` no crate: um `deny` no código travaria até
-  # localmente sem este CI, e o objetivo aqui é o GATE de CI, não o crate se
-  # recusar a compilar fora dele.
-  RUSTFLAGS: "-D warnings"
-
 jobs:
   test:
     strategy:

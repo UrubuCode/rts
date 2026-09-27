@@ -14,6 +14,9 @@
 //! `install` roda incondicionalmente em todo host, sem feature própria — ver
 //! o comentário do `Cargo.toml`.
 
+// Avisos como erro só neste crate (um RUSTFLAGS global no CI pegaria avisos
+// antigos de outros crates do workspace, como rts-core).
+#![deny(warnings)]
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
