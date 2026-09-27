@@ -29,7 +29,7 @@ impl Lowering<'_> {
         let rest = function.rest_parameter.as_ref();
         // `arguments`, where a function that has one -- not an arrow, which sees its
         // enclosing function's -- mentions it: the same test `emit/function.rs` makes.
-        let wants_arguments = !function.captures_this
+        let mentions_arguments = !function.captures_this
             && match &function.body {
                 crate::syntax::FunctionBody::Block(body) => self
                     .names
@@ -37,7 +37,23 @@ impl Lowering<'_> {
                     .is_some_and(|named| crate::emit::capture::mentions(body, named)),
                 crate::syntax::FunctionBody::Expression(_) => false,
             };
-        if rest.is_none() && written <= ARGUMENT_SLOTS && !wants_arguments {
+        // Read LIGHT -- `.length` and `[e]` only -- no object is built and the reads
+        // answer from the slots: `emit/light_arguments.rs`, the same classifier the
+        // running emitter uses, so the two admit the same bodies.
+        let light = mentions_arguments
+            && match &function.body {
+                crate::syntax::FunctionBody::Block(body) => {
+                    match (self.names.find("arguments"), self.names.find("length")) {
+                        (Some(named), Some(length)) => {
+                            crate::emit::light_arguments::measured_only(body, named, length)
+                        }
+                        _ => false,
+                    }
+                }
+                crate::syntax::FunctionBody::Expression(_) => false,
+            };
+        let wants_arguments = mentions_arguments && !light;
+        if rest.is_none() && written <= ARGUMENT_SLOTS && !mentions_arguments {
             return Ok(());
         }
         let at = Expr {
@@ -86,6 +102,9 @@ impl Lowering<'_> {
                 self.call(Callee::Entry(define), None, vec![all, key, running], &at);
             }
             self.arguments = Some(all);
+        }
+        if light {
+            self.argument_slots = Some(slots.clone());
         }
         match rest {
             Some(Pattern::Name(name)) => {
@@ -241,5 +260,22 @@ impl Lowering<'_> {
         let entry = self.domain.entry_point(RuntimeOp::RunningFunction);
         let running = self.call(Callee::Entry(entry), None, Vec::new(), &at);
         self.bind(name, running, Type::Object, &at)
+    }
+}
+
+impl Lowering<'_> {
+    /// The argument slots, where `object` is this activation's `arguments` read LIGHT:
+    /// the name unbound here and the body admitted by `emit/light_arguments.rs`.
+    pub(super) fn light_arguments_of(&self, object: &Expr) -> Option<Vec<ValueId>> {
+        let slots = self.argument_slots.as_ref()?;
+        let ExprKind::Ident(name) = &crate::emit::light_arguments::unasserted(object).kind else {
+            return None;
+        };
+        if self.names.spelled(*name) != Some("arguments")
+            || self.resolution.binding_in(self.scope, *name).is_some()
+        {
+            return None;
+        }
+        Some(slots.clone())
     }
 }

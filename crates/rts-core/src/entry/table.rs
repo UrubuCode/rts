@@ -67,6 +67,7 @@ use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
 use super::text_walk::TEXT_WALK_ENTRY;
 use super::array::ARRAY_IS_ARRAY_ENTRY;
 use super::array_proto::ARRAY_PUSH_DIRECT_ENTRY;
+use super::arguments::{ARGUMENT_SLOT_ENTRY, ARGUMENTS_COUNT_ENTRY};
 use super::function_direct::{FUNCTION_APPLY_DIRECT_ENTRY, FUNCTION_CALL_DIRECT_ENTRY};
 use super::collections::{
     MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
@@ -792,6 +793,11 @@ pub enum CoreEntry {
     FunctionCallDirect = 118,
     /// [`super::function_apply_direct`], the same way for `f.apply(thisArg, list)`.
     FunctionApplyDirect = 119,
+    /// [`super::arguments_count`] — `arguments.length` for a body that reads
+    /// nothing else of the object, from the activation's own slots.
+    ArgumentsCount = 120,
+    /// [`super::argument_slot`] — `arguments[e]`, the same way.
+    ArgumentSlot = 121,
 }
 
 /// How many entry points exist.
@@ -799,7 +805,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 120;
+pub const CORE_ENTRY_COUNT: usize = 122;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -924,6 +930,8 @@ impl CoreEntry {
         CoreEntry::ArrayPushDirect,
         CoreEntry::FunctionCallDirect,
         CoreEntry::FunctionApplyDirect,
+        CoreEntry::ArgumentsCount,
+        CoreEntry::ArgumentSlot,
     ];
 
     /// The number a call site holds.
@@ -1059,6 +1067,8 @@ impl CoreEntry {
             CoreEntry::ArrayPushDirect => ARRAY_PUSH_DIRECT_ENTRY,
             CoreEntry::FunctionCallDirect => FUNCTION_CALL_DIRECT_ENTRY,
             CoreEntry::FunctionApplyDirect => FUNCTION_APPLY_DIRECT_ENTRY,
+            CoreEntry::ArgumentsCount => ARGUMENTS_COUNT_ENTRY,
+            CoreEntry::ArgumentSlot => ARGUMENT_SLOT_ENTRY,
         }
     }
 

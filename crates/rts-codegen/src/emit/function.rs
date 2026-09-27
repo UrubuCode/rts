@@ -706,7 +706,10 @@ pub(super) fn emit_body(
         candidates.push(name);
     }
     let named_arguments = ctx.names.intern("arguments");
-    let binds_arguments = !captures_this && capture::mentions(body, named_arguments);
+    let length_name = ctx.names.intern("length");
+    let binds_arguments = !captures_this
+        && capture::mentions(body, named_arguments)
+        && !super::light_arguments::measured_only(body, named_arguments, length_name);
     if binds_arguments {
         candidates.push(named_arguments);
     }
@@ -1197,9 +1200,21 @@ fn emit_body_into(
     }
 
     let named = ctx.names.intern("arguments");
+    let length_name = ctx.names.intern("length");
+    // An ordinary function has its OWN `arguments`, so whatever the enclosing
+    // body read light is not this body's: cleared here, and restored at the
+    // end. An arrow keeps the enclosing answer, which is the language's.
+    let light_before = ctx.light_arguments;
+    if !captures_this {
+        ctx.light_arguments = None;
+    }
     if !captures_this && capture::mentions(body, named) {
-        {
-            let passed: Vec<ValueId> = (0..ARGUMENT_SLOTS).map(|at| incoming[2 + at]).collect();
+        let passed: Vec<ValueId> = (0..ARGUMENT_SLOTS).map(|at| incoming[2 + at]).collect();
+        // Read light — `.length` and `[e]` only — the object is never built and
+        // the name is bound to nothing: `emit/light_arguments.rs`.
+        if super::light_arguments::measured_only(body, named, length_name) {
+            ctx.light_arguments = Some([passed[0], passed[1], passed[2], passed[3]]);
+        } else {
             let all = expr::call(&mut builder, ctx, RuntimeOp::ArgumentsObject, &passed)?[0];
             // `callee` only where the function is NON-STRICT. A strict one has
             // the name too, as an accessor that throws, and answering the
@@ -1262,6 +1277,7 @@ fn emit_body_into(
         };
         builder.ret(&[answer]);
     }
+    ctx.light_arguments = light_before;
     Ok(())
 }
 

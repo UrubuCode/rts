@@ -233,6 +233,7 @@ pub fn lower_within(
         prologue: true,
         lexical_this: function.captures_this,
         arguments: None,
+        argument_slots: None,
         lexical_slots: lexical.to_vec(),
         pending_labels: Vec::new(),
         sloppy,
@@ -435,6 +436,9 @@ struct Lowering<'a> {
     /// The `arguments` object this activation built, where its body mentions the name
     /// -- `gather.rs`.
     arguments: Option<ValueId>,
+    /// The four argument slots, where the body reads `arguments` LIGHT — `.length`
+    /// and `[e]` only — and no object is built: `emit/light_arguments.rs`.
+    argument_slots: Option<Vec<ValueId>>,
     /// Labels written on the statement about to be lowered, which the frame it pushes
     /// takes -- `L: for (…)`.
     pending_labels: Vec<Name>,
@@ -674,6 +678,13 @@ impl Lowering<'_> {
                 if let Some(fixed) = self.math_constant(object, *property, expr)? {
                     return Ok(fixed);
                 }
+                // `arguments.length` read light: the count from the slots, no object.
+                if let Some(slots) = self.light_arguments_of(object)
+                    && self.names.spelled(*property) == Some("length")
+                {
+                    let entry = self.domain.entry_point(crate::runtime::RuntimeOp::ArgumentsCount);
+                    return Ok(self.call(rts_mir::cfg::Callee::Entry(entry), None, slots, expr));
+                }
                 let held = self.expression(object)?;
                 let key = self.domain.constant(JsConst::Key(*property));
                 let key = self.declared(key, expr);
@@ -689,6 +700,13 @@ impl Lowering<'_> {
                 index,
                 optional: false,
             } => {
+                // `arguments[e]` read light: the slot, or the object built for a
+                // key that names none.
+                if let Some(mut slots) = self.light_arguments_of(object) {
+                    slots.push(self.expression(index)?);
+                    let entry = self.domain.entry_point(crate::runtime::RuntimeOp::ArgumentSlot);
+                    return Ok(self.call(rts_mir::cfg::Callee::Entry(entry), None, slots, expr));
+                }
                 let held = self.expression(object)?;
                 let at = self.expression(index)?;
                 Ok(self.prim(JsPrim::IndexRead, vec![held, at], expr))

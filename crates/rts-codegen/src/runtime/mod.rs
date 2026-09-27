@@ -1128,6 +1128,13 @@ pub enum RuntimeOp {
     FunctionCallDirect,
     /// `f.apply(thisArg, list)` on the same terms: callee, receiver, list, spelling.
     FunctionApplyDirect,
+    /// `arguments.length` for a body that reads nothing else of the object: the
+    /// four argument slots, and the count the object's `length` would carry.
+    /// `emit/light_arguments.rs` is the proof.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    ArgumentsCount,
+    /// `arguments[e]` on the same terms: the four slots and the index VALUE.
+    ArgumentSlot,
 }
 
 impl RuntimeOp {
@@ -1258,6 +1265,8 @@ impl RuntimeOp {
         RuntimeOp::ArrayPushDirect,
         RuntimeOp::FunctionCallDirect,
         RuntimeOp::FunctionApplyDirect,
+        RuntimeOp::ArgumentsCount,
+        RuntimeOp::ArgumentSlot,
     ];
 
     /// The linker name the runtime must define.
@@ -1388,6 +1397,8 @@ impl RuntimeOp {
             RuntimeOp::ArrayPushDirect => "__rts_array_push_direct",
             RuntimeOp::FunctionCallDirect => "__rts_function_call_direct",
             RuntimeOp::FunctionApplyDirect => "__rts_function_apply_direct",
+            RuntimeOp::ArgumentsCount => "__rts_arguments_count",
+            RuntimeOp::ArgumentSlot => "__rts_argument_slot",
         }
     }
 
@@ -1632,8 +1643,11 @@ impl RuntimeOp {
             // The four the convention carried. No leading count: `arguments`
             // always starts at zero, and a parameter for a constant is a
             // parameter that can be passed wrongly.
-            RuntimeOp::ArgumentsObject => {
+            RuntimeOp::ArgumentsObject | RuntimeOp::ArgumentsCount => {
                 (vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
+            }
+            RuntimeOp::ArgumentSlot => {
+                (vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
             }
             // The fourth operand is `enumerable`, a compile-time constant: an
             // object literal's accessor is enumerable and a class body's is not.

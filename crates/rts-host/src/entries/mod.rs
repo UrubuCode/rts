@@ -385,6 +385,14 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::arguments_object
                 as extern "C" fn(u64, u64, u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::ArgumentsCount => (CoreEntry::ArgumentsCount, {
+            rts_core::entry::arguments_count
+                as extern "C" fn(u64, u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArgumentSlot => (CoreEntry::ArgumentSlot, {
+            rts_core::entry::argument_slot
+                as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
         }),

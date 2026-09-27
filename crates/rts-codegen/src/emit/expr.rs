@@ -199,6 +199,11 @@ pub fn emit_expr(
             if let Some(value) = super::math::constant(scope, ctx, object, *property) {
                 return Ok(super::math::fixed(builder, value));
             }
+            // `arguments.length` where the body reads the object light: the
+            // count from the slots, and no object.
+            if let Some(count) = super::light_arguments::length(builder, ctx, object, *property)? {
+                return Ok(count);
+            }
             // `property` is a name, not a key: `o[e]` is `Index`, a different
             // node. So there is no computed case to refuse here.
             let receiver = emit_expr(builder, scope, ctx, object)?;
@@ -213,6 +218,10 @@ pub fn emit_expr(
             // no array allocation, element write or indexed lookup is needed.
             if let Some(field) = super::escape::array_field_of(ctx, object, index, *optional) {
                 return super::binding::read(builder, scope, ctx, field);
+            }
+            // `arguments[e]` where the body reads the object light.
+            if let Some(value) = super::light_arguments::at(builder, scope, ctx, object, index)? {
+                return Ok(value);
             }
             // A read a DESUGARING proved: the receiver is an array it made and
             // the index is a counter it minted, so none of the questions

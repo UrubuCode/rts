@@ -60,6 +60,7 @@ mod body_state;
 pub(crate) mod call;
 pub(crate) mod math;
 pub(crate) mod methods;
+pub(crate) mod light_arguments;
 pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
@@ -377,6 +378,10 @@ pub struct Ctx<'a> {
     /// emission, because the constructor's own body must still see the real
     /// answer. See `emit/class.rs::FIELD_INITIALISER`.
     pub in_field_initializer: bool,
+    /// The four argument slots of the function being emitted, where its body
+    /// reads `arguments` LIGHT — only `.length` and `[e]` — and so binds no
+    /// object for the name. `emit/light_arguments.rs` is the proof and the reads.
+    pub light_arguments: Option<[rts_cranelift::ir::ValueId; 4]>,
     /// Whether the code being emitted is NON-STRICT.
     ///
     /// `false` for everything a file compiles to: module code is strict by
@@ -722,6 +727,7 @@ impl<'a> Ctx<'a> {
             in_cleanup: false,
             in_static_method: false,
             in_field_initializer: false,
+            light_arguments: None,
             sloppy: false,
             hide_node_globals: false,
             with_objects: Vec::new(),

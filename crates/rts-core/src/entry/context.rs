@@ -712,6 +712,7 @@ impl Context {
             "groups" => Some(17),
             "lastIndex" => Some(18),
             "indices" => Some(19),
+            super::symbol::TO_STRING_TAG => Some(20),
             _ => None,
         };
         if let Some(at) = held
@@ -742,6 +743,7 @@ impl Context {
             "toJSON" => Some(0),
             "" => Some(1),
             super::symbol::HAS_INSTANCE => Some(2),
+            "Arguments" => Some(3),
             _ => None,
         };
         if let Some(at) = held

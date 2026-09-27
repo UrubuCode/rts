@@ -126,7 +126,7 @@ pub use array::{array_length, array_new, array_of, element_at, enumerate_keys, o
 pub use math::math_random;
 pub use math_direct::{BINARY_NAMES as MATH_BINARY_NAMES, UNARY_NAMES as MATH_UNARY_NAMES, math_direct1, math_direct2};
 pub use array_proto::arguments_at;
-pub use arguments::arguments_object;
+pub use arguments::{argument_slot, arguments_count, arguments_object};
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, number_exponent, shift_left, shift_right,
@@ -267,7 +267,7 @@ pub const TEXT_LENGTH_SLOT: u32 = 1;
 /// everything else, and moving a name on or off changes only the cost.
 /// `length` is asked before every property write, `prototype` by every `new`,
 /// and the last three are stamped onto every typed array as it is built.
-pub const CACHED_KEYS: [&str; 20] = [
+pub const CACHED_KEYS: [&str; 21] = [
     "length",
     "prototype",
     "byteLength",
@@ -323,6 +323,10 @@ pub const CACHED_KEYS: [&str; 20] = [
     "groups",
     "lastIndex",
     "indices",
+    // Stamped on every `arguments` object, which is built once per call of a
+    // function that mentions the name: the spelling was formatted and hashed
+    // on each of them.
+    symbol::TO_STRING_TAG,
 ];
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
@@ -350,7 +354,7 @@ pub(super) const LENGTH_KEY_AT: usize = 0;
 /// [`symbol::HAS_INSTANCE`] rather than written out, because the `@@` in it is
 /// that module's encoding and a second copy here is where the two would come to
 /// disagree.
-pub const CACHED_TEXTS: [&str; 3] = ["toJSON", "", symbol::HAS_INSTANCE];
+pub const CACHED_TEXTS: [&str; 4] = ["toJSON", "", symbol::HAS_INSTANCE, "Arguments"];
 
 /// Every string `typeof` can answer, in the order [`Context::type_names`]
 /// caches them.

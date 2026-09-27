@@ -244,8 +244,13 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 120 on 2026-09-27 for `f.call(…)` and `f.apply(…)` reached
     // directly (`function_direct.rs`): 165 and 235 ns of chain walk and vector
     // rebuilding around a call that costs 4. Same argument.
+    //
+    // Moved to 122 on 2026-09-27 for `arguments.length` and `arguments[i]`
+    // answered from the activation's slots where nothing else of the object is
+    // read (`emit/light_arguments.rs`): the object cost 950 ns a call after its
+    // keys were cached, and these two REMOVE it.
     assert!(
-        CORE_ENTRY_COUNT <= 120,
+        CORE_ENTRY_COUNT <= 122,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );
