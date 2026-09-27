@@ -103,7 +103,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::TemplateJoin => (CoreEntry::TemplateJoin, {
             rts_core::entry::template_join
-                as extern "C" fn(i64, i64, u64, u64, u64) -> u64 as *const u8
+                as extern "C" fn(i64, i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::MathRandom => (CoreEntry::MathRandom, {
             rts_core::entry::math_random as extern "C" fn() -> f64 as *const u8
@@ -527,6 +527,12 @@ const _: () = assert!(
         && rts_codegen::runtime::NO_CALL_NAME == rts_core::entry::NO_CALL_NAME,
     "the compiler and the runtime disagree about how many values one `ArrayOf` \
      carries, or about which number spells a nameless callee"
+);
+const _: () = assert!(
+    rts_codegen::runtime::TEMPLATE_JOINED == rts_core::entry::TEMPLATE_JOINED,
+    "the compiler and the runtime disagree about how many substitutions one \
+     `TemplateJoin` carries: the compiler would pad to one count and the runtime \
+     read another, and the join would read a slot that was never an argument"
 );
 const _: () = assert!(
     rts_codegen::runtime::ARGUMENT_SLOTS == rts_core::entry::ARGUMENT_SLOTS,

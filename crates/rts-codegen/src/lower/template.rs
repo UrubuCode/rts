@@ -13,7 +13,7 @@
 //!
 //! # One join where a site was minted
 //!
-//! A template of one to three substitutions whose door minted it a site is joined by
+//! A template of one to `JOINED` substitutions whose door minted it a site is joined by
 //! `TemplateJoin`, in ONE crossing that allocates once, where the chain allocates a
 //! string per `+` and makes each one garbage at the next. The conversions stay here,
 //! each after its own substitution, because that is the order the language evaluates
@@ -21,7 +21,7 @@
 //! may read what it did. `optimize::fuse_templates` is what removes a conversion, once
 //! the inference has proved it could not run anything.
 //!
-//! Three because the entry's arguments are scalars across an `extern "C"` boundary, as
+//! `JOINED` because the entry's arguments are scalars across an `extern "C"` boundary, as
 //! `emit/template.rs` says of the same call. A wider template keeps the chain.
 
 use rts_mir::cfg::ValueId;
@@ -31,8 +31,9 @@ use crate::domain::{JsConst, JsPrim};
 use crate::runtime::RuntimeOp;
 use crate::syntax::{Expr, TemplatePart};
 
-/// How many substitutions `TemplateJoin` takes.
-pub(crate) const JOINED: usize = 3;
+/// How many substitutions `TemplateJoin` takes: the number the runtime signature
+/// fixes, stated once in `runtime` beside the operation.
+pub(crate) const JOINED: usize = crate::runtime::TEMPLATE_JOINED;
 
 impl Lowering<'_> {
     /// An untagged template literal.

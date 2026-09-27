@@ -12,7 +12,8 @@
 
 use std::time::Instant;
 
-use rts_core::entry::{Context, add, alloc, make_string, number_to_string, with_context, with_runtime};
+use rts_core::entry::{Context, add, alloc, make_string, number_to_string, string_of, template_join, with_context, with_runtime};
+use rts_core::coerce::number_to_string as number_to_string_str;
 use rts_core::text::Str;
 use rts_core::value::{Kinds, Singletons, Value};
 
@@ -32,10 +33,11 @@ fn main() {
         },
     );
     let (_context, ()) = with_context(context, || {
-        // Small enough that five rows of one allocation each stay inside the
-        // region: this probe has no compiled frames for the collector to scan,
-        // so nothing it makes is ever freed.
-        let each = 60_000;
+        // Small enough that the allocating rows stay inside the region: this
+        // probe has no compiled frames for the collector to scan, so nothing it
+        // makes is ever freed. It was 60 000 with five such rows; the layers of
+        // `intern_value` and `template_join` below made it fourteen.
+        let each = 25_000;
 
         let at = Instant::now();
         let mut sink = 0u64;
@@ -119,6 +121,141 @@ fn main() {
             sink = sink.wrapping_add(add(left, number) & 0xff);
         }
         report("add(str, num)", at, each, sink);
+
+        // The layers under `make_string`, each on its own inside one borrow.
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            let made = with_runtime(|context| context.intern_value(Str::from_latin1(b"abcd-")).bits());
+            sink = sink.wrapping_add(made & 0xff);
+        }
+        report("intern_value(5)", at, each, sink);
+
+        // The same steps by hand, to see whether the sum is the whole.
+        let ty = text_type as u32;
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            let made = with_runtime(|context| {
+                let cell = context.region.alloc(rts_core::heap::STRIDE, ty).unwrap_or(0);
+                let slot = context.cells.insert(Str::from_latin1(b"abcd-")).slot();
+                context.region.set_field(cell, 0, u64::from(slot.0));
+                context.region.set_field(cell, 1, Value::from_f64(5.0).bits());
+                cell
+            });
+            sink = sink.wrapping_add(u64::from(made) & 0xff);
+        }
+        report("alloc+insert+2 set_field", at, each, sink);
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            let made = with_runtime(|context| {
+                let cell = context.region.alloc(rts_core::heap::STRIDE, ty).unwrap_or(0);
+                context.region.set_field(cell, 0, 7);
+                context.region.set_field(cell, 1, Value::from_f64(5.0).bits());
+                cell
+            });
+            sink = sink.wrapping_add(u64::from(made) & 0xff);
+        }
+        report("alloc+2 set_field", at, each, sink);
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for i in 0..each {
+            let slot = with_runtime(|context| context.cells.insert(Str::from_latin1(b"abcd-")).slot());
+            sink = sink.wrapping_add(u64::from(slot.0) & 0xff).wrapping_add(i & 1);
+        }
+        report("cells.insert only", at, each, sink);
+
+        let mut plain: Vec<[u64; 6]> = Vec::new();
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for i in 0..each {
+            plain.push([i, 1, 2, 3, 4, 5]);
+            sink = sink.wrapping_add(plain.len() as u64 & 1);
+        }
+        report("Vec<[u64;6]>::push", at, each, sink);
+        std::hint::black_box(&plain);
+
+        let mut own: Vec<Str> = Vec::new();
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for i in 0..each {
+            own.push(Str::from_latin1(b"abcd-"));
+            sink = sink.wrapping_add(own.len() as u64 & 1).wrapping_add(i & 1);
+        }
+        report("Vec<Str>::push", at, each, sink);
+        std::hint::black_box(&own);
+
+        let ty = text_type as u32;
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            let cell = with_runtime(|context| context.region.alloc(rts_core::heap::STRIDE, ty).unwrap_or(0));
+            sink = sink.wrapping_add(u64::from(cell) & 0xff);
+        }
+        report("region.alloc (borrowed)", at, each, sink);
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for i in 0..each {
+            let text = number_to_string_str(123456.0 + (i & 1) as f64);
+            sink = sink.wrapping_add(text.len() as u64);
+        }
+        report("number_to_string Str", at, each, sink);
+
+        // What `Rooted::new` costs: a boxed Vec and a thread-local push and pop.
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for i in 0..each {
+            let mut held: Box<Vec<u64>> = Box::new(Vec::new());
+            held.push(i);
+            sink = sink.wrapping_add(held[0] & 1);
+        }
+        report("Box<Vec> + push", at, each, sink);
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for i in 0..each {
+            let mut bytes: Vec<u8> = Vec::with_capacity(12);
+            bytes.extend_from_slice(b"abcd-");
+            bytes.push((i & 0x7f) as u8);
+            sink = sink.wrapping_add(bytes.len() as u64);
+        }
+        report("Vec<u8>::with_capacity", at, each, sink);
+
+        // A template site `a${x}b` registered by hand, then joined with one number.
+        let site = with_runtime(|context| {
+            let a = make_string(context, "a");
+            let b = make_string(context, "b");
+            let first = context.literals.len() as u32;
+            context.literals.push(a);
+            context.literals.push(b);
+            context.templates.push((vec![first, first + 1], None));
+            (context.templates.len() - 1) as i64
+        });
+        let absent = with_runtime(|context| rts_core::entry::undefined_in(context));
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            sink = sink.wrapping_add(template_join(site, 1, number, absent, absent, absent, absent, absent) & 0xff);
+        }
+        report("template_join(a${n}b)", at, each, sink);
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            sink = sink.wrapping_add(template_join(site, 1, left, absent, absent, absent, absent, absent) & 0xff);
+        }
+        report("template_join(a${s}b)", at, each, sink);
+
+        let at = Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..each {
+            sink = sink.wrapping_add(string_of(number) & 0xff);
+        }
+        report("string_of(num)", at, each, sink);
     });
 }
 

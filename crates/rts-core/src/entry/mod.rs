@@ -106,6 +106,7 @@ mod registers;
 mod regex;
 pub mod roots;
 mod rooted;
+mod template_join;
 mod source_hash;
 mod side_tables;
 pub(super) mod string;
@@ -188,9 +189,10 @@ pub use bigint_class::bigint_new;
 pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
+pub use template_join::{TEMPLATE_JOINED, template_join};
 pub use text::{
     declare_keys, declare_literals, declare_templates, described, string_const, string_of,
-    template_join, template_strings,
+    template_strings,
 };
 pub use type_of::{type_of, type_of_is};
 pub use symbol::{is_symbol as is_symbol_in, well_known as well_known_symbol};

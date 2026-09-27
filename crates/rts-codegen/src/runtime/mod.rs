@@ -73,6 +73,15 @@ use crate::emit::UNPROVEN;
 /// with a corrupt stack.
 pub const ARGUMENT_SLOTS: usize = 4;
 
+/// How many substitutions [`RuntimeOp::TemplateJoin`] takes in one crossing.
+///
+/// Six, where it was three: `bench/analytic.ts` `template 4 holes` paid the
+/// chain of additions at 1 208 ns while two holes cost 327, and the arguments
+/// are scalars across an `extern "C"` boundary, so the count is fixed at the
+/// signature. `ArrayOf` already carries eight the same way. The runtime states
+/// the same number and `rts-host` asserts the two agree.
+pub const TEMPLATE_JOINED: usize = 6;
+
 /// How many values [`RuntimeOp::ArrayOf`] takes in one crossing.
 ///
 /// Eight, because the row it serves most is the argument vector of a call past
@@ -1404,10 +1413,11 @@ impl RuntimeOp {
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf => (vec![UNPROVEN], vec![UNPROVEN]),
-            RuntimeOp::TemplateJoin => (
-                vec![Repr::I64, Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN],
-                vec![UNPROVEN],
-            ),
+            RuntimeOp::TemplateJoin => {
+                let mut params = vec![Repr::I64, Repr::I64];
+                params.extend(std::iter::repeat_n(UNPROVEN, TEMPLATE_JOINED));
+                (params, vec![UNPROVEN])
+            }
             RuntimeOp::ArrayOf => {
                 let mut params = vec![Repr::I64];
                 params.extend(std::iter::repeat_n(UNPROVEN, ARRAY_OF_SLOTS));

@@ -25,6 +25,7 @@ use rts_cranelift::repr::Repr;
 
 use super::expr::{emit_binary, emit_expr, gap, string_literal_units};
 use super::{Ctx, EmitError, EmitResult, Scope};
+use crate::lower::JOINED;
 use crate::runtime::RuntimeOp;
 use crate::syntax::{BinaryOp, Expr, TemplatePart, Text};
 
@@ -78,26 +79,27 @@ pub fn emit_template(
         values.push(value);
     }
 
-    // Up to three interpolations, all PROVEN doubles, joined in ONE crossing.
+    // Up to `JOINED` interpolations, joined in ONE crossing.
     //
     // The chain below allocates a string per addition, and every one but the
     // last is garbage the moment the next addition runs. The pieces are already
     // interned at this site, so the runtime reads them without allocating and
     // builds the answer once.
     //
-    // Proven doubles and not anything: turning a value into text is
-    // `ToPrimitive`, which for an OBJECT runs `toString` or `valueOf` — user
-    // code, which cannot run inside the runtime's borrow of its own context.
-    // Three files said so when this took every value: console_log_handle,
-    // template_tostring and wrapper_class_toprimitive. A number has no such
-    // question, and a number is what a template interpolates almost always.
+    // A proven double goes to the join as it is, which spells it itself.
+    // Anything else is converted HERE, with `StringOf`, before the join sees
+    // it: turning an object into text is `ToPrimitive`, which runs `toString`
+    // or `valueOf` — user code — and the conversions run in source order this
+    // way, one after another, exactly as the chain ran them. This took only
+    // templates whose every hole was a proven double, and everything else paid
+    // the chain: `` `x${s}y` `` over a string cost 220 ns against 89 for
+    // `s + s`. `StringOf` over a string answers that same string, so a string
+    // hole allocates nothing before the join.
     //
-    // Three because the arguments are scalars across an `extern "C"` boundary.
-    // A wider template keeps the chain, which is correct rather than a gap.
-    if values.len() <= 3
-        && !values.is_empty()
-        && values.iter().all(|&v| builder.repr_of(v) == Repr::F64)
-    {
+    // `JOINED` because the arguments are scalars across an `extern "C"`
+    // boundary. A wider template keeps the chain, which is correct rather than
+    // a gap.
+    if (1..=JOINED).contains(&values.len()) {
         // A site of its OWN, holding one literal id per piece — the tagged form
         // stores two per piece (cooked then raw) because a tag reads both, and
         // this one reads neither of those: it reads the text to join.
@@ -122,9 +124,13 @@ pub fn emit_template(
         });
         let mut args = vec![site, count];
         for &value in &values {
-            args.push(tagged(builder, value));
+            if builder.repr_of(value) == Repr::F64 {
+                args.push(tagged(builder, value));
+            } else {
+                args.push(super::expr::call(builder, ctx, RuntimeOp::StringOf, &[value])?[0]);
+            }
         }
-        while args.len() < 5 {
+        while args.len() < 2 + JOINED {
             args.push(builder.use_const(absent));
         }
         return Ok(super::expr::call(builder, ctx, RuntimeOp::TemplateJoin, &args)?[0]);

@@ -75,7 +75,8 @@ use super::functions::ARGUMENT_AT_ENTRY;
 use super::primitives::SAME_VALUE_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
 use super::math_direct::{MATH_DIRECT1_ENTRY, MATH_DIRECT2_ENTRY};
-use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
+use super::template_join::TEMPLATE_JOIN_ENTRY;
+use super::text::STRING_OF_ENTRY;
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY,
     NUMBER_EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
