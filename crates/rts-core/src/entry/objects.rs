@@ -752,7 +752,7 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     let link = context.prototype_at(slot);
     let ty = context.typed_as(grown, link).index() as u32;
     let was = context.region.type_of(slot);
-    context.region.set_type(slot, ty);
+    context.retype_cell(slot, ty);
     // The write side of `RTS_CACHE_WHY`, so a transition and the read that
     // misses can be read as one sequence. What it showed on
     // `{x:i}; o.y=i; a+=o.y`, sampled late in a hundred thousand iterations:

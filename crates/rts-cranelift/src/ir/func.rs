@@ -183,6 +183,77 @@ impl Function {
         self.block_regions[block.index()] = Some(region);
     }
 
+    /// Every block, reachable ones in an order where a definition precedes its uses.
+    ///
+    /// Reverse post-order over the successor graph, which is what "a definition
+    /// dominates its uses" means as a traversal: a block is emitted only after every
+    /// path into it has been. Unreachable blocks follow, in the order they were
+    /// created, so that this answers EVERY block and the caller does not have to
+    /// decide what to do about the ones nothing jumps to.
+    ///
+    /// # The EXCEPTIONAL edges are successors too
+    ///
+    /// A throw has no successor, so a region's handler and cleanup -- and everything
+    /// reachable only from them -- were "unreachable" here and emitted in creation
+    /// order. That was a definition-before-use order only for a client that makes its
+    /// blocks top-down while it emits. One that makes a block's continuation AFTER
+    /// blocks the continuation's values flow into -- a mid-level IR translated block by
+    /// block, where a cached read's join is made while lowering the block that reads --
+    /// had a catch body read a value before the block defining it was emitted, and the
+    /// lowering panicked on a function the verifier had accepted. So every block in a
+    /// region reaches that region's handlers, its cleanup and its resumption point, and
+    /// those of every region around it: that is where control goes when it throws, and
+    /// the order follows control.
+    ///
+    /// Not a change for a function with no region, whose edges are exactly the ones
+    /// they were.
+    ///
+    /// A method of the function and not of the lowering, because a second walk needs
+    /// the same order: `frame::transform` rewrites block by block and reads each
+    /// value where it was defined, so it panicked on the same functions the lowering
+    /// did, a stage later.
+    pub fn control_order(&self) -> Vec<BlockId> {
+        let mut order = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        // An explicit stack rather than recursion: a deeply nested body would be a
+        // stack overflow in the compiler, which is the one failure a compiler must
+        // not have.
+        let mut stack = vec![(self.entry, false)];
+        while let Some((id, expanded)) = stack.pop() {
+            if expanded {
+                order.push(id);
+                continue;
+            }
+            if !seen.insert(id) {
+                continue;
+            }
+            stack.push((id, true));
+            if let Some(block) = self.block(id)
+                && let Some(terminator) = &block.terminator
+            {
+                for successor in terminator.successors() {
+                    stack.push((successor, false));
+                }
+            }
+            if let Some(region) = self.region_of(id) {
+                for (_, around) in self.regions.enclosing(region) {
+                    let exceptional = around
+                        .handlers
+                        .iter()
+                        .map(|handler| handler.block)
+                        .chain(around.cleanup)
+                        .chain(around.resume_return);
+                    for successor in exceptional {
+                        stack.push((successor, false));
+                    }
+                }
+            }
+        }
+        order.reverse();
+        order.extend(self.blocks().map(|(id, _)| id).filter(|id| !seen.contains(id)));
+        order
+    }
+
     /// Which region protects a block, if any.
     pub fn region_of(&self, block: BlockId) -> Option<RegionId> {
         self.block_regions.get(block.index()).copied().flatten()

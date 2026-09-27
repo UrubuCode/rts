@@ -145,205 +145,55 @@ fn checked_keys(target: u64, listed: u64) {
             return;
         }
     }
-    let Some(own) = invariant::own_keys_of(target) else {
-        return;
-    };
+    // §10.5.11 steps 11-23, in the specification's order: extensibility, the
+    // target's keys, then one descriptor per key — every one of which may be a
+    // trap of a proxy target, so each is followed by the rule-8 question.
     let open = invariant::extensible(target);
-    for (key, spelled) in &own {
-        if reported.contains(key) {
-            continue;
+    if throw::in_flight() {
+        return;
+    }
+    let own = invariant::own_keys_of(target);
+    if throw::in_flight() {
+        return;
+    }
+    let mut fixed = Vec::new();
+    let mut loose = Vec::new();
+    for (key, spelled) in own {
+        let state = invariant::own_state(target, key);
+        if throw::in_flight() {
+            return;
         }
-        // A key the target cannot lose, or one it cannot lose because the
-        // target itself refuses to shrink. Either way the program has already
-        // been told the key is there and cannot be told otherwise now.
-        let fixed =
-            !open || invariant::own_state(target, *key).is_some_and(|state| !state.configurable);
-        if fixed {
+        match state {
+            Some(state) if !state.configurable => fixed.push((key, spelled)),
+            _ => loose.push((key, spelled)),
+        }
+    }
+    if open && fixed.is_empty() {
+        return;
+    }
+    let mut unchecked = reported;
+    // A key the target cannot lose — or, once the target refuses to shrink, any
+    // key it has — must be listed: the program has already been told the key
+    // is there and cannot be told otherwise now.
+    let required = match open {
+        true => fixed,
+        false => fixed.into_iter().chain(loose).collect(),
+    };
+    for (key, spelled) in &required {
+        let Some(at) = unchecked.iter().position(|listed| listed == key) else {
             throw::type_error(&format!(
                 "'ownKeys' on proxy: trap result did not include '{spelled}'"
             ));
             return;
-        }
+        };
+        unchecked.remove(at);
     }
-    if !open
-        && let Some(extra) = reported
-            .iter()
-            .find(|key| !own.iter().any(|(at, _)| at == *key))
-    {
+    if !open && let Some(extra) = unchecked.first() {
         throw::type_error(&format!(
-            "'ownKeys' on proxy: trap returned extra keys but proxy target is non-extensible: \
-             '{}'",
+            "'ownKeys' on proxy: trap returned extra keys but proxy target is non-extensible: '{}'",
             super::spelled(*extra)
         ));
     }
-}
-
-/// `handler.getOwnPropertyDescriptor(target, prop)`, or the target's own.
-pub(in crate::entry) fn describe(object: u64, key: Key) -> Option<u64> {
-    let trap = super::trap_for(object, "getOwnPropertyDescriptor")?;
-    if trap.refused {
-        return Some(super::absent());
-    }
-    let property = super::property_of(key);
-    let Some(callee) = trap.callee else {
-        // The target may be a proxy of its own — `new Proxy(new Proxy(x, inner),
-        // {})` has to reach `inner` — so the traps are asked again before a
-        // shape is read. The same forwarding `super::forwarded_read` does, and
-        // written the same way rather than through `describe_of`: that one
-        // starts by asking whether its argument is a proxy, which is the
-        // question this line has already answered.
-        if let Some(answered) = describe(trap.target, key) {
-            return Some(answered);
-        }
-        return Some(crate::entry::object_global::describe_own(
-            trap.target,
-            property,
-        ));
-    };
-    let absent = super::absent();
-    let answered =
-        crate::entry::functions::call(callee, trap.handler, trap.target, property, absent, absent);
-    if throw::in_flight() {
-        return Some(answered);
-    }
-    checked_descriptor(trap.target, key, answered);
-    if throw::in_flight() {
-        return Some(super::absent());
-    }
-    Some(completed(answered))
-}
-
-/// `FromPropertyDescriptor(CompletePropertyDescriptor(ToPropertyDescriptor(r)))`
-/// — the round trip the specification performs on a trap's answer.
-///
-/// The handler's own object was handed to the program unchanged, and that is two
-/// divergences at once. A descriptor the trap INVENTED came back incomplete:
-/// `{ value: 1, configurable: true }` reached the caller with no `writable` and
-/// no `enumerable` at all, so `d.writable` read `undefined` where every runtime
-/// reads `false` — and `undefined` is falsy, so a program branching on it agreed
-/// by accident and one printing it did not. The second is identity: the object a
-/// program gets back is a fresh one, and a handler that keeps a reference to what
-/// it returned cannot watch the caller mutate it.
-///
-/// `undefined` passes through, which is `FromPropertyDescriptor`'s own first
-/// step and the answer for a key the handler does not claim.
-fn completed(answered: u64) -> u64 {
-    if answered == super::absent() {
-        return answered;
-    }
-    let Some(read) = crate::entry::object_global::descriptor_read(answered) else {
-        return super::absent();
-    };
-    crate::entry::object_global::descriptor_object(&read)
-}
-
-/// The refusals a descriptor has to survive.
-fn checked_descriptor(target: u64, key: Key, answered: u64) {
-    // WHAT it is, before what it CLAIMS. The specification refuses a trap
-    // result that is neither an object nor `undefined` in its own step, ahead
-    // of every invariant — and taking the invariants first reported a number as
-    // "non-configurability for a property that is configurable in the target",
-    // which is a true sentence about the wrong mistake and points the reader at
-    // the target instead of at the handler.
-    let shaped = answered == super::absent()
-        || crate::entry::with_current(|context| {
-            crate::entry::primitive::is_object_in(context, answered)
-        });
-    if !shaped {
-        throw::type_error(
-            "'getOwnPropertyDescriptor' on proxy: trap must answer an object or undefined",
-        );
-        return;
-    }
-    let held = invariant::own_state(target, key);
-    if answered == super::absent() {
-        let hidden = match &held {
-            None => false,
-            Some(state) => !state.configurable || !invariant::extensible(target),
-        };
-        if hidden {
-            throw::type_error(&format!(
-                "'getOwnPropertyDescriptor' on proxy: trap returned undefined for property '{}' \
-                 which is non-configurable in the proxy target",
-                super::spelled(key)
-            ));
-        }
-        return;
-    }
-    // The other direction, and it is the one that matters more: a handler
-    // INVENTING a non-configurable property makes every later operation on that
-    // key checkable against a fact the target never recorded.
-    // Read under the borrow, coerced outside it: `to_boolean` takes a borrow of
-    // its own, and a second one inside an `extern "C"` frame aborts the process
-    // rather than unwinding.
-    let field = with_current(|context| {
-        let named = context.well_known("configurable");
-        Value(answered)
-            .as_slot()
-            .and_then(|cell| objects::read_property(context, cell, named))
-            .map(|found| found.bits())
-    });
-    // A descriptor with no `configurable` field means false, which is what
-    // `Object.defineProperty` already reads it as.
-    let claimed = field.is_some_and(|found| primitives::to_boolean(found));
-    // And the direction that was missing, which is the one a program uses to
-    // TRUST a key: a property the target says can never be redefined must not be
-    // reported as redefinable. `Object.getOwnPropertyDescriptor(p, "c")`
-    // answered `configurable: true` for a `c` the target had pinned, so a caller
-    // that checked the descriptor before redefining was told yes and then
-    // refused by the target.
-    if claimed && held.as_ref().is_some_and(|state| !state.configurable) {
-        throw::type_error(&format!(
-            "'getOwnPropertyDescriptor' on proxy: trap reported property '{}' as configurable \
-             which is non-configurable in the proxy target",
-            super::spelled(key)
-        ));
-        return;
-    }
-    if !claimed && held.is_none_or(|state| state.configurable) {
-        throw::type_error(&format!(
-            "'getOwnPropertyDescriptor' on proxy: trap reported non-configurability for property \
-             '{}' which is either non-existent or configurable in the proxy target",
-            super::spelled(key)
-        ));
-    }
-}
-
-/// `handler.defineProperty(target, prop, descriptor)`, or a define on the
-/// target.
-///
-/// Answers whether it was accepted, which is what `Reflect.defineProperty`
-/// reports and what a trap returning `false` means. The forwarding case answers
-/// true whenever it reached an object, the same thing `Reflect.set` can
-/// establish and for the same reason: a refusal would be a non-configurable
-/// property, and that is recorded per object rather than per key.
-pub(in crate::entry) fn define(object: u64, key: Key, descriptor: u64) -> Option<bool> {
-    let trap = super::trap_for(object, "defineProperty")?;
-    if trap.refused {
-        return Some(false);
-    }
-    let property = super::property_of(key);
-    let Some(callee) = trap.callee else {
-        // A target that is itself a proxy gets its own traps first, the same
-        // forwarding every absent trap here does.
-        if let Some(answered) = define(trap.target, key, descriptor) {
-            return Some(answered);
-        }
-        crate::entry::object_global::define(trap.target, property, descriptor);
-        return Some(Value(trap.target).as_slot().is_some());
-    };
-    let answered = crate::entry::functions::call(
-        callee,
-        trap.handler,
-        trap.target,
-        property,
-        descriptor,
-        descriptor,
-    );
-    if throw::in_flight() {
-        return Some(false);
-    }
-    Some(primitives::to_boolean(answered))
 }
 
 /// Whether a key a trap listed is a SYMBOL, in either spelling it arrives in.
@@ -369,6 +219,21 @@ fn is_symbol_entry(entry: u64) -> bool {
 /// `Object.getOwnPropertyNames(p).join("|")` answered `a||b|`, the empty
 /// spellings being symbols that have no string form.
 pub(in crate::entry) fn own_names(object: u64) -> Option<u64> {
+    own_half(object, false)
+}
+
+/// The SYMBOL half — `Object.getOwnPropertySymbols`, which read the proxy's
+/// own empty cell and answered `[]` without running `ownKeys` at all.
+pub(in crate::entry) fn own_symbols(object: u64) -> Option<u64> {
+    own_half(object, true)
+}
+
+/// One half of the trap's list, in the trap's order.
+///
+/// A symbol arrives in either spelling [`is_symbol_entry`] names; the reserved
+/// key text of a forwarded list is decoded back to the symbol VALUE, because
+/// `getOwnPropertySymbols` answers symbols and not their filing names.
+fn own_half(object: u64, symbols: bool) -> Option<u64> {
     let listed = own_keys(object)?;
     if throw::in_flight() {
         return Some(listed);
@@ -382,7 +247,19 @@ pub(in crate::entry) fn own_names(object: u64) -> Option<u64> {
     });
     let kept = keys
         .into_iter()
-        .filter(|entry| !is_symbol_entry(*entry))
+        .filter(|entry| is_symbol_entry(*entry) == symbols)
+        .map(|entry| match symbols {
+            false => entry,
+            true => with_current(|context| {
+                if crate::entry::symbol::is_symbol(context, entry) {
+                    return entry;
+                }
+                crate::entry::text::to_text(context, Value(entry))
+                    .and_then(|text| text.to_rust())
+                    .and_then(|text| crate::entry::symbol::value_of_key_text(context, &text))
+                    .unwrap_or(entry)
+            }),
+        })
         .collect();
     Some(crate::entry::modules::make_array(kept))
 }

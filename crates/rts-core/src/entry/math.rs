@@ -87,6 +87,32 @@ fn min2(x: f64, y: f64) -> f64 {
     }
 }
 
+/// `Math.atanh`, odd to the last bit — shared with the direct door in
+/// `math_direct.rs`, so the member and the door cannot disagree. The member's
+/// documentation says why the sign is carried rather than passed through.
+pub(super) fn atanh_odd(x: f64) -> f64 {
+    x.abs().atanh().copysign(x)
+}
+
+/// The sum-of-squares root over any number of operands, as `Math.hypot`
+/// defines it — infinity first, then NaN, then scaled by the largest magnitude.
+/// The member's documentation carries why each of those three is where it is.
+/// Shared with `math_direct.rs`, which reaches it for the two-operand call.
+pub(super) fn hypot_of(numbers: &[f64]) -> f64 {
+    if numbers.iter().any(|n| n.is_infinite()) {
+        return f64::INFINITY;
+    }
+    if numbers.iter().any(|n| n.is_nan()) {
+        return f64::NAN;
+    }
+    let largest = numbers.iter().fold(0.0f64, |acc, n| acc.max(n.abs()));
+    if largest == 0.0 {
+        return 0.0;
+    }
+    let sum_of_scaled_squares: f64 = numbers.iter().map(|n| (n / largest).powi(2)).sum();
+    largest * sum_of_scaled_squares.sqrt()
+}
+
 /// The fold `max` and `min` are, over however many arguments arrived.
 ///
 /// The identity is what the language folds from — `-Infinity` for `max`,
@@ -120,7 +146,7 @@ fn folded(values: &[u64], identity: f64, better: fn(f64, f64) -> f64) -> f64 {
 /// Math.f16round === "undefined"` on this machine). Derived from the
 /// specification and from IEEE 754's binary16 layout (1 sign, 5 exponent
 /// bias 15, 10 fraction) rather than cross-checked against a real engine.
-fn f64_to_f16_bits(f: f64) -> u16 {
+pub(super) fn f64_to_f16_bits(f: f64) -> u16 {
     let bits = f.to_bits();
     let sign = ((bits >> 48) & 0x8000) as u16;
     let exp = ((bits >> 52) & 0x7FF) as i64;
@@ -183,7 +209,7 @@ fn f64_to_f16_bits(f: f64) -> u16 {
 /// one non-uniform case being a subnormal input: binary16 has no implicit
 /// leading bit for it, so [`f64_to_f16_bits`]'s inverse has to renormalise
 /// by hand before the exponent means anything.
-fn f16_bits_to_f64(bits: u16) -> f64 {
+pub(super) fn f16_bits_to_f64(bits: u16) -> f64 {
     let sign = ((bits as u64 & 0x8000) as u64) << 48;
     let exp = (bits >> 10) & 0x1F;
     let mant = (bits & 0x3FF) as u64;
@@ -449,7 +475,7 @@ impl Math {
     /// Only `atanh` here: `asinh` is odd on this machine already, and `acosh`
     /// and `sinh`/`tanh` were checked with it.
     fn atanh(x: f64) -> f64 {
-        x.abs().atanh().copysign(x)
+        atanh_odd(x)
     }
 
     /// `Math.hypot(…)` — the square root of the sum of the squares.
@@ -481,18 +507,7 @@ impl Math {
             .iter()
             .map(|value| super::class_support::to_number(*value))
             .collect();
-        if numbers.iter().any(|n| n.is_infinite()) {
-            return f64::INFINITY;
-        }
-        if numbers.iter().any(|n| n.is_nan()) {
-            return f64::NAN;
-        }
-        let largest = numbers.iter().fold(0.0f64, |acc, n| acc.max(n.abs()));
-        if largest == 0.0 {
-            return 0.0;
-        }
-        let sum_of_scaled_squares: f64 = numbers.iter().map(|n| (n / largest).powi(2)).sum();
-        largest * sum_of_scaled_squares.sqrt()
+        hypot_of(&numbers)
     }
 
     /// `Math.pow(base, exponent)`.

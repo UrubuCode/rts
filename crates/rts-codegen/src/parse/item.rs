@@ -6,11 +6,11 @@ use super::expr::{expr, property_key};
 use super::pat::{binding, binding_element};
 use super::stmt::{decl, stmt, stmts};
 use super::{Cx, Result, position, unsupported};
+use crate::syntax::{AssignOp, AssignTarget, Expr, ExprKind, Literal, LogicalOp, Spreadable};
 use crate::syntax::{
     Binding, BindingKind, Claim, Class, ClassElement, ClassKey, Directive, Field, Function,
     FunctionBody, Goal, Method, MethodKind, Parameter, Pattern, Program, Stmt, StmtKind,
 };
-use crate::syntax::{AssignOp, AssignTarget, Expr, ExprKind, Literal, LogicalOp, Spreadable};
 
 /// A whole program.
 pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<Program> {
@@ -43,7 +43,9 @@ pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<
                     continue;
                 }
                 in_prologue = false;
-                items.push(crate::syntax::ModuleItem::Stmt(super::stmt::stmt(cx, statement)?));
+                items.push(crate::syntax::ModuleItem::Stmt(super::stmt::stmt(
+                    cx, statement,
+                )?));
             }
         }
     }
@@ -608,7 +610,6 @@ pub(super) fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Re
         at,
     })
 }
-
 
 /// `@d1 @d2 class C { … }` — the **legacy** `experimentalDecorators` design,
 /// established from the fixtures rather than assumed: `decorator_method_tolerated`

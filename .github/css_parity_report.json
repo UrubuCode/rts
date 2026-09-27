@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-25",
+  "date": "2026-09-27",
   "fixtures": {
     "passing": 168,
     "total": 170,
@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 593,
+    "passing": 598,
     "total": 870,
-    "pct": 68.2,
+    "pct": 68.7,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -43,11 +43,11 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 133,
+        "passing": 134,
         "total": 160
       },
       "item": {
-        "passing": 49,
+        "passing": 51,
         "total": 77
       },
       "align": {
@@ -63,7 +63,7 @@
         "total": 46
       },
       "percentage": {
-        "passing": 19,
+        "passing": 20,
         "total": 39
       },
       "baseline": {
@@ -135,7 +135,7 @@
         "total": 4
       },
       "position": {
-        "passing": 1,
+        "passing": 2,
         "total": 4
       },
       "visibility": {
@@ -228,6 +228,21 @@
       "FM — as metricas de fonte num modelo so",
       "REGUA — o corredor deixa de contar vazio como aprovado",
       "WS-1 — `white-space` como família: `break-spaces`, espaços preservados, `ch`, por-inline, largura intrínseca por inline, tab stops, entidades HTML",
+      "WS-2 — `nowrap` por inline na LINHA; ordem de pintura da camada 8 (Apêndice E); `Response.headers` real",
+      "PQ-A — `paint/` e `query/`: os leitores da lista saem de `layout/` (item 2 da ordem, Fase A)",
+      "PQ-B — `query::hit` lê os FRAGMENTOS (item 2 da ordem, Fase B): o hit-test sem tabela",
+      "LR — `layout/` reagrupado por contexto de formatação (item 3 da ordem)",
+      "LR-en — identificadores de `layout/` em inglês",
+      "RPH — `height:%` num substituído em fluxo inline resolve contra a altura DEFINIDA do containing block (CSS 2.1 §10.5), e a transferência pela razão de aspecto respeita a ordem dos clamps (Sizing 4 §5)",
+      "TX-1 — texto REAL, T1+T2 do plano `2026-09-26-text-crate.md`: o crate `rts-text` e o instrumento a pintar glifos",
+      "POS-1 — css-position: static position de um abspos INLINE-LEVEL ao lado de um float; `relative` aninhado com insets em %",
+      "GRID-1 — grid: static position de abspos lê `align-items`/`justify-items` (causa 1 da triagem); `aspect-ratio` no sizing de item e trilha (causa 2)",
+      "TX-2 — T2b do plano de texto: `DisplayItem::Text` leva a FAMÍLIA com que foi medido",
+      "GRID-2 — `display: inline-grid` (e `inline-table`) são inline-level",
+      "GRID-3 — `grid-area`, `grid-row`, `grid-column` com números e nomes de linha (Grid §8.3/§8.4)",
+      "TX-3 — T3 do plano de texto: a JANELA mede com o `RealMeasurer`; e o quebrador re-mede a junção quando o kerning atravessa um espaço",
+      "INSP-1 — o F12: inspetor do DOM por CDP, o DevTools do Chrome liga-se ao motor; opt-in, custo zero desligado (pedido do Marcos)",
+      "TX-4 — T4 do plano de texto: o quebrador pede ao medidor as oportunidades UAX #14 e os grafemas",
       "BR — `getBoundingClientRect` deixa de refazer o layout todo",
       "DISP — o `display` para de perder informacao no parse",
       "IB-BASE — o `inline-block` na baseline da linha (CSS 2.1 §10.8.1)",
@@ -250,6 +265,8 @@
       "flex-writing-mode-2 — `writing-mode` troca de verdade o eixo do flex (retrabalho do `414147c88`/`5e9130c65`, nunca merged) — a família WPT `flexbox-writing-mode-*`, `-slr`/`-srl`, `gap-*-{lr,rl,rtl}`",
       "BT-1 — árvore de caixas: a identidade passa a ser a CAIXA",
       "PCT — a percentagem sabe em que EIXO esta",
+      "LR-teto — os seis ficheiros de `layout/` acima do teto: o que desce por MOVES",
+      "PQ-C — as três costuras paint/layout/query apontam para o lado certo (Fase C do item 2)",
       "SC — contexto de empilhamento aninhado"
     ],
     "pendentes": [

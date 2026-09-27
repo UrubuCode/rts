@@ -122,6 +122,16 @@ pub(in crate::entry) fn to_string_value(value: u64) -> Option<u64> {
     if super::throw::in_flight() {
         return None;
     }
+    // A string is its own text, and is answered AS IT IS. It was cloned into a
+    // second cell — a `Str` copy, a region cell and a slab entry to hold what
+    // the program already held — on every `String(s)` and on every template
+    // substitution the compiler converts before the join.
+    if Value(primitive)
+        .as_slot()
+        .is_some_and(|cell| with_current(|context| context.is_text_at(cell)))
+    {
+        return Some(primitive);
+    }
     let converted = with_current(|context| match to_text(context, Value(primitive)) {
         Some(text) => Some(context.intern_value(text).bits()),
         None => None,
@@ -169,146 +179,6 @@ pub fn string_of(value: u64) -> u64 {
         // is what a raising entry point answers — a value nothing reads.
         None => with_current(|context| undefined_of(context)),
     }
-}
-
-/// `` `a${x}b${y}c` `` — every piece and every value joined, in ONE crossing.
-///
-/// It was a chain of `+`. Three pieces and two values is four additions, and
-/// each one allocates a string that the next addition immediately makes
-/// garbage — so a template built N intermediate strings to answer with one.
-/// Measured: a template cost ~940 ns an evaluation, against ~200 for the
-/// string methods beside it.
-///
-/// `which` is the template SITE, whose literal pieces were declared when the
-/// program was placed — the same numbering `template_strings` reads for a
-/// tagged template. So the pieces cost a lookup and no allocation at all, and
-/// only the values are coerced.
-///
-/// Three values because the arguments are scalars across an `extern "C"`
-/// boundary. A template with more keeps the chain of additions, which is
-/// correct rather than a gap: it pays what it always paid.
-/// A template substitution that either borrows an already-rooted text cell or
-/// owns a primitive spelling produced without allocating an intermediate cell.
-///
-/// A borrowed value is kept alive by `primitive_values` in [`template_join`]. An
-/// owned value contains no heap reference, so it needs no separate root. Keeping
-/// these two cases distinct avoids cloning an existing string and avoids
-/// interning a number only to read it back immediately.
-enum TemplateText {
-    /// A primitive string cell held in the rooted input list.
-    Borrowed(u64),
-    /// Text produced directly from a primitive value.
-    Owned(Str),
-}
-
-impl TemplateText {
-    /// The text represented by this substitution while `context` is borrowed.
-    fn as_str<'a>(&'a self, context: &'a Context) -> Option<&'a Str> {
-        match self {
-            Self::Borrowed(value) => Value(*value)
-                .as_slot()
-                .and_then(|cell| context.text_at(cell)),
-            Self::Owned(text) => Some(text),
-        }
-    }
-}
-
-/// `` `a${x}b${y}c` `` — every piece and every value joined, in ONE crossing.
-///
-/// Literal pieces are already registered at compile time. Primitive
-/// substitutions are converted with the string hint, kept rooted when they are
-/// heap strings, and assembled into one final allocation.
-#[rtse::entry]
-pub fn template_join(which: i64, count: i64, v0: u64, v1: u64, v2: u64) -> u64 {
-    // Run `ToPrimitive` with the STRING hint before borrowing the context. An
-    // object may execute its own `toString`, and that code can re-enter the
-    // runtime. The primitive results stay rooted until the final string owns its
-    // bytes, so a hook returning a newly allocated string cannot be swept while
-    // another substitution is converted.
-    let wanted = count.clamp(0, 3) as usize;
-    let mut primitive_values = super::rooted::Rooted::new();
-    for value in [v0, v1, v2].into_iter().take(wanted) {
-        let primitive = super::primitive::to_primitive(value, crate::coerce::Hint::String);
-        if super::throw::in_flight() {
-            return with_current(|context| undefined_of(context));
-        }
-        primitive_values.values().push(primitive);
-    }
-
-    with_current(|context| {
-        let Some((pieces, _)) = context.templates.get(which as usize) else {
-            return undefined_of(context);
-        };
-        // Keep existing text cells borrowed and spell other primitives directly.
-        // The previous path called `string_of` for each value, which interned a
-        // temporary cell, then cloned that cell's `Str` here before discarding it.
-        let converted: Vec<Option<TemplateText>> = primitive_values
-            .as_slice()
-            .iter()
-            .map(|&value| {
-                if Value(value)
-                    .as_slot()
-                    .is_some_and(|cell| context.text_at(cell).is_some())
-                {
-                    Some(TemplateText::Borrowed(value))
-                } else {
-                    to_text(context, Value(value)).map(TemplateText::Owned)
-                }
-            })
-            .collect();
-        let mut capacity = 0usize;
-        let mut narrow = true;
-        for piece in pieces {
-            if let Some(&literal) = context.literals.get(*piece as usize)
-                && let Some(text) = Value(literal)
-                    .as_slot()
-                    .and_then(|cell| context.text_at(cell))
-            {
-                capacity += text.len();
-                narrow &= text.narrow().is_some();
-            }
-        }
-        for text in converted.iter().flatten().filter_map(|text| text.as_str(context)) {
-            capacity += text.len();
-            narrow &= text.narrow().is_some();
-        }
-
-        if narrow {
-            let mut bytes = Vec::with_capacity(capacity);
-            for (at, piece) in pieces.iter().enumerate() {
-                if let Some(&literal) = context.literals.get(*piece as usize)
-                    && let Some(text) = Value(literal)
-                        .as_slot()
-                        .and_then(|cell| context.text_at(cell))
-                {
-                    bytes.extend_from_slice(text.narrow().expect("narrow was proved"));
-                }
-                if let Some(Some(text)) = converted.get(at)
-                    && let Some(text) = text.as_str(context)
-                {
-                    bytes.extend_from_slice(text.narrow().expect("narrow was proved"));
-                }
-            }
-            return context.intern_value(Str::owning_latin1(bytes)).bits();
-        }
-
-        let mut units = Vec::with_capacity(capacity);
-        for (at, piece) in pieces.iter().enumerate() {
-            if let Some(&literal) = context.literals.get(*piece as usize)
-                && let Some(text) = Value(literal)
-                    .as_slot()
-                    .and_then(|cell| context.text_at(cell))
-            {
-                units.extend(text.units());
-            }
-            if let Some(Some(text)) = converted.get(at)
-                && let Some(text) = text.as_str(context)
-            {
-                units.extend(text.units());
-            }
-        }
-        context.intern_value(Str::from_utf16(&units)).bits()
-    })
 }
 
 /// The string a literal number names.

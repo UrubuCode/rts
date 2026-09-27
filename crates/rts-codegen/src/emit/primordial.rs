@@ -62,7 +62,21 @@ pub(super) fn untouched(body: &[Stmt], name: Name, eval: Name, global_this: Name
 /// ends the proof. Counted rather than tracked by position — every base is also
 /// visited as an identifier, so the two counts differ exactly when some
 /// appearance was not a base.
-pub(super) fn only_a_base(body: &[Stmt], name: Name, eval: Name, global_this: Name) -> bool {
+///
+/// Two more positions count as a base, because neither can patch what the name
+/// holds: the callee of `new Map(…)`, which every program that uses a `Map`
+/// writes, and the right operand of `x instanceof Map`. Both READ the name and
+/// hand it to an operation that only ever looks at it. Without the first, no
+/// program could prove `Map` at all.
+///
+/// And `name.prototype` is refused outright. A write to `Map.prototype.get`
+/// has `Map` as a base and nothing else, so the counts agree; so does
+/// `Object.defineProperty(Map.prototype, "get", …)`, where the write is a call
+/// this walk does not read as one. Reaching the prototype at all is the one
+/// spelling every such patch shares, and refusing it costs the proof only in
+/// programs that do reach it — `Array.prototype.slice.call(x)` among them,
+/// which is the price stated.
+pub(super) fn only_a_base(body: &[Stmt], name: Name, eval: Name, global_this: Name, prototype: Name) -> bool {
     let mut walk = Disturbance {
         eval,
         global_this,
@@ -71,11 +85,16 @@ pub(super) fn only_a_base(body: &[Stmt], name: Name, eval: Name, global_this: Na
         watched: Some(name),
         seen: 0,
         bases: 0,
+        prototype: Some(prototype),
+        reached_prototype: false,
     };
     for statement in body {
         walk.statement(statement);
     }
-    !walk.indirect && !walk.names.contains(&name) && walk.seen == walk.bases
+    !walk.indirect
+        && !walk.names.contains(&name)
+        && walk.seen == walk.bases
+        && !walk.reached_prototype
 }
 
 /// Every name `body` writes to, directly or through a member — and whether it
@@ -102,6 +121,8 @@ pub(super) fn disturbed(body: &[Stmt], eval: Name, global_this: Name) -> Disturb
         watched: None,
         seen: 0,
         bases: 0,
+        prototype: None,
+        reached_prototype: false,
     };
     for statement in body {
         walk.statement(statement);
@@ -124,6 +145,11 @@ struct Disturbance {
     watched: Option<Name>,
     seen: u32,
     bases: u32,
+    /// The name `prototype`, where [`only_a_base`] is asking, so a member
+    /// `watched.prototype` can be refused by spelling.
+    prototype: Option<Name>,
+    /// Whether `watched.prototype` appeared anywhere.
+    reached_prototype: bool,
 }
 
 impl Disturbance {
@@ -166,9 +192,22 @@ impl Disturbance {
                 return;
             }
             ExprKind::Ident(seen) if Some(*seen) == self.watched => self.seen += 1,
-            ExprKind::Member { object, .. }
-                if matches!(&object.kind, ExprKind::Ident(base) if Some(*base) == self.watched) =>
+            ExprKind::Member { object, property, .. } if matches!(&object.kind, ExprKind::Ident(base) if Some(*base) == self.watched) =>
             {
+                self.bases += 1;
+                if Some(*property) == self.prototype {
+                    self.reached_prototype = true;
+                }
+            }
+            ExprKind::New { callee, .. } if matches!(&callee.kind, ExprKind::Ident(made) if Some(*made) == self.watched) =>
+            {
+                self.bases += 1;
+            }
+            ExprKind::Binary {
+                op: crate::syntax::BinaryOp::InstanceOf,
+                right,
+                ..
+            } if matches!(&right.kind, ExprKind::Ident(class) if Some(*class) == self.watched) => {
                 self.bases += 1;
             }
             ExprKind::Assign {

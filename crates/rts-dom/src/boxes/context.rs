@@ -172,7 +172,7 @@ pub(crate) fn element_formatting_context(dom: &Dom, node: crate::dom::NodeIdx) -
     };
     let inner = declared.map_or(InnerDisplay::Flow, inner_of);
     let independent = dom.computed_style_idx(node).is_some_and(|css| {
-        crate::layout::bloco::establishes_block_formatting_context(dom, node, &css)
+        crate::layout::block::establishes_block_formatting_context(dom, node, &css)
     });
     FormattingContext {
         outer,
@@ -205,7 +205,7 @@ fn generated_formatting_context(
         _ => OuterDisplay::Inline,
     };
     let independent = css.is_some_and(|c| {
-        crate::layout::bfc_estilo::pelo_estilo(c, pai) || crate::layout::bfc_estilo::overflow_estabelece(c)
+        crate::layout::block::bfc_style::by_style(c, pai) || crate::layout::block::bfc_style::overflow_establishes(c)
     });
     FormattingContext {
         outer,

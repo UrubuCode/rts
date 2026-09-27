@@ -334,7 +334,7 @@ pub unsafe extern "C" fn napi_call_function(
         }
     }
     let arguments = rts_core::entry::make_array(words);
-    let produced = rts_core::entry::call_with_args(callee, this, arguments);
+    let produced = rts_core::entry::call_with_args(callee, this, arguments, rts_core::entry::NO_CALL_NAME);
 
     // Rule 8 of `rts-core`'s README, from the outside: a call that left a throw
     // behind produced no answer, and handing one back would be handing back

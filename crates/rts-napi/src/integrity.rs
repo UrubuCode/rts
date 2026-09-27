@@ -84,7 +84,7 @@ fn object_call(name: &str, word: u64) -> bool {
         return false;
     }
     let arguments = rts_core::entry::make_array(vec![word]);
-    rts_core::entry::call_with_args(method, object_class, arguments);
+    rts_core::entry::call_with_args(method, object_class, arguments, rts_core::entry::NO_CALL_NAME);
     true
 }
 

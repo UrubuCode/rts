@@ -102,3 +102,22 @@ fn the_two_lists_are_the_same_length() {
         rts_core::entry::CORE_ENTRY_COUNT
     );
 }
+
+#[test]
+fn the_math_library_members_are_numbered_the_same_on_both_sides() {
+    // `MathDirect1(which, x)` indexes a table of functions in the runtime by a
+    // number the compiler took from its own list of names. Equal lengths are
+    // asserted at build time above; this is the part a `const` cannot say —
+    // that position `n` spells the SAME member on both sides, or `Math.sin`
+    // would silently compute a cosine.
+    assert_eq!(
+        rts_codegen::runtime::math_direct::UNARY_NAMES,
+        rts_core::entry::MATH_UNARY_NAMES,
+        "a one-operand Math member is numbered differently by the compiler and the runtime"
+    );
+    assert_eq!(
+        rts_codegen::runtime::math_direct::BINARY_NAMES,
+        rts_core::entry::MATH_BINARY_NAMES,
+        "a two-operand Math member is numbered differently by the compiler and the runtime"
+    );
+}

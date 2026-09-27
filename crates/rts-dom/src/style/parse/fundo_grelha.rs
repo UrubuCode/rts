@@ -92,9 +92,6 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "grid-template-areas" => {
             css.grid_template_areas = crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
         }
-        "grid-area" => {
-            set_if(&mut css.grid_area, crate::style::grid_areas::parse_grid_area_name(val));
-        }
         "grid" | "grid-template" => {
             // shorthand `grid-template: [áreas] rows / columns`. As linhas de
             // área vêm INTERCALADAS com os tamanhos das linhas, então tirá-las

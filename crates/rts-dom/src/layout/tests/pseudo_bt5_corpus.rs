@@ -60,10 +60,10 @@ fn pseudo_de_item_flex_com_a_mesma_caixa_explicita_mede_60_de_altura() {
 /// §10.3.3) e um pseudo-item de flex ENCOLHE ao texto (Flexbox §9.2,
 /// shrink-to-fit). As duas respostas têm de continuar DIFERENTES depois da
 /// unificação — se ficassem iguais, uma das duas teria perdido o seu papel.
-fn larguras_de_fundo(list: &crate::layout::DisplayList, cor: u32) -> Vec<f32> {
+fn larguras_de_fundo(list: &crate::paint::DisplayList, cor: u32) -> Vec<f32> {
     let mut out = Vec::new();
     list.walk(|item, _, _| {
-        if let crate::layout::DisplayItem::SolidRect { rect, color, .. } = item {
+        if let crate::paint::DisplayItem::SolidRect { rect, color, .. } = item {
             if *color == cor {
                 out.push(rect.w);
             }

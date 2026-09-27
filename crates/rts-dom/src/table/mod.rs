@@ -33,7 +33,8 @@ pub(crate) mod tests;
 #[cfg(test)]
 mod tests_listas;
 
-use crate::layout::{DisplayItem, DisplayList, LayoutCtx, Rect};
+use crate::layout::LayoutCtx;
+use crate::paint::{DisplayItem, DisplayList, Rect};
 use crate::style::{ComputedStyle, DisplayKind};
 use crate::{Dom, NodeIdx};
 use grid::collect;

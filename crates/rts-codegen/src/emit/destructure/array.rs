@@ -21,7 +21,7 @@ use crate::syntax::{
 };
 use crate::values::Singleton;
 
-use super::{ident, member_expr, place, plain_assign_stmt, Role};
+use super::{Role, ident, member_expr, place, plain_assign_stmt};
 
 /// `[a, b = 1, ...rest] = source` / `let [a, b = 1, ...rest] = source`.
 ///
@@ -74,7 +74,9 @@ pub(super) fn array_pattern(
 ) -> EmitResult<()> {
     let direct = direct_candidate(builder, scope, ctx, pattern, source, depth)?;
     let iterator = iterator_unless_direct(builder, scope, ctx, source, depth, at, direct)?;
-    array_pattern_stepwise(builder, scope, ctx, pattern, iterator, at, depth, role, direct)
+    array_pattern_stepwise(
+        builder, scope, ctx, pattern, iterator, at, depth, role, direct,
+    )
 }
 
 /// The source, and the answer to "may this pattern read it by index" — or
@@ -124,7 +126,9 @@ fn direct_candidate(
     super::super::binding::declare(builder, scope, ctx, held, source)?;
     let asked =
         super::super::expr::call(builder, ctx, RuntimeOp::ArrayPatternDirect, &[source])?[0];
-    let flag = ctx.names.intern(&format!("__rts_destructure_direct_{depth}"));
+    let flag = ctx
+        .names
+        .intern(&format!("__rts_destructure_direct_{depth}"));
     super::super::binding::declare(builder, scope, ctx, flag, asked)?;
     Ok(Some(Direct { flag, held }))
 }
@@ -237,14 +241,7 @@ fn get_pattern_iterator(
         ctx,
         RuntimeOp::Call,
         &[
-            method,
-            source,
-            written,
-            unnamed,
-            absent,
-            absent,
-            absent,
-            absent,
+            method, source, written, unnamed, absent, absent, absent, absent,
         ],
     )?[0];
     let own_iter = builder.widen(own_iter);
@@ -341,7 +338,16 @@ fn array_pattern_stepwise(
             position,
             at,
         )?;
-        place(builder, scope, ctx, &element.pattern, value, at, depth + 1, role)?;
+        place(
+            builder,
+            scope,
+            ctx,
+            &element.pattern,
+            value,
+            at,
+            depth + 1,
+            role,
+        )?;
         if let Some(region) = region {
             close_close_region(builder, scope, ctx, region, iter, done, at)?;
         }
@@ -413,8 +419,12 @@ fn step_iterator(
     at: Position,
     direct: Option<Direct>,
 ) -> EmitResult<ValueId> {
-    let val = ctx.names.intern(&format!("__rts_destructure_val_{depth}_{position}"));
-    let step = ctx.names.intern(&format!("__rts_destructure_step_{depth}_{position}"));
+    let val = ctx
+        .names
+        .intern(&format!("__rts_destructure_val_{depth}_{position}"));
+    let step = ctx
+        .names
+        .intern(&format!("__rts_destructure_step_{depth}_{position}"));
     let next_name = ctx.names.intern("next");
     let done_prop = ctx.names.intern("done");
     let value_prop = ctx.names.intern("value");
@@ -470,7 +480,11 @@ fn step_iterator(
     };
 
     let already_done = Stmt {
-        kind: StmtKind::Block(vec![plain_assign_stmt(ident(val, at), undefined_expr(at), at)]),
+        kind: StmtKind::Block(vec![plain_assign_stmt(
+            ident(val, at),
+            undefined_expr(at),
+            at,
+        )]),
         at,
     };
 
@@ -677,9 +691,13 @@ fn apply_default_stepwise(
         ctx.lend_name(*name);
     }
 
-    let raw_name = ctx.names.intern(&format!("__rts_destructure_raw_{depth}_{position}"));
+    let raw_name = ctx
+        .names
+        .intern(&format!("__rts_destructure_raw_{depth}_{position}"));
     super::super::binding::declare(builder, scope, ctx, raw_name, raw)?;
-    let out = ctx.names.intern(&format!("__rts_destructure_out_{depth}_{position}"));
+    let out = ctx
+        .names
+        .intern(&format!("__rts_destructure_out_{depth}_{position}"));
 
     let declare_out = Stmt {
         kind: StmtKind::Declare {
@@ -706,7 +724,11 @@ fn apply_default_stepwise(
         at,
     };
     let else_branch = Stmt {
-        kind: StmtKind::Block(vec![plain_assign_stmt(ident(out, at), ident(raw_name, at), at)]),
+        kind: StmtKind::Block(vec![plain_assign_stmt(
+            ident(out, at),
+            ident(raw_name, at),
+            at,
+        )]),
         at,
     };
     let if_stmt = Stmt {
@@ -742,7 +764,9 @@ fn gather_rest_stepwise(
     at: Position,
 ) -> EmitResult<ValueId> {
     let rest = ctx.names.intern(&format!("__rts_destructure_rest_{depth}"));
-    let step = ctx.names.intern(&format!("__rts_destructure_reststep_{depth}"));
+    let step = ctx
+        .names
+        .intern(&format!("__rts_destructure_reststep_{depth}"));
     let next_name = ctx.names.intern("next");
     let done_prop = ctx.names.intern("done");
     let value_prop = ctx.names.intern("value");
@@ -793,7 +817,11 @@ fn gather_rest_stepwise(
         kind: StmtKind::Expr(Expr {
             kind: ExprKind::Call {
                 callee: Box::new(member_expr(ident(rest, at), push_name, at)),
-                arguments: vec![Spreadable::Single(member_expr(ident(step, at), value_prop, at))],
+                arguments: vec![Spreadable::Single(member_expr(
+                    ident(step, at),
+                    value_prop,
+                    at,
+                ))],
                 optional: false,
             },
             at,

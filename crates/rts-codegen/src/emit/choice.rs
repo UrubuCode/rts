@@ -97,7 +97,8 @@ fn merge(
     let result = builder.add_block_param(join, produced);
 
     let merged = super::merge::disagreements(&first.bindings, &second.bindings);
-    let params = super::merge::parameters(builder, join, &merged, &first.bindings, &second.bindings);
+    let params =
+        super::merge::parameters(builder, join, &merged, &first.bindings, &second.bindings);
 
     for path in [&first, &second] {
         builder.switch_to(path.exit);

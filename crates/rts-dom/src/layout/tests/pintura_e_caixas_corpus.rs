@@ -76,7 +76,7 @@ fn bg_of(dom: &crate::Dom, sel: &str) -> u32 {
 /// passo 3), atrás dele, nunca depois. Os dois `<div>` ocupam o MESMO
 /// retângulo 100×100 de propósito: a geometria não muda, só a ORDEM na
 /// `DisplayList` — por isso o teste afirma índice, não rect. `layout.rs`
-/// pintava a passada out-of-flow inteira DEPOIS do fluxo; `empilhamento.rs`
+/// pintava a passada out-of-flow inteira DEPOIS do fluxo; `paint/stacking.rs`
 /// separa o grupo negativo e PREPENDE-o.
 #[test]
 fn z_index_negativo_pinta_antes_do_fluxo_normal() {

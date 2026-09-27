@@ -95,7 +95,18 @@ impl Region {
             // capacity and reports the heap exhausted with a nearly empty
             // heap. Measured: 64 154 cells freed by a collection and the very
             // next spanning allocation still refused.
-            self.take_free_run(cells)?
+            // And when no run fits, ONCE: the dead narrow neighbours the sweep
+            // left on the linked list are coalesced into runs, and the ask is
+            // repeated. Not after every sweep -- `coalesce.rs` says what that
+            // cost every narrow allocation -- but here, where a wide object
+            // would otherwise force a whole collection for want of a shape.
+            match self.take_free_run(cells) {
+                Some(start) => start,
+                None => {
+                    self.coalesce_free_space();
+                    self.take_free_run(cells)?
+                }
+            }
         };
         let reference = self.compose(index)?;
 
@@ -128,7 +139,7 @@ impl Region {
     /// The free list is singly linked through the cells themselves, so a run
     /// cannot be unlinked in place. It is rebuilt instead, from the headers,
     /// which is the same scan that found the run.
-    fn take_free_run(&mut self, cells: u32) -> Option<u32> {
+    pub(super) fn take_free_run(&mut self, cells: u32) -> Option<u32> {
         // First fit over the runs a collection gave back, with the remainder
         // kept as a run of its own so a big block does not swallow the space a
         // smaller object could have used.

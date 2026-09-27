@@ -13,9 +13,8 @@ use super::item::{class_expr, function_expr};
 use super::stmt::{decl, stmt};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
-    Stmt, StmtKind,
     Export, ExportDefault, ExportKind, ExportSpecifier, Import, ImportAttribute, ImportBinding,
-    ModuleItem,
+    ModuleItem, Stmt, StmtKind,
 };
 
 pub(super) fn module_item(cx: &mut Cx, item: &swc::ModuleItem) -> Result<Option<ModuleItem>> {
@@ -217,4 +216,3 @@ fn export_name(name: &swc::ModuleExportName) -> String {
         swc::ModuleExportName::Str(string) => string.value.to_string_lossy().to_string(),
     }
 }
-

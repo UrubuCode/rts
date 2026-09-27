@@ -7,7 +7,8 @@
 //! que partilham com ele são só os ajudantes, que montam um documento e leem a
 //! geometria de um seletor.
 
-use crate::layout::{ApproxMeasurer, DisplayItem, Rect, TextMeasurer};
+use crate::layout::{ApproxMeasurer, TextMeasurer};
+use crate::paint::{DisplayItem, Rect};
 use crate::table::tests::{geometria, rect};
 
 /// As três regras do colapso de margens verticais (CSS 2.1 §8.3.1), pelo efeito

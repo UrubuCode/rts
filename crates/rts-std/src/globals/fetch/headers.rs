@@ -43,9 +43,6 @@ const METHODS: &[(&str, Provided)] = &[
     ("keys", keys),
     ("values", values),
     ("entries", entries),
-    // `[...headers]` iterates in `entries()` order; `entries` already answers a
-    // plain (iterable) array, so the default iterator is that same function.
-    ("@@iterator", entries),
 ];
 
 /// The `Headers` constructor.
@@ -56,14 +53,36 @@ pub(super) fn class(context: &mut Context) -> u64 {
 
 /// The one `Headers.prototype`. Asked for HERE and nowhere else — see
 /// [`super::class_of`] for what a second file asking cost.
+///
+/// `@@iterator` is installed separately from [`METHODS`], as an ALIAS onto the
+/// exact `entries` callable `install_host` already made — never a second
+/// entry in the table, which is what
+/// `Headers.prototype[Symbol.iterator] === Headers.prototype.entries` (a real
+/// identity check the standard makes and a fixture pins) needs: `entry`'s
+/// installer mints one callable object PER table row, so two rows naming the
+/// same Rust function would still be two distinct JS function values.
 fn prototype(context: &mut Context) -> u64 {
-    entry::make_prototype(context, "Headers", METHODS)
+    let prototype = entry::make_prototype(context, "Headers", METHODS);
+    let entries_fn = entry::get_member(context, prototype, "entries");
+    entry::put_member(context, prototype, "@@iterator", entries_fn);
+    // `Object.prototype.toString.call(new Headers())` — the string-keyed
+    // `"@@toStringTag"` convention every host class in this workspace uses for
+    // a symbol-keyed member (`node:crypto`'s `webcrypto`, `TextDecoder`, DOM's
+    // `Event`).
+    let tag = entry::make_string(context, "Headers");
+    entry::put_member(context, prototype, "@@toStringTag", tag);
+    prototype
 }
 
 /// `new Headers(init?)` — a `Headers`, an array of `[name, value]` pairs, or a
 /// plain object.
 extern "C" fn construct(_e: u64, this: u64, init: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let pairs = pairs_from(init);
+    // `None` means `pairs_from` already raised — a malformed pair, which the
+    // standard makes a `TypeError` at construction rather than a partially
+    // built `Headers`.
+    let Some(pairs) = pairs_from(init) else {
+        return entry::undefined_value();
+    };
     let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
     with_table(|table| table.insert(id, Vec::new()));
     let instance = entry::with_runtime(|context| {
@@ -84,33 +103,49 @@ extern "C" fn construct(_e: u64, this: u64, init: u64, _b: u64, _c: u64, _d: u64
     instance
 }
 
-/// What an `init` argument says, in order.
-fn pairs_from(init: u64) -> Vec<(String, String)> {
+/// What an `init` argument says, in order — `None` when it was malformed and
+/// has already raised the standard's `TypeError`.
+fn pairs_from(init: u64) -> Option<Vec<(String, String)>> {
     let absent = entry::undefined_value();
     if init == absent || init == entry::null_value() {
-        return Vec::new();
+        return Some(Vec::new());
     }
     // A `Headers` first: it has a list of its own, and reading it through
     // `own_keys` below would find `__headersId` instead.
     if let Some(id) = id_of(init) {
-        return with_table(|table| table.get(&id).cloned()).unwrap_or_default();
+        return Some(with_table(|table| table.get(&id).cloned()).unwrap_or_default());
     }
     if entry::is_array(init) {
-        return super::elements(init)
-            .into_iter()
-            .filter_map(|pair| {
-                let parts = super::elements(pair);
-                Some((super::text(*parts.first()?)?, super::text(*parts.get(1)?)?))
-            })
-            .collect();
+        let mut pairs = Vec::new();
+        for pair in super::elements(init) {
+            let parts = super::elements(pair);
+            // Each element must be a NAME-VALUE pair, exactly two long — the
+            // standard's `sequence<sequence<ByteString>>` overload, which
+            // throws rather than silently reading `undefined` for a missing
+            // second slot.
+            let (Some(name), Some(value)) = (parts.first(), parts.get(1)) else {
+                entry::throw_type_error(&format!(
+                    "Failed to construct 'Headers': The provided value cannot be converted to a sequence \
+                     because the sequence sequence element has length {}, which is not 2",
+                    parts.len()
+                ));
+                return None;
+            };
+            let (Some(name), Some(value)) = (super::text(*name), super::text(*value)) else {
+                continue;
+            };
+            pairs.push((name, value));
+        }
+        return Some(pairs);
     }
-    entry::with_runtime(|context| entry::member_names(context, init))
+    let pairs = entry::with_runtime(|context| entry::member_names(context, init))
         .into_iter()
         .filter_map(|name| {
             let value = entry::get_indexed(init, super::string(&name));
             Some((name, super::text(value)?))
         })
-        .collect()
+        .collect();
+    Some(pairs)
 }
 
 fn id_of(this: u64) -> Option<u64> {
@@ -178,8 +213,17 @@ extern "C" fn set(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -
     else {
         return entry::undefined_value();
     };
-    let (Some(name), Some(value)) = (normalized_name(&name), normalized_value(&value)) else {
-        return refuse(&name);
+    match set_by_id(id, &name, &value) {
+        true => entry::undefined_value(),
+        false => refuse(&name),
+    }
+}
+
+/// The core of `set()`, over an already-resolved id — what
+/// [`replace`] needs too.
+fn set_by_id(id: u64, name: &str, value: &str) -> bool {
+    let (Some(name), Some(value)) = (normalized_name(name), normalized_value(value)) else {
+        return false;
     };
     with_table(|table| {
         let Some(list) = table.get_mut(&id) else {
@@ -201,7 +245,17 @@ extern "C" fn set(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -
             list.push((name, value));
         }
     });
-    entry::undefined_value()
+    true
+}
+
+/// Replaces one header on a list a sibling class owns — `set()`'s semantics
+/// (overwrite, not append) rather than [`put`]'s: `Response.json()` needs this
+/// to force `Content-Type: application/json` over the `text/plain` a plain
+/// string body already implied.
+pub(super) fn replace(headers: u64, name: &str, value: &str) {
+    if let Some(id) = id_of(headers) {
+        set_by_id(id, name, value);
+    }
 }
 
 /// `headers.get(name)` — every value for the name, joined with `", "`, or
@@ -263,19 +317,48 @@ extern "C" fn for_each(_e: u64, this: u64, callback: u64, this_arg: u64, _c: u64
     entry::undefined_value()
 }
 
+/// The rows a `keys`/`values`/`entries` iterator was built over, hidden on the
+/// iterator object itself — `@@`-prefixed, so `for`-`in`/`Object.keys` never
+/// see it, the same convention `rts-node`'s own ad hoc iterators use (see
+/// `crates/rts-node/src/events/on_iterator.rs`).
+const ITER_ROWS: &str = "@@#headers_rows";
+/// How far a `keys`/`values`/`entries` iterator has walked its rows.
+const ITER_AT: &str = "@@#headers_at";
+
+/// `headers.keys()` — a real iterator, not the materialised array this used to
+/// answer. `entry::list_iterator` (what `Array`/`Map`/`Set` share) is internal
+/// to `rts-core` and not reachable from this crate, so this is a small iterator
+/// of its own — the same shape `rts-node`'s `events.on` already builds by hand
+/// (a plain object carrying its own `next`), over a list that IS built eagerly:
+/// see [`entries`] for why that is fine for a header list and wrong for a live
+/// collection.
 extern "C" fn keys(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let names: Vec<String> = rows_of(this).into_iter().map(|(name, _)| name).collect();
-    super::string_array(&names)
+    let rows = entry::with_runtime(|context| {
+        let held: Vec<u64> = names.iter().map(|name| entry::make_string(context, name)).collect();
+        entry::make_array_in(context, held)
+    });
+    made_iterator(rows)
 }
 
 extern "C" fn values(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let held: Vec<String> = rows_of(this).into_iter().map(|(_, value)| value).collect();
-    super::string_array(&held)
+    let rows = entry::with_runtime(|context| {
+        let held: Vec<u64> = held.iter().map(|value| entry::make_string(context, value)).collect();
+        entry::make_array_in(context, held)
+    });
+    made_iterator(rows)
 }
 
+/// `headers.entries()`, and `headers[Symbol.iterator]` — the SAME callable, see
+/// [`prototype`]. Each call answers a fresh iterator over the rows as they are
+/// NOW: a header list is small enough, and read often enough only after being
+/// fully assembled, that building the list eagerly costs nothing observable —
+/// unlike `Map`/`Set`, nothing in the Fetch Standard promises a `Headers`
+/// iterator sees an `append()` made after it was created.
 extern "C" fn entries(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let rows = rows_of(this);
-    entry::with_runtime(|context| {
+    let listed = entry::with_runtime(|context| {
         let built = rows
             .iter()
             .map(|(name, value)| {
@@ -287,7 +370,68 @@ extern "C" fn entries(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) ->
             })
             .collect();
         entry::make_array_in(context, built)
+    });
+    made_iterator(listed)
+}
+
+/// A fresh iterator object over an already-built array: `next()` answers
+/// `{ value, done }`, walking forward one slot per call, and `@@iterator`
+/// answers itself — the two members `for`-`of`, spread and `Array.from` all
+/// go through.
+fn made_iterator(rows: u64) -> u64 {
+    entry::with_runtime(|context| {
+        let members: &[(&str, Provided)] = &[("next", iterator_next)];
+        let iterator = entry::make_namespace(context, members);
+        entry::put_member(context, iterator, ITER_ROWS, rows);
+        let zero = entry::make_number(0.0);
+        entry::put_member(context, iterator, ITER_AT, zero);
+        let itself = entry::make_callable(context, iterator_self);
+        entry::put_member(context, iterator, "@@iterator", itself);
+        iterator
     })
+}
+
+/// `iterator[Symbol.iterator]()` — the iterator itself.
+extern "C" fn iterator_self(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    this
+}
+
+/// `iterator.next()` — the row the cursor is on, or `{ undefined, true }` past
+/// the end, which is left as-is rather than wrapping: an exhausted iterator
+/// here stays exhausted, the same rule `list_iterator::next` states.
+///
+/// Two borrows, never nested: `super::elements` opens its OWN `with_runtime`
+/// to read `rows`' indices, so it must run after the first borrow (which only
+/// reads the cursor) has already ended — the borrow discipline
+/// `authoring-natives.md` states for every native that calls back into the
+/// runtime, here between two calls into the SAME crate rather than into user
+/// code.
+extern "C" fn iterator_next(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let (rows, at) = entry::with_runtime(|context| {
+        let rows = entry::get_member(context, this, ITER_ROWS);
+        let at = entry::number_of(entry::get_member(context, this, ITER_AT)).unwrap_or(0.0) as usize;
+        (rows, at)
+    });
+    let items = super::elements(rows);
+    entry::with_runtime(|context| match items.get(at) {
+        Some(value) => {
+            let advanced = entry::make_number((at + 1) as f64);
+            entry::put_member(context, this, ITER_AT, advanced);
+            result(context, *value, false)
+        }
+        None => {
+            let absent = entry::undefined_in(context);
+            result(context, absent, true)
+        }
+    })
+}
+
+/// One `{ value, done }` iterator result.
+fn result(context: &mut Context, value: u64, done: bool) -> u64 {
+    let object = entry::make_object(context);
+    entry::put_member(context, object, "value", value);
+    entry::put_member(context, object, "done", entry::boolean_value(done));
+    object
 }
 
 /// Every value for a name, joined — `None` when the name is not present at all,

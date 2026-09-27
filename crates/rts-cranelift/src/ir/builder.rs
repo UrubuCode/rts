@@ -20,11 +20,13 @@ use super::entity::{BlockId, ConstId, ValueId};
 use super::func::{Function, Signature};
 use super::funcs::{FuncId, FuncRegistry, SigId};
 use super::inst::{
-    BitOp, BlockCall, CmpOp, FloatOp, GenericOp, Inst, NumOp, Region, Terminator, TrapCode,
+    BitOp, BlockCall, CmpOp, FloatOp, GenericOp, Inst, IntUnaryOp, NumOp, Region, Terminator, TrapCode,
 };
 use crate::repr::Repr;
 use crate::types::{TypeId, TypeRegistry};
 use crate::unwind::{Handler, RegionId, Tag};
+
+mod regions;
 
 /// Why a program could not be built.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -156,6 +158,9 @@ pub struct FuncBuilder<'a> {
     /// a `catch` that reads correctly and never runs. So membership is derived
     /// from where building was when the block was made.
     open_regions: Vec<RegionId>,
+    /// Whether a block made while no region is open joins the region of the block
+    /// being built. See [`FuncBuilder::inherit_block_regions`].
+    inherit_block_regions: bool,
 }
 
 impl<'a> FuncBuilder<'a> {
@@ -166,6 +171,7 @@ impl<'a> FuncBuilder<'a> {
             types,
             block,
             open_regions: Vec::new(),
+            inherit_block_regions: false,
         }
     }
 
@@ -278,7 +284,12 @@ impl<'a> FuncBuilder<'a> {
     /// answers the same thing anyway.
     pub fn create_block(&mut self) -> BlockId {
         let block = self.func.push_block();
-        if let Some(&region) = self.open_regions.last() {
+        let region = match self.open_regions.last() {
+            Some(&open) => Some(open),
+            None if self.inherit_block_regions => self.func.region_of(self.block),
+            None => None,
+        };
+        if let Some(region) = region {
             self.func.set_block_region(block, region);
         }
         block
@@ -373,6 +384,42 @@ impl<'a> FuncBuilder<'a> {
             None => {}
         }
         Ok(self.emit(Inst::ToInt32(value), Repr::I32))
+    }
+
+    /// A one-operand integer operation over a proven integer.
+    pub fn int_unary(&mut self, op: IntUnaryOp, value: ValueId) -> BuildResult<ValueId> {
+        let repr = self.repr_of(value);
+        if !repr.is_integer() {
+            return Err(BuildError::WrongDomain {
+                operation: "int_unary",
+                found: repr,
+            });
+        }
+        Ok(self.emit(Inst::IntUnary(op, value), repr))
+    }
+
+    /// One of two proven values of one representation, chosen by a boolean.
+    ///
+    /// Refused where the two disagree about their representation, or where the
+    /// condition is not a [`Repr::Bool`]: a select over a tagged pair would be a
+    /// choice between two words nothing has proved anything about, which is
+    /// what a generic operation is for.
+    pub fn select(&mut self, cond: ValueId, then: ValueId, otherwise: ValueId) -> BuildResult<ValueId> {
+        if self.repr_of(cond) != Repr::Bool {
+            return Err(BuildError::WrongDomain {
+                operation: "select",
+                found: self.repr_of(cond),
+            });
+        }
+        let repr = self.same_proven("select", then, otherwise)?;
+        Ok(self.emit(
+            Inst::Select {
+                cond,
+                then,
+                otherwise,
+            },
+            repr,
+        ))
     }
 
     /// A one-operand floating-point operation over a proven double.

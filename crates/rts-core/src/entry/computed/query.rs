@@ -103,6 +103,12 @@ fn own_only(key: u64, object: u64) -> bool {
 /// nothing can remove.
 #[rtse::entry]
 pub fn for_in_has(key: u64, object: u64) -> bool {
+    // A chain with a proxy on it asks `HasEnumerableProperty` — descriptors,
+    // not `has` — which is where a proxy level's enumerability is decided; see
+    // `proxy::enumerate` for why that happens per pass and not in the snapshot.
+    if let Some(answered) = super::super::proxy::still_enumerable(key, object) {
+        return answered;
+    }
     match with_current(|context| super::super::objects::is_object(context, object)) {
         true => resolved(key, object),
         false => true,
@@ -401,7 +407,7 @@ pub(in crate::entry) fn remove_own(
         // every other layout that happens to hold the same remainder.
         let link = context.prototype_at(slot);
         let ty = context.typed_as(shrunk, link).index() as u32;
-        context.region.set_type(slot, ty);
+        context.retype_cell(slot, ty);
         for (existing, value) in kept {
             if let Some(at) = context.shapes.slot_of(shrunk, existing) {
                 set_slot_value(context, slot, at, value);

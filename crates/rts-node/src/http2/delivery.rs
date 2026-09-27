@@ -15,18 +15,40 @@ use rts_core::entry;
 use super::registry::{self, Queued};
 
 /// Delivers everything queued for this thread's sessions.
+///
+/// # Only to a session JavaScript has met
+///
+/// An accepted session is known to the program once the LISTENER's `Accepted`
+/// record has been delivered -- that is where its object is made. Its own reader
+/// thread starts at once, though, and can queue the request's `Headers` first.
+/// Walking the table in whatever order the map keeps it delivered those to a
+/// session whose instance was still zero, so the `'stream'` event went nowhere,
+/// nothing answered, and the peer waited for ever. It was measured as a test that
+/// hung in three runs of six in parallel and never alone, which is what a race
+/// looks like. So a session without an instance keeps its queue, and the walk goes
+/// round again after an `Accepted` has given it one.
 pub(super) fn pump() {
     let mine = std::thread::current().id();
-    let due: Vec<(u64, Vec<Queued>)> = registry::with_sessions(|table| {
-        table
-            .iter_mut()
-            .filter(|(_, entry)| entry.owner == mine && !entry.queue.is_empty())
-            .map(|(&id, entry)| (id, entry.queue.drain(..).collect()))
-            .collect()
-    });
-    for (id, records) in due {
-        for record in records {
-            deliver(id, record);
+    loop {
+        let due: Vec<(u64, Vec<Queued>)> = registry::with_sessions(|table| {
+            table
+                .iter_mut()
+                .filter(|(_, entry)| {
+                    entry.owner == mine && entry.instance != 0 && !entry.queue.is_empty()
+                })
+                .map(|(&id, entry)| (id, entry.queue.drain(..).collect()))
+                .collect()
+        });
+        let introduced = due
+            .iter()
+            .any(|(_, records)| records.iter().any(|record| matches!(record, Queued::Accepted(_))));
+        for (id, records) in due {
+            for record in records {
+                deliver(id, record);
+            }
+        }
+        if !introduced {
+            return;
         }
     }
 }

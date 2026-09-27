@@ -16,13 +16,14 @@ use super::*;
 pub(in crate::frame::render) fn process_scroll_regions(
     ui: &mut egui::Ui,
     h: u64,
-    list: &mut layout::DisplayList,
+    list: &mut paint::DisplayList,
+    geometria: &rts_dom::query::Geometry,
     sb: &rts_dom::scrollbar::ScrollbarStyle,
     page_dy: f32,
 ) {
     // As regiões roláveis podem ter vindo de uma subárvore REUSADA: a lista
-    // guarda as próprias, e a `geometry()` junta as das subárvores.
-    let geometria = list.geometry();
+    // guarda as próprias, e a geometria (`Dom::geometry_cached`, of the list
+    // this copy came from) junta as das subárvores.
     if geometria.scroll_regions.is_empty() {
         return;
     }
@@ -113,6 +114,6 @@ pub(in crate::frame::render) fn process_scroll_regions(
             d.set_scroll_extent_idx(region.node_idx, off.x, off.y, max_x, max_y)
         });
         // barras DENTRO da região (coords de conteúdo; o paint soma o page scroll).
-        layout::emit_scrollbar_in(list, region, off.x, off.y, sb);
+        paint::emit_scrollbar_in(list, region, off.x, off.y, sb);
     }
 }

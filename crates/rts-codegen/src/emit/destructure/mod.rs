@@ -246,7 +246,16 @@ fn object_pattern(
             property.value.default.as_ref(),
             &property.value.pattern,
         )?;
-        place(builder, scope, ctx, &property.value.pattern, value, at, depth + 1, role)?;
+        place(
+            builder,
+            scope,
+            ctx,
+            &property.value.pattern,
+            value,
+            at,
+            depth + 1,
+            role,
+        )?;
     }
 
     if let Some(rest) = &pattern.rest {
@@ -284,7 +293,9 @@ fn object_rest(
     });
     let zero = builder.use_const(zero);
     let rest_obj = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[zero])?[0];
-    let rest = ctx.names.intern(&format!("__rts_destructure_restobj_{depth}"));
+    let rest = ctx
+        .names
+        .intern(&format!("__rts_destructure_restobj_{depth}"));
     super::binding::declare(builder, scope, ctx, rest, rest_obj)?;
 
     let source_value = super::binding::read(builder, scope, ctx, src)?;
@@ -485,7 +496,8 @@ fn apply_default(
     let join = builder.create_block();
     let result = builder.add_block_param(join, UNPROVEN);
     let merged = super::merge::disagreements(&evaluate_bindings, &skip_bindings);
-    let params = super::merge::parameters(builder, join, &merged, &evaluate_bindings, &skip_bindings);
+    let params =
+        super::merge::parameters(builder, join, &merged, &evaluate_bindings, &skip_bindings);
 
     builder.switch_to(evaluate_exit);
     let mut args = vec![default_value];

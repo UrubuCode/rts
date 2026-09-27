@@ -69,8 +69,8 @@ fn checkbox_e_radio_esticam_a_largura_num_flex_column() {
 }
 
 /// Um `<input>` de texto comum não precisa de `forced_outer_w`: já se
-/// enche sozinho (`medida_do_input` cai em `avail_w` quando não é
-/// checkbox/radio) — continua a NÃO entrar em `precisa_de_forced_w_no_stretch`,
+/// enche sozinho (`input_measure` cai em `avail_w` quando não é
+/// checkbox/radio) — continua a NÃO entrar em `needs_forced_w_on_stretch`,
 /// e o resultado tem de ser o mesmo.
 #[test]
 fn input_de_texto_continua_a_encher_sozinho_num_flex_column() {

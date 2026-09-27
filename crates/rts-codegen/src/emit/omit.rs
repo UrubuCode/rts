@@ -180,11 +180,63 @@ pub(super) fn omittable(
         // same spelling. `inline::local_candidate` builds the candidate from it.
         let candidate = match ctx.inlinable(name) {
             Some(shared) => shared,
-            None => match super::inline::local_candidate(function, length, name, arguments, false) {
-                Some((built, _)) => Rc::new(built),
-                None => continue,
-            },
+            None => {
+                match super::inline::local_candidate(function, length, name, arguments, false) {
+                    Some((built, _)) => Rc::new(built),
+                    None => continue,
+                }
+            }
         };
+        // NO NAME THE BODY READS OR DECLARES MAY BE SPELLED TWICE IN **THIS**
+        // BODY, and this is the clause that makes the omission a proof rather
+        // than most of one.
+        //
+        // Omission is what lets `emit_substituted` accept a candidate whose
+        // whole-program count refused it (`free_proved` false). The argument
+        // written there is locality: the helper is declared here, is not read as
+        // a value and is not captured, so every call is in the declaring
+        // function and the caller IS the declarer. That is true, and it proves
+        // no other FUNCTION is between declaration and call site.
+        //
+        // It does not prove that no other BLOCK is, and a block is enough. The
+        // substituted body is emitted in the caller's scope, so a free name
+        // resolves against whatever is in scope AT THE CALL SITE — which, for a
+        // call written inside a block that redeclares the name, is the block's
+        // binding. Measured 2026-09-20 against `target/release/rts.exe`, three
+        // shapes answered wrongly and in silence:
+        //
+        // ```text
+        //   let i = 1; const q = x => x + i;  { let i = 100; q(10) }   110, not 11
+        //   let i = 7; const q = x => x + i;  for (let i = 0; …) q(0)  the loop's i
+        //   let seen = 0; const bump = …;     { let seen = 500; … }    wrote 503
+        // ```
+        //
+        // `declared` is this body's counts, so this asks the same question
+        // `candidates` asks of the whole program, scoped to the body locality
+        // actually covers. A name this body spells once cannot be redeclared by
+        // a block of it; a name it spells twice may be, and which of the two a
+        // given call site sees is a per-block question this pass cannot answer —
+        // it runs once for the whole body, before any of it is emitted and
+        // before there is a block to ask about. Same refusal, same reason, as
+        // the two-declarations clause above.
+        //
+        // A count of ZERO is admitted and is what most helpers need: `Math`,
+        // `JSON`, `Object` and `console` are declared nowhere, so no block of
+        // this body can hold a second answer for them.
+        //
+        // Refusing outright instead would give back the 233.67-against-46.33 ns
+        // the whole-program count was costing, which is what this door was
+        // opened to recover. `tests/inline-free-name-block-shadow.test.ts` pins
+        // both halves: the three wrong answers, and the helper that must still
+        // be substituted.
+        if candidate
+            .free
+            .iter()
+            .chain(candidate.locals.iter())
+            .any(|held| declared.count(*held) > 1)
+        {
+            continue;
+        }
         // NO NAME OF THE CALLEE IS ONE THIS BODY FLATTENED. `emit_substituted`
         // asks exactly this, per call site, and the answer is the same at every
         // site in this body — `ctx.flattened` is installed for the body before

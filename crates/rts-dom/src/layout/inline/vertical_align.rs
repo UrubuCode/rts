@@ -1,0 +1,411 @@
+//! ALINHAMENTO VERTICAL: o modelo de baseline que `vertical-align` lê.
+//!
+//! Até aqui o motor só sabia posicionar dois dos oito valores CSS
+//! (`middle`/`bottom`), e só dentro da "corrida" de inline-blocks
+//! (`layout_inline_block_line`, em `line_inline_block.rs`) — o resto caía num `_ => 0.0`
+//! que alinhava pelo TOPO. A causa não era um valor por implementar de cada
+//! vez: era a falta de uma ENTIDADE. Cada átomo de uma linha (um `inline-block`
+//! vazio, hoje; um run de texto, amanhã) só tem ALTURA — não tem onde guardar
+//! "a que distância da baseline fica o meu topo", e sem esse número
+//! `baseline`/`sub`/`super`/`text-top`/`text-bottom` não têm o que ler.
+//!
+//! Este módulo dá nome a essa entidade: [`Envelope`] é a distância da baseline
+//! da linha ao seu topo e ao seu fundo — o "acima"/"abaixo" do CSS 2.1
+//! §10.8.1 — calculado a partir do STRUT (a fonte do bloco que contém a linha)
+//! e de cada átomo baseline-family; [`item_top`] usa esse envelope para
+//! posicionar QUALQUER átomo, dado o seu `vertical-align`.
+//!
+//! ## O algoritmo (CSS 2.1 §10.8.1, duas passadas)
+//!
+//! 1. Ignorando `top`/`bottom` (que não têm opinião sobre onde a baseline
+//!    fica), cada átomo baseline-family contribui uma distância ACIMA da
+//!    baseline (o seu topo) e uma ABAIXO (o seu fundo) — ver
+//!    [`ascent_above_baseline`]. O envelope inicial é o MAIOR de cada lado,
+//!    entre todos os átomos e o strut.
+//! 2. `top`/`bottom` são acrescentados depois: um `bottom` cuja altura excede o
+//!    envelope força o lado ACIMA a crescer (o seu topo tem de caber acima da
+//!    baseline sem que o FUNDO da linha se mexa); um `top` força o lado ABAIXO
+//!    a crescer, pela razão simétrica. A baseline nunca se desloca por causa de
+//!    um `top`/`bottom` — só a extensão da linha.
+//!
+//! A ordem das duas extensões (bottom-antes-de-top ou o inverso) só importa
+//! quando MAIS DO QUE UM item de cada lado competem entre si e um depende do
+//! resultado do outro — não é o caso de nenhuma fixture medida, e por isso a
+//! implementação faz uma passada em cada direção e pára; um ponto fixo
+//! iterativo fica para quando houver medição que o exija.
+//!
+//! **Verificado nas sete equações de `claude-vertical-align.esperado.json`**
+//! (a fonte das constantes, em `style::text_metrics`): as posições de
+//! `#base`/`#topo`/`#meio`/`#fundo`/`#texto-topo`/`#super`/`#sub` saem todas
+//! deste modelo com as mesmas quatro constantes, incluindo os dois valores
+//! (`top`/`bottom`) que já estavam certos por acidente no modelo antigo — o
+//! envelope aqui dá-lhes a mesma altura de linha (50px) que o `max(alturas)`
+//! antigo dava, então não regridem.
+//!
+//! ## CORTE: `vertical-align` não declarado continua a alinhar pelo TOPO
+//!
+//! A spec diz que o valor inicial é `baseline`, e [`ascent_above_baseline`]
+//! sabe respondê-lo — mas nenhum chamador o faz por omissão: um átomo sem
+//! `vertical-align` continua a entrar como se fosse `top` (deslocamento zero),
+//! que é o que o motor sempre fez. Migrar o default exigiria remedir o corpus
+//! inteiro (qualquer linha com átomos de alturas diferentes e SEM a
+//! propriedade declarada mudaria de posição), e nenhuma das oito divergências
+//! que motivam este módulo pede essa migração — `claude-vertical-align.html`
+//! declara `vertical-align: baseline` EXPLICITAMENTE em `#base`. Fica para um
+//! lote medido à parte, com fixtures que isolem o default.
+
+use crate::layout::TextMeasurer;
+use crate::style::{SUB_OFFSET_RATIO, SUPER_OFFSET_RATIO, VerticalAlign, X_HEIGHT_RATIO};
+
+/// A distância da baseline da linha ao seu TOPO (`above`) e ao seu FUNDO
+/// (`below`) — CSS 2.1 §10.8.1. A baseline fica em `y + above`, o topo da
+/// linha em `y` e o fundo em `y + above + below`, onde `y` é o cursor do
+/// fluxo (o topo da linha nunca se move: só a baseline e o fundo, ver o doc
+/// do módulo).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::layout) struct Envelope {
+    pub(in crate::layout) above: f32,
+    pub(in crate::layout) below: f32,
+}
+
+impl Envelope {
+    /// A altura TOTAL da linha que este envelope produz.
+    pub(in crate::layout) fn height(&self) -> f32 {
+        self.above + self.below
+    }
+}
+
+/// A distância entre o TOPO de um átomo baseline-family e a baseline da
+/// linha — a "ascent" desse átomo. Um átomo sem baseline própria (todo o
+/// conteúdo que este motor posiciona hoje: um `inline-block` vazio) tem a
+/// margem de BAIXO na baseline quando `vertical-align: baseline` — logo o seu
+/// topo fica exatamente `height` acima dela, e os outros valores são esse
+/// número deslocado. Ver a derivação de cada fração em `style::ASCENT_RATIO`.
+///
+/// `Top`/`Bottom` não têm resposta AQUI — são relativos à caixa de linha, não
+/// à baseline — e os dois chamadores ([`envelope`] e [`item_top`])
+/// filtram-nos antes de chegar a esta função; o braço `_` que os apanha só
+/// existe para não recusar um `match` não-exaustivo, nunca é exercitado.
+fn ascent_above_baseline(
+    valign: VerticalAlign,
+    height: f32,
+    font_size: f32,
+    m: &dyn TextMeasurer,
+) -> f32 {
+    ascent_with_own_baseline(valign, height, height, font_size, None, m)
+}
+
+/// O mesmo, para um átomo COM baseline própria: `ascent` é a distância do
+/// topo dele à sua baseline (um inline-block com texto: borda + padding +
+/// meia-entrelinha + ascent da fonte dele; um vazio: a altura toda, o fundo).
+/// É o que faz o caret `::after` do Bootstrap (6px, vazio) e o texto ao lado
+/// dele (20px, com linha) partilharem a baseline — o caret a y=9 e não a 0.
+fn ascent_with_own_baseline(
+    valign: VerticalAlign,
+    height: f32,
+    ascent: f32,
+    font_size: f32,
+    // `font-family` do STRUT — Ahem responde `font_ascent`/`font_descent`
+    // pela fração exata (0.8/0.2) em vez da calibrada contra o Chrome.
+    family: Option<&str>,
+    m: &dyn TextMeasurer,
+) -> f32 {
+    match valign {
+        VerticalAlign::Sub => height - font_size * SUB_OFFSET_RATIO,
+        VerticalAlign::Super => height + font_size * SUPER_OFFSET_RATIO,
+        VerticalAlign::Middle => height / 2.0 + font_size * X_HEIGHT_RATIO / 2.0,
+        VerticalAlign::TextTop => m.font_ascent_family(font_size, family),
+        VerticalAlign::TextBottom => height - m.font_descent_family(font_size, family),
+        VerticalAlign::Baseline => ascent,
+        VerticalAlign::Top | VerticalAlign::Bottom => height,
+    }
+}
+
+/// [`envelope`] para átomos com baseline própria: `(height, ascent, valign)`.
+/// O STRUT é o da caixa de linha do pai — `line_height` repartido pela
+/// meia-entrelinha à volta da content area (CSS 2.1 §10.8.1), e não a fonte
+/// crua: com `line-height: 20px` a 16px o strut é 15,4 acima / 4,6 abaixo, e
+/// uma linha só de inline-blocks com texto mede exactamente 20 (o Blink), não
+/// 20,4 (`claude-letter-spacing`, `#negativo.y`).
+pub(in crate::layout) fn envelope_with_baseline(
+    items: &[(f32, f32, VerticalAlign)],
+    font_size: f32,
+    line_height: f32,
+    family: Option<&str>,
+    m: &dyn TextMeasurer,
+) -> Envelope {
+    let content = crate::inline_box::altura_do_conteudo(font_size, family, m);
+    let half_leading = crate::inline_box::meia_entrelinha(line_height, content);
+    let mut above = half_leading + m.font_ascent_family(font_size, family);
+    let mut below = (line_height - above).max(0.0);
+    for &(height, ascent, valign) in items {
+        if matches!(valign, VerticalAlign::Top | VerticalAlign::Bottom) {
+            continue;
+        }
+        let a = ascent_with_own_baseline(valign, height, ascent, font_size, family, m).max(0.0);
+        above = above.max(a);
+        below = below.max((height - a).max(0.0));
+    }
+    for &(height, _, valign) in items {
+        if valign == VerticalAlign::Bottom {
+            above = above.max(height - below);
+        }
+    }
+    for &(height, _, valign) in items {
+        if valign == VerticalAlign::Top {
+            below = below.max(height - above);
+        }
+    }
+    Envelope { above, below }
+}
+
+/// [`item_top`] para um átomo com baseline própria.
+pub(in crate::layout) fn item_top_with_baseline(
+    valign: VerticalAlign,
+    height: f32,
+    ascent: f32,
+    line_y: f32,
+    env: &Envelope,
+    font_size: f32,
+    family: Option<&str>,
+    m: &dyn TextMeasurer,
+) -> f32 {
+    match valign {
+        VerticalAlign::Top => line_y,
+        VerticalAlign::Bottom => line_y + env.height() - height,
+        _ => line_y + env.above - ascent_with_own_baseline(valign, height, ascent, font_size, family, m),
+    }
+}
+
+/// O ENVELOPE de uma linha com estes átomos (altura + `vertical-align` de
+/// cada), à luz do STRUT (a fonte do bloco que contém a linha). Ver o
+/// algoritmo de duas passadas no doc do módulo.
+pub(in crate::layout) fn envelope(
+    items: &[(f32, VerticalAlign)],
+    font_size: f32,
+    m: &dyn TextMeasurer,
+) -> Envelope {
+    // Passada 1: o strut e os átomos baseline-family fecham o envelope
+    // ignorando top/bottom — são eles que decidem ONDE a baseline fica.
+    let mut above = m.font_ascent(font_size);
+    let mut below = m.font_descent(font_size);
+    for &(height, valign) in items {
+        if matches!(valign, VerticalAlign::Top | VerticalAlign::Bottom) {
+            continue;
+        }
+        let a = ascent_above_baseline(valign, height, font_size, m).max(0.0);
+        above = above.max(a);
+        below = below.max((height - a).max(0.0));
+    }
+    // Passada 2: top/bottom alargam a linha sem mexer na baseline já fechada.
+    // Um `bottom` mais alto do que o envelope cabe força o lado ACIMA a
+    // crescer (o seu topo precisa desse espaço, e o seu fundo está preso ao
+    // fundo da linha); um `top` faz o mesmo do lado ABAIXO, pela simetria.
+    for &(height, valign) in items {
+        if valign == VerticalAlign::Bottom {
+            above = above.max(height - below);
+        }
+    }
+    for &(height, valign) in items {
+        if valign == VerticalAlign::Top {
+            below = below.max(height - above);
+        }
+    }
+    Envelope { above, below }
+}
+
+/// O `y` do TOPO de um átomo (altura + `vertical-align`) dentro de uma linha
+/// cujo topo está em `line_y` e cujo [`Envelope`] já é conhecido (calculado
+/// por [`envelope`] sobre TODOS os átomos da linha, este incluído).
+pub(in crate::layout) fn item_top(
+    valign: VerticalAlign,
+    height: f32,
+    line_y: f32,
+    env: &Envelope,
+    font_size: f32,
+    m: &dyn TextMeasurer,
+) -> f32 {
+    match valign {
+        VerticalAlign::Top => line_y,
+        VerticalAlign::Bottom => line_y + env.height() - height,
+        _ => {
+            let baseline = line_y + env.above;
+            baseline - ascent_above_baseline(valign, height, font_size, m)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::ApproxMeasurer;
+
+    /// O `font_size` e o strut da fixture que calibrou as constantes:
+    /// `#linha { font-size:20px }`, `line-height:20px` herdada — mas o
+    /// STRUT deste módulo só usa `font_ascent`/`font_descent` (18/6.25 a
+    /// 20px), não o `line-height` declarado, porque é o strut da FONTE que
+    /// entra no envelope (CSS 2.1 §10.8.1), não a caixa de linha inteira.
+    const FONT_SIZE: f32 = 20.0;
+
+    /// Os sete átomos da fixture, na mesma ordem — usados por vários testes
+    /// para fechar o MESMO envelope que o Chrome mediu (linha de 50px,
+    /// baseline a 34.91 do topo).
+    fn fixture_atoms() -> [(f32, VerticalAlign); 7] {
+        [
+            (20.0, VerticalAlign::Baseline),
+            (30.0, VerticalAlign::Top),
+            (40.0, VerticalAlign::Middle),
+            (50.0, VerticalAlign::Bottom),
+            (25.0, VerticalAlign::TextTop),
+            (20.0, VerticalAlign::Super),
+            (20.0, VerticalAlign::Sub),
+        ]
+    }
+
+    /// O envelope fecha em 50px de altura com a baseline a 34.91 do topo —
+    /// os dois números que `claude-vertical-align.esperado.json` mede
+    /// indiretamente (via `#base.y` e via `#fundo.y+#fundo.h`).
+    #[test]
+    fn envelope_da_fixture_fecha_em_50px_com_a_baseline_do_chrome() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        assert!((env.above - 34.91).abs() < 0.01, "acima={}", env.above);
+        assert!((env.below - 15.09).abs() < 0.01, "abaixo={}", env.below);
+        assert!((env.height() - 50.0).abs() < 0.01, "altura={}", env.height());
+    }
+
+    /// `baseline`: o fundo da caixa fica NA baseline (sem baseline própria,
+    /// CSS 2.1 §10.8.1) — `#base`, h=20, `y` esperado 14.91.
+    #[test]
+    fn baseline_poe_o_fundo_da_caixa_na_baseline() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(VerticalAlign::Baseline, 20.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        assert!((y - 14.91).abs() < 0.01, "y={y}");
+    }
+
+    /// `top`: alinha com o TOPO da linha — sempre `line_y`, independente do
+    /// envelope. `#topo`, h=30, `y` esperado 0.
+    #[test]
+    fn top_alinha_com_o_topo_da_linha() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(VerticalAlign::Top, 30.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        assert!((y - 0.0).abs() < 0.01, "y={y}");
+    }
+
+    /// `middle`: o CENTRO da caixa fica meio x-height acima da baseline.
+    /// `#meio`, h=40, `y` esperado 10.
+    #[test]
+    fn middle_centra_meio_x_height_acima_da_baseline() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(VerticalAlign::Middle, 40.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        assert!((y - 10.0).abs() < 0.01, "y={y}");
+    }
+
+    /// `bottom`: alinha com o FUNDO da linha — `linha_y + altura(env) -
+    /// altura_do_item`. `#fundo`, h=50, `y` esperado 0 (a linha inteira mede
+    /// 50, então o fundo do item COINCIDE com o topo da linha).
+    #[test]
+    fn bottom_alinha_com_o_fundo_da_linha() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(VerticalAlign::Bottom, 50.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        assert!((y - 0.0).abs() < 0.01, "y={y}");
+    }
+
+    /// `text-top`: o topo da caixa alinha com o topo da FONTE (o ascent do
+    /// strut) — não com o topo da linha. `#texto-topo`, h=25, `y` esperado
+    /// 16.91.
+    #[test]
+    fn text_top_alinha_com_o_ascent_do_strut() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(VerticalAlign::TextTop, 25.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        assert!((y - 16.91).abs() < 0.01, "y={y}");
+    }
+
+    /// `super`: sobe a caixa `SUPER_OFFSET_RATIO × font-size` acima de onde
+    /// `baseline` a poria. `#super`, h=20, `y` esperado 7.25.
+    #[test]
+    fn super_sobe_a_caixa_acima_da_posicao_de_baseline() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(VerticalAlign::Super, 20.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        assert!((y - 7.25).abs() < 0.01, "y={y}");
+    }
+
+    /// `sub`: desce a caixa `SUB_OFFSET_RATIO × font-size` abaixo de onde
+    /// `baseline` a poria. `#sub`, h=20, `y` esperado 19.91.
+    #[test]
+    fn sub_desce_a_caixa_abaixo_da_posicao_de_baseline() {
+        let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(VerticalAlign::Sub, 20.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        assert!((y - 19.91).abs() < 0.01, "y={y}");
+    }
+
+    /// `text-bottom`: o fundo da caixa alinha com o fundo da FONTE (o descent
+    /// do strut) — o seu topo fica `height − descent` acima da baseline. Sem
+    /// fixture medida no Chrome para este valor, o teste isola UM átomo: o
+    /// envelope fecha exatamente na contribuição dele (`acima = altura −
+    /// descent`, maior que o ascent do strut sozinho a 20px), então a
+    /// baseline cai bem no ponto que a fórmula prevê e `y = 0`.
+    #[test]
+    fn text_bottom_alinha_com_o_descent_do_strut() {
+        let env = envelope(&[(30.0, VerticalAlign::TextBottom)], FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::TextBottom,
+            30.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
+        assert!((y - 0.0).abs() < 0.01, "y={y}");
+        // The formula behind it: 30 − descent(20px) = 30 − 4 = 26 above the
+        // baseline (a 20px serif has a descent of 4 in Blink, not the 6.25 the
+        // old single approximation gave), more than the strut's own ascent
+        // (18) — so THIS atom closes the top of the envelope.
+        assert!((env.above - 26.0).abs() < 0.01, "acima={}", env.above);
+    }
+
+    /// Um envelope de UM SÓ átomo nunca fica menor do que o strut sozinho —
+    /// uma linha vazia (só texto, sem inline-block nenhum) ainda tem a altura
+    /// da fonte do bloco.
+    #[test]
+    fn envelope_vazio_e_o_strut_sozinho() {
+        let env = envelope(&[], FONT_SIZE, &ApproxMeasurer);
+        assert!((env.above - ApproxMeasurer.font_ascent(FONT_SIZE)).abs() < 0.01);
+        assert!((env.below - ApproxMeasurer.font_descent(FONT_SIZE)).abs() < 0.01);
+    }
+
+    /// Lote `medidor-ahem` (ronda 2): `text-top`/`text-bottom` com o STRUT em
+    /// Ahem usam a fração EXATA da fonte (0.8/0.2), não `ASCENT_RATIO`/
+    /// `DESCENT_RATIO` (0.90/0.3125, calibradas contra o Chrome real).
+    #[test]
+    fn ascent_com_baseline_propria_usa_fracao_exata_da_ahem() {
+        let above = ascent_with_own_baseline(
+            VerticalAlign::TextTop, 100.0, 0.0, FONT_SIZE, Some("Ahem"), &ApproxMeasurer,
+        );
+        assert!((above - FONT_SIZE * 0.8).abs() < 0.01, "acima={above}");
+        let below_top = ascent_with_own_baseline(
+            VerticalAlign::TextBottom, 100.0, 0.0, FONT_SIZE, Some("Ahem"), &ApproxMeasurer,
+        );
+        assert!((below_top - (100.0 - FONT_SIZE * 0.2)).abs() < 0.01, "{below_top}");
+    }
+
+    /// `text-top` aligns with the ascent of the STRUT's own family — the
+    /// number comes from the font, not from a constant of this module.
+    #[test]
+    fn text_top_uses_the_struts_family_ascent() {
+        for family in [None, Some("Arial"), Some("monospace")] {
+            let got = ascent_with_own_baseline(VerticalAlign::TextTop, 100.0, 0.0, FONT_SIZE, family, &ApproxMeasurer);
+            assert_eq!(got, ApproxMeasurer.font_ascent_family(FONT_SIZE, family), "{family:?}");
+        }
+    }
+
+    /// O STRUT do envelope (linha só de texto Ahem, sem inline-block) fecha
+    /// com `font_ascent`/`font_descent` exatos — 0.8/0.2 — em vez da
+    /// calibração do Chrome. `line_height` (o `content` que decide a
+    /// meia-entrelinha) também responde 1em exato.
+    #[test]
+    fn envelope_com_baseline_do_strut_ahem_e_exato() {
+        let env = envelope_with_baseline(&[], FONT_SIZE, FONT_SIZE, Some("Ahem"), &ApproxMeasurer);
+        assert!((env.above - FONT_SIZE * 0.8).abs() < 0.01, "acima={}", env.above);
+        assert!((env.below - FONT_SIZE * 0.2).abs() < 0.01, "abaixo={}", env.below);
+    }
+}

@@ -77,6 +77,10 @@ pub(crate) fn replaced_inline_size(
     id: NodeIdx,
     css: &ComputedStyle,
     avail_w: f32,
+    // The containing block's content height when it is DEFINITE — the basis
+    // of `height`/`min-height`/`max-height` percentages. `None` makes them
+    // `auto`/`none`, as an indefinite basis does in the browser.
+    cb_h: Option<f32>,
     forced: (Option<f32>, Option<f32>),
     ctx: &LayoutCtx,
 ) -> Option<(f32, f32)> {
@@ -145,31 +149,37 @@ pub(crate) fn replaced_inline_size(
     // (`intrinsic-percent-replaced-019`, WPT). Sem base, o tamanho vem da
     // razão de aspecto ou do intrínseco, que é o que o Blink usa ali.
     let base_de_percentagem_definida = avail_w.is_finite();
+    // A `<canvas>`'s `width`/`height` attributes are its INTRINSIC size, not
+    // presentational hints (HTML §4.12.5): `<canvas width=400 height=400
+    // style="height:100%">` in a 200px block is 200×200 in Blink, the width
+    // following the ratio, where reading the attribute as `width:400px` gave
+    // 400×200 (`percentage-heights-022`, WPT). On an `<img>` they ARE hints.
+    let is_canvas = tag == "canvas";
+    let hint_px = |attr: &str| if is_canvas { None } else { attr_px(attr) };
     let declarado = |d: Option<crate::style::Dimension>, attr: &str| match d {
         Some(crate::style::Dimension::Auto) => None,
         Some(crate::style::Dimension::Percent(_)) if !base_de_percentagem_definida => None,
         Some(d) => d.resolve(&resolve),
-        None => attr_px(attr),
+        None => hint_px(attr),
     };
-    // ALTURA declarada em PERCENTAGEM: esta função não recebe `avail_h` —
-    // nenhum dos seis chamadores (bloco.rs, linha.rs, medida.rs, este
-    // ficheiro, runs.rs, table/widths) o passa — e `Dimension::resolve` usa
-    // `ctx.parent_content_w` como base de QUALQUER percentagem, `Percent`
-    // incluído. Para `width` isso é a base certa (§10.2); para `height` é a
-    // LARGURA do containing block, não a altura, e nunca a base certa. Um
-    // `<img height:100%>` dentro de um `<div>` de altura auto virava um
-    // retângulo do tamanho da LARGURA do pai em vez do quadrado natural
-    // (`height-percentage-005`, WPT: 96×96 esperado, saía ~1230×739).
-    //
-    // CSS 2.1 §10.5: sem uma altura de containing block CONHECIDA a
-    // percentagem computa a `auto` — e é exactamente o caso aqui, porque a
-    // função não tem essa informação. Threading de `avail_h` por seis
-    // chamadores fica para quando um caso legítimo (CB de altura definida)
-    // precisar dele; até lá, tratar como o pedido não declarasse altura
-    // nenhuma é estritamente melhor do que herdar a largura por engano.
+    // A HEIGHT percentage resolves against the containing block's HEIGHT
+    // when that height is definite, and computes to `auto` otherwise (CSS 2.1
+    // §10.5). `Dimension::resolve` would use `parent_content_w` — the WIDTH —
+    // for any percentage, which is why the vertical axis goes through
+    // `resolve_height` with `cb_h`, the same rule `layout_block` applies to a
+    // non-replaced box. `cb_h` is `None` wherever the caller measures rather
+    // than lays out (intrinsic widths, table columns): there the basis is
+    // indefinite by definition (`height-percentage-005`, WPT: an `<img
+    // height:100%>` in an auto-height `<div>` is its natural square).
+    let vertical = |d: Option<crate::style::Dimension>| match d {
+        Some(crate::style::Dimension::Percent(_)) => crate::layout::resolve_height(d, cb_h, &resolve),
+        Some(crate::style::Dimension::Calc(c)) if c.pct != 0.0 => crate::layout::resolve_height(d, cb_h, &resolve),
+        d => d.and_then(|d| d.resolve(&resolve)),
+    };
     let declarado_altura = |d: Option<crate::style::Dimension>, attr: &str| match d {
-        Some(crate::style::Dimension::Percent(_)) => None,
-        d => declarado(d, attr),
+        Some(crate::style::Dimension::Auto) => None,
+        Some(d) => vertical(Some(d)),
+        None => hint_px(attr),
     };
     // O flex vence o CSS do mesmo jeito que já vence num bloco comum — é
     // por isso que entra ANTES de `declarado`, não depois: um `<img>` com
@@ -202,56 +212,28 @@ pub(crate) fn replaced_inline_size(
         .map(|(iw, ih)| (iw as f32, ih as f32))
         .or_else(|| match (attr_px("width"), attr_px("height")) {
             (Some(aw), Some(ah)) if aw > 0.0 && ah > 0.0 => Some((aw, ah)),
+            // A canvas always has an intrinsic size: a missing attribute is
+            // its default, 300 wide or 150 tall.
+            (aw, ah) if is_canvas => {
+                Some((aw.unwrap_or(300.0), ah.unwrap_or(150.0))).filter(|(w, h)| *w > 0.0 && *h > 0.0)
+            }
             _ => None,
         });
-    let (mut w, mut h) = match (w0, h0) {
-        (Some(w), Some(h)) => (w, h),
-        (Some(w), None) => (w, ratio.map(|(nw, nh)| w * nh / nw).unwrap_or(0.0)),
-        (None, Some(h)) => (ratio.map(|(nw, nh)| h * nw / nh).unwrap_or(0.0), h),
-        (None, None) => match (ratio, default_box) {
-            (Some((nw, nh)), _) => (nw, nh),
-            (None, Some(d)) => d,
-            (None, None) => (0.0, 0.0),
-        },
+    let natural = match (ratio, default_box) {
+        (Some(r), _) => r,
+        (None, Some(d)) => d,
+        (None, None) => (0.0, 0.0),
     };
-    // Quem manda encolher um replaced é `max-width`/`min-width` — NÃO a largura
-    // do contentor (CSS 2.1 §10.4). O que aqui estava era um corte por `avail_w`:
-    // um `<img width=100>` dentro de um `<div style='width:50px'>` saía 50x50, e
-    // o Chrome dá 100x101 e deixa TRANSBORDAR. A alternativa (manter o corte
-    // "para não estourar a linha") é o que fechava um ciclo dentro de tabelas —
-    // a imagem encolhia porque a célula era estreita, e a célula era estreita
-    // porque o mínimo da imagem tinha encolhido — e na Wikipédia levava 100px a
-    // valerem 3, com 545px de deslocamento a jusante.
-    //
-    // A razão de aspecto só se preserva quando a outra dimensão é `auto`: com
-    // `width` e `height` ambos declarados, o CSS não reescala o que o autor fixou.
-    let w_auto = w0.is_none();
-    let h_auto = h0.is_none();
+    // `min-`/`max-` bind the replaced element, not the container's width
+    // (CSS 2.1 §10.4): an `<img width=100>` in a 50px `<div>` overflows it, as
+    // Chrome does — cutting by `avail_w` closed a loop inside tables where the
+    // image shrank because the cell was narrow and the cell was narrow because
+    // the image had shrunk. The ORDER of the clamps against the ratio transfer
+    // is `replaced_clamp`'s, and why it is its own module is written there.
     let dim = |d: Option<crate::style::Dimension>| d.and_then(|d| d.resolve(&resolve));
-    if let Some(mx) = dim(css.max_width).filter(|mx| w > *mx) {
-        if h_auto && w > 0.0 {
-            h = h * mx / w;
-        }
-        w = mx;
-    }
-    if let Some(mn) = dim(css.min_width).filter(|mn| w < *mn) {
-        if h_auto && w > 0.0 {
-            h = h * mn / w;
-        }
-        w = mn;
-    }
-    if let Some(mx) = dim(css.max_height).filter(|mx| h > *mx) {
-        if w_auto && h > 0.0 {
-            w = w * mx / h;
-        }
-        h = mx;
-    }
-    if let Some(mn) = dim(css.min_height).filter(|mn| h < *mn) {
-        if w_auto && h > 0.0 {
-            w = w * mn / h;
-        }
-        h = mn;
-    }
+    let lw = super::replaced_clamp::AxisLimits::new(dim(css.min_width), dim(css.max_width));
+    let lh = super::replaced_clamp::AxisLimits::new(vertical(css.min_height), vertical(css.max_height));
+    let (w, h) = super::replaced_clamp::clamp_replaced(w0, h0, ratio, natural, lw, lh);
     // A caixa de um replaced é a BORDER-BOX, que é o que `getBoundingClientRect`
     // devolve — e os clamps acima são sobre a content box (`box-sizing` inicial é
     // `content-box`), por isso a borda (e o padding, ver abaixo) entram só aqui,

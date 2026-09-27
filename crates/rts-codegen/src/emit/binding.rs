@@ -44,7 +44,7 @@ use crate::names::Name;
 /// collision would be harmless anyway, because an environment object is never
 /// handed to JavaScript. Named as a constant rather than written twice, since
 /// the reader and the writer disagreeing about it is a chain that goes nowhere.
-const OUTER: &str = "__rts_outer";
+pub(crate) const OUTER: &str = "__rts_outer";
 
 /// Reads a name.
 pub fn read(
@@ -86,9 +86,11 @@ pub(super) fn lexical_read(
         // name holds. There is one table saying which bindings are integers and
         // it is the one `stored` already consulted; asking a second time here is
         // how two answers to one question start.
-        Some(Binding::Value(value)) if builder.repr_of(value) == rts_cranelift::repr::Repr::I32 => Ok(builder
-            .to_f64(value)
-            .expect("the representation was just read as I32")),
+        Some(Binding::Value(value)) if builder.repr_of(value) == rts_cranelift::repr::Repr::I32 => {
+            Ok(builder
+                .to_f64(value)
+                .expect("the representation was just read as I32"))
+        }
         Some(Binding::Value(value)) => Ok(value),
         Some(Binding::InEnvironment { hops, name }) => {
             // The value written a moment ago, when nothing at all has happened
@@ -102,6 +104,7 @@ pub(super) fn lexical_read(
                 && written.name == name
                 && written.hops == hops
                 && written.block == builder.current()
+                && written.environment == scope.environment()
                 && builder.nothing_emitted_here()
             {
                 return Ok(written.value);
@@ -202,6 +205,7 @@ pub(super) fn lexical_write(
                 hops,
                 value: stored,
                 block: builder.current(),
+                environment: scope.environment(),
             });
             Ok(stored)
         }
@@ -454,7 +458,11 @@ pub fn lexical_names(body: &[crate::syntax::Stmt]) -> Vec<Name> {
 /// terminator means.
 fn dead_zone(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> EmitResult<ValueId> {
     let spelling = ctx.names.text(name).to_owned();
-    raise_reference_error(builder, ctx, &format!("Cannot access '{spelling}' before initialization"))?;
+    raise_reference_error(
+        builder,
+        ctx,
+        &format!("Cannot access '{spelling}' before initialization"),
+    )?;
     let unreached = builder.create_block();
     builder.switch_to(unreached);
     Ok(super::expr::undefined(builder, ctx))
@@ -463,7 +471,11 @@ fn dead_zone(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> EmitResult
 /// Constructs a `ReferenceError` with `message` and throws it, ending the
 /// current block. Shared by the two reads that owe one — [`dead_zone`] and
 /// [`this_binding`] — so the error is built one way.
-fn raise_reference_error(builder: &mut FuncBuilder, ctx: &mut Ctx, message: &str) -> EmitResult<()> {
+fn raise_reference_error(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    message: &str,
+) -> EmitResult<()> {
     let reference_error = ctx.names.intern("ReferenceError");
     let constructor = super::globals::force_read(builder, ctx, reference_error)?;
     let message = super::expr::string_literal(builder, ctx, message)?;

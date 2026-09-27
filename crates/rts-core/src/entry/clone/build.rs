@@ -359,7 +359,7 @@ pub(in crate::entry) fn populate_laid(
     }
     let link = context.prototype_at(cell);
     let ty = context.typed_as(shape, link).index() as u32;
-    context.region.set_type(cell, ty);
+    context.retype_cell(cell, ty);
     let mut slots = Vec::with_capacity(placed.len());
     for (at, value) in placed {
         super::super::objects::set_slot_value(context, cell, at, value);
@@ -385,7 +385,7 @@ pub(in crate::entry) fn populate_as(
     if values.len() != laid.slots.len() {
         return false;
     }
-    context.region.set_type(cell, laid.ty);
+    context.retype_cell(cell, laid.ty);
     for (at, value) in laid.slots.iter().zip(values) {
         super::super::objects::set_slot_value(context, cell, *at, value);
     }

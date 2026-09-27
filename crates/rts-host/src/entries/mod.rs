@@ -103,17 +103,24 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::TemplateJoin => (CoreEntry::TemplateJoin, {
             rts_core::entry::template_join
-                as extern "C" fn(i64, i64, u64, u64, u64) -> u64 as *const u8
+                as extern "C" fn(i64, i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::MathRandom => (CoreEntry::MathRandom, {
             rts_core::entry::math_random as extern "C" fn() -> f64 as *const u8
+        }),
+        RuntimeOp::MathDirect1 => (CoreEntry::MathDirect1, {
+            rts_core::entry::math_direct1 as extern "C" fn(i64, f64) -> f64 as *const u8
+        }),
+        RuntimeOp::MathDirect2 => (CoreEntry::MathDirect2, {
+            rts_core::entry::math_direct2 as extern "C" fn(i64, f64, f64) -> f64 as *const u8
         }),
         RuntimeOp::StringOf => (CoreEntry::StringOf, {
             rts_core::entry::string_of as extern "C" fn(u64) -> u64 as *const u8
         }),
         RuntimeOp::ArrayOf => (CoreEntry::ArrayOf, {
             rts_core::entry::array_of
-                as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
+                as extern "C" fn(i64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::ObjectNew => (CoreEntry::ObjectNew, {
             rts_core::entry::object_new as extern "C" fn(i64) -> u64 as *const u8
@@ -368,7 +375,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
                 as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::CallWithArgs => (CoreEntry::CallWithArgs, {
-            rts_core::entry::call_with_args as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+            rts_core::entry::call_with_args as extern "C" fn(u64, u64, u64, i64) -> u64 as *const u8
         }),
         RuntimeOp::RestArguments => (CoreEntry::RestArguments, {
             rts_core::entry::rest_arguments
@@ -377,6 +384,14 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ArgumentsObject => (CoreEntry::ArgumentsObject, {
             rts_core::entry::arguments_object
                 as extern "C" fn(u64, u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArgumentsCount => (CoreEntry::ArgumentsCount, {
+            rts_core::entry::arguments_count
+                as extern "C" fn(u64, u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArgumentSlot => (CoreEntry::ArgumentSlot, {
+            rts_core::entry::argument_slot
+                as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
@@ -413,6 +428,44 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::JsonParse => (CoreEntry::JsonParse, {
             rts_core::entry::json_parse as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::TextWalk => (CoreEntry::TextWalk, {
+            rts_core::entry::text_walk as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArgumentAt => (CoreEntry::ArgumentAt, {
+            rts_core::entry::argument_at as extern "C" fn(i64) -> u64 as *const u8
+        }),
+        RuntimeOp::SameValue => (CoreEntry::SameValue, {
+            rts_core::entry::same_value as extern "C" fn(u64, u64) -> bool as *const u8
+        }),
+        RuntimeOp::ArrayIsArray => (CoreEntry::ArrayIsArray, {
+            rts_core::entry::array_is_array as extern "C" fn(u64) -> bool as *const u8
+        }),
+        RuntimeOp::MapGetDirect => (CoreEntry::MapGetDirect, {
+            rts_core::entry::map_get_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::MapHasDirect => (CoreEntry::MapHasDirect, {
+            rts_core::entry::map_has_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::MapSetDirect => (CoreEntry::MapSetDirect, {
+            rts_core::entry::map_set_direct as extern "C" fn(u64, u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetHasDirect => (CoreEntry::SetHasDirect, {
+            rts_core::entry::set_has_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetAddDirect => (CoreEntry::SetAddDirect, {
+            rts_core::entry::set_add_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArrayPushDirect => (CoreEntry::ArrayPushDirect, {
+            rts_core::entry::array_push_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::FunctionCallDirect => (CoreEntry::FunctionCallDirect, {
+            rts_core::entry::function_call_direct
+                as extern "C" fn(u64, u64, u64, u64, u64, i64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::FunctionApplyDirect => (CoreEntry::FunctionApplyDirect, {
+            rts_core::entry::function_apply_direct
+                as extern "C" fn(u64, u64, u64, i64) -> u64 as *const u8
         }),
         RuntimeOp::UnaryPlus => (CoreEntry::UnaryPlus, {
             rts_core::entry::unary_plus as extern "C" fn(u64) -> u64 as *const u8
@@ -486,10 +539,36 @@ fn describe(ours: Vec<Repr>, theirs: &[AbiType]) -> Result<(), String> {
 /// nothing, and this one cannot fail to be checked because the crate does not
 /// compile without it.
 const _: () = assert!(
+    rts_codegen::runtime::ARRAY_OF_SLOTS == rts_core::entry::ARRAY_OF_SLOTS
+        && rts_codegen::runtime::NO_CALL_NAME == rts_core::entry::NO_CALL_NAME,
+    "the compiler and the runtime disagree about how many values one `ArrayOf` \
+     carries, or about which number spells a nameless callee"
+);
+const _: () = assert!(
+    rts_codegen::runtime::TEMPLATE_JOINED == rts_core::entry::TEMPLATE_JOINED,
+    "the compiler and the runtime disagree about how many substitutions one \
+     `TemplateJoin` carries: the compiler would pad to one count and the runtime \
+     read another, and the join would read a slot that was never an argument"
+);
+const _: () = assert!(
     rts_codegen::runtime::ARGUMENT_SLOTS == rts_core::entry::ARGUMENT_SLOTS,
     "the compiler and the runtime disagree about how many arguments a call \
      carries, which is a jump with a corrupt stack rather than a wrong answer"
 );
+
+/// The compiler names a `Math` library member by its position in a list, and
+/// the runtime indexes a table of functions by that number. Two lists, one
+/// order, asserted here for the same reason `ARGUMENT_SLOTS` is above: a
+/// disagreement would call the wrong function silently, not fail.
+const _: () = {
+    assert!(
+        rts_codegen::runtime::math_direct::UNARY_NAMES.len() == rts_core::entry::MATH_UNARY_NAMES.len()
+    );
+    assert!(
+        rts_codegen::runtime::math_direct::BINARY_NAMES.len()
+            == rts_core::entry::MATH_BINARY_NAMES.len()
+    );
+};
 
 mod machine;
 pub(crate) use machine::machine_entry;

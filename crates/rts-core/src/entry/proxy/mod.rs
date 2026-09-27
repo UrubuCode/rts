@@ -45,16 +45,20 @@
 //!    `TypeError` on the way out.
 
 mod calls;
+mod describe;
+mod enumerate;
 mod invariant;
 mod keys;
 mod property;
 mod prototype;
 
 pub(in crate::entry) use calls::{apply, construct};
-pub(in crate::entry) use keys::{define, describe, enumerable_keys, own_keys, own_names};
+pub(in crate::entry) use describe::{define, describe, owns};
+pub(in crate::entry) use enumerate::{level_keys, still_enumerable};
+pub(in crate::entry) use keys::{enumerable_keys, own_keys, own_names, own_symbols};
 pub(in crate::entry) use property::{delete, get, get_on, has, set_verdict, set_verdict_on};
 pub(in crate::entry) use prototype::{
-    above, extensible, prevent_extensions, prototype_of, set_prototype_verdict,
+    above, extensible, inherits, prevent_extensions, prototype_of, set_prototype_verdict,
 };
 
 use super::{Context, with_current};

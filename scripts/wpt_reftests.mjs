@@ -164,8 +164,22 @@ const lista = MAX > 0 ? filtrados.slice(0, MAX) : filtrados;
 if (FILTRO) console.log(`--filtro ${FILTRO.source}: ${lista.length} de ${testes.length} — número PARCIAL, não comparável com o relatório do main`);
 console.log(`${pasta}: ${html.length} html, ${testes.length} reftests (pares por ${PARES === "sufixo" ? "-expected.html" : "rel=match"}), ${lista.filter((t) => t.script).length} com <script>`);
 
+// Ahem is a real face now (plan 2026-09-26-text-crate, F3): the raster
+// registers it from `RTS_AHEM`, and it is never embedded in the repository.
+// The WPT checkout keeps it in `fonts/` beside `css/`, so the default is found
+// by walking up from the folder being swept; a caller's own `RTS_AHEM` wins.
+function acharAhem(dir) {
+  for (let d = resolve(dir); ; d = dirname(d)) {
+    const f = join(d, "fonts", "Ahem.ttf");
+    if (existsSync(f)) return f;
+    if (dirname(d) === d) return null;
+  }
+}
+const AHEM = process.env.RTS_AHEM ?? acharAhem(pasta);
+if (!AHEM) console.log("sem fonts/Ahem.ttf acima da pasta nem RTS_AHEM: o texto em Ahem sai MASCARADO");
+const RASTER_ENV = AHEM ? { ...process.env, RTS_AHEM: AHEM } : process.env;
 function rasterizar(htmlPath, png) {
-  return new Promise((res) => execFile(RASTER, [htmlPath, png], { timeout: 20000 }, (err) => res(!err)));
+  return new Promise((res) => execFile(RASTER, [htmlPath, png], { timeout: 20000, env: RASTER_ENV }, (err) => res(!err)));
 }
 // `nao_rasterizaram` guarda os NOMES: um teste que ENCRAVA (timeout do raster)
 // não entra em `piores`, e uma comparação por nome entre dois relatórios
@@ -180,6 +194,7 @@ function rasterizar(htmlPath, png) {
 // `passam` conta só PASSA COM CONTEÚDO agora — o número principal que esta
 // régua publica (issue #2731). `passamVazio` e `falhaParcial` são os outros
 // dois estados novos, impressos ao lado e nomeados, nunca somados a `passam`.
+let mascaradosTotal = 0;
 let passam = 0, passamVazio = 0, falham = 0, falhaParcial = 0, erros = 0; const piores = []; const nao_rasterizaram = []; const resultados = [];
 const paraRepetir = [];
 const guardadas = [];
@@ -212,6 +227,7 @@ function apaga(...paths) {
     try { unlinkSync(f); } catch {}
     try { unlinkSync(f + ".mask.json"); } catch {}
     try { unlinkSync(f + ".pintados"); } catch {}
+    try { unlinkSync(f + ".mascarados"); } catch {}
   }
 }
 // QUATRO estados, não dois (issue #2729/#2731): o corredor antigo comparava
@@ -228,9 +244,9 @@ function apaga(...paths) {
 // rebuild) é que se cai na aproximação sobre pixels: "todo o PNG é a mesma
 // cor" — mais barata que decidir por conteúdo real, mas dita como aproximação
 // porque é exactamente isso.
-function contagemPintados(pngPath) {
+function contagemPintados(pngPath, sidecar = ".pintados") {
   try {
-    const n = Number(readFileSync(pngPath + ".pintados", "utf8").trim());
+    const n = Number(readFileSync(pngPath + sidecar, "utf8").trim());
     return Number.isFinite(n) ? n : null;
   } catch {
     return null;
@@ -267,17 +283,22 @@ function julga(t, nome, a, b) {
   const pintouA = nA !== null ? nA > 0 : !pixelsTodosIguais(getDecA());
   const pintouB = nB !== null ? nB > 0 : !pixelsTodosIguais(getDecB());
   const algumPinta = pintouA || pintouB;
+  // Text items the raster could NOT paint (no face for their family), test
+  // side and reference side: the ruler of how much of the corpus is still
+  // invisible to this instrument. `null` from a raster older than the sidecar.
+  const mascarados = [contagemPintados(a, ".mascarados"), contagemPintados(b, ".mascarados")];
+  if (mascarados[0] !== null) mascaradosTotal += mascarados[0] + mascarados[1];
 
   if (bytesA.equals(bytesB)) {
-    if (!algumPinta) { passamVazio++; resultados.push({ nome, estado: "passa-vazio" }); apaga(a, b); return; }
-    passam++; resultados.push({ nome, estado: "passa" });
+    if (!algumPinta) { passamVazio++; resultados.push({ nome, mascarados, estado: "passa-vazio" }); apaga(a, b); return; }
+    passam++; resultados.push({ nome, mascarados, estado: "passa" });
     apaga(a, b);
     return;
   }
   const d = diff(getDecA(), getDecB());
   if (d.n === 0) {
-    if (!algumPinta) { passamVazio++; resultados.push({ nome, estado: "passa-vazio" }); apaga(a, b); return; }
-    passam++; resultados.push({ nome, estado: "passa" });
+    if (!algumPinta) { passamVazio++; resultados.push({ nome, mascarados, estado: "passa-vazio" }); apaga(a, b); return; }
+    passam++; resultados.push({ nome, mascarados, estado: "passa" });
     apaga(a, b);
   } else if (pintouA !== pintouB) {
     // Um lado pintou e o outro não: a diferença de pixels pode ser inteira a
@@ -286,12 +307,12 @@ function julga(t, nome, a, b) {
     // marcada à parte para não se confundir com uma discordância real.
     falhaParcial++;
     piores.push({ nome, pct: d.pct, n: d.n, script: t.script, parcial: true });
-    resultados.push({ nome, estado: "falha-parcial", pct: d.pct });
+    resultados.push({ nome, mascarados, estado: "falha-parcial", pct: d.pct });
     if (SEM_PNG) apaga(a, b); else guardadas.push({ pct: d.pct, a, b });
   } else {
     falham++;
     piores.push({ nome, pct: d.pct, n: d.n, script: t.script });
-    resultados.push({ nome, estado: "falha", pct: d.pct });
+    resultados.push({ nome, mascarados, estado: "falha", pct: d.pct });
     if (SEM_PNG) apaga(a, b); else guardadas.push({ pct: d.pct, a, b });
   }
 }
@@ -341,8 +362,8 @@ const total = passam + passamVazio + falham + falhaParcial + erros;
 // outros dois estados novos (`passamVazio`, `falhaParcial`) vêm nomeados ao
 // lado, nunca somados a `passam`. Quem faz `grep`/regex a esta linha noutro
 // lote precisa de rever o padrão.
-console.log(`\nWPT reftests — ${passam}/${total} passam COM CONTEÚDO (${((passam / Math.max(total, 1)) * 100).toFixed(1)}%); ${passamVazio} passam VAZIOS (nada pintado dos dois lados), ${falham} falham, ${falhaParcial} falham POR UM LADO SÓ PINTAR, ${erros} não rasterizaram; tolerância ${TOL}/255 por canal`);
+console.log(`\nWPT reftests — ${passam}/${total} passam COM CONTEÚDO (${((passam / Math.max(total, 1)) * 100).toFixed(1)}%); ${passamVazio} passam VAZIOS (nada pintado dos dois lados), ${falham} falham, ${falhaParcial} falham POR UM LADO SÓ PINTAR, ${erros} não rasterizaram; tolerância ${TOL}/255 por canal; ${mascaradosTotal} itens de texto mascarados (família sem face, ou família que o layout não diz)`);
 console.log(`\nos 15 piores:`);
 for (const p of piores.slice(0, 15)) console.log(`  ${p.pct.toFixed(2).padStart(6)}%  ${p.n.toString().padStart(7)} px  ${p.nome}${p.parcial ? "  (só um lado pinta)" : ""}${p.script ? "  (tem <script>)" : ""}`);
 if (nao_rasterizaram.length > 0) console.log(`NÃO RASTERIZARAM (encravou ou morreu): ${nao_rasterizaram.join(", ")}`);
-writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, passam_vazio: passamVazio, falham, falha_parcial: falhaParcial, erros, nao_rasterizaram, tol: TOL, piores, resultados }, null, 2));
+writeFileSync(join(OUT, "relatorio.json"), JSON.stringify({ pasta, total, passam, passam_vazio: passamVazio, falham, falha_parcial: falhaParcial, erros, nao_rasterizaram, mascarados: mascaradosTotal, ahem: AHEM, tol: TOL, piores, resultados }, null, 2));

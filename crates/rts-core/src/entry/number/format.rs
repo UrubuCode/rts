@@ -134,16 +134,28 @@ pub(super) fn fixed(number: f64, places: usize) -> String {
     // `"0.00"` in every engine, and reading the bit answered `"-0.00"`.
     let negative = number < 0.0;
     let magnitude = number.abs();
+    // Exactly, in integers, for every place count a program writes: `fixed.rs`
+    // says why it answers the same digits as the expansion below at a
+    // fraction of the cost. The expansion stays for what it cannot take.
+    let rounded = match super::fixed::fixed_exact(magnitude, places) {
+        Some(exact) => exact,
+        None => fixed_slow(magnitude, places),
+    };
+    match negative {
+        true => format!("-{rounded}"),
+        false => rounded,
+    }
+}
+
+/// The expansion form of [`fixed`], over the magnitude: sixty digits past the
+/// places wanted, rounded on the string.
+pub(super) fn fixed_slow(magnitude: f64, places: usize) -> String {
     // f64's exact decimal expansion terminates within a few dozen digits for
     // any value with a non-degenerate binary fraction; 60 digits of margin
     // beyond `places` is enough to see whether the first dropped digit is a
     // genuine tie or just close to one.
     let exact = format!("{:.*}", places + 60, magnitude);
-    let rounded = round_decimal_string(&exact, places);
-    match negative {
-        true => format!("-{rounded}"),
-        false => rounded,
-    }
+    round_decimal_string(&exact, places)
 }
 
 /// Rounds a `"123.456789…"` string to `places` fractional digits,

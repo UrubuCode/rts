@@ -30,7 +30,7 @@ use crate::style::ComputedStyle;
 #[derive(Clone, Debug, PartialEq)]
 pub struct PseudoBox {
     /// O texto de `content`, já com `attr()` substituído.
-    pub texto: String,
+    pub text: String,
     /// O estilo computado da caixa — herdado do elemento originante e depois
     /// sobreposto pelas regras `::before`/`::after` que casaram.
     pub css: ComputedStyle,
@@ -237,7 +237,8 @@ pub fn texto_de(
 pub(crate) mod tests {
     use super::*;
     use crate::dom::parse_html_to_dom;
-    use crate::layout::{ApproxMeasurer, DisplayItem, LayoutCtx, layout_document};
+    use crate::layout::{ApproxMeasurer, LayoutCtx, layout_document};
+    use crate::paint::DisplayItem;
 
     /// Os textos pintados, em ordem de pintura — é o que prova que a caixa
     /// gerada existe e onde ficou.
