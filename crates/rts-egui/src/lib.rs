@@ -30,6 +30,10 @@ pub mod pixels;
 mod ctx;
 mod app;
 mod canvas;
+// Estado de arquivos soltos/pairando (drag-and-drop do SO) — puro, sem winit,
+// testável sem janela. `app` alimenta a partir dos `WindowEvent`; `render_backend`
+// o expõe via `rts_input::InputSource`.
+mod dropfiles;
 mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;

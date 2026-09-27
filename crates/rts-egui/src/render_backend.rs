@@ -385,6 +385,31 @@ impl InputSource for EguiRenderer {
         // Ctrl+C: coloca `text` no clipboard do SO (egui gerencia via arboard).
         ctx::with_egui(target, |e| e.copy_text(text.to_string()));
     }
+
+    // Arquivos soltos/pairando: `UiCtx::drop_state` (crate::dropfiles), não o
+    // `egui::Context` — nenhuma posição no `HoveredFile`/`DroppedFile` do egui
+    // (ver `crate::dropfiles` e `app::real_cursor_pos`). `with_ctx`, como o
+    // resto do estado por-janela que não é do egui.
+    fn dropped_count(&self, target: u64) -> usize {
+        ctx::with_ctx(target, |c| c.drop_state.dropped_count()).unwrap_or(0)
+    }
+
+    fn dropped_path(&self, target: u64, index: usize) -> String {
+        ctx::with_ctx(target, |c| c.drop_state.dropped_path(index).to_string())
+            .unwrap_or_default()
+    }
+
+    fn dropped_pos(&self, target: u64) -> (f32, f32) {
+        ctx::with_ctx(target, |c| c.drop_state.dropped_pos()).unwrap_or((-1.0, -1.0))
+    }
+
+    fn hovered_files(&self, target: u64) -> usize {
+        ctx::with_ctx(target, |c| c.drop_state.hovered_files()).unwrap_or(0)
+    }
+
+    fn hovered_pos(&self, target: u64) -> (f32, f32) {
+        ctx::with_ctx(target, |c| c.drop_state.hovered_pos()).unwrap_or((-1.0, -1.0))
+    }
 }
 
 /// Mapeia 0/1/2 → `egui::PointerButton`.

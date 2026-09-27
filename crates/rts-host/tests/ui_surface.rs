@@ -74,6 +74,15 @@ test("o input", function () {
     expect(typeof input.textInput).toBe("function");
     expect(typeof input.copyText).toBe("function");
 });
+test("os arquivos soltos/pairando", function () {
+    expect(typeof input.droppedCount).toBe("function");
+    expect(typeof input.droppedPath).toBe("function");
+    expect(typeof input.droppedX).toBe("function");
+    expect(typeof input.droppedY).toBe("function");
+    expect(typeof input.hoveredFiles).toBe("function");
+    expect(typeof input.hoveredX).toBe("function");
+    expect(typeof input.hoveredY).toBe("function");
+});
         "#,
     );
     assert_eq!(failed, Vec::<String>::new());
@@ -94,6 +103,7 @@ fn perguntar_o_input_sem_janela_responde_o_default_em_vez_de_abortar() {
         r#"
 import { test, expect } from "rts:test";
 import { mouseX, mouseY, key, wheel, modCtrl, textInput } from "rts:input";
+import { droppedCount, droppedPath, droppedX, droppedY, hoveredFiles, hoveredX, hoveredY } from "rts:input";
 
 test("o mouse sem fonte", function () {
     expect(mouseX(0)).toBe(-1);
@@ -105,6 +115,15 @@ test("uma tecla sem fonte é false, não undefined", function () {
 });
 test("a roda parada é zero", function () { expect(wheel(0)).toBe(0); });
 test("nada digitado é a string vazia", function () { expect(textInput(0)).toBe(""); });
+test("nada solto/pairando sem fonte", function () {
+    expect(droppedCount(0)).toBe(0);
+    expect(droppedPath(0, 0)).toBe("");
+    expect(droppedX(0)).toBe(-1);
+    expect(droppedY(0)).toBe(-1);
+    expect(hoveredFiles(0)).toBe(0);
+    expect(hoveredX(0)).toBe(-1);
+    expect(hoveredY(0)).toBe(-1);
+});
         "#,
     );
     assert_eq!(failed, Vec::<String>::new());

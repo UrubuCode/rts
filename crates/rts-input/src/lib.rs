@@ -111,6 +111,38 @@ pub trait InputSource {
     /// Coloca `text` no clipboard do SO (Ctrl+C). Default no-op p/ backends sem
     /// clipboard (headless/testes).
     fn copy_text(&self, _target: u64, _text: &str) {}
+
+    // ── Arquivos soltos/pairando (drag-and-drop do SO, ex.: Explorer/Finder) ──
+    //
+    // Como `keyboard_events`, o polling do frame; a fonte captura o `WindowEvent`
+    // e reporta, sem conhecer o DOM/editor que vai destacar o alvo ou aceitar o
+    // arquivo. Defaults neutros (0/""/-1,-1) para backends sem suporte (SDL
+    // ainda não tem, o harness de teste tampouco).
+    /// Quantos arquivos foram soltos NESTE quadro. Zera no quadro seguinte
+    /// (mesma semântica das bordas de tecla "pressed").
+    fn dropped_count(&self, _target: u64) -> usize {
+        0
+    }
+    /// Caminho absoluto do i-ésimo arquivo solto neste quadro; vazio fora da
+    /// faixa (índice inválido incluso).
+    fn dropped_path(&self, _target: u64, _index: usize) -> String {
+        String::new()
+    }
+    /// Posição do cursor (pontos lógicos) no momento da soltura mais recente
+    /// deste quadro. `(-1, -1)` sem nenhuma soltura neste quadro.
+    fn dropped_pos(&self, _target: u64) -> (f32, f32) {
+        (-1.0, -1.0)
+    }
+    /// Quantos arquivos estão sendo arrastados sobre a janela AGORA (estado
+    /// contínuo, não um pulso de quadro). `0` = nenhum.
+    fn hovered_files(&self, _target: u64) -> usize {
+        0
+    }
+    /// Posição do cursor (pontos lógicos) enquanto arquivos pairam sobre a
+    /// janela. `(-1, -1)` sem nada pairando.
+    fn hovered_pos(&self, _target: u64) -> (f32, f32) {
+        (-1.0, -1.0)
+    }
 }
 
 /// Evento de teclado neutro, independente de egui/winit/SDL.

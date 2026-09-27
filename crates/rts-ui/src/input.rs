@@ -52,6 +52,13 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("compositionEventKind", composition_event_kind),
     ("compositionEventText", composition_event_text),
     ("copyText", copy_text),
+    ("droppedCount", dropped_count),
+    ("droppedPath", dropped_path),
+    ("droppedX", dropped_x),
+    ("droppedY", dropped_y),
+    ("hoveredFiles", hovered_files),
+    ("hoveredX", hovered_x),
+    ("hoveredY", hovered_y),
 ];
 
 /// `input.mouseX(win)` — em pontos lógicos. `-1` quando não há fonte ativa ou a
@@ -239,4 +246,61 @@ extern "C" fn copy_text(_e: u64, _t: u64, win: u64, content: u64, _b: u64, _c: u
     let content = text(content);
     rts_input::with_input(|source| source.copy_text(win, &content));
     value::nothing()
+}
+
+// ── Arquivos soltos/pairando (drag-and-drop do SO — Explorer/Finder/etc.) ────
+//
+// Como as bordas de tecla "pressed": `droppedCount`/`droppedPath` respondem o
+// que foi solto NESTE quadro e zeram no seguinte. `hoveredFiles` é estado
+// contínuo (a contagem AGORA, não um pulso). Sem fonte/sem janela: `0`/`""`/`-1`
+// — os mesmos defaults do resto do namespace (`wheel`, `textInput`, `mouseX`).
+
+/// `input.droppedCount(win)` — quantos arquivos foram soltos neste quadro.
+extern "C" fn dropped_count(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let win = handle(win);
+    let count = rts_input::with_input(|source| source.dropped_count(win)).unwrap_or(0);
+    value::from_number(count as f64)
+}
+
+/// `input.droppedPath(win, i)` — caminho absoluto do i-ésimo; vazio fora da faixa.
+extern "C" fn dropped_path(_e: u64, _t: u64, win: u64, index: u64, _b: u64, _c: u64) -> u64 {
+    let (win, index) = (handle(win), integer(index, -1));
+    let path = if index < 0 {
+        String::new()
+    } else {
+        rts_input::with_input(|source| source.dropped_path(win, index as usize)).unwrap_or_default()
+    };
+    value::from_text(&path)
+}
+
+/// `input.droppedX(win)` — posição do cursor (pontos lógicos) na soltura.
+extern "C" fn dropped_x(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let win = handle(win);
+    value::from_number(rts_input::with_input(|source| source.dropped_pos(win).0 as f64).unwrap_or(-1.0))
+}
+
+/// `input.droppedY(win)`.
+extern "C" fn dropped_y(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let win = handle(win);
+    value::from_number(rts_input::with_input(|source| source.dropped_pos(win).1 as f64).unwrap_or(-1.0))
+}
+
+/// `input.hoveredFiles(win)` — quantos arquivos estão pairando sobre a janela
+/// AGORA, para o editor destacar o alvo de soltura.
+extern "C" fn hovered_files(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let win = handle(win);
+    let count = rts_input::with_input(|source| source.hovered_files(win)).unwrap_or(0);
+    value::from_number(count as f64)
+}
+
+/// `input.hoveredX(win)` — posição do cursor (pontos lógicos) enquanto pairando.
+extern "C" fn hovered_x(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let win = handle(win);
+    value::from_number(rts_input::with_input(|source| source.hovered_pos(win).0 as f64).unwrap_or(-1.0))
+}
+
+/// `input.hoveredY(win)`.
+extern "C" fn hovered_y(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) -> u64 {
+    let win = handle(win);
+    value::from_number(rts_input::with_input(|source| source.hovered_pos(win).1 as f64).unwrap_or(-1.0))
 }
