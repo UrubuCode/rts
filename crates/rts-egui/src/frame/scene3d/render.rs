@@ -81,6 +81,26 @@ impl Scene3D {
             queue.write_buffer(&self.inst_buf, 0, f32_bytes(&inst));
         }
 
+        // ── PARTÍCULAS: `part_pending`/`part_pending_batches` já vêm prontos
+        // de `queue_particles` (concatenados ali, sem alocação por lote aqui
+        // — ver o comentário desses campos em `mod.rs`). Só falta garantir
+        // capacidade do buffer de GPU e escrever, uma vez por frame (não por
+        // vista).
+        let part_total = self.part_pending.len() / particles::PART_FLOATS;
+        if part_total as u64 > self.particle_inst_cap {
+            let cap = (part_total as u64).next_power_of_two().max(64);
+            self.particle_inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("scene3d particle inst"),
+                size: (particles::PART_FLOATS * 4) as u64 * cap,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.particle_inst_cap = cap;
+        }
+        if !self.part_pending.is_empty() {
+            queue.write_buffer(&self.particle_inst_buf, 0, f32_bytes(&self.part_pending));
+        }
+
         // ── SHADOW PASS: depth da cena vista da luz (só quando há sombra ativa) ──
         let has_shadow = self.light_vp != identity();
         if has_shadow && !self.draws.is_empty() {
@@ -182,6 +202,33 @@ impl Scene3D {
                     pass.draw_indexed(0..m.icount, 0, 0..n);
                 }
             }
+            // 2.5 PARTÍCULAS: billboard instanciado, DEPOIS das malhas opacas
+            // (depth já escrito) e ANTES da água. Depth TEST ligado (ficam
+            // atrás de paredes), WRITE desligado (translúcidas entre si, não
+            // se ocultam na ordem de chegada). Um dos 4 pipelines por lote —
+            // `aditivo` (blend) × tem-textura (disco procedural ou amostra
+            // `albedo_tex`), decidido por `particles::escolher_pipeline`
+            // (pura, testada sem GPU) e só mapeado pro `RenderPipeline` aqui.
+            for &(inicio, n, aditivo, tex) in &self.part_pending_batches {
+                let pipeline = match particles::escolher_pipeline(aditivo, tex.is_some()) {
+                    particles::PipelineParticula::Alfa => &self.particle_pipeline_alfa,
+                    particles::PipelineParticula::Aditivo => &self.particle_pipeline_aditivo,
+                    particles::PipelineParticula::AlfaTex => &self.particle_pipeline_tex_alfa,
+                    particles::PipelineParticula::AditivoTex => &self.particle_pipeline_tex_aditivo,
+                };
+                pass.set_pipeline(pipeline);
+                // A textura do lote (se houver) ou a 1×1 branca default — mas
+                // só importa VISUALMENTE quando o pipeline escolhido é uma
+                // variante `*Tex`; o disco procedural nunca a amostra.
+                let tex_bg = tex.and_then(|t| self.textures.get(&t)).unwrap_or(&self.default_tex_bg);
+                pass.set_bind_group(2, tex_bg, &[]);
+                let stride = (particles::PART_FLOATS * 4) as u64;
+                let off = inicio as u64 * stride;
+                let bytes = n as u64 * stride;
+                pass.set_vertex_buffer(0, self.particle_inst_buf.slice(off..off + bytes));
+                pass.draw(0..4, 0..n);
+            }
+
             // 3. ÁGUA INSTANCIADA: 1 draw call por fila; instâncias direto do
             // storage buffer da física. Sem sombra própria (v1): a água recebe a
             // sombra do mundo pelo shadow_factor, mas não a projeta.
@@ -217,6 +264,8 @@ impl Scene3D {
 
         self.draws.clear();
         self.water_draws.clear();
+        self.part_pending.clear();
+        self.part_pending_batches.clear();
         self.vq.end_frame();
         true
     }

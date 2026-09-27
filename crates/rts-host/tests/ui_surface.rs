@@ -67,6 +67,8 @@ test("a cena 3D", function () {
     expect(typeof egui.setCamera).toBe("function");
     expect(typeof egui.setLight).toBe("function");
     expect(typeof egui.drawMesh).toBe("function");
+    expect(typeof egui.drawParticles).toBe("function");
+    expect(typeof egui.drawParticlesTex).toBe("function");
 });
 test("o input", function () {
     expect(typeof input.mouseX).toBe("function");
@@ -152,6 +154,40 @@ test("um campo ausente não vira NaN", function () {
     drawRect(0, {});
     drawRect(0, { x: "isto não é um número" });
     expect(true).toBe(true);
+});
+        "#,
+    );
+    assert_eq!(failed, Vec::<String>::new());
+}
+
+#[test]
+fn draw_particles_recusa_sem_ler_fora_do_buffer() {
+    // Este arquivo não abre janela (ver o comentário do topo), então não dá
+    // pra distinguir "recusado" de "sem janela" pelo valor — os dois voltam
+    // 0. O que É testável sem janela, e é o que este teste prova, é que a
+    // recusa por `n` fora do buffer acontece ANTES de precisar de uma cena:
+    // `scene_api::draw_particles`/`draw_particles_tex` conferem `n * PART_FLOATS
+    // > buf.length` e voltam 0 sem tentar ler além do slice, então a chamada
+    // atravessa a fronteira e responde são mesmo pedindo mais do que o
+    // `Float32Array` tem.
+    let failed = failures(
+        r#"
+import { test, expect } from "rts:test";
+import { drawParticles, drawParticlesTex } from "rts:egui";
+
+test("drawParticles recusa n maior que o buffer", function () {
+    const buf = new Float32Array(9 * 2); // só 2 partículas (PART_FLOATS=9)
+    expect(drawParticles(0, buf, 5, 0)).toBe(0);  // pede 5, buf só cabe 2
+    expect(drawParticles(0, buf, 0, 0)).toBe(0);  // n=0: sempre 0, sem efeito
+    // modo desconhecido (99) não deve travar: cai em alfa (documentado em
+    // particles::MODO_ALFA/MODO_ADITIVO), e sem janela o resultado é 0 de
+    // qualquer forma — o que importa é que a chamada não aborta o processo.
+    expect(drawParticles(0, buf, 2, 99)).toBe(0);
+});
+test("drawParticlesTex recusa n maior que o buffer", function () {
+    const buf = new Float32Array(9 * 2);
+    expect(drawParticlesTex(0, { buf: buf, tex: 1, n: 5, modo: 0 })).toBe(0);
+    expect(drawParticlesTex(0, { buf: buf, tex: 1, n: 0, modo: 0 })).toBe(0);
 });
         "#,
     );

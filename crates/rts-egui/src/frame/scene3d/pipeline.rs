@@ -1,6 +1,73 @@
 use super::shader::SHADER;
 use super::*;
 
+/// Blend ADITIVO: `dst = src.rgb * src.a + dst` (o destino nunca escurece,
+/// faíscas/fogo só somam luz). `src_factor: SrcAlpha` é o que preserva a
+/// borda suave do disco (`fs_particle`) e o fade de alpha da instância — com
+/// `One` no lugar (a versão anterior, ERRADA) a partícula soma sua cor CHEIA
+/// mesmo nas bordas quase transparentes, e o disco viraria um quadrado sólido
+/// no aditivo. O canal alpha do destino continua `One/One` (não há
+/// compositing por alpha depois deste pass). O modo alfa continua em
+/// `wgpu::BlendState::ALPHA_BLENDING`, como o pipeline de malha.
+pub(in crate::frame::scene3d) const BLEND_ADDITIVE: wgpu::BlendState = wgpu::BlendState {
+    color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+    alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+};
+
+/// Fatora as 4 `RenderPipeline` de partícula (`particle_pipeline_*`), que só
+/// diferem no `label`, no fragment `entry_point` (`fs_particle` disco
+/// procedural vs. `fs_particle_tex` texturizado) e no `blend` (alfa vs.
+/// aditivo) — vertex/primitive/depth idênticos nas 4. `ibl` é clonado
+/// internamente (o `VertexBufferLayout` é `&[T]`-por-valor no descriptor;
+/// cada pipeline precisa da sua própria cópia).
+#[allow(clippy::too_many_arguments)]
+fn make_particle_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    mesh_layout: &wgpu::PipelineLayout,
+    color_format: wgpu::TextureFormat,
+    ibl: &wgpu::VertexBufferLayout,
+    label: &str,
+    fs_entry: &'static str,
+    blend: wgpu::BlendState,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(mesh_layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_particle"),
+            buffers: &[ibl.clone()],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some(fs_entry),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: color_format,
+                blend: Some(blend),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multiview_mask: None,
+        multisample: wgpu::MultisampleState::default(),
+        cache: None,
+    })
+}
+
 impl Scene3D {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, color_format: wgpu::TextureFormat) -> Scene3D {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -336,6 +403,53 @@ impl Scene3D {
             mapped_at_creation: false,
         });
 
+        // PARTÍCULAS: quad billboard fixo (4 vértices, sem buffer por instância no
+        // slot 0 — vs_particle lê só @builtin(vertex_index)) + instância de 36 bytes
+        // (9 f32: pos, tamanho, rotação, cor). Depth TEST ligado, WRITE desligado:
+        // partículas ficam translúcidas entre si mas continuam atrás de paredes.
+        let particle_ibl = wgpu::VertexBufferLayout {
+            array_stride: (particles::PART_FLOATS * 4) as u64, // 36 bytes
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: (particles::PART_X * 4) as u64, shader_location: 0 },  // x,y,z,tamanho
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: (particles::PART_ROT * 4) as u64, shader_location: 1 }, // rotacao,r,g,b
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: (particles::PART_A * 4) as u64, shader_location: 2 }, // a
+            ],
+        };
+        // Variantes TEXTURIZADAS (`drawParticlesTex`): mesmo layout/depth, só
+        // troca `fs_particle` por `fs_particle_tex` (amostra `albedo_tex` do
+        // group 2 em vez do disco procedural) — ver o comentário de
+        // `fs_particle_tex` em `shader.rs` sobre por que é um fragment
+        // separado, e não um `if` dentro de `fs_particle`: um sprite não
+        // circular (fumaça, faísca alongada) não pode ser recortado pelo
+        // `smoothstep` do caminho sem textura.
+        //
+        // As 4 combinações (alfa/aditivo × disco/textura) só diferem no
+        // `label`, no fragment `entry_point` e no `blend` — `make_particle_pipeline`
+        // fatora o resto (idêntico) uma vez em vez de 4.
+        let particle_pipeline_alfa = make_particle_pipeline(
+            device, &shader, &mesh_layout, color_format, &particle_ibl,
+            "scene3d particle pipeline (alfa)", "fs_particle", wgpu::BlendState::ALPHA_BLENDING,
+        );
+        let particle_pipeline_aditivo = make_particle_pipeline(
+            device, &shader, &mesh_layout, color_format, &particle_ibl,
+            "scene3d particle pipeline (aditivo)", "fs_particle", BLEND_ADDITIVE,
+        );
+        let particle_pipeline_tex_alfa = make_particle_pipeline(
+            device, &shader, &mesh_layout, color_format, &particle_ibl,
+            "scene3d particle pipeline (alfa, texturizada)", "fs_particle_tex", wgpu::BlendState::ALPHA_BLENDING,
+        );
+        let particle_pipeline_tex_aditivo = make_particle_pipeline(
+            device, &shader, &mesh_layout, color_format, &particle_ibl,
+            "scene3d particle pipeline (aditivo, texturizada)", "fs_particle_tex", BLEND_ADDITIVE,
+        );
+        let particle_inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scene3d particle inst"),
+            size: (particles::PART_FLOATS * 4) as u64 * 64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Scene3D {
             pipeline,
             sky_pipeline,
@@ -366,6 +480,14 @@ impl Scene3D {
             water_draws: Vec::new(),
             inst_buf,
             inst_cap: 64,
+            particle_pipeline_alfa,
+            particle_pipeline_aditivo,
+            particle_pipeline_tex_alfa,
+            particle_pipeline_tex_aditivo,
+            part_pending: Vec::new(),
+            part_pending_batches: Vec::new(),
+            particle_inst_buf,
+            particle_inst_cap: 64,
         }
     }
 }

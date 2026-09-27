@@ -10,6 +10,12 @@ use crate::ctx::with_ctx;
 use crate::frame::scene3d::{model_matrix, model_matrix_quat, view_proj_lookat, view_proj_spec, CamSpec, Scene3D};
 use crate::frame::Backend;
 
+// Re-exportadas na raiz do crate (`rts_egui::PART_FLOATS`, mesmo nome do lado
+// TS) — ver `frame::scene3d::particles` pelo layout completo dos 9 floats.
+// `pub use` também traz os nomes para este arquivo, então `draw_particles`
+// abaixo os usa sem outro import.
+pub use crate::frame::scene3d::{MODO_ADITIVO, MODO_ALFA, PART_FLOATS};
+
 /// Garante o pipeline 3D criado na 1ª chamada e roda `f(scene, device)`.
 fn with_scene<R: Copy>(win: u64, f: impl FnOnce(&mut Scene3D, &wgpu::Device) -> R, default: R) -> R {
     with_ctx(win, |c| {
@@ -289,6 +295,47 @@ pub fn draw_mesh_batch(win: u64, floats: &[f32], codes: &[u32]) -> i64 {
     )
 }
 
+/// Valida `n` (partículas a desenhar) contra `floats_len` (o comprimento do
+/// buffer do chamador): `n <= 0` ou `n * PART_FLOATS` maior do que o buffer
+/// comporta voltam `None` — nunca um índice que leria fora do slice. A
+/// multiplicação usa `checked_mul`: um `n` absurdo (ex.: `i64::MAX` cru,
+/// travestido de contagem de partículas) NUNCA panica por overflow em debug,
+/// só é recusado como qualquer outro `n` grande demais. Compartilhada por
+/// [`draw_particles`]/[`draw_particles_tex`] para as duas nunca divergirem
+/// sobre o que é "grande demais".
+fn n_particulas_valido(floats_len: usize, n: i64) -> Option<usize> {
+    if n <= 0 {
+        return None;
+    }
+    let n = n as usize;
+    match n.checked_mul(PART_FLOATS) {
+        Some(preciso) if preciso <= floats_len => Some(n),
+        _ => None,
+    }
+}
+
+/// `drawParticles(win, buf, n, modo)` — um draw instanciado, billboard, sem
+/// textura (disco procedural). `buf` tem `PART_FLOATS` (9) floats por
+/// partícula; `n` partículas são desenhadas, das primeiras `n` linhas de `buf`.
+/// `n` maior do que `buf` comporta é recusado com 0 — nunca lê fora do slice.
+/// `modo` desconhecido (nem `MODO_ALFA` nem `MODO_ADITIVO`) cai em alfa.
+pub fn draw_particles(win: u64, floats: &[f32], n: i64, modo: i64) -> i64 {
+    let Some(n) = n_particulas_valido(floats.len(), n) else {
+        return 0;
+    };
+    let aditivo = modo == MODO_ADITIVO;
+    with_scene(win, |s, _d| { s.queue_particles(&floats[..n * PART_FLOATS], aditivo, None); n as i64 }, 0)
+}
+
+/// Como [`draw_particles`], com textura (`tex`, id de `textureUpload`).
+pub fn draw_particles_tex(win: u64, floats: &[f32], tex: u64, n: i64, modo: i64) -> i64 {
+    let Some(n) = n_particulas_valido(floats.len(), n) else {
+        return 0;
+    };
+    let aditivo = modo == MODO_ADITIVO;
+    with_scene(win, |s, _d| { s.queue_particles(&floats[..n * PART_FLOATS], aditivo, Some(tex)); n as i64 }, 0)
+}
+
 /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh` lendo cada
 /// instância (vec4 f32: xyz centro, w densidade assinada) DIRETO do buffer
 /// `gbuf` do rts:gpu — zero readback, zero FFI por partícula, 1 draw call.
@@ -350,4 +397,44 @@ pub fn upload_texture(win: u64, rgba: &[u8], w: i64, h: i64) -> u64 {
         }
     })
     .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn n_particulas_valido_recusa_sem_panicar_em_overflow() {
+        // n<=0: sempre None, sem chegar na multiplicação.
+        assert_eq!(n_particulas_valido(9, 0), None);
+        assert_eq!(n_particulas_valido(9, -1), None);
+        // n absurdo (um i64 travestido de contagem de partículas): a
+        // multiplicação `n * PART_FLOATS` estouraria `usize` — `checked_mul`
+        // devolve `None` em vez de panicar (overflow panica em debug).
+        assert_eq!(n_particulas_valido(9, i64::MAX), None);
+        // Exatamente 1 partícula cabe num buffer de 1 partícula; 2 não cabem.
+        assert_eq!(n_particulas_valido(PART_FLOATS, 1), Some(1));
+        assert_eq!(n_particulas_valido(PART_FLOATS, 2), None);
+        // Buffer menor do que 1 partícula: nenhum n>0 cabe.
+        assert_eq!(n_particulas_valido(PART_FLOATS - 1, 1), None);
+    }
+
+    /// Sem janela (win=0 não existe em nenhum `ctx`), `draw_particles`/
+    /// `draw_particles_tex` caem no `default = 0` de `with_scene` — o que
+    /// este teste prova é que a travessia inteira (validação de `n`, leitura
+    /// do slice, id de textura) não PANICA nem com NaN no buffer nem com um
+    /// id de textura que nunca existiu.
+    #[test]
+    fn nan_no_buffer_e_textura_invalida_nao_travam_draw_particles() {
+        let buf_nan = [f32::NAN; PART_FLOATS];
+        assert_eq!(draw_particles(0, &buf_nan, 1, MODO_ALFA), 0);
+        assert_eq!(draw_particles(0, &buf_nan, 1, MODO_ADITIVO), 0);
+
+        // Id de textura que nenhum `textureUpload` jamais devolveu: a
+        // resolução (textura real vs. 1×1 branca default) é do render loop
+        // (`Scene3D::render`), não daqui — `draw_particles_tex` só precisa
+        // NÃO travar ao empurrar esse id adiante.
+        let buf = [0.0f32; PART_FLOATS];
+        assert_eq!(draw_particles_tex(0, &buf, 999_999, 1, MODO_ALFA), 0);
+    }
 }

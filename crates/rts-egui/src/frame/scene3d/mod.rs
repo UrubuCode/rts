@@ -34,6 +34,7 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
 
 mod lights;
 mod math;
+mod particles;
 mod pipeline;
 mod render;
 mod shader;
@@ -45,6 +46,7 @@ use math::{identity, light_view_proj};
 pub use math::{Cam3D, model_matrix, model_matrix_quat, view_proj, view_proj_lookat};
 pub use math::{CamSpec, view_proj_spec};
 pub use lights::fog_params;
+pub use particles::{PART_FLOATS, MODO_ALFA, MODO_ADITIVO};
 
 const SHADOW_SIZE: u32 = 2048;
 
@@ -95,6 +97,31 @@ pub struct Scene3D {
     water_draws: Vec<(u64, wgpu::Buffer, u32, f32)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
+    // PARTÍCULAS: billboard instanciado, sem malha própria (quad UNIT fixo no
+    // shader). Um pipeline por (modo de blend × com/sem textura) — ver
+    // `particles::escolher_pipeline`, que decide qual dos 4 usar por lote.
+    particle_pipeline_alfa: wgpu::RenderPipeline,
+    particle_pipeline_aditivo: wgpu::RenderPipeline,
+    /// Variantes TEXTURIZADAS (`drawParticlesTex`): mesmo blend das duas
+    /// acima, `fs_particle_tex` em vez de `fs_particle` — a forma vem do
+    /// alpha da textura, não do disco procedural.
+    particle_pipeline_tex_alfa: wgpu::RenderPipeline,
+    particle_pipeline_tex_aditivo: wgpu::RenderPipeline,
+    /// Instâncias de partícula PENDENTES do frame atual — a concatenação de
+    /// todas as chamadas de `queue_particles` deste frame, num `Vec` MEMBRO
+    /// reaproveitado entre frames (só cresce; `render()` só dá `clear()`, que
+    /// não desaloca). SEM ISTO, cada `queue_particles` alocaria um `Vec` novo
+    /// (`to_vec()`) por chamada — um caminho de faíscas/fumaça a 60fps chama
+    /// isto centenas de vezes por segundo. Ver "Custo por quadro" no
+    /// CLAUDE.md do rts-game: nada de alocação por quadro num caminho de
+    /// desenho.
+    part_pending: Vec<f32>,
+    /// (início em INSTÂNCIAS dentro de `part_pending`, n, aditivo, textura) —
+    /// um por chamada de `queue_particles` neste frame; mesmo regime de
+    /// reaproveitamento (`clear()`, não recriado).
+    part_pending_batches: Vec<(u32, u32, bool, Option<u64>)>,
+    particle_inst_buf: wgpu::Buffer,
+    particle_inst_cap: u64,
 }
 
 impl Scene3D {
@@ -146,6 +173,27 @@ impl Scene3D {
     /// buffer da física (rts:gpu), sem readback. 1 draw call por chamada.
     pub fn queue_water(&mut self, mesh: u64, buf: wgpu::Buffer, count: u32, scale: f32) {
         self.water_draws.push((mesh, buf, count, scale));
+    }
+
+    /// PARTÍCULAS: enfileira um lote de `floats.len() / PART_FLOATS` billboards
+    /// (`floats` já validado pelo chamador — `scene_api::draw_particles*` nunca
+    /// deixa passar um `n` maior do que o buffer comporta). `aditivo` escolhe o
+    /// pipeline (blend soma vs. alpha blending); `tex`, quando presente, é o id
+    /// de uma `upload_texture` (bind group real no `render`; sem ela, a 1×1
+    /// branca default).
+    ///
+    /// SEM ALOCAÇÃO por chamada: `floats` é copiado pra dentro de
+    /// `part_pending` (`extend_from_slice`, um `Vec` MEMBRO reaproveitado
+    /// entre frames — `render()` só limpa com `clear()`), nunca um `Vec` novo
+    /// por lote.
+    pub fn queue_particles(&mut self, floats: &[f32], aditivo: bool, tex: Option<u64>) {
+        let n = (floats.len() / particles::PART_FLOATS) as u32;
+        if n == 0 {
+            return;
+        }
+        let inicio = (self.part_pending.len() / particles::PART_FLOATS) as u32;
+        self.part_pending.extend_from_slice(floats);
+        self.part_pending_batches.push((inicio, n, aditivo, tex));
     }
 
     /// Sobe uma imagem RGBA8 (`w×h`, `rgba` = w*h*4 bytes) pra VRAM e devolve um id

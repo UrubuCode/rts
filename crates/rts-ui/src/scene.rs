@@ -53,6 +53,8 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("setViewport", set_viewport),
     ("drawMesh", draw_mesh),
     ("drawMeshBatch", draw_mesh_batch),
+    ("drawParticles", draw_particles),
+    ("drawParticlesTex", draw_particles_tex),
 ];
 
 /// `meshUpload(win, vertices, indices)` — o id da malha, `0` em falha.
@@ -251,5 +253,42 @@ extern "C" fn draw_mesh_batch(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c
         return value::from_number(0.0);
     };
     let drawn = rts_egui::draw_mesh_batch(handle(win), &floats(&transforms), &codes(&raw_codes));
+    value::from_number(drawn as f64)
+}
+
+/// `drawParticles(win, buf, n, modo)` — billboard instanciado, sem textura
+/// (disco procedural). `buf` é um `Float32Array` de `rts_egui::PART_FLOATS`
+/// (9) floats por partícula; `n` partículas são desenhadas, das primeiras `n`
+/// linhas de `buf`. Responde quantas entraram; `0` se `n` for maior do que o
+/// buffer comporta (nunca lê fora dele) ou a janela não for wgpu.
+///
+/// `modo`: `0` = alfa, `1` = aditivo (`rts_egui::MODO_ALFA`/`MODO_ADITIVO`);
+/// qualquer outro valor cai em alfa — nunca um pipeline inválido por um
+/// `modo` errado do chamador.
+///
+/// Assim como `mesh_upload`/`texture_upload`, `n`/`modo` viajam POSICIONAIS
+/// (não num objeto de opções): a ABI de `Provided` só tem 3 argumentos além de
+/// `win`, e os três já são `buf`, `n`, `modo` — não sobra espaço para nomear.
+/// `drawParticlesTex` precisa de um quarto (`tex`) e por isso empacota em um
+/// objeto de opções.
+extern "C" fn draw_particles(_e: u64, _t: u64, win: u64, buf: u64, n: u64, modo: u64) -> u64 {
+    let Some(raw) = bytes(buf) else {
+        return value::from_number(0.0);
+    };
+    let drawn = rts_egui::draw_particles(handle(win), &floats(&raw), integer(n, 0), integer(modo, 0));
+    value::from_number(drawn as f64)
+}
+
+/// `drawParticlesTex(win, { buf, tex, n, modo })` — como [`draw_particles`],
+/// amostrando a textura `tex` (id de `textureUpload`) em vez do disco
+/// procedural. Empacotado num objeto de opções porque são QUATRO dados além
+/// de `win` (`buf`, `tex`, `n`, `modo`) e a ABI só dá três slots — ver a nota
+/// em `draw_particles`.
+extern "C" fn draw_particles_tex(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
+    let Some(raw) = member_bytes(spec, "buf") else {
+        return value::from_number(0.0);
+    };
+    let r = options(spec, &["tex", "n", "modo"], &[0.0, 0.0, 0.0]);
+    let drawn = rts_egui::draw_particles_tex(handle(win), &floats(&raw), r[0] as u64, r[1] as i64, r[2] as i64);
     value::from_number(drawn as f64)
 }
