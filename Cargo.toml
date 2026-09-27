@@ -17,6 +17,7 @@ members = [
     "crates/rts-std",
     "crates/rts-node",
     "crates/rts-physics",
+    "crates/rts-audio",
     "crates/rts-host",
     "crates/rts-runtime-boot",
     "crates/rts-runtime",
@@ -49,10 +50,9 @@ name = "rts"
 path = "src/main.rs"
 
 # The `asio` feature (low-latency Windows audio, `asio_audio`) went with
-# `rts-runtime`: it forwarded to that crate's own feature, and the namespace it
-# enabled was the old runtime's. Nothing in this engine provides audio yet, so
-# there is no feature to forward to — a flag that enables nothing is worse than
-# an absent one, which is the rule `CLAUDE.md` states for `sync`.
+# `rts-runtime`. Audio now lives in `crates/rts-audio` (`rts:audio`: cpal output,
+# a null device, `mix_add` and OGG/Vorbis), on by default in `rts-host` and
+# `rts-runtime-boot` as the `audio` feature — nothing here needs forwarding.
 
 # A janela, repassada pela CLI ao host — o último elo da cadeia.
 #

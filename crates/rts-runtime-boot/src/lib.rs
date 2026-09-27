@@ -86,6 +86,7 @@
 //! arithmetic that turns a cell index into an address does not know the base it
 //! used was never set.
 
+mod audio;
 mod manifest;
 mod page_scripts;
 mod physics;
@@ -121,7 +122,7 @@ pub fn keep() -> usize {
     let ui_install = rts_ui::install as usize;
     #[cfg(not(feature = "ui"))]
     let ui_install = 0usize;
-    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1) + physics::keep()
+    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1) + physics::keep() + audio::keep()
 }
 
 /// How the compiled program is entered — its script, and each module body that
@@ -478,6 +479,7 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
     rts_std::install(&mut context);
     rts_node::install(&mut context);
     physics::install(&mut context);
+    audio::install(&mut context);
     // O mesmo par e a mesma ordem do host JIT (`rts-host/src/run.rs`): o
     // documento é headless e vem sempre; a janela só com a feature `ui`. Sem
     // isto um `.exe` compilado de uma app de UI morria em "cannot resolve
@@ -559,7 +561,9 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
     });
     // Depois do programa e antes de qualquer destrutor: um `wgpu::Device` solto
     // num thread-local morre durante o descarregamento das DLLs do driver (ver
-    // `rts_ui::shutdown`; o host faz o mesmo). No-op sem janela aberta.
+    // `rts_ui::shutdown`; o host faz o mesmo). No-op sem janela aberta. O
+    // stream de som segue a mesma regra, e fecha antes.
+    audio::shutdown();
     #[cfg(feature = "ui")]
     rts_ui::shutdown();
     exit_code
