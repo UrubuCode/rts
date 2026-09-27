@@ -48,6 +48,13 @@ Mandatory terms that are not plain-permissive, and where they land:
 | `webpki-roots`, `webpki-root-certs` | CDLA-Permissive-2.0 | **runtime** |
 | `encoding_rs` | (Apache-2.0 OR MIT) **AND** BSD-3-Clause | **runtime** |
 
+**Added 2026-09-27 with `rts-audio` (runtime half — linked into every compiled
+program that keeps the default `audio` feature):** `lewton` (MIT OR Apache-2.0,
+pure Rust, no `build.rs`), `ogg` (BSD-3-Clause, pure Rust — the BSD notice travels
+in `RUNTIME-NOTICE.txt` like the others), `cpal` (Apache-2.0). `cpal`'s native
+side: WASAPI/CoreAudio are OS frameworks; on Linux `alsa-sys` links `libasound`
+**dynamically** (LGPL-2.1 dynamic linking, not the static-LGPL refusal below).
+
 ### Native code, where the surprises actually live
 
 A `-sys` crate's licence is the *wrapper's*. The C it vendors or links is under

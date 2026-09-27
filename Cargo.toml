@@ -15,6 +15,7 @@ members = [
     "crates/rts-std",
     "crates/rts-node",
     "crates/rts-physics",
+    "crates/rts-audio",
     "crates/rts-host",
     "crates/rts-runtime-boot",
     "crates/rts-runtime",
