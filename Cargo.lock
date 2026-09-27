@@ -4998,6 +4998,7 @@ dependencies = [
  "rts-dom",
  "rts-dom-bridge",
  "rts-node",
+ "rts-particles",
  "rts-physics",
  "rts-std",
  "rts-ui",
@@ -5095,6 +5096,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-particles"
+version = "0.1.0"
+dependencies = [
+ "rts-core",
+]
+
+[[package]]
 name = "rts-physics"
 version = "0.1.0"
 dependencies = [
@@ -5122,6 +5130,7 @@ dependencies = [
  "rts-core",
  "rts-dom-bridge",
  "rts-node",
+ "rts-particles",
  "rts-physics",
  "rts-std",
  "rts-ui",

@@ -1,0 +1,20 @@
+[package]
+name = "rts-particles"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "`rts:particles` — o kernel nativo de simulação de partículas (particlesStep): idade/reciclagem, vento+arrasto exponencial, integração de posição, gradiente de cor/curva de tamanho e o bucket sort back-to-front, tudo fora do laço interpretado."
+
+# Crate próprio pelo mesmo motivo de `rts-audio`/`rts-physics` (ver os dois
+# Cargo.toml): uma fronteira de módulo clara para o que TS chama por
+# `rts:particles`, sem puxar `rts-egui`/wgpu para dentro (o kernel é puro
+# f64/f32, sem GPU nem janela — `drawParticlesSeguro` continua em `rts-egui`).
+# Ao contrário de `rts-audio`/`rts-physics`, não há dependência de plataforma
+# (cpal, ALSA, …) a evitar em algum alvo, então este crate não precisa de
+# feature própria nem de gate em `rts-host`/`rts-runtime-boot` — instala
+# incondicionalmente, como `rts-dom-bridge`.
+
+[dependencies]
+rts-core = { path = "../rts-core" }
+
+[dev-dependencies]

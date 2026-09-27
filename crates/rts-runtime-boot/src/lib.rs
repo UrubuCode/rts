@@ -118,11 +118,18 @@ pub fn keep() -> usize {
     let std_install = rts_std::install as usize;
     let node_install = rts_node::install as usize;
     let dom_install = rts_dom_bridge::install as usize;
+    let particles_install = rts_particles::install as usize;
     #[cfg(feature = "ui")]
     let ui_install = rts_ui::install as usize;
     #[cfg(not(feature = "ui"))]
     let ui_install = 0usize;
-    core + (std_install & 1) + (node_install & 1) + (dom_install & 1) + (ui_install & 1) + physics::keep() + audio::keep()
+    core + (std_install & 1)
+        + (node_install & 1)
+        + (dom_install & 1)
+        + (particles_install & 1)
+        + (ui_install & 1)
+        + physics::keep()
+        + audio::keep()
 }
 
 /// How the compiled program is entered — its script, and each module body that
@@ -485,6 +492,7 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
     // isto um `.exe` compilado de uma app de UI morria em "cannot resolve
     // module rts:egui" — o comparativo RTS vs Electron foi quem o apanhou.
     rts_dom_bridge::install(&mut context);
+    rts_particles::install(&mut context);
     #[cfg(feature = "ui")]
     rts_ui::install(&mut context);
     // The one registration the default archive never makes: see this

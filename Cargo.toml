@@ -18,6 +18,7 @@ members = [
     "crates/rts-node",
     "crates/rts-physics",
     "crates/rts-audio",
+    "crates/rts-particles",
     "crates/rts-host",
     "crates/rts-runtime-boot",
     "crates/rts-runtime",
@@ -215,6 +216,11 @@ opt-level = 3
 # ms/frame at "z" against 0.94 at 3, so the profile alone is 1.7× of the answer.
 # A number taken at "z" would have been partly a measurement of the profile.
 [profile.release.package.rts-physics]
+opt-level = 3
+# O laço por-partícula de `particlesStep` — a mesma razão de `rts-physics`
+# acima: um kernel numérico chamado por-partícula, todo quadro, onde `opt-level
+# = "z"` custaria de verdade em vez de só inchar código morto.
+[profile.release.package.rts-particles]
 opt-level = 3
 [profile.release.package.cranelift-codegen]
 opt-level = 3
