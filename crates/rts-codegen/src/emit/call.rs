@@ -85,6 +85,13 @@ pub(super) fn emit_call_as(
     {
         return Ok(value);
     }
+    // `Number.isNaN(x)`, `Array.isArray(x)`, `Object.is(a, b)` and the global
+    // predicates, on the same terms. See `statics`.
+    if scope_is_lexical
+        && let Some(value) = super::statics::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
 
     // `JSON.stringify(x)` and `JSON.parse(s)` by their entry points, under the
     // same kind of proof. See `json_call`.

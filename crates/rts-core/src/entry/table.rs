@@ -65,7 +65,9 @@ use super::array::{
 };
 use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
 use super::text_walk::TEXT_WALK_ENTRY;
+use super::array::ARRAY_IS_ARRAY_ENTRY;
 use super::functions::ARGUMENT_AT_ENTRY;
+use super::primitives::SAME_VALUE_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
 use super::math_direct::{MATH_DIRECT1_ENTRY, MATH_DIRECT2_ENTRY};
 use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
@@ -757,6 +759,11 @@ pub enum CoreEntry {
     /// [`super::argument_at`] — one argument of the running call by position,
     /// for a parameter past the convention's slots, without building the rest.
     ArgumentAt = 109,
+    /// [`super::same_value`] — `Object.is(a, b)`, reached without the object once
+    /// the whole program proves the name still means it.
+    SameValue = 110,
+    /// [`super::array_is_array`] — `Array.isArray(x)`, the same way.
+    ArrayIsArray = 111,
 }
 
 /// How many entry points exist.
@@ -764,7 +771,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 110;
+pub const CORE_ENTRY_COUNT: usize = 112;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -879,6 +886,8 @@ impl CoreEntry {
         CoreEntry::MathDirect1,
         CoreEntry::MathDirect2,
         CoreEntry::ArgumentAt,
+        CoreEntry::SameValue,
+        CoreEntry::ArrayIsArray,
     ];
 
     /// The number a call site holds.
@@ -1004,6 +1013,8 @@ impl CoreEntry {
             CoreEntry::MathDirect1 => MATH_DIRECT1_ENTRY,
             CoreEntry::MathDirect2 => MATH_DIRECT2_ENTRY,
             CoreEntry::ArgumentAt => ARGUMENT_AT_ENTRY,
+            CoreEntry::SameValue => SAME_VALUE_ENTRY,
+            CoreEntry::ArrayIsArray => ARRAY_IS_ARRAY_ENTRY,
         }
     }
 

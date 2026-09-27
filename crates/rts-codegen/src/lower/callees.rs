@@ -39,6 +39,7 @@ pub struct Callees {
     /// Whether the whole program leaves `Math` as the language defines it --
     /// `intrinsic.rs`.
     math_primordial: bool,
+    statics_primordial: crate::emit::statics::Primordials,
 }
 
 impl Callees {
@@ -57,6 +58,7 @@ impl Callees {
             substitutes: std::collections::BTreeMap::new(),
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
+            statics_primordial: crate::emit::statics::Primordials::default(),
             by_binding: held,
             by_position: functions
                 .iter()
@@ -74,6 +76,7 @@ impl Callees {
             substitutes: std::collections::BTreeMap::new(),
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
+            statics_primordial: crate::emit::statics::Primordials::default(),
             by_binding: std::collections::BTreeMap::new(),
             by_position: positions
                 .iter()
@@ -128,6 +131,17 @@ impl Callees {
     /// Whether the program leaves `Math` alone.
     pub fn math_primordial(&self) -> bool {
         self.math_primordial
+    }
+
+    /// The same map, saying which of `emit/statics`'s names the program leaves alone.
+    pub fn with_statics_primordial(mut self, which: crate::emit::statics::Primordials) -> Self {
+        self.statics_primordial = which;
+        self
+    }
+
+    /// Which of `emit/statics`'s names the program leaves alone.
+    pub fn statics_primordial(&self) -> crate::emit::statics::Primordials {
+        self.statics_primordial
     }
 
     /// What a call to `name` may be substituted for, where something proved one.

@@ -59,6 +59,7 @@ pub(crate) use binding::OUTER;
 mod body_state;
 mod call;
 pub(crate) mod math;
+pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
 mod class;
@@ -640,6 +641,9 @@ pub struct Ctx<'a> {
     /// `primordial`. False is the safe answer and the default: a program this
     /// has not been computed for gets the call it has always got.
     math_primordial: bool,
+    /// Which of `Number`, `Array`, `Object`, `isNaN` and `isFinite` the whole
+    /// program leaves as the language's — `emit/statics`, on `Math`'s terms.
+    statics_primordial: statics::Primordials,
     /// Whether `JSON` is the primordial and never leaves a member base — the
     /// stricter proof `primordial::only_a_base` states, and `json_call` spends.
     json_primordial: bool,
@@ -752,6 +756,7 @@ impl<'a> Ctx<'a> {
             module_key: None,
             names_top_level: false,
             math_primordial: false,
+            statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             substituting: Vec::new(),
@@ -1168,6 +1173,20 @@ pub(super) fn emit_program_into(
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
     let json = ctx.names.intern("JSON");
     ctx.json_primordial = primordial::only_a_base(body, json, eval_name, global_this);
+    // The same two proofs for the names `emit/statics` decides: the objects by
+    // the stricter one, the two global functions by the plain one.
+    let number = ctx.names.intern("Number");
+    let array = ctx.names.intern("Array");
+    let object = ctx.names.intern("Object");
+    let is_nan = ctx.names.intern("isNaN");
+    let is_finite = ctx.names.intern("isFinite");
+    ctx.statics_primordial = statics::Primordials {
+        number: primordial::only_a_base(body, number, eval_name, global_this),
+        array: primordial::only_a_base(body, array, eval_name, global_this),
+        object: primordial::only_a_base(body, object, eval_name, global_this),
+        is_nan: primordial::untouched(body, is_nan, eval_name, global_this),
+        is_finite: primordial::untouched(body, is_finite, eval_name, global_this),
+    };
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");
@@ -1323,6 +1342,20 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     let whole_program_json = lowered
         .iter()
         .all(|(_, _, body, _)| primordial::only_a_base(body, json, eval_name, global_this));
+    // The same fold for the names `emit/statics` decides, each by its own proof.
+    let all_units = |proof: fn(&[Stmt], Name, Name, Name) -> bool, name: &str, ctx: &mut Ctx| {
+        let name = ctx.names.intern(name);
+        lowered
+            .iter()
+            .all(|(_, _, body, _)| proof(body, name, eval_name, global_this))
+    };
+    let whole_program_statics = statics::Primordials {
+        number: all_units(primordial::only_a_base, "Number", ctx),
+        array: all_units(primordial::only_a_base, "Array", ctx),
+        object: all_units(primordial::only_a_base, "Object", ctx),
+        is_nan: all_units(primordial::untouched, "isNaN", ctx),
+        is_finite: all_units(primordial::untouched, "isFinite", ctx),
+    };
 
     // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the
     // program rather than about a file.
@@ -1388,7 +1421,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             imports,
             Some(&unit.specifier),
             publications,
-            (whole_program_math, whole_program_json),
+            (whole_program_math, whole_program_json, whole_program_statics),
             ctx,
         )?);
     }
@@ -1409,7 +1442,7 @@ fn emit_unit(
     publications: &[module::Publication],
     // The one whole-program fact a single unit cannot answer, folded over every
     // lowered body by `emit_modules` before the first is emitted.
-    (whole_program_math, whole_program_json): (bool, bool),
+    (whole_program_math, whole_program_json, whole_program_statics): (bool, bool, statics::Primordials),
     ctx: &mut Ctx,
 ) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(function::signature());
@@ -1437,6 +1470,7 @@ fn emit_unit(
     // per-unit produced.
     ctx.math_primordial = whole_program_math;
     ctx.json_primordial = whole_program_json;
+    ctx.statics_primordial = whole_program_statics;
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");

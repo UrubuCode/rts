@@ -65,6 +65,23 @@ pub fn array_of(
     })
 }
 
+/// `Array.isArray(x)`, reached by compiled code without the object: the same
+/// answer [`super::array_proto`]'s member gives, from the same side table, with
+/// the global read, the property read and the dispatch removed — about 40 ns
+/// for a body that is one lookup (`docs/codegen/native-call-floor.md`). A
+/// revoked proxy raises the `TypeError` the member raises, and answers `false`
+/// to a caller that then re-raises.
+#[rtse::entry]
+pub fn array_is_array(value: u64) -> bool {
+    match with_current(|context| super::array_proto::array_in(context, value)) {
+        Some(held) => held,
+        None => {
+            super::throw::type_error("Cannot perform 'IsArray' on a proxy that has been revoked");
+            false
+        }
+    }
+}
+
 /// How many values [`array_of`] takes in one crossing.
 ///
 /// Eight and not four, because the row it serves most is the ARGUMENT VECTOR of

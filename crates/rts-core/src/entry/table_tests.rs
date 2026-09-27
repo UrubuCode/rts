@@ -227,8 +227,14 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // rest array (`RestArguments`) and indexing it, once per call. One word read
     // out of the vector the call already holds is the same question with no
     // array in the answer.
+    //
+    // Moved to 112 on 2026-09-26 for `SameValue` and `ArrayIsArray`: `Object.is`
+    // and `Array.isArray` reached without the object, under the proof `Math`
+    // already rests on. Both REMOVE crossings — a global read, a property read
+    // and a dispatch, ~40 ns each for bodies of one comparison or one lookup —
+    // which is still the only argument this list accepts.
     assert!(
-        CORE_ENTRY_COUNT <= 110,
+        CORE_ENTRY_COUNT <= 112,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

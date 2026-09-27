@@ -427,6 +427,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ArgumentAt => (CoreEntry::ArgumentAt, {
             rts_core::entry::argument_at as extern "C" fn(i64) -> u64 as *const u8
         }),
+        RuntimeOp::SameValue => (CoreEntry::SameValue, {
+            rts_core::entry::same_value as extern "C" fn(u64, u64) -> bool as *const u8
+        }),
+        RuntimeOp::ArrayIsArray => (CoreEntry::ArrayIsArray, {
+            rts_core::entry::array_is_array as extern "C" fn(u64) -> bool as *const u8
+        }),
         RuntimeOp::UnaryPlus => (CoreEntry::UnaryPlus, {
             rts_core::entry::unary_plus as extern "C" fn(u64) -> u64 as *const u8
         }),

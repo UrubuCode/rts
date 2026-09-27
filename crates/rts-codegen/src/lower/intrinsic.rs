@@ -23,7 +23,7 @@ use rts_mir::cfg::ValueId;
 
 use super::{Lowering, Unsupported};
 use crate::domain::JsPrim;
-use crate::domain::JsConst;
+use crate::domain::{JsConst, Type};
 use crate::syntax::{BinaryOp, Expr, ExprKind, Literal, Spreadable, UnaryOp};
 
 impl Lowering<'_> {
@@ -121,6 +121,92 @@ impl Lowering<'_> {
             return Ok(None);
         };
         Ok(Some(self.literal(&Literal::Number(value), at)?))
+    }
+
+    /// `Number.isNaN(x)`, `Array.isArray(x)`, `Object.is(a, b)`, `isNaN(x)`,
+    /// `isFinite(x)` on `emit/statics`'s terms, or `None` where the call stays one.
+    ///
+    /// The shape is decided by the same table the running emitter reads
+    /// (`statics::body::shape_of`), so the two emitters cannot admit different
+    /// members. The four predicates are instructions only over an operand this
+    /// stage PROVED a number; `Number.isNaN` does not convert, so over anything
+    /// else the call is finished over the operand already lowered — lowering it
+    /// again would evaluate it twice. The global forms convert first, which is
+    /// `ToNumber` here and what makes their operand a number.
+    pub(super) fn static_intrinsic(
+        &mut self,
+        callee: &Expr,
+        arguments: &[Spreadable],
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        use crate::emit::statics::body::{Shape as Static, shape_of};
+        let (object, member) = match &callee.kind {
+            ExprKind::Member {
+                object,
+                property,
+                optional: false,
+            } => match &object.kind {
+                ExprKind::Ident(name) => (self.names.spelled(*name), self.names.spelled(*property)),
+                _ => return Ok(None),
+            },
+            ExprKind::Ident(name) => (None, self.names.spelled(*name)),
+            _ => return Ok(None),
+        };
+        let Some(member) = member else {
+            return Ok(None);
+        };
+        let shadowed = |spelled: &str| {
+            self.names.find(spelled).is_some_and(|name| {
+                self.resolution.binding_in(self.scope, name).is_some()
+                    || self.outer.is_some_and(|outer| outer(name).is_some())
+            })
+        };
+        let primordials = self.callees.statics_primordial();
+        let Some(shape) = shape_of(primordials, object, member, arguments.len(), shadowed) else {
+            return Ok(None);
+        };
+        let global = object.is_none();
+        let mut values = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let Spreadable::Single(argument) = argument else {
+                return Ok(None);
+            };
+            let value = self.expression(argument)?;
+            // The GLOBAL predicates convert their operand; `Number.*` do not.
+            values.push(match global {
+                true => self.prim(JsPrim::ToNumber, vec![value], at),
+                false => value,
+            });
+        }
+        let numeric = |held: &Self, value: ValueId| matches!(held.type_of(value), Type::Int32 | Type::Double);
+        let prim = match shape {
+            Static::IsArray => {
+                return Ok(Some(self.entry(crate::runtime::RuntimeOp::ArrayIsArray, values, at)));
+            }
+            Static::Is => {
+                return Ok(Some(self.entry(crate::runtime::RuntimeOp::SameValue, values, at)));
+            }
+            // `Number.isNaN(x)` over a value this stage has not typed is `!(x === x)`
+            // EXACTLY -- NaN is the one value strictly unequal to itself, and a
+            // non-number never is -- and `===` is a row the machine side already
+            // guards into an instruction and falls from.
+            Static::IsNaN if !numeric(self, values[0]) => {
+                let held = values[0];
+                let same = self.prim(JsPrim::StrictEquals, vec![held, held], at);
+                return Ok(Some(self.prim(JsPrim::Not, vec![same], at)));
+            }
+            _ if !numeric(self, values[0]) => {
+                // Not a number this stage can see: the member decides, over the
+                // operand already in hand.
+                let (callee, receiver) = self.callee_of(callee, at)?;
+                return Ok(Some(self.call(callee, receiver, values, at)));
+            }
+            Static::IsNaN => JsPrim::NumberIsNaN,
+            Static::IsFinite => JsPrim::NumberIsFinite,
+            Static::IsInteger => JsPrim::NumberIsInteger,
+            Static::IsSafeInteger => JsPrim::NumberIsSafeInteger,
+        };
+        Ok(Some(self.prim(prim, values, at)))
     }
 
     /// Whether `object` is the language's `Math` here: the whole program leaves it

@@ -399,6 +399,22 @@ impl MachineOps for JsMachine<'_> {
             }
             .map_err(machine);
         }
+        // THE `Number` PREDICATES, over an operand the lowering proved a number, stated once
+        // in `emit/statics/sequence.rs`. Any other operand never reaches these primitives.
+        if let (
+            JsPrim::NumberIsNaN | JsPrim::NumberIsFinite | JsPrim::NumberIsInteger | JsPrim::NumberIsSafeInteger,
+            [only],
+        ) = (which, args)
+        {
+            let held = self.as_double(into, *only)?;
+            return match which {
+                JsPrim::NumberIsNaN => crate::emit::statics::sequence::is_nan(into, held),
+                JsPrim::NumberIsFinite => crate::emit::statics::sequence::is_finite(into, held),
+                JsPrim::NumberIsInteger => crate::emit::statics::sequence::is_integer(into, held),
+                _ => crate::emit::statics::sequence::is_safe_integer(into, held),
+            }
+            .map_err(machine);
+        }
         if let (JsPrim::MathImul, [left, right]) = (which, args) {
             let left = self.as_double(into, *left)?;
             let right = self.as_double(into, *right)?;

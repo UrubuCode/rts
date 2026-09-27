@@ -109,7 +109,7 @@ pub(super) extern "C" fn is_array(
 ///
 /// It asked the element store alone, so `Array.isArray(new Proxy([], {}))`
 /// was `false` and `concat` appended such a proxy as one element.
-pub(super) fn array_in(context: &super::super::Context, value: u64) -> Option<bool> {
+pub(in crate::entry) fn array_in(context: &super::super::Context, value: u64) -> Option<bool> {
     let mut cell = match Value(value).as_slot() {
         Some(cell) => cell,
         None => return Some(false),

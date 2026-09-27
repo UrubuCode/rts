@@ -204,6 +204,8 @@ impl Js {
         // A string's code points, where a `for`-`of` may walk them -- `lower/iterate.rs`.
         RuntimeOp::TextWalk,
         RuntimeOp::ArgumentAt,
+        RuntimeOp::SameValue,
+        RuntimeOp::ArrayIsArray,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,
@@ -286,6 +288,10 @@ impl Js {
         JsPrim::MathFround,
         JsPrim::MathImul,
         JsPrim::MathClz32,
+        JsPrim::NumberIsNaN,
+        JsPrim::NumberIsFinite,
+        JsPrim::NumberIsInteger,
+        JsPrim::NumberIsSafeInteger,
     ];
 
     /// A domain holding only the fixed constants.
@@ -415,7 +421,11 @@ impl Js {
             | JsPrim::MathSign
             | JsPrim::MathFround
             | JsPrim::MathImul
-            | JsPrim::MathClz32 => Effect::PURE,
+            | JsPrim::MathClz32
+            | JsPrim::NumberIsNaN
+            | JsPrim::NumberIsFinite
+            | JsPrim::NumberIsInteger
+            | JsPrim::NumberIsSafeInteger => Effect::PURE,
             // Draining runs every reaction that settles first, which is code the program
             // wrote, and a rejection raises here.
             JsPrim::AwaitDrain => Effect::CALLS_USER.and(Effect::THROWS).and(Effect::ALLOCATES),
@@ -666,6 +676,11 @@ impl Domain for Js {
             | JsPrim::MathFround
             | JsPrim::MathImul
             | JsPrim::MathClz32 => Type::Double,
+            // A predicate over a number the lowering already proved one.
+            JsPrim::NumberIsNaN
+            | JsPrim::NumberIsFinite
+            | JsPrim::NumberIsInteger
+            | JsPrim::NumberIsSafeInteger => Type::Bool(None),
             // What the promise settled with, which nothing here decided.
             JsPrim::AwaitDrain => Type::Anything,
             JsPrim::Negate => match args {

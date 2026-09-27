@@ -35,6 +35,7 @@
 mod arguments;
 mod concat;
 mod construct;
+pub(in crate::entry) use construct::array_in;
 mod cursor;
 mod generic;
 pub(super) mod iterate;

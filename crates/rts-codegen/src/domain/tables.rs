@@ -163,6 +163,18 @@ pub enum JsPrim {
     MathImul,
     /// `Math.clz32(x)`: `ToInt32`, a leading-zero count, and back to a double.
     MathClz32,
+    /// `Number.isNaN(x)` over an operand the lowering PROVED a number — the one
+    /// float comparison that is true of NaN alone. `emit/statics/sequence.rs` states
+    /// it once for both emitters. Over anything else the call stays a call: the
+    /// predicate does not convert, so `Number.isNaN("abc")` is false, and only the
+    /// runtime's member says so.
+    NumberIsNaN,
+    /// See [`JsPrim::NumberIsNaN`].
+    NumberIsFinite,
+    /// See [`JsPrim::NumberIsNaN`].
+    NumberIsInteger,
+    /// See [`JsPrim::NumberIsNaN`].
+    NumberIsSafeInteger,
     /// The receiver of this activation.
     ///
     /// # Why an operation and not a parameter

@@ -1084,6 +1084,16 @@ pub enum RuntimeOp {
     /// convention's slots arrives. A call because the vector is the runtime's.
     /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
     ArgumentAt,
+
+    /// `Object.is(a, b)` — `SameValue` over two words, reached directly where the
+    /// whole program proves `Object` is the language's. A call because a string
+    /// compares by its text, which is the heap.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    SameValue,
+    /// `Array.isArray(x)`, reached directly under the same proof. A call because
+    /// being an array is a side table the runtime keeps.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    ArrayIsArray,
 }
 
 impl RuntimeOp {
@@ -1204,6 +1214,8 @@ impl RuntimeOp {
         RuntimeOp::JsonParse,
         RuntimeOp::TextWalk,
         RuntimeOp::ArgumentAt,
+        RuntimeOp::SameValue,
+        RuntimeOp::ArrayIsArray,
     ];
 
     /// The linker name the runtime must define.
@@ -1324,6 +1336,8 @@ impl RuntimeOp {
             RuntimeOp::JsonParse => "__rts_json_parse",
             RuntimeOp::TextWalk => "__rts_text_walk",
             RuntimeOp::ArgumentAt => "__rts_argument_at",
+            RuntimeOp::SameValue => "__rts_same_value",
+            RuntimeOp::ArrayIsArray => "__rts_array_is_array",
         }
     }
 
@@ -1601,6 +1615,8 @@ impl RuntimeOp {
             RuntimeOp::JsonStringify | RuntimeOp::JsonParse => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TextWalk => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::ArgumentAt => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::SameValue => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::ArrayIsArray => (vec![UNPROVEN], vec![Repr::Bool]),
         };
         Signature {
             params,
