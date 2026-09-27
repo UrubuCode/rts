@@ -24,7 +24,7 @@
             let dom = parse_html_to_dom(html);
             let list = layout_document(&dom, &ctx);
             let idx = dom.resolve(dom.query("#alvo").unwrap()).unwrap();
-            list.geometry()
+            list.geometry_now()
                 .rects
                 .get(&idx)
                 .expect("o alvo devia ter caixa")
@@ -54,7 +54,7 @@
             "<div style='display:flex'><span id='a'>um</span><span id='b'>dois</span></div>",
         );
         let list = layout_document(&dom, &ctx);
-        let geo = list.geometry();
+        let geo = list.geometry_now();
         let caixa = |sel: &str| {
             let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
             *geo.rects

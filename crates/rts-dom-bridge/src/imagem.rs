@@ -57,9 +57,8 @@ extern "C" fn set_image_data_url(_e: u64, _t: u64, doc: u64, n: u64, url: u64, _
 extern "C" fn set_image_file(_e: u64, _t: u64, doc: u64, n: u64, caminho: u64, _c: u64) -> u64 {
     let caminho = text(caminho);
     let Some(id) = node(n) else { return int(0) };
-    let Ok(bytes) = std::fs::read(caminho.strip_prefix("file://").unwrap_or(&caminho)) else {
-        return int(0);
-    };
+    // The compiled page's table first, the disk second (`recursos::tabela`).
+    let Some(bytes) = crate::recursos::tabela::read(&caminho) else { return int(0) };
     let Some((rgba, w, h)) = png::decodificar(&bytes) else { return int(0) };
     rts_dom::store::with_dom_mut(handle(doc), |d| d.set_pixel_data(id, rgba, w, h));
     int(1)

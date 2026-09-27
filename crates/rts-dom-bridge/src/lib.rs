@@ -36,14 +36,20 @@
 
 use rts_core::entry::{self, Context, Provided};
 
+mod config;
 mod engine;
 mod events;
+/// The DevTools domains over the document (`--inspect`), behind the feature.
+#[cfg(feature = "inspector")]
+pub mod inspector;
+
+pub use config::{Starter, declare_inspector};
 mod imagem;
 mod lifecycle;
 mod location;
 mod nodes;
 mod raizes;
-mod recursos;
+pub mod recursos;
 mod scroll;
 mod travessia;
 mod scope;
@@ -75,6 +81,7 @@ pub(crate) fn dom_members() -> Vec<(&'static str, Provided)> {
         .chain(lifecycle::MEMBERS)
         .chain(imagem::MEMBERS)
         .chain(recursos::MEMBERS)
+        .chain(config::MEMBERS)
         .copied()
         .collect()
 }

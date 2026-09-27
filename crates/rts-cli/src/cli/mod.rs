@@ -7,9 +7,10 @@ pub mod html_entry;
 pub mod init;
 pub mod install;
 pub mod ir;
+pub mod mir;
 pub mod napi;
-pub mod prove;
 pub mod new_engine;
+pub mod prove;
 pub mod run;
 pub mod test_cmd;
 
@@ -99,7 +100,11 @@ pub(crate) fn runtime_archive(embed_compiler: bool) -> Result<PathBuf> {
     // por ele — só `--embed-compiler`, que deliberadamente não tem fallback,
     // é que ficava sem archive. Desde #2681 esse é o caminho por omissão, e o
     // CI passou a falhar em Linux e macOS enquanto o Windows continuava verde.
-    let stem = if embed_compiler { "rts_runtime_jit" } else { "rts_runtime" };
+    let stem = if embed_compiler {
+        "rts_runtime_jit"
+    } else {
+        "rts_runtime"
+    };
     let file_name = if cfg!(target_os = "windows") {
         format!("{stem}.lib")
     } else {
@@ -127,8 +132,8 @@ pub(crate) fn runtime_archive(embed_compiler: bool) -> Result<PathBuf> {
     let beside_this_binary = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|dir| dir.join(file_name)));
-    let candidates =
-        ["release", "debug", "fast"].map(|profile| workspace.join("target").join(profile).join(file_name));
+    let candidates = ["release", "debug", "fast"]
+        .map(|profile| workspace.join("target").join(profile).join(file_name));
     let dev_archive = beside_this_binary
         .into_iter()
         .chain(candidates)
@@ -168,11 +173,26 @@ pub(crate) fn runtime_archive(embed_compiler: bool) -> Result<PathBuf> {
     // `rts-runtime-boot` carries the ACTUAL startup sequence for both
     // archives — `rts-runtime` and `rts-runtime-jit` are now each a `main`
     // wrapper over it — so it is checked either way.
-    let mut crates = vec!["rts-core", "rts-std", "rts-node", "rts-runtime-boot", "rts-runtime"];
+    let mut crates = vec![
+        "rts-core",
+        "rts-std",
+        "rts-node",
+        "rts-runtime-boot",
+        "rts-runtime",
+    ];
     if embed_compiler {
-        crates.extend(["rts-codegen", "rts-cranelift", "rts-host", "rts-runtime-jit"]);
+        crates.extend([
+            "rts-codegen",
+            "rts-cranelift",
+            "rts-host",
+            "rts-runtime-jit",
+        ]);
     }
-    let package = if embed_compiler { "rts-runtime-jit" } else { "rts-runtime" };
+    let package = if embed_compiler {
+        "rts-runtime-jit"
+    } else {
+        "rts-runtime"
+    };
     for crate_name in crates {
         let source_dir = workspace.join("crates").join(crate_name).join("src");
         if let Some(stale) = newer_rust_file(&source_dir, archive_mtime)? {
@@ -231,6 +251,22 @@ struct CliFlags {
     /// `<script>`s belong to the ONE command that precompiles them, not to
     /// `CompileOptions`, which every other command shares unchanged.
     html: Vec<String>,
+    /// `--specialised`, which only `mir` reads.
+    ///
+    /// Here rather than pulled out of the raw arguments by that command, because this
+    /// is where a flag becomes a flag: an argument matched somewhere else would land
+    /// in `positional` and be read as a file name.
+    specialised: bool,
+    /// `--machine`, which only `mir` reads.
+    ///
+    /// Beside `specialised` and for the same reason: a switch one command understands
+    /// is still a flag, and an argument matched anywhere else lands in `positional` and
+    /// is read as a file name.
+    machine: bool,
+    /// `--inspect[=port]`, Node's spelling: the DevTools endpoint on this port
+    /// (9229 when none is given). Handed to the host before anything runs; see
+    /// `docs/superpowers/plans/2026-09-26-dom-inspector.md`.
+    inspect: Option<u16>,
 }
 
 impl Default for CliFlags {
@@ -240,8 +276,11 @@ impl Default for CliFlags {
             debug: false,
             windows_subsystem: None,
             all_namespaces: false,
+            specialised: false,
+            machine: false,
             embed_compiler: true,
             html: Vec::new(),
+            inspect: None,
         }
     }
 }
@@ -288,7 +327,9 @@ where
         return run::eval_command(source, CompileOptions::default());
     }
     let (flags, positional) = parse_flags(raw)?;
-
+    if let Some(port) = flags.inspect {
+        rts_host::inspector::request(port);
+    }
 
     if positional.is_empty() {
         print_help(&bin_name);
@@ -304,15 +345,22 @@ where
             &flags.html,
         ),
         "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
-        "eval" | "-e" | "--eval" => run::eval_command(
-            positional.get(1).cloned(),
-            flags.as_compile_options(),
-        ),
+        "eval" | "-e" | "--eval" => {
+            run::eval_command(positional.get(1).cloned(), flags.as_compile_options())
+        }
         "init" => init::command(positional.get(1).cloned()),
         "clean" => clean::command(),
         "test" => test_cmd::command(positional.get(1).cloned()),
         "emit-types" => emit_types::command(positional.get(1).cloned()),
         "ir" => ir::command(positional.get(1).cloned(), flags.as_compile_options()),
+        // `--specialised` picks the tier a GUARD exists in. A parsed flag and not a
+        // string this line digs out of the raw arguments: an argument matched anywhere
+        // else lands in `positional` and is read as a file name.
+        "mir" => mir::command(
+            positional.get(1).cloned(),
+            flags.specialised,
+            flags.machine,
+        ),
         "prove" => prove::command(positional.get(1).cloned(), flags.as_compile_options()),
         "napi" => napi::command(positional.get(1).cloned()),
         "i" | "install" | "add" => {
@@ -352,6 +400,8 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
             "--all-namespaces" => flags.all_namespaces = true,
+            "--specialised" => flags.specialised = true,
+            "--machine" => flags.machine = true,
             // The default already embeds a compiler — kept as an explicit,
             // accepted synonym of it rather than removed, so a caller (this
             // repo's own CI included) that already passes it sees no change.
@@ -379,7 +429,9 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
                     .get(idx + 1)
                     .ok_or_else(|| anyhow!("missing value for --html"))?;
                 if value.starts_with('-') {
-                    return Err(anyhow!("invalid value for --html: {value} (expected a path)"));
+                    return Err(anyhow!(
+                        "invalid value for --html: {value} (expected a path)"
+                    ));
                 }
                 flags.html.push(value.clone());
                 idx += 2;
@@ -423,6 +475,14 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
                 })?;
                 flags.windows_subsystem = Some(parsed);
             }
+            "--inspect" => flags.inspect = Some(9229),
+            _ if arg.starts_with("--inspect=") => {
+                let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
+                let port = value
+                    .parse::<u16>()
+                    .map_err(|_| anyhow!("invalid port for --inspect: {value}"))?;
+                flags.inspect = Some(port);
+            }
             _ if arg.starts_with('-') => return Err(anyhow!("unknown option: {arg}")),
             _ => positional.push(arg.clone()),
         }
@@ -441,8 +501,21 @@ fn print_help(bin_name: &str) {
     println!("  {bin_name} clean");
     println!("  {bin_name} test [path]");
     println!("  {bin_name} emit-types [output.d.ts]");
-    println!("  {bin_name} ir <input.ts>          dump this engine's own IR to stdout (no execution)");
-    println!("  {bin_name} prove <input.ts>       report where the emitter could not prove, and gave up");
+    println!(
+        "  {bin_name} ir <input.ts>          dump this engine's own IR to stdout (no execution)"
+    );
+    println!(
+        "  {bin_name} mir <input.ts>         dump the shared MIR, one stage earlier, with effects and refusals"
+    );
+    println!(
+        "  {bin_name} mir --specialised <in>  the same, in the tier a type claim's guard exists in"
+    );
+    println!(
+        "  {bin_name} mir --machine <in>       how many functions reach the machine, and what stopped the rest"
+    );
+    println!(
+        "  {bin_name} prove <input.ts>       report where the emitter could not prove, and gave up"
+    );
     println!("  {bin_name} i [pkg@version ...]   install packages from package.json or args");
     println!("  {bin_name} help");
     println!("Options:");
@@ -451,14 +524,15 @@ fn print_help(bin_name: &str) {
     println!("  --embed-compiler                        (compile) DEFAULT — synonym; the .exe carries a compiler, so eval/new Function/page <script> work at run time");
     println!("  --no-embed-compiler                     (compile) opt out — link the small archive; refuses eval/new Function/page <script> at run time");
     println!("                                          aliases: --no-compiler, --sem-compilador");
-    println!("  --html <file>                           (compile) precompile this page's <script> tags into the binary (repeatable)");
+    println!("  --inspect[=port]                        (run) open the DevTools endpoint on 127.0.0.1 (default 9229; also RTS_INSPECT)");
+    println!("  --html <file>                           (compile) precompile this page's <script> tags and embed its local files (repeatable)");
     println!();
     println!("An `.html` entry needs no TypeScript at all: `{bin_name} compile pagina.html [out]` writes the");
     println!("app.ts-style window loop for you (parse+resources+scripts -> egui.openWindow -> per-frame");
     println!("render + input/event/timer pumps), with the page's HTML embedded as a build-time literal and");
-    println!("its <script>s precompiled as if `--html pagina.html` had been passed. A relative <link>/<img>");
-    println!("resolves against pagina.html's OWN folder as it exists on THIS machine at build time, not at");
-    println!("run time — moving the .exe elsewhere loses those. `<script src=\"http…\">` never enters either");
-    println!("way — fetched by a page loader, never by this compiler. `{bin_name} run pagina.html` runs the");
+    println!("its <script>s precompiled as if `--html pagina.html` had been passed. Every local file the page");
+    println!("loads — <link> sheets, their @imports, <script src>, <img> — is embedded in the binary at build");
+    println!("time (for every --html page too), so a copied .exe keeps them. http(s) resources are not");
+    println!("embedded — the page loader does not fetch them at all. `{bin_name} run pagina.html` runs the");
     println!("same loop in JIT, reading the page from disk each time instead of embedding it.");
 }

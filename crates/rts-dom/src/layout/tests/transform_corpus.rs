@@ -16,7 +16,7 @@ use crate::table::tests::{geometria, rect};
 /// Tolerância do corpus (`tests/css/README.md`): 1px.
 const TOL: f32 = 1.0;
 
-fn afirma_rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+fn afirma_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
     let r = rect(dom, list, sel, 0);
     let got = (r.x, r.y, r.w, r.h);
     let bate = (got.0 - esperado.0).abs() <= TOL

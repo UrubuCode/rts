@@ -31,12 +31,16 @@
 //! `examples/view.ts` does today ([`for_run`]): editing the page and
 //! re-running needs no rebuild.
 //!
-//! What compiling pays for that running does not: a relative `<link>`/`<img>`
-//! resolves against the HTML's own folder as it exists on the machine running
-//! `rts compile`, at build time — not a run-time lookup. A copy of the `.exe`
-//! moved to a machine without that exact path loses those resources; this is
-//! named here, in `--help` and in `docs/engine/aot-page-scripts.md` rather
-//! than left for a user to discover silently.
+//! What compiling carries that running does not need to: every local file the
+//! page's loader reads — the `<link>` sheets, their `@import`s, the
+//! `<script src>` files and the local `<img>`s — recorded at build time by
+//! running that same loader (`rts_host::object::page_resources`) and embedded
+//! in the binary's manifest; at run time the bridge answers those paths from
+//! the embedded table before the disk (`rts_dom_bridge::recursos::tabela`). So
+//! a copy of the `.exe` on a machine without the page's folder paints the same
+//! page. NOT embedded: `http(s)` resources, which the loader does not fetch at
+//! all today, and any path the page computes at run time rather than naming
+//! in its markup — those still read from disk, as before.
 
 use std::path::{Path, PathBuf};
 
@@ -110,8 +114,10 @@ fn json_string(text: &str) -> String {
 
 /// The AOT shell for `rts compile pagina.html`: the HTML embedded as a
 /// JSON-escaped literal (never read from disk at run time), resolving
-/// relative resources against `entry`'s own folder as it exists on THIS
-/// machine right now — the build-time path this module's own doc names.
+/// relative resources against `entry`'s own path as spelled by
+/// [`rts_host::object::page_resources::resource_base`] — the ONE function the
+/// build's resource recorder also calls, so the paths the binary's loader asks
+/// for are exactly the keys the build embedded.
 ///
 /// `entry`'s own `<script>`s are NOT compiled by this function — `casca`'s
 /// call to `runScriptsAt` reaches them at run time, through whichever
@@ -120,7 +126,7 @@ fn json_string(text: &str) -> String {
 /// `--html <file>` would have populated, exactly as if it had been given.
 pub fn for_compile(entry: &Path, html: &str) -> Result<String> {
     let title = window_title(html, entry);
-    let resource_base = std::path::absolute(entry)?.to_string_lossy().into_owned();
+    let resource_base = rts_host::object::page_resources::resource_base(entry);
     Ok(format!(
         "import egui from \"rts:egui\";\n{CASCA_FN}\ncasca({}, {}, {}, {});\n",
         json_string(html),

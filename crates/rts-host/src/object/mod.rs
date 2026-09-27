@@ -74,6 +74,7 @@
 pub mod html_scripts;
 mod manifest;
 mod page;
+pub mod page_resources;
 
 use std::collections::HashSet;
 
@@ -172,6 +173,11 @@ pub struct ObjectProgram {
     /// this table is read back and turned into
     /// `context.eval_compiler_with_receiver`.
     pub page_scripts: Vec<(u64, u32)>,
+    /// Every local file the `--html` pages' own loader read at build time,
+    /// keyed by the path it asked for — [`page_resources`] says how they are
+    /// recorded, `rts_dom_bridge::recursos::tabela` how a binary reads them
+    /// back before the disk. Empty for a program compiled without `--html`.
+    pub resources: Vec<page_resources::Resource>,
 }
 
 /// Compiles source text into an object file, ready to link against the
@@ -186,7 +192,7 @@ pub struct ObjectProgram {
 /// so it has no `import.meta` to answer and no directory to resolve `"./x"`
 /// against.
 pub fn compile_to_object(source: &str) -> Result<ObjectProgram, HostError> {
-    place(crate::run::front_end(source)?, &[], Vec::new(), Vec::new(), &[])
+    place(crate::run::front_end(source)?, &[], Vec::new(), Vec::new(), &[], Vec::new())
 }
 
 /// The same, plus every page `<script>` `extract_files` found in the caller's
@@ -199,10 +205,12 @@ pub fn compile_to_object(source: &str) -> Result<ObjectProgram, HostError> {
 /// records them — `crate::object::html_scripts::extract_files` is how a
 /// caller builds it from a list of `--html` paths. An empty slice is
 /// [`compile_to_object`] exactly: this function costs nothing extra when
-/// there is nothing to precompile.
+/// there is nothing to precompile. `resources` is what
+/// [`page_resources::record_files`] recorded from the same pages.
 pub fn compile_to_object_with_html(
     source: &str,
     page_scripts: &[String],
+    resources: Vec<page_resources::Resource>,
 ) -> Result<ObjectProgram, HostError> {
     place(
         crate::run::front_end(source)?,
@@ -210,6 +218,7 @@ pub fn compile_to_object_with_html(
         Vec::new(),
         Vec::new(),
         page_scripts,
+        resources,
     )
 }
 
@@ -230,7 +239,7 @@ pub fn compile_to_object_with_html(
 /// where an in-memory run reads them straight out of the placement.
 pub fn compile_graph_to_object(entry: &std::path::Path) -> Result<ObjectProgram, HostError> {
     let graph = crate::graph::front_end(entry)?;
-    place(graph.front, &graph.before, graph.metas, graph.resolutions, &[])
+    place(graph.front, &graph.before, graph.metas, graph.resolutions, &[], Vec::new())
 }
 
 /// The same, plus `--html` page scripts — see [`compile_to_object_with_html`],
@@ -238,6 +247,7 @@ pub fn compile_graph_to_object(entry: &std::path::Path) -> Result<ObjectProgram,
 pub fn compile_graph_to_object_with_html(
     entry: &std::path::Path,
     page_scripts: &[String],
+    resources: Vec<page_resources::Resource>,
 ) -> Result<ObjectProgram, HostError> {
     let graph = crate::graph::front_end(entry)?;
     place(
@@ -246,6 +256,7 @@ pub fn compile_graph_to_object_with_html(
         graph.metas,
         graph.resolutions,
         page_scripts,
+        resources,
     )
 }
 
@@ -264,6 +275,7 @@ fn place(
     module_metas: Vec<crate::graph::ModuleMeta>,
     resolutions: Vec<(String, String, String)>,
     page_scripts: &[String],
+    resources: Vec<page_resources::Resource>,
 ) -> Result<ObjectProgram, HostError> {
     let (front, page_hashes) = page::extend(front, page_scripts)?;
     let model = front.model;
@@ -393,6 +405,7 @@ fn place(
         module_metas,
         resolutions,
         page_scripts,
+        resources,
     };
     let manifest_bytes = embed_manifest(&meta);
     let blobs = [DataBlob {

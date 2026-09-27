@@ -84,6 +84,7 @@
 //! `emit/delegate.rs` emits.
 
 mod delegate;
+mod numbering;
 mod resume;
 
 use rts_cranelift::frame::ResumeMode;
@@ -94,6 +95,7 @@ use self::resume::{finish_value, refuse_running, resumable, resume, running};
 /// protocol: an async function's body is the same frame and is entered the same
 /// way, and only what happens to the answer differs. See `promise::async_fn`.
 pub(in crate::entry) use self::resume::advance;
+pub(in crate::entry) use self::numbering::owned as owned_frames;
 use super::{Context, with_current};
 use crate::value::Value;
 
@@ -198,7 +200,8 @@ impl State {
 /// `declare_literals` is: the addresses are fixed when the program is placed, and
 /// the context that runs it is built afterwards.
 pub fn declare_frames(context: &mut Context, frames: Vec<FrameShape>) {
-    context.frames = frames;
+    // Renumbered first: see `numbering` for the type-0 collision this closes.
+    context.frames = numbering::owned(context, frames);
 }
 
 /// Makes the generator object a call to a generator function answers.

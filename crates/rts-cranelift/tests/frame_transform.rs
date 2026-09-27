@@ -10,7 +10,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::Linkage;
-use rts_cranelift::frame::{ResumeMode, TransformError, resumable_form};
+use rts_cranelift::frame::{
+    ResumeMode, TransformError, resumable_form, resumable_form_with_arrivals,
+};
 use rts_cranelift::ir::{
     ConstDecl, FuncBuilder, FuncRegistry, Function, NumOp, ScalarBits, Signature, ValueId,
 };
@@ -468,7 +470,10 @@ fn a_resumption_that_returns_runs_the_cleanup_it_parked_inside() {
     write_cleanup(&mut func, &empty, cleanup, 7);
 
     let resumable = resumable_form(&func, &mut types, ABRUPT).expect("rewritten");
-    assert_eq!(verify(&resumable.func, &types, &FuncRegistry::new()), vec![]);
+    assert_eq!(
+        verify(&resumable.func, &types, &FuncRegistry::new()),
+        vec![]
+    );
     let layout = ObjectLayout::of(resumable.layout.ty, &types);
     let (address, frame) = compile_resumable("return_through_cleanup", &resumable, &types);
     let run: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(address) };
@@ -555,5 +560,96 @@ fn a_rewritten_body_with_nothing_left_to_await_declares_that_it_cannot() {
     assert!(
         !resumable.func.signature.may_suspend,
         "the rewrite is what removes the suspension, so the permission goes with it"
+    );
+}
+
+/// A function that declares no suspension is STILL rewritten when an arrival is named,
+/// and the refusal is kept for a caller that names neither.
+///
+/// Naming an arrival is the statement `may_suspend` makes for the other half: the caller
+/// has said it intends this body to be enterable in the middle.
+#[test]
+fn naming_an_arrival_is_what_says_a_body_may_be_entered_in_the_middle() {
+    let mut types = TypeRegistry::new();
+    let mut func = Function::new(Signature {
+        params: vec![Repr::I64],
+        returns: vec![Repr::I64],
+        ..Signature::default()
+    });
+    let x = param(&func, 0);
+    let entry = func.entry;
+    let empty = TypeRegistry::new();
+    let mut b = FuncBuilder::new(&mut func, &empty, entry);
+    let doubled = b.arith(NumOp::Add, x, x).expect("proven");
+    b.ret(&[doubled]);
+
+    // NEITHER: refused, and for the reason it always was.
+    assert_eq!(
+        resumable_form(&func, &mut types, ABRUPT).err(),
+        Some(TransformError::NotSuspending)
+    );
+
+    // ONE ARRIVAL: rewritten, with one dispatch arm for it.
+    let at = func
+        .blocks()
+        .flat_map(|(_, block)| block.insts.clone())
+        .next()
+        .expect("the addition is an instruction");
+    let resumable = resumable_form_with_arrivals(&func, &mut types, ABRUPT, &[at])
+        .expect("an arrival says the body may be entered");
+    assert_eq!(resumable.resume_points, 1);
+    assert_eq!(
+        verify(&resumable.func, &types, &FuncRegistry::new()),
+        vec![],
+        "a rewrite only the rewriter understands has moved nothing"
+    );
+}
+
+/// **An arrival does not park**, which is the whole difference from a suspension and the
+/// reason `resumable_form` did not fit a side exit as it stood.
+///
+/// Entered with no label, the body runs from the top straight through the arrival and
+/// finishes — `1` — exactly as it would have without the rewrite. A park emitted at the
+/// point would have stopped it there and answered `0`, which is what a suspension does and
+/// what a deoptimisation target must not.
+#[test]
+fn a_body_with_an_arrival_runs_straight_through_it() {
+    let mut types = TypeRegistry::new();
+    let mut func = Function::new(Signature {
+        params: vec![Repr::I64],
+        returns: vec![Repr::I64],
+        ..Signature::default()
+    });
+    let x = param(&func, 0);
+    let entry = func.entry;
+    let empty = TypeRegistry::new();
+    let mut b = FuncBuilder::new(&mut func, &empty, entry);
+    let doubled = b.arith(NumOp::Add, x, x).expect("proven");
+    let again = b.arith(NumOp::Add, doubled, doubled).expect("proven");
+    b.ret(&[again]);
+
+    // The arrival is the SECOND addition, so a body entered at it would skip the first.
+    let insts: Vec<_> = func
+        .blocks()
+        .flat_map(|(_, block)| block.insts.clone())
+        .collect();
+    let resumable =
+        resumable_form_with_arrivals(&func, &mut types, ABRUPT, &[insts[1]]).expect("rewritten");
+    let layout = ObjectLayout::of(resumable.layout.ty, &types);
+    let (address, frame) = compile_resumable("arrival", &resumable, &types);
+
+    unsafe {
+        write_field(frame, &layout, resumable.layout.param_fields[0], 5);
+    }
+    let run: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(address) };
+    assert_eq!(
+        run(0),
+        1,
+        "it finished: nothing parks at an arrival, which is the point"
+    );
+    assert_eq!(
+        unsafe { read_field(frame, &layout, resumable.layout.return_fields[0]) },
+        20,
+        "5 doubled twice, so both additions ran and the arrival changed no answer"
     );
 }

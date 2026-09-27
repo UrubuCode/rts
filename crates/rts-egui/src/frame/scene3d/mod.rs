@@ -32,15 +32,19 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
     buf
 }
 
+mod lights;
 mod math;
 mod pipeline;
 mod render;
 mod shader;
+mod views;
 #[cfg(test)]
 mod tests;
 
 use math::{identity, light_view_proj};
-pub use math::{Cam3D, model_matrix, view_proj, view_proj_lookat};
+pub use math::{Cam3D, model_matrix, model_matrix_quat, view_proj, view_proj_lookat};
+pub use math::{CamSpec, view_proj_spec};
+pub use lights::fog_params;
 
 const SHADOW_SIZE: u32 = 2048;
 
@@ -73,27 +77,24 @@ pub struct Scene3D {
     meshes: HashMap<u64, GpuMesh>,
     next_mesh: u64,
     // estado por-frame
-    view_proj: [f32; 16],
+    /// Vistas do frame (câmera, retângulo, fundo). Ver `views.rs`.
+    vq: views::ViewQueue,
+    env_buf: wgpu::Buffer,
+    lights: lights::PackedLights,
+    sky: lights::SkyParams,
+    fog: [f32; 4],
     light: [f32; 4],
     light_vp: [f32; 16],   // view·proj da luz (shadow map); identidade = sem sombra
-    cam_pos: [f32; 3],
-    cright: [f32; 3],
-    cup: [f32; 3],
-    cfwd: [f32; 3],
-    tan_h: f32,
-    tan_v: f32,
-    // (mesh, model, color, emissive, tex_flag, tex_id) — tex_flag vai pro shader
-    // (0/1/2), tex_id seleciona o bind group da textura no render loop.
-    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64)>,
+    // (mesh, model, color, emissive, tex_flag, tex_id, tile) — tex_flag vai pro
+    // shader (0/1/2), tex_id seleciona o bind group da textura no render loop,
+    // tile > 0 = UV em coordenada de mundo (repetições por unidade).
+    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64, f32)>,
     water_pipeline: wgpu::RenderPipeline,
     /// (mesh, buffer de instâncias [vec4/partícula], count, escala) — drenada
     /// junto de `draws`. O buffer vem CLONADO do rts:gpu (mesmo device).
     water_draws: Vec<(u64, wgpu::Buffer, u32, f32)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
-    /// Fundo do scene pass: `None` = skybox procedural (default); `Some(rgba)` =
-    /// cor CHAPADA (o viewport do editor quer um fundo neutro, não o starfield).
-    bg: Option<[f32; 4]>,
 }
 
 impl Scene3D {
@@ -111,15 +112,16 @@ impl Scene3D {
         self.meshes.remove(&id);
     }
 
-    pub fn set_camera(&mut self, cd: Cam3D) {
-        self.view_proj = cd.view_proj;
-        self.cam_pos = cd.cam_pos;
-        self.cright = cd.right;
-        self.cup = cd.up;
-        self.cfwd = cd.fwd;
-        self.tan_h = cd.tan_h;
-        self.tan_v = cd.tan_v;
-    }
+    /// Câmera da vista corrente (ver `set_viewport`).
+    pub fn set_camera(&mut self, cd: Cam3D) { self.vq.set_camera(cd); }
+    /// Até 8 luzes, 16 f64 por luz (`lights::LIGHT_IN`); n = 0 = shading legado.
+    pub fn set_lights(&mut self, src: &[f64], n: usize) { self.lights = lights::pack_lights(src, n); }
+    /// Céu, sol e ambiente (`lights::SKY_IN` f64).
+    pub fn set_sky(&mut self, src: &[f64]) { self.sky = lights::SkyParams::from_f64(src); }
+    /// Neblina: rgb + densidade (0 desliga).
+    pub fn set_fog(&mut self, f: [f32; 4]) { self.fog = f; }
+    /// Começa uma vista: retângulo em fração da janela (y do topo).
+    pub fn set_viewport(&mut self, rect: [f32; 4], limpar: bool) { self.vq.set_viewport(rect, limpar); }
     pub fn set_light(&mut self, d: [f32; 3], ambient: f32) {
         // ponto de luz: guarda a POSICAO (nao normaliza)
         self.light = [d[0], d[1], d[2], ambient];
@@ -134,8 +136,9 @@ impl Scene3D {
         }
     }
     /// `tex`: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (imagem).
-    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64) {
-        self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex));
+    /// `tile`: 0 = UV da malha; > 0 = UV em mundo, `tile` repetições por unidade.
+    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64, tile: f32) {
+        self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex, tile));
     }
 
     /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh`, lendo cada
@@ -164,17 +167,11 @@ impl Scene3D {
         self.textures.insert(id, bg);
         id
     }
-    /// Fundo CHAPADO (desliga o skybox): o pass limpa o color pra `rgba` e não
-    /// desenha o starfield. Ideal pro viewport do editor.
-    pub fn set_clear_color(&mut self, rgba: [f32; 4]) {
-        self.bg = Some(rgba);
-    }
-    /// Religa (on) ou mantém desligado o skybox procedural. `on` volta a `bg=None`.
-    pub fn set_skybox(&mut self, on: bool) {
-        if on {
-            self.bg = None;
-        }
-    }
+    /// Fundo CHAPADO da vista corrente (desliga o céu nela). Ideal pro viewport
+    /// do editor.
+    pub fn set_clear_color(&mut self, rgba: [f32; 4]) { self.vq.set_fundo(views::Fundo::Cor(rgba)); }
+    /// Religa (on) o céu na vista corrente; `false` mantém o fundo como está.
+    pub fn set_skybox(&mut self, on: bool) { self.vq.skybox(on); }
 
     fn ensure_depth(&mut self, device: &wgpu::Device, w: u32, h: u32) {
         if w != self.depth_w || h != self.depth_h {

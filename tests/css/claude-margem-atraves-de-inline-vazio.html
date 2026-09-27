@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Ruler (BT-3): margins collapsing THROUGH the anonymous block box that
+     encloses an inline run between two block siblings (CSS 2.1 §9.2.1.1).
+     An empty `<span>` makes no line box (§9.4.2), so the anonymous box around
+     it is zero-height with no margins of its own, and the 20px and 30px
+     margins around it should collapse into one (§8.3.1). Until BT-3 the flow
+     grouped the span by hand and its flush closed the collapse, giving 50.
+     Three cases: an empty span; a span holding ONE collapsible space (still no
+     line box: the space collapses away); and a span holding `x`, which does
+     make a line, so the margins must NOT collapse through it. The children
+     are written with no whitespace between them so that no source text joins
+     the run. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 16px/20px monospace; }
+  .caso { width: 200px; margin-bottom: 60px; background: #eee; overflow: hidden; }
+  .a { margin: 0 0 20px; height: 10px; background: #f00; }
+  .b { margin: 30px 0 0; height: 10px; background: #00f; }
+</style></head>
+<body>
+  <div class="caso" id="c1"><p class="a" id="a1"></p><span id="s1"></span><p class="b" id="b1"></p></div>
+  <div class="caso" id="c2"><p class="a" id="a2"></p><span id="s2"> </span><p class="b" id="b2"></p></div>
+  <div class="caso" id="c3"><p class="a" id="a3"></p><span id="s3">x</span><p class="b" id="b3"></p></div>
+</body>
+</html>

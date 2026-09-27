@@ -91,13 +91,12 @@ fn legend(
         .declared()
         .map(|(op, id)| (id, op.symbol().to_owned()))
         .collect();
-    rows.extend(
-        front
-            .emitted
-            .functions
-            .iter()
-            .map(|(id, _)| (*id, named.get(id).copied().unwrap_or("<anonymous>").to_owned())),
-    );
+    rows.extend(front.emitted.functions.iter().map(|(id, _)| {
+        (
+            *id,
+            named.get(id).copied().unwrap_or("<anonymous>").to_owned(),
+        )
+    }));
     rows.sort_by_key(|(id, _)| id.index());
 
     let mut out = String::from("; callees\n");
@@ -135,4 +134,36 @@ mod tests {
             "a dump of a program that does not parse is not a dump"
         );
     }
+}
+
+/// The MIR of one source text, as text.
+///
+/// Apart from [`describe_source`] rather than a flag on it, because the two answer
+/// about different stages and a flag would make one command mean two things. This
+/// one stops before the machine's representation exists at all: `rts_codegen`'s
+/// lowering into `rts_mir` is upstream of everything `front_end` does, so nothing
+/// here compiles or places anything.
+///
+/// Nothing in this crate decides what the text says — rule 1 — and the whole
+/// implementation is `rts_codegen::mir_dump`.
+pub fn describe_mir(source: &str) -> Result<String, HostError> {
+    rts_codegen::mir_dump::describe(source).map_err(HostError::Parse)
+}
+
+/// How many functions reach the MACHINE, and what stopped the rest.
+///
+/// A different question from either of the two above, and the one a reader asking
+/// "how far along is this" wants: a graph is not code.
+pub fn describe_mir_machine(source: &str) -> Result<String, HostError> {
+    rts_codegen::mir_dump::describe_machine(source).map_err(HostError::Parse)
+}
+
+/// The same, for the specialised tier -- the one a guard exists in.
+///
+/// A second function rather than a parameter on the first, because every caller of
+/// that one wants the generic body and a default argument would make which tier a
+/// reader is looking at depend on a value they cannot see.
+pub fn describe_mir_specialised(source: &str) -> Result<String, HostError> {
+    rts_codegen::mir_dump::describe_tier(source, rts_codegen::lower_module::SPECIALISED)
+        .map_err(HostError::Parse)
 }

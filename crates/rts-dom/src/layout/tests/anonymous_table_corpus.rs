@@ -11,7 +11,7 @@ use crate::table::tests::geometria;
 /// Corpus tolerance (`tests/css/README.md`): 1px.
 const TOL: f32 = 1.0;
 
-fn assert_rect(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, expected: (f32, f32, f32, f32)) {
+fn assert_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, expected: (f32, f32, f32, f32)) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     let got = (r.x, r.y, r.w, r.h);

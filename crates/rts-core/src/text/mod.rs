@@ -55,7 +55,7 @@ mod runs;
 mod space;
 
 pub use intern::Interner;
-pub use narrow::Narrow;
+pub use narrow::{INLINE, Narrow};
 pub use normalize::{Form, normalized};
 pub use runs::mapped_runs;
 pub use space::is_white_space;

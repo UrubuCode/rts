@@ -12,7 +12,7 @@
 //! Ascent, descent and the `normal` line height used to be three constants of
 //! this module (0.90, 0.3125 and `ceil(1.125 × size)`), one approximation for
 //! every family. They are now the real `hhea` tables of the fonts Blink uses,
-//! with Blink's rounding, in `layout/fonte_metricas.rs` — which also fixed the
+//! with Blink's rounding, in `layout/measure/font_metrics.rs` — which also fixed the
 //! one row the old table below got wrong (32px: 37, where `ceil` gave 36).
 //!
 //! ## O avanço de um carácter
@@ -114,7 +114,7 @@ pub fn spacing_width(n_chars: usize, letter_spacing: f32) -> f32 {
 ///
 /// The `text-top` row gave an ascent ratio (0.90) that lived here as a
 /// constant until the vertical metrics became the fonts' own tables
-/// (`layout/fonte_metricas.rs`); at 20px both give the measured 18.
+/// (`layout/measure/font_metrics.rs`); at 20px both give the measured 18.
 /// Half the x-height of the strut, which `middle` centres on.
 pub const X_HEIGHT_RATIO: f32 = 0.491;
 /// Fração do font-size que `sub` desce a caixa.

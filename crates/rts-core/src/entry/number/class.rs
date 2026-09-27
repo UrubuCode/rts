@@ -40,7 +40,7 @@
 
 use super::super::objects::undefined_of;
 use super::super::{bigint_class, class_support, primitive_proto, throw, with_current};
-use super::{format, parse};
+use super::format;
 use crate::text::Str;
 use crate::value::Value;
 
@@ -113,27 +113,10 @@ impl Number {
     /// problem from writing digits in a base and is why the two are separate
     /// paths here rather than one loop with a special case.
     fn to_string(this: u64, radix: u64) -> u64 {
-        let base = parse::radix_argument(radix);
-        let number = receiver_number(this);
-        // Uma base fora de 2..=36 e um `RangeError`, e nao o decimal: responder
-        // o decimal fazia `(5).toString(1)` responder `"5"`, que e uma resposta
-        // certa para uma pergunta que o programa nao fez.
-        //
-        // ZERO esta dentro dessa recusa, e antes nao estava: a ausencia do
-        // argumento era escrita como zero, entao `(5).toString(0)` nao tinha
-        // como ser distinguido de `(5).toString()`. `radix_argument` responde
-        // `None` so para a ausencia, que e o que separa os dois.
-        if base.is_some_and(|base| !(2..=36).contains(&base)) {
-            throw::range_error("toString() radix must be between 2 and 36");
-            return with_current(|context| undefined_of(context));
-        }
-        with_current(|context| {
-            let text = match base {
-                None | Some(10) => crate::coerce::number_to_string(number),
-                Some(base) => Str::from_str(&format::in_radix(number, base as u32)),
-            };
-            context.intern_value(text).bits()
-        })
+        // The body is `direct.rs`'s, which the compiler also calls with the
+        // double itself where it has proved one: one definition of the radix
+        // rules, so the two spellings cannot disagree.
+        super::direct::spelled_in_radix(receiver_number(this), radix)
     }
 
     /// `n.valueOf()` — the number itself.
@@ -147,33 +130,8 @@ impl Number {
     /// what Rust's own `{:.*}` does not: `{:.0}` of `2.5` is `2`, because Rust
     /// formats to nearest-even. `(2.5).toFixed(0)` is `"3"`.
     fn to_fixed(this: u64, digits: f64) -> u64 {
-        let number = receiver_number(this);
-        let asked = match digits.is_nan() {
-            true => 0.0,
-            false => digits.trunc(),
-        };
-        // Grampear era responder `"0.00"` a `(1).toFixed(-1)` e `100` casas a
-        // `(1).toFixed(101)` — dois pedidos ilegais atendidos com um numero que
-        // o programa nao pediu. O intervalo e da especificacao, e o `RangeError`
-        // sai FORA do emprestimo porque construir o erro toma o contexto.
-        let Some(places) = in_range(
-            asked,
-            0.0,
-            100.0,
-            "toFixed() digits argument must be between 0 and 100",
-        ) else {
-            return with_current(|context| undefined_of(context));
-        };
-        with_current(|context| {
-            let text = match number.is_finite() && number.abs() < 1e21 {
-                true => Str::from_str(&format::fixed(number, places)),
-                // Past 1e21 the specification falls back to the ordinary
-                // `ToString`, which is why this is not a formatting width but a
-                // branch.
-                false => crate::coerce::number_to_string(number),
-            };
-            context.intern_value(text).bits()
-        })
+        // `direct.rs`'s body, for the reason `to_string` gives.
+        super::direct::fixed_text(receiver_number(this), digits)
     }
 
     /// `n.toExponential(digits)`.
@@ -286,7 +244,16 @@ impl Number {
 }
 
 /// `Boolean`.
-#[rtse::class("Boolean")]
+///
+/// `tag` because `Boolean.prototype` is ITSELF a boxed `false` — this class's
+/// own construct wraps `this` but never runs against `Boolean.prototype`
+/// itself, which [`primitive_proto::wrap`] never touches — so
+/// `Object.prototype.toString.call(Boolean.prototype)` fell through
+/// [`super::super::object_proto`]'s per-kind table to `"Object"` where every
+/// runtime answers `"Boolean"`. An ordinary `new Boolean(x)` was unaffected —
+/// its own boxed slot already answers the table's `Boolean` row — so this is
+/// the one cell in the whole class the internal-slot table cannot reach.
+#[rtse::class("Boolean", tag)]
 impl Boolean {
     /// `Boolean(x)` — `ToBoolean` of an argument.
     ///
@@ -392,7 +359,7 @@ fn places_of(digits: u64) -> Option<f64> {
 /// `(1).toPrecision(0)` — que a linguagem recusa — num `"1"` que o programa nao
 /// pediu. A excecao e levantada FORA de qualquer emprestimo: construir o objeto
 /// de erro toma o contexto, que e o que `string::basic` ja documenta.
-fn in_range(asked: f64, low: f64, high: f64, message: &str) -> Option<usize> {
+pub(super) fn in_range(asked: f64, low: f64, high: f64, message: &str) -> Option<usize> {
     if !(low..=high).contains(&asked) {
         throw::range_error(message);
         return None;
@@ -400,10 +367,16 @@ fn in_range(asked: f64, low: f64, high: f64, message: &str) -> Option<usize> {
     Some(asked as usize)
 }
 
-/// The double a value holds, when it genuinely holds one.
+/// The number a value holds, when it genuinely holds one -- in EITHER encoding.
 ///
 /// `None` for everything else, which is what makes `Number.isNaN` answer false
 /// for a string rather than converting it.
+///
+/// Both encodings, because a JavaScript number is one kind held two ways: a proved
+/// 32-bit integer widened by compiled code is tagged `Int`, and it is as much a number
+/// as a double is. This read `Value::as_f64`, which answers for the double encoding
+/// only, so `Number.isFinite(42)` answered `false` for the integer form -- found when
+/// functions compiled through the MIR stage passed their integer literals that way.
 fn as_double(value: u64) -> Option<f64> {
-    Value(value).as_f64()
+    Value(value).numeric()
 }

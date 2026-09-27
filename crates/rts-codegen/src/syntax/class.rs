@@ -27,8 +27,8 @@
 //! is a question worth asking of the tree: it changes what the constructor's
 //! prologue is allowed to assume.
 
-use rts_cranelift::fault::Position;
 use super::Claim;
+use rts_cranelift::fault::Position;
 
 use super::PropertyKey;
 use super::expr::Expr;

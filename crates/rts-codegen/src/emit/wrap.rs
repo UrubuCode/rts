@@ -139,7 +139,12 @@ pub(super) fn async_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId
     let named = ctx.names.intern("@@asyncIterator");
     let key = super::property::key_constant(&mut builder, ctx, named);
     let estrito = super::property::estrito(&mut builder, ctx);
-    expr::call(&mut builder, ctx, RuntimeOp::SetProperty, &[made, key, itself, estrito])?;
+    expr::call(
+        &mut builder,
+        ctx,
+        RuntimeOp::SetProperty,
+        &[made, key, itself, estrito],
+    )?;
     builder.ret(&[made]);
     ctx.body.leave_nested(outer_throw);
     ctx.pending.push((id, func));

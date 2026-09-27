@@ -90,7 +90,7 @@ fn align_self_stretch_com_height_auto_declarado_continua_a_esticar() {
 #[test]
 fn align_self_stretch_sem_height_nenhum_continua_a_esticar() {
     // O caso que já funcionava (ausência total de `height`) não pode
-    // regredir com a mudança acima — `e_auto_ou_ausente` cobre os DOIS.
+    // regredir com a mudança acima — `is_auto_or_absent` cobre os DOIS.
     let list = layout(
         "<div style='display:flex;height:80px;background:#111'>\
            <div style='width:10px;align-self:stretch;background:#00f'></div>\

@@ -90,6 +90,7 @@
 //! answers absent rather than reading the wrong memory — which is a refusal, not
 //! protection. A program that arranges to share anyway is protected by nothing.
 
+mod coalesce;
 mod growth;
 mod span;
 
@@ -548,7 +549,11 @@ impl Region {
         }
 
         if self.next >= self.capacity {
-            return None;
+            // The linked list is empty and the bump space is spent, but the free
+            // space a collection coalesced may all be in RUNS -- `coalesce.rs`
+            // says why they are kept apart, and why a narrow object may still
+            // take the first cell of one.
+            return self.alloc_splitting_a_run(ty);
         }
         let index = self.next;
         let reference = self.compose(index)?;

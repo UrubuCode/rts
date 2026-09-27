@@ -17,7 +17,7 @@ use crate::table::tests::{geometria, rect};
 fn input_texto_solto_mede_a_largura_por_omissao_em_fluxo_normal() {
     // Regressão: confirma que `LARGURA_CAMPO_TEXTO` (169, o novo valor
     // calibrado) não partiu o caminho de bloco comum, que já chamava
-    // `layout_input`/`medida_do_input` antes deste lote.
+    // `layout_input`/`input_measure` antes deste lote.
     const HTML: &str = r#"<input id="txt" type="text">"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#txt", 0);
@@ -43,7 +43,7 @@ fn input_texto_num_flex_basis_auto_nao_encolhe_a_quase_zero() {
 #[test]
 fn checkbox_e_radio_continuam_treze_por_treze_num_flex() {
     // Regressão pedida pelo agente vizinho (lote `stretch-flex-item-*-input`):
-    // este lote NÃO muda o valor que `medida_do_input`/`CAIXA_DE_MARCA`
+    // este lote NÃO muda o valor que `input_measure`/`CAIXA_DE_MARCA`
     // devolvem para checkbox/radio — só lhes dá uma resposta em
     // `intrinsic_content_width` também, pela MESMA função.
     const HTML: &str = r#"<style>#f { display: flex; }</style>

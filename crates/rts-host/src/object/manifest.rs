@@ -42,6 +42,7 @@
 //! metas                       u32 count, then per module specifier/url/main
 //! resolutions                 u32 count, then per entry three strings
 //! page_scripts                u32 count, then per entry u64 hash + u32 index
+//! resources                   u32 count, then per entry a string + u32 len + bytes
 //! ```
 //!
 //! where `strings` is a `u32` count followed by `u32` byte length + UTF-8
@@ -59,6 +60,11 @@
 //! bytes of padding. A `page_scripts` entry is a page `<script>`'s source
 //! hash as `u64`, then its position in the `functions` table above — the same
 //! index `FUNCTION_TABLE_SYMBOL` resolves an address for — as `u32`.
+//! A `resources` entry is the path a page's loader asked for, as a string,
+//! then that file's raw bytes behind a `u32` length (see
+//! [`super::page_resources`]). It is LAST so every byte before it is what a
+//! manifest written before it existed held; the reader takes a manifest that
+//! ends right after `page_scripts` as one with no resources.
 //!
 //! # What is deliberately NOT in here
 //!
@@ -171,6 +177,13 @@ pub fn encode(program: &ObjectProgram) -> Vec<u8> {
         out.extend_from_slice(&index.to_le_bytes());
     }
 
+    count(&mut out, program.resources.len());
+    for (path, bytes) in &program.resources {
+        string(&mut out, path);
+        count(&mut out, bytes.len());
+        out.extend_from_slice(bytes);
+    }
+
     out
 }
 
@@ -232,6 +245,7 @@ mod tests {
             module_metas: Vec::new(),
             resolutions: Vec::new(),
             page_scripts: Vec::new(),
+            resources: Vec::new(),
         }
     }
 
@@ -270,7 +284,8 @@ mod tests {
         write(&path, &program).expect("a manifest with one page script writes");
         let bytes = std::fs::read(&path).expect("the file it just wrote");
 
-        let tail = &bytes[bytes.len() - 16..];
+        // Four bytes of empty `resources` table follow the page scripts.
+        let tail = &bytes[bytes.len() - 20..bytes.len() - 4];
         assert_eq!(&tail[0..4], &1u32.to_le_bytes(), "one entry");
         assert_eq!(
             &tail[4..12],
@@ -278,5 +293,23 @@ mod tests {
             "the source hash, little-endian"
         );
         assert_eq!(&tail[12..16], &5u32.to_le_bytes(), "the function-table index");
+    }
+
+    /// The section AOT-1 adds, as the exact bytes the format promises: after a
+    /// `u32` count, the path as a length-prefixed string, then the raw bytes
+    /// behind their own `u32` length — bytes, not text, since a PNG is not UTF-8.
+    #[test]
+    fn one_resource_writes_path_then_raw_bytes_last() {
+        let mut program = empty_program();
+        program.resources.push(("C:/p/a.png".to_owned(), vec![0x89, 0xff, 0x00]));
+        let bytes = super::encode(&program);
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&1u32.to_le_bytes());
+        expected.extend_from_slice(&10u32.to_le_bytes());
+        expected.extend_from_slice(b"C:/p/a.png");
+        expected.extend_from_slice(&3u32.to_le_bytes());
+        expected.extend_from_slice(&[0x89, 0xff, 0x00]);
+        assert_eq!(&bytes[bytes.len() - expected.len()..], &expected[..]);
     }
 }

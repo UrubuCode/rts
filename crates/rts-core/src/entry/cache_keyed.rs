@@ -68,7 +68,9 @@ pub fn cache_resolve_keyed(object: u64, key: u64, cache: i64) -> i64 {
         return -1;
     };
 
-    let offset = super::cache::cache_resolve(object, i64::from(number), cache);
+    // Through the keyed door of the same resolver, which never writes an absent
+    // entry: word six of THIS cell is the key below, not an epoch.
+    let offset = super::cache::resolve_keyed(object, i64::from(number), cache);
     if offset < 0 {
         return offset;
     }

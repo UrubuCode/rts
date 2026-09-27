@@ -256,7 +256,7 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
             crate::bump!(attrs_parsed);
             attrs.push(Attr {
                 name,
-                value: crate::html::decode_entities(&value),
+                value: crate::html::decode_entities_attr(&value),
             });
         } else {
             crate::bump!(attrs_duplicated);

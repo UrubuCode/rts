@@ -9,9 +9,8 @@ use super::*;
 
 #[test]
 fn grid_line_aceita_as_quatro_formas_que_o_corpus_escreve() {
-    // As 13 folhas, juntas, escrevem exatamente estas quatro. Nenhuma escreve
-    // uma linha com NOME, que é a razão para `GridLine` não ter variante para
-    // isso — ver o cabeçalho do módulo.
+    // The four forms the 13 corpus sheets write; named lines are pinned in
+    // `style::tests::grid_placement_shorthands`.
     use crate::style::grid_lines::GridLine;
     assert_eq!(
         parse_inline("grid-column-start: auto").grid_column_start,
@@ -43,8 +42,12 @@ fn linha_zero_nao_e_uma_linha_de_grid() {
         parse_inline("grid-column-end: span 0").grid_column_end,
         None
     );
-    // `span3` sem separador não é um span — é lixo, e lixo não vira `Span(3)`.
-    assert_eq!(parse_inline("grid-column-end: span3").grid_column_end, None);
+    // `span3` without a separator is not a span: it is a legal <custom-ident>,
+    // a line NAME, and never `Span(3)`.
+    assert_eq!(
+        parse_inline("grid-column-end: span3").grid_column_end,
+        Some(GridLine::Named("span3".into(), None))
+    );
     assert_eq!(
         parse_inline("grid-row: span 1 / span 1").grid_row_start,
         Some(GridLine::Span(1))
@@ -63,11 +66,11 @@ fn shorthand_de_grid_column_parte_nas_duas_pontas() {
     let seis = parse_inline("grid-column: span 6 / span 6");
     assert_eq!(seis.grid_column_start, Some(GridLine::Span(6)));
     assert_eq!(seis.grid_column_end, Some(GridLine::Span(6)));
-    // sem barra, o `end` fica por declarar (não copia o `start`: a spec só o
-    // copia para um <custom-ident>, e este módulo não tem idents).
+    // Without a slash the shorthand still SETS the end, to `auto` (§8.4: it
+    // copies the start only for a <custom-ident>).
     let um = parse_inline("grid-column: 5");
     assert_eq!(um.grid_column_start, Some(GridLine::Line(5)));
-    assert_eq!(um.grid_column_end, None);
+    assert_eq!(um.grid_column_end, Some(GridLine::Auto));
 }
 
 #[test]

@@ -12,7 +12,6 @@
 use super::{Ctx, EmitResult, Program, Scope, emit_program_into};
 use crate::syntax::Stmt;
 
-
 /// Emits an `eval` fragment: a script that RESOLVES FREE NAMES against a scope
 /// the caller is going to hand it, and answers what it completed with.
 ///

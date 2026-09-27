@@ -48,6 +48,7 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 /// forward=(syw*cpt,spt,cyw*cpt); proj perspectiva left-handed (z forward, depth 0..1).
 /// Dados de câmera pro uniform 3D: viewProj + posição + base (right/up/fwd) +
 /// tangentes do FOV (pro raio da skybox).
+#[derive(Clone, Copy, Debug)]
 pub struct Cam3D {
     pub view_proj: [f32; 16],
     pub cam_pos: [f32; 3],
@@ -56,16 +57,39 @@ pub struct Cam3D {
     pub fwd: [f32; 3],
     pub tan_h: f32,
     pub tan_v: f32,
+    /// 1 = ortográfica (o céu usa um raio só, `fwd`).
+    pub ortho: f32,
+    /// Meia altura e meia largura da vista ortográfica (0 na perspectiva).
+    pub half_h: f32,
+    pub half_w: f32,
 }
 
-pub fn view_proj(
-    camx: f32, camy: f32, camz: f32, yaw: f32, pitch: f32, fov_y: f32, aspect: f32,
-) -> Cam3D {
-    let (cyw, syw) = (yaw.cos(), yaw.sin());
-    let (cpt, spt) = (pitch.cos(), pitch.sin());
+/// Tudo o que `setCamera` descreve: pose de voo, lente e recorte.
+#[derive(Clone, Copy, Debug)]
+pub struct CamSpec {
+    pub pos: [f32; 3],
+    pub yaw: f32,
+    pub pitch: f32,
+    pub fov_y: f32,
+    pub aspect: f32,
+    pub near: f32,
+    pub far: f32,
+    pub ortho: bool,
+    /// Meia altura da vista ortográfica, em unidades de mundo.
+    pub ortho_size: f32,
+}
+
+/// Near mínimo e folga mínima entre near e far (evitam divisão por zero).
+const NEAR_MIN: f32 = 1e-4;
+const FAR_FOLGA: f32 = 1e-3;
+
+pub fn view_proj_spec(s: &CamSpec) -> Cam3D {
+    let (cyw, syw) = (s.yaw.cos(), s.yaw.sin());
+    let (cpt, spt) = (s.pitch.cos(), s.pitch.sin());
     let right = [cyw, 0.0, -syw];
     let up = [-syw * spt, cpt, -cyw * spt];
     let fwd = [syw * cpt, spt, cyw * cpt];
+    let [camx, camy, camz] = s.pos;
     let tx = -(right[0] * camx + right[1] * camy + right[2] * camz);
     let ty = -(up[0] * camx + up[1] * camy + up[2] * camz);
     let tz = -(fwd[0] * camx + fwd[1] * camy + fwd[2] * camz);
@@ -75,16 +99,32 @@ pub fn view_proj(
         right[2], up[2], fwd[2], 0.0,
         tx, ty, tz, 1.0,
     ];
-    let (p, tan_v) = perspective_lh(fov_y, aspect, 0.1, 500.0);
-    Cam3D {
-        view_proj: mul(&p, &v),
-        cam_pos: [camx, camy, camz],
-        right,
-        up,
-        fwd,
-        tan_h: tan_v * aspect,
-        tan_v,
-    }
+    let near = if s.near.is_finite() { s.near.max(NEAR_MIN) } else { 0.1 };
+    let far = if s.far.is_finite() { s.far.max(near + FAR_FOLGA) } else { 500.0 };
+    let aspect = if s.aspect.is_finite() && s.aspect > 1e-6 { s.aspect } else { 1.0 };
+    let (persp, tan_v) = perspective_lh(s.fov_y, aspect, near, far);
+    let (p, ortho, half_h, half_w) = if s.ortho {
+        let hh = if s.ortho_size.is_finite() { s.ortho_size.max(NEAR_MIN) } else { 5.0 };
+        (ortho_lh(hh * aspect, hh, near, far), 1.0, hh, hh * aspect)
+    } else {
+        (persp, 0.0, 0.0, 0.0)
+    };
+    Cam3D { view_proj: mul(&p, &v), cam_pos: s.pos, right, up, fwd, tan_h: tan_v * aspect, tan_v, ortho, half_h, half_w }
+}
+
+pub fn view_proj(camx: f32, camy: f32, camz: f32, yaw: f32, pitch: f32, fov_y: f32, aspect: f32) -> Cam3D {
+    view_proj_spec(&CamSpec { pos: [camx, camy, camz], yaw, pitch, fov_y, aspect, near: 0.1, far: 500.0, ortho: false, ortho_size: 5.0 })
+}
+
+/// Projeção ortográfica left-handed, depth 0..1 (wgpu), column-major.
+fn ortho_lh(half_w: f32, half_h: f32, near: f32, far: f32) -> [f32; 16] {
+    let dz = 1.0 / (far - near);
+    [
+        1.0 / half_w, 0.0, 0.0, 0.0,
+        0.0, 1.0 / half_h, 0.0, 0.0,
+        0.0, 0.0, dz, 0.0,
+        0.0, 0.0, -near * dz, 1.0,
+    ]
 }
 
 /// Projeção perspectiva left-handed (z forward, depth 0..1 — convenção wgpu/DX),
@@ -139,6 +179,9 @@ pub fn view_proj_lookat(
         fwd,
         tan_h: tan_v * aspect,
         tan_v,
+        ortho: 0.0,
+        half_h: 0.0,
+        half_w: 0.0,
     }
 }
 
@@ -177,6 +220,38 @@ pub fn model_matrix(
     let r21 = sxr;
     let r22 = cx * cy;
     // model column-major: colunas escaladas por sx/sy/sz, última = translação
+    [
+        r00 * sx, r10 * sx, r20 * sx, 0.0,
+        r01 * sy, r11 * sy, r21 * sy, 0.0,
+        r02 * sz, r12 * sz, r22 * sz, 0.0,
+        px, py, pz, 1.0,
+    ]
+}
+
+/// Produto de quaternions [x, y, z, w]: aplica `b` e depois `a`. Sem chamador
+/// de produção hoje (drawMesh só recebe o quaternion final, não compõe dois);
+/// existe pra fixar/testar a composição que a próxima task (bones) vai
+/// precisar. `#[cfg(test)]` até ter um chamador real, pra não gerar
+/// dead_code warning em build normal.
+#[cfg(test)]
+pub(crate) fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
+/// model = T · R(q) · S (column-major) — mesma composição de `model_matrix`,
+/// mas com a rotação vinda de um quaternion [x, y, z, w] em vez de yaw/pitch.
+/// `q` é normalizado aqui (quaternion degenerado ~0 cai pra identidade).
+pub fn model_matrix_quat(px: f32, py: f32, pz: f32, q: [f32; 4], sx: f32, sy: f32, sz: f32) -> [f32; 16] {
+    let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    let (x, y, z, w) = if n > 1e-12 { (q[0] / n, q[1] / n, q[2] / n, q[3] / n) } else { (0.0, 0.0, 0.0, 1.0) };
+    let r00 = 1.0 - 2.0 * (y * y + z * z); let r01 = 2.0 * (x * y - z * w); let r02 = 2.0 * (x * z + y * w);
+    let r10 = 2.0 * (x * y + z * w); let r11 = 1.0 - 2.0 * (x * x + z * z); let r12 = 2.0 * (y * z - x * w);
+    let r20 = 2.0 * (x * z - y * w); let r21 = 2.0 * (y * z + x * w); let r22 = 1.0 - 2.0 * (x * x + y * y);
     [
         r00 * sx, r10 * sx, r20 * sx, 0.0,
         r01 * sy, r11 * sy, r21 * sy, 0.0,

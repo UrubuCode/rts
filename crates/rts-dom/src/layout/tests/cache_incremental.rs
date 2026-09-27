@@ -32,7 +32,7 @@
             let seletor = format!("#{id}");
             let a = dom.resolve(dom.query(&seletor).unwrap()).unwrap();
             let b = fresco.resolve(fresco.query(&seletor).unwrap()).unwrap();
-            let (ra, rb) = (incremental.geometry().rects[&a], zero.geometry().rects[&b]);
+            let (ra, rb) = (incremental.geometry_now().rects[&a], zero.geometry_now().rects[&b]);
             assert!(
                 rects_equivalentes(&ra, &rb),
                 "#{id}: incremental {ra:?} != do zero {rb:?}"

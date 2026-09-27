@@ -148,12 +148,22 @@ from, matching each destination's own constraint:
   passed on the command line — the entry path is pushed onto the very same
   list `compile::command` already builds for an explicit `--html`, not a
   second mechanism. A relative `<link>`/`<img>` resolves against the HTML
-  file's OWN folder as it exists on the machine that ran `compile`, baked in
-  at build time (`std::path::absolute`, not `canonicalize` — the latter's
-  Windows `\\?\` prefix would break the very same-drive check
-  `__resolveUrl` does on the string). Moving the `.exe` to a machine without
-  that exact path loses those resources; a `<script src="http…">` was never
-  going to travel anyway (see the cut list below).
+  file's own path as `rts_host::object::page_resources::resource_base`
+  spells it (canonical, with the Windows `\\?\` prefix stripped — the prefix
+  would break the same-drive check `__resolveUrl` does on the string — which
+  is also how `__dirname` is spelled). **Every local file the page's loader
+  reads travels inside the binary** (lot AOT-1): `rts compile` runs the
+  page's own `loadResources` once in a throwaway JIT with the bridge
+  RECORDING, and the `<link>` sheets, their `@import`s, the `<script src>`
+  files and the local `<img>`s go into the manifest's `resources` section,
+  keyed by the exact path the loader asked for. At run time
+  `rts_dom_bridge::recursos::tabela` answers those paths before the disk, so
+  a copy of the `.exe` on a machine without the page's folder paints the same
+  page. Not embedded: `http(s)` resources (the loader does not fetch them at
+  all today) and a path a page computes at run time. The same applies to
+  every `--html <file>` a `.ts` driver loads itself, provided the driver
+  passes the same base — `__dirname + "/page.html"` does
+  (`tests/aot/claude-pagina-recursos.ts`).
 - **`rts run`** reads the page from disk at run time (`html_entry::for_run`),
   the same way `examples/view.ts` already does — editing the page and
   re-running costs no rebuild. Nothing is precompiled: the JIT binary already

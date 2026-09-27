@@ -66,6 +66,12 @@
 mod adder;
 mod brand;
 mod cursor;
+mod direct;
+pub use direct::{
+    MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
+    SET_HAS_DIRECT_ENTRY, map_get_direct, map_has_direct, map_set_direct, set_add_direct,
+    set_has_direct,
+};
 mod finalization;
 mod map;
 mod ops;
@@ -84,7 +90,7 @@ pub(in crate::entry) use finalization::{
 pub(in crate::entry) use weakref::WEAK_REF_TYPES;
 pub(in crate::entry) use table::Table;
 pub(super) use table::Brand;
-pub(super) use brand::{branded, requires_new};
+pub(super) use brand::{branded, branded_quietly, requires_new};
 use brand::of_class as brand_of;
 pub(in crate::entry) use weak::{register_weak_map, register_weak_set};
 pub(in crate::entry) use weakref::register_weak_ref;

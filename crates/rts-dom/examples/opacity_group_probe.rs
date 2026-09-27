@@ -37,7 +37,8 @@
 //!   cargo run -q -p rts-dom --example opacity_group_probe -- scripts/parity/pagina.combinada.html
 //!   cargo run -q -p rts-dom --example opacity_group_probe -- google.html google.css
 
-use rts_dom::layout::{self, Rect};
+use rts_dom::layout;
+use rts_dom::paint::Rect;
 use rts_dom::{NodeIdx, NodeKind};
 
 /// O medidor aproximado das outras sondas. Chega: o que se conta aqui é

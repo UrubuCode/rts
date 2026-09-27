@@ -40,6 +40,7 @@ mod css_url;
 mod ciclo;
 mod consulta;
 mod direction_herdada;
+pub(crate) mod entities;
 mod eventos;
 mod estilo;
 mod formulario;
@@ -47,6 +48,7 @@ mod freelist;
 mod geometria;
 mod has;
 mod helpers;
+mod inspect;
 mod invalidacao;
 mod matcher;
 mod mutacao;
@@ -57,6 +59,7 @@ mod serial;
 mod travessia;
 
 pub use self::no::{Attr, Node, NodeId, NodeKind};
+pub use self::inspect::MatchedRuleView;
 pub use self::eventos::{RawInputEvent, RawKeyboardEvent};
 pub use self::parser::{parse_fragmento, parse_html_to_dom};
 pub(crate) use self::chaves_cache::{
@@ -374,8 +377,12 @@ pub struct Dom {
     /// [`crate::layout::layout_cached`]). Um só slot: o padrão é reperguntar
     /// pelo MESMO estado (uma consulta de geometria atrás da outra, um frame
     /// atrás do outro), não alternar entre viewports.
-    display_cache:
-        std::cell::RefCell<Option<(DisplayKey, std::rc::Rc<crate::layout::DisplayList>)>>,
+    ///
+    /// The third member is that list's geometry, built on the first
+    /// `Dom::geometry_cached` and dropped with the list (PQ-C4): the memo lives
+    /// where the repeated reader is, and it cannot outlive the list it was
+    /// built from because it sits in the same slot.
+    display_cache: std::cell::RefCell<Option<DisplaySlot>>,
     /// Algum `style=""` inline desta árvore menciona `position`.
     ///
     /// Junto com [`Stylesheet::has_out_of_flow`](crate::style::Stylesheet::has_out_of_flow),
@@ -428,6 +435,14 @@ impl Eq for Dom {}
 /// medidor)`. Ver [`crate::layout::layout_cached`] para por que cada parte
 /// entra.
 pub(crate) type DisplayKey = (u64, u32, u32, u64);
+
+/// One entry of `Dom::display_cache`: the key, the list, and the list's
+/// geometry once somebody asked for it.
+pub(crate) type DisplaySlot = (
+    DisplayKey,
+    std::rc::Rc<crate::paint::DisplayList>,
+    std::cell::OnceCell<std::rc::Rc<crate::query::Geometry>>,
+);
 
 #[cfg(test)]
 mod tests;

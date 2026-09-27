@@ -7,7 +7,7 @@
 //!
 //! ## A decisão: offset FORA da chave de cache, aplicado como translação
 //!
-//! O layout (`layout/bloco.rs`) emite cada `BeginClip` com o offset LIDO daqui
+//! O layout (`layout/block/block.rs`) emite cada `BeginClip` com o offset LIDO daqui
 //! (`scroll_of`) — mas isso é só o valor "como estava quando este fragmento
 //! foi montado"; nem a pintura nem uma consulta de geometria confiam nele.
 //! Os dois voltam a perguntar ao `Dom` o valor VIVO no momento em que
@@ -53,7 +53,7 @@ impl Dom {
         self.scroll_of_idx(idx)
     }
 
-    /// A mesma leitura, por índice CRU — o layout (`layout/bloco.rs`) já
+    /// A mesma leitura, por índice CRU — o layout (`layout/block/block.rs`) já
     /// trabalha em `NodeIdx`, e é o mesmo tipo que a `DisplayList` já expõe
     /// a quem pinta (`ScrollRegion::node_idx`, `DisplayItem::BeginClip::node`
     /// já cruzam para o `rts-egui` assim, sem passar por um `NodeId`
@@ -88,10 +88,11 @@ impl Dom {
             measurer: &crate::layout::ApproxMeasurer,
         };
         let list = crate::layout::layout_document(self, &ctx);
-        if let Some(region) = list.geometry().scroll_regions.iter().find(|r| r.node_idx == idx) {
+        let geometry = list.geometry_now();
+        if let Some(region) = geometry.scroll_regions.iter().find(|r| r.node_idx == idx) {
             return (region.content_w, region.content_h, region.visible.w, region.visible.h);
         }
-        match list.rect_of(idx) {
+        match list.rect_of_in(&geometry, idx) {
             Some(r) => (r.w, r.h, r.w, r.h),
             None => (0.0, 0.0, 0.0, 0.0),
         }
@@ -111,7 +112,7 @@ impl Dom {
     /// o que a regra "um lote, um ficheiro" existe para evitar. Juntar os
     /// dois (scroll + medidor ativo) é trabalho de integração, não deste
     /// lote — fica dito no relatório do commit.
-    pub fn bounding_rect_scrolled(&self, id: NodeId) -> Option<crate::layout::Rect> {
+    pub fn bounding_rect_scrolled(&self, id: NodeId) -> Option<crate::paint::Rect> {
         let idx = self.resolve(id)?;
         let (vw, vh) = self.viewport.get();
         let ctx = crate::layout::LayoutCtx {
@@ -120,7 +121,7 @@ impl Dom {
             measurer: &crate::layout::ApproxMeasurer,
         };
         let list = crate::layout::layout_document(self, &ctx);
-        let geometry = list.geometry();
+        let geometry = list.geometry_now();
         let mut rect = *geometry.rects.get(&idx)?;
         let mut cur = self.nodes[idx].parent;
         while let Some(a) = cur {
@@ -153,7 +154,7 @@ impl Dom {
         };
         let list = crate::layout::layout_document(self, &ctx);
         let (max_x, max_y) = list
-            .geometry()
+            .geometry_now()
             .scroll_regions
             .iter()
             .find(|r| r.node_idx == idx)
@@ -250,7 +251,7 @@ impl Dom {
             measurer: &crate::layout::ApproxMeasurer,
         };
         let list = crate::layout::layout_document(self, &ctx);
-        let geometry = list.geometry();
+        let geometry = list.geometry_now();
         let Some(&target_rect) = geometry.rects.get(&idx) else { return };
         let mut cur = self.nodes[idx].parent;
         while let Some(a) = cur {

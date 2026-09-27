@@ -130,7 +130,7 @@ pub(in crate::entry) fn apply_prototype(object: u64, prototype: u64) -> bool {
             && let Some(shape) = context.shape_of(ty)
         {
             let fresh = context.typed_as(shape, Some(prototype)).index() as u32;
-            context.region.set_type(cell, fresh);
+            context.retype_cell(cell, fresh);
         }
         true
     })

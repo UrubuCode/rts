@@ -45,6 +45,8 @@ mod tests;
 mod tests_generated;
 #[cfg(test)]
 mod tests_table;
+#[cfg(test)]
+mod tests_text_in_block;
 
 /// An index into a contiguous arena, the way `NodeIdx` already is for nodes —
 /// **plus the generation of the tree that issued it**.

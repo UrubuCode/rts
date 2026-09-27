@@ -68,8 +68,22 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
 enum Reaches {
     /// The cell only: what a store site can act on.
     Cell,
-    /// The cell, or the block it keeps its overflow in.
+    /// The cell, or the block it keeps its overflow in — and, for a property
+    /// that is nowhere, a remembered `undefined` in words six and seven.
     Overflow,
+    /// As [`Reaches::Overflow`] but for a site whose KEY was computed, whose
+    /// cell keeps that key in word six (`CACHE_KEY_OFFSET`) and whose lowering
+    /// reads word two as an offset and nothing else. Neither the epoch nor the
+    /// negative base has anywhere to go there, so an absence stays a miss.
+    /// This was found by three fixtures segfaulting: the keyed resolver shares
+    /// this one, and an absent entry written through it was read as an
+    /// overflow offset of -1.
+    Keyed,
+}
+
+/// [`cache_resolve`] for a site that was handed its key. See [`Reaches::Keyed`].
+pub(super) fn resolve_keyed(object: u64, key: i64, cache: i64) -> i64 {
+    resolve(object, key, cache, Reaches::Keyed)
 }
 
 /// Records an answer in a read site's cell, keeping the one it displaces.
@@ -130,13 +144,123 @@ unsafe fn remember(cell: *mut i64, header: i64, offset: i64, base: i64, duplex: 
     }
 }
 
+/// The base word of a SECOND entry that answers a WORD rather than an offset.
+///
+/// The machine reads an entry's base as "which cell": zero is the receiver, a
+/// positive byte offset is where the receiver keeps its overflow's address, and
+/// this — the one negative value — says the entry's offset word IS the answer,
+/// valid while the word at the address in word seven still holds what word six
+/// remembers. Only the second entry (words three to five) may hold one, so the
+/// first entry's path carries no test for it: that test cost the recognised read
+/// a nanosecond when it sat on the shared path, measured 2026-09-26. The
+/// machine knows none of this is about `undefined`; `lower_cached_get`
+/// documents it as a remembered answer with a validity word, which is all it is
+/// there.
+const ABSENT: i64 = -1;
+
+/// Bumped every time a cell some absent entry depends on changes its type.
+///
+/// Process-wide rather than in the `Context`, because the machine compares it by
+/// ADDRESS: word seven of an absent entry holds `&CHAIN_EPOCH`, and a compiled
+/// site loads through it. A thread-local's address is not something a data cell
+/// written once can hold. One runtime thread runs JavaScript here, which is
+/// also why `Relaxed` is enough — there is no second writer to order against.
+///
+/// Starts at one so that a cell nobody has written — all zeros — can never
+/// compare equal to the live epoch by accident.
+static CHAIN_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Invalidates every absent entry in the program. Called by
+/// `Context::retype_cell` for a flagged link, and from nowhere else.
+pub(super) fn chain_changed() {
+    CHAIN_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether a read of `key` on `cell` may be cached as `undefined`, and the
+/// `undefined` to cache.
+///
+/// # What makes an absence cacheable, and what does not
+///
+/// A cached absence is wrong the moment the property appears anywhere on the
+/// chain without the RECEIVER's type moving. Every link this walks is flagged
+/// through [`Context::mark_chain_link`], so a type change on any of them bumps
+/// [`CHAIN_EPOCH`] and the entry stops validating. That covers a data property
+/// added to a prototype, an accessor defined on one, and a prototype relinked
+/// higher up — each of those changes the link's type. The receiver relinked or
+/// grown changes its own header, which the site compares already.
+///
+/// Refused, each for a reason the epoch cannot express:
+///
+/// - the **global object**, whose absences are not absences: a name the
+///   runtime supplies is made the first time it is read, in the slow path;
+/// - a **private name**, whose absence is a `TypeError` and not `undefined`;
+/// - a key spelled as an **array index**, because elements are not shape
+///   properties and adding one moves no type;
+/// - a **proxy** on the receiver or anywhere above it, whose handler answers
+///   every read;
+/// - anything `accessor::resolve` finds — this is asked last because it is the
+///   walk that costs, and the four above answer from a table each.
+fn absent_answer(context: &mut Context, cell: u32, key: rts_cranelift::shape::Key) -> Option<u64> {
+    if context.globals == Some(cell) || context.proxy_at(cell).is_some() {
+        return None;
+    }
+    let text = context.interner.text(key)?;
+    if super::symbol::is_private_key(text) || crate::object::as_array_index(text).is_some() {
+        return None;
+    }
+    let named = crate::object::Key::Name(key);
+    if super::proxy::above(context, cell, named).is_some() {
+        return None;
+    }
+    if !matches!(
+        super::accessor::resolve(context, cell, named),
+        super::accessor::Found::Absent
+    ) {
+        return None;
+    }
+    // Every link, so that whichever one gains the key is the one that bumps.
+    // The receiver itself is not a link: its own growth moves its header.
+    let mut link = super::objects::inherited_from(context, cell);
+    for _ in 0..super::objects::CHAIN_LIMIT {
+        let Some(at) = link else { break };
+        context.mark_chain_link(at);
+        link = super::objects::inherited_from(context, at);
+    }
+    Some(super::objects::undefined_of(context))
+}
+
+/// Records "absent, answer this word" in a read site's SECOND entry.
+///
+/// Words three to seven, and the first entry is left as it was: a site that sees
+/// one layout with the property and another without hits on both. A positive
+/// answer written later demotes the first entry over this one, which loses the
+/// absence and costs one more resolve, never a wrong answer. The validity pair
+/// goes in words six and seven, which no other writer of a READ cell touches —
+/// `remember` writes zero through five, and the keyed and indirect resolvers
+/// have cells of their own (`Reaches::Keyed`).
+///
+/// # Safety
+///
+/// As [`remember`]: `cell` is the eight-word cell this compilation allocated for
+/// this site and keeps alive as long as the code is.
+unsafe fn remember_absent(cell: *mut i64, header: i64, answer: u64) {
+    unsafe {
+        cell.add(3).write(header);
+        cell.add(4).write(answer as i64);
+        cell.add(5).write(ABSENT);
+        cell.add(6)
+            .write(CHAIN_EPOCH.load(std::sync::atomic::Ordering::Relaxed) as i64);
+        cell.add(7).write(CHAIN_EPOCH.as_ptr() as i64);
+    }
+}
+
 fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
     with_current(|context| {
         context.resolves += 1;
         // Only a READ site's cell has words three through five free; see
         // `remember`. A store reaches here with `Reaches::Cell` and lowers to a
         // site that reads neither.
-        let duplex = reaches == Reaches::Overflow;
+        let duplex = reaches != Reaches::Cell;
         let explain = |why: &'static str, context: &mut Context| {
             // The census, when one was asked for. Counted before the sampled
             // line below and independently of it: the sampling answers "what
@@ -317,7 +441,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             };
             let link = context.prototype_at(object as u32);
             let ty = context.typed_as(grown, link).index() as u32;
-            context.region.set_type(object as u32, ty);
+            context.retype_cell(object as u32, ty);
             let Some(after) = context.region.header_of(object as u32) else {
                 explain("the receiver is not a cell in this region", context);
                 return -1;
@@ -342,8 +466,39 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
         // means the growth arm did not fire, and nothing on the way changed
         // which slot this key occupies.
         let Some(slot) = held else {
-            // Absent. Legal, and it reads as `undefined` — but not by loading,
-            // which is all this answer says.
+            // Absent. Legal, and it reads as `undefined` — and a READ site can
+            // remember that, under the conditions `absent_answer` states. It
+            // was a refusal, and a refusal is a miss forever: `o.zz ?? d` and
+            // `if (o.zz === undefined)` asked the runtime on every execution,
+            // 109 ns against 4.7 for a property that exists, with
+            // `RTS_TIMING=1` counting one miss per access
+            // (bench/analytic.ts, 2026-09-26).
+            if reaches == Reaches::Overflow
+                && let Some(answer) = absent_answer(context, object as u32, key)
+            {
+                // SAFETY: the cell this site declared, as everywhere else here.
+                unsafe {
+                    remember_absent(cache as *mut i64, remembered as i64, answer);
+                }
+                // Any non-negative number: the site asks its first entry's
+                // header again, finds it does not match, and takes the second.
+                return 0;
+            }
+            // Not cacheable — inherited, an accessor, a proxy above. If the
+            // second entry still holds an ABSENT answer for this very layout
+            // (the property appeared on a link and withdrew it), clear it, or
+            // every read from here on would test its validity, fail, and land
+            // here again: three loads and a compare on a path that is already a
+            // miss. `-1` is the cold header no object has.
+            if reaches == Reaches::Overflow {
+                // SAFETY: the cell this site declared, as everywhere else here.
+                unsafe {
+                    let cell = cache as *mut i64;
+                    if cell.add(5).read() == ABSENT && cell.add(3).read() == remembered as i64 {
+                        cell.add(3).write(-1);
+                    }
+                }
+            }
             explain("the property is absent from the receiver's shape", context);
             return -1;
         };

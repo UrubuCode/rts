@@ -262,7 +262,7 @@
         // E a régua direta: nenhum item pode continuar largo os 600px de
         // antes — os retângulos da largura NOVA são o que prova que a chave
         // (e não só a coincidência do teste anterior) fez a diferença.
-        let geo = cacheado.geometry();
+        let geo = cacheado.geometry_now();
         for it in dom.query_all(".it") {
             let idx = dom.resolve(it).unwrap();
             let rect = geo.rects[&idx];

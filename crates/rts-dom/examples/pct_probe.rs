@@ -10,7 +10,8 @@
 //!   cargo run -q -p rts-dom --example pct_probe -- scripts/parity/pagina.combinada.html
 //!   RTS_PCT_INTRINSECO=1 cargo run -q -p rts-dom --example pct_probe -- <o mesmo>
 
-use rts_dom::layout::{self, DisplayItem};
+use rts_dom::layout;
+use rts_dom::paint::DisplayItem;
 
 /// O mesmo medidor aproximado das outras sondas. Não é o do backend, e não
 /// precisa de ser: as duas corridas usam o MESMO, portanto a diferença entre
@@ -89,7 +90,7 @@ fn main() {
     // afastaram? Um número de altura sozinho não distingue "piorou" de
     // "destapou".
     if let Some(destino) = std::env::args().nth(2) {
-        let geo = lista.geometry();
+        let geo = lista.geometry_now();
         let mut out = String::new();
         dump_caminhos(&dom, &geo, dom.root, "html[1]".to_string(), &mut out);
         std::fs::write(&destino, out).expect("escrever o dump");
@@ -103,7 +104,7 @@ fn main() {
 /// diferença dos percursos em vez da do layout.
 fn dump_caminhos(
     dom: &rts_dom::Dom,
-    geo: &rts_dom::layout::Geometry,
+    geo: &rts_dom::query::Geometry,
     idx: rts_dom::NodeIdx,
     caminho: String,
     out: &mut String,

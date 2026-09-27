@@ -63,7 +63,7 @@ macro_rules! tables {
 tables!(
     SpillOf, ArrayElements, Callables, Proxies, Bound, Views, Collections, Cursors, Generators,
     Helpers, Prototypes, Accessors, Boxed, ProtoTypes, PendingStacks, BufferOf, Detached, Regexes,
-    Integrity, Attributes, Derived, Foreign,
+    Integrity, Attributes, Derived, ChainLinks, Foreign,
 );
 
 /// What one table gives up when a cell dies. Inlined with a constant `table`,
@@ -153,6 +153,9 @@ fn bury(context: &mut Context, cell: u32, table: SideTable) {
             }
             SideTable::Derived => {
                 context.derived.remove(cell);
+            }
+            SideTable::ChainLinks => {
+                context.chain_links.remove(cell);
             }
             SideTable::Boxed => {
                 context.boxed.remove(cell);

@@ -346,7 +346,7 @@ pub fn ua_display(tag: &str) -> Option<crate::style::DisplayKind> {
 // `<dir>`) vivia aqui como `UA_LIST_INDENT`/`is_list_container`, consultado
 // pelo layout DEPOIS da caixa resolvida. Apagado no lote I: é uma regra CSS
 // normal em `style/ua.css` agora, que a cascade já aplica antes do layout ver
-// o `padding` — `layout/bloco.rs` deixou de chamar uma função à parte.
+// o `padding` — `layout/block/block.rs` deixou de chamar uma função à parte.
 
 thread_local! {
     /// Flag de "UA já instalada nesta thread" (idempotência sem custo por-parse).

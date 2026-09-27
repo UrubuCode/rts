@@ -155,7 +155,11 @@ pub(super) fn plain(path: PathBuf) -> PathBuf {
 /// so a joined alias path really does keep a `..` that the relative spelling
 /// of the same file does not, and `tests/import_alias.rs` failed on exactly
 /// that before this was shared.
-fn settled(path: PathBuf) -> PathBuf {
+///
+/// Crate-visible for one more reader: a compiled page's resource base
+/// (`object::page_resources::resource_base`) is spelled like `__dirname` so a
+/// driver building its base from `__dirname` resolves the keys the build did.
+pub(crate) fn settled(path: PathBuf) -> PathBuf {
     plain(path.canonicalize().unwrap_or(path))
 }
 

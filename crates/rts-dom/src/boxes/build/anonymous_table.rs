@@ -23,7 +23,7 @@
 //! - **Not inside an inline.** There the anonymous box would be an
 //!   `inline-table`, which this engine does not lay out as inline-level yet.
 //!   The run is left as it was.
-//! - **Not in a container that split an inline** (`materializa_contentor`).
+//! - **Not in a container that split an inline** (`materialize_container`).
 //!   Both families at once in one container is a case no fixture measures.
 
 use super::{Construcao, NodeIdx};
@@ -92,7 +92,7 @@ impl Construcao<'_> {
 /// A table part that needs a table above it: a row group, a row, a cell or a
 /// caption. Floats and absolutely positioned boxes are blockified and are none
 /// of these, which `effective_display` already says.
-fn is_table_part_child(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
+pub(super) fn is_table_part_child(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
     if !matches!(dom.node(node).kind, NodeKind::Element { .. }) {
         return false;
     }

@@ -12,7 +12,7 @@ use crate::table::tests::geometria;
 /// Corpus tolerance (`tests/css/README.md`): 1px.
 const TOL: f32 = 1.0;
 
-fn fixture() -> (crate::Dom, crate::layout::DisplayList) {
+fn fixture() -> (crate::Dom, crate::paint::DisplayList) {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/css/claude-pseudo-caixa-gerada.html"
@@ -21,7 +21,7 @@ fn fixture() -> (crate::Dom, crate::layout::DisplayList) {
     geometria(&src, 1280.0)
 }
 
-fn afirma(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+fn afirma(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     let got = (r.x, r.y, r.w, r.h);
@@ -53,7 +53,7 @@ fn inline_pseudo_padding_and_border_take_space_inside_its_element() {
 }
 
 /// The horizontal half of an axis-by-axis assertion: `x` and `w`.
-fn afirma_x(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, x: f32, w: f32) {
+fn afirma_x(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, x: f32, w: f32) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     assert!(
@@ -64,30 +64,29 @@ fn afirma_x(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str, x: f
     );
 }
 
-fn y_h(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str) -> (f32, f32) {
+fn y_h(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str) -> (f32, f32) {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
     let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
     (r.y, r.h)
 }
 
 /// An empty `inline-block` `::after` with a left margin: its margin box
-/// (5 + 20) is part of the span's width and pushes the next span.
-///
-/// NOT asserted, and the fixture is in `tests/css/esperado-a-falhar.txt`:
-/// the line height. Blink gives 25 (`#p3` h=25, the spans at y=80) — the
-/// atom's bottom margin edge sits on the baseline and the strut's descent
-/// hangs below it — and this engine gives 20, because the line flow
-/// (`linha.rs`) only accounts for an atom's baseline when the atom is TALLER
-/// than the line. A real `<span style="display:inline-block;width:20px;
-/// height:20px;margin-left:5px">` in the same place gives the same 20: the
-/// generated box follows the rule a real inline-block follows, and the rule
-/// is what is short (`alinhamento_vertical.rs`, "CORTE", the default
-/// `vertical-align: baseline` not yet migrated for the text flow).
+/// (5 + 20) is part of the span's width and pushes the next span — and, on
+/// the VERTICAL axis, its bottom margin edge sits on the baseline (CSS 2.1
+/// §10.8.1, no line box of its own) so the strut's descent hangs below it:
+/// Blink's line grows to 25 (not the empty box's own 20), and the spans it
+/// widens sit at y=80. This is the BT-5 ruler's last axis (`linha_baseline.rs`
+/// `generated_ascent`, which the atom now goes through the same
+/// `alinhamento_vertical::Envelope` a real `inline-block` uses).
 #[test]
 fn inline_block_after_with_margin_widens_its_element() {
     let (dom, list) = fixture();
     afirma_x(&dom, &list, "#p3s", 0.0, 42.59);
     afirma_x(&dom, &list, "#p3n", 42.59, 8.8);
+    let (p3_y, p3_h) = y_h(&dom, &list, "#p3");
+    assert!((p3_h - 25.0).abs() <= TOL, "#p3: expected h=25 (Blink), got {p3_h}");
+    let (p3s_y, _) = y_h(&dom, &list, "#p3s");
+    assert!((p3s_y - p3_y - 5.0).abs() <= TOL, "#p3s: expected y=80 (Blink, 5px below #p3's top), got {p3s_y}");
 }
 
 /// A block pseudo 40px wide wraps "aaa bbb ccc ddd" to four lines: 80px of
@@ -108,18 +107,19 @@ fn block_pseudo_text_wraps_at_its_content_width() {
 }
 
 /// An `inline-block` pseudo shrinks to its text and adds padding and border
-/// around it: 6+2 on each side of one 8.8px glyph.
-///
-/// NOT asserted, for the reason `#p3` gives: the vertical placement. Blink
-/// puts the atom's baseline at its text's baseline (a 32px line, `#p5t` at
-/// y=226); this engine tops a non-empty inline-block at the line top and
-/// hangs the text from its bottom (37, and `#p5t` 17.6px down) — the same
-/// numbers a real `<span style="display:inline-block;padding:4px 6px;
-/// border:2px solid">z</span>` gets here.
+/// around it: 6+2 on each side of one 8.8px glyph. On the vertical axis it
+/// has its OWN line box (CSS 2.1 §10.8.1), so its baseline is its text's, not
+/// its bottom margin edge: Blink's line grows to 32 (the box's padding+border
+/// above and below its one line of text) and its text sits at y=226 — 6px
+/// below `#p5`'s top, its own padding-top.
 #[test]
 fn inline_block_pseudo_shrinks_to_its_text_plus_padding_and_border() {
     let (dom, list) = fixture();
     afirma_x(&dom, &list, "#p5t", 24.8, 17.59);
+    let (p5_y, p5_h) = y_h(&dom, &list, "#p5");
+    assert!((p5_h - 32.0).abs() <= TOL, "#p5: expected h=32 (Blink), got {p5_h}");
+    let (p5t_y, _) = y_h(&dom, &list, "#p5t");
+    assert!((p5t_y - p5_y - 6.0).abs() <= TOL, "#p5t: expected y=226 (Blink, 6px below #p5's top), got {p5t_y}");
 }
 
 /// The surface of an `inline` pseudo is painted behind its text and spans
@@ -132,7 +132,7 @@ fn inline_pseudo_surface_is_painted_across_the_generated_box() {
         .materialized()
         .iter()
         .filter_map(|it| match it {
-            crate::layout::DisplayItem::SolidRect { rect, color, .. } => Some((*rect, *color)),
+            crate::paint::DisplayItem::SolidRect { rect, color, .. } => Some((*rect, *color)),
             _ => None,
         })
         .collect();

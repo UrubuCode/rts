@@ -64,8 +64,22 @@ use super::array::{
     ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
 };
 use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
+use super::text_walk::TEXT_WALK_ENTRY;
+use super::array::ARRAY_IS_ARRAY_ENTRY;
+use super::array_proto::ARRAY_PUSH_DIRECT_ENTRY;
+use super::arguments::{ARGUMENT_SLOT_ENTRY, ARGUMENTS_COUNT_ENTRY};
+use super::function_direct::{FUNCTION_APPLY_DIRECT_ENTRY, FUNCTION_CALL_DIRECT_ENTRY};
+use super::number::{NUMBER_TO_FIXED_DIRECT_ENTRY, NUMBER_TO_STRING_DIRECT_ENTRY};
+use super::collections::{
+    MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
+    SET_HAS_DIRECT_ENTRY,
+};
+use super::functions::ARGUMENT_AT_ENTRY;
+use super::primitives::SAME_VALUE_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
-use super::text::{STRING_OF_ENTRY, TEMPLATE_JOIN_ENTRY};
+use super::math_direct::{MATH_DIRECT1_ENTRY, MATH_DIRECT2_ENTRY};
+use super::template_join::TEMPLATE_JOIN_ENTRY;
+use super::text::STRING_OF_ENTRY;
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY,
     NUMBER_EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
@@ -743,6 +757,53 @@ pub enum CoreEntry {
     JsonStringify = 104,
     /// [`super::json_parse`] — `JSON.parse(text)`, the same way.
     JsonParse = 105,
+    /// [`super::text_walk`] — a string's code points as a list, where a
+    /// `for`-`of` may walk them instead of stepping the iterator.
+    TextWalk = 106,
+    /// [`super::math_direct1`] — a one-operand `Math` member by number, over an
+    /// unboxed double, where the whole program proves the name still means it.
+    MathDirect1 = 107,
+    /// [`super::math_direct2`] — the two-operand form.
+    MathDirect2 = 108,
+    /// [`super::argument_at`] — one argument of the running call by position,
+    /// for a parameter past the convention's slots, without building the rest.
+    ArgumentAt = 109,
+    /// [`super::same_value`] — `Object.is(a, b)`, reached without the object once
+    /// the whole program proves the name still means it.
+    SameValue = 110,
+    /// [`super::array_is_array`] — `Array.isArray(x)`, the same way.
+    ArrayIsArray = 111,
+    /// [`super::map_get_direct`] — `m.get(k)` where the whole program leaves `Map`
+    /// alone: the brand checked, a real map answered from its table, anything
+    /// else through the method it has.
+    MapGetDirect = 112,
+    /// [`super::map_has_direct`], the same way.
+    MapHasDirect = 113,
+    /// [`super::map_set_direct`], the same way.
+    MapSetDirect = 114,
+    /// [`super::set_has_direct`], the same way for `Set`.
+    SetHasDirect = 115,
+    /// [`super::set_add_direct`], the same way.
+    SetAddDirect = 116,
+    /// [`super::array_push_direct`] — `a.push(v)` appended in place where the
+    /// receiver is an array that may grow, and the member otherwise.
+    ArrayPushDirect = 117,
+    /// [`super::function_call_direct`] — `f.call(thisArg, …)` where the whole
+    /// program leaves `Function` alone: a plain function called in the
+    /// convention's own slots, anything else through the member it has.
+    FunctionCallDirect = 118,
+    /// [`super::function_apply_direct`], the same way for `f.apply(thisArg, list)`.
+    FunctionApplyDirect = 119,
+    /// [`super::arguments_count`] — `arguments.length` for a body that reads
+    /// nothing else of the object, from the activation's own slots.
+    ArgumentsCount = 120,
+    /// [`super::argument_slot`] — `arguments[e]`, the same way.
+    ArgumentSlot = 121,
+    /// [`super::number_to_string_direct`] — `n.toString(radix)` over a proven
+    /// double, where the whole program leaves `Number` alone.
+    NumberToStringDirect = 122,
+    /// [`super::number_to_fixed_direct`] — `n.toFixed(digits)`, the same way.
+    NumberToFixedDirect = 123,
 }
 
 /// How many entry points exist.
@@ -750,7 +811,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 106;
+pub const CORE_ENTRY_COUNT: usize = 124;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -861,6 +922,24 @@ impl CoreEntry {
         CoreEntry::SerdeDeclare,
         CoreEntry::JsonStringify,
         CoreEntry::JsonParse,
+        CoreEntry::TextWalk,
+        CoreEntry::MathDirect1,
+        CoreEntry::MathDirect2,
+        CoreEntry::ArgumentAt,
+        CoreEntry::SameValue,
+        CoreEntry::ArrayIsArray,
+        CoreEntry::MapGetDirect,
+        CoreEntry::MapHasDirect,
+        CoreEntry::MapSetDirect,
+        CoreEntry::SetHasDirect,
+        CoreEntry::SetAddDirect,
+        CoreEntry::ArrayPushDirect,
+        CoreEntry::FunctionCallDirect,
+        CoreEntry::FunctionApplyDirect,
+        CoreEntry::ArgumentsCount,
+        CoreEntry::ArgumentSlot,
+        CoreEntry::NumberToStringDirect,
+        CoreEntry::NumberToFixedDirect,
     ];
 
     /// The number a call site holds.
@@ -982,6 +1061,24 @@ impl CoreEntry {
             CoreEntry::SerdeDeclare => SERDE_DECLARE_ENTRY,
             CoreEntry::JsonStringify => JSON_STRINGIFY_ENTRY,
             CoreEntry::JsonParse => JSON_PARSE_ENTRY,
+            CoreEntry::TextWalk => TEXT_WALK_ENTRY,
+            CoreEntry::MathDirect1 => MATH_DIRECT1_ENTRY,
+            CoreEntry::MathDirect2 => MATH_DIRECT2_ENTRY,
+            CoreEntry::ArgumentAt => ARGUMENT_AT_ENTRY,
+            CoreEntry::SameValue => SAME_VALUE_ENTRY,
+            CoreEntry::ArrayIsArray => ARRAY_IS_ARRAY_ENTRY,
+            CoreEntry::MapGetDirect => MAP_GET_DIRECT_ENTRY,
+            CoreEntry::MapHasDirect => MAP_HAS_DIRECT_ENTRY,
+            CoreEntry::MapSetDirect => MAP_SET_DIRECT_ENTRY,
+            CoreEntry::SetHasDirect => SET_HAS_DIRECT_ENTRY,
+            CoreEntry::SetAddDirect => SET_ADD_DIRECT_ENTRY,
+            CoreEntry::ArrayPushDirect => ARRAY_PUSH_DIRECT_ENTRY,
+            CoreEntry::FunctionCallDirect => FUNCTION_CALL_DIRECT_ENTRY,
+            CoreEntry::FunctionApplyDirect => FUNCTION_APPLY_DIRECT_ENTRY,
+            CoreEntry::ArgumentsCount => ARGUMENTS_COUNT_ENTRY,
+            CoreEntry::ArgumentSlot => ARGUMENT_SLOT_ENTRY,
+            CoreEntry::NumberToStringDirect => NUMBER_TO_STRING_DIRECT_ENTRY,
+            CoreEntry::NumberToFixedDirect => NUMBER_TO_FIXED_DIRECT_ENTRY,
         }
     }
 

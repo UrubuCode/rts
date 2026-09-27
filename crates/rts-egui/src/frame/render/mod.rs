@@ -5,15 +5,12 @@
 //! Esta é a virada de 2026-06-27 ("processar tudo no DOM, o egui só lê e exibe").
 //! O egui deixou de decidir layout (o antigo `ui.label`/`horizontal`/`Frame` foi
 //! removido) — ele é um BACKEND DE PAINT trocável. A única coisa que o `rts-dom`
-//! não faz sozinho é MEDIR texto (largura/altura de glifo); isso o egui fornece
-//! via [`EguiMeasurer`], que implementa o trait `rts_dom::layout::TextMeasurer`
-//! usando o sistema de fontes real do egui (galley) — então a medida é exata, não
-//! aproximada, e mesmo assim o DOM continua dono do layout.
+//! não faz sozinho é MEDIR texto; isso vem de `rts_text::adapter::RealMeasurer`
+//! (ver `medida.rs`), a MESMA implementação que o raster headless usa, e a
+//! pintura desenha com a face que esse medidor escolheu.
 
-use rts_dom::layout::{self, DisplayItem, DisplayList, TextMeasurer};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
+use rts_dom::layout;
+use rts_dom::paint::{self, DisplayItem, DisplayList};
 
 /// Converte a cor própria do motor de estilo (`u32` RGBA `0xRRGGBBAA`, egui-free)
 /// para o `Color32` do egui. A conversão vive AQUI (no backend), nunca no rts-dom.
@@ -25,62 +22,6 @@ fn rgba_to_color32(c: u32) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(r, g, b, a)
 }
 
-/// Implementa a medição de texto do `rts-dom` usando o sistema de fontes REAL do
-/// egui (não a aproximação do `ApproxMeasurer`). Mede largura via galley e usa a
-/// altura de linha da fonte — assim o layout calculado no rts-dom bate com o que
-/// o egui vai de fato pintar.
-///
-/// Guarda o `Context` POR VALOR (clonado de `ui.ctx()`), e não emprestado: um
-/// `TextMeasurer` emprestado não pode viver num `Rc<dyn TextMeasurer + 'static>`
-/// entre chamadas, e é assim que `layout::medidor_ativo` o mantém disponível
-/// para quem consulta geometria FORA do frame de pintura (`bounding_component`,
-/// `computedProperty`). O clone é barato — `egui::Context` é um `Arc` por
-/// dentro, o mesmo custo que `egui_ctx.clone()` já paga em `app/mod.rs` e
-/// `frame/mod.rs`.
-struct EguiMeasurer {
-    ctx: egui::Context,
-    /// One number per egui `Context`, stable for the life of that context, and
-    /// the ONLY thing the caches below may key on. It used to be the address
-    /// of the `ctx` field above — and this measurer is rebuilt every frame, so
-    /// that address changed every frame: `TEXT_WIDTH_CACHE` grew one fresh
-    /// bucket per frame that nothing ever evicted (the 8 192 ceiling is per
-    /// bucket), and the layout caches keyed by `identity()` never hit across
-    /// frames. Measured on the dino page: 544 B + 280 B retained per frame,
-    /// ~0.1 MB/s in release, flat once the key stopped moving.
-    context_id: u64,
-}
-
-/// A stable identity for an egui `Context`, minted once and kept in the
-/// context's own data store. `egui::Context` exposes no id of its own, and its
-/// address is the address of whichever clone one happens to hold.
-fn context_identity(ctx: &egui::Context) -> u64 {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let slot = egui::Id::new("rts-egui: context identity for the text measurer");
-    ctx.data_mut(|data| {
-        *data.get_temp_mut_or_insert_with(slot, || {
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        })
-    })
-}
-
-/// Constrói o `EguiMeasurer` deste frame E regista-o como o medidor ACTIVO da
-/// thread (`layout::medidor_ativo::set_active`) — é como `bounding_component`/
-/// `computedProperty`, do lado do `rts-dom`, passam a responder com a MESMA
-/// geometria que este frame vai pintar, em vez de caírem sempre no
-/// `ApproxMeasurer` (finding 1 de
-/// `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/05-texto-e-fontes.md`).
-///
-/// Regista-se A CADA FRAME, não uma vez ao abrir a janela — "o último a pintar
-/// ganha" é aceitável porque só um documento pinta por frame nesta thread; a
-/// alternativa (guardar um `Rc` entre frames e só reregistar quando o `Context`
-/// ou o `pixels_per_point` mudassem) pedia detectar essa troca, que este ponto
-/// não precisa de ter.
-fn measurer_for(ctx: &egui::Context) -> Rc<EguiMeasurer> {
-    let measurer = Rc::new(EguiMeasurer { ctx: ctx.clone(), context_id: context_identity(ctx) });
-    rts_dom::layout::medidor_ativo::set_active(measurer.clone());
-    measurer
-}
-
 /// Limpa o medidor de texto ACTIVO desta thread. Chamado no shutdown do
 /// processo (via `frame::clear_active_measurer` → `rts_ui::shutdown`): sem
 /// isto, o medidor de uma janela já fechada continuaria a responder por uma
@@ -88,19 +29,12 @@ fn measurer_for(ctx: &egui::Context) -> Rc<EguiMeasurer> {
 /// `medidor_ativo` existe para fechar, só que adiada até o processo morrer em
 /// vez de acontecer a cada pedido.
 pub fn clear_active_measurer() {
-    rts_dom::layout::medidor_ativo::clear_active();
+    rts_dom::layout::active_measurer::clear_active();
 }
 
-thread_local! {
-    /// Métricas persistentes entre relayouts. O contexto faz parte da chave para não
-    /// misturar fontes de janelas egui diferentes; o limite evita crescimento infinito.
-    static TEXT_WIDTH_CACHE: RefCell<HashMap<(usize, u32, bool, bool, bool), HashMap<String, f32>>> =
-        RefCell::new(HashMap::new());
-    static LINE_HEIGHT_CACHE: RefCell<HashMap<(usize, u32), f32>> =
-        RefCell::new(HashMap::new());
-}
-
+mod gradiente;
 mod medida;
+mod overlay;
 mod pintura;
 mod scroll;
 
@@ -128,7 +62,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
     let avail = ui.available_size();
     let viewport_w = avail.x.max(1.0);
     let viewport_h = ui.ctx().screen_rect().height().max(1.0);
-    let measurer = measurer_for(ui.ctx());
+    let measurer = medida::measurer();
     let ctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &*measurer };
     let list = layout::layout_cached(dom, &ctx);
     // DUMP DO RENDER (`RTS_DOM_PAINT=1`): o que o backend receberia neste frame.
@@ -141,7 +75,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
         list.walk(|item, _, _| {
             itens += 1;
             match item {
-                layout::DisplayItem::BeginClip { rect, .. } => {
+                paint::DisplayItem::BeginClip { rect, .. } => {
                     clips += 1;
                     profundidade += 1;
                     sobra = sobra.max(profundidade);
@@ -149,7 +83,7 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
                         vazios += 1;
                     }
                 }
-                layout::DisplayItem::EndClip { .. } => profundidade -= 1,
+                paint::DisplayItem::EndClip { .. } => profundidade -= 1,
                 _ => {}
             }
         });
@@ -236,7 +170,7 @@ fn emit_input_events(h: u64) {
 
 /// Renderiza o DOM COM SCROLL — o egui burro: mantém só o offset (input do mouse),
 /// translada o conteúdo por -offset e pinta. A BARRA (track+thumb) é emitida pelo
-/// DOM (`layout::emit_scrollbar`) como `SolidRect` — NÃO usa o ScrollArea do egui,
+/// DOM (`paint::emit_scrollbar`) como `SolidRect` — NÃO usa o ScrollArea do egui,
 /// p/ a barra não ficar presa ao backend (visão: egui removível). `h` é o handle do
 /// DOM; `sb` o estilo do CSS; `scroll_y` se o eixo Y rola; `force` se a barra é
 /// sempre visível (overflow:scroll).
@@ -258,12 +192,16 @@ pub(crate) fn render_dom_scrolled(
     // (cascade de todas as regras × nós — numa página Bootstrap ~2700 regras) só
     // precisa re-rodar quando o DOM/estilo MUDAM (`render_revision`) ou o viewport
     // muda. Era a "travada" ao clicar: re-layout completo por frame.
-    let measurer = measurer_for(ui.ctx());
+    let measurer = medida::measurer();
     let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &*measurer };
     // A barra e o offset são aplicados SOBRE a lista, então esta cópia é
     // necessária — mas ela agora parte de uma lista cacheada pelo próprio DOM.
-    let mut list = rts_dom::store::with_dom(h, |d| (*layout::layout_cached(d, &lctx)).clone())
-        .unwrap_or_default();
+    // The geometry comes from the SAME slot as the list (`Dom::geometry_cached`,
+    // PQ-C4): built once per cached list, not once per frame on the copy.
+    let (mut list, geometry) = rts_dom::store::with_dom(h, |d| {
+        ((*layout::layout_cached(d, &lctx)).clone(), d.geometry_cached(&lctx))
+    })
+    .unwrap_or_default();
     let content_h = list.content_height;
 
     // OFFSET de scroll da PÁGINA: vive no `Dom` (`dom/scroll.rs`), não mais em
@@ -326,14 +264,14 @@ pub(crate) fn render_dom_scrolled(
 
     // BARRA emitida pelo DOM (SolidRect) — fixa na viewport (a função soma o offset).
     if scroll_y {
-        layout::emit_scrollbar(&mut list, viewport_w, viewport_h, content_h, offset, sb, force);
+        paint::emit_scrollbar(&mut list, viewport_w, viewport_h, content_h, offset, sb, force);
     }
     // SCROLL CONTAINERS INTERNOS (#1744): para cada região rolável (div com overflow),
     // o egui lê/escreve o offset dela no `Dom` (`dom/scroll.rs`) e emite as
     // barras dela — não mais injeta o offset na `DisplayList` (`paint_list`
     // volta a perguntar ao `Dom`, ver a nota de topo de `scroll.rs`). O
     // `base_origin` desloca o page-scroll p/ casar com o paint (que usa -offset).
-    process_scroll_regions(ui, h, &mut list, sb, -offset);
+    process_scroll_regions(ui, h, &mut list, &geometry, sb, -offset);
     // CANVAS da página: a cor vem do `rts-dom` (`DisplayList::canvas_background`),
     // que já resolve a propagação do `<body>`/`<html>` e o branco por omissão.
     // Perguntar aqui de novo era a MESMA regra escrita duas vezes, e as duas
@@ -356,6 +294,8 @@ pub(crate) fn render_dom_scrolled(
     // campo gravado no item, que pode vir de um fragmento reusado do cache) —
     // por isso precisa do empréstimo, não só da `list` (já uma cópia própria).
     let _ = rts_dom::store::with_dom(h, |d| paint_list(ui, &list, -offset, d));
+    // The inspector's highlight, on top of the page and under the same clip.
+    overlay::paint(ui, h, &list, &geometry, offset);
     ui.set_clip_rect(old_clip);
 
     // HIT-TEST de CLIQUE (north-star §3 + handoff #1793 item 6): o egui é só o

@@ -14,6 +14,11 @@ crate-type = ["rlib"]
 # that failure would start.
 rts-cranelift = { path = "../rts-cranelift" }
 
+# The shared mid-level IR. This crate supplies the half of it that is not
+# neutral — the type domain, the primitive table and what a guard asserts — and
+# `rts-mir` never names this language. `crates/rts-mir/README.md` rules 1 and 2.
+rts-mir = { path = "../rts-mir" }
+
 # The parser bridge. SWC is the front end for both trees: rts-parser already
 # lowers its output into the old AST, and `parse/` lowers the same output into
 # this one. Reusing it is also what gives us ASI — which decides what parses,

@@ -49,7 +49,7 @@ mod transform;
 
 pub use layout::FrameLayout;
 pub use spill::{SpillLayout, SpillSlot};
-pub use transform::{Resumable, TransformError, resumable_form};
+pub use transform::{Resumable, TransformError, resumable_form, resumable_form_with_arrivals};
 
 use crate::gc::{Liveness, live_after_each_inst};
 use crate::ir::{Function, InstId};
@@ -122,14 +122,53 @@ impl ResumeMode {
     }
 }
 
+/// Why a point in a frame exists.
+///
+/// # Why two kinds and not one
+///
+/// Because a suspension is two halves and a deoptimisation target is only the second
+/// of them. Parking writes the label and leaves; resuming enters at the label with the
+/// frame's contents in place. A guard that fails needs the entering half and must not
+/// have the leaving half: the body it enters runs straight through when nothing
+/// speculated, and a park emitted there would stop it at the very point a normal run
+/// passes through.
+///
+/// Found by trying to reuse [`crate::frame::resumable_form`] for a side exit, which
+/// `docs/engine/deopt-lateral.md` D3 assumed would fit. It does not fit and this is
+/// exactly where -- which is what that section's own sentence asked for: if something
+/// does not fit, the change is in `frame/` rather than a second implementation of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Entered {
+    /// Control leaves here and comes back. Parks, and resumes.
+    Suspension,
+    /// Control only ARRIVES here, never leaves through it.
+    ///
+    /// The half a deoptimisation needs. Its live values are still preserved -- that is
+    /// what makes arriving possible at all, and it is derived from liveness like every
+    /// other spill rather than declared, which is rule 8.
+    Arrival,
+}
+
+/// One point a frame can be entered at.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Point {
+    /// The instruction it is at. A suspension is AT its own instruction; an arrival is
+    /// immediately before the one named, because that is where control lands.
+    pub at: InstId,
+    /// The number the dispatch selects it by.
+    pub label: ResumeLabel,
+    /// Which half of a suspension this is.
+    pub entered: Entered,
+}
+
 /// How a function suspends.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct SuspendPlan {
-    /// Each suspension point and the label control returns to.
+    /// Each point and the label control returns to.
     ///
     /// In program order, and the label is the position in that order: a
     /// resumption is a jump selected by a number, so the number is the order.
-    pub points: Vec<(InstId, ResumeLabel)>,
+    pub points: Vec<Point>,
     /// What the frame preserves while it is parked.
     pub spill: SpillLayout,
 }
@@ -140,12 +179,20 @@ impl SuspendPlan {
         self.points.is_empty()
     }
 
-    /// The label for a suspension point, if it is one.
+    /// The label for a point, if this instruction is one.
     pub fn label_of(&self, at: InstId) -> Option<ResumeLabel> {
         self.points
             .iter()
-            .find(|(inst, _)| *inst == at)
-            .map(|(_, label)| *label)
+            .find(|held| held.at == at)
+            .map(|held| held.label)
+    }
+
+    /// Which half this instruction is, if it is a point at all.
+    pub fn entered_at(&self, at: InstId) -> Option<Entered> {
+        self.points
+            .iter()
+            .find(|held| held.at == at)
+            .map(|held| held.entered)
     }
 }
 
@@ -167,15 +214,49 @@ pub fn plan_suspension(func: &Function) -> SuspendPlan {
 /// Root reporting needs the same analysis, and computing it twice for one
 /// function is work whose only cause would be module boundaries.
 pub fn plan_suspension_with(func: &Function, liveness: &Liveness) -> SuspendPlan {
+    plan_with_arrivals(func, liveness, &[])
+}
+
+/// The same, plus points control may ARRIVE at without ever leaving through them.
+///
+/// # What an arrival is for
+///
+/// A deoptimisation target. A guard in one tier fails, and the other tier has to be
+/// entered at the corresponding place with the state that tier had -- which is the
+/// entering half of a suspension and none of the leaving half.
+///
+/// # Why the arrivals are NAMED and the spill is not
+///
+/// Which points exist is a decision belonging to whoever emits the guards: this layer
+/// cannot know where a client chose to speculate. What must be PRESERVED at one is not
+/// a decision at all -- it is the live set, derived here from the same liveness a
+/// suspension uses, because rule 8 says a client that could forget a value would.
+///
+/// So the signature takes the where and never the what.
+///
+/// An arrival names the instruction control lands ON, and that instruction runs after
+/// the frame is entered. Naming the one before it would make an empty block the
+/// target whenever a point sat at a block's start.
+pub fn plan_with_arrivals(
+    func: &Function,
+    liveness: &Liveness,
+    arrivals: &[InstId],
+) -> SuspendPlan {
     let mut points = Vec::new();
     let mut preserved: Vec<(crate::ir::ValueId, Repr)> = Vec::new();
 
     for (block_id, block) in func.blocks() {
-        if !block
+        // A BLOCK WITH NEITHER IS SKIPPED, and the arrival half of this test is what the
+        // first run of it was missing: the filter asked only about suspensions, so a
+        // block holding an arrival and nothing else was walked past and the point was
+        // never planned. `resume_points` came out 0 and the test that ran the body
+        // passed for having nothing to park at -- a false green that the other test
+        // caught by counting.
+        let interesting = block
             .insts
             .iter()
-            .any(|&i| func.inst(i).is_some_and(|d| d.inst.is_suspend()))
-        {
+            .any(|&i| func.inst(i).is_some_and(|d| d.inst.is_suspend()) || arrivals.contains(&i));
+        if !interesting {
             continue;
         }
 
@@ -184,26 +265,52 @@ pub fn plan_suspension_with(func: &Function, liveness: &Liveness) -> SuspendPlan
             let Some(data) = func.inst(inst_id) else {
                 continue;
             };
-            if !data.inst.is_suspend() {
-                continue;
-            }
+            let entered = match data.inst.is_suspend() {
+                true => Entered::Suspension,
+                false if arrivals.contains(&inst_id) => Entered::Arrival,
+                false => continue,
+            };
 
-            points.push((inst_id, ResumeLabel(points.len() as u32)));
-            preserved.extend(
-                after[position]
-                    .iter()
-                    .filter(|&&value| !data.defines(value))
-                    .map(|&value| (value, func.repr_of(value))),
-            );
+            points.push(Point {
+                at: inst_id,
+                label: ResumeLabel(points.len() as u32),
+                entered,
+            });
+            // WHAT IS LIVE AFTER A SUSPENSION and what is live BEFORE an arrival are
+            // different sets, and the difference is the whole of why this is not one
+            // line. A suspension comes back to just AFTER itself, so what it needs is
+            // what outlives it. An arrival lands ON its instruction, which has not run
+            // yet, so what it needs includes that instruction's own operands.
+            match entered {
+                Entered::Suspension => preserved.extend(
+                    after[position]
+                        .iter()
+                        .filter(|&&value| !data.defines(value))
+                        .map(|&value| (value, func.repr_of(value))),
+                ),
+                Entered::Arrival => {
+                    // Live AFTER, plus this instruction's operands, minus what it
+                    // defines: an operand is needed because the instruction runs on
+                    // arrival, and a result is not because it does not exist yet.
+                    preserved.extend(
+                        after[position]
+                            .iter()
+                            .copied()
+                            .chain(data.inst.operands())
+                            .filter(|value| !data.defines(*value))
+                            .map(|value| (value, func.repr_of(value))),
+                    );
+                }
+            }
         }
     }
 
     // Program order, so that a label's number is its position. Blocks are
     // visited in creation order and instructions within a block in program
     // order, so this only matters when a later block was created earlier.
-    points.sort_by_key(|(inst, _)| *inst);
-    for (index, (_, label)) in points.iter_mut().enumerate() {
-        *label = ResumeLabel(index as u32);
+    points.sort_by_key(|held| held.at);
+    for (index, held) in points.iter_mut().enumerate() {
+        held.label = ResumeLabel(index as u32);
     }
 
     SuspendPlan {

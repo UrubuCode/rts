@@ -50,6 +50,12 @@ pub struct Manifest {
     /// compiled without `--html`. See `super::page_scripts` for how this is
     /// turned into `context.eval_compiler_with_receiver`.
     pub page_scripts: Vec<(u64, u32)>,
+    /// Every local file a compiled page's loader read at build time — path
+    /// and raw bytes — handed to `rts_dom_bridge::recursos::tabela::declare`
+    /// so the page reads them from this image before the disk (lot AOT-1).
+    /// Empty for a program without `--html`, and for a manifest written before
+    /// the section existed.
+    pub resources: Vec<(String, Vec<u8>)>,
 }
 
 /// A cursor over the manifest's bytes that can only read forward, in bounds.
@@ -91,6 +97,13 @@ impl<'a> Reader<'a> {
         self.bytes.get(self.at..self.at + many)?;
         self.at += many;
         Some(())
+    }
+
+    fn bytes(&mut self) -> Option<Vec<u8>> {
+        let len = self.u32()? as usize;
+        let slice = self.bytes.get(self.at..self.at + len)?;
+        self.at += len;
+        Some(slice.to_vec())
     }
 
     fn text(&mut self) -> Option<String> {
@@ -153,6 +166,15 @@ pub fn read(bytes: &[u8]) -> Option<Manifest> {
     })?;
     let resolutions = r.table(|r| Some((r.text()?, r.text()?, r.text()?)))?;
     let page_scripts = r.table(|r| Some((r.u64()?, r.u32()?)))?;
+    // The one table allowed to be ABSENT: it was appended last, so a manifest
+    // that ends exactly here is a binary compiled before it existed, and that
+    // binary read every resource from disk — which is what an empty table
+    // means. Ending anywhere else is still a truncated file and refused.
+    let resources = if r.at == bytes.len() {
+        Vec::new()
+    } else {
+        r.table(|r| Some((r.text()?, r.bytes()?)))?
+    };
 
     Some(Manifest {
         singletons,
@@ -166,6 +188,7 @@ pub fn read(bytes: &[u8]) -> Option<Manifest> {
         metas,
         resolutions,
         page_scripts,
+        resources,
     })
 }
 
@@ -247,6 +270,39 @@ mod tests {
             manifest.page_scripts,
             vec![(0xdead_beef_cafe_1234, 7), (0x0011_2233_4455_6677, 9)]
         );
+        assert!(
+            manifest.resources.is_empty(),
+            "a manifest written before the `resources` section reads as one with none"
+        );
+    }
+
+    /// The section AOT-1 appends, read back in `rts_host::object::manifest`'s
+    /// order: a path string, then raw bytes that need not be UTF-8.
+    #[test]
+    fn resources_round_trip_path_and_raw_bytes() {
+        let mut bytes = empty_manifest_bytes();
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // page_scripts: 0
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // resources: 1
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"a.png");
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&[0x89, 0xff]);
+
+        let manifest = read(&bytes).expect("a well-formed manifest with one resource");
+        assert_eq!(manifest.resources, vec![("a.png".to_owned(), vec![0x89, 0xff])]);
+    }
+
+    /// A `resources` section cut off inside an entry is a truncated file —
+    /// refused, not read as "no resources", which would ship a page silently
+    /// unstyled.
+    #[test]
+    fn a_resources_table_truncated_mid_entry_is_refused() {
+        let mut bytes = empty_manifest_bytes();
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // page_scripts: 0
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // resources: claims 1
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"a.p");
+        assert!(read(&bytes).is_none());
     }
 
     /// A `page_scripts` table cut off mid-entry is a truncated file like any

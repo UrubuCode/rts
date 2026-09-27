@@ -38,15 +38,15 @@
 //! create blocks and nothing else in this file does, and because this file is
 //! within sight of the thousand-line ceiling rule 8 sets.
 
-use rts_cranelift::ir::inst::{CmpOp, NumOp};
 use rts_cranelift::ir::BitOp;
+use rts_cranelift::ir::inst::{CmpOp, NumOp};
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::repr::Repr;
 use rts_cranelift::tags;
 
 use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
-use crate::runtime::RuntimeOp;
+use crate::runtime::{ARRAY_OF_SLOTS, RuntimeOp};
 use crate::syntax::{AssignOp, BinaryOp};
 use crate::syntax::{AssignTarget, Expr, ExprKind, Literal};
 use crate::values::Singleton;
@@ -193,6 +193,17 @@ pub fn emit_expr(
             if let Some(field) = super::escape::field_of(ctx, object, *property, *optional) {
                 return super::binding::read(builder, scope, ctx, field);
             }
+            // `Math.PI` under the proof that `Math` is the language's: the
+            // number, and no read. `emit/math` is where the table and the proof
+            // live.
+            if let Some(value) = super::math::constant(scope, ctx, object, *property) {
+                return Ok(super::math::fixed(builder, value));
+            }
+            // `arguments.length` where the body reads the object light: the
+            // count from the slots, and no object.
+            if let Some(count) = super::light_arguments::length(builder, ctx, object, *property)? {
+                return Ok(count);
+            }
             // `property` is a name, not a key: `o[e]` is `Index`, a different
             // node. So there is no computed case to refuse here.
             let receiver = emit_expr(builder, scope, ctx, object)?;
@@ -207,6 +218,10 @@ pub fn emit_expr(
             // no array allocation, element write or indexed lookup is needed.
             if let Some(field) = super::escape::array_field_of(ctx, object, index, *optional) {
                 return super::binding::read(builder, scope, ctx, field);
+            }
+            // `arguments[e]` where the body reads the object light.
+            if let Some(value) = super::light_arguments::at(builder, scope, ctx, object, index)? {
+                return Ok(value);
             }
             // A read a DESUGARING proved: the receiver is an array it made and
             // the index is a counter it minted, so none of the questions
@@ -253,7 +268,9 @@ pub fn emit_expr(
             // answered differently — only faster when the key repeats.
             super::property::emit_read_keyed(builder, ctx, receiver, key)
         }
-        ExprKind::Object { properties } => super::object::emit_object(builder, scope, ctx, properties),
+        ExprKind::Object { properties } => {
+            super::object::emit_object(builder, scope, ctx, properties)
+        }
         ExprKind::Array { elements } => emit_array(builder, scope, ctx, elements),
         ExprKind::Function(function) => {
             // A field initialiser's `new.target` is `undefined`; a plain
@@ -263,6 +280,7 @@ pub fn emit_expr(
             // `this` — so the flag is cleared for one and kept for the other.
             let enclosing = ctx.in_field_initializer;
             ctx.in_field_initializer = enclosing && function.captures_this;
+            ctx.mir_candidate = true;
             let produced = super::function::emit_closure(builder, scope, ctx, function);
             ctx.in_field_initializer = enclosing;
             produced
@@ -1714,7 +1732,7 @@ pub(super) fn count_constant(builder: &mut FuncBuilder, count: usize) -> ValueId
 /// "no name" has to be a number, and the one number that cannot be an index is
 /// the honest choice.
 pub(super) fn name_constant(builder: &mut FuncBuilder, name: Option<u32>) -> ValueId {
-    let which = name.map_or(-1i64, i64::from);
+    let which = name.map_or(crate::runtime::NO_CALL_NAME, i64::from);
     let spelled = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
         repr: rts_cranelift::repr::Repr::I64,
         bits: rts_cranelift::ir::ScalarBits(which as u64),
@@ -1825,7 +1843,7 @@ pub(super) fn value_list(
     });
     let size = builder.use_const(size);
 
-    if values.len() <= 4 {
+    if values.len() <= ARRAY_OF_SLOTS {
         // Padding for the slots the count says are not real. Tagged rather
         // than `I64`, because the signature says so and a raw integer there
         // fails to widen — which is what the machine answered when the
@@ -1834,12 +1852,12 @@ pub(super) fn value_list(
             repr: UNPROVEN,
             bits: ScalarBits(0),
         });
-        let mut args = Vec::with_capacity(5);
+        let mut args = Vec::with_capacity(1 + ARRAY_OF_SLOTS);
         args.push(size);
         for value in values {
             args.push(tagged(builder, *value));
         }
-        while args.len() < 5 {
+        while args.len() < 1 + ARRAY_OF_SLOTS {
             args.push(builder.use_const(absent));
         }
         return Ok(call(builder, ctx, RuntimeOp::ArrayOf, &args)?[0]);
@@ -1850,7 +1868,12 @@ pub(super) fn value_list(
         let value = tagged(builder, *value);
         let at = number_constant(builder, position as f64);
         let estrito = super::property::estrito(builder, ctx);
-        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value, estrito])?;
+        call(
+            builder,
+            ctx,
+            RuntimeOp::SetIndexed,
+            &[array, at, value, estrito],
+        )?;
     }
     Ok(array)
 }
@@ -2004,7 +2027,6 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
     })
 }
 
-
 /// What a [`Proven`] operator becomes over two operands already in `Repr::F64`.
 ///
 /// # Why this is a function and not written at each of its two call sites
@@ -2087,9 +2109,7 @@ fn proven_instruction(
         //
         // Caught by `running.rs::exponent_is_right_associative`, which asserts
         // `2 ** 3 ** 2 == 512` and got 2.
-        Proven::NumberCall(RuntimeOp::NumberRemainder) => {
-            builder.arith(NumOp::Rem, left, right)?
-        }
+        Proven::NumberCall(RuntimeOp::NumberRemainder) => builder.arith(NumOp::Rem, left, right)?,
         // Everything else in this variant is a call and nothing but a call.
         // `**` has no instruction on any target here — `powf` is a library
         // function — so there is no machine attempt to make, and offering one
@@ -2245,15 +2265,16 @@ fn emit_guarded(
         param
     };
 
-    let fast = proven_instruction(builder, instruction, left, right)
-        .or_else(|_| -> EmitResult<ValueId> {
+    let fast = proven_instruction(builder, instruction, left, right).or_else(
+        |_| -> EmitResult<ValueId> {
             // Only `NumberCall` can refuse — a remainder whose divisor the
             // machine cannot answer exactly — and the call is what is left.
             let Proven::NumberCall(op) = instruction else {
                 unreachable!("only a remainder can be refused by the machine")
             };
             Ok(call(builder, ctx, op, &[left, right])?[0])
-        })?;
+        },
+    )?;
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a
     // única prova que este bloco produziu.
     let fast = match boolean_join {
@@ -2599,7 +2620,11 @@ fn emit_array(
     // and a fifth would be a fifth register. A hole sends the literal down the
     // path below, which is what keeps an absent position absent: this entry
     // point writes exactly the elements it is given.
-    if elements.len() <= 4 && elements.iter().all(|e| matches!(e, Some(crate::syntax::Spreadable::Single(_)))) {
+    if elements.len() <= ARRAY_OF_SLOTS
+        && elements
+            .iter()
+            .all(|e| matches!(e, Some(crate::syntax::Spreadable::Single(_))))
+    {
         let count = builder.declare_const(ConstDecl::Scalar {
             repr: Repr::I64,
             bits: ScalarBits(elements.len() as u64),
@@ -2620,7 +2645,7 @@ fn emit_array(
             let value = emit_expr(builder, scope, ctx, value)?;
             args.push(tagged(builder, value));
         }
-        while args.len() < 5 {
+        while args.len() < 1 + ARRAY_OF_SLOTS {
             args.push(builder.use_const(absent));
         }
         return Ok(call(builder, ctx, RuntimeOp::ArrayOf, &args)?[0]);
@@ -2655,7 +2680,12 @@ fn emit_array(
         let value = tagged(builder, value);
         let at = number_constant(builder, position as f64);
         let estrito = super::property::estrito(builder, ctx);
-        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value, estrito])?;
+        call(
+            builder,
+            ctx,
+            RuntimeOp::SetIndexed,
+            &[array, at, value, estrito],
+        )?;
     }
     Ok(array)
 }

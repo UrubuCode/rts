@@ -593,7 +593,7 @@ pub(in crate::entry) fn retype(context: &mut Context, cell: u32) {
         .collect();
     let fresh = context.types.declare(&fields);
     context.record_shape(fresh, shape);
-    context.region.set_type(cell, fresh.index() as u32);
+    context.retype_cell(cell, fresh.index() as u32);
 }
 
 /// Whether a cell answers `Object.isFrozen`.

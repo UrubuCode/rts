@@ -10,7 +10,7 @@
 //! O que cada teste aqui fixa é uma dessas duas caras, mais a condição que o
 //! lote não podia quebrar e a pergunta de que o desempenho do backend depende.
 
-use crate::layout::{Corners, DisplayItem};
+use crate::paint::{Corners, DisplayItem};
 use crate::table::tests::geometria;
 
 /// Os cantos do primeiro fundo pintado com a cor dada.

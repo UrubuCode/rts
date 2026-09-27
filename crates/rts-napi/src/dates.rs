@@ -99,7 +99,7 @@ pub unsafe extern "C" fn napi_get_date_value(
     }
     let get_time = member(word, "getTime");
     let arguments = rts_core::entry::make_array(Vec::new());
-    let answered = rts_core::entry::call_with_args(get_time, word, arguments);
+    let answered = rts_core::entry::call_with_args(get_time, word, arguments, rts_core::entry::NO_CALL_NAME);
     let Some(milliseconds) = rts_core::entry::number_of(answered) else {
         // A `Date` whose `getTime` was replaced with something that answers a
         // string. The ABI has no word for it, and `napi_date_expected` is the
