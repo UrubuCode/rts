@@ -212,6 +212,8 @@ impl Js {
         RuntimeOp::SetHasDirect,
         RuntimeOp::SetAddDirect,
         RuntimeOp::ArrayPushDirect,
+        RuntimeOp::FunctionCallDirect,
+        RuntimeOp::FunctionApplyDirect,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,

@@ -69,6 +69,7 @@ mod finalize;
 mod foreign;
 mod function_proto;
 mod direct_call;
+mod function_direct;
 mod functions;
 mod generator;
 mod global;
@@ -136,6 +137,7 @@ pub use computed::{
 };
 pub use array::{ARRAY_OF_SLOTS, array_is_array};
 pub use array_proto::array_push_direct;
+pub use function_direct::{function_apply_direct, function_call_direct};
 pub use collections::{map_get_direct, map_has_direct, map_set_direct, set_add_direct, set_has_direct};
 pub use functions::{
     ARGUMENT_SLOTS, NO_CALL_NAME, argument_at, call, call_counted, call_with_args, closure_new,

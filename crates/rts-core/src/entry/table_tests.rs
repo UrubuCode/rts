@@ -240,8 +240,12 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // around a hash probe. Six rows because six members; the pattern is one
     // (`collections/direct.rs`) and a seventh member is one more line of it.
     // They REMOVE crossings, which is still the only argument this list accepts.
+    //
+    // Moved to 120 on 2026-09-27 for `f.call(…)` and `f.apply(…)` reached
+    // directly (`function_direct.rs`): 165 and 235 ns of chain walk and vector
+    // rebuilding around a call that costs 4. Same argument.
     assert!(
-        CORE_ENTRY_COUNT <= 118,
+        CORE_ENTRY_COUNT <= 120,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

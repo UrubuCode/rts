@@ -1187,8 +1187,10 @@ pub(super) fn emit_program_into(
     let object = base_only("Object", ctx);
     let map = base_only("Map", ctx);
     let set = base_only("Set", ctx);
+    let function = base_only("Function", ctx);
     let is_nan = ctx.names.intern("isNaN");
     let is_finite = ctx.names.intern("isFinite");
+    let string = ctx.names.intern("String");
     ctx.statics_primordial = statics::Primordials {
         number,
         array,
@@ -1197,6 +1199,8 @@ pub(super) fn emit_program_into(
         set,
         is_nan: primordial::untouched(body, is_nan, eval_name, global_this),
         is_finite: primordial::untouched(body, is_finite, eval_name, global_this),
+        function,
+        string: primordial::untouched(body, string, eval_name, global_this),
     };
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
@@ -1376,6 +1380,8 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         set: base_only("Set", ctx),
         is_nan: untouched("isNaN", ctx),
         is_finite: untouched("isFinite", ctx),
+        function: base_only("Function", ctx),
+        string: untouched("String", ctx),
     };
 
     // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the

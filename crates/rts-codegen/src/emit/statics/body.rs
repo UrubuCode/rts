@@ -27,6 +27,12 @@ pub struct Primordials {
     pub is_nan: bool,
     /// The global `isFinite`, the same.
     pub is_finite: bool,
+    /// `Function` is only ever a base: `f.call(…)` and `f.apply(…)` may reach
+    /// `emit/methods`' direct entries.
+    pub function: bool,
+    /// `String` is never written or shadowed at the top level: `String(x)` over
+    /// a proven number is `StringOf` and no call.
+    pub string: bool,
 }
 
 /// How a call is answered.
@@ -43,6 +49,11 @@ pub(crate) enum Shape {
     IsArray,
     /// `Object.is(a, b)`: `SameValue`, the direct entry, over anything.
     Is,
+    /// `String(x)` over a proven number: the conversion the call would make,
+    /// without the global read, the dispatch and the native's own `ToPrimitive`.
+    /// Over anything else the call stays — a symbol converts under `String()`
+    /// and raises under `ToString`, so only a number is the same either way.
+    String,
 }
 
 /// The shape a callee spelling has under `primordials`, or `None` for a call
@@ -69,6 +80,7 @@ pub(crate) fn shape_of(
         // instruction as `Number.isNaN`.
         (None, "isNaN", 1) if primordials.is_nan && !shadowed("isNaN") => Shape::IsNaN,
         (None, "isFinite", 1) if primordials.is_finite && !shadowed("isFinite") => Shape::IsFinite,
+        (None, "String", 1) if primordials.string && !shadowed("String") => Shape::String,
         _ => return None,
     })
 }
@@ -151,6 +163,10 @@ pub(in super::super) fn emit(
         Shape::IsFinite => Some(super::sequence::is_finite(builder, values[0])?),
         Shape::IsInteger => Some(super::sequence::is_integer(builder, values[0])?),
         Shape::IsSafeInteger => Some(super::sequence::is_safe_integer(builder, values[0])?),
+        Shape::String => {
+            let held = tagged(builder, values[0]);
+            Some(super::super::expr::call(builder, ctx, RuntimeOp::StringOf, &[held])?[0])
+        }
     };
     if let Some(answered) = answered {
         return Ok(Some(tagged(builder, answered)));

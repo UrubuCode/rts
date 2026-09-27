@@ -172,8 +172,9 @@ impl Lowering<'_> {
                 return Ok(None);
             };
             let value = self.expression(argument)?;
-            // The GLOBAL predicates convert their operand; `Number.*` do not.
-            values.push(match global {
+            // The GLOBAL predicates convert their operand; `Number.*` do not, and
+            // neither does `String(x)`, whose operand is what is converted.
+            values.push(match global && !matches!(shape, Static::String) {
                 true => self.prim(JsPrim::ToNumber, vec![value], at),
                 false => value,
             });
@@ -200,6 +201,9 @@ impl Lowering<'_> {
                 // operand already in hand.
                 let (callee, receiver) = self.callee_of(callee, at)?;
                 return Ok(Some(self.call(callee, receiver, values, at)));
+            }
+            Static::String => {
+                return Ok(Some(self.entry(crate::runtime::RuntimeOp::StringOf, values, at)));
             }
             Static::IsNaN => JsPrim::NumberIsNaN,
             Static::IsFinite => JsPrim::NumberIsFinite,
@@ -246,9 +250,18 @@ impl Lowering<'_> {
         for argument in plain {
             operands.push(self.expression(argument)?);
         }
+        // A door of fixed arity takes `undefined` in the slots not written and
+        // is told how many were -- `emit/methods` pads the same way.
+        if let Some(arity) = door.arity {
+            while operands.len() < 1 + arity {
+                operands.push(self.singleton_at(crate::values::Singleton::Undefined, at));
+            }
+            let written = self.domain.constant(JsConst::Count(arguments.len() as u32));
+            operands.push(self.declared(written, at));
+        }
         let nameless = self.domain.constant(JsConst::Nameless);
         operands.push(self.declared(nameless, at));
-        Ok(Some(self.entry(door, operands, at)))
+        Ok(Some(self.entry(door.op, operands, at)))
     }
 
     /// Whether `object` is the language's `Math` here: the whole program leaves it

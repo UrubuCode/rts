@@ -1119,6 +1119,15 @@ pub enum RuntimeOp {
     SetAddDirect,
     /// `a.push(v)` on the same terms: receiver, value, spelling.
     ArrayPushDirect,
+    /// `f.call(thisArg, a0, a1, a2)` where the whole program leaves `Function`
+    /// alone: the callee, the receiver, three argument slots padded with
+    /// `undefined`, how many were WRITTEN, and the spelling. The runtime checks
+    /// the callee is a plain function and calls it in the convention's own
+    /// slots; anything else takes the member it has.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    FunctionCallDirect,
+    /// `f.apply(thisArg, list)` on the same terms: callee, receiver, list, spelling.
+    FunctionApplyDirect,
 }
 
 impl RuntimeOp {
@@ -1247,6 +1256,8 @@ impl RuntimeOp {
         RuntimeOp::SetHasDirect,
         RuntimeOp::SetAddDirect,
         RuntimeOp::ArrayPushDirect,
+        RuntimeOp::FunctionCallDirect,
+        RuntimeOp::FunctionApplyDirect,
     ];
 
     /// The linker name the runtime must define.
@@ -1375,6 +1386,8 @@ impl RuntimeOp {
             RuntimeOp::SetHasDirect => "__rts_set_has_direct",
             RuntimeOp::SetAddDirect => "__rts_set_add_direct",
             RuntimeOp::ArrayPushDirect => "__rts_array_push_direct",
+            RuntimeOp::FunctionCallDirect => "__rts_function_call_direct",
+            RuntimeOp::FunctionApplyDirect => "__rts_function_apply_direct",
         }
     }
 
@@ -1661,6 +1674,13 @@ impl RuntimeOp {
             | RuntimeOp::SetAddDirect
             | RuntimeOp::ArrayPushDirect => (vec![UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::MapSetDirect => (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::FunctionCallDirect => (
+                vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64, Repr::I64],
+                vec![UNPROVEN],
+            ),
+            RuntimeOp::FunctionApplyDirect => {
+                (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN])
+            }
         };
         Signature {
             params,

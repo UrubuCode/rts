@@ -162,18 +162,7 @@ impl Function {
     /// the two the specification says mean "no arguments" rather than being a
     /// refusal.
     fn apply(this: u64, receiver: u64, arguments: u64) -> u64 {
-        let empty = with_current(|context| super::objects::nullish(context, arguments).is_some());
-        let list = match empty {
-            true => super::array_proto::built(Vec::new()),
-            false => match super::functions::list_from_array_like(arguments) {
-                Some(list) => list,
-                None => {
-                    super::throw::type_error("CreateListFromArrayLike called on non-object");
-                    return with_current(|context| super::objects::undefined_of(context));
-                }
-            },
-        };
-        super::functions::call_with_args(this, receiver, list, super::functions::NO_CALL_NAME)
+        apply_to(this, receiver, arguments)
     }
 
     /// `f.bind(thisArg, …)` — a new function with the receiver fixed.
@@ -192,6 +181,25 @@ impl Function {
             with_current(|context| super::array_proto::arguments_at(context, 1, [receiver, a, b, c]));
         bound(this, receiver, partial)
     }
+}
+
+/// What `f.apply(receiver, arguments)` does, for the member and for
+/// `function_direct::function_apply_direct` alike — one definition of what a
+/// list is, so the two spellings cannot disagree about an array-like or a
+/// nullish one.
+pub(super) fn apply_to(callee: u64, receiver: u64, arguments: u64) -> u64 {
+    let empty = with_current(|context| super::objects::nullish(context, arguments).is_some());
+    let list = match empty {
+        true => super::array_proto::built(Vec::new()),
+        false => match super::functions::list_from_array_like(arguments) {
+            Some(list) => list,
+            None => {
+                super::throw::type_error("CreateListFromArrayLike called on non-object");
+                return with_current(|context| super::objects::undefined_of(context));
+            }
+        },
+    };
+    super::functions::call_with_args(callee, receiver, list, super::functions::NO_CALL_NAME)
 }
 
 /// The text `toString` answers, or `None` where the receiver is not callable —

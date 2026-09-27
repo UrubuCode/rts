@@ -67,6 +67,7 @@ use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
 use super::text_walk::TEXT_WALK_ENTRY;
 use super::array::ARRAY_IS_ARRAY_ENTRY;
 use super::array_proto::ARRAY_PUSH_DIRECT_ENTRY;
+use super::function_direct::{FUNCTION_APPLY_DIRECT_ENTRY, FUNCTION_CALL_DIRECT_ENTRY};
 use super::collections::{
     MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
     SET_HAS_DIRECT_ENTRY,
@@ -785,6 +786,12 @@ pub enum CoreEntry {
     /// [`super::array_push_direct`] — `a.push(v)` appended in place where the
     /// receiver is an array that may grow, and the member otherwise.
     ArrayPushDirect = 117,
+    /// [`super::function_call_direct`] — `f.call(thisArg, …)` where the whole
+    /// program leaves `Function` alone: a plain function called in the
+    /// convention's own slots, anything else through the member it has.
+    FunctionCallDirect = 118,
+    /// [`super::function_apply_direct`], the same way for `f.apply(thisArg, list)`.
+    FunctionApplyDirect = 119,
 }
 
 /// How many entry points exist.
@@ -792,7 +799,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 118;
+pub const CORE_ENTRY_COUNT: usize = 120;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -915,6 +922,8 @@ impl CoreEntry {
         CoreEntry::SetHasDirect,
         CoreEntry::SetAddDirect,
         CoreEntry::ArrayPushDirect,
+        CoreEntry::FunctionCallDirect,
+        CoreEntry::FunctionApplyDirect,
     ];
 
     /// The number a call site holds.
@@ -1048,6 +1057,8 @@ impl CoreEntry {
             CoreEntry::SetHasDirect => SET_HAS_DIRECT_ENTRY,
             CoreEntry::SetAddDirect => SET_ADD_DIRECT_ENTRY,
             CoreEntry::ArrayPushDirect => ARRAY_PUSH_DIRECT_ENTRY,
+            CoreEntry::FunctionCallDirect => FUNCTION_CALL_DIRECT_ENTRY,
+            CoreEntry::FunctionApplyDirect => FUNCTION_APPLY_DIRECT_ENTRY,
         }
     }
 

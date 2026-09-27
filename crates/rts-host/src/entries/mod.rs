@@ -451,6 +451,14 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ArrayPushDirect => (CoreEntry::ArrayPushDirect, {
             rts_core::entry::array_push_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
         }),
+        RuntimeOp::FunctionCallDirect => (CoreEntry::FunctionCallDirect, {
+            rts_core::entry::function_call_direct
+                as extern "C" fn(u64, u64, u64, u64, u64, i64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::FunctionApplyDirect => (CoreEntry::FunctionApplyDirect, {
+            rts_core::entry::function_apply_direct
+                as extern "C" fn(u64, u64, u64, i64) -> u64 as *const u8
+        }),
         RuntimeOp::UnaryPlus => (CoreEntry::UnaryPlus, {
             rts_core::entry::unary_plus as extern "C" fn(u64) -> u64 as *const u8
         }),
