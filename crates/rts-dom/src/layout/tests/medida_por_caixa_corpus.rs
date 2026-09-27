@@ -1,7 +1,7 @@
 //! A altura de conteúdo de um item de coluna (`min-height:auto`, Flexbox
 //! §4.5) medida pela ÁRVORE DE CAIXAS e não pelos filhos do DOM.
 //!
-//! `coluna_shrink::altura_conteudo_sem_height` andava `dom.node(item)
+//! `coluna_shrink::content_height_without_height` andava `dom.node(item)
 //! .children` e media cada filho com `measure_block(filho, None)`. Depois da
 //! partição bloco-em-inline (CSS 2.1 §9.2.1.1) um filho do DOM pode não ter
 //! caixa nenhuma (o `<span>` que só envolve um bloco: as caixas do bloco

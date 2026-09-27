@@ -71,11 +71,11 @@ fn grid_auto_flow_le_o_eixo_e_o_dense_em_qualquer_ordem() {
     use crate::style::grid_lines::GridAutoFlow;
     assert_eq!(
         parse_inline("grid-auto-flow: column dense").grid_auto_flow,
-        Some(GridAutoFlow { coluna: true, dense: true })
+        Some(GridAutoFlow { column: true, dense: true })
     );
     assert_eq!(
         parse_inline("grid-auto-flow: dense").grid_auto_flow,
-        Some(GridAutoFlow { coluna: false, dense: true })
+        Some(GridAutoFlow { column: false, dense: true })
     );
     // o Chrome imprime o eixo mesmo quando o autor o omitiu.
     assert_eq!(parse_inline("grid-auto-flow: dense").get_property("grid-auto-flow"), "row dense");

@@ -41,6 +41,10 @@ mod inline_box;
 /// só pinta a display-list. Medição de texto via trait `TextMeasurer` (o backend
 /// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
 pub mod layout;
+/// What the paint list is and how it is painted — `paint/mod.rs`.
+pub mod paint;
+/// What is asked of a laid-out paint list — `query/mod.rs`.
+pub mod query;
 /// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
 /// existir, sem que ela entre na árvore de nós.
 pub mod pseudo;
@@ -51,6 +55,8 @@ pub mod counters;
 /// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
 /// mutações pela fachada `document` mudam o que a janela pinta.
 pub mod store;
+/// The inspector's highlighted node (`rts-dom-bridge` feature `inspector`).
+pub mod overlay;
 /// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
 /// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
 /// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
@@ -114,7 +120,8 @@ pub mod scrollbar;
 pub mod painteffects;
 
 pub use dom::{
-    Attr, Dom, ListenerOptions, Node, NodeId, NodeIdx, NodeKind, RawInputEvent, RawKeyboardEvent,
+    Attr, Dom, ListenerOptions, MatchedRuleView, Node, NodeId, NodeIdx, NodeKind, RawInputEvent,
+    RawKeyboardEvent,
     parse_html_to_dom,
 };
 

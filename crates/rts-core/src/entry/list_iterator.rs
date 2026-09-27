@@ -86,6 +86,17 @@ pub(in crate::entry) fn over(listed: u64, tag: &str) -> u64 {
             Some(prototype) => prototype,
             None => {
                 register_list_iterator(context);
+                // The primordial `next` and where it lives, recorded at the one
+                // moment it is knowably primordial -- `text_walk` compares the
+                // current one against it, as `pattern` does the array cursor's.
+                if let Some(cell) = super::class_support::prototype(context, "ListIterator")
+                    .and_then(|held| Value(held).as_slot())
+                {
+                    let next = context.well_known("next");
+                    context.list_cursor_next =
+                        super::objects::own_property(context, cell, next).map(|found| found.bits());
+                    context.list_cursor_prototype = Some(cell);
+                }
                 // The helpers are inherited rather than owned, so the chain has
                 // to be joined the moment this prototype exists — `adopt` is
                 // idempotent and is called from each of the four registrations

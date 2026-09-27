@@ -1,5 +1,5 @@
 //! Camada 8 do Apêndice E (`z-index:0` e `z-index:auto` juntos, ordem do
-//! documento) contra a regressão de `4c1d08132` — ver `empilhamento.rs`.
+//! documento) contra a regressão de `4c1d08132` — ver `paint/stacking.rs`.
 //! Ficheiro NOVO (`posicionado.rs` já está no teto de 500 linhas) em vez de
 //! crescer um ficheiro que não pode crescer.
 
@@ -96,9 +96,9 @@ fn negativo_aninhado_nao_e_negativo_de_raiz() {
     let filho = dom.resolve(dom.query("#filho").unwrap()).unwrap();
     let raiz = dom.resolve(dom.query("#raiz").unwrap()).unwrap();
 
-    let chave_filho = empilhamento::stacking_key(&dom, filho);
-    let chave_grupo = empilhamento::stacking_key(&dom, grupo);
-    let chave_raiz = empilhamento::stacking_key(&dom, raiz);
+    let chave_filho = crate::paint::stacking::stacking_key(&dom, filho);
+    let chave_grupo = crate::paint::stacking::stacking_key(&dom, grupo);
+    let chave_raiz = crate::paint::stacking::stacking_key(&dom, raiz);
 
     assert_eq!(chave_filho, vec![0, -1], "contexto do grupo, depois o próprio negativo");
     assert_eq!(

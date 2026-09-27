@@ -14,10 +14,12 @@
 //! pintura é decidida, e este trabalho acrescenta geometria sem tocar na pintura.
 
 use crate::dom::{Dom, NodeIdx};
-use crate::layout::{DisplayList, LayoutCtx, Rect, TextMeasurer};
+use crate::layout::{LayoutCtx, TextMeasurer};
+use crate::paint::{DisplayList, Rect};
 use crate::style::{ComputedStyle, ResolveCtx};
 
 mod substituido;
+pub(crate) mod replaced_clamp;
 pub(crate) use self::substituido::{
     altura_min_content_por_razao, largura_min_content_por_razao, replaced_inline_size,
 };
@@ -53,8 +55,8 @@ pub(crate) enum AtomicKind {
     /// à palavra vizinha (um átomo nunca abre oportunidade de quebra) — é o que
     /// faz `<span style="padding:0 4px">aaa` medir 4px a mais na primeira linha
     /// e nada nas seguintes, como o Blink.
-    ArestaInicio,
-    ArestaFim,
+    EdgeStart,
+    EdgeEnd,
     /// The ANCHOR of a float that appears in the middle of the inline flow:
     /// zero width, no box on the line and nothing painted there. It only says
     /// WHICH LINE the float appeared on — CSS 2.1 §9.5.1 puts its top at that
@@ -68,24 +70,24 @@ pub(crate) enum AtomicKind {
     /// start/end edge of an `inline` one that has a surface. The originating
     /// element is the run's node, because the generated box has no node of
     /// its own (`pseudo/mod.rs`); the pseudo-element is what tells it apart
-    /// from that element's own `Block`/`ArestaInicio`/`ArestaFim`, which a
+    /// from that element's own `Block`/`EdgeStart`/`EdgeEnd`, which a
     /// second meaning on those kinds would have confused.
-    Gerada(crate::style::PseudoElement, ParteGerada),
+    Generated(crate::style::PseudoElement, GeneratedPart),
     /// The ANCHOR of an absolutely positioned box that appears in the middle of
     /// the inline flow: zero width, nothing on the line. It only says WHERE the
-    /// box would have been — its static position (`layout/ancora_estatica.rs`).
-    Estatica,
+    /// box would have been — its static position (`layout/inline/static_anchor.rs`).
+    StaticAnchor,
 }
 
-/// Which piece of a generated box an `AtomicKind::Gerada` run is.
+/// Which piece of a generated box an `AtomicKind::Generated` run is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum ParteGerada {
+pub(crate) enum GeneratedPart {
     /// The whole box, sized by its own `width`/`height` or its content.
-    Atomo,
+    Atom,
     /// Margin + border + padding before the text of an `inline` pseudo.
-    Inicio,
+    Start,
     /// The same after it.
-    Fim,
+    End,
 }
 
 impl AtomicKind {
@@ -95,14 +97,14 @@ impl AtomicKind {
     pub(crate) fn tem_corpo(self) -> bool {
         matches!(
             self,
-            Self::Widget | Self::Replaced | Self::Block | Self::Break | Self::Gerada(_, ParteGerada::Atomo)
+            Self::Widget | Self::Replaced | Self::Block | Self::Break | Self::Generated(_, GeneratedPart::Atom)
         )
     }
 
     /// An inline-level box laid out as a block (an `inline-block` element or
     /// an atomic generated box): it sits on the baseline by its own rules.
     pub(crate) fn e_bloco_na_linha(self) -> bool {
-        matches!(self, Self::Block | Self::Gerada(_, ParteGerada::Atomo))
+        matches!(self, Self::Block | Self::Generated(_, GeneratedPart::Atom))
     }
 }
 
@@ -309,7 +311,7 @@ pub(crate) fn arestas_do_inline(
 /// differ by the font's line gap (Times 16px: 17 against 18), and an inline's
 /// box is the former — Blink reports a 17px `<span>` in an 18px line. This
 /// answered the line height until the metrics became real ones
-/// (`layout/fonte_metricas.rs`), when the gap stopped being zero.
+/// (`layout/measure/font_metrics.rs`), when the gap stopped being zero.
 pub(crate) fn altura_do_conteudo(font_size: f32, family: Option<&str>, m: &dyn TextMeasurer) -> f32 {
     m.font_ascent_family(font_size, family) + m.font_descent_family(font_size, family)
 }
@@ -336,7 +338,7 @@ pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
 /// `getBoundingClientRect` of an inline is the bounding box of its fragments'
 /// border boxes: an `<a>` wrapping onto two lines has two fragments and a rect
 /// holding both, wider than either — which is what the browser returns too.
-/// Since BT-2c that union is a VIEW (`layout/box_fragments.rs`, invariant I4):
+/// Since BT-2c that union is a VIEW (`layout/fragment/box_rects.rs`, invariant I4):
 /// what is recorded here is the fragment of `line`, and a box keeps one per line.
 pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect, line: &crate::layout::LineScope) {
     // A node with no box (text, `display:none`) has nowhere to record; the
@@ -356,34 +358,38 @@ pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect, l
 /// combiná-las em cada aglomerado — punha a mesma regra em dois sítios, que é a
 /// duplicação que este motor já pagou várias vezes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum QuebraDentro {
+pub(crate) enum BreakWithin {
     /// `normal` — nunca. Uma palavra que não cabe transborda.
-    Nao,
+    Never,
     /// `overflow-wrap: break-word|anywhere`, `word-break: break-word` — parte-se
     /// só quando a palavra não cabe NEM numa linha inteira e vazia. Descer
     /// primeiro e partir depois é o que o Chrome faz.
-    SePreciso,
+    IfNeeded,
     /// `word-break: break-all` — parte-se assim que não cabe no que resta da
     /// linha, sem esperar por oportunidade nenhuma.
-    Sempre,
+    Always,
+    /// `word-break: keep-all` — as `Never`, and it also drops the soft wrap
+    /// opportunity between two letters (the one between ideographs):
+    /// `layout/inline/break_opportunities.rs`.
+    KeepAll,
 }
 
 /// A resolução, e a razão de `word-break` ganhar a `overflow-wrap`: `break-all`
 /// é estritamente mais agressivo, e a spec dá-lhe precedência sobre o
 /// `overflow-wrap` do mesmo elemento.
 ///
-/// `keep-all` e `auto-phrase` respondem `Nao` — as duas são sobre onde partir
-/// texto CJK, e este motor mede por carácter sem análise de escrita. Mapeá-las
-/// para `Nao` é o comportamento certo em texto latino (que é todo o corpus) e é
-/// honesto no resto: não partir é o que `keep-all` pede.
-pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
+/// `keep-all` answers `KeepAll`: no split inside a word, and no opportunity
+/// between two letters either (the UAX #14 one between ideographs, dropped in
+/// `layout/inline/break_opportunities.rs`). `auto-phrase` (phrase analysis)
+/// answers `Never`: nothing here segments by phrase.
+pub(crate) fn quebra_dentro(css: &ComputedStyle) -> BreakWithin {
     use crate::style::{painting::LineBreak, OverflowWrap, WordBreak};
     match css.word_break {
-        Some(WordBreak::BreakAll) => return QuebraDentro::Sempre,
+        Some(WordBreak::BreakAll) => return BreakWithin::Always,
         // Legado: `word-break: break-word` é, por MDN, o mesmo que
         // `overflow-wrap: break-word`. Aparece 15 vezes no corpus de 13 folhas —
         // mais do que `break-all` — por isso não é um caso de canto.
-        Some(WordBreak::BreakWord) => return QuebraDentro::SePreciso,
+        Some(WordBreak::BreakWord) => return BreakWithin::IfNeeded,
         _ => {}
     }
     // CSS Text 3 §5.1: `line-break: anywhere` é "a soft wrap opportunity
@@ -391,14 +397,15 @@ pub(crate) fn quebra_dentro(css: &ComputedStyle) -> QuebraDentro {
     // words" — a mesma quebra INCONDICIONAL de `word-break: break-all`, não a
     // quebra "só se preciso" de `overflow-wrap`.
     if css.line_break == Some(LineBreak::Anywhere) {
-        return QuebraDentro::Sempre;
+        return BreakWithin::Always;
     }
     match css.overflow_wrap {
         // `anywhere` difere de `break-word` só no cálculo da largura MÍNIMA
         // intrínseca (`min-content`), que este motor não distingue; na quebra da
         // linha as duas fazem o mesmo, e é isso que aqui se decide.
-        Some(OverflowWrap::BreakWord | OverflowWrap::Anywhere) => QuebraDentro::SePreciso,
-        _ => QuebraDentro::Nao,
+        Some(OverflowWrap::BreakWord | OverflowWrap::Anywhere) => BreakWithin::IfNeeded,
+        _ if css.word_break == Some(WordBreak::KeepAll) => BreakWithin::KeepAll,
+        _ => BreakWithin::Never,
     }
 }
 
@@ -443,12 +450,9 @@ pub(crate) fn prefixo_que_cabe(
     }
     // As fronteiras candidatas, excluindo o zero (prefixo vazio nunca é resposta
     // útil) e incluindo o fim (o texto inteiro pode caber).
-    let cortes: Vec<usize> = texto
-        .char_indices()
-        .skip(1)
-        .map(|(i, _)| i)
-        .chain(std::iter::once(texto.len()))
-        .collect();
+    // Grapheme clusters, not `char`s: `e` + U+0301 and an emoji ZWJ sequence
+    // are one character to the reader and must never end a line apart.
+    let cortes = crate::layout::inline::break_opportunities::cluster_ends(m, texto);
     let (mut lo, mut hi) = (0usize, cortes.len());
     let mut melhor = (0usize, 0.0f32);
     while lo < hi {

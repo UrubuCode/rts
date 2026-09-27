@@ -11,7 +11,7 @@ use crate::table::tests::{geometria, rect};
 
 /// `text-overflow: ellipsis` corta o TEXTO PINTADO, não a caixa: a largura de
 /// `#caixa` é a declarada (120px), com ou sem elipse — é a garantia que
-/// `segmento::aplicar_elipse` documenta ("a caixa não muda de tamanho").
+/// `segmento::apply_ellipsis` documenta ("a caixa não muda de tamanho").
 #[test]
 fn ellipsis_nao_altera_a_largura_da_caixa() {
     let html = r#"<style>
@@ -132,11 +132,11 @@ fn inline_block_com_margem_rect_e_border_box_pitch_e_margin_box() {
 /// inline sem fragmento nenhum (às vezes uma geometria explícita 0×0, às
 /// vezes nenhuma, conforme o caminho de emissão; o mesmo idioma que
 /// `uniontests.rs` já usa para "não gera caixa").
-fn sem_area(r: Option<crate::layout::Rect>) -> bool {
+fn sem_area(r: Option<crate::paint::Rect>) -> bool {
     r.is_none_or(|r| r.w <= 0.0 || r.h <= 0.0)
 }
 
-fn rect_opt(dom: &crate::Dom, list: &crate::layout::DisplayList, sel: &str) -> Option<crate::layout::Rect> {
+fn rect_opt(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str) -> Option<crate::paint::Rect> {
     let id = *dom.query_all(sel).first()?;
     let idx = dom.resolve(id)?;
     list.geometry_now().rects.get(&idx).copied()

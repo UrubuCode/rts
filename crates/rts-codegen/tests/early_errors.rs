@@ -485,8 +485,13 @@ fn a_using_declaration_needs_a_scope_that_ends() {
 fn eval_and_arguments_cannot_be_bound_in_strict_code() {
     // The directive is inside the body and the name is outside it: the language
     // reads the body first, so this is decided by the function's own strictness.
-    assert!(refused("function eval() { 'use strict'; }").contains("cannot be assigned to or bound"));
-    assert!(refused("function f(arguments) { 'use strict'; }").contains("cannot be assigned to or bound"));
+    assert!(
+        refused("function eval() { 'use strict'; }").contains("cannot be assigned to or bound")
+    );
+    assert!(
+        refused("function f(arguments) { 'use strict'; }")
+            .contains("cannot be assigned to or bound")
+    );
     // Reading them is not binding them.
     accepted("'use strict'; eval('1'); function f() { return arguments; }");
     accepted("function eval() {}");

@@ -64,7 +64,13 @@ pub(in crate::entry) fn get_on(object: u64, key: Key, receiver: u64) -> Option<u
     // whatever the handler says: `writable: false` plus `configurable: false`
     // is the language promising a program that the value cannot change, and a
     // proxy is not allowed to be where that promise breaks.
-    if let Some(own) = invariant::own_state(trap.target, key)
+    // §10.5.8 steps 9–10, and `own_state` may be a trap of its own when the
+    // target is a proxy — so it is asked whether it threw before its answer is.
+    let own = invariant::own_state(trap.target, key);
+    if throw::in_flight() {
+        return Some(absent());
+    }
+    if let Some(own) = own
         && !own.configurable
     {
         match own.value {
@@ -75,7 +81,7 @@ pub(in crate::entry) fn get_on(object: u64, key: Key, receiver: u64) -> Option<u
                     spelled(key)
                 ));
             }
-            None if !own.getter && answered != absent() => {
+            None if own.get.is_none() && answered != absent() => {
                 throw::type_error(&format!(
                     "'get' on proxy: property '{}' is a non-configurable accessor property on \
                      the proxy target and does not have a getter function",
@@ -171,22 +177,39 @@ pub(in crate::entry) fn set_verdict_on(
         return Some(false);
     }
     let answered = primitives::to_boolean(answered);
-    if answered
-        && let Some(own) = invariant::own_state(trap.target, key)
-        && !own.configurable
-        && !own.writable
-        && own
-            .value
-            .is_some_and(|held| !primitives::same_value(value, held))
-    {
+    if !answered {
+        return Some(false);
+    }
+    // §10.5.9 steps 9–10: only a non-configurable property of the target
+    // constrains a store the trap reported as done.
+    let own = invariant::own_state(trap.target, key);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    let Some(own) = own.filter(|own| !own.configurable) else {
+        return Some(true);
+    };
+    let refusal = match own.value {
+        // 10.a: a frozen value may only be "written" with itself.
+        Some(held) if !own.writable && !primitives::same_value(value, held) => Some(
+            "exists in the proxy target as a non-configurable and non-writable data property \
+             with a different value",
+        ),
+        // 10.b: an accessor with no setter accepts no store at all — the
+        // handler reporting one is claiming an effect that cannot have happened.
+        None if own.set.is_none() => Some(
+            "exists in the proxy target as a non-configurable accessor property without a setter",
+        ),
+        _ => None,
+    };
+    if let Some(reason) = refusal {
         throw::type_error(&format!(
-            "'set' on proxy: trap returned truthy for property '{}' which exists in the proxy \
-             target as a non-configurable and non-writable data property with a different value",
+            "'set' on proxy: trap returned truthy for property '{}' which {reason}",
             spelled(key)
         ));
         return Some(false);
     }
-    Some(answered)
+    Some(true)
 }
 
 /// `handler.has(target, prop)`, or whether the target has it.
@@ -196,15 +219,14 @@ pub(in crate::entry) fn has(object: u64, key: Key) -> Option<bool> {
         return Some(false);
     }
     let Some(callee) = trap.callee else {
-        return Some(match has(trap.target, key) {
-            Some(answered) => answered,
-            None => with_current(|context| {
-                Value(trap.target)
-                    .as_slot()
-                    .and_then(|cell| objects::read_property(context, cell, key))
-                    .is_some()
-            }),
-        });
+        // Forwarded through the entry point, as `delete` below is: the target's
+        // own `[[HasProperty]]`, a nested proxy and an ARRAY ELEMENT included.
+        // It walked `objects::read_property`, which knows no element store, so
+        // `0 in new Proxy([1], {})` was false and `Array.prototype.slice.call`
+        // over such a proxy — which asks `HasProperty` per index — answered
+        // nothing but holes.
+        let property = property_of(key);
+        return Some(crate::entry::computed::has_property(property, trap.target));
     };
     let property = property_of(key);
     let answered = functions::call(
@@ -223,17 +245,37 @@ pub(in crate::entry) fn has(object: u64, key: Key) -> Option<bool> {
     // because it is non-configurable, or because the target refuses to shrink —
     // is one `in` has already reported, so a handler denying it now would make
     // the same question answer twice.
-    if !answered
-        && let Some(own) = invariant::own_state(trap.target, key)
-        && (!own.configurable || !invariant::extensible(trap.target))
-    {
+    //
+    // §10.5.7 step 9, in its order: the descriptor, then its configurability,
+    // and only then `IsExtensible` — each of which may be a trap of a proxy
+    // target, so each is followed by the rule-8 question.
+    if answered {
+        return Some(true);
+    }
+    let own = invariant::own_state(trap.target, key);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    let Some(own) = own else {
+        return Some(false);
+    };
+    if !own.configurable {
         throw::type_error(&format!(
             "'has' on proxy: trap returned falsish for property '{}' which exists in the proxy \
              target as a non-configurable property",
             spelled(key)
         ));
+        return Some(false);
     }
-    Some(answered)
+    let open = invariant::extensible(trap.target);
+    if !open && !throw::in_flight() {
+        throw::type_error(&format!(
+            "'has' on proxy: trap returned falsish for property '{}' but the proxy target is \
+             not extensible",
+            spelled(key)
+        ));
+    }
+    Some(false)
 }
 
 /// `handler.deleteProperty(target, prop)`, or a delete on the target.
@@ -270,12 +312,33 @@ pub(in crate::entry) fn delete(object: u64, key: Key) -> Option<bool> {
     // A trap may refuse a delete the target would have allowed. What it may not
     // do is REPORT one the target refuses: `delete o.x` answering true while
     // `o.x` is still there is the one outcome no program can recover from.
-    if let Some(own) = invariant::own_state(trap.target, key)
-        && !own.configurable
-    {
+    //
+    // §10.5.10 steps 10–13: absent in the target is fine, non-configurable is
+    // not, and neither is a property of a target that refuses to shrink — its
+    // key set is as fixed as the property would have been.
+    let own = invariant::own_state(trap.target, key);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    let Some(own) = own else {
+        return Some(true);
+    };
+    if !own.configurable {
         throw::type_error(&format!(
             "'deleteProperty' on proxy: trap returned truthy for property '{}' which is \
              non-configurable in the proxy target",
+            spelled(key)
+        ));
+        return Some(false);
+    }
+    let open = invariant::extensible(trap.target);
+    if throw::in_flight() {
+        return Some(false);
+    }
+    if !open {
+        throw::type_error(&format!(
+            "'deleteProperty' on proxy: trap returned truthy for property '{}' but the proxy \
+             target is non-extensible",
             spelled(key)
         ));
         return Some(false);

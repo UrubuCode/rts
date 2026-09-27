@@ -137,6 +137,16 @@ fn iterator_method(context: &mut Context, cell: u32) {
     super::objects::put(context, cell, key, method);
 }
 
+/// Whether `found` is the method [`iterator_method`] installed -- asked by the
+/// native's code rather than remembered, so there is no cell to keep alive and
+/// nothing to clear.
+pub(super) fn is_iterator_method(context: &Context, found: u64) -> bool {
+    Value(found)
+        .as_slot()
+        .and_then(|cell| context.callable_at(cell))
+        .is_some_and(|(code, _)| code == iterate_units as super::native::Native as usize as u64)
+}
+
 /// `s[Symbol.iterator]()` — an iterator over CODE POINTS.
 ///
 /// Points and not units, which is the one thing this iterator is for:

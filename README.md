@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
 <!-- CROSS_RUNTIME_BADGE_START -->
-[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-84.2%25-yellowgreen?style=flat-square)](the spec removed 2026-08-03 (see git history))
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-85.2%25-green?style=flat-square)](the spec removed 2026-08-03 (see git history))
 <!-- CROSS_RUNTIME_BADGE_END -->
 <!-- CSS_PARITY_BADGE_START -->
 [![CSS vs Chrome](https://img.shields.io/badge/CSS%20vs%20Chrome-99.9%25-brightgreen?style=flat-square)](tests/css/README.md)
@@ -27,21 +27,21 @@
 JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱] 84.2%   1275/1515 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱] 85.2%   1290/1514 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **84.2%** (1275/1515) |
-| ✅ RTS = Bun = Node | 1275 |
-| ❌ RTS diverges | 180 |
-| 💥 RTS runtime error | 60 |
-| 🛠️  **Left to fix** | **240** |
-| ⚠️ Bun ≠ Node (skip) | 0 |
+| **Parity** | **85.2%** (1290/1514) |
+| ✅ RTS = Bun = Node | 1290 |
+| ❌ RTS diverges | 171 |
+| 💥 RTS runtime error | 53 |
+| 🛠️  **Left to fix** | **224** |
+| ⚠️ Bun ≠ Node (skip) | 1 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
-_Updated: 2026-09-25 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-09-27 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -231,7 +231,7 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.9%   4525/4528 measurements matching Blink
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   168/170 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 68.2%   593/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 68.7%   598/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -252,12 +252,12 @@ subfolders of css-flexbox
   [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  33.3%   1/3       alignment
 
 the 777 tests at the root, by subject
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  83.1%   133/160   outros
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  63.6%   49/77     item
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  83.8%   134/160   outros
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.2%   51/77     item
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.8%   48/58     align
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.4%   37/46     gap
-  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  48.7%   19/39     percentage
+  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  51.3%   20/39     percentage
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.5%   22/37     baseline
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.7%   22/34     min-
@@ -275,7 +275,7 @@ the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   3/6       row
   [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/5       scrollbar
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       abspos
-  [▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  25.0%   1/4       position
+  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   2/4       position
   [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/1       visibility
 ```
 
@@ -285,9 +285,9 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-absoluto-posicao-estatica-linha-vazia.html` — `claude-absoluto-posicao-estatica-linha-vazia` (2026-09-21): its six static positions pass; the two deviations are the WIDTH of a span with a border (`#s2`, `#s3`: 51.39 for Blink's 33.8, two spaces too many), the same on main. The span's border edge enters `quebra.rs` as a piece with width (`juntar!`), so the whitespace after the START edge and before the END edge counts as content and survives the line-edge trim (CSS Text 3 §4.1.2). A lot of its own.
 - `claude-margem-atraves-de-inline-vazio.html` — rect de um inline VAZIO (so um espaco colapsavel): o Blink da 0x0 na posicao da linha (y=140); este motor nao regista rect nenhum (y=0). As margens a volta (a2/b2) batem — e a geometria do inline sem conteudo, lote da geometria de caixas vazias (BT-2c deixou `rects_of_box` pronto para isso). 2026-09-25.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **82/102 lots done**, 11 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **97/119 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-09-25 by CI (`dom-rulers`).*
+*Updated 2026-09-27 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->
@@ -345,12 +345,12 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `dcacce9`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `530101c`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
 
-_Updated: 2026-09-25 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-09-27 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 

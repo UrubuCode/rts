@@ -7,7 +7,7 @@
 //! they should compare text.
 //!
 //! Pins the fix: the textarea's `Text` item follows the SAME predicate as
-//! every other emitter (`fonte_metricas::usa_ahem`, driven by the node's own
+//! every other emitter (`fonte_metricas::uses_ahem`, driven by the node's own
 //! `font_family`), not a hardcoded value.
 
 use super::*;
@@ -94,13 +94,13 @@ fn textarea_with_a_spurious_value_attribute_still_reads_the_content() {
 
 /// Cause 3 of the same triage, and a fourth found while pinning it.
 ///
-/// 3: `medida_do_input` resolved a declared `width: Nch` with the generic
+/// 3: `input_measure` resolved a declared `width: Nch` with the generic
 /// `Dimension::resolve` (`MONO_ADVANCE` = 0.5498 em/ch, calibrated against a
 /// real monospace font), not `resolve_family` — the one that answers
 /// `1ch = 1em` for Ahem, by construction of the font (every glyph, including
 /// the "0" that defines `ch`, advances exactly 1em).
 ///
-/// 4: `medida_do_input` reserved `css.border_width` unconditionally, never
+/// 4: `input_measure` reserved `css.border_width` unconditionally, never
 /// checking `css.border_style` — so a `border: none` override (explicit
 /// author CSS, not just an unset property) still reserved the UA sheet's 2px
 /// per side (`input:not(...), textarea { border-width: 2px; }` in
@@ -157,7 +157,7 @@ fn textarea_with_width_in_ch_without_ahem_uses_the_familys_zero_advance() {
     ">XX    XX</textarea>"#;
     let (dom, list) = geometria(HTML, 400.0);
     let r = rect(&dom, &list, "#ta", 0);
-    let expected = 4.0 * 20.0 * crate::layout::fonte_metricas::FontMetricsModel::ch_advance_em(Some("Arial"));
+    let expected = 4.0 * 20.0 * crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("Arial"));
     assert!(
         (r.w - expected).abs() < 0.5,
         "the width of a <textarea> with width:4ch in Arial should be 4 times Arial's 0 advance (~{}), was {}",

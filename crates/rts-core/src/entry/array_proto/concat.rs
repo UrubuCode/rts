@@ -66,13 +66,18 @@ fn spread(item: u64) -> Option<Vec<u64>> {
         ));
         let flag = super::super::objects::read_property(context, cell, key).map(|held| held.bits());
         let held = context.elements_at(cell).is_some();
+        // `IsArray` sees through a proxy; the elements themselves are then read
+        // through its traps, as an array-like, since a proxy has no vector. A
+        // revoked one reads as not an array here — the refusal belongs to the
+        // `Get` that follows, which raises it.
+        let proxied = !held && super::construct::array_in(context, item).unwrap_or(false);
         let spreads = match flag {
             Some(flag) if !absent(context, flag) => {
                 super::super::primitives::to_boolean_in(context, flag)
             }
             // Absent — so `IsArray` decides, which is the ordinary case and the
             // one every program that never names the symbol takes.
-            _ => held,
+            _ => held || proxied,
         };
         match (spreads, held) {
             (false, _) => None,

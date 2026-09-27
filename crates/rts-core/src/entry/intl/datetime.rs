@@ -369,7 +369,7 @@ fn milliseconds(value: u64) -> f64 {
     let held = with_current(|context| {
         let cell = Value(value).as_slot()?;
         let key = context.well_known(super::super::date::TIME);
-        super::super::objects::read_property(context, cell, key)?.as_f64()
+        super::super::objects::read_property(context, cell, key)?.numeric()
     });
     // Anything else is `ToNumber`'d, which is what the specification does and
     // what makes `dtf.format(1715299200000)` work. Outside the borrow above,

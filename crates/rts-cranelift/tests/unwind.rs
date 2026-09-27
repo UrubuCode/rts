@@ -269,3 +269,114 @@ fn a_region_naming_a_block_that_does_not_exist_is_rejected() {
         VerifyError::UnknownRegionBlock { .. } | VerifyError::HandlerMissingPayload { .. }
     )));
 }
+
+/// A client that decides its regions before emitting -- opening each once while it
+/// makes its blocks, then emitting with none open -- needs the blocks it makes WHILE
+/// emitting to belong where the block being built is. Under the open-region rule
+/// they belong to nothing, and a throw from one leaves the function past a handler
+/// written to catch it. `inherit_block_regions` derives it; without it, the same
+/// sequence leaves the continuation unprotected, which is why it is not the default
+/// only for a client that turns it on.
+#[test]
+fn an_inheriting_builder_keeps_a_continuation_in_the_region_of_the_block_it_continues() {
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::Tagged], &[Repr::Tagged]);
+    let value = param(&func, 0);
+    let entry = func.entry;
+
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let caught = b.create_block();
+    b.add_block_param(caught, Repr::Tagged);
+    let region = b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: caught,
+        }],
+        None,
+    );
+    let inside = b.create_block();
+    b.close_region();
+    b.jump(inside, &[]).expect("a jump into the region");
+
+    // EMITTING, with no region open: the continuation is made from inside.
+    b.inherit_block_regions();
+    b.switch_to(inside);
+    assert_eq!(b.current_region(), Some(region));
+    let continuation = b.create_block();
+    b.jump(continuation, &[])
+        .expect("a jump to the continuation");
+    b.switch_to(continuation);
+    b.throw(Tag(1), value);
+
+    let recovered = func.block(caught).expect("exists").params[0];
+    let mut b = FuncBuilder::new(&mut func, &types, caught);
+    b.ret(&[recovered]);
+
+    assert_eq!(func.region_of(continuation), Some(region));
+    let plans = plan_all_throws(&func);
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].1.handler,
+        Some(caught),
+        "the throw from the continuation is caught"
+    );
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
+
+    // AND WITHOUT THE MODE the same continuation belongs to nothing -- the reason a
+    // translating client has to turn it on, and a client emitting regions in order
+    // must not have it forced.
+    let mut func = function(&[Repr::Tagged], &[Repr::Tagged]);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let caught = b.create_block();
+    b.add_block_param(caught, Repr::Tagged);
+    b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: caught,
+        }],
+        None,
+    );
+    let inside = b.create_block();
+    b.close_region();
+    b.switch_to(inside);
+    let continuation = b.create_block();
+    assert_eq!(func.region_of(continuation), None);
+}
+
+/// A block made after stepping out of a region belongs to what encloses it, so a
+/// throw from it is not caught by the handler it stepped past -- and stepping back
+/// in restores the regions for what is made after.
+#[test]
+fn a_block_made_after_stepping_out_belongs_to_the_enclosing_region() {
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::Tagged], &[]);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let outer_caught = b.create_block();
+    b.add_block_param(outer_caught, Repr::Tagged);
+    let outer = b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: outer_caught,
+        }],
+        None,
+    );
+    let depth = b.open_depth();
+    let inner_caught = b.create_block();
+    b.add_block_param(inner_caught, Repr::Tagged);
+    let inner = b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: inner_caught,
+        }],
+        None,
+    );
+    let left = b.step_out_to(depth);
+    assert_eq!(left, vec![inner]);
+    let outside = b.create_block();
+    b.step_back_in(left);
+    let inside = b.create_block();
+    assert_eq!(func.region_of(outside), Some(outer));
+    assert_eq!(func.region_of(inside), Some(inner));
+}

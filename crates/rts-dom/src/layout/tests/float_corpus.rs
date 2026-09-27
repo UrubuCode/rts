@@ -85,7 +85,7 @@ fn perto(a: f32, b: f32) -> bool {
 }
 
 /// Confere os quatro campos do rect de um id contra o que o Chrome mediu.
-fn afirma_rect(dom: &crate::Dom, list: &crate::layout::DisplayList, id: &str, esperado: Rect) {
+fn afirma_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, id: &str, esperado: Rect) {
     let r = rect(dom, list, &format!("#{id}"), 0);
     assert!(
         perto(r.x, esperado.x) && perto(r.y, esperado.y) && perto(r.w, esperado.w) && perto(r.h, esperado.h),

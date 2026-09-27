@@ -118,7 +118,9 @@ pub fn survey(items: &[ModuleItem], wanted: Wanted) -> Survey {
                         crate::syntax::ExportDefault::Declaration(statement) => {
                             in_statement(statement, wanted, &mut found);
                         }
-                        crate::syntax::ExportDefault::Expr(expr) => in_expr(expr, wanted, &mut found),
+                        crate::syntax::ExportDefault::Expr(expr) => {
+                            in_expr(expr, wanted, &mut found)
+                        }
                     }
                 }
             }
@@ -204,7 +206,8 @@ fn in_expr(expr: &Expr, wanted: Wanted, found: &mut Survey) {
         // form and it reads the name like any other. `Function` only as a
         // callee — `Function.prototype.bind` is what a bundle writes on every
         // page and constructs nothing.
-        let called = |callee: &Expr| matches!(&callee.kind, ExprKind::Ident(seen) if *seen == function);
+        let called =
+            |callee: &Expr| matches!(&callee.kind, ExprKind::Ident(seen) if *seen == function);
         found.dynamic_code |= match &expr.kind {
             ExprKind::Ident(seen) => *seen == eval,
             ExprKind::Call { callee, .. } | ExprKind::New { callee, .. } => called(callee),

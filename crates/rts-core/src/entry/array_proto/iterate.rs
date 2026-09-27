@@ -323,66 +323,28 @@ extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, 
 
 /// How many positions the walk covers, read once before the first call.
 ///
-/// `None` for a receiver that is not an array, which is what every method here
-/// answers `undefined` for rather than aborting.
-///
 /// # Why [`super::borrowed`] and not [`staged`]
 ///
-/// It was `staged`, which **copies the whole element vector** — that is what
-/// `staged` is for, and its doc says so: a method that calls user code has to
-/// drop the borrow before calling, so it takes a snapshot. This one calls
-/// nothing. It reads a length and returns a `usize`, so the borrow ends inside
-/// this function on its own.
+/// `staged` COPIES the whole vector, which is what a method that calls user
+/// code needs and what a length question does not: `xs.map(f)` over a hundred
+/// thousand elements copied a hundred thousand words to read a `Vec` header.
 ///
-/// The cost of getting it wrong is proportional to the array and invisible in a
-/// small one: `xs.map(f)` on sixteen elements copied sixteen words, and on a
-/// hundred thousand it copied a hundred thousand — once per call, to ask a
-/// question the `Vec` answers from its header. `super::borrowed` exists three
-/// functions below `staged` for exactly this distinction, and its own
-/// documentation names the same mistake ("copying a thousand-element array to
-/// answer whether it contains a number is the whole cost of the answer").
 /// # An ARRAY-LIKE has a length too, and it is a property
 ///
-/// `Array.prototype.reduce.call({0:1, 1:2, length:2}, f)` is a call the language
-/// defines: every method here is written over `LengthOfArrayLike`, which is
-/// `ToLength(Get(O, "length"))` and says nothing about an elements vector. This
-/// answered `None` for anything without one, so the whole family — `reduce`,
-/// `map`, `filter`, `join`, `indexOf` and the rest — answered `undefined` for
-/// the receiver the specification spends a paragraph per method accommodating.
-///
-/// The elements vector stays the FIRST question, and that is the point: a real
-/// array reads its length from a `Vec` header and pays nothing for the fallback
-/// below.
+/// Every method here is written over `LengthOfArrayLike(ToObject(this))`, so
+/// `Array.prototype.reduce.call({0:1, 1:2, length:2}, f)` and
+/// `Array.prototype.map.call("ab", f)` are calls the language defines. The
+/// vector stays the FIRST question — a real array pays nothing for the
+/// fallback, which is [`super::generic`]'s arm rather than a second spelling of
+/// it. `undefined` and `null` are its `TypeError`; `[].map.call(7, f)` walks
+/// nothing.
 pub(super) fn len_of(this: u64) -> Option<usize> {
     if let Some(count) = with_current(|context| Some(super::borrowed(context, this)?.len())) {
         return Some(count);
     }
-    // Only an object has properties to ask about. A primitive receiver keeps the
-    // old answer, which is what makes `[].map.call(7, f)` stay `undefined`
-    // rather than becoming a walk over nothing.
-    if !with_current(|context| super::super::objects::is_object(context, this)) {
-        return None;
-    }
-    let key = with_current(|context| context.well_known_text("length"));
-    let raw = super::super::computed::get_indexed(this, key);
-    if super::super::throw::in_flight() {
-        return None;
-    }
-    // `ToLength`: a negative, a `NaN` and a fraction all clamp, which is what
-    // makes `{length: -1}` a zero-length walk rather than an enormous one.
-    let count = super::super::class_support::to_number(raw);
-    if super::super::throw::in_flight() {
-        return None;
-    }
-    match count.is_finite() && count >= 1.0 {
-        true => Some(count.min(MAX_LENGTH) as usize),
-        false => Some(0),
-    }
+    let object = super::generic::object(this, "forEach, map or a relative")?;
+    super::generic::length(object)
 }
-
-/// `2^53 - 1`, which is what `ToLength` clamps to and the largest length the
-/// language admits.
-const MAX_LENGTH: f64 = 9_007_199_254_740_991.0;
 
 /// Whether this receiver keeps its own elements, and therefore answers about
 /// them definitively.
@@ -420,19 +382,12 @@ pub(super) fn existing(this: u64, index: usize) -> Option<u64> {
     // then `Get`, which is what the specification asks and what makes a hole in
     // one — a key that is simply not there — skip exactly as a hole in a real
     // array does. Both run user code, so both happen outside every borrow.
-    let key = with_current(|context| {
-        context
-            .intern_value(crate::text::Str::from_str(&index.to_string()))
-            .bits()
-    });
-    if !super::super::computed::has_property(key, this) || super::super::throw::in_flight() {
+    // Through the generic arm, which also answers a string primitive — whose
+    // characters `has_property` would refuse as the `in` operator does.
+    if !super::generic::has(this, index)? {
         return None;
     }
-    let held = super::super::computed::get_indexed(this, key);
-    match super::super::throw::in_flight() {
-        true => None,
-        false => Some(held),
-    }
+    super::generic::get(this, index)
 }
 
 /// The same, as the program SEES it: an absent position reads `undefined`.

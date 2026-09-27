@@ -349,7 +349,7 @@ fn the_tree_is_memoised_on_the_document() {
 /// there may be N boxes per element; at that boundary they aggregate."
 #[test]
 fn rect_of_node_unions_the_rectangles_of_a_nodes_several_boxes() {
-    use crate::layout::{DisplayList, Rect};
+    use crate::paint::{DisplayList, Rect};
 
     let mut tree = BoxTree::default();
     let first = tree.push_element(3, None);
@@ -372,7 +372,7 @@ fn rect_of_node_unions_the_rectangles_of_a_nodes_several_boxes() {
 /// by construction, which is what this test pins.
 #[test]
 fn a_box_never_written_is_absent_from_the_union_not_pulled_to_the_origin() {
-    use crate::layout::{DisplayList, Rect};
+    use crate::paint::{DisplayList, Rect};
 
     let mut tree = BoxTree::default();
     let first = tree.push_element(5, None);

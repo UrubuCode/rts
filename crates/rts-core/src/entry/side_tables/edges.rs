@@ -218,6 +218,8 @@ pub(in crate::entry) fn edges(context: &Context, cell: u32, out: &mut Vec<u64>) 
             SideTable::Attributes => {}
             // A boolean.
             SideTable::Derived => {}
+            // A boolean.
+            SideTable::ChainLinks => {}
             // An index into what the host holds. The host roots those through
             // `entry::external`, which is a root source rather than a heap edge.
             SideTable::Foreign => {}

@@ -100,11 +100,7 @@ impl Int32 {
 /// Takes the FINISHED [`Numeric`] rather than computing beside it, because
 /// every question this asks about an operand is one that pass already answers,
 /// and asking it mid-fixpoint would read a set still shrinking.
-pub(super) fn analyse(
-    body: &[Stmt],
-    numeric: &Numeric,
-    captured: &BTreeSet<Name>,
-) -> Int32 {
+pub(super) fn analyse(body: &[Stmt], numeric: &Numeric, captured: &BTreeSet<Name>) -> Int32 {
     let mut candidates = HashSet::new();
     for statement in body {
         collect(statement, numeric, &mut candidates);
@@ -270,9 +266,7 @@ fn produces_int32(expr: &Expr, numeric: &Numeric) -> bool {
         // value, and claiming an int32 for it is the false claim `proven.rs`
         // records paying for three times.
         ExprKind::Binary { op, left, right } => {
-            operator_produces_int32(*op)
-                && is_numeric(left, numeric)
-                && is_numeric(right, numeric)
+            operator_produces_int32(*op) && is_numeric(left, numeric) && is_numeric(right, numeric)
         }
 
         // `~x` is the same claim with one operand.

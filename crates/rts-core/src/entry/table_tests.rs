@@ -204,8 +204,48 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // they replace is a global read, a property read through the chain cache
     // and the generic call, three crossings for a function the compiler can
     // name; measured, `JSON.stringify(42)` went from 242 ns to 169.
+    //
+    // Moved to 107 on 2026-09-26 for `TextWalk`, asked the same way: it is not
+    // arithmetic -- it reads two prototypes a program may write to and answers
+    // a list it allocates -- and it REMOVES crossings, which is the only
+    // argument this list has accepted. A `for`-`of` over a string stepped the
+    // iterator, a `next` call and a `{ value, done }` record per character;
+    // `bench/analytic.ts` `for-of chars 16` read 432 ns per character through
+    // the MIR stage against 181 for the running emitter's list.
+    //
+    // Moved to 109 on 2026-09-26 for `MathDirect1` and `MathDirect2`, and the
+    // question was asked the same way. Two rows and not twenty-three, which is
+    // what one entry per library member would have been — a sine, a logarithm,
+    // `atan2`, `hypot` — because a selector and a table of function pointers
+    // say the same thing, and the indirect call costs a nanosecond against the
+    // thirty the door removes: `Math.sin(x)` went from 75 ns to 6, `Math.hypot`
+    // from 126 to 4.6, on `bench/analytic.ts`'s shape. They REMOVE crossings,
+    // which is still the only argument this list accepts.
+    //
+    // Moved to 110 on 2026-09-26 for `ArgumentAt`, which REMOVES an allocation
+    // rather than a crossing: a fifth parameter was read by building the whole
+    // rest array (`RestArguments`) and indexing it, once per call. One word read
+    // out of the vector the call already holds is the same question with no
+    // array in the answer.
+    //
+    // Moved to 112 on 2026-09-26 for `SameValue` and `ArrayIsArray`: `Object.is`
+    // and `Array.isArray` reached without the object, under the proof `Math`
+    // already rests on. Both REMOVE crossings — a global read, a property read
+    // and a dispatch, ~40 ns each for bodies of one comparison or one lookup —
+    // which is still the only argument this list accepts.
+    //
+    // Moved to 118 on 2026-09-27 for the six direct methods — `Map.get/has/set`,
+    // `Set.has/add`, `Array.push` — each the member's body behind a brand check,
+    // reached without the property read and the dispatch that cost 42 to 68 ns
+    // around a hash probe. Six rows because six members; the pattern is one
+    // (`collections/direct.rs`) and a seventh member is one more line of it.
+    // They REMOVE crossings, which is still the only argument this list accepts.
+    //
+    // Moved to 120 on 2026-09-27 for `f.call(…)` and `f.apply(…)` reached
+    // directly (`function_direct.rs`): 165 and 235 ns of chain walk and vector
+    // rebuilding around a call that costs 4. Same argument.
     assert!(
-        CORE_ENTRY_COUNT <= 106,
+        CORE_ENTRY_COUNT <= 120,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

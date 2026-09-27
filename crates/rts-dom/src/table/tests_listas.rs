@@ -7,7 +7,7 @@
 //! que o resto do crate evita.
 
 use super::tests::{geometria, rect, textos};
-use crate::layout::{DisplayItem, Rect};
+use crate::paint::{DisplayItem, Rect};
 
 #[test]
 fn ol_numera_os_itens_a_partir_de_um() {
@@ -118,7 +118,7 @@ fn list_style_position_muda_o_lado_do_marcador_e_nao_a_caixa() {
         "<ul style=\"list-style-position:inside\"><li>a</li></ul>",
         800.0,
     );
-    let bullet = |l: &crate::layout::DisplayList| {
+    let bullet = |l: &crate::paint::DisplayList| {
         l.materialized()
             .iter()
             .find_map(|i| match i {
