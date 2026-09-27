@@ -1,4 +1,4 @@
-//! `rts:audio` — os doze membros, no molde de `rts-physics/src/surface.rs`:
+//! `rts:audio` — os treze membros, no molde de `rts-physics/src/surface.rs`:
 //! views tipadas, ponteiros pegos num empréstimo curto e usados fora dele, e
 //! views sobrepostas recusadas.
 
@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering;
 use rts_core::entry::{self, Context, Provided};
 
 use crate::device::{self, FLAG_NULO, Pedido, Saida};
+use crate::escuta;
 use crate::mix::{self, DESC_FLOATS, NIVEL_FLOATS};
 use crate::ogg;
 
@@ -16,6 +17,8 @@ use crate::ogg;
 pub const INFO_FLOATS: usize = 4;
 /// `out` de `stats`: consumidos, faltas, enfileirados, taxa, canais, nulo.
 pub const STATS_FLOATS: usize = 6;
+/// `out` de `escutar`: rms, pico, silêncio (0|1), quadros, taxa, canais.
+pub const ESCUTA_FLOATS: usize = 6;
 
 /// O objeto do módulo.
 pub fn namespace(context: &mut Context) -> u64 {
@@ -35,6 +38,7 @@ const AUDIO: &[(&str, Provided)] = &[
     ("mix_level", mix_level),
     ("decode_ogg", decode_ogg),
     ("ogg_take", ogg_take),
+    ("escutar", escutar),
 ];
 
 thread_local! {
@@ -251,6 +255,38 @@ extern "C" fn ogg_take(_e: u64, _t: u64, handle: u64, dst: u64, _b: u64, _c: u64
     let n = d.len().min(amostras.len());
     d[..n].copy_from_slice(&amostras[..n]);
     resposta(n as f64)
+}
+
+/// `escutar(ms, out: Float64Array)` → 1, ou 0 se `out` não serve ou a escuta
+/// falhou (`out[0] = -1`). Bloqueia pela mesma duração que devolve em
+/// `escuta::escutar`; não afeta nenhuma saída aberta, só lê o dispositivo
+/// padrão por loopback.
+extern "C" fn escutar(_e: u64, _t: u64, ms: u64, out: u64, _b: u64, _c: u64) -> u64 {
+    let Some(j) = entry::with_runtime(|c| janela(c, out, 8)) else { return resposta(0.0) };
+    // SAFETY: como em `stats`.
+    let o = unsafe { doubles_mut(j) };
+    if o.len() < ESCUTA_FLOATS { return resposta(0.0); }
+    match escuta::escutar(numero(ms, 300.0).max(0.0) as u32) {
+        Ok(e) => {
+            o[0] = e.rms as f64;
+            o[1] = e.pico as f64;
+            o[2] = if e.silencio { 1.0 } else { 0.0 };
+            o[3] = e.quadros as f64;
+            o[4] = e.taxa as f64;
+            o[5] = e.canais as f64;
+            resposta(1.0)
+        }
+        Err(motivo) => {
+            eprintln!("[rts:audio] escuta falhou: {motivo}");
+            o[0] = -1.0;
+            o[1] = 0.0;
+            o[2] = 0.0;
+            o[3] = 0.0;
+            o[4] = 0.0;
+            o[5] = 0.0;
+            resposta(0.0)
+        }
+    }
 }
 
 #[cfg(test)]
