@@ -9,6 +9,23 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod device;
 pub mod mix;
 pub mod ogg;
 pub mod ring;
+pub mod surface;
+
+use rts_core::entry::{self, Context};
+
+/// Registra `rts:audio`. Pelo host, não por um construtor daqui (a mesma razão
+/// de `rts_physics::install`).
+pub fn install(context: &mut Context) {
+    let ns = surface::namespace(context);
+    entry::declare_module(context, "rts:audio", ns);
+}
+
+/// Fecha as saídas enquanto o processo está inteiro (ver
+/// `surface::fechar_todas`). Idempotente; no-op sem saída aberta.
+pub fn shutdown() {
+    surface::fechar_todas();
+}

@@ -41,6 +41,10 @@ rts-node = { path = "../rts-node" }
 # antigo que mantém `ui` fora dele — `rts-physics` depende de `rts-core` e de
 # `rayon`, e de mais nada.
 rts-physics = { path = "../rts-physics", optional = true }
+# `rts:audio`: a saída de som e o kernel de mixagem. Opcional pela mesma regra
+# de DISPONIBILIDADE de `rts-physics`; no default porque `rts run` (testes com o
+# dispositivo nulo), o editor e o jogo compilado usam o mesmo módulo.
+rts-audio = { path = "../rts-audio", optional = true }
 # A UI: `rts:egui` e `rts:input`. Opcional porque uma janela é uma questão de
 # DISPONIBILIDADE — não existe em wasm nem num build headless — e um alvo sem
 # ela não deve carregar wgpu/winit no grafo para descobrir isso.
@@ -92,9 +96,10 @@ serde_json = "1.0"
 # cross-runtime. Num alvo sem tela isso e peso morto, e num alvo que nao TEM
 # janela (wasm) e um erro de link. Quando esse alvo existir, a feature volta a
 # ser opcional e o motivo sera este, medido, e nao um crate que ja nao existe.
-default = ["physics", "ui"]
+default = ["physics", "ui", "audio"]
 ui = ["dep:rts-ui"]
 physics = ["dep:rts-physics"]
+audio = ["dep:rts-audio"]
 
 # Os dois alvos que só existem com a UI. Sem isto um `cargo test -p rts-host`
 # tentaria compilá-los sem o crate e falharia por nome não resolvido, que é uma

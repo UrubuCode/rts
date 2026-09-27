@@ -10,5 +10,9 @@ description = "`rts:audio` — a saída de som (cpal ou nula), o kernel de mixag
 # alvo sem ele não deve carregar cpal no grafo. Mesmo argumento de `rts-physics`.
 
 [dependencies]
+rts-core = { path = "../rts-core" }
+# A saída de som: WASAPI (Windows), CoreAudio (macOS), ALSA (Linux). Na 0.18,
+# `SampleRate` é `u32` e `build_output_stream` recebe a config por valor.
+cpal = "0.18"
 # OGG/Vorbis em Rust puro, sem C (spec 2026-09-27 §3.1, decisão do usuário).
 lewton = "0.10"

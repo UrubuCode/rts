@@ -400,6 +400,11 @@ fn run_region(
         let _timing = rts_cranelift::probe::Phase::start("install-physics");
         rts_physics::install(&mut context);
     }
+    #[cfg(feature = "audio")]
+    {
+        let _timing = rts_cranelift::probe::Phase::start("install-audio");
+        rts_audio::install(&mut context);
+    }
     {
         // `rts:dom` vem ANTES da UI e sem feature: o documento é headless por
         // natureza, e um build sem tela continua parseando e consultando HTML.
@@ -491,6 +496,9 @@ fn run_region(
     // Depois do programa e antes de qualquer destrutor: um `wgpu::Device` solto
     // pelo destrutor de thread-local morre durante o descarregamento das DLLs do
     // driver. Ver `rts_ui::shutdown`. No-op quando nenhuma janela foi aberta.
+    // O stream de som (`rts:audio`) segue a mesma regra, e fecha antes.
+    #[cfg(feature = "audio")]
+    rts_audio::shutdown();
     #[cfg(feature = "ui")]
     rts_ui::shutdown();
     // Rendered BEFORE the context is taken apart: the census names keys through
