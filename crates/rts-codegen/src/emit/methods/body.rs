@@ -23,6 +23,21 @@ pub(crate) struct Door {
     pub arity: Option<usize>,
 }
 
+/// The entry a NUMBER method compiles to when its receiver is a proven double:
+/// the double itself, the one argument (`undefined` where none was written),
+/// and no dispatch. Decided after the receiver is emitted, because it turns on
+/// the receiver's representation; a receiver not proven takes the member.
+pub(crate) fn number_door(primordials: Primordials, member: &str, written: usize) -> Option<RuntimeOp> {
+    if !primordials.number {
+        return None;
+    }
+    Some(match (member, written) {
+        ("toString", 0 | 1) => RuntimeOp::NumberToStringDirect,
+        ("toFixed", 1) => RuntimeOp::NumberToFixedDirect,
+        _ => return None,
+    })
+}
+
 pub(crate) fn shape_of(primordials: Primordials, member: &str, written: usize) -> Option<Door> {
     let exact = |op| Door { op, arity: None };
     Some(match (member, written) {
@@ -69,8 +84,9 @@ pub(in super::super) fn emit(
     else {
         return Ok(None);
     };
-    let Some(door) = shape_of(ctx.statics_primordial, ctx.names.text(*property), arguments.len()) else {
-        return Ok(None);
+    let member = ctx.names.text(*property);
+    let Some(door) = shape_of(ctx.statics_primordial, member, arguments.len()) else {
+        return typed(builder, scope, ctx, callee, object, *property, arguments);
     };
     let mut plain = Vec::with_capacity(arguments.len());
     for argument in arguments {
@@ -98,4 +114,57 @@ pub(in super::super) fn emit(
     let spelled = super::super::call::callee_spelling(ctx, callee);
     operands.push(name_constant(builder, spelled));
     Ok(Some(super::super::expr::call(builder, ctx, door.op, &operands)?[0]))
+}
+
+/// A number method over a receiver that turns out to be a proven double: the
+/// direct entry. Over any other receiver the CALL the program wrote, with the
+/// receiver already in hand — never evaluated twice.
+fn typed(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    callee: &Expr,
+    object: &Expr,
+    property: crate::names::Name,
+    arguments: &[Spreadable],
+) -> EmitResult<Option<ValueId>> {
+    let Some(door) = number_door(ctx.statics_primordial, ctx.names.text(property), arguments.len()) else {
+        return Ok(None);
+    };
+    let mut plain = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let Spreadable::Single(argument) = argument else {
+            return Ok(None);
+        };
+        plain.push(argument);
+    }
+    let receiver = emit_expr(builder, scope, ctx, object)?;
+    if builder.repr_of(receiver) == rts_cranelift::repr::Repr::F64 {
+        let argument = match plain.first() {
+            Some(argument) => {
+                let value = emit_expr(builder, scope, ctx, argument)?;
+                tagged(builder, value)
+            }
+            None => super::super::expr::undefined(builder, ctx),
+        };
+        return Ok(Some(super::super::expr::call(builder, ctx, door, &[receiver, argument])?[0]));
+    }
+    // Not proven: the member, read from the receiver already evaluated, then
+    // the arguments, then the call -- the language's order.
+    let receiver = tagged(builder, receiver);
+    let function = super::super::property::emit_read(builder, ctx, receiver, property)?;
+    let mut values = Vec::with_capacity(plain.len());
+    for argument in plain {
+        values.push(emit_expr(builder, scope, ctx, argument)?);
+    }
+    let name = super::super::call::callee_spelling(ctx, callee);
+    Ok(Some(super::super::call::issue_as(
+        builder,
+        ctx,
+        function,
+        receiver,
+        &values,
+        name,
+        RuntimeOp::Call,
+    )?))
 }

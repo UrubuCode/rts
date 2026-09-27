@@ -264,6 +264,55 @@ impl Lowering<'_> {
         Ok(Some(self.entry(door.op, operands, at)))
     }
 
+    /// `n.toString(radix)` and `n.toFixed(d)` over a receiver this stage has typed a
+    /// number, as the direct entry `emit/methods::number_door` names; over any other
+    /// receiver the call the program wrote, with the receiver already in hand.
+    pub(super) fn number_method_intrinsic(
+        &mut self,
+        callee: &Expr,
+        arguments: &[Spreadable],
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        let ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } = &callee.kind
+        else {
+            return Ok(None);
+        };
+        let Some(member) = self.names.spelled(*property) else {
+            return Ok(None);
+        };
+        let primordials = self.callees.statics_primordial();
+        let Some(door) = crate::emit::methods::number_door(primordials, member, arguments.len()) else {
+            return Ok(None);
+        };
+        let mut plain = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let Spreadable::Single(argument) = argument else {
+                return Ok(None);
+            };
+            plain.push(argument);
+        }
+        let receiver = self.expression(object)?;
+        if matches!(self.type_of(receiver), Type::Int32 | Type::Double) {
+            let argument = match plain.first() {
+                Some(argument) => self.expression(argument)?,
+                None => self.singleton_at(crate::values::Singleton::Undefined, at),
+            };
+            return Ok(Some(self.entry(door, vec![receiver, argument], at)));
+        }
+        let key = self.domain.constant(JsConst::Key(*property));
+        let key = self.declared(key, at);
+        let held = self.prim(JsPrim::FieldRead, vec![receiver, key], at);
+        let mut values = Vec::with_capacity(plain.len());
+        for argument in plain {
+            values.push(self.expression(argument)?);
+        }
+        Ok(Some(self.call(rts_mir::cfg::Callee::Dynamic(held), Some(receiver), values, at)))
+    }
+
     /// Whether `object` is the language's `Math` here: the whole program leaves it
     /// alone (the running emitter's proof, handed over as one flag), and nothing
     /// this function sees binds the name — its own scope, or the layout it was

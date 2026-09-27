@@ -249,8 +249,13 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // answered from the activation's slots where nothing else of the object is
     // read (`emit/light_arguments.rs`): the object cost 950 ns a call after its
     // keys were cached, and these two REMOVE it.
+    //
+    // Moved to 124 on 2026-09-27 for `n.toString(radix)` and `n.toFixed(d)`
+    // over a proven double (`number/direct.rs`): the text was 16 to 60 ns of a
+    // 170 to 200 ns call, the rest a dispatch from a primitive to its
+    // prototype. They REMOVE it; same argument.
     assert!(
-        CORE_ENTRY_COUNT <= 122,
+        CORE_ENTRY_COUNT <= 124,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

@@ -216,6 +216,8 @@ impl Js {
         RuntimeOp::FunctionApplyDirect,
         RuntimeOp::ArgumentsCount,
         RuntimeOp::ArgumentSlot,
+        RuntimeOp::NumberToStringDirect,
+        RuntimeOp::NumberToFixedDirect,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,
@@ -765,7 +767,12 @@ impl Domain for Js {
             // ToString answers a string or raises -- a symbol raises -- and never answers
             // anything else, which is what lets the `+` joining a template's pieces be
             // typed a concatenation.
-            Some(RuntimeOp::StringOf | RuntimeOp::TemplateJoin) => Type::Str,
+            Some(
+                RuntimeOp::StringOf
+                | RuntimeOp::TemplateJoin
+                | RuntimeOp::NumberToStringDirect
+                | RuntimeOp::NumberToFixedDirect,
+            ) => Type::Str,
             Some(RuntimeOp::BigIntNew) => Type::BigInt,
             // A truth value wherever the row answers one unboxed -- the representation
             // is the proof, so it is read off the signature rather than listed. A list

@@ -23,4 +23,4 @@
 mod body;
 
 pub(super) use body::emit;
-pub(crate) use body::shape_of;
+pub(crate) use body::{number_door, shape_of};
