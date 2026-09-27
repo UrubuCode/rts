@@ -209,6 +209,48 @@ impl Lowering<'_> {
         Ok(Some(self.prim(prim, values, at)))
     }
 
+    /// `recv.get(k)`, `recv.has(k)`, `recv.set(k, v)`, `recv.add(v)`, `recv.push(v)`
+    /// as the direct entry `emit/methods` names, or `None` where the call stays one.
+    /// The receiver first, then the arguments, then the entry -- the module header
+    /// of `emit/methods` says what that order costs and why it is accepted. The
+    /// graph carries no callee spelling, so the entry is told there is none.
+    pub(super) fn method_intrinsic(
+        &mut self,
+        callee: &Expr,
+        arguments: &[Spreadable],
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        let ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } = &callee.kind
+        else {
+            return Ok(None);
+        };
+        let Some(member) = self.names.spelled(*property) else {
+            return Ok(None);
+        };
+        let primordials = self.callees.statics_primordial();
+        let Some(door) = crate::emit::methods::shape_of(primordials, member, arguments.len()) else {
+            return Ok(None);
+        };
+        let mut plain = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let Spreadable::Single(argument) = argument else {
+                return Ok(None);
+            };
+            plain.push(argument);
+        }
+        let mut operands = vec![self.expression(object)?];
+        for argument in plain {
+            operands.push(self.expression(argument)?);
+        }
+        let nameless = self.domain.constant(JsConst::Nameless);
+        operands.push(self.declared(nameless, at));
+        Ok(Some(self.entry(door, operands, at)))
+    }
+
     /// Whether `object` is the language's `Math` here: the whole program leaves it
     /// alone (the running emitter's proof, handed over as one flag), and nothing
     /// this function sees binds the name — its own scope, or the layout it was

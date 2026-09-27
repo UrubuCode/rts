@@ -206,6 +206,12 @@ impl Js {
         RuntimeOp::ArgumentAt,
         RuntimeOp::SameValue,
         RuntimeOp::ArrayIsArray,
+        RuntimeOp::MapGetDirect,
+        RuntimeOp::MapHasDirect,
+        RuntimeOp::MapSetDirect,
+        RuntimeOp::SetHasDirect,
+        RuntimeOp::SetAddDirect,
+        RuntimeOp::ArrayPushDirect,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,

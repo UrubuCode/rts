@@ -233,8 +233,15 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // already rests on. Both REMOVE crossings — a global read, a property read
     // and a dispatch, ~40 ns each for bodies of one comparison or one lookup —
     // which is still the only argument this list accepts.
+    //
+    // Moved to 118 on 2026-09-27 for the six direct methods — `Map.get/has/set`,
+    // `Set.has/add`, `Array.push` — each the member's body behind a brand check,
+    // reached without the property read and the dispatch that cost 42 to 68 ns
+    // around a hash probe. Six rows because six members; the pattern is one
+    // (`collections/direct.rs`) and a seventh member is one more line of it.
+    // They REMOVE crossings, which is still the only argument this list accepts.
     assert!(
-        CORE_ENTRY_COUNT <= 112,
+        CORE_ENTRY_COUNT <= 118,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

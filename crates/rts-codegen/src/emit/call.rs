@@ -92,6 +92,13 @@ pub(super) fn emit_call_as(
     {
         return Ok(value);
     }
+    // `m.get(k)`, `s.has(v)`, `a.push(v)` and their siblings: one entry that
+    // checks the receiver's brand and falls back to the method. See `methods`.
+    if scope_is_lexical
+        && let Some(value) = super::methods::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
 
     // `JSON.stringify(x)` and `JSON.parse(s)` by their entry points, under the
     // same kind of proof. See `json_call`.

@@ -68,6 +68,7 @@ pub mod external;
 mod finalize;
 mod foreign;
 mod function_proto;
+mod direct_call;
 mod functions;
 mod generator;
 mod global;
@@ -133,6 +134,8 @@ pub use computed::{
     delete_property, for_in_has, get_indexed, has_property, key_number, set_indexed, with_has,
 };
 pub use array::{ARRAY_OF_SLOTS, array_is_array};
+pub use array_proto::array_push_direct;
+pub use collections::{map_get_direct, map_has_direct, map_set_direct, set_add_direct, set_has_direct};
 pub use functions::{
     ARGUMENT_SLOTS, NO_CALL_NAME, argument_at, call, call_counted, call_with_args, closure_new,
     construct, construct_with_args, instance_of, mark_class_constructor, rest_arguments,

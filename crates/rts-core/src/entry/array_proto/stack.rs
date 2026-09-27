@@ -105,7 +105,7 @@ fn nothing() -> u64 {
 /// [`super::super::integrity::refuses_key_write`] already folds the object's own
 /// refusal into the property's — so one question answers both instead of two
 /// that could come to disagree.
-fn refuses_append(context: &mut Context, cell: u32) -> bool {
+pub(super) fn refuses_append(context: &mut Context, cell: u32) -> bool {
     match super::super::computed::length_key(context) {
         crate::object::Key::Name(named) => {
             super::super::integrity::refuses_key_write(context, cell, named)

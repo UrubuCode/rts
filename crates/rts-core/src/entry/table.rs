@@ -66,6 +66,11 @@ use super::array::{
 use super::pattern::ARRAY_PATTERN_DIRECT_ENTRY;
 use super::text_walk::TEXT_WALK_ENTRY;
 use super::array::ARRAY_IS_ARRAY_ENTRY;
+use super::array_proto::ARRAY_PUSH_DIRECT_ENTRY;
+use super::collections::{
+    MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
+    SET_HAS_DIRECT_ENTRY,
+};
 use super::functions::ARGUMENT_AT_ENTRY;
 use super::primitives::SAME_VALUE_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
@@ -764,6 +769,21 @@ pub enum CoreEntry {
     SameValue = 110,
     /// [`super::array_is_array`] — `Array.isArray(x)`, the same way.
     ArrayIsArray = 111,
+    /// [`super::map_get_direct`] — `m.get(k)` where the whole program leaves `Map`
+    /// alone: the brand checked, a real map answered from its table, anything
+    /// else through the method it has.
+    MapGetDirect = 112,
+    /// [`super::map_has_direct`], the same way.
+    MapHasDirect = 113,
+    /// [`super::map_set_direct`], the same way.
+    MapSetDirect = 114,
+    /// [`super::set_has_direct`], the same way for `Set`.
+    SetHasDirect = 115,
+    /// [`super::set_add_direct`], the same way.
+    SetAddDirect = 116,
+    /// [`super::array_push_direct`] — `a.push(v)` appended in place where the
+    /// receiver is an array that may grow, and the member otherwise.
+    ArrayPushDirect = 117,
 }
 
 /// How many entry points exist.
@@ -771,7 +791,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 112;
+pub const CORE_ENTRY_COUNT: usize = 118;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -888,6 +908,12 @@ impl CoreEntry {
         CoreEntry::ArgumentAt,
         CoreEntry::SameValue,
         CoreEntry::ArrayIsArray,
+        CoreEntry::MapGetDirect,
+        CoreEntry::MapHasDirect,
+        CoreEntry::MapSetDirect,
+        CoreEntry::SetHasDirect,
+        CoreEntry::SetAddDirect,
+        CoreEntry::ArrayPushDirect,
     ];
 
     /// The number a call site holds.
@@ -1015,6 +1041,12 @@ impl CoreEntry {
             CoreEntry::ArgumentAt => ARGUMENT_AT_ENTRY,
             CoreEntry::SameValue => SAME_VALUE_ENTRY,
             CoreEntry::ArrayIsArray => ARRAY_IS_ARRAY_ENTRY,
+            CoreEntry::MapGetDirect => MAP_GET_DIRECT_ENTRY,
+            CoreEntry::MapHasDirect => MAP_HAS_DIRECT_ENTRY,
+            CoreEntry::MapSetDirect => MAP_SET_DIRECT_ENTRY,
+            CoreEntry::SetHasDirect => SET_HAS_DIRECT_ENTRY,
+            CoreEntry::SetAddDirect => SET_ADD_DIRECT_ENTRY,
+            CoreEntry::ArrayPushDirect => ARRAY_PUSH_DIRECT_ENTRY,
         }
     }
 

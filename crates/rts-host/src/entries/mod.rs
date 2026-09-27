@@ -433,6 +433,24 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ArrayIsArray => (CoreEntry::ArrayIsArray, {
             rts_core::entry::array_is_array as extern "C" fn(u64) -> bool as *const u8
         }),
+        RuntimeOp::MapGetDirect => (CoreEntry::MapGetDirect, {
+            rts_core::entry::map_get_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::MapHasDirect => (CoreEntry::MapHasDirect, {
+            rts_core::entry::map_has_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::MapSetDirect => (CoreEntry::MapSetDirect, {
+            rts_core::entry::map_set_direct as extern "C" fn(u64, u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetHasDirect => (CoreEntry::SetHasDirect, {
+            rts_core::entry::set_has_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetAddDirect => (CoreEntry::SetAddDirect, {
+            rts_core::entry::set_add_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArrayPushDirect => (CoreEntry::ArrayPushDirect, {
+            rts_core::entry::array_push_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
         RuntimeOp::UnaryPlus => (CoreEntry::UnaryPlus, {
             rts_core::entry::unary_plus as extern "C" fn(u64) -> u64 as *const u8
         }),

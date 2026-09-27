@@ -59,6 +59,7 @@ pub(crate) use binding::OUTER;
 mod body_state;
 pub(crate) mod call;
 pub(crate) mod math;
+pub(crate) mod methods;
 pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
@@ -1172,18 +1173,28 @@ pub(super) fn emit_program_into(
     let eval_name = ctx.names.intern("eval");
     ctx.math_primordial = primordial::untouched(body, math, eval_name, global_this);
     let json = ctx.names.intern("JSON");
-    ctx.json_primordial = primordial::only_a_base(body, json, eval_name, global_this);
-    // The same two proofs for the names `emit/statics` decides: the objects by
-    // the stricter one, the two global functions by the plain one.
-    let number = ctx.names.intern("Number");
-    let array = ctx.names.intern("Array");
-    let object = ctx.names.intern("Object");
+    let prototype = ctx.names.intern("prototype");
+    ctx.json_primordial = primordial::only_a_base(body, json, eval_name, global_this, prototype);
+    // The same two proofs for the names `emit/statics` and `emit/methods`
+    // decide: the objects by the stricter one, the two global functions by the
+    // plain one.
+    let mut base_only = |spelled: &str, ctx: &mut Ctx| {
+        let name = ctx.names.intern(spelled);
+        primordial::only_a_base(body, name, eval_name, global_this, prototype)
+    };
+    let number = base_only("Number", ctx);
+    let array = base_only("Array", ctx);
+    let object = base_only("Object", ctx);
+    let map = base_only("Map", ctx);
+    let set = base_only("Set", ctx);
     let is_nan = ctx.names.intern("isNaN");
     let is_finite = ctx.names.intern("isFinite");
     ctx.statics_primordial = statics::Primordials {
-        number: primordial::only_a_base(body, number, eval_name, global_this),
-        array: primordial::only_a_base(body, array, eval_name, global_this),
-        object: primordial::only_a_base(body, object, eval_name, global_this),
+        number,
+        array,
+        object,
+        map,
+        set,
         is_nan: primordial::untouched(body, is_nan, eval_name, global_this),
         is_finite: primordial::untouched(body, is_finite, eval_name, global_this),
     };
@@ -1339,22 +1350,32 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         .iter()
         .all(|(_, _, body, _)| primordial::untouched(body, math, eval_name, global_this));
     let json = ctx.names.intern("JSON");
-    let whole_program_json = lowered
-        .iter()
-        .all(|(_, _, body, _)| primordial::only_a_base(body, json, eval_name, global_this));
-    // The same fold for the names `emit/statics` decides, each by its own proof.
-    let all_units = |proof: fn(&[Stmt], Name, Name, Name) -> bool, name: &str, ctx: &mut Ctx| {
+    let prototype = ctx.names.intern("prototype");
+    let whole_program_json = lowered.iter().all(|(_, _, body, _)| {
+        primordial::only_a_base(body, json, eval_name, global_this, prototype)
+    });
+    // The same fold for the names `emit/statics` and `emit/methods` decide,
+    // each by its own proof.
+    let base_only = |name: &str, ctx: &mut Ctx| {
+        let name = ctx.names.intern(name);
+        lowered.iter().all(|(_, _, body, _)| {
+            primordial::only_a_base(body, name, eval_name, global_this, prototype)
+        })
+    };
+    let untouched = |name: &str, ctx: &mut Ctx| {
         let name = ctx.names.intern(name);
         lowered
             .iter()
-            .all(|(_, _, body, _)| proof(body, name, eval_name, global_this))
+            .all(|(_, _, body, _)| primordial::untouched(body, name, eval_name, global_this))
     };
     let whole_program_statics = statics::Primordials {
-        number: all_units(primordial::only_a_base, "Number", ctx),
-        array: all_units(primordial::only_a_base, "Array", ctx),
-        object: all_units(primordial::only_a_base, "Object", ctx),
-        is_nan: all_units(primordial::untouched, "isNaN", ctx),
-        is_finite: all_units(primordial::untouched, "isFinite", ctx),
+        number: base_only("Number", ctx),
+        array: base_only("Array", ctx),
+        object: base_only("Object", ctx),
+        map: base_only("Map", ctx),
+        set: base_only("Set", ctx),
+        is_nan: untouched("isNaN", ctx),
+        is_finite: untouched("isFinite", ctx),
     };
 
     // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the

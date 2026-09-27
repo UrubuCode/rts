@@ -19,6 +19,10 @@ pub struct Primordials {
     pub array: bool,
     /// `Object`, the same.
     pub object: bool,
+    /// `Map`, the same — `emit/methods` reads it.
+    pub map: bool,
+    /// `Set`, the same.
+    pub set: bool,
     /// The global `isNaN` is never written or shadowed at the top level.
     pub is_nan: bool,
     /// The global `isFinite`, the same.

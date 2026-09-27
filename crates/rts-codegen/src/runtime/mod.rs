@@ -1094,6 +1094,22 @@ pub enum RuntimeOp {
     /// being an array is a side table the runtime keeps.
     /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
     ArrayIsArray,
+
+    /// `m.get(k)` where the whole program leaves `Map` alone: the brand checked in
+    /// the runtime, a real map answered from its table, anything else through the
+    /// method it has. Operands: receiver, key, and WHICH literal spells the callee.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    MapGetDirect,
+    /// See [`RuntimeOp::MapGetDirect`].
+    MapHasDirect,
+    /// See [`RuntimeOp::MapGetDirect`]: receiver, key, value, spelling.
+    MapSetDirect,
+    /// See [`RuntimeOp::MapGetDirect`], for `Set`.
+    SetHasDirect,
+    /// See [`RuntimeOp::MapGetDirect`], for `Set`.
+    SetAddDirect,
+    /// `a.push(v)` on the same terms: receiver, value, spelling.
+    ArrayPushDirect,
 }
 
 impl RuntimeOp {
@@ -1216,6 +1232,12 @@ impl RuntimeOp {
         RuntimeOp::ArgumentAt,
         RuntimeOp::SameValue,
         RuntimeOp::ArrayIsArray,
+        RuntimeOp::MapGetDirect,
+        RuntimeOp::MapHasDirect,
+        RuntimeOp::MapSetDirect,
+        RuntimeOp::SetHasDirect,
+        RuntimeOp::SetAddDirect,
+        RuntimeOp::ArrayPushDirect,
     ];
 
     /// The linker name the runtime must define.
@@ -1338,6 +1360,12 @@ impl RuntimeOp {
             RuntimeOp::ArgumentAt => "__rts_argument_at",
             RuntimeOp::SameValue => "__rts_same_value",
             RuntimeOp::ArrayIsArray => "__rts_array_is_array",
+            RuntimeOp::MapGetDirect => "__rts_map_get_direct",
+            RuntimeOp::MapHasDirect => "__rts_map_has_direct",
+            RuntimeOp::MapSetDirect => "__rts_map_set_direct",
+            RuntimeOp::SetHasDirect => "__rts_set_has_direct",
+            RuntimeOp::SetAddDirect => "__rts_set_add_direct",
+            RuntimeOp::ArrayPushDirect => "__rts_array_push_direct",
         }
     }
 
@@ -1617,6 +1645,12 @@ impl RuntimeOp {
             RuntimeOp::ArgumentAt => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::SameValue => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ArrayIsArray => (vec![UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::MapGetDirect
+            | RuntimeOp::MapHasDirect
+            | RuntimeOp::SetHasDirect
+            | RuntimeOp::SetAddDirect
+            | RuntimeOp::ArrayPushDirect => (vec![UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::MapSetDirect => (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
         };
         Signature {
             params,
