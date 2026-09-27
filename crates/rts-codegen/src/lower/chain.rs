@@ -107,6 +107,9 @@ impl Lowering<'_> {
     ) -> Result<(Option<ValueId>, ValueId), Unsupported> {
         match &callee.kind {
             ExprKind::Chain(inner) => self.callee(inner, join),
+            // A type assertion is erased around a chain's callee as around any other
+            // -- `lower/calls.rs::callee_of` says what calling it as a value lost.
+            ExprKind::Asserted { value, .. } => self.callee(value, join),
             ExprKind::Member {
                 object,
                 property,

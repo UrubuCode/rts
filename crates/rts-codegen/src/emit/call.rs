@@ -219,7 +219,7 @@ pub(super) fn callee_spelling(ctx: &mut Ctx, callee: &Expr) -> Option<u32> {
 /// `sloppy.rs` peels for its own question — whether an object names
 /// `globalThis` — and the two are not one rule stated twice: that one asks what
 /// an OBJECT is, this one asks what a CALL is.
-fn spelled(callee: &Expr) -> &Expr {
+pub(crate) fn spelled(callee: &Expr) -> &Expr {
     match &callee.kind {
         ExprKind::Asserted { value, .. } => spelled(value),
         _ => callee,

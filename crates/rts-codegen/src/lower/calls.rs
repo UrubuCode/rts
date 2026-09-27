@@ -56,6 +56,12 @@ impl Lowering<'_> {
         callee: &Expr,
         expr: &Expr,
     ) -> Result<(rts_mir::cfg::Callee, Option<ValueId>), Unsupported> {
+        // A TYPE ASSERTION AROUND THE CALLEE is erased before anything else is asked:
+        // `(a.splice as any)("2", "1")` calls `a.splice` ON `a`, and reading the
+        // assertion as a value called it on nothing -- `splice` then read `length` of
+        // `undefined`, which is the uncaught TypeError `array_generic` died of. The
+        // running emitter erases it in the same place, with the same helper.
+        let callee = crate::emit::call::spelled(callee);
         // A METHOD CALL: the receiver is read once, the callee is read from
         // it, and the receiver travels as itself.
         //

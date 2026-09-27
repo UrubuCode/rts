@@ -57,7 +57,7 @@
 mod binding;
 pub(crate) use binding::OUTER;
 mod body_state;
-mod call;
+pub(crate) mod call;
 pub(crate) mod math;
 pub(crate) mod statics;
 pub(crate) mod capture;
