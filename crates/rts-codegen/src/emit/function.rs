@@ -375,6 +375,22 @@ fn emit_function(
     // deliberately records which was written — `x => ({a: 1})` needs its
     // parentheses precisely because a `{` would have been a block, and a
     // rewrite at parse time loses that distinction for every later reader.
+    // A class with a layout, constructed into a local nothing else sees, is
+    // the literal its constructor would have filled — `class_layout`. Decided
+    // on the body as written, before the prologue joins it, and handed to BOTH
+    // stages so that they compile the same program.
+    let laid_out = match (&function.body, ctx.with_objects.is_empty()) {
+        (FunctionBody::Block(written), true) => {
+            let prototype = ctx.names.intern("prototype");
+            super::class_layout::rewritten(&ctx.layouts, written, &parameters, prototype).map(|body| Function {
+                body: FunctionBody::Block(body),
+                ..function.clone()
+            })
+        }
+        _ => None,
+    };
+    let function = laid_out.as_ref().unwrap_or(function);
+
     let synthesised;
     let body: &[Stmt] = match &function.body {
         FunctionBody::Block(body) => body,

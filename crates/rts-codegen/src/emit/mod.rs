@@ -63,6 +63,7 @@ pub(crate) mod methods;
 pub(crate) mod light_arguments;
 mod chunk;
 pub(crate) mod evidence;
+mod class_layout;
 mod light_call;
 pub(crate) mod statics;
 pub(crate) mod capture;
@@ -671,6 +672,9 @@ pub struct Ctx<'a> {
     /// to the function it was declared as is a fact about the entire tree, and
     /// nothing smaller than that can answer it without guessing. See `inline`.
     inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
+    /// The classes whose instances are a list of fields, by name — see
+    /// `class_layout`. Computed where `inlinable` is, from the same two facts.
+    layouts: std::collections::BTreeMap<Name, std::rc::Rc<class_layout::Layout>>,
     /// The callees whose bodies are being substituted right now, innermost last.
     ///
     /// A cycle among candidates is unbounded substitution at COMPILE time, and
@@ -779,6 +783,7 @@ impl<'a> Ctx<'a> {
             statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
+            layouts: std::collections::BTreeMap::new(),
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
             async_parks: false,
@@ -1231,6 +1236,15 @@ pub(super) fn emit_program_into(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
+    ctx.layouts = match ctx.statics_primordial.object {
+        true => class_layout::layouts(
+            body,
+            &inline::Declarations::of(body),
+            &primordial::disturbed(body, eval_name, global_this),
+            &ctx.names,
+        ),
+        false => std::collections::BTreeMap::new(),
+    };
 
     let mut emitted = function::emit_body(
         ctx,
@@ -1533,6 +1547,15 @@ fn emit_unit(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
+    ctx.layouts = match ctx.statics_primordial.object {
+        true => class_layout::layouts(
+            body,
+            &inline::Declarations::of(body),
+            &primordial::disturbed(body, eval_name, global_this),
+            &ctx.names,
+        ),
+        false => std::collections::BTreeMap::new(),
+    };
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
         ctx,
