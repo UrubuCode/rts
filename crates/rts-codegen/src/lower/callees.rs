@@ -40,6 +40,9 @@ pub struct Callees {
     /// `intrinsic.rs`.
     math_primordial: bool,
     statics_primordial: crate::emit::statics::Primordials,
+    /// Which names the program expects to be collections -- `emit/evidence`, handed
+    /// over whole so both emitters choose a direct entry for the same receivers.
+    collections: std::rc::Rc<crate::emit::evidence::Evidence>,
 }
 
 impl Callees {
@@ -59,6 +62,7 @@ impl Callees {
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
             statics_primordial: crate::emit::statics::Primordials::default(),
+            collections: std::rc::Rc::default(),
             by_binding: held,
             by_position: functions
                 .iter()
@@ -77,6 +81,7 @@ impl Callees {
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
             statics_primordial: crate::emit::statics::Primordials::default(),
+            collections: std::rc::Rc::default(),
             by_binding: std::collections::BTreeMap::new(),
             by_position: positions
                 .iter()
@@ -102,6 +107,18 @@ impl Callees {
     ) -> Self {
         self.substitutes = substitutes;
         self
+    }
+
+    /// The collection evidence of the program this function is part of.
+    pub fn with_collections(mut self, held: std::rc::Rc<crate::emit::evidence::Evidence>) -> Self {
+        self.collections = held;
+        self
+    }
+
+    /// What `value` is expected to be, where it is a name the program declares as one
+    /// collection everywhere.
+    pub(crate) fn collection_of(&self, value: &crate::syntax::Expr) -> Option<crate::emit::evidence::Brand> {
+        self.collections.of(value)
     }
 
     /// The same map, with the methods an `o.m(...)` may be substituted for.

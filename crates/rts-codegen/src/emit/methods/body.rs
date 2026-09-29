@@ -3,6 +3,7 @@
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
 use super::super::expr::{emit_expr, name_constant, tagged};
+use super::super::evidence::Brand;
 use super::super::statics::Primordials;
 use super::super::{Ctx, EmitResult, Scope};
 use crate::runtime::RuntimeOp;
@@ -38,19 +39,32 @@ pub(crate) fn number_door(primordials: Primordials, member: &str, written: usize
     })
 }
 
-pub(crate) fn shape_of(primordials: Primordials, member: &str, written: usize) -> Option<Door> {
+pub(crate) fn shape_of(
+    primordials: Primordials,
+    brand: Option<Brand>,
+    member: &str,
+    written: usize,
+) -> Option<Door> {
     let exact = |op| Door { op, arity: None };
+    // A COLLECTION'S door needs the receiver expected to be that collection,
+    // and not only the class left alone: chosen by the member's name, every
+    // user method called `get` paid the entry's fallback — 25 ns became 108.
+    // `emit/evidence` is the measurement and what counts as expected.
+    let map = primordials.map && brand == Some(Brand::Map);
+    let set = primordials.set && brand == Some(Brand::Set);
+    let array = primordials.array && brand == Some(Brand::Array);
     Some(match (member, written) {
-        ("get", 1) if primordials.map => exact(RuntimeOp::MapGetDirect),
-        ("set", 2) if primordials.map => exact(RuntimeOp::MapSetDirect),
+        ("get", 1) if map => exact(RuntimeOp::MapGetDirect),
+        ("set", 2) if map => exact(RuntimeOp::MapSetDirect),
         // `has` is both classes' member, and the runtime's `Map.has` door
         // answers a set through its fallback exactly as its member would — but
         // only where BOTH classes are the language's, since a set's `has`
         // reached through the map door is the map's proof standing in for the
         // set's.
-        ("has", 1) if primordials.map && primordials.set => exact(RuntimeOp::MapHasDirect),
-        ("add", 1) if primordials.set => exact(RuntimeOp::SetAddDirect),
-        ("push", 1) if primordials.array => exact(RuntimeOp::ArrayPushDirect),
+        ("has", 1) if map => exact(RuntimeOp::MapHasDirect),
+        ("has", 1) if set => exact(RuntimeOp::SetHasDirect),
+        ("add", 1) if set => exact(RuntimeOp::SetAddDirect),
+        ("push", 1) if array => exact(RuntimeOp::ArrayPushDirect),
         ("charCodeAt", 1) if primordials.string_base => exact(RuntimeOp::StringCharCodeAtDirect),
         // `f.call(thisArg, …)`: the receiver and up to three arguments, which is
         // what the convention carries without a vector. Wider calls stay calls.
@@ -86,7 +100,8 @@ pub(in super::super) fn emit(
         return Ok(None);
     };
     let member = ctx.names.text(*property);
-    let Some(door) = shape_of(ctx.statics_primordial, member, arguments.len()) else {
+    let brand = ctx.collection_evidence.of(object);
+    let Some(door) = shape_of(ctx.statics_primordial, brand, member, arguments.len()) else {
         return typed(builder, scope, ctx, callee, object, *property, arguments);
     };
     let mut plain = Vec::with_capacity(arguments.len());

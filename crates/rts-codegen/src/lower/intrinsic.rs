@@ -236,7 +236,8 @@ impl Lowering<'_> {
             return Ok(None);
         };
         let primordials = self.callees.statics_primordial();
-        let Some(door) = crate::emit::methods::shape_of(primordials, member, arguments.len()) else {
+        let brand = self.callees.collection_of(object);
+        let Some(door) = crate::emit::methods::shape_of(primordials, brand, member, arguments.len()) else {
             return Ok(None);
         };
         let mut plain = Vec::with_capacity(arguments.len());

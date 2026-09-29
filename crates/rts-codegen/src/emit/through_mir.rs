@@ -254,7 +254,8 @@ fn attempt(
         .with_substitutes(substitutes(ctx, enclosing, function))
         .with_methods(methods(ctx, enclosing, function))
         .with_math_primordial(ctx.math_primordial)
-        .with_statics_primordial(ctx.statics_primordial);
+        .with_statics_primordial(ctx.statics_primordial)
+        .with_collections(ctx.collection_evidence.clone());
     let mut domain = crate::domain::Js::new();
     // THE RUNNING EMITTER'S LAYOUT for every name this function does not own: it makes
     // the closure, from `enclosing`'s environment, so its scope is what says how many

@@ -62,6 +62,7 @@ pub(crate) mod math;
 pub(crate) mod methods;
 pub(crate) mod light_arguments;
 mod chunk;
+pub(crate) mod evidence;
 pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
@@ -383,6 +384,11 @@ pub struct Ctx<'a> {
     /// reads `arguments` LIGHT — only `.length` and `[e]` — and so binds no
     /// object for the name. `emit/light_arguments.rs` is the proof and the reads.
     pub light_arguments: Option<[rts_cranelift::ir::ValueId; 4]>,
+    /// Which names the program's text expects to be a `Map`, a `Set` or an
+    /// array, over the whole program — what lets `emit/methods` choose a direct
+    /// entry by the RECEIVER and not by the member's name alone. `evidence` is
+    /// the measurement that made it necessary.
+    pub collection_evidence: std::rc::Rc<evidence::Evidence>,
     /// Whether the code being emitted is NON-STRICT.
     ///
     /// `false` for everything a file compiles to: module code is strict by
@@ -729,6 +735,7 @@ impl<'a> Ctx<'a> {
             in_static_method: false,
             in_field_initializer: false,
             light_arguments: None,
+            collection_evidence: std::rc::Rc::default(),
             sloppy: false,
             hide_node_globals: false,
             with_objects: Vec::new(),
@@ -1213,6 +1220,7 @@ pub(super) fn emit_program_into(
         string: primordial::untouched(body, string, eval_name, global_this),
         string_base: base_only("String", ctx),
     };
+    ctx.collection_evidence = std::rc::Rc::new(evidence::gather([body], &ctx.names));
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
     let length_name = ctx.names.intern("length");
@@ -1396,6 +1404,10 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         string: untouched("String", ctx),
         string_base: base_only("String", ctx),
     };
+    ctx.collection_evidence = std::rc::Rc::new(evidence::gather(
+        lowered.iter().map(|(_, _, body, _)| body.as_slice()),
+        &ctx.names,
+    ));
 
     // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the
     // program rather than about a file.
