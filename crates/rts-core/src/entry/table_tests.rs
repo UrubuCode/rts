@@ -262,8 +262,12 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 127 on 2026-09-29 for `closure_new_light` (`light_call.rs`): the
     // closure constructor that tells the door a callee needs none of its
     // argument bookkeeping, which REMOVES 7 ns from every call of one.
+    //
+    // Moved to 128 on 2026-09-29 for `object_new_under` (`object_under.rs`): an
+    // object born under its prototype instead of relinked to it, which
+    // REMOVES a retype and a cache invalidation per object — 540 ns of literal.
     assert!(
-        CORE_ENTRY_COUNT <= 127,
+        CORE_ENTRY_COUNT <= 128,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

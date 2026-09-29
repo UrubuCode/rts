@@ -34,7 +34,16 @@ impl Lowering<'_> {
         if built_elsewhere(properties) && self.outer.is_some() {
             return self.helper_call(expr.at, expr);
         }
-        let mut pairs = Vec::with_capacity(properties.len() * 2);
+        let mut pairs = Vec::with_capacity(properties.len() * 2 + 1);
+        // A literal that opens with its prototype is born under it: the
+        // prototype is the first operand, evaluated first as it is written.
+        let (under, properties) = match properties {
+            [Property::Prototype(value), rest @ ..] => (true, {
+                pairs.push(self.expression(value)?);
+                rest
+            }),
+            _ => (false, properties),
+        };
         for property in properties {
             let crate::syntax::Property::Value { key, value, .. } = property else {
                 return Err(Unsupported::Expression(
@@ -50,9 +59,17 @@ impl Lowering<'_> {
             pairs.push(self.declared(index, expr));
             pairs.push(self.expression(value)?);
         }
-        Ok(self.prim(JsPrim::NewObject, pairs, expr))
+        let prim = match under {
+            true => JsPrim::NewObjectUnder,
+            false => JsPrim::NewObject,
+        };
+        Ok(self.prim(prim, pairs, expr))
     }
 }
+
+/// How many fields an object born under its prototype holds in its own cell --
+/// the running emitter's `INLINE_FIELDS`, for the same literal.
+const INLINE_FIELDS: usize = 15;
 
 /// Whether a literal holds anything but values under written names -- a method, an
 /// accessor, a spread, a computed key, a prototype -- which this stage does not build.
@@ -60,6 +77,13 @@ impl Lowering<'_> {
 /// One answer for the three places that ask: the scope tree, which counts what such a
 /// literal reads as a helper's; the door, which compiles that helper; and this lowering.
 pub(crate) fn built_elsewhere(properties: &[Property]) -> bool {
+    // A prototype written FIRST, over no more fields than a cell holds, is this
+    // stage's: the object is born under it. Anywhere else it is a relink of an
+    // object that already has properties, which is the running emitter's.
+    let properties = match properties {
+        [Property::Prototype(_), rest @ ..] if rest.len() <= INLINE_FIELDS => rest,
+        _ => properties,
+    };
     properties.iter().any(|property| {
         !matches!(
             property,

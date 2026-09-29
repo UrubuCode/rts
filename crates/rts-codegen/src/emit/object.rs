@@ -82,6 +82,10 @@ pub(super) fn define_accessor(
     Ok(call(builder, ctx, op, &[object, key, function, flag])?[0])
 }
 
+/// How many fields an object born under its prototype holds in its own cell.
+/// A literal with more takes the ordinary road, which sizes the cell for them.
+const INLINE_FIELDS: u32 = 15;
+
 /// Emits an object literal.
 ///
 /// A fresh object, then one write per property, in source order. Not a shape
@@ -104,7 +108,18 @@ pub(super) fn emit_object(
         bits: rts_cranelift::ir::ScalarBits(properties.len() as u64),
     });
     let expected = builder.use_const(expected);
-    let object = call(builder, ctx, RuntimeOp::ObjectNew, &[expected])?[0];
+    // A literal that OPENS with its prototype is born under it. Only where it
+    // is written first: the prototype's expression is then the first thing the
+    // literal evaluates either way, and nothing has been written to the object
+    // that a relink could be told apart from a birth by.
+    let (object, properties) = match properties {
+        [Property::Prototype(value), rest @ ..] if rest.len() as u32 <= INLINE_FIELDS => {
+            let value = emit_expr(builder, scope, ctx, value)?;
+            let value = super::expr::as_value(builder, value);
+            (call(builder, ctx, RuntimeOp::ObjectNewUnder, &[value])?[0], rest)
+        }
+        _ => (call(builder, ctx, RuntimeOp::ObjectNew, &[expected])?[0], properties),
+    };
     // A method of this literal may write `super`, and the object it resolves
     // against is THIS one — a literal has a `[[HomeObject]]` exactly as a class
     // body does. Built here, before any method is emitted, because the method

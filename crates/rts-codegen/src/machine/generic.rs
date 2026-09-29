@@ -94,7 +94,10 @@ impl JsMachine<'_> {
                 return self.construct(into, args).map(Some);
             }
             (JsPrim::NewArray, _) => return self.array_of(into, args).map(Some),
-            (JsPrim::NewObject, _) => return self.object_of(into, args).map(Some),
+            (JsPrim::NewObject, _) => return self.object_of(into, None, args).map(Some),
+            (JsPrim::NewObjectUnder, count) if count >= 1 => {
+                return self.object_of(into, Some(args[0]), &args[1..]).map(Some);
+            }
             // NOT HERE: every row left has no generic form at these operands, and the
             // refusal below names it.
             _ => return Ok(None),
@@ -214,16 +217,29 @@ impl JsMachine<'_> {
     /// `Property::Prototype`, which the lowering refuses. What can arrive under that
     /// spelling -- `{ __proto__ }` shorthand, a quoted key -- is an ordinary own property,
     /// which is exactly what a define makes.
+    ///
+    /// `under` is the prototype of a literal that opens with one: the object is
+    /// then BORN under it, which is what the running emitter does with the same
+    /// literal and `rts-core`'s `object_under.rs` measures.
     fn object_of(
         &mut self,
         into: &mut FuncBuilder,
+        under: Option<MachineValue>,
         args: &[MachineValue],
     ) -> Result<MachineValue, String> {
         if args.len() % 2 != 0 {
             return Err("an object literal is pairs of a key and a value".to_owned());
         }
-        let width = self.word(into, (args.len() / 2) as u64);
-        let built = self.call_runtime(into, RuntimeOp::ObjectNew, &[width])?;
+        let built = match under {
+            Some(prototype) => {
+                let prototype = super::coerced(into, prototype, rts_cranelift::repr::Repr::Tagged)?;
+                self.call_runtime(into, RuntimeOp::ObjectNewUnder, &[prototype])?
+            }
+            None => {
+                let width = self.word(into, (args.len() / 2) as u64);
+                self.call_runtime(into, RuntimeOp::ObjectNew, &[width])?
+            }
+        };
         for pair in args.chunks(2) {
             let key = self.key_from_operand(pair[0])?;
             self.define_through_cache(into, built, key, pair[0], pair[1])?;

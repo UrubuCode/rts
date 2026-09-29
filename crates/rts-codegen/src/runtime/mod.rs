@@ -1157,6 +1157,11 @@ pub enum RuntimeOp {
     /// callee never reads. `emit/light_call.rs` is the rule.
     /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
     ClosureNewLight,
+    /// A fresh object born under the prototype it is handed — what a literal
+    /// that opens with `__proto__: p` is built on, in place of an ordinary
+    /// object relinked afterwards. `rts-core`'s `object_under.rs` has the
+    /// measurement. **Appended**, the same reason.
+    ObjectNewUnder,
 }
 
 impl RuntimeOp {
@@ -1294,6 +1299,7 @@ impl RuntimeOp {
         RuntimeOp::IndexNumberDirect,
         RuntimeOp::StringCharCodeAtDirect,
         RuntimeOp::ClosureNewLight,
+        RuntimeOp::ObjectNewUnder,
     ];
 
     /// The linker name the runtime must define.
@@ -1431,6 +1437,7 @@ impl RuntimeOp {
             RuntimeOp::IndexNumberDirect => "__rts_index_number_direct",
             RuntimeOp::StringCharCodeAtDirect => "__rts_string_char_code_at_direct",
             RuntimeOp::ClosureNewLight => "__rts_closure_new_light",
+            RuntimeOp::ObjectNewUnder => "__rts_object_new_under",
         }
     }
 
@@ -1468,7 +1475,7 @@ impl RuntimeOp {
             RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
-            RuntimeOp::StringOf => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TemplateJoin => {
                 let mut params = vec![Repr::I64, Repr::I64];
                 params.extend(std::iter::repeat_n(UNPROVEN, TEMPLATE_JOINED));

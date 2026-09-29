@@ -221,6 +221,7 @@ impl Js {
         RuntimeOp::IndexNumberDirect,
         RuntimeOp::StringCharCodeAtDirect,
         RuntimeOp::ClosureNewLight,
+        RuntimeOp::ObjectNewUnder,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,
@@ -307,6 +308,7 @@ impl Js {
         JsPrim::NumberIsFinite,
         JsPrim::NumberIsInteger,
         JsPrim::NumberIsSafeInteger,
+        JsPrim::NewObjectUnder,
     ];
 
     /// A domain holding only the fixed constants.
@@ -448,7 +450,7 @@ impl Js {
             // the program wrote.
             // Building one allocates, whatever it is built from, and it reaches
             // no code the program wrote: the elements are already values.
-            JsPrim::NewArray | JsPrim::NewObject => Effect::ALLOCATES,
+            JsPrim::NewArray | JsPrim::NewObject | JsPrim::NewObjectUnder => Effect::ALLOCATES,
             // AN ENVIRONMENT IS NOT AN OBJECT THE PROGRAM CAN REACH, and every key in
             // one was defined as an own data property when it was made -- so a read
             // or a write reaches no getter, no setter and no trap, and raises nothing.
@@ -736,7 +738,7 @@ impl Domain for Js {
             // sense, and saying which one is what the shape registry answers --
             // this domain does not hold one yet, so the honest answer is the
             // weaker type rather than a number invented here.
-            JsPrim::NewArray | JsPrim::NewObject => Type::Object,
+            JsPrim::NewArray | JsPrim::NewObject | JsPrim::NewObjectUnder => Type::Object,
             JsPrim::FieldRead | JsPrim::IndexRead | JsPrim::EnvRead | JsPrim::GlobalRead => {
                 Type::Anything
             }

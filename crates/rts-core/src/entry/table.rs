@@ -71,6 +71,7 @@ use super::arguments::{ARGUMENT_SLOT_ENTRY, ARGUMENTS_COUNT_ENTRY};
 use super::function_direct::{FUNCTION_APPLY_DIRECT_ENTRY, FUNCTION_CALL_DIRECT_ENTRY};
 use super::computed::INDEX_NUMBER_DIRECT_ENTRY;
 use super::light_call::CLOSURE_NEW_LIGHT_ENTRY;
+use super::object_under::OBJECT_NEW_UNDER_ENTRY;
 use super::number::{NUMBER_TO_FIXED_DIRECT_ENTRY, NUMBER_TO_STRING_DIRECT_ENTRY};
 use super::string::STRING_CHAR_CODE_AT_DIRECT_ENTRY;
 use super::collections::{
@@ -817,6 +818,8 @@ pub enum CoreEntry {
     /// [`super::closure_new_light`] — a closure over a function the compiler
     /// found light, its code address recorded on the way.
     ClosureNewLight = 126,
+    /// [`super::object_new_under`] — a fresh object born under its prototype.
+    ObjectNewUnder = 127,
 }
 
 /// How many entry points exist.
@@ -824,7 +827,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 127;
+pub const CORE_ENTRY_COUNT: usize = 128;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -956,6 +959,7 @@ impl CoreEntry {
         CoreEntry::IndexNumberDirect,
         CoreEntry::StringCharCodeAtDirect,
         CoreEntry::ClosureNewLight,
+        CoreEntry::ObjectNewUnder,
     ];
 
     /// The number a call site holds.
@@ -1098,6 +1102,7 @@ impl CoreEntry {
             CoreEntry::IndexNumberDirect => INDEX_NUMBER_DIRECT_ENTRY,
             CoreEntry::StringCharCodeAtDirect => STRING_CHAR_CODE_AT_DIRECT_ENTRY,
             CoreEntry::ClosureNewLight => CLOSURE_NEW_LIGHT_ENTRY,
+            CoreEntry::ObjectNewUnder => OBJECT_NEW_UNDER_ENTRY,
         }
     }
 

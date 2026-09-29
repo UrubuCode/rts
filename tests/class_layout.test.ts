@@ -171,6 +171,57 @@ describe("a class that extends one with a layout", () => {
   });
 });
 
+describe("an instance that is seen, of a class with a layout", () => {
+  test("is an object of that class, with its fields in order and its methods", () => {
+    const held: Vec[] = [];
+    for (let i = 0; i < 4; i++) held.push(new Vec(i, i + 1));
+    expect(held.map((v) => v.norm()).join()).toBe("1,5,13,25");
+    expect(Object.keys(held[0]).join()).toBe("x,y");
+    expect(JSON.stringify(held[2])).toBe('{"x":2,"y":3}');
+    const first = Object.getPrototypeOf(held[0]);
+    expect(held.every((v) => Object.getPrototypeOf(v) === first)).toBe(true);
+    expect(typeof first.norm).toBe("function");
+    expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
+    const log: string[] = [];
+    expect(held[3].logged(log)).toBe(3);
+    expect(held[1].describe() + held[1].plus(1)).toBe("v14");
+    expect(Object.prototype.hasOwnProperty.call(held[0], "x")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(held[0], "norm")).toBe(false);
+  });
+  test("is the same kind of object whichever way it was made", () => {
+    const make = (n: number) => new Vec(n, n);
+    const direct = make(1);
+    const local = new Vec(2, 2);
+    const kept = [local];
+    const spread = new (Vec as any)(...[3, 3]);
+    expect(Object.getPrototypeOf(direct)).toBe(Object.getPrototypeOf(kept[0]));
+    expect(Object.getPrototypeOf(spread)).toBe(Object.getPrototypeOf(direct));
+    let sum = 0;
+    const mixed = [direct, kept[0], spread];
+    for (let i = 0; i < 300; i++) sum += mixed[i % 3].x + mixed[i % 3].norm();
+    expect(sum).toBe(100 * (1 + 2 + 3) + 100 * (2 + 8 + 18));
+  });
+  test("a derived one inherits through every level, and is built with its arguments in order", () => {
+    const log: string[] = [];
+    const a = () => { log.push("a"); return 1; };
+    const b = () => { log.push("b"); return 2; };
+    const c = () => { log.push("c"); return 3; };
+    const kept = [new Rect(a(), b(), c()), new Square(a(), b())];
+    expect(log.join()).toBe("a,b,c,a,b");
+    expect(Object.keys(kept[0]).join()).toBe("kind,id,w,h");
+    expect(Object.keys(kept[1]).join()).toBe("kind,id,w,h,side");
+    expect(kept[0].area() + kept[0].label() + kept[0].twice()).toBe("6rect120");
+    expect(kept[1].area() + kept[1].label() + kept[1].twice()).toBe("4rect120");
+    const rect = Object.getPrototypeOf(kept[0]);
+    const square = Object.getPrototypeOf(kept[1]);
+    expect(Object.getPrototypeOf(square)).toBe(rect);
+    expect(typeof Object.getPrototypeOf(rect).label).toBe("function");
+    const many: Rect[] = [];
+    for (let i = 0; i < 50_000; i++) { const r = new Rect(i, 1, 2); if (i % 5000 === 0) many.push(r); }
+    expect(many.map((r) => r.id).join()).toBe("0,5000,10000,15000,20000,25000,30000,35000,40000,45000");
+  });
+});
+
 describe("an instance that is seen is the instance", () => {
   test("returned, stored, passed, or asked what it is", () => {
     const make = (n: number) => { const p = new Point(n, n); return p; };

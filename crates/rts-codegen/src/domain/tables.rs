@@ -335,6 +335,13 @@ pub enum JsPrim {
     /// a spread would change at run time -- so a spread is refused by the lowering
     /// rather than represented here.
     NewArray,
+    /// An object literal that OPENS with its prototype: the prototype, then
+    /// [`JsPrim::NewObject`]'s pairs.
+    ///
+    /// Its own primitive and not a flag on that one, because scalar replacement
+    /// reads `NewObject` as "an object nothing but its own keys can be asked
+    /// of", and one with a prototype answers for keys it does not own.
+    NewObjectUnder,
 }
 
 impl JsPrim {

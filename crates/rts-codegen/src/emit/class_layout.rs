@@ -22,10 +22,25 @@
 //! - whether the object is ever seen, which is `escape::analyse`'s one
 //!   statement of that rule, asked of the rewritten body.
 //!
-//! An instance that ESCAPES is left exactly as written. The literal has no
-//! prototype, so handing it to anything that can look — a call, a store, a
-//! method, `instanceof` — would hand over a different object; every such use
-//! is a use `escape` refuses, which is what makes the rewrite invisible.
+//! The literal has no prototype, so handing it to anything that can look — a
+//! call, a store, a method, `instanceof` — would hand over a different object;
+//! every such use is a use `escape` refuses, which is what makes that rewrite
+//! invisible.
+//!
+//! # An instance that escapes
+//!
+//! It has to exist, and it does not have to be CONSTRUCTED: `new C(a)` is
+//! rewritten to `{ __proto__: C.prototype, k: a }`, the same fields under the
+//! prototype `new` would have read. What that removes is the construction —
+//! `construct`'s crossing, the constructor called through a pointer, and for a
+//! derived class one of each per level — and what it keeps is the object, born
+//! under its prototype with the type `new` would have given it. Measured,
+//! release, 2026-09-29: 75 ns for a base class and 157 for a derived one,
+//! against 48 for a literal.
+//!
+//! A class is written `C.prototype` here although it is never read as a value
+//! in the program: the proof was taken of the program as written, and this read
+//! is the one `new` makes.
 //!
 //! # Which class has a layout
 //!
@@ -539,6 +554,40 @@ impl Layout {
     /// The literal `new C(arguments)` fills, or `None` where moving an argument
     /// could be seen.
     fn literal(&self, arguments: &[Spreadable], at: rts_cranelift::fault::Position) -> Option<Expr> {
+        if self.fields.is_empty() {
+            return None;
+        }
+        self.filled(arguments, at, None)
+    }
+
+    /// The instance itself: the same fields, born under `class.prototype`.
+    fn born(
+        &self,
+        class: &Expr,
+        prototype: Name,
+        arguments: &[Spreadable],
+        at: rts_cranelift::fault::Position,
+    ) -> Option<Expr> {
+        if self.fields.len() > INLINE_FIELDS {
+            return None;
+        }
+        let under = Expr {
+            kind: ExprKind::Member {
+                object: Box::new(class.clone()),
+                property: prototype,
+                optional: false,
+            },
+            at,
+        };
+        self.filled(arguments, at, Some(under))
+    }
+
+    fn filled(
+        &self,
+        arguments: &[Spreadable],
+        at: rts_cranelift::fault::Position,
+        under: Option<Expr>,
+    ) -> Option<Expr> {
         let mut written = Vec::with_capacity(arguments.len());
         for argument in arguments {
             let Spreadable::Single(value) = argument else {
@@ -550,13 +599,10 @@ impl Layout {
         if !all_inert && !(self.in_order && written.len() == self.parameters) {
             return None;
         }
-        if self.fields.is_empty() {
-            return None;
-        }
-        let properties = self
-            .fields
-            .iter()
-            .map(|(key, given)| Property::Value {
+        let properties = under
+            .into_iter()
+            .map(Property::Prototype)
+            .chain(self.fields.iter().map(|(key, given)| Property::Value {
                 key: PropertyKey::Named(*key),
                 value: match given {
                     Given::Closed(value) => value.clone(),
@@ -566,7 +612,7 @@ impl Layout {
                     },
                 },
                 shorthand: false,
-            })
+            }))
             .collect();
         Some(Expr {
             kind: ExprKind::Object { properties },
@@ -574,6 +620,10 @@ impl Layout {
         })
     }
 }
+
+/// How many fields an object born under its prototype holds in its own cell —
+/// `emit/object.rs`'s figure, for the literal this writes.
+const INLINE_FIELDS: usize = 15;
 
 impl Layout {
     /// What `object.name(arguments)` answers, as an expression over the fields.
@@ -605,6 +655,82 @@ pub(super) fn rewritten(
     if layouts.is_empty() {
         return None;
     }
+    let settled = unseen(layouts, body, parameters, prototype);
+    // Then every construction that is left, which is every instance that is
+    // seen: born under its prototype rather than constructed.
+    let born = Born { layouts, prototype };
+    // Asked BEFORE the body is taken out of it. It was asked after, which
+    // answered "nothing was rewritten" for every body whose instances were all
+    // unseen — and handed back the body as written. Every test passed; the
+    // clock read 80 ns where the step before read 4.
+    let mut changed = settled.is_some();
+    let mut all = settled.unwrap_or_else(|| body.to_vec());
+    let nothing = Instances::new();
+    born_in_list(&mut all, &nothing, &born, &mut changed);
+    changed.then_some(all)
+}
+
+/// What the instances that are seen are rewritten with.
+struct Born<'a> {
+    layouts: &'a BTreeMap<Name, Rc<Layout>>,
+    prototype: Name,
+}
+
+/// The constructions of one statement list and of the lists inside it, each
+/// rewritten to the instance it builds.
+fn born_in_list(list: &mut [Stmt], names: &Instances, born: &Born, changed: &mut bool) {
+    for statement in list {
+        calls_in_statement(statement, names, Some(born), changed);
+        match &mut statement.kind {
+            StmtKind::Block(inner) => born_in_list(inner, names, born, changed),
+            StmtKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                born_in_list(std::slice::from_mut(&mut **then_branch), names, born, changed);
+                if let Some(other) = else_branch {
+                    born_in_list(std::slice::from_mut(&mut **other), names, born, changed);
+                }
+            }
+            StmtKind::While { body, .. }
+            | StmtKind::DoWhile { body, .. }
+            | StmtKind::For { body, .. }
+            | StmtKind::ForEach { body, .. }
+            | StmtKind::Labelled { body, .. } => {
+                born_in_list(std::slice::from_mut(&mut **body), names, born, changed);
+            }
+            StmtKind::Switch { clauses, .. } => {
+                for clause in clauses {
+                    born_in_list(&mut clause.body, names, born, changed);
+                }
+            }
+            StmtKind::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                born_in_list(body, names, born, changed);
+                if let Some(catch) = catch {
+                    born_in_list(&mut catch.body, names, born, changed);
+                }
+                if let Some(finally) = finally {
+                    born_in_list(finally, names, born, changed);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `body` with the instances nothing sees rewritten to their fields, or `None`
+/// where there is none.
+fn unseen(
+    layouts: &BTreeMap<Name, Rc<Layout>>,
+    body: &[Stmt],
+    parameters: &[Name],
+    prototype: Name,
+) -> Option<Vec<Stmt>> {
     let mut tried = body.to_vec();
     let mut names = BTreeMap::new();
     rewrite_list(&mut tried, layouts, None, &mut names, prototype);
@@ -649,7 +775,7 @@ fn rewrite_list(
         let mut checks = Vec::new();
         // The calls first: an instance is declared above what calls it, so
         // every receiver this statement names is already in `names`.
-        calls_in_statement(&mut list[at], names);
+        calls_in_statement(&mut list[at], names, None, &mut false);
         match &mut list[at].kind {
             StmtKind::Declare { kind, bindings } if kind.is_block_scoped() => {
                 for binding in bindings.iter_mut() {
@@ -756,10 +882,16 @@ fn rewrite_boxed(
 
 /// Rewrites the method calls in the expressions one statement holds itself.
 /// The statements inside it are `rewrite_list`'s, which reaches each in turn.
-fn calls_in_statement(statement: &mut Stmt, names: &Instances) {
-    if names.is_empty() {
+fn calls_in_statement(
+    statement: &mut Stmt,
+    names: &Instances,
+    born: Option<&Born>,
+    changed: &mut bool,
+) {
+    if names.is_empty() && born.is_none() {
         return;
     }
+    let mut calls_in = |value: &mut Expr, names: &Instances| rewrite_in(value, names, born, changed);
     match &mut statement.kind {
         StmtKind::Expr(value) | StmtKind::Throw(value) | StmtKind::Return(Some(value)) => {
             calls_in(value, names);
@@ -812,7 +944,25 @@ fn calls_in_statement(statement: &mut Stmt, names: &Instances) {
 /// method. A kind not named here is left as written, calls and all — and a call
 /// left as written names its receiver, which is a use `escape` refuses. So what
 /// this misses costs a rewrite and never an answer.
-fn calls_in(expr: &mut Expr, names: &Instances) {
+fn rewrite_in(expr: &mut Expr, names: &Instances, born: Option<&Born>, changed: &mut bool) {
+    let mut calls_in = |value: &mut Expr, names: &Instances| rewrite_in(value, names, born, changed);
+    // A construction of a class with a layout, where instances are being born:
+    // its arguments first, which are rewritten as written, and then itself.
+    if let Some(born) = born
+        && let ExprKind::New { callee, arguments } = &mut expr.kind
+        && let ExprKind::Ident(class) = &callee.kind
+        && let Some(layout) = born.layouts.get(class)
+    {
+        for argument in arguments.iter_mut() {
+            let (Spreadable::Single(value) | Spreadable::Spread(value)) = argument;
+            calls_in(value, names);
+        }
+        if let Some(instance) = layout.born(callee, born.prototype, arguments, expr.at) {
+            *expr = instance;
+            *changed = true;
+        }
+        return;
+    }
     if let ExprKind::Call {
         callee,
         arguments,

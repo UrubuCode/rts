@@ -409,6 +409,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ClosureNewLight => (CoreEntry::ClosureNewLight, {
             rts_core::entry::closure_new_light as extern "C" fn(i64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::ObjectNewUnder => (CoreEntry::ObjectNewUnder, {
+            rts_core::entry::object_new_under as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
         }),
