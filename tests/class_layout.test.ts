@@ -113,6 +113,64 @@ describe("an instance nothing else sees", () => {
   });
 });
 
+class Shape { kind = "shape"; id: number; constructor(id: number) { this.id = id; } label(): string { return this.kind + this.id; } twice(): number { return this.id * 2; } }
+class Rect extends Shape { w: number; h: number; constructor(id: number, w: number, h: number) { super(id); this.w = w; this.h = h; this.kind = "rect"; } area(): number { return this.w * this.h; } twice(): number { return this.id * 20; } }
+class Square extends Rect { side: number; constructor(id: number, side: number) { super(id, side, side); this.side = side; } }
+class Tagged extends Shape { tag = "t"; }
+class Fixed extends Shape { constructor() { super(7); } }
+class Seen extends Point { z: number; constructor(z: number) { super(1, 2); this.z = z; } }
+class Before extends Shape { n: number; constructor(n: number) { super(n); this.n = this.id + 1; } }
+
+describe("a class that extends one with a layout", () => {
+  test("has the parent's fields, then its own", () => {
+    let sum = 0;
+    for (let i = 0; i < 1000; i++) {
+      const r = new Rect(i, 2, 3);
+      sum += r.id + r.w * r.h;
+    }
+    expect(sum).toBe(499500 + 6000);
+    const r = new Rect(5, 2, 3);
+    expect(r.kind + r.id + r.w + r.h).toBe("rect523");
+    const s = new Square(9, 4);
+    expect(s.kind + s.id + s.w + s.h + s.side).toBe("rect9444");
+    const t = new (Tagged as any)(3);
+    expect(t.kind + t.id + t.tag).toBe("shape3t");
+    const f = new Fixed();
+    expect(f.id).toBe(7);
+  });
+  test("reads its parent's methods, and its own over them", () => {
+    const r = new Rect(5, 2, 3);
+    expect(r.area()).toBe(6);
+    expect(r.label()).toBe("rect5");
+    expect(r.twice()).toBe(100);
+    const s = new Square(2, 4);
+    expect(s.area() + s.twice()).toBe(16 + 40);
+    const plain = new Shape(4);
+    expect(plain.twice() + plain.label()).toBe("8shape4");
+  });
+  test("arguments run once, in order, through every level", () => {
+    const log: string[] = [];
+    const a = () => { log.push("a"); return 1; };
+    const b = () => { log.push("b"); return 2; };
+    const c = () => { log.push("c"); return 3; };
+    const r = new Rect(a(), b(), c());
+    expect(r.id * 100 + r.w * 10 + r.h).toBe(123);
+    expect(log.join()).toBe("a,b,c");
+    const s = new Square(a(), b());
+    expect(s.id * 1000 + s.w * 100 + s.h * 10 + s.side).toBe(1222);
+    expect(log.join()).toBe("a,b,c,a,b");
+  });
+  test("a parent that is seen, or a constructor that reads, is constructed", () => {
+    const seen = new Seen(3);
+    expect(seen.x + seen.y + seen.z).toBe(6);
+    expect(seen.norm()).toBe(5);
+    const before = new Before(4);
+    expect(before.n).toBe(5);
+    const kept = [new Rect(1, 2, 3)];
+    expect(kept[0].area() + kept[0].label()).toBe("6rect1");
+  });
+});
+
 describe("an instance that is seen is the instance", () => {
   test("returned, stored, passed, or asked what it is", () => {
     const make = (n: number) => { const p = new Point(n, n); return p; };

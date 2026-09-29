@@ -34,8 +34,11 @@
 //! - **declared once in the program and never assigned** — `inline`'s pair of
 //!   whole-program facts, for the same reason: the site names the class by its
 //!   spelling;
-//! - **no `extends`**: the parent's constructor runs first and is another
-//!   class's layout — the next step, not this one;
+//! - **`extends` only of a class that has a layout itself**, named bare. Then
+//!   the instance is the parent's fields followed by its own, which is what a
+//!   language with layouts makes of inheritance: `super(a, b)` is the parent's
+//!   writes, given `a` and `b`, and it has to be the constructor's first
+//!   statement because nothing may be written before it;
 //! - **no accessor, no private or computed member**: `this.k = v` reaches a
 //!   setter where a literal defines a property;
 //! - **`Object` is only ever a base** (`Primordials::object`), so nothing
@@ -115,7 +118,7 @@ struct Method {
 pub(super) struct Layout {
     parameters: usize,
     fields: Vec<(Name, Given)>,
-    methods: BTreeMap<Name, Method>,
+    methods: BTreeMap<Name, Rc<Method>>,
     /// Whether every parameter is written to a field once, in order.
     in_order: bool,
 }
@@ -141,18 +144,30 @@ pub(super) fn layouts(
         if declared.count(name) != 1 || !writes.untouched(name) || handed_over.contains(&name) {
             continue;
         }
-        if let Some(layout) = layout_of(class, names) {
+        if let Some(layout) = layout_of(class, names, &found) {
             found.insert(name, Rc::new(layout));
         }
     }
     found
 }
 
-fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
-    if class.heritage.is_some() {
-        return None;
-    }
+fn layout_of(
+    class: &Class,
+    names: &Names,
+    found: &BTreeMap<Name, Rc<Layout>>,
+) -> Option<Layout> {
+    // The parent, which must be one of the classes already found: it is
+    // declared above, or `extends` would have nothing to read.
+    let parent = match &class.heritage {
+        None => None,
+        Some(Expr {
+            kind: ExprKind::Ident(name),
+            ..
+        }) => Some(found.get(name)?.clone()),
+        Some(_) => return None,
+    };
     let mut fields: Vec<(Name, Given)> = Vec::new();
+    let mut initialised: Vec<Name> = Vec::new();
     let mut constructor = None;
     let mut written_methods: Vec<(Name, &crate::syntax::Function)> = Vec::new();
     for element in &class.body {
@@ -183,12 +198,23 @@ fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
                     Some(_) => return None,
                     None => undefined(class.at),
                 };
-                write(&mut fields, *key, Given::Closed(value), true)?;
+                if initialised.contains(key) {
+                    return None;
+                }
+                initialised.push(*key);
+                fields.push((*key, Given::Closed(value)));
             }
         }
     }
+    // The initialisers were gathered first because the body is read once; they
+    // RUN after the parent's writes, so they are put behind them below.
+    let own = std::mem::take(&mut fields);
 
     let mut parameters = Vec::new();
+    let mut written_body: &[Stmt] = &[];
+    // How many arguments the constructor names: its own parameters, or the
+    // parent's where it is the implicit one.
+    let mut arity = 0;
     if let Some(function) = constructor {
         if function.is_async || function.is_generator || function.rest_parameter.is_some() {
             return None;
@@ -205,17 +231,65 @@ fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
         let FunctionBody::Block(body) = &function.body else {
             return None;
         };
-        for statement in body {
-            let (key, value) = field_write(statement)?;
-            let given = match &value.kind {
-                ExprKind::Ident(name) => {
-                    Given::Parameter(parameters.iter().position(|held| held == name)?)
+        written_body = body;
+        arity = parameters.len();
+    }
+    // What a constructor's value is: a parameter bare, or something closed.
+    let given_by = |value: &Expr, parameters: &[Name]| match &value.kind {
+        ExprKind::Ident(name) => parameters
+            .iter()
+            .position(|held| held == name)
+            .map(Given::Parameter),
+        _ if closed(value) => Some(Given::Closed(value.clone())),
+        _ => None,
+    };
+
+    if let Some(parent) = &parent {
+        // What the parent is handed, by position: `super(…)`'s arguments, or
+        // this class's own parameters where no constructor is written — the
+        // implicit one passes every argument on.
+        let handed: Vec<Given> = match constructor {
+            None => {
+                arity = parent.parameters;
+                (0..parent.parameters).map(Given::Parameter).collect()
+            }
+            Some(_) => {
+                let (first, rest) = written_body.split_first()?;
+                let StmtKind::Expr(Expr {
+                    kind: ExprKind::SuperCall { arguments },
+                    ..
+                }) = &first.kind
+                else {
+                    return None;
+                };
+                written_body = rest;
+                let mut handed = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    let Spreadable::Single(value) = argument else {
+                        return None;
+                    };
+                    handed.push(given_by(value, &parameters)?);
                 }
-                _ if closed(value) => Given::Closed(value.clone()),
-                _ => return None,
+                handed
+            }
+        };
+        for (key, given) in &parent.fields {
+            let given = match given {
+                Given::Closed(value) => Given::Closed(value.clone()),
+                Given::Parameter(at) => match handed.get(*at) {
+                    Some(given) => given.clone(),
+                    None => Given::Closed(undefined(class.at)),
+                },
             };
-            write(&mut fields, key, given, false)?;
+            fields.push((*key, given));
         }
+    }
+    for (key, given) in own {
+        write(&mut fields, key, given)?;
+    }
+    for statement in written_body {
+        let (key, value) = field_write(statement)?;
+        write(&mut fields, key, given_by(value, &parameters)?)?;
     }
 
     let written: Vec<usize> = fields
@@ -225,9 +299,18 @@ fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
             Given::Closed(_) => None,
         })
         .collect();
-    let in_order = written.iter().copied().eq(0..parameters.len());
+    let in_order = written.iter().copied().eq(0..arity);
     let keys: Vec<Name> = fields.iter().map(|(key, _)| *key).collect();
-    let mut methods = BTreeMap::new();
+    // The parent's methods are this class's too, until it writes one of the
+    // same name — and then ITS is the one read, whether or not it could be
+    // rewritten, so the parent's is removed before its own is tried.
+    let mut methods: BTreeMap<Name, Rc<Method>> = match &parent {
+        Some(parent) => parent.methods.clone(),
+        None => BTreeMap::new(),
+    };
+    methods.retain(|name, _| {
+        !keys.contains(name) && !written_methods.iter().any(|(held, _)| held == name)
+    });
     for (name, function) in &written_methods {
         // Written twice, the second is the one installed; shadowed by a field,
         // neither is what `o.name` reads. Both are left to the call.
@@ -236,11 +319,11 @@ fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
             continue;
         }
         if let Some(method) = method_of(function, &keys) {
-            methods.insert(*name, method);
+            methods.insert(*name, Rc::new(method));
         }
     }
     Some(Layout {
-        parameters: parameters.len(),
+        parameters: arity,
         fields,
         methods,
         in_order,
@@ -356,13 +439,13 @@ fn spelled(answer: &Expr, method: &Method, written: &[&Expr], object: Name) -> E
     }
 }
 
-/// Records one write. An initialiser may be written over by the constructor —
-/// it names nothing, so dropping it cannot be seen — and nothing else may be
-/// written twice.
-fn write(fields: &mut Vec<(Name, Given)>, key: Name, given: Given, initialiser: bool) -> Option<()> {
+/// Records one write. Something closed may be written over — it names nothing,
+/// so dropping it cannot be seen — and a parameter may not: the argument it
+/// stands for has to be evaluated, and a field is the only place this has to
+/// evaluate it in.
+fn write(fields: &mut Vec<(Name, Given)>, key: Name, given: Given) -> Option<()> {
     match fields.iter_mut().find(|(held, _)| *held == key) {
         None => fields.push((key, given)),
-        Some(_) if initialiser => return None,
         Some((_, held)) => match held {
             Given::Closed(_) => *held = given,
             Given::Parameter(_) => return None,
