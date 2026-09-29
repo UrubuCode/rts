@@ -98,6 +98,17 @@ pub fn mark(context: &Context, roots: &[Slot]) -> Marks {
     let mut worklist: Vec<u32> = Vec::new();
 
     for &root in roots {
+        // A root that names no cell of this region is not a root. The stack scan
+        // offers every word that DECODES as a reference, and a stale one decodes
+        // to any index at all -- the mark set is sized by the highest index it is
+        // given, so one such word made a cycle over 2 571 live cells spend 56 ms
+        // in here against 0.3 (release, 2026-09-29), and which cycles paid moved
+        // with what the stack last held. Only what lies OUTSIDE the region is
+        // refused: a free cell inside it is marked as before, because refusing
+        // more than the impossible is how a live reference gets lost.
+        if context.region.type_of(root.0).is_none() {
+            continue;
+        }
         if marks.mark(root) {
             worklist.push(root.0);
         }
@@ -217,6 +228,17 @@ mod tests {
         assert!(marks.is_marked(Slot(held)), "the root itself");
         assert!(marks.is_marked(Slot(leaf)), "reached through the slot");
         assert!(!marks.is_marked(Slot(orphan)), "nothing points at it");
+    }
+
+    #[test]
+    fn a_root_outside_the_region_does_not_size_the_mark_set() {
+        let mut context = empty_context();
+        let held = plain(&mut context);
+        let stale = Slot(u32::MAX - 7);
+
+        let marks = mark(&context, &[stale, Slot(held)]);
+        assert!(marks.is_marked(Slot(held)), "the real root is still a root");
+        assert!(!marks.is_marked(stale), "a word that names no cell marks nothing");
     }
 
     #[test]
