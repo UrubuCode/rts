@@ -158,7 +158,13 @@ impl MachineOps for JsMachine<'_> {
                     "a function value needs the machine id of f{which}, and this boundary compiles one function at a time -- the module numbering a direct call waits on too"
                 ));
             };
-            return into.func_addr(&shared.funcs, id).map_err(machine);
+            let held = into.func_addr(&shared.funcs, id).map_err(machine)?;
+            // REMEMBERED, so the closure made over this address can be asked which
+            // function it is -- `light.rs`. It was not, and a closure made inside a
+            // function this stage compiled was never born light: every call of one
+            // took the ordinary path, and nothing but the bench said so.
+            self.from_constant.insert(held, index);
+            return Ok(held);
         }
         // EVERY OTHER KIND needs an agreement of its own, and none is a number this
         // slice can produce.
@@ -342,7 +348,14 @@ impl MachineOps for JsMachine<'_> {
         // A CLOSURE IS A CODE ADDRESS AND AN ENVIRONMENT, made by the runtime -- the same
         // call `emit/function.rs` makes, over the two operands the graph now carries.
         if which == JsPrim::MakeClosure {
-            return self.call_runtime(into, crate::runtime::RuntimeOp::ClosureNew, args);
+            // Through the constructor that says so where the function is one the
+            // compiler found light -- `emit/function.rs` makes the same choice.
+            let light = args.first().is_some_and(|code| self.is_light_code(*code));
+            let constructor = match light {
+                true => crate::runtime::RuntimeOp::ClosureNewLight,
+                false => crate::runtime::RuntimeOp::ClosureNew,
+            };
+            return self.call_runtime(into, constructor, args);
         }
 
         // PROVED NUMBERS: the instruction, where the row has one. `+` is among them, and

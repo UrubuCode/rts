@@ -19,13 +19,17 @@ fn calls(source: &str) -> Vec<&'static str> {
             .and_then(|line| line.split_whitespace().nth(1))
             .map(str::to_owned)
     };
-    let closure = id_of("__rts_closure_new").expect("a program with functions makes closures");
+    // Either of the two operations that make one: a function that reads none of
+    // its argument record is made by the second, and what is pinned here is the
+    // ORDER, which is the same question of both.
+    let closures = [id_of("__rts_closure_new"), id_of("__rts_closure_new_light")];
+    assert!(closures.iter().any(Option::is_some), "a program with functions makes closures");
     let declare = id_of("__rts_serde_declare").expect("a script registers its top-level functions");
     ir.lines()
         .filter_map(|line| {
             let callee = line.split("Call { callee: ").nth(1)?.split(',').next()?;
             match callee {
-                _ if callee == closure => Some("closure"),
+                _ if closures.iter().flatten().any(|id| id == callee) => Some("closure"),
                 _ if callee == declare => Some("declare"),
                 _ => None,
             }

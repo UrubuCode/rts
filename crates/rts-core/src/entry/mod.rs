@@ -69,6 +69,7 @@ mod finalize;
 mod foreign;
 mod function_proto;
 mod direct_call;
+mod light_call;
 mod function_direct;
 mod functions;
 mod generator;
@@ -140,6 +141,7 @@ pub use string::string_char_code_at_direct;
 pub use array::{ARRAY_OF_SLOTS, array_is_array};
 pub use array_proto::array_push_direct;
 pub use function_direct::{function_apply_direct, function_call_direct};
+pub use light_call::closure_new_light;
 pub use number::{number_to_fixed_direct, number_to_string_direct};
 pub use collections::{map_get_direct, map_has_direct, map_set_direct, set_add_direct, set_has_direct};
 pub use functions::{
@@ -674,6 +676,10 @@ pub struct Context {
     /// a callable holds, and filled by the host after placement for the reason
     /// `frames` is: the addresses do not exist until then.
     function_names: Vec<(u64, String, u32, bool, bool)>,
+    /// The code addresses of the functions the compiler marked light — what
+    /// `functions::called` asks before it pushes the argument stacks.
+    /// Addresses, not references: nothing here is a root.
+    light_codes: light_call::CodeSet,
     /// `function_names` indexed by code address — DERIVED, never a second source.
     ///
     /// See `Context::index_functions_by_code`, which is the only thing that
@@ -1352,6 +1358,7 @@ impl Context {
             driving: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
+            light_codes: light_call::CodeSet::default(),
             function_by_code: std::collections::HashMap::new(),
             callable_templates: [None; 4],
             regexes: Aside::in_region(bits),

@@ -159,6 +159,8 @@ pub struct JsMachine<'a> {
         Option<rts_cranelift::unwind::RegionId>,
         rts_cranelift::ir::BlockId,
     >,
+    /// The functions the compiler found light -- see `light.rs`.
+    light: Option<&'a std::collections::BTreeSet<FuncId>>,
     /// The calls in TAIL position, by the value each answers -- see [`tail_positions`].
     tail: std::collections::BTreeSet<ValueId>,
     /// Whether this body is non-strict -- see [`JsMachine::sloppy`].
@@ -305,6 +307,7 @@ impl<'a> JsMachine<'a> {
             names: None,
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
+            light: None,
             tail: std::collections::BTreeSet::new(),
             sloppy: false,
             method_reads: std::collections::BTreeSet::new(),
@@ -335,6 +338,7 @@ impl<'a> JsMachine<'a> {
             names: None,
             reraise: std::collections::BTreeMap::new(),
             in_cleanup: false,
+            light: None,
             tail: std::collections::BTreeSet::new(),
             sloppy: false,
             method_reads: std::collections::BTreeSet::new(),
@@ -1000,6 +1004,7 @@ pub fn tail_positions(func: &rts_mir::cfg::Func) -> std::collections::BTreeSet<V
 mod generic;
 mod guarded;
 mod keyed;
+mod light;
 mod ops;
 mod reach;
 

@@ -258,8 +258,12 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 126 on 2026-09-29 for `a[i]` over a proven number
     // (`computed/direct.rs`) and `s.charCodeAt(i)` (`string/direct.rs`): 14.7
     // and 71.5 ns of resolution and dispatch around one read. They REMOVE it.
+    //
+    // Moved to 127 on 2026-09-29 for `closure_new_light` (`light_call.rs`): the
+    // closure constructor that tells the door a callee needs none of its
+    // argument bookkeeping, which REMOVES 7 ns from every call of one.
     assert!(
-        CORE_ENTRY_COUNT <= 126,
+        CORE_ENTRY_COUNT <= 127,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

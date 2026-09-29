@@ -225,7 +225,13 @@ fn emit_closure_with(
         Some(environment) => environment,
         None => expr::undefined(builder, ctx),
     };
-    Ok(expr::call(builder, ctx, RuntimeOp::ClosureNew, &[code, environment])?[0])
+    // A function found light is born through the constructor that says so —
+    // `light_call` is the rule and what the call site does with it.
+    let constructor = match ctx.light_functions.contains(&id) {
+        true => RuntimeOp::ClosureNewLight,
+        false => RuntimeOp::ClosureNew,
+    };
+    Ok(expr::call(builder, ctx, constructor, &[code, environment])?[0])
 }
 
 /// A function expression or declaration written inside a function the MIR stage
@@ -448,6 +454,14 @@ fn emit_function(
             &[],
         ),
     };
+    // Asked HERE, while `ctx.sloppy` is still this function's own: whether the
+    // compiled code may call it without the runtime's argument bookkeeping.
+    // `light_call` is the rule; the answer travels as one bit of the arity.
+    let light = {
+        let arguments = ctx.names.intern("arguments");
+        let eval = ctx.names.intern("eval");
+        super::light_call::is_light(function, ctx.sloppy, arguments, eval)
+    };
     ctx.async_parks = outer_parks;
     ctx.tail_calls = outer_tail;
     ctx.sloppy = outer_sloppy;
@@ -490,6 +504,9 @@ fn emit_function(
         .or(lent)
         .map(|name| ctx.names.text(name).to_owned())
         .unwrap_or_default();
+    if light {
+        ctx.light_functions.insert(id);
+    }
     ctx.function_names
         .push((id, text.clone(), arity, has_prototype, constructs));
     ctx.pending.push((id, emitted));

@@ -220,6 +220,7 @@ impl Js {
         RuntimeOp::NumberToFixedDirect,
         RuntimeOp::IndexNumberDirect,
         RuntimeOp::StringCharCodeAtDirect,
+        RuntimeOp::ClosureNewLight,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,

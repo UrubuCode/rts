@@ -1151,6 +1151,12 @@ pub enum RuntimeOp {
     /// `s.charCodeAt(i)` where the whole program leaves `String` alone:
     /// receiver, index, spelling — `emit/methods`' terms.
     StringCharCodeAtDirect,
+    /// [`RuntimeOp::ClosureNew`] for a function the compiler found LIGHT: the
+    /// same two operands and the same answer, with the code address recorded so
+    /// that the call door recognises it and skips the argument bookkeeping the
+    /// callee never reads. `emit/light_call.rs` is the rule.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    ClosureNewLight,
 }
 
 impl RuntimeOp {
@@ -1287,6 +1293,7 @@ impl RuntimeOp {
         RuntimeOp::NumberToFixedDirect,
         RuntimeOp::IndexNumberDirect,
         RuntimeOp::StringCharCodeAtDirect,
+        RuntimeOp::ClosureNewLight,
     ];
 
     /// The linker name the runtime must define.
@@ -1423,6 +1430,7 @@ impl RuntimeOp {
             RuntimeOp::NumberToFixedDirect => "__rts_number_to_fixed_direct",
             RuntimeOp::IndexNumberDirect => "__rts_index_number_direct",
             RuntimeOp::StringCharCodeAtDirect => "__rts_string_char_code_at_direct",
+            RuntimeOp::ClosureNewLight => "__rts_closure_new_light",
         }
     }
 
@@ -1482,7 +1490,9 @@ impl RuntimeOp {
             // The code address is `I64` and not a value: it is a machine
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
-            RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ClosureNew | RuntimeOp::ClosureNewLight => {
+                (vec![Repr::I64, UNPROVEN], vec![UNPROVEN])
+            }
             // The code address, then the convention's own parameters: the
             // environment, the receiver and one slot per argument. They are
             // written into the frame rather than passed, because a resumed body

@@ -176,6 +176,18 @@ impl Context {
         self.callables.copied(cell).map(|(code, env, _)| (code, env))
     }
 
+    /// The same record WITH whether it is a class constructor, for the door:
+    /// it asks both on every call, and the two answers are one probe.
+    pub(super) fn callable_record_at(&self, cell: u32) -> Option<(u64, u64, bool)> {
+        self.callables.copied(cell)
+    }
+
+    /// Whether the compiler marked the function at `code` light — see
+    /// `light_call`.
+    pub(super) fn is_light(&self, code: u64) -> bool {
+        self.light_codes.contains(code)
+    }
+
     /// The list an iterator walks, and how far it has gone.
     pub(super) fn cursor_at(&self, cell: u32) -> Option<(u64, u32)> {
         self.cursors.copied(cell)

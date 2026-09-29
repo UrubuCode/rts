@@ -63,6 +63,7 @@ pub(crate) mod methods;
 pub(crate) mod light_arguments;
 mod chunk;
 pub(crate) mod evidence;
+mod light_call;
 pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
@@ -389,6 +390,9 @@ pub struct Ctx<'a> {
     /// entry by the RECEIVER and not by the member's name alone. `evidence` is
     /// the measurement that made it necessary.
     pub collection_evidence: std::rc::Rc<evidence::Evidence>,
+    /// The functions `light_call::is_light` admitted, by machine id — read where
+    /// a closure over one is made, by both emitters.
+    pub light_functions: std::collections::BTreeSet<FuncId>,
     /// Whether the code being emitted is NON-STRICT.
     ///
     /// `false` for everything a file compiles to: module code is strict by
@@ -736,6 +740,7 @@ impl<'a> Ctx<'a> {
             in_field_initializer: false,
             light_arguments: None,
             collection_evidence: std::rc::Rc::default(),
+            light_functions: std::collections::BTreeSet::new(),
             sloppy: false,
             hide_node_globals: false,
             with_objects: Vec::new(),

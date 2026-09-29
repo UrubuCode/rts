@@ -752,12 +752,22 @@ fn called(
     // Answered before anything is pushed, so a refused call leaves the stacks
     // exactly as it found them, and still before the jump, so `1()` and
     // `ClassCtor()` do not share a path that decides this afterwards.
-    let refused = with_current(|context| {
-        if Value(callee)
+    //
+    // And a LIGHT callee — one the compiler proved reads neither stack, see
+    // `light_call` — is called without them. Decided in this same borrow and
+    // from the same record the class check reads, so what it adds to a callee
+    // that is NOT light is one probe of a set and no crossing.
+    let way = with_current(|context| {
+        let record = Value(callee)
             .as_slot()
-            .is_some_and(|cell| context.is_class_constructor(cell))
-        {
-            return true;
+            .and_then(|cell| context.callable_record_at(cell));
+        match record {
+            Some((_, _, true)) => return Way::Refused,
+            Some((code, environment, false)) if context.is_light(code) => {
+                context.callees.push(callee);
+                return Way::Light(code, environment);
+            }
+            _ => {}
         }
         let absent = undefined_of(context);
         context.pending_arguments.push(absent);
@@ -768,11 +778,22 @@ fn called(
         // honestly — and what makes `arguments_at` fall back to the old guess
         // there instead of inventing a number.
         context.pending_counts.push(count);
-        false
+        Way::Door
     });
-    if refused {
-        super::throw::type_error("Class constructor cannot be invoked without 'new'");
-        return with_current(|context| undefined_of(context));
+    match way {
+        Way::Refused => {
+            super::throw::type_error("Class constructor cannot be invoked without 'new'");
+            return with_current(|context| undefined_of(context));
+        }
+        Way::Light(code, environment) => {
+            // SAFETY: `invoke`'s argument, unchanged — the address came from the
+            // closure record of a cell at the closure layout.
+            let entry: Compiled = unsafe { std::mem::transmute::<u64, Compiled>(code) };
+            let produced = entry(environment, this, a0, a1, a2, a3);
+            with_current(|context| context.callees.pop());
+            return super::tail_call::settle(produced);
+        }
+        Way::Door => {}
     }
     // The spelling travels as a NUMBER and is not resolved here. Reading the
     // literal table on the way in would put a bounds check and a load on every
@@ -785,6 +806,17 @@ fn called(
         context.pending_counts.pop();
     });
     super::tail_call::settle(produced)
+}
+
+/// What [`called`] found the callee to be, in its one borrow.
+enum Way {
+    /// A class constructor reached without `new`.
+    Refused,
+    /// A function that reads none of the argument record: its code and its
+    /// environment, with the callee already recorded as running.
+    Light(u64, u64),
+    /// Anything else, with the two argument stacks pushed.
+    Door,
 }
 
 /// The jump itself, with no argument vector of its own.

@@ -410,6 +410,7 @@ fn attempt(
             .asking_once_in((!suspends).then_some(entry))
             .declaring_into(parts)
             .naming_with(&mut *ctx.names)
+            .light_functions(&ctx.light_functions)
             .with_incoming(&start);
         rts_mir::lower::lower(&graph, &mut into, &mut ops, &start[2..2 + written])
     };

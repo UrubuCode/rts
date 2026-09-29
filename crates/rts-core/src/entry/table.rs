@@ -70,6 +70,7 @@ use super::array_proto::ARRAY_PUSH_DIRECT_ENTRY;
 use super::arguments::{ARGUMENT_SLOT_ENTRY, ARGUMENTS_COUNT_ENTRY};
 use super::function_direct::{FUNCTION_APPLY_DIRECT_ENTRY, FUNCTION_CALL_DIRECT_ENTRY};
 use super::computed::INDEX_NUMBER_DIRECT_ENTRY;
+use super::light_call::CLOSURE_NEW_LIGHT_ENTRY;
 use super::number::{NUMBER_TO_FIXED_DIRECT_ENTRY, NUMBER_TO_STRING_DIRECT_ENTRY};
 use super::string::STRING_CHAR_CODE_AT_DIRECT_ENTRY;
 use super::collections::{
@@ -813,6 +814,9 @@ pub enum CoreEntry {
     /// [`super::string_char_code_at_direct`] — `s.charCodeAt(i)` where the whole
     /// program leaves `String` alone.
     StringCharCodeAtDirect = 125,
+    /// [`super::closure_new_light`] — a closure over a function the compiler
+    /// found light, its code address recorded on the way.
+    ClosureNewLight = 126,
 }
 
 /// How many entry points exist.
@@ -820,7 +824,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 126;
+pub const CORE_ENTRY_COUNT: usize = 127;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -951,6 +955,7 @@ impl CoreEntry {
         CoreEntry::NumberToFixedDirect,
         CoreEntry::IndexNumberDirect,
         CoreEntry::StringCharCodeAtDirect,
+        CoreEntry::ClosureNewLight,
     ];
 
     /// The number a call site holds.
@@ -1092,6 +1097,7 @@ impl CoreEntry {
             CoreEntry::NumberToFixedDirect => NUMBER_TO_FIXED_DIRECT_ENTRY,
             CoreEntry::IndexNumberDirect => INDEX_NUMBER_DIRECT_ENTRY,
             CoreEntry::StringCharCodeAtDirect => STRING_CHAR_CODE_AT_DIRECT_ENTRY,
+            CoreEntry::ClosureNewLight => CLOSURE_NEW_LIGHT_ENTRY,
         }
     }
 
