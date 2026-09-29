@@ -165,3 +165,6 @@ __pycache__/
 # e uma funcao do Cargo.lock, portanto uma copia aqui so podia estar em dia ou
 # mentir. A release gera-o e entrega-o ao lado do binario.
 RUNTIME-NOTICE.txt
+
+# A local work list, per developer.
+PLAN_RTS.MD
