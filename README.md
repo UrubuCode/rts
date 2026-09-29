@@ -163,7 +163,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 
 **DOM engine state** (`crates/rts-dom/PLAN.md` §0): **97/119 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-09-27 by CI (`dom-rulers`).*
+*Updated 2026-09-29 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->
