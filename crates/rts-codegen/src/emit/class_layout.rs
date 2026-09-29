@@ -56,8 +56,8 @@
 //!   statement because nothing may be written before it;
 //! - **no accessor, no private or computed member**: `this.k = v` reaches a
 //!   setter where a literal defines a property;
-//! - **`Object` is only ever a base** (`Primordials::object`), so nothing
-//!   installed a setter on `Object.prototype` by a road this can see;
+//! - **nothing can have put a setter on `Object.prototype`** — see
+//!   [`setters_reachable`];
 //! - **a field initialiser names nothing**: it is evaluated per instance with
 //!   `this` bound, and a literal has neither that scope nor that receiver;
 //! - **the constructor is a list of `this.k = value`**, each value a parameter
@@ -105,6 +105,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
+use super::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use super::inline::Declarations;
 use super::primordial::Disturbed;
 use crate::names::{Name, Names};
@@ -138,9 +139,147 @@ pub(super) struct Layout {
     in_order: bool,
 }
 
+/// Whether the program spells any of the ways a setter reaches a prototype.
+///
+/// # What is being ruled out
+///
+/// `this.k = v` in a constructor calls a setter named `k` anywhere on the
+/// chain, and a literal's `k: v` does not. A class with a layout declares no
+/// accessor and is never handed over, so the only chain left is
+/// `Object.prototype`.
+///
+/// # Why it is not "`Object` is only ever a base"
+///
+/// That was the first condition, and it refuses every program that SPELLS
+/// `Object.prototype` — `Object.prototype.hasOwnProperty.call(o, k)` among
+/// them, which is how a careful program asks whether a key is its own. It
+/// switched the whole pass off in `bench/analytic.ts` and in this pass's own
+/// fixture, which therefore tested nothing; the IR gate was what ran.
+///
+/// A setter is installed by a DEFINITION, and every definition is one of a few
+/// spellings. So those are what is looked for: the four members that define or
+/// relink, and a computed member of `Object` or `Reflect`, which could be any
+/// of them. Writing through `Object` itself is `untouched`'s, asked beside
+/// this.
+pub(super) fn setters_reachable(body: &[Stmt], names: &Names) -> bool {
+    let mut found = false;
+    for statement in body {
+        defining_in(statement, names, &mut found);
+    }
+    found
+}
+
+/// The members that put an accessor on an object or change what it inherits.
+const DEFINING: [&str; 5] = [
+    "defineProperty",
+    "defineProperties",
+    "__defineSetter__",
+    "setPrototypeOf",
+    "__proto__",
+];
+
+fn defining_in(statement: &Stmt, names: &Names, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if let StmtKind::Class(class) = &statement.kind {
+        defining_in_class(class, names, found);
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => defining_in(inner, names, found),
+        StmtChild::Expr(value) => defining_in_expr(value, names, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                defining_in_expr(value, names, found);
+            }
+        }
+        StmtChild::Catch(clause) => {
+            for inner in &clause.body {
+                defining_in(inner, names, found);
+            }
+        }
+        StmtChild::Function(function) => defining_in_function(function, names, found),
+        StmtChild::Class(class) => defining_in_class(class, names, found),
+    });
+}
+
+fn defining_in_function(function: &crate::syntax::Function, names: &Names, found: &mut bool) {
+    for parameter in &function.parameters {
+        if let Some(value) = &parameter.default {
+            defining_in_expr(value, names, found);
+        }
+    }
+    match &function.body {
+        FunctionBody::Block(body) => {
+            for statement in body {
+                defining_in(statement, names, found);
+            }
+        }
+        FunctionBody::Expression(value) => defining_in_expr(value, names, found),
+    }
+}
+
+fn defining_in_class(class: &Class, names: &Names, found: &mut bool) {
+    if let Some(heritage) = &class.heritage {
+        defining_in_expr(heritage, names, found);
+    }
+    for element in &class.body {
+        match element {
+            ClassElement::Method(method) => defining_in_function(&method.function, names, found),
+            ClassElement::Field(field) => {
+                if let Some(value) = &field.value {
+                    defining_in_expr(value, names, found);
+                }
+            }
+            ClassElement::StaticBlock(body) => {
+                for statement in body {
+                    defining_in(statement, names, found);
+                }
+            }
+        }
+    }
+}
+
+fn defining_in_expr(expr: &Expr, names: &Names, found: &mut bool) {
+    if *found {
+        return;
+    }
+    match &expr.kind {
+        ExprKind::Member { property, .. } if DEFINING.contains(&names.text(*property)) => {
+            *found = true;
+            return;
+        }
+        ExprKind::Index { object, .. }
+            if matches!(&object.kind, ExprKind::Ident(name)
+                if matches!(names.text(*name), "Object" | "Reflect")) =>
+        {
+            *found = true;
+            return;
+        }
+        _ => {}
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => defining_in_expr(inner, names, found),
+        Child::Function(function) => defining_in_function(function, names, found),
+        Child::Class(class) => defining_in_class(class, names, found),
+    });
+}
+
 /// Every class in `body` that has a layout, by the name a site constructs it
-/// under. Only declarations at the top of `body`: a class declared inside a
-/// function is a different class per call.
+/// under.
+///
+/// # A class declared inside a function
+///
+/// Is a different class on every call, and has the same layout on every one:
+/// the fields and what is written to each are in the declaration, which does
+/// not change. What differs is the prototype, and the rewrite reads that where
+/// `new` would have — `C.prototype`, of whichever `C` is bound at the site.
+///
+/// Only the top of the program was read at first, and `bench/analytic.ts`
+/// declares every class inside the function that uses it, so five commits of
+/// layout moved none of its rows. Collecting from any depth is legal for the
+/// reason `inline::candidates` gives for functions: the name is declared once
+/// in the WHOLE program, so a site that spells it names this class or nothing.
 pub(super) fn layouts(
     body: &[Stmt],
     declared: &Declarations,
@@ -148,11 +287,12 @@ pub(super) fn layouts(
     handed_over: &BTreeSet<Name>,
     names: &Names,
 ) -> BTreeMap<Name, Rc<Layout>> {
-    let mut found = BTreeMap::new();
+    let mut declared_classes = Vec::new();
     for statement in body {
-        let StmtKind::Class(class) = &statement.kind else {
-            continue;
-        };
+        classes_in(statement, &mut declared_classes);
+    }
+    let mut found = BTreeMap::new();
+    for class in declared_classes {
         let Some(name) = class.name else {
             continue;
         };
@@ -164,6 +304,49 @@ pub(super) fn layouts(
         }
     }
     found
+}
+
+/// Every class DECLARATION in `statement`, in the order written — which is the
+/// order a parent and the class that extends it are declared in.
+fn classes_in<'a>(statement: &'a Stmt, found: &mut Vec<&'a Class>) {
+    if let StmtKind::Class(class) = &statement.kind {
+        found.push(class);
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => classes_in(inner, found),
+        StmtChild::Expr(value) => classes_in_expr(value, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                classes_in_expr(value, found);
+            }
+        }
+        StmtChild::Catch(clause) => {
+            for inner in &clause.body {
+                classes_in(inner, found);
+            }
+        }
+        StmtChild::Function(function) => classes_in_function(function, found),
+        // A class's own body is not entered: a class declared inside a method
+        // is reached through that method's `this`, which this pass does not
+        // reason about.
+        StmtChild::Class(_) => {}
+    });
+}
+
+fn classes_in_expr<'a>(expr: &'a Expr, found: &mut Vec<&'a Class>) {
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => classes_in_expr(inner, found),
+        Child::Function(function) => classes_in_function(function, found),
+        Child::Class(_) => {}
+    });
+}
+
+fn classes_in_function<'a>(function: &'a crate::syntax::Function, found: &mut Vec<&'a Class>) {
+    if let FunctionBody::Block(body) = &function.body {
+        for statement in body {
+            classes_in(statement, found);
+        }
+    }
 }
 
 fn layout_of(
@@ -651,7 +834,19 @@ pub(super) fn rewritten(
     body: &[Stmt],
     parameters: &[Name],
     prototype: Name,
+    here: &Here,
 ) -> Option<Vec<Stmt>> {
+    if !here.allowed {
+        return None;
+    }
+    let with_local;
+    let layouts = match local(layouts, body, here) {
+        Some(found) => {
+            with_local = found;
+            &with_local
+        }
+        None => layouts,
+    };
     if layouts.is_empty() {
         return None;
     }
@@ -668,6 +863,63 @@ pub(super) fn rewritten(
     let nothing = Instances::new();
     born_in_list(&mut all, &nothing, &born, &mut changed);
     changed.then_some(all)
+}
+
+/// What a body is asked about its own classes with.
+pub(super) struct Here<'a> {
+    /// Whether any class of the program may have a layout — `Ctx`'s fact.
+    pub allowed: bool,
+    pub eval: Name,
+    pub global_this: Name,
+    pub names: &'a Names,
+}
+
+/// The program's layouts and those of the classes `body` declares for itself,
+/// or `None` where it declares none with one.
+///
+/// # Why a second proof, and why it is the same proof
+///
+/// The program-wide one asks that a name be declared ONCE in the program, and
+/// two functions that each declare a `class P` fail it — every row of
+/// `bench/analytic.ts` that declares a class spells it `P` or `A`. But a class
+/// declared at the top of a function is bound in that function and nowhere
+/// else, so everything that can name it is inside this body: the three facts
+/// are asked of the body, and they are the three the program is asked.
+///
+/// Only a class at the TOP of the body. One declared in an inner block is
+/// bound in that block, and a site outside it spelling the same name means
+/// something else.
+fn local(
+    layouts: &BTreeMap<Name, Rc<Layout>>,
+    body: &[Stmt],
+    here: &Here,
+) -> Option<BTreeMap<Name, Rc<Layout>>> {
+    let declared_here: Vec<&Class> = body
+        .iter()
+        .filter_map(|statement| match &statement.kind {
+            StmtKind::Class(class) => Some(&**class),
+            _ => None,
+        })
+        .filter(|class| class.name.is_some_and(|name| !layouts.contains_key(&name)))
+        .collect();
+    if declared_here.is_empty() {
+        return None;
+    }
+    let declared = Declarations::of(body);
+    let writes = super::primordial::disturbed(body, here.eval, here.global_this);
+    let handed_over = super::receiver::handed_over(body);
+    let mut found = layouts.clone();
+    let before = found.len();
+    for class in declared_here {
+        let name = class.name.expect("filtered above");
+        if declared.count(name) != 1 || !writes.untouched(name) || handed_over.contains(&name) {
+            continue;
+        }
+        if let Some(layout) = layout_of(class, here.names, &found) {
+            found.insert(name, Rc::new(layout));
+        }
+    }
+    (found.len() > before).then_some(found)
 }
 
 /// What the instances that are seen are rewritten with.

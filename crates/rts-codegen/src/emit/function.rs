@@ -382,7 +382,13 @@ fn emit_function(
     let laid_out = match (&function.body, ctx.with_objects.is_empty()) {
         (FunctionBody::Block(written), true) => {
             let prototype = ctx.names.intern("prototype");
-            super::class_layout::rewritten(&ctx.layouts, written, &parameters, prototype).map(|body| Function {
+            let here = super::class_layout::Here {
+                allowed: ctx.layouts_allowed,
+                eval: ctx.names.intern("eval"),
+                global_this: ctx.names.intern("globalThis"),
+                names: &ctx.names,
+            };
+            super::class_layout::rewritten(&ctx.layouts, written, &parameters, prototype, &here).map(|body| Function {
                 body: FunctionBody::Block(body),
                 ..function.clone()
             })

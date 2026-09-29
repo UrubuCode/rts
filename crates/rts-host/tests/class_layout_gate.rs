@@ -95,3 +95,47 @@ function f(n) { let s = 0; for (let i = 0; i < n; i++) { const o = new H(i); s +
 console.log(f(3), 1 instanceof H);";
     assert_eq!(calls_to(source, "__rts_construct"), 1, "the class is not this pass's");
 }
+
+#[test]
+fn a_class_declared_inside_the_function_that_uses_it_has_a_layout_too() {
+    let source = "
+const kept = [];
+function f(n) {
+  class Inner { a; constructor(a) { this.a = a; } twice() { return this.a * 2; } }
+  let s = 0;
+  for (let i = 0; i < n; i++) { const o = new Inner(i); s += o.twice(); kept.push(new Inner(i)); }
+  return s;
+}
+console.log(f(3), kept.length);";
+    assert_eq!(calls_to(source, "__rts_construct"), 0, "no construction");
+    assert_eq!(calls_to(source, "__rts_object_new_under"), 1, "the one that is kept");
+}
+
+#[test]
+fn two_functions_that_each_declare_a_class_of_one_name_both_have_its_layout() {
+    let source = "
+function g(n) { class P { x = 1; } let s = 0; for (let i = 0; i < n; i++) { const o = new P(); s += o.x; } return s; }
+function f(n) {
+  class P { a; b; constructor(a, b) { this.a = a; this.b = b; } sum() { return this.a + this.b; } }
+  let s = 0;
+  for (let i = 0; i < n; i++) { const o = new P(i, 2); s += o.sum(); }
+  return s;
+}
+console.log(f(3), g(3));";
+    assert_eq!(calls_to(source, "__rts_construct"), 0, "no construction");
+    assert_eq!(calls_to(source, "__rts_object_new_under"), 0, "and no object");
+}
+
+#[test]
+fn a_class_in_an_inner_block_does_not_lend_its_layout_to_the_name_outside_it() {
+    let source = "
+class P { v; constructor(v) { this.v = v; } }
+function f(n) {
+  let s = 0;
+  { class P { w = 9; } const inner = new P(); s += inner.w; }
+  for (let i = 0; i < n; i++) { const o = new P(i); s += o.v; }
+  return s;
+}
+console.log(f(3));";
+    assert_eq!(calls_to(source, "__rts_construct"), 2, "both are constructed as written");
+}

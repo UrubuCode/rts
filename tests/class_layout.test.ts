@@ -241,6 +241,61 @@ describe("a class that is asked about", () => {
   });
 });
 
+describe("a class declared inside a function", () => {
+  test("has a layout on every call, and a prototype of its own on each", () => {
+    const make = (k: number) => {
+      class Inside { v: number; constructor(v: number) { this.v = v; } scaled(): number { return this.v * 3; } }
+      let sum = 0;
+      for (let i = 0; i < 100; i++) { const o = new Inside(i + k); sum += o.scaled(); }
+      return { sum, one: new Inside(k) };
+    };
+    const first = make(0), second = make(1);
+    expect(first.sum).toBe(3 * 4950);
+    expect(second.sum).toBe(3 * 5050);
+    expect(first.one.scaled() + second.one.scaled()).toBe(3);
+    expect(Object.getPrototypeOf(first.one) === Object.getPrototypeOf(second.one)).toBe(false);
+    expect(Object.keys(second.one).join()).toBe("v");
+  });
+  test("and one that extends another declared beside it", () => {
+    const run = () => {
+      class Low { a: number; constructor(a: number) { this.a = a; } low(): number { return this.a; } }
+      class High extends Low { b: number; constructor(a: number, b: number) { super(a); this.b = b; } high(): number { return this.a + this.b; } }
+      const local = new High(1, 2);
+      const kept = [new High(3, 4)];
+      return local.high() * 100 + local.low() * 10 + kept[0].high() + kept[0].low();
+    };
+    expect(run()).toBe(300 + 10 + 7 + 3);
+  });
+  test("captures nothing it should not: a constructor reading outside is constructed", () => {
+    const outside = 5;
+    class Reads { v: number; constructor() { this.v = outside; } }
+    const r = new Reads();
+    expect(r.v).toBe(5);
+  });
+});
+
+describe("classes of one name in different functions", () => {
+  test("are each their own class", () => {
+    const first = () => { class Same { v = 1; one(): number { return this.v; } } const o = new Same(); return [o.one(), new Same()] as const; };
+    const second = () => { class Same { v: string; w = 2; constructor(v: string) { this.v = v; } both(): string { return this.v + this.w; } } const o = new Same("s"); return [o.both(), new Same("k")] as const; };
+    const [a, keptA] = first();
+    const [b, keptB] = second();
+    expect(a).toBe(1);
+    expect(b).toBe("s2");
+    expect(Object.keys(keptA).join()).toBe("v");
+    expect(Object.keys(keptB).join()).toBe("v,w");
+    expect((keptA as any).one() + (keptB as any).both()).toBe("1k2");
+    expect(Object.getPrototypeOf(keptA) === Object.getPrototypeOf(keptB)).toBe(false);
+  });
+  test("and a name shadowed in an inner block means what it means there", () => {
+    class Outer { v: number; constructor(v: number) { this.v = v; } }
+    let inner = 0;
+    { class Outer { w = 9; } const o = new Outer(); inner = o.w; }
+    const o = new Outer(4);
+    expect(inner * 10 + o.v).toBe(94);
+  });
+});
+
 describe("an instance that is seen is the instance", () => {
   test("returned, stored, passed, or asked what it is", () => {
     const make = (n: number) => { const p = new Point(n, n); return p; };

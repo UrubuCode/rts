@@ -675,6 +675,10 @@ pub struct Ctx<'a> {
     /// The classes whose instances are a list of fields, by name — see
     /// `class_layout`. Computed where `inlinable` is, from the same two facts.
     layouts: std::collections::BTreeMap<Name, std::rc::Rc<class_layout::Layout>>,
+    /// Whether any class of this program may have a layout at all: `Object` is
+    /// not written to and nothing spells a definition — a fact about the WHOLE
+    /// program, folded over every unit like `math_primordial`.
+    layouts_allowed: bool,
     /// The callees whose bodies are being substituted right now, innermost last.
     ///
     /// A cycle among candidates is unbounded substitution at COMPILE time, and
@@ -784,6 +788,7 @@ impl<'a> Ctx<'a> {
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
             layouts: std::collections::BTreeMap::new(),
+            layouts_allowed: false,
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
             async_parks: false,
@@ -1236,7 +1241,10 @@ pub(super) fn emit_program_into(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
-    ctx.layouts = match ctx.statics_primordial.object {
+    let object_name = ctx.names.intern("Object");
+    ctx.layouts_allowed = primordial::untouched(body, object_name, eval_name, global_this)
+        && !class_layout::setters_reachable(body, &ctx.names);
+    ctx.layouts = match ctx.layouts_allowed {
         true => class_layout::layouts(
             body,
             &inline::Declarations::of(body),
@@ -1398,6 +1406,12 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     let whole_program_json = lowered.iter().all(|(_, _, body, _)| {
         primordial::only_a_base(body, json, eval_name, global_this, prototype)
     });
+    let object_name = ctx.names.intern("Object");
+    let layouts_allowed = lowered.iter().all(|(_, _, body, _)| {
+        primordial::untouched(body, object_name, eval_name, global_this)
+            && !class_layout::setters_reachable(body, &ctx.names)
+    });
+    ctx.layouts_allowed = layouts_allowed;
     // The same fold for the names `emit/statics` and `emit/methods` decide,
     // each by its own proof.
     let base_only = |name: &str, ctx: &mut Ctx| {
@@ -1548,7 +1562,7 @@ fn emit_unit(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
-    ctx.layouts = match ctx.statics_primordial.object {
+    ctx.layouts = match ctx.layouts_allowed {
         true => class_layout::layouts(
             body,
             &inline::Declarations::of(body),
