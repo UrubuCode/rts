@@ -69,6 +69,7 @@ mod finalize;
 mod foreign;
 mod function_proto;
 mod direct_call;
+mod construct_plain;
 mod light_call;
 mod function_direct;
 mod functions;

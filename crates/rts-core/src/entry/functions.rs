@@ -90,7 +90,7 @@ pub const ARGUMENT_SLOTS: usize = 4;
 /// of this, one at the definition and one at the call, is how an argument comes
 /// to be read as the wrong thing — and a wrong signature here is not a wrong
 /// answer, it is a jump with a corrupt stack.
-type Compiled = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
+pub(super) type Compiled = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 
 /// Writes one of a fresh callable's own properties.
 ///
@@ -968,6 +968,10 @@ fn prototype_key(context: &mut Context) -> crate::object::Key {
 /// `new B(new C())` has `C` finished before `B` allocates.
 #[rtse::entry]
 pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    // A class that needs none of what follows — see `construct_plain`.
+    if let Some(produced) = super::construct_plain::construct_plain(callee, a0, a1, a2, a3) {
+        return produced;
+    }
     // No vector for this construction, said before the callee runs — the same
     // isolation `call` establishes, and for the same reason.
     with_current(|context| {
@@ -1370,6 +1374,16 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
             .last()
             .map(|(target, _)| *target)
             .unwrap_or(callee);
+        allocate_for(context, target, callee)
+    })
+}
+
+/// The fresh object of a construction whose target is already in hand.
+///
+/// Split from [`allocate_for_target`] so that a caller inside a borrow of its
+/// own — `construct_plain` — asks the same question without a second one.
+pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> Option<u64> {
+    {
         let cell = Value(target).as_slot().or_else(|| Value(callee).as_slot())?;
         // A `.bind()`-produced function has no OWN `prototype` — the language
         // never gives one a property by that name — so reading it here used
@@ -1435,7 +1449,7 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
         let fresh = super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty)?;
         context.set_prototype(fresh, prototype.bits());
         Some(Value::from_slot(fresh).bits())
-    })
+    }
 }
 
 /// What an object made by a **native** constructor should inherit from.
