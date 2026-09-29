@@ -200,6 +200,14 @@ pub(super) fn emit_read_keyed(
     // forever. That case is stated in the commit rather than fixed here: fixing
     // it needs a site that can remember it was refused, which is a machine
     // capability that does not exist.
+    // A proven DOUBLE goes as the double it is, to the entry that reads an
+    // element or a typed array's value in one borrow and hands anything else to
+    // the very read below: 14.7 ns a read became the entry's own cost, with no
+    // key to convert and nothing to resolve.
+    if builder.repr_of(key) == Repr::F64 {
+        let receiver = tagged(builder, receiver);
+        return Ok(call(builder, ctx, RuntimeOp::IndexNumberDirect, &[receiver, key])?[0]);
+    }
     if matches!(builder.repr_of(key), Repr::F64 | Repr::I32 | Repr::I64) {
         let receiver = tagged(builder, receiver);
         let key = tagged(builder, key);

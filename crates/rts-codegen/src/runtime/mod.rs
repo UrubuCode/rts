@@ -1142,6 +1142,15 @@ pub enum RuntimeOp {
     NumberToStringDirect,
     /// `n.toFixed(digits)` on the same terms.
     NumberToFixedDirect,
+    /// `a[i]` where `i` is a PROVEN number: the receiver and the index as the
+    /// double it is. The runtime answers an array's element or a typed array's
+    /// value directly and hands anything else to `GetIndexed`, so it answers
+    /// what that read answers.
+    /// **Appended**, [`RuntimeOp::SloppyThis`]'s reason.
+    IndexNumberDirect,
+    /// `s.charCodeAt(i)` where the whole program leaves `String` alone:
+    /// receiver, index, spelling — `emit/methods`' terms.
+    StringCharCodeAtDirect,
 }
 
 impl RuntimeOp {
@@ -1276,6 +1285,8 @@ impl RuntimeOp {
         RuntimeOp::ArgumentSlot,
         RuntimeOp::NumberToStringDirect,
         RuntimeOp::NumberToFixedDirect,
+        RuntimeOp::IndexNumberDirect,
+        RuntimeOp::StringCharCodeAtDirect,
     ];
 
     /// The linker name the runtime must define.
@@ -1410,6 +1421,8 @@ impl RuntimeOp {
             RuntimeOp::ArgumentSlot => "__rts_argument_slot",
             RuntimeOp::NumberToStringDirect => "__rts_number_to_string_direct",
             RuntimeOp::NumberToFixedDirect => "__rts_number_to_fixed_direct",
+            RuntimeOp::IndexNumberDirect => "__rts_index_number_direct",
+            RuntimeOp::StringCharCodeAtDirect => "__rts_string_char_code_at_direct",
         }
     }
 
@@ -1696,7 +1709,9 @@ impl RuntimeOp {
             RuntimeOp::ArgumentAt => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::SameValue => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ArrayIsArray => (vec![UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::IndexNumberDirect => (vec![UNPROVEN, Repr::F64], vec![UNPROVEN]),
             RuntimeOp::MapGetDirect
+            | RuntimeOp::StringCharCodeAtDirect
             | RuntimeOp::MapHasDirect
             | RuntimeOp::SetHasDirect
             | RuntimeOp::SetAddDirect

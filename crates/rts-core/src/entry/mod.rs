@@ -133,8 +133,10 @@ pub use bitwise::{
     shift_right_unsigned,
 };
 pub use computed::{
-    delete_property, for_in_has, get_indexed, has_property, key_number, set_indexed, with_has,
+    delete_property, for_in_has, get_indexed, has_property, index_number_direct, key_number,
+    set_indexed, with_has,
 };
+pub use string::string_char_code_at_direct;
 pub use array::{ARRAY_OF_SLOTS, array_is_array};
 pub use array_proto::array_push_direct;
 pub use function_direct::{function_apply_direct, function_call_direct};

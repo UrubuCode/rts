@@ -280,6 +280,16 @@ impl MachineOps for JsMachine<'_> {
             return self.cached_read(into, *object, *key, inherited);
         }
 
+        // `a[i]` WITH A KEY THE INFERENCE TYPED A NUMBER: the direct entry, which reads an
+        // element or a typed array's value in one borrow and hands anything else to
+        // `GetIndexed` -- `rts-core`'s `computed/direct.rs`.
+        if which == JsPrim::IndexRead
+            && let ([_, _], [_, of_key]) = (args, of.as_slice())
+            && !self.reads_keyed(*of_key)
+        {
+            return self.call_runtime(into, crate::runtime::RuntimeOp::IndexNumberDirect, args);
+        }
+
         // `o[k]` WITH A COMPUTED KEY reads through a keyed site -- `keyed.rs`.
         if which == JsPrim::IndexRead
             && let ([object, key], [_, of_key]) = (args, of.as_slice())

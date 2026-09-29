@@ -218,6 +218,8 @@ impl Js {
         RuntimeOp::ArgumentSlot,
         RuntimeOp::NumberToStringDirect,
         RuntimeOp::NumberToFixedDirect,
+        RuntimeOp::IndexNumberDirect,
+        RuntimeOp::StringCharCodeAtDirect,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,

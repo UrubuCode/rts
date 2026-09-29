@@ -69,7 +69,9 @@ use super::array::ARRAY_IS_ARRAY_ENTRY;
 use super::array_proto::ARRAY_PUSH_DIRECT_ENTRY;
 use super::arguments::{ARGUMENT_SLOT_ENTRY, ARGUMENTS_COUNT_ENTRY};
 use super::function_direct::{FUNCTION_APPLY_DIRECT_ENTRY, FUNCTION_CALL_DIRECT_ENTRY};
+use super::computed::INDEX_NUMBER_DIRECT_ENTRY;
 use super::number::{NUMBER_TO_FIXED_DIRECT_ENTRY, NUMBER_TO_STRING_DIRECT_ENTRY};
+use super::string::STRING_CHAR_CODE_AT_DIRECT_ENTRY;
 use super::collections::{
     MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
     SET_HAS_DIRECT_ENTRY,
@@ -804,6 +806,13 @@ pub enum CoreEntry {
     NumberToStringDirect = 122,
     /// [`super::number_to_fixed_direct`] — `n.toFixed(digits)`, the same way.
     NumberToFixedDirect = 123,
+    /// [`super::index_number_direct`] — `a[i]` where `i` is a proven number:
+    /// the element or the typed array's value in one borrow, anything else
+    /// through the generic read.
+    IndexNumberDirect = 124,
+    /// [`super::string_char_code_at_direct`] — `s.charCodeAt(i)` where the whole
+    /// program leaves `String` alone.
+    StringCharCodeAtDirect = 125,
 }
 
 /// How many entry points exist.
@@ -811,7 +820,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 124;
+pub const CORE_ENTRY_COUNT: usize = 126;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -940,6 +949,8 @@ impl CoreEntry {
         CoreEntry::ArgumentSlot,
         CoreEntry::NumberToStringDirect,
         CoreEntry::NumberToFixedDirect,
+        CoreEntry::IndexNumberDirect,
+        CoreEntry::StringCharCodeAtDirect,
     ];
 
     /// The number a call site holds.
@@ -1079,6 +1090,8 @@ impl CoreEntry {
             CoreEntry::ArgumentSlot => ARGUMENT_SLOT_ENTRY,
             CoreEntry::NumberToStringDirect => NUMBER_TO_STRING_DIRECT_ENTRY,
             CoreEntry::NumberToFixedDirect => NUMBER_TO_FIXED_DIRECT_ENTRY,
+            CoreEntry::IndexNumberDirect => INDEX_NUMBER_DIRECT_ENTRY,
+            CoreEntry::StringCharCodeAtDirect => STRING_CHAR_CODE_AT_DIRECT_ENTRY,
         }
     }
 

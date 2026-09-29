@@ -399,6 +399,13 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::NumberToFixedDirect => (CoreEntry::NumberToFixedDirect, {
             rts_core::entry::number_to_fixed_direct as extern "C" fn(f64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::IndexNumberDirect => (CoreEntry::IndexNumberDirect, {
+            rts_core::entry::index_number_direct as extern "C" fn(u64, f64) -> u64 as *const u8
+        }),
+        RuntimeOp::StringCharCodeAtDirect => (CoreEntry::StringCharCodeAtDirect, {
+            rts_core::entry::string_char_code_at_direct
+                as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
         }),

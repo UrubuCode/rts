@@ -33,6 +33,9 @@ pub struct Primordials {
     /// `String` is never written or shadowed at the top level: `String(x)` over
     /// a proven number is `StringOf` and no call.
     pub string: bool,
+    /// `String` is only ever a base and `String.prototype` is never reached:
+    /// `s.charCodeAt(i)` may reach `emit/methods`' direct entry.
+    pub string_base: bool,
 }
 
 /// How a call is answered.

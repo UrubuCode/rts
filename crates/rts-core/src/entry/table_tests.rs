@@ -254,8 +254,12 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // over a proven double (`number/direct.rs`): the text was 16 to 60 ns of a
     // 170 to 200 ns call, the rest a dispatch from a primitive to its
     // prototype. They REMOVE it; same argument.
+    //
+    // Moved to 126 on 2026-09-29 for `a[i]` over a proven number
+    // (`computed/direct.rs`) and `s.charCodeAt(i)` (`string/direct.rs`): 14.7
+    // and 71.5 ns of resolution and dispatch around one read. They REMOVE it.
     assert!(
-        CORE_ENTRY_COUNT <= 124,
+        CORE_ENTRY_COUNT <= 126,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

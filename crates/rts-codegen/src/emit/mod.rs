@@ -1211,6 +1211,7 @@ pub(super) fn emit_program_into(
         is_finite: primordial::untouched(body, is_finite, eval_name, global_this),
         function,
         string: primordial::untouched(body, string, eval_name, global_this),
+        string_base: base_only("String", ctx),
     };
     // The same shape of proof, one level up: which small functions a call site
     // may emit as their own body rather than calling. See `inline`.
@@ -1393,6 +1394,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         is_finite: untouched("isFinite", ctx),
         function: base_only("Function", ctx),
         string: untouched("String", ctx),
+        string_base: base_only("String", ctx),
     };
 
     // EVERY UNIT'S STATEMENTS, in one slice, for the facts that are about the

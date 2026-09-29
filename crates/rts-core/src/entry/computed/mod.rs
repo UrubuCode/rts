@@ -22,12 +22,14 @@
 //! what is a key" the paragraph above exists to refuse.
 
 mod access;
+mod direct;
 mod query;
 
 // The four entry points and their ABI descriptors, under the path every caller
 // already names — `super::computed::get_indexed` reads the same from a folder
 // as it did from a file, which is what makes the split invisible outside it.
 pub use access::{GET_INDEXED_ENTRY, SET_INDEXED_ENTRY, get_indexed, set_indexed};
+pub use direct::{INDEX_NUMBER_DIRECT_ENTRY, index_number_direct};
 pub(in crate::entry) use access::read_on;
 pub use query::{
     DELETE_PROPERTY_ENTRY, FOR_IN_HAS_ENTRY, HAS_PROPERTY_ENTRY, WITH_HAS_ENTRY, delete_property,

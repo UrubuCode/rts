@@ -43,6 +43,8 @@
 
 mod basic;
 mod coerce;
+mod direct;
+pub use direct::{STRING_CHAR_CODE_AT_DIRECT_ENTRY, string_char_code_at_direct};
 // Re-exported so every native still writes `super::coerce_receiver` — the
 // prologue is the same sentence in eleven files and moving it to a module is a
 // file-size split, not a change of who calls it.

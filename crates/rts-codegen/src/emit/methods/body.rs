@@ -51,6 +51,7 @@ pub(crate) fn shape_of(primordials: Primordials, member: &str, written: usize) -
         ("has", 1) if primordials.map && primordials.set => exact(RuntimeOp::MapHasDirect),
         ("add", 1) if primordials.set => exact(RuntimeOp::SetAddDirect),
         ("push", 1) if primordials.array => exact(RuntimeOp::ArrayPushDirect),
+        ("charCodeAt", 1) if primordials.string_base => exact(RuntimeOp::StringCharCodeAtDirect),
         // `f.call(thisArg, …)`: the receiver and up to three arguments, which is
         // what the convention carries without a vector. Wider calls stay calls.
         ("call", 1..=4) if primordials.function => Door {
