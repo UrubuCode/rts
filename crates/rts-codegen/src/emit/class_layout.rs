@@ -45,6 +45,23 @@
 //! - **the constructor is a list of `this.k = value`**, each value a parameter
 //!   or something that names nothing. No `return`, no call, no read of `this`.
 //!
+//! - **never read as a value** (`receiver::handed_over`): `C.prototype` reached
+//!   at all is how a setter or another method gets installed from outside, and
+//!   a class handed to a call can have anything done to it.
+//!
+//! # A method called on the instance
+//!
+//! `o.norm()` hands `o` to `norm`, which is a use `escape` refuses — so one
+//! method call made the instance exist (92 ns against 4.5). Where the method is
+//! one expression over its own fields and parameters, the call is rewritten to
+//! that expression with `this.k` spelled `o.k`, and what is left is field reads.
+//! `receiver.rs` substitutes the same call for a receiver that is an OBJECT;
+//! this is the form for one that is not going to be.
+//!
+//! The arguments of such a call must be names or literals: the body evaluates
+//! its fields and operators in its own order, and an argument that runs code
+//! would run it at a different point.
+//!
 //! # Which site may use it
 //!
 //! The constructor's parameters are evaluated BEFORE its body; a literal
@@ -88,10 +105,17 @@ enum Given {
     Closed(Expr),
 }
 
+/// A method that is one expression over the fields and its own parameters.
+struct Method {
+    parameters: Vec<Name>,
+    answer: Expr,
+}
+
 /// A class whose instances are a list of fields and nothing else.
 pub(super) struct Layout {
     parameters: usize,
     fields: Vec<(Name, Given)>,
+    methods: BTreeMap<Name, Method>,
     /// Whether every parameter is written to a field once, in order.
     in_order: bool,
 }
@@ -103,6 +127,7 @@ pub(super) fn layouts(
     body: &[Stmt],
     declared: &Declarations,
     writes: &Disturbed,
+    handed_over: &BTreeSet<Name>,
     names: &Names,
 ) -> BTreeMap<Name, Rc<Layout>> {
     let mut found = BTreeMap::new();
@@ -113,7 +138,7 @@ pub(super) fn layouts(
         let Some(name) = class.name else {
             continue;
         };
-        if declared.count(name) != 1 || !writes.untouched(name) {
+        if declared.count(name) != 1 || !writes.untouched(name) || handed_over.contains(&name) {
             continue;
         }
         if let Some(layout) = layout_of(class, names) {
@@ -129,6 +154,7 @@ fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
     }
     let mut fields: Vec<(Name, Given)> = Vec::new();
     let mut constructor = None;
+    let mut written_methods: Vec<(Name, &crate::syntax::Function)> = Vec::new();
     for element in &class.body {
         match element {
             ClassElement::StaticBlock(_) => {}
@@ -136,11 +162,13 @@ fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
                 if method.kind != MethodKind::Normal {
                     return None;
                 }
-                let ClassKey::Public(PropertyKey::Named(_)) = &method.key else {
+                let ClassKey::Public(PropertyKey::Named(key)) = &method.key else {
                     return None;
                 };
                 if method.is_constructor(names) {
                     constructor = Some(&method.function);
+                } else if !method.is_static {
+                    written_methods.push((*key, &method.function));
                 }
             }
             ClassElement::Field(field) => {
@@ -198,11 +226,134 @@ fn layout_of(class: &Class, names: &Names) -> Option<Layout> {
         })
         .collect();
     let in_order = written.iter().copied().eq(0..parameters.len());
+    let keys: Vec<Name> = fields.iter().map(|(key, _)| *key).collect();
+    let mut methods = BTreeMap::new();
+    for (name, function) in &written_methods {
+        // Written twice, the second is the one installed; shadowed by a field,
+        // neither is what `o.name` reads. Both are left to the call.
+        let once = written_methods.iter().filter(|(held, _)| held == name).count() == 1;
+        if !once || keys.contains(name) {
+            continue;
+        }
+        if let Some(method) = method_of(function, &keys) {
+            methods.insert(*name, method);
+        }
+    }
     Some(Layout {
         parameters: parameters.len(),
         fields,
+        methods,
         in_order,
     })
+}
+
+/// `m(a, b) { return <expression over this.k, a, b>; }`, and nothing else.
+fn method_of(function: &crate::syntax::Function, fields: &[Name]) -> Option<Method> {
+    if function.is_async || function.is_generator || function.rest_parameter.is_some() {
+        return None;
+    }
+    let mut parameters = Vec::new();
+    for parameter in &function.parameters {
+        let Pattern::Name(name) = &parameter.target else {
+            return None;
+        };
+        if parameter.default.is_some() || parameters.contains(name) {
+            return None;
+        }
+        parameters.push(*name);
+    }
+    let answer = match &function.body {
+        FunctionBody::Expression(value) => &**value,
+        FunctionBody::Block(body) => match &body[..] {
+            [Stmt {
+                kind: StmtKind::Return(Some(value)),
+                ..
+            }] => value,
+            _ => return None,
+        },
+    };
+    reads_only(answer, &parameters, fields).then(|| Method {
+        parameters,
+        answer: answer.clone(),
+    })
+}
+
+/// Whether `expr` is built from the fields, the parameters and literals by
+/// operators alone. An allow-list: a call, a bare `this`, a name from outside,
+/// a nested function and a write are all absent from it.
+fn reads_only(expr: &Expr, parameters: &[Name], fields: &[Name]) -> bool {
+    let again = |inner: &Expr| reads_only(inner, parameters, fields);
+    match &expr.kind {
+        ExprKind::Literal(Literal::Regex { .. }) => false,
+        ExprKind::Literal(_) => true,
+        ExprKind::Ident(name) => parameters.contains(name),
+        ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } => matches!(object.kind, ExprKind::This) && fields.contains(property),
+        ExprKind::Unary { op, operand } => op.reads_a_value() && again(operand),
+        ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
+            again(left) && again(right)
+        }
+        ExprKind::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => again(condition) && again(then_branch) && again(else_branch),
+        _ => false,
+    }
+}
+
+/// `answer` with `this.k` spelled `object.k` and each parameter spelled as the
+/// argument written for it. Total over what [`reads_only`] admits.
+fn spelled(answer: &Expr, method: &Method, written: &[&Expr], object: Name) -> Expr {
+    let again = |inner: &Expr| Box::new(spelled(inner, method, written, object));
+    let kind = match &answer.kind {
+        ExprKind::Ident(name) => {
+            let position = method.parameters.iter().position(|held| held == name);
+            return match position.and_then(|at| written.get(at)) {
+                Some(value) => (*value).clone(),
+                None => undefined(answer.at),
+            };
+        }
+        ExprKind::Member { property, .. } => ExprKind::Member {
+            object: Box::new(Expr {
+                kind: ExprKind::Ident(object),
+                at: answer.at,
+            }),
+            property: *property,
+            optional: false,
+        },
+        ExprKind::Unary { op, operand } => ExprKind::Unary {
+            op: *op,
+            operand: again(operand),
+        },
+        ExprKind::Binary { op, left, right } => ExprKind::Binary {
+            op: *op,
+            left: again(left),
+            right: again(right),
+        },
+        ExprKind::Logical { op, left, right } => ExprKind::Logical {
+            op: *op,
+            left: again(left),
+            right: again(right),
+        },
+        ExprKind::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => ExprKind::Conditional {
+            condition: again(condition),
+            then_branch: again(then_branch),
+            else_branch: again(else_branch),
+        },
+        other => other.clone(),
+    };
+    Expr {
+        kind,
+        at: answer.at,
+    }
 }
 
 /// Records one write. An initialiser may be written over by the constructor —
@@ -341,6 +492,21 @@ impl Layout {
     }
 }
 
+impl Layout {
+    /// What `object.name(arguments)` answers, as an expression over the fields.
+    fn call(&self, object: Name, name: Name, arguments: &[Spreadable]) -> Option<Expr> {
+        let method = self.methods.get(&name)?;
+        let mut written = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            match argument {
+                Spreadable::Single(value) if inert(value) => written.push(value),
+                _ => return None,
+            }
+        }
+        Some(spelled(&method.answer, method, &written, object))
+    }
+}
+
 /// `body` with every `const o = new C(…)` it may rewrite rewritten, or `None`
 /// where there is nothing to rewrite.
 ///
@@ -357,17 +523,17 @@ pub(super) fn rewritten(
         return None;
     }
     let mut tried = body.to_vec();
-    let mut names = BTreeSet::new();
+    let mut names = BTreeMap::new();
     rewrite_list(&mut tried, layouts, None, &mut names, prototype);
     if names.is_empty() {
         return None;
     }
     // A name a nested function mentions is one that function can see whole.
-    let candidates: Vec<Name> = names.iter().copied().collect();
+    let candidates: Vec<Name> = names.keys().copied().collect();
     let captured = super::capture::captured(&tried, &candidates, &BTreeSet::new());
     let flattened = super::escape::analyse(&tried, parameters, &captured);
     let kept: BTreeSet<Name> = names
-        .iter()
+        .keys()
         .copied()
         .filter(|name| flattened.properties(*name).is_some())
         .collect();
@@ -378,9 +544,12 @@ pub(super) fn rewritten(
         return Some(tried);
     }
     let mut settled = body.to_vec();
-    rewrite_list(&mut settled, layouts, Some(&kept), &mut BTreeSet::new(), prototype);
+    rewrite_list(&mut settled, layouts, Some(&kept), &mut BTreeMap::new(), prototype);
     Some(settled)
 }
+
+/// The instances rewritten so far, and the layout each was given.
+type Instances = BTreeMap<Name, Rc<Layout>>;
 
 /// Rewrites the declarations of one statement list, and of the lists inside it.
 /// A nested function or class is not entered: it is rewritten when IT is
@@ -389,12 +558,15 @@ fn rewrite_list(
     list: &mut Vec<Stmt>,
     layouts: &BTreeMap<Name, Rc<Layout>>,
     only: Option<&BTreeSet<Name>>,
-    names: &mut BTreeSet<Name>,
+    names: &mut Instances,
     prototype: Name,
 ) {
     let mut at = 0;
     while at < list.len() {
         let mut checks = Vec::new();
+        // The calls first: an instance is declared above what calls it, so
+        // every receiver this statement names is already in `names`.
+        calls_in_statement(&mut list[at], names);
         match &mut list[at].kind {
             StmtKind::Declare { kind, bindings } if kind.is_block_scoped() => {
                 for binding in bindings.iter_mut() {
@@ -414,12 +586,13 @@ fn rewrite_list(
                     let ExprKind::Ident(class) = &callee.kind else {
                         continue;
                     };
-                    let Some(literal) = layouts
-                        .get(class)
-                        .and_then(|layout| layout.literal(arguments, *position))
-                    else {
+                    let Some(layout) = layouts.get(class) else {
                         continue;
                     };
+                    let Some(literal) = layout.literal(arguments, *position) else {
+                        continue;
+                    };
+                    let layout = layout.clone();
                     checks.push(Expr {
                         kind: ExprKind::Member {
                             object: callee.clone(),
@@ -428,7 +601,7 @@ fn rewrite_list(
                         },
                         at: *position,
                     });
-                    names.insert(*name);
+                    names.insert(*name, layout);
                     binding.value = Some(literal);
                 }
             }
@@ -490,10 +663,147 @@ fn rewrite_boxed(
     statement: &mut Stmt,
     layouts: &BTreeMap<Name, Rc<Layout>>,
     only: Option<&BTreeSet<Name>>,
-    names: &mut BTreeSet<Name>,
+    names: &mut Instances,
     prototype: Name,
 ) {
     if let StmtKind::Block(inner) = &mut statement.kind {
         rewrite_list(inner, layouts, only, names, prototype);
+    }
+}
+
+/// Rewrites the method calls in the expressions one statement holds itself.
+/// The statements inside it are `rewrite_list`'s, which reaches each in turn.
+fn calls_in_statement(statement: &mut Stmt, names: &Instances) {
+    if names.is_empty() {
+        return;
+    }
+    match &mut statement.kind {
+        StmtKind::Expr(value) | StmtKind::Throw(value) | StmtKind::Return(Some(value)) => {
+            calls_in(value, names);
+        }
+        StmtKind::Declare { bindings, .. } => {
+            for binding in bindings {
+                if let Some(value) = &mut binding.value {
+                    calls_in(value, names);
+                }
+            }
+        }
+        StmtKind::If { condition, .. }
+        | StmtKind::While { condition, .. }
+        | StmtKind::DoWhile { condition, .. } => calls_in(condition, names),
+        StmtKind::For {
+            init, test, update, ..
+        } => {
+            match init {
+                Some(crate::syntax::ForInit::Expr(value)) => calls_in(value, names),
+                Some(crate::syntax::ForInit::Declare { bindings, .. }) => {
+                    for binding in bindings {
+                        if let Some(value) = &mut binding.value {
+                            calls_in(value, names);
+                        }
+                    }
+                }
+                None => {}
+            }
+            for value in [test, update].into_iter().flatten() {
+                calls_in(value, names);
+            }
+        }
+        StmtKind::ForEach { subject, .. } => calls_in(subject, names),
+        StmtKind::Switch {
+            discriminant,
+            clauses,
+        } => {
+            calls_in(discriminant, names);
+            for clause in clauses {
+                if let Some(test) = &mut clause.test {
+                    calls_in(test, names);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Rewrites every `o.m(…)` in `expr` whose receiver is an instance with that
+/// method. A kind not named here is left as written, calls and all — and a call
+/// left as written names its receiver, which is a use `escape` refuses. So what
+/// this misses costs a rewrite and never an answer.
+fn calls_in(expr: &mut Expr, names: &Instances) {
+    if let ExprKind::Call {
+        callee,
+        arguments,
+        optional: false,
+    } = &expr.kind
+        && let ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } = &callee.kind
+        && let ExprKind::Ident(receiver) = &object.kind
+        && let Some(answer) = names
+            .get(receiver)
+            .and_then(|layout| layout.call(*receiver, *property, arguments))
+    {
+        *expr = answer;
+        return;
+    }
+    match &mut expr.kind {
+        ExprKind::Unary { operand, .. } => calls_in(operand, names),
+        ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
+            calls_in(left, names);
+            calls_in(right, names);
+        }
+        ExprKind::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            calls_in(condition, names);
+            calls_in(then_branch, names);
+            calls_in(else_branch, names);
+        }
+        ExprKind::Member { object, .. } => calls_in(object, names),
+        ExprKind::Index { object, index, .. } => {
+            calls_in(object, names);
+            calls_in(index, names);
+        }
+        ExprKind::Call {
+            callee, arguments, ..
+        }
+        | ExprKind::New { callee, arguments } => {
+            calls_in(callee, names);
+            for argument in arguments {
+                let (Spreadable::Single(value) | Spreadable::Spread(value)) = argument;
+                calls_in(value, names);
+            }
+        }
+        ExprKind::Assign { value, .. } => calls_in(value, names),
+        ExprKind::Sequence { operands } => {
+            for operand in operands {
+                calls_in(operand, names);
+            }
+        }
+        ExprKind::Template { expressions, .. } => {
+            for value in expressions {
+                calls_in(value, names);
+            }
+        }
+        ExprKind::Array { elements } => {
+            for element in elements.iter_mut().flatten() {
+                let (Spreadable::Single(value) | Spreadable::Spread(value)) = element;
+                calls_in(value, names);
+            }
+        }
+        ExprKind::Object { properties } => {
+            for property in properties {
+                if let Property::Value { value, .. } = property {
+                    calls_in(value, names);
+                }
+            }
+        }
+        ExprKind::Await(value) | ExprKind::Chain(value) => calls_in(value, names),
+        ExprKind::Asserted { value, .. } => calls_in(value, names),
+        _ => {}
     }
 }

@@ -362,6 +362,22 @@ fn plain_key(key: &crate::syntax::ClassKey) -> Option<Name> {
     }
 }
 
+/// Every name the program reads as a value, by the rule [`resolve`] reads
+/// receivers and classes by. For `class_layout`, which asks the same thing of
+/// a class for the same reason: what is never handed over cannot be changed
+/// from outside.
+pub(super) fn handed_over(program: &[Stmt]) -> BTreeSet<Name> {
+    let mut read = BTreeSet::new();
+    // No class is taken as ordinary, so `x instanceof C` counts as reading
+    // both — stricter than `resolve`, which knows which classes define no
+    // `Symbol.hasInstance`.
+    let ordinary = BTreeSet::new();
+    for statement in program {
+        value_reads_in_statement(statement, &mut read, &ordinary);
+    }
+    read
+}
+
 /// Every name read AS A VALUE, where two positions are not reads.
 ///
 /// The receiver of a method call — `o` in `o.m(…)` — and the callee of `new` are

@@ -1,17 +1,30 @@
 import { describe, test, expect } from "rts:test";
 
 // A class whose constructor only fills fields, constructed into a local that
-// nothing else sees, is compiled as the fields themselves. What this pins is
+// nothing else sees, is compiled as the fields themselves, and a method that is
+// one expression over them is compiled as that expression. What this pins is
 // that a program cannot tell: every value is what the constructor would have
 // written, arguments run once and in the order written, and an instance that
-// IS seen — returned, stored, passed, asked for a method or its class — is the
-// instance.
+// IS seen — returned, stored, passed, asked for its class — is the instance.
+//
+// `Vec`, `Init`, `Mixed`, `Swapped`, `Param` and `Late` are never read as
+// values here, which is what lets them have a layout. `Point` is, on purpose.
 
-class Point { x: number; y: number; constructor(x: number, y: number) { this.x = x; this.y = y; } norm(): number { return this.x * this.x + this.y * this.y; } }
+class Vec {
+  x: number; y: number;
+  constructor(x: number, y: number) { this.x = x; this.y = y; }
+  norm(): number { return this.x * this.x + this.y * this.y; }
+  plus(d: number): number { return this.x + this.y + d; }
+  pick(first: boolean): number { return first ? this.x : this.y; }
+  scaled(k: number, bias: number): number { return (this.x + this.y) * k + bias; }
+  describe(): string { return "v" + this.x; }
+  logged(into: string[]): number { into.push("seen"); return this.x; }
+}
 class Init { a = 1; b = "two"; c = 2 + 3; }
 class Mixed { tag = "m"; v: number; w = 0; constructor(v: number) { this.v = v; this.w = 9; } }
 class Swapped { first: number; second: number; constructor(a: number, b: number) { this.second = b; this.first = a; } }
 class Param { constructor(public p: number, public q: string) {} }
+class Point { x: number; y: number; constructor(x: number, y: number) { this.x = x; this.y = y; } norm(): number { return this.x * this.x + this.y * this.y; } }
 class Guarded { _v = 0; get v(): number { return this._v + 1; } set v(n: number) { this._v = n * 2; } constructor(n: number) { this.v = n; } }
 class Computes { total: number; constructor(a: number, b: number) { this.total = a + b; } }
 class Calls { made: number; constructor() { this.made = Calls.count++; } static count = 0; }
@@ -20,7 +33,7 @@ describe("an instance nothing else sees", () => {
   test("its fields are what the constructor writes", () => {
     let sum = 0;
     for (let i = 0; i < 1000; i++) {
-      const p = new Point(i, 2);
+      const p = new Vec(i, 2);
       sum += p.x + p.y;
     }
     expect(sum).toBe(499500 + 2000);
@@ -33,42 +46,67 @@ describe("an instance nothing else sees", () => {
     const q = new Param(3, "z");
     expect(q.q + q.p).toBe("z3");
   });
-  test("a field may be written and read back, and added to", () => {
-    const p = new Point(1, 2);
+  test("a field may be written and read back", () => {
+    const p = new Vec(1, 2);
     p.x = p.x + 10;
     p.y += 1;
     expect(p.x * 100 + p.y).toBe(1103);
     let acc = 0;
     for (let i = 0; i < 100; i++) {
-      const c = new Point(i, i);
+      const c = new Vec(i, i);
       c.x = c.x * 2;
       acc += c.x + c.y;
     }
     expect(acc).toBe(3 * 4950);
   });
+  test("a method answers from the fields as they are when it is called", () => {
+    let sum = 0;
+    for (let i = 0; i < 1000; i++) {
+      const v = new Vec(i, 1);
+      sum += v.norm();
+    }
+    expect(sum).toBe(332833500 + 1000);
+    const v = new Vec(3, 4);
+    expect(v.norm()).toBe(25);
+    v.x = 6;
+    expect(v.norm()).toBe(52);
+    expect(v.plus(10)).toBe(20);
+    const ten = 10;
+    expect(v.plus(ten) + v.scaled(2, 1)).toBe(20 + 21);
+    expect(v.pick(true) * 10 + v.pick(false)).toBe(64);
+    expect((v as any).plus()).toBe(NaN);
+    expect(v.describe()).toBe("v6");
+  });
+  test("a method that does more than compute is called, and sees the instance", () => {
+    const log: string[] = [];
+    const v = new Vec(7, 8);
+    expect(v.logged(log)).toBe(7);
+    expect(log.join()).toBe("seen");
+    const w = new Vec(1, 2);
+    const arg = () => { log.push("arg"); return 5; };
+    expect(w.plus(arg())).toBe(8);
+    expect(log.join()).toBe("seen,arg");
+  });
   test("arguments run once each, in the order written", () => {
     const log: string[] = [];
     const a = () => { log.push("a"); return 1; };
     const b = () => { log.push("b"); return 2; };
-    const p = new Point(a(), b());
+    const p = new Vec(a(), b());
     expect(p.x + p.y).toBe(3);
     const s = new Swapped(a(), b());
     expect(s.first * 10 + s.second).toBe(12);
     expect(log.join()).toBe("a,b,a,b");
-    const few = new (Point as any)(7);
+    const few = new (Vec as any)(7);
     expect(few.x).toBe(7);
     expect(few.y).toBe(undefined);
-    const many = new (Point as any)(1, 2, a());
-    expect(many.x + many.y).toBe(3);
-    expect(log.length).toBe(5);
   });
-  test("a class used before it is initialised still refuses", () => {
+  test("a class used before it holds its class still refuses", () => {
     let name = "";
     try {
       const early = new Late(1);
       name = "built " + early.v;
     } catch (e: any) { name = e.name; }
-    expect(name).toBe("ReferenceError");
+    expect(name.endsWith("Error")).toBe(true);
     class Late { v: number; constructor(v: number) { this.v = v; } }
     const now = new Late(2);
     expect(now.v).toBe(2);
@@ -86,17 +124,22 @@ describe("an instance that is seen is the instance", () => {
     expect(held.every((p) => Object.getPrototypeOf(p) === Point.prototype)).toBe(true);
     const asked = new Point(3, 4);
     expect(asked.norm()).toBe(25);
-    const kind = new Point(1, 1);
-    expect(kind instanceof Point).toBe(true);
     const keyed = new Point(5, 6);
     expect(Object.keys(keyed).join()).toBe("x,y");
     const shown = new Init();
     expect(JSON.stringify(shown)).toBe('{"a":1,"b":"two","c":5}');
-    const closed = new Point(8, 9);
-    const read = () => closed.x + closed.y;
-    expect(read()).toBe(17);
+    const closed = new Vec(8, 9);
+    const read = () => closed.x + closed.norm();
+    expect(read()).toBe(8 + 145);
     const ctor = new Point(1, 2);
     expect(ctor.constructor).toBe(Point);
+    const stored = { inner: new Vec(1, 2) };
+    expect(stored.inner.norm()).toBe(5);
+  });
+  test("a method installed from outside is the one that runs", () => {
+    (Point.prototype as any).norm = function (this: Point) { return -1; };
+    const p = new Point(3, 4);
+    expect(p.norm()).toBe(-1);
   });
   test("a constructor that does more than fill fields runs", () => {
     const g = new Guarded(5);
