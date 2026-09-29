@@ -289,9 +289,9 @@ Not yet, and saying otherwise would be the failure the language plan spent a
 commit correcting.
 
 Unit tests pin behaviour per phase and prove nothing about coverage. The real
-number needs the whole engine running — test262's `built-ins` tree is what will
-produce it, and it cannot run until a program can execute end to end. Until
-then: no percentage, and the trap list above is the checklist.
+number needs the whole engine running, and it cannot be asked until a program
+executes end to end. Until then: no percentage, and the trap list above is the
+checklist.
 
 What *is* claimable per phase: which of the language plan's §5 traps have a test,
 by number. That is a count of pinned behaviours, not of passing tests, and it

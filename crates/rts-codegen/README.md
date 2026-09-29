@@ -192,51 +192,21 @@ production shapes and early errors instead of through nodes.
 parser because ASI decides what parses and getting it wrong yields a program that
 compiles and means something else.
 
-Measured against **the whole of test262 — 53 459 files** across `language`,
-`built-ins`, `annexB`, `intl402` and `staging`: **98.8 % read correctly**
-(2026-08-16, `cargo test -p rts-codegen --test test262 -- --ignored`). That is a
-reading rate, not a pass rate — nothing runs. `PLAN.md` L9 has the full table
-and what each column means.
+**The parse-level measurement that stood here is gone with its harness.**
+**There is no reading rate here, and that is a rule rather than a gap.** A
+share against the standard's own conformance suite is not published by this
+project in any form; CLAUDE.md states it and `THIRD-PARTY-NOTICES.md` says
+which condition of which licence it answers.
 
-Per area, because one number over five of them lets a good half hide a bad one:
+What that rate was FOR still holds: a front end that mis-reads a program cannot
+compile it correctly, and it is the floor underneath everything else. The floor
+is pinned by `tests/early_errors.rs`, `tests/language.rs` and
+`tests/regexp_patterns.rs` — each case named for the rule it holds, which is
+what rule 7 asks for and what a percentage never did.
 
-| area | files | read correctly | refused | accepted wrongly |
-|---|---|---|---|---|
-| `language` | 23 724 | 98.8 % | 215 | 73 |
-| `built-ins` | 23 809 | 99.3 % | 0 | 172 |
-| `intl402` | 3 357 | 100 % | 0 | 0 |
-| `annexB` | 1 086 | 82.5 % | 188 | 2 |
-| `staging` | 1 483 | 99.2 % | 10 | 2 |
-
-**`annexB` is low for one reason and it is not ours**: 180 of its 188 are SWC
-refusing `if (x) function f() {}`, the B.3.4 relaxation it does not implement.
-That is the price of the parser choice, stated rather than averaged away.
-
-**What that number is not.** It is a reading rate this project produced about
-itself, using a corpus anyone can clone. It is not a test262 result, not a pass
-rate, not conformance, and nobody granted it — test262's licence forbids using
-Ecma International's name to endorse or promote, and RTS claims no endorsement,
-certification or affiliation. `THIRD-PARTY-NOTICES.md` carries the licence and
-says exactly how the corpus is used: read from an external checkout, never
-vendored, no file redistributed.
-
-`language` was 95.5 % that same morning, and what moved it was `check/` rather
-than the bridge: **855 invalid programs we accepted became 73**, with the
-wrongly-rejected count unchanged at 215 across every step and the LOST list
-empty at each one. Those 215 are mostly not ours — 151 are one SWC lexer defect,
-a reserved word with an escape in the middle of it (`break`), refused even
-as a property key it is legal in.
-
-**Widening the corpus is what found the cost of the new rules.** Measured on
-`language` alone, `check/regexp.rs` refused nothing valid. Measured on
-`built-ins` it refused **74**, because `test/language` contains no pattern with
-the `v` flag and `v` is not "`u` and more" — it replaces the class grammar with
-one that nests, subtracts and holds string literals. A rule is only as measured
-as its corpus, which is why the harness now reads all five areas by default.
-
-`RTS_TEST262_REPORT=<path>` writes one verdict per file, which is what makes
-that a per-file comparison rather than a net one; `RTS_TEST262_ONLY=<fragment>`
-runs a subset, because the whole corpus is minutes in a debug build.
+**`annexB` is where the parser choice above is visible**: SWC does not
+implement the B.3.4 relaxation, so `if (x) function f() {}` is refused. That is
+the price of the choice, stated here rather than averaged away.
 
 `emit/` turns that tree into the machine's IR. Done: literals — including
 strings and templates — locals, declarations, blocks, `return`, control flow,

@@ -60,9 +60,9 @@ the instrument is the first suspect, not the code.
 ## 3. Verify the input, not just the output
 
 A number measured against a corpus quietly smaller than claimed is a claim
-wearing a measurement's clothes. This is not hypothetical: a test262 score was
-published 0.8 points high because 503 of 24 007 files silently failed to check
-out.
+wearing a measurement's clothes. This is not hypothetical: a share over a
+public corpus was published 0.8 points high because 503 of 24 007 files silently
+failed to check out.
 
 Before quoting a number: how many inputs went in, how many were expected, and
 what happened to the difference.

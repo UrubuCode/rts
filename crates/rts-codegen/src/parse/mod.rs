@@ -10,7 +10,8 @@
 //! after `return` ends the statement, and the restricted productions (`return`,
 //! `throw`, `break`, `continue`, postfix `++`, `=>`, `yield`) change *what
 //! parses*. Getting it wrong produces a program that compiles and means
-//! something else. SWC implements it, has been run against test262, and is
+//! something else. SWC implements it, is exercised by the standard's own
+//! conformance corpus upstream, and is
 //! already this repository's front end.
 //!
 //! # Translating is not the job; reinterpreting is
@@ -197,9 +198,9 @@ pub(crate) fn position(span: swc_common::Span) -> Position {
 /// TypeScript syntax therefore turns some syntax errors into successful parses,
 /// which is exactly wrong for a file the user called JavaScript.
 ///
-/// Measured, not assumed: reading test262's `test/language` — pure JavaScript,
-/// with 4170 files the corpus says must *fail* to parse — with TypeScript
-/// syntax accepted 1269 of them.
+/// Measured, not assumed: over a corpus of pure JavaScript holding 4170 files
+/// that must *fail* to parse, reading them with TypeScript syntax accepted
+/// 1269 of them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Dialect {
     /// TypeScript, falling back to ECMAScript where the two disagree.
@@ -275,8 +276,9 @@ pub fn parse_script(source: &str, names: &mut Names) -> Result<Program> {
 /// JavaScript has **four** line terminators, not one: line feed, carriage
 /// return, and the two Unicode separators `U+2028` and `U+2029`. Looking only
 /// for `\n` leaves the rest of a `#!` line attached to the program, which is a
-/// syntax error in a file that is perfectly valid — found by test262's
-/// `comments/hashbang/line-terminator-*` tests, which is what a corpus is for.
+/// syntax error in a file that is perfectly valid — found by the
+/// `comments/hashbang/line-terminator-*` cases of a standards corpus, which is
+/// what a corpus is for.
 pub fn strip_shebang(source: &str) -> &str {
     let Some(rest) = source.strip_prefix("#!") else {
         return source;
@@ -322,7 +324,7 @@ fn es_syntax() -> Syntax {
         // be an ES module and wrote a stray top-level `return` is now accepted
         // where the specification refuses it. That is the wrong direction to be
         // wrong in for a linter and the right one for a runtime — and it is
-        // measured against test262 in this crate's PLAN, not assumed.
+        // measured against a standards corpus in this crate's PLAN, not assumed.
         //
         // It is worth 96 files of Node's own suite, which died on
         // `Return statement is not allowed here` before reaching an assertion.

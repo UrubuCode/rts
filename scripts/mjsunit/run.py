@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Corre o `test/mjsunit` do V8 contra o rts, um processo por ficheiro.
 
-O test262 pergunta o que a NORMA exige. Esta pergunta outra coisa: o que um
-motor de produção aprendeu a não errar. `mjsunit` é meio-século-máquina de
-regressões — cada `regress-*.js` é um bug que alguém teve — e é JavaScript
-comum sobre um arnês de um ficheiro só, que se põe à frente como o `sta.js`.
+Esta régua pergunta uma coisa própria: o que um motor de produção aprendeu a não
+errar. `mjsunit` é meio-século-máquina de regressões — cada `regress-*.js` é um
+bug que alguém teve — e é JavaScript comum sobre um arnês de um ficheiro só, que
+se concatena à frente do teste.
 
     python3 scripts/mjsunit/run.py              # tudo
     python3 scripts/mjsunit/run.py es6 harmony  # só estes diretórios
@@ -30,8 +30,8 @@ TESTS = c.ROOT / ".mjsunit" / "v8" / "test" / "mjsunit"
 NATIVE = re.compile(r"%[A-Z][A-Za-z0-9_]*\(")
 # O `d8` é o shell do V8, não a linguagem: `load()` traz outro ficheiro, `read()`
 # lê o disco, `gc()` só existe com `--expose-gc`, e `Realm`, `Worker`, `Sandbox`
-# e `d8.*` são objetos de host. É o mesmo argumento que põe o `$262` fora do
-# test262 e o `--expose-gc` fora da régua do Node.
+# e `d8.*` são objetos de host. É o mesmo argumento que põe o `--expose-gc`
+# fora da régua do Node.
 #
 # O lookbehind não é um detalhe: `\bload\s*\(` apanha `Atomics.load(` e
 # `module.exports.load(`, e media 117 ficheiros onde os do shell eram menos.
@@ -81,18 +81,6 @@ def collect(prefixes):
     return c.slice_of(files)
 
 
-README = dict(
-    marker="MJSUNIT",
-    heading="## 🧪 V8 `mjsunit` — as regressões de um motor de produção",
-    intro=("O test262 mede o que a **norma exige**. Esta régua mede o que um motor de\n"
-           "produção **aprendeu a não errar**: cada `regress-*.js` é um bug que alguém\n"
-           "teve. Corre com o `mjsunit.js` do próprio V8 à frente, sem tradução."),
-    ok_label="Passou — saiu com 0, que é o que o V8 conta",
-    group_label="Por diretório",
-    footer="",
-)
-
-
 def main():
     if sys.argv[1:2] == ["--merge"]:
         rows = c.merge(sys.argv[2:])
@@ -102,11 +90,13 @@ def main():
         rows = c.run_all(collect(sys.argv[1:]), one, ".mjsunit")
 
     sha = c.ROOT / ".mjsunit" / "SHA"
-    README["footer"] = "V8 %s · %s" % (
+    # Proveniencia impressa, nunca publicada: sem o SHA do corpus e sem o
+    # STRIDE, um numero nao e comparavel com o da semana passada.
+    print("\nV8 %s · %s" % (
         sha.read_text().strip()[:9] if sha.exists() else "?",
         "corpus inteiro" if c.STRIDE == 1 else
-        "amostra determinista de 1 em %d" % c.STRIDE)
-    c.report(rows, ".mjsunit", readme=README)
+        "amostra determinista de 1 em %d" % c.STRIDE))
+    c.report(rows, ".mjsunit")
 
 
 if __name__ == "__main__":

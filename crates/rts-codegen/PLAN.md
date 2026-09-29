@@ -349,76 +349,38 @@ rather than an afternoon:
   bridge must reinterpret rather than translate — and reinterpreting into the
   wrong role is exactly what `Pattern::is_valid_binding` was written to catch.
 
-**L9 — measured coverage.** test262's `test/language/` tree, filtered by the
-`features` frontmatter to what is claimed implemented. A number produced by
-running the standard's own tests, which is the only kind this crate's rule 7
-permits.
+**L9 — coverage. DONE, and it is the lot that produced L10 below.**
+The front end was read over an external standards corpus and checked four ways:
+read correctly, refused by name, valid programs we rejected, invalid programs we
+accepted. It is what turned §2b's "static semantics will need checking somewhere
+else" into a sampled list instead of a guess.
 
-**DONE, and here is the number.** `tests/test262.rs`, run against
-`test/language` — 23 724 files after excluding fixtures:
+**No share from that corpus is stated here or anywhere else in this project** —
+CLAUDE.md carries the rule and `THIRD-PARTY-NOTICES.md` the condition it
+answers. What the lot found is kept instead, because none of it is a score. In
+the order the harness had to be fixed before anything it said could be
+believed:
 
-```
-read correctly     21 712   91.5 %
-refused, named        549    2.3 %   our gaps, each naming a construct
-wrongly rejected      214    0.9 %   valid programs we refused
-wrongly accepted    1 249    5.3 %   invalid programs we did not refuse
-```
-
-**Re-measured 2026-08-16, same harness, same 23 724 files** — one area of five.
-The harness now reads the whole corpus (53 459 files), and the per-area table is
-in the crate's `README.md`; the rows below are `test/language` alone so that they
-compare with the ones above them. Nothing here is a conformance claim, and
-`THIRD-PARTY-NOTICES.md` says why that sentence has to appear.
-
-```
-read correctly     23 436   98.8 %
-refused, named          0    0.0 %   the bridge names nothing it cannot lower
-wrongly rejected      215    0.9 %   valid programs we refuse
-wrongly accepted       73    0.3 %   invalid programs we do not refuse
-```
-
-The middle row going to zero is the bridge finishing, and it is why the first
-row moved by more than the last two explain. The 215 have barely changed since
-the first measurement and are mostly not ours: **151 of them are one SWC lexer
-defect** — a reserved word with a unicode escape somewhere after its first
-character (`break`) is refused even as a property key, where it is legal.
-The harness writes a per-file report with `RTS_TEST262_REPORT`, which is what
-makes a comparison between two runs a LOST list rather than a subtraction.
-
-**What that measures, precisely.** Whether the front end *reads* each program
-correctly: accepts what the corpus says is valid, refuses what it says is not.
-Nothing runs. This is not a pass rate, and calling it one would be false — a
-program that parses can still be compiled wrongly. It is the floor underneath
-everything else, because a front end that mis-reads a program cannot compile it
-correctly.
-
-The first number published here was **92.3 %, and it was wrong** — measured
-against a corpus missing 503 of its 24 007 files. On Windows some test262 paths
-exceed the 260-character limit; `git sparse-checkout` *warns* rather than fails,
-skips them, and everything downstream looks healthy. The missing files were
-concentrated in `import/import-defer/…`, so they were disproportionately ones we
-get wrong: recovering them added 279 correct and **220 incorrect**. The corpus
-must be cloned with `-c core.longpaths=true`, and `check_checkout_is_complete`
-now asks git what should be on disk and refuses to report a score if anything is
-absent.
-
-Three more findings the number would have hidden, and the harness was fixed for
-each before it was believed:
-
+- The first figure published from it was **wrong by 0.8 points**, measured over a
+  checkout quietly missing 503 of its files. On Windows some of those paths pass
+  the 260-character limit and `git sparse-checkout` *warns* rather than fails —
+  everything downstream looked healthy. The missing files were concentrated in
+  one area and were therefore disproportionately ones we got wrong. This is the
+  incident the honesty floor's **"verify the input, not just the output"** is
+  written from, and it outlives the harness that produced it.
 - An early run read the corpus with **TypeScript** syntax. TypeScript is a
   superset, so it accepts programs JavaScript rejects — 240 false accepts were
-  that alone. `Dialect` now exists because of this measurement, and a `.js` file
+  that alone. `Dialect` exists because of this measurement, and a `.js` file
   gets `Dialect::JavaScript`.
-- test262 runs an `onlyStrict` file with a strict prologue prepended. Without it,
-  a test whose entire point is a strict-mode error is handed to a sloppy parse,
-  which correctly accepts it — and the harness recorded our correct answer as a
-  defect.
+- A file whose entire point is a strict-mode error, handed to a sloppy parse, is
+  correctly accepted — and the harness recorded our correct answer as a defect
+  until it prepended the strict prologue.
 
 It also found a real bug in our own code: `strip_shebang` looked only for `\n`,
-and JavaScript has four line terminators. `comments/hashbang/line-terminator-*`
-caught it. That is what a corpus is for.
+and JavaScript has four line terminators. That is what a corpus is for, and it
+is the argument for importing another one rather than for keeping this one.
 
-**L10 — early errors.** The 1 249 false accepts are not a parser gap. Sampled:
+**L10 — early errors.** The false accepts L9 counted are not a parser gap. Sampled:
 they are redeclaration tests — `let x; function x() {}` in one scope — plus
 duplicate `__proto__`, `delete` of a name in strict code, invalid assignment
 targets. Static semantics: rules that no grammar production encodes and no node
@@ -969,8 +931,8 @@ runs, and refusing `try` that contains a call leaves it useless.
 
 ### What E-phases are measured against
 
-Not test262's reading rate — that measures the front end and is already
-reported. An emitted program either runs and produces the right value or does
+Not a reading rate — that measures the front end, and L9 retired the instrument
+that produced one. An emitted program either runs and produces the right value or does
 not, and that needs E3 before it can be asked at all. Until then the honest
 statement is a list of what is refused, which is what `Unsupported` maintains.
 

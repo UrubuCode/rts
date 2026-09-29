@@ -156,8 +156,7 @@ scripts/parity/*.combinada.html
 # Regua de pintura: PNG regeneraveis (tests/css/pintura), grandes e nao versionados
 tests/css/pintura/
 
-# test262, corpus lido e nunca carregado (scripts/test262/)
-.test262/
+# Corpora clonados, lidos e nunca carregados (scripts/*/fetch.sh)
 __pycache__/
 .mjsunit/
 .jsc/

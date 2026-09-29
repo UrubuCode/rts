@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Clona `test/mjsunit` do V8 para .mjsunit/ (nao versionado), num SHA FIXO.
 #
-# Um SHA e nao `main` pela mesma razao que o test262 e a suite do Node: a suite
+# Um SHA e nao `main` pela mesma razao que a suite do Node: a suite
 # muda todos os dias e uma percentagem contra um alvo movel nao e comparavel
 # consigo mesma na semana seguinte.
 set -euo pipefail

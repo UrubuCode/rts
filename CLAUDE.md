@@ -175,21 +175,21 @@ comparable in either direction; the counts are. And a handful of fixtures are
 outside the denominator entirely, because Bun and Node disagree with each other
 and the harness refuses to arbitrate.
 
-**And a fourth ruler, new on 2026-09-15: the test262 EXECUTED.**
-`crates/rts-codegen/tests/test262.rs` asks whether the front end READS each
-program as the standard says and nothing there runs; `scripts/test262/` asks the
-other half — whether the engine DOES what the program says. First measurement,
-against the `v0.0-202609120208` release binary: **1411 of 2568 = 54.9%**, on a
-deterministic one-in-twenty sample, which is what `STRIDE` is for and which the
-generated README block states beside the number. **That figure is a measurement
-this project made about itself over a public corpus** — not a test262 result,
-not a conformance rate and not a badge anybody granted us; the licence forbids
-using the authors' names to promote what derives from them, which is why no
-badge carries it. `THIRD-PARTY-NOTICES.md` is binding here, and it covers the
-other three imported corpora — V8 `mjsunit`, WebKit `JSTests/stress` and Node's
-`test/` — under the same terms. `scripts/test262/README.md` is
-the harness and `docs/engine/importable-suites.md` is what else could be
-imported and what each one would cost.
+**And a rule about the standard's own conformance suite: it is NOT a ruler
+here.** No share, score or rate against it is published by this project — not in
+`README.md`, not in a badge, not in a crate's documentation, not in a commit
+message. A percentage stated beside that suite's name is read as a result *of*
+the suite however the sentence around it is written, and the licence forbids
+using the authors' names to promote what derives from them. Declining to state
+one is the only form of that condition which does not depend on the reader.
+`THIRD-PARTY-NOTICES.md` is binding, and its *Other works consulted* entry is
+where that suite is recorded: read while writing two of `rts-codegen`'s test
+files, nothing of it vendored, no figure from it stated.
+
+It covers the imported corpora that ARE rulers here — V8 `mjsunit`, WebKit
+`JSTests/stress` and Node's `test/` — under their own terms, and
+`docs/engine/importable-suites.md` is what else could be imported and what each
+one would cost.
 
 **A change to this engine is compared PER FILE against a kept binary**, which is
 the only form the claim "no regression" takes here, and
@@ -447,7 +447,7 @@ Never lifts. No mode suspends it.
 - **The build compiles.** A broken build blocks merge.
 - **Verify the input, not just the output.** A number measured against a corpus
   quietly smaller than claimed is a claim wearing a measurement's clothes. This
-  is not hypothetical: a test262 score was published 0.8 points high because 503
+  is not hypothetical: a share over a public corpus was published 0.8 points high because 503
   of 24 007 files silently failed to check out.
 - **A green suite is not the last gate — the clock is.** A disabled optimisation
   passes every correctness test there is. A guard written on 2026-08-29 turned
@@ -517,7 +517,7 @@ overrides, `debug-assertions`, and everything a test can observe are inherited
 unchanged. Cargo also forces unwinding for test targets, so `panic = "abort"`
 never applied to them either way. Checked rather than assumed: **no test in the
 gated crates does AOT or names a `target/…` path** — `exhaustion.rs`
-re-invokes `current_exe()` and `test262.rs` invokes `git`, both profile-agnostic.
+re-invokes `current_exe()`, which is profile-agnostic.
 
 **What it is still NOT for**, and the ITERATION SPEED section already says both:
 a `fast` binary runs `bench/objbench.ts` 20.8% slower, and `rts compile` cannot
@@ -538,7 +538,7 @@ a question the profile cannot change the answer to.
 test targets in NAME order and stops at the first that fails, so **how much
 coverage a red test hides is decided by the alphabet**. In `rts-codegen`, two
 stale fixtures in `tests/bridge.rs` stopped the run before `early_errors`,
-`language`, `regexp_patterns` and `test262` — **93 tests did not run for six
+`language` and `regexp_patterns` — **93 tests did not run for six
 days**, and nobody knew whether they passed. Had the red target been the last
 one, it would have hidden nothing.
 

@@ -160,7 +160,8 @@ fn what_the_new_engine_compiles_of_the_suite() {
         files.push((path, source));
     }
     // A corpus that quietly shrank is a number measured against less than it
-    // claims — the failure `test262.rs` records paying for once already.
+    // claims — the failure this repository has paid for once already, and which
+    // CLAUDE.md's honesty floor states as "verify the input, not just the output".
     assert!(
         files.len() > 700,
         "the suite has 818 files; {} were read, so this would report a score \

@@ -286,112 +286,37 @@ claim endorsement, certification, or affiliation.
   node kinds and operator sets while auditing for omissions. No text or
   structure was copied; RTS's tree deliberately differs. Check the project's own
   licence before reproducing any of its material here.
-- **test262** — no longer "consulted". It is measured against, and it has a
-  section of its own below.
+- **test262**, the ECMAScript conformance suite — read while writing the cases
+  in `crates/rts-codegen/tests/early_errors.rs` and `tests/regexp_patterns.rs`.
+  Those are one-line programs stating grammar rules of ECMA-262 (`let x; let x;`
+  and the like); several are necessarily near-identical to a case in the corpus,
+  because such a rule has few ways of being written. **Nothing from the corpus
+  is here**: no file, no frontmatter, no harness, no copyright header — so the
+  redistribution conditions of its licence do not attach, and the licence is not
+  reproduced. **And no figure against it is published by this project** — no
+  score, share or rate, in no document and no badge. Its licence forbids using
+  the authors' names to promote what derives from the software, and a percentage
+  stated beside a conformance suite's name is read as a result *of* that suite
+  however the surrounding sentence is written. RTS claims no conformance,
+  certification, endorsement or affiliation. If a file of it is ever vendored,
+  or a number from it ever stated, this entry becomes a section with the licence
+  in full, under the rule at the end of this file.
 - **V8 `mjsunit`, WebKit `JSTests/stress`, Node's `test/`, web-platform-tests**
   — likewise measured against rather than consulted, each with a section below.
 
 ---
 
-## test262 — the ECMAScript conformance suite
+## The corpora we measure against
 
 **This section arrived late, and that is the first thing it has to say.** The
-entry above it used to read: "planned as the coverage measurement in phase L9…
-If test files or their content are ever vendored or reproduced, that licence
-must be reviewed and recorded in this file first." The measurement was built and
-run — 53 459 files, five areas, a number published in two documents — before the
-licence was read. The requirement was written by us, in this file, and not
-followed by us. It is recorded here rather than quietly satisfied, because a
-notice that hides its own lateness is worth less than the obligation it covers.
-
-**What we actually do with it.**
-
-- The corpus is **never vendored**. `crates/rts-codegen/tests/test262.rs` reads a
-  checkout the developer clones separately and points `RTS_TEST262` at; nothing
-  from it is copied into this repository, into any artefact, or into any binary.
-- No test file is redistributed, in source or in binary form. Conditions 1 and 2
-  of the licence below govern redistribution, and there is none.
-- What our documents carry are **measurements and file paths** — counts per
-  area, and names like `annexB/language/statements/labeled/function-declaration.js`
-  used to say which rule a defect belonged to. A path is a fact about the corpus
-  rather than its content.
-- `crates/rts-codegen/tests/early_errors.rs` and `tests/regexp_patterns.rs`
-  contain one-line programs that state the same language rules the corpus does —
-  `{ function f() {} let f; }` and the like. They were written while reading
-  those cases and several are necessarily near-identical, because a grammar rule
-  has few ways of being written. None carries a test262 file's frontmatter,
-  harness call, or copyright header. If that is judged to be reproduction rather
-  than independent statement of a rule, the attribution required is the notice
-  below, which is why it is here in full.
-
-**Trademark and endorsement, which is condition 3.** *"Neither the name of the
-authors nor Ecma International may be used to endorse or promote products
-derived from this software without specific prior written permission."* So: RTS
-states what it measured, with the date, the command and the corpus, and claims
-**no conformance, certification, endorsement or affiliation**. "98.8 % read
-correctly" is a reading rate this project produced about itself using a public
-corpus — it is not a test262 result, not a pass rate, and not a badge anybody
-granted us. Where that number appears it says which of those it is.
-
-**Patents.** The licence points at Ecma's code of conduct in patent matters
-(<https://www.ecma-international.org/ipr>) and grants nothing under third-party
-rights. Reading a corpus grants us no patent licence and we claim none.
-
-### Copyright notice and licence
-
-> Test262: ECMAScript Test Suite ("Software") is protected by copyright and is
-> being made available under the "BSD License", included below. This Software may
-> be subject to third party rights (rights from parties other than Ecma
-> International), including patent rights, and no licenses under such third party
-> rights are granted under this license even if the third party concerned is a
-> member of Ecma International. SEE THE ECMA CODE OF CONDUCT IN PATENT MATTERS
-> AVAILABLE AT https://www.ecma-international.org/ipr FOR INFORMATION REGARDING
-> THE LICENSING OF PATENT CLAIMS THAT ARE REQUIRED TO IMPLEMENT ECMA
-> INTERNATIONAL STANDARDS.
->
-> Copyright (C) 2012 Ecma International
-> All rights reserved.
->
-> Redistribution and use in source and binary forms, with or without
-> modification, are permitted provided that the following conditions are met:
->
-> 1. Redistributions of source code must retain the above copyright notice, this
->    list of conditions and the following disclaimer.
-> 2. Redistributions in binary form must reproduce the above copyright notice,
->    this list of conditions and the following disclaimer in the documentation
->    and/or other materials provided with the distribution.
-> 3. Neither the name of the authors nor Ecma International may be used to
->    endorse or promote products derived from this software without specific
->    prior written permission.
->
-> THIS SOFTWARE IS PROVIDED BY THE ECMA INTERNATIONAL "AS IS" AND ANY EXPRESS OR
-> IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-> MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
-> EVENT SHALL ECMA INTERNATIONAL BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-> SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-> PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-> BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
-> IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-> ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-> POSSIBILITY OF SUCH DAMAGE.
-
-**If the corpus is ever vendored** — into `vendor/`, into a container image, into
-a release artefact — conditions 1 and 2 start applying and this section is not
-enough on its own: the `LICENSE` file must travel with the copied material.
-
----
-
-## The other corpora we measure against
-
-**This section is late in exactly the way the one above it is, and that is the
-first thing it has to say.** The test262 section was written to record that a
-measurement had been built, run and published before its licence was read, and
-it closes with the rule that follows from it. Then three more corpora were
-imported — V8's `mjsunit`, WebKit's `JSTests/stress` and Node's `test/` — each
-run, each given a number in the `README.md`, and **none of them recorded here**.
-The confession did not prevent the repeat. It is written down rather than
-quietly fixed, because the interesting fact is not that the rule was broken once
-but that writing it down was not enough.
+rule at the end of this file — a corpus is recorded here *before* the first
+number it produces is published — was written down after the first measurement
+this project built had already been run and published without its licence being
+read. Then three more corpora were imported — V8's `mjsunit`, WebKit's
+`JSTests/stress` and Node's `test/` — each run, each given a number in the
+`README.md` at the time, and **none of them recorded here** either. Writing the rule down
+did not prevent the repeat, which is the interesting fact and the reason this
+paragraph stays.
 
 What is now in place instead of a promise: the block generator,
 `scripts/suites/common.py`, emits the non-endorsement notice into **every**
@@ -399,12 +324,12 @@ suite block, so a fourth corpus cannot be published without it.
 
 ### What is true of all of them, so it is said once
 
-The four with a `fetch.sh` — test262, V8, WebKit, Node — satisfy every bullet
-below. The fifth, web-platform-tests, has no `fetch.sh` at all and its section
-says what that changes.
+The three with a `fetch.sh` — V8, WebKit, Node — satisfy every bullet below. The
+fourth, web-platform-tests, has no `fetch.sh` at all and its section says what
+that changes.
 
 - **Nothing is vendored.** Each `scripts/*/fetch.sh` makes a shallow, sparse
-  clone into a directory the `.gitignore` covers (`.test262/`, `.mjsunit/`,
+  clone into a directory the `.gitignore` covers (`.mjsunit/`,
   `.jsc/`, `.node-suite/`). No file from any of them is committed to this
   repository, copied into an artefact, or linked into a binary. Conditions of
   the "redistribution" kind therefore do not attach, because there is no
@@ -418,19 +343,24 @@ says what that changes.
   revision — which is the only copy that can be authoritative, since a licence
   quoted from memory is a claim rather than a notice.
 - **The harness file runs unmodified, in front of the test**, as every engine
-  runs these suites: `sta.js`/`assert.js` for test262, `mjsunit.js` for V8,
-  `test/common` for Node. It is read from the clone at run time. It is not
+  runs these suites: `mjsunit.js` for V8, `test/common` for Node. It is read
+  from the clone at run time. It is not
   copied, not rewritten, and not committed.
 - **What our documents carry is measurements, file paths and error messages** —
-  never file content. A path and a count are facts *about* a corpus; the
-  reasoning is the same one the test262 section makes.
+  never file content. A path, a count and a message a run produced are facts
+  *about* a corpus rather than any part of it.
 - **No endorsement, in any of them.** BSD-3-Clause condition 3 and its
   equivalents forbid using the authors' names to promote what derives from the
-  software. So: no badge carries a suite's name and a score — that is why the
-  `README.md` has none, and why `scripts/suites/common.py` no longer emits one —
-  and every block states that the number is a measurement this project made
-  about itself, not a result, a conformance rate, a certification or an
-  endorsement.
+  software. So a suite's name never appears beside a score of ours: **no badge
+  and no `README.md` block** for the two engine corpora — `scripts/suites/common.py`
+  renders none, and their jobs publish the report as an artefact instead. The
+  form is the problem rather than the wording: a percentage stated next to
+  another project's suite is read as a result *of* that suite, and the sentence
+  disclaiming it is not the part that gets quoted.
+- **Where a number IS published** — the Node suite, whose corpus is MIT and
+  carries no such condition, and the parity rulers that are ours — the block
+  states what it is: a measurement this project made about itself, not a result,
+  a conformance rate, a certification or an endorsement.
 - **None of these projects has endorsed, certified, reviewed or is affiliated
   with RTS**, and RTS claims none of those things.
 
@@ -448,8 +378,9 @@ and none of them is read by this repository — but that is a reason to read the
 file at the pinned revision before copying anything, not a reason to summarise
 it here. Copyright is the V8 project authors'.
 
-**Condition 3 applies** in the same words as test262's: the authors' names may
-not be used to endorse or promote. The `README.md` block says what the number is.
+**Condition 3 applies**: the authors' names may not be used to endorse or
+promote, which is why no figure of ours against this corpus is published. The
+job's report is the only place it exists.
 
 ### WebKit — `JSTests/stress`
 

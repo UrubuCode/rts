@@ -35,7 +35,7 @@ fazer o que o nome diz não entra.
 
 Fora do denominador ficam também `createGlobalObject`, `runString`,
 `transferArrayBuffer`, `$.agent` e `gc()`: realms e host do shell, pelo mesmo
-argumento que põe lá o `%Native` do V8 e o `$262` do test262.
+argumento que põe lá o `%Native` do V8.
 
 ## A leitura do resultado é mais grosseira aqui
 
@@ -49,7 +49,7 @@ igual.
 ## Em CI
 
 `.github/workflows/jsc.yml`, oito fatias e um `merge`, no `schedule` semanal —
-a mesma forma que `test262.yml` e `mjsunit.yml`, sobre o mesmo
+a mesma forma que `mjsunit.yml`, sobre o mesmo
 `scripts/suites/common.py`. Reporta e não bloqueia.
 
 
@@ -70,9 +70,9 @@ vez algum ficheiro daqui for copiado para este repositório, verifica-se **por
 ficheiro**, na revisão fixada, e regista-se antes de aterrar — nunca se
 classifica pelo diretório de onde saiu.
 
-E o número: é uma medição que **este projeto fez sobre si próprio**, correndo um
-corpus público sem o modificar. Não é um resultado do JavaScriptCore, não é uma taxa de
-conformidade, e não é uma certificação, aprovação ou endosso de ninguém — o
-`LICENSE` proíbe usar o nome dos autores para promover o que deriva dele, e é
-por isso que nenhum badge no `README.md` leva o nome desta suíte ao lado de uma
-percentagem. `THIRD-PARTY-NOTICES.md` tem a secção inteira.
+E o número **não é publicado**: fica no relatório que o job carrega como
+artefacto, e não no `README.md`. Um nome de suíte com uma percentagem ao lado
+lê-se como um resultado DELA por muito cuidadosa que seja a frase em volta — e a
+frase não é a parte que fica citada. Nenhum badge e nenhum bloco, portanto: o
+número existe onde se planeia trabalho a partir dele e em nenhum outro sítio.
+`THIRD-PARTY-NOTICES.md` tem a secção inteira.

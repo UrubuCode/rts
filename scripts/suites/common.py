@@ -2,7 +2,7 @@
 
 Três arneses fazem a mesma coisa em volta de uma pergunta diferente: escolher os
 ficheiros, dividi-los por máquinas, correr um processo por ficheiro, agregar as
-causas e reescrever um bloco do README. O que muda entre eles é apenas **como se
+causas e escrever o relatório. O que muda entre eles é apenas **como se
 constrói o programa a partir do ficheiro** e **como se lê o resultado** — e é só
 isso que cada arnês escreve.
 
@@ -12,7 +12,6 @@ correção que o outro não tem. É a mesma regra que o CLAUDE.md aplica a um
 símbolo do runtime — uma fonte, várias vistas.
 """
 
-import datetime
 import json
 import os
 import re
@@ -26,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STRIDE = int(os.environ.get("STRIDE", "1"))
 # `SHARD=3/8` corre o terceiro oitavo. A divisão é por ÍNDICE na lista ordenada
 # (`files[i::n]`) e não por diretório: por diretório, o `built-ins/Temporal`
-# sozinho são 9% do test262 e a máquina que o apanhasse decidia o tempo de todas
+# sozinho pesa quase um décimo de um corpus e a máquina que o apanhasse decidia o tempo de todas
 # as outras. Intercalada, cada fatia leva a mesma mistura — e continua
 # determinista, que é o que faz duas corridas serem comparáveis.
 SHARD = os.environ.get("SHARD", "")
@@ -100,7 +99,7 @@ NOISE = [
     (re.compile(r"\b\d+\b"), "N"),
 ]
 ERRNAME = re.compile(
-    r"(Test262Error|MjsUnitAssertionError|TypeError|RangeError|SyntaxError|"
+    r"(MjsUnitAssertionError|TypeError|RangeError|SyntaxError|"
     r"ReferenceError|error: \w+|Error)\b.*")
 
 
@@ -152,8 +151,12 @@ def share(d):
     return (100.0 * d["ok"] / den) if den else 0.0
 
 
-def report(rows, label, readme=None):
-    """A tabela por grupo, as causas, o JSON — e o bloco do README se pedido."""
+def report(rows, label):
+    """A tabela por grupo, as causas e o JSON. Não escreve no README: um nome de
+    suíte com uma percentagem ao lado lê-se como um resultado DELA, e é a
+    condição de não-endosso que `THIRD-PARTY-NOTICES.md` guarda. O número vive no
+    relatório, que é onde se planeia trabalho a partir dele.
+    """
     by, tot = {}, dict.fromkeys(COUNTED + ("skipped",), 0)
     for group, _, st, _ in rows:
         by.setdefault(group, dict.fromkeys(COUNTED + ("skipped",), 0))[st] += 1
@@ -190,107 +193,4 @@ def report(rows, label, readme=None):
         }, indent=2), encoding="utf-8")
         print("relatório: %s" % rep)
 
-    if readme and os.environ.get("UPDATE_README") == "1":
-        update_readme(tot, den, share(tot), by, top, **readme)
     return tot, den
-
-
-def bar(pct, segs=20):
-    filled = int(round(pct / (100.0 / segs)))
-    return "▰" * filled + "▱" * (segs - filled)
-
-
-# A ressalva não é decoração e não é opcional: vai em TODOS os blocos, porque a
-# licença de cada um destes corpus tem a mesma condição 3 — o nome dos autores
-# não pode ser usado para promover o que deriva deles. Um número destes é uma
-# medição que ESTE projeto fez sobre si próprio, com um corpus público; não é um
-# resultado da suíte, não é conformidade e ninguém no-lo atribuiu. Fica no
-# gerador e não em cada arnês exatamente para não poder ser esquecida num deles.
-DISCLAIMER = (
-    "> Medição feita por este projeto sobre si próprio, correndo um corpus\n"
-    "> público sem o modificar. **Não é um resultado da suíte, não é uma taxa\n"
-    "> de conformidade e não é uma certificação, aprovação ou endosso de\n"
-    "> ninguém.** As licenças e as condições de atribuição estão em\n"
-    "> [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)."
-)
-
-
-def update_readme(tot, den, pct, by, causes, marker,
-                  heading, intro, group_label, footer, rows_label="ficheiros",
-                  ok_label="A norma ficou satisfeita"):
-    """Reescreve o bloco em vez de o deixar escrever à mão.
-
-    A régua cross-runtime já pagou o preço da alternativa: uma cópia do número no
-    CLAUDE.md ficou obsoleta duas vezes, a segunda por dois pontos e meio. Um
-    bloco gerado não pode discordar da sua fonte.
-    """
-    # Recusar um zero é a guarda que o badge de paridade aprendeu à sua custa: um
-    # 0% quase nunca é o motor, é o instrumento — uma lib a faltar no runner e o
-    # corpus inteiro falha por igual. Publicá-lo apagava o último número real.
-    if tot["ok"] == 0:
-        sys.exit("recusado: ok=0 — o instrumento, não o motor. O README fica como estava")
-
-    top = sorted(by.items(), key=lambda kv: -(sum(kv[1].values()) - kv[1]["skipped"]))[:10]
-    grouprows = "\n".join(
-        "| `%s` | **%.1f%%** | %d/%d |" % (
-            g, share(d), d["ok"], sum(d.values()) - d["skipped"])
-        for g, d in top)
-    causerows = "\n".join("| %d | `%s` |" % (n, m.replace("|", "\\|")) for m, n in causes[:10])
-
-    block = """<!-- %(m)s_STATS_START -->
-%(heading)s
-
-%(intro)s
-
-```
-[%(bar)s] %(pct).1f%%   %(ok)d/%(den)d %(rows_label)s passando
-```
-
-| Metric | Value |
-|---|---|
-| **Ficheiros que passam** | **%(ok)d/%(den)d** (%(pct).1f%%) |
-| ✅ %(ok_label)s | %(ok)d |
-| ❌ Resposta errada | %(fail)d |
-| 💥 Exceção não apanhada | %(error)d |
-| ⏱️ Não terminou | %(timeout)d |
-| ➖ Fora da conta | %(skipped)d |
-
-**%(group_label)s** (os dez maiores):
-
-| Grupo | %% | ok/total |
-|---|---|---|
-%(grouprows)s
-
-**As causas mais frequentes** — uma mensagem repetida é **um** defeito, não N:
-
-| Ficheiros | Mensagem |
-|---|---|
-%(causerows)s
-
-%(disclaimer)s
-
-_%(footer)s · %(hoje)s_
-
-<!-- %(m)s_STATS_END -->""" % {
-        "m": marker, "heading": heading, "intro": intro, "disclaimer": DISCLAIMER,
-        "bar": bar(pct), "pct": pct, "ok": tot["ok"], "den": den,
-        "rows_label": rows_label, "ok_label": ok_label, "fail": tot["fail"], "error": tot["error"],
-        "timeout": tot["timeout"], "skipped": tot["skipped"],
-        "group_label": group_label, "grouprows": grouprows, "causerows": causerows,
-        "footer": footer, "hoje": datetime.date.today().isoformat(),
-    }
-
-    # Nenhum badge, e isto é uma decisão e não uma omissão. Um badge no topo do
-    # README é a forma de uma nota ATRIBUÍDA: leva o nome da suíte, leva uma
-    # percentagem, e não tem onde caber a ressalva que a condição 3 da licença
-    # obriga. `THIRD-PARTY-NOTICES.md` compromete este repositório a que o número
-    # diga, onde quer que apareça, o que é — e um badge não diz. O bloco abaixo
-    # diz, e é por isso que o número vive só lá.
-    path = ROOT / "README.md"
-    txt = path.read_text(encoding="utf-8")
-    if "<!-- %s_STATS_START -->" % marker not in txt:
-        sys.exit("README.md não tem os marcadores %s" % marker)
-    txt = re.sub("<!-- %s_STATS_START -->.*?<!-- %s_STATS_END -->" % (marker, marker),
-                 lambda _: block, txt, flags=re.S)
-    path.write_text(txt, encoding="utf-8")
-    print("README.md: bloco %s reescrito" % marker)

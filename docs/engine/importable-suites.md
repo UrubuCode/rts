@@ -1,7 +1,7 @@
 # Suítes de outros motores: o que dá para importar, e a que preço
 
-Este motor mede-se hoje por quatro réguas, e cada uma pergunta uma coisa
-diferente. Este documento é sobre a **quinta e seguintes**: que corpora de outros
+Este motor mede-se hoje por várias réguas, e cada uma pergunta uma coisa
+diferente. Este documento é sobre as **seguintes**: que corpora de outros
 projetos se podem correr aqui *como estão*, o que cada um mede, e o que custa
 adotá-lo. É um mapa de decisão, não uma lista de desejos — cada linha diz o que
 foi verificado e quando.
@@ -11,8 +11,7 @@ foi verificado e quando.
 | `*.test.ts` | o programa faz o que diz | `crates/rts-host/tests/running.rs` |
 | cross-runtime | este motor e um motor real concordam | `scripts/cross_runtime_check.sh` |
 | suíte do Node | as libs `node:` fazem o que a suíte do Node exige | `scripts/node_tests/` |
-| test262 (parse) | o front end **lê** o programa como a norma diz | `crates/rts-codegen/tests/test262.rs` |
-| **test262 (exec)** | o motor **faz** o que a norma manda | `scripts/test262/` — **novo** |
+| V8 `mjsunit` | o que um motor de produção aprendeu a não errar | `scripts/mjsunit/` |
 
 ## O critério
 
@@ -30,21 +29,20 @@ Um corpus de outro motor só vale a pena se três coisas forem verdade:
 
 ## Verificado nesta sessão (2026-09-15, binário do release `v0.0-202609120208`)
 
-### test262 executado — **adotado**
+### A suíte da própria norma — **fora de questão como régua**
 
-53 876 ficheiros no checkout, ~48 000 testes depois de tirar `_FIXTURE.js` e
-`staging/`. Corre sem adaptação nenhuma: o arnês da própria suíte concatenado à
-frente do teste. `scripts/test262/README.md` tem o resto.
+Corre sem adaptação nenhuma e tem a granularidade que todas as outras não têm:
+um ficheiro por comportamento. **Não é adotada mesmo assim**, e a razão não é
+técnica — a licença dela proíbe usar o nome dos autores para promover o que
+deriva do software, e uma percentagem ao lado do nome de uma suíte de
+conformidade é lida como um resultado *dela*. CLAUDE.md tem a regra e
+`THIRD-PARTY-NOTICES.md` a condição. Nenhuma quota sai daqui, portanto nenhum
+arnês para a produzir vive neste repositório.
 
-**Primeira medição: 1411 de 2568 = 54,9%**, numa amostra determinista de 1 em 20
-(`STRIDE=20`). É a régua com mais granularidade de todas — um ficheiro por
-comportamento — e a única que cobre a linguagem em vez das bibliotecas.
-
-O que a primeira corrida já diz, e que nenhuma das outras réguas dizia:
-`built-ins/Temporal` são 230 ficheiros da amostra (9% do corpus) e passam zero;
-`intl402/Temporal` mais 101. Uma proposta inteira que não existe aqui vale
-**13% do test262** — é a maior peça isolada do número, e é uma decisão de
-produto e não um defeito.
+O que essa suíte diria e mais nenhuma diz continua verdadeiro e não precisa de
+número para ser dito: **`Temporal` não existe aqui**, e é uma proposta inteira.
+É a maior peça isolada do que falta na linguagem, e é uma decisão de produto e
+não um defeito.
 
 ### QuickJS `tests/` — **corre, mas mede pouco**
 
@@ -62,8 +60,7 @@ fonte de casos para `tests/`, não como régua.
 9 286 ficheiros. **4 699 usam sintaxe nativa do V8** (`%OptimizeFunctionOnNextCall`
 e companhia) — contado, não estimado — e esses estão a medir o V8 por dentro.
 Sobram ~4 587 que são JavaScript comum sobre o arnês `mjsunit.js`
-(`assertEquals`, `assertThrows`), que é um ficheiro único a carregar à frente,
-exatamente como o `sta.js` do test262.
+(`assertEquals`, `assertThrows`), que é um ficheiro único a carregar à frente.
 
 Verificado: o `mjsunit.js` à frente basta — nenhum `d8` é preciso para os que
 não o nomeiam. `scripts/mjsunit/` é o arnês, e o que fica fora do denominador
@@ -85,16 +82,16 @@ seria responder mentira sobre o estado da máquina.
 
 ### SpiderMonkey `js/src/tests` — **não vale a pena, e o número diz porquê**
 
-60 009 ficheiros no checkout, e **57 922 deles são uma cópia do test262** — que
-já corremos a montante, e contá-la outra vez era medir a mesma coisa duas vezes
-com um peso de 96%. O que é do SpiderMonkey são 2 021 ficheiros em `non262`,
-menos de metade do que o `mjsunit` dá e um terço do JSC.
+60 009 ficheiros no checkout, e **57 922 deles são uma cópia da suíte da norma**
+— que a secção acima põe fora de questão como régua, e que aqui pesaria 96% do
+corpus. O que é mesmo do SpiderMonkey são 2 021 ficheiros, menos de metade do
+que o `mjsunit` dá e um terço do JSC.
 
 E custa mais: o arnês é um `shell.js` por diretório, **cumulativo**, e cinco
 ficheiros corridos com os três `shell.js` da cadeia falharam todos com o mesmo
 erro — o que quer dizer que falta mais alguma coisa do carregamento. Fica a
 verificação feita e a conclusão: mais trabalho do que as outras duas por menos
-corpus. Reabrir se o `non262` crescer.
+corpus. Reabrir se a parte própria do SpiderMonkey crescer.
 
 | suíte | o que mede | o que custa |
 |---|---|---|
@@ -105,9 +102,8 @@ corpus. Reabrir se o `non262` crescer.
 
 ## A ordem que isto sugere
 
-1. **test262 completo em CI**, para o número deixar de sair de uma amostra.
-2. **mjsunit filtrado**, pelo `grep` acima, se o arnês sobreviver sem `d8`.
-3. **QuickJS e JSC como fontes de casos** para `tests/`, ficheiro a ficheiro,
+1. **mjsunit filtrado**, pelo `grep` acima, se o arnês sobreviver sem `d8`.
+2. **QuickJS e JSC como fontes de casos** para `tests/`, ficheiro a ficheiro,
    quando um defeito já está a ser perseguido.
 
 Kangax cabe em qualquer ponto porque é barato, desde que o que produzir seja

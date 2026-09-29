@@ -2,7 +2,7 @@
 """Corre o `JSTests/stress` do JavaScriptCore contra o rts.
 
 A terceira das réguas importadas, e a que pergunta o que as outras duas não
-perguntam. O test262 mede o que a norma EXIGE; o `mjsunit` mede o que o V8
+perguntam. O `mjsunit` mede o que o V8
 aprendeu a não errar; este mede o mesmo para o motor do Safari — e a
 sobreposição entre os dois últimos é pequena, porque um bug de motor é
 descoberto por quem o tem.
@@ -23,7 +23,7 @@ TESTS = c.ROOT / ".jsc" / "webkit" / "JSTests" / "stress"
 
 # O interior do JSC: `$vm` é a janela para a máquina virtual, e
 # `createGlobalObject`/`runString` criam realms do shell. Fora do denominador
-# pelo mesmo argumento que põe lá o `%Native` do V8 e o `$262` do test262.
+# pelo mesmo argumento que põe lá o `%Native` do V8.
 HOST = re.compile(r"\$vm\b|(?<![\w])\$\.(agent|globalObjectFor|evalScript)"
                   r"|(?<![.$\w])(createGlobalObject|runString|transferArrayBuffer"
                   r"|loadString|readFile|checkModuleSyntax|gc)\s*\(")
@@ -78,18 +78,6 @@ def collect(prefixes):
     return c.slice_of(files)
 
 
-README = dict(
-    marker="JSC",
-    heading="## 🧯 JavaScriptCore `stress` — as regressões do motor do Safari",
-    intro=("A mesma pergunta que o `mjsunit` faz, a outro motor de produção. A\n"
-           "sobreposição é pequena de propósito: um bug de motor é descoberto por quem\n"
-           "o tem, e o que o JSC aprendeu não é o que o V8 aprendeu."),
-    ok_label="Passou — saiu com 0",
-    group_label="Por prefixo do ficheiro",
-    footer="",
-)
-
-
 def main():
     if sys.argv[1:2] == ["--merge"]:
         rows = c.merge(sys.argv[2:])
@@ -99,10 +87,12 @@ def main():
         rows = c.run_all(collect(sys.argv[1:]), one, ".jsc")
 
     sha = c.ROOT / ".jsc" / "SHA"
-    README["footer"] = "WebKit %s · %s" % (
+    # Proveniencia impressa, nunca publicada: sem o SHA do corpus e sem o
+    # STRIDE, um numero nao e comparavel com o da semana passada.
+    print("\nWebKit %s · %s" % (
         sha.read_text().strip()[:9] if sha.exists() else "?",
-        "corpus inteiro" if c.STRIDE == 1 else "amostra determinista de 1 em %d" % c.STRIDE)
-    c.report(rows, ".jsc", readme=README)
+        "corpus inteiro" if c.STRIDE == 1 else "amostra determinista de 1 em %d" % c.STRIDE))
+    c.report(rows, ".jsc")
 
 
 if __name__ == "__main__":
