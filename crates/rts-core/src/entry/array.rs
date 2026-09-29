@@ -61,7 +61,8 @@ pub fn array_of(
     with_current(|context| {
         let held = [v0, v1, v2, v3, v4, v5, v6, v7];
         let wanted = count.clamp(0, ARRAY_OF_SLOTS as i64) as usize;
-        built_in(context, held[..wanted].to_vec())
+        let elements = super::array_spare::holding(context, &held[..wanted]);
+        built_in(context, elements)
     })
 }
 
@@ -229,7 +230,8 @@ pub(in crate::entry) fn built_in_rooted(
 /// cannot collect.
 pub(in crate::entry) fn built_in_from(context: &mut Context, values: &[u64]) -> u64 {
     let cell = allocate_array_cell(context);
-    let store = context.arrays.insert(values.to_vec()).slot();
+    let elements = super::array_spare::holding(context, values);
+    let store = context.arrays.insert(elements).slot();
     context.mark_array(cell, store);
     set_length(context, cell, values.len());
     Value::from_slot(cell).bits()

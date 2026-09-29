@@ -69,6 +69,7 @@ mod finalize;
 mod foreign;
 mod function_proto;
 mod direct_call;
+mod array_spare;
 mod construct_plain;
 mod object_under;
 mod light_call;
@@ -686,6 +687,9 @@ pub struct Context {
     /// The type of an object with no properties and no prototype of its own,
     /// once it has been asked for — see `Context::empty_layout`.
     empty_layout: Option<u32>,
+    /// The element buffers of arrays that died — see `array_spare`. Cleared
+    /// before they are kept, so nothing here is a root.
+    spare_arrays: Vec<Vec<u64>>,
     /// `function_names` indexed by code address — DERIVED, never a second source.
     ///
     /// See `Context::index_functions_by_code`, which is the only thing that
@@ -1366,6 +1370,7 @@ impl Context {
             function_names: Vec::new(),
             light_codes: light_call::CodeSet::default(),
             empty_layout: None,
+            spare_arrays: Vec::new(),
             function_by_code: std::collections::HashMap::new(),
             callable_templates: [None; 4],
             regexes: Aside::in_region(bits),

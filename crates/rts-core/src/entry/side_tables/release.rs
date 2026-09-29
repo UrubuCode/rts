@@ -80,8 +80,10 @@ fn bury(context: &mut Context, cell: u32, table: SideTable) {
                 }
             }
             SideTable::ArrayElements => {
-                if let Some(elements) = context.array_elements.remove(cell) {
-                    context.arrays.free(elements);
+                if let Some(elements) = context.array_elements.remove(cell)
+                    && let Some(buffer) = context.arrays.free(elements)
+                {
+                    crate::entry::array_spare::keep(context, buffer);
                 }
             }
             SideTable::BufferOf => {
