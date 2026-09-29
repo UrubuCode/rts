@@ -61,6 +61,7 @@ pub(crate) mod call;
 pub(crate) mod math;
 pub(crate) mod methods;
 pub(crate) mod light_arguments;
+mod chunk;
 pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
@@ -1095,6 +1096,9 @@ pub fn emit_module_as(
             }
         }
     }
+    // A large body is compiled as several functions: `chunk` says which
+    // statements may move and what the move buys.
+    let body = chunk::split(body, ctx);
     emit_program_with_exports(&body, &imports, specifier, &publications, ctx)
 }
 
@@ -1324,6 +1328,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
                 }
             }
         }
+        let body = chunk::split(body, ctx);
         lowered.push((unit, imports, body, publications));
     }
 

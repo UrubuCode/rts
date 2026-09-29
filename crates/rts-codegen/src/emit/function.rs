@@ -1301,6 +1301,15 @@ fn emit_body_into(
 /// `undefined` before the first statement runs — so duplicates across two
 /// `var x` in different blocks collapse for free at the call site, which
 /// declares each name once.
+/// Every `var` a body declares at its own function level, for a caller that
+/// asks whether moving the body into another function would re-home one —
+/// `chunk.rs`.
+pub(super) fn vars_of(body: &[Stmt]) -> Vec<Name> {
+    let mut found = Vec::new();
+    collect_vars(body, &mut found);
+    found
+}
+
 fn collect_vars(body: &[Stmt], into: &mut Vec<Name>) {
     for statement in body {
         collect_vars_stmt(statement, into);
