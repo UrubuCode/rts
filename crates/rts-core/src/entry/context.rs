@@ -47,6 +47,26 @@ impl Context {
         ty
     }
 
+    /// The type every fresh object starts at: the root shape's layout.
+    ///
+    /// # Why it is remembered
+    ///
+    /// Because every `{}`, every literal and every environment asks, and the
+    /// answer never changes: the root shape is one node and its layout is
+    /// declared once. [`Self::layout_of`] answers it through a `HashMap` keyed
+    /// by shape, hashed with the standard hasher — 6 ns of a 25 ns
+    /// `object_new` (release, `examples/entry_probe.rs`, 2026-09-29), to look
+    /// up the one key that is asked for more than all the others together.
+    pub(super) fn empty_layout(&mut self) -> u32 {
+        if let Some(known) = self.empty_layout {
+            return known;
+        }
+        let shape = self.shapes.root();
+        let ty = self.layout_of(shape).index() as u32;
+        self.empty_layout = Some(ty);
+        ty
+    }
+
     /// The layout a shape arrives at, distinguished by what the cell inherits
     /// from.
     ///

@@ -683,6 +683,9 @@ pub struct Context {
     /// `functions::called` asks before it pushes the argument stacks.
     /// Addresses, not references: nothing here is a root.
     light_codes: light_call::CodeSet,
+    /// The type of an object with no properties and no prototype of its own,
+    /// once it has been asked for — see `Context::empty_layout`.
+    empty_layout: Option<u32>,
     /// `function_names` indexed by code address — DERIVED, never a second source.
     ///
     /// See `Context::index_functions_by_code`, which is the only thing that
@@ -1362,6 +1365,7 @@ impl Context {
             frames: Vec::new(),
             function_names: Vec::new(),
             light_codes: light_call::CodeSet::default(),
+            empty_layout: None,
             function_by_code: std::collections::HashMap::new(),
             callable_templates: [None; 4],
             regexes: Aside::in_region(bits),

@@ -67,8 +67,7 @@ pub fn object_new(slots: i64) -> u64 {
 /// discover at run time what was on the page is paying for a question already
 /// answered.
 pub(super) fn object_new_wide(context: &mut Context, slots: i64) -> u64 {
-    let shape = context.shapes.root();
-    let ty = context.layout_of(shape).index() as u32;
+    let ty = context.empty_layout();
     let wanted = u32::try_from(slots).unwrap_or(0);
     let cell = if wanted > crate::heap::INLINE_SLOTS {
         // Rounded to whole cells by the region. Only a genuinely wide object
@@ -93,8 +92,7 @@ pub(super) fn object_new_in(context: &mut Context) -> u64 {
     // The empty layout, which every object that gains its first property
     // transitions out of — which is what makes two objects built the same
     // way share a shape.
-    let shape = context.shapes.root();
-    let ty = context.layout_of(shape).index() as u32;
+    let ty = context.empty_layout();
     let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
     Value::from_slot(cell).bits()
 }
