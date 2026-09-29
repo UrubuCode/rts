@@ -106,37 +106,7 @@ pub(super) fn resolve(program: &[Stmt], constructor: Name) -> Resolved {
     // read: those whose body declares no STATIC COMPUTED key, which is where a
     // class writes `Symbol.hasInstance` and the only way `instanceof` reaches
     // user code holding the left operand.
-    let ordinary: BTreeSet<Name> = classes
-        .iter()
-        .filter(|(name, class)| {
-            super::inline::declarations_of(program, **name) == 1
-                && !class.body.iter().any(|element| match element {
-                    ClassElement::Method(method) => {
-                        method.is_static
-                            && !matches!(
-                                &method.key,
-                                crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(
-                                    _
-                                ))
-                            )
-                    }
-                    ClassElement::Field(field) => {
-                        field.is_static
-                            && !matches!(
-                                &field.key,
-                                crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(
-                                    _
-                                ))
-                            )
-                    }
-                    // A static block is arbitrary code and may write anything,
-                    // including a `Symbol.hasInstance` on the class it is in.
-                    ClassElement::StaticBlock(_) => true,
-                })
-        })
-        .map(|(name, _)| *name)
-        .collect();
-    let ordinary = &ordinary;
+    let ordinary = &ordinary_classes(program, &classes);
 
     let mut read_as_value = BTreeSet::new();
     for statement in program {
@@ -367,15 +337,58 @@ fn plain_key(key: &crate::syntax::ClassKey) -> Option<Name> {
 /// a class for the same reason: what is never handed over cannot be changed
 /// from outside.
 pub(super) fn handed_over(program: &[Stmt]) -> BTreeSet<Name> {
+    let mut classes: BTreeMap<Name, &Class> = BTreeMap::new();
+    for statement in program {
+        class_declarations(statement, &mut classes);
+    }
+    // The classes `resolve` takes as ordinary, and for its reason: `x
+    // instanceof C` reads a prototype and writes nothing, unless `C` defines
+    // `Symbol.hasInstance`. It was NO class at first, which was stricter than
+    // anything required and cost a class its whole layout for being asked
+    // about once.
+    let ordinary = ordinary_classes(program, &classes);
     let mut read = BTreeSet::new();
-    // No class is taken as ordinary, so `x instanceof C` counts as reading
-    // both — stricter than `resolve`, which knows which classes define no
-    // `Symbol.hasInstance`.
-    let ordinary = BTreeSet::new();
     for statement in program {
         value_reads_in_statement(statement, &mut read, &ordinary);
     }
     read
+}
+
+/// Which classes an `instanceof` may name without its operands counting as
+/// read: those declared once whose body declares no STATIC COMPUTED key and no
+/// static block — the two places a class can write `Symbol.hasInstance`, which
+/// is the only way `instanceof` reaches user code holding the left operand.
+fn ordinary_classes(program: &[Stmt], classes: &BTreeMap<Name, &Class>) -> BTreeSet<Name> {
+    classes
+        .iter()
+        .filter(|(name, class)| {
+            super::inline::declarations_of(program, **name) == 1
+                && !class.body.iter().any(|element| match element {
+                    ClassElement::Method(method) => {
+                        method.is_static
+                            && !matches!(
+                                &method.key,
+                                crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(
+                                    _
+                                ))
+                            )
+                    }
+                    ClassElement::Field(field) => {
+                        field.is_static
+                            && !matches!(
+                                &field.key,
+                                crate::syntax::ClassKey::Public(crate::syntax::PropertyKey::Named(
+                                    _
+                                ))
+                            )
+                    }
+                    // A static block is arbitrary code and may write anything,
+                    // including a `Symbol.hasInstance` on the class it is in.
+                    ClassElement::StaticBlock(_) => true,
+                })
+        })
+        .map(|(name, _)| *name)
+        .collect()
 }
 
 /// Every name read AS A VALUE, where two positions are not reads.

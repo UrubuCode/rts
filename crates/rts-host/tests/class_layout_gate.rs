@@ -74,3 +74,24 @@ console.log(f(3), held.name);"
     assert_eq!(calls_to(&source, "__rts_construct"), 1, "the class is not this pass's");
     assert_eq!(calls_to(&source, "__rts_object_new_under"), 0);
 }
+
+#[test]
+fn asking_whether_something_is_one_does_not_cost_the_class_its_layout() {
+    let source = format!(
+        "{CLASSES}
+const kept = [];
+function f(n) {{ let s = 0; for (let i = 0; i < n; i++) {{ const o = new D(i, 2); s += o.sum(); kept.push(new B(i)); }} return s; }}
+console.log(f(3), kept[0] instanceof B, kept[0] instanceof D);"
+    );
+    assert_eq!(calls_to(&source, "__rts_construct"), 0, "no construction");
+    assert_eq!(calls_to(&source, "__rts_object_new_under"), 1, "the one that is kept");
+}
+
+#[test]
+fn a_class_that_answers_instanceof_itself_is_constructed_as_it_was() {
+    let source = "
+class H { a; constructor(a) { this.a = a; } static [Symbol.hasInstance](x) { return true; } }
+function f(n) { let s = 0; for (let i = 0; i < n; i++) { const o = new H(i); s += o.a; } return s; }
+console.log(f(3), 1 instanceof H);";
+    assert_eq!(calls_to(source, "__rts_construct"), 1, "the class is not this pass's");
+}

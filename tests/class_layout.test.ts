@@ -222,6 +222,25 @@ describe("an instance that is seen, of a class with a layout", () => {
   });
 });
 
+class Asked { v: number; constructor(v: number) { this.v = v; } twice(): number { return this.v * 2; } }
+class Other { v = 0; }
+
+describe("a class that is asked about", () => {
+  test("keeps its layout, and answers for every instance however it was made", () => {
+    let sum = 0;
+    for (let i = 0; i < 1000; i++) { const a = new Asked(i); sum += a.twice(); }
+    expect(sum).toBe(999000);
+    const kept = [new Asked(1), new Asked(2)];
+    expect(kept.every((a) => a instanceof Asked)).toBe(true);
+    expect(kept[0] instanceof Other).toBe(false);
+    const local = new Asked(3);
+    expect(local instanceof Asked).toBe(true);
+    expect(local.twice()).toBe(6);
+    expect(({ v: 1 }) instanceof Asked).toBe(false);
+    expect((new Other() as any) instanceof Asked).toBe(false);
+  });
+});
+
 describe("an instance that is seen is the instance", () => {
   test("returned, stored, passed, or asked what it is", () => {
     const make = (n: number) => { const p = new Point(n, n); return p; };
