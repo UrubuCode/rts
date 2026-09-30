@@ -155,7 +155,7 @@ mod rewrite;
 mod setters;
 
 use proof::{classes_in, inert, layout_of, spelled, undefined};
-use rewrite::{Born, Instances, born_in_list, unseen};
+use rewrite::{Born, Instances, Spreads, born_in_list, unseen};
 pub(super) use setters::setters_reachable;
 
 /// Every class in `body` that has a layout, by the name a site constructs it
@@ -345,6 +345,7 @@ pub(super) fn rewritten(
         layouts,
         prototype,
         direct: here.direct.as_ref(),
+        spreads: None,
     };
     // Asked BEFORE the body is taken out of it. It was asked after, which
     // answered "nothing was rewritten" for every body whose instances were all
@@ -353,8 +354,117 @@ pub(super) fn rewritten(
     let mut changed = settled.is_some();
     let mut all = settled.unwrap_or_else(|| body.to_vec());
     let nothing = Instances::new();
+    // `f(...xs)` where `xs` is a literal this body declares and never lets
+    // grow is `f(xs[0], xs[1], xs[2])`, and then no array at all. Which arrays
+    // those are is asked of the body AFTER the rewrite, as an instance is: an
+    // `xs.push(4)` anywhere is a use `escape` refuses, and only a literal it
+    // still proves fixed keeps its spread expanded. So two passes, as `unseen`.
+    let arrays = fixed_arrays(&all);
+    let spread_only = match arrays.is_empty() {
+        true => None,
+        false => {
+            let mut tried = all.clone();
+            let seen = std::cell::RefCell::new(BTreeSet::new());
+            let probe = Born {
+                spreads: Some(Spreads {
+                    arrays: &arrays,
+                    only: None,
+                    seen: &seen,
+                }),
+                ..born
+            };
+            born_in_list(&mut tried, &nothing, &probe, &mut false);
+            let seen = seen.into_inner();
+            let captured = crate::emit::capture::captured(
+                &tried,
+                &seen.iter().copied().collect::<Vec<Name>>(),
+                &BTreeSet::new(),
+            );
+            let flattened = crate::emit::escape::analyse(&tried, parameters, &captured);
+            let kept: BTreeSet<Name> = seen
+                .into_iter()
+                .filter(|name| flattened.array_length(*name) == arrays.get(name).copied())
+                .collect();
+            Some(kept)
+        }
+    };
+    let seen = std::cell::RefCell::new(BTreeSet::new());
+    let born = Born {
+        spreads: spread_only.as_ref().map(|kept| Spreads {
+            arrays: &arrays,
+            only: Some(kept),
+            seen: &seen,
+        }),
+        ..born
+    };
     born_in_list(&mut all, &nothing, &born, &mut changed);
     changed.then_some(all)
+}
+
+/// The arrays `body` declares as a literal of single elements — no spread, no
+/// hole — by name and length. Only a `const` or `let` at some statement list
+/// of the body itself; what a nested function declares is that function's.
+fn fixed_arrays(body: &[Stmt]) -> BTreeMap<Name, usize> {
+    let mut found = BTreeMap::new();
+    fixed_arrays_in(body, &mut found);
+    found
+}
+
+fn fixed_arrays_in(list: &[Stmt], found: &mut BTreeMap<Name, usize>) {
+    for statement in list {
+        match &statement.kind {
+            StmtKind::Declare { kind, bindings } if kind.is_block_scoped() => {
+                for binding in bindings {
+                    if let Pattern::Name(name) = &binding.target
+                        && let Some(Expr {
+                            kind: ExprKind::Array { elements },
+                            ..
+                        }) = &binding.value
+                        && elements
+                            .iter()
+                            .all(|element| matches!(element, Some(Spreadable::Single(_))))
+                    {
+                        found.insert(*name, elements.len());
+                    }
+                }
+            }
+            StmtKind::Block(inner) => fixed_arrays_in(inner, found),
+            StmtKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                fixed_arrays_in(std::slice::from_ref(then_branch), found);
+                if let Some(other) = else_branch {
+                    fixed_arrays_in(std::slice::from_ref(other), found);
+                }
+            }
+            StmtKind::While { body, .. }
+            | StmtKind::DoWhile { body, .. }
+            | StmtKind::For { body, .. }
+            | StmtKind::ForEach { body, .. }
+            | StmtKind::Labelled { body, .. } => fixed_arrays_in(std::slice::from_ref(body), found),
+            StmtKind::Switch { clauses, .. } => {
+                for clause in clauses {
+                    fixed_arrays_in(&clause.body, found);
+                }
+            }
+            StmtKind::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                fixed_arrays_in(body, found);
+                if let Some(catch) = catch {
+                    fixed_arrays_in(&catch.body, found);
+                }
+                if let Some(finally) = finally {
+                    fixed_arrays_in(finally, found);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// What a body is asked about its own classes with.

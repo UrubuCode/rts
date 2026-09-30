@@ -3,10 +3,74 @@
 use super::*;
 
 /// What the instances that are seen are rewritten with.
+#[derive(Clone, Copy)]
 pub(super) struct Born<'a> {
     pub(super) layouts: &'a BTreeMap<Name, Rc<Layout>>,
     pub(super) prototype: Name,
     pub(super) direct: Option<&'a Direct<'a>>,
+    /// The spreads to expand, or `None` where this pass expands none.
+    pub(super) spreads: Option<Spreads<'a>>,
+}
+
+/// `f(...xs)` as `f(xs[0], xs[1], xs[2])`, for the arrays whose length the
+/// body fixes.
+#[derive(Clone, Copy)]
+pub(super) struct Spreads<'a> {
+    /// The literal arrays the body declares, by name and length.
+    pub(super) arrays: &'a BTreeMap<Name, usize>,
+    /// The names to expand, or every array of `arrays` on the first pass.
+    pub(super) only: Option<&'a BTreeSet<Name>>,
+    /// The names this pass expanded, for the first pass to ask `escape` about.
+    pub(super) seen: &'a std::cell::RefCell<BTreeSet<Name>>,
+}
+
+/// Every `...xs` in `arguments` with `xs` one of `spreads`' arrays, expanded
+/// to reads at each index. Left alone where nothing expands.
+fn expand_spreads(arguments: &mut Vec<Spreadable>, spreads: &Spreads, at: rts_cranelift::fault::Position) -> bool {
+    let expands = |argument: &Spreadable| match argument {
+        Spreadable::Spread(Expr {
+            kind: ExprKind::Ident(name),
+            ..
+        }) => spreads.arrays.contains_key(name) && spreads.only.is_none_or(|kept| kept.contains(name)),
+        _ => false,
+    };
+    if !arguments.iter().any(expands) {
+        return false;
+    }
+    let mut expanded = Vec::with_capacity(arguments.len() + 4);
+    for argument in arguments.drain(..) {
+        if !expands(&argument) {
+            expanded.push(argument);
+            continue;
+        }
+        let Spreadable::Spread(Expr {
+            kind: ExprKind::Ident(name),
+            ..
+        }) = &argument
+        else {
+            unreachable!("expands() only answers for a spread of a name");
+        };
+        spreads.seen.borrow_mut().insert(*name);
+        let length = spreads.arrays[name];
+        for index in 0..length {
+            expanded.push(Spreadable::Single(Expr {
+                kind: ExprKind::Index {
+                    object: Box::new(Expr {
+                        kind: ExprKind::Ident(*name),
+                        at,
+                    }),
+                    index: Box::new(Expr {
+                        kind: ExprKind::Literal(Literal::Number(index as f64)),
+                        at,
+                    }),
+                    optional: false,
+                },
+                at,
+            }));
+        }
+    }
+    *arguments = expanded;
+    true
 }
 
 /// `f.call(t, a, b)` or `f.apply(t, [a, b])` as `f(a, b)`, where `f` is one
@@ -355,6 +419,13 @@ pub(super) fn rewrite_in(expr: &mut Expr, names: &Instances, born: Option<&Born>
         && let Some(call) = as_call(expr, direct)
     {
         *expr = call;
+        *changed = true;
+    }
+    // `f(...xs)` over an array whose length the body fixes: the reads it is.
+    if let Some(spreads) = born.and_then(|born| born.spreads.as_ref())
+        && let ExprKind::Call { arguments, .. } = &mut expr.kind
+        && expand_spreads(arguments, spreads, expr.at)
+    {
         *changed = true;
     }
     let mut calls_in = |value: &mut Expr, names: &Instances| rewrite_in(value, names, born, changed);

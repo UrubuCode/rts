@@ -175,9 +175,12 @@ struct Candidate {
 /// One small array that may be scalar-replaced by indexed bindings.
 struct ArrayCandidate {
     /// Its fixed, hole-free element count.
+    ///
+    /// No depth beside it, where an object candidate carries one: an object is
+    /// WRITTEN, and a write from an inner scope would need a name the loop
+    /// carries; an array admits only reads at a fixed index, and a read defines
+    /// nothing wherever it sits.
     length: usize,
-    /// How many value-carrying regions enclose its declaration.
-    depth: u32,
 }
 
 /// Decides which of a function body's locals hold an object nothing can reach.
@@ -379,7 +382,7 @@ fn collect(statement: &Stmt, depth: u32, into: &mut Collected) {
                     let Some(length) = array_flattenable(elements) else {
                         continue;
                     };
-                    into.arrays.insert(*name, ArrayCandidate { length, depth });
+                    into.arrays.insert(*name, ArrayCandidate { length });
                 }
                 _ => continue,
             }
@@ -636,7 +639,7 @@ impl Escaping<'_> {
 
     /// Records a read of a fixed array element. Dynamic keys, out-of-range keys
     /// and writes remain ordinary array semantics and therefore refuse flattening.
-    fn note_array_use(&mut self, array: Name, index: usize, depth: u32) {
+    fn note_array_use(&mut self, array: Name, index: usize) {
         if self.declaring == Some(array) {
             self.kill(array, "read inside its own initialiser");
             return;
@@ -644,10 +647,13 @@ impl Escaping<'_> {
         let Some(candidate) = self.arrays.get(&array) else {
             return;
         };
+        // A read from an inner scope is fine for the reason it is fine for an
+        // object: it defines nothing. An array admits no write at all here, so
+        // the value read at `xs[1]` inside a loop is the literal's wherever the
+        // read sits. It was refused, which kept `f(...xs)` expanded to its
+        // reads from ever being flattened -- the read is in the loop that calls.
         if index >= candidate.length {
             self.kill(array, "an index the literal did not write");
-        } else if depth > candidate.depth {
-            self.kill(array, "read from an inner scope");
         }
     }
 }
@@ -726,7 +732,7 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
             if let ExprKind::Ident(name) = &object.kind
                 && let Some(index) = literal_index(index)
             {
-                state.note_array_use(*name, index, depth);
+                state.note_array_use(*name, index);
                 return;
             }
         }

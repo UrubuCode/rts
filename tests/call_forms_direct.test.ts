@@ -90,3 +90,31 @@ describe("call and apply on a function the program proves", () => {
     expect(log.join()).toBe("t,t,a,b");
   });
 });
+
+describe("a spread of an array the function fixes", () => {
+  test("is the reads it stands for, and grows back into a spread where the array grows", () => {
+    const xs = [1, 2, 3];
+    let s = 0;
+    for (let i = 0; i < 1000; i++) s += f3(...xs);
+    expect(s).toBe(123_000);
+    const ys = [4, 5];
+    expect(f3(...ys, 6)).toBe(456);
+    expect(f3(0, ...ys)).toBe(45);
+    const grown = [7, 8];
+    grown.push(9);
+    expect(f3(...grown)).toBe(789);
+    const short = [1];
+    expect(f3(...short)).toBe(NaN);
+    const strs = ["a", "b"];
+    expect(who(...(strs as any))).toBe("undefined:a+b:2");
+    const log: string[] = [];
+    const a = () => { log.push("a"); return 1; };
+    const zs = [a(), a()];
+    expect(f3(...zs, a())).toBe(111);
+    expect(log.join()).toBe("a,a,a");
+    const read = [10, 20];
+    const other = read;
+    other[0] = 30;
+    expect(f3(...read, 0)).toBe(3200);
+  });
+});

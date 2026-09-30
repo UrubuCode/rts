@@ -244,3 +244,21 @@ fn a_class_imported_under_another_name_has_its_layout_and_a_renamed_export_does_
     // under its own name here, which the whole-program proof still covers.
     assert_eq!(in_f, 0, "neither construction is made through the runtime");
 }
+
+#[test]
+fn a_spread_of_a_fixed_local_array_is_its_reads_and_a_grown_one_is_not() {
+    let fixed = "
+function f3(a, b, c) { return a * 100 + b * 10 + c; }
+function f(n) { const xs = [1, 2, 3]; let s = 0; for (let i = 0; i < n; i++) s += f3(...xs); return s; }
+console.log(f(3));";
+    assert_eq!(calls_to(fixed, "__rts_iterate"), 0, "no list is iterated to");
+    assert_eq!(calls_to(fixed, "__rts_array_of"), 0, "and no array is made");
+    let grown = "
+function f3(a, b, c) { return a * 100 + b * 10 + c; }
+function f(n) { const xs = [1, 2]; xs.push(3); let s = 0; for (let i = 0; i < n; i++) s += f3(...xs); return s; }
+console.log(f(3));";
+    // Either stage's spelling of a spread: the running emitter iterates to the
+    // list, the MIR stage appends the iterable to an empty array.
+    let spread = calls_to(grown, "__rts_iterate") + calls_to(grown, "__rts_array_append_all");
+    assert_eq!(spread, 1, "the spread is a spread");
+}
