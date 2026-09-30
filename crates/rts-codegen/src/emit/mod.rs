@@ -1244,6 +1244,7 @@ pub(super) fn emit_program_into(
     let object_name = ctx.names.intern("Object");
     ctx.layouts_allowed = primordial::untouched(body, object_name, eval_name, global_this)
         && !class_layout::setters_reachable(body, &ctx.names);
+    let math_name = ctx.names.intern("Math");
     ctx.layouts = match ctx.layouts_allowed {
         true => class_layout::layouts(
             body,
@@ -1251,6 +1252,7 @@ pub(super) fn emit_program_into(
             &primordial::disturbed(body, eval_name, global_this),
             &receiver::handed_over(body),
             &ctx.names,
+            ctx.math_primordial.then_some(math_name),
         ),
         false => std::collections::BTreeMap::new(),
     };
@@ -1562,6 +1564,7 @@ fn emit_unit(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
+    let math_name = ctx.names.intern("Math");
     ctx.layouts = match ctx.layouts_allowed {
         true => class_layout::layouts(
             body,
@@ -1569,6 +1572,7 @@ fn emit_unit(
             &primordial::disturbed(body, eval_name, global_this),
             &receiver::handed_over(body),
             &ctx.names,
+            ctx.math_primordial.then_some(math_name),
         ),
         false => std::collections::BTreeMap::new(),
     };

@@ -382,10 +382,12 @@ fn emit_function(
     let laid_out = match (&function.body, ctx.with_objects.is_empty()) {
         (FunctionBody::Block(written), true) => {
             let prototype = ctx.names.intern("prototype");
+            let math_name = ctx.names.intern("Math");
             let here = super::class_layout::Here {
                 allowed: ctx.layouts_allowed,
                 eval: ctx.names.intern("eval"),
                 global_this: ctx.names.intern("globalThis"),
+                math: ctx.math_primordial.then_some(math_name),
                 names: &ctx.names,
             };
             super::class_layout::rewritten(&ctx.layouts, written, &parameters, prototype, &here).map(|body| Function {

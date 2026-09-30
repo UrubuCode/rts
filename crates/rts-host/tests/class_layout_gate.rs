@@ -139,3 +139,21 @@ function f(n) {
 console.log(f(3));";
     assert_eq!(calls_to(source, "__rts_construct"), 2, "both are constructed as written");
 }
+
+#[test]
+fn a_method_that_writes_its_fields_and_one_that_asks_math_are_neither_a_call() {
+    let source = "
+class V { x; y; n = 0; constructor(x, y) { this.x = x; this.y = y; }
+  length() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+  scale(k) { this.x = this.x * k; this.y *= k; }
+  bump() { this.n += 1; return this.n; } }
+function f(n) {
+  let s = 0;
+  for (let i = 0; i < n; i++) { const v = new V(i, 4); v.scale(2); s += v.length() + v.bump(); }
+  return s;
+}
+console.log(f(3));";
+    assert_eq!(calls_to(source, "__rts_construct"), 0, "no construction");
+    assert_eq!(calls_to(source, "__rts_object_new_under"), 0, "no object");
+    assert_eq!(calls_to(source, "__rts_call_counted"), 0, "and no call");
+}

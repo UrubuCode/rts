@@ -296,6 +296,53 @@ describe("classes of one name in different functions", () => {
   });
 });
 
+class Body {
+  x: number; y: number; n = 0; tag = "b";
+  constructor(x: number, y: number) { this.x = x; this.y = y; }
+  length(): number { return Math.sqrt(this.x * this.x + this.y * this.y); }
+  scale(k: number): void { this.x = this.x * k; this.y *= k; }
+  bump(): number { this.n += 1; return this.n; }
+  tick(): void { this.n++; }
+  rename(to: string): string { this.tag = to; return this.tag + this.n; }
+  far(limit: number): boolean { return Math.max(Math.abs(this.x), Math.abs(this.y)) > limit; }
+}
+
+describe("a method that writes its own fields", () => {
+  test("writes them, in order, and answers from what it wrote", () => {
+    let total = 0;
+    for (let i = 0; i < 1000; i++) {
+      const b = new Body(3, 4);
+      b.scale(2);
+      total += b.length() + b.bump() + b.bump();
+    }
+    expect(total).toBe(1000 * (10 + 1 + 2));
+    const b = new Body(1, 2);
+    b.tick(); b.tick();
+    expect(b.bump()).toBe(3);
+    expect(b.n).toBe(3);
+    expect(b.rename("z")).toBe("z3");
+    expect(b.tag).toBe("z");
+    b.scale(-3);
+    expect(b.x * 10 + b.y).toBe(-36);
+    expect(b.far(5)).toBe(true);
+    expect(b.far(6)).toBe(false);
+    const used = b.scale(1);
+    expect(used).toBe(undefined);
+  });
+  test("and an instance written to across a loop, or seen, is still the instance", () => {
+    const across = new Body(1, 1);
+    for (let i = 0; i < 10; i++) across.tick();
+    expect(across.n).toBe(10);
+    const kept = [new Body(3, 4)];
+    kept[0].scale(2);
+    expect(kept[0].length() + kept[0].bump()).toBe(11);
+    const text = new Body(1, 2);
+    (text as any).n = "a";
+    text.tick();
+    expect(Number.isNaN(text.n)).toBe(true);
+  });
+});
+
 describe("an instance that is seen is the instance", () => {
   test("returned, stored, passed, or asked what it is", () => {
     const make = (n: number) => { const p = new Point(n, n); return p; };
