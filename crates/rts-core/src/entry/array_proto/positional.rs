@@ -224,8 +224,11 @@ pub(super) extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64,
     if throw::in_flight() {
         return nothing();
     }
+    // Read where they are and copied ONCE, the slice itself. `staged` clones the
+    // whole store first, so a slice of three cost two buffers -- 430 ns against
+    // 87 for a native that copies nothing (release, 2026-09-30).
     let taken = with_current(|context| {
-        let (_, elements) = staged(context, this)?;
+        let elements = borrowed(context, this)?;
         let start = relative(asked_start, elements.len());
         let end = asked_end.map_or(elements.len(), |asked| relative(asked, elements.len()));
         // Crossed rather than swapped, the same as the string method:

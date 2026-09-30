@@ -60,16 +60,30 @@ pub(super) fn made(original: u64, length: usize) -> Option<u64> {
     // `IsArray` first for the same reason `Array.isArray` exists: this is the
     // side table, not the prototype, so an array whose prototype was replaced
     // still answers here and a plain object that inherited from one does not.
-    let held = with_current(|context| {
-        let Some(cell) = Value(original).as_slot() else {
-            return false;
+    // An ORDINARY array -- its own properties are the array layout's, so no own
+    // `constructor`, and it inherits from `Array.prototype` -- resolves
+    // `constructor` to that prototype's, which `built_in` reads in one step
+    // instead of a walk of the chain by name. Where that constructor is the
+    // built-in `Array` and its species getter is the native, the answer is the
+    // built-in path with no call made. Anything else takes the road below.
+    let plain = with_current(|context| {
+        let cell = Value(original).as_slot()?;
+        context.elements_at(cell)?;
+        let ordinary = context.region.type_of(cell) == context.array_layout
+            && context.prototype_at(cell).and_then(|proto| Value(proto).as_slot()) == context.array_prototype;
+        let constructor = match ordinary {
+            true => built_in(context),
+            false => None,
         };
-        if context.elements_at(cell).is_none() {
-            return false;
-        }
-        true
+        Some(constructor)
     });
-    if !held {
+    let Some(constructor_of_plain) = plain else {
+        return None;
+    };
+    if let Some(constructor) = constructor_of_plain
+        && with_current(|context| built_in(context)) == Some(constructor)
+        && species_getter(constructor).is_some_and(is_receiver_getter)
+    {
         return None;
     }
     // Outside every borrow: `constructor` may be a getter and the species is one
@@ -84,7 +98,17 @@ pub(super) fn made(original: u64, length: usize) -> Option<u64> {
     // An absent species is the CONSTRUCTOR itself, which is what the getter the
     // language puts on `Array` returns: `class Same extends Array {}` maps into
     // a `Same`.
-    let answered = property(constructor, super::super::symbol::SPECIES).unwrap_or(constructor);
+    // `C[Symbol.species]` is a GETTER answering its receiver on every built-in
+    // constructor -- `native::species` installs the same one on each -- so where
+    // the getter found is that native, the answer is the constructor and the
+    // call is not made. It was made: every `slice`, `map` and `filter` called a
+    // native to learn what it could see from the native's address, 20 to 40 ns
+    // of a 450 ns `slice` (release, 2026-09-30). A getter a program installed is
+    // any other address and is called as before.
+    let answered = match species_getter(constructor) {
+        Some(getter) if is_receiver_getter(getter) => constructor,
+        _ => property(constructor, super::super::symbol::SPECIES).unwrap_or(constructor),
+    };
     let chosen = with_current(|context| {
         // `undefined` and `null` are the two the specification names as "use the
         // default", and a species that cannot be constructed with is a
@@ -187,7 +211,9 @@ pub(super) fn collected(original: u64, values: Vec<u64>) -> u64 {
     // `Vec` on the Rust heap. See `super::super::rooted`.
     let values = crate::entry::rooted::Rooted::with(values);
     let Some(destination) = made(original, values.len()) else {
-        return super::built(values.take());
+        // Still rooted: `built` would root the same list a second time, which is
+        // another guard made and dropped for nothing.
+        return with_current(|context| super::super::array::built_in_rooted(context, values));
     };
     let values = values.take();
     for (index, value) in values.into_iter().enumerate() {
@@ -197,4 +223,29 @@ pub(super) fn collected(original: u64, values: Vec<u64>) -> u64 {
         }
     }
     destination
+}
+
+/// The getter `constructor[Symbol.species]` resolves to, or `None` where it is
+/// absent or a plain value.
+fn species_getter(constructor: u64) -> Option<u64> {
+    with_current(|context| {
+        let cell = Value(constructor).as_slot()?;
+        let key = context.well_known(super::super::symbol::SPECIES);
+        match super::super::accessor::resolve(context, cell, key) {
+            Found::Getter(getter) => Some(getter),
+            _ => None,
+        }
+    })
+}
+
+/// Whether `getter` is the native every built-in's `Symbol.species` is -- the
+/// one that answers its receiver -- known by its address, which is what a
+/// native cell carries as its code.
+fn is_receiver_getter(getter: u64) -> bool {
+    with_current(|context| {
+        let cell = Value(getter).as_slot()?;
+        let (code, _) = context.callable_at(cell)?;
+        Some(code == super::super::native::species_receiver_address())
+    })
+    .unwrap_or(false)
 }

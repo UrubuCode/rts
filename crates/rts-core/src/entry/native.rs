@@ -368,6 +368,13 @@ pub(in crate::entry) fn species(context: &mut Context, constructor: u64) {
 }
 
 /// A getter answering its receiver — `Symbol.species`, and nothing else yet.
+/// The address [`species`] installs as every built-in's `Symbol.species` getter,
+/// which is how `array_proto::species` tells that getter from one a program
+/// wrote without calling it.
+pub(in crate::entry) fn species_receiver_address() -> u64 {
+    receiver as Native as usize as u64
+}
+
 extern "C" fn receiver(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     this
 }
