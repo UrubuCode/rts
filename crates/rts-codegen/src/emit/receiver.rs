@@ -470,6 +470,22 @@ fn value_reads(expr: &Expr, found: &mut BTreeSet<Name>, ordinary: &BTreeSet<Name
             }
             return;
         }
+        // `f(args)` — calling a name is not reading it as a value either: the
+        // call reaches the function and hands it nothing of itself. Counted as
+        // a read, every function called anywhere was "handed over", and a
+        // `f.call(t, a)` beside an ordinary `f(a)` kept its door for that.
+        ExprKind::Call {
+            callee,
+            arguments,
+            optional: false,
+        } if matches!(&callee.kind, ExprKind::Ident(_)) => {
+            for argument in arguments {
+                let (crate::syntax::Spreadable::Single(value)
+                | crate::syntax::Spreadable::Spread(value)) = argument;
+                value_reads(value, found, ordinary);
+            }
+            return;
+        }
         // `new C(args)` — the callee is not a value read.
         ExprKind::New { callee, arguments } if matches!(&callee.kind, ExprKind::Ident(_)) => {
             for argument in arguments {

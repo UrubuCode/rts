@@ -10,6 +10,8 @@ pub(super) struct Born<'a> {
     pub(super) direct: Option<&'a Direct<'a>>,
     /// The spreads to expand, or `None` where this pass expands none.
     pub(super) spreads: Option<Spreads<'a>>,
+    /// `b` → `(f, partials)` for the bound functions in scope of this pass.
+    pub(super) bound: Option<&'a BTreeMap<Name, (Name, Vec<Spreadable>)>>,
 }
 
 /// `f(...xs)` as `f(xs[0], xs[1], xs[2])`, for the arrays whose length the
@@ -419,6 +421,22 @@ pub(super) fn rewrite_in(expr: &mut Expr, names: &Instances, born: Option<&Born>
         && let Some(call) = as_call(expr, direct)
     {
         *expr = call;
+        *changed = true;
+    }
+    // `b(x)` where `b` is `f.bind(t, p)`: `f(p, x)`.
+    if let Some(bound) = born.and_then(|born| born.bound)
+        && let ExprKind::Call {
+            callee,
+            arguments,
+            optional: false,
+        } = &mut expr.kind
+        && let ExprKind::Ident(name) = &callee.kind
+        && let Some((function, partial)) = bound.get(name)
+    {
+        callee.kind = ExprKind::Ident(*function);
+        let mut passed = partial.clone();
+        passed.append(arguments);
+        *arguments = passed;
         *changed = true;
     }
     // `f(...xs)` over an array whose length the body fixes: the reads it is.

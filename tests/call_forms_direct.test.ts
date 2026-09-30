@@ -118,3 +118,25 @@ describe("a spread of an array the function fixes", () => {
     expect(f3(...read, 0)).toBe(3200);
   });
 });
+
+describe("a bound function the body declares and keeps to itself", () => {
+  test("calls its target with the partials first, and is still a bound function", () => {
+    const inc = plus.bind(null, 1);
+    let s = 0;
+    for (let i = 0; i < 1000; i++) s += inc(i);
+    expect(s).toBe(499500 + 1000);
+    const tens = plus.bind(undefined, 10);
+    expect(tens(5) + inc(1)).toBe(17);
+    const none = twice.bind(null);
+    expect(none(21)).toBe(42);
+    expect((none as any)()).toBe(NaN);
+    expect(typeof inc).toBe("function");
+    expect(inc.name).toBe("bound plus");
+    expect(inc.length).toBe(1);
+    let early = "";
+    try { (late as any)(1); } catch (e: any) { early = e.name; }
+    const late = plus.bind(null, 2);
+    expect(early).toBe("ReferenceError");
+    expect(late(3)).toBe(5);
+  });
+});

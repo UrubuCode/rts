@@ -346,6 +346,7 @@ pub(super) fn rewritten(
         prototype,
         direct: here.direct.as_ref(),
         spreads: None,
+        bound: None,
     };
     // Asked BEFORE the body is taken out of it. It was asked after, which
     // answered "nothing was rewritten" for every body whose instances were all
@@ -398,7 +399,117 @@ pub(super) fn rewritten(
         ..born
     };
     born_in_list(&mut all, &nothing, &born, &mut changed);
+    // `const b = f.bind(t, p)` at the top of the body, then `b(x)`: the call
+    // is `f(p, x)`. Only from the declaration on — a `b(x)` written above it
+    // is the language's `ReferenceError` and stays one — and only where `b`
+    // is declared once and never read as a value, since `b` handed to
+    // anything may be called with any receiver. Each statement after the
+    // declaration is walked with the bindings known so far.
+    if let Some(direct) = here.direct.as_ref() {
+        let declared = Declarations::of(&all);
+        let handed_over = crate::emit::receiver::handed_over(&all);
+        let mut bound: BTreeMap<Name, (Name, Vec<Spreadable>)> = BTreeMap::new();
+        for at in 0..all.len() {
+            if let Some((name, function, partial)) =
+                as_binding(&all[at], direct, &declared, &handed_over)
+            {
+                bound.insert(name, (function, partial));
+                continue;
+            }
+            if bound.is_empty() {
+                continue;
+            }
+            let pass = Born {
+                bound: Some(&bound),
+                ..born
+            };
+            born_in_list(std::slice::from_mut(&mut all[at]), &nothing, &pass, &mut changed);
+        }
+    }
     changed.then_some(all)
+}
+
+/// `const b = f.bind(t, p, q)` where `f` is one of `direct`'s functions and
+/// nothing about it can change: `t` inert, every partial a literal — a name
+/// could be reassigned between the binding and a call — `b` declared once and
+/// never read as a value. What `b` is bound to, and the partials.
+fn as_binding(
+    statement: &Stmt,
+    direct: &Direct,
+    declared: &Declarations,
+    handed_over: &BTreeSet<Name>,
+) -> Option<(Name, Name, Vec<Spreadable>)> {
+    let StmtKind::Declare { kind, bindings } = &statement.kind else {
+        return None;
+    };
+    if !kind.is_block_scoped() {
+        return None;
+    }
+    let [binding] = &bindings[..] else {
+        return None;
+    };
+    let Pattern::Name(name) = &binding.target else {
+        return None;
+    };
+    let Some(Expr {
+        kind: ExprKind::Call {
+            callee,
+            arguments,
+            optional: false,
+        },
+        ..
+    }) = &binding.value
+    else {
+        return None;
+    };
+    let ExprKind::Member {
+        object,
+        property,
+        optional: false,
+    } = &callee.kind
+    else {
+        return None;
+    };
+    let ExprKind::Ident(function) = &object.kind else {
+        return None;
+    };
+    if *property != direct.bind
+        || !direct.functions.contains_key(function)
+        || direct.handed_over.contains(function)
+        || declared.count(*name) != 1
+        || handed_over.contains(name)
+    {
+        return None;
+    }
+    let [Spreadable::Single(receiver), partial @ ..] = &arguments[..] else {
+        return None;
+    };
+    let inert_receiver = matches!(
+        &receiver.kind,
+        ExprKind::Ident(_)
+            | ExprKind::This
+            | ExprKind::Literal(
+                Literal::Number(_) | Literal::String(_) | Literal::Boolean(_) | Literal::Singleton(_)
+            )
+    );
+    if !inert_receiver {
+        return None;
+    }
+    let literal = |held: &Spreadable| {
+        matches!(
+            held,
+            Spreadable::Single(Expr {
+                kind: ExprKind::Literal(
+                    Literal::Number(_) | Literal::String(_) | Literal::Boolean(_) | Literal::Singleton(_)
+                ),
+                ..
+            })
+        )
+    };
+    if !partial.iter().all(literal) {
+        return None;
+    }
+    Some((*name, *function, partial.to_vec()))
 }
 
 /// The arrays `body` declares as a literal of single elements — no spread, no
@@ -500,6 +611,7 @@ pub(super) struct Direct<'a> {
     pub handed_over: &'a BTreeSet<Name>,
     pub call: Name,
     pub apply: Name,
+    pub bind: Name,
 }
 
 /// The program's layouts and those of the classes `body` declares for itself,
