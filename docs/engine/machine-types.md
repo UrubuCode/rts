@@ -137,10 +137,6 @@ a load with no check, which is what `docs/codegen/element-load.md` is about.
 conversion functions cover every legitimate use, and the constructor spelling
 would advertise a machine type while allocating a cell.
 
-**`rts:ptr` and `rts:mem`.** Removed by decision with the rest of the old
-engine's raw surfaces. What they were for comes back as `Span`, which carries a
-length and cannot name memory it was not given.
-
 **A storage system beside the typed arrays.** `Int32Array` and its family are
 the language's flat storage and are already implemented here. `Span` views them;
 it does not replace them. Two ways to hold a machine-width number is the "one
@@ -153,6 +149,53 @@ program: the ASCII scan in `Str::from_str`, the escape scan in `JSON.stringify`,
 `memchr` behind `indexOf`. Those are reachable with Rust's own intrinsics and no
 surface at all. A surface is worth revisiting once the internal ones are
 measured.
+
+## Raw memory, FFI, and the one limit that is not a preference
+
+This document first listed `rts:ptr` and `rts:mem` among the refusals, on the
+grounds that they were "removed by decision". That is wrong about the decision
+and the paragraph is gone. They were removed to leave the OLD ABI behind, not
+because a compiled language should be unable to name memory — and the goal
+stated for this engine is the JavaScript API **and** everything a machine can
+do, a TLS stack written here included. The crates in the tree are there to avoid
+basic work, not to draw a boundary.
+
+So the question is not whether these come back but in what shape, and there is
+exactly one constraint that no policy can relax: **the collector decides what a
+word may be.** A raw address stored where the scan can see it is a word the scan
+will follow, and a moving collector would later have to rewrite it. That is the
+same rule `i64` obeys, for the same reason. Three shapes satisfy it:
+
+- **Memory outside the region.** Not scanned, never moved, with a stated
+  lifetime — explicit release or a lexical scope. This is what a byte buffer for
+  a socket, a record, or a cipher block wants, and it is what `rts:mem` should
+  be: an allocation the collector is told about and does not walk.
+- **A handle carrying a length, not a forgeable integer.** `Span` over region
+  memory or over outside memory. A length is checkable, and it is what lets the
+  runtime stay correct the day the collector moves: the handle is updated, an
+  integer could not be.
+- **A raw address only where the scan cannot see it** — in a typed array's
+  bytes, or in an `i64` local — never as a tagged value. A program that needs
+  to hand a pointer to a C function is handing it from one of those.
+
+**FFI.** `rts-napi` already loads a real npm addon and exports 146 `napi_*`
+symbols, so calling native code is not a missing capability — it is a capability
+with one spelling. A direct `rts:ffi` (a library opened by name, a signature
+declared, the call emitted) is the general form, and its real cost is the
+boundary rather than the call: a collection must not run while a native holds a
+raw pointer into the region, and a callback from C needs the context. Both are
+statable — a frame the collector knows about, which is the same machinery a
+moving collector needs — and neither is a reason to leave the capability out.
+
+**What a TLS stack actually needs**, since it is the stated example: sockets
+(`node:net`, here), raw bytes (`Uint8Array`, here), and then the parts that
+decide whether it is fast or merely correct — declared widths so the arithmetic
+stays in integer registers, spans so the inner loops carry no repeated bounds
+check, a constant-time comparison that the optimiser is forbidden to shorten,
+and **intrinsics for AES-NI and the SHA extensions**. The first three are items
+in the list above. The last is a machine-layer capability rather than a library,
+and it is the honest reason a TLS written against this surface would still want
+one addition: a CPU feature named, and an instruction emitted.
 
 ## The order, by what was measured
 
