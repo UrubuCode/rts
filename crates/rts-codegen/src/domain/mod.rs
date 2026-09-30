@@ -223,6 +223,7 @@ impl Js {
         RuntimeOp::ClosureNewLight,
         RuntimeOp::ObjectNewUnder,
         RuntimeOp::FunctionApplyListedDirect,
+        RuntimeOp::SpreadList,
         // An object pattern's rest: a fresh object and the source's own keys --
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,

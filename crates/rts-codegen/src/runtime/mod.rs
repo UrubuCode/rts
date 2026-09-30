@@ -1166,6 +1166,10 @@ pub enum RuntimeOp {
     /// elements in the slots, as [`RuntimeOp::FunctionCallDirect`] carries them,
     /// so no array is built. **Appended**, the same reason.
     FunctionApplyListedDirect,
+    /// The list `f(...xs)` hands the door: `xs` itself where it is a hole-free
+    /// array, what [`RuntimeOp::Iterate`] answers otherwise. **Appended**, the
+    /// same reason.
+    SpreadList,
 }
 
 impl RuntimeOp {
@@ -1305,6 +1309,7 @@ impl RuntimeOp {
         RuntimeOp::ClosureNewLight,
         RuntimeOp::ObjectNewUnder,
         RuntimeOp::FunctionApplyListedDirect,
+        RuntimeOp::SpreadList,
     ];
 
     /// The linker name the runtime must define.
@@ -1444,6 +1449,7 @@ impl RuntimeOp {
             RuntimeOp::ClosureNewLight => "__rts_closure_new_light",
             RuntimeOp::ObjectNewUnder => "__rts_object_new_under",
             RuntimeOp::FunctionApplyListedDirect => "__rts_function_apply_listed_direct",
+            RuntimeOp::SpreadList => "__rts_spread_list",
         }
     }
 
@@ -1481,7 +1487,9 @@ impl RuntimeOp {
             RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
-            RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder | RuntimeOp::SpreadList => {
+                (vec![UNPROVEN], vec![UNPROVEN])
+            }
             RuntimeOp::TemplateJoin => {
                 let mut params = vec![Repr::I64, Repr::I64];
                 params.extend(std::iter::repeat_n(UNPROVEN, TEMPLATE_JOINED));

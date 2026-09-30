@@ -150,6 +150,18 @@ impl Lowering<'_> {
         {
             return Ok(None);
         }
+        // ONE spread and nothing else is the list the spread already is, where it
+        // is a hole-free array, and what it iterates to otherwise -- the running
+        // emitter's `SpreadList`, so the two stages compile the same call. It was
+        // an empty array appended to, which copies the array the program wrote.
+        if let [crate::syntax::Spreadable::Spread(source)] = arguments {
+            let source = self.expression(source)?;
+            return Ok(Some(self.entry(
+                crate::runtime::RuntimeOp::SpreadList,
+                vec![source],
+                at,
+            )));
+        }
         let elements: Vec<Option<crate::syntax::Spreadable>> =
             arguments.iter().cloned().map(Some).collect();
         self.array_literal(&elements, at).map(Some)

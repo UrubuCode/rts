@@ -73,6 +73,7 @@ use super::computed::INDEX_NUMBER_DIRECT_ENTRY;
 use super::light_call::CLOSURE_NEW_LIGHT_ENTRY;
 use super::object_under::OBJECT_NEW_UNDER_ENTRY;
 use super::function_direct::FUNCTION_APPLY_LISTED_DIRECT_ENTRY;
+use super::spread_list::SPREAD_LIST_ENTRY;
 use super::number::{NUMBER_TO_FIXED_DIRECT_ENTRY, NUMBER_TO_STRING_DIRECT_ENTRY};
 use super::string::STRING_CHAR_CODE_AT_DIRECT_ENTRY;
 use super::collections::{
@@ -824,6 +825,9 @@ pub enum CoreEntry {
     /// [`super::function_apply_listed_direct`] — `f.apply(t, [a, b])` with the
     /// list's elements handed over instead of the list.
     FunctionApplyListedDirect = 128,
+    /// [`super::spread_list`] — the list `f(...xs)` hands the door, as written
+    /// where it already is one.
+    SpreadList = 129,
 }
 
 /// How many entry points exist.
@@ -831,7 +835,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 129;
+pub const CORE_ENTRY_COUNT: usize = 130;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -965,6 +969,7 @@ impl CoreEntry {
         CoreEntry::ClosureNewLight,
         CoreEntry::ObjectNewUnder,
         CoreEntry::FunctionApplyListedDirect,
+        CoreEntry::SpreadList,
     ];
 
     /// The number a call site holds.
@@ -1109,6 +1114,7 @@ impl CoreEntry {
             CoreEntry::ClosureNewLight => CLOSURE_NEW_LIGHT_ENTRY,
             CoreEntry::ObjectNewUnder => OBJECT_NEW_UNDER_ENTRY,
             CoreEntry::FunctionApplyListedDirect => FUNCTION_APPLY_LISTED_DIRECT_ENTRY,
+            CoreEntry::SpreadList => SPREAD_LIST_ENTRY,
         }
     }
 

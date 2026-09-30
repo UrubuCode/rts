@@ -257,8 +257,10 @@ console.log(f(3));";
 function f3(a, b, c) { return a * 100 + b * 10 + c; }
 function f(n) { const xs = [1, 2]; xs.push(3); let s = 0; for (let i = 0; i < n; i++) s += f3(...xs); return s; }
 console.log(f(3));";
-    // Either stage's spelling of a spread: the running emitter iterates to the
-    // list, the MIR stage appends the iterable to an empty array.
-    let spread = calls_to(grown, "__rts_iterate") + calls_to(grown, "__rts_array_append_all");
+    // A lone spread is `SpreadList` in both stages; a spread beside other
+    // arguments is iterated to a list or appended to an empty array.
+    let spread = calls_to(grown, "__rts_spread_list")
+        + calls_to(grown, "__rts_iterate")
+        + calls_to(grown, "__rts_array_append_all");
     assert_eq!(spread, 1, "the spread is a spread");
 }

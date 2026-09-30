@@ -140,3 +140,24 @@ describe("a bound function the body declares and keeps to itself", () => {
     expect(late(3)).toBe(5);
   });
 });
+
+describe("a spread of an array the function does not fix", () => {
+  test("hands the array itself, and nothing the callee does reaches it", () => {
+    const xs = [1, 2, 3];
+    const keep = [xs];
+    let s = 0;
+    for (let i = 0; i < 1000; i++) s += f3(...xs);
+    expect(s).toBe(123_000);
+    function grows(...r: number[]): number { r.push(9); return r.length; }
+    function writes(...r: number[]): number { (arguments as any)[0] = 100; r[1] = 200; return r[0] + r[1]; }
+    expect(grows(...xs)).toBe(4);
+    expect(xs.length).toBe(3);
+    expect(writes(...xs)).toBe(201);
+    expect(xs.join()).toBe("1,2,3");
+    expect(keep[0]).toBe(xs);
+    const holes = [1, , 3] as number[];
+    expect(who(...holes)).toBe("undefined:1++3:3");
+    const six = [1, 2, 3, 4, 5, 6];
+    expect(who(...six)).toBe("undefined:1+2+3+4+5+6:6");
+  });
+});

@@ -72,6 +72,7 @@ mod direct_call;
 mod array_spare;
 mod construct_plain;
 mod object_under;
+mod spread_list;
 mod light_call;
 mod function_direct;
 mod functions;
@@ -147,6 +148,7 @@ pub use function_direct::{function_apply_direct, function_call_direct};
 pub use light_call::closure_new_light;
 pub use object_under::object_new_under;
 pub use function_direct::function_apply_listed_direct;
+pub use spread_list::spread_list;
 pub use number::{number_to_fixed_direct, number_to_string_direct};
 pub use collections::{map_get_direct, map_has_direct, map_set_direct, set_add_direct, set_has_direct};
 pub use functions::{

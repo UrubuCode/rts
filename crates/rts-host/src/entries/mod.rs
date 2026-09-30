@@ -416,6 +416,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::function_apply_listed_direct
                 as extern "C" fn(u64, u64, u64, u64, u64, i64, i64) -> u64 as *const u8
         }),
+        RuntimeOp::SpreadList => (CoreEntry::SpreadList, {
+            rts_core::entry::spread_list as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
         }),

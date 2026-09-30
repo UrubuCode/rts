@@ -270,8 +270,12 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 129 on 2026-09-29 for `function_apply_listed_direct`: `f.apply(t,
     // [a])` with the literal's elements handed over, which REMOVES the array —
     // 115 of 195 ns.
+    //
+    // Moved to 130 on 2026-09-30 for `spread_list` (`spread_list.rs`): `f(...xs)`
+    // hands the array written instead of a copy of it, which REMOVES the copy —
+    // 300 of 350 ns.
     assert!(
-        CORE_ENTRY_COUNT <= 129,
+        CORE_ENTRY_COUNT <= 130,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );
