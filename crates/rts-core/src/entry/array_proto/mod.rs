@@ -100,7 +100,13 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     // answer: the element store, the mark and the `length` are attached
     // together there, and a hand-rolled version here is where the three would
     // come to disagree.
-    let Some(cell) = Value(super::array::built_in(context, Vec::new())).as_slot() else {
+    // WIDE, so that every method is an inline slot: a site reading `xs.at`
+    // through the prototype reaches one load past the holder's header, and a
+    // method in the overflow was refused on every call. Four over the three
+    // lists for `Symbol.iterator`, `constructor` and what `more` adds by hand.
+    let room = NATIVES.len() + iterate::NATIVES.len() + more::NATIVES.len() + 4;
+    let Some(cell) = Value(super::array::built_in_with_room(context, Vec::new(), room)).as_slot()
+    else {
         return None;
     };
     // Recorded BEFORE the methods are installed, for the reason the string

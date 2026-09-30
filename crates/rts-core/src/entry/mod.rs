@@ -482,6 +482,15 @@ pub struct Context {
     /// records: one cell is the prototype of one or two shapes in practice, and
     /// hashing would cost more than walking them.
     proto_types: Aside<Vec<(rts_cranelift::shape::ShapeId, rts_cranelift::types::TypeId)>>,
+    /// The other direction of `proto_types`: which link a type was minted
+    /// under, by type index. `None` for a type `layout_of` answered, which is
+    /// discriminated by nothing.
+    ///
+    /// It exists for the cells that record NO link and inherit by kind —
+    /// every array — so that `typed_as` can discriminate their type by the
+    /// prototype the kind substitutes, and a site reading through it can
+    /// learn the link from the type alone. See `Context::inherits_link`.
+    link_of_type: Vec<Option<u32>>,
     /// Which cells are callable, and what they call.
     ///
     /// # Why beside the cell and not in it
@@ -760,6 +769,10 @@ pub struct Context {
     /// reason `string_prototype` records: `array_new` would otherwise write the
     /// link at every allocation to record one fact they all share.
     array_prototype: Option<u32>,
+    /// Whether `array_proto::prototype_of` is on the stack: the prototype is
+    /// an array, so allocating it reaches `array::allocate_array_cell`, which
+    /// would otherwise ask for the prototype it is in the middle of making.
+    array_prototype_building: bool,
     /// What the `{ value, done }` of every iterator step inherits from.
     ///
     /// Remembered because `generator::result` asked for it by NAME once per
@@ -1340,6 +1353,7 @@ impl Context {
             cursors: Aside::in_region(bits),
             prototypes: Aside::in_region(bits),
             proto_types: Aside::in_region(bits),
+            link_of_type: Vec::new(),
             array_elements: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
             pending_stacks: Aside::in_region(bits),
@@ -1386,6 +1400,7 @@ impl Context {
             globals: None,
             string_prototype: None,
             array_prototype: None,
+            array_prototype_building: false,
             generator_result_prototype: None,
             array_iterator_method: None,
             array_cursor_next: None,

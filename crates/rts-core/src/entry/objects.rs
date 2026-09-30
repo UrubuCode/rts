@@ -747,7 +747,11 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
     // Re-typed against the SAME link, not against nothing: an instance that
     // gains a field must not lose the discrimination it was allocated with, or
     // two classes collide again the moment one of their instances grows.
-    let link = context.prototype_at(slot);
+    // `inherits_link` and not `prototype_at`: an array records no link and is
+    // discriminated by its type alone, so asking the table would grow it into
+    // the undiscriminated layout and every site reading a method through it
+    // would be refused from then on.
+    let link = context.inherits_link(slot);
     let ty = context.typed_as(grown, link).index() as u32;
     let was = context.region.type_of(slot);
     context.retype_cell(slot, ty);

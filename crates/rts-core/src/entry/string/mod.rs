@@ -73,7 +73,20 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     if let Some(made) = context.string_prototype {
         return Some(made);
     }
-    let cell = super::native::plain(context)?;
+    // Wide, so every method is an inline slot a site reading through the
+    // prototype can reach — `native::plain_with_room` has the measurement.
+    // Four over the lists for `constructor`, `Symbol.iterator` and what is
+    // installed by hand below.
+    let room = basic::NATIVES.len()
+        + search::NATIVES.len()
+        + pattern::NATIVES.len()
+        + split::NATIVES.len()
+        + replace::NATIVES.len()
+        + more::NATIVES.len()
+        + points::NATIVES.len()
+        + html::NATIVES.len()
+        + 4;
+    let cell = super::native::plain_with_room(context, room)?;
     // Recorded BEFORE the methods are installed. Installing them interns names,
     // and interning allocates strings — every one of which reaches this function
     // through the chain walk. Setting it afterwards would recurse until the

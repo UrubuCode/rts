@@ -381,7 +381,37 @@ extern "C" fn receiver(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u6
 
 /// An object with nothing on it, for something to be a prototype.
 pub(in crate::entry) fn plain(context: &mut Context) -> Option<u32> {
+    plain_with_room(context, 0)
+}
+
+/// The same, sized to hold `slots` properties inline.
+///
+/// # Why a prototype is sized at birth
+///
+/// Because the inline cache that reads a method THROUGH a prototype reaches
+/// one load past the holder's header and no further: a slot in the holder's
+/// overflow is "past the slots the link owns", refused, and refused forever.
+/// `Array.prototype` carries some forty methods against a cell's fifteen
+/// slots, so `xs.at`, `xs.find` and every other method installed after the
+/// fourteenth resolved by name on every call — 89 ns for a call whose native
+/// costs 23 (release, 2026-09-30) — while `xs.indexOf`, installed early, was
+/// cached. Which methods were fast was decided by the order of a table.
+///
+/// A wide cell owns every slot contiguously past its header, so the fortieth
+/// is the same load as the second; `objects::object_new_wide` is the same
+/// decision for a module's scope. The count is what the `#[rtse::class]` block
+/// declares, so it is known where the cell is made; a program that later adds
+/// a method to a built-in prototype grows it into the overflow as before.
+pub(in crate::entry) fn plain_with_room(context: &mut Context, slots: usize) -> Option<u32> {
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
+    let wanted = u32::try_from(slots).unwrap_or(0);
+    if wanted > crate::heap::INLINE_SLOTS {
+        // One more than asked: the last slot of a cell holds the address of
+        // its overflow and belongs to no property (`cache::resolve`).
+        let size = rts_cranelift::mem::HeaderLayout::BYTES
+            + (wanted + 1) * rts_cranelift::mem::SLOT_BYTES;
+        return Some(super::alloc::alloc_spanning_or_die(context, size, ty));
+    }
     super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty)
 }

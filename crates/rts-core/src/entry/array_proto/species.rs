@@ -69,8 +69,12 @@ pub(super) fn made(original: u64, length: usize) -> Option<u64> {
     let plain = with_current(|context| {
         let cell = Value(original).as_slot()?;
         context.elements_at(cell)?;
+        // `inherits_link` and not `prototype_at`: an ordinary array records no
+        // link, so the table answered `None` and this arm never fired — the
+        // getter shortcut below was doing the work on its own. The type is
+        // minted under `Array.prototype`, and the link is read off it.
         let ordinary = context.region.type_of(cell) == context.array_layout
-            && context.prototype_at(cell).and_then(|proto| Value(proto).as_slot()) == context.array_prototype;
+            && context.inherits_link(cell).and_then(|proto| Value(proto).as_slot()) == context.array_prototype;
         let constructor = match ordinary {
             true => built_in(context),
             false => None,

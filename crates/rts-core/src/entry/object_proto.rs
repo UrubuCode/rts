@@ -492,6 +492,20 @@ fn owns(this: u64, key: u64) -> bool {
                 .get(at)
                 .is_some_and(|&held| !super::array::is_hole(context, held));
         }
+        // A string's code units and its `length` are own too, and no shape
+        // records them either: `"abc".hasOwnProperty("length")` and
+        // `.hasOwnProperty("0")` both answered false (found 2026-09-30, while
+        // checking a string method site against Node).
+        if let Some(text) = context.text_at(cell) {
+            let units = text.len();
+            if let Some(at) = super::array::as_index(context, Value(key)) {
+                return at < units;
+            }
+            let length = super::computed::length_key(context);
+            if own_key(context, key) == Some(length) {
+                return true;
+            }
+        }
         let Some(key) = own_key(context, key) else {
             return false;
         };

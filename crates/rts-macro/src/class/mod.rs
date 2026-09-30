@@ -231,7 +231,12 @@ fn namespace_body(
         if let Some(made) = crate::entry::class_support::made(context, #name) {
             return made;
         }
-        let Some(cell) = crate::entry::native::plain(context) else {
+        // Sized to its members, so every one of them is an inline slot the
+        // cache reading through it can reach -- see `native::plain_with_room`.
+        let Some(cell) = crate::entry::native::plain_with_room(
+            context,
+            #natives.len() + #constants.len() + 2,
+        ) else {
             return crate::entry::objects::undefined_of(context);
         };
         let object = crate::value::Value::from_slot(cell).bits();
@@ -327,7 +332,14 @@ fn class_body(
         if let Some(made) = crate::entry::class_support::made(context, #name) {
             return made;
         }
-        let Some(prototype_cell) = crate::entry::native::plain(context) else {
+        // Sized to its members, so every one of them is an inline slot the
+        // cache reading through it can reach -- see `native::plain_with_room`.
+        // Four over the count: `constructor`, and the symbol-keyed members a
+        // class installs by hand after this (`Symbol.iterator`, `toStringTag`).
+        let Some(prototype_cell) = crate::entry::native::plain_with_room(
+            context,
+            #natives.len() + #constants.len() + 4,
+        ) else {
             return crate::entry::objects::undefined_of(context);
         };
         let prototype = crate::value::Value::from_slot(prototype_cell).bits();

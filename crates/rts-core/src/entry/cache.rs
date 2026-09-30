@@ -439,7 +439,7 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
                 explain("the receiver is not a cell in this region", context);
                 return -1;
             };
-            let link = context.prototype_at(object as u32);
+            let link = context.inherits_link(object as u32);
             let ty = context.typed_as(grown, link).index() as u32;
             context.retype_cell(object as u32, ty);
             let Some(after) = context.region.header_of(object as u32) else {
@@ -811,13 +811,29 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             return refuse("the receiver has accessors of its own");
         }
 
-        // No recorded link, no walk. This is not an optimisation: `inherited_from`
-        // SUBSTITUTES a prototype by kind for arrays, callables, text and plain
-        // objects, so those cells share one undiscriminated layout — and a site
-        // that cached against one would recognise every other. An array and an
-        // object literal holding `length` reach the same shape and the same type
-        // today, which is exactly the collision this refusal removes.
-        let Some(link) = context.prototype_at(cell) else {
+        // No link the TYPE can vouch for, no walk. This is not an optimisation:
+        // `inherited_from` SUBSTITUTES a prototype by kind for callables, text
+        // and plain objects, so those cells share one undiscriminated layout —
+        // and a site that cached against one would recognise every other. An
+        // array holding `length` and an object literal holding `length` reach
+        // the same SHAPE, which is exactly the collision this refusal removes.
+        //
+        // An array answers here all the same, because its type is minted under
+        // `Array.prototype` (`Context::typed_as`) and `inherits_link` reads the
+        // link back off the type: recognising the header proves the link, which
+        // is the argument the paragraph above the signature makes for a
+        // recorded one. Before that, every `xs.at(1)`, `xs.map(f)` and
+        // `xs.hasOwnProperty(k)` site was refused on every execution — 89 ns
+        // for a native call that costs 23 (release, 2026-09-30).
+        //
+        // A STRING answers through the same door: its type is the text layout,
+        // which nothing else has. The prototype is made lazily on the first
+        // method call, and that call is this resolution — so it is made here
+        // first, or the site would be refused, marked, and never asked again.
+        if context.region.type_of(cell) == Some(context.text_type_index()) {
+            super::string::prototype_of(context);
+        }
+        let Some(link) = context.inherits_link(cell) else {
             return refuse("the receiver has no recorded link");
         };
         let Some(holder) = crate::value::Value(link).as_slot() else {
@@ -854,10 +870,15 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             if middle.is_some() {
                 return refuse("the key is more than two links away");
             }
-            let Some(next) = context
-                .prototype_at(holder)
-                .and_then(|link| crate::value::Value(link).as_slot())
-            else {
+            // `inherited_from` and not `prototype_at`: the holder is known by
+            // ADDRESS here (word two, and its header in word three), so the
+            // prototype its kind substitutes is as much a fact about it as a
+            // recorded link would be — `Array.prototype` inherits from
+            // `Object.prototype` by being an array, and relinking it retypes
+            // it (`chain::apply_prototype`), which the header compare notices.
+            // Without this, `xs.hasOwnProperty(k)` was refused at the second
+            // step on every array in every program.
+            let Some(next) = super::objects::inherited_from(context, holder) else {
                 return refuse("the key is absent from the link's shape");
             };
             // The cell between is walked THROUGH, so what it holds for this key

@@ -94,6 +94,15 @@ impl Context {
     /// a prototype by kind for arrays, callables, text and plain objects, so
     /// those cells record no link and must go on sharing one layout. It is also
     /// what makes the resolver's refusal of a link-less receiver sound.
+    ///
+    /// An ARRAY is the exception, and it is one by being asked here WITH the
+    /// link its kind substitutes: `array::allocate_array_cell` passes
+    /// `Array.prototype`, so an array's type is minted under it and
+    /// [`Self::inherits_link`] can read the link back off the type. Nothing is
+    /// recorded per cell — every array still shares one type — and a plain
+    /// object holding `length` keeps the undiscriminated layout it always had.
+    /// Measured before: `xs.at(1)` was 89 ns of which the native call was 23,
+    /// because the site reading `at` was refused on every execution.
     pub(super) fn typed_as(
         &mut self,
         shape: rts_cranelift::shape::ShapeId,
@@ -125,7 +134,54 @@ impl Context {
             Some(known) => known.push((shape, fresh)),
             None => self.proto_types.set(cell, vec![(shape, fresh)]),
         }
+        if self.link_of_type.len() <= fresh.index() {
+            self.link_of_type.resize(fresh.index() + 1, None);
+        }
+        self.link_of_type[fresh.index()] = Some(cell);
         fresh
+    }
+
+    /// The link a type was minted under, if it was minted under one.
+    pub(super) fn link_of_type(&self, ty: u32) -> Option<u32> {
+        self.link_of_type.get(ty as usize).copied().flatten()
+    }
+
+    /// What a cell inherits from, as far as its TYPE can say: the link it
+    /// records, or else the one its type was minted under.
+    ///
+    /// # Why this is not `objects::inherited_from`
+    ///
+    /// That one answers for every cell, substituting a prototype by kind for
+    /// whatever records no link — which is the right answer for a property
+    /// walk and the wrong one for anything that will be REMEMBERED against the
+    /// cell's type. A plain object and an array holding `length` share one
+    /// undiscriminated layout, so a site that remembered the substituted link
+    /// against that layout would answer `Array.prototype` for the object. This
+    /// answers only what the type number itself discriminates: an array is
+    /// born at a type minted under `Array.prototype`, so its link is provable
+    /// from the header the machine compares, where a plain object's is not.
+    ///
+    /// Every retype that must keep a cell's discrimination — a growth, a
+    /// `delete` — asks this rather than `prototype_at`, or an array would lose
+    /// its type's link the first time it gained a property.
+    pub(super) fn inherits_link(&self, cell: u32) -> Option<u64> {
+        if let Some(recorded) = self.prototype_at(cell) {
+            return Some(recorded);
+        }
+        let ty = self.region.type_of(cell)?;
+        // A string's type is the text layout and nothing else's, so the header
+        // proves the kind and the kind names the prototype: the same argument
+        // as an array's, with the discrimination coming from the reserved
+        // layout rather than from `typed_as`. Only once the prototype exists —
+        // before that there is nothing to answer, and the first method call
+        // makes it.
+        if ty == self.text_type.index() as u32 {
+            return self
+                .string_prototype
+                .map(|link| crate::value::Value::from_slot(link).bits());
+        }
+        self.link_of_type(ty)
+            .map(|link| crate::value::Value::from_slot(link).bits())
     }
 
     /// Records which shape a layout came from.

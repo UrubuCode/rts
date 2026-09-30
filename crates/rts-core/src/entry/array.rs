@@ -194,9 +194,20 @@ pub(in crate::entry) fn visible(context: &Context, held: u64) -> u64 {
 /// ambient one — `process.argv` is an array built before the program starts —
 /// and the entry point above would abort there with nothing installed.
 pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u64 {
+    built_in_with_room(context, elements, 0)
+}
+
+/// The same, with room for `slots` properties inline — for `Array.prototype`,
+/// which is an array carrying forty methods, every one of which a site reading
+/// through it must find inline. See `native::plain_with_room`.
+pub(in crate::entry) fn built_in_with_room(
+    context: &mut Context,
+    elements: Vec<u64>,
+    slots: usize,
+) -> u64 {
     let count = elements.len();
     let store = context.arrays.insert(elements).slot();
-    let cell = allocate_array_cell(context);
+    let cell = allocate_array_cell_with_room(context, slots);
     context.mark_array(cell, store);
     fresh_length(context, cell, count);
     Value::from_slot(cell).bits()
@@ -239,6 +250,11 @@ pub(in crate::entry) fn built_in_from(context: &mut Context, values: &[u64]) -> 
 
 /// Allocates the array object at the shared cached layout.
 fn allocate_array_cell(context: &mut Context) -> u32 {
+    allocate_array_cell_with_room(context, 0)
+}
+
+/// The same, wide enough for `slots` properties when that is more than a cell.
+fn allocate_array_cell_with_room(context: &mut Context, slots: usize) -> u32 {
     // Born at the layout an array ARRIVES at, rather than at the empty one and
     // then transitioning. Every array reaches the same shape — one property,
     // `length` — so the transition computed the same answer every time: a
@@ -252,6 +268,25 @@ fn allocate_array_cell(context: &mut Context) -> u32 {
     let ty = match context.array_layout {
         Some(known) => known,
         None => {
+            // `Array.prototype` FIRST, because the layout is minted under it:
+            // `typed_as` with that link is what lets a site reading `xs.at`
+            // learn the link from the header alone (`Context::inherits_link`),
+            // where a layout minted under nothing is refused forever. The
+            // prototype is an array itself, so building it allocates through
+            // here with `array_prototype` still unset — that one cell takes the
+            // undiscriminated layout and nothing is remembered from it. The
+            // laziness `array_proto::prototype_of` describes is kept for a
+            // program that never makes an array; one that does pays the
+            // nineteen cells at its first, which it would have paid at its
+            // first method call.
+            if context.array_prototype.is_none() && !context.array_prototype_building {
+                context.array_prototype_building = true;
+                let _ = super::array_proto::prototype_of(context);
+                context.array_prototype_building = false;
+            }
+            let link = context
+                .array_prototype
+                .map(|prototype| Value::from_slot(prototype).bits());
             let root = context.shapes.root();
             let key = match super::computed::length_key(context) {
                 crate::object::Key::Name(named) => named,
@@ -270,17 +305,28 @@ fn allocate_array_cell(context: &mut Context) -> u32 {
                 let ty = context.layout_of(root).index() as u32;
                 return super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
             };
-            let ty = context.layout_of(grown).index() as u32;
+            let ty = context.typed_as(grown, link).index() as u32;
             // The array layout is immutable, so its `length` field has one
             // structural offset for every array, including arrays whose shape
             // later grows or is retyped by an integrity operation. Keep the
             // offset beside the layout rather than rediscovering it on every
             // mutation.
             context.array_length_slot = context.shapes.slot_of(grown, key);
-            context.array_layout = Some(ty);
+            // Remembered only once minted under the prototype: the cell being
+            // allocated while the prototype is built is the prototype itself.
+            if link.is_some() {
+                context.array_layout = Some(ty);
+            }
             ty
         }
     };
+    let wanted = u32::try_from(slots).unwrap_or(0);
+    if wanted > crate::heap::INLINE_SLOTS {
+        // One more than asked, for the overflow address the last slot holds.
+        let size = rts_cranelift::mem::HeaderLayout::BYTES
+            + (wanted + 1) * rts_cranelift::mem::SLOT_BYTES;
+        return super::alloc::alloc_spanning_or_die(context, size, ty);
+    }
     super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty)
 }
 

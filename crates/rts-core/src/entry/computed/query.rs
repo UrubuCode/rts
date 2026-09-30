@@ -405,7 +405,7 @@ pub(in crate::entry) fn remove_own(
         // comes back is the undiscriminated shape every object with those fields
         // shares. Without this, `delete o.x` merges an instance back in with
         // every other layout that happens to hold the same remainder.
-        let link = context.prototype_at(slot);
+        let link = context.inherits_link(slot);
         let ty = context.typed_as(shrunk, link).index() as u32;
         context.retype_cell(slot, ty);
         for (existing, value) in kept {
