@@ -146,67 +146,84 @@ impl Lowering<'_> {
         // receiver -- what the specification says and what makes a source declaring one
         // on its prototype work.
         let subject_value = self.expression(subject)?;
-        let method = self.well_known(WellKnown::IteratorSymbol, subject_value, subject);
-
-        // AN ARRAY WALKED BY INDEX, where that is what its iterator would do:
-        // `ArrayPatternDirect` answers whether the source holds its own elements, is no
-        // proxy, and has the primordial `@@iterator` and `next` -- the current state of
-        // each, so a replaced `next` is observed. Then `next()` would read the live
-        // length and the element at a counter each pass, and so does this, WITHOUT the
-        // copy the running emitter walks: an element pushed during the loop is visited,
-        // as the language says. Nothing is owed a close on this path -- an array
-        // iterator has no `return`.
-        let direct = self.entry(RuntimeOp::ArrayPatternDirect, vec![subject_value], subject);
-        let direct = self.prim(JsPrim::Truthy, vec![direct], subject);
-        let indexed_entry = self.builder.block();
-        let stepped_entry = self.builder.block();
+        // A source the program shows to be an ARRAY, where `Array` is the language's
+        // (`emit/evidence`, and the proof `ArrayPushDirect` rests on): its
+        // `Symbol.iterator` is a fresh array's, so neither the method nor
+        // `ArrayPatternDirect` is asked per pass -- the walk below is entered with the
+        // array itself. Measured 2026-09-30, release: the two questions were the
+        // hundred nanoseconds a `for-of` over an EMPTY array cost.
+        let known_array = self.callees.statics_primordial().array
+            && self.callees.collection_of(subject) == Some(crate::emit::evidence::Brand::Array);
         let opened = self.builder.block();
-        self.builder.end(Terminator::Branch {
-            condition: direct,
-            then_block: indexed_entry,
-            then_args: Vec::new(),
-            else_block: stepped_entry,
-            else_args: Vec::new(),
-        });
-        self.builder.switch_to(indexed_entry);
-        let none = self.singleton_at(crate::values::Singleton::Undefined, subject);
-        let yes = self.boolean(true, subject);
-        self.builder.end(Terminator::Jump {
-            target: opened,
-            args: vec![none, yes, subject_value],
-        });
-        // A STRING WALKED AS ITS LIST OF CODE POINTS, where that is what its iterator
-        // would step: `TextWalk` answers the list the primordial iterator builds before
-        // its first `next()`, or `undefined` where a program changed the protocol --
-        // `rts_core::entry::text_walk` says which changes. Nothing is owed a close on
-        // this path either: it answers a list only where no `return` can be found.
-        self.builder.switch_to(stepped_entry);
-        let walked = self.entry(RuntimeOp::TextWalk, vec![subject_value], subject);
-        let undefined = self.singleton_at(crate::values::Singleton::Undefined, subject);
-        let refused = self.prim(JsPrim::StrictEquals, vec![walked, undefined], subject);
-        let listed_entry = self.builder.block();
-        let protocol_entry = self.builder.block();
-        self.builder.end(Terminator::Branch {
-            condition: refused,
-            then_block: protocol_entry,
-            then_args: Vec::new(),
-            else_block: listed_entry,
-            else_args: Vec::new(),
-        });
-        self.builder.switch_to(listed_entry);
-        let none = self.singleton_at(crate::values::Singleton::Undefined, subject);
-        let yes = self.boolean(true, subject);
-        self.builder.end(Terminator::Jump {
-            target: opened,
-            args: vec![none, yes, walked],
-        });
-        self.builder.switch_to(protocol_entry);
-        let made = self.call_method(method, subject_value, subject);
-        let no = self.boolean(false, subject);
-        self.builder.end(Terminator::Jump {
-            target: opened,
-            args: vec![made, no, subject_value],
-        });
+        if known_array {
+            let none = self.singleton_at(crate::values::Singleton::Undefined, subject);
+            let yes = self.boolean(true, subject);
+            self.builder.end(Terminator::Jump {
+                target: opened,
+                args: vec![none, yes, subject_value],
+            });
+        } else {
+            let method = self.well_known(WellKnown::IteratorSymbol, subject_value, subject);
+
+            // AN ARRAY WALKED BY INDEX, where that is what its iterator would do:
+            // `ArrayPatternDirect` answers whether the source holds its own elements, is no
+            // proxy, and has the primordial `@@iterator` and `next` -- the current state of
+            // each, so a replaced `next` is observed. Then `next()` would read the live
+            // length and the element at a counter each pass, and so does this, WITHOUT the
+            // copy the running emitter walks: an element pushed during the loop is visited,
+            // as the language says. Nothing is owed a close on this path -- an array
+            // iterator has no `return`.
+            let direct = self.entry(RuntimeOp::ArrayPatternDirect, vec![subject_value], subject);
+            let direct = self.prim(JsPrim::Truthy, vec![direct], subject);
+            let indexed_entry = self.builder.block();
+            let stepped_entry = self.builder.block();
+            self.builder.end(Terminator::Branch {
+                condition: direct,
+                then_block: indexed_entry,
+                then_args: Vec::new(),
+                else_block: stepped_entry,
+                else_args: Vec::new(),
+            });
+            self.builder.switch_to(indexed_entry);
+            let none = self.singleton_at(crate::values::Singleton::Undefined, subject);
+            let yes = self.boolean(true, subject);
+            self.builder.end(Terminator::Jump {
+                target: opened,
+                args: vec![none, yes, subject_value],
+            });
+            // A STRING WALKED AS ITS LIST OF CODE POINTS, where that is what its iterator
+            // would step: `TextWalk` answers the list the primordial iterator builds before
+            // its first `next()`, or `undefined` where a program changed the protocol --
+            // `rts_core::entry::text_walk` says which changes. Nothing is owed a close on
+            // this path either: it answers a list only where no `return` can be found.
+            self.builder.switch_to(stepped_entry);
+            let walked = self.entry(RuntimeOp::TextWalk, vec![subject_value], subject);
+            let undefined = self.singleton_at(crate::values::Singleton::Undefined, subject);
+            let refused = self.prim(JsPrim::StrictEquals, vec![walked, undefined], subject);
+            let listed_entry = self.builder.block();
+            let protocol_entry = self.builder.block();
+            self.builder.end(Terminator::Branch {
+                condition: refused,
+                then_block: protocol_entry,
+                then_args: Vec::new(),
+                else_block: listed_entry,
+                else_args: Vec::new(),
+            });
+            self.builder.switch_to(listed_entry);
+            let none = self.singleton_at(crate::values::Singleton::Undefined, subject);
+            let yes = self.boolean(true, subject);
+            self.builder.end(Terminator::Jump {
+                target: opened,
+                args: vec![none, yes, walked],
+            });
+            self.builder.switch_to(protocol_entry);
+            let made = self.call_method(method, subject_value, subject);
+            let no = self.boolean(false, subject);
+            self.builder.end(Terminator::Jump {
+                target: opened,
+                args: vec![made, no, subject_value],
+            });
+        }
         self.builder.switch_to(opened);
         let iterator = self.builder.param(opened);
         self.types.insert(iterator, self.domain.top());

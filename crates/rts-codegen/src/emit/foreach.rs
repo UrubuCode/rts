@@ -199,9 +199,27 @@ pub fn emit_for_each(
     // ordinary binding and needs to know nothing about where it came from.
     scope.enter();
     let subject_value = super::expr::emit_expr(builder, scope, ctx, subject)?;
-    let enumerated = match stepping {
-        false => super::expr::call(builder, ctx, over, &[subject_value])?[0],
-        true => open_sequence(builder, scope, ctx, subject_value, iterator, at)?,
+    // A source the program shows to be an ARRAY, where `Array` is the
+    // language's (`emit/evidence`, and the proof `ArrayPushDirect` rests on): its
+    // `Symbol.iterator` is the one a fresh array has, so the question
+    // `open_sequence` asks per pass is answered here, and the array itself is
+    // walked -- not a copy of it. What the question cost, measured 2026-09-30,
+    // release: `for (const v of x3)` 109 ns for three elements against 37 for
+    // the indexed loop, and 102 for an EMPTY array -- a property read by symbol,
+    // an array allocated to read the same symbol off, a text probe and the copy.
+    // Walking the array itself is the language's own rule for an array iterator,
+    // which reads `length` live; the copy was the conservative form.
+    let known_array = stepping
+        && ctx.statics_primordial.array
+        && ctx.collection_evidence.of(subject) == Some(super::evidence::Brand::Array);
+    let enumerated = match (stepping, known_array) {
+        (false, _) => super::expr::call(builder, ctx, over, &[subject_value])?[0],
+        (true, true) => {
+            let absent = super::expr::undefined(builder, ctx);
+            super::binding::declare(builder, scope, ctx, iterator, absent)?;
+            subject_value
+        }
+        (true, false) => open_sequence(builder, scope, ctx, subject_value, iterator, at)?,
     };
     super::binding::declare(builder, scope, ctx, keys, enumerated)?;
     // The subject itself, bound so the guard below can ask about it once per
