@@ -198,3 +198,49 @@ fn a_class_declared_in_another_module_has_its_layout_where_it_is_constructed() {
     assert_eq!(in_f("__rts_construct"), 0, "no construction across the boundary");
     assert_eq!(in_f("__rts_object_new_under"), 1, "the one that is kept");
 }
+
+#[test]
+fn a_class_imported_under_another_name_has_its_layout_and_a_renamed_export_does_not_lend_one() {
+    let dir = std::env::temp_dir().join(format!("rts-class-alias-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a temp dir");
+    std::fs::write(
+        dir.join("shape.ts"),
+        "export class Shape { id; constructor(id) { this.id = id; } twice() { return this.id * 2; } }\n\
+         function other(x) { return x; }\n\
+         export { other as Plain };\n",
+    )
+    .expect("written");
+    std::fs::write(
+        dir.join("plain.ts"),
+        "export class Plain { v; constructor(v) { this.v = v; } }\n",
+    )
+    .expect("written");
+    let entry = dir.join("main.ts");
+    std::fs::write(
+        &entry,
+        "import { Shape as S, Plain as Q } from \"./shape\";\n\
+         import { Plain } from \"./plain\";\n\
+         function f(n) { let s = 0; for (let i = 0; i < n; i++) { const a = new S(i); s += a.twice(); const p = new Plain(i); s += p.v; } return s; }\n\
+         function g() { return Q(1); }\n\
+         console.log(f(3), g());\n",
+    )
+    .expect("written");
+    let ir = rts_host::describe::describe_path(&entry).expect("compiles");
+    let _ = std::fs::remove_dir_all(&dir);
+    let id = ir
+        .lines()
+        .find(|line| line.starts_with(';') && line.ends_with("__rts_construct"))
+        .and_then(|line| line.split_whitespace().nth(1).map(str::to_owned));
+    let in_f = ir
+        .lines()
+        .skip_while(|line| !(line.starts_with("; FuncId(") && line.ends_with(" f")))
+        .skip(1)
+        .take_while(|line| !line.starts_with("; FuncId("))
+        .filter_map(|line| line.split("Call { callee: ").nth(1)?.split(',').next())
+        .filter(|callee| Some(*callee) == id.as_deref())
+        .count();
+    // `S` is `Shape`, laid out; `Plain` is spelled by a renamed export somewhere,
+    // so `class Plain` keeps no layout under an alias — but it is constructed
+    // under its own name here, which the whole-program proof still covers.
+    assert_eq!(in_f, 0, "neither construction is made through the runtime");
+}

@@ -1427,14 +1427,64 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
                 .flat_map(|(_, _, body, _)| body.iter().cloned())
                 .collect();
             let math_name = ctx.names.intern("Math");
-            class_layout::layouts(
+            let declared = inline::Declarations::of(&whole);
+            let writes = primordial::disturbed(&whole, eval_name, global_this);
+            let handed_over = receiver::handed_over(&whole);
+            let mut layouts = class_layout::layouts(
                 &whole,
-                &inline::Declarations::of(&whole),
-                &primordial::disturbed(&whole, eval_name, global_this),
-                &receiver::handed_over(&whole),
+                &declared,
+                &writes,
+                &handed_over,
                 &ctx.names,
                 whole_program_math.then_some(math_name),
-            )
+            );
+            // `import { P as Q }`: `Q` is a live binding to the declaration
+            // `P` names, which is what the language says an import is, so the
+            // layout is `Q`'s too — where `Q` itself passes the proof the
+            // class passed, since the importing module could hand `Q` to
+            // anything. The proof is by spelling and the import is the one
+            // declaration that says what a spelling is bound to; without this,
+            // a renamed import had no layout for no reason a program can see.
+            let aliases: Vec<(Name, Name)> = lowered
+                .iter()
+                .flat_map(|(_, imports, _, _)| imports.iter())
+                .flat_map(|import| import.bindings.iter())
+                .filter_map(|binding| match binding {
+                    crate::syntax::ImportBinding::Named { exported, local } => {
+                        Some((ctx.names.intern(exported), *local))
+                    }
+                    _ => None,
+                })
+                .filter(|(exported, local)| exported != local)
+                .collect();
+            // And ONLY where the exported name is the class's own: `export { X
+            // as P }` anywhere in the program publishes something else under
+            // the spelling a class has a layout by, and then `import { P as Q }`
+            // could be that. So a name any module publishes under a spelling
+            // that is not its local one binds nothing here.
+            let mut renamed = std::collections::BTreeSet::new();
+            for publication in lowered.iter().flat_map(|(_, _, _, held)| held.iter()) {
+                let own = matches!(&publication.source,
+                    module::PublicationSource::Local(local)
+                        if ctx.names.text(*local) == publication.exported);
+                if !own {
+                    renamed.insert(ctx.names.intern(&publication.exported));
+                }
+            }
+            for (exported, local) in aliases {
+                if renamed.contains(&exported)
+                    || layouts.contains_key(&local)
+                    || declared.count(local) > 1
+                    || !writes.untouched(local)
+                    || handed_over.contains(&local)
+                {
+                    continue;
+                }
+                if let Some(layout) = layouts.get(&exported).cloned() {
+                    layouts.insert(local, layout);
+                }
+            }
+            layouts
         }
         false => std::collections::BTreeMap::new(),
     };
