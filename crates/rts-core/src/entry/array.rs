@@ -198,7 +198,7 @@ pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u
     let store = context.arrays.insert(elements).slot();
     let cell = allocate_array_cell(context);
     context.mark_array(cell, store);
-    set_length(context, cell, count);
+    fresh_length(context, cell, count);
     Value::from_slot(cell).bits()
 }
 
@@ -216,7 +216,7 @@ pub(in crate::entry) fn built_in_rooted(
     let cell = allocate_array_cell(context);
     let store = context.arrays.insert(values.take()).slot();
     context.mark_array(cell, store);
-    set_length(context, cell, count);
+    fresh_length(context, cell, count);
     Value::from_slot(cell).bits()
 }
 
@@ -233,7 +233,7 @@ pub(in crate::entry) fn built_in_from(context: &mut Context, values: &[u64]) -> 
     let elements = super::array_spare::holding(context, values);
     let store = context.arrays.insert(elements).slot();
     context.mark_array(cell, store);
-    set_length(context, cell, values.len());
+    fresh_length(context, cell, values.len());
     Value::from_slot(cell).bits()
 }
 
@@ -873,6 +873,24 @@ pub fn array_length(array: u64) -> f64 {
 /// does not truncate the array, where the language shortens it. Truncating
 /// needs the write to know it is writing to an array, which is `put`'s caller
 /// rather than `put`.
+/// `set_length` for a cell this module just allocated: nothing can have
+/// frozen it or written its attributes, so the checks `set_length` makes for a
+/// cell a program has had are not made -- 20 of the 50 ns an empty array cost,
+/// measured inside the crate on 2026-09-30. The slot is the one the array
+/// layout fixes; where that layout is not in force -- see `allocate_array_cell`
+/// -- the ordinary road is taken.
+fn fresh_length(context: &mut Context, cell: u32, length: usize) {
+    if let Some(slot) = context.array_length_slot
+        && context.array_elements.copied(cell).is_some()
+        && context.region.type_of(cell) == context.array_layout
+    {
+        let value = Value::from_f64(length as f64).bits();
+        super::objects::set_slot_value(context, cell, slot, value);
+        return;
+    }
+    set_length(context, cell, length);
+}
+
 pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     let key = super::computed::length_key(context);
     let value = Value::from_f64(length as f64).bits();

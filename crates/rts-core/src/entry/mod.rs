@@ -692,7 +692,7 @@ pub struct Context {
     empty_layout: Option<u32>,
     /// The element buffers of arrays that died — see `array_spare`. Cleared
     /// before they are kept, so nothing here is a root.
-    spare_arrays: Vec<Vec<u64>>,
+    spare_arrays: [Vec<Vec<u64>>; array_spare::PILES],
     /// `function_names` indexed by code address — DERIVED, never a second source.
     ///
     /// See `Context::index_functions_by_code`, which is the only thing that
@@ -1373,7 +1373,7 @@ impl Context {
             function_names: Vec::new(),
             light_codes: light_call::CodeSet::default(),
             empty_layout: None,
-            spare_arrays: Vec::new(),
+            spare_arrays: Default::default(),
             function_by_code: std::collections::HashMap::new(),
             callable_templates: [None; 4],
             regexes: Aside::in_region(bits),

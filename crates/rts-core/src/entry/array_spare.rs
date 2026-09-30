@@ -12,6 +12,15 @@
 //! one at a time, so every buffer a sweep gives back is one the next few
 //! thousand arrays would have asked the allocator for. They are kept.
 //!
+//! # Why they are kept by WIDTH
+//!
+//! One pile did not work, and the number said so: with buffers of every width
+//! in it, an array of two elements drew a buffer of one and had to grow it,
+//! and drawing again on the next call drew another of one — `[i, i]` read 121
+//! ns against 97 without the pile at all (release, 2026-09-30). A pile per
+//! power of two, and a buffer BORN at that width where its pile is empty, so
+//! that what the next array of that size draws fits without growing.
+//!
 //! # What this is instead of
 //!
 //! Swapping the process allocator, which `text/narrow.rs` records as measured
@@ -24,9 +33,9 @@
 //! # Why it is bounded twice
 //!
 //! By WIDTH, because a buffer kept is memory held: a program that made one
-//! array of a million elements must get that back. By COUNT, because the
-//! buffers of one sweep are at most the cells of one region, and keeping more
-//! than the next cycle can use is keeping them for nothing.
+//! array of a million elements must get that back. By COUNT per pile, because
+//! the buffers of one sweep are at most the cells of one region, and keeping
+//! more than the next cycle can use is keeping them for nothing.
 //!
 //! # Why nothing here is a root
 //!
@@ -35,39 +44,45 @@
 
 use super::Context;
 
-/// The widest buffer kept, in elements.
+/// The widest buffer kept, in elements: the largest pile's width.
 const WIDEST: usize = 16;
-/// How many are kept: the cells of the region a program starts with.
+/// The piles: widths 1, 2, 4, 8 and 16.
+pub(super) const PILES: usize = 5;
+/// How many each pile keeps: the cells of the region a program starts with.
 const KEPT: usize = 1 << 16;
+
+/// Which pile a buffer for `len` elements is drawn from, and the width its
+/// buffers are born at.
+fn pile_for(len: usize) -> (usize, usize) {
+    let width = len.max(1).next_power_of_two();
+    (width.trailing_zeros() as usize, width)
+}
 
 /// A buffer holding `values`, from a dead array's where there is one.
 pub(super) fn holding(context: &mut Context, values: &[u64]) -> Vec<u64> {
     if values.is_empty() || values.len() > WIDEST {
         return values.to_vec();
     }
-    match context.spare_arrays.pop() {
-        Some(mut buffer) => {
-            buffer.extend_from_slice(values);
-            buffer
-        }
-        None => {
-            // Born at the full width, so that whichever array takes it next
-            // fits without asking again.
-            let mut buffer = Vec::with_capacity(WIDEST);
-            buffer.extend_from_slice(values);
-            buffer
-        }
-    }
+    let (pile, width) = pile_for(values.len());
+    let mut buffer = match context.spare_arrays[pile].pop() {
+        Some(buffer) => buffer,
+        None => Vec::with_capacity(width),
+    };
+    buffer.extend_from_slice(values);
+    buffer
 }
 
-/// Keeps the buffer of an array that died, where it is one worth keeping.
+/// Keeps the buffer of an array that died, where it is one worth keeping: a
+/// buffer at exactly a pile's width, so that what is drawn fits.
 pub(super) fn keep(context: &mut Context, mut buffer: Vec<u64>) {
-    if buffer.capacity() == 0
-        || buffer.capacity() > WIDEST
-        || context.spare_arrays.len() >= KEPT
-    {
+    let capacity = buffer.capacity();
+    if capacity == 0 || capacity > WIDEST || !capacity.is_power_of_two() {
+        return;
+    }
+    let (pile, _) = pile_for(capacity);
+    if context.spare_arrays[pile].len() >= KEPT {
         return;
     }
     buffer.clear();
-    context.spare_arrays.push(buffer);
+    context.spare_arrays[pile].push(buffer);
 }
