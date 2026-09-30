@@ -284,11 +284,30 @@ pub fn emit_for_each(
     )?[0];
     super::binding::declare(builder, scope, ctx, length, bound)?;
 
+    // LIVE where the array walked is the program's own: the language's array
+    // iterator reads `length` on every step, so an element pushed by the body
+    // is visited and a `pop` or `length = 0` ends the loop — `for (const x of
+    // xs) { xs.push(…) }` visited three of five and a truncated array yielded
+    // `undefined`s until the old bound, found 2026-09-30 against Node (the
+    // MIR stage had it right). A cached own read of `length` on the array,
+    // which is what `xs.length` costs anywhere else. The copy the other arm
+    // walks keeps the hoisted bound: nothing can grow it.
+    let bound_read = match known_array {
+        true => Expr {
+            kind: ExprKind::Member {
+                object: Box::new(name(keys)),
+                property: ctx.names.intern("length"),
+                optional: false,
+            },
+            at,
+        },
+        false => name(length),
+    };
     let test = Expr {
         kind: ExprKind::Binary {
             op: crate::syntax::BinaryOp::Less,
             left: Box::new(name(index)),
-            right: Box::new(name(length)),
+            right: Box::new(bound_read),
         },
         at,
     };

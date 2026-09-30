@@ -39,4 +39,20 @@ describe("for-of over an array the program knows", () => {
     for (const v of new It()) it += v;
     expect(it).toBe(19);
   });
+  test("the length is read on every step: a push is visited, a truncation ends it", () => {
+    // The language's array iterator reads `length` per step. The running
+    // emitter hoisted it once and walked three of five (found 2026-09-30).
+    const xs = [1, 2, 3];
+    const seen: number[] = [];
+    for (const x of xs) { seen.push(x); if (x < 3) xs.push(x + 10); }
+    expect(seen.join()).toBe("1,2,3,11,12");
+    const ys = [1, 2, 3, 4];
+    const popped: number[] = [];
+    for (const y of ys) { popped.push(y); if (y === 1) ys.pop(); }
+    expect(popped.join()).toBe("1,2,3");
+    const zs = [1, 2, 3];
+    const cut: number[] = [];
+    for (const z of zs) { cut.push(z); if (z === 1) zs.length = 0; }
+    expect(cut.join()).toBe("1");
+  });
 });
