@@ -101,7 +101,30 @@ pub(in super::super) fn emit(
     };
     let member = ctx.names.text(*property);
     let brand = ctx.collection_evidence.of(object);
-    let Some(door) = shape_of(ctx.statics_primordial, brand, member, arguments.len()) else {
+    // `f.apply(t, [a, b])`: the list is a literal, so its elements are what
+    // is handed over -- as `f.call(t, a, b)` hands them -- and the array is
+    // never built. Only a literal with no spread and no hole, and no more
+    // elements than the slots carry; anything else is the `apply` door.
+    let listed;
+    let (arguments, door) = match (member, arguments, ctx.statics_primordial.function) {
+        ("apply", [receiver, Spreadable::Single(Expr { kind: ExprKind::Array { elements }, .. })], true)
+            if elements.len() <= 3
+                && elements.iter().all(|element| matches!(element, Some(Spreadable::Single(_)))) =>
+        {
+            listed = std::iter::once(receiver.clone())
+                .chain(elements.iter().flatten().cloned())
+                .collect::<Vec<Spreadable>>();
+            (
+                listed.as_slice(),
+                Some(Door {
+                    op: RuntimeOp::FunctionApplyListedDirect,
+                    arity: Some(4),
+                }),
+            )
+        }
+        _ => (arguments, shape_of(ctx.statics_primordial, brand, member, arguments.len())),
+    };
+    let Some(door) = door else {
         return typed(builder, scope, ctx, callee, object, *property, arguments);
     };
     let mut plain = Vec::with_capacity(arguments.len());

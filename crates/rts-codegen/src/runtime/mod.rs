@@ -1162,6 +1162,10 @@ pub enum RuntimeOp {
     /// object relinked afterwards. `rts-core`'s `object_under.rs` has the
     /// measurement. **Appended**, the same reason.
     ObjectNewUnder,
+    /// [`RuntimeOp::FunctionApplyDirect`] for a list written as a literal: the
+    /// elements in the slots, as [`RuntimeOp::FunctionCallDirect`] carries them,
+    /// so no array is built. **Appended**, the same reason.
+    FunctionApplyListedDirect,
 }
 
 impl RuntimeOp {
@@ -1300,6 +1304,7 @@ impl RuntimeOp {
         RuntimeOp::StringCharCodeAtDirect,
         RuntimeOp::ClosureNewLight,
         RuntimeOp::ObjectNewUnder,
+        RuntimeOp::FunctionApplyListedDirect,
     ];
 
     /// The linker name the runtime must define.
@@ -1438,6 +1443,7 @@ impl RuntimeOp {
             RuntimeOp::StringCharCodeAtDirect => "__rts_string_char_code_at_direct",
             RuntimeOp::ClosureNewLight => "__rts_closure_new_light",
             RuntimeOp::ObjectNewUnder => "__rts_object_new_under",
+            RuntimeOp::FunctionApplyListedDirect => "__rts_function_apply_listed_direct",
         }
     }
 
@@ -1734,7 +1740,7 @@ impl RuntimeOp {
             | RuntimeOp::SetAddDirect
             | RuntimeOp::ArrayPushDirect => (vec![UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::MapSetDirect => (vec![UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
-            RuntimeOp::FunctionCallDirect => (
+            RuntimeOp::FunctionCallDirect | RuntimeOp::FunctionApplyListedDirect => (
                 vec![UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN, Repr::I64, Repr::I64],
                 vec![UNPROVEN],
             ),

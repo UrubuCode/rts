@@ -72,6 +72,34 @@ pub fn function_call_direct(
     super::functions::call_counted(callee, this_arg, written as i64, name, a0, a1, a2, absent)
 }
 
+/// `f.apply(thisArg, [a0, a1, a2])` — the list written as a literal, so the
+/// compiler hands over its elements and nothing is built: the array cost 115
+/// of the 195 ns the row took (release, 2026-09-29). `argc` counts the
+/// receiver and the elements, as [`function_call_direct`]'s does.
+///
+/// Where the receiver is not a plain function the list is BUILT, here, and the
+/// `apply` it has is called with it: the program wrote `apply`, and a receiver
+/// with its own is given exactly that.
+#[rtse::entry]
+pub fn function_apply_listed_direct(
+    callee: u64,
+    this_arg: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    argc: i64,
+    name: i64,
+) -> u64 {
+    let written = (argc - 1).clamp(0, 3) as usize;
+    if !plain_function(callee, "apply") {
+        let held = [a0, a1, a2];
+        let list = with_current(|context| super::array::built_in_from(context, &held[..written]));
+        return through_the_method(callee, "apply", name, &[this_arg, list]);
+    }
+    let absent = with_current(|context| undefined_of(context));
+    super::functions::call_counted(callee, this_arg, written as i64, name, a0, a1, a2, absent)
+}
+
 /// `f.apply(thisArg, list)`.
 #[rtse::entry]
 pub fn function_apply_direct(callee: u64, this_arg: u64, list: u64, name: i64) -> u64 {

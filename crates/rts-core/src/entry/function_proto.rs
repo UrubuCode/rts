@@ -406,6 +406,24 @@ extern "C" fn forward(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -
     let Some((target, receiver, arguments, constructing)) = plan else {
         return with_current(|context| super::objects::undefined_of(context));
     };
+    // What the convention carries goes in the slots and nothing is built: a
+    // bound call was 256 ns against 20 for the call it stands for, and the
+    // vector -- an array made and filled per call -- was most of that.
+    if !constructing && arguments.len() <= super::functions::ARGUMENT_SLOTS {
+        let absent = with_current(|context| super::objects::undefined_of(context));
+        let mut slots = [absent; super::functions::ARGUMENT_SLOTS];
+        slots[..arguments.len()].copy_from_slice(&arguments);
+        return super::functions::call_counted(
+            target,
+            receiver,
+            arguments.len() as i64,
+            super::functions::NO_CALL_NAME,
+            slots[0],
+            slots[1],
+            slots[2],
+            slots[3],
+        );
+    }
     let vector = super::array::array_new(arguments.len() as i64);
     with_current(|context| {
         if let Some(cell) = Value(vector).as_slot()

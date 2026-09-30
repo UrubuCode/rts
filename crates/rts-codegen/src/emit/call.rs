@@ -593,6 +593,17 @@ pub(super) fn emit_argument_vector(
         return expr::value_list(builder, ctx, &values);
     }
 
+    // ONE spread and nothing else -- `f(...xs)` -- is the list `xs` iterates
+    // to, which `Iterate` already answers as a fresh array: the same array
+    // `ArrayAppendAll` would have iterated to and then copied into an empty
+    // one. Two crossings and one array removed from a row that cost 389 ns.
+    // `[...xs]` written as an argument keeps the general path below.
+    if let [Spreadable::Spread(source)] = arguments {
+        let source = emit_expr(builder, scope, ctx, source)?;
+        let source = expr::as_value(builder, source);
+        return Ok(expr::call(builder, ctx, RuntimeOp::Iterate, &[source])?[0]);
+    }
+
     // Started empty and appended to, rather than sized once and written at
     // fixed indices: a spread contributes a count nothing knows while
     // compiling, so every index after one is unknown too.

@@ -266,8 +266,12 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 128 on 2026-09-29 for `object_new_under` (`object_under.rs`): an
     // object born under its prototype instead of relinked to it, which
     // REMOVES a retype and a cache invalidation per object — 540 ns of literal.
+    //
+    // Moved to 129 on 2026-09-29 for `function_apply_listed_direct`: `f.apply(t,
+    // [a])` with the literal's elements handed over, which REMOVES the array —
+    // 115 of 195 ns.
     assert!(
-        CORE_ENTRY_COUNT <= 128,
+        CORE_ENTRY_COUNT <= 129,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );
