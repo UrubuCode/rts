@@ -399,7 +399,7 @@ fn emit_call_with_name_as(
     // values it contributes is not known while compiling — one written
     // argument may become none or nine.
     if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
-        let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
+        let vector = emit_call_vector(builder, scope, ctx, arguments)?;
         // WHICH literal spells the callee travels as an operand, as on the
         // ordinary call below; `SetCallName` was a whole crossing before every
         // one of these calls, measured at 2.3-2.9 ns on the four-slot form.
@@ -572,6 +572,29 @@ pub fn emit_super_construct(
 /// `[a, b, c]` already does — so a call with six arguments and an array literal
 /// of six elements produce the same thing, and there is one answer to what a
 /// sequence of values is.
+/// The vector a CALL hands the door for its arguments.
+///
+/// ONE spread and nothing else -- `f(...xs)` -- is the list `xs` already is,
+/// where it is a hole-free array, and what it iterates to otherwise:
+/// `SpreadList`. Sound for a call and for a call only: the door copies what
+/// it reads. It sat in [`emit_argument_vector`] for one commit, which the
+/// ARRAY LITERAL `[...xs]` also builds through, and `[...xs]` was then `xs` --
+/// a push on the copy grew the original. The suite did not have that program;
+/// `array_spread_copy.test.ts` does now.
+pub(super) fn emit_call_vector(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    arguments: &[Spreadable],
+) -> EmitResult<ValueId> {
+    if let [Spreadable::Spread(source)] = arguments {
+        let source = emit_expr(builder, scope, ctx, source)?;
+        let source = expr::as_value(builder, source);
+        return Ok(expr::call(builder, ctx, RuntimeOp::SpreadList, &[source])?[0]);
+    }
+    emit_argument_vector(builder, scope, ctx, arguments)
+}
+
 pub(super) fn emit_argument_vector(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
@@ -591,17 +614,6 @@ pub(super) fn emit_argument_vector(
             values.push(emit_expr(builder, scope, ctx, value)?);
         }
         return expr::value_list(builder, ctx, &values);
-    }
-
-    // ONE spread and nothing else -- `f(...xs)` -- is the list `xs` already
-    // is, where it is a hole-free array, and what it iterates to otherwise:
-    // `SpreadList`. It was `Iterate`, which copies every array, and the copy
-    // was 300 of the row's 350 ns. `[...xs]` written as an argument keeps the
-    // general path below.
-    if let [Spreadable::Spread(source)] = arguments {
-        let source = emit_expr(builder, scope, ctx, source)?;
-        let source = expr::as_value(builder, source);
-        return Ok(expr::call(builder, ctx, RuntimeOp::SpreadList, &[source])?[0]);
     }
 
     // Started empty and appended to, rather than sized once and written at
@@ -641,7 +653,7 @@ fn emit_construction(
     // `RuntimeOp::SuperConstructWithArgs` is the vector-shaped, `new.target`
     // inert counterpart, for exactly this case.
     if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
-        let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
+        let vector = emit_call_vector(builder, scope, ctx, arguments)?;
         let vector_op = if op == RuntimeOp::SuperConstruct {
             RuntimeOp::SuperConstructWithArgs
         } else {
