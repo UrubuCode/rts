@@ -150,6 +150,7 @@ pub(super) struct Layout {
     in_order: bool,
 }
 
+mod methods;
 mod proof;
 mod rewrite;
 mod setters;
@@ -277,33 +278,21 @@ const INLINE_FIELDS: usize = 15;
 
 impl Layout {
     /// What `object.name(arguments)` answers, as an expression over the fields.
+    ///
+    /// The arguments must be names or literals here, at the site the program
+    /// wrote: the body evaluates its fields and operators in its own order, and
+    /// an argument that runs code would run it at a different point. Inside the
+    /// body, a call to another method of the class is expanded by
+    /// `methods::call_deep`, which admits more because it knows the argument
+    /// came from a body that only reads.
     fn call(&self, object: Name, name: Name, arguments: &[Spreadable]) -> Option<Expr> {
-        let method = self.methods.get(&name)?;
-        let mut written = Vec::with_capacity(arguments.len());
-        for argument in arguments {
-            match argument {
-                Spreadable::Single(value) if inert(value) => written.push(value),
-                _ => return None,
-            }
-        }
-        let answer = match &method.answer {
-            Some(answer) => spelled(answer, method, &written, object),
-            None => undefined(rts_cranelift::fault::Position::default()),
-        };
-        if method.writes.is_empty() {
-            return Some(answer);
-        }
-        let at = answer.at;
-        let operands = method
-            .writes
+        if !arguments
             .iter()
-            .map(|write| spelled(write, method, &written, object))
-            .chain([answer])
-            .collect();
-        Some(Expr {
-            kind: ExprKind::Sequence { operands },
-            at,
-        })
+            .all(|argument| matches!(argument, Spreadable::Single(value) if inert(value)))
+        {
+            return None;
+        }
+        self.call_deep(object, name, arguments, 0)
     }
 }
 

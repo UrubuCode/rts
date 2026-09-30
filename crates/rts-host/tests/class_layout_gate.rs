@@ -264,3 +264,39 @@ console.log(f(3));";
         + calls_to(grown, "__rts_array_append_all");
     assert_eq!(spread, 1, "the spread is a spread");
 }
+
+#[test]
+fn a_method_with_const_locals_or_calling_another_method_is_not_a_call_either() {
+    let source = "
+class V { x; y; constructor(x, y) { this.x = x; this.y = y; }
+  len2() { return this.x * this.x + this.y * this.y; }
+  len() { return Math.sqrt(this.len2()); }
+  scaled(k) { const s = k * 2; return this.x * s + this.y * s; }
+  norm() { const d = this.len(); return this.x / d + this.y / d; }
+  bump() { this.x = this.x + 1; return this.len2(); }
+  twice(k) { return this.scaled(k) + this.scaled(k + 1); } }
+function f(n) {
+  let a = 0;
+  for (let i = 0; i < n; i++) { const v = new V(i, 3); a += v.len() + v.scaled(2) + v.norm() + v.bump() + v.twice(1); }
+  return a;
+}
+console.log(f(3));";
+    assert_eq!(calls_to(source, "__rts_construct"), 0, "no construction");
+    assert_eq!(calls_to(source, "__rts_object_new_under"), 0, "no object");
+    assert_eq!(calls_to(source, "__rts_call_counted"), 0, "and no call");
+}
+
+#[test]
+fn a_local_read_across_a_field_write_and_a_recursion_keep_the_instance() {
+    // `bad` reads `x` into a local and then writes `x`: substituting the local
+    // would read the new value. `rec` calls itself: no expansion ends. Both
+    // are left as calls, so the instance exists.
+    let source = "
+class V { x; constructor(x) { this.x = x; }
+  bad() { const a = this.x; this.x = 5; return a; }
+  rec(n) { return n > 0 ? this.rec(n - 1) : 0; } }
+function f(n) { let a = 0; for (let i = 0; i < n; i++) { const v = new V(i); a += v.bad() + v.rec(2); } return a; }
+console.log(f(3));";
+    assert_eq!(calls_to(source, "__rts_object_new_under"), 1, "the instance is born");
+    assert_eq!(calls_to(source, "__rts_call_counted"), 2, "and both methods are calls");
+}

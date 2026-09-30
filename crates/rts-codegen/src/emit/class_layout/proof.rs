@@ -206,6 +206,16 @@ pub(super) fn layout_of(
     methods.retain(|name, _| {
         !keys.contains(name) && !written_methods.iter().any(|(held, _)| held == name)
     });
+    // Every method a body may call on `this`: the parent's that survive and
+    // this class's own. A name in the list whose method could NOT be rewritten
+    // is admitted here all the same; the call to it fails to expand at the
+    // site, and that site is left as written.
+    let callable: Vec<Name> = methods
+        .keys()
+        .copied()
+        .chain(written_methods.iter().map(|(name, _)| *name))
+        .filter(|name| !keys.contains(name))
+        .collect();
     for (name, function) in &written_methods {
         // Written twice, the second is the one installed; shadowed by a field,
         // neither is what `o.name` reads. Both are left to the call.
@@ -213,7 +223,7 @@ pub(super) fn layout_of(
         if !once || keys.contains(name) {
             continue;
         }
-        if let Some(method) = method_of(function, &keys, math) {
+        if let Some(method) = method_of(function, &keys, &callable, math) {
             methods.insert(*name, Rc::new(method));
         }
     }
@@ -230,6 +240,7 @@ pub(super) fn layout_of(
 pub(super) fn method_of(
     function: &crate::syntax::Function,
     fields: &[Name],
+    methods: &[Name],
     math: Option<Name>,
 ) -> Option<Method> {
     if function.is_async || function.is_generator || function.rest_parameter.is_some() {
@@ -248,6 +259,7 @@ pub(super) fn method_of(
     let reading = Reading {
         parameters: &parameters,
         fields,
+        methods,
         // A parameter spelled `Math` is the parameter.
         math: math.filter(|name| !parameters.contains(name)),
     };
@@ -266,24 +278,68 @@ pub(super) fn method_of(
         },
     };
     let mut writes = Vec::with_capacity(written.len());
-    for statement in written {
-        let StmtKind::Expr(write) = &statement.kind else {
-            return None;
-        };
-        if !writes_a_field(write, &reading) {
-            return None;
+    // `const` locals, each spelled as its initialiser wherever it is read —
+    // see `methods.rs` for what that admits and what it refuses.
+    let mut locals: Vec<(Name, Expr)> = Vec::new();
+    let mut first_local = None;
+    for (at, statement) in written.iter().enumerate() {
+        match &statement.kind {
+            StmtKind::Expr(write) => {
+                let write = methods::with_locals(write, &locals);
+                if !writes_a_field(&write, &reading) {
+                    return None;
+                }
+                writes.push(write);
+            }
+            StmtKind::Declare {
+                kind: crate::syntax::BindingKind::Const,
+                bindings,
+            } => {
+                let [binding] = &bindings[..] else {
+                    return None;
+                };
+                let Pattern::Name(name) = &binding.target else {
+                    return None;
+                };
+                let value = binding.value.as_ref()?;
+                if parameters.contains(name)
+                    || fields.contains(name)
+                    || Some(*name) == reading.math
+                    || locals.iter().any(|(held, _)| held == name)
+                {
+                    return None;
+                }
+                let value = methods::with_locals(value, &locals);
+                if !reads_only(&value, &reading) {
+                    return None;
+                }
+                first_local.get_or_insert(at);
+                locals.push((*name, value));
+            }
+            _ => return None,
         }
-        writes.push(write.clone());
     }
-    if let Some(answer) = answer
+    let answer = answer.map(|value| methods::with_locals(value, &locals));
+    if let Some(answer) = &answer
         && !reads_only(answer, &reading)
+    {
+        return None;
+    }
+    if let Some(first) = first_local
+        && !methods::locals_admitted(&locals, !writes.is_empty(), &written[first..], match &function.body {
+            FunctionBody::Block(body) => body.last().and_then(|last| match &last.kind {
+                StmtKind::Return(value) => value.as_ref(),
+                _ => None,
+            }),
+            FunctionBody::Expression(_) => None,
+        })
     {
         return None;
     }
     Some(Method {
         parameters,
         writes,
-        answer: answer.cloned(),
+        answer,
     })
 }
 
@@ -291,6 +347,9 @@ pub(super) fn method_of(
 pub(super) struct Reading<'a> {
     parameters: &'a [Name],
     fields: &'a [Name],
+    /// The class's methods, which the body may call on `this`; whether the
+    /// call can be expanded is decided at the site, by `Layout::call_deep`.
+    methods: &'a [Name],
     math: Option<Name>,
 }
 
@@ -336,8 +395,24 @@ pub(super) fn reads_only(expr: &Expr, reading: &Reading) -> bool {
             arguments,
             optional: false,
         } => {
-            matches!(&callee.kind, ExprKind::Member { object, optional: false, .. }
-                if matches!(&object.kind, ExprKind::Ident(name) if Some(*name) == reading.math))
+            // `Math.f(…)`, or `this.m(…)` where `m` is a method of the class
+            // and not a field: a field of that name would be what `this.m`
+            // reads, and a callable stored in a field is anything.
+            let callee_admitted = match &callee.kind {
+                ExprKind::Member {
+                    object,
+                    property,
+                    optional: false,
+                } => match &object.kind {
+                    ExprKind::Ident(name) => Some(*name) == reading.math,
+                    ExprKind::This => {
+                        reading.methods.contains(property) && !reading.fields.contains(property)
+                    }
+                    _ => false,
+                },
+                _ => false,
+            };
+            callee_admitted
                 && arguments.iter().all(|argument| match argument {
                     Spreadable::Single(value) => again(value),
                     Spreadable::Spread(_) => false,
@@ -388,7 +463,9 @@ pub(super) fn spelled(answer: &Expr, method: &Method, written: &[&Expr], object:
             arguments,
             optional,
         } => ExprKind::Call {
-            callee: callee.clone(),
+            // `this.m` becomes `object.m`, which `Layout::call_deep` then
+            // expands; `Math.f` is a member of a name and is left as written.
+            callee: again(callee),
             arguments: arguments
                 .iter()
                 .map(|argument| match argument {
