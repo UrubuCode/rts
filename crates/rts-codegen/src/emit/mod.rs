@@ -1414,6 +1414,30 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             && !class_layout::setters_reachable(body, &ctx.names)
     });
     ctx.layouts_allowed = layouts_allowed;
+    // WHICH CLASSES HAVE A LAYOUT, over the whole program and not per unit: a
+    // class declared in one module and constructed in another is the common
+    // shape of a program with more than one file, and every fact the proof
+    // asks — declared once, never assigned, never read as a value — is a
+    // fact about all of the files at once. One slice of every lowered body,
+    // so that the three walks are the ones a single program takes.
+    ctx.layouts = match layouts_allowed {
+        true => {
+            let whole: Vec<Stmt> = lowered
+                .iter()
+                .flat_map(|(_, _, body, _)| body.iter().cloned())
+                .collect();
+            let math_name = ctx.names.intern("Math");
+            class_layout::layouts(
+                &whole,
+                &inline::Declarations::of(&whole),
+                &primordial::disturbed(&whole, eval_name, global_this),
+                &receiver::handed_over(&whole),
+                &ctx.names,
+                whole_program_math.then_some(math_name),
+            )
+        }
+        false => std::collections::BTreeMap::new(),
+    };
     // The same fold for the names `emit/statics` and `emit/methods` decide,
     // each by its own proof.
     let base_only = |name: &str, ctx: &mut Ctx| {
@@ -1564,18 +1588,8 @@ fn emit_unit(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
-    let math_name = ctx.names.intern("Math");
-    ctx.layouts = match ctx.layouts_allowed {
-        true => class_layout::layouts(
-            body,
-            &inline::Declarations::of(body),
-            &primordial::disturbed(body, eval_name, global_this),
-            &receiver::handed_over(body),
-            &ctx.names,
-            ctx.math_primordial.then_some(math_name),
-        ),
-        false => std::collections::BTreeMap::new(),
-    };
+    // `ctx.layouts` is the whole program's, set by `emit_modules` before the
+    // first unit — a class is constructed across module boundaries.
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
         ctx,

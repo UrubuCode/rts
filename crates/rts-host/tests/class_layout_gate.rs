@@ -157,3 +157,44 @@ console.log(f(3));";
     assert_eq!(calls_to(source, "__rts_object_new_under"), 0, "no object");
     assert_eq!(calls_to(source, "__rts_call_counted"), 0, "and no call");
 }
+
+#[test]
+fn a_class_declared_in_another_module_has_its_layout_where_it_is_constructed() {
+    let dir = std::env::temp_dir().join(format!("rts-class-layout-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a temp dir");
+    std::fs::write(
+        dir.join("shape.ts"),
+        "export class Shape { id; constructor(id) { this.id = id; } twice() { return this.id * 2; } }\n\
+         export class Rect extends Shape { w; constructor(id, w) { super(id); this.w = w; } area() { return this.w * this.w; } }\n",
+    )
+    .expect("written");
+    let entry = dir.join("main.ts");
+    std::fs::write(
+        &entry,
+        "import { Rect } from \"./shape\";\n\
+         const kept = [];\n\
+         function f(n) { let s = 0; for (let i = 0; i < n; i++) { const r = new Rect(i, 2); s += r.area() + r.twice(); } kept.push(new Rect(1, 1)); return s; }\n\
+         console.log(f(3), kept.length);\n",
+    )
+    .expect("written");
+    let ir = rts_host::describe::describe_path(&entry).expect("compiles");
+    let _ = std::fs::remove_dir_all(&dir);
+    let id_of = |symbol: &str| {
+        ir.lines()
+            .find(|line| line.starts_with(';') && line.ends_with(symbol))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .map(str::to_owned)
+    };
+    let in_f = |symbol: &str| -> usize {
+        let Some(id) = id_of(symbol) else { return 0 };
+        ir.lines()
+            .skip_while(|line| !(line.starts_with("; FuncId(") && line.ends_with(" f")))
+            .skip(1)
+            .take_while(|line| !line.starts_with("; FuncId("))
+            .filter_map(|line| line.split("Call { callee: ").nth(1)?.split(',').next())
+            .filter(|callee| *callee == id)
+            .count()
+    };
+    assert_eq!(in_f("__rts_construct"), 0, "no construction across the boundary");
+    assert_eq!(in_f("__rts_object_new_under"), 1, "the one that is kept");
+}
