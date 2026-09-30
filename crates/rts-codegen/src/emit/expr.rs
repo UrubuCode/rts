@@ -2563,6 +2563,16 @@ fn emit_array(
         .iter()
         .any(|element| matches!(element, Some(crate::syntax::Spreadable::Spread(_))))
     {
+        // `[...xs]` alone is what `xs` iterates to, and `Iterate` answers exactly
+        // that as a fresh array: the copy the literal owes, made once rather than
+        // appended into an empty one -- 364 ns for three elements against the
+        // copy itself (release, 2026-09-30). NOT `SpreadList`, which hands back
+        // the array written and is a call's alone: `array_spread_copy.test.ts`.
+        if let [Some(crate::syntax::Spreadable::Spread(source))] = elements {
+            let source = emit_expr(builder, scope, ctx, source)?;
+            let source = as_value(builder, source);
+            return Ok(call(builder, ctx, RuntimeOp::Iterate, &[source])?[0]);
+        }
         // A HOLE among them is not a reason to refuse. `[1, , ...xs]` is
         // ordinary elision, and the appending path can express it: the marker
         // `ArrayNew` already fills an unwritten position with is a value like
