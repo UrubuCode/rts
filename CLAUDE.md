@@ -346,10 +346,34 @@ class/function registration only when some module imports `rts:serde` or
 earlier because they return in another shape or not at all; `sync` and `thread`
 left on 08-10 for a reason worth keeping written down.
 
-`thread` needs two OS threads running JavaScript, and this engine cannot: a
-`Context` is reached through a thread-local and nothing in the host spawns a
-thread to run a callback. That is an architecture, not a gap, so a `thread`
-namespace would have been a name with nothing behind it.
+`thread` needs a program to be able to SPAWN one and to hand it work, and that
+is what does not exist — not the threads. **Compiled code already runs on
+several OS threads, each with a heap of its own, and it is tested**: the JIT's
+`Compiled::run_on(n)` takes one `Region` per thread out of a program placed by
+`compile_for(source, n)`, opens a `std::thread::scope`, and `crates/rts-host/
+tests/threads.rs` asserts that N threads run at once, that each allocates in
+its own region, and that two never hand out the same reference. The reference
+encoding was built for it — `(cell << selector_bits) | region` — and
+`gc::barrier_for` emits `BarrierKind::CrossRegion` on a reference store the
+moment a program is placed for more than one region.
+
+This paragraph said the opposite until 2026-10-01, and the sentence was read
+straight out of the `sync` argument below without checking the host. What is
+genuinely absent is **sharing**: nothing publishes a reference from one thread
+to another — no channel, no shared global, no way to pass one — so
+`entry::barrier`'s remembered set is correct and empty, `Region::Shared` is a
+case the machine models and nothing allocates into, and the collector scans
+one thread's own stack. So a `thread` namespace would still be a name with
+nothing behind it, for a different reason than this file gave: the threads run,
+and a program can neither start one nor say anything to it.
+
+**And the AOT side is a region behind the JIT**: `object/mod.rs` hardcodes
+`RegionBases::single` with a symbolic base, and `rts-runtime-boot` builds one
+`Region::with_capacity` and one `Context`. A compiled binary is single-threaded
+by construction rather than by configuration, which is three named pieces of
+work — the count through `compile_to_object`, a symbolic base TABLE instead of
+one base, and the count in the object's manifest — and not a difference in
+kind.
 
 `sync` is the sharper case, because it EXISTED for a few hours on 08-10 before
 being removed. Its `mutex_lock` could not block — there is nothing to block
