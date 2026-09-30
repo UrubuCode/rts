@@ -6,6 +6,78 @@ use super::*;
 pub(super) struct Born<'a> {
     pub(super) layouts: &'a BTreeMap<Name, Rc<Layout>>,
     pub(super) prototype: Name,
+    pub(super) direct: Option<&'a Direct<'a>>,
+}
+
+/// `f.call(t, a, b)` or `f.apply(t, [a, b])` as `f(a, b)`, where `f` is one
+/// of `direct`'s functions and the receiver is inert. `None` otherwise.
+fn as_call(expr: &Expr, direct: &Direct) -> Option<Expr> {
+    let ExprKind::Call {
+        callee,
+        arguments,
+        optional: false,
+    } = &expr.kind
+    else {
+        return None;
+    };
+    let ExprKind::Member {
+        object,
+        property,
+        optional: false,
+    } = &callee.kind
+    else {
+        return None;
+    };
+    let ExprKind::Ident(function) = &object.kind else {
+        return None;
+    };
+    if !direct.functions.contains_key(function) || direct.handed_over.contains(function) {
+        return None;
+    }
+    let [Spreadable::Single(receiver), rest @ ..] = &arguments[..] else {
+        return None;
+    };
+    let inert = matches!(
+        &receiver.kind,
+        ExprKind::Ident(_)
+            | ExprKind::This
+            | ExprKind::Literal(
+                Literal::Number(_) | Literal::String(_) | Literal::Boolean(_) | Literal::Singleton(_)
+            )
+    );
+    if !inert {
+        return None;
+    }
+    let passed: Vec<Spreadable> = if *property == direct.call {
+        if !rest.iter().all(|held| matches!(held, Spreadable::Single(_))) {
+            return None;
+        }
+        rest.to_vec()
+    } else if *property == direct.apply {
+        match rest {
+            [] => Vec::new(),
+            [Spreadable::Single(Expr {
+                kind: ExprKind::Array { elements },
+                ..
+            })] if elements
+                .iter()
+                .all(|element| matches!(element, Some(Spreadable::Single(_)))) =>
+            {
+                elements.iter().flatten().cloned().collect()
+            }
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+    Some(Expr {
+        kind: ExprKind::Call {
+            callee: object.clone(),
+            arguments: passed,
+            optional: false,
+        },
+        at: expr.at,
+    })
 }
 
 /// The constructions of one statement list and of the lists inside it, each
@@ -277,6 +349,14 @@ pub(super) fn calls_in_statement(
 /// left as written names its receiver, which is a use `escape` refuses. So what
 /// this misses costs a rewrite and never an answer.
 pub(super) fn rewrite_in(expr: &mut Expr, names: &Instances, born: Option<&Born>, changed: &mut bool) {
+    // `f.call(t, …)` on a function the program proves: the call it spells,
+    // whose arguments are then rewritten as any call's.
+    if let Some(direct) = born.and_then(|born| born.direct)
+        && let Some(call) = as_call(expr, direct)
+    {
+        *expr = call;
+        *changed = true;
+    }
     let mut calls_in = |value: &mut Expr, names: &Instances| rewrite_in(value, names, born, changed);
     // A construction of a class with a layout, where instances are being born:
     // its arguments first, which are rewritten as written, and then itself.

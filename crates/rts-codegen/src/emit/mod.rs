@@ -679,6 +679,10 @@ pub struct Ctx<'a> {
     /// not written to and nothing spells a definition — a fact about the WHOLE
     /// program, folded over every unit like `math_primordial`.
     layouts_allowed: bool,
+    /// Every name the whole program reads as a value — `receiver::handed_over`,
+    /// folded over every unit. What a function handed to anything may have had
+    /// done to it is unknown, so `f.call` on one is left as written.
+    handed_over: std::collections::BTreeSet<Name>,
     /// The callees whose bodies are being substituted right now, innermost last.
     ///
     /// A cycle among candidates is unbounded substitution at COMPILE time, and
@@ -789,6 +793,7 @@ impl<'a> Ctx<'a> {
             inlinable: std::collections::BTreeMap::new(),
             layouts: std::collections::BTreeMap::new(),
             layouts_allowed: false,
+            handed_over: std::collections::BTreeSet::new(),
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
             async_parks: false,
@@ -1245,12 +1250,13 @@ pub(super) fn emit_program_into(
     ctx.layouts_allowed = primordial::untouched(body, object_name, eval_name, global_this)
         && !class_layout::setters_reachable(body, &ctx.names);
     let math_name = ctx.names.intern("Math");
+    ctx.handed_over = receiver::handed_over(body);
     ctx.layouts = match ctx.layouts_allowed {
         true => class_layout::layouts(
             body,
             &inline::Declarations::of(body),
             &primordial::disturbed(body, eval_name, global_this),
-            &receiver::handed_over(body),
+            &ctx.handed_over,
             &ctx.names,
             ctx.math_primordial.then_some(math_name),
         ),
@@ -1430,6 +1436,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             let declared = inline::Declarations::of(&whole);
             let writes = primordial::disturbed(&whole, eval_name, global_this);
             let handed_over = receiver::handed_over(&whole);
+            ctx.handed_over = handed_over.clone();
             let mut layouts = class_layout::layouts(
                 &whole,
                 &declared,

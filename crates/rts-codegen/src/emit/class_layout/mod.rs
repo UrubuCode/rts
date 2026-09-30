@@ -320,9 +320,11 @@ pub(super) fn rewritten(
     prototype: Name,
     here: &Here,
 ) -> Option<Vec<Stmt>> {
-    if !here.allowed {
-        return None;
-    }
+    let none = BTreeMap::new();
+    let layouts = match here.allowed {
+        true => layouts,
+        false => &none,
+    };
     let with_local;
     let layouts = match local(layouts, body, here) {
         Some(found) => {
@@ -331,13 +333,19 @@ pub(super) fn rewritten(
         }
         None => layouts,
     };
-    if layouts.is_empty() {
+    if layouts.is_empty() && here.direct.is_none() {
         return None;
     }
     let settled = unseen(layouts, body, parameters, prototype);
     // Then every construction that is left, which is every instance that is
-    // seen: born under its prototype rather than constructed.
-    let born = Born { layouts, prototype };
+    // seen: born under its prototype rather than constructed — and every
+    // `f.call(t, …)` and `f.apply(t, […])` on a function the program proves,
+    // which is the call it spells.
+    let born = Born {
+        layouts,
+        prototype,
+        direct: here.direct.as_ref(),
+    };
     // Asked BEFORE the body is taken out of it. It was asked after, which
     // answered "nothing was rewritten" for every body whose instances were all
     // unseen — and handed back the body as written. Every test passed; the
@@ -358,6 +366,30 @@ pub(super) struct Here<'a> {
     pub names: &'a Names,
     /// `Math`, where the program leaves it as the language defines it.
     pub math: Option<Name>,
+    /// The functions `f.call(t, …)` and `f.apply(t, […])` may be spelled as a
+    /// call of, or `None` where `Function.prototype` is not the language's.
+    pub direct: Option<Direct<'a>>,
+}
+
+/// What lets `f.call(t, a)` be written `f(a)`: `f` is a function the whole
+/// program proves and `inline` could substitute — declared once, never
+/// assigned, and closed over its parameters, so it reads no `this` and the
+/// receiver decides nothing. Both stages then see the call they already know
+/// how to substitute; the running emitter's own door for these was measured
+/// at 79 ns for `call` and 206 for `apply` against 1.5 for the call itself.
+///
+/// The receiver is evaluated by `call` and not by `f(a)`, so it is dropped only
+/// where dropping it cannot be seen: a name, `this` or a literal.
+pub(super) struct Direct<'a> {
+    pub functions: &'a BTreeMap<Name, Rc<crate::emit::inline::Inlinable>>,
+    /// The names the program reads as values. `inline`'s proof is about what
+    /// `f` IS, and that is enough for `f(a)`; `f.call` also asks what `f`
+    /// HAS, and a function handed to `Object.setPrototypeOf` may have any
+    /// `call` at all. The corpus had that program: `call_apply_direct.test.ts`
+    /// answered `2` where `"proto"` was expected on the build without this.
+    pub handed_over: &'a BTreeSet<Name>,
+    pub call: Name,
+    pub apply: Name,
 }
 
 /// The program's layouts and those of the classes `body` declares for itself,

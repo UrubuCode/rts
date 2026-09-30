@@ -383,7 +383,15 @@ fn emit_function(
         (FunctionBody::Block(written), true) => {
             let prototype = ctx.names.intern("prototype");
             let math_name = ctx.names.intern("Math");
+            let call_name = ctx.names.intern("call");
+            let apply_name = ctx.names.intern("apply");
             let here = super::class_layout::Here {
+                direct: ctx.statics_primordial.function.then_some(super::class_layout::Direct {
+                    functions: &ctx.inlinable,
+                    handed_over: &ctx.handed_over,
+                    call: call_name,
+                    apply: apply_name,
+                }),
                 allowed: ctx.layouts_allowed,
                 eval: ctx.names.intern("eval"),
                 global_this: ctx.names.intern("globalThis"),

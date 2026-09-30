@@ -66,3 +66,27 @@ describe("a call made without the array it used to build", () => {
     expect(Object.getPrototypeOf(viaNew)).toBe(who.prototype);
   });
 });
+
+function plus(a: number, b: number): number { return a + b; }
+function twice(x: number): number { return x * 2; }
+
+describe("call and apply on a function the program proves", () => {
+  test("are the call they spell, and the receiver still runs where it is not a name", () => {
+    let s = 0;
+    for (let i = 0; i < 1000; i++) s += plus.call(null, i, 1) + twice.apply(undefined, [i]);
+    expect(s).toBe(499500 + 1000 + 999000);
+    expect(plus.call(this, 1, 2)).toBe(3);
+    expect(plus.apply(null, [4])).toBe(NaN);
+    expect(plus.apply(null)).toBe(NaN);
+    expect((twice as any).apply(null, [1, 2, 3])).toBe(2);
+    const log: string[] = [];
+    const t = () => { log.push("t"); return null; };
+    expect(plus.call(t(), 1, 2)).toBe(3);
+    expect(twice.apply(t(), [5])).toBe(10);
+    expect(log.join()).toBe("t,t");
+    const a = () => { log.push("a"); return 1; };
+    const b = () => { log.push("b"); return 2; };
+    expect(plus.call(null, a(), b())).toBe(3);
+    expect(log.join()).toBe("t,t,a,b");
+  });
+});
