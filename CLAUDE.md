@@ -26,6 +26,8 @@ not background reading, and the rules in it are binding for changes inside it.
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
 | `crates/rts-dom/`, `crates/rts-dom-bridge/` | the row above, PLUS `crates/rts-dom/PLAN.md` — §0 is the state (which lot is in flight, on which branch, measured how) and §1–§2 are the rules and the three rulers — and the verdict in `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/README.md`, which is the current picture of the engine where the roadmap of June is the picture from before. **For anything that touches the LAYOUT itself, also read `docs/ui/html-engine/box-tree.md`** — the box tree is the layer this engine does not have and every other CSS engine does, and that document is binding for the five `BT-*` lots of PLAN.md §9. It carries the nine invariants that break SILENTLY when box identity stops being the DOM node; seven of them compile and lie |
 | the PIPELINE itself — a new stage, a new IR, a type domain, a guard, speculation, deoptimisation | `docs/engine/four-stages.md`, and `docs/engine/deopt-lateral.md` for the second tier. The first records why `AST → machine IR` is two stages short, and the measured wrong answer that shortfall produces |
+| **how a value is CREATED, allocated, identified, traced or moved — anything in the base** | `docs/engine/principles.md` (P1–P8, each with the test a change is held against, and what Rust, C# and Go decided differently) **and** `docs/engine/one-form-per-question.md`, which says which form is canonical per family and **for which actions** |
+| **a predicate, a fast path, a guard, or a second way to ask something the tree already asks** | the same two. P1 and P5 are the ones that bind: one claim, one predicate, called by every layer; and a guess carries a landing or does not ship |
 | anything else | this file, and `docs/README.md` for where things live |
 
 If a change requires breaking a rule, **change the rule first, with the reason,
@@ -33,6 +35,33 @@ and get it agreed**. Never leave a rule the code contradicts.
 
 Also: if `local-rules.md` exists at the root, reading it is mandatory. It is
 per-developer, unversioned, and takes priority over general preference.
+
+---
+
+## RULE 0a — the MIR stage is the direction, and new work goes there
+
+`emit/` is to be removed. `rts-mir` is not a tidier emitter: it is the only place
+a **guess** can live, and a dynamic language needs one — no amount of
+whole-program analysis settles every type, shape and callee in JavaScript, so a
+compiler that only ever proves concedes every unproven case permanently.
+`docs/engine/deopt-lateral.md` is the form the fall takes here (the generic body
+of the same function, no interpreter) and `docs/engine/principles.md` P5 is the
+rule it serves.
+
+Two things follow, and both are binding:
+
+- **A new language feature is written in `lower/` + `machine/`.** A change to
+  `emit/` is made only to keep a program compiling while `through_mir.rs` still
+  declines that function, and it is recorded as a refusal to be removed rather
+  than as a feature. The audit of 2026-10-01 measured the cost of not doing this:
+  37 002 lines against 11 191, with seven language features implemented twice,
+  and the four-stages document records one bug that had to be found and fixed
+  separately in each path.
+- **Nothing is deleted from `emit/` before a differential test exists.**
+  `RTS_MIR` appears in four places in this repository and **none of them is a
+  test** — nothing runs one program through both paths and compares. Today the
+  twenty hand-written refusals in `through_mir.rs` are what keep a disagreement
+  from running; the moment `emit/` is gone they have nothing left to decline to.
 
 ---
 
