@@ -95,7 +95,7 @@ mod tests {
     }
 
     fn object(context: &mut Context) -> u64 {
-        let ty = context.types.declare(&[rts_cranelift::repr::Repr::I64]);
+        let ty = context.types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         let cell = context
             .region
             .alloc(crate::heap::STRIDE, ty.index() as u32)

@@ -167,13 +167,56 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     } else {
         width
     };
+    // 2. And of those, only the ones that CAN name a cell. The machine already
+    //    answers that, and `gc::barrier_for` already asks it for the STORE
+    //    side: a cell's type has an aggregate layout, every field of it carries
+    //    a `Repr`, and `Repr::is_gc_relevant` is true for exactly `Tagged` and
+    //    `Ref`. The read side did not ask — so a string pushed its slab index
+    //    and its length, and every array pushed its `length`, three words the
+    //    compiler had already declared are not references.
+    //
+    //    A slot the layout does NOT declare keeps being pushed, and that half
+    //    is conservative on purpose: a cell is fifteen slots wide whatever its
+    //    shape says, a retyped cell's tail can still hold what the old shape
+    //    put there, and nothing here knows it is dead. Precise where it is
+    //    declared, unchanged where it is not — which is also why this cannot
+    //    free something a property still reads: a slot past the declared fields
+    //    is a slot no property resolves to.
+    //
+    //    What it risks is a field DECLARED non-GC-relevant that holds a
+    //    reference anyway — rule 10's own failure direction, a silent free
+    //    rather than a crash. `Region::set_field` carries the debug assertion
+    //    that refuses it at the write, which is the shape `side_tables` uses
+    //    for an arm that disagrees with its table.
+    let declared = context
+        .region
+        .type_of(cell)
+        .and_then(|ty| context.declared_fields(ty));
     for slot in 0..owned {
+        if !rts_cranelift::gc::traces_field(declared.and_then(|fields| fields.field(slot as usize)))
+        {
+            // Rule 7's verifier half, and it is EXACT rather than approximate:
+            // `is_encoded` tests the box bits, so a raw slab index and a double
+            // both answer `None` to `as_slot` while a real reference answers
+            // `Some`. A field declared `I64` or `F64` holding one is the silent
+            // free this whole arm risks, caught here — in the path that would
+            // do the harm — on every debug run of every test.
+            debug_assert!(
+                context
+                    .region
+                    .field(cell, slot)
+                    .and_then(|word| Value(word).as_slot())
+                    .is_none_or(|named| context.region.header_of(named).is_none()),
+                "cell {cell} slot {slot} holds a reference, and its layout declares the field is not one"
+            );
+            continue;
+        }
         if let Some(word) = context.region.field(cell, slot) {
             out.push(word);
         }
     }
 
-    // 2. Everything attached to the cell from OUTSIDE it, as a total walk
+    // 3. Everything attached to the cell from OUTSIDE it, as a total walk
     //    over every such table. `side_tables` is both the classification and
     //    the walk, in one module, because a table and the answer to "can it
     //    name a cell" are one decision and splitting them is what let the
@@ -197,7 +240,7 @@ mod tests {
 
     /// Writes a plain object with one property, an ordinary inline reference.
     fn object_pointing_at(context: &mut Context, target: u32) -> u32 {
-        let ty = context.types.declare(&[rts_cranelift::repr::Repr::I64]);
+        let ty = context.types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         let cell = context
             .region
             .alloc(crate::heap::STRIDE, ty.index() as u32)
@@ -210,7 +253,7 @@ mod tests {
     }
 
     fn plain(context: &mut Context) -> u32 {
-        let ty = context.types.declare(&[rts_cranelift::repr::Repr::I64]);
+        let ty = context.types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         context
             .region
             .alloc(crate::heap::STRIDE, ty.index() as u32)
@@ -319,9 +362,17 @@ mod tests {
         let mut context = empty_context();
         let value = plain(&mut context);
         let holder = plain(&mut context);
+        // A type that says its fields hold values, which is what the runtime's
+        // own `spill_type` says. It was `0` — the reserved TEXT layout, whose
+        // field zero is a slab index — so the block claimed to be a string
+        // while holding a reference, and `edges_of`'s assertion says so now.
+        let ty = context
+            .types
+            .declare(&[rts_cranelift::repr::Repr::Tagged])
+            .index() as u32;
         let block = context
             .region
-            .alloc_spanning(16, 0)
+            .alloc_spanning(16, ty)
             .expect("room for the overflow block");
         context
             .region

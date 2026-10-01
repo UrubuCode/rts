@@ -141,6 +141,16 @@ impl Context {
         fresh
     }
 
+    /// What a cell of this type declares about its slots, or `None` where no
+    /// aggregate was declared under that number.
+    ///
+    /// Fetched once per cell and then asked per slot: the lookup is a registry
+    /// index and the question is a field read, and doing the first per slot was
+    /// measurably slower than not asking at all — see `gc::traces_field`.
+    pub(super) fn declared_fields(&self, ty: u32) -> Option<&rts_cranelift::types::AggregateLayout> {
+        self.types.layout_at(ty as usize)
+    }
+
     /// The link a type was minted under, if it was minted under one.
     pub(super) fn link_of_type(&self, ty: u32) -> Option<u32> {
         self.link_of_type.get(ty as usize).copied().flatten()

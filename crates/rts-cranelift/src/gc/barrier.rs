@@ -13,7 +13,7 @@
 //! lowering, where it cannot be forgotten.
 
 use crate::ir::{Inst, Region};
-use crate::types::TypeRegistry;
+use crate::types::{FieldLayout, TypeRegistry};
 
 /// What a store must do beyond writing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -53,6 +53,39 @@ pub fn crossing_is_possible(regions: u32) -> bool {
     regions > 1
 }
 
+/// Whether a collector must FOLLOW a field — the read side of the question
+/// [`barrier_for`] asks about a store, from the same layout.
+///
+/// # Why this is here, beside the barrier, rather than on the registry
+///
+/// Because they are one decision asked twice. A barrier reports a reference
+/// being written into a field; a trace follows a reference out of one; and both
+/// are "is this field GC-relevant" over `TypeRegistry::layout`. Two spellings of
+/// that in two modules is the second copy this module's own documentation says
+/// goes stale — so they sit together and the test is written once.
+///
+/// # Why it takes the FIELD and not a registry and two indices
+///
+/// Because the caller walks every slot of a cell and the lookup is per CELL. The
+/// first version took `(&TypeRegistry, aggregate, field)` and did the
+/// `layout_at` inside, so tracing one fifteen-slot array performed fifteen
+/// registry lookups to skip one word — and it measured slower than the walk it
+/// replaced: `garbage arrays, live 40k` went 125 -> 135 ns (release, isolated,
+/// 2026-10-01). Taking the field moves the lookup to where it belongs without
+/// moving the RULE, which is still stated once, here.
+///
+/// # What the answer is when nothing is known, and why that direction
+///
+/// `true` — follow it. A slot past the fields the aggregate declares is
+/// unproven, and rule 12's conservative form here is the one that retains: a
+/// word followed in error keeps something alive one cycle longer, and a word NOT
+/// followed in error is a use-after-free. A cell is wider than its aggregate in
+/// general — fifteen slots whatever the shape says — so `None` is the common
+/// case and not an edge.
+pub fn traces_field(field: Option<FieldLayout>) -> bool {
+    field.is_none_or(|found| found.repr.is_gc_relevant())
+}
+
 /// Whether a store needs a barrier, and which.
 ///
 /// Three conditions must all hold. The field must be one the collector traces —
@@ -79,10 +112,15 @@ pub fn barrier_for(
         return BarrierKind::None;
     };
 
+    // The same predicate the TRACE side uses, so the two cannot drift: a field
+    // a collector follows is a field whose store has something to report. The
+    // `false` for an undeclared field is right here and `true` is right there —
+    // a store into a slot the aggregate does not describe is not a store this
+    // layer emitted, where a WORD in such a slot is one it cannot vouch for.
     let traced = types
         .layout(*ty)
         .field(*field as usize)
-        .is_some_and(|f| f.repr.is_gc_relevant());
+        .is_some_and(|field| traces_field(Some(field)));
 
     match (traced, object_region) {
         (true, Region::Shared) => BarrierKind::CrossRegion,

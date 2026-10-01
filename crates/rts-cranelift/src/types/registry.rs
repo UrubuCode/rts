@@ -66,6 +66,19 @@ impl TypeRegistry {
             .expect("type identifier does not belong to this registry")
     }
 
+    /// The same, by the raw index a cell's header carries, answering `None`
+    /// where no aggregate was declared under it.
+    ///
+    /// A runtime reads a cell's type out of the header as a NUMBER, because that
+    /// is what this layer put there. [`Self::layout`] cannot serve it — a
+    /// `TypeId` is only obtainable from `declare`, which is the property that
+    /// makes its panic a wiring mistake rather than a condition — so this is the
+    /// lookup for the one caller that legitimately has an index and not an
+    /// identifier, and it fails by answering nothing instead of panicking.
+    pub fn layout_at(&self, index: usize) -> Option<&AggregateLayout> {
+        self.layouts.get(index)
+    }
+
     /// Whether the identifier was issued by this registry.
     ///
     /// The verifier uses this to reject a program built against a different

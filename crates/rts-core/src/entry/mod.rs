@@ -1326,7 +1326,16 @@ impl Context {
         // One word: where the text is. Declared before anything else so its
         // number is stable across contexts, which a test comparing two of them
         // would otherwise depend on the order of unrelated allocations for.
-        let text_type = types.declare(&[rts_cranelift::repr::Repr::I64]);
+        // TWO fields, honestly: slot 0 is the slab index and slot 1 is the
+        // length as a double. It declared only the first, so the tracer — which
+        // now reads these declarations — kept pushing the length conservatively,
+        // and before that it pushed all fifteen slots of every string. Saying
+        // what the second slot is is what removes it from the walk, and
+        // `TEXT_LENGTH_SLOT` is the constant that must agree with the order.
+        let text_type = types.declare(&[
+            rts_cranelift::repr::Repr::I64,
+            rts_cranelift::repr::Repr::F64,
+        ]);
         let spill_type = types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         // Code address, then environment. Declared here beside text and for the
         // same reason: a number that depends on which allocation happened first

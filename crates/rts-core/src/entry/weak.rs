@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn an_unknown_identifier_and_a_collected_value_are_different_answers() {
         let mut context = context();
-        let ty = context.types.declare(&[rts_cranelift::repr::Repr::I64]);
+        let ty = context.types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         let cell = context
             .region
             .alloc(crate::heap::STRIDE, ty.index() as u32)

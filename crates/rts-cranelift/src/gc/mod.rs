@@ -39,7 +39,7 @@ mod barrier;
 mod frame;
 mod liveness;
 
-pub use barrier::{BarrierKind, barrier_for, crossing_is_possible};
+pub use barrier::{BarrierKind, barrier_for, crossing_is_possible, traces_field};
 pub use frame::{FrameDescriptor, FrameTable, RootSlot};
 pub use liveness::{Liveness, live_after_each_inst};
 

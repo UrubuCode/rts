@@ -213,7 +213,7 @@ mod tests {
     }
 
     fn plain(context: &mut Context) -> u32 {
-        let ty = context.types.declare(&[rts_cranelift::repr::Repr::I64]);
+        let ty = context.types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         context
             .region
             .alloc(crate::heap::STRIDE, ty.index() as u32)

@@ -37,7 +37,16 @@ pub(in crate::entry) fn owned(context: &mut Context, frames: Vec<FrameShape>) ->
     frames
         .into_iter()
         .map(|mut shape| {
-            let fields = vec![Repr::I64; shape.slots.max(1) as usize];
+            // `Tagged`, and this was `I64` — the same 64 bits, so no offset
+            // moves, and a different STATEMENT. A parked frame holds the
+            // generator's own locals, which are values; `I64` here said they
+            // were machine words, and the tracer now reads these declarations
+            // (`gc::traces_field`) to decide what to follow. Declaring them
+            // machine words would have freed a suspended generator's locals —
+            // the defect of 2026-09-02 reintroduced through the layout instead
+            // of through a root list. `trace::edges_of`'s debug assertion is
+            // what caught it before it ran.
+            let fields = vec![Repr::Tagged; shape.slots.max(1) as usize];
             shape.ty = context.types.declare(&fields).index() as u32;
             shape
         })
