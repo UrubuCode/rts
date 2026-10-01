@@ -1464,6 +1464,16 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
 /// So the same question `allocate_for_target` answers is asked here, and the
 /// fallback is what the built-in would have chosen: a construction that is not
 /// in progress — `RegExp("a")` without `new` — has no target to consult.
+///
+/// # What it cannot tell apart, and who must ask [`prototype_for_new_reaching`]
+///
+/// "A construction is in progress" is not "THIS allocation is that
+/// construction". The target stays on the stack for as long as the constructor
+/// BODY runs, so anything a constructor allocates reads it — and a `/a+/` or an
+/// `Array(3)` written inside an unrelated `new Thing()` would inherit from
+/// `Thing.prototype`. A caller that allocates something whose own prototype a
+/// program then reads methods off must use [`prototype_for_new_reaching`]
+/// instead, which believes the target only when it really is a subclass.
 pub(super) fn prototype_for_new(context: &mut Context, fallback: u64) -> u64 {
     let Some(target) = context.new_targets.last().map(|(target, _)| *target) else {
         return fallback;
@@ -1481,6 +1491,47 @@ pub(super) fn prototype_for_new(context: &mut Context, fallback: u64) -> u64 {
         Some(prototype) if prototype.as_slot().is_some() => prototype.bits(),
         _ => fallback,
     }
+}
+
+/// [`prototype_for_new`], believed only when the target IS a subclass.
+///
+/// # Why reaching the built-in's own prototype is the test
+///
+/// Because the target stack cannot say whether this allocation is the one the
+/// `new` asked for — see [`prototype_for_new`]. The prototype of a real
+/// subclass of the built-in reaches the built-in's own prototype, and the
+/// prototype of an unrelated class does not, so walking the chain answers the
+/// question the stack cannot.
+///
+/// This was `array_proto::construct`'s private walk, written when `Array(3)`
+/// inside a `new Thing()` inherited from `Thing.prototype`. Its comment said
+/// that `regex` and `object_global` "accept exactly that, because `RegExp("a")`
+/// inside a constructor is vanishingly rare" — and that wager was simply wrong:
+/// a REGEX LITERAL goes through the same path, and one evaluated inside any
+/// constructor lost `test`, `exec` and `source` while still answering
+/// `[object RegExp]`. That is #2836, and it is what `dayjs("…")` dies of, in a
+/// `parseDate` four frames below the `new`.
+///
+/// So the walk moved here rather than being copied: two places deciding which
+/// prototype a built-in's object gets is how one of them comes to decide it
+/// differently.
+///
+/// What it still admits is a `class Fancy extends RegExp` whose own constructor
+/// evaluates a bare literal — and there the answer is the one that class would
+/// have wanted anyway.
+pub(super) fn prototype_for_new_reaching(context: &mut Context, own: u64) -> u64 {
+    let asked = prototype_for_new(context, own);
+    if asked == own {
+        return own;
+    }
+    let mut walked = Value(asked).as_slot();
+    while let Some(step) = walked {
+        if Value::from_slot(step).bits() == own {
+            return asked;
+        }
+        walked = context.prototype_at(step).and_then(|up| Value(up).as_slot());
+    }
+    own
 }
 
 /// Records that a constructor must ask its parent for the object.
