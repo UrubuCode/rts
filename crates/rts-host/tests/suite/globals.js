@@ -64,10 +64,15 @@ check("decode-component-slash", decodeURIComponent("a%2Fb") === "a/b");
 check("decode-uri-preserves", decodeURI("a%2Fb") === "a%2Fb");
 check("decode-uri-space", decodeURI("a%20b") === "a b");
 check("decode-utf8", decodeURIComponent("%C3%A9") === "é");
-// A malformed escape is a `URIError` in the specification; this answers
-// `undefined`, because a throw here would end the program over one bad query
-// parameter.
-check("decode-malformed", decodeURIComponent("%zz") === undefined);
+// A malformed escape is a `URIError`, and it IS one now. The comment here said
+// the opposite — "this answers `undefined`, because a throw here would end the
+// program over one bad query parameter" — and that limit is gone, so the
+// sentence had outlived it while the `=== undefined` beside it kept passing for
+// the wrong reason. Asserting the throw is strictly more than asserting the
+// absence, and it keeps saying something if the raise is ever lost.
+check("decode-malformed-throws", (function () {
+    try { decodeURIComponent("%zz"); return false; } catch (e) { return true; }
+})());
 
 check("clone-primitive", structuredClone(5) === 5);
 check("clone-string", structuredClone("a") === "a");
