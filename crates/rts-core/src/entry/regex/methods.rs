@@ -89,10 +89,28 @@ pub(super) extern "C" fn construct(
             return Made::Built(made, source, letters);
         }
         let Some(source) = text_of(context, pattern) else {
-            // A pattern that is not a string. `new RegExp(1)` runs `ToString`
-            // on it, and `ToString` of an object calls user code an entry point
-            // cannot call — so the conversion stops where that becomes true,
-            // rather than half-doing it for the cases that would work.
+            // A string this engine cannot READ is not the same thing as a value
+            // that is not a string, and answering `undefined` for both made the
+            // first one silent. `text_at` is what tells them apart: a JS string
+            // holding a LONE SURROGATE has no Rust spelling — `to_rust` refuses
+            // rather than substituting `U+FFFD`, and `text/mod.rs` names
+            // `RegExp` as one of the three callers that need that refusal — so
+            // a pattern built from `String.fromCharCode(0xD800)` answered
+            // `undefined`, and from a CONSTRUCTOR that means `new` hands back
+            // the half-built `this`: tag `[object Object]`, no compiled
+            // pattern, and a `.source` that throws "called on non-RegExp
+            // object" lines later, naming neither the pattern nor the line that
+            // wrote it. The pattern IS unusable, so the `SyntaxError` is owed;
+            // `Built` is how it gets raised, because `refusal` reads the ANSWER
+            // and not the reason.
+            if Value(pattern).as_slot().is_some_and(|cell| context.text_at(cell).is_some()) {
+                return Made::Unreadable(undefined_of(context));
+            }
+            // A pattern that is not a string at all. `new RegExp(1)` runs
+            // `ToString` on it, and `ToString` of an object calls user code an
+            // entry point cannot call — so the conversion stops where that
+            // becomes true, rather than half-doing it for the cases that would
+            // work.
             return Made::Answered(undefined_of(context));
         };
         let letters = text_of(context, flags).unwrap_or_default();
@@ -104,6 +122,16 @@ pub(super) extern "C" fn construct(
     // keep out of an `extern "C"` frame.
     match outcome {
         Made::Answered(value) => value,
+        Made::Unreadable(value) => {
+            // Its own message rather than `refusal`'s, because `refusal` puts
+            // the SOURCE between slashes and this is the one fault where the
+            // source cannot be written out at all — that is what makes it a
+            // fault. So the message names the argument and the reason instead.
+            super::super::throw::syntax_error(
+                "invalid regular expression: the pattern holds an unpaired surrogate",
+            );
+            value
+        }
         Made::Built(made, source, letters) => {
             super::refusal(made, &source, &letters);
             made
@@ -119,6 +147,10 @@ pub(super) extern "C" fn construct(
 enum Made {
     /// Answered without building a pattern; nothing to refuse.
     Answered(u64),
+    /// A string that is genuinely a string and has no Rust spelling — a lone
+    /// surrogate. Apart from `Built` because the `SyntaxError` it owes cannot
+    /// quote the pattern, which is the whole reason it is refused.
+    Unreadable(u64),
     /// Built (or failed to build) from this source and these flags.
     Built(u64, String, String),
 }
