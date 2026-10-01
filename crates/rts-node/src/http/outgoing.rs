@@ -309,7 +309,16 @@ extern "C" fn response_write_hook(_e: u64, this: u64, chunk: u64, _encoding: u64
     let payload = if chunked { chunk_frame(&bytes) } else { bytes };
     let payload_value = entry::with_runtime(|context| entry::make_bytes(context, &payload));
     call_method(socket, "write", payload_value, absent, absent);
-    entry::call(callback, absent, absent, absent, absent, absent);
+    // Only when one was GIVEN. `writable.write(chunk[, encoding][, callback])`
+    // and `end([chunk][, encoding][, callback])` both make it optional, and
+    // calling `undefined` raises `TypeError: undefined is not a function` — so
+    // `res.write("A")` and `res.end("B")`, the two spellings every Node server
+    // is written in, threw AFTER the bytes had already gone out: the client got
+    // its response and the handler died anyway. `outgoing_end` four lines down
+    // asks this already; the hook it delegates to did not.
+    if callback != absent {
+        entry::call(callback, absent, absent, absent, absent, absent);
+    }
     absent
 }
 
