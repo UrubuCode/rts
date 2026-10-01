@@ -1,0 +1,44 @@
+// `fetch` must send the headers the program passed, in every init shape.
+// Pins the defect of #2833: `Headers.prototype.entries()` answers an ITERATOR
+// since #2768, and the native read it by `length` — so zero pairs went out and
+// a JSON-RPC server answered 415 to every POST. Asserted against a local
+// `node:http` server, which is what sees the request line for real; a remote
+// status code would also depend on the network.
+//
+// The handler wraps `res.end` in a `try`: it throws "undefined is not a
+// function" here, which is a separate node:http defect and NOT what this file
+// pins — the request has already arrived and been recorded by then, and the
+// response still reaches the client.
+import { describe, test, expect } from "rts:test";
+import { createServer } from "node:http";
+
+const seen: any[] = [];
+
+const server = createServer((req: any, res: any) => {
+    seen.push(req.headers);
+    try { res.end("ok"); } catch (e) { /* see the note above */ }
+});
+// A fixed port rather than `listen(0)`: `server.address()` is not implemented
+// here, so there is no way to ask which port port zero chose.
+const port = 18833;
+server.listen(port);
+const base = "http://127.0.0.1:" + port + "/";
+
+async function send(headers: any): Promise<any> {
+    const r = await fetch(base, { method: "POST", headers, body: "{}" });
+    await r.text();
+    return seen[seen.length - 1];
+}
+
+const plain = await send({ "Content-Type": "application/json", "X-Token": "abc" });
+const built = await send(new Headers({ "Content-Type": "application/json" }));
+const paired = await send([["Content-Type", "application/json"]]);
+
+describe("fetch sends request headers (#2833)", () => {
+    test("plain object: content-type", () => expect(plain["content-type"]).toBe("application/json"));
+    test("plain object: second header", () => expect(plain["x-token"]).toBe("abc"));
+    test("new Headers(...)", () => expect(built["content-type"]).toBe("application/json"));
+    test("array of pairs", () => expect(paired["content-type"]).toBe("application/json"));
+    test("entries() is an iterator, not an array", () =>
+        expect(Array.isArray(new Headers({ a: "b" }).entries())).toBe(false));
+});

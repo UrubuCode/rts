@@ -187,6 +187,35 @@ fn headers_from(init: u64) -> u64 {
     entry::construct(class, init, absent, absent, absent)
 }
 
+/// Everything an iterator yields, by calling `next()` until `done`.
+///
+/// Bounded rather than endless: a handler that never finishes would hang the
+/// process inside an `extern "C"` frame, and a header list long enough to
+/// reach this ceiling is not one a request can carry anyway.
+fn drain_iterator(iterator: u64) -> Vec<u64> {
+    let next = entry::with_runtime(|context| entry::get_member(context, iterator, "next"));
+    if !entry::with_runtime(|context| entry::is_callable_in(context, next)) {
+        return Vec::new();
+    }
+    let absent = entry::undefined_value();
+    let mut yielded = Vec::new();
+    for _ in 0..MAX_HEADER_ROWS {
+        let step = entry::call(next, iterator, absent, absent, absent, absent);
+        if !entry::with_runtime(|context| entry::is_object(context, step)) {
+            break;
+        }
+        let done = entry::with_runtime(|context| entry::get_member(context, step, "done"));
+        if entry::to_boolean(done) {
+            break;
+        }
+        yielded.push(entry::with_runtime(|context| entry::get_member(context, step, "value")));
+    }
+    yielded
+}
+
+/// The ceiling `drain_iterator` stops at — see its comment.
+const MAX_HEADER_ROWS: usize = 4096;
+
 /// A JS array's elements — the same recipe `node:url` and `child_process`'s
 /// `shared.rs` use over an indexed `length`.
 fn array_elements(array: u64) -> Vec<u64> {
@@ -195,11 +224,21 @@ fn array_elements(array: u64) -> Vec<u64> {
     (0..count).map(|at| entry::get_indexed(array, entry::make_number(at as f64))).collect()
 }
 
-/// The `[[name, value], ...]` array `Headers.prototype.entries()` answers,
-/// read back into Rust pairs.
+/// The `[name, value]` pairs `Headers.prototype.entries()` answers, read back
+/// into Rust pairs.
+///
+/// Since #2768 that method answers an ITERATOR, not an array, which is what
+/// the Fetch Standard asks for — and an iterator has no `length`, so reading
+/// it the way an array is read answered zero pairs and `fetch` sent none of
+/// the program's headers. So the shape is asked rather than assumed: an array
+/// is read by index, anything else is drained through the iterator protocol.
+/// Both arms are kept because the init a program passes can be either — a
+/// subclass overriding `entries()` to answer an array is a documented
+/// workaround for this very defect, and refusing it would break the programs
+/// that adopted it.
 fn pairs_of(entries: u64) -> Vec<(String, String)> {
-    array_elements(entries)
-        .into_iter()
+    let rows = if entry::is_array(entries) { array_elements(entries) } else { drain_iterator(entries) };
+    rows.into_iter()
         .filter_map(|pair| {
             let parts = array_elements(pair);
             let name = entry::text_of(*parts.first()?)?;
