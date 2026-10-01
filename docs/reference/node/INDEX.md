@@ -22,11 +22,7 @@ the experimental ones are specced here. Parity target: Node.js **25.x**.
 | Doc | What |
 |---|---|
 | [`node_completed.md`](./node_completed.md) | **Completion tracker + roadmap** (VERIFIED, overrides stale per-module `Status` rows): the 100%-complete list, near-complete modules with their exact remaining gap, partial/not-started buckets, the cross-cutting engine blockers, and the Phase A→E order to finish node. **Read this before picking a module.** |
-| [`architecture.md`](./architecture.md) | The design: `rts-node` independence, crate layout + the 2 foundation hoists, ABI, opaque handles, async model, threading, buffer interop, `.ts`-shim split, the **no-V8 rule**, globals=engine, tiers, open decisions. |
-| [`layering.md`](./layering.md) | **Layer placement doctrine**: globals belong to the engine; `rts-primitives` = cross-context (browser+backend) logic; engine gaps fillable polymorphism-correct; the placement decision tree + a per-module matrix (which layer owns each concern). |
-| [`implementation-plan.md`](./implementation-plan.md) | **Master plan**: current state (verified), duplicated-resource remove/relocate table, the P-1 foundation phases (Entry::Backend, async→engine + carve-outs, primitives promotions, codegen `node:` routing), P0→P2 module→crate→layer map, prioritization (mature-pure first), per-PR verification, risks. |
-| [`crates.md`](./crates.md) | **Crate selection**: license policy (permissive + weak-copyleft, no royalty) + a consistent purity bar (reject C-compile/vendor, accept libc-FFI), vetted crates per capability domain, rejected list with reasons, and **pure-Rust TLS** (RustCrypto CryptoProvider, no `ring`). |
-| [`rts-std-migration.md`](./rts-std-migration.md) | The rts-std surgery: exact remove/keep buckets, move mechanics, crypto split, async→engine, `Entry::Backend`, execution order, regression watch. |
+| [`PLACEMENT-WAS-WRONG.md`](./PLACEMENT-WAS-WRONG.md) | **The five placement documents that used to be listed here were removed on 2026-10-01**: every crate they named was deleted on 2026-08-10. This file records what each said and what is true now. |
 
 ## Core decisions (see architecture.md §2)
 
@@ -40,9 +36,9 @@ the experimental ones are specced here. Parity target: Node.js **25.x**.
    with **RTS-engine** equivalents, for all callers. Never embed/emulate V8.
 4. **Globals belong to the engine.** `rts-node` mirrors only the `node:` *module*
    API; it adds no globals. The global surface is engine-surfaced (see
-   [`layering.md`](./layering.md) §3).
+   [`PLACEMENT-WAS-WRONG.md`](./PLACEMENT-WAS-WRONG.md) — the doctrine that said so was removed).
 5. **`rts-primitives` = cross-context logic** (correct in browser *and* backend);
-   the placement of every concern is in [`layering.md`](./layering.md) §6. Engine
+   the placement doctrine was removed on 2026-10-01; see [`PLACEMENT-WAS-WRONG.md`](./PLACEMENT-WAS-WRONG.md). Engine
    gaps are filled *in the engine*, polymorphism-correct.
 6. Full Node 25 coverage, tiered P0/P1/P2 (tiers drive order, not scope).
 7. **Async is a primitive → lives in `rts-engine`** (event loop / promise / microtask
@@ -135,7 +131,7 @@ implementation sections map **exclusively to RTS-engine equivalents** — heap
 stats from the RTS mark+sweep collector, serialize via RTS structured-serialize,
 `vm` contexts via the RTS JIT/eval, inspector via RTS's own debug surface (CDP
 compatibility is a phased goal, not a V8 embedding). Governed by
-[`architecture.md`](./architecture.md) §11.
+the since-removed `architecture.md` §11 (see `PLACEMENT-WAS-WRONG.md`).
 
 ## Coverage
 

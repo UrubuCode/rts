@@ -8,7 +8,7 @@
 > sourced from the layer that owns the type (primordial → engine/`rts-primitives`;
 > Web-standard class → `rts-shared`; backend singleton like `process`/`console` →
 > `rts-node`/`rts-std`, but the global *binding* is the engine's). See
-> [`layering.md`](./layering.md) §3. §2.0 below classifies each global accordingly.
+> [`PLACEMENT-WAS-WRONG.md`](./PLACEMENT-WAS-WRONG.md). §2.0 below classifies each global accordingly.
 
 | Field | Value |
 |---|---|
@@ -519,7 +519,7 @@ from `node:crypto`'s extended Node-only surface (`createHash`, `createCipheriv`,
 `randomBytes`, X.509 helpers, …) even though `crypto.md` documents both under
 one file because Node itself does so (`node:crypto`'s default export *is* the
 extended object, and `crypto.webcrypto`/`globalThis.crypto` is a sub-property
-of it). Per `architecture.md` §13 open decision 3: `node:crypto`'s extended
+of it). Recorded as open decision 3 by the since-removed `architecture.md`: `node:crypto`'s extended
 surface is an **rts-node** concern with its **own** hash/CSPRNG implementation;
 the ambient `crypto` Web Crypto global is an **rts-std web-global** backed by
 `rts-std/src/crypto`'s primitives — accepted duplication, not a shared crate.
@@ -529,7 +529,7 @@ the ambient `crypto` Web Crypto global is an **rts-std web-global** backed by
 Namespace object exposing `WebAssembly.compile`/`.instantiate`/`.validate`/
 `Module`/`Instance`/`Memory`/`Table`/`Global`/`CompileError`/`LinkError`/
 `RuntimeError` per the W3C WebAssembly JS API. **No implementation exists
-anywhere in the RTS tree.** Per `architecture.md` §11's binding "no V8"
+anywhere in the RTS tree.** The binding "no V8" rule of the since-removed `architecture.md` §11,
 doctrine, this cannot be satisfied by embedding a WASM engine's V8 integration
 — it needs either (a) an RTS-native WASM interpreter/AOT compiler (a
 significant, currently unscoped engineering effort — Cranelift itself has a
@@ -761,7 +761,7 @@ each module's own §5.1**: `buffer.md`, `console.md`, `process.md`, `module.md`.
 Not re-derived here.
 
 **(B) rts-std/rts-shared-owned pieces** (the majority — the shared
-Web-standard global infrastructure `architecture.md` §2 explicitly keeps in
+Web-standard global infrastructure the since-removed `architecture.md` §2 kept in
 `rts-std`, not moving to `rts-node`):
 
 | Cluster | Native backing | Crate/file |

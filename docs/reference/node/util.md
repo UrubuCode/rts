@@ -309,7 +309,7 @@ Static members on `util.inspect`:
 | `options` | `{ skipPrototype?: boolean }` | yes | `{ skipPrototype: false }` |
 
 Returns: `boolean`. Variant: sync, pure. Same recursive structural-equality
-algorithm as `assert.deepStrictEqual` (see `docs/node-implementation/assert.md`
+algorithm as `assert.deepStrictEqual` (see `./assert.md`
 §3/§4 for the full algorithm this must match byte-for-byte) but returns a
 boolean instead of throwing. `skipPrototype: true` allows two objects with
 different `[[Prototype]]`s to compare equal if their own enumerable
@@ -763,7 +763,7 @@ calling convention rather than being async themselves.
 ### 5.1 Native impl mapping
 
 `node:util` is overwhelmingly **pure `.ts`**, following the same
-philosophy as `node:path` (§5.1 of `docs/node-implementation/path.md`):
+philosophy as `node:path` (§5.1 of `./path.md`):
 Node's own reference implementation of nearly every function here (`format`,
 `inspect`, `promisify`, `callbackify`, `inherits`, `deprecate`, `parseArgs`,
 `parseEnv`, `styleText`, `stripVTControlCharacters`, `toUSVString`,

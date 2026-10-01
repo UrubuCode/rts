@@ -14,6 +14,57 @@ exist yet and the row is the specification for it.
 
 ---
 
+## Where per-value state lives
+
+**Canonical: in the cell when every value of that kind has it; in ONE indirection
+when it is rare or genuinely foreign.** The dividing line is **frequency**, not
+mechanism — and today the split follows neither, it follows what was quickest to
+write.
+
+**Why there is a line at all, rather than "everything in the cell".** A slot
+reserved in every cell for something almost no value has costs eight bytes per
+object across the whole heap. .NET makes exactly this trade: rare per-object
+state — the lock, the hash code — lives in a *sync block* reached by an index in
+the header, because putting it in every object is worse. Hermes does the same.
+So some indirection is correct, and the question is which.
+
+**Why the line is not where it is today.** The structural reason the payload was
+outside expired on 2026-10-01: the region holds tagged words and the tracer
+walked all of them, so a Rust `Vec` in a cell would have been followed as a
+reference. With `gc::traces_field` and an honest layout, **a slot declared
+non-GC-relevant is skipped**, which is what made the payload admissible. What
+remains is not a technical reason — an `Aside<T>` costs one line in `Context`,
+and that is how there came to be twenty-three of them.
+
+Counted 2026-10-01: **23 `Aside` plus 4 `Slab` = 27 places that name a cell.**
+By what they hold:
+
+| | how many | examples | belongs |
+|---|---:|---|---|
+| one or two words | ~13 | `prototypes: u64`, `callables: (u64,u64,bool)`, `proxies`, `boxed`, `array_elements: Slot`, `detached: bool`, `derived`, `chain_links`, `foreign: usize` | **slots in the cell**, with the layout declaring each repr |
+| a variable-length list of VALUES | ~9 | `arrays: Vec<u64>`, `accessors`, `attributes`, `collections::Table` (five `Vec`s), `generators::State` | **a spanning cell in the region** — `alloc_spanning` exists and `spill_set` already grows one by copying |
+| an opaque Rust object | ~4 | `regexes: Regexp` (a compiled `regex::Regex`), `bigints`, `cells: Slab<Str>`, `foreign` | **one** indirection, keyed by cell |
+
+Applying the frequency rule to the first two columns splits them again, and the
+split is by KIND rather than by object: `callables` is on every callable,
+`array_elements` on every array, `collections` on every `Map` and `Set`,
+`views`/`detached` on every typed array, `generators` on every generator — those
+are "always, for that kind" and belong in the cell. `accessors`, `attributes`,
+`integrity`, `bound`, `cursors` and `proto_types` are carried by almost nothing
+and belong in a table.
+
+**What this buys, and it is three things rather than one.** A mover goes from ~27
+`relocate` arms to about three, which is the cost `principles.md` P3 says Go and
+C# do not pay. The `lost-roots.md` class shrinks from "every new table is a fresh
+chance to be missing from a list" to "there is one table". And the two cold cache
+lines per string — 36 ns of the 70 measured on 2026-09-30 — become one.
+
+**And it is what makes `gc::traces_field` load-bearing.** It skips one or two
+declared words per cell today, which measured neutral; with the payload inside
+and declared, it skips fifteen.
+
+---
+
 ## Obtaining a cell
 
 **Canonical: to be built** — one `allocate(context, Want) -> u32` where `Want`

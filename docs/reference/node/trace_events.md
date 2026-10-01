@@ -487,7 +487,7 @@ This module's threading story is the **opposite** of
 - **The public JS API is unreachable from inside a `worker_threads.Worker`**
   (per §4) — once `node:worker_threads` exists and maps a `Worker` onto an
   RTS thread/region (per the threading-model mapping in
-  `docs/node-implementation/architecture.md` §8), the `node:trace_events`
+  `./PLACEMENT-WAS-WRONG.md` §8), the `node:trace_events`
   module resolver should either refuse to resolve the specifier inside a
   Worker context, or resolve it to a stub whose functions are documented
   no-ops — pick one and implement consistently (open question, §7,
@@ -548,7 +548,7 @@ table.
   `rts-async`. Flagged prominently because it is the single largest
   prerequisite this module needs before *any* real category can be wired.
 - **Shared tokio runtime / the `rts-async` hoist** (per
-  `docs/node-implementation/architecture.md` §3.2/§7: `async_rt`,
+  `./PLACEMENT-WAS-WRONG.md` §3.2/§7: `async_rt`,
   `event_loop`, promise settle, timers — currently living in `rts-std` and
   must move to a new low crate both `rts-std` and `rts-node` can depend on,
   since `rts-node` cannot depend on `rts-std`) — needed for:

@@ -1475,4 +1475,4 @@ template):
 - **`fs.ReadStream`/`WriteStream`, `net.Socket`, `zlib.Gzip`/`Deflate`,
   `crypto.Cipher`/`Hash`, `child_process` stdio** all extend classes defined
   here — this spec intentionally does not re-document their module-specific
-  behavior; see each module's own `docs/node-implementation/*.md`.
+  behavior; see each module's own `./*.md`.

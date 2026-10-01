@@ -32,7 +32,7 @@ module does not actually provide.
 In real Node this whole module is a thin binding onto the underlying JS
 engine's own isolate/context/script primitives. **RTS has no such engine
 underneath it — RTS never embeds, emulates, or links that engine (binding
-rule, `docs/node-implementation/architecture.md` §11).** RTS reproduces the
+rule, `./PLACEMENT-WAS-WRONG.md` §11).** RTS reproduces the
 *same API shape* by backing it with its own compiler/runtime: RTS's own
 runtime-compile pipeline (the same machinery behind `runtime.eval`/
 `eval_file` and `new Function(...)`) stands in for "compile source text", and
@@ -621,7 +621,7 @@ interface MemoryMeasurement {
 
 ### 5.1 Native impl mapping
 
-Per the project's binding no-V8 rule (`docs/node-implementation/architecture.md`
+Per the project's binding no-V8 rule (`./PLACEMENT-WAS-WRONG.md`
 §11): **RTS never embeds, emulates, or links V8 (or any other third-party JS
 engine).** `node:vm`'s entire surface is a binding onto V8's own isolate and
 context primitives in real Node — RTS backs the *same API shape* with its own
@@ -699,7 +699,7 @@ work, and rts-node itself contributes very little standalone Rust.
   (`node_modules/.rts/objs/**/*.ometa`, per the Artifact layout section of
   `CLAUDE.md`) or a serialized parsed-AST/HIR blob. Until a real format is
   designed (tie to the same open compile-cache-identity question
-  `docs/node-implementation/module.md` §5.1/§5.7/§7 raises for
+  `./module.md` §5.1/§5.7/§7 raises for
   `enableCompileCache`), `createCachedData()` should return an honest
   placeholder (an empty `Buffer`, clearly documented as non-functional) and
   `cachedDataRejected` should always read `true` whenever `cachedData` was
@@ -718,7 +718,7 @@ work, and rts-node itself contributes very little standalone Rust.
   `flatten.rs`) — it needs a genuinely **dynamic** module record the user
   links/instantiates by hand. This is the same "RTS resolves imports
   statically; Node's (and V8's) module system is a dynamic runtime construct"
-  architecture mismatch `docs/node-implementation/module.md` flags for the
+  architecture mismatch `./module.md` flags for the
   `#223` dynamic-import epic — `node:vm`'s `Module` family is arguably the
   **purest expression** of that gap, since its entire contract is "give me an
   unlinked module record I control the linking of." `SyntheticModule` is
@@ -877,7 +877,7 @@ ordinary primordial `ArrayBuffer`-backed `Handle`.
   reassembling the `MemoryMeasurement` shape) rather than N individual boxed
   numbers — the same bulk-dump efficiency pattern used elsewhere in the
   project for small structured native readouts (e.g. `perf_hooks`'s
-  `HISTOGRAM_PERCENTILES_DUMP`, `docs/node-implementation/perf_hooks.md`
+  `HISTOGRAM_PERCENTILES_DUMP`, `./perf_hooks.md`
   §5.2).
 - `ModuleRequest.attributes`/`import.meta`/`SyntheticModule` export values are
   arbitrary JS values (may themselves be `Buffer`/`TypedArray`/`ArrayBuffer`)
@@ -947,7 +947,7 @@ actually `import`s `node:vm`.
 - **Hoisted promise-settle infra (`rts-async`).** `module.evaluate()` (the
   top-level-`await` case) and `vm.measureMemory()` both need to
   allocate/settle a `Promise` without depending on `rts-std` directly — the
-  same hoist `docs/node-implementation/architecture.md` §7 and every other
+  same hoist `./PLACEMENT-WAS-WRONG.md` §7 and every other
   async-touching module doc (`module.md` §5.3, `perf_hooks.md` §5.7) already
   flags. Until it lands, `module.evaluate()` is only implementable for the
   synchronous (no-top-level-`await`) fulfillment case, and
@@ -955,7 +955,7 @@ actually `import`s `node:vm`.
 - **RTS's own dynamic module-loading capability (shared with `node:module`
   `#223`).** `SourceTextModule`'s unlinked-record contract is the same
   "RTS resolves imports statically; Node needs a dynamic loader"
-  architecture mismatch `docs/node-implementation/module.md` §5.1/§5.7/§7
+  architecture mismatch `./module.md` §5.1/§5.7/§7
   raises for the `#223` dynamic-import epic — coordinate sequencing with
   whoever owns that work rather than solving it twice.
 - **GC/heap statistics surface for `vm.measureMemory()`.** Needs
@@ -1069,7 +1069,7 @@ imports actually used).
   analogue to V8's bytecode cache exists in a Cranelift-JIT world; whether to
   reuse/extend the existing `.ometa` artifact-cache format or invent a
   narrower vm-specific blob is undecided — the same open question
-  `docs/node-implementation/module.md` raises for `enableCompileCache`;
+  `./module.md` raises for `enableCompileCache`;
   should likely be answered once, for both modules together.
 - **`--experimental-vm-modules`-equivalent gating.** Whether RTS should
   bother replicating Node's flag-gate for `vm.Module`/`SourceTextModule`/
@@ -1097,6 +1097,6 @@ imports actually used).
   so a future reader doesn't expect this doc to cover it.
 - **CDP/Inspector visibility of `vm` context `name`/`origin`.** Node surfaces
   these through the Inspector protocol; RTS's own debug/inspector story
-  (`docs/node-implementation/inspector.md`) is itself a documented deferral —
+  (`./inspector.md`) is itself a documented deferral —
   this module should not block on it, just store `name`/`origin` faithfully
   in case a future inspector surface wants to read them.

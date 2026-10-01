@@ -26,9 +26,15 @@ not background reading, and the rules in it are binding for changes inside it.
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
 | `crates/rts-dom/`, `crates/rts-dom-bridge/` | the row above, PLUS `crates/rts-dom/PLAN.md` — §0 is the state (which lot is in flight, on which branch, measured how) and §1–§2 are the rules and the three rulers — and the verdict in `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/README.md`, which is the current picture of the engine where the roadmap of June is the picture from before. **For anything that touches the LAYOUT itself, also read `docs/ui/html-engine/box-tree.md`** — the box tree is the layer this engine does not have and every other CSS engine does, and that document is binding for the five `BT-*` lots of PLAN.md §9. It carries the nine invariants that break SILENTLY when box identity stops being the DOM node; seven of them compile and lie |
 | the PIPELINE itself — a new stage, a new IR, a type domain, a guard, speculation, deoptimisation | `docs/engine/four-stages.md`, and `docs/engine/deopt-lateral.md` for the second tier. The first records why `AST → machine IR` is two stages short, and the measured wrong answer that shortfall produces |
-| **how a value is CREATED, allocated, identified, traced or moved — anything in the base** | `docs/engine/principles.md` (P1–P8, each with the test a change is held against, and what Rust, C# and Go decided differently) **and** `docs/engine/one-form-per-question.md`, which says which form is canonical per family and **for which actions** |
-| **a predicate, a fast path, a guard, or a second way to ask something the tree already asks** | the same two. P1 and P5 are the ones that bind: one claim, one predicate, called by every layer; and a guess carries a landing or does not ship |
+| **anything in the BASE — how a value is created, allocated, identified, traced or moved — or any new predicate, type test or fast path** | `docs/engine/principles.md` (P1–P8, each with the test a change is held against) and `docs/engine/one-form-per-question.md` (which form is canonical, and **for which actions**). Invoke `reuse-check` first: its section 0 is the search for the question rather than for the function |
 | anything else | this file, and `docs/README.md` for where things live |
+
+**Two rows were three until 2026-10-01, and the trim is the rule working on
+itself.** A reading list is paid at every session and read in none of them once it
+is long enough to skim — which is the failure this file's own header describes. So
+a row earns its place by naming work somebody is about to do, never by being
+true. If a row has not sent anyone to a document in a month, it is noise with a
+citation.
 
 If a change requires breaking a rule, **change the rule first, with the reason,
 and get it agreed**. Never leave a rule the code contradicts.
@@ -140,43 +146,22 @@ and 535 of 818 at the start of 08-08, through generators, `yield*`, `Proxy`,
 native iterators, `export *`, a catchable throw, the bare `rts` specifier, stack
 traces, variadic natives and wrapper objects.
 
-**The generator defect that stood open since 08-30 is FIXED**, and this line
-replaces one that said the opposite three hours earlier. `generator_new` made
-the parked frame reachable three lines after allocating it, and `made()` — which
-allocates — sat in the window; a bare `u32` in a Rust local is not something the
-conservative stack scan can see. One `Rooted` guard. What found it was the SHAPE
-of the number rather than any reasoning: `for (const v of g())` answered 63028
-for N of 100 000, 200 000, 400 000 and 1 000 000 alike, and an answer that
-saturates is one event rather than a rate. `docs/engine/lost-roots.md` has the
+**The trail behind that number is `docs/engine/measured-history.md`** — every
+earlier figure, the two drops nothing could attribute, the obfuscated corpus, and
+the comparison against the engine deleted on 08-10. Moved there on 2026-10-01
+because a number from 08-09 about a corpus that has since doubled is not
+something a session needs in front of it. The rules those measurements produced
+stayed here.
 
-full account, including the exclusion that was measured in the wrong direction.
+**One lesson from them is worth keeping in front of you**, because it is how to
+read a number rather than a number: a generator defect was found by the SHAPE of
+the answer, not by reasoning. `for (const v of g())` answered 63028 for N of
+100 000, 200 000, 400 000 and 1 000 000 alike, and **an answer that saturates is
+one event rather than a rate**. `docs/engine/lost-roots.md` has the account.
 **`--profile fast` and not `--release`, and that is allowed here for the reason
 the merge-gate section gives**: `fast` differs from `release` in optimisation
 quality only, and "did this file pass" is not a question a profile changes the
 answer to. A NUMBER about speed still needs `release`.
-
-**The share fell by eight between 08-15 and 08-22 and this line does not claim
-to know why.** What it can say is what the drop is NOT: each of the 62 failing
-files was re-run against a kept binary of the tree at `97f66385`, and **all 62
-fail there too** — 13 on an assertion and 49 on an uncaught exception. So none
-of them is a regression from the optimisation work of 08-21, and the comparison
-is per file rather than net, which is the only form the claim takes here.
-
-The corpus itself did not move (808 both times), so the eight are files that
-stopped passing somewhere in the ninety commits between the two measurements —
-or on 08-15's own machine state. `node_fs`, `node_dns`, `node_tls`, `node_dgram`,
-`net_*`, `tls_*` and `gpu_compute` are 36 of the 62, which is where to look
-first.
-
-**The share fell between 08-10 and 08-14 and nothing here claims to know why.**
-The corpus grew by nine files and there were commits between the two
-measurements that neither was taken across, so the drop is not attributable to
-anything by subtraction. What IS attributable was measured per file, against a
-binary of the tree as it stood before the work: 748 → 750 → 754, six gained,
-**none lost**. That is the only comparison a number of this shape supports —
-and the file that used to HANG is gone from the column:
-`for_await_break_return.test.ts` timed out on every run until `for`-`of`
-stopped materialising its sequence.
 
 **And the second ruler: the cross-runtime fixtures, and this file no longer
 carries the number.** It asks a different question from the one above — whether
@@ -187,13 +172,6 @@ against Bun and Node, by the `cross-runtime` job of `build-artifacts.yml`.
 **The share lives in `README.md`, between the `CROSS_RUNTIME_STATS` markers, and
 it is generated rather than typed**: that job rewrites the block on every run.
 Read it there.
-
-This line used to carry a copy, and the copy went stale twice. It said 728 of
-762 (95.5 %) for 2026-08-15, then 1 179 of 1 514 (77.9 %) for 2026-08-28, while
-the generated block said something else — the second time by two and a half
-points. A pointer cannot do that, which is the whole reason this paragraph is a
-pointer now: the same "one source, generated views" this file demands of a
-runtime symbol, applied to a number about itself.
 
 What is worth keeping written here is the part the generated block cannot say.
 **A share that falls because the ruler got longer is not a regression.** The
@@ -232,88 +210,14 @@ signal in the whole workflow is that the `build` job compiled. That is a decisio
 recorded in each job's own comment and not an oversight, but it means a falling
 share is noticed by a person reading a badge, never by a red check.
 
-It was 674 of 708 before an earlier growth of the corpus, and 666, 646, 630, 593
-and 419 earlier in the same stretch. Every step between those figures was
-measured PER FILE against a kept binary and cost **nothing**: the LOST list is
-empty at each one, which is the only form the claim "no regression" takes here.
-The net number never was.
-
-**The denominator moved by 54, and both halves are stated because of it.** Those
-are `tests/cross-runtime/obfuscated/` — real `javascript-obfuscator` output over
-seeds that each exercise one area. An obfuscator emits legal JavaScript nobody
-writes by hand, which is the syntax a hand-written corpus never reaches, and the
-first run of it found three bugs on a tree that had just measured 674 of 708:
-**twelve programs HUNG** because a name assigned in a loop's test carried nothing
-across the back edge, five were refused for `super[e]`, and five answered wrongly
-because a computed method key came out enumerable. None of the three needed an
-obfuscator to be reachable. `scripts/obfuscated/README.md` is how to make more,
-and says why a name already in the corpus is never re-emitted.
-
 The ceiling under the number is worth reading with it: **five of the 708 have no
 comparable answer**, because Bun and Node disagree with each other and the
 harness refuses to elect one of them. So the reachable total is 703, not 708.
-
-The 08-10 figure was measured by the same `suite_run`, one process per file, on
-the same corpus plus the two files that day's own work added — which is why the
-denominator moved by two and is stated rather than smoothed over. The line above
-said 626 of 797 for a day in which the number had already moved; a measured
-number that is not re-measured becomes a claim, which is the thing this
-paragraph exists to refuse.
-
-The DENOMINATOR changed that day and both halves are stated because of it: 21
-files were removed for testing surfaces this engine will not have in that shape
-(`gc`, `ptr`, `mem`, `alloc`, `ffi`, `trace`), and SIX of them were passing. So
-the count fell by six while the share rose, and neither number alone says that.
-`crates/rts-host/examples/suite_run.rs` produced it, one process per file,
-because an uncaught exception and an endless loop each take the process with
-them and a single-process harness would report whatever it reached first as the
-score. It compiles a file with a relative import as a GRAPH, which it did not
-until that day: measuring those on their own bound every import to nothing and
-reported an instrument's limit as the engine's — 14 assertions in one file.
-
-Read the columns together rather than the first alone, and read files that move
-BETWEEN them as what they are: one that starts compiling and then fails an
-assertion has moved a number in the direction that looks like regression.
-
-**The number that says how far this still is: the OLD engine passes 777 of the
-same 797** — 779 until two fixtures asserting a `super` JavaScript does not have
-were corrected, which the old engine passed by implementing `super` wrongly.
-Both engines were measured over the same corpus by `scripts/measure_engines.sh`
-— deleted with the second engine, since a script that runs two things can run
-neither when one is gone — one process per file. **167 files passed only on the
-old engine and 16 only on the new.**
-
-Read that as a work list and not as a loss: `rts-codegen-new` was DELETED on
-2026-08-10, and deleting it cost none of those 167. It had stopped running
-anything at the cutover — `run`, `test` and `compile` had already moved — so
-what the crate still held was `ir`, `eval` and `emit-types`, and each of those
-was rebuilt on this engine first. The 167 are what this engine does not do yet,
-which was true the day before as well; what changed is that there is no longer a
-second engine that could be measured instead of fixed.
 
 The rulers differ in one stated way: `rts test` also
 compares stdout against a fixture where one exists, which `suite_run` never
 sees; both require "ran and nothing failed", which is what makes the counts
 comparable at all.
-
-**The gap has no single cause, and its shape is the work list.** As triaged at
-194 files (08-09, before this round took 27 of them):
-
-| n | the new engine answers | reading |
-|---|---|---|
-| 93 | compiles, runs, FAILS an assertion | a wrong answer, not a missing feature |
-| 64 | `TypeError: undefined is not a function` | was un-triageable; the message now names the callee |
-| 11 | `Unbound("x")`, `Unbound("v")`, `Unbound("R")` … | ordinary LOCAL names — scope, not a missing library |
-| 22 | a missing global, `rts:`/DOM surface, a hang | mostly decisions already taken elsewhere |
-
-The third row is worth listing apart because a missing `WeakRef` is a library gap
-while a missing `x` is the emitter losing a binding — those eleven were five
-causes, the largest being that `var` was never distinguished from `let`.
-
-**Naming the callee is what made the second row workable, and its answer was
-"there is no single cause".** Once `atomic.*` and the unnamed optional-chain
-sites are set aside, those 64 files spread over ~50 distinct missing operations,
-mostly one file each. Expect volume, not a switch.
 
 **The death column is what letting a native THROW did**, and it is the one to
 read first. It was 10. An operation this engine does not have used to answer

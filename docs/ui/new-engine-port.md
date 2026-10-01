@@ -1,8 +1,23 @@
 # The UI surface on the new engine
 
+> **Correction, 2026-10-01.** This document was written while there were two
+> engines, and it describes the second as present: the `old-engine` feature of
+> `rts-egui`/`rts-dom`/`rts-render`/`rts-input`, the `rts-engine ← rts-abi`
+> column of the diagram below, and every sentence about "two shells over one
+> logic" or a native being "a linker symbol". **All of that was deleted on
+> 2026-08-10** — the feature, the crates and the symbol table. There is one
+> engine, a native is a function pointer beside a cell, and nothing is "still on
+> the old one".
+>
+> The rest — how `rts:egui` and `rts:input` reach the NEW engine, and what the
+> port changed in the surface a program writes — is current and is why the file
+> is kept rather than removed. Read the old-engine half as history: it explains
+> why the boundary has the shape it has, and `docs/reference/node/PLACEMENT-WAS-WRONG.md`
+> is the same correction applied to five documents that were not worth keeping.
+
 **What this is.** How `rts:egui` and `rts:input` reach the new engine, what the
-port changed in the surface a program writes, and what is deliberately still on
-the old one.
+port changed in the surface a program writes, and what was deliberately left on
+the old one while it existed.
 
 The design of the UI itself is `egui-crate.md`, `input-system.md` and
 `render-input-interfaces.md`. This document is only about the boundary, and it

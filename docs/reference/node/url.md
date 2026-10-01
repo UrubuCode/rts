@@ -655,7 +655,7 @@ sibling source file in the same crate.
    including its documented `URIError`-on-malformed-input behavior, for
    free.
 3. **`domainToASCII`/`domainToUnicode` reuse `node:punycode`'s native
-   Bootstring core in-crate.** Per `docs/node-implementation/punycode.md`
+   Bootstring core in-crate.** Per `./punycode.md`
    §5.1/§5.2, `rts-node` already plans two tiny native externs,
    `__RTS_FN_NODE_PUNYCODE_ENCODE`/`_DECODE` (RFC 3492 Bootstring), plus a
    `.ts` `toASCII`/`toUnicode` domain-splitting wrapper around them. This

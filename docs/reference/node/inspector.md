@@ -30,7 +30,7 @@ to any connected DevTools-style frontend, and a minimal `console` object for
 sending messages straight to the remote inspector console.
 
 **RTS has no such engine to bind to, and does not acquire one.** Per the
-project's binding no-V8 rule (`docs/node-implementation/architecture.md` §11):
+project's binding no-V8 rule (`./PLACEMENT-WAS-WRONG.md` §11):
 RTS never embeds, emulates, or links the debugger/profiler engine Node's
 binding wraps. `node:inspector`'s API *shape* is reproduced for source
 compatibility; the backing implementation is RTS's own debug/introspection
@@ -623,7 +623,7 @@ declare class Session extends EventEmitter {
 
 ### 5.1 Native impl mapping
 
-Per the project's binding no-V8 rule (`docs/node-implementation/architecture.md`
+Per the project's binding no-V8 rule (`./PLACEMENT-WAS-WRONG.md`
 §11): RTS never embeds, emulates, or links the engine Node's `node:inspector`
 binding wraps. There is no equivalent built-in debugger/profiler inside
 `rts-codegen-new`/Cranelift to bind to, so this module cannot be a
@@ -664,18 +664,18 @@ is listed separately below as the unscheduled long-term direction.
     these before using a domain doesn't hard-fail.
   - `Runtime.evaluate` — bridged to RTS's own compile-and-run seam, the same
     primitive `node:vm`'s `compileFunction` wraps
-    (`docs/node-implementation/vm.md` §5.1) — reused, not reimplemented.
+    (`./vm.md` §5.1) — reused, not reimplemented.
   - Heap-stats-shaped commands (any command whose result is heap totals) —
     reuse the exact `rts-engine` `HandleTable`/collector primitive
     `node:v8`'s `getHeapStatistics` already exposes
-    (`docs/node-implementation/v8.md` §5.1/§5.2,
+    (`./v8.md` §5.1/§5.2,
     `__RTS_FN_NODE_V8_GET_HEAP_STATISTICS_JSON`) — no new
     heap-introspection primitive is built for this module.
   - `Profiler.start`/`Profiler.stop` (CPU profiling) — **not backed**; RTS
     has no statistical/sampling profiler today (the existing `trace/`
     namespace is a manual push/pop frame stack, not a sampler — the
     identical gap `node:v8`'s `startCpuProfile` documents in
-    `docs/node-implementation/v8.md` §5.7/§7). Returns the honest "not
+    `./v8.md` §5.7/§7). Returns the honest "not
     implemented" error, not a fabricated empty profile.
   - `Schema.getDomains` — returns the (small) set of domains actually backed
     above, not Node's full domain list.
@@ -824,21 +824,21 @@ anywhere in the documented public surface.
 
 - **`Runtime.evaluate` reuses `node:vm`'s compile-and-run seam, not a second
   one.** Both modules bridge to the same "compile TS/JS source at runtime and
-  execute it" primitive (`docs/node-implementation/vm.md` §5.1). That doc
+  execute it" primitive (`./vm.md` §5.1). That doc
   notes the primitive lives in `rts-std` today
   (`crates/rts-std/src/runtime/mod.rs`) with an open question about making it
   reachable without an `rts-std` dependency for `rts-node`'s independence —
   the same coordination point applies here; do not build a second eval seam
   for this module once that question is resolved.
 - **Heap-stats-shaped commands reuse `node:v8`'s primitive, not a new one.**
-  `node:v8`'s `getHeapStatistics` (`docs/node-implementation/v8.md` §5.1/§5.2,
+  `node:v8`'s `getHeapStatistics` (`./v8.md` §5.1/§5.2,
   `__RTS_FN_NODE_V8_GET_HEAP_STATISTICS_JSON`) is already `rts-node`-owned —
   this is a same-crate function call, not a cross-crate dependency.
 - **CPU profiling (`Profiler.*`) shares `node:v8`'s missing-sampler gap.**
   Neither `node:v8`'s `startCpuProfile` nor this module's `Profiler.start`/
   `Profiler.stop` can be implemented for real until a genuine statistical
   sampling profiler exists somewhere in the runtime
-  (`docs/node-implementation/v8.md` §5.7/§7) — new native work, not currently
+  (`./v8.md` §5.7/§7) — new native work, not currently
   a hoist candidate from any existing crate. Track as one shared
   prerequisite, not two.
 - **Background thread for `Runtime.evaluate`.** Not required in phase (b)
@@ -1013,7 +1013,7 @@ above sequence:**
 - **CPU profiling (`Profiler.start`/`Profiler.stop`) is deferred outright.**
   RTS has no statistical/sampling profiler anywhere in the runtime today —
   the identical gap `node:v8`'s `startCpuProfile` documents
-  (`docs/node-implementation/v8.md` §5.7/§7). Not part of phase (b); ships
+  (`./v8.md` §5.7/§7). Not part of phase (b); ships
   returning an honest "not implemented" error, never a fabricated profile.
   One shared prerequisite (§5.7) unblocks both modules at once.
 - **Real breakpoint/stepping debugging is explicitly out of scope for the

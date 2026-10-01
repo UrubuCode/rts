@@ -40,7 +40,7 @@ The regeneration commands above list `node:` modules and deliberately do not
 find this one — it is here so a reader does not conclude it is missing.
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
-(`rts-core`, where `layering.md` puts it) and `console` is a global installed
+(`rts-core`, by availability — that crate's rule 1) and `console` is a global installed
 by `rts-std`.
 
 ## Not registered, and what each waits on
@@ -180,7 +180,7 @@ first, and building first is the answer that does not depend on a name.
 
 ## `node:tls` — what the provider covers, and the one gap that matters
 
-Built per `crates.md` §6 option (b): a `rustls::CryptoProvider` assembled from the
+Built as what a since-removed `crates.md` called option (b): a `rustls::CryptoProvider` assembled from the
 RustCrypto crates `node:crypto` already uses. No `ring`, no `aws-lc-rs`, no C.
 
 Covered: TLS 1.3, AES-128-GCM and ChaCha20-Poly1305, ECDSA-P256/Ed25519/RSA-PKCS1
