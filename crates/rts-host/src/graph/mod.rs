@@ -53,6 +53,7 @@ use rts_codegen::names::Names;
 use rts_codegen::parse::parse_module;
 use rts_codegen::syntax::ModuleItem;
 
+mod packages;
 mod resolve;
 mod tsconfig;
 mod walk;
