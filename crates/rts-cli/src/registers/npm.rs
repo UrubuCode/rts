@@ -258,13 +258,36 @@ pub fn safe_segment(name: &str) -> String {
         .collect()
 }
 
+/// A JSON document from the registry.
+///
+/// # Why the body is read through a reader and not `into_string`
+///
+/// `ureq`'s `into_string` caps the body at 10 MB and fails past it — and a
+/// registry packument is the response that reaches that cap: every published
+/// version of a package, with its metadata, in one document. `rts i
+/// @solana/web3.js` answered `error: response too big for into_string` while
+/// `npm install` of the same name worked, which reads as "that package cannot
+/// be installed" and is really "that package is popular".
+///
+/// `from_reader` also parses as the bytes arrive rather than after a full copy
+/// of them, so the whole document is never held as a `String` beside the tree
+/// built from it. `download_bytes` below already reads without a cap, for
+/// tarballs, which are the larger half of the same install.
 fn get_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T> {
     let resp = ureq::get(url)
         .set("Accept", "application/json")
         .call()
         .with_context(|| format!("GET {url}"))?;
-    let body = resp.into_string().context("read response body")?;
-    serde_json::from_str(&body).with_context(|| format!("parse JSON from {url}"))
+    parse_json(resp.into_reader(), url)
+}
+
+/// The parse, apart from the request.
+///
+/// Split so the SIZE behaviour is testable without the network: the defect was
+/// not in what the registry sent, it was in how this read it, and a test that
+/// had to fetch 11 MB to say so would be a test about npm's uptime.
+fn parse_json<T: serde::de::DeserializeOwned, R: std::io::Read>(body: R, url: &str) -> Result<T> {
+    serde_json::from_reader(body).with_context(|| format!("parse JSON from {url}"))
 }
 
 fn download_bytes(url: &str) -> Result<Vec<u8>> {
@@ -276,4 +299,71 @@ fn download_bytes(url: &str) -> Result<Vec<u8>> {
         .read_to_end(&mut buf)
         .with_context(|| format!("read response from {url}"))?;
     Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A packument larger than `into_string`'s 10 MB cap still parses.
+    ///
+    /// The number is not invented: `https://registry.npmjs.org/@solana%2Fweb3.js`
+    /// was **11 990 656 bytes** on 2026-10-01, measured with `curl`, and
+    /// `rts i @solana/web3.js` answered `response too big for into_string`
+    /// while `npm install` of the same name worked. A registry packument holds
+    /// every published version of a package, so the cap is reached by
+    /// POPULARITY, and the message read as "this package cannot be installed".
+    ///
+    /// Built here rather than fetched, so the test says something about this
+    /// function instead of about npm's uptime — and shaped like the document
+    /// that broke it, since a 12 MB string would parse through a path that
+    /// never allocates the map this one does.
+    #[test]
+    fn a_packument_past_the_old_ten_megabyte_cap_parses() {
+        let mut body = String::from("{\"name\":\"big\",\"dist-tags\":{\"latest\":\"1.0.0\"},\"versions\":{");
+        let mut version = 0;
+        // Each entry carries the fields `NpmVersionMeta` actually reads, with a
+        // padded tarball name to reach the size: a document that is large
+        // because of ONE long string would not exercise the same parse.
+        while body.len() < 11 * 1024 * 1024 {
+            if version > 0 {
+                body.push(',');
+            }
+            body.push_str(&format!(
+                "\"1.0.{version}\":{{\"version\":\"1.0.{version}\",\"dist\":{{\"tarball\":\"https://r/{}\",\"integrity\":\"sha512-x\"}},\"dependencies\":{{\"a\":\"^1\"}}}}",
+                "p".repeat(400),
+            ));
+            version += 1;
+        }
+        body.push_str("}}");
+        assert!(
+            body.len() > 10 * 1024 * 1024,
+            "the fixture must exceed the cap it exists to cross: {} bytes",
+            body.len()
+        );
+
+        let parsed: NpmFullManifest =
+            parse_json(body.as_bytes(), "test://big").expect("a large packument parses");
+        assert_eq!(parsed.name, "big");
+        assert_eq!(parsed.dist_tags.get("latest").map(String::as_str), Some("1.0.0"));
+        assert_eq!(parsed.versions.len(), version);
+        // And the fields the installer reads actually arrived, which is what
+        // says the document was parsed and not merely consumed.
+        let one = parsed.versions.get("1.0.0").expect("the first version is there");
+        assert_eq!(one.version, "1.0.0");
+        assert_eq!(one.dependencies.get("a").map(String::as_str), Some("^1"));
+        assert!(one.dist.tarball.starts_with("https://r/p"));
+    }
+
+    /// Malformed JSON still fails, and the message still names the URL — so the
+    /// change above did not trade a size limit for a silent empty answer.
+    #[test]
+    fn a_malformed_body_still_fails_naming_the_url() {
+        let error = parse_json::<NpmFullManifest, _>(b"{not json".as_slice(), "test://bad")
+            .expect_err("malformed JSON is an error");
+        assert!(
+            format!("{error:#}").contains("test://bad"),
+            "the URL belongs in the message: {error:#}"
+        );
+    }
 }
