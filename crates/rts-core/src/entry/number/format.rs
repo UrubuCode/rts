@@ -43,6 +43,58 @@ pub(super) fn exponential(number: f64, digits: Option<usize>) -> String {
     format!("{sign}{mantissa}e{marker}{}", exponent.abs())
 }
 
+/// [`precision`], answered as the string the program receives, through the
+/// exact integer form where it applies.
+///
+/// `precision` asks [`carried`] for the decimal exponent, and `carried` asks
+/// the standard formatter for the exact expansion of the double — the
+/// big-integer spelling `fixed.rs` describes, about a microsecond:
+/// `(1.23456).toPrecision(3)` measured 1 254 ns against 46 in Node (release,
+/// 2026-09-30). Where the answer is the fixed shape, it IS `toFixed` with
+/// `digits - 1 - exponent` places, and the exponent is `floor(log10)` checked
+/// against the neighbouring powers of ten. The check is what makes the
+/// estimate safe rather than trusted: rounding up to the next power (`99.6`
+/// to two digits is `1.0e+2`) or an exponent off by one both leave the wrong
+/// COUNT of digits, and either count hands the number to `precision` as
+/// before.
+pub(super) fn precision_str(number: f64, digits: usize) -> crate::text::Str {
+    let slow = || crate::text::Str::from_str(&precision(number, digits));
+    let magnitude = number.abs();
+    if !number.is_finite() || magnitude == 0.0 || digits == 0 {
+        return slow();
+    }
+    let exponent = magnitude.log10().floor() as i32;
+    // The fixed shape is taken for `-6 <= exponent < digits`, and its place
+    // count has to be one the exact form covers.
+    if exponent < -6 || exponent >= digits as i32 {
+        return slow();
+    }
+    let places = (digits as i32 - 1 - exponent) as usize;
+    if places > 22 {
+        return slow();
+    }
+    let mut buffer = [0u8; super::fixed::FIXED_BUFFER];
+    let Some((mut start, end)) = super::fixed::fixed_exact_into(magnitude, places, &mut buffer) else {
+        return slow();
+    };
+    // Significant digits are every digit written, less the point and any
+    // leading zero: exactly `digits` of them, or the exponent was not the one
+    // the estimate said.
+    let written = &buffer[start..end];
+    let significant = match written.iter().position(|&digit| digit != b'0' && digit != b'.') {
+        Some(first) => written[first..].iter().filter(|&&digit| digit != b'.').count(),
+        None => 0,
+    };
+    if significant != digits {
+        return slow();
+    }
+    if number < 0.0 {
+        start -= 1;
+        buffer[start] = b'-';
+    }
+    crate::text::Str::from_latin1(&buffer[start..end])
+}
+
 /// `x.toPrecision(digits)` — significant digits, in whichever shape fits.
 ///
 /// The specification's own rule for which: exponential when the exponent is
@@ -75,43 +127,88 @@ pub(super) fn precision(number: f64, digits: usize) -> String {
 /// double stops carrying information rather than an arbitrary cut. The
 /// specification leaves the exact digit count implementation-defined here, and
 /// saying so is better than implying a precision that is not there.
-pub(super) fn in_radix(number: f64, base: u32) -> String {
+/// The tests read it as text; the program receives [`in_radix_str`].
+#[cfg(test)]
+fn in_radix(number: f64, base: u32) -> String {
+    in_radix_str(number, base).to_rust().unwrap_or_default()
+}
+
+/// The longest text [`in_radix_str`] writes: a sign, the 1 024 binary digits
+/// of the largest double's integer part, a point and twenty places.
+const RADIX_BUFFER: usize = 1 + 1024 + 1 + 20;
+
+/// [`in_radix`], written into a buffer on the stack and answered as the
+/// string the program receives.
+///
+/// The `String` form built the digits reversed, collected them again the
+/// right way round, formatted a third string for the sign and then converted
+/// to a `Str` — four allocations for `(255).toString(16)`, which measured
+/// 160 ns against 18 in Node (release, 2026-09-30). Every digit here is ASCII,
+/// so the bytes ARE the code units and the one copy left is the string's own.
+pub(super) fn in_radix_str(number: f64, base: u32) -> crate::text::Str {
     if !number.is_finite() {
-        return crate::coerce::number_to_string(number)
-            .to_rust()
-            .unwrap_or_default();
+        return crate::coerce::number_to_string(number);
     }
     let negative = number < 0.0;
     let number = number.abs();
     let mut whole = number.trunc();
     let mut fraction = number.fract();
 
-    let digit = |value: u32| char::from_digit(value, base).unwrap_or('0');
-    let mut left = String::new();
+    let digit = |value: u32| char::from_digit(value, base).map_or(b'0', |c| c as u8);
+    let mut buffer = [0u8; RADIX_BUFFER];
+    // The integer digits come out least significant first, so they are laid
+    // down from the END of their span towards the front — the reverse the
+    // `String` form paid a second collection for.
+    let point = 1 + 1024;
+    let mut at = point;
     if whole == 0.0 {
-        left.push('0');
+        at -= 1;
+        buffer[at] = b'0';
     }
     while whole >= 1.0 {
         let rest = whole % f64::from(base);
-        left.push(digit(rest as u32));
+        at -= 1;
+        buffer[at] = digit(rest as u32);
         whole = (whole / f64::from(base)).trunc();
     }
-    let mut out: String = left.chars().rev().collect();
-
+    let mut start = at;
+    if negative {
+        start -= 1;
+        buffer[start] = b'-';
+    }
+    let mut end = point;
     if fraction > 0.0 {
-        out.push('.');
+        buffer[end] = b'.';
+        end += 1;
         for _ in 0..20 {
             if fraction == 0.0 {
                 break;
             }
             fraction *= f64::from(base);
-            out.push(digit(fraction.trunc() as u32));
+            buffer[end] = digit(fraction.trunc() as u32);
+            end += 1;
             fraction = fraction.fract();
         }
     }
-    match negative {
-        true => format!("-{out}"),
-        false => out,
+    crate::text::Str::from_latin1(&buffer[start..end])
+}
+
+/// [`fixed`], answered as the string the program receives, with the exact
+/// integer form written straight into a buffer on the stack — see
+/// `fixed::fixed_exact_into`. The slow form keeps its `String`.
+pub(super) fn fixed_str(number: f64, places: usize) -> crate::text::Str {
+    let negative = number < 0.0;
+    let magnitude = number.abs();
+    let mut buffer = [0u8; super::fixed::FIXED_BUFFER];
+    match super::fixed::fixed_exact_into(magnitude, places, &mut buffer) {
+        Some((mut start, end)) => {
+            if negative {
+                start -= 1;
+                buffer[start] = b'-';
+            }
+            crate::text::Str::from_latin1(&buffer[start..end])
+        }
+        None => crate::text::Str::from_str(&fixed(number, places)),
     }
 }
 

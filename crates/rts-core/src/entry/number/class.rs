@@ -192,7 +192,7 @@ impl Number {
         };
         with_current(|context| {
             let text = match places {
-                Some(places) => Str::from_str(&format::precision(number, places)),
+                Some(places) => format::precision_str(number, places),
                 None => crate::coerce::number_to_string(number),
             };
             context.intern_value(text).bits()

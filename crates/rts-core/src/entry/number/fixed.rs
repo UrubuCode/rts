@@ -23,6 +23,53 @@
 /// `magnitude.toFixed(places)` for a finite `magnitude ≥ 0` below `1e21`, or
 /// `None` where the exact integer form does not apply.
 pub(super) fn fixed_exact(magnitude: f64, places: usize) -> Option<String> {
+    let mut buffer = [0u8; FIXED_BUFFER];
+    let (start, end) = fixed_exact_into(magnitude, places, &mut buffer)?;
+    Some(String::from_utf8_lossy(&buffer[start..end]).into_owned())
+}
+
+/// Room for [`fixed_exact_into`]: a sign, the 39 digits of a `u128`, a point
+/// and the zeros that pad a value below one out to `places`.
+pub(super) const FIXED_BUFFER: usize = 1 + 39 + 1 + 23;
+
+/// [`fixed_exact`] written into `buffer`, answering the span holding the text
+/// — with one byte left free in front of it for a sign.
+///
+/// The digits are laid down from the END, least significant first, with the
+/// point dropped in after `places` of them and a zero in front where nothing
+/// else would be: `scaled.to_string()` and two `insert`s were three moves of
+/// the same bytes, and the `String` then became a `Str` in a fourth.
+/// `(1.23456).toFixed(2)` measured 166 ns against 77 in Node (release,
+/// 2026-09-30); the string's own copy is the one that is left.
+pub(super) fn fixed_exact_into(
+    magnitude: f64,
+    places: usize,
+    buffer: &mut [u8; FIXED_BUFFER],
+) -> Option<(usize, usize)> {
+    let mut scaled = fixed_exact_scaled(magnitude, places)?;
+    let end = FIXED_BUFFER;
+    let mut at = end;
+    let mut written = 0;
+    loop {
+        if written == places && places > 0 {
+            at -= 1;
+            buffer[at] = b'.';
+        }
+        // At least one digit before the point, and every digit of the value.
+        if scaled == 0 && written > places {
+            break;
+        }
+        at -= 1;
+        buffer[at] = b'0' + (scaled % 10) as u8;
+        scaled /= 10;
+        written += 1;
+    }
+    Some((at, end))
+}
+
+/// The integer `n` closest to `magnitude × 10^places`, or `None` where the
+/// exact integer form does not apply.
+fn fixed_exact_scaled(magnitude: f64, places: usize) -> Option<u128> {
     if places > 22 || !magnitude.is_finite() || magnitude < 0.0 || magnitude >= 1e21 {
         return None;
     }
@@ -33,17 +80,18 @@ pub(super) fn fixed_exact(magnitude: f64, places: usize) -> Option<String> {
         0 => (fraction, -1074),
         _ => (fraction | (1u64 << 52), exponent - 1075),
     };
-    let scaled: u128 = if mantissa == 0 {
+    Some(if mantissa == 0 {
         0
     } else if shift >= 0 {
-        // An integer below 1e21: its digits, then `places` zeros.
+        // An integer already: its expansion is itself followed by `places` zeros.
         let whole = (mantissa as u128) << shift;
         whole * 10u128.pow(places as u32)
     } else {
         let product = (mantissa as u128) * 10u128.pow(places as u32);
         let dropped = (-shift) as u32;
         if dropped >= 128 {
-            // Below a half: `product < 2^127`, and `2^127 / 2^128` is the bound.
+            // Below half of the last place by construction: the product is
+            // under 2^127 and every bit of it is dropped.
             0
         } else {
             let quotient = product >> dropped;
@@ -51,16 +99,7 @@ pub(super) fn fixed_exact(magnitude: f64, places: usize) -> Option<String> {
             let half = 1u128 << (dropped - 1);
             quotient + u128::from(remainder >= half)
         }
-    };
-    let mut digits = scaled.to_string();
-    if places == 0 {
-        return Some(digits);
-    }
-    while digits.len() <= places {
-        digits.insert(0, '0');
-    }
-    digits.insert(digits.len() - places, '.');
-    Some(digits)
+    })
 }
 
 #[cfg(test)]

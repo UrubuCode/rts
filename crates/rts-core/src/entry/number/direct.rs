@@ -19,7 +19,6 @@
 use super::super::objects::undefined_of;
 use super::super::{class_support, throw, with_current};
 use super::{format, parse};
-use crate::text::Str;
 
 /// `n.toString(radix)` — `radix` absent is base ten.
 #[rtse::entry]
@@ -52,7 +51,7 @@ pub(super) fn spelled_in_radix(number: f64, radix: u64) -> u64 {
     with_current(|context| {
         let text = match base {
             None | Some(10) => crate::coerce::number_to_string(number),
-            Some(base) => Str::from_str(&format::in_radix(number, base as u32)),
+            Some(base) => format::in_radix_str(number, base as u32),
         };
         context.intern_value(text).bits()
     })
@@ -79,7 +78,7 @@ pub(super) fn fixed_text(number: f64, digits: f64) -> u64 {
     };
     with_current(|context| {
         let text = match number.is_finite() && number.abs() < 1e21 {
-            true => Str::from_str(&format::fixed(number, places)),
+            true => format::fixed_str(number, places),
             // Past 1e21 the specification falls back to the ordinary
             // `ToString`, which is why this is not a formatting width but a
             // branch.
