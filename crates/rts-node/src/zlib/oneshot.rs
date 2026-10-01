@@ -97,7 +97,21 @@ fn callback_call(kind: Kind, buffer: u64, options: u64, callback: u64) -> u64 {
         Some(bytes) => entry::with_runtime(|context| entry::make_buffer(context, &bytes)),
         None => absent,
     };
+    // A one-shot REQUIRES its callback, and this returned quietly without one:
+    // `zlib.gzip(buffer)` answered `undefined`, did the work, and threw the
+    // result away, where Node raises
+    // `TypeError [ERR_INVALID_ARG_TYPE]: The "callback" argument must be of
+    // type function. Received undefined`. A silent acceptance is the worse
+    // direction of the two — a loud refusal names the line that caused it,
+    // while this let a program carry on believing it had asked for a
+    // compression that was never going to arrive.
+    //
+    // AFTER `options_and_callback` above, which is what makes `gzip(buf, cb)`
+    // — the two-argument spelling, with the callback where the options go —
+    // reach this with `callback` set. Asking before that collapse would refuse
+    // the commonest form in the language.
     if callback == absent {
+        crate::errors::invalid_arg_type("callback", "function", callback);
         return absent;
     }
     if result == absent {
