@@ -193,8 +193,17 @@ let Some(parsed) = Flags::parse(letters) else {
         // `class Mine extends RegExp {}` produces something that reaches
         // `Mine.prototype` rather than something that only knows about
         // `RegExp.prototype`.
+        //
+        // `_reaching` and not the bare form, which is #2836. The target stack
+        // says a construction is in progress, never that THIS allocation is
+        // that construction — and this function serves the LITERAL as well as
+        // the constructor, so `/Z$/i` evaluated anywhere inside a `new Thing()`
+        // was linked to `Thing.prototype`: `[object RegExp]` with `test`,
+        // `exec` and `source` all `undefined`, which is what `dayjs("…")` dies
+        // of four frames below the `new`. A target whose prototype does not
+        // REACH `RegExp.prototype` is not a subclass of it and is not believed.
         let own = prototype_of(context);
-        let prototype = super::functions::prototype_for_new(context, own);
+        let prototype = super::functions::prototype_for_new_reaching(context, own);
         context.set_prototype(cell, prototype);
         // The CANONICAL order, not the written one — see `Flags::canonical`.
         let letters = &parsed.canonical(letters);

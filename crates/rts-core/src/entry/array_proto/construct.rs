@@ -146,19 +146,19 @@ pub(in crate::entry) fn array_in(context: &super::super::Context, value: u64) ->
 ///
 /// # Why the target is checked against `Array.prototype` and not merely read
 ///
-/// [`super::super::functions::prototype_for_new`] answers the target of whatever
-/// construction is in progress, which for a bare `Array(3)` written INSIDE some
-/// unrelated `new Thing()` is `Thing` — the array would inherit from
-/// `Thing.prototype`. `regex` and `object_global` call the same helper and
-/// accept exactly that, because `RegExp("a")` inside a constructor is
-/// vanishingly rare; `Array(n)` is not, and this is the one place where the
-/// accepted risk would be paid often enough to matter.
-///
+/// `prototype_for_new` answers the target of whatever construction is in
+/// progress, which for a bare `Array(3)` written INSIDE some unrelated
+/// `new Thing()` is `Thing` — the array would inherit from `Thing.prototype`.
 /// So the target's prototype has to REACH `Array.prototype` before it is
-/// believed, which is the shape a subclass of `Array` has and no unrelated class
-/// does. What the check still admits is a `class Fancy extends Array` whose own
-/// constructor calls bare `Array(3)` — and there the answer it produces is the
-/// one that class would have wanted anyway.
+/// believed.
+///
+/// That walk used to live here, and the reason it lived here was a wager this
+/// file wrote down: that `regex` and `object_global` could accept the unchecked
+/// form "because `RegExp("a")` inside a constructor is vanishingly rare". It is
+/// not — the REGEX LITERAL takes the same path, and #2836 is what that cost. The
+/// walk is now `functions::prototype_for_new_reaching`, called from both, since
+/// two places deciding which prototype a built-in's object gets is how one of
+/// them comes to decide it differently.
 fn inherited_for_new(made: u64) {
     with_current(|context| {
         let Some(cell) = Value(made).as_slot() else {
@@ -170,17 +170,9 @@ fn inherited_for_new(made: u64) {
         else {
             return;
         };
-        let asked = super::super::functions::prototype_for_new(context, own);
-        if asked == own {
-            return;
-        }
-        let mut walked = Value(asked).as_slot();
-        while let Some(step) = walked {
-            if Value::from_slot(step).bits() == own {
-                context.set_prototype(cell, asked);
-                return;
-            }
-            walked = context.prototype_at(step).and_then(|up| Value(up).as_slot());
+        let asked = super::super::functions::prototype_for_new_reaching(context, own);
+        if asked != own {
+            context.set_prototype(cell, asked);
         }
     });
 }
