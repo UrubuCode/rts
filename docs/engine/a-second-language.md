@@ -1,10 +1,18 @@
 # A second language on this machine
 
-The boundary between `rts-codegen` and `rts-cranelift` is stated as a rule about
-knowledge: the language knows no machine, the machine knows no language. A second
-front end is the only thing that tests whether that rule is real or merely
-written down, because a boundary with one client on each side is indistinguishable
-from no boundary at all.
+The boundary between `rts-codegen` and `rts-cranelift` is a rule about knowledge,
+and **it is not symmetric** — `CLAUDE.md` was restated on 2026-10-01 to say so.
+The half this document depends on is the one that does not relax: **the machine
+knows no language.** The other half was written as "the language knows no
+machine", which the code contradicted from the start — `emit/math/body.rs` says
+`Math.sqrt` is `FloatOp::Sqrt`, and a crate whose job is to emit machine IR
+cannot not know the machine. What it may not do is **re-decide** what the machine
+owns: a layout, a convention, a barrier, a target's capability.
+
+So the asymmetry is this document's premise rather than an aside. A second front
+end is the only thing that tests whether the surviving half is real or merely
+written down, because a boundary with one client on each side is
+indistinguishable from no boundary at all.
 
 This document records what a second language would actually cost, which parts of
 the runtime are neutral **by construction** rather than by accident, and why the

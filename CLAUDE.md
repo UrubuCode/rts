@@ -103,10 +103,43 @@ leave the pointer.
 ## The engine, in one paragraph
 
 Two crates and a boundary. `rts-codegen` is the language — JavaScript and
-TypeScript semantics — and knows no machine. `rts-cranelift` is the machine — IR,
-representations, GC contract, frames, calls, unwinding — and knows no language.
-Either rule alone is a preference; both at once means a decision has exactly one
+TypeScript semantics. `rts-cranelift` is the machine — IR, representations, GC
+contract, frames, calls, unwinding. The boundary means a decision has exactly one
 place it can be made. Full picture: `docs/engine/architecture.md`.
+
+**The boundary is NOT symmetric, and saying it was is what made it wrong.** This
+paragraph read "the language knows no machine, the machine knows no language" —
+and the first half was contradicted by the code the day it was written:
+`emit/math/body.rs` says `Math.sqrt` is `FloatOp::Sqrt`, `emit/property.rs`
+declares inline caches, and the door table names `RuntimeOp`s. A crate whose job
+is to emit machine IR cannot not know the machine. Restated as three rules that
+the code can actually hold:
+
+- **`rts-cranelift` knows no language, and this one does not relax.** It is what
+  makes the crate testable with no front end present (its rule 3) and it is the
+  whole premise of `docs/engine/a-second-language.md`. A machine that knew what
+  `Math.sqrt` was would be a machine with one possible client.
+- **`rts-codegen` names machine operations freely** — that is the job — and does
+  not **re-decide** what the machine owns: a layout, a convention, a barrier, a
+  target's capability. Those it asks. The line is *naming* versus *deciding*.
+- **A crate that declares a native may declare which OPERATION it is, never
+  which instruction.** `#[rtse::…]` is used by `rts-core`, `rts-std`,
+  `rts-node` and `rts-dom-bridge`, and "this function is square root" is the
+  operation's identity, not a fact about any target — so it stays true on wasm,
+  where there may be no instruction at all. The machine answers whether a target
+  has one; the language says which JavaScript name means it.
+
+**Why the third rule exists at all**, since it is the new one: thirteen members
+of `Math` have two bodies today — the Rust one in `rts-core/src/entry/math.rs`
+and the instruction in `emit/math/body.rs` — and nothing checks they agree.
+Sixteen JavaScript edge cases were compared by hand on 2026-10-01 (`min(0, -0)`,
+`round(-0.5)`, `round(0.49999999999999994)`, `clz32(NaN)`, `imul(NaN, 7)`) and
+all sixteen agreed, so the risk is unrealised rather than absent — what keeps
+them equal is care. With the operation named in the declaration, `rts-macro` can
+derive the door, the five hand-written rows an entry point needs, the effect
+summary MIR wants, **and the differential test that refuses a disagreement**.
+Converting a module's operations into instructions is the point of the change,
+and it is this rule that makes it derivable instead of hand-wired.
 
 Two more crates finish the shape, and each is half of something on purpose.
 `rts-core` is the runtime: it implements what the language calls out for and
