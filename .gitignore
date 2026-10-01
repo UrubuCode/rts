@@ -168,3 +168,4 @@ RUNTIME-NOTICE.txt
 
 # A local work list, per developer.
 PLAN_RTS.MD
+.rts-local/
