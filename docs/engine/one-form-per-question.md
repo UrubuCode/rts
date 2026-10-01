@@ -14,6 +14,40 @@ exist yet and the row is the specification for it.
 
 ---
 
+## "Can this be a machine instruction"
+
+Three things get asked as one question and they have three different homes. The
+confusion is cheap to have and expensive to act on, so the taxonomy is here
+rather than in anyone's head.
+
+| | what it is | who owns it | how it is reached |
+|---|---|---|---|
+| **an instruction** | what the CPU does: `sqrt`, `popcnt`, `bswap`, a SIMD lane, a fence | `rts-cranelift` | `rts-codegen` names the operation, the machine emits it |
+| **an OS or platform call** | a notification, the clipboard, the registry, a file dialog | the platform — **not the machine** | a foreign call: the *convention* is the machine's, the *symbol and library* are the target's. `rts-napi` already reaches one (it loads a real `.node` addon); a direct `rts:ffi` is the general form |
+| **an `rts:*` module** | `rts:audio`, `rts:egui`, `rts:dom`, a future `rts:notify` | its own crate, if it wants one | `rts-runtime-boot` installs it — it already calls `rts_ui::install` and `rts_dom_bridge::install` |
+
+**A Windows notification is not "a caller in the machine".** It is a foreign call,
+and the only machine involvement is the calling convention. Nothing about it
+belongs in `rts-cranelift`, and nothing about it needs to be in `rts-std`: the
+availability rule constrains **`rts-core`**, which must exist on every target
+including wasm, and says nothing about a module crate that is simply not installed
+where it cannot run.
+
+**And the triage rule, which decides whether any of this is worth doing.** A
+notification costs milliseconds inside the OS, so the call overhead around it is
+noise; turning it into anything cheaper is work with no effect. Converting an
+operation into an instruction pays **only where the operation is arithmetic and
+sits in a loop**. So triage by where the time goes, never by whether something
+*could* be an instruction.
+
+By that rule the live case is `rts:num`: twenty-one operations, almost every one a
+single CPU instruction (`popcnt`, `lzcnt`, `tzcnt`, `rol`, `bswap`, an add with the
+overflow flag, a `movq` between a float and an integer register), and every one
+costing a property read plus a call today — while `Math.clz32`, the same kind of
+thing, already lowers to an instruction. One category, two treatments.
+
+---
+
 ## Where per-value state lives
 
 **Canonical: in the cell when every value of that kind has it; in ONE indirection
