@@ -321,9 +321,20 @@ extern "C" fn refused(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -
 /// Whether a specifier names a module this runtime provides — the same question
 /// [`is_builtin`] answers, for [`packages`], which must not walk the filesystem
 /// looking for a `package.json` enclosing `node:fs`.
+///
+/// `pub` through [`is_provided_specifier`] because the LOADER asks it too: a
+/// bare specifier now falls through to `node_modules`, and `node_modules/path`
+/// is a real package people install while `import "path"` must still mean the
+/// builtin. One list answering both, since a second copy in the host would
+/// answer `false` for whatever module this crate registers next.
 fn is_provided(specifier: &str) -> bool {
     let bare = specifier.strip_prefix("node:").unwrap_or(specifier);
     IMPLEMENTED
         .get()
         .is_some_and(|names| names.iter().any(|name| name == bare))
+}
+
+/// [`is_provided`], for the loader — see its doc for why this is public.
+pub fn is_provided_specifier(specifier: &str) -> bool {
+    is_provided(specifier)
 }

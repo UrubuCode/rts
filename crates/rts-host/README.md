@@ -128,6 +128,20 @@ COMPUTED alias specifier (`import("@/" + name)`) is still refused by name on
 both destinations, for the same reason a computed relative one already was —
 see the entry below.
 
+**And a BARE specifier names an installed package, which is #2625.** `import
+{ hello } from "tinypkg"` after an `npm install` used to answer *"nothing
+registered that specifier"* where node and bun both answer the package, because
+a name with no `./` and no scheme meant "the host provides this" and nothing
+else. `graph::packages` is the `node_modules` walk and the `package.json`
+reading — `"exports"` (conditions, subpath maps, `*` patterns), `"main"`, and
+`index.*` — reached from `resolve_written` as its LAST question, after the alias
+map so a project's own `paths` still wins, and skipped entirely for a name the
+runtime provides so an installed `node_modules/path` cannot shadow the builtin.
+That skip asks `rts-node`, which owns the list of what `install` registered.
+The conditions are tried in a written order (`rts`, `node`, `import`, `module`,
+`require`, `default`) rather than the object's own, and that module's own doc
+says why and what it costs.
+
 What is left:
 
 - **No fault handling.** A compiled program that traps takes the process with

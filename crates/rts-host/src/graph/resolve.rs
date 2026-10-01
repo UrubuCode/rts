@@ -257,7 +257,24 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
             _ => continue,
         }
     }
-    None
+    // Last, and only last: an installed package. A bare name used to mean "the
+    // host provides this" and nothing else, which is #2625 — `import { hello }
+    // from "tinypkg"` after an `npm install` answered "nothing registered that
+    // specifier" where node and bun both answer the package.
+    //
+    // AFTER the alias map rather than before it, so a project's `paths` still
+    // wins: an alias is written by the program being compiled and an install is
+    // not, and the two disagreeing is a question the project already answered.
+    //
+    // And skipped entirely for a name the host itself provides, which is the
+    // precedence Node has: `node_modules/path` is a real package people install,
+    // and `import "path"` must still mean the builtin. The question is asked of
+    // `rts-node`, which owns the list of what `install` registered — a second
+    // copy here would answer `false` for whatever the next module adds.
+    if rts_node::module::is_provided_specifier(specifier) {
+        return None;
+    }
+    super::packages::resolve_bare(from, specifier)
 }
 
 /// Whether a path is a TypeScript DECLARATION file.
