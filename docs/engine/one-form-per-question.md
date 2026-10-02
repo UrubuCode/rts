@@ -185,6 +185,70 @@ object stand for a primitive", and only `JSON` and coercion want it.
 
 ---
 
+## Reading a text ARGUMENT
+
+The entry above is about a CELL — whether this thing is a string. This is about a
+CALL: a native has a `u64` in an argument slot and wants text out of it. Three
+questions, and the module that reads an argument has to know which one it is
+asking, because the answers differ for `undefined` specifically.
+
+**Canonical, for a parameter WebIDL declares as `USVString` and required —
+`entry::usv_text_of`, with no absent check in front of it.** Used by: `URL`'s
+`url`, every `name`/`value` of `URLSearchParams`, `TextEncoder#encode`, `Blob`'s
+parts, and anything else whose IDL says `USVString`. `ToString` runs on whatever
+arrives, so `undefined` is the five-character string `"undefined"` —
+`new URL(undefined, "http://h/")` is `"http://h/undefined"` in every engine — and
+an unpaired surrogate becomes `U+FFFD` rather than a refusal.
+
+**Canonical, for a parameter that must BE a string — `entry::string_in`, and the
+caller RAISES `ERR_INVALID_ARG_TYPE` naming the argument.** Used by: every path
+argument of `node:path`, `querystring.parse`'s subject, and any `node:` surface
+whose documented contract is a type check rather than a conversion. Node's
+message names the argument and not always `"path"`: `relative` says `"from"` and
+`"to"`, `basename`'s second parameter is `"suffix"`. A message naming the wrong
+argument sends a reader to the wrong line.
+
+**Canonical, for a parameter with a DEFAULT — the absent check BEFORE the
+coercion, then either.** Used by: `console.time`/`count`/`group`'s label,
+`querystring`'s `sep` and `eq`, `basename`'s `suffix`, `URL`'s `base`. The
+language fires a default parameter on `undefined` specifically rather than on
+"the argument was omitted" — `function f(x = 1)` defaults for an explicit
+`f(undefined)` — so the check is `value == undefined_value()`, and it has to come
+first.
+
+**`entry::text_of` is canonical for nothing by itself.** It is `ToString` with a
+refusal for objects, which is the right MECHANISM for two of the three questions
+and the right ANSWER to none of them on its own: it never returns `None` for
+`undefined`, so a `text_of(x).unwrap_or(default)` is a default that cannot run.
+There were 26 of those in this workspace.
+
+**Why the others existed.** Three modules wrote the same private helper —
+`url/mod.rs::text`, `path.rs::text`, `querystring.rs::argument_text` — each
+spelling "`undefined` is absent", and `url/mod.rs`'s own comment says it is "the
+same convention" as the other two. One convention answering three questions, and
+the duplication made it look settled.
+
+**Does a native know whether an argument was PASSED?** Yes, and this was got
+wrong in #2850's first write-up. `functions::call_counted` carries the count as
+an operand from compiled code, `called` leaves it in `context.pending_counts`,
+and `arguments::with_arguments_at` reads it — which is what makes
+`[].push(undefined)` push one. The `None` that `functions::call` pushes means
+"a native called this, and that native had no count to declare", not "unknown in
+general". Note that `arguments_at`'s own doc still describes the pre-count state
+and names `a.push(undefined)` as a live divergence; it is not one. Measure before
+believing a comment.
+
+**The defect this row is for.** Ten of thirteen text-argument readings diverged
+from node 22, in BOTH directions: `URL`, `URLSearchParams`, `querystring.escape`
+and the global `console`'s label refused where Node coerces; `path.join`,
+`path.basename`, `path.resolve` and `querystring.parse` coerced where Node
+refuses. `path.join(undefined)` answered `"."` because the variadic collector
+`filter_map`ed the `None` away — the count was right and the reader erased the
+argument. Measured 2026-10-02, fixed the same day;
+`tests/claude-text-argument-reading.test.ts` is the ruler.
+
+---
+
 ## "Is this callable"
 
 **Canonical: `Context::callable_at`**, for every action that is about to call
