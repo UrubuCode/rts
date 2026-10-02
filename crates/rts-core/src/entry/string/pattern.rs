@@ -161,7 +161,9 @@ extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
         let Some((subject, sought)) = staged_as_regex(context, this, pattern, false) else {
             return nothing(context);
         };
-        let found = scan(context, &subject, &sought, false);
+        // No TEXT: this method answers a number, and the group strings `scan`
+        // builds by default are allocated and dropped unread. See `Text`.
+        let found = scan_for(context, &subject, &sought, false, Text::Skipped);
         let at = found
             .first()
             .map_or(-1.0, |first| units_before(&subject, first.from()) as f64);
@@ -410,11 +412,50 @@ pub(super) fn pattern_of(context: &super::Context, pattern: u64) -> Option<Sough
 }
 
 /// Every match, or only the first.
+/// Whether a caller will read the matched TEXT, or only where it was.
+///
+/// # Why this is a parameter and not something to work out
+///
+/// Because materialising it costs, and one caller reads none of it.
+/// [`Found::groups`] is a `String` per group copied out of the subject, and
+/// `names` clones each named one again — built for every match, by every
+/// caller. `String::search` answers a number: it reads `first.from()` and
+/// nothing else, so every one of those allocations is made and dropped.
+///
+/// Measured 2026-10-02, `/[a-f]+([0-9]+)/` over `"abc123"`: `search` cost
+/// **750 ns** against 70 for `test`, which runs the same automaton over the
+/// same subject. The automaton is not the difference.
+///
+/// # Why an enum and not a `bool`
+///
+/// It changes WHAT IS IN the answer, not how hard the scan tries, and a `true`
+/// at a call site says neither. `Spans` arrives with no groups rather than
+/// with empty ones, so a caller that asked for none and reads one gets
+/// `None` — not the empty string, which would compare equal to a group that
+/// genuinely matched nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Text {
+    /// The matched text of every group, owned.
+    Wanted,
+    /// Only where each group was. `Found::groups` is empty.
+    Skipped,
+}
+
 pub(super) fn scan(
     context: &super::Context,
     subject: &str,
     sought: &Sought,
     all: bool,
+) -> Vec<Found> {
+    scan_for(context, subject, sought, all, Text::Wanted)
+}
+
+pub(super) fn scan_for(
+    context: &super::Context,
+    subject: &str,
+    sought: &Sought,
+    all: bool,
+    text: Text,
 ) -> Vec<Found> {
     let mut found = Vec::new();
     let mut at = 0;
@@ -430,21 +471,30 @@ pub(super) fn scan(
                 if spans.first().copied().flatten().is_none() {
                     break;
                 }
-                let groups: Vec<Option<String>> = spans
-                    .iter()
-                    .map(|span| span.map(|(from, to)| subject[from..to].to_string()))
-                    .collect();
+                let groups: Vec<Option<String>> = match text {
+                    Text::Wanted => spans
+                        .iter()
+                        .map(|span| span.map(|(from, to)| subject[from..to].to_string()))
+                        .collect(),
+                    // Nothing, and the names below get nothing with it: a
+                    // caller that asked for no text has no use for either, and
+                    // the clone in `names` is a second copy of the same bytes.
+                    Text::Skipped => Vec::new(),
+                };
                 // Os nomes vêm do motor, que sempre os teve — `Spans` é indexado
                 // por POSIÇÃO e não carrega nenhum, então um grupo nomeado
                 // chegava aqui anónimo.
-                let names = context
-                    .regexp_at(*cell)
-                    .map(|rx| rx.names())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(at, name)| Some((name?, groups.get(at).cloned().flatten())))
-                    .collect();
+                let names = match text {
+                    Text::Wanted => context
+                        .regexp_at(*cell)
+                        .map(|rx| rx.names())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(at, name)| Some((name?, groups.get(at).cloned().flatten())))
+                        .collect(),
+                    Text::Skipped => Vec::new(),
+                };
                 Found {
                     spans,
                     groups,
@@ -460,13 +510,16 @@ pub(super) fn scan(
             // needle. It was text.clone(): one heap allocation per match, on a
             // path whose heaviest caller — split, which produces one match per
             // piece — never reads the groups at all.
-            Sought::Text(text) => {
-                match memchr::memmem::find(&subject.as_bytes()[at..], text.as_bytes()) {
+            Sought::Text(needle) => {
+                match memchr::memmem::find(&subject.as_bytes()[at..], needle.as_bytes()) {
                     Some(offset) => Found {
-                        spans: vec![Some((at + offset, at + offset + text.len()))],
-                        groups: vec![Some(
-                            subject[at + offset..at + offset + text.len()].to_string(),
-                        )],
+                        spans: vec![Some((at + offset, at + offset + needle.len()))],
+                        groups: match text {
+                            Text::Wanted => vec![Some(
+                                subject[at + offset..at + offset + needle.len()].to_string(),
+                            )],
+                            Text::Skipped => Vec::new(),
+                        },
                         names: Vec::new(),
                     },
                     None => break,
