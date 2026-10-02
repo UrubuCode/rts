@@ -183,7 +183,7 @@ extern "C" fn append(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64
 /// `params.delete(name, value?)` — every entry named `name` (all of them,
 /// when `value` is absent), or only the ones also matching `value`.
 extern "C" fn delete(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -> u64 {
-    let Some(name) = super::text(name) else {
+    let Some(name) = super::required_text(name) else {
         return entry::undefined_value();
     };
     let value = super::text(value);
@@ -193,7 +193,7 @@ extern "C" fn delete(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64
 }
 
 extern "C" fn get(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let Some(name) = super::text(name) else {
+    let Some(name) = super::required_text(name) else {
         return entry::null_value();
     };
     match read(this, |pairs| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| value.clone())) {
@@ -203,7 +203,7 @@ extern "C" fn get(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u64) -> u
 }
 
 extern "C" fn get_all(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let name = super::text(name).unwrap_or_default();
+    let name = super::required_text(name).unwrap_or_default();
     let values = read(this, |pairs| {
         pairs.iter().filter(|(key, _)| *key == name).map(|(_, value)| value.clone()).collect::<Vec<_>>()
     })
@@ -215,7 +215,7 @@ extern "C" fn get_all(_e: u64, this: u64, name: u64, _b: u64, _c: u64, _d: u64) 
 }
 
 extern "C" fn has(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -> u64 {
-    let Some(name) = super::text(name) else {
+    let Some(name) = super::required_text(name) else {
         return entry::boolean_value(false);
     };
     let value = super::text(value);
@@ -230,8 +230,8 @@ extern "C" fn has(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -
 /// with one, at the position of the FIRST one found (or the end, if there
 /// were none) — matching the WHATWG algorithm's "in place" wording.
 extern "C" fn set(_e: u64, this: u64, name: u64, value: u64, _c: u64, _d: u64) -> u64 {
-    let name = super::text(name).unwrap_or_default();
-    let value = super::text(value).unwrap_or_default();
+    let name = super::required_text(name).unwrap_or_default();
+    let value = super::required_text(value).unwrap_or_default();
     mutate(this, |pairs| {
         let mut replaced = false;
         pairs.retain_mut(|(key, held)| {

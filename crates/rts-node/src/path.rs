@@ -145,13 +145,13 @@ extern "C" fn resolve_win32(_e: u64, _this: u64, a: u64, b: u64, c: u64, d: u64)
 
 /// `path.normalize(p)`.
 extern "C" fn normalize_posix(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match text(value) {
+    match path_argument("path", value) {
         Some(path) => string(&normalize_g(&path, '/')),
         None => rts_core::entry::undefined_value(),
     }
 }
 extern "C" fn normalize_win32(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    match text(value) {
+    match path_argument("path", value) {
         Some(path) => string(&normalize_g(&path, '\\')),
         None => rts_core::entry::undefined_value(),
     }
@@ -159,13 +159,13 @@ extern "C" fn normalize_win32(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u6
 
 /// `path.relative(from, to)`.
 extern "C" fn relative_posix(_e: u64, _this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
-    match (text(from), text(to)) {
+    match (path_argument("from", from), path_argument("to", to)) {
         (Some(f), Some(t)) => string(&relative_g(&f, &t, '/')),
         _ => rts_core::entry::undefined_value(),
     }
 }
 extern "C" fn relative_win32(_e: u64, _this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
-    match (text(from), text(to)) {
+    match (path_argument("from", from), path_argument("to", to)) {
         (Some(f), Some(t)) => string(&relative_g(&f, &t, '\\')),
         _ => rts_core::entry::undefined_value(),
     }
@@ -179,7 +179,7 @@ extern "C" fn parse_win32(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _
     parse_g(value, '\\')
 }
 fn parse_g(value: u64, sep: char) -> u64 {
-    let Some(path) = text(value) else {
+    let Some(path) = path_argument("path", value) else {
         return rts_core::entry::undefined_value();
     };
     let root = root_g(&path, sep);
@@ -232,7 +232,7 @@ extern "C" fn to_namespaced_posix(_e: u64, _this: u64, value: u64, _a1: u64, _a2
 }
 /// `path.win32.toNamespacedPath(p)` — the `\\?\`/`\\?\UNC\` long-path prefix.
 extern "C" fn to_namespaced_win32(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(value) else {
+    let Some(path) = path_argument("path", value) else {
         return value;
     };
     if let Some(rest) = path.strip_prefix("\\\\").or_else(|| path.strip_prefix("//")) {
@@ -246,7 +246,7 @@ extern "C" fn to_namespaced_win32(_e: u64, _this: u64, value: u64, _a1: u64, _a2
 
 /// `path.basename(p, ext?)` — the last component, with an extension removed.
 extern "C" fn basename(_e: u64, _this: u64, value: u64, ext: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(value) else {
+    let Some(path) = path_argument("path", value) else {
         return rts_core::entry::undefined_value();
     };
     string(&basename_str(&path, text(ext)))
@@ -267,7 +267,7 @@ fn basename_str(path: &str, suffix: Option<String>) -> String {
 
 /// `path.dirname(p)`.
 extern "C" fn dirname(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(value) else {
+    let Some(path) = path_argument("path", value) else {
         return rts_core::entry::undefined_value();
     };
     string(&dirname_str(&path))
@@ -291,7 +291,7 @@ fn dirname_str(path: &str) -> String {
 /// the case an implementation written as "everything after the last dot" gets
 /// wrong, and the one programs actually hit.
 extern "C" fn extname(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(value) else {
+    let Some(path) = path_argument("path", value) else {
         return rts_core::entry::undefined_value();
     };
     let base = basename_str(&path, None);
@@ -308,7 +308,7 @@ fn split_ext(base: &str) -> (String, String) {
 
 /// `path.isAbsolute(p)`.
 extern "C" fn is_absolute(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    bool_value(text(value).is_some_and(|path| absolute(&path)))
+    bool_value(path_argument("path", value).is_some_and(|path| absolute(&path)))
 }
 
 /// Whether a path starts at a root.
@@ -566,18 +566,26 @@ fn compose_format(
 fn arguments_variadic(a: u64, b: u64, c: u64, d: u64) -> Vec<String> {
     rts_core::entry::with_runtime(|context| rts_core::entry::arguments_at(context, 0, [a, b, c, d]))
         .into_iter()
-        .filter_map(text)
+        // `path_argument` and not `text`: a non-string among them is a refusal
+        // naming `"path"`, where `filter_map(text)` silently dropped it — which
+        // is how `path.join(undefined)` came to answer `"."`. `filter_map` stays
+        // for the `None` the refusal already raised: the caller checks for a
+        // pending throw, and collecting nothing is correct once one is in
+        // flight.
+        .filter_map(|value| path_argument("path", value))
         .collect()
 }
 
-/// An argument as text.
-fn text(value: u64) -> Option<String> {
-    let absent = rts_core::entry::undefined_value();
-    match value == absent {
-        true => None,
-        false => rts_core::entry::text_of(value),
-    }
-}
+/// The two forms this module reads an argument with, from the one module that
+/// states them — `crate::text_argument`. Both were written out here, and
+/// `path.rs::text` was one of the three copies of a convention that answered the
+/// wrong question for every path argument: see that module's header for what it
+/// cost and `docs/engine/one-form-per-question.md` for the rule.
+///
+/// `text` is the OPTIONAL form, and one parameter here is genuinely optional:
+/// `basename`'s `suffix`, where `path.basename("/a/b", undefined)` is `"b"` in
+/// Node rather than a refusal.
+use crate::text_argument::{optional as text, string_or_refuse as path_argument};
 
 /// A string value.
 fn string(text: &str) -> u64 {

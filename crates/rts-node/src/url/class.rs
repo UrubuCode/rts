@@ -94,7 +94,7 @@ fn prototype() -> u64 {
 /// carrying no `__urlId` — rather than throwing; see the module doc.
 extern "C" fn construct(_e: u64, this: u64, input: u64, base: u64, _c: u64, _d: u64) -> u64 {
     let prototype = prototype();
-    let Some(text) = super::text(input) else {
+    let Some(text) = super::required_text(input) else {
         return entry::with_runtime(|context| super::self_or_new(context, this, prototype));
     };
     let base_text = base_text_of(base);
@@ -176,7 +176,7 @@ extern "C" fn to_string(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u
 
 /// `URL.canParse(input, base?)`.
 extern "C" fn can_parse(_e: u64, _this: u64, input: u64, base: u64, _c: u64, _d: u64) -> u64 {
-    let Some(text) = super::text(input) else {
+    let Some(text) = super::required_text(input) else {
         return entry::boolean_value(false);
     };
     let base_text = base_text_of(base);
@@ -186,7 +186,7 @@ extern "C" fn can_parse(_e: u64, _this: u64, input: u64, base: u64, _c: u64, _d:
 /// `URL.parse(input, base?)` — the constructor's algorithm, `null` instead
 /// of a thrown error on failure.
 extern "C" fn static_parse(_e: u64, _this: u64, input: u64, base: u64, _c: u64, _d: u64) -> u64 {
-    let Some(text) = super::text(input) else {
+    let Some(text) = super::required_text(input) else {
         return entry::null_value();
     };
     let base_text = base_text_of(base);

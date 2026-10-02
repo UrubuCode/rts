@@ -150,22 +150,17 @@ pub(super) fn class_ctor(context: &mut Context, name: &str, arity: u32, construc
     ctor
 }
 
-/// An argument as text, `None` for an absent (`undefined`) one — the same
-/// convention `path.rs::text` and `querystring.rs::argument_text` use.
+/// The two forms this module reads an argument with, from the one module that
+/// states them — `crate::text_argument`. Both were written out here, and this
+/// file's own comment said its `text` was "the same convention" `path.rs` and
+/// `querystring.rs` used — which is how one convention came to answer three
+/// questions. See that module's header, and
+/// `docs/engine/one-form-per-question.md`.
 ///
-/// `usv_text_of` and not `text_of`, because EVERY string parameter of the WHATWG
-/// URL API is a `USVString`: an unpaired surrogate is `U+FFFD` here, not a
-/// refusal. `text_of` answered `None` for one and every caller in this module
-/// spells that `unwrap_or_default()`, so `params.append("a\uD800b", "c")`
-/// appended an entry with an EMPTY name — a silent wrong answer rather than a
-/// missing feature.
-pub(super) fn text(value: u64) -> Option<String> {
-    let absent = entry::undefined_value();
-    match value == absent {
-        true => None,
-        false => entry::usv_text_of(value),
-    }
-}
+/// `text` is the OPTIONAL form and `new URL(url, base)` has exactly one such
+/// parameter: `base`. Everything else here is a required `USVString`, which
+/// coerces `undefined` to the five characters `undefined`.
+pub(super) use crate::text_argument::{optional as text, usv as required_text};
 
 /// A string value.
 pub(super) fn string(text: &str) -> u64 {
