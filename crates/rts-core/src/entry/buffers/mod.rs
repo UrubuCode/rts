@@ -90,6 +90,7 @@ mod data_view;
 pub(in crate::entry) mod element;
 mod shared_array_buffer;
 pub(in crate::entry) mod typed;
+mod typed_abstract;
 mod typed_classes;
 mod typed_order;
 mod typed_species;
