@@ -137,6 +137,24 @@ const PROVIDED: &[&str] = &[
     "SharedArrayBuffer",
     "Atomics",
     "Iterator",
+    // `global` — o alias que o Node tem do objeto global, e que QUALQUER pacote
+    // de npm escreve no topo do seu corpo: `typeof global !== "undefined"` é
+    // metade das deteções de ambiente que existem. `rts-node` instala-o
+    // (`declare_global(context, "global", …)`), e sem estar nesta lista o
+    // compilador não resolvia o nome — `typeof global` respondia `"undefined"`
+    // sobre um objeto que existe, que é exatamente o que o comentário do `fetch`
+    // acima descreve.
+    //
+    // O que isso custava, medido: o `protobufjs` faz
+    // `util.global = isNode && global || … || this` e ficava com `undefined`,
+    // logo `util.global.dcodeIO` lançava — e com ele o
+    // `@whiskeysockets/baileys` inteiro. #2859.
+    //
+    // Era invisível de dois lados ao mesmo tempo: dentro de uma FUNÇÃO o nome
+    // resolvia (o `Scope::lookup` já o encontrava) e no ficheiro de ENTRADA
+    // também, então só falhava no topo do corpo de um módulo — que é o único
+    // sítio onde um pacote o lê.
+    "global",
     "globalThis",
     // The rest of this list is in no ECMA-262 section, and belongs here for the
     // reason `console`'s own sentence gives: a program writes them with no

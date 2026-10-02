@@ -196,7 +196,28 @@ fn given(a: u64, b: u64, c: u64, d: u64) -> Vec<u64> {
 
 /// A label argument's text, `"default"` for `undefined` — Node's own default,
 /// so `console.time()` and `console.timeEnd()` with no argument pair up.
+///
+/// # Why the check comes BEFORE the coercion
+///
+/// `entry::text_of` is `ToString`, and `ToString(undefined)` is the five-letter
+/// STRING `"undefined"` — a real value, not the ABI's "nothing was passed"
+/// placeholder. So `.unwrap_or_else(|| "default")` downstream of it never ran:
+/// an omitted slot arrives as `undefined`, coerces the same way, and
+/// `console.time()` printed `undefined: 0.018ms` where Node prints
+/// `default: …`. The default is a JS default PARAMETER, and the language fires
+/// one on `undefined` specifically rather than on "the argument was omitted" —
+/// `function f(label = "default")` defaults for an explicit `f(undefined)` too.
+///
+/// `rts-node`'s `console::label_or_default` is the same function with the same
+/// comment, and it was already correct while this one was not. Two copies
+/// because `rts-std` installs the GLOBAL `console` and `rts-node` the
+/// `node:console` class, and `rts-std` cannot depend on `rts-node` — the
+/// dependency runs the other way. That is why this doc names its twin: the next
+/// person to change one has to find the other.
 fn label_of(value: u64) -> String {
+    if value == entry::undefined_value() {
+        return "default".to_owned();
+    }
     entry::text_of(value).unwrap_or_else(|| "default".to_owned())
 }
 

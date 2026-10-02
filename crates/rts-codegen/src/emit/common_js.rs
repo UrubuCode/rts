@@ -59,11 +59,24 @@ pub const NAMES: [&str; 5] = ["module", "exports", "require", "__filename", "__d
 /// whether a function binds `arguments`, rather than a second walk that could
 /// come to disagree with it about what a mention is.
 pub fn mentioned(body: &[Stmt], ctx: &mut Ctx) -> Vec<Name> {
-    NAMES
+    let mut found: Vec<Name> = NAMES
         .iter()
         .map(|text| ctx.names.intern(text))
         .filter(|name| super::capture::mentions(body, *name))
-        .collect()
+        .collect();
+    // `this` at a module's top IS `module.exports`, so a body that writes
+    // `this.foo = ...` and never mentions `exports` still needs the object —
+    // and the mention walk is about NAMES, which `this` is not.
+    //
+    // Reported as a mention of `exports` because that is the binding it
+    // resolves to: [`emit_prologue`] makes that same object the body's
+    // receiver, so one object serves `exports`, `module.exports` and `this`,
+    // which is what CommonJS says they are at entry.
+    let exports_name = ctx.names.intern("exports");
+    if !found.contains(&exports_name) && super::capture::body_reads_own_this(body) {
+        found.push(exports_name);
+    }
+    found
 }
 
 /// Binds what the body mentions, at the top of a module.
@@ -103,6 +116,12 @@ pub fn emit_prologue(
     // publishes, and one that only writes `module.exports` needs `module` to
     // have something in it.
     let wants_exports = wanted.contains(&exports_name) || wanted.contains(&module_name);
+    // The `module` object, when the body bound one. Handed to the publish below
+    // so the runtime can read `module.exports` LIVE: a snapshot is the wrong
+    // answer for the one read that happens while this body is suspended at its
+    // own `require`, which is the second ask of a cycle. `rts-core`'s
+    // `entry::common_js::module_publish_common` carries the measurement.
+    let mut bound_module = None;
     let exports_object = match wants_exports {
         false => None,
         true => {
@@ -123,7 +142,23 @@ pub fn emit_prologue(
                     &[holder, key, object, estrito],
                 )?;
                 super::binding::declare(builder, scope, ctx, module_name, holder)?;
+                bound_module = Some(holder);
             }
+            // The body's RECEIVER, which is what makes `this` at a module's top
+            // answer `module.exports`. That is contract and not detail: it is
+            // how an old module publishes (`this.foo = ...`), and `protobufjs`
+            // reads it as the last arm of
+            // `util.global = isNode && global || ... || this`.
+            //
+            // It was `undefined`, because a module body is invoked with six
+            // `undefined`s and nothing had told the scope otherwise. #2859.
+            //
+            // `false` for `is_arrow`: a module body is not an arrow, and that
+            // flag exists for the case `Scope::set_this` refuses by name.
+            // The body's RECEIVER, which is what makes `this` at a module's top
+            // answer `module.exports` — contract, not detail: it is how an old
+            // module publishes (`this.foo = ...`).
+            scope.set_this(object, false);
             Some(object)
         }
     };
@@ -139,17 +174,31 @@ pub fn emit_prologue(
     //
     // Publishing the object at entry fixes that for the shape the corpus
     // writes, because `exports.a = …` MUTATES this object: whatever the body
-    // put on it is there afterwards, published or not. The divergence it does
-    // not fix is stated rather than papered over — a module that REPLACES
-    // `module.exports` and then returns early publishes the original object,
-    // since nothing runs to notice the replacement.
+    // put on it is there afterwards, published or not.
+    //
+    // It used to leave one divergence — a module that REPLACES `module.exports`
+    // and then returns early published the original object, since nothing ran to
+    // notice the replacement. The `module` object going over with it closes that
+    // too, because the runtime then reads the property instead of the snapshot.
     // The value itself and not a read of the binding: a body that mentions only
     // `module` never binds `exports`, and reading a name that is not there would
     // refuse the module rather than publish it.
     if let Some(object) = exports_object {
         let own = ctx.literal(specifier);
         let own = integer(builder, u64::from(own));
-        super::expr::call(builder, ctx, RuntimeOp::ModulePublishCommon, &[own, object])?;
+        // `undefined` where no `module` was bound: a body with only `exports`
+        // cannot replace the object, so its snapshot is already live and the
+        // runtime must not be given a third thing to read it out of.
+        let holder = match bound_module {
+            Some(holder) => holder,
+            None => super::expr::undefined(builder, ctx),
+        };
+        super::expr::call(
+            builder,
+            ctx,
+            RuntimeOp::ModulePublishCommon,
+            &[own, object, holder],
+        )?;
     }
 
     let require_name = named(ctx, "require");
@@ -210,7 +259,17 @@ pub fn emit_epilogue(
     };
     let own = ctx.literal(specifier);
     let own = integer(builder, u64::from(own));
-    super::expr::call(builder, ctx, RuntimeOp::ModulePublishCommon, &[own, value])?;
+    // `undefined`, not the `module` object again: the prologue already recorded
+    // it and the runtime keeps what it was given, so re-sending it would be the
+    // same fact twice — and sending it only here would miss the cycle, which is
+    // the whole point of the prologue's call.
+    let holder = super::expr::undefined(builder, ctx);
+    super::expr::call(
+        builder,
+        ctx,
+        RuntimeOp::ModulePublishCommon,
+        &[own, value, holder],
+    )?;
     Ok(())
 }
 

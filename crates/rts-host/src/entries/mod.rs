@@ -238,7 +238,8 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::require_function as extern "C" fn(i64) -> u64 as *const u8
         }),
         RuntimeOp::ModulePublishCommon => (CoreEntry::ModulePublishCommon, {
-            rts_core::entry::module_publish_common as extern "C" fn(i64, u64) -> u64 as *const u8
+            rts_core::entry::module_publish_common as extern "C" fn(i64, u64, u64) -> u64
+                as *const u8
         }),
         RuntimeOp::ModulePublish => (CoreEntry::ModulePublish, {
             rts_core::entry::module_publish as extern "C" fn(i64, i64, u64) -> u64 as *const u8

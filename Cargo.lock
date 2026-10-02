@@ -5152,6 +5152,7 @@ dependencies = [
  "json5",
  "rts-core",
  "serde_json",
+ "wasmi",
 ]
 
 [[package]]

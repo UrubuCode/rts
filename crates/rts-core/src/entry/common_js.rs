@@ -85,26 +85,50 @@ extern "C" fn require_call(environment: u64, _this: u64, id: u64, _b: u64, _c: u
     // And the lookup answers before anything is raised, for the reason
     // `module_import` records: raising takes its own borrow, because building
     // the error runs the program's own constructor.
-    let found = with_current(|context| {
+    // THREE passes, and the middle one is the module's own body. `require` is
+    // the fourth way a module gets named — beside a static import
+    // (`module_binding`), `import * as` (`module_namespace`) and `import()`
+    // (`module_import`) — and a body runs when something names it. Resolving
+    // needs the borrow, running must not hold one, and reading needs it again.
+    let resolution = with_current(|context| {
         let Some(wanted) = super::modules::string_in(context, id) else {
             return Err(String::from(
                 "require() takes a string specifier, and was given something else",
             ));
         };
-        // The host's answer first and the text second, which is the rule the
-        // loader applies to a static import: `node:fs` and a bare name are not
-        // paths, and the resolver leaves them alone.
         let resolved = context
             .resolver
             .and_then(|resolve| resolve(&from, &wanted))
             .unwrap_or_else(|| wanted.clone());
-        match value_of(context, &resolved) {
+        Ok((resolved, wanted))
+    });
+    let (resolved, wanted) = match resolution {
+        Ok(pair) => pair,
+        Err(message) => {
+            super::throw::plain_error(&message);
+            return super::modules::undefined_value();
+        }
+    };
+    // Outside every borrow. A module already RUNNING answers nothing here and is
+    // read below as it stands, which is what makes a CommonJS cycle work rather
+    // than recurse: `a` requires `b`, `b` requires `a`, and the second ask takes
+    // `a`'s half-filled `module.exports`.
+    super::dynamic_module::ensure_module_ran(&resolved);
+    if super::throw::in_flight() {
+        // The body threw. Left in flight: the compiled call site above re-raises,
+        // and reading `module.exports` of a module that did not finish would
+        // publish a half-built object as if `require` had succeeded.
+        return super::modules::undefined_value();
+    }
+    let found = with_current(|context| {
+        let (resolved, wanted) = (&resolved, &wanted);
+        match value_of(context, resolved) {
             Some(value) => Ok(value),
             // A bare specifier the host provides under `node:` — `require("fs")`
             // is what the whole Node corpus writes, and the table is keyed by
             // what the host registered. Tried second so a real file called `fs`
             // still wins.
-            None => match value_of(context, &format!("node:{resolved}")) {
+            None => match value_of(context, &format!("node:{}", resolved)) {
                 Some(value) => Ok(value),
                 None => Err(format!(
                     "cannot find module \"{wanted}\" — nothing registered that specifier"
@@ -123,13 +147,24 @@ extern "C" fn require_call(environment: u64, _this: u64, id: u64, _b: u64, _c: u
 
 /// What one specifier answers a `require`: the CommonJS value, or the namespace.
 fn value_of(context: &mut Context, specifier: &str) -> Option<u64> {
-    if let Some(held) = context
+    // Both read out of the table BEFORE anything else borrows it: `get_member`
+    // below wants the context mutably, and holding the entry across that call is
+    // the borrow the compiler refuses.
+    let found = context
         .modules
         .iter()
         .find(|held| held.specifier == specifier)
-        && let Some(common) = held.common
-    {
-        return Some(common);
+        .map(|held| (held.holder, held.common));
+    if let Some((holder, common)) = found {
+        // The live read first. `holder` is set at module entry and `common` only
+        // reaches its final value after the body, so for a module still running
+        // these two disagree — and the property is the one Node reads.
+        if let Some(holder) = holder {
+            return Some(super::modules::get_member(context, holder, "exports"));
+        }
+        if let Some(common) = common {
+            return Some(common);
+        }
     }
     // `module_at` and not the field, because a host module is registered lazily
     // and its namespace is built on the first read — the same call a static
@@ -150,19 +185,55 @@ fn referrer_of(environment: u64) -> String {
 /// Emitted after the body, for the reason `module::emit_publications` gives:
 /// the value published is the one the module finished with, and a module that
 /// assigns `module.exports` on its last line is exactly what that is for.
+///
+/// # Why it also takes the `module` object
+///
+/// `value` is a SNAPSHOT, and this runs twice — at module entry, for the
+/// early-`return` case the emitter documents, and after the body. Between those
+/// two points sits the one read where a snapshot is the wrong answer: the second
+/// ask inside a cycle, taken while the body is suspended at its own `require`. A
+/// body whose FIRST line is `module.exports = Constructor` — every file of
+/// `protobufjs/src/` — has already replaced the object the entry snapshot holds,
+/// so the requiring module was handed a bare object, read `.prototype` off it and
+/// got `undefined`. `Object.create(undefined)` is "Object prototype may only be
+/// an Object or null", which is how `require("protobufjs")` failed.
+///
+/// So the prologue hands over the `module` object as well and [`value_of`] reads
+/// the property off it, which makes the answer live — what Node does.
+///
+/// A third parameter here rather than a numbered entry point of its own: the
+/// CommonJS half of a specifier's record has ONE write, which is this function,
+/// and `table_tests` holds the numbered list at 130 for an entry that neither is
+/// arithmetic wearing a call nor removes a crossing. Rejected alternative:
+/// re-publishing the snapshot from the emitter after each assignment to
+/// `module.exports`. It needs no parameter, but it is syntactic — `var m =
+/// module; m.exports = f` keeps the stale value — where reading the object
+/// answers whatever the property names at the moment of the ask.
+///
+/// `holder` is `undefined` for the epilogue, and for a body that mentions only
+/// `exports` — a body that cannot replace the object, so its snapshot is already
+/// live.
 #[rtse::entry]
-pub fn module_publish_common(own: i64, value: u64) -> u64 {
+pub fn module_publish_common(own: i64, value: u64, holder: u64) -> u64 {
     with_current(|context| {
         let Some(specifier) = super::modules::literal_text(context, own) else {
             return super::modules::undefined_in(context);
         };
         let namespace = super::modules::namespace_for(context, specifier.clone());
+        let given = super::modules::is_object(context, holder).then_some(holder);
         if let Some(held) = context
             .modules
             .iter_mut()
             .find(|held| held.specifier == specifier)
         {
             held.common = Some(value);
+            // Only when one was handed over. The epilogue passes `undefined` and
+            // must not erase what the prologue recorded: the object stays the
+            // live source for every later `require`, which is how a module that
+            // reassigns `module.exports` from a callback is still read correctly.
+            if given.is_some() {
+                held.holder = given;
+            }
         }
         // `default` first: `import x from "./cjs"` is what Node's own interop
         // binds to the whole `module.exports`, and it is the form that works

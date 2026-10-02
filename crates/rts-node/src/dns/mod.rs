@@ -152,7 +152,20 @@ pub fn namespace(context: &mut Context) -> u64 {
     // see this file's module doc, "Not implemented, by name".
     let resolver_ctor = resolver_class::constructor(context);
     entry::put_member(context, namespace, "Resolver", resolver_ctor);
-    for (name, value) in [("ADDRCONFIG", 4.0), ("V4MAPPED", 8.0), ("ALL", 16.0)] {
+    // The VALUES are the operating system's, not an ordering of this module's
+    // choosing: they are the `AI_*` bits of `getaddrinfo`, which a program may
+    // combine with `|` and hand to `lookup` — and `dns.ADDRCONFIG | dns.V4MAPPED`
+    // is 3072 everywhere and was 12 here. A program comparing a stored hints
+    // number against `dns.ALL` got a silent wrong answer, which is the whole
+    // reason a named constant has a value at all.
+    //
+    // They stay INERT, which is a separate statement and still true: `lookup`
+    // accepts `options.hints` and never consults it, because `std::net`'s
+    // resolution has no hints-bitmask control to forward it to. Inert is not
+    // licence to be wrong — a program that stores the number, or prints it, or
+    // round-trips it through a config file, observes it without this module
+    // ever acting on it.
+    for (name, value) in [("ADDRCONFIG", 1024.0), ("V4MAPPED", 2048.0), ("ALL", 256.0)] {
         let held = entry::make_number(value);
         entry::put_member(context, namespace, name, held);
         entry::put_member(context, promises, name, held);

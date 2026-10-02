@@ -77,12 +77,33 @@ pub(super) fn ptr_value(resolver: &TokioResolver, host: &str) -> Result<u64, &'s
 /// plain objects" section says why the two do not need to agree).
 pub(super) extern "C" fn reverse(_e: u64, _this: u64, ip: u64, callback: u64, _a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
-    let Some(text) = entry::text_of(ip) else {
-        crate::errors::invalid_ip_address("");
+    // Two different refusals, where this raised one for both.
+    //
+    // A non-STRING is `ERR_INVALID_ARG_TYPE` naming `"name"` — `dns.reverse(123)`
+    // in Node is *The "name" argument must be of type string* — and this
+    // answered `ERR_INVALID_IP_ADDRESS` with an empty address, which describes
+    // neither the argument nor what was wrong with it.
+    //
+    // A string that is not an ADDRESS is `EINVAL` from the lookup, not an
+    // argument fault: Node answers `Error: getHostByAddr EINVAL <input>`, with
+    // the syscall named, because the value had the right type and the resolver
+    // is what rejected it. `ERR_INVALID_IP_ADDRESS` is what `setServers` raises,
+    // where the address really is an argument being validated.
+    // `string_in` and NOT `text_of`: the latter COERCES, so `dns.reverse(123)`
+    // arrived here as the string "123" and was refused for not being an address
+    // when the fault is that a number is not a name. Node says
+    // *The "name" argument must be of type string*, and telling the two apart
+    // needs the question "is this a string", which is the one `string_in` asks.
+    let Some(text) = entry::with_runtime(|context| entry::string_in(context, ip)) else {
+        crate::errors::invalid_arg_type("name", "string", ip);
         return absent;
     };
+    // A string that is not an address is the LOOKUP's refusal, not an
+    // argument's: `Error: getHostByAddr EINVAL <input>`, with `code` and
+    // `syscall` both readable. `ERR_INVALID_IP_ADDRESS` is what `setServers`
+    // raises, where the address really is an argument being validated.
     let Ok(address) = text.parse::<IpAddr>() else {
-        crate::errors::invalid_ip_address(&text);
+        crate::errors::syscall_error("getHostByAddr", "EINVAL", &text);
         return absent;
     };
     if callback == absent {

@@ -82,12 +82,19 @@ check("for-of-protocol", total === 6);
 check("spread-protocol", [...counter].length === 3);
 check("from-protocol", Array.from(counter).length === 3);
 
-// An object declaring nothing walks zero times rather than failing — the
-// stated gap while a throw cannot reach a handler in a caller.
-check("non-iterable", (function () {
+// An object declaring nothing is NOT iterable, and "not iterable" means the
+// `for`-`of` throws. This asserted that the body never ran — "walks zero times
+// rather than failing — the stated gap while a throw cannot reach a handler in a
+// caller" — which described a third behaviour that is neither Node's nor Bun's,
+// and which passed for the wrong reason until the throw arrived.
+check("non-iterable-throws", (function () {
     let n = 0;
-    for (let v of {a: 1}) { n = n + 1; }
-    return n === 0;
+    try {
+        for (let v of {a: 1}) { n = n + 1; }
+        return false;
+    } catch (e) {
+        return n === 0;
+    }
 })());
 
 return failed;

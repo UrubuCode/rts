@@ -239,7 +239,14 @@ pub fn compile_to_object_with_html(
 /// where an in-memory run reads them straight out of the placement.
 pub fn compile_graph_to_object(entry: &std::path::Path) -> Result<ObjectProgram, HostError> {
     let graph = crate::graph::front_end(entry)?;
-    place(graph.front, &graph.before, graph.metas, graph.resolutions, &[], Vec::new())
+    // The ids alone: the object's module table is indexed by POSITION and the
+    // specifiers travel in the manifest's `metas`, which already carries one per
+    // module. `rts-runtime-boot` pairs them back by filtering out the entry (the
+    // one meta with `main`), so nothing here needs a new manifest section — see
+    // that crate's own comment at the registration loop.
+    let before: Vec<rts_cranelift::ir::FuncId> =
+        graph.before.iter().map(|(_, id)| *id).collect();
+    place(graph.front, &before, graph.metas, graph.resolutions, &[], Vec::new())
 }
 
 /// The same, plus `--html` page scripts — see [`compile_to_object_with_html`],
@@ -250,9 +257,12 @@ pub fn compile_graph_to_object_with_html(
     resources: Vec<page_resources::Resource>,
 ) -> Result<ObjectProgram, HostError> {
     let graph = crate::graph::front_end(entry)?;
+    // The ids alone, for the reason the function above states.
+    let before: Vec<rts_cranelift::ir::FuncId> =
+        graph.before.iter().map(|(_, id)| *id).collect();
     place(
         graph.front,
-        &graph.before,
+        &before,
         graph.metas,
         graph.resolutions,
         page_scripts,

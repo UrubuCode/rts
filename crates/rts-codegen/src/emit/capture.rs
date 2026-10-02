@@ -1450,6 +1450,64 @@ fn mentions_in_class(class: &crate::syntax::Class, wanted: Name, found: &mut boo
     }
 }
 
+/// Whether a body reads `this` ITSELF, outside any nested function.
+///
+/// For `emit/common_js.rs`: a module body that writes `this.foo = ...` needs the
+/// `module.exports` object, and the mention walk next door is about NAMES, which
+/// `this` is not.
+///
+/// # Why this is not [`arrow_reads_this`]
+///
+/// That one answers the opposite question — whether an arrow INSIDE this body
+/// reads `this`, so the enclosing function knows to hand its own over as a
+/// captured name. This one asks whether the body reads it directly, and stops at
+/// every nested function including an arrow: an arrow's `this` is already
+/// `arrow_reads_this`'s business, and counting it here would make a module
+/// allocate an exports object for a `this` that is not the module's.
+pub(super) fn body_reads_own_this(body: &[Stmt]) -> bool {
+    let mut found = false;
+    for statement in body {
+        own_this_in_stmt(statement, &mut found);
+    }
+    found
+}
+
+fn own_this_in_stmt(statement: &Stmt, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => own_this_in_stmt(inner, found),
+        StmtChild::Expr(expr) => own_this_in_expr(expr, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                own_this_in_expr(value, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                own_this_in_stmt(inner, found);
+            }
+        }
+        // NOT descended into: see this walk's entry point for why.
+        StmtChild::Function(_) | StmtChild::Class(_) => {}
+    });
+}
+
+fn own_this_in_expr(expr: &Expr, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if matches!(expr.kind, ExprKind::This) {
+        *found = true;
+        return;
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => own_this_in_expr(inner, found),
+        Child::Function(_) | Child::Class(_) => {}
+    });
+}
+
 /// Whether an arrow inside this body reads `this`.
 ///
 /// # Why the question is asked of the ENCLOSING function

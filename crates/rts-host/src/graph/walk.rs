@@ -214,6 +214,68 @@ pub fn load(entry: &Path) -> Result<Vec<Loaded>, HostError> {
     Ok(ordered)
 }
 
+/// The module body a `.node` file gets: one that raises when it runs.
+///
+/// A native addon is a shared library and this engine does not yet link one
+/// through the module loader — `rts napi <file.node>` opens and calls one, and
+/// what is missing is the path from an `import` to that. The error says which,
+/// so a reader is not left deciding whether addons work at all.
+///
+/// A `throw` and not a refusal at load time, because the common way a program
+/// asks for a native addon is OPTIONALLY: `import('sharp').catch(() => {})`.
+/// Refusing while reading the file denies that `catch` its purpose — the program
+/// never starts. Raising from the body lets the program handle it, which is the
+/// difference between "this dependency is unavailable" and "this program cannot
+/// be built".
+///
+/// The path is in the message and is escaped through `serde_json`, for the
+/// reason [`json_module`] gives: a Windows path is full of backslashes and a
+/// string literal built by hand would turn them into escapes.
+fn native_addon_module(path: &Path) -> String {
+    let quoted = serde_json::to_string(&path.display().to_string())
+        .unwrap_or_else(|_| String::from("\"a native addon\""));
+    format!(
+        "throw new Error(\"cannot load the native addon \" + {quoted} +          \": this engine does not link a .node file through the module loader yet.          `rts napi <file.node>` loads one directly.\");
+"
+    )
+}
+
+/// The module body a `.json` file gets: `JSON.parse` of its text.
+///
+/// # Why `JSON.parse` of a string literal rather than the text inlined
+///
+/// Because JSON is not a subset of JavaScript EXPRESSIONS in the ways that
+/// matter. `{"__proto__": 1}` is an own property in JSON and sets the prototype
+/// in an object literal — the difference is observable through
+/// `hasOwnProperty` — and U+2028/U+2029 are legal raw inside a JSON string
+/// while they were line terminators in JavaScript until ES2019. Handing the
+/// text to `JSON.parse` uses the one parser that already has those rules right
+/// instead of a second one that would have to agree with it.
+///
+/// `module.exports` and not an ESM default: this engine binds `require`,
+/// `module` and `exports` in every module beside `import`/`export` (CLAUDE.md,
+/// "CommonJS is not a second module system here"), so one body serves
+/// `require("./x.json")` and `import x from "./x.json"` both.
+///
+/// # Why the validation happens HERE
+///
+/// So a malformed file is refused at LOAD time, naming the file and the JSON
+/// fault. Emitted without it, the program would compile and die at run time on
+/// a `SyntaxError` from the runtime's own parser — a worse place to learn that
+/// a file on disk is not JSON, and one that reports the fault against the
+/// program rather than against the file.
+fn json_module(path: &Path, source: &str) -> Result<String, HostError> {
+    serde_json::from_str::<serde_json::Value>(source).map_err(|error| {
+        HostError::Parse(format!("{} is not valid JSON: {error}", path.display()))
+    })?;
+    // `to_string` of a `str` is the JSON encoding of it, which is also a valid
+    // JavaScript string literal — the escaping this needs, from the crate that
+    // defines it.
+    let literal = serde_json::to_string(source)
+        .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?;
+    Ok(format!("module.exports = JSON.parse({literal});\n"))
+}
+
 /// Where one file is in the walk.
 #[derive(Clone, Copy, PartialEq)]
 enum Mark {
@@ -230,18 +292,95 @@ fn visit(
 ) -> Result<(), HostError> {
     match state.get(path) {
         Some(Mark::Done) => return Ok(()),
-        Some(Mark::Open) => {
-            return Err(HostError::Parse(format!(
-                "{} is part of an import cycle, which this engine does not link",
-                path.display()
-            )));
-        }
+        // A CYCLE: this file is already on the stack, so this edge is the one
+        // that closes the loop. DROPPED rather than refused, which is only
+        // correct now that module bodies run on demand.
+        //
+        // The refusal was right for as long as every body ran in a topological
+        // sweep before the program started, because a cycle has no topological
+        // order. Dropping the edge back then produced a WORSE failure, measured:
+        // the order became `b, a`, and when `b` ran its `require("./a.js")`
+        // answered `cannot find module` — a refusal at compile time traded for a
+        // throw in the middle of execution.
+        //
+        // What changed is that EVERY module of the program is now registered
+        // before any body runs (`run_region` and `rts-runtime-boot` both
+        // register instead of running), so "already registered" no longer means
+        // "already ran". A re-entrant `require` finds the module, finds it
+        // RUNNING, and takes its namespace as it stands — which is the CommonJS
+        // contract and what `protobufjs` needs. #2852.
+        Some(Mark::Open) => return Ok(()),
         None => {}
     }
     state.insert(path.to_owned(), Mark::Open);
 
+    // A NATIVE addon. `.node` is a shared library, not text, and reading it as
+    // text answered `stream did not contain valid UTF-8` — an encoding error for
+    // a file that is not meant to be encoded. That stopped the whole compilation
+    // of `@whiskeysockets/baileys`, which asks for one like this:
+    //
+    //     await Promise.all([import('jimp').catch(() => {}),
+    //                        import('sharp').catch(() => {})])
+    //
+    // an OPTIONAL dependency with a `catch`. A loader that fails while reading
+    // never gives that `catch` a chance: the program does not run at all.
+    //
+    // So the module exists and its BODY raises, which is a module the program
+    // can fail to load rather than a program that cannot be built. That is only
+    // useful because a body now runs when something NAMES it (#2852): under the
+    // old topological sweep this body would have run always and killed every
+    // program that merely had a `.node` somewhere in its graph.
+    //
+    // `rts napi <file.node>` does load and call a real addon, so what is missing
+    // is the wiring between the loader and that, not the capability — the
+    // message says so rather than reading as "this cannot work".
+    if path.extension().is_some_and(|kind| kind == "node") {
+        state.insert(path.to_owned(), Mark::Done);
+        ordered.push(Loaded {
+            specifier: path.display().to_string(),
+            path: path.to_owned(),
+            resolutions: Vec::new(),
+            source: native_addon_module(path),
+        });
+        return Ok(());
+    }
     let source = std::fs::read_to_string(path)
-        .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?;
+        .map_err(|error| HostError::Parse(match path.is_dir() {
+            // A DIRECTORY reached as a module, which the OS reports as a
+            // permission error on Windows ("Acesso negado. (os error 5)") and
+            // as "Is a directory" elsewhere — neither of which says what to do.
+            // It happens when a specifier names a directory with no `index.*`
+            // inside it and no file of that name beside it, and `resolve`
+            // answers the joined path so the message can quote what was looked
+            // for. Saying which fault it is costs one `is_dir` on a path the
+            // loader has already failed to read, and the alternative was
+            // `protobufjs` reporting "Acesso negado" for an ordering bug.
+            true => format!(
+                "{} is a directory, and names no module: there is no index.ts/js/cjs/mjs inside                  it and no file of that name beside it",
+                path.display()
+            ),
+            false => format!("{}: {error}", path.display()),
+        }))?;
+    // A `.json` file is DATA, and this walk used to hand it to the JavaScript
+    // parser like any other: `sharp`'s `require("./package.json")` — the
+    // ordinary way a package reads its own version — failed with
+    // `Expected ';', '}' or <eof>`, which describes a JS parse of a file nobody
+    // meant as JavaScript. It is what stopped `@whiskeysockets/baileys` after
+    // the resolution and ordering fixes (#2853).
+    //
+    // It gets a module body instead, and the walk stops here: a JSON document
+    // has no imports to follow, and asking `imported_files` for them would be
+    // asking the JS parser the same question that just failed.
+    if path.extension().is_some_and(|kind| kind == "json") {
+        state.insert(path.to_owned(), Mark::Done);
+        ordered.push(Loaded {
+            specifier: path.display().to_string(),
+            path: path.to_owned(),
+            resolutions: Vec::new(),
+            source: json_module(path, &source)?,
+        });
+        return Ok(());
+    }
     // Parsed with a `Names` of its own, and thrown away: this pass wants the
     // import specifiers and nothing else. The real parse happens against the
     // `Names` the whole compilation shares.

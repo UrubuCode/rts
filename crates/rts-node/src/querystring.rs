@@ -69,7 +69,9 @@ pub fn namespace(context: &mut Context) -> u64 {
 
 /// `querystring.parse(str, sep?, eq?, options?)` / `.decode(...)`.
 extern "C" fn parse(_e: u64, _this: u64, text: u64, sep: u64, eq: u64, options: u64) -> u64 {
-    let Some(text) = argument_text(text) else {
+    // `string_argument` and not `argument_text`: a non-string is an empty result,
+    // not a value to coerce and then parse — see that function's doc.
+    let Some(text) = string_argument(text) else {
         return rts_core::entry::with_runtime(rts_core::entry::make_object);
     };
     let sep = argument_text(sep).unwrap_or_else(|| "&".to_owned());
@@ -164,14 +166,14 @@ fn encode_with(text: &str, encoder: Option<u64>) -> String {
 
 /// `querystring.escape(str)`.
 extern "C" fn escape(_e: u64, _this: u64, text: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let text = argument_text(text).unwrap_or_default();
+    let text = coerced_text(text).unwrap_or_default();
     let encoded = percent_encode(&text);
     rts_core::entry::with_runtime(|context| rts_core::entry::make_string(context, &encoded))
 }
 
 /// `querystring.unescape(str)`.
 extern "C" fn unescape(_e: u64, _this: u64, text: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let text = argument_text(text).unwrap_or_default();
+    let text = coerced_text(text).unwrap_or_default();
     let decoded = percent_decode(&text);
     rts_core::entry::with_runtime(|context| rts_core::entry::make_string(context, &decoded))
 }
@@ -286,13 +288,18 @@ fn percent_encode(text: &str) -> String {
     out
 }
 
-/// An argument as text, `None` for an absent (`undefined`) one.
-fn argument_text(value: u64) -> Option<String> {
-    let absent = rts_core::entry::undefined_value();
-    if value == absent {
-        return None;
-    }
-    rts_core::entry::text_of(value)
+/// The three forms this module reads an argument with, from the one module that
+/// states them — `crate::text_argument`. All three were written out here, and
+/// `argument_text` was one of the three copies of a convention that answered
+/// only the first of the three questions: `sep`/`eq` have defaults,
+/// `escape`/`unescape` coerce, and `parse` must be handed a real string.
+use crate::text_argument::{coerced as coerced_text, optional as argument_text};
+
+/// `parse`'s subject: a non-string is an empty result, which is Node's own
+/// answer — `querystring.parse(7)` is `{}` there and was `{"7":""}` here. The
+/// refusal the shared form raises is NOT wanted, so the name is read directly.
+fn string_argument(value: u64) -> Option<String> {
+    rts_core::entry::with_runtime(|context| rts_core::entry::string_in(context, value))
 }
 
 /// A JS array's elements, read out through `.length` and indexed access.

@@ -389,8 +389,24 @@ fn a_name_a_sibling_script_writes_only_as_a_property_of_this_still_compiles() {
     tables_agree_with(&program);
 }
 
+/// An import cycle COMPILES to an object, as it now links in memory.
+///
+/// This asserted the refusal until module bodies ran on demand, and the refusal
+/// was the right answer to that design: every body ran in a topological sweep
+/// before the program started, and a cycle has no topological order.
+///
+/// What makes it compile now is that both destinations REGISTER each module
+/// under its specifier instead of running them in order — `run_region` for the
+/// in-memory path, `rts-runtime-boot` for this one — so a re-entrant `require`
+/// finds the module already registered and takes its namespace as it stands.
+/// That is this crate's rule 4 at work: the two destinations had to change
+/// together or the same program would be two programs.
+///
+/// The table check is the point of asserting it here rather than only in
+/// `tests/import_cycle.rs`: a cycle's module bodies must be in the object's
+/// module table like any others, and the manifest must count them.
 #[test]
-fn an_import_cycle_is_refused_by_name_rather_than_half_compiled() {
+fn an_import_cycle_compiles_to_an_object() {
     let entry = graph(
         "cycle",
         &[
@@ -398,10 +414,9 @@ fn an_import_cycle_is_refused_by_name_rather_than_half_compiled() {
             ("b.ts", "import { a } from \"./a\";\nexport const b = a;\n"),
         ],
     );
-    let refused = compile_graph_to_object(&entry);
-    assert!(
-        refused.is_err(),
-        "the object path refuses a cycle for the same reason the in-memory path does: \
-         a live binding and its temporal dead zone do not exist here"
+    let program = compile_graph_to_object(&entry).expect(
+        "a cycle links in both destinations: the modules are registered before any \
+         body runs, so re-entering one finds it registered rather than missing",
     );
+    tables_agree_with(&program);
 }

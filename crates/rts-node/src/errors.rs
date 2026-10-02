@@ -154,6 +154,34 @@ pub(crate) fn system_error(syscall: &str, code: &str) {
     raise("Error", code, &format!("{syscall} {code}"));
 }
 
+/// Raises a plain `Error` a failing SYSCALL owes, carrying `code` AND
+/// `syscall`, with `subject` in the message.
+///
+/// Node's `dns.reverse("not-an-ip")` is `Error: getHostByAddr EINVAL not-an-ip`
+/// with `err.code === "EINVAL"` and `err.syscall === "getHostByAddr"`, and a
+/// program branches on both — `syscall` is how it tells a reverse lookup's
+/// EINVAL from a connect's. [`system_error`] stamps only `code`, so a caller
+/// that needs the pair had nothing to reach, and `dns` was answering an
+/// argument error (`ERR_INVALID_IP_ADDRESS`) for a lookup failure instead.
+///
+/// A plain `Error` and not a `TypeError`: the value had the right TYPE and the
+/// resolver is what rejected it, which is the distinction the two codes carry.
+pub(crate) fn syscall_error(syscall: &str, code: &str, subject: &str) {
+    let message = format!("{syscall} {code} {subject}");
+    let Some(error) = entry::make_named_error("Error", &message) else {
+        entry::throw_type_error(&message);
+        return;
+    };
+    let (code, syscall) = (code.to_owned(), syscall.to_owned());
+    entry::with_runtime(|context| {
+        let held = entry::make_string(context, &code);
+        entry::put_member(context, error, "code", held);
+        let held = entry::make_string(context, &syscall);
+        entry::put_member(context, error, "syscall", held);
+    });
+    entry::throw_value(error);
+}
+
 /// Builds an error of `class`, stamps `code` on it, and raises it.
 ///
 /// # Why this exists beside `rts_core::entry::errors`'s own `raise`

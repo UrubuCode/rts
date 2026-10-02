@@ -66,13 +66,18 @@ String.prototype.mine = function () { return "m"; };
 check("extensible", "x".mine() === "m");
 
 // `matchAll` keeps the groups every match had, which the global form of
-// `match` throws away.
-let all = "a1b2".matchAll(/([a-z])(\d)/g);
+// `match` throws away — and it answers an ITERATOR, not an array, which is what
+// the specification says and what this file read it as. `all.length` on an
+// iterator is `undefined`, so `undefined === 2` was false and the check failed;
+// `all[1].index` then read a property of `undefined` and killed the run. Spread
+// once into an array, which is how a program consumes it.
+let all = [..."a1b2".matchAll(/([a-z])(\d)/g)];
+check("match-all-not-an-array", Array.isArray("a1b2".matchAll(/([a-z])(\d)/g)) === false);
 check("match-all-count", all.length === 2);
 check("match-all-group", all[1][1] === "b");
 check("match-all-index", all[1].index === 2);
 check("match-all-input", all[0].input === "a1b2");
-check("match-all-none", "zz".matchAll(/q/g).length === 0);
+check("match-all-none", [..."zz".matchAll(/q/g)].length === 0);
 
 check("locale-upper", "aß".toLocaleUpperCase() === "ASS");
 check("locale-lower", "AB".toLocaleLowerCase() === "ab");

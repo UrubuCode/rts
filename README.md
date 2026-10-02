@@ -41,7 +41,7 @@ JS spec compatibility validated against **Bun** and **Node** over 1516 standalon
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1516 |
 
-_Updated: 2026-10-01 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-10-02 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -163,7 +163,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 
 **DOM engine state** (`crates/rts-dom/PLAN.md` §0): **97/119 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-10-01 by CI (`dom-rulers`).*
+*Updated 2026-10-02 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->
@@ -221,12 +221,12 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `cc97c33`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `35741b5`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
 
-_Updated: 2026-10-01 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-10-02 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 

@@ -118,7 +118,7 @@ pub(crate) struct Graph {
     /// The one compilation every module of the program was emitted into.
     pub front: crate::run::FrontEnd,
     /// The module initialisers to run before the entry, in order.
-    pub before: Vec<rts_cranelift::ir::FuncId>,
+    pub before: Vec<(String, rts_cranelift::ir::FuncId)>,
     /// What `import.meta` answers, per module.
     pub metas: Vec<ModuleMeta>,
     /// Every `(referrer, written, resolved)` this load resolved.
@@ -303,6 +303,17 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
     let mut entries = emitted.entries;
 
     entries.pop();
+    // PAIRED with the specifier rather than left as a bare list, because the
+    // host now REGISTERS each body under its specifier instead of running them
+    // in order — `rts_core::entry::declare_module_entry`, for #2852. Two
+    // position-aligned vectors would be a second fact to keep in step, and
+    // `metas` is already one of those: the pair makes the alignment
+    // unrepresentable instead of merely true today.
+    let entries: Vec<(String, rts_cranelift::ir::FuncId)> = metas
+        .iter()
+        .map(|meta| meta.specifier.clone())
+        .zip(entries)
+        .collect();
     Ok(Graph {
         front: crate::run::FrontEnd {
             emitted: emitted.program,
