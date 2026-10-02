@@ -65,7 +65,7 @@ pub struct Compiled {
     ///
     /// Run BEFORE the entry, because a module publishes its exports when its
     /// body finishes and the importer reads them when its own body starts.
-    dependencies: Vec<Entry>,
+    dependencies: Vec<(String, Entry)>,
     /// What the compiler decided the singletons are numbered.
     model: ValueModel,
     /// The heaps the code was built to address, one per thread it can run on.
@@ -302,9 +302,9 @@ struct Outcome {
 /// a region and two borrowed tables crosses is the whole property.
 fn run_region(
     entry: Entry,
-    // The modules the entry imports, run in order before it. See
-    // `Compiled::dependencies`.
-    dependencies: &[Entry],
+    // The modules the entry imports, REGISTERED under their specifiers rather
+    // than run in order. See `Compiled::dependencies` and the loop below.
+    dependencies: &[(String, Entry)],
     nothing: u64,
     singletons: rts_core::value::Singletons,
     kinds: rts_core::Kinds,
@@ -432,12 +432,26 @@ fn run_region(
         // A script closes over nothing, has no receiver and was passed no
         // arguments: `undefined` for all six, from the compiler's own numbering
         // rather than a constant written here.
-        // Dependencies first, and their answers dropped: a module's value is
-        // not what an importer reads — its published exports are, and it
-        // publishes them as its body finishes.
-        for dependency in dependencies {
-            dependency(nothing, nothing, nothing, nothing, nothing, nothing);
-        }
+        // REGISTERED, not run. A module's body runs when something NAMES it —
+        // `module_binding` for a static import, `module_namespace` for
+        // `import * as`, `module_import` for a dynamic one — which is what Node
+        // does and the only shape an import CYCLE works in: the module being
+        // re-entered is already registered, with a namespace to hand back half
+        // filled.
+        //
+        // This was a loop that ran every body in topological order, and a cycle
+        // has no topological order, so the loader refused one by name (#2852).
+        // Running them here also ran modules nothing ever asked for, which is a
+        // behaviour change worth stating: a module reached by no import and no
+        // `require` no longer executes, and its side effects no longer happen.
+        //
+        // The ENTRY still runs directly below: it is the file the caller named,
+        // and nothing imports it.
+        rts_core::entry::with_runtime(|context| {
+            for (specifier, body) in dependencies {
+                rts_core::entry::declare_module_entry(context, specifier, *body);
+            }
+        });
         let value = entry(nothing, nothing, nothing, nothing, nothing, nothing);
         // The turn ends here, not inside the program: a reaction must not run in
         // the entry point that queued it, and a rejection is only unhandled once
@@ -1195,7 +1209,7 @@ pub(crate) fn prepare(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble(
     emitted: rts_codegen::emit::Program,
-    dependency_ids: &[rts_cranelift::ir::FuncId],
+    dependency_ids: &[(String, rts_cranelift::ir::FuncId)],
     regions: u32,
     model: ValueModel,
     funcs: FuncRegistry,
@@ -1259,10 +1273,13 @@ pub(crate) fn assemble(
     // The same transmute for each module the entry imports, in the order the
     // loader put them: every one was placed with a body under the same
     // convention, so there is nothing special about the last.
-    let dependencies: Vec<Entry> = dependency_ids
+    let dependencies: Vec<(String, Entry)> = dependency_ids
         .iter()
-        .filter_map(|id| placed.address_of(*id))
-        .map(|at| unsafe { std::mem::transmute::<*const u8, Entry>(at) })
+        .filter_map(|(specifier, id)| {
+            placed
+                .address_of(*id)
+                .map(|at| (specifier.clone(), unsafe { std::mem::transmute::<*const u8, Entry>(at) }))
+        })
         .collect();
 
     Ok(Compiled {

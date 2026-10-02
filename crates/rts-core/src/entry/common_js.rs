@@ -85,26 +85,50 @@ extern "C" fn require_call(environment: u64, _this: u64, id: u64, _b: u64, _c: u
     // And the lookup answers before anything is raised, for the reason
     // `module_import` records: raising takes its own borrow, because building
     // the error runs the program's own constructor.
-    let found = with_current(|context| {
+    // THREE passes, and the middle one is the module's own body. `require` is
+    // the fourth way a module gets named — beside a static import
+    // (`module_binding`), `import * as` (`module_namespace`) and `import()`
+    // (`module_import`) — and a body runs when something names it. Resolving
+    // needs the borrow, running must not hold one, and reading needs it again.
+    let resolution = with_current(|context| {
         let Some(wanted) = super::modules::string_in(context, id) else {
             return Err(String::from(
                 "require() takes a string specifier, and was given something else",
             ));
         };
-        // The host's answer first and the text second, which is the rule the
-        // loader applies to a static import: `node:fs` and a bare name are not
-        // paths, and the resolver leaves them alone.
         let resolved = context
             .resolver
             .and_then(|resolve| resolve(&from, &wanted))
             .unwrap_or_else(|| wanted.clone());
-        match value_of(context, &resolved) {
+        Ok((resolved, wanted))
+    });
+    let (resolved, wanted) = match resolution {
+        Ok(pair) => pair,
+        Err(message) => {
+            super::throw::plain_error(&message);
+            return super::modules::undefined_value();
+        }
+    };
+    // Outside every borrow. A module already RUNNING answers nothing here and is
+    // read below as it stands, which is what makes a CommonJS cycle work rather
+    // than recurse: `a` requires `b`, `b` requires `a`, and the second ask takes
+    // `a`'s half-filled `module.exports`.
+    super::dynamic_module::ensure_module_ran(&resolved);
+    if super::throw::in_flight() {
+        // The body threw. Left in flight: the compiled call site above re-raises,
+        // and reading `module.exports` of a module that did not finish would
+        // publish a half-built object as if `require` had succeeded.
+        return super::modules::undefined_value();
+    }
+    let found = with_current(|context| {
+        let (resolved, wanted) = (&resolved, &wanted);
+        match value_of(context, resolved) {
             Some(value) => Ok(value),
             // A bare specifier the host provides under `node:` — `require("fs")`
             // is what the whole Node corpus writes, and the table is keyed by
             // what the host registered. Tried second so a real file called `fs`
             // still wins.
-            None => match value_of(context, &format!("node:{resolved}")) {
+            None => match value_of(context, &format!("node:{}", resolved)) {
                 Some(value) => Ok(value),
                 None => Err(format!(
                     "cannot find module \"{wanted}\" — nothing registered that specifier"

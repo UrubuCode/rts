@@ -59,11 +59,24 @@ pub const NAMES: [&str; 5] = ["module", "exports", "require", "__filename", "__d
 /// whether a function binds `arguments`, rather than a second walk that could
 /// come to disagree with it about what a mention is.
 pub fn mentioned(body: &[Stmt], ctx: &mut Ctx) -> Vec<Name> {
-    NAMES
+    let mut found: Vec<Name> = NAMES
         .iter()
         .map(|text| ctx.names.intern(text))
         .filter(|name| super::capture::mentions(body, *name))
-        .collect()
+        .collect();
+    // `this` at a module's top IS `module.exports`, so a body that writes
+    // `this.foo = ...` and never mentions `exports` still needs the object —
+    // and the mention walk is about NAMES, which `this` is not.
+    //
+    // Reported as a mention of `exports` because that is the binding it
+    // resolves to: [`emit_prologue`] makes that same object the body's
+    // receiver, so one object serves `exports`, `module.exports` and `this`,
+    // which is what CommonJS says they are at entry.
+    let exports_name = ctx.names.intern("exports");
+    if !found.contains(&exports_name) && super::capture::body_reads_own_this(body) {
+        found.push(exports_name);
+    }
+    found
 }
 
 /// Binds what the body mentions, at the top of a module.
@@ -124,6 +137,21 @@ pub fn emit_prologue(
                 )?;
                 super::binding::declare(builder, scope, ctx, module_name, holder)?;
             }
+            // The body's RECEIVER, which is what makes `this` at a module's top
+            // answer `module.exports`. That is contract and not detail: it is
+            // how an old module publishes (`this.foo = ...`), and `protobufjs`
+            // reads it as the last arm of
+            // `util.global = isNode && global || ... || this`.
+            //
+            // It was `undefined`, because a module body is invoked with six
+            // `undefined`s and nothing had told the scope otherwise. #2859.
+            //
+            // `false` for `is_arrow`: a module body is not an arrow, and that
+            // flag exists for the case `Scope::set_this` refuses by name.
+            // The body's RECEIVER, which is what makes `this` at a module's top
+            // answer `module.exports` — contract, not detail: it is how an old
+            // module publishes (`this.foo = ...`).
+            scope.set_this(object, false);
             Some(object)
         }
     };

@@ -90,7 +90,9 @@ pub fn declare_module_meta(context: &mut Context, specifier: &str, meta: u64) {
         namespace: None,
         build: None,
         provided: false,
-        meta: Some(meta),
+        entry: None,
+            running: false,
+            meta: Some(meta),
         common: None,
     });
 }
@@ -141,6 +143,71 @@ pub fn import_meta(referrer: i64) -> u64 {
 /// The divergence that leaves is stated rather than hidden — a module reached
 /// only by `import()` is evaluated eagerly with the rest of the graph, where the
 /// language evaluates it at the call.
+/// Runs a module's body, if a module of that specifier still owes one.
+///
+/// # Why this exists, and why it is OUTSIDE every borrow
+///
+/// A module used to run in a topological sweep before the program started, and
+/// a cycle has no topological order — so a cycle was refused by the loader
+/// (#2852). Node runs a module when something NAMES it, which is the only shape
+/// a cycle works in: the module being re-entered is already registered, with a
+/// `module.exports` to hand back half filled.
+///
+/// Compiled code re-enters the context, so the body cannot run inside a
+/// `with_current`: that is the re-entrant borrow this crate's layout exists to
+/// make impossible, and it aborts rather than failing. So the question and the
+/// answer are two passes, which is the same shape `module_binding` already uses
+/// for raising — `modules::module_pending` says which body is owed and creates
+/// the namespace before leaving the borrow, and this calls it with none held.
+///
+/// # The three states, and which one is the cycle
+///
+/// `module_pending` answers `None` for a module that has no body, has already
+/// run, or is RUNNING. The last is the cycle: the second ask takes the namespace
+/// as it stands instead of starting the body again, which is what makes
+/// `require` of a module mid-flight answer a partial object rather than recurse
+/// for ever.
+///
+/// # Rule 8
+///
+/// A module body is user code, so a throw out of it is checked here and left in
+/// flight: the caller — `module_binding`, `module_namespace`, `module_import` —
+/// returns without reading a namespace the body never finished filling, and the
+/// compiled call site above re-raises. Reading it anyway would publish a half
+/// built namespace as if the module had succeeded.
+fn ensure_ran(specifier: &str) {
+    let pending = with_current(|context| super::modules::module_pending(context, specifier));
+    let Some(body) = pending else {
+        return;
+    };
+    let nothing = with_current(|context| undefined_of(context));
+    body(nothing, nothing, nothing, nothing, nothing, nothing);
+    // Cleared whether the body finished or threw: a module that threw does not
+    // get a second chance at running in this process, which is Node's rule too
+    // (`require` of a module that threw once throws the SAME error again from a
+    // cache). What a throw does change is what the caller does next, and
+    // `super::throw::in_flight` is how it finds out.
+    with_current(|context| super::modules::module_ran(context, specifier));
+}
+
+/// [`ensure_ran`], for the two entry points in `modules` that read a namespace.
+///
+/// `pub(in crate::entry)` rather than a second copy there: the run is one rule
+/// and the borrow discipline around it is the delicate half.
+pub(in crate::entry) fn ensure_module_ran(specifier: &str) {
+    ensure_ran(specifier);
+}
+
+/// `import(specifier)` — the module namespace, as a promise.
+///
+/// The doc that stood here moved into [`ensure_ran`] along with the behaviour it
+/// described: resolving a specifier is one question and RUNNING the module it
+/// names is another, and this entry point now asks both.
+///
+/// A rejected promise and not a throw for every failure: `import()` is an
+/// expression whose value is a promise, so a specifier nothing registered and a
+/// module body that threw both travel as rejections rather than unwinding out of
+/// the expression.
 #[rtse::entry]
 pub fn module_import(specifier: u64, referrer: i64) -> u64 {
     // Two passes, for the reason `module_binding` records: raising takes its
@@ -160,16 +227,33 @@ pub fn module_import(specifier: u64, referrer: i64) -> u64 {
             .resolver
             .and_then(|resolve| resolve(&from, &wanted))
             .unwrap_or_else(|| wanted.clone());
-        match context.module_at(&resolved) {
-            Some(namespace) => Ok(namespace),
-            None => {
-                let _ = absent;
-                Err(format!(
-                    "cannot resolve module \"{wanted}\" — nothing registered that specifier"
-                ))
-            }
-        }
+        let _ = absent;
+        Ok((resolved, wanted))
     });
+    // Resolved under the borrow, RUN outside it, read back under a second one.
+    // Three passes rather than two, and the middle one is the whole point: a
+    // module of this program has a body that has not run until something asks
+    // for it, and `import()` asking is one of the three ways.
+    let found = match found {
+        Err(why) => Err(why),
+        Ok((resolved, wanted)) => {
+            ensure_ran(&resolved);
+            if super::throw::in_flight() {
+                // The body threw. `import()` is a promise, so the rejection
+                // travels as one rather than as a throw out of an expression —
+                // and the pending throw is taken because it becomes the
+                // rejection reason instead of propagating from here.
+                let reason = super::throw::caught().unwrap_or_else(|| with_current(|context| undefined_of(context)));
+                return super::promise::rejected_with(reason);
+            }
+            with_current(|context| match context.module_at(&resolved) {
+                Some(namespace) => Ok(namespace),
+                None => Err(format!(
+                    "cannot resolve module \"{wanted}\" — nothing registered that specifier"
+                )),
+            })
+        }
+    };
     match found {
         Ok(namespace) => super::promise::resolved_with(namespace),
         // A rejected promise and not a throw: `import()` is an expression that

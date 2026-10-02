@@ -116,9 +116,23 @@ fn a_literal_dynamic_import_of_an_alias_resolves_at_run_time() {
     assert!(failed.is_empty(), "the runtime resolver saw the map: {failed:?}");
 }
 
-/// A cycle through an alias is refused by name, as a relative cycle is.
+/// A cycle through an alias LINKS, as a relative cycle does — and the alias map
+/// is what makes the two files one module each rather than two.
+///
+/// This test asserted the opposite until module bodies ran on demand: a cycle
+/// was refused by name, because every body ran in a topological sweep before the
+/// program started and a cycle has no topological order. The refusal was the
+/// right answer to that design and is the wrong answer to this one, so the test
+/// changed with the behaviour rather than being deleted — what it pins now is
+/// that the alias map is still consulted on BOTH edges of the cycle, which is
+/// the part specific to this file.
+///
+/// The ESM semantics of a cycle — live bindings and a temporal dead zone — are
+/// still absent, so what each module sees of the other mid-flight is the
+/// CommonJS answer: whatever had been published when the re-entrant ask
+/// happened. `tests/import_cycle.rs` is where that contract is pinned.
 #[test]
-fn a_cycle_through_an_alias_is_refused_by_name() {
+fn a_cycle_through_an_alias_links() {
     let dir = fixture(
         "cycle",
         &[
@@ -127,11 +141,11 @@ fn a_cycle_through_an_alias_is_refused_by_name() {
             ("src/b.ts", "import { a } from \"@/a\";\nexport const b = a;\n"),
         ],
     );
-    let error = rts_host::compile_graph(&dir.join("src/a.ts")).expect_err("a cycle is refused");
-    let text = format!("{error:?}");
+    let compiled = rts_host::compile_graph(&dir.join("src/a.ts"));
     assert!(
-        text.to_lowercase().contains("cycle"),
-        "the refusal names the cycle rather than failing obscurely: {text}"
+        compiled.is_ok(),
+        "a cycle through an alias links: {:?}",
+        compiled.err().map(|error| format!("{error:?}"))
     );
 }
 

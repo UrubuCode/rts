@@ -519,18 +519,59 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
 
     let nothing = singletons.undefined as u64;
     let (_, exit_code) = rts_core::entry::with_context(context, || {
-        // Dependencies first, and their answers dropped — the same order and
-        // the same reason `run_region` has: a module publishes its exports as
-        // its body finishes, and the importer reads them when its own body
-        // starts. The addresses are the linker's; the ORDER is the loader's,
-        // and it is the order they were written to the table in.
-        for at in &modules {
-            // SAFETY: every entry of the module table is a function this same
-            // object placed, under the one convention every compiled function
-            // uses — which is what `Entry` spells.
-            let body: Entry = unsafe { std::mem::transmute::<u64, Entry>(*at) };
-            let _ = unsafe { body(nothing, nothing, nothing, nothing, nothing, nothing) };
-        }
+        // REGISTERED under their specifiers, not run in order — the same change
+        // `run_region` makes for the in-memory destination, and it has to be the
+        // same: this crate's host says "both destinations, or neither", and a
+        // module that runs when NAMED in one and in topological order in the
+        // other would be two programs.
+        //
+        // A module's body runs when something names it, which is what Node does
+        // and the only shape an import CYCLE works in — the module being
+        // re-entered is already registered, with a namespace to hand back half
+        // filled. A pre-ordered sweep has no answer for a cycle because a cycle
+        // has no order.
+        //
+        // # Where the specifiers come from, and why no new manifest section
+        //
+        // The module table is indexed by POSITION and holds addresses the linker
+        // filled in; the specifiers are in `metas`, one per module of the
+        // program, written in the same loader order. The ENTRY is in `metas` too
+        // and is not in the module table — it is the one meta with `main` — so
+        // filtering it out pairs the two exactly. The alternative was a new
+        // section carrying the specifiers a second time, and a second copy of a
+        // list is where the two come to disagree.
+        let specifiers: Vec<&str> = manifest
+            .metas
+            .iter()
+            .filter(|(_, _, main)| !*main)
+            .map(|(specifier, _, _)| specifier.as_str())
+            .collect();
+        rts_core::entry::with_runtime(|context| {
+            for (at, specifier) in modules.iter().zip(&specifiers) {
+                // SAFETY: every entry of the module table is a function this same
+                // object placed, under the one convention every compiled function
+                // uses — which is what `Entry` spells.
+                // To the SAFE spelling of the same convention, which is what
+                // the table holds: `Entry` here is declared `unsafe extern "C"`
+                // because every call site in this crate is an FFI call, and
+                // `ModuleEntry` is the same signature without that marker — the
+                // registration is not a call, so there is nothing for the
+                // caller to promise at this point.
+                let body: rts_core::entry::ModuleEntry =
+                    unsafe { std::mem::transmute::<u64, rts_core::entry::ModuleEntry>(*at) };
+                rts_core::entry::declare_module_entry(context, specifier, body);
+            }
+        });
+        // A mismatch is a manifest that disagrees with the table it was written
+        // beside, which no correct build produces — so it is stated rather than
+        // silently truncated by the `zip` above: a module whose body is never
+        // registered answers `undefined` for every import of it, and that is the
+        // kind of wrong answer that runs.
+        debug_assert_eq!(
+            modules.len(),
+            specifiers.len(),
+            "the module table and the manifest's non-main metas must be one list"
+        );
         // SAFETY: `__rts_script` is exported by the object under the ABI every
         // compiled function uses, which this call matches by construction —
         // `Entry`'s definition and `object::compile_to_object`'s placement are
