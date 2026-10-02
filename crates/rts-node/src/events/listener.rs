@@ -135,11 +135,71 @@ pub(super) extern "C" fn listener_count(_e: u64, this: u64, event: u64, listener
 /// `emitter.eventNames()` — the names holding at least one listener.
 pub(super) extern "C" fn event_names(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let events = super::events_object(this);
-    let names: Vec<u64> = super::collect_array(super::event_name_list(this))
+    let live: Vec<u64> = super::collect_array(super::event_name_list(this))
         .into_iter()
         .filter(|&key| !super::collect_array(entry::get_indexed(events, key)).is_empty())
         .collect();
+    // STRINGS first, then symbols, each group keeping its registration order.
+    //
+    // Node's `eventNames` is `Reflect.ownKeys(this._events)`, and that is a
+    // property of the OBJECT the listeners hang on rather than of the order they
+    // were registered in: own keys are integer indices in numeric order, then
+    // strings by insertion, then symbols by insertion. This answered the raw
+    // insertion list, so a symbol registered before a string came out in the
+    // wrong place — `on(s1); on("b"); on(s2); on("a")` gave
+    // `[s1, "b", s2, "a"]` where node gives `["b", "a", s1, s2]`.
+    //
+    // An index-like name goes in the first group, because `Reflect.ownKeys`
+    // puts it there: `e.on("0", fn)` is a string key that IS a canonical array
+    // index, and node lists it before the other strings.
+    let (mut indices, mut strings, mut symbols) = (Vec::new(), Vec::new(), Vec::new());
+    for key in live {
+        match entry::with_runtime(|context| entry::string_in(context, key)) {
+            Some(text) => match canonical_index(&text) {
+                Some(at) => indices.push((at, key)),
+                None => strings.push(key),
+            },
+            // Not a primitive string: a symbol, which is the only other thing a
+            // registration can be keyed by.
+            None => symbols.push(key),
+        }
+    }
+    indices.sort_by_key(|(at, _)| *at);
+    let names: Vec<u64> = indices
+        .into_iter()
+        .map(|(_, key)| key)
+        .chain(strings)
+        .chain(symbols)
+        .collect();
     entry::make_array(names)
+}
+
+/// The array index a key spells, if it spells one exactly.
+///
+/// `"0"` is an index and `"01"`, `"1.0"` and `" 1"` are not — the round trip
+/// through `to_string` is what says so, and it is the same test the language's
+/// own canonical-index rule makes.
+fn canonical_index(text: &str) -> Option<u32> {
+    let at: u32 = text.parse().ok()?;
+    (at.to_string() == text).then_some(at)
+}
+
+/// `events.listenerCount(emitter, eventName)` — the module-level form.
+///
+/// Deprecated in Node and still exported, and a program that calls it wants the
+/// number rather than a lecture. The receiver moves from `this` to the first
+/// argument and the rest is [`listener_count`]: counting listeners twice would
+/// be two answers to one question, and the deprecated spelling is exactly the
+/// one nobody would remember to keep in step.
+pub(super) extern "C" fn static_listener_count(
+    e: u64,
+    _this: u64,
+    emitter: u64,
+    event: u64,
+    _c: u64,
+    _d: u64,
+) -> u64 {
+    listener_count(e, emitter, event, 0, 0, 0)
 }
 
 /// `emitter.listeners(eventName)` — the original function for every entry,

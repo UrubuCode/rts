@@ -187,6 +187,12 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("getEventListeners", listener::get_event_listeners),
         ("getMaxListeners", max_listeners::static_get_max_listeners),
         ("setMaxListeners", max_listeners::static_set_max_listeners),
+        // `events.listenerCount(emitter, type)` — deprecated in Node and still
+        // exported by it, which is the only question that matters for a program
+        // that calls it. The instance method is the same count, so this is the
+        // same function with the receiver taken from the first argument rather
+        // than a second implementation of counting.
+        ("listenerCount", listener::static_listener_count),
         ("addAbortListener", abort::add_abort_listener),
         ("once", once_promise::once),
         ("on", on_iterator::on),
