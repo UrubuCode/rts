@@ -47,23 +47,39 @@ check("parse-nested", JSON.parse("[[1]]")[0][0] === 1);
 // is what routing the parse through the interner buys.
 check("parse-index-key", JSON.parse("{\"0\":7}")[0] === 7);
 
-// A parse error answers `undefined`, where the specification throws — the same
-// stated gap every operation has while a throw cannot find a handler.
-check("parse-truncated", JSON.parse("[") === undefined);
-check("parse-trailing", JSON.parse("1 2") === undefined);
-check("parse-bare-word", JSON.parse("nope") === undefined);
+// A parse error THROWS, which is what the specification says and what this
+// used to deny: "answers `undefined`, where the specification throws — the same
+// stated gap every operation has while a throw cannot find a handler". The gap
+// closed and the three checks below went on passing for the wrong reason until
+// the raise arrived, at which point the uncaught `SyntaxError` killed the whole
+// run. Each one now asserts the refusal rather than the absence.
+function parseThrows(text) {
+    try { JSON.parse(text); return false; } catch (e) { return true; }
+}
+check("parse-truncated-throws", parseThrows("["));
+check("parse-trailing-throws", parseThrows("1 2"));
+check("parse-bare-word-throws", parseThrows("nope"));
 
 check("round-trip", (function () {
     let o = {a: [1, {b: true}], c: null, d: "x"};
     return JSON.stringify(JSON.parse(JSON.stringify(o))) === JSON.stringify(o);
 })());
 
-// A cycle answers `null` rather than hanging. The specification throws, and why
-// this does not is the same gap.
-check("cycle", (function () {
+// A cycle THROWS, which is what the specification says. This asserted that it
+// "answers `null` rather than hanging" — a third behaviour that is neither
+// Node's nor Bun's — and the day the raise arrived the uncaught `TypeError` took
+// the run with it. Asserting the refusal is strictly more than asserting a
+// placeholder, and the message is checked too, because "it threw" alone would
+// also pass for a cycle that ran out of stack.
+check("cycle-throws", (function () {
     let o = {};
     o.self = o;
-    return JSON.stringify(o) === "{\"self\":null}";
+    try {
+        JSON.stringify(o);
+        return false;
+    } catch (e) {
+        return String(e.message).indexOf("circular") >= 0;
+    }
 })());
 
 // A getter runs, because members are read through the ordinary property path.

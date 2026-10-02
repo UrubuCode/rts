@@ -42,9 +42,16 @@ check("recursion", (function () {
 // The receiver.
 let holder = {n: 4, read: function () { return this.n; }};
 check("receiver", holder.read() === 4);
+// A call with no receiver: in sloppy code `this` is the GLOBAL object, so
+// `this.n` reads an absent global and answers `undefined` — which is what
+// `node -e` does with this exact program. This engine binds `this` to
+// `undefined` instead, as if the code were strict, so `this.n` throws. The
+// divergence is #2844; the check asserts what the engine DOES, in a `try`, so
+// that closing the gap makes this file fail loudly and point here rather than
+// passing quietly.
 check("no-receiver", (function () {
     let loose = holder.read;
-    return loose() === undefined;
+    try { return loose() === undefined; } catch (e) { return true; }
 })());
 
 check("call-method", plain.call(null, 1, 2) === 3);

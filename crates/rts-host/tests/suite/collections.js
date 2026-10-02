@@ -96,11 +96,26 @@ check("set-spread", [...new Set([1, 2])].length === 2);
 check("array-from-set", Array.from(new Set([4, 5]))[1] === 5);
 check("array-from-map", Array.from(pairs)[0][0] === "a");
 
-// A weak collection shares the table and is NOT iterable: it must yield
-// nothing rather than leak the keys it holds strongly.
+// A weak collection shares the table and is NOT iterable — and "not iterable"
+// means the `for`-`of` THROWS, which is what this used to get wrong. It wrote
+// the loop and asserted that the body never ran, so a `for`-`of` that quietly
+// iterated nothing passed it. Node and Bun both raise `TypeError` here, so the
+// assertion was describing a third behaviour that is neither engine's.
+//
+// It mattered: once this engine started raising, the uncaught `TypeError` took
+// the whole `suite` test process with it — not one failed check, the process —
+// so every fixture alphabetically after `collections.js` stopped running and
+// nothing said so. A green suite and an absent one look alike at the place
+// anyone looks.
+let threw = false;
 let leaked = 0;
-for (let v of new WeakSet()) { leaked = leaked + 1; }
-check("weak-set-not-iterable", leaked === 0);
+try {
+    for (let v of new WeakSet()) { leaked = leaked + 1; }
+} catch (e) {
+    threw = true;
+}
+check("weak-set-not-iterable-throws", threw);
+check("weak-set-not-iterable-yields-nothing", leaked === 0);
 
 let key = {};
 let weak = new WeakMap();
@@ -108,9 +123,20 @@ weak.set(key, 5);
 check("weak-map-get", weak.get(key) === 5);
 check("weak-map-has", weak.has(key));
 check("weak-map-delete", weak.delete(key) && weak.has(key) === false);
-// A primitive key is refused rather than stored. The specification throws;
-// this cannot yet, so the observable half is that it does not go in.
-weak.set(1, 5);
+// A primitive key is refused, and the refusal is a THROW — which the comment
+// here used to deny: "the specification throws; this cannot yet, so the
+// observable half is that it does not go in". It can now, so the sentence had
+// outlived the limit it described, and the bare `weak.set(1, 5)` killed the
+// process the same way the `for`-`of` above did. Asserting the throw is
+// strictly more than asserting the absence, and it keeps saying something if
+// the raise is ever lost.
+let refused = false;
+try {
+    weak.set(1, 5);
+} catch (e) {
+    refused = true;
+}
+check("weak-map-refuses-primitive-throws", refused);
 check("weak-map-refuses-primitive", weak.has(1) === false);
 
 let weakSet = new WeakSet();
