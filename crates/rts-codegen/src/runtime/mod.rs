@@ -1620,7 +1620,7 @@ impl RuntimeOp {
             // referrer is a literal index because the compiler knows it.
             RuntimeOp::ModuleImport => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::RequireFunction => (vec![Repr::I64], vec![UNPROVEN]),
-            RuntimeOp::ModulePublishCommon => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ModulePublishCommon => (vec![Repr::I64, UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // The receiver in, the receiver or the global object out: nothing
             // is proved about either, so both sides are unproven.
             RuntimeOp::SloppyThis => (vec![UNPROVEN], vec![UNPROVEN]),
