@@ -588,9 +588,7 @@ impl Region {
             // a cell reused without this would hand its new owner the previous
             // occupant's last field, which is exactly the silently wrong object
             // this crate's rule 7 keeps naming as the thing to avoid.
-            for slot in 0..INLINE_SLOTS as usize {
-                self.set_word(at + 1 + slot, 0);
-            }
+            self.zero_payload(at);
             return Some(reference);
         }
 
@@ -844,6 +842,41 @@ impl Region {
     #[inline]
     fn set_word(&mut self, at: usize, value: u64) {
         unsafe { *self.words[at].get() = value }
+    }
+
+    /// Zeroes a cell's fifteen payload words, as one block.
+    ///
+    /// # Why this is not the loop it replaced
+    ///
+    /// It was `for slot in 0..INLINE_SLOTS { set_word(at + 1 + slot, 0) }` —
+    /// fifteen separate eight-byte stores through a function that takes an
+    /// index. A single run of 120 bytes is one `write_bytes`, which the
+    /// compiler is free to emit as two wide stores, and it is the whole of
+    /// what a cell's reuse costs besides its header.
+    ///
+    /// The reason it is worth doing at all is a comparison: a 128-byte cell
+    /// costs 16.48 nanoseconds on the allocation path with no collector work in
+    /// it, against 5.70 for the same bytes in .NET — and .NET gets memory that
+    /// arrives zeroed in bulk rather than zeroing per object. This is the half
+    /// of that difference reachable without changing how the region is
+    /// organised; the other half is `6.6` in the plan, bump allocation inside
+    /// blocks a sweep found wholly free.
+    ///
+    /// # Safety
+    ///
+    /// The run is inside the cell by construction: `at` is a cell's header
+    /// word, a cell is `INLINE_SLOTS + 1` words, and every caller obtained `at`
+    /// from [`Self::word_of`] for an index below `next`. Asserted in debug
+    /// rather than argued, because the cost of being wrong is a neighbouring
+    /// cell silently zeroed.
+    #[inline]
+    fn zero_payload(&mut self, at: usize) {
+        let slots = INLINE_SLOTS as usize;
+        debug_assert!(
+            at + slots < self.words.len(),
+            "zeroing past the words the region has"
+        );
+        unsafe { std::ptr::write_bytes(self.words[at + 1].get(), 0, slots) };
     }
 
     /// Writes one word, answering `None` past the end.

@@ -85,9 +85,7 @@ impl Region {
         let start = self.take_free_run(1)?;
         let at = self.word_of(start);
         self.set_word(at, super::header_word(ty, super::INLINE_SLOTS));
-        for slot in 0..super::INLINE_SLOTS as usize {
-            self.set_word(at + 1 + slot, 0);
-        }
+        self.zero_payload(at);
         self.compose(start)
     }
 
