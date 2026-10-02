@@ -93,19 +93,31 @@ pub(super) fn file_url(path: &Path) -> String {
 /// what `require("./x")` means everywhere else.
 pub(super) fn extended(base: &Path, specifier: &str) -> Option<PathBuf> {
     let named = base.join(specifier);
-    // A directory names the file inside it, which is what `require("./lib")`
-    // means in the corpus this serves. Tried only when the name IS a directory,
-    // so it can never collide with the file candidates below.
-    let candidates: Vec<PathBuf> = match named.is_dir() {
-        true => ["index.ts", "index.js", "index.cjs", "index.mjs"]
-            .iter()
-            .map(|name| named.join(name))
-            .collect(),
-        false => ["ts", "js", "cjs", "mjs"]
-            .iter()
-            .map(|extension| base.join(format!("{specifier}.{extension}")))
-            .collect(),
-    };
+    // The FILE candidates first, then the directory's `index.*` — Node's own
+    // order (`LOAD_AS_FILE` before `LOAD_AS_DIRECTORY`), and the two DO collide.
+    //
+    // This was written the other way round, on the stated grounds that a
+    // directory "can never collide with the file candidates below". It can, and
+    // a real package does it: `protobufjs/src/` holds BOTH `rpc.js` and `rpc/`,
+    // the directory has no `index`, and `require("./rpc")` means the file —
+    // `require.resolve` in node says so. Asking the directory first found no
+    // `index`, fell through to the directory itself, and the loader tried to
+    // READ it: "Acesso negado (os error 5)", which names the wrong fault
+    // entirely.
+    //
+    // Collecting both lists and taking the first that is a file states the
+    // order in one place instead of branching on `is_dir`, which is also what
+    // made the old shape look safe: the branch meant only one list was ever
+    // built, so the collision was unrepresentable in the code and real on disk.
+    let candidates: Vec<PathBuf> = ["ts", "js", "cjs", "mjs"]
+        .iter()
+        .map(|extension| base.join(format!("{specifier}.{extension}")))
+        .chain(
+            ["index.ts", "index.js", "index.cjs", "index.mjs"]
+                .iter()
+                .map(|name| named.join(name)),
+        )
+        .collect();
     candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
