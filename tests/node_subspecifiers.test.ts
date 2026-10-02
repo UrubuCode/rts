@@ -26,8 +26,13 @@ describe("node: sub-specifiers", () => {
     });
     test("dns/promises resolves to dns.promises", () =>
         expect(resolving.lookup).toBe(dns.promises.lookup));
+    // 1024 and not 4: this pinned the value THIS ENGINE had rather than the one
+    // `getaddrinfo` defines, so the module and the test were wrong together and
+    // agreed. `node -e` says 1024, and `claude-node-dns.test.ts` carries the
+    // whole table with the measurement beside it. What this test is about is
+    // unchanged — that the sub-specifier namespace carries the flags at all.
     test("dns/promises carries the lookup flags", () =>
-        expect(resolving.ADDRCONFIG).toBe(4));
+        expect(resolving.ADDRCONFIG).toBe(1024));
     test("isBuiltin knows assert/strict", () =>
         expect(mod.isBuiltin("assert/strict")).toBe(true));
     test("isBuiltin knows dns/promises", () =>

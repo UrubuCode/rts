@@ -233,41 +233,41 @@ describe("node:dns — shape, construction, throws (no network)", () => {
         expect(instanceSetServersCode).toBe("ERR_INVALID_IP_ADDRESS");
         expect(instanceSetServersIsTypeError).toBe(true);
     });
-    test("Resolver#setServers([123]) — Node says ERR_INVALID_ARG_TYPE, RTS says ERR_INVALID_IP_ADDRESS (RED: known divergence)", () => {
+    test("Resolver#setServers([123]) is ERR_INVALID_ARG_TYPE, naming servers[0] — was ERR_INVALID_IP_ADDRESS, because text_of coerced 123 to a string", () => {
         expect(instanceSetServersNumericCode).toBe("ERR_INVALID_ARG_TYPE");
     });
 
-    test("dns.setServers(['not-an-ip']) throws (module level) — Node throws, RTS silently no-ops (RED: doc claims parity, measured false)", () => {
+    test("dns.setServers(['not-an-ip']) throws at module level — was a silent no-op, so a misconfigured resolver kept querying the old servers", () => {
         expect(moduleSetServersThrew).toBe(true);
     });
 
-    test("dns.reverse(malformed) — Node: Error/EINVAL/getHostByAddr, not ERR_INVALID_IP_ADDRESS (RED: doc claims parity, measured false)", () => {
+    test("dns.reverse(malformed) is a plain Error with code EINVAL and syscall getHostByAddr — a lookup refusal, not an argument one", () => {
         expect(reverseThrew).toBe(true);
         expect(reverseCode).toBe("EINVAL");
         expect(reverseSyscall).toBe("getHostByAddr");
         expect(reverseIsPlainError).toBe(true);
     });
-    test("Resolver#reverse(malformed) — same EINVAL contract as the module function (RED)", () => expect(resolverReverseCode).toBe("EINVAL"));
-    test("dns.reverse(123) — non-string arg: Node says ERR_INVALID_ARG_TYPE (RED: RTS says ERR_INVALID_IP_ADDRESS)", () => expect(reverseNumericCode).toBe("ERR_INVALID_ARG_TYPE"));
+    test("Resolver#reverse(malformed) — the same EINVAL contract as the module function", () => expect(resolverReverseCode).toBe("EINVAL"));
+    test("dns.reverse(123) is ERR_INVALID_ARG_TYPE naming the name argument — a number is not a bad address, it is not a name", () => expect(reverseNumericCode).toBe("ERR_INVALID_ARG_TYPE"));
 
     test("dns.resolveSoa exists and is not undefined", () => expect(resolveSoaOk).toBe(true));
 
-    test("dns.ADDRCONFIG === 1024 (RED: RTS defines it as 4)", () => expect(addrconfigOk).toBe(true));
-    test("dns.V4MAPPED === 2048 (RED: RTS defines it as 8)", () => expect(v4mappedOk).toBe(true));
-    test("dns.ALL === 256 (RED: RTS defines it as 16)", () => expect(allFlagOk).toBe(true));
+    test("dns.ADDRCONFIG === 1024 - the getaddrinfo bit, not an ordering this module picked", () => expect(addrconfigOk).toBe(true));
+    test("dns.V4MAPPED === 2048 - so that ADDRCONFIG | V4MAPPED is 3072 here as everywhere", () => expect(v4mappedOk).toBe(true));
+    test("dns.ALL === 256 - inert is not licence to be wrong: a program can store it, print it, round-trip it", () => expect(allFlagOk).toBe(true));
 
-    test("dns.resolve(hostname, callback) 2-arg form never fails with ERR_INVALID_ARG_VALUE (RED: RTS always does, no network needed to prove it)", () => {
+    test("dns.resolve(hostname, callback) 2-arg form never fails with ERR_INVALID_ARG_VALUE - it always did, because an omitted rrtype arrived as the string undefined", () => {
         expect(twoArgResolveWronglyFails).toBe(false);
     });
-    test("Resolver#resolve(hostname, callback) 2-arg form — same defect (RED)", () => expect(twoArgResolverInstanceWronglyFails).toBe(false));
+    test("Resolver#resolve(hostname, callback) 2-arg form — it held its own copy of the same line, and so its own copy of the defect", () => expect(twoArgResolverInstanceWronglyFails).toBe(false));
     test("dns.resolve(hostname, 'A', callback) — explicit rrtype DOES work (isolates the defect to defaulting)", () => expect(explicitAWorks).toBe(true));
 
-    test("dns.resolve(host, 'BOGUS', cb) throws synchronously TypeError [ERR_INVALID_ARG_VALUE] (RED: RTS answers via callback instead)", () => {
+    test("dns.resolve(host, 'BOGUS', cb) throws synchronously - an argument fault reported through a callback is indistinguishable from a failed lookup", () => {
         expect(bogusRrtypeThrew).toBe(true);
         expect(bogusRrtypeCallbackFired).toBe(false);
     });
 
-    test("dns.promises.resolve4 is a function (RED: deliberately withheld here — see comment, not a surprise)", () => {
+    test("dns.promises.resolve4 is a function (STILL RED: deliberately withheld — see the comment above and this crate's mod.rs)", () => {
         expect(promisesResolve4IsFunction).toBe(true);
     });
 
