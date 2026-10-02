@@ -169,3 +169,9 @@ RUNTIME-NOTICE.txt
 # A local work list, per developer.
 PLAN_RTS.MD
 .rts-local/
+
+# `bench/dotnet` is the C# side of the allocation and string comparisons. It
+# needs the .NET SDK, nothing in the workspace build depends on it, and its
+# build output is the SDK's rather than ours.
+bench/dotnet/bin/
+bench/dotnet/obj/
