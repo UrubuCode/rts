@@ -89,7 +89,7 @@ pub const TEMPLATE_JOINED: usize = 6;
 /// plus one per element to fill it. The same kind of agreement as
 /// [`ARGUMENT_SLOTS`]: `rts_core::entry::ARRAY_OF_SLOTS` restates it and the
 /// host asserts the two are equal.
-pub const ARRAY_OF_SLOTS: usize = 8;
+pub const ARRAY_OF_SLOTS: usize = 16;
 
 /// The `name` operand of a call whose callee has no spelling to report —
 /// `(a || b)()`, or a call the compiler itself wrote. `-1`, because the operand

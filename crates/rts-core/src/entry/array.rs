@@ -57,9 +57,19 @@ pub fn array_of(
     v5: u64,
     v6: u64,
     v7: u64,
+    v8: u64,
+    v9: u64,
+    v10: u64,
+    v11: u64,
+    v12: u64,
+    v13: u64,
+    v14: u64,
+    v15: u64,
 ) -> u64 {
     with_current(|context| {
-        let held = [v0, v1, v2, v3, v4, v5, v6, v7];
+        let held = [
+            v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15,
+        ];
         let wanted = count.clamp(0, ARRAY_OF_SLOTS as i64) as usize;
         let elements = super::array_spare::holding(context, &held[..wanted]);
         built_in(context, elements)
@@ -91,7 +101,7 @@ pub fn array_is_array(value: u64) -> bool {
 /// before the call itself. Eight covers every such call a program writes by hand
 /// in one. Restated by `rts_codegen::runtime::ARRAY_OF_SLOTS`, which the host
 /// asserts equal, the way `ARGUMENT_SLOTS` is.
-pub const ARRAY_OF_SLOTS: usize = 8;
+pub const ARRAY_OF_SLOTS: usize = 16;
 
 /// `new Array(n)` and the sized store an array literal starts from.
 ///

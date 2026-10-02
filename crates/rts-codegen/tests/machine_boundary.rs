@@ -869,8 +869,19 @@ fn a_call_with_more_arguments_than_slots_takes_the_vector_door() {
         );
         assert!(!declared.contains(&RuntimeOp::Call), "{source}: {declared:?}");
     }
-    // Past the builder's eight, the rest ARE appended: the vector door still takes them.
-    let source = "function f(g) { return g(1, 2, 3, 4, 5, 6, 7, 8, 9); }";
+    // Past what `ArrayOf` carries in one crossing, the rest ARE appended: the vector
+    // door still takes them.
+    //
+    // The count is DERIVED from the constant rather than written out, because the
+    // constant moves. It went from eight to sixteen on 2026-10-02, to take the cliff
+    // out of an array literal of nine or more elements — and a hardcoded nine stopped
+    // exercising this door the moment it did, which is how this test came to fail: it
+    // asserted an append that no longer happened, for a call that now fits.
+    let args: Vec<String> = (1..=rts_codegen::runtime::ARRAY_OF_SLOTS + 1)
+        .map(|n| n.to_string())
+        .collect();
+    let source = format!("function f(g) {{ return g({}); }}", args.join(", "));
+    let source = source.as_str();
     let (func, _, shared) = reach_named(source, "f");
     func.unwrap_or_else(|held| panic!("{source}: {held:?}"));
     let declared: Vec<_> = shared.calls.declared().map(|(op, _)| op).collect();
