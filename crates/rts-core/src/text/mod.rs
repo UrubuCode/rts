@@ -391,6 +391,23 @@ impl Str {
         }
     }
 
+    /// The text as UTF-8, borrowed when it already is and built when it is not.
+    ///
+    /// The form for a caller that wants [`Self::as_utf8`]'s borrow where it is
+    /// available and [`Self::to_rust`]'s copy where it is not, without writing
+    /// the fallback at every site. A Latin-1 run below 128 costs a validating
+    /// scan; a run with a byte above it, and every UTF-16 string, costs what it
+    /// always did.
+    ///
+    /// `None` only for a string that cannot be built at all, which is what
+    /// `to_rust` already answers `None` for.
+    pub fn utf8(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self.as_utf8() {
+            Some(borrowed) => Some(std::borrow::Cow::Borrowed(borrowed)),
+            None => self.to_rust().map(std::borrow::Cow::Owned),
+        }
+    }
+
     /// Whether this `Str` owns no heap memory, so copying its bytes copies the
     /// whole string and dropping it releases nothing.
     ///

@@ -88,7 +88,13 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
         return listed(parts, limit);
     }
     let collected = with_current(|context| {
-        let subject = text_of(context, this)?.to_rust()?;
+        // BORROWED where the bytes already are UTF-8, which is every ASCII
+        // subject, and the whole body below wants the context shared — so the
+        // borrow holds for as long as the pieces are being cut. `to_rust`
+        // copied the subject before any of the work, and this module's own
+        // header counts that copy as the thing it costs.
+        let text = text_of(context, this)?;
+        let subject = text.utf8()?;
         let sought = pattern_of(context, separator)?;
         let found = scan(context, &subject, &sought, true);
         let mut pieces = Vec::new();
