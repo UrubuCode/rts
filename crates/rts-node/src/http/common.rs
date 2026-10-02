@@ -128,13 +128,28 @@ pub(super) fn is_callable(value: u64) -> bool {
 /// A string option read off an options object, from a context already in
 /// hand — reading an argument object's fields inside `with_runtime`, where
 /// the ambient form would be a nested borrow and therefore an abort.
+///
+/// # Why `string_in` (the type TEST) and not `text_in` (`ToString`)
+///
+/// An option the caller left out — absent, or present with the value
+/// `undefined`, which a defaults object spreads in — reads as `undefined`,
+/// and CONVERTING that answers the literal text `"undefined"`. So
+/// `http.request({ host: "127.0.0.1" })` read `hostname` first, got
+/// `"undefined"` back from a property that is not there, and connected to a
+/// host by that name: `getaddrinfo` failed, nothing resolved, and the error
+/// blamed the network. `None` is what an absent option is, and the caller's
+/// own `or_else`/`unwrap_or_else` already says what it means.
+///
+/// `net::common::option_text` and `dgram::common::option_text` reached this
+/// same answer from the same failure (`bind({ port: 0 })` binding to a host
+/// called "undefined"); this is their form, not a fourth one.
 pub(super) fn option_text(context: &mut Context, options: u64, name: &str) -> Option<String> {
     let absent = entry::undefined_in(context);
     if options == absent {
         return None;
     }
     let value = entry::get_member(context, options, name);
-    entry::text_in(context, value)
+    entry::string_in(context, value)
 }
 
 pub(super) fn option_num(context: &mut Context, options: u64, name: &str) -> Option<f64> {
