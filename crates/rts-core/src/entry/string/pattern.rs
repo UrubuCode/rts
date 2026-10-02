@@ -191,7 +191,7 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
             Sought::Pattern(cell) => context.regexp_at(cell)?.is_global(),
             Sought::Text(_) => false,
         };
-        let found = scan(context, &subject, &sought, global);
+        let found = scan_for(context, &subject, &sought, global, wants_text(context, &sought));
         // Before the early return below, because a global pattern that matched
         // NOTHING still ends with `lastIndex` at zero — see
         // `super::super::regex::methods::reset_global`.
@@ -200,13 +200,16 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
         }
         let first = found.first()?;
         let at = units_before(&subject, first.from());
-        let parts: Vec<Option<String>> = if global {
+        // From the SPANS, and `first.groups.clone()` is what this replaced on
+        // the non-global side: a clone of strings `scan` had already copied out
+        // of this very subject, to be copied once more by `fill`. See `texts`.
+        let parts: Vec<Option<Str>> = if global {
             found
                 .iter()
-                .map(|one| Some(subject[one.from()..one.to()].to_string()))
+                .map(|one| Some(Str::from_str(&subject[one.from()..one.to()])))
                 .collect()
         } else {
-            first.groups.clone()
+            texts(&subject, &first.spans)
         };
         let named = match global {
             true => Vec::new(),
@@ -276,7 +279,7 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
     }
     let collected = with_current(|context| {
         let (subject, sought) = staged_as_regex(context, this, pattern, true)?;
-        let found = scan(context, &subject, &sought, true);
+        let found = scan_for(context, &subject, &sought, true, wants_text(context, &sought));
         let positions = positional_names(context, &sought);
         Some((found, subject, positions))
     });
@@ -293,7 +296,14 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
     for one in found {
         let array = {
             let at = units_before(&subject, one.from());
-            let array = super::super::array::array_new(one.groups.len() as i64);
+            // Sized from the SPANS and not from `groups`, which is the source
+            // that is always there: with `Text::Skipped` the groups come back
+            // empty by design, and sizing from them made a zero-length array
+            // that `fill` then wrote `spans.len()` entries into — "index out of
+            // bounds: the len is 0 but the index is 0", on the first `matchAll`
+            // that ran. `spans` is what `texts` produces, so it is also the
+            // count that matches what goes in.
+            let array = super::super::array::array_new(one.spans.len() as i64);
             with_current(|context| {
                 // `index` and `input`, which a single match carries and the
                 // global form of `match` drops — the whole reason a program
@@ -317,7 +327,7 @@ extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a
                         );
                     }
                 }
-                fill(context, array, one.groups);
+                fill(context, array, texts(&subject, &one.spans));
             });
             array
         };
@@ -351,6 +361,30 @@ fn iterator_over(matches: super::super::rooted::Rooted) -> u64 {
 ///
 /// `None` for a pattern without `d`, which is what makes `m.indices` stay
 /// `undefined` — and for a plain-text separator, which has no groups to name.
+/// Whether a scan has to build the matched TEXT, or only where it was.
+///
+/// The one thing left that needs it is `Found::names`, which pairs each named
+/// group with what it captured and is what `m.groups` is built from. Every
+/// other consumer now reads the spans and makes its own `Str` (see [`texts`]),
+/// so a pattern that names nothing needs none of it.
+///
+/// Asked rather than assumed, because assuming cost a regression: the first
+/// version of `texts` left this at `Text::Wanted` and so built the strings
+/// `scan` makes AND the ones `texts` makes — `match` went from 1390 to 1595 ns
+/// and `matchAll` from 5725 to 6030, measured per row against the same commit,
+/// which is how it was caught before it shipped.
+fn wants_text(context: &super::Context, sought: &Sought) -> Text {
+    let named = match sought {
+        Sought::Pattern(cell) => context.regexp_at(*cell).is_some_and(|rx| rx.has_names()),
+        // A plain string pattern has no groups at all, named or otherwise.
+        Sought::Text(_) => false,
+    };
+    match named {
+        true => Text::Wanted,
+        false => Text::Skipped,
+    }
+}
+
 fn positional_names(context: &super::Context, sought: &Sought) -> Option<Vec<Option<String>>> {
     match sought {
         Sought::Pattern(cell) => context
@@ -548,7 +582,28 @@ pub(super) fn scan_for(
 }
 
 /// Writes strings into an array that has already been made.
-pub(super) fn fill(context: &mut super::Context, array: u64, parts: Vec<Option<String>>) {
+/// The text each span names, as `Str` values ready to be interned.
+///
+/// # Why `Str` and not `String`
+///
+/// Because of where the two borrows fall. The subject is held by the borrow
+/// that scans; interning needs the one that can allocate; so something owned
+/// has to cross between them. A `Str` of up to `text::INLINE` bytes holds its
+/// bytes INLINE — `Str::from_str` on a short slice measures 0.00 ns and touches
+/// no heap — and [`fill`] then MOVES it into the cell. A `String` crossing the
+/// same gap is a heap allocation on the way out and a copy on the way in.
+///
+/// What this replaced, counted for one `split` piece: subject -> `String`
+/// (`scan` or the caller) -> `String` again (`first.groups.clone()`, on the
+/// `match` path) -> `Str` (`fill`) -> cell. The same bytes, up to four times.
+pub(super) fn texts(subject: &str, spans: &[Option<(usize, usize)>]) -> Vec<Option<Str>> {
+    spans
+        .iter()
+        .map(|span| span.map(|(from, to)| Str::from_str(&subject[from..to])))
+        .collect()
+}
+
+pub(super) fn fill(context: &mut super::Context, array: u64, parts: Vec<Option<Str>>) {
     let missing = super::nothing(context);
     // Written STRAIGHT INTO the array, one piece at a time: interning
     // ALLOCATES and an allocation collects, and a piece that has landed in the
@@ -558,7 +613,10 @@ pub(super) fn fill(context: &mut super::Context, array: u64, parts: Vec<Option<S
     if let Some(cell) = Value(array).as_slot() {
         for (at, part) in parts.into_iter().enumerate() {
             let value = match part {
-                Some(text) => context.intern_value(Str::from_str(&text)).bits(),
+                // MOVED, not copied: the `Str` was built where the subject was
+                // borrowed and its bytes are already in their final shape. It
+                // used to arrive as a `String` and be copied into a `Str` here.
+                Some(text) => context.intern_value(text).bits(),
                 None => missing,
             };
             if let Some(elements) = context.elements_at_mut(cell) {

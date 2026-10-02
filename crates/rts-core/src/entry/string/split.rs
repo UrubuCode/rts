@@ -40,7 +40,7 @@
 
 use super::super::native::Native;
 use super::super::with_current;
-use super::pattern::{pattern_of, scan};
+use super::pattern::{Text, pattern_of, scan_for};
 use super::{absent, arg_units, nothing, text_of};
 use crate::text::Str;
 use crate::value::Value;
@@ -96,8 +96,11 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
         let text = text_of(context, this)?;
         let subject = text.utf8()?;
         let sought = pattern_of(context, separator)?;
-        let found = scan(context, &subject, &sought, true);
-        let mut pieces = Vec::new();
+        // No group TEXT: every piece this builds is a slice of the subject, so
+        // the spans are what it needs and the strings `scan` builds by default
+        // would be copied and dropped. See `pattern::Text` and `pattern::texts`.
+        let found = scan_for(context, &subject, &sought, true, Text::Skipped);
+        let mut pieces: Vec<Option<crate::text::Str>> = Vec::new();
         let mut at = 0;
         for one in &found {
             // Um match VAZIO onde a peça anterior acabou, ou no fim do sujeito,
@@ -106,15 +109,15 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
             if one.from() == one.to() && (one.from() == at || one.from() == subject.len()) {
                 continue;
             }
-            pieces.push(Some(subject[at..one.from()].to_string()));
+            pieces.push(Some(crate::text::Str::from_str(&subject[at..one.from()])));
             // As capturas entram ENTRE as peças, que é o que faz
             // `"a1b22c".split(/(\d+)/)` responder `["a","1","b","22","c"]`. Eram
             // deitadas fora, e com elas metade do que o `split` com grupos serve
             // para fazer.
-            pieces.extend(one.groups.iter().skip(1).cloned());
+            pieces.extend(super::pattern::texts(&subject, &one.spans).into_iter().skip(1));
             at = one.to();
         }
-        pieces.push(Some(subject[at..].to_string()));
+        pieces.push(Some(crate::text::Str::from_str(&subject[at..])));
         Some(pieces)
     });
 
