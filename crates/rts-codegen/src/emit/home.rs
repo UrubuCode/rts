@@ -103,6 +103,7 @@ pub(super) fn environment_holding(
         held.clone(),
         &held,
         &reachable,
+        &scope.aliases(),
     ))
 }
 

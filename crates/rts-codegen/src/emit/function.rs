@@ -865,6 +865,14 @@ pub(super) fn emit_body(
     // questions have one answer: "this body's bindings must be addressable from
     // code that does not know their names at compile time".
     let eval_name = ctx.names.intern("eval");
+    // AND THE SAME ANSWER FOR A LIVE IMPORT, asked here because this is where the
+    // question already is: an eval'd fragment resolves its free names through the
+    // live environment chain, which carries a namespace object and not the alias
+    // that says which property of it the name means. `Ctx::live_imports` has the
+    // wrong answer that would otherwise be given.
+    if module.is_some() && capture::mentions(body, eval_name) {
+        ctx.live_imports = false;
+    }
     if capture::mentions(body, eval_name) || capture::has_with(body) {
         captured.extend(candidates.iter().copied());
         for statement in body {
@@ -1127,7 +1135,18 @@ fn emit_body_into(
         false => incoming[THIS_PARAM],
     };
 
-    let mut scope = Scope::for_function(Some(environment), captured, &own_level, &reachable);
+    let mut scope = Scope::for_function(
+        Some(environment),
+        captured,
+        &own_level,
+        &reachable,
+        &enclosing.aliases(),
+    );
+    // A MODULE'S OWN BODY, which is the only place an `export` can have declared a
+    // name — see `Scope::in_module_top`.
+    if module.is_some() {
+        scope.mark_module_body();
+    }
     scope.set_this(receiver, captures_this);
     if let Some(name) = late_this {
         // DECLARED only where this function owns the name. A derived constructor
@@ -1183,6 +1202,20 @@ fn emit_body_into(
         binding::declare(&mut builder, &mut scope, ctx, *name, value)?;
     }
 
+    // EVERY NAME THIS MODULE PUBLISHES FROM A BINDING OF ITS OWN, marked before
+    // anything of the body is emitted — the hoists included.
+    //
+    // Not at the declaration, which is where it was first written and where it
+    // does not work: a function declaration is emitted BEFORE the `let` it
+    // assigns is declared, so `export let n = 1; export function bump() { n = 2 }`
+    // emitted `bump` while the module scope knew nothing about `n` and the write
+    // reached a local no importer can see. `declare` re-marks it, because a
+    // declaration suspends an alias of its own spelling.
+    if module.is_some() {
+        for name in ctx.exported_locals.keys().copied().collect::<Vec<_>>() {
+            scope.set_alias(name, super::scope::Alias::Export);
+        }
+    }
     // Before the first statement, and after the parameters: an import is a
     // declaration in this scope, so it is bound where a declaration would be.
     for import in imports {

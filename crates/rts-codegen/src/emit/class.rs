@@ -885,6 +885,7 @@ fn class_scope(
             // Nothing captured, so nothing to bind at zero hops.
             &BTreeSet::new(),
             &scope.reachable(),
+            &scope.aliases(),
         ));
     }
 

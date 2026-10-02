@@ -180,7 +180,7 @@ pub fn emit_page_program(
     chain.push((page_window_name(ctx), 0));
 
     ctx.hide_node_globals = hide_node_globals;
-    let scope = Scope::for_function(None, BTreeSet::new(), &BTreeSet::new(), &chain);
+    let scope = Scope::for_function(None, BTreeSet::new(), &BTreeSet::new(), &chain, &[]);
     let program = emit_program_into(&body, &[], None, &[], &scope, ctx)?;
     Ok((program, published))
 }

@@ -123,6 +123,29 @@ fn attempt(
     if mentions_eval {
         return Err("a body that mentions `eval`, which reaches its bindings by name".to_owned());
     }
+    // A LIVE IMPORT, for the same shape of reason one paragraph up. The running
+    // emitter binds an imported name to the exporting module's NAMESPACE and makes every
+    // read a property of it -- `Scope::alias_of` -- and this stage lays an enclosing name
+    // out as an environment slot read by key, which would answer the namespace object
+    // where the program wrote the imported name. A silent wrong answer, so it is declined
+    // by name: the refusal RULE 0a asks for, to be removed when `lower/` carries the
+    // alias rather than when `emit/` stops having it.
+    let aliases = enclosing.aliases();
+    if !aliases.is_empty() {
+        let written = match &function.body {
+            crate::syntax::FunctionBody::Block(statements) => statements.clone(),
+            crate::syntax::FunctionBody::Expression(value) => vec![crate::syntax::Stmt {
+                kind: crate::syntax::StmtKind::Expr(value.as_ref().clone()),
+                at: value.at,
+            }],
+        };
+        if aliases
+            .iter()
+            .any(|(name, _)| super::capture::mentions(&written, *name))
+        {
+            return Err("a body that reads a live import or an exported binding".to_owned());
+        }
+    }
     let resolution = ctx
         .mir_resolution
         .clone()
@@ -555,7 +578,13 @@ fn inner_scope(
     for (hops, layer) in layers.iter().enumerate().skip(1).rev() {
         reachable.extend(layer.iter().map(|name| (*name, hops as u32)));
     }
-    Some(Scope::for_function(None, innermost.clone(), &innermost, &reachable))
+    Some(Scope::for_function(
+        None,
+        innermost.clone(),
+        &innermost,
+        &reachable,
+        &enclosing.aliases(),
+    ))
 }
 
 /// The functions a call by name in `function` may be replaced by: what

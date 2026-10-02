@@ -447,13 +447,24 @@ pub fn declare_module_lazy(context: &mut Context, specifiers: &[&str], build: Bu
 
 /// One name imported from one module.
 ///
-/// # Why this is a read rather than a binding
+/// # This is a read, and a NAMED import no longer uses it
 ///
-/// A live binding — where the exporting module reassigning `x` is seen by the
-/// importer — needs the two sides to share a cell, and nothing here has two
-/// sides: a host module is finished before the program starts. So an import
-/// reads the namespace once, at the point the program reaches it, and that is
-/// the divergence to state rather than the mechanism to fake.
+/// This said a live binding "needs the two sides to share a cell, and nothing
+/// here has two sides … the divergence to state rather than the mechanism to
+/// fake". The two sides DO share a cell — the namespace object, which
+/// [`module_publish`] writes and this reads — so what was missing was not a
+/// mechanism but the MOMENT: `emit/module.rs` now binds the namespace and reads
+/// the property where the program uses the name, and its header has the
+/// measurement against Node 22 and the alternatives rejected.
+///
+/// It was also wrong about the stakes. `@whiskeysockets/baileys` could not build
+/// a socket: its `Utils/crypto` sits in an import cycle and read
+/// `KEY_BUNDLE_TYPE` from a `Defaults` that had published nothing — `undefined`
+/// then and for the rest of the program.
+///
+/// What this is still for: `import d from "m"`, whose host-module fallback two
+/// sections down a property read of `default` cannot have, and a named import in
+/// a module that mentions `eval` (`Ctx::live_imports`).
 ///
 /// # An unresolved specifier THROWS, and what it did before
 ///
@@ -1408,12 +1419,20 @@ pub fn is_callable_in(context: &Context, value: u64) -> bool {
 /// `"./a.ts"`, and `import { x } from "./a.ts"` reads it back through
 /// [`module_binding`] with nothing new in the path.
 ///
-/// # What is NOT live about it
+/// # What IS live about it, and what is not
 ///
-/// A later assignment to the local `x` does not change what the importer sees.
-/// A live binding needs the two sides to share a cell, which is the same
-/// divergence [`module_binding`] already states — this makes the export as live
-/// as the import was, and no more.
+/// This said "a later assignment to the local `x` does not change what the
+/// importer sees … as live as the import was, and no more", and it is the
+/// correction of that: `emit/binding.rs` emits this write again on every
+/// assignment to a name the module exports, so `export let n = 1; export
+/// function bump() { n = 2 }` puts 2 here when `bump` runs, however long after
+/// the body ended. It is one change with [`module_binding`]'s rewritten note —
+/// a live read over a value nothing updates is still the old wrong answer.
+///
+/// A RE-EXPORT is still a snapshot: `export { x } from "m"` binds no name here,
+/// so there is no assignment to catch, and making it live needs an accessor on
+/// this namespace. `tests/claude-esm-live-binding.test.ts` pins that shortfall
+/// with Node's answer beside it rather than leaving it to be found.
 ///
 /// Answers the value it was given, so a caller can publish and bind in one
 /// expression rather than emitting a temporary.
