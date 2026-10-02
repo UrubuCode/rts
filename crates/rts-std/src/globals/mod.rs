@@ -34,6 +34,7 @@ pub mod storage;
 pub mod streams;
 pub mod text;
 pub mod timing;
+pub mod wasm;
 
 use rts_core::entry::Context;
 
@@ -58,4 +59,5 @@ pub fn install(context: &mut Context) {
     // line. Written in this order anyway, so the dependency is visible here
     // rather than only in the one comment that explains it.
     streams::install(context);
+    wasm::install(context);
 }

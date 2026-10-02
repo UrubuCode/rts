@@ -185,7 +185,7 @@ pub use modules::{
     text_of, undefined_in, undefined_value, usv_string_in, usv_text_in, usv_text_of, utf8_bytes_if_string, with_runtime,
 };
 pub use function_proto::{is_user_function, running_function};
-pub use host_class::{declare_host_class, describe_callable};
+pub use host_class::{declare_host_class, describe_callable, error_prototype};
 pub use pattern::array_pattern_direct;
 pub use text_walk::text_walk;
 pub use objects::{
