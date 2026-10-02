@@ -223,7 +223,13 @@ extern "C" fn resolve(_e: u64, this: u64, hostname: u64, arg1: u64, arg2: u64, _
         true => (absent, arg1),
         false => (arg1, arg2),
     };
-    let kind = entry::text_of(rrtype).unwrap_or_else(|| "A".to_owned());
+    // The same reading as the module function, through the same helper: this
+    // held its own copy of `text_of(...).unwrap_or_else(|| "A")` and therefore
+    // its own copy of the defect — `Resolver#resolve(host, cb)` failed with
+    // `ERR_INVALID_ARG_VALUE` exactly as `dns.resolve(host, cb)` did.
+    let Some(kind) = super::resolve::rrtype_or_refuse(rrtype) else {
+        return absent;
+    };
     callback_result(hostname, callback, super::resolve::syscall_for(&kind), |host| super::resolve::dispatch(&resolver_for(this)?, host, &kind))
 }
 
@@ -231,12 +237,33 @@ extern "C" fn resolve(_e: u64, this: u64, hostname: u64, arg1: u64, arg2: u64, _
 /// `ip`, the same contract [`super::rr_alias::reverse`] documents.
 extern "C" fn reverse(_e: u64, this: u64, ip: u64, callback: u64, _a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
-    let Some(text) = entry::text_of(ip) else {
-        crate::errors::invalid_ip_address("");
+    // Two different refusals, where this raised one for both.
+    //
+    // A non-STRING is `ERR_INVALID_ARG_TYPE` naming `"name"` — `dns.reverse(123)`
+    // in Node is *The "name" argument must be of type string* — and this
+    // answered `ERR_INVALID_IP_ADDRESS` with an empty address, which describes
+    // neither the argument nor what was wrong with it.
+    //
+    // A string that is not an ADDRESS is `EINVAL` from the lookup, not an
+    // argument fault: Node answers `Error: getHostByAddr EINVAL <input>`, with
+    // the syscall named, because the value had the right type and the resolver
+    // is what rejected it. `ERR_INVALID_IP_ADDRESS` is what `setServers` raises,
+    // where the address really is an argument being validated.
+    // `string_in` and NOT `text_of`: the latter COERCES, so `dns.reverse(123)`
+    // arrived here as the string "123" and was refused for not being an address
+    // when the fault is that a number is not a name. Node says
+    // *The "name" argument must be of type string*, and telling the two apart
+    // needs the question "is this a string", which is the one `string_in` asks.
+    let Some(text) = entry::with_runtime(|context| entry::string_in(context, ip)) else {
+        crate::errors::invalid_arg_type("name", "string", ip);
         return absent;
     };
+    // A string that is not an address is the LOOKUP's refusal, not an
+    // argument's: `Error: getHostByAddr EINVAL <input>`, with `code` and
+    // `syscall` both readable. `ERR_INVALID_IP_ADDRESS` is what `setServers`
+    // raises, where the address really is an argument being validated.
     let Ok(address) = text.parse::<IpAddr>() else {
-        crate::errors::invalid_ip_address(&text);
+        crate::errors::syscall_error("getHostByAddr", "EINVAL", &text);
         return absent;
     };
     if callback == absent {
@@ -273,9 +300,16 @@ extern "C" fn get_servers(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3:
 /// `state.rs` was first written.
 extern "C" fn set_servers(_e: u64, this: u64, servers: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let absent = entry::undefined_value();
-    let Some(entries) = super::state::array_texts(servers) else {
-        crate::errors::invalid_arg_type("servers", "Array", servers);
-        return absent;
+    // Through the shared report, which is what makes `[123]` an
+    // `ERR_INVALID_ARG_TYPE` about `servers[0]` and a string an
+    // `ERR_INVALID_ARG_INSTANCE` about `servers` — this raised the second for
+    // both, so a number in the list was reported as the list not being one.
+    let entries = match super::state::array_texts(servers) {
+        Ok(entries) => entries,
+        Err(fault) => {
+            super::state::refuse_servers(fault);
+            return absent;
+        }
     };
     for item in &entries {
         if parse_server_addr(item).is_none() {

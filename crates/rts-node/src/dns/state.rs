@@ -59,11 +59,21 @@ pub(super) extern "C" fn get_servers(_e: u64, _this: u64, _a0: u64, _a1: u64, _a
 /// unchanged instead of partially replaced, and the call answers
 /// `undefined` either way, matching Node's `void` return.
 pub(super) extern "C" fn set_servers(_e: u64, _this: u64, servers: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(entries) = array_texts(servers) else {
-        return entry::undefined_value();
+    // RAISES, where this used to answer `undefined` for every bad argument —
+    // `dns.setServers(['not-an-ip'])` was a silent no-op, so a program that
+    // misconfigured its resolver carried on querying the old servers and had no
+    // way to find out. `Resolver#setServers` already raised; the module
+    // function, which is the spelling programs actually use, did not.
+    let entries = match array_texts(servers) {
+        Ok(entries) => entries,
+        Err(fault) => {
+            refuse_servers(fault);
+            return entry::undefined_value();
+        }
     };
     for item in &entries {
         if parse_server_addr(item).is_none() {
+            crate::errors::invalid_ip_address(item);
             return entry::undefined_value();
         }
     }
@@ -71,22 +81,67 @@ pub(super) extern "C" fn set_servers(_e: u64, _this: u64, servers: u64, _a1: u64
     entry::undefined_value()
 }
 
-/// The strings an array-shaped argument holds, `None` if it is not one.
+/// What is wrong with a `servers` argument, when something is.
+///
+/// Two failures and not one, because Node reports them differently and this
+/// collapsed both into `None`: `setServers("1.1.1.1")` is
+/// `ERR_INVALID_ARG_TYPE` naming `"servers"` as needing an Array, and
+/// `setServers([123])` is `ERR_INVALID_ARG_TYPE` naming **`"servers[0]"`** as
+/// needing a string. One `None` cannot carry the index, so the caller had to
+/// guess — and `resolver_class`'s copy guessed "Array" for both while the
+/// module's copy raised nothing at all.
+pub(super) enum NotServers {
+    /// Not an array. Node names the argument and the class it wanted.
+    NotAnArray,
+    /// Item `at` is not a string. Node names `servers[at]`, and the VALUE is
+    /// carried because the message quotes it (`Received type number (123)`).
+    ItemNotText(usize, u64),
+}
+
+/// The strings an array-shaped argument holds, or which rule it broke.
 /// `pub(super)`: `resolver_class.rs`'s `Resolver#setServers` reads the same
-/// argument shape.
-pub(super) fn array_texts(value: u64) -> Option<Vec<String>> {
+/// argument shape, and now reports it the same way.
+pub(super) fn array_texts(value: u64) -> Result<Vec<String>, NotServers> {
     if !entry::is_array(value) {
-        return None;
+        return Err(NotServers::NotAnArray);
     }
     let length = entry::with_runtime(|context| entry::get_member(context, value, "length"));
-    let count = entry::number_of(length)? as usize;
+    // A `length` that is not a number is not an array by any reading, so this
+    // is the same refusal rather than a third one.
+    let Some(count) = entry::number_of(length) else {
+        return Err(NotServers::NotAnArray);
+    };
+    let count = count as usize;
     let mut out = Vec::with_capacity(count);
     for index in 0..count {
         let key = entry::make_number(index as f64);
         let item = entry::get_indexed(value, key);
-        out.push(entry::text_of(item)?);
+        // `string_in`, not `text_of`: `text_of` coerces, so `setServers([123])`
+        // became `["123"]` and was then refused for not being an IP address —
+        // Node refuses it for not being a string, naming `servers[0]`. The
+        // difference is invisible in the answer and visible in the code.
+        match entry::with_runtime(|context| entry::string_in(context, item)) {
+            Some(text) => out.push(text),
+            None => return Err(NotServers::ItemNotText(index, item)),
+        }
     }
-    Some(out)
+    Ok(out)
+}
+
+/// Raises the refusal a bad `servers` argument owes, in Node's own wording.
+///
+/// Here rather than at each call site: two sites read this argument and the
+/// whole reason the enum above exists is that they were reporting it
+/// differently. One function means they cannot drift again.
+pub(super) fn refuse_servers(fault: NotServers) {
+    match fault {
+        NotServers::NotAnArray => {
+            crate::errors::invalid_arg_instance("servers", "Array", entry::undefined_value())
+        }
+        NotServers::ItemNotText(at, held) => {
+            crate::errors::invalid_arg_type(&format!("servers[{at}]"), "string", held)
+        }
+    }
 }
 
 /// `dns.setDefaultResultOrder(order)`. An unrecognized order leaves the

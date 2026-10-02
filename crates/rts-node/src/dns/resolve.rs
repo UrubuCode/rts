@@ -116,12 +116,64 @@ pub(super) extern "C" fn resolve(_e: u64, _this: u64, hostname: u64, arg1: u64, 
         true => (absent, arg1),
         false => (arg1, arg2),
     };
-    let kind = entry::text_of(rrtype).unwrap_or_else(|| "A".to_owned());
+    let Some(kind) = rrtype_or_refuse(rrtype) else {
+        return absent;
+    };
     super::common::callback_result(hostname, callback, syscall_for(&kind), |host| {
         let resolver = resolver().map_err(|err| node_code(&err))?;
         dispatch(resolver, host, &kind)
     })
 }
+
+/// The `rrtype` a call asked for, defaulting to `"A"` — or `None`, with the
+/// refusal already raised.
+///
+/// # Two defects in one line, and the same cause
+///
+/// The line was
+/// `entry::text_of(rrtype).unwrap_or_else(|| "A".to_owned())`, and `text_of`
+/// COERCES. So an omitted `rrtype` — `dns.resolve(host, cb)`, arguably the
+/// commonest spelling of this function — arrived as the string `"undefined"`,
+/// fell through `dispatch`'s `_` arm, and answered `ERR_INVALID_ARG_VALUE`
+/// through the callback EVERY time, with no network needed to fail. The
+/// `unwrap_or_else` was written to catch exactly that case and never ran,
+/// because `text_of` had already answered `Some`.
+///
+/// `string_in` asks the question the code meant: is this a string. Absent is
+/// then genuinely `None` and the default applies.
+///
+/// And an unknown one is refused SYNCHRONOUSLY, which is Node's contract —
+/// `TypeError [ERR_INVALID_ARG_VALUE]: The argument 'rrtype' is invalid.
+/// Received 'BOGUS'`. This module's own doc said that was impossible here
+/// ("this crate cannot raise THAT specific catchable error ... so the callback
+/// path is the honest approximation"), and that limit is gone: a native raises
+/// a catchable error now. An argument fault reported through a callback is
+/// indistinguishable, to the program, from a lookup that failed.
+pub(super) fn rrtype_or_refuse(rrtype: u64) -> Option<String> {
+    let absent = entry::undefined_value();
+    if rrtype == absent {
+        return Some("A".to_owned());
+    }
+    let Some(kind) = entry::with_runtime(|context| entry::string_in(context, rrtype)) else {
+        crate::errors::invalid_arg_value("rrtype", rrtype, "is invalid");
+        return None;
+    };
+    if !KNOWN_RRTYPES.contains(&kind.as_str()) {
+        crate::errors::invalid_arg_value("rrtype", rrtype, "is invalid");
+        return None;
+    }
+    Some(kind)
+}
+
+/// The record types [`dispatch`] answers — the same twelve strings
+/// `docs/reference/node/dns.md` §2 documents, `"A"` included.
+///
+/// A list beside the `match` rather than inside it, because the question
+/// "is this a known type" is asked BEFORE the resolver exists and the `match`
+/// needs one. `dispatch`'s `_` arm stays as the unreachable it now is.
+pub(super) const KNOWN_RRTYPES: &[&str] = &[
+    "A", "AAAA", "ANY", "CAA", "CNAME", "MX", "NAPTR", "NS", "PTR", "SOA", "SRV", "TLSA", "TXT",
+];
 
 /// The `syscall` field Node's own dispatcher would report for `rrtype` — the
 /// same `query<Type>` spelling each dedicated native already uses. `pub(super)`
