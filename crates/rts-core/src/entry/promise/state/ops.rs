@@ -178,7 +178,7 @@ pub(in crate::entry::promise) fn type_error(context: &mut Context, message: &str
     // CONSTRUCTION rather than at registration (see `error`'s own note on why),
     // so a program that never wrote `new Error` has none for the deferred
     // frames to be read through.
-    crate::entry::error::install_stack_accessor(context);
+    crate::entry::error_stack::install_stack_accessor(context);
     context.defer_stack(cell, "TypeError");
     Value::from_slot(cell).bits()
 }

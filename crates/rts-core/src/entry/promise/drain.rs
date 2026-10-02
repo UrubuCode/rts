@@ -316,6 +316,6 @@ fn describe(context: &mut Context, reason: u64) -> String {
     }
     value
         .as_slot()
-        .and_then(|cell| crate::entry::error::joined(context, cell))
+        .and_then(|cell| crate::entry::error_describe::joined(context, cell))
         .unwrap_or_else(|| "an object".to_owned())
 }

@@ -47,9 +47,10 @@
 //! reports the error's own text rather than "an object", which is the visible
 //! half of the improvement, and a `try` around a call is still refused by name.
 
+use super::error_describe::described;
+use super::error_stack::install_stack_accessor;
 use super::objects::undefined_of;
 use super::{Context, with_current};
-use crate::text::Str;
 use crate::value::Value;
 
 /// `Error`.
@@ -84,6 +85,25 @@ impl Error {
     /// `err.toString()` — `"Error: boom"`, or just the name without a message.
     fn to_string(this: u64) -> u64 {
         described(this)
+    }
+
+    /// How many frames a capture keeps. V8's, not the specification's.
+    ///
+    /// `#[settable]` because a program WRITES this — `Error.stackTraceLimit = 0`
+    /// is how a library turns traces off, and the pinned attributes every other
+    /// numeric constant gets would have made that a silent no-op. 10 is Node's
+    /// default and the number its own descriptor reports.
+    #[stat]
+    #[settable]
+    const stackTraceLimit: f64 = 10.0;
+
+    /// `Error.captureStackTrace(target, hideFrom)` — V8's, which Node exposes.
+    ///
+    /// The body is [`super::error_stack`]'s: this file declares the eight error
+    /// classes and the one thing it must not also be is 620 lines long.
+    #[stat]
+    fn capture_stack_trace(target: u64, hide_from: u64) -> u64 {
+        super::error_stack::capture(target, hide_from)
     }
 }
 
@@ -423,116 +443,6 @@ fn receiver(context: &mut Context, this: u64, class: &'static str) -> Option<u32
     Some(cell)
 }
 
-/// `Error.prototype.toString` — `name` and `message` joined the way the
-/// specification joins them.
-///
-/// # Why this does not go through [`joined`]
-///
-/// Because the two answer different questions and only one of them may run user
-/// code. `joined` is what an UNCAUGHT throw prints, and a program that has
-/// already failed must not be asked to run a getter to describe its own failure;
-/// this is `Error.prototype.toString`, which the specification writes in terms
-/// of `Get` and `ToString` — so `err.name = 7` prints `7`, an object with a
-/// `toString` prints what it answers, and a `name` accessor runs.
-///
-/// It went through `joined` and inherited three wrong answers from doing so, all
-/// three of them the same mistake — reading a property's ABSENCE and its
-/// `undefined` as the same thing. `{ name: undefined }` printed `"undefined: m"`
-/// where the language substitutes `"Error"`, `{ message: undefined }` printed a
-/// trailing `": undefined"` where it substitutes the empty string, and a `name`
-/// of `""` printed a leading `": "` where the language answers the message
-/// alone.
-fn described(this: u64) -> u64 {
-    // `Error.prototype.toString.call(1)` is a `TypeError`, not a description of
-    // the number. `as_slot` is the wrong test for it — a string primitive has a
-    // cell — so this asks the same "is it an object" every other coercion here
-    // asks.
-    if !with_current(|context| super::objects::is_object(context, this)) {
-        super::throw::type_error("Error.prototype.toString called on non-object");
-        return with_current(|context| undefined_of(context));
-    }
-    let Some(name) = field_text(this, "name", "Error") else {
-        return with_current(|context| undefined_of(context));
-    };
-    let Some(message) = field_text(this, "message", "") else {
-        return with_current(|context| undefined_of(context));
-    };
-    let joined = match (name.is_empty(), message.is_empty()) {
-        (true, _) => message,
-        (false, true) => name,
-        (false, false) => format!("{name}: {message}"),
-    };
-    with_current(|context| context.intern_value(Str::from_str(&joined)).bits())
-}
-
-/// One of `toString`'s two fields: `Get` then `ToString`, with a default for
-/// `undefined`.
-///
-/// The default is what the specification substitutes and it is substituted for
-/// `undefined` ALONE — a missing property reads `undefined` through the chain
-/// and lands here the same way, which is why one test covers both. Every other
-/// value converts, `null` and `0` included: `{ name: null }` describes itself as
-/// `"null"` in every runtime.
-///
-/// `None` is a throw in flight — the getter's or the conversion's — which the
-/// caller propagates under rule 8.
-fn field_text(this: u64, field: &str, default: &str) -> Option<String> {
-    let key = with_current(|context| context.well_known_text(field));
-    let found = super::computed::get_indexed(this, key);
-    if super::throw::in_flight() {
-        return None;
-    }
-    if found == with_current(|context| undefined_of(context)) {
-        return Some(default.to_owned());
-    }
-    let text = super::text::to_string_value(found)?;
-    with_current(|context| {
-        super::text::to_text(context, Value(text))
-            .and_then(|held| held.to_rust())
-            .or(Some(String::new()))
-    })
-}
-
-/// `name: message`, from properties alone.
-///
-/// `None` for a cell carrying neither, which is what makes this usable from
-/// [`super::throw`]: an uncaught value that is not an error must not be
-/// described as `"Error"`.
-///
-/// Nothing here runs user code. Both fields are read through
-/// [`super::objects::read_property`], which answers data properties and walks
-/// the chain — a getter is the accessor path and is deliberately not this one,
-/// because the caller may be a program that has already failed.
-pub(super) fn joined(context: &mut Context, cell: u32) -> Option<String> {
-    let read = |context: &mut Context, field: &str| {
-        let key = context.well_known(field);
-        let found = super::objects::read_property(context, cell, key)?;
-        // `undefined` is ABSENT here, not the word. A property that is not there
-        // and one holding `undefined` are the same thing to `Error.prototype.
-        // toString`, which substitutes its default for both — and reading the
-        // word is what printed `undefined: boom` for `err.name = undefined`.
-        if found.bits() == undefined_of(context) {
-            return None;
-        }
-        super::text::to_text(context, found)?.to_rust()
-    };
-    let name = read(context, "name");
-    let message = read(context, "message");
-    if name.is_none() && message.is_none() {
-        return None;
-    }
-    let name = name.unwrap_or_else(|| "Error".to_owned());
-    let message = message.unwrap_or_default();
-    // An EMPTY name answers the message alone, which is the third arm the
-    // language spells out and the one a `{ name: "" }` reaches: the join is
-    // `name: message` only when there are two halves to join.
-    Some(match (name.is_empty(), message.is_empty()) {
-        (true, _) => message,
-        (false, true) => name,
-        (false, false) => format!("{name}: {message}"),
-    })
-}
-
 /// Every name this module provides, and the registration behind each.
 ///
 /// A list here rather than a `match` in [`super::global`] because the arm there
@@ -550,71 +460,5 @@ pub(super) fn provided(name: &str) -> Option<fn(&mut Context) -> u64> {
         "URIError" => register_uri_error,
         "AggregateError" => register_aggregate_error,
         _ => return None,
-    })
-}
-
-/// Puts the `stack` accessor on `Error.prototype`, once per context.
-///
-/// ON THE PROTOTYPE, not on each instance. Per instance was refused by reading
-/// `integrity::retype`, which `define_accessor_and_invalidate` calls: it
-/// declares a FRESH TYPE for the cell. Doing that per construction would mint a
-/// type per Error and invalidate every inline cache that has ever seen one —
-/// more expensive than the thing it replaces, and paid by unrelated code. The
-/// six subclasses inherit it, because their prototypes chain to this one.
-///
-/// AT CONSTRUCTION, not at registration, and that is not tidiness.
-/// `register_type_error` and its five siblings reach `register_error` directly
-/// through the macro's `extends`, so an internal `TypeError` — one this engine
-/// throws itself — builds `Error.prototype` without passing through this
-/// module's `provided`. Installing there worked under `rts run` and left the
-/// 332 tests that share one process reading `undefined` from every `.stack`.
-pub(in crate::entry) fn install_stack_accessor(context: &mut Context) {
-    if context.stack_accessor {
-        return;
-    }
-    if let Some(prototype) = super::class_support::prototype(context, "Error") {
-        context.stack_accessor = true;
-        super::accessor::define_accessor_in(context, prototype, "stack", stack_get, Some(stack_set));
-    }
-}
-
-/// `err.stack` — rendered here, on the first read, and never again.
-///
-/// The first read installs an OWN data property and drops the captured frames,
-/// so a second read is an ordinary cached property read rather than a second
-/// call through here. That also means a program that reads `.stack` twice pays
-/// what it used to pay once, and one that never reads it pays nothing.
-extern "C" fn stack_get(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        let Some(cell) = Value(this).as_slot() else {
-            return undefined_of(context);
-        };
-        // Already rendered, or written by the setter: the own property answers
-        // and this accessor is only reached because the own one is absent.
-        let Some((class, frames)) = context.take_stack(cell) else {
-            return undefined_of(context);
-        };
-        let described = joined(context, cell).unwrap_or_else(|| class.to_owned());
-        let stack = format!("{described}{}", super::throw::stack_text_of(context, &frames));
-        let value = context.intern_value(Str::from_str(&stack)).bits();
-        let key = context.well_known("stack");
-        super::objects::put(context, cell, key, value);
-        super::native::hidden(context, cell, key);
-        value
-    })
-}
-
-/// `err.stack = v` — an own data property, which is what a write to it makes in
-/// every engine, and what drops the captured frames.
-extern "C" fn stack_set(_e: u64, this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        let Some(cell) = Value(this).as_slot() else {
-            return undefined_of(context);
-        };
-        context.take_stack(cell);
-        let key = context.well_known("stack");
-        super::objects::put(context, cell, key, value);
-        super::native::hidden(context, cell, key);
-        undefined_of(context)
     })
 }

@@ -110,6 +110,13 @@ pub(in crate::entry) enum Constant {
     Number(f64),
     /// `Error.prototype.name`.
     Text(&'static str),
+    /// `Error.stackTraceLimit` — a number the LANGUAGE expects a program to
+    /// write back. Its own spelling rather than a flag beside `Number`, so
+    /// [`attributed`]'s `match` has to classify it: the pinned attributes are
+    /// correct for every constant the specification pins and wrong for every one
+    /// it publishes as a setting, and a silent no-op on assignment is the shape
+    /// of failure that reads as a working feature.
+    Settable(f64),
 }
 
 /// Hangs constants on an object, by name.
@@ -121,7 +128,9 @@ pub(in crate::entry) enum Constant {
 pub(in crate::entry) fn constants(context: &mut Context, cell: u32, constants: &[(&str, Constant)]) {
     for (name, held) in constants {
         let value = match held {
-            Constant::Number(number) => Value::from_f64(*number).bits(),
+            Constant::Number(number) | Constant::Settable(number) => {
+                Value::from_f64(*number).bits()
+            }
             Constant::Text(text) => context
                 .intern_value(crate::text::Str::from_str(text))
                 .bits(),
@@ -154,12 +163,30 @@ fn attributed(context: &mut Context, cell: u32, key: crate::object::Key, held: &
     let crate::object::Key::Name(named) = key else {
         return;
     };
-    let writable = matches!(held, Constant::Text(_));
-    super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
-        writable,
-        enumerable: false,
-        configurable: writable,
-    });
+    // A total `match` rather than a `matches!`, so a new spelling cannot inherit
+    // another one's attributes by saying nothing — the compiler refuses the
+    // crate until it is classified. `Settable` is the one that is ENUMERABLE:
+    // `Object.keys(Error)` answers `["stackTraceLimit"]` in Node, which is the
+    // half a program notices and the half the other two spellings get wrong on
+    // purpose.
+    let attributes = match held {
+        Constant::Number(_) => super::integrity::Attributes {
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        },
+        Constant::Text(_) => super::integrity::Attributes {
+            writable: true,
+            enumerable: false,
+            configurable: true,
+        },
+        Constant::Settable(_) => super::integrity::Attributes {
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        },
+    };
+    super::integrity::set_attributes(context, cell, named, attributes);
 }
 
 /// `ToNumber` of an argument.

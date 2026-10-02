@@ -332,7 +332,7 @@ fn iterator_method(value: u64) -> u64 {
 /// One property of a value, by a name the runtime knows.
 ///
 /// A data read: a getter is not run, which is the same boundary
-/// [`super::error::joined`] draws and for a smaller reason — an accessor on
+/// [`super::error_describe::joined`] draws and for a smaller reason — an accessor on
 /// `next` or `done` is not something a real iterator has.
 pub(super) fn member(value: u64, name: &str) -> u64 {
     with_current(|context| {
