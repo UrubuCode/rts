@@ -15,8 +15,16 @@
 //!
 //! So this is not `#[ignore]`d: an ignored test needs an extra flag to ever
 //! run, which is exactly the kind of thing CLAUDE.md's honesty floor warns
-//! stays forgotten. Instead it looks for `target/{release,fast,debug}/rts`
-//! and skips itself, loudly, when none exists — which is the ordinary case
+//! stays forgotten. Instead it skips itself, loudly, on the two environment
+//! conditions it cannot create. The second is a `rts_runtime_jit` archive
+//! OLDER than the engine sources, which `rts compile` refuses by name: `cargo
+//! test` builds that archive no more than it builds the binary, because
+//! `rts-runtime-jit` is not on `rts`'s dependency graph — its own refusal says
+//! "Cargo will not do this for you". That skip was MISSING, so this target was
+//! red on `main` for a reason that has nothing to do with the claim below, and
+//! a gated target that is always red stops being read — which by the alphabet
+//! decides how much a future red one hides. The first is the binary: it looks
+//! for `target/{release,fast,debug}/rts` and skips when none exists — which is the ordinary case
 //! while iterating (CLAUDE.md's ITERATION SPEED section: `cargo build
 //! --release` is a merge-time activity, not something this test performs)
 //! and a real check once one does, which is what the coordinator's own
@@ -102,11 +110,36 @@ fn a_moved_exe_still_runs_once_its_sidecar_manifest_is_deleted() {
         .current_dir(&workspace)
         .output()
         .expect("running `rts compile`");
+    let stdout = String::from_utf8_lossy(&compiled.stdout);
+    let stderr = String::from_utf8_lossy(&compiled.stderr);
+    // The SECOND environment condition, and the one the skip above did not
+    // cover. `rts compile` refuses a runtime archive older than the sources it
+    // was built from, by name — and `cargo test` builds that archive no more
+    // than it builds the binary: `rts-runtime-jit` is not on `rts`'s dependency
+    // graph, which is what its own message says ("Cargo will not do this for
+    // you"). So a tree with an `rts` on disk and a stale `.lib` beside it failed
+    // this test for a reason that has nothing to do with the claim it pins, and
+    // it failed that way on `main` for as long as nobody rebuilt the archive.
+    //
+    // A gated target that is red for an environment reason is worse than it
+    // looks: it is red always, so it stops being read, and by the alphabet it
+    // decides how much of the rest of this crate's tests a FUTURE red one
+    // hides. So this skips the same way and as loudly as the missing-binary
+    // case, and for the same reason — the setup is the coordinator's
+    // `cargo build --release`, not this test's.
+    if !compiled.status.success() && stderr.contains("rebuild the AOT runtime archive") {
+        eprintln!(
+            "skipping a_moved_exe_still_runs_once_its_sidecar_manifest_is_deleted: the AOT \
+             runtime archive is older than the engine sources, so `rts compile` refused \
+             before this test could reach its own claim. Build it beside the binary \
+             (`cargo build --release -p rts-runtime-jit`) and re-run. The refusal said:\n{}",
+            stderr.trim()
+        );
+        return;
+    }
     assert!(
         compiled.status.success(),
-        "`rts compile` failed:\nstdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&compiled.stdout),
-        String::from_utf8_lossy(&compiled.stderr)
+        "`rts compile` failed:\nstdout: {stdout}\nstderr: {stderr}"
     );
     assert!(
         manifest_path.is_file(),
