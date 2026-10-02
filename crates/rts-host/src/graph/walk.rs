@@ -214,6 +214,42 @@ pub fn load(entry: &Path) -> Result<Vec<Loaded>, HostError> {
     Ok(ordered)
 }
 
+/// The module body a `.json` file gets: `JSON.parse` of its text.
+///
+/// # Why `JSON.parse` of a string literal rather than the text inlined
+///
+/// Because JSON is not a subset of JavaScript EXPRESSIONS in the ways that
+/// matter. `{"__proto__": 1}` is an own property in JSON and sets the prototype
+/// in an object literal — the difference is observable through
+/// `hasOwnProperty` — and U+2028/U+2029 are legal raw inside a JSON string
+/// while they were line terminators in JavaScript until ES2019. Handing the
+/// text to `JSON.parse` uses the one parser that already has those rules right
+/// instead of a second one that would have to agree with it.
+///
+/// `module.exports` and not an ESM default: this engine binds `require`,
+/// `module` and `exports` in every module beside `import`/`export` (CLAUDE.md,
+/// "CommonJS is not a second module system here"), so one body serves
+/// `require("./x.json")` and `import x from "./x.json"` both.
+///
+/// # Why the validation happens HERE
+///
+/// So a malformed file is refused at LOAD time, naming the file and the JSON
+/// fault. Emitted without it, the program would compile and die at run time on
+/// a `SyntaxError` from the runtime's own parser — a worse place to learn that
+/// a file on disk is not JSON, and one that reports the fault against the
+/// program rather than against the file.
+fn json_module(path: &Path, source: &str) -> Result<String, HostError> {
+    serde_json::from_str::<serde_json::Value>(source).map_err(|error| {
+        HostError::Parse(format!("{} is not valid JSON: {error}", path.display()))
+    })?;
+    // `to_string` of a `str` is the JSON encoding of it, which is also a valid
+    // JavaScript string literal — the escaping this needs, from the crate that
+    // defines it.
+    let literal = serde_json::to_string(source)
+        .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?;
+    Ok(format!("module.exports = JSON.parse({literal});\n"))
+}
+
 /// Where one file is in the walk.
 #[derive(Clone, Copy, PartialEq)]
 enum Mark {
@@ -257,6 +293,26 @@ fn visit(
             ),
             false => format!("{}: {error}", path.display()),
         }))?;
+    // A `.json` file is DATA, and this walk used to hand it to the JavaScript
+    // parser like any other: `sharp`'s `require("./package.json")` — the
+    // ordinary way a package reads its own version — failed with
+    // `Expected ';', '}' or <eof>`, which describes a JS parse of a file nobody
+    // meant as JavaScript. It is what stopped `@whiskeysockets/baileys` after
+    // the resolution and ordering fixes (#2853).
+    //
+    // It gets a module body instead, and the walk stops here: a JSON document
+    // has no imports to follow, and asking `imported_files` for them would be
+    // asking the JS parser the same question that just failed.
+    if path.extension().is_some_and(|kind| kind == "json") {
+        state.insert(path.to_owned(), Mark::Done);
+        ordered.push(Loaded {
+            specifier: path.display().to_string(),
+            path: path.to_owned(),
+            resolutions: Vec::new(),
+            source: json_module(path, &source)?,
+        });
+        return Ok(());
+    }
     // Parsed with a `Names` of its own, and thrown away: this pass wants the
     // import specifiers and nothing else. The real parse happens against the
     // `Names` the whole compilation shares.

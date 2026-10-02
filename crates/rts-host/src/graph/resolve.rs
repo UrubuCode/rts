@@ -109,11 +109,15 @@ pub(super) fn extended(base: &Path, specifier: &str) -> Option<PathBuf> {
     // order in one place instead of branching on `is_dir`, which is also what
     // made the old shape look safe: the branch meant only one list was ever
     // built, so the collision was unrepresentable in the code and real on disk.
-    let candidates: Vec<PathBuf> = ["ts", "js", "cjs", "mjs"]
+    // `json` last among the files, which is Node's own order: `LOAD_AS_FILE`
+    // tries `X`, `X.js`, `X.json`, `X.node`. After `cjs`/`mjs` rather than
+    // between — those two are JavaScript and a `.json` beside a `.js` of the
+    // same name is the rarer pair.
+    let candidates: Vec<PathBuf> = ["ts", "js", "cjs", "mjs", "json"]
         .iter()
         .map(|extension| base.join(format!("{specifier}.{extension}")))
         .chain(
-            ["index.ts", "index.js", "index.cjs", "index.mjs"]
+            ["index.ts", "index.js", "index.cjs", "index.mjs", "index.json"]
                 .iter()
                 .map(|name| named.join(name)),
         )
