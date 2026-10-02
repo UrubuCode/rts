@@ -12,11 +12,21 @@
 //! — the region holds 65 536 cells (`rts-host/src/run.rs:1095`), 1 794 of them
 //! are the built-in world, and every cycle reclaims the rest. So **every
 //! allocation past the first fill of the region is paid for by exactly one
-//! [`collect_cycle::release`]**: 22 `Aside::remove` calls, two full linear scans
-//! (`weak::clear_freed`, `finalize::queue_freed`), a `type_of`, and a
-//! `Region::free` — plus its share of the `each_live` walk that found it.
+//! [`collect_cycle::release`]**, plus its share of the walk that found it.
 //!
-//! Nothing has measured that. This does, in the engine rather than in a model,
+//! **What that release costs is not where this paragraph used to point.** It
+//! listed "22 `Aside::remove` calls, two full linear scans
+//! (`weak::clear_freed`, `finalize::queue_freed`), a `type_of`, and a
+//! `Region::free`", and three of the five stopped being true: both scans
+//! answer from an `is_empty` test, and the twenty-two removes answer from an
+//! `held == 0` test inlined at the call site. A reader following that list
+//! looks for the cost in the one place it has already been taken out of —
+//! which is what it was used for on 2026-10-02, so the correction is the
+//! paragraph rather than a note under it. The `cycle` row at the foot of this
+//! file is what replaces the list: it times a real cycle and divides, so the
+//! split between the walk and the burial is a number.
+//!
+//! Nothing had measured that. This does, in the engine rather than in a model,
 //! by running the same `entry::alloc` in two heaps that differ **only** in
 //! whether a collection has to happen:
 //!
@@ -229,6 +239,49 @@ fn measure(stack_high: usize) {
         "against the {ALLOC_CLASS_INSTANCE} ns `bench/analytic.ts` reports for `new Callee()`: {:.1}%",
         (sweeping - prefreed) / ALLOC_CLASS_INSTANCE * 100.0
     );
+
+    // ------------------------------------- the cycle itself, timed rather than
+    //                                       inferred by subtraction
+    //
+    // `sweeping − pre-freed` says how much the collector costs per allocation.
+    // It does not say WHICH part, and the header above spent a paragraph
+    // attributing it to "22 `Aside::remove` calls, two full linear scans
+    // (`weak::clear_freed`, `finalize::queue_freed`), a `type_of`, and a
+    // `Region::free`". Two of those are now wrong — both scans answer from an
+    // `is_empty` test and have done since 2026-09-19, and the twenty-two
+    // removes answer from an inlined `held == 0` — and a reader following that
+    // list looks for the cost where it is not. This row is here so the
+    // attribution is a measurement.
+    //
+    // `collect_now` answers how many cells a cycle reclaimed, so one cycle
+    // timed over a full region gives both numbers that matter: what the WALK
+    // costs per cell it looks at, and what the whole cycle costs per cell it
+    // gives back — which is the per-allocation figure above, arrived at from
+    // the other side.
+    println!();
+    let mut context = context_over(CELLS, stack_high);
+    let ty = a_type(&mut context);
+    let (context_back, ()) = with_context(context, || {
+        // Fill the region, keeping nothing: every cell is garbage by the time
+        // the cycle runs, which is the steady state the rows above measure.
+        let mut sink = 0u64;
+        for _ in 0..(CELLS as u64 - 2_000) {
+            sink = sink.wrapping_add(alloc(STRIDE as i64, i64::from(ty)));
+        }
+        std::hint::black_box(sink);
+        let anchor = 0u64;
+        let low = std::hint::black_box(&anchor) as *const u64 as usize;
+        let at = Instant::now();
+        let freed = rts_core::entry::collect_now(low);
+        let nanos = at.elapsed().as_secs_f64() * 1e9;
+        println!("one cycle over {CELLS} cells, {freed} freed: {:.0} ns total", nanos);
+        println!(
+            "    ... {:.2} ns per cell the walk looked at, {:.2} ns per cell it gave back",
+            nanos / f64::from(CELLS),
+            if freed > 0 { nanos / freed as f64 } else { f64::NAN }
+        );
+    });
+    drop(context_back);
 
     // ------------------------------------------------------------------ a string
     //
