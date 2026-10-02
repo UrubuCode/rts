@@ -89,6 +89,11 @@ pub fn emit_eval_program(
         // Nothing is captured, so nothing is bound at zero hops either.
         &std::collections::BTreeSet::new(),
         &enclosing,
+        // An eval'd fragment resolves its free names through the LIVE environment
+        // chain, which carries no alias: `emit_import` therefore declines to make
+        // an import live at all in a module that mentions `eval`, so there is
+        // nothing here for this list to carry. See `Ctx::live_imports`.
+        &[],
     );
     emit_program_into(&body, &[], None, &[], &scope, ctx)
 }

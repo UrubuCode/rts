@@ -182,8 +182,10 @@ fn open_socket(host: &str, port: u16, secure: bool) -> Result<u64, String> {
     let socket = entry::call(connect_fn, absent, options, absent, absent, absent);
     // An `on("error")` BEFORE anything else. A socket that fails to connect —
     // TLS that never negotiates, a host that does not exist — emits `error`,
-    // and an `error` nobody listened to KILLS the program: `uncaught 'error'
-    // event`. The failure already has an answer here (the promise rejects),
+    // and an `error` nobody listened to RAISES — `Error [ERR_UNHANDLED_ERROR]`,
+    // out of whatever call happened to be running — where before 2026-10-02 it
+    // ended the process outright. Neither is what a `fetch` owes its caller.
+    // The failure already has an answer here (the promise rejects),
     // and now it also has a REASON: `capture_error` keeps the message
     // instead of discarding it, and `open_socket`/`wait_connected`/
     // `read_response` read it from `LAST_ERROR`.

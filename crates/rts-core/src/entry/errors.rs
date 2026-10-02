@@ -276,7 +276,12 @@ fn raise(class: &str, code: &str, message: &str) {
     super::throw::throw_value(error);
 }
 
-fn constructor_name_in(context: &mut super::Context, value: u64) -> Option<String> {
+/// The name on `value.constructor`, when it has one.
+///
+/// `pub(super)` rather than private because [`super::unhandled`] asks the same
+/// question — naming an object in a message — and a second walk of
+/// `constructor.name` is a second answer to one question.
+pub(super) fn constructor_name_in(context: &mut super::Context, value: u64) -> Option<String> {
     let cell = crate::value::Value(value).as_slot()?;
     let constructor = context.well_known("constructor");
     let constructor = super::objects::read_property(context, cell, constructor)?;

@@ -6,11 +6,18 @@
 //! installed as `node:events`' named export, read in full before writing this.
 //! Its **storage shape** — one own property (`__events__` there) holding an
 //! array of `{ fn, once }` records per event name, `once` records dropped
-//! before any of them runs so a re-entrant `emit` cannot see one twice, and
-//! `'error'` with zero listeners printing and exiting the process because
-//! nothing here can raise a catchable error a handler could ever see — is
+//! before any of them runs so a re-entrant `emit` cannot see one twice — is
 //! reused **as a design**, because it is right and this module needs nothing
 //! different from it.
+//!
+//! The third item this list used to carry — *"`'error'` with zero listeners
+//! printing and exiting the process because nothing here can raise a catchable
+//! error a handler could ever see"* — was retired on 2026-10-02 with the same
+//! claim in `rts-node::events`' own doc. A native CAN raise; `rts-core`'s rule 8
+//! is what makes it safe. Both emitters now call the one
+//! [`rts_core::entry::unhandled_error`], which is also the only part of this
+//! duplication that is no longer duplicated: the CODE a program branches on has
+//! one spelling, in the crate both callers already depend on.
 //!
 //! What is NOT reused is the code itself: that module lives in `rts-node`,
 //! which `rts-std` does not and must not depend on (`Cargo.toml` names
@@ -157,7 +164,14 @@ extern "C" fn emit(_e: u64, this: u64, event: u64, a0: u64, a1: u64, a2: u64) ->
     let wrappers = collect_array(get(events, &name));
     if wrappers.is_empty() {
         if name == "error" {
-            crash_on_unhandled_error(a0);
+            // The raise is recorded, not unwound: the compiled call site
+            // re-raises once this native returns, so the `false` below is never
+            // read. `entry::unhandled_error` is the one copy of this contract —
+            // `node:events`' `emit` reaches the same function, which is what
+            // keeps the two emitters from spelling `ERR_UNHANDLED_ERROR`
+            // differently.
+            entry::unhandled_error(a0);
+            return entry::boolean_value(false);
         }
         return entry::boolean_value(false);
     }
@@ -168,18 +182,17 @@ extern "C" fn emit(_e: u64, this: u64, event: u64, a0: u64, a1: u64, a2: u64) ->
     let absent = absent();
     for wrapper in wrappers {
         entry::call(wrapper_fn(wrapper), this, a0, a1, a2, absent);
+        // `rts-core`'s rule 8: having called user code, ask whether it threw
+        // before carrying on. Node stops at the listener that threw; without
+        // this the rest of them ran, because `entry::call` answers `undefined`
+        // for a call that did not finish and `undefined` is a value. Asked with
+        // `entry::thrown()` because `throw::in_flight` is private to `rts-core`;
+        // neither clears the flag, so the call site still re-raises.
+        if entry::thrown() != 0 {
+            return entry::boolean_value(true);
+        }
     }
     entry::boolean_value(true)
-}
-
-/// The same diagnostic-then-exit `node:events`' `emit` gives; see that
-/// module's doc for why a native ends the process rather than throwing.
-fn crash_on_unhandled_error(error: u64) -> ! {
-    match entry::described(error) {
-        Some(text) => eprintln!("rts: uncaught 'error' event: {text}"),
-        None => eprintln!("rts: uncaught 'error' event: an object"),
-    }
-    std::process::exit(1)
 }
 
 extern "C" fn listener_count(_e: u64, this: u64, event: u64, listener: u64, _c: u64, _d: u64) -> u64 {

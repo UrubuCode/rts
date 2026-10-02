@@ -137,6 +137,19 @@ const PROVIDED: &[&str] = &[
     "SharedArrayBuffer",
     "Atomics",
     "Iterator",
+    // `WebAssembly` — installed by `rts-std` (`globals::wasm::install`) and
+    // missing from this list when it was, which made `typeof WebAssembly`
+    // answer `"undefined"` about an object a program can read and call. It is
+    // the same omission `global` three entries down describes, and it is the
+    // one a package checks FIRST: `typeof WebAssembly !== "undefined"` is how
+    // every wasm-carrying library decides whether to take that path at all.
+    //
+    // Caught by the per-file suite comparison rather than by the fixture that
+    // asserts it: `typeof WebAssembly` passed through a resolution path that a
+    // later lot changed, so the assertion was green for a reason that was never
+    // this list. A green test over the wrong mechanism is the shape worth
+    // remembering here.
+    "WebAssembly",
     // `global` — o alias que o Node tem do objeto global, e que QUALQUER pacote
     // de npm escreve no topo do seu corpo: `typeof global !== "undefined"` é
     // metade das deteções de ambiente que existem. `rts-node` instala-o

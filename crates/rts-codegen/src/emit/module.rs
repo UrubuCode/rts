@@ -1,17 +1,65 @@
 //! `import`, as statements the body already knows how to run.
 //!
-//! # Why an import becomes a declaration
+//! # A NAMED import is not a declaration, and saying it was is what made it wrong
 //!
-//! Because that is what it is, everywhere except in when it happens.
-//! `import { test } from "rts:test"` introduces `test` in the module's scope,
-//! and the only thing that distinguishes it from `const test = …` is that the
-//! right-hand side is not written in the program.
+//! This file opened with "why an import becomes a declaration": `import { test }
+//! from "rts:test"` introduces `test` in the module's scope, and the only thing
+//! distinguishing it from `const test = …` is that the right-hand side is not
+//! written in the program. So it synthesised that right-hand side — one
+//! `ModuleBinding` call per name — and handed a `const` to the body emitter.
 //!
-//! So this synthesises the missing right-hand side — a call to the runtime
-//! carrying which specifier and which name — and hands the declarations to the
-//! ordinary body emitter. Nothing downstream learns what a module is: a
-//! captured import is captured by the machinery that captures a `const`, and a
-//! read of one is a read of a local.
+//! The paragraph was wrong about the one thing that matters. A named import is an
+//! **indirect binding** to the exporting module's own slot, and a `const` is a
+//! copy of what the slot held at the line the import was written. Measured
+//! against Node 22.23.2, 2026-10-02, two files and nothing else:
+//!
+//! ```text
+//! a.mjs      export let n = 1; export function bump() { n = 2; }
+//! main.mjs   import { n, bump } from "./a.mjs"; bump(); console.log(n);
+//!            node → 2        this engine, before this change → 1
+//! ```
+//!
+//! That is not an exotic case. It is what stopped `@whiskeysockets/baileys`
+//! building a socket: its `Utils/crypto` sits in a cycle and reads
+//! `KEY_BUNDLE_TYPE` out of a `Defaults` that has published nothing when the
+//! `import` line runs, so the name was `undefined` **for the rest of the
+//! program**. Node answers the value, because the read happens at the use.
+//!
+//! So a named import now binds the exporting module's NAMESPACE, and each use is
+//! a property read of it. `tests/claude-esm-live-binding.test.ts` is the ruler,
+//! written before the change and measured on Node first.
+//!
+//! Two alternatives were rejected, and the reasons are the shape of the choice:
+//!
+//! - **`ModuleBinding` per use.** Correct, and it costs a crossing into the
+//!   runtime where this costs a property read with an inline cache.
+//!   `docs/codegen/entry-tax.md` is this repository measuring that the crossing
+//!   is the dominant expense; a namespace read is the operation the engine is
+//!   already fastest at.
+//! - **Live only inside a cycle.** Two semantics for one question, which is what
+//!   CLAUDE.md argues against end to end — and the two-file case above has no
+//!   cycle in it, so it would still answer 1.
+//!
+//! `import * as ns` and `import d from "m"` are unchanged, and the second
+//! deliberately so: `module_binding`'s `default`-on-a-host-module fallback is
+//! what makes `import fs from "node:fs"` bind the whole namespace, and a plain
+//! property read of `default` would answer `undefined` for every `node:` module.
+//! An `export default` is bound to a `const` nothing can reassign, so there is
+//! no liveness to lose.
+//!
+//! # And the other half: an exported binding publishes when it is ASSIGNED
+//!
+//! A live read is live over nothing unless the exporter's assignment reaches the
+//! namespace. `export let n = 1` is published after the body like every other
+//! export, and `bump()` — called from another module, long after that body
+//! finished — assigned a local nobody could see. So `super::binding::write` also
+//! republishes a name this module exports. [`republish`] is that, and
+//! [`exported_locals`] is what it reads.
+//!
+//! Rejected: making the exported binding LIVE in the namespace, read and written
+//! through it. It is the same mechanism as the import side and it would make
+//! every read of an exported name inside its own module a property read — which
+//! is most reads in most modules, for a liveness only an importer can observe.
 //!
 //! # What this does NOT do
 //!
@@ -63,15 +111,57 @@ pub fn emit_import(
     let specifier = ctx.literal(&import.source);
     let specifier = number(builder, u64::from(specifier));
 
+    // The namespace, once per `import` statement, however many names it brings
+    // in: all of them read the same object, and asking the runtime again per name
+    // would be the crossing this change exists to remove.
+    //
+    // `None` until some named binding needs it, so `import "./side-effect.js"`
+    // and `import d from "m"` still cross exactly as often as they did.
+    let mut namespace = None;
     for binding in &import.bindings {
         let (local, value) = match binding {
             ImportBinding::Named { exported, local } => {
-                let name = ctx.names.intern(exported);
-                let key = number(builder, u64::from(ctx.key_of(name)));
-                let read =
-                    super::expr::call(builder, ctx, RuntimeOp::ModuleBinding, &[specifier, key])?
-                        [0];
-                (*local, read)
+                let property = ctx.names.intern(exported);
+                match ctx.live_imports {
+                    // THE NAMESPACE is what the name is bound to, and the alias
+                    // is what says a read of the name is a property of it. Bound
+                    // under the local name itself rather than under a synthetic
+                    // one, because `function.rs` already lists an import's local
+                    // name as a capture candidate — so a nested function that
+                    // reads the import captures the namespace with nothing new.
+                    true => {
+                        let object = match namespace {
+                            Some(held) => held,
+                            None => {
+                                let made = super::expr::call(
+                                    builder,
+                                    ctx,
+                                    RuntimeOp::ModuleNamespace,
+                                    &[specifier],
+                                )?[0];
+                                namespace = Some(made);
+                                made
+                            }
+                        };
+                        super::binding::declare(builder, scope, ctx, *local, object)?;
+                        scope.set_alias(*local, super::scope::Alias::Import { property });
+                        continue;
+                    }
+                    // The snapshot this file produced for every named import
+                    // before, kept for a module that mentions `eval` and for
+                    // nothing else: `Ctx::live_imports` has the wrong answer the
+                    // alias would give there.
+                    false => {
+                        let key = number(builder, u64::from(ctx.key_of(property)));
+                        let read = super::expr::call(
+                            builder,
+                            ctx,
+                            RuntimeOp::ModuleBinding,
+                            &[specifier, key],
+                        )?[0];
+                        (*local, read)
+                    }
+                }
             }
             // `import d from "m"` is `import { default as d }`, which is what
             // the specification says it is — and saying it here rather than in
@@ -257,6 +347,61 @@ pub fn emit_publications(
         };
         let interned = ctx.names.intern(&publication.exported);
         let key = number(builder, u64::from(ctx.key_of(interned)));
+        super::expr::call(builder, ctx, RuntimeOp::ModulePublish, &[own, key, value])?;
+    }
+    Ok(())
+}
+
+/// For each name a module exports from a binding of its own, what the outside
+/// sees it under.
+///
+/// Only [`PublicationSource::Local`] has an answer: a re-export never binds the
+/// name here, so there is no assignment to catch — which is also why a re-export
+/// stays a snapshot, stated in `tests/claude-esm-live-binding.test.ts` rather
+/// than left to be discovered.
+pub fn exported_locals(
+    publications: &[Publication],
+    ctx: &mut Ctx,
+) -> std::collections::BTreeMap<Name, Vec<Name>> {
+    let mut out: std::collections::BTreeMap<Name, Vec<Name>> = std::collections::BTreeMap::new();
+    for publication in publications {
+        if let PublicationSource::Local(local) = &publication.source {
+            let exported = ctx.names.intern(&publication.exported);
+            out.entry(*local).or_default().push(exported);
+        }
+    }
+    out
+}
+
+/// Writes an assignment to an exported binding into the namespace an importer
+/// reads.
+///
+/// # Why this is a write and not a fresh publication of the whole module
+///
+/// Because one name changed. `emit_publications` runs once, after the body, and
+/// says what the module FINISHED with; this says what one binding became, where
+/// it became it. They write the same table, which is the point — there is one
+/// answer to what a specifier resolves to, and this adds no second one.
+///
+/// Silent for a module with no specifier: nothing can import it, so there is
+/// nothing the assignment could be observed through. That is the same condition
+/// `emit_module_as` applies to publishing at all.
+pub fn republish(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    local: Name,
+    value: ValueId,
+) -> EmitResult<()> {
+    let Some(own) = ctx.module_specifier.clone() else {
+        return Ok(());
+    };
+    let Some(names) = ctx.exported_locals.get(&local).cloned() else {
+        return Ok(());
+    };
+    let own = ctx.literal(&own);
+    let own = number(builder, u64::from(own));
+    for exported in names {
+        let key = number(builder, u64::from(ctx.key_of(exported)));
         super::expr::call(builder, ctx, RuntimeOp::ModulePublish, &[own, key, value])?;
     }
     Ok(())

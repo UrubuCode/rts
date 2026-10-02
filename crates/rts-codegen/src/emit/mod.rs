@@ -632,6 +632,33 @@ pub struct Ctx<'a> {
     /// expressions and may sit inside any nested function, several emissions
     /// below the one place that knows which file is being compiled.
     pub module_specifier: Option<String>,
+    /// For each name this module exports FROM A BINDING OF ITS OWN, the names
+    /// the outside sees it under.
+    ///
+    /// A list rather than one name because `export { x, x as y }` is legal, and
+    /// a single name would silently publish under one of the two.
+    ///
+    /// Read when a write to such a binding is emitted: the write has to reach
+    /// the namespace an importer reads, or a live import would be live over a
+    /// value nothing updates. On the context for the reason the specifier beside
+    /// it is — the assignment may sit in any nested function, several emissions
+    /// below the one place that knows what the module publishes.
+    pub exported_locals: std::collections::BTreeMap<Name, Vec<Name>>,
+    /// Whether a named `import` in the body being emitted may be LIVE.
+    ///
+    /// `false` for a module that mentions `eval`. A live import is a binding
+    /// holding the exporting module's namespace plus an alias saying which
+    /// property to read, and the alias is a compile-time fact of this `Scope`:
+    /// source compiled while the program runs resolves its free names through
+    /// the live environment chain, which carries the namespace and not the alias,
+    /// so `eval("n")` would answer the namespace object where the program wrote
+    /// the imported name.
+    ///
+    /// So such a module keeps the snapshot its imports had before — a stated
+    /// divergence in one direction, against a silent wrong answer in the other.
+    /// It is the same trade `capture::captured` makes one door over, where a body
+    /// mentioning `eval` forces every binding it has onto the heap.
+    pub live_imports: bool,
     /// The file the module came from, and the directory holding it — what
     /// `__filename` and `__dirname` answer.
     ///
@@ -784,6 +811,8 @@ impl<'a> Ctx<'a> {
             class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
             module_specifier: None,
+            exported_locals: std::collections::BTreeMap::new(),
+            live_imports: true,
             module_paths: None,
             module_key: None,
             names_top_level: false,
@@ -1202,6 +1231,14 @@ pub(super) fn emit_program_into(
     // once here because both are ordinary expressions that may sit inside any
     // nested function, which is emitted below this point.
     ctx.module_specifier = specifier.map(str::to_owned);
+    // AND WHAT IT PUBLISHES FROM ITS OWN BINDINGS, for the same reason and in
+    // the same place: a write to one of those names has to reach the namespace,
+    // and the write may be anywhere under this body.
+    ctx.exported_locals = module::exported_locals(publications, ctx);
+    // Reset per module: `emit_modules` compiles a whole graph through one `Ctx`,
+    // and one module mentioning `eval` must not take the next module's imports
+    // with it. Turned off, where it is, by `emit_body_into`.
+    ctx.live_imports = true;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -1628,6 +1665,14 @@ fn emit_unit(
     // once here because both are ordinary expressions that may sit inside any
     // nested function, which is emitted below this point.
     ctx.module_specifier = specifier.map(str::to_owned);
+    // AND WHAT IT PUBLISHES FROM ITS OWN BINDINGS, for the same reason and in
+    // the same place: a write to one of those names has to reach the namespace,
+    // and the write may be anywhere under this body.
+    ctx.exported_locals = module::exported_locals(publications, ctx);
+    // Reset per module: `emit_modules` compiles a whole graph through one `Ctx`,
+    // and one module mentioning `eval` must not take the next module's imports
+    // with it. Turned off, where it is, by `emit_body_into`.
+    ctx.live_imports = true;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask

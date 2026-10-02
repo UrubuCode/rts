@@ -63,6 +63,34 @@ pub enum Binding {
     },
 }
 
+/// What a name means BESIDES where its storage is.
+///
+/// # Why this is beside [`Binding`] rather than a third variant of it
+///
+/// Because it answers a different question. `Binding` says *where the storage
+/// is* — a register or a property of an environment — and every reader of a
+/// binding has to know that. This says *what the storage holds*, which only the
+/// read and the write care about, and a variant would have forced the other
+/// readers to re-decide something they have no opinion about.
+///
+/// Both members exist because a module's bindings are not the module's alone: an
+/// `import` names a slot another module writes, and an `export` names a slot
+/// another module reads. That is what the specification means by an indirect
+/// binding, and the namespace object is the shared slot this engine has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Alias {
+    /// `import { p as name } from "m"` — the binding holds **m's namespace**,
+    /// and the value is this property of it, read where the program uses the
+    /// name rather than where the `import` was written.
+    Import {
+        /// The name inside the exporting module.
+        property: Name,
+    },
+    /// A name this module exports. The binding holds the value, as any local
+    /// does; an assignment to it also writes the namespace an importer reads.
+    Export,
+}
+
 impl Binding {
     /// The value behind it.
     ///
@@ -124,6 +152,21 @@ struct Layer {
     /// `let f = () => x; let x = 1; f();` is a legal program, and the arrow's
     /// body runs after the declaration however early it was written.
     pending: Vec<Name>,
+
+    /// Aliases this layer took out of force by declaring the same spelling, put
+    /// back when it is left.
+    ///
+    /// # Why the alias is suspended rather than consulted with a shadow test
+    ///
+    /// Because the shadow test is the thing that gets written wrongly. An alias
+    /// is in force for ONE binding, and a declaration of the same spelling — a
+    /// parameter, a `let` in a block, a `catch` name — introduces a different
+    /// one. A reader that asked "is this name aliased" by name alone would read
+    /// a parameter as a property of somebody else's namespace, silently, which
+    /// is the shape of wrongness this crate's README names first. So the map
+    /// holds only what is in force, and the layer that shadowed an alias owns
+    /// putting it back: [`Scope::leave`] is the single place that happens.
+    shadowed: Vec<(Name, Alias)>,
 }
 
 /// The lexical environment during emission.
@@ -169,6 +212,14 @@ pub struct Scope {
     /// run": an arrow in an ordinary method borrows a `this` that is
     /// legitimately `undefined` whenever the method was called plainly.
     derived: bool,
+    /// The aliases in force, by the name each is in force for.
+    ///
+    /// Flat rather than per layer because an alias is a fact about a MODULE and
+    /// every function nested inside it sees the same ones. [`Layer::shadowed`]
+    /// is what keeps that from running over a declaration of the same spelling.
+    aliases: BTreeMap<Name, Alias>,
+    /// Whether this scope is a MODULE's own body. See [`Scope::in_module_top`].
+    module_body: bool,
 }
 
 impl Default for Scope {
@@ -189,6 +240,8 @@ impl Scope {
             this_value: None,
             late_this: None,
             derived: false,
+            aliases: BTreeMap::new(),
+            module_body: false,
         }
     }
 
@@ -222,11 +275,17 @@ impl Scope {
     /// own names so that a local of the same spelling shadows it, which is what
     /// the innermost binding winning means — `lookup` scans in reverse, so the
     /// order these are pushed in IS the shadowing rule.
+    /// `aliases` are the enclosing scope's, from [`Scope::aliases`]. They travel
+    /// because the names they are in force for travel: an imported name a nested
+    /// function reads is a capture candidate, so it arrives in `enclosing` like
+    /// any other captured name — and arriving without its alias would read the
+    /// NAMESPACE where the program wrote the imported name.
     pub fn for_function(
         environment: Option<ValueId>,
         captured: BTreeSet<Name>,
         own_level: &BTreeSet<Name>,
         enclosing: &[(Name, u32)],
+        aliases: &[(Name, Alias)],
     ) -> Self {
         let from_enclosing = enclosing.len();
         let mut entries: Vec<(Name, Binding)> = enclosing
@@ -270,10 +329,22 @@ impl Scope {
                     )
                 }),
         );
+        // Dropped for every name this function declares AT ITS OWN LEVEL, which
+        // is a declaration and therefore a different binding: `own_level` is
+        // exactly the list `for_function` just bound at zero hops, so a name in
+        // it is this function's and not the module's import. The parameters and
+        // the block declarations are dropped later, by `declare`, because that
+        // is when they come into existence.
+        let aliases = aliases
+            .iter()
+            .copied()
+            .filter(|(name, _)| !own_level.contains(name))
+            .collect();
         Scope {
             layers: vec![Layer {
                 entries,
                 pending: Vec::new(),
+                shadowed: Vec::new(),
             }],
             environment,
             captured,
@@ -281,7 +352,48 @@ impl Scope {
             this_value: None,
             late_this: None,
             derived: false,
+            aliases,
+            module_body: false,
         }
+    }
+
+    /// Every alias in force, for a nested function's scope.
+    ///
+    /// See [`Scope::for_function`] for why they travel at all.
+    pub fn aliases(&self) -> Vec<(Name, Alias)> {
+        self.aliases.iter().map(|(name, alias)| (*name, *alias)).collect()
+    }
+
+    /// Records that the binding this name currently resolves to is not an
+    /// ordinary local.
+    ///
+    /// Called right after the declaration it describes, by the one place that
+    /// knows: [`super::module::emit_import`] for a name an `import` introduced,
+    /// and [`super::binding::declare`] for one this module exports.
+    pub fn set_alias(&mut self, name: Name, alias: Alias) {
+        self.aliases.insert(name, alias);
+    }
+
+    /// What this name resolves THROUGH, when it resolves through anything.
+    pub fn alias_of(&self, name: Name) -> Option<Alias> {
+        self.aliases.get(&name).copied()
+    }
+
+    /// Records that this scope is a MODULE's own body, not a function inside it.
+    ///
+    /// Asked by [`super::binding::declare`], which has to tell a declaration
+    /// that `export` could have named from one of the same spelling anywhere
+    /// else. Nothing else may ask: a module body is otherwise an ordinary
+    /// function body here, and a second question answered from this flag would
+    /// be a second thing a module is.
+    pub fn mark_module_body(&mut self) {
+        self.module_body = true;
+    }
+
+    /// Whether this is the outermost layer of a module's own body — the only
+    /// place an `export` can have declared a name.
+    pub fn in_module_top(&self) -> bool {
+        self.module_body && self.layers.len() == 1
     }
 
     /// Se ESTA função já ligou o nome — os seus parâmetros, os seus capturados,
@@ -496,9 +608,17 @@ impl Scope {
                 },
             )
         }));
+        // A head name is a DECLARATION, so it shadows an alias of the same
+        // spelling exactly as a parameter does — and it is bound here rather
+        // than through `declare`, which is why the suspension is taken here too.
+        let shadowed = names
+            .iter()
+            .filter_map(|name| self.aliases.remove(name).map(|alias| (*name, alias)))
+            .collect();
         self.layers.push(Layer {
             entries,
             pending: Vec::new(),
+            shadowed,
         });
         std::mem::replace(&mut self.environment, Some(environment))
     }
@@ -527,7 +647,9 @@ impl Scope {
             "left more scopes than were entered — the function's own layer is \
              not a block and cannot be popped"
         );
-        self.layers.pop();
+        if let Some(layer) = self.layers.pop() {
+            self.aliases.extend(layer.shadowed);
+        }
     }
 
     /// Introduces a name in the innermost layer.
@@ -538,6 +660,15 @@ impl Scope {
     /// is stated once. Shadowing an *outer* declaration is legal and is what
     /// the layering is for.
     pub fn declare(&mut self, name: Name, value: ValueId) {
+        // A declaration introduces a binding of its own, so whatever this
+        // spelling meant through an alias it does not mean here. Suspended in
+        // the layer that declared it and restored when that layer is left —
+        // `Layer::shadowed` says why asking by name would be wrong instead.
+        if let Some(alias) = self.aliases.remove(&name) {
+            if let Some(layer) = self.layers.last_mut() {
+                layer.shadowed.push((name, alias));
+            }
+        }
         let layer = self
             .layers
             .last_mut()
@@ -723,185 +854,5 @@ impl Scope {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::names::Names;
-    use rts_cranelift::ir::{Function, Signature};
-    use rts_cranelift::repr::Repr;
-
-    /// Two distinct values to bind, without needing a whole emission.
-    fn two_values() -> (ValueId, ValueId) {
-        let mut func = Function::new(Signature::default());
-        let block = func.push_block();
-        (
-            func.push_block_param(block, Repr::Tagged),
-            func.push_block_param(block, Repr::Tagged),
-        )
-    }
-
-    #[test]
-    fn an_inner_declaration_hides_an_outer_one_and_the_outer_survives() {
-        let mut names = Names::default();
-        let x = names.intern("x");
-        let (outer, inner) = two_values();
-
-        let mut scope = Scope::new();
-        scope.declare(x, outer);
-        scope.enter();
-        scope.declare(x, inner);
-        assert_eq!(scope.lookup(x), Some(Binding::Value(inner)));
-        scope.leave();
-        assert_eq!(
-            scope.lookup(x),
-            Some(Binding::Value(outer)),
-            "`{{ let x = 1; {{ let x = 2; }} }}` leaves the outer binding \
-             untouched — a rename-based implementation gets this right and \
-             loses the fact that they are two bindings"
-        );
-    }
-
-    #[test]
-    fn assigning_reaches_an_outer_layer_where_declaring_would_not() {
-        let mut names = Names::default();
-        let x = names.intern("x");
-        let (first, second) = two_values();
-
-        let mut scope = Scope::new();
-        scope.declare(x, first);
-        scope.enter();
-        assert!(scope.assign(x, second));
-        scope.leave();
-        assert_eq!(
-            scope.lookup(x),
-            Some(Binding::Value(second)),
-            "assignment writes the binding it found; it does not introduce a \
-             new one in the block it was written in"
-        );
-    }
-
-    #[test]
-    fn a_lexical_name_is_unreadable_until_its_own_declaration_and_readable_after() {
-        let mut names = Names::default();
-        let x = names.intern("x");
-        let (value, _) = two_values();
-
-        let mut scope = Scope::new();
-        scope.expect_lexical(&[x]);
-        assert!(
-            scope.in_dead_zone(x),
-            "`{{ x; let x = 1; }}` reads a name the block declares below, which \
-             is the temporal dead zone and a ReferenceError"
-        );
-        scope.declare(x, value);
-        scope.initialize(x);
-        assert!(
-            !scope.in_dead_zone(x),
-            "the zone ends at the declaration, not at the end of the block"
-        );
-    }
-
-    #[test]
-    fn an_inner_declaration_puts_an_outer_binding_of_the_same_name_in_the_zone() {
-        let mut names = Names::default();
-        let x = names.intern("x");
-        let (outer, _) = two_values();
-
-        let mut scope = Scope::new();
-        scope.declare(x, outer);
-        scope.enter();
-        scope.expect_lexical(&[x]);
-        assert!(
-            scope.in_dead_zone(x),
-            "`let x = 1; {{ x; let x = 2; }}` throws: inside the block the name \
-             refers to the INNER declaration for the whole block, so the outer \
-             binding is not what the read finds"
-        );
-        scope.leave();
-        assert!(
-            !scope.in_dead_zone(x),
-            "leaving the block leaves the outer binding readable again"
-        );
-    }
-
-    #[test]
-    fn a_name_a_nested_block_declares_leaves_the_enclosing_one_readable() {
-        let mut names = Names::default();
-        let x = names.intern("x");
-
-        let mut scope = Scope::new();
-        scope.enter();
-        // Nothing pending here: `{ x; { let x = 1; } }` reads the OUTER `x`,
-        // because a block's declarations are the block's alone.
-        assert!(!scope.in_dead_zone(x));
-    }
-
-    #[test]
-    fn a_per_iteration_environment_does_not_resurrect_a_shadowed_enclosing_name() {
-        let mut names = Names::default();
-        let t = names.intern("t");
-        let (environment, parameter) = two_values();
-
-        // The shape a `for (let …)` under a `try` produces: an enclosing
-        // environment holds `t`, the function's own parameter is also `t`, and
-        // the loop opens a record of its own for `w`.
-        let mut scope = Scope::for_function(
-            Some(environment),
-            BTreeSet::new(),
-            &BTreeSet::new(),
-            &[(t, 1)],
-        );
-        scope.declare(t, parameter);
-        let w = names.intern("w");
-        scope.enter_environment(environment, &[w]);
-
-        assert_eq!(
-            scope.lookup(t),
-            Some(Binding::Value(parameter)),
-            "the parameter still shadows the enclosing `t` inside the pass's \
-             record. Re-binding every environment name one hop further out put \
-             the ENCLOSING binding in the innermost layer, and `lookup` scans \
-             in reverse — so the loop body read the enclosing variable and \
-             answered its value, silently, wherever one existed"
-        );
-    }
-
-    #[test]
-    fn a_per_iteration_environment_still_pushes_a_name_it_does_not_shadow_one_hop_out() {
-        let mut names = Names::default();
-        let outer = names.intern("outer");
-        let (environment, _) = two_values();
-
-        let mut scope = Scope::for_function(
-            Some(environment),
-            BTreeSet::new(),
-            &BTreeSet::new(),
-            &[(outer, 1)],
-        );
-        let w = names.intern("w");
-        scope.enter_environment(environment, &[w]);
-
-        assert_eq!(
-            scope.lookup(outer),
-            Some(Binding::InEnvironment {
-                hops: 2,
-                name: outer
-            }),
-            "a name nothing shadows travels: inserting a link means every \
-             binding past it is one hop further out, and dropping the re-bind \
-             would read the pass's own record for something written in the \
-             function's"
-        );
-    }
-
-    #[test]
-    fn assigning_a_name_nothing_declared_reports_the_miss() {
-        let mut names = Names::default();
-        let x = names.intern("x");
-        let (value, _) = two_values();
-
-        // Sloppy mode makes this a global store and strict mode makes it a
-        // ReferenceError. Both need to know it was not found, so neither is
-        // served by quietly declaring a local.
-        assert!(!Scope::new().assign(x, value));
-    }
-}
+#[path = "scope_tests.rs"]
+mod tests;

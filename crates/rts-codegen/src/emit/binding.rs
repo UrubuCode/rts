@@ -74,44 +74,17 @@ pub(super) fn lexical_read(
     if scope.in_dead_zone(name) && !ctx.in_cleanup {
         return dead_zone(builder, ctx, name);
     }
+    // A LIVE IMPORT reads the exporting module's slot HERE, at the use, which is
+    // what makes it live. The binding holds that module's namespace — see
+    // `super::module::emit_import` for why the namespace is what gets bound — so
+    // the read is the ordinary property read every other property gets, inline
+    // cache included.
+    if let Some(super::scope::Alias::Import { property }) = scope.alias_of(name) {
+        let namespace = storage_read(builder, scope, ctx, name)?;
+        return super::property::emit_read(builder, ctx, namespace, property);
+    }
     match scope.lookup(name) {
-        // A read never answers `Repr::I32`, and that invariant is what let the
-        // integer representation be added without teaching a third case to every
-        // consumer of a value. `int32.rs` has the whole argument; the short of it
-        // is that this widening meets a bitwise operator's own narrowing and the
-        // machine folds both away, so it is paid only where the use is NOT a
-        // bitwise one — which is outside the loop this exists for.
-        //
-        // Decided by the REPRESENTATION rather than by asking `ctx` what the
-        // name holds. There is one table saying which bindings are integers and
-        // it is the one `stored` already consulted; asking a second time here is
-        // how two answers to one question start.
-        Some(Binding::Value(value)) if builder.repr_of(value) == rts_cranelift::repr::Repr::I32 => {
-            Ok(builder
-                .to_f64(value)
-                .expect("the representation was just read as I32"))
-        }
-        Some(Binding::Value(value)) => Ok(value),
-        Some(Binding::InEnvironment { hops, name }) => {
-            // The value written a moment ago, when nothing at all has happened
-            // since. See `body_state::BodyState::last_captured_write` for the whole
-            // why it is this narrow; the short of it is that the environment is
-            // an object this compiler made, so a store puts the value in the
-            // slot and a load takes it back out unchanged — and the window is
-            // closed by anything being emitted, so nothing can have run in
-            // between to make that untrue.
-            if let Some(written) = ctx.body.last_captured_write
-                && written.name == name
-                && written.hops == hops
-                && written.block == builder.current()
-                && written.environment == scope.environment()
-                && builder.nothing_emitted_here()
-            {
-                return Ok(written.value);
-            }
-            let environment = walk(builder, scope, ctx, hops)?;
-            super::property::emit_read(builder, ctx, environment, name)
-        }
+        Some(_) => storage_read(builder, scope, ctx, name),
         // Nothing declared it. A few names are still readable — three the
         // emitter produces itself and a few the runtime holds — and what is
         // left is a name the scope walk, [`predefined`] and [`super::globals::
@@ -143,6 +116,73 @@ pub(super) fn lexical_read(
                 },
             },
         },
+    }
+}
+
+/// The value a bound name's STORAGE holds — a register, or a slot of an
+/// environment.
+///
+/// # Why this is a function and not two arms of the read
+///
+/// Because two readers need it now. An ordinary read is this and nothing else;
+/// a LIVE IMPORT is this followed by a property read, because what the storage
+/// holds there is the exporting module's namespace rather than the value. Rule 3
+/// is the reason it is not written twice: "where a binding's storage is" is one
+/// rule, and a second copy would be a second chance to forget the widening
+/// below or the window above it.
+///
+/// # Panics
+///
+/// For a name nothing bound. Every caller has already asked `Scope::lookup` or
+/// an alias, both of which answer only for a name that IS bound, so reaching
+/// this is this module's own bracketing being wrong rather than a program.
+fn storage_read(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    name: Name,
+) -> EmitResult<ValueId> {
+    match scope
+        .lookup(name)
+        .expect("a name reaching the storage read is one the scope binds")
+    {
+        // A read never answers `Repr::I32`, and that invariant is what let the
+        // integer representation be added without teaching a third case to every
+        // consumer of a value. `int32.rs` has the whole argument; the short of it
+        // is that this widening meets a bitwise operator's own narrowing and the
+        // machine folds both away, so it is paid only where the use is NOT a
+        // bitwise one — which is outside the loop this exists for.
+        //
+        // Decided by the REPRESENTATION rather than by asking `ctx` what the
+        // name holds. There is one table saying which bindings are integers and
+        // it is the one `stored` already consulted; asking a second time here is
+        // how two answers to one question start.
+        Binding::Value(value) if builder.repr_of(value) == rts_cranelift::repr::Repr::I32 => Ok(
+            builder
+                .to_f64(value)
+                .expect("the representation was just read as I32"),
+        ),
+        Binding::Value(value) => Ok(value),
+        Binding::InEnvironment { hops, name } => {
+            // The value written a moment ago, when nothing at all has happened
+            // since. See `body_state::BodyState::last_captured_write` for the whole
+            // why it is this narrow; the short of it is that the environment is
+            // an object this compiler made, so a store puts the value in the
+            // slot and a load takes it back out unchanged — and the window is
+            // closed by anything being emitted, so nothing can have run in
+            // between to make that untrue.
+            if let Some(written) = ctx.body.last_captured_write
+                && written.name == name
+                && written.hops == hops
+                && written.block == builder.current()
+                && written.environment == scope.environment()
+                && builder.nothing_emitted_here()
+            {
+                return Ok(written.value);
+            }
+            let environment = walk(builder, scope, ctx, hops)?;
+            super::property::emit_read(builder, ctx, environment, name)
+        }
     }
 }
 
@@ -179,6 +219,38 @@ pub(super) fn lexical_write(
     if scope.in_dead_zone(name) && !ctx.in_cleanup {
         return dead_zone(builder, ctx, name);
     }
+    // AN IMPORTED NAME IS WRITTEN THROUGH THE NAMESPACE, which is a stated
+    // divergence rather than the semantics: `import { n } from "m"; n = 1` is an
+    // early SyntaxError in the language, and this crate does not raise one
+    // (`PLAN.md` L10 has where early errors live). Writing the namespace is the
+    // nearest thing to the language that keeps the program running — the old
+    // lowering wrote a local nobody else could see, which was the same
+    // divergence with the write LOST as well as allowed.
+    if let Some(super::scope::Alias::Import { property }) = scope.alias_of(name) {
+        let namespace = storage_read(builder, scope, ctx, name)?;
+        return super::property::emit_write(builder, ctx, namespace, property, value);
+    }
+    // AN EXPORTED NAME IS WRITTEN HERE AND REPUBLISHED, which is the other half
+    // of a live binding: the importer reads this module's namespace at its use,
+    // so an assignment the module makes after its body ran has to reach that
+    // namespace or the read is live over a value nothing updates. `export let n
+    // = 1; export function bump() { n = 2 }` is the whole of it.
+    let exported = matches!(scope.alias_of(name), Some(super::scope::Alias::Export));
+    let written = write_storage(builder, scope, ctx, name, value)?;
+    if exported {
+        super::module::republish(builder, ctx, name, written)?;
+    }
+    Ok(written)
+}
+
+/// The store itself, with nothing a module's exports add to it.
+fn write_storage(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    name: Name,
+    value: ValueId,
+) -> EmitResult<ValueId> {
     match scope.lookup(name) {
         Some(Binding::InEnvironment { hops, name }) => {
             let environment = walk(builder, scope, ctx, hops)?;
@@ -277,11 +349,30 @@ pub fn declare(
         };
         let environment = walk(builder, scope, ctx, hops)?;
         super::property::emit_write(builder, ctx, environment, name, value)?;
+        mark_exported(scope, ctx, name);
         return Ok(());
     }
     let held = expr::stored(builder, ctx, name, value);
     scope.declare(name, held);
+    mark_exported(scope, ctx, name);
     Ok(())
+}
+
+/// Records that this declaration is one the module publishes, so a later
+/// assignment to it reaches the namespace an importer reads.
+///
+/// # Why the module's OWN top level and nothing deeper
+///
+/// Because `export` is top-level syntax: the binding a module publishes is
+/// always declared in its own outermost layer, so anything else of that spelling
+/// — a parameter, a `let` in a block, a local of a nested function — is a
+/// different binding, and publishing its value would overwrite an export with an
+/// unrelated number. Over-approximating here is a silent wrong answer in another
+/// module, which is the direction this crate's README says never to err in.
+fn mark_exported(scope: &mut Scope, ctx: &Ctx, name: Name) {
+    if scope.in_module_top() && ctx.exported_locals.contains_key(&name) {
+        scope.set_alias(name, super::scope::Alias::Export);
+    }
 }
 
 /// The environment `hops` links out from this function's own.
