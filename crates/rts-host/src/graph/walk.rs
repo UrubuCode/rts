@@ -241,7 +241,22 @@ fn visit(
     state.insert(path.to_owned(), Mark::Open);
 
     let source = std::fs::read_to_string(path)
-        .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?;
+        .map_err(|error| HostError::Parse(match path.is_dir() {
+            // A DIRECTORY reached as a module, which the OS reports as a
+            // permission error on Windows ("Acesso negado. (os error 5)") and
+            // as "Is a directory" elsewhere — neither of which says what to do.
+            // It happens when a specifier names a directory with no `index.*`
+            // inside it and no file of that name beside it, and `resolve`
+            // answers the joined path so the message can quote what was looked
+            // for. Saying which fault it is costs one `is_dir` on a path the
+            // loader has already failed to read, and the alternative was
+            // `protobufjs` reporting "Acesso negado" for an ordering bug.
+            true => format!(
+                "{} is a directory, and names no module: there is no index.ts/js/cjs/mjs inside                  it and no file of that name beside it",
+                path.display()
+            ),
+            false => format!("{}: {error}", path.display()),
+        }))?;
     // Parsed with a `Names` of its own, and thrown away: this pass wants the
     // import specifiers and nothing else. The real parse happens against the
     // `Names` the whole compilation shares.
