@@ -70,6 +70,34 @@ pub struct Registered {
     /// compiled module's own `export`, which is published after it ran and
     /// cannot be rebuilt from a function.
     pub build: Option<Builder>,
+    /// The COMPILED body, for a module of the program being run.
+    ///
+    /// # Why this is not [`Self::build`]
+    ///
+    /// Because a `Builder` runs INSIDE the `&mut Context` borrow that found it
+    /// — `module_at` calls it with `self` — and compiled code re-enters the
+    /// context on its own. Running one there is the re-entrant borrow this
+    /// crate's layout exists to make impossible. So the body is held and the
+    /// CALLER runs it outside any borrow: [`module_pending`] answers which, and
+    /// `dynamic_module::ensure_ran` is the one place that calls it.
+    ///
+    /// # Why holding it at all
+    ///
+    /// So a module runs when something NAMES it rather than in a topological
+    /// sweep before the program starts. That is what Node does, and it is the
+    /// only shape in which an import CYCLE can work: the module being
+    /// re-entered is already registered, with a namespace to hand back half
+    /// filled. A pre-ordered sweep has no answer for a cycle because a cycle has
+    /// no order — #2852 has the measurement, including the case that separates
+    /// the two models.
+    pub entry: Option<ModuleEntry>,
+    /// Whether this module's body is RUNNING right now.
+    ///
+    /// The middle of three states, and the one that makes a cycle terminate
+    /// instead of recursing: `a` requires `b`, `b` requires `a`, and the second
+    /// ask finds `a` running and takes its namespace as it stands rather than
+    /// starting the body again.
+    pub running: bool,
     /// Registered by a host (`true`) rather than published by a compiled
     /// module's own `export`.
     pub provided: bool,
@@ -146,6 +174,8 @@ pub(in crate::entry) fn namespace_for(context: &mut Context, specifier: String) 
             namespace: Some(made),
             build: None,
             provided: false,
+            entry: None,
+            running: false,
             meta: None,
             common: None,
         }),
@@ -189,6 +219,74 @@ impl Context {
     }
 }
 
+/// Registers a compiled module's BODY under its specifier, without running it.
+///
+/// The host calls this for every module of the program instead of running them
+/// in order. See [`Registered::entry`] for why a pre-ordered sweep cannot link a
+/// cycle, and `dynamic_module::ensure_ran` for the three states.
+pub fn declare_module_entry(context: &mut Context, specifier: &str, entry: ModuleEntry) {
+    match context
+        .modules
+        .iter_mut()
+        .find(|held| held.specifier == specifier)
+    {
+        // Never over a module already built or already registered by a host:
+        // `node:fs` is not a file of this program, and a compiled module that
+        // somehow shares a specifier with one must not displace it.
+        Some(held) if held.namespace.is_some() || held.provided => {}
+        Some(held) => held.entry = Some(entry),
+        None => context.modules.push(Registered {
+            specifier: specifier.to_owned(),
+            namespace: None,
+            build: None,
+            provided: false,
+            entry: Some(entry),
+            running: false,
+            meta: None,
+            common: None,
+        }),
+    }
+}
+
+/// The body a specifier still owes, and the namespace to hand back meanwhile.
+///
+/// `None` when there is nothing to run — the module has no compiled body, has
+/// already run, or is RUNNING, which is the cycle case and the whole reason this
+/// answers an `Option` rather than a bool. The namespace is created here, before
+/// the body runs, so that a re-entrant ask has an object to take: a CommonJS
+/// cycle is defined over `module.exports` existing and being half filled.
+///
+/// Marks the module running as it answers, because the caller is about to leave
+/// this borrow and cannot be trusted to come back and say so.
+pub fn module_pending(context: &mut Context, specifier: &str) -> Option<ModuleEntry> {
+    let at = context
+        .modules
+        .iter()
+        .position(|held| held.specifier == specifier)?;
+    if context.modules[at].running {
+        return None;
+    }
+    let entry = context.modules[at].entry?;
+    if context.modules[at].namespace.is_none() {
+        let made = make_object(context);
+        context.modules[at].namespace = Some(made);
+    }
+    context.modules[at].running = true;
+    Some(entry)
+}
+
+/// Records that a module's body finished, so a later ask does not run it again.
+pub fn module_ran(context: &mut Context, specifier: &str) {
+    if let Some(held) = context
+        .modules
+        .iter_mut()
+        .find(|held| held.specifier == specifier)
+    {
+        held.running = false;
+        held.entry = None;
+    }
+}
+
 /// Registers a module the host provides, by specifier.
 ///
 /// A linear list rather than a map: a host provides a handful of these, and the
@@ -210,6 +308,8 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
             namespace: Some(namespace),
             build: None,
             provided: true,
+            entry: None,
+            running: false,
             meta: None,
             common: None,
         }),
@@ -235,8 +335,30 @@ pub fn declare_module_common(context: &mut Context, specifiers: &[&str], common:
     }
 }
 
+/// The text a literal index names, for the two entry points that take one.
+///
+/// Both read it inline already; this is that read, named, so the
+/// `ensure_module_ran` call each makes first can share it rather than spelling
+/// the literal walk a third time.
+fn literal_at(context: &Context, specifier: i64) -> Option<String> {
+    context
+        .literals
+        .get(specifier as usize)
+        .copied()
+        .and_then(|value| Value(value).as_slot())
+        .and_then(|cell| context.text_at(cell))
+        .and_then(Str::to_rust)
+}
+
 /// What builds a namespace the first time a program names it.
 pub type Builder = fn(&mut Context) -> u64;
+
+/// A compiled module's body: the shape every compiled function has.
+///
+/// Six `undefined`s go in — a module closes over nothing, has no receiver and
+/// takes no arguments — and what comes back is discarded: a module's value is
+/// not what an importer reads, its published exports are.
+pub type ModuleEntry = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 
 /// Registers a module the host provides, WITHOUT building it.
 ///
@@ -286,6 +408,8 @@ pub fn declare_module_lazy(context: &mut Context, specifiers: &[&str], build: Bu
                 namespace: None,
                 build: Some(build),
                 provided: true,
+                entry: None,
+                running: false,
                 meta: None,
                 common: None,
             }),
@@ -337,6 +461,16 @@ pub fn declare_module_lazy(context: &mut Context, specifiers: &[&str], build: Bu
 /// happens first and only a miss reaches the fallback.
 #[rtse::entry]
 pub fn module_binding(specifier: i64, key: i64) -> u64 {
+    // The module's own body first, if it still owes one: a STATIC import is one
+    // of the three ways a module gets named, and this is where that naming
+    // happens at run time. Outside any borrow, which is why it is a call and not
+    // a line inside the closure below — see `dynamic_module::ensure_ran`.
+    if let Some(text) = with_current(|context| literal_at(context, specifier)) {
+        super::dynamic_module::ensure_module_ran(&text);
+        if super::throw::in_flight() {
+            return with_current(|context| undefined_of(context));
+        }
+    }
     // Two passes, because raising takes its own borrow: `named_error` builds the
     // error with the program's own constructor, which allocates and interns. So
     // the lookup answers what it found and the throw happens after it, outside.
@@ -405,6 +539,14 @@ fn unresolved(found: Result<u64, String>) -> u64 {
 /// resolves to.
 #[rtse::entry]
 pub fn module_namespace(specifier: i64) -> u64 {
+    // The body first, for the reason `module_binding` gives: `import * as ns`
+    // names the module as surely as `import { x }` does.
+    if let Some(text) = with_current(|context| literal_at(context, specifier)) {
+        super::dynamic_module::ensure_module_ran(&text);
+        if super::throw::in_flight() {
+            return with_current(|context| undefined_of(context));
+        }
+    }
     let found = with_current(|context| {
         let absent = undefined_of(context);
         let Some(text) = context

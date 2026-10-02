@@ -266,12 +266,24 @@ fn visit(
 ) -> Result<(), HostError> {
     match state.get(path) {
         Some(Mark::Done) => return Ok(()),
-        Some(Mark::Open) => {
-            return Err(HostError::Parse(format!(
-                "{} is part of an import cycle, which this engine does not link",
-                path.display()
-            )));
-        }
+        // A CYCLE: this file is already on the stack, so this edge is the one
+        // that closes the loop. DROPPED rather than refused, which is only
+        // correct now that module bodies run on demand.
+        //
+        // The refusal was right for as long as every body ran in a topological
+        // sweep before the program started, because a cycle has no topological
+        // order. Dropping the edge back then produced a WORSE failure, measured:
+        // the order became `b, a`, and when `b` ran its `require("./a.js")`
+        // answered `cannot find module` — a refusal at compile time traded for a
+        // throw in the middle of execution.
+        //
+        // What changed is that EVERY module of the program is now registered
+        // before any body runs (`run_region` and `rts-runtime-boot` both
+        // register instead of running), so "already registered" no longer means
+        // "already ran". A re-entrant `require` finds the module, finds it
+        // RUNNING, and takes its namespace as it stands — which is the CommonJS
+        // contract and what `protobufjs` needs. #2852.
+        Some(Mark::Open) => return Ok(()),
         None => {}
     }
     state.insert(path.to_owned(), Mark::Open);
