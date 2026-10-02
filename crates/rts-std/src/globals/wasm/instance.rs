@@ -38,20 +38,16 @@ pub(super) fn class(context: &mut entry::Context) -> u64 {
     ctor
 }
 
-/// `new WebAssembly.Instance(module)`.
-extern "C" fn construct(_e: u64, this: u64, module: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+/// `new WebAssembly.Instance(module, imports?)`.
+extern "C" fn construct(_e: u64, this: u64, module: u64, imports: u64, _c: u64, _d: u64) -> u64 {
     let Some(module_at) = super::module::index_of(module) else {
         entry::throw_type_error("WebAssembly.Instance(): first argument must be a Module");
         return entry::undefined_value();
     };
-    match store::instantiate(module_at) {
+    match store::instantiate(module_at, imports) {
         Ok(at) => made(this, at, module_at),
         Err(why) => {
-            // A `LinkError`, not a `CompileError`: the module decoded — what
-            // failed is satisfying what it asks for, which is the division the
-            // JS-API draws. This lot satisfies no import at all, so a module with
-            // one lands here by construction and the message names it.
-            errors::raise(errors::Which::Link, &format!("WebAssembly.Instance(): {why}"));
+            super::refuse_link("WebAssembly.Instance()", &why);
             entry::undefined_value()
         }
     }
@@ -148,8 +144,13 @@ extern "C" fn call_export(environment: u64, _this: u64, a: u64, b: u64, c: u64, 
         Ok(produced) => answer(&produced, results),
         Err(why) => {
             // A trap is a `RuntimeError` — the third of the three, and the only
-            // one a successfully linked module can raise.
-            errors::raise(errors::Which::Runtime, &why);
+            // one a successfully linked module can raise. UNLESS the trap is an
+            // imported JavaScript function that threw, in which case the program's
+            // own value is still in flight and raising here would replace it: see
+            // `imports::invoke`, which asks rather than takes for that reason.
+            if entry::thrown() == 0 {
+                errors::raise(errors::Which::Runtime, &why);
+            }
             entry::undefined_value()
         }
     }

@@ -37,6 +37,7 @@
 //! it honest.
 
 mod errors;
+mod imports;
 mod instance;
 mod memory;
 mod module;
@@ -68,6 +69,21 @@ pub fn install(context: &mut Context) {
         entry::put_member(context, namespace, which.name(), class);
     }
     entry::declare_global(context, "WebAssembly", namespace);
+}
+
+/// Raises the right class for a failure that came out of [`imports::define`] or
+/// out of linking.
+///
+/// Which class is not a detail: node answers a `TypeError` when the import
+/// NAMESPACE is missing or is not an object, and a `LinkError` when a member of a
+/// namespace that exists is missing or is the wrong type. Measured, because the
+/// two look like one question and a program branches on them differently.
+fn refuse_link(site: &str, why: &str) {
+    let message = format!("{site}: {}", imports::plain(why));
+    match imports::is_namespace_fault(why) {
+        true => entry::throw_type_error(&message),
+        false => errors::raise(errors::Which::Link, &message),
+    }
 }
 
 /// `WebAssembly.compile(bytes)` — a promise of a `Module`.
@@ -104,7 +120,7 @@ extern "C" fn compile(_e: u64, _this: u64, source: u64, _b: u64, _c: u64, _d: u6
 /// The JS-API's other overload takes a `Module` and answers the `Instance` alone.
 /// Both are served, and which one it is is decided by whether the argument is a
 /// `Module` — exactly as the specification decides it.
-extern "C" fn instantiate(_e: u64, _this: u64, source: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+extern "C" fn instantiate(_e: u64, _this: u64, source: u64, imports: u64, _c: u64, _d: u64) -> u64 {
     let promise = entry::promise_new();
     let absent = entry::undefined_value();
     let (module_at, pair) = match module::index_of(source) {
@@ -135,7 +151,7 @@ extern "C" fn instantiate(_e: u64, _this: u64, source: u64, _b: u64, _c: u64, _d
         entry::promise_settle(promise, error, 1);
         return promise;
     };
-    match store::instantiate(module_at) {
+    match store::instantiate(module_at, imports) {
         Ok(at) => {
             let made = instance::made(absent, at, module_at);
             let settled = match pair {
@@ -153,8 +169,14 @@ extern "C" fn instantiate(_e: u64, _this: u64, source: u64, _b: u64, _c: u64, _d
             entry::promise_settle(promise, settled, 0);
         }
         Err(why) => {
-            let error =
-                errors::make(errors::Which::Link, &format!("WebAssembly.instantiate(): {why}"));
+            // The same division `refuse_link` draws, settled rather than thrown:
+            // a rejected promise carries the value, so the class still has to be
+            // the right one.
+            let message = format!("WebAssembly.instantiate(): {}", imports::plain(&why));
+            let error = match imports::is_namespace_fault(&why) {
+                true => errors::make_type_error(&message),
+                false => errors::make(errors::Which::Link, &message),
+            };
             entry::promise_settle(promise, error, 1);
         }
     }

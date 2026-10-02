@@ -140,3 +140,13 @@ fn message_text(value: u64) -> String {
         false => entry::text_of(value).unwrap_or_default(),
     }
 }
+
+/// A `TypeError` as a VALUE, for a promise that must reject with one.
+///
+/// `entry::throw_type_error` raises, which is wrong for `instantiate`: the
+/// JS-API's async form rejects rather than throwing, so the error has to be built
+/// and handed to `promise_settle`. `make_named_error` is the same route the three
+/// wasm classes take, without the relinking.
+pub(super) fn make_type_error(message: &str) -> u64 {
+    entry::make_named_error("TypeError", message).unwrap_or_else(entry::undefined_value)
+}
