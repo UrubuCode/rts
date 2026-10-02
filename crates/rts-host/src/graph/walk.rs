@@ -214,6 +214,32 @@ pub fn load(entry: &Path) -> Result<Vec<Loaded>, HostError> {
     Ok(ordered)
 }
 
+/// The module body a `.node` file gets: one that raises when it runs.
+///
+/// A native addon is a shared library and this engine does not yet link one
+/// through the module loader — `rts napi <file.node>` opens and calls one, and
+/// what is missing is the path from an `import` to that. The error says which,
+/// so a reader is not left deciding whether addons work at all.
+///
+/// A `throw` and not a refusal at load time, because the common way a program
+/// asks for a native addon is OPTIONALLY: `import('sharp').catch(() => {})`.
+/// Refusing while reading the file denies that `catch` its purpose — the program
+/// never starts. Raising from the body lets the program handle it, which is the
+/// difference between "this dependency is unavailable" and "this program cannot
+/// be built".
+///
+/// The path is in the message and is escaped through `serde_json`, for the
+/// reason [`json_module`] gives: a Windows path is full of backslashes and a
+/// string literal built by hand would turn them into escapes.
+fn native_addon_module(path: &Path) -> String {
+    let quoted = serde_json::to_string(&path.display().to_string())
+        .unwrap_or_else(|_| String::from("\"a native addon\""));
+    format!(
+        "throw new Error(\"cannot load the native addon \" + {quoted} +          \": this engine does not link a .node file through the module loader yet.          `rts napi <file.node>` loads one directly.\");
+"
+    )
+}
+
 /// The module body a `.json` file gets: `JSON.parse` of its text.
 ///
 /// # Why `JSON.parse` of a string literal rather than the text inlined
@@ -288,6 +314,36 @@ fn visit(
     }
     state.insert(path.to_owned(), Mark::Open);
 
+    // A NATIVE addon. `.node` is a shared library, not text, and reading it as
+    // text answered `stream did not contain valid UTF-8` — an encoding error for
+    // a file that is not meant to be encoded. That stopped the whole compilation
+    // of `@whiskeysockets/baileys`, which asks for one like this:
+    //
+    //     await Promise.all([import('jimp').catch(() => {}),
+    //                        import('sharp').catch(() => {})])
+    //
+    // an OPTIONAL dependency with a `catch`. A loader that fails while reading
+    // never gives that `catch` a chance: the program does not run at all.
+    //
+    // So the module exists and its BODY raises, which is a module the program
+    // can fail to load rather than a program that cannot be built. That is only
+    // useful because a body now runs when something NAMES it (#2852): under the
+    // old topological sweep this body would have run always and killed every
+    // program that merely had a `.node` somewhere in its graph.
+    //
+    // `rts napi <file.node>` does load and call a real addon, so what is missing
+    // is the wiring between the loader and that, not the capability — the
+    // message says so rather than reading as "this cannot work".
+    if path.extension().is_some_and(|kind| kind == "node") {
+        state.insert(path.to_owned(), Mark::Done);
+        ordered.push(Loaded {
+            specifier: path.display().to_string(),
+            path: path.to_owned(),
+            resolutions: Vec::new(),
+            source: native_addon_module(path),
+        });
+        return Ok(());
+    }
     let source = std::fs::read_to_string(path)
         .map_err(|error| HostError::Parse(match path.is_dir() {
             // A DIRECTORY reached as a module, which the OS reports as a
