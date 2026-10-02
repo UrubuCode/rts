@@ -29,8 +29,9 @@
 //! object, which is the next lot's work; until then a program that instantiates in
 //! a loop grows, and that is a stated cost rather than an unnoticed one.
 
+use super::reentry;
 use std::sync::Mutex;
-use wasmi::{Engine, Instance, Module, Store};
+use wasmi::{AsContextMut, Engine, Instance, Module, Store, StoreContextMut};
 
 /// The one engine. `wasmi::Engine` is `Send + Sync` and compiling against two of
 /// them would make a `Module` from one unusable in the other's `Store`.
@@ -48,9 +49,10 @@ static ORDERS: Mutex<Vec<Vec<String>>> = Mutex::new(Vec::new());
 /// `Option` because a call TAKES the instance out for the duration of the call
 /// and puts it back after. That is what makes the surface re-entrant, and
 /// re-entrancy is not a refinement here: a wasm body that calls a JavaScript
-/// import can call another export from inside it (`wasm-bindgen` does, through
-/// its finalizers), and the previous shape held this lock across the call. A row
-/// that is `None` is one whose instance is currently running.
+/// import can call another export from inside it — of this same instance, which is
+/// what `__wbindgen_malloc` is — and the previous shape held this lock across the
+/// call. A row that is `None` is one whose instance is currently running, and
+/// `reentry.rs` is where its store can be reached while it is.
 static INSTANCES: Mutex<Vec<Option<Live>>> = Mutex::new(Vec::new());
 
 /// Every exported function a program has been handed, by the index its callable
@@ -195,9 +197,12 @@ pub(super) fn signature(at: usize) -> Option<(Vec<wasmi::core::ValueType>, usize
 /// Calls a recorded export.
 ///
 /// The instance is TAKEN out of the table for the duration, so a JavaScript
-/// import called from inside the wasm body can reach this function again for
-/// another export of the same instance — which `wasm-bindgen` does. Holding the
-/// lock across the call, as the first version did, deadlocks there.
+/// import called from inside the wasm body can reach this function again. Holding
+/// the lock across the call, as the first version did, deadlocks there.
+///
+/// An export of the SAME instance is reached through the suspended host function's
+/// `Caller` instead, which is the only `&mut Store` that exists while the body
+/// runs — `reentry.rs` has the invariant that makes it sound.
 ///
 /// A row left `None` by a panic would be permanently unusable, which is the cost
 /// of this shape; `extern "C"` frames here cannot unwind anyway, so a panic ends
@@ -215,10 +220,44 @@ pub(super) fn call(at: usize, arguments: &[wasmi::Value]) -> Result<Vec<wasmi::V
         .get(export.name_at)
         .cloned()
         .ok_or("no such export name")?;
-    let mut live = take(export.instance).ok_or(REENTRANT)?;
-    let outcome = run(&mut live, &name, arguments);
-    give_back(export.instance, live);
-    outcome
+    match take(export.instance) {
+        Some(mut live) => {
+            let outcome = run(&mut live, &name, arguments);
+            give_back(export.instance, live);
+            outcome
+        }
+        // The instance is running, so its store is reachable only through the
+        // `Caller` of the host function it is suspended on. `reentry.rs` is that
+        // half of the question, and the export is resolved off the `Caller`
+        // rather than off a `live.instance` this branch does not have — a
+        // `Caller` IS the instance that called out, so there is no second one to
+        // confuse it with.
+        None => reentry::use_active(export.instance, |caller| {
+            run_through(caller, &name, arguments, export.signature.1)
+        })
+        .ok_or_else(|| UNREACHED.to_owned())?,
+    }
+}
+
+/// One call against an instance reached through the `Caller` of the host function
+/// its body is suspended on — the reentrant case.
+///
+/// The result count comes from the signature `remember_export` cached rather than
+/// from the live function type, which is the same reason that cache exists: the
+/// type is read off the instance, and here the instance is not in the table.
+fn run_through(
+    caller: &mut wasmi::Caller<'static, HostState>,
+    name: &str,
+    arguments: &[wasmi::Value],
+    results: usize,
+) -> Result<Vec<wasmi::Value>, String> {
+    let func = caller
+        .get_export(name)
+        .and_then(wasmi::Extern::into_func)
+        .ok_or_else(|| format!("instance exports no `{name}`"))?;
+    let mut produced = vec![wasmi::Value::I32(0); results];
+    func.call(&mut *caller, arguments, &mut produced).map_err(|error| error.to_string())?;
+    Ok(produced)
 }
 
 /// One call against an instance held OUTSIDE the table.
@@ -235,22 +274,21 @@ fn run(live: &mut Live, name: &str, arguments: &[wasmi::Value]) -> Result<Vec<wa
     Ok(results)
 }
 
-/// What a call into an instance that is already running answers.
+/// What a call answers when an instance is in neither place its store can be.
 ///
-/// A JavaScript import CAN call an export — of another instance, and anything
-/// else JavaScript does — but not of the one whose body is currently suspended on
-/// it. `wasmi` allows that only through the `Caller` it hands the host function,
-/// and reaching it from where the JavaScript call lands would mean keeping a
-/// `Caller` alive in a thread-local across a borrow the compiler is right to
-/// refuse. Named rather than deadlocked or silently wrong, and measured: node
-/// answers 6 and 8 for the fixture's case, and this answers a `RuntimeError`.
+/// Not reachable by a program, and named rather than answered with an empty
+/// vector because a plausible wrong number is what this module's history is made
+/// of: an instance absent from the table is one that is running, and a running
+/// instance has a suspended host-function frame on this thread — nothing in this
+/// workspace can hand a reference to another thread, so it cannot be running on
+/// one.
 ///
-/// What made this acceptable for now was checking the claim this module first
-/// made without checking it: `wasm-bindgen`'s finalizers do NOT need it. They run
-/// from a `FinalizationRegistry`, which is a microtask — after the call, not
-/// inside it.
-pub(super) const REENTRANT: &str =
-    "a reentrant call into the instance that is already running is not supported";
+/// This replaced a REFUSAL of the whole case, whose argument was that
+/// `wasm-bindgen` needs reentrancy only for its finalizers and those run from a
+/// `FinalizationRegistry`, hence in a microtask after the call. The premise was
+/// checked and is true; the conclusion was wrong, because the caller that needs it
+/// is `__wbindgen_malloc` — see `reentry.rs`.
+const UNREACHED: &str = "the instance is running where its store cannot be reached";
 
 /// Takes an instance out of the table, leaving the row running.
 fn take(at: usize) -> Option<Live> {
@@ -358,20 +396,41 @@ pub(super) fn kind_of_type(ty: &wasmi::ExternType) -> Kind {
 
 // ----------------------------------------------------------- linear memory --
 
+/// Runs `body` over the store of an instance, wherever that store currently is.
+///
+/// The single answer to *"where is the store of instance N right now"*, and the
+/// reason it is one function is that the three memory operations below each used
+/// to ask only the table — so each answered EMPTY, or did nothing, for an instance
+/// that was running. That was unreachable while a reentrant call was refused and
+/// is reachable now, which is why it is fixed in this change rather than noted:
+/// `memory.rs::rebuild_with` carries the comment written to work around it.
+///
+/// The instance is taken out of the table for the duration, as `call` does and for
+/// the same reason: `body` can reach into the runtime, and nothing may hold the
+/// table's lock while it does.
+fn with_context<T>(at: usize, body: impl FnOnce(StoreContextMut<'_, HostState>) -> T) -> Option<T> {
+    match take(at) {
+        Some(mut live) => {
+            let answer = body(live.store.as_context_mut());
+            give_back(at, live);
+            Some(answer)
+        }
+        None => reentry::use_active(at, |caller| body(caller.as_context_mut())),
+    }
+}
+
 /// The bytes of one of an instance's memories.
 pub(super) fn memory_bytes(instance_at: usize, memory: wasmi::Memory) -> Vec<u8> {
-    let held = INSTANCES.lock().expect("the instance table lock");
-    let Some(Some(live)) = held.get(instance_at) else { return Vec::new() };
-    memory.data(&live.store).to_vec()
+    with_context(instance_at, |context| memory.data(&context).to_vec()).unwrap_or_default()
 }
 
 /// Writes bytes into one of an instance's memories, up to its length.
 pub(super) fn write_memory(instance_at: usize, memory: wasmi::Memory, source: &[u8]) {
-    let mut held = INSTANCES.lock().expect("the instance table lock");
-    let Some(Some(live)) = held.get_mut(instance_at) else { return };
-    let window = memory.data_mut(&mut live.store);
-    let count = source.len().min(window.len());
-    window[..count].copy_from_slice(&source[..count]);
+    with_context(instance_at, |mut context| {
+        let window = memory.data_mut(&mut context);
+        let count = source.len().min(window.len());
+        window[..count].copy_from_slice(&source[..count]);
+    });
 }
 
 /// Grows one of an instance's memories, answering the page count it had.
@@ -380,13 +439,11 @@ pub(super) fn grow_memory(
     memory: wasmi::Memory,
     pages: u32,
 ) -> Result<u32, String> {
-    let mut held = INSTANCES.lock().expect("the instance table lock");
-    let live = held.get_mut(instance_at).and_then(Option::as_mut).ok_or("no such instance")?;
     let delta = wasmi::core::Pages::new(pages).ok_or("a page count wasm cannot represent")?;
-    memory
-        .grow(&mut live.store, delta)
-        .map(|before| u32::from(before))
-        .map_err(|error| error.to_string())
+    with_context(instance_at, |mut context| {
+        memory.grow(&mut context, delta).map(u32::from).map_err(|error| error.to_string())
+    })
+    .unwrap_or_else(|| Err("no such instance".to_owned()))
 }
 
 /// The memories a live instance exports, by name.

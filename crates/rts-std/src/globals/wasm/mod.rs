@@ -24,12 +24,23 @@
 //! |---|---|
 //! | `Memory.buffer` as SHARED storage | the bytes are copied in and out around
 //! each exported call rather than being one allocation both sides address. That
-//! is observationally a shared memory — `memory.rs` has the argument and the one
-//! thing that would break it (an import) — at two copies of the memory per call.
+//! is observationally a shared memory — `memory.rs` has the argument, and the one
+//! thing that would have broken it, an import, is answered by mirroring at every
+//! traversal of control instead — at two copies of the memory per traversal.
 //! Waits on an `ArrayBuffer` over foreign bytes in `rts-core`, which closes this
 //! and `napi_create_external_buffer` with one mechanism |
-//! | an import object | nothing hands a JavaScript function INTO a module yet, so `instantiate(bytes, imports)` ignores its second argument and a module with an import raises a `LinkError` naming it. `store::call` holds a lock across the call and says so: re-entrancy is the first thing this needs |
-//! | `Table`, `Global` | nothing reads them without an import object |
+//! | an exported function of MORE THAN FOUR parameters | the fifth and later
+//! arguments read `undefined`, hence 0, which is the four-slot limit every native
+//! in this workspace has — `instance.rs` states it and `#[rtse::class]` refuses a
+//! fifth argument by name. **This is the blocker a real program meets now**, and it
+//! is measured rather than predicted: `whatsapp-rust-bridge`'s `hkdf` is reached as
+//! `wasm.hkdf(retptr, ptr0, len0, length, addHeapObject(info))`, so `info` arrives
+//! as heap slot 0 and the bridge answers `invalid type: unit value, expected struct
+//! HkdfInfo`. Waits on a native reading the argument vector, which is not this
+//! surface's to add. This row replaced "an import object", which the lot before
+//! this one supplied and which stood here stale |
+//! | `Table`, `Global` | nothing hands either one IN, which is the only way a
+//! module asks for one |
 //! | an `i64` as a `BigInt` | crosses as a `Number`. Recorded in `instance.rs` |
 //!
 //! A program that reaches one of those gets a named failure at the call, never a
@@ -42,6 +53,7 @@ mod instance;
 mod memory;
 mod module;
 mod order;
+mod reentry;
 mod store;
 
 use rts_core::entry::{self, Context};
