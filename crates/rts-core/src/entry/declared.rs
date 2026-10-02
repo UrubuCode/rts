@@ -39,6 +39,14 @@ pub enum Role {
     Constant,
     /// A value property of the constructor.
     StaticConstant,
+    /// A value property of the constructor a program is MEANT to write:
+    /// `Error.stackTraceLimit`. Its own role rather than a flag, because what
+    /// separates it from [`Role::StaticConstant`] is exactly the `readonly` this
+    /// layer prints — and a derived view that said `readonly` about a property
+    /// the runtime installs as writable is the drift "one source, generated
+    /// views" exists to make unrepresentable. It was printed that way for the
+    /// length of one `rts emit-types` run before this variant existed.
+    StaticSetting,
 }
 
 /// One member, as a program writes it.
@@ -287,7 +295,10 @@ fn declaration(class: &Class) -> String {
     let statics: Vec<&Member> = class
         .members
         .iter()
-        .filter(|member| matches!(member.role, Role::Static | Role::StaticConstant))
+        .filter(|member| matches!(
+            member.role,
+            Role::Static | Role::StaticConstant | Role::StaticSetting
+        ))
         .collect();
     let construct = class
         .members
@@ -389,6 +400,10 @@ fn spelled(class: &Class, member: &Member) -> String {
 fn as_namespace_member(member: &Member) -> String {
     match member.role {
         Role::Constant | Role::StaticConstant => format!("const {};", member.signature),
+        // `let`, not `const`: the whole point of the role is that a program
+        // assigns it, and `const` here would refuse the assignment at the type
+        // level while the runtime allowed it.
+        Role::StaticSetting => format!("let {};", member.signature),
         _ => format!("function {};", member.signature),
     }
 }

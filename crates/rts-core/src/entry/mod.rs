@@ -61,6 +61,8 @@ mod current;
 pub mod declared;
 mod date;
 mod error;
+mod error_describe;
+mod error_stack;
 mod errors;
 mod eval;
 mod eval_scope;

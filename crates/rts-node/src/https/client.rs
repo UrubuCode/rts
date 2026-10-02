@@ -102,8 +102,14 @@ fn build_request(url_or_options: u64, options: u64, callback: u64, auto_end: boo
     }
 
     let socket = tls_connect(&host, port);
+    // The `TLSSocket` is this module's, not the program's — see
+    // `crate::owned_socket`. `tls::socket::on_underlying_error` already relays
+    // the inner `net.Socket`'s failure onto it, so without a listener HERE that
+    // relay was the thing that killed the process.
+    crate::owned_socket::absorb_errors(socket);
     if !connect_blocking(socket) {
-        let error_instance = error_object("ECONNREFUSED", "connect failed");
+        let error_instance = crate::owned_socket::recorded_error(socket)
+            .unwrap_or_else(|| error_object("ECONNREFUSED", "connect failed"));
         // Still hand back a real `ClientRequest`-shaped object so a
         // program's `.on('error', ...)` has something to have registered
         // on, matching `http::client::build_request`'s own shape for the

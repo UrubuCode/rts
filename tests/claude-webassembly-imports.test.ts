@@ -163,38 +163,117 @@ test("a throw inside a callback propagates as itself", () => {
   expect(String(caught.message)).toBe("from the callback");
 });
 
-// Re-entrancy into the SAME instance is a stated divergence, and this pins it as
-// one rather than leaving it to be met.
+// (module
+//   (import "env" "cb" (func $cb (param i32) (result i32)))
+//   (memory 1)
+//   (func (param i32) (result i32) local.get 0 call $cb)   ;; "outer", func 1
+//   (func (param i32) (result i32)                         ;; "bump",  func 2
+//     i32.const 1 memory.grow drop                         ;; one page more
+//     i32.const 65552 local.get 0 i32.store8               ;; into the new page
+//     memory.size)
+//   (export "outer" (func 1)) (export "bump" (func 2)) (export "memory" (memory 0)))
 //
-// node answers 6 and 8 for this program. Here it raises, because `wasmi` allows a
-// call from inside a host function only through the `Caller` it hands over, and
-// reaching that from where the JavaScript call lands would mean keeping a `Caller`
-// alive in a thread-local across a borrow the compiler is right to refuse.
-// `store::REENTRANT` carries the reasoning.
-//
-// What made it acceptable to stop here was checking a claim rather than repeating
-// it: `wasm-bindgen`'s finalizers do NOT need this. They run from a
-// `FinalizationRegistry`, which is a microtask — after the call, not inside it.
-// A callback calling an export of ANOTHER instance works, which is the case below.
-test("a callback into the SAME instance raises, and says so", () => {
+// Sizes: types 6, imports 10, funcs 3, memory 3, exports 25 (3 + 8 + 7 + 9),
+// code 27 (1 + 7 + 19). `bump`'s body is 18 bytes after its locals count.
+const nested = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f,
+  0x02, 0x0a, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x02, 0x63, 0x62, 0x00, 0x00,
+  0x03, 0x03, 0x02, 0x00, 0x00,
+  0x05, 0x03, 0x01, 0x00, 0x01,
+  0x07, 0x19, 0x03,
+  0x05, 0x6f, 0x75, 0x74, 0x65, 0x72, 0x00, 0x01,
+  0x04, 0x62, 0x75, 0x6d, 0x70, 0x00, 0x02,
+  0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+  0x0a, 0x1b, 0x02,
+  0x06, 0x00, 0x20, 0x00, 0x10, 0x00, 0x0b,
+  0x12, 0x00, 0x41, 0x01, 0x40, 0x00, 0x1a, 0x41, 0x90, 0x80, 0x04, 0x20, 0x00,
+  0x3a, 0x00, 0x00, 0x3f, 0x00, 0x0b,
+]);
+
+// This used to fix a REFUSAL, with node's answers beside it as the divergence.
+// The argument for refusing was that `wasm-bindgen` needs reentrancy only for its
+// finalizers, which run from a `FinalizationRegistry` and therefore after the
+// call. That premise is true and the conclusion was wrong: the caller that needs
+// it is `__wbindgen_malloc`, an export the import itself calls to hand data back,
+// and the `whatsapp-rust-bridge` that `@whiskeysockets/baileys` uses for `hkdf`
+// raised on its FIRST call. `reentry.rs` is the mechanism and its invariant.
+test("a callback calls an export of the SAME instance", () => {
   let made: any = null;
+  const seen: number[] = [];
   made = new WebAssembly.Instance(new WebAssembly.Module(calling), {
     env: {
       twice: (n: number) => {
         made.exports.useNote(8);
         return n * 2;
       },
+      note: (n: number) => {
+        seen.push(n);
+      },
+    },
+  });
+  expect(made.exports.useTwice(3)).toBe(6);
+  expect(seen.length).toBe(1);
+  expect(seen[0]).toBe(8);
+});
+
+// The decisive one for the MEMORY, and measured under node 22.23.2 before any of
+// this existed: `outer(21) = 42`, the reentrant `bump` answers 2, the buffer is
+// 131072 bytes afterwards and byte 65552 is 42.
+//
+// It is decisive because the reentrant export GROWS the linear memory, which is
+// what `__wbindgen_malloc` does on its first allocation, and `memory.rs` mirrors
+// at every traversal of control — so a reentrant call is one traversal more in
+// each direction and the mirror has to follow the growth. Writing past the end of
+// a `Uint8Array` is silently ignored, so getting this wrong answers a plausible
+// number rather than an error: it is how `md5("hello")` once came back as the
+// hash of zeros.
+test("a reentrant export may grow the memory, and the buffer follows", () => {
+  let made: any = null;
+  let fromInside = 0;
+  made = new WebAssembly.Instance(new WebAssembly.Module(nested), {
+    env: {
+      cb: (n: number) => {
+        fromInside = made.exports.bump(42);
+        return n * 2;
+      },
+    },
+  });
+  expect(made.exports.outer(21)).toBe(42);
+  expect(fromInside).toBe(2);
+  expect(made.exports.memory.buffer.byteLength).toBe(131072);
+  const view: any = new Uint8Array(made.exports.memory.buffer);
+  expect(view[65552]).toBe(42);
+});
+
+// Two instances suspended at once, and the innermost frame is NOT the one the
+// call needs: A's import calls B, and B's import calls back into A. node answers
+// 30 and sees 4. It is the case that decides `reentry::use_active` has to search
+// the stack by instance rather than take its top.
+test("a callback reaches an outer instance past an inner one", () => {
+  const module = new WebAssembly.Module(calling);
+  const seen: number[] = [];
+  let outer: any = null;
+  const inner: any = new WebAssembly.Instance(module, {
+    env: {
+      twice: (n: number) => {
+        outer.exports.useNote(n + 1);
+        return n * 10;
+      },
       note: () => {},
     },
   });
-  let caught: any = null;
-  try {
-    made.exports.useTwice(3);
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught === null).toBe(false);
-  expect(String(caught.message).indexOf("reentrant") >= 0).toBe(true);
+  outer = new WebAssembly.Instance(module, {
+    env: {
+      twice: (n: number) => inner.exports.useTwice(n),
+      note: (n: number) => {
+        seen.push(n);
+      },
+    },
+  });
+  expect(outer.exports.useTwice(3)).toBe(30);
+  expect(seen.length).toBe(1);
+  expect(seen[0]).toBe(4);
 });
 
 test("a callback into ANOTHER instance works", () => {
