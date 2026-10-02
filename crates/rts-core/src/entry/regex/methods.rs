@@ -226,33 +226,51 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
         // Converted ONCE and handed to `search`, which used to convert it again.
         let text = text_of(context, subject)?;
         let spans = search(context, this, &text)?;
-        let parts: Vec<Option<String>> = spans
-            .iter()
-            .map(|span| span.map(|(from, to)| text[from..to].to_string()))
-            .collect();
         let at = units_before(&text, spans[0]?.0);
         let described = Value(this).as_slot().and_then(|cell| context.regexp_at(cell));
         // Os nomes dos grupos, que o motor sempre soube e ninguém perguntava:
         // `Spans` é indexado por posição, portanto um grupo nomeado chegava
         // aqui anónimo e `m.groups` não tinha de onde ser construído.
-        let named = described
-            .map(|rx| rx.named_groups(&parts))
-            .unwrap_or_default();
+        //
+        // Asked `has_names` FIRST, and the two allocations behind that question
+        // are why. `named_groups` calls `names`, which builds a `Vec` and owns
+        // a `String` per named group, and then filters it down — so a pattern
+        // that names nothing paid two allocations per match to be handed an
+        // empty answer. Nearly every pattern names nothing.
+        //
+        // The group texts it wants are built here too, and only here: the
+        // elements of the array below are interned straight out of the subject
+        // (see the second borrow), so this is the one caller that still needs
+        // owned copies and it is now the rare one.
+        let named = match described.filter(|rx| rx.has_names()) {
+            Some(rx) => {
+                let parts: Vec<Option<String>> = spans
+                    .iter()
+                    .map(|span| span.map(|(from, to)| text[from..to].to_string()))
+                    .collect();
+                rx.named_groups(&parts)
+            }
+            None => Vec::new(),
+        };
         // The spans survive only for a `d` pattern. Every match has them and
         // nearly no match is asked where its groups were, so carrying them past
         // this borrow unconditionally would be a vector per `exec` for a
         // property the program never reads.
+        //
+        // Cloned rather than moved now that the SPANS are what the array is
+        // built from: the clone happens only for a `d` pattern, which is the
+        // same rarity this paragraph is about.
         let positioned = described
             .filter(|rx| rx.has_indices())
-            .map(|rx| (spans, rx.names()));
-        Some((parts, at, text, named, positioned))
+            .map(|rx| (spans.clone(), rx.names()));
+        Some((spans, at, text, named, positioned))
     });
 
-    let Some((parts, at, text, named, positioned)) = found else {
+    let Some((spans, at, text, named, positioned)) = found else {
         return with_current(|context| null_of(context));
     };
 
-    let array = super::super::array::array_new(parts.len() as i64);
+    let array = super::super::array::array_new(spans.len() as i64);
     with_current(|context| {
         let absent = undefined_of(context);
         // Written STRAIGHT INTO the array, one group at a time: interning
@@ -263,9 +281,14 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
         let Some(cell) = Value(array).as_slot() else {
             return array;
         };
-        for (position, part) in parts.into_iter().enumerate() {
-            let value = match part {
-                Some(text) => context.intern_value(Str::from_str(&text)).bits(),
+        // Interned STRAIGHT OUT OF THE SUBJECT, by span. It used to go through a
+        // `String` per group built in the borrow above — so the same bytes were
+        // copied twice, once into a Rust allocation and once into the `Str` that
+        // replaced it, and the first copy existed only to be the argument of the
+        // second.
+        for (position, span) in spans.iter().enumerate() {
+            let value = match span {
+                Some((from, to)) => context.intern_value(Str::from_str(&text[*from..*to])).bits(),
                 // A group that took part in no alternative. `undefined`, which
                 // is not the empty string and does not compare like one.
                 None => absent,
@@ -463,6 +486,16 @@ fn text_of(context: &Context, value: u64) -> Option<String> {
 
 /// How many UTF-16 code units precede a byte offset.
 pub(in crate::entry) fn units_before(text: &str, offset: usize) -> usize {
+    // An ASCII byte is one code unit, so for a prefix that is all ASCII the
+    // answer IS the offset and there is nothing to count. Worth a branch
+    // because the general form is a scalar iterator over every character
+    // before the match — O(offset) on a path that runs per match — while
+    // `is_ascii` is a SIMD scan of the same bytes. Same answer, and the common
+    // subject never leaves this line.
+    let prefix = &text.as_bytes()[..offset];
+    if prefix.is_ascii() {
+        return offset;
+    }
     text[..offset].encode_utf16().count()
 }
 
@@ -475,6 +508,14 @@ pub(in crate::entry) fn units_before(text: &str, offset: usize) -> usize {
 pub(in crate::entry) fn bytes_before(text: &str, units: usize) -> Option<usize> {
     if units == 0 {
         return Some(0);
+    }
+    // The same identity as `units_before`, from the other side: where the first
+    // `units` bytes are ASCII they are also the first `units` code units, so
+    // the byte offset is the count. Bounded first — a count past the end is a
+    // `lastIndex` the program wrote too far, and that answer is the general
+    // form's `None` rather than this one's.
+    if units <= text.len() && text.as_bytes()[..units].is_ascii() {
+        return Some(units);
     }
     let mut counted = 0;
     for (offset, character) in text.char_indices() {

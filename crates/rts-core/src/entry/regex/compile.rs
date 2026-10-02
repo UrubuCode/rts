@@ -145,6 +145,21 @@ impl Engine {
         }
     }
 
+    /// Whether ANY group is named, without building the list of names.
+    ///
+    /// [`Self::names`] allocates a `Vec` and owns a `String` per named group,
+    /// and `Regexp::named_groups` called it on every match of every pattern —
+    /// including the overwhelming majority that name nothing, where the whole
+    /// of that work produces an empty answer. This is the question those
+    /// callers were really asking, and it is a walk over borrowed names with
+    /// no allocation at all.
+    pub(super) fn has_names(&self) -> bool {
+        match self {
+            Engine::Plain(compiled) => compiled.capture_names().any(|name| name.is_some()),
+            Engine::Fancy(compiled) => compiled.capture_names().any(|name| name.is_some()),
+        }
+    }
+
     pub(super) fn find_at(&self, haystack: &str, start: usize) -> Option<Spans> {
         if start > haystack.len() {
             return None;

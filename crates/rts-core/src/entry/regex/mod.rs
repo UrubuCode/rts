@@ -434,6 +434,16 @@ impl Regexp {
         self.engine.names()
     }
 
+    /// Whether this pattern names any group, asked without building the names.
+    ///
+    /// What `m.groups` being an object rather than `undefined` depends on, and
+    /// what lets a match skip [`Self::named_groups`] entirely — see
+    /// [`compile::Engine::has_names`] for what that call was costing a pattern
+    /// that names nothing.
+    pub(super) fn has_names(&self) -> bool {
+        self.engine.has_names()
+    }
+
     /// The named groups of one match, paired with what they captured.
     ///
     /// Here rather than at each of the three call sites — `exec`,
