@@ -5,10 +5,11 @@
 // `node:http` server, which is what sees the request line for real; a remote
 // status code would also depend on the network.
 //
-// The handler wraps `res.end` in a `try`: it throws "undefined is not a
-// function" here, which is a separate node:http defect and NOT what this file
-// pins — the request has already arrived and been recorded by then, and the
-// response still reaches the client.
+// The handler calls `res.end("ok")` plainly. It used to need a `try` around it,
+// because `res.end(chunk)` threw "undefined is not a function" — a separate
+// `node:http` defect this file had to work around and say so. That is fixed
+// (#2841), so the `try` is gone: a `catch` kept past the defect it was written
+// for is a comment that lies about the engine.
 import { describe, test, expect } from "rts:test";
 import { createServer } from "node:http";
 
@@ -16,7 +17,7 @@ const seen: any[] = [];
 
 const server = createServer((req: any, res: any) => {
     seen.push(req.headers);
-    try { res.end("ok"); } catch (e) { /* see the note above */ }
+    res.end("ok");
 });
 // A fixed port rather than `listen(0)`: `server.address()` is not implemented
 // here, so there is no way to ask which port port zero chose.
