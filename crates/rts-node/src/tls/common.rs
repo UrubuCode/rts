@@ -66,14 +66,21 @@ pub(super) fn chained_prototype(context: &mut Context, parent: &'static str, nam
     prototype
 }
 
-/// A string option field, read from a context already in hand.
+/// A string option field, read from a context already in hand — the type
+/// TEST, never `ToString`.
+///
+/// See `http::common::option_text` for the account. Here the same conversion
+/// reached further than a wrong host: `tls.connect({ host, port })` with no
+/// `servername` written took `"undefined"` as the SNI name instead of
+/// falling back to the host, and `secureContext`-less `cert`/`key`/`ca`
+/// (`tls::context`) each arrived as that same nine-letter PEM.
 pub(super) fn option_text(context: &mut Context, options: u64, name: &str) -> Option<String> {
     let absent = entry::undefined_in(context);
     if options == absent {
         return None;
     }
     let value = entry::get_member(context, options, name);
-    entry::text_in(context, value)
+    entry::string_in(context, value)
 }
 
 /// A numeric option field, read from a context already in hand.

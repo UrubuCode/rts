@@ -279,7 +279,9 @@ fn read_request_options(context: &mut entry::Context, url_or_options: u64, optio
     let mut port = 443u16;
     let mut path = "/".to_owned();
     let mut method = "GET".to_owned();
-    if let Some(text) = entry::text_in(context, url_or_options) {
+    // The overload test, not a conversion — see `http::client`'s copy of this
+    // line for the account.
+    if let Some(text) = entry::string_in(context, url_or_options) {
         parse_url_into(&text, &mut host, &mut port, &mut path);
     } else {
         apply_options(context, url_or_options, &mut host, &mut port, &mut path, &mut method);
@@ -327,7 +329,9 @@ fn apply_options(context: &mut entry::Context, options: u64, host: &mut String, 
 /// discipline applied to a different options object.
 fn read_headers(url_or_options: u64, options: u64) -> Vec<(String, String)> {
     let mut headers = Vec::new();
-    let is_url_string = entry::with_runtime(|context| entry::text_in(context, url_or_options).is_some());
+    // The same overload test `read_request_options` makes, and it has to ask
+    // the same question: a conversion here would look for headers on a URL.
+    let is_url_string = entry::with_runtime(|context| entry::string_in(context, url_or_options).is_some());
     if !is_url_string {
         collect_headers(url_or_options, &mut headers);
     }

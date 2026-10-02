@@ -51,7 +51,12 @@ pub(super) extern "C" fn connect(_e: u64, _this: u64, a: u64, b: u64, c: u64, _d
     let absent = entry::undefined_value();
     let (host, port, servername, context_id, listener) = entry::with_runtime(|context| {
         if let Some(port) = entry::number_of(a) {
-            let host = entry::text_in(context, b).unwrap_or_else(|| "localhost".to_owned());
+            // `string_in`, not `text_in`: `tls.connect(port)` and
+            // `tls.connect(port, callback)` both leave this argument absent,
+            // and converting that answered the host name "undefined" instead
+            // of falling through to the default — see
+            // `super::common::option_text`.
+            let host = entry::string_in(context, b).unwrap_or_else(|| "localhost".to_owned());
             (host.clone(), port as u16, host, None, c)
         } else {
             let host = super::common::option_text(context, a, "host").unwrap_or_else(|| "localhost".to_owned());

@@ -80,13 +80,23 @@ pub(super) fn is_callable(value: u64) -> bool {
     value != absent && entry::with_runtime(|context| entry::get_member(context, value, "call")) != absent
 }
 
+/// A string option off an options object — the type TEST, never `ToString`.
+///
+/// See `http::common::option_text` for the whole account: this module's copy
+/// held the identical defect and it is the one `@whiskeysockets/baileys`
+/// died on. `ws` builds its request options from a defaults object that
+/// spreads `hostname: undefined` in, `https::client::apply_options` reads
+/// `hostname` before `host`, and converting that `undefined` answered the
+/// text `"undefined"` — so every `wss://` handshake dialled a host by that
+/// name and failed to resolve (`os error 11001`, WSAHOST_NOT_FOUND) while
+/// `web.whatsapp.com` resolved fine one call away.
 pub(super) fn option_text(context: &mut Context, options: u64, name: &str) -> Option<String> {
     let absent = entry::undefined_in(context);
     if options == absent {
         return None;
     }
     let value = entry::get_member(context, options, name);
-    entry::text_in(context, value)
+    entry::string_in(context, value)
 }
 
 pub(super) fn option_num(context: &mut Context, options: u64, name: &str) -> Option<f64> {
