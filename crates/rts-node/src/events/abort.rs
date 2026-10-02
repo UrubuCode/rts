@@ -39,10 +39,33 @@ pub(super) extern "C" fn add_abort_listener(_e: u64, _this: u64, signal: u64, li
         return absent;
     }
 
+    // A signal that was ALREADY aborted still reaches the listener — and not
+    // synchronously, which is what this did. Measured against node 22:
+    //
+    //   sync-after-register -> listener -> microtask -> immediate
+    //
+    // so the listener runs in a MICROTASK queued at registration, before one the
+    // caller queues on the next line. Calling it synchronously made
+    // `addAbortListener` reentrant into the caller's own statement, which is the
+    // one thing a listener is never allowed to be.
+    //
+    // Queued the way `queueMicrotask` itself does it — a settled promise and its
+    // `then` — and the promise settles WITH the event, so the reaction receives
+    // it as its argument and `abort_listener_callback` already has that shape.
     let aborted = entry::to_boolean(entry::get_indexed(signal, super::string_key("aborted")));
     if aborted {
         let event = entry::get_indexed(signal, super::string_key("__nodeAbortEvent__"));
-        entry::call(listener, signal, event, absent, absent, absent);
+        let reaction = entry::closure_new(
+            abort_listener_callback as *const () as usize as i64,
+            listener,
+        );
+        let then_fn = entry::with_runtime(|context| {
+            let source = entry::settled(context, event, false);
+            let then_fn = entry::get_member(context, source, "then");
+            (source, then_fn)
+        });
+        let (source, then_fn) = then_fn;
+        entry::call(then_fn, source, reaction, absent, absent, absent);
     }
     disposable(signal, callback)
 }

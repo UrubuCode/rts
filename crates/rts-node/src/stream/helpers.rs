@@ -55,17 +55,30 @@
 //!   argument count a compiled call site recorded — not by treating an
 //!   explicit `undefined` as "omitted", which would be the wrong answer that
 //!   runs for `arr.reduce(fn, undefined)`.
-//! - **`flatMap`'s inner value** is flattened only when
-//!   [`entry::iterate`] accepts it — arrays, `Map`/`Set`, anything declaring
-//!   `Symbol.iterator` — with a string treated as ONE chunk rather than walked
-//!   by code point (matching Node, which special-cases strings the same way).
-//!   A `Buffer`/typed array is NOT special-cased and so IS flattened
-//!   byte-by-byte, which diverges from Node's "treat as one chunk" rule —
-//!   named rather than fixed, because telling "a byte view worth keeping
-//!   whole" apart from "an array worth flattening" has no single answer
-//!   elsewhere in this crate either. An async-iterable inner value is not
-//!   supported, for the reason `Readable.from`'s own doc gives: this engine
-//!   walks a sync `Symbol.iterator` only.
+//! - **`flatMap`'s inner value** is flattened whenever [`entry::iterate`]
+//!   accepts it — arrays, `Map`/`Set`, a `Buffer`, a string, anything declaring
+//!   `Symbol.iterator`. There is no special case, and the two this paragraph
+//!   used to claim were measured BACKWARDS against node 22:
+//!
+//!   - it said a string is "treated as ONE chunk ... matching Node, which
+//!     special-cases strings the same way". Node does not:
+//!     `Readable.from(["ab"]).flatMap(x => x).toArray()` is `["a", "b"]`.
+//!   - it said a `Buffer` "IS flattened byte-by-byte, which diverges from
+//!     Node's treat-as-one-chunk rule". Node flattens it too: `flatMap` over
+//!     `Buffer.from("ab")` is `[97, 98]`.
+//!
+//!   So the rule the code had WAS the divergence, and the one it called a
+//!   divergence was the rule. Iterable is iterable.
+//!
+//!   What does still diverge, named because it is now the only one: a
+//!   NON-iterable inner value. Node raises `TypeError: undefined is not a
+//!   function` from inside `flatMap` — it asks for `Symbol.iterator` and calls
+//!   it — where this answers the value as a single chunk. No fixture here
+//!   measures it, so it is stated rather than changed.
+//!
+//!   An async-iterable inner value is not supported, for the reason
+//!   `Readable.from`'s own doc gives: this engine walks a sync
+//!   `Symbol.iterator` only.
 
 use rts_core::entry::{self, Provided};
 
@@ -265,10 +278,7 @@ pub(super) extern "C" fn reduce(_e: u64, this: u64, fn_: u64, initial: u64, opti
         Ok(Outcome::Continue)
     });
     settle(outcome.and_then(|_| {
-        acc.ok_or_else(|| {
-            entry::make_named_error("TypeError", "Reduce of empty stream with no initial value")
-                .unwrap_or(entry::undefined_value())
-        })
+        acc.ok_or_else(empty_reduce_error)
     }))
 }
 
@@ -430,11 +440,41 @@ pub(super) extern "C" fn take(_e: u64, this: u64, limit: u64, _options: u64, _c:
     derived
 }
 
+/// The rejection `reduce` owes an empty stream with no initial value.
+///
+/// A VALUE and not a raise, because `reduce` answers a promise and this is what
+/// it rejects with — and it carries `code`, which the error built here did not.
+/// A program branches on `err.code === "ERR_MISSING_ARGS"`.
+///
+/// Node's own message is `Reduce of an empty stream requires an initial value`,
+/// measured rather than guessed: the generic `ERR_MISSING_ARGS` wording that
+/// `crate::errors::missing_args` produces is a different sentence, and this one
+/// is asserted literally by `claude-node-stream`.
+fn empty_reduce_error() -> u64 {
+    let Some(error) = entry::make_named_error(
+        "TypeError",
+        "Reduce of an empty stream requires an initial value",
+    ) else {
+        return entry::undefined_value();
+    };
+    entry::with_runtime(|context| {
+        let code = entry::make_string(context, "ERR_MISSING_ARGS");
+        entry::put_member(context, error, "code", code);
+    });
+    error
+}
+
 /// `fn`'s answer, flattened — see the module doc's stated Buffer divergence.
 fn flatten_or_single(value: u64) -> Vec<u64> {
-    if entry::text_of(value).is_some() {
-        return vec![value];
-    }
+    // No string special case: the module doc carries the two measurements that
+    // removed it. A string IS iterable and node walks it by code point.
+    //
+    // The branch that used to stop that also stopped nothing else by design:
+    // `text_of` COERCES, so every number reaching it took this return too, and
+    // the correct non-iterable behaviour came out of this line by ACCIDENT
+    // rather than by rule. It still comes out, through the `thrown` arm below —
+    // `iterate` refuses a non-iterable, the refusal is taken, and the value is
+    // emitted whole — which is where the reason for it actually lives.
     let elements = entry::iterate(value);
     if entry::thrown() != 0 {
         entry::take_thrown();
