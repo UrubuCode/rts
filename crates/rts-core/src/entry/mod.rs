@@ -122,6 +122,7 @@ mod tail_call;
 mod text;
 mod throw;
 pub mod trace;
+mod unhandled;
 mod weak;
 mod uri;
 
@@ -248,6 +249,7 @@ pub use errors::{
     buffer_out_of_bounds, invalid_arg_instance, invalid_arg_type, invalid_arg_value, invalid_state,
     out_of_range, unknown_encoding,
 };
+pub use unhandled::unhandled_error;
 pub use throw::{
     call_frames, declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
     throw_value, thrown, thrown_address,

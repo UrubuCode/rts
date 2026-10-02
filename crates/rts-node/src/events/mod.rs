@@ -92,17 +92,32 @@
 //!
 //! # `'error'` with no listener
 //!
-//! Real Node throws the error value, prints it, and exits the process when
-//! `'error'` is emitted against zero `'error'` listeners. A native entry
-//! point here cannot throw a value the compiled caller could catch and
-//! recover a program from — [`crate::assert`] documents the same limit: no
-//! protected region exists for it to unwind into. So [`emit::emit`] does not
-//! throw either, but it also does not swallow the error silently, which would
-//! be worse than either real behavior: it prints the same diagnostic real
-//! Node would and ends the process the same way, via `std::process::exit`,
-//! which needs no unwind and so is safe to call from a native. `events.once`
-//! sidesteps this entirely for the event it names, and NOT for any other
-//! `'error'` a program never awaited — see [`once_promise`]'s own doc.
+//! Real Node THROWS, and only reports-and-exits when nothing catches what it
+//! threw — so `try { e.emit('error', err) } catch {}` recovers, and that is the
+//! contract [`emit::emit`] now keeps: an `Error` argument is raised verbatim,
+//! anything else wrapped in `Error [ERR_UNHANDLED_ERROR]` with the value on
+//! `.context`. [`rts_core::entry::unhandled_error`] is the single copy of it,
+//! shared with the global `EventEmitter` of `rts-std`.
+//!
+//! **This section said the opposite until 2026-10-02**, on the claim that a
+//! native entry point cannot throw a value the compiled caller could catch. That
+//! was true when it was written and is not any more: `rts-core`'s rule 8 is the
+//! discipline that made raising safe, and `entry::throw_value` is the raise —
+//! `crate::errors` has been raising through it for several modules already. What
+//! the old text produced was not a near-miss: `std::process::exit(1)` from
+//! inside the native took the program with it, so a `try`/`catch` around the
+//! `emit` never ran and neither did `process.on('uncaughtException')`. Measured
+//! on `@whiskeysockets/baileys`, which emits an `'error'` inside
+//! `makeWASocket`'s own assembly and expects to catch it: the process died
+//! before the constructor returned.
+//!
+//! One consequence worth stating, since it is the reason the old behaviour was
+//! defensible: a listener that THROWS now stops `emit` at that listener rather
+//! than running the rest, which is Node's order and was not ours.
+//!
+//! `events.once` sidesteps the whole question for the event it names, and NOT
+//! for any other `'error'` a program never awaited — see [`once_promise`]'s own
+//! doc.
 //!
 //! # Not implemented, by name
 //!
