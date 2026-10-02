@@ -63,6 +63,7 @@ extern "C" fn construct(_e: u64, this: u64, module: u64, _b: u64, _c: u64, _d: u
 /// [`construct`].
 pub(super) fn made(this: u64, at: usize, module_at: usize) -> u64 {
     let described = store::exports_of(at, module_at);
+    let memories = store::exported_memories(at);
     let object = entry::with_runtime(|context| {
         let prototype = entry::make_prototype(context, "Instance", &[]);
         let object = match entry::is_object(context, this) {
@@ -79,12 +80,21 @@ pub(super) fn made(this: u64, at: usize, module_at: usize) -> u64 {
         // Only functions this lot. A memory export is left out rather than
         // answered with something that cannot share its bytes — see the fixture's
         // header, and `store.rs`'s note on what the next lot adds.
-        if *kind != store::Kind::Function {
-            continue;
-        }
-        let row = store::remember_export(at, name);
-        let function = exported(row, name);
-        entry::with_runtime(|context| entry::put_member(context, exports, name, function));
+        let held = match kind {
+            store::Kind::Function => {
+                let row = store::remember_export(at, name);
+                exported(row, name)
+            }
+            store::Kind::Memory => match memories.iter().find(|(found, _)| found == name) {
+                Some((_, memory)) => super::memory::made(entry::undefined_value(), at, *memory),
+                None => continue,
+            },
+            // A table or a global is reachable only through an import object,
+            // which this lot does not supply — `mod.rs` has the table of what is
+            // absent and why each one waits on the same thing.
+            store::Kind::Table | store::Kind::Global => continue,
+        };
+        entry::with_runtime(|context| entry::put_member(context, exports, name, held));
     }
     entry::with_runtime(|context| {
         entry::put_member(context, object, "exports", exports);
@@ -124,7 +134,17 @@ extern "C" fn call_export(environment: u64, _this: u64, a: u64, b: u64, c: u64, 
         let held = slots.get(at).copied().unwrap_or_else(entry::undefined_value);
         arguments.push(coerced(held, *kind));
     }
-    match store::call(row, &arguments) {
+    // JavaScript's bytes in, wasm's bytes out. `memory.rs` has why this is
+    // observationally a shared memory and the one thing that would break it.
+    let memories = super::memory::rows_of_instance(store::instance_of(row).unwrap_or(usize::MAX));
+    for memory in &memories {
+        super::memory::sync_in(*memory);
+    }
+    let produced = store::call(row, &arguments);
+    for memory in &memories {
+        super::memory::sync_out(*memory);
+    }
+    match produced {
         Ok(produced) => answer(&produced, results),
         Err(why) => {
             // A trap is a `RuntimeError` — the third of the three, and the only

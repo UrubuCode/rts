@@ -22,7 +22,12 @@
 //!
 //! | absent | why, and what it waits on |
 //! |---|---|
-//! | `Memory` | `buffer` must be an `ArrayBuffer` whose bytes ARE the linear memory. This engine's buffers own their allocation — `napi_create_external_buffer` refuses at the same wall, in writing — and a copy would let a program write a byte the wasm side never sees. Waits on an external `ArrayBuffer` in `rts-core`, which closes both |
+//! | `Memory.buffer` as SHARED storage | the bytes are copied in and out around
+//! each exported call rather than being one allocation both sides address. That
+//! is observationally a shared memory — `memory.rs` has the argument and the one
+//! thing that would break it (an import) — at two copies of the memory per call.
+//! Waits on an `ArrayBuffer` over foreign bytes in `rts-core`, which closes this
+//! and `napi_create_external_buffer` with one mechanism |
 //! | an import object | nothing hands a JavaScript function INTO a module yet, so `instantiate(bytes, imports)` ignores its second argument and a module with an import raises a `LinkError` naming it. `store::call` holds a lock across the call and says so: re-entrancy is the first thing this needs |
 //! | `Table`, `Global` | nothing reads them without an import object |
 //! | an `i64` as a `BigInt` | crosses as a `Number`. Recorded in `instance.rs` |
@@ -33,6 +38,7 @@
 
 mod errors;
 mod instance;
+mod memory;
 mod module;
 mod order;
 mod store;
@@ -55,6 +61,8 @@ pub fn install(context: &mut Context) {
     entry::put_member(context, namespace, "Module", module_class);
     let instance_class = instance::class(context);
     entry::put_member(context, namespace, "Instance", instance_class);
+    let memory_class = memory::class(context);
+    entry::put_member(context, namespace, "Memory", memory_class);
     for which in errors::Which::ALL {
         let class = errors::class(context, which);
         entry::put_member(context, namespace, which.name(), class);

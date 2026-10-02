@@ -142,6 +142,11 @@ pub(super) fn remember_export(instance: usize, name: &str) -> usize {
     held.len() - 1
 }
 
+/// Which live instance a recorded export belongs to.
+pub(super) fn instance_of(at: usize) -> Option<usize> {
+    EXPORTS.lock().expect("the export table lock").get(at).map(|export| export.instance)
+}
+
 /// The arity and parameter kinds of a recorded export.
 pub(super) fn signature(at: usize) -> Option<(Vec<wasmi::core::ValueType>, usize)> {
     let export = *EXPORTS.lock().expect("the export table lock").get(at)?;
@@ -273,3 +278,76 @@ pub(super) fn kind_of_type(ty: &wasmi::ExternType) -> Kind {
         wasmi::ExternType::Global(_) => Kind::Global,
     }
 }
+
+// ----------------------------------------------------------- linear memory --
+
+/// The bytes of one of an instance's memories.
+pub(super) fn memory_bytes(instance_at: usize, memory: wasmi::Memory) -> Vec<u8> {
+    let held = INSTANCES.lock().expect("the instance table lock");
+    let Some(live) = held.get(instance_at) else { return Vec::new() };
+    memory.data(&live.store).to_vec()
+}
+
+/// Writes bytes into one of an instance's memories, up to its length.
+pub(super) fn write_memory(instance_at: usize, memory: wasmi::Memory, source: &[u8]) {
+    let mut held = INSTANCES.lock().expect("the instance table lock");
+    let Some(live) = held.get_mut(instance_at) else { return };
+    let window = memory.data_mut(&mut live.store);
+    let count = source.len().min(window.len());
+    window[..count].copy_from_slice(&source[..count]);
+}
+
+/// Grows one of an instance's memories, answering the page count it had.
+pub(super) fn grow_memory(
+    instance_at: usize,
+    memory: wasmi::Memory,
+    pages: u32,
+) -> Result<u32, String> {
+    let mut held = INSTANCES.lock().expect("the instance table lock");
+    let live = held.get_mut(instance_at).ok_or("no such instance")?;
+    let delta = wasmi::core::Pages::new(pages).ok_or("a page count wasm cannot represent")?;
+    memory
+        .grow(&mut live.store, delta)
+        .map(|before| u32::from(before))
+        .map_err(|error| error.to_string())
+}
+
+/// The memories a live instance exports, by name.
+pub(super) fn exported_memories(instance_at: usize) -> Vec<(String, wasmi::Memory)> {
+    let held = INSTANCES.lock().expect("the instance table lock");
+    let Some(live) = held.get(instance_at) else { return Vec::new() };
+    live.instance
+        .exports(&live.store)
+        .filter_map(|export| {
+            let name = export.name().to_owned();
+            export.into_extern().into_memory().map(|memory| (name, memory))
+        })
+        .collect()
+}
+
+/// A memory with no module behind it — `new WebAssembly.Memory({ initial })`.
+///
+/// It still needs a `Store` to live in, so one is made and registered as an
+/// instance with no instance in it. `Live::instance` cannot be `Option` without
+/// every caller asking, so the store is paired with a handle from an empty
+/// module — which is what `MEMORY_ONLY` is: a module that declares nothing, so
+/// instantiating it cannot fail and cannot run anything.
+pub(super) fn standalone_memory(pages: u32) -> Result<(usize, wasmi::Memory), String> {
+    let engine = engine();
+    let module = Module::new(&engine, MEMORY_ONLY).map_err(|error| error.to_string())?;
+    let mut store = Store::new(&engine, ());
+    let instance = wasmi::Linker::<()>::new(&engine)
+        .instantiate(&mut store, &module)
+        .map_err(|error| error.to_string())?
+        .start(&mut store)
+        .map_err(|error| error.to_string())?;
+    let kind = wasmi::MemoryType::new(pages, None).map_err(|error| error.to_string())?;
+    let memory = wasmi::Memory::new(&mut store, kind).map_err(|error| error.to_string())?;
+    let mut held = INSTANCES.lock().expect("the instance table lock");
+    held.push(Live { store, instance });
+    Ok((held.len() - 1, memory))
+}
+
+/// An empty module: the eight-byte header and nothing else. See
+/// [`standalone_memory`].
+const MEMORY_ONLY: &[u8] = &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
