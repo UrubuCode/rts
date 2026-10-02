@@ -186,17 +186,29 @@ extern "C" fn grow(_e: u64, this: u64, pages: u64, _b: u64, _c: u64, _d: u64) ->
 /// what the language's own `ArrayBuffer.prototype.transfer` uses, so this is the
 /// same state a program can already reach.
 fn rebuild(row: usize) {
-    let Some((instance, memory, old_view, old_buffer, held)) = held_at(row, |linear| {
-        (linear.instance, linear.memory, linear.view, linear.buffer, linear.held)
-    })
+    let Some((instance, memory)) = held_at(row, |linear| (linear.instance, linear.memory)) else {
+        return;
+    };
+    rebuild_with(row, &store::memory_bytes(instance, memory));
+}
+
+/// The same, over bytes the caller already has.
+///
+/// Reached from inside a call, where [`rebuild`] cannot be: the instance is TAKEN
+/// out of the table while it runs (`store.rs` says why), so reading its memory
+/// through the table would answer an empty slice — and the buffer would be
+/// replaced with an empty one, which is a worse wrong answer than the one this
+/// whole path exists to fix.
+fn rebuild_with(row: usize, bytes: &[u8]) {
+    let Some((old_view, old_buffer, held)) =
+        held_at(row, |linear| (linear.view, linear.buffer, linear.held))
     else {
         return;
     };
-    let bytes = store::memory_bytes(instance, memory);
     entry::detach_buffer(old_view);
     entry::detach_buffer(old_buffer);
     let (view, buffer) = entry::with_runtime(|context| {
-        let view = entry::make_bytes(context, &bytes);
+        let view = entry::make_bytes(context, bytes);
         let buffer = entry::get_member(context, view, "buffer");
         (view, buffer)
     });
@@ -238,15 +250,48 @@ pub(super) fn sync_in(row: usize) {
 }
 
 /// Reads the wasm memory back into JavaScript's buffer. Called after an export
-/// runs — into the SAME buffer, which is what keeps a held `Uint8Array` valid.
+/// runs — into the SAME buffer, which is what keeps a held `Uint8Array` valid,
+/// unless the memory grew, in which case [`push_to_js`] replaces it.
 pub(super) fn sync_out(row: usize) {
-    let Some((instance, memory, view)) =
-        held_at(row, |linear| (linear.instance, linear.memory, linear.view))
-    else {
+    let Some((instance, memory)) = held_at(row, |linear| (linear.instance, linear.memory)) else {
         return;
     };
     let bytes = store::memory_bytes(instance, memory);
-    entry::with_runtime(|context| entry::write_bytes(context, view, 0, &bytes));
+    // Through the same function the traversals use, rather than a `write_bytes` of
+    // its own: the grow check belongs to every copy OUT, not only to the ones made
+    // from inside a call. Written separately here, this path truncated silently to
+    // the old length — which is the same defect in a second place.
+    write_into(row, &bytes);
+}
+
+/// The one copy out: replaces the buffer when the memory has grown, then writes.
+///
+/// # The grow nobody asked for, and the silent wrong answer it produced
+///
+/// A memory grows two ways, and only one of them comes through this module: a
+/// wasm body runs the `memory.grow` INSTRUCTION itself, which is what
+/// `wasm-bindgen`'s allocator does on its first allocation. The buffer then still
+/// has the old length, so the bytes a program writes land past its end — and a
+/// write past the end of a `Uint8Array` is SILENTLY IGNORED. `md5("hello")`
+/// through the `whatsapp-rust-bridge` answered `ca9c491a…`, the hash of zeros,
+/// where node answers `5d41402a…`.
+///
+/// Nothing threw, nothing was empty, and the value looked like a hash. It was
+/// found by comparing against node — which is the only thing that could have
+/// found it, and the reason a fixture here asserts a KNOWN digest rather than
+/// that a digest came back.
+///
+/// Replacing the buffer is what the specification says a grow does, and
+/// `wasm-bindgen` already handles it: it re-reads its cached view when
+/// `byteLength` is 0, which is what a detach leaves behind.
+fn write_into(row: usize, bytes: &[u8]) {
+    let Some(view) = held_at(row, |linear| linear.view) else { return };
+    let room = entry::with_runtime(|context| entry::bytes_of(context, view)).map_or(0, |held| held.len());
+    if room != bytes.len() {
+        rebuild_with(row, bytes);
+    }
+    let Some(view) = held_at(row, |linear| linear.view) else { return };
+    entry::with_runtime(|context| entry::write_bytes(context, view, 0, bytes));
 }
 
 /// The rows every memory of one instance occupies, for the call trampoline.
@@ -271,4 +316,28 @@ fn row_of(value: u64) -> Option<usize> {
 /// the runtime.
 fn held_at<T>(row: usize, body: impl FnOnce(&Linear) -> T) -> Option<T> {
     MEMORIES.lock().expect("the memory table lock").get(row).map(body)
+}
+
+/// Copies wasm's bytes into the JavaScript buffer of every memory of an
+/// INSTANCE — the traversal `imports.rs` performs when control leaves wasm.
+///
+/// Keyed by the instance rather than by a memory row, because that is what a host
+/// function has: `HostState` carries the instance's row and `Caller` carries the
+/// memory, and the pairing is this table.
+pub(super) fn push_to_js(instance: usize, bytes: &[u8]) {
+    for row in rows_of_instance(instance) {
+        write_into(row, bytes);
+    }
+}
+
+/// The JavaScript bytes of an instance's first memory, for the traversal back.
+///
+/// The FIRST, because a host function reads `caller.get_export("memory")` and a
+/// module with several memories is beyond what this surface accepts anyway — the
+/// multi-memory proposal is not in `wasmi` 0.31 either, so a module here has at
+/// most one.
+pub(super) fn pull_from_js(instance: usize) -> Option<Vec<u8>> {
+    let row = rows_of_instance(instance).into_iter().next()?;
+    let view = held_at(row, |linear| linear.view)?;
+    entry::with_runtime(|context| entry::bytes_of(context, view))
 }

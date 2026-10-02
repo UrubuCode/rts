@@ -90,3 +90,47 @@ test("new Memory({ initial }) answers one of its own", () => {
   expect(memory instanceof WebAssembly.Memory).toBe(true);
   expect(memory.buffer.byteLength).toBe(131072);
 });
+
+// A memory grows TWO ways and only one of them comes through `Memory.prototype.grow`:
+// a wasm body runs the `memory.grow` INSTRUCTION itself, which is what
+// `wasm-bindgen`'s allocator does on its first allocation. The buffer then had the
+// old length, the bytes a program wrote landed past its end — and a write past the
+// end of a `Uint8Array` is SILENTLY IGNORED.
+//
+// That is not hypothetical: `md5("hello")` through the `whatsapp-rust-bridge`
+// answered `ca9c491a…`, the md5 of five zero bytes, where node answers
+// `5d41402a…`. Nothing threw, nothing was empty, and the value looked like a hash.
+// It was found by comparing against node — which is why this asserts a byte the
+// wasm side READS BACK rather than that the lengths look right.
+//
+// (module (memory 1)
+//   (func (result i32) i32.const 1 memory.grow)
+//   (func (param i32) (result i32) local.get 0 i32.load8_u)
+//   (export "growOne" (func 0)) (export "peek" (func 1)) (export "memory" (memory 0)))
+const growing = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x01, 0x0a, 0x02, 0x60, 0x00, 0x01, 0x7f, 0x60, 0x01, 0x7f, 0x01, 0x7f,
+  0x03, 0x03, 0x02, 0x00, 0x01,
+  0x05, 0x03, 0x01, 0x00, 0x01,
+  0x07, 0x1b, 0x03,
+  0x07, 0x67, 0x72, 0x6f, 0x77, 0x4f, 0x6e, 0x65, 0x00, 0x00,
+  0x04, 0x70, 0x65, 0x65, 0x6b, 0x00, 0x01,
+  0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+  0x0a, 0x10, 0x02,
+  0x06, 0x00, 0x41, 0x01, 0x40, 0x00, 0x0b,
+  0x07, 0x00, 0x20, 0x00, 0x2d, 0x00, 0x00, 0x0b,
+]);
+
+test("a grow the WASM side performs is followed by the buffer", () => {
+  const made: any = new WebAssembly.Instance(new WebAssembly.Module(growing));
+  expect(made.exports.memory.buffer.byteLength).toBe(65536);
+  expect(made.exports.growOne()).toBe(1);
+  expect(made.exports.memory.buffer.byteLength).toBe(131072);
+});
+
+test("and a byte written past the old end reaches the wasm side", () => {
+  const made: any = new WebAssembly.Instance(new WebAssembly.Module(growing));
+  made.exports.growOne();
+  new Uint8Array(made.exports.memory.buffer)[70000] = 123;
+  expect(made.exports.peek(70000)).toBe(123);
+});

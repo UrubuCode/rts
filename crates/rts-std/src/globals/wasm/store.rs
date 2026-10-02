@@ -44,7 +44,14 @@ static MODULES: Mutex<Vec<Module>> = Mutex::new(Vec::new());
 static ORDERS: Mutex<Vec<Vec<String>>> = Mutex::new(Vec::new());
 
 /// Every live instance: its store, and the handle into it.
-static INSTANCES: Mutex<Vec<Live>> = Mutex::new(Vec::new());
+///
+/// `Option` because a call TAKES the instance out for the duration of the call
+/// and puts it back after. That is what makes the surface re-entrant, and
+/// re-entrancy is not a refinement here: a wasm body that calls a JavaScript
+/// import can call another export from inside it (`wasm-bindgen` does, through
+/// its finalizers), and the previous shape held this lock across the call. A row
+/// that is `None` is one whose instance is currently running.
+static INSTANCES: Mutex<Vec<Option<Live>>> = Mutex::new(Vec::new());
 
 /// Every exported function a program has been handed, by the index its callable
 /// carries in its environment.
@@ -52,14 +59,31 @@ static EXPORTS: Mutex<Vec<Export>> = Mutex::new(Vec::new());
 
 /// An instantiated module and the store its state lives in.
 struct Live {
-    store: Store<()>,
+    store: Store<HostState>,
     instance: Instance,
 }
 
+/// What a host function reached from inside a call needs to know.
+///
+/// Only the row, because everything else is reachable from the `Caller` the
+/// callback is handed — and a row is what identifies which JavaScript `Memory`
+/// object this instance's linear memory is mirrored into.
+pub(super) struct HostState {
+    pub(super) row: usize,
+}
+
 /// Which function of which instance a callable stands for.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct Export {
     pub(super) instance: usize,
+    /// The parameter kinds and the result count, recorded at registration.
+    ///
+    /// Cached rather than read from the instance on every call, and that is a
+    /// correctness point and not a saving: reading it needs the instance, and the
+    /// instance is TAKEN out of the table while it runs — so a call reached from
+    /// inside another call found nothing and reported that the export had
+    /// disappeared.
+    signature: (Vec<wasmi::core::ValueType>, usize),
     /// Resolved by NAME at call time rather than held as a `wasmi::Func`,
     /// because a `Func` borrows nothing but reading it back costs one lookup
     /// against a store this already has to lock.
@@ -105,19 +129,24 @@ pub(super) fn with_module<T>(at: usize, body: impl FnOnce(&Module) -> T) -> Opti
 
 /// Instantiates a compiled module, answering the index of the live instance.
 ///
-/// No imports are satisfied, which is this lot's stated limit: a module that
-/// imports anything fails here with the name it asked for, where real
-/// `WebAssembly.instantiate` would take an import object. A `LinkError` naming
-/// the unsatisfied import is what a program sees, which is the same class of
-/// answer it would get from a mismatched import object.
+/// `imports` is the JavaScript import object, or `undefined` for none.
 /// `wasmi::Module` is not `Clone`, so the work happens with the module table
-/// locked rather than over a copy — which is also the shorter hold: nothing
-/// inside can reach back for a module.
-pub(super) fn instantiate(module_at: usize) -> Result<usize, String> {
+/// locked rather than over a copy — and nothing inside reaches back for a module.
+///
+/// The ROW is decided before the instance exists, because a host function needs
+/// it to find the JavaScript `Memory` this instance's linear memory mirrors, and
+/// `start` may call one. It is the length the table will have, which is sound
+/// while the push below is the only thing that grows it.
+pub(super) fn instantiate(module_at: usize, imports: u64) -> Result<usize, String> {
     let engine = engine();
+    let row = {
+        let held = INSTANCES.lock().expect("the instance table lock");
+        held.len()
+    };
     let built = with_module(module_at, |module| {
-        let mut store = Store::new(&engine, ());
-        let linker = wasmi::Linker::<()>::new(&engine);
+        let mut store = Store::new(&engine, HostState { row });
+        let mut linker = wasmi::Linker::<HostState>::new(&engine);
+        super::imports::define(&mut linker, &mut store, module, imports)?;
         let instance = linker
             .instantiate(&mut store, module)
             .map_err(|error| error.to_string())?
@@ -127,19 +156,30 @@ pub(super) fn instantiate(module_at: usize) -> Result<usize, String> {
     })
     .ok_or("no such module")??;
     let mut held = INSTANCES.lock().expect("the instance table lock");
-    held.push(built);
+    debug_assert_eq!(held.len(), row, "the row must be the one the host state carries");
+    held.push(Some(built));
     Ok(held.len() - 1)
 }
 
 /// Records an exported function, answering the index a callable carries.
 pub(super) fn remember_export(instance: usize, name: &str) -> usize {
+    let signature = signature_of(instance, name).unwrap_or_default();
     let mut names = EXPORT_NAMES.lock().expect("the export name lock");
     names.push(name.to_owned());
     let name_at = names.len() - 1;
     drop(names);
     let mut held = EXPORTS.lock().expect("the export table lock");
-    held.push(Export { instance, name_at });
+    held.push(Export { instance, name_at, signature });
     held.len() - 1
+}
+
+/// Reads an export's signature off the live instance, for [`remember_export`].
+fn signature_of(instance: usize, name: &str) -> Option<(Vec<wasmi::core::ValueType>, usize)> {
+    let held = INSTANCES.lock().expect("the instance table lock");
+    let live = held.get(instance)?.as_ref()?;
+    let func = live.instance.get_export(&live.store, name)?.into_func()?;
+    let ty = func.ty(&live.store);
+    Some((ty.params().to_vec(), ty.results().len()))
 }
 
 /// Which live instance a recorded export belongs to.
@@ -149,35 +189,43 @@ pub(super) fn instance_of(at: usize) -> Option<usize> {
 
 /// The arity and parameter kinds of a recorded export.
 pub(super) fn signature(at: usize) -> Option<(Vec<wasmi::core::ValueType>, usize)> {
-    let export = *EXPORTS.lock().expect("the export table lock").get(at)?;
-    let name = EXPORT_NAMES.lock().expect("the export name lock").get(export.name_at)?.clone();
-    let held = INSTANCES.lock().expect("the instance table lock");
-    let live = held.get(export.instance)?;
-    let func = live.instance.get_export(&live.store, &name)?.into_func()?;
-    let ty = func.ty(&live.store);
-    Some((ty.params().to_vec(), ty.results().len()))
+    EXPORTS.lock().expect("the export table lock").get(at).map(|export| export.signature.clone())
 }
 
 /// Calls a recorded export.
 ///
-/// The lock is held across the call, and that is sound rather than lucky: a
-/// wasm body here cannot call back into JavaScript, because no import is
-/// satisfied — see [`instantiate`]. The lot that supplies imports has to move
-/// this to a re-entrant shape, and the comment is here so that it is read as a
-/// precondition rather than discovered.
+/// The instance is TAKEN out of the table for the duration, so a JavaScript
+/// import called from inside the wasm body can reach this function again for
+/// another export of the same instance — which `wasm-bindgen` does. Holding the
+/// lock across the call, as the first version did, deadlocks there.
+///
+/// A row left `None` by a panic would be permanently unusable, which is the cost
+/// of this shape; `extern "C"` frames here cannot unwind anyway, so a panic ends
+/// the process rather than leaving the table in that state.
 pub(super) fn call(at: usize, arguments: &[wasmi::Value]) -> Result<Vec<wasmi::Value>, String> {
-    let export = *EXPORTS.lock().expect("the export table lock").get(at).ok_or("no such export")?;
+    let export = EXPORTS
+        .lock()
+        .expect("the export table lock")
+        .get(at)
+        .cloned()
+        .ok_or("no such export")?;
     let name = EXPORT_NAMES
         .lock()
         .expect("the export name lock")
         .get(export.name_at)
         .cloned()
         .ok_or("no such export name")?;
-    let mut held = INSTANCES.lock().expect("the instance table lock");
-    let live = held.get_mut(export.instance).ok_or("no such instance")?;
+    let mut live = take(export.instance).ok_or(REENTRANT)?;
+    let outcome = run(&mut live, &name, arguments);
+    give_back(export.instance, live);
+    outcome
+}
+
+/// One call against an instance held OUTSIDE the table.
+fn run(live: &mut Live, name: &str, arguments: &[wasmi::Value]) -> Result<Vec<wasmi::Value>, String> {
     let func = live
         .instance
-        .get_export(&live.store, &name)
+        .get_export(&live.store, name)
         .and_then(wasmi::Extern::into_func)
         .ok_or_else(|| format!("instance exports no `{name}`"))?;
     let count = func.ty(&live.store).results().len();
@@ -185,6 +233,35 @@ pub(super) fn call(at: usize, arguments: &[wasmi::Value]) -> Result<Vec<wasmi::V
     func.call(&mut live.store, arguments, &mut results)
         .map_err(|error| error.to_string())?;
     Ok(results)
+}
+
+/// What a call into an instance that is already running answers.
+///
+/// A JavaScript import CAN call an export — of another instance, and anything
+/// else JavaScript does — but not of the one whose body is currently suspended on
+/// it. `wasmi` allows that only through the `Caller` it hands the host function,
+/// and reaching it from where the JavaScript call lands would mean keeping a
+/// `Caller` alive in a thread-local across a borrow the compiler is right to
+/// refuse. Named rather than deadlocked or silently wrong, and measured: node
+/// answers 6 and 8 for the fixture's case, and this answers a `RuntimeError`.
+///
+/// What made this acceptable for now was checking the claim this module first
+/// made without checking it: `wasm-bindgen`'s finalizers do NOT need it. They run
+/// from a `FinalizationRegistry`, which is a microtask — after the call, not
+/// inside it.
+pub(super) const REENTRANT: &str =
+    "a reentrant call into the instance that is already running is not supported";
+
+/// Takes an instance out of the table, leaving the row running.
+fn take(at: usize) -> Option<Live> {
+    INSTANCES.lock().expect("the instance table lock").get_mut(at)?.take()
+}
+
+/// Puts one back.
+fn give_back(at: usize, live: Live) {
+    if let Some(row) = INSTANCES.lock().expect("the instance table lock").get_mut(at) {
+        *row = Some(live);
+    }
 }
 
 /// The names and kinds a COMPILED module exports, before anything is
@@ -226,7 +303,7 @@ pub(super) fn module_imports(at: usize) -> Vec<(String, String, Kind)> {
 /// The names and kinds a live instance exports.
 pub(super) fn exports_of(instance_at: usize, module_at: usize) -> Vec<(String, Kind)> {
     let held = INSTANCES.lock().expect("the instance table lock");
-    let Some(live) = held.get(instance_at) else { return Vec::new() };
+    let Some(Some(live)) = held.get(instance_at) else { return Vec::new() };
     let rows: Vec<(String, Kind)> = live
         .instance
         .exports(&live.store)
@@ -284,14 +361,14 @@ pub(super) fn kind_of_type(ty: &wasmi::ExternType) -> Kind {
 /// The bytes of one of an instance's memories.
 pub(super) fn memory_bytes(instance_at: usize, memory: wasmi::Memory) -> Vec<u8> {
     let held = INSTANCES.lock().expect("the instance table lock");
-    let Some(live) = held.get(instance_at) else { return Vec::new() };
+    let Some(Some(live)) = held.get(instance_at) else { return Vec::new() };
     memory.data(&live.store).to_vec()
 }
 
 /// Writes bytes into one of an instance's memories, up to its length.
 pub(super) fn write_memory(instance_at: usize, memory: wasmi::Memory, source: &[u8]) {
     let mut held = INSTANCES.lock().expect("the instance table lock");
-    let Some(live) = held.get_mut(instance_at) else { return };
+    let Some(Some(live)) = held.get_mut(instance_at) else { return };
     let window = memory.data_mut(&mut live.store);
     let count = source.len().min(window.len());
     window[..count].copy_from_slice(&source[..count]);
@@ -304,7 +381,7 @@ pub(super) fn grow_memory(
     pages: u32,
 ) -> Result<u32, String> {
     let mut held = INSTANCES.lock().expect("the instance table lock");
-    let live = held.get_mut(instance_at).ok_or("no such instance")?;
+    let live = held.get_mut(instance_at).and_then(Option::as_mut).ok_or("no such instance")?;
     let delta = wasmi::core::Pages::new(pages).ok_or("a page count wasm cannot represent")?;
     memory
         .grow(&mut live.store, delta)
@@ -315,7 +392,7 @@ pub(super) fn grow_memory(
 /// The memories a live instance exports, by name.
 pub(super) fn exported_memories(instance_at: usize) -> Vec<(String, wasmi::Memory)> {
     let held = INSTANCES.lock().expect("the instance table lock");
-    let Some(live) = held.get(instance_at) else { return Vec::new() };
+    let Some(Some(live)) = held.get(instance_at) else { return Vec::new() };
     live.instance
         .exports(&live.store)
         .filter_map(|export| {
@@ -335,8 +412,8 @@ pub(super) fn exported_memories(instance_at: usize) -> Vec<(String, wasmi::Memor
 pub(super) fn standalone_memory(pages: u32) -> Result<(usize, wasmi::Memory), String> {
     let engine = engine();
     let module = Module::new(&engine, MEMORY_ONLY).map_err(|error| error.to_string())?;
-    let mut store = Store::new(&engine, ());
-    let instance = wasmi::Linker::<()>::new(&engine)
+    let mut store = Store::new(&engine, HostState { row: usize::MAX });
+    let instance = wasmi::Linker::<HostState>::new(&engine)
         .instantiate(&mut store, &module)
         .map_err(|error| error.to_string())?
         .start(&mut store)
@@ -344,7 +421,7 @@ pub(super) fn standalone_memory(pages: u32) -> Result<(usize, wasmi::Memory), St
     let kind = wasmi::MemoryType::new(pages, None).map_err(|error| error.to_string())?;
     let memory = wasmi::Memory::new(&mut store, kind).map_err(|error| error.to_string())?;
     let mut held = INSTANCES.lock().expect("the instance table lock");
-    held.push(Live { store, instance });
+    held.push(Some(Live { store, instance }));
     Ok((held.len() - 1, memory))
 }
 
