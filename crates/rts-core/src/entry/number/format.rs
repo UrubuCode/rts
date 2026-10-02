@@ -43,6 +43,128 @@ pub(super) fn exponential(number: f64, digits: Option<usize>) -> String {
     format!("{sign}{mantissa}e{marker}{}", exponent.abs())
 }
 
+/// The longest text [`exponential_str`] writes: a sign, the first digit, a
+/// point, the hundred places the specification allows, `e`, its sign, and the
+/// three digits of the largest exponent a double has.
+const EXPONENTIAL_BUFFER: usize = 1 + 1 + 1 + 100 + 1 + 1 + 3;
+
+/// [`exponential`], through the exact integer form where it applies.
+///
+/// # Why this exists
+///
+/// Because `exponential` with a digit count asks [`carried`], and `carried`
+/// asks the standard formatter for the exact expansion of the double — the
+/// big-integer spelling `fixed.rs` describes. Measured 2026-10-02, release,
+/// one process per row, `(1.23456789)`:
+///
+/// ```text
+/// toExponential(2)   1225 ns      toPrecision(4)   190 ns
+/// toExponential(6)   1275         toFixed(2)       180
+/// ```
+///
+/// The two on the right already take the exact path, and they are the same
+/// number written in another shape. Node answers `toExponential` in 46.7.
+///
+/// # How the digits are reached without scaling
+///
+/// `x.toExponential(d)` has `d + 1` significant digits, and so does the FIXED
+/// form of the same number with `d - exponent` decimal places — the same
+/// digits, written differently. So the exact expansion is asked for once, in
+/// the shape `fixed_exact_into` already produces, and the point is moved.
+/// Dividing by a power of ten to get the mantissa directly is what this
+/// avoids: that loses precision in the last place, which is exactly the digit
+/// the caller asked for.
+///
+/// # What refuses the estimate
+///
+/// `exponent` is `floor(log10)`, which is an estimate, and the significant
+/// digit COUNT is what checks it — the same guard [`precision_str`] uses. It
+/// also catches the carry this module's header names: `(9.99).toExponential(1)`
+/// is `1.0e+1`, and the fixed form with one place is `10.0`, which has three
+/// significant digits where two were asked for. Wrong count, so the slow form
+/// answers it. Correct rather than fast, for a case a program rarely writes.
+pub(super) fn exponential_str(number: f64, digits: Option<usize>) -> crate::text::Str {
+    let slow = || crate::text::Str::from_str(&exponential(number, digits));
+    // The no-argument form already answers through Rust's own `{:e}`, which is
+    // the shortest round-tripping expansion and not a big-integer walk.
+    let Some(places) = digits else {
+        return slow();
+    };
+    let magnitude = number.abs();
+    if !number.is_finite() || magnitude == 0.0 {
+        return slow();
+    }
+    let exponent = magnitude.log10().floor() as i32;
+    // The decimal places that put `places + 1` significant digits in the fixed
+    // form. Negative means the number is larger than the digits asked for and
+    // the fixed form has none to give; past 22 is beyond what the exact
+    // expansion covers.
+    let fixed_places = places as i32 - exponent;
+    if fixed_places < 0 || fixed_places > 22 || places > 100 {
+        return slow();
+    }
+    let mut buffer = [0u8; super::fixed::FIXED_BUFFER];
+    let Some((start, end)) =
+        super::fixed::fixed_exact_into(magnitude, fixed_places as usize, &mut buffer)
+    else {
+        return slow();
+    };
+    let written = &buffer[start..end];
+    // From the first digit that is not a leading zero, with the point dropped:
+    // what is left is the mantissa's digits in order.
+    let Some(first) = written
+        .iter()
+        .position(|&byte| byte.is_ascii_digit() && byte != b'0')
+    else {
+        return slow();
+    };
+    let mut mantissa = [0u8; 101];
+    let mut count = 0;
+    for &byte in &written[first..] {
+        if byte == b'.' {
+            continue;
+        }
+        if count >= mantissa.len() {
+            return slow();
+        }
+        mantissa[count] = byte;
+        count += 1;
+    }
+    // The count is the check: anything else and the estimate was wrong or the
+    // rounding carried, and either way this is not the answer.
+    if count != places + 1 {
+        return slow();
+    }
+
+    let mut out = [0u8; EXPONENTIAL_BUFFER];
+    let mut at = 0;
+    let push = |byte: u8, out: &mut [u8; EXPONENTIAL_BUFFER], at: &mut usize| {
+        out[*at] = byte;
+        *at += 1;
+    };
+    if number < 0.0 {
+        push(b'-', &mut out, &mut at);
+    }
+    push(mantissa[0], &mut out, &mut at);
+    if places > 0 {
+        push(b'.', &mut out, &mut at);
+        for &byte in &mantissa[1..count] {
+            push(byte, &mut out, &mut at);
+        }
+    }
+    push(b'e', &mut out, &mut at);
+    push(if exponent < 0 { b'-' } else { b'+' }, &mut out, &mut at);
+    let absolute = exponent.unsigned_abs();
+    if absolute >= 100 {
+        push(b'0' + (absolute / 100) as u8, &mut out, &mut at);
+    }
+    if absolute >= 10 {
+        push(b'0' + (absolute / 10 % 10) as u8, &mut out, &mut at);
+    }
+    push(b'0' + (absolute % 10) as u8, &mut out, &mut at);
+    crate::text::Str::from_latin1(&out[..at])
+}
+
 /// [`precision`], answered as the string the program receives, through the
 /// exact integer form where it applies.
 ///

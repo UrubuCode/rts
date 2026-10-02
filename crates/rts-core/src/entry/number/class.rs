@@ -159,7 +159,7 @@ impl Number {
             _ => None,
         };
         with_current(|context| {
-            let text = Str::from_str(&format::exponential(number, places));
+            let text = format::exponential_str(number, places);
             context.intern_value(text).bits()
         })
     }
