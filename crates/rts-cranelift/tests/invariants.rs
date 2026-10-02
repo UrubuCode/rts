@@ -429,3 +429,59 @@ fn an_element_load_bounds_the_index_and_refuses_a_mismatched_pair() {
         "the length must be the index's width or the comparison is not one"
     );
 }
+
+#[test]
+fn a_payload_word_is_not_a_value_and_the_collector_is_told_separately() {
+    // Two questions about one declared field, and the whole point of
+    // `Repr::Payload` is that they have different answers where `Repr::I64`
+    // gave them the same one.
+    //
+    // The cost of conflating them was an abort: a client declared a string's
+    // characters `I64`, and `"\0\0\0\0\u{fa}\u{ff}"` put the reference tag in
+    // the word's top sixteen bits and a live cell's index in its low
+    // thirty-two, so the check that rejects a non-followed field holding a
+    // reference rejected a perfectly ordinary string.
+    let mut types = TypeRegistry::new();
+    let holding = types.declare(&[Repr::Payload, Repr::I64, Repr::Tagged]);
+    let layout = types.layout(holding);
+
+    let payload = layout.field(0);
+    let integer = layout.field(1);
+    let generic = layout.field(2);
+
+    // The collector follows neither of the first two, which is what made them
+    // look interchangeable.
+    assert!(
+        !rts_cranelift::gc::traces_field(payload),
+        "a payload word holds bytes, so there is nothing for the collector to follow"
+    );
+    assert!(
+        !rts_cranelift::gc::traces_field(integer),
+        "and an integer field is not followed either — this is the answer they share"
+    );
+    assert!(
+        rts_cranelift::gc::traces_field(generic),
+        "while a generic word may hold a reference and nothing here can prove otherwise"
+    );
+
+    // And this is where they part: only one of them can be read as a value at
+    // all, so only one of them is a legitimate subject for that check.
+    assert!(
+        !rts_cranelift::gc::field_holds_a_value(payload),
+        "a word whose boundaries fell where a payload's size put them means nothing on its own"
+    );
+    assert!(
+        rts_cranelift::gc::field_holds_a_value(integer),
+        "where an integer field holds an integer, and asking what it is has an answer"
+    );
+    assert!(
+        rts_cranelift::gc::field_holds_a_value(None),
+        "an undeclared slot is a word this layer cannot vouch for, so the question stands"
+    );
+
+    // It is not arithmetic of either kind, and it carries a machine word.
+    assert!(!Repr::Payload.is_integer(), "bytes are not integer arithmetic");
+    assert!(!Repr::Payload.is_float());
+    assert!(!Repr::Payload.is_gc_relevant());
+    assert_eq!(Repr::Payload.bit_width(), 64, "it occupies a slot");
+}

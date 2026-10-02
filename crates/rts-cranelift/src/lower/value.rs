@@ -86,6 +86,7 @@ pub fn widen(builder: &mut FunctionBuilder, value: Value, from: Repr) -> Result<
         }
 
         Repr::I64 => Err(LowerError::CannotWiden { from }),
+        Repr::Payload => Err(LowerError::NotAValue { repr: from }),
         Repr::Tagged => Ok(value),
     }
 }
@@ -114,6 +115,7 @@ pub fn test(
         Repr::F32 | Repr::I64 | Repr::Tagged => {
             return Err(LowerError::CannotNarrow { to: expect });
         }
+        Repr::Payload => return Err(LowerError::NotAValue { repr: expect }),
     };
     Ok(to_machine_bool(builder, raw))
 }
@@ -165,6 +167,7 @@ pub fn narrow(builder: &mut FunctionBuilder, value: Value, to: Repr) -> Result<V
 
         Repr::Ref(_) => Err(LowerError::CannotProveReferenceKind { expect: to }),
         Repr::F32 | Repr::I64 | Repr::Tagged => Err(LowerError::CannotNarrow { to }),
+        Repr::Payload => Err(LowerError::NotAValue { repr: to }),
     }
 }
 

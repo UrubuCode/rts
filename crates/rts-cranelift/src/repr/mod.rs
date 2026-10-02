@@ -62,6 +62,48 @@ pub enum Repr {
     Ref(RefKind),
     /// The uniform generic form: representation not proven at this point.
     Tagged,
+    /// A machine word of inline payload, which is **not a value**.
+    ///
+    /// # What distinguishes it from [`Repr::I64`]
+    ///
+    /// Both are words the collector does not follow, and that is why one was
+    /// used for the other until it produced a wrong answer. They differ in
+    /// whether the word *means* anything on its own. An `I64` field holds an
+    /// integer: something read it, something wrote it, and asking what it is
+    /// has an answer. A `Payload` field holds some bytes of a larger thing
+    /// spread across several slots — a string's characters, a flat aggregate's
+    /// elements — and the word boundary falls wherever the payload's size put
+    /// it. Asking what one of those words *is* has no answer.
+    ///
+    /// # Why the distinction has to exist here
+    ///
+    /// Because a verifier may ask. [`crate::gc::traces_field`] answers the
+    /// same for both — neither is followed — but the check that rejects a
+    /// non-followed field holding a reference anyway must not run on a payload
+    /// word, because any sequence of bytes can have the bit pattern of an
+    /// encoded reference. That is not a hypothetical: a client declaring a
+    /// string's characters `I64` aborted on
+    /// `"\0\0\0\0\u{fa}\u{ff}"`, where the fifth and sixth characters put the
+    /// reference tag in the top sixteen bits of the word and the leading NULs
+    /// put a live cell's index in the low thirty-two.
+    ///
+    /// So it is the declaration that is answered, in one place, rather than the
+    /// checker growing an exception per client payload — which is the shape
+    /// that would have been needed once for text, once for inline elements and
+    /// once for an inline table.
+    ///
+    /// # Not a value, and what follows from that
+    ///
+    /// It never names a value flowing through control flow: it appears only as
+    /// a field of a declared aggregate layout. So it is not integer arithmetic
+    /// ([`Repr::is_integer`]), not floating point ([`Repr::is_float`]), and not
+    /// something the collector finds ([`Repr::is_gc_relevant`]) — all three by
+    /// falling through their `matches!`, which is the honest answer and not an
+    /// omission. [`Repr::join`] can only reach it through a merge that cannot
+    /// happen, and answers [`Repr::Tagged`]: rule 12's conservative direction,
+    /// since a word wrongly believed to be a value is retained where one
+    /// wrongly believed not to be is freed.
+    Payload,
 }
 
 impl Repr {
@@ -105,7 +147,7 @@ impl Repr {
             Repr::I16 => 16,
             Repr::I32 | Repr::F32 => 32,
             Repr::Bool => 8,
-            Repr::I64 | Repr::F64 | Repr::Ref(_) | Repr::Tagged => 64,
+            Repr::I64 | Repr::F64 | Repr::Ref(_) | Repr::Tagged | Repr::Payload => 64,
         }
     }
 }

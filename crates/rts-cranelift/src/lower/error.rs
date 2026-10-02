@@ -27,6 +27,26 @@ pub enum LowerError {
         to: Repr,
     },
 
+    /// A representation that is not a value was asked to behave as one.
+    ///
+    /// [`Repr::Payload`] names a word of inline payload — some bytes of a
+    /// larger thing, whose word boundaries fell where its size put them. It
+    /// appears as a field of a declared aggregate and nowhere else: there is
+    /// nothing to widen, nothing to narrow to, and no guard that could
+    /// establish it, because the question "what is this word" has no answer for
+    /// one.
+    ///
+    /// Named rather than folded into [`Self::CannotWiden`] or
+    /// [`Self::CannotNarrow`] because the reason is different in kind and the
+    /// reason is what a reader needs. Those two refuse a value whose
+    /// representation will not fit through the encoding; this refuses something
+    /// that was never a value, which means the defect is upstream — a client
+    /// put a payload field where a value was expected.
+    NotAValue {
+        /// The representation that is not one.
+        repr: Repr,
+    },
+
     /// A guard asked to establish which kind of reference a value holds.
     ///
     /// The encoding says a value is a reference and nothing more. Proving the

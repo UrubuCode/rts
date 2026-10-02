@@ -13,6 +13,7 @@
 //! lowering, where it cannot be forgotten.
 
 use crate::ir::{Inst, Region};
+use crate::repr::Repr;
 use crate::types::{FieldLayout, TypeRegistry};
 
 /// What a store must do beyond writing.
@@ -84,6 +85,39 @@ pub fn crossing_is_possible(regions: u32) -> bool {
 /// case and not an edge.
 pub fn traces_field(field: Option<FieldLayout>) -> bool {
     field.is_none_or(|found| found.repr.is_gc_relevant())
+}
+
+/// Whether a field's word can be read as a value at all.
+///
+/// # Why this is a second question and not a second answer to the first
+///
+/// [`traces_field`] decides what the collector FOLLOWS, and both an integer
+/// field and a payload word answer no. This decides whether the word MEANS
+/// anything on its own, and there they differ: an integer field holds an
+/// integer, while a payload word holds some bytes of something larger whose
+/// word boundaries fell where its size put them. [`Repr::Payload`] carries the
+/// full reasoning and the abort that produced it.
+///
+/// # Who asks
+///
+/// A checker, and only a checker. Nothing about emitting code changes with the
+/// answer — a payload field is stored and loaded as a word like any other. The
+/// caller is the assertion that rejects a non-followed field found holding a
+/// reference, which is rule 7's enforcement half for [`traces_field`]: that
+/// check is sound for a field that is a value and meaningless for one that is
+/// not, because any sequence of bytes can carry the reference tag.
+///
+/// Stated here rather than at that assertion so the two predicates sit
+/// together and cannot drift — the same reason `barrier_for` asks
+/// `traces_field` instead of restating it.
+///
+/// # What the answer is when nothing is known
+///
+/// `true`. An undeclared slot is a word this layer cannot vouch for, and
+/// [`traces_field`] follows it for the same reason; a checker asking about one
+/// is asking a legitimate question and should get to ask it.
+pub fn field_holds_a_value(field: Option<FieldLayout>) -> bool {
+    field.is_none_or(|found| found.repr != Repr::Payload)
 }
 
 /// Whether a store needs a barrier, and which.

@@ -32,7 +32,12 @@ pub fn machine_type(repr: Repr) -> Type {
         Repr::I32 => types::I32,
         Repr::F32 => types::F32,
         Repr::F64 => types::F64,
-        Repr::I64 | Repr::Bool | Repr::Ref(_) | Repr::Tagged => types::I64,
+        // `Payload` among them, and it is the one worth a word: a payload field
+        // is not a value, but it IS a machine word in memory, so a load or a
+        // store of one is a word load or a word store like any other. What is
+        // refused for it is being widened, narrowed or guarded — see
+        // `super::value` — which is where "not a value" has consequences.
+        Repr::I64 | Repr::Bool | Repr::Ref(_) | Repr::Tagged | Repr::Payload => types::I64,
     }
 }
 
