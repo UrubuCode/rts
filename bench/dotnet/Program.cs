@@ -141,6 +141,67 @@ static class Bench
             return a;
         });
 
+
+        // ---------------------------------------------------------- regex
+        //
+        // Added 2026-10-02, for the question "how close to .NET can a match
+        // get". The rows mirror the ones in RTS's own regex probe, one for one,
+        // and the pattern is a cached static because the RTS side caches the
+        // compiled automaton too — a "new Regex" per iteration would be
+        // measuring .NET's cache against ours rather than the match.
+        //
+        // Match is LAZY here: it answers a Match whose groups materialise when
+        // .Value is read, which is why reading one is a separate row from not
+        // reading it, and why ValueSpan gets a row of its own — that one reads
+        // the group without building a string at all. That laziness is the
+        // design RTS plan item 10.2b is for, and these rows are its target.
+        var rx = new System.Text.RegularExpressions.Regex("[a-f]+([0-9]+)");
+        var rxCompiled = new System.Text.RegularExpressions.Regex(
+            "[a-f]+([0-9]+)",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+        const string subject = "abc123";
+
+        Report("Regex.IsMatch (no result)", n => {
+            long a = 0;
+            for (long i = 0; i < n; i++) if (rx.IsMatch(subject)) a++;
+            return a;
+        });
+
+        Report("Regex.Match, unread", n => {
+            long a = 0;
+            for (long i = 0; i < n; i++) { var m = rx.Match(subject); if (m.Success) a++; }
+            return a;
+        });
+
+        Report("Regex.Match .Index", n => {
+            long a = 0;
+            for (long i = 0; i < n; i++) { var m = rx.Match(subject); if (m.Success) a += m.Index; }
+            return a;
+        });
+
+        Report("Regex.Match group 1 .Value", n => {
+            long a = 0;
+            for (long i = 0; i < n; i++) { var m = rx.Match(subject); if (m.Success) a += m.Groups[1].Value.Length; }
+            return a;
+        });
+
+        Report("Regex.Match g1 .ValueSpan", n => {
+            long a = 0;
+            for (long i = 0; i < n; i++) { var m = rx.Match(subject); if (m.Success) a += m.Groups[1].ValueSpan.Length; }
+            return a;
+        });
+
+        Report("RegexOptions.Compiled, g1", n => {
+            long a = 0;
+            for (long i = 0; i < n; i++) { var m = rxCompiled.Match(subject); if (m.Success) a += m.Groups[1].Value.Length; }
+            return a;
+        });
+
+        Report("string.Split(char)", n => {
+            long a = 0;
+            for (long i = 0; i < n; i++) { var parts = "a,b,c".Split(','); a += parts.Length; }
+            return a;
+        });
         GC.KeepAlive(keptCell);
         GC.KeepAlive(keptText);
     }
