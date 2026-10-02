@@ -179,7 +179,46 @@ fn main() {
         report("closure_new", ALLOC_EACH, |sink, _| {
             sink.wrapping_add(closure_new(0, undefined))
         });
+
+        // ------------------------------------------- what every kind shares
+        //
+        // The rows above each measure one kind of value, and the question they
+        // cannot answer on their own is whether they have five problems or one
+        // problem five times. These two are the shared floor:
+        //
+        // `alloc(cell)` is the entry point every kind reaches — the allocation
+        // with the collector's slice and the growth policy in it. `region.alloc`
+        // is the same cell with neither, which is the bump-or-pop and the
+        // zeroing alone.
+        //
+        // Read the kinds against these. On 2026-10-02 the answer was one
+        // problem: `object_new(2)` was 21.15 against `alloc(cell)` at 19.5, so
+        // a two-field object IS the cell plus a nanosecond and a half, and the
+        // same holds for a string of five characters (30.7, of which 19.5) and
+        // for an array (57.75, the cell plus its element `Slab`). Lowering the
+        // floor lowers all of them at once, which is why plan items 6.4, 6.6
+        // and 11.2 outrank anything written per kind.
+        // Any declared layout will do: what is being timed is the heap, not the
+        // shape, and this is the one the runtime declares first.
+        let a_type = rts_core::entry::with_runtime(|context| i64::from(context.text_type_index()));
+        report("alloc(cell) — the shared floor", ALLOC_EACH, move |sink, _| {
+            sink.wrapping_add(rts_core::entry::alloc(crate_stride(), a_type))
+        });
+        report("region.alloc — no collector", ALLOC_EACH, move |sink, _| {
+            let cell = rts_core::entry::with_runtime(|context| {
+                context
+                    .region
+                    .alloc(crate_stride() as u32, a_type as u32)
+                    .unwrap_or(0)
+            });
+            sink.wrapping_add(u64::from(cell))
+        });
     });
+}
+
+/// A cell's stride, as the allocation entry takes it.
+fn crate_stride() -> i64 {
+    i64::from(rts_core::heap::STRIDE)
 }
 
 /// Runs one case for [`ROUNDS`] rounds and prints the minimum with its spread.
