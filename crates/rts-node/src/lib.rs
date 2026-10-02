@@ -33,6 +33,7 @@
 
 mod fetch;
 mod errors;
+mod owned_socket;
 pub mod assert;
 pub mod async_hooks;
 pub mod buffer;
