@@ -124,6 +124,30 @@ pub struct Registered {
     /// answer the namespace its `export`s published rather than an empty
     /// object. See [`super::common_js`].
     pub common: Option<u64>,
+    /// The `module` object itself, for a CommonJS body that bound one.
+    ///
+    /// `common` is a SNAPSHOT — written at module entry and again after the body
+    /// — and a snapshot is the wrong answer in exactly one place: the second ask
+    /// inside a cycle, which happens while the body is suspended at its own
+    /// `require`. A body whose first line is `module.exports = Constructor`
+    /// (every file of `protobufjs/src/`) has already replaced the object the
+    /// entry snapshot holds, and the requiring module reads `.prototype` off
+    /// what it is given — so the snapshot answers an object with none and
+    /// `Object.create(undefined)` raises.
+    ///
+    /// Holding the `module` object instead makes the read LIVE: `require`
+    /// answers whatever `module.exports` names at the moment it is asked, which
+    /// is what Node does. Rejected alternative: re-publishing `common` from the
+    /// emitter after every assignment to `module.exports`. That needs no field,
+    /// but it is a syntactic approximation — `var m = module; m.exports = f`
+    /// would still answer the stale snapshot — and the question *"what does this
+    /// specifier answer a `require` right now"* has one reader, inside
+    /// [`super::common_js`], so it gets one answer.
+    ///
+    /// `None` for an ES module, for a host-provided one, and for a CommonJS body
+    /// that mentions only `exports`: that body cannot replace the object, so the
+    /// snapshot is already live.
+    pub holder: Option<u64>,
 }
 
 /// The text of a specifier the compiler passed as a literal index.
@@ -178,6 +202,7 @@ pub(in crate::entry) fn namespace_for(context: &mut Context, specifier: String) 
             running: false,
             meta: None,
             common: None,
+            holder: None,
         }),
     }
     made
@@ -244,6 +269,7 @@ pub fn declare_module_entry(context: &mut Context, specifier: &str, entry: Modul
             running: false,
             meta: None,
             common: None,
+            holder: None,
         }),
     }
 }
@@ -312,6 +338,7 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
             running: false,
             meta: None,
             common: None,
+            holder: None,
         }),
     }
 }
@@ -412,6 +439,7 @@ pub fn declare_module_lazy(context: &mut Context, specifiers: &[&str], build: Bu
                 running: false,
                 meta: None,
                 common: None,
+                holder: None,
             }),
         }
     }

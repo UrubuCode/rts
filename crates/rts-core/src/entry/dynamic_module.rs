@@ -94,6 +94,7 @@ pub fn declare_module_meta(context: &mut Context, specifier: &str, meta: u64) {
             running: false,
             meta: Some(meta),
         common: None,
+        holder: None,
     });
 }
 

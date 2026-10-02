@@ -24,13 +24,30 @@
 //!
 //! # What is not here
 //!
-//! `%TypedArray%`. The language gives all eight a shared prototype, so
-//! `Object.getPrototypeOf(Int8Array.prototype)` is an object with every method on
-//! it and each class's own prototype is nearly empty. Here each class carries its
-//! own copy of the members, which costs cells and diverges for a program that
-//! walks the chain looking for the shared one. Building it needs the attribute to
-//! be able to name a prototype no class declares, which is a change to the
-//! attribute rather than to this file.
+//! **The shared prototype EXISTS now** — `super::typed_abstract` builds it and
+//! each wrapper below links it under the concrete prototype, so
+//! `Object.getPrototypeOf(Int8Array.prototype)` is one object for all eleven
+//! classes and `Symbol.toStringTag` is the accessor the specification puts on
+//! it. This paragraph said it did not exist, and the whole of what remains is
+//! narrower.
+//!
+//! What remains is **where the MEMBERS live**. The language puts the shared
+//! methods (`map`, `filter`, `subarray`, `set`, `sort`, …) and the
+//! `buffer`/`byteLength`/`byteOffset`/`length` getters on that shared prototype,
+//! and each concrete one is then nearly empty. Here every class still carries
+//! its own copy, which costs cells and is observable in one way:
+//! `Int8Array.prototype.map === Uint8Array.prototype.map` is `true` in Node and
+//! `false` here.
+//!
+//! That is left as the next lot rather than folded into this one, for a reason
+//! about what a change can be checked against: moving the members moves every
+//! method's receiver check, the species protocol and the element conversion onto
+//! a prototype that no longer knows its own kind, and a mistake there answers a
+//! wrong NUMBER rather than failing — which is the class of defect the honesty
+//! floor says needs its own measurement. Linking the level is checkable by
+//! identity alone, and the library that needed it (`safe-stable-stringify`,
+//! under `pino`, under `@whiskeysockets/baileys`) reads only the chain and the
+//! tag's descriptor.
 
 use super::element::Kind;
 use super::{Context, typed, typed_order, typed_species, typed_visit};
@@ -333,6 +350,12 @@ macro_rules! declare {
             pub(in crate::entry) fn $wrapper(context: &mut Context) -> u64 {
                 let made = $generated(context);
                 per_element(context, made, $size);
+                // And puts `%TypedArray%.prototype` under this class's own.
+                // Here rather than through `#[rtse::class(extends = …)]`
+                // because that option reaches a parent through the parent's
+                // registration function, and the shared prototype is declared
+                // by no class — see `super::typed_abstract`.
+                super::typed_abstract::link(context, $js);
                 made
             }
         )+

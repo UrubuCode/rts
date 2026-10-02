@@ -241,6 +241,12 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // `require` of a module the program stopped naming answers a freed cell —
     // the same fault the two lines above prevent, for the third field.
     words.extend(context.modules.iter().filter_map(|held| held.common));
+    // And the `module` object a CommonJS body bound, which `require` reads
+    // `exports` off while the body is suspended inside a cycle. Same argument as
+    // the line above for a fourth field: once the module's frame is gone the
+    // table is the only holder, so a cycle entered after a collection would read
+    // `exports` out of a freed cell.
+    words.extend(context.modules.iter().filter_map(|held| held.holder));
     words.extend(
         context
             .classes
