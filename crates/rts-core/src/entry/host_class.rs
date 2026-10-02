@@ -59,3 +59,31 @@ pub fn describe_callable(context: &mut Context, callable: u64, name: &str, arity
     super::native::name_of(context, callable, name);
     super::native::length_of(context, callable, arity);
 }
+
+/// `Error.prototype`, for a host building an error class of its own.
+///
+/// # Why a host could not already ask this
+///
+/// `class_support::prototype` is private to this crate, so a host that wants its
+/// class to inherit from `Error.prototype` had two routes and both are wrong at
+/// install time. `make_named_error` is AMBIENT — it reaches the thread's context
+/// — and the global surface is built before one is installed, which aborts the
+/// process with "an entry point ran with no context installed"; reading `Error`
+/// off the global object answers nothing, because the error family is registered
+/// into this crate's class table rather than written as a property there.
+///
+/// `dom_exception.rs` works around it by linking the parent at CONSTRUCTION,
+/// which is correct for an error that has been thrown and wrong for the question
+/// a program asks first: `WebAssembly.CompileError.prototype instanceof Error`
+/// read `false` until the first error existed.
+///
+/// Registering the family when it is absent is what `make_named_error` does for
+/// the same reason — a program that never wrote the word `Error` still catches
+/// one — so this is that function's first half, without the construction.
+pub fn error_prototype(context: &mut Context) -> Option<u64> {
+    if let Some(found) = super::class_support::prototype(context, "Error") {
+        return Some(found);
+    }
+    super::error::provided("Error")?(context);
+    super::class_support::prototype(context, "Error")
+}
