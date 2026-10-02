@@ -240,6 +240,47 @@ fn measure(stack_high: usize) {
         (sweeping - prefreed) / ALLOC_CLASS_INSTANCE * 100.0
     );
 
+    // ------------------------------------ the cycle's two halves, each alone
+    //
+    // The cycle row below says what a reclaimed cell costs. These two say what
+    // the parts cost, timed on their own rather than reasoned about — and the
+    // reason to have them is that reasoning about this was wrong four times on
+    // 2026-10-02. `Region::free` is the sweep's own write (a marker and a link
+    // word, per cell, to thread the free list) and `each_live` is the walk that
+    // finds the cells. What the cycle costs beyond these two is the burial, the
+    // `type_of` and the weak/finalize lookups.
+    //
+    // Both are safe to time directly: `each_live` only reads, and `free` is
+    // being given cells this probe owns and will not touch again.
+    println!();
+    {
+        let mut region = Region::with_capacity(CELLS);
+        let mut types = rts_cranelift::types::TypeRegistry::new();
+        let ty = types.declare(&[rts_cranelift::repr::Repr::I64]).index() as u32;
+        let mut taken: Vec<u32> = Vec::with_capacity(CELLS as usize);
+        while let Some(cell) = region.alloc(STRIDE, ty) {
+            taken.push(cell);
+        }
+        let held = taken.len() as u64;
+
+        // The walk, over a region where every cell is taken — which is the
+        // state a sweep meets it in.
+        let at = Instant::now();
+        let mut seen = 0u64;
+        region.each_live(|_| seen += 1);
+        let walk = at.elapsed().as_secs_f64() * 1e9 / held as f64;
+        println!("each_live over {held} taken cells        {walk:>9.2} ns/cell   seen {seen}");
+
+        // The sweep's own write, per cell.
+        let at = Instant::now();
+        for cell in &taken {
+            region.free(*cell);
+        }
+        let freeing = at.elapsed().as_secs_f64() * 1e9 / held as f64;
+        println!("Region::free, per cell                {freeing:>9.2} ns/cell");
+        println!("    ... walk + free = {:.2} ns of what a reclaimed cell costs", walk + freeing);
+    }
+
     // ------------------------------------- the cycle itself, timed rather than
     //                                       inferred by subtraction
     //
