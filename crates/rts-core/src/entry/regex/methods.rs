@@ -183,6 +183,21 @@ extern "C" fn test(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
             let found = search(context, this, &text);
             return Value::from_bool(found.is_some()).bits();
         }
+        // BORROWED, not converted, which this path can do and the one above
+        // cannot: both `subject_of` and `regexp_at` want the context shared,
+        // where `search` wants it mutably to advance `lastIndex`. So the
+        // subject's own bytes go straight to the matcher — no allocation, no
+        // copy, one validating scan instead of two.
+        //
+        // `to_rust` remains the answer for a subject that is not already
+        // UTF-8: a Latin-1 byte above 127 and every UTF-16 string, which
+        // `subject_of` declines rather than guessing at.
+        if let Some(text) = subject_of(context, subject) {
+            let matched = context
+                .regexp_at(cell)
+                .is_some_and(|pattern| pattern.matches_at(text, 0));
+            return Value::from_bool(matched).bits();
+        }
         let Some(text) = text_of(context, subject) else {
             return Value::from_bool(false).bits();
         };
@@ -430,6 +445,15 @@ fn coerced(subject: u64) -> Option<u64> {
     }
     let text = super::super::text::string_of(subject);
     (!super::super::throw::in_flight()).then_some(text)
+}
+
+/// The subject BORROWED, when its bytes already are UTF-8.
+///
+/// `None` for a Latin-1 byte above 127 and for every UTF-16 string, which is
+/// the honest answer rather than a re-encoding: those have to be built, and
+/// `text_of` is what builds them. See `Str::as_utf8` for what the two cost.
+fn subject_of(context: &Context, value: u64) -> Option<&str> {
+    context.text_at(Value(value).as_slot()?)?.as_utf8()
 }
 
 /// The text a value has, when it is genuinely a string.

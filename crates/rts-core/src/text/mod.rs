@@ -352,6 +352,45 @@ impl Str {
         &self.repr
     }
 
+    /// The text as a Rust `&str`, borrowed, when its bytes already are one.
+    ///
+    /// # Why this exists beside [`Self::to_rust`]
+    ///
+    /// Because `to_rust` ANSWERS AN OWNED `String`, and for the case that
+    /// matters most it is building a copy of bytes that were already in the
+    /// right shape. A Latin-1 run whose every byte is below 128 is valid UTF-8
+    /// as it sits: `to_rust` scans it with `is_ascii`, allocates, copies, and
+    /// validates the copy with a second scan, to produce the same bytes at a
+    /// different address.
+    ///
+    /// This is one validating scan and no allocation. It answers `None` for a
+    /// Latin-1 run with a byte above 127 — those are real Latin-1 characters
+    /// and NOT valid UTF-8, so there is nothing to borrow — and `None` for
+    /// UTF-16, where the units would have to be re-encoded. Both of those are
+    /// what `to_rust` is still for.
+    ///
+    /// # Who asks
+    ///
+    /// Anything handing a whole subject to a library that wants `&str`, where
+    /// the copy is proportional to the subject and the work is not. The regular
+    /// expression path is the measured one: its own module records `exec`
+    /// growing at **1.44 nanoseconds per character** of the subject while the
+    /// matching barely grows at all, and says in as many words that "the length
+    /// is not in the matching — it is in the copying".
+    ///
+    /// # What it costs a caller
+    ///
+    /// A borrow of the string, which is a borrow of whatever holds it. That is
+    /// the reason this cannot simply replace `to_rust` everywhere: a caller that
+    /// needs the context mutably while it still holds the subject has to keep
+    /// the owned copy, or be restructured so the mutation happens after.
+    pub fn as_utf8(&self) -> Option<&str> {
+        match &self.repr {
+            Repr::Latin1(bytes) => std::str::from_utf8(bytes.as_slice()).ok(),
+            Repr::Utf16(_) => None,
+        }
+    }
+
     /// Whether this `Str` owns no heap memory, so copying its bytes copies the
     /// whole string and dropping it releases nothing.
     ///
