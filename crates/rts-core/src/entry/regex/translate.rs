@@ -1,6 +1,18 @@
 //! The gap between a JavaScript pattern and a Rust one, closed where it is EXACT.
 //!
-//! Three rewrites, and the number is the point: everything else that differs —
+//! # The one agreed exception, and where it is written
+//!
+//! A surrogate range inside a character class (`[\\ud800-\\udfff]`) is rewritten
+//! although it is NOT exact: it agrees about `test` and about a match's position,
+//! and differs about the match's length, the count under `g`, and a lone
+//! surrogate. It is here because the refusal it replaces happens when the pattern
+//! is COMPILED and therefore takes the whole program with it, including every use
+//! that would have agreed -- and because that class is read by `.test(...)` almost
+//! every time it appears. Agreed 2026-10-02 with the divergences measured and
+//! written down; `surrogates.rs` carries the table and the reason the `u` flag is
+//! excluded.
+//!
+//! Three rewrites, and the number is the point: everything else that differs --
 //! `\cX`, the octal escapes, a variable-length lookbehind — is refused at
 //! compilation, which is visible, where a wrong translation would be a regular
 //! expression that quietly matches the wrong text. A rewrite belongs here only
@@ -12,8 +24,10 @@
 //! exists.
 
 mod legacy;
+mod surrogates;
 
 pub(super) use legacy::{forward_backreferences_as_empty, legacy_octal_escapes};
+pub(super) use surrogates::astral_surrogate_classes;
 
 /// `\/` back to `/`.
 ///

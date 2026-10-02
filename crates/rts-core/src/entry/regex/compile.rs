@@ -51,8 +51,9 @@ impl Engine {
         // The rewrites that are EXACT — see [`super::translate`] for why each
         // one is there and what is deliberately left alone.
         use super::translate::{
-            class_operators, empty_classes, forward_backreferences_as_empty, identity_escapes,
-            legacy_octal_escapes, unescape_solidus, wide_dot,
+            astral_surrogate_classes, class_operators, empty_classes,
+            forward_backreferences_as_empty, identity_escapes, legacy_octal_escapes,
+            unescape_solidus, wide_dot,
         };
         // `class_operators` runs on what the PROGRAM wrote, before the rewrites
         // below inject Rust syntax of their own — `empty_classes` answers
@@ -70,6 +71,10 @@ impl Engine {
         // see `forward_backreferences_as_empty`'s own doc for why — so this
         // runs under every flag combination, not only Annex B's.
         let pattern = forward_backreferences_as_empty(&pattern);
+        // Before `class_operators`, which READS classes: this one rewrites the
+        // inside of a class and what it writes is Rust syntax a program cannot
+        // have typed, so it must not be read back as if one had.
+        let pattern = astral_surrogate_classes(&pattern, flags.unicode);
         let pattern = class_operators(&pattern);
         let pattern = empty_classes(&pattern);
         let pattern = match flags.dot_all {
