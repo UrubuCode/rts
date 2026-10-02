@@ -115,7 +115,7 @@ impl Region {
         // cell's fifteen.
         let width = cells * (super::INLINE_SLOTS + 1) - 1;
         let at = self.word_of(index);
-        self.words[at] = super::header_word(ty, width);
+        self.set_word(at, super::header_word(ty, width));
 
         // Every cell after the first has no header of its own — a sweep must
         // not mistake one for an abandoned ordinary object. See

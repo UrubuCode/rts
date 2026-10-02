@@ -120,6 +120,7 @@ mod switches;
 mod symbol;
 mod tail_call;
 mod text;
+mod text_cell;
 mod throw;
 pub mod trace;
 mod weak;
@@ -402,12 +403,19 @@ pub const TYPE_NAMES: [&str; 9] = [
 
 /// Everything a running program's operations need and cannot be handed.
 pub struct Context {
-    /// Every heap value, of whichever kind.
+    /// The text of the strings that cannot carry their own.
     ///
-    /// One table, not one per kind — the decision recorded in [`crate::heap`]:
-    /// the tag space already spends a tag on "reference", and splitting the
-    /// payload to re-encode which kind would spend address bits to save a branch
-    /// a shape check performs anyway.
+    /// Once "every heap value, of whichever kind", and the sentence outlived
+    /// what it described twice over. It holds `Str`s, and since
+    /// [`text_cell`] only the ones a cell cannot hold: a spilled Latin-1 run
+    /// and every UTF-16 string. A string whose `Str` owns no buffer — nearly
+    /// every string a program makes — never appears here at all.
+    ///
+    /// One table rather than one per kind, which is the decision recorded in
+    /// [`crate::heap`] and still stands for what is left: the tag space
+    /// already spends a tag on "reference", and splitting the payload to
+    /// re-encode which kind would spend address bits to save a branch a shape
+    /// check performs anyway.
     pub cells: Slab<Str>,
     /// Every layout. The machine's, because there is exactly one.
     pub shapes: ShapeTree,
@@ -1332,10 +1340,30 @@ impl Context {
         // and before that it pushed all fifteen slots of every string. Saying
         // what the second slot is is what removes it from the walk, and
         // `TEXT_LENGTH_SLOT` is the constant that must agree with the order.
-        let text_type = types.declare(&[
+        //
+        // And then SEVEN, because slots 2 to 6 are the string's own `Str` when
+        // it owns no buffer — `text_cell` is why, and the declaration is what
+        // makes it admissible: `gc::traces_field` skips a field declared
+        // non-GC, so bytes of text are never walked as a reference.
+        // `text_cell::SLOTS` is the constant that must agree with how many
+        // there are.
+        //
+        // `Repr::Payload` and NOT `I64`, and the difference is not cosmetic —
+        // it was written `I64` first and that aborted the process. Both are
+        // words the collector skips, but the check that rejects a skipped field
+        // found holding a reference is sound for an integer and meaningless for
+        // bytes, because any sequence of bytes can carry the reference tag. A
+        // six-character string of four NULs then `ú` and `ÿ` is one.
+        // `Repr::Payload`'s own documentation has the bit pattern.
+        let mut text_fields = vec![
             rts_cranelift::repr::Repr::I64,
             rts_cranelift::repr::Repr::F64,
-        ]);
+        ];
+        text_fields.extend(std::iter::repeat_n(
+            rts_cranelift::repr::Repr::Payload,
+            text_cell::SLOTS as usize,
+        ));
+        let text_type = types.declare(&text_fields);
         let spill_type = types.declare(&[rts_cranelift::repr::Repr::Tagged]);
         // Code address, then environment. Declared here beside text and for the
         // same reason: a number that depends on which allocation happened first

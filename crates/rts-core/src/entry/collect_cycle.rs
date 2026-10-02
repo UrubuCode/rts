@@ -180,8 +180,16 @@ fn release(context: &mut Context, cell: u32) {
     // encoded `Value` — `trace.rs`'s own documentation flags this as the one
     // thing the marker cannot follow, and says the sweep must reach it
     // deliberately. This is that reach.
+    //
+    // Unless the text is in the cell itself, which `super::text_cell` says is
+    // the common case now: then slot 0 is the sentinel rather than an index,
+    // there is no slab entry to give back, and the bytes go away with the cell.
+    // No destructor runs here and none is needed — `text_cell` places only a
+    // `Str` that owns nothing, and that restriction is exactly what makes this
+    // branch a `return` rather than a `drop_in_place`.
     if context.region.type_of(cell) == Some(context.text_type.index() as u32)
         && let Some(slot) = context.region.field(cell, 0)
+        && slot != super::text_cell::IN_CELL
     {
         context.cells.free(Slot(slot as u32));
     }
@@ -377,8 +385,13 @@ mod tests {
 
     #[test]
     fn a_freed_text_cells_slab_slot_is_reclaimed() {
+        // A string whose text does NOT fit inline, which is what still uses the
+        // slab: `text_cell` keeps the cell for the forms that own no buffer, so
+        // asking this of a short string would be asking about a slab slot that
+        // was never taken. Thirty-one bytes is one past `text::INLINE`.
+        let spilling = "x".repeat(crate::text::INLINE + 1);
         let mut context = empty_context();
-        let text = context.intern_value(crate::text::Str::from_str("gone"));
+        let text = context.intern_value(crate::text::Str::from_str(&spilling));
         let _cell = text.as_slot().expect("a text cell");
         let before = context.cells.len();
 
@@ -390,6 +403,38 @@ mod tests {
             before - 1,
             "the raw slab slot the header pointed at, not just the cell"
         );
+    }
+
+    #[test]
+    fn a_short_texts_cell_is_freed_without_ever_taking_a_slab_slot() {
+        // The other half, and the one that is the point of `text_cell`: the
+        // text is in the cell's own slots, so there is nothing in the slab to
+        // give back — and the sweep must still free the cell rather than read
+        // slot 0 as an index and hand the slab somebody else's slot.
+        //
+        // Pinned here rather than left implied because the failure direction is
+        // silent: `IN_CELL` is `u64::MAX`, so a sweep that skipped the sentinel
+        // check would call `Slab::free` with a slot that does not exist.
+        let mut context = empty_context();
+        let before = context.cells.len();
+        let text = context.intern_value(crate::text::Str::from_str("gone"));
+        let cell = text.as_slot().expect("a text cell");
+
+        assert_eq!(
+            context.cells.len(),
+            before,
+            "a short string's text is in its cell, so the slab is untouched"
+        );
+        assert_eq!(
+            context.text_at(cell).and_then(crate::text::Str::to_rust),
+            Some("gone".to_owned()),
+            "and it reads back out of the cell"
+        );
+
+        let freed = collect_over_empty_stack(&mut context);
+
+        assert_eq!(freed, 1);
+        assert_eq!(context.cells.len(), before, "nothing was taken, so nothing is returned");
     }
 
     #[test]

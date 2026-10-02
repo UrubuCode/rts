@@ -100,10 +100,16 @@ place V8 keeps a hash — and not because the alternatives were tried and failed
 Two details that generalise beyond this field:
 
 - **It is a `Cell`.** Resolution happens through a shared reference:
-  `key_of_text_cell` holds the text out of `Context::cells` while borrowing the
-  interner and the key registry mutably, which Rust allows because they are
-  different fields. Asking for the slab mutably would collide.
-  `entry::symbol::key_of` records the same borrow shape for its own memo.
+  `key_of_text_cell` holds the text out of **one field** of the context while
+  borrowing the interner and the key registry mutably, which Rust allows
+  because they are different fields. Asking for that field mutably would
+  collide. `entry::symbol::key_of` records the same borrow shape for its own
+  memo.
+
+  Which field, since 2026-10-01: `Context::region` for a string carrying its
+  own `Str` in its cell's slots, and `Context::cells` for the rest — a spilled
+  Latin-1 run or any UTF-16 string. `entry::text_cell` is why, and it also
+  records what that placement leaves formally open about writing this memo.
 - **It is excluded from `PartialEq`, `Eq` and `Hash`,** which is why those are
   written out by hand. A memo of something *derived* from the text must not
   change what makes two texts the same, or one string lands in two hash buckets

@@ -139,7 +139,14 @@ impl Region {
         }
         let want = self.capacity.saturating_mul(2).min(self.reserved);
         let base_before = self.base();
-        self.words.resize(words_for(want), 0);
+        // `resize_with` rather than `resize`: `UnsafeCell` is not `Clone`, by
+        // design — cloning one would copy a value another writer may be
+        // changing. Writing the zeros here is free in practice, because this
+        // runs at most `GROWTH_CEILING` times for the life of a region, where
+        // the construction path that does use `alloc_zeroed` runs once over the
+        // whole reservation.
+        self.words
+            .resize_with(words_for(want), || std::cell::UnsafeCell::new(0));
         assert_eq!(
             self.base(),
             base_before,

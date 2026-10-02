@@ -183,6 +183,24 @@ pub struct Str {
     /// It is the same place V8 keeps a string's hash and JavaScriptCore keeps a
     /// `StringImpl`'s.
     ///
+    /// # What changed, and why the argument above still holds
+    ///
+    /// The memo is still here. What moved is where the `Str` is: since
+    /// `entry::text_cell`, a string that owns no buffer carries its whole `Str`
+    /// in its own cell's slots, so this memo now sits in region memory after
+    /// all — which is what the paragraph above says it should not.
+    ///
+    /// Both owners it names are answered rather than ignored, and that is the
+    /// difference. The collector no longer walks the slot: it is declared
+    /// `Repr::Payload`, and `gc::traces_field` skips it. And no shape assigns
+    /// properties to a string cell's slots, because `Context::shape_of` answers
+    /// `None` for text — that half of the sentence was about object cells and
+    /// was never true here.
+    ///
+    /// What is NOT answered is formal: writing through this `Cell` while the
+    /// `Str` is borrowed out of a `&[u64]` window is a write through a shared
+    /// provenance. `entry::text_cell` records it as the open question it is.
+    ///
     /// # Why a `Cell`
     ///
     /// Because resolving happens through a shared reference: `key_of_text_cell`
@@ -332,6 +350,36 @@ impl Str {
     /// How it is stored.
     pub fn repr(&self) -> &Repr {
         &self.repr
+    }
+
+    /// Whether this `Str` owns no heap memory, so copying its bytes copies the
+    /// whole string and dropping it releases nothing.
+    ///
+    /// # Why this question exists
+    ///
+    /// It is what decides whether a string's `Str` may live in its own region
+    /// cell instead of in `Context::cells`, which is the whole of the one
+    /// allocation per string change. A `Str` in a cell is memory the collector
+    /// hands back by splicing the cell into a free list; it runs no
+    /// destructor, and nothing walks the region on the way out to run one
+    /// either. So an owning `Str` placed there would leak its buffer — once
+    /// per collection for the life of the program.
+    ///
+    /// The alternative was a `drop_in_place` in the sweep, and it was refused:
+    /// it makes the SWEEP correct and leaves the region's own teardown
+    /// leaking, which is the half nothing would notice. Restricting the
+    /// placement to the forms that own nothing makes the question unaskable
+    /// instead, and `Narrow::Short` is already how a string of up to
+    /// [`INLINE`] bytes is held — which is the shape of nearly every string a
+    /// program makes.
+    ///
+    /// True for an inline Latin-1 run; false for a spilled one and for every
+    /// UTF-16 string, both of which keep the slab.
+    pub fn owns_nothing(&self) -> bool {
+        match &self.repr {
+            Repr::Latin1(bytes) => bytes.is_inline(),
+            Repr::Utf16(_) => false,
+        }
     }
 
     /// `.length` — the number of UTF-16 code units.

@@ -65,18 +65,25 @@
 //!
 //! # What is found but out of this phase's return value
 //!
-//! A live cell of the text type names its string's payload in
-//! [`Context::cells`] — a [`crate::heap::Slab<Str>`] indexed by a RAW,
-//! unencoded slot number written into the cell's first field
-//! (`Context::intern_value`). That word is not a [`Value`] and this walk
-//! correctly does not follow it as one — `Value::kind` on a small unencoded
-//! integer answers `Float`, so it is silently and safely ignored rather than
-//! mis-followed. What that means is this module's [`Marks`] answers only
-//! which REGION cells are live; a live text cell's entry in `Context::cells`
-//! is a second, smaller table phase 3 has to sweep on its own account by
-//! reading `Context::text_at` for every live cell of the text type. Stated
-//! here so it is a known boundary rather than a surprise the day something
-//! sweeps a live string's bytes.
+//! **Most strings no longer have a payload outside their cell**, and this
+//! paragraph described the state before `entry::text_cell`: a string whose
+//! `Str` owns no buffer — an inline Latin-1 run, which is nearly every string
+//! a program makes — carries that `Str` in its own slots 2 to 6, and slot 0
+//! holds a sentinel instead of a slab index. For those there is no second
+//! table, nothing to sweep separately, and the bytes go away with the cell.
+//!
+//! What remains outside is the rest: a spilled Latin-1 run and every UTF-16
+//! string keep their `Str` in [`Context::cells`] — a
+//! [`crate::heap::Slab<Str>`] indexed by a RAW, unencoded slot number in the
+//! cell's first field. That word is not a [`Value`] and this walk correctly
+//! does not follow it as one. So this module's [`Marks`] still answers only
+//! which REGION cells are live, and the slab entry of a live string that has
+//! one is still a second, smaller table — `entry::collect_cycle::release` is
+//! what gives it back, which is also where the sentinel is checked.
+//!
+//! The slots holding an in-cell `Str` are declared [`Repr::Payload`], which is
+//! what keeps them out of this walk AND out of the check below. Both halves
+//! are needed and the second was learned the hard way — see the loop.
 
 use crate::collect::Marks;
 use crate::heap::{INLINE_SLOTS, Slot};
@@ -185,9 +192,14 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
     //
     //    What it risks is a field DECLARED non-GC-relevant that holds a
     //    reference anyway — rule 10's own failure direction, a silent free
-    //    rather than a crash. `Region::set_field` carries the debug assertion
-    //    that refuses it at the write, which is the shape `side_tables` uses
-    //    for an arm that disagrees with its table.
+    //    rather than a crash. The debug assertion below is what refuses it,
+    //    which is the shape `side_tables` uses for an arm that disagrees with
+    //    its table.
+    //
+    //    This comment said `Region::set_field` carried that assertion too, and
+    //    it does not — there is no such check at the write, because `set_field`
+    //    has no type registry to ask. Corrected rather than left standing: a
+    //    reader who believed it would think the write side was covered.
     let declared = context
         .region
         .type_of(cell)
@@ -201,8 +213,19 @@ fn edges_of(context: &Context, cell: u32, out: &mut Vec<u64>) {
             // `Some`. A field declared `I64` or `F64` holding one is the silent
             // free this whole arm risks, caught here — in the path that would
             // do the harm — on every debug run of every test.
+            //
+            // Asked only of a field that IS a value, which is a second question
+            // the machine answers and not a let-out: a field declared
+            // `Repr::Payload` holds some bytes of a larger thing, and a byte of
+            // text is neither a reference nor not one. Asking anyway aborted on
+            // an ordinary six-character string whose fifth and sixth characters
+            // put the reference tag in the word's top half —
+            // `gc::field_holds_a_value` is where that is decided, beside
+            // `traces_field` so the two cannot drift.
             debug_assert!(
-                context
+                !rts_cranelift::gc::field_holds_a_value(
+                    declared.and_then(|fields| fields.field(slot as usize))
+                ) || context
                     .region
                     .field(cell, slot)
                     .and_then(|word| Value(word).as_slot())

@@ -447,17 +447,34 @@ impl Context {
 
     /// The text a reference names, if it names one.
     ///
-    /// A reference is a REGION index now, uniformly — for a string as much as
-    /// for an object. Its cell holds the string's type in the header and where
-    /// the text is in its first slot; the text itself is in the slab, because a
-    /// string is any length and a cell is 64 bytes.
+    /// A reference is a REGION index, uniformly — for a string as much as for
+    /// an object. Its cell holds the string's type in the header and, in the
+    /// first slot, **where the text is**: a sentinel meaning "in this cell's
+    /// own slots", or a slab index.
     ///
-    /// That indirection is not a compromise. String identity and string data are
-    /// separate things in every engine that moves either one, and putting the
-    /// identity in the region is what lets one reference space serve both kinds.
+    /// # Why there are two places and not one
+    ///
+    /// A string is any length and a cell is 128 bytes, so the text cannot
+    /// always be inside. What `entry::text_cell` establishes is that it usually
+    /// can: a `Str` is forty bytes with up to thirty of text held inline, so
+    /// every string that owns no buffer fits in five of the cell's fifteen
+    /// slots. Those pay one allocation and one cache line instead of two, which
+    /// was 48.50 nanoseconds against a 9.94 floor when it was measured.
+    ///
+    /// The rest — a spilled Latin-1 run, every UTF-16 string — keep the slab,
+    /// and that indirection is not a compromise either. String identity and
+    /// string data are separate things in every engine that moves either one,
+    /// and putting the identity in the region is what lets one reference space
+    /// serve both kinds.
     pub fn text_at(&self, reference: u32) -> Option<&Str> {
         if self.region.type_of(reference)? as usize != self.text_type.index() {
             return None;
+        }
+        // In the cell's own slots when the text owns no buffer, which is the
+        // common case and the one the two allocations per string were costing.
+        // `super::text_cell` has the measurement and the soundness argument.
+        if let Some(text) = super::text_cell::at(&self.region, reference) {
+            return Some(text);
         }
         let slot = self.region.field(reference, 0)? as u32;
         self.cells.at(Slot(slot)).ok()
@@ -485,8 +502,18 @@ impl Context {
         if self.region.type_of(reference)? as usize != self.text_type.index() {
             return None;
         }
-        let slot = self.region.field(reference, 0)? as u32;
-        let text = self.cells.at(Slot(slot)).ok()?;
+        // Through `text_cell::at` and `cells` rather than `self.text_at`, and
+        // that is the disjoint-field trick this method exists for: both borrow
+        // one FIELD of the context, leaving `interner` and `keys` free to be
+        // written below. `self.text_at` would borrow the whole context and the
+        // caller would be back to cloning the string on every access.
+        let text = match super::text_cell::at(&self.region, reference) {
+            Some(text) => text,
+            None => {
+                let slot = self.region.field(reference, 0)? as u32;
+                self.cells.at(Slot(slot)).ok()?
+            }
+        };
         // The memo the text carries, before the interner is asked. Without it
         // this hashes the string on EVERY access, which made a property read
         // cost three nanoseconds per character of the name — see `Str::key` for
@@ -702,10 +729,21 @@ impl Context {
         // first would leave a text with no region root while that collection
         // scans the heap.
         let cell = super::alloc::alloc_or_die(self, size, ty);
-        let slot = self.cells.insert(text).slot();
-        self.region
-            .set_field(cell, 0, u64::from(slot.0))
-            .expect("a string cell has a first slot");
+        // The text in the cell's OWN slots when it owns no buffer, which is
+        // nearly every string a program makes. `super::text_cell` is the whole
+        // argument — what it costs, why it was impossible until the tracer read
+        // layouts, and why ownership rather than length is the question. What it
+        // buys here is one allocation and one cache line instead of two: the
+        // same cell, already hot from the line above, instead of a second miss
+        // in the slab.
+        if text.owns_nothing() {
+            super::text_cell::place(self, cell, text);
+        } else {
+            let slot = self.cells.insert(text).slot();
+            self.region
+                .set_field(cell, 0, u64::from(slot.0))
+                .expect("a string cell has a first slot");
+        }
         // The LENGTH as a VALUE, not as an integer: a cached read hands back what
         // the slot holds, so what the slot holds must be a JavaScript value. It
         // was a raw `u64` for one build and every length read back as a denormal —

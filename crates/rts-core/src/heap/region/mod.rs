@@ -217,7 +217,42 @@ pub const STRIDE: u32 = HeaderLayout::BYTES + INLINE_SLOTS * SLOT_BYTES;
 /// bound inside it. [`growth`] is that, and holds why every other way of
 /// growing was refused.
 pub struct Region {
-    words: Vec<u64>,
+    /// The cells, as machine words.
+    ///
+    /// # Why `UnsafeCell` and not a plain `Vec<u64>`
+    ///
+    /// Because this memory is written through SHARED references and always
+    /// was, so `Vec<u64>` was a false statement about it rather than a simpler
+    /// one. Two writers prove it:
+    ///
+    /// - **Compiled code.** [`Self::base`] hands out the buffer's address and
+    ///   compiled code stores into cells through it, while the runtime may be
+    ///   holding a `&Region` — nothing in the type system connects the two, and
+    ///   nothing ever did.
+    /// - **A string's memo.** `entry::text_cell` produces a `&Str` pointing
+    ///   into a cell, and resolving a property key writes that `Str`'s `Cell`
+    ///   memo through it. That is interior mutation of this buffer through a
+    ///   shared reference, which is legal when the memory says it may be
+    ///   mutated and undefined behaviour when it does not.
+    ///
+    /// The second is what forced the change and the first is why it is a
+    /// correction rather than a concession: the declaration now matches what
+    /// has been happening since compiled code first stored a field.
+    ///
+    /// # What it costs
+    ///
+    /// Nothing at run time. `UnsafeCell<u64>` is `repr(transparent)`, so the
+    /// layout, the alignment and the address arithmetic are unchanged — which
+    /// is also what lets the zeroed allocation below be built as a `Vec<u64>`
+    /// and transmuted, keeping `alloc_zeroed` rather than writing a few
+    /// megabytes one `UnsafeCell::new` at a time.
+    ///
+    /// What it costs in SOURCE is that every access goes through
+    /// [`Self::word`], [`Self::set_word`] or [`Self::payload_window`]. That is
+    /// deliberate: three functions hold every dereference, so the unsafe is
+    /// auditable in one screen instead of being spread over thirty-five
+    /// indexing expressions.
+    words: Vec<std::cell::UnsafeCell<u64>>,
     next: u32,
     /// The bound [`Region::alloc`] enforces, which is **not** how much space the
     /// region has claimed. It starts at what the host asked for and is raised by
@@ -408,8 +443,19 @@ impl Region {
         // as a 20% regression and had this exact mechanism ready to explain it.
         // The A/B above is what refuted it — both binaries measure ~105 today,
         // and the 90.89 is a different day. See `docs/codegen/measurements.md`.
+        // Built as plain words and reinterpreted, which keeps the whole
+        // reservation coming from `alloc_zeroed` — one call to the operating
+        // system for memory that arrives zeroed. Filling it with
+        // `UnsafeCell::new(0)` instead would write every word of a span that is
+        // megabytes, to produce the identical bytes.
+        //
+        // Sound because `UnsafeCell<T>` is `repr(transparent)`: same size, same
+        // alignment, same bit pattern, and `Vec`'s allocation is described by
+        // those three. It is the same reinterpretation `Self::base` relies on
+        // when it hands the buffer's address to compiled code.
         let mut words = vec![0u64; words_for(reserved)];
         words.truncate(words_for(cells));
+        let words: Vec<std::cell::UnsafeCell<u64>> = unsafe { std::mem::transmute(words) };
         Region {
             words,
             next: 0,
@@ -530,20 +576,20 @@ impl Region {
 
             // The link lived in the first slot; read it before it is
             // overwritten with the new object's field.
-            let next = self.words[at + 1];
+            let next = self.word(at + 1);
             self.free_head = if next == NO_NEXT {
                 None
             } else {
                 Some(next as u32)
             };
 
-            self.words[at] = header_word(ty, INLINE_SLOTS);
+            self.set_word(at, header_word(ty, INLINE_SLOTS));
             // Every slot, including the one that carried the link, is zeroed:
             // a cell reused without this would hand its new owner the previous
             // occupant's last field, which is exactly the silently wrong object
             // this crate's rule 7 keeps naming as the thing to avoid.
             for slot in 0..INLINE_SLOTS as usize {
-                self.words[at + 1 + slot] = 0;
+                self.set_word(at + 1 + slot, 0);
             }
             return Some(reference);
         }
@@ -563,7 +609,7 @@ impl Region {
         // without knowing what the object is, which is the whole reason it is
         // the first thing in the cell.
         let at = self.word_of(index);
-        self.words[at] = header_word(ty, INLINE_SLOTS);
+        self.set_word(at, header_word(ty, INLINE_SLOTS));
 
         // The fields are zeroed by construction for a cell that has never been
         // handed out before. A cell coming back through the free list is zeroed
@@ -600,7 +646,7 @@ impl Region {
         }
 
         let at = self.word_of(index);
-        if self.words[at] == FREE_MARKER {
+        if self.word(at) == FREE_MARKER {
             return false; // already free
         }
 
@@ -609,7 +655,7 @@ impl Region {
         // have no header, so freeing the first alone would lose them for good:
         // nothing walks a cell marked interior, and no allocation would ever
         // reach them again.
-        let width = (self.words[at] >> WIDTH_SHIFT) as u32;
+        let width = (self.word(at) >> WIDTH_SHIFT) as u32;
         let cells = (1 + width).div_ceil(INLINE_SLOTS + 1).max(1);
         if cells > 1 {
             // A wide object's cells go back as a RUN, so the next wide object
@@ -617,7 +663,7 @@ impl Region {
             // them among narrow allocations and no run would ever re-form.
             for offset in 0..cells {
                 let word = self.word_of(index + offset);
-                self.words[word] = FREE_MARKER;
+                self.set_word(word, FREE_MARKER);
                 if let Some(flag) = self.spanned_interior.get_mut((index + offset) as usize) {
                     *flag = false;
                 }
@@ -638,8 +684,8 @@ impl Region {
                 Some(next) => u64::from(next),
                 None => NO_NEXT,
             };
-            self.words[word] = FREE_MARKER;
-            self.words[word + 1] = link;
+            self.set_word(word, FREE_MARKER);
+            self.set_word(word + 1, link);
             self.free_head = Some(cell);
             if let Some(flag) = self.spanned_interior.get_mut(cell as usize) {
                 *flag = false;
@@ -658,9 +704,7 @@ impl Region {
             return None;
         }
         let index = self.decompose(reference)?;
-        self.words
-            .get(self.word_of(index) + 1 + slot as usize)
-            .copied()
+        self.word_checked(self.word_of(index) + 1 + slot as usize)
     }
 
     /// Writes a field of a cell.
@@ -670,7 +714,7 @@ impl Region {
             return None;
         }
         let at = self.word_of(index) + 1 + slot as usize;
-        *self.words.get_mut(at)? = value;
+        self.set_word_checked(at, value)?;
         Some(())
     }
 
@@ -686,15 +730,15 @@ impl Region {
             return None;
         }
         let at = self.word_of(index);
-        let width = (*self.words.get(at)? >> WIDTH_SHIFT) as u32;
-        *self.words.get_mut(at)? = header_word(ty, width);
+        let width = (self.word_checked(at)? >> WIDTH_SHIFT) as u32;
+        self.set_word_checked(at, header_word(ty, width))?;
         Some(())
     }
 
     /// The type a cell's header holds.
     pub fn type_of(&self, reference: u32) -> Option<u32> {
         let index = self.decompose(reference)?;
-        self.words.get(self.word_of(index)).map(|word| *word as u32)
+        self.word_checked(self.word_of(index)).map(|word| word as u32)
     }
 
     /// How many slots a cell owns — [`INLINE_SLOTS`] for an ordinary one, and
@@ -725,7 +769,7 @@ impl Region {
         if self.is_spanned_interior(index) {
             return None;
         }
-        let word = *self.words.get(self.word_of(index))?;
+        let word = self.word_checked(self.word_of(index))?;
         if word == FREE_MARKER {
             return None;
         }
@@ -742,7 +786,7 @@ impl Region {
     /// of the narrower cell.
     pub fn header_of(&self, reference: u32) -> Option<u64> {
         let index = self.decompose(reference)?;
-        self.words.get(self.word_of(index)).copied()
+        self.word_checked(self.word_of(index))
     }
 
     /// Where a cell starts, as an address.
@@ -772,6 +816,84 @@ impl Region {
     /// Which word a cell starts at.
     fn word_of(&self, index: u32) -> usize {
         words_for(index)
+    }
+
+    /// One word of the buffer, panicking past the end as indexing did.
+    ///
+    /// # Safety
+    ///
+    /// Sound for every caller rather than a contract: a `u64` has no invalid
+    /// bit pattern, so reading one that another writer may be changing yields
+    /// some value of the type and never undefined behaviour. What a caller must
+    /// not assume is that two reads agree — nothing here is atomic, and
+    /// compiled code writes these words. Every caller in this module reads a
+    /// word it owns (a header it is about to rewrite, a free-list link in a
+    /// cell nobody holds), which is why no caller needs that guarantee.
+    #[inline]
+    fn word(&self, at: usize) -> u64 {
+        unsafe { *self.words[at].get() }
+    }
+
+    /// The same, answering `None` past the end instead of panicking.
+    #[inline]
+    fn word_checked(&self, at: usize) -> Option<u64> {
+        self.words.get(at).map(|word| unsafe { *word.get() })
+    }
+
+    /// Writes one word, panicking past the end as indexing did.
+    #[inline]
+    fn set_word(&mut self, at: usize, value: u64) {
+        unsafe { *self.words[at].get() = value }
+    }
+
+    /// Writes one word, answering `None` past the end.
+    #[inline]
+    fn set_word_checked(&mut self, at: usize, value: u64) -> Option<()> {
+        let word = self.words.get(at)?;
+        unsafe { *word.get() = value };
+        Some(())
+    }
+
+    /// A bounds-checked run of a cell's payload, as a raw pointer.
+    ///
+    /// # Why a raw pointer and not a slice
+    ///
+    /// Because the caller is not reading words — it is reading a Rust value
+    /// that spans several of them. `entry::text_cell` is the one caller: a
+    /// string's `Str` lives in its own cell's slots, and the run means nothing
+    /// one word at a time, so handing back `&[u64]` would only mean the caller
+    /// casts it anyway, with the cast's soundness argument split across two
+    /// modules.
+    ///
+    /// # Why `&self` may produce a `*mut`
+    ///
+    /// Because [`Self::words`] is `UnsafeCell`, which is exactly the
+    /// declaration that makes mutation through a shared reference legal. That
+    /// field's own documentation says why it has to be, and the string memo
+    /// this pointer serves is the reason.
+    ///
+    /// Bounds-checked against the cell's own width, so a reference this region
+    /// did not hand out and a run past the cell both answer `None` rather than
+    /// reaching a neighbour. What is NOT checked is what the caller believes is
+    /// there — that is the caller's invariant, and `text_cell` states it.
+    pub(crate) fn payload_window(
+        &self,
+        reference: u32,
+        from: u32,
+        count: u32,
+    ) -> Option<*mut u64> {
+        let end = from.checked_add(count)?;
+        if end > self.width_of(reference)? {
+            return None;
+        }
+        let index = self.decompose(reference)?;
+        let at = self.word_of(index) + 1 + from as usize;
+        // `get` rather than arithmetic on `as_ptr`: the width check above is
+        // about the CELL, and this one is about the buffer. A spanning cell's
+        // width can exceed what the words actually cover if anything ever
+        // disagrees, and the two checks catch different mistakes.
+        self.words.get(at..at + count as usize)?;
+        Some(self.words[at].get())
     }
 
     /// Records that `index` is a trailing cell of a spanning allocation, not an
@@ -816,7 +938,7 @@ impl Region {
             if self.is_spanned_interior(index) {
                 continue;
             }
-            if self.words[self.word_of(index)] == FREE_MARKER {
+            if self.word(self.word_of(index)) == FREE_MARKER {
                 continue;
             }
             if let Some(reference) = self.compose(index) {

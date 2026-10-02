@@ -118,6 +118,15 @@ impl Narrow {
         Narrow::Short { len: units.len() as u8, held }
     }
 
+    /// Whether the bytes are held here rather than in a buffer.
+    ///
+    /// Asked by [`crate::text::Str::owns_nothing`], which is what decides
+    /// whether a string may live in its own region cell — see there for why
+    /// ownership is the question and not length.
+    pub fn is_inline(&self) -> bool {
+        matches!(self, Narrow::Short { .. })
+    }
+
     /// The text.
     pub fn as_slice(&self) -> &[u8] {
         match self {

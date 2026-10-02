@@ -84,15 +84,15 @@ impl Region {
     pub(super) fn alloc_splitting_a_run(&mut self, ty: u32) -> Option<u32> {
         let start = self.take_free_run(1)?;
         let at = self.word_of(start);
-        self.words[at] = super::header_word(ty, super::INLINE_SLOTS);
+        self.set_word(at, super::header_word(ty, super::INLINE_SLOTS));
         for slot in 0..super::INLINE_SLOTS as usize {
-            self.words[at + 1 + slot] = 0;
+            self.set_word(at + 1 + slot, 0);
         }
         self.compose(start)
     }
 
     fn is_free_cell(&self, index: u32) -> bool {
-        self.words[self.word_of(index)] == FREE_MARKER && !self.is_spanned_interior(index)
+        self.word(self.word_of(index)) == FREE_MARKER && !self.is_spanned_interior(index)
     }
 
     fn thread_single(&mut self, index: u32) {
@@ -101,8 +101,8 @@ impl Region {
             Some(next) => u64::from(next),
             None => NO_NEXT,
         };
-        self.words[word] = FREE_MARKER;
-        self.words[word + 1] = link;
+        self.set_word(word, FREE_MARKER);
+        self.set_word(word + 1, link);
         self.free_head = Some(index);
     }
 }
