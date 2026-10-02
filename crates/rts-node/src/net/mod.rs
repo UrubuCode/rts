@@ -71,6 +71,7 @@
 
 mod blocklist;
 mod common;
+mod duplex_hooks;
 mod ip;
 mod registry;
 mod server;
