@@ -379,17 +379,17 @@ impl Context {
     /// wanted a `Vec` say `.to_vec()` where they said `.cloned()`, which is the
     /// same copy under a name that admits it is one.
     pub(super) fn elements_at(&self, reference: u32) -> Option<&[u64]> {
-        // The cell FIRST, because an array small enough to be inline is the
-        // common one and the `Slab` lookup is the fallback. `array_cell::at`
-        // answers `None` for anything else, including a cell that is not an
-        // array at all.
-        if let Some(held) = super::array_cell::at(self, reference) {
-            return Some(held);
+        // ONE read of the side table, then a branch. Asking
+        // `array_cell::at` first and falling through to `store_of` read the
+        // same `Aside` twice, so an array past the inline capacity paid an
+        // extra lookup on every element read — a cost added by this feature to
+        // the arrays that do not benefit from it. This way a spilled array
+        // costs exactly what it cost before any of 14.3 existed.
+        let store = self.array_elements.copied(reference)?;
+        if store == super::array_cell::IN_CELL {
+            return super::array_cell::held(self, reference);
         }
-        self.arrays
-            .at(self.store_of(reference)?)
-            .ok()
-            .map(Vec::as_slice)
+        self.arrays.at(store).ok().map(Vec::as_slice)
     }
 
     /// The same, to write through — spilling to the `Slab` first if the

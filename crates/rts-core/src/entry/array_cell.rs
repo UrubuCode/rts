@@ -124,12 +124,24 @@ pub(super) fn place(context: &mut Context, cell: u32, elements: &[u64]) {
         fits(context, cell, elements.len()),
         "the caller must check `fits` before placing elements in a cell",
     );
-    for (at, held) in elements.iter().enumerate() {
-        let slot = FIRST_SLOT + at as u32;
-        context
-            .region
-            .set_field(cell, slot, *held)
-            .expect("an element slot is within a cell the caller just allocated");
+    // ONE window and a copy, not `set_field` per element.
+    //
+    // `set_field` re-does `decompose` and `width_of` on every call, so placing
+    // two elements paid those twice and placing fourteen paid them fourteen
+    // times — which is the likeliest reason a two-element literal measured 0 %
+    // against the `Slab` it replaced: the per-element bounds checks cost about
+    // what the `Vec`'s malloc cost. `text_cell::place` already writes through a
+    // single window for the same reason.
+    let window = context
+        .region
+        .payload_window(cell, FIRST_SLOT, elements.len() as u32)
+        .expect("`fits` has checked the cell is wide enough for these elements");
+    // SAFETY: `payload_window` has checked that `FIRST_SLOT + len` is within
+    // both the cell's width and the words backing it, and the elements come
+    // from a slice that cannot overlap the region — it is the caller's `Vec`,
+    // which `built_in` still owns at this point.
+    unsafe {
+        std::ptr::copy_nonoverlapping(elements.as_ptr(), window, elements.len());
     }
 }
 
@@ -146,6 +158,24 @@ pub(super) fn at<'a>(context: &'a Context, cell: u32) -> Option<&'a [u64]> {
     if context.array_elements.copied(cell) != Some(IN_CELL) {
         return None;
     }
+    held(context, cell)
+}
+
+/// The same, for a caller that has ALREADY read the side table and found
+/// [`IN_CELL`].
+///
+/// # Why this exists rather than one function
+///
+/// So that reading a SPILLED array costs exactly what it cost before any of
+/// this existed. `Context::elements_at` has to read the side table anyway to
+/// find the `Slab` slot, and calling [`at`] made it read the same `Aside`
+/// twice: once to test the sentinel and once to get the slot. An array past
+/// the inline capacity would have paid that on every element read.
+///
+/// Removed by construction rather than measured, which is the stronger form:
+/// there is no number to compare because there is no second lookup left to
+/// cost anything.
+pub(super) fn held<'a>(context: &'a Context, cell: u32) -> Option<&'a [u64]> {
     let count = length_of(context, cell)?;
     let window = context.region.payload_window(cell, FIRST_SLOT, count)?;
     // SAFETY: `payload_window` has checked that `FIRST_SLOT + count` is within
