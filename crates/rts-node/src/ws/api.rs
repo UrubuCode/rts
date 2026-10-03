@@ -469,6 +469,14 @@ pub(super) fn namespace(context: &mut Context) -> u64 {
     entry::put_member(context, namespace, "Server", construtor);
     entry::put_member(context, namespace, "WebSocket", cliente);
     entry::put_member(context, cliente, "Server", construtor);
+    // And the other two names the npm `ws` hangs off its export, which matter
+    // now that the export IS the class: `index.js` writes
+    // `module.exports.WebSocketServer = WebSocketServer` and
+    // `module.exports.WebSocket = WebSocket`, so a program that destructures
+    // `const { WebSocketServer } = require("ws")` reads them and not the
+    // namespace. Only `Server` was here, so that destructuring read `undefined`.
+    entry::put_member(context, cliente, "WebSocketServer", construtor);
+    entry::put_member(context, cliente, "WebSocket", cliente);
 
     // `default` passa a ser o CLIENTE, e isto é uma correção e não uma escolha:
     // o `ws` do npm faz `module.exports = WebSocket` e pendura o servidor em
@@ -477,5 +485,12 @@ pub(super) fn namespace(context: &mut Context) -> u64 {
     // existia, e um `new WS("wss://…")` tratava a URL como um objeto de opções
     // e falhava a pedir `{ port }`.
     entry::put_member(context, namespace, "default", cliente);
+
+    // The `readyState` numbers go on the CLASS, which is where the npm `ws` has
+    // them — its `module.exports` IS the class, so `ws.OPEN` and
+    // `WebSocket.OPEN` are one read of one object there. In `super::exports`
+    // beside the question of what that export is, and not here, for the reason
+    // that module's header gives.
+    super::exports::declare_ready_states(context, cliente);
     namespace
 }
