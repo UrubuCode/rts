@@ -86,7 +86,27 @@ const EACH: u64 = 200_000;
 /// collection at all. At 20 000 they did, and the tell was in the output rather
 /// than in the failure — `object_new` reported a **751 % spread** between
 /// rounds, which is one round paying for a cycle the others did not.
-const ALLOC_EACH: u64 = 2_000;
+const ALLOC_EACH_DEFAULT: u64 = 2_000;
+
+/// Quantas iterações uma linha que aloca corre, por `RTS_ALLOC_EACH`.
+///
+/// # Para que serve variar isto
+///
+/// Para separar o custo em INSTRUÇÕES do custo em MEMÓRIA. Uma célula são 128
+/// bytes, logo duas mil são 256 KB — fora do L2 desta máquina. Se o custo por
+/// alocação SUBIR com a contagem, o que está a ser medido é tocar memória nova
+/// e não o caminho de alocação, e nesse caso células menores (plano 11.2)
+/// ganham por caber mais por linha de cache, enquanto afinar o caminho não
+/// ganha nada.
+///
+/// A pergunta não é retórica: `probe_cell_only` mede ~20 ns onde o caminho de
+/// bump são três operações, e essa diferença tem de estar em algum lado.
+fn alloc_each() -> u64 {
+    std::env::var("RTS_ALLOC_EACH")
+        .ok()
+        .and_then(|held| held.parse().ok())
+        .unwrap_or(ALLOC_EACH_DEFAULT)
+}
 
 /// Why the allocating rows are capped here, and why raising it does not work.
 ///
@@ -220,10 +240,10 @@ fn main() {
         report("instance_of", EACH, move |sink, _| {
             sink.wrapping_add(u64::from(instance_of(derived, ctor)))
         });
-        report("object_new(2)", ALLOC_EACH, |sink, _| {
+        report("object_new(2)", alloc_each(), |sink, _| {
             sink.wrapping_add(object_new(2))
         });
-        report("array_new(4)", ALLOC_EACH, |sink, _| {
+        report("array_new(4)", alloc_each(), |sink, _| {
             sink.wrapping_add(array_new(4))
         });
         // ------------------------------------- where the array's +41 ns LIVES
@@ -240,17 +260,40 @@ fn main() {
         // If the slope is steep it is the `Vec`, and inline is the answer.
         // Measuring this before building it, because this session has already
         // spent a release build on an attribution the rows refuted.
-        report("array_new(0)", ALLOC_EACH, |sink, _| {
+        report("array_new(0)", alloc_each(), |sink, _| {
             sink.wrapping_add(array_new(0))
         });
-        report("array_new(14)", ALLOC_EACH, |sink, _| {
+        report("array_new(14)", alloc_each(), |sink, _| {
             sink.wrapping_add(array_new(14))
         });
-        report("array_new(64)", ALLOC_EACH, |sink, _| {
+        report("array_new(64)", alloc_each(), |sink, _| {
             sink.wrapping_add(array_new(64))
         });
-        report("closure_new", ALLOC_EACH, |sink, _| {
+        report("closure_new", alloc_each(), |sink, _| {
             sink.wrapping_add(closure_new(0, undefined))
+        });
+        // ------------------------------- O PISO do modelo de máquina (P8)
+        //
+        // Go e .NET representam um valor de função como {código, capturas} e
+        // nada mais, com os metadados numa tabela estática indexada por
+        // endereço. `closure_new` faz muito mais, e a pergunta que decide se
+        // vale a pena reescrevê-lo é quanto custaria esse modelo.
+        //
+        // A escada é deliberada: cada linha é a de cima mais UMA coisa, logo
+        // cada parte é uma subtracção e não uma estimativa — a mesma forma que
+        // `docs/codegen/entry-tax.md` usa e a única que esta sessão não teve
+        // de deitar fora.
+        report("probe: context only", alloc_each(), |sink, _| {
+            sink.wrapping_add(rts_core::entry::probe_context_only())
+        });
+        report("probe: cell only", alloc_each(), |sink, _| {
+            sink.wrapping_add(rts_core::entry::probe_cell_only())
+        });
+        report("probe: two words", alloc_each(), move |sink, _| {
+            sink.wrapping_add(rts_core::entry::probe_two_words(0, undefined))
+        });
+        report("probe: + callables", alloc_each(), move |sink, _| {
+            sink.wrapping_add(rts_core::entry::probe_two_words_and_table(0, undefined))
         });
 
         // ------------------------------------------- what every kind shares
@@ -274,10 +317,10 @@ fn main() {
         // Any declared layout will do: what is being timed is the heap, not the
         // shape, and this is the one the runtime declares first.
         let a_type = rts_core::entry::with_runtime(|context| i64::from(context.text_type_index()));
-        report("alloc(cell) — the shared floor", ALLOC_EACH, move |sink, _| {
+        report("alloc(cell) — the shared floor", alloc_each(), move |sink, _| {
             sink.wrapping_add(rts_core::entry::alloc(crate_stride(), a_type))
         });
-        report("region.alloc — no collector", ALLOC_EACH, move |sink, _| {
+        report("region.alloc — no collector", alloc_each(), move |sink, _| {
             let cell = rts_core::entry::with_runtime(|context| {
                 context
                     .region
