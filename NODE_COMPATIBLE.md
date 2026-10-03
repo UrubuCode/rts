@@ -223,10 +223,21 @@ event **never fires**, `'end'` never fires, `finished()`'s callback never runs,
 from both sides (the compiler also refuses `for await`). Missing all of
 `map/filter/take/reduce/toArray`, the web-stream bridges, and `compose`.
 
-**`timers`** — 6/9. **`setInterval` fires exactly once** — it behaves as
-`setTimeout`, for both the global and the module version. `timers.setImmediate`
-is synchronous (the global one is correctly ordered). The returned handle is a
-`number`, so `unref`/`ref`/`refresh` do not exist and no timer can be unref'd.
+**`timers`** — re-measured 2026-10-03, and all three claims that stood here had
+expired. They were: "`setInterval` fires exactly once", "the returned handle is
+a `number`", and "`unref`/`ref`/`refresh` do not exist". What runs today:
+
+- **`setInterval` re-arms and keeps the program open**, as in Node. It did fire
+  once per program for as long as a periodic timer answered
+  `Pending::Blocked` — pumped but holding nothing open — so an interval with
+  nothing else pending never got a second tick. `#2893` changed that;
+  `tests/claude-interval-holds-process-open.test.ts` is the ruler.
+- **The handle is a `Timeout`/`Immediate` object** with `ref`/`unref`/
+  `hasRef`/`refresh`/`close`/`Symbol.dispose`/`Symbol.toPrimitive`, and
+  `Number(t)` still answers the id, so `clearTimeout(id)` on a kept primitive
+  works. `tests/claude-timer-handle-object.test.ts` measures the contract.
+- `timers.setImmediate` is synchronous (the global one is correctly ordered) —
+  the one claim in the old paragraph that survived checking.
 
 **`async_hooks`** — 6/8. `AsyncLocalStorage.run` nests correctly and **survives
 an `await`**. It does *not* survive a `setTimeout` or a `.then()` — `getStore()`

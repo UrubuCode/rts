@@ -28,8 +28,8 @@ const METHODS: &[(&str, Provided)] = &[
     ("close", close),
     ("address", address),
     ("getConnections", get_connections),
-    ("ref", noop_self),
-    ("unref", noop_self),
+    ("ref", ref_server),
+    ("unref", unref_server),
 ];
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
@@ -143,7 +143,7 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
     entry::with_runtime(|context| super::common::set_num(context, this, "__serverId", id as f64));
     let stop = Arc::new(AtomicBool::new(false));
     registry::with_servers(|table| {
-        table.insert(id, ServerEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), listening: false, closed: false, stop: stop.clone(), local_addr: None });
+        table.insert(id, ServerEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), listening: false, closed: false, stop: stop.clone(), local_addr: None, refed: true });
     });
     std::thread::spawn(move || match TcpListener::bind((host.as_str(), port)) {
         Ok(listener) => {
@@ -352,6 +352,35 @@ extern "C" fn get_connections(_e: u64, this: u64, callback: u64, _b: u64, _c: u6
     this
 }
 
-extern "C" fn noop_self(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+/// `server.ref()` / `server.unref()` — whether this listener keeps the process
+/// alive.
+///
+/// Both were `noop_self` until 2026-10-03, and that was defensible only while a
+/// listening server held the program open in neither direction: there was
+/// nothing for the methods to act on, so returning `this` was the whole of the
+/// contract. `registry::source` now answers `Pending::In` for a refed listener
+/// (#2893), which makes "does not count towards liveness" a real state — and a
+/// `unref()` that did not reach it would be the hollow surface `CLAUDE.md`
+/// refuses: a name whose meaning the engine cannot do.
+///
+/// Silent about a `this` that names no live server, which is what `close()`
+/// leaves behind. Node answers `this` there too.
+fn set_refed(this: u64, refed: bool) -> u64 {
+    registry::pump();
+    if let Some(id) = server_id(this) {
+        registry::with_servers(|table| {
+            if let Some(entry) = table.get_mut(&id) {
+                entry.refed = refed;
+            }
+        });
+    }
     this
+}
+
+extern "C" fn ref_server(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    set_refed(this, true)
+}
+
+extern "C" fn unref_server(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    set_refed(this, false)
 }

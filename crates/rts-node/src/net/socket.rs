@@ -54,11 +54,13 @@ const METHODS: &[(&str, Provided)] = &[
     ("setTimeout", set_timeout),
     ("setNoDelay", set_no_delay),
     ("setKeepAlive", set_keep_alive),
-    // No event-loop keep-alive accounting exists to hook (the same gap
-    // `net::server`'s own `ref`/`unref` name) — accepted and return `this`
-    // for chaining, with no OS or scheduling effect.
-    ("ref", noop_self),
-    ("unref", noop_self),
+    // Real since 2026-10-03, and the comment here said the opposite of the
+    // truth: "no event-loop keep-alive accounting exists to hook". One did —
+    // `registry::source` has answered `Pending::In(POLL)` for an open socket
+    // since before that line was last read, so these two returned `this` and
+    // quietly did not do what their names mean. See `set_refed`.
+    ("ref", ref_socket),
+    ("unref", unref_socket),
 ];
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
@@ -175,7 +177,7 @@ pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d:
     let id = registry::next_id();
     entry::with_runtime(|context| super::common::set_num(context, this, "__socketId", id as f64));
     registry::with_sockets(|table| {
-        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), stream: None, pending: Vec::new(), closed: false });
+        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), stream: None, pending: Vec::new(), closed: false, refed: true });
     });
     entry::with_runtime(|context| super::common::set_bool(context, this, "connecting", true));
     std::thread::spawn(move || {
@@ -364,7 +366,7 @@ pub(super) fn adopt(stream: TcpStream, remote: String) -> u64 {
         instance
     });
     registry::with_sockets(|table| {
-        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance, queue: Default::default(), stream: Some(stream), pending: Vec::new(), closed: false });
+        table.insert(id, SocketEntry { owner: std::thread::current().id(), instance, queue: Default::default(), stream: Some(stream), pending: Vec::new(), closed: false, refed: true });
     });
     if let Some(reader) = reader {
         spawn_reader(id, reader);
@@ -447,6 +449,33 @@ extern "C" fn set_keep_alive(_e: u64, this: u64, enable: u64, initial_delay: u64
     this
 }
 
-extern "C" fn noop_self(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+/// `socket.ref()` / `socket.unref()` — whether this socket keeps the process
+/// alive.
+///
+/// `SocketEntry::refed` is read by `registry::source` and nowhere else: an
+/// unrefed socket is still pumped every pass, so it still emits `'data'` and
+/// `'close'` while anything else keeps the loop turning, and it contributes no
+/// deadline of its own. That is the whole of what `unref()` means, here and in
+/// Node.
+///
+/// Silent about a `this` that names no live socket — one already destroyed —
+/// which is what Node does too.
+fn set_refed(this: u64, refed: bool) -> u64 {
+    registry::pump();
+    if let Some(id) = socket_id(this) {
+        registry::with_sockets(|table| {
+            if let Some(entry) = table.get_mut(&id) {
+                entry.refed = refed;
+            }
+        });
+    }
     this
+}
+
+extern "C" fn ref_socket(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    set_refed(this, true)
+}
+
+extern "C" fn unref_socket(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    set_refed(this, false)
 }
