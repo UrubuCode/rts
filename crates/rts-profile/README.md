@@ -101,11 +101,21 @@ and its invariants; the two ends are named work and not done:
 - the **reader** — in `rts-codegen`, producing `Assertion`s for `rts-mir`'s
   guards from a majority plus whatever static evidence that crate already has.
 
-And the measurement that decides whether either is worth building:
-`rts prove` already counts, per function and per tier, where the proofs stopped.
-If the widenings sit where a `Domain` fed by static information could already
-narrow, the oracle buys nothing and the work belongs in the producer instead.
-Running it first is the honesty floor's *verify the input* applied to a design.
+**The measurement has been taken, and it says not yet.** `rts prove` over the
+thirteen programs of `bench/` on 2026-10-03: of the 3 895 runtime operations on
+the settled path, 2 971 — 76% — are a string literal, a call that is not direct,
+a post-call throw check, an allocation and a global lookup. None of those is a
+question an observation answers. What a `Domain` would narrow is about 5.3%, and
+a static type answers most of it.
+
+And `calls 0 direct, 0 through a value` in all thirteen: 831 calls, none direct.
+The static producer comes first and is strictly larger.
+
+So this crate is parked as a finished format rather than built out, and
+`docs/engine/profile-oracle.md` carries the figures and the limit on reading
+them — `prove` counts occurrences, not executions. It becomes worth wiring when
+a report is dominated by genuinely polymorphic sites, and the same command
+answers that.
 
 ## Working on this crate
 

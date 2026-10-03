@@ -184,6 +184,57 @@ oracle is worth building at all:
 - if they sit on genuinely polymorphic callees and property sites, that is the
   case only observation answers.
 
+**It was run on 2026-10-03, and the answer is no — not yet.** `rts prove` over
+the thirteen programs of `bench/`, 485 functions, from `target/release/rts.exe`:
+
+```
+settled   1 740 widened, 3 165 guarded, 2 074 cached, 3 895 runtime operations
+fallback  3 373 runtime operations
+```
+
+What the SETTLED path — the one that runs when every speculation holds — asks
+the runtime for, by count:
+
+| | | what would remove it |
+|---:|---|---|
+| 962 | `__rts_string_const` | nothing observable: it is a LITERAL |
+| 831 | `__rts_call_counted` | a direct call, which whole-program already knows |
+| 462 | `__rts_thrown_address` | structural, after a call |
+| 428 | `__rts_closure_new_light` | allocation |
+| 288 | `__rts_global_get` | whole-program resolution |
+
+**2 971 of 3 895 — 76% — in five entries, and not one of them is a question an
+observation answers.** What a `Domain` would narrow sits far below: `add` 84,
+`to_boolean` 61, `number_remainder` 35, `strict_equals` 27. About 5.3% together,
+and a static type answers most of it without observing anything.
+
+And the number that settles the ordering: **`calls 0 direct, 0 through a value`
+in all thirteen.** 831 calls and no direct ones. Guarded devirtualization is the
+right technique for exactly that traffic — but there is nothing to devirtualize
+INTO while a direct call is not emitted at all, and `graph.rs` puts every file of
+a program in one compilation, so a large share of those callees is statically
+known. The static step comes first and is strictly larger.
+
+The `fallback` column is dominated by `__rts_get_property` (1 325) and that is
+not evidence either: the fallback runs when the cache misses, so it is not a cost
+while speculation holds. **And the oracle's natural target — which layout to bet
+on — is what the inline cache already obtains at run time with no profile at
+all.** That is the deeper reason this is premature here: the oracle would buy
+information the cache already gets by itself, and would not buy the information
+that is missing.
+
+One limit on all of the above, stated because the command states it: `prove`
+counts occurrences in the IR, not executions — "counts, never costs". So 962
+`string_const` means the construct appears 962 times, not that it runs 962 times.
+What the figures authorise is a conclusion about **where the proofs stopped**,
+which is the question asked. They authorise nothing about time.
+
+So the crate stays as the format, with neither end wired, and the next work is
+the static producer: a direct call where the callee is known, a literal
+materialised without the runtime, a global resolved across the one compilation.
+The oracle becomes worth building when a report like the one above is dominated
+by sites that are genuinely polymorphic — and the same command answers that.
+
 Running it before building is the honesty floor's "verify the input" applied to
 a design rather than to a number. And one correction worth recording, because it
 was stated the other way round earlier the same day: **a TypeScript annotation is
