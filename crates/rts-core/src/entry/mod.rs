@@ -888,7 +888,7 @@ pub struct Context {
     /// configurable, so an object nobody called `defineProperty` on has no entry
     /// here. Beside the cell for the accessor table's reason — what is true of
     /// one cell's one key is not true of its layout.
-    attributes: Aside<Vec<(rts_cranelift::shape::Key, integrity::Attributes)>>,
+    attributes: Aside<integrity::Records>,
     /// The argument vector each call in progress supplied, if any.
     ///
     /// A stack, and pushed by EVERY call rather than only by the ones that

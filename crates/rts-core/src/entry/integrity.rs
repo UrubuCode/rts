@@ -58,6 +58,93 @@ pub(in crate::entry) enum Integrity {
     Frozen = 2,
 }
 
+/// What one cell's keys permit, with the FIRST record held inline.
+///
+/// # Why this is not a `Vec`
+///
+/// It was, and the first record for a cell was a heap allocation. Measured by
+/// ablation on 2026-10-03, one binary and three configurations: dropping the
+/// single `constructor` record a function's `prototype` carries took a function
+/// expression from **280.0 ns to 183.3 — 96.7 ns, 34.5 %** — with an arrow, which
+/// never reaches that path, flat at 90.0 against 93.3. So **half of what
+/// `.prototype` costs over a whole closure was one malloc to remember three
+/// bits**, which is P8 in the plainest form the engine has produced: the
+/// necessary instructions for "non-enumerable" are a few bits, and a heap
+/// allocation is not among them.
+///
+/// One inline entry rather than four, and the reason is [`Aside`]: it is a
+/// `Vec<Option<T>>` indexed by cell, so every byte here is paid for every cell
+/// up to the high-water mark whether it holds anything or not. Four inline
+/// entries would be about 21 MB at the region's full 524 288 cells; one costs
+/// about 8 bytes a cell over the `Vec` it replaces, and ONE is what the measured
+/// case needs — a prototype carries exactly `constructor`.
+///
+/// A `Slab` of records behind an `Aside<Slot>` was the alternative. Rejected for
+/// now: it also avoids the per-cell malloc, but it is a new side table, and
+/// `side_tables::SideTable`'s total match plus `release` would both have to
+/// learn about it for a case this already covers.
+pub(in crate::entry) enum Records {
+    /// Exactly one key has a record, which is the common cell.
+    One(ShapeKey, Attributes),
+    /// More than one, or none left after a removal.
+    Many(Vec<(ShapeKey, Attributes)>),
+}
+
+impl Records {
+    /// Whether no key of this cell has a record.
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::One(..) => false,
+            Self::Many(held) => held.is_empty(),
+        }
+    }
+
+    /// What `key` permits here, if it has a record.
+    fn find(&self, key: ShapeKey) -> Option<Attributes> {
+        match self {
+            Self::One(at, attributes) => (*at == key).then_some(*attributes),
+            Self::Many(held) => held
+                .iter()
+                .find(|(at, _)| *at == key)
+                .map(|(_, attributes)| *attributes),
+        }
+    }
+
+    /// Records what `key` permits, replacing any record it had.
+    fn put(&mut self, key: ShapeKey, attributes: Attributes) {
+        match self {
+            Self::One(at, existing) if *at == key => *existing = attributes,
+            Self::One(at, existing) => {
+                // `Vec::new` then two pushes, and NOT `vec![a, b]`, which is a
+                // buffer of exactly two: `RawVec`'s first block for an element
+                // this size holds four, so the macro would make a cell that
+                // later receives a THIRD attribute reallocate where it used to
+                // have room. That cost was measured once already — with the
+                // macro, `prop instanceof` moved 198.5 -> 217.3 ns on a path
+                // that writes no attribute at all, because the class
+                // prototypes built at startup were moved under it.
+                let mut held = Vec::new();
+                held.push((*at, *existing));
+                held.push((key, attributes));
+                *self = Self::Many(held);
+            }
+            Self::Many(held) => match held.iter_mut().find(|(at, _)| *at == key) {
+                Some((_, existing)) => *existing = attributes,
+                None => held.push((key, attributes)),
+            },
+        }
+    }
+
+    /// Forgets `key`'s record, keeping every other.
+    fn remove(&mut self, key: ShapeKey) {
+        match self {
+            Self::One(at, _) if *at == key => *self = Self::Many(Vec::new()),
+            Self::One(..) => {}
+            Self::Many(held) => held.retain(|(at, _)| *at != key),
+        }
+    }
+}
+
 /// What `name` and `length` permit on every function there is.
 ///
 /// `SetFunctionName` and `SetFunctionLength` both spell
@@ -129,11 +216,8 @@ impl Context {
     pub(in crate::entry) fn attributes_at(&self, cell: u32, key: ShapeKey) -> Attributes {
         self.attributes
             .get(cell)
-            .and_then(|held| held.iter().find(|(at, _)| *at == key))
-            .map_or_else(
-                || self.implied_attributes(cell, key),
-                |(_, attributes)| *attributes,
-            )
+            .and_then(|held| held.find(key))
+            .map_or_else(|| self.implied_attributes(cell, key), |attributes| attributes)
     }
 
     /// What a key permits when nothing was recorded for it.
@@ -325,17 +409,14 @@ pub(in crate::entry) fn clear_attributes(context: &mut Context, cell: u32, key: 
     let recorded = context
         .attributes
         .get(cell)
-        .is_some_and(|held| held.iter().any(|(at, _)| *at == key));
+        .is_some_and(|held| held.find(key).is_some());
     if !recorded && !context.attributes_at(cell, key).writable {
         set_attributes(context, cell, key, Attributes::default());
         return;
     }
-    let Some(held) = context.attributes.get(cell) else {
-        return;
-    };
-    let kept: Vec<(ShapeKey, Attributes)> =
-        held.iter().filter(|(at, _)| *at != key).copied().collect();
-    context.attributes.set(cell, kept);
+    if let Some(held) = context.attributes.get_mut(cell) {
+        held.remove(key);
+    }
 }
 
 /// Records what a key permits, and makes a non-writable one stick.
@@ -355,40 +436,32 @@ pub(in crate::entry) fn set_attributes(
     // call, including the overwhelmingly common one where the cell already has
     // a record and only one field of it changes.
     //
-    // It is called more than its name suggests: four times per `closure_new`
-    // (`prototype`, `constructor`, `name`, `length`), once per array literal
-    // through `array::set_length`, once per built-in method installed, and
-    // twice per `Object.defineProperty` — which calls `clear_attributes` first,
-    // and that one still rebuilds, because removing from the middle is what it
-    // is for.
+    // It is called less than it was, and the list is worth keeping current:
+    // ONCE per `closure_new` now, for the `constructor` of a `prototype` — the
+    // other three of that function's four (`prototype`, `name`, `length`) are
+    // derived in `implied_attributes`, as is the array literal's `length` that
+    // used to come through `array::set_length`. What remains is that one, every
+    // built-in method installed at startup, and twice per
+    // `Object.defineProperty`, which calls `clear_attributes` first.
     match context.attributes.get_mut(cell) {
-        Some(held) => match held.iter_mut().find(|(at, _)| *at == key) {
-            Some((_, existing)) => *existing = attributes,
-            None => held.push((key, attributes)),
-        },
-        // The first record for this cell, which is the one call that genuinely
-        // has to allocate.
+        Some(held) => held.put(key, attributes),
+        // The first record for this cell, and it no longer allocates: it is
+        // [`Records::One`], held inline in the `Aside` entry.
         //
-        // `Vec::new()` then `push`, and NOT `vec![(key, attributes)]`, which is
-        // what this said first. The macro sizes the buffer at exactly one;
-        // `push` onto an empty `Vec` asks `RawVec` for its first block, which
-        // for an element this size is four. The old spelling —
-        // `unwrap_or_default()` then `push` — took the second path, so writing
-        // the macro here would have made every cell that later receives a
-        // SECOND attribute reallocate where it used to have room.
+        // This was the line that did — `Vec::new()` then one `push` — and it
+        // was the single most expensive thing a function expression paid for.
+        // Measured by ablation, one binary and three configurations: removing
+        // just the `constructor` record a `prototype` carries took a function
+        // expression from 280.0 ns to 183.3, **96.7 ns or 34.5 %**, with an
+        // arrow flat at 90.0 against 93.3 as the control. `Records` carries the
+        // rest of the reasoning, including why one inline entry and not four.
         //
-        // Found by measuring rather than by reading: with the macro, `prop
-        // instanceof` moved from 198.5 to 217.3 ns — 9.5%, with the two runs'
-        // ranges not overlapping across five runs each — on a path that does no
-        // attribute write at all, and in a program where `RTS_GC_DEBUG=1`
-        // reports no collection. The class prototypes are built once at startup
-        // and every method installed on them lands here; the reallocation moved
-        // them, and the loop read the result.
-        None => {
-            let mut fresh = Vec::new();
-            fresh.push((key, attributes));
-            context.attributes.set(cell, fresh);
-        }
+        // The `RawVec` note that used to live here moved to `Records::put`,
+        // where the promotion from one record to many is the thing that has to
+        // keep getting it right.
+        None => context
+            .attributes
+            .set(cell, Records::One(key, attributes)),
     }
     if !attributes.writable {
         retype(context, cell);
