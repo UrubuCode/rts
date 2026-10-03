@@ -175,15 +175,11 @@ fn drive(iterator: u64, mapper: u64, receiver: u64, produced: &mut Rooted) {
 fn walk(items: u64, mapper: u64, receiver: u64, produced: &mut Rooted) {
     let source = match super::from::array_like(items) {
         true => like::values_of(items),
-        false => {
-            let array = super::super::super::iterate::iterate(items);
-            with_current(|context| {
-                Value(array)
-                    .as_slot()
-                    .and_then(|cell| context.elements_at(cell).cloned())
-                    .unwrap_or_default()
-            })
-        }
+        // `values_of` and NOT `iterate`: the array `iterate` answered was read
+        // straight back out with `.cloned()` and dropped. `Rooted::with` below
+        // is what holds these, so the cell was never what kept them alive
+        // either. `iterate::values_of` carries the measurement.
+        false => super::super::super::iterate::values_of(items),
     };
     if throw::in_flight() {
         return;

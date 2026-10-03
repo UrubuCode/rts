@@ -339,14 +339,17 @@ pub(super) fn nothing_to_fill_from(iterable: u64) -> bool {
 /// collection, or an object declaring `Symbol.iterator`. Anything else yields
 /// nothing rather than throwing, which is the same stated gap `for-of` over such
 /// a value has.
+/// `values_of` and NOT `iterate`: this wants the elements, and `iterate`'s
+/// answer is a reference — so this allocated an array cell only to copy every
+/// element back out of it and drop it. Measured 2026-10-02 on the same shape in
+/// `array_append_all`: **−40% to −47%** across two, eight and thirty-two
+/// elements. `iterate::values_of` carries the account.
+///
+/// A throw on the way answers the empty vector either way: `iterate` answered
+/// a non-reference that `as_slot` rejected, and `values_of` answers
+/// `Vec::new()` from the same `refuse`.
 pub(super) fn elements_of(iterable: u64) -> Vec<u64> {
-    let array = super::iterate::iterate(iterable);
-    with_current(|context| {
-        Value(array)
-            .as_slot()
-            .and_then(|cell| context.elements_at(cell).cloned())
-            .unwrap_or_default()
-    })
+    super::iterate::values_of(iterable)
 }
 
 /// What a `for-of` over a collection yields.

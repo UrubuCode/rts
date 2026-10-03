@@ -241,14 +241,11 @@ fn array_of(values: Vec<u64>) -> u64 {
 /// What is still divergent is the walk's, not this: an iterable is drained to
 /// exhaustion before any element is observed, so an infinite one does not
 /// terminate. `entry::iterate` states it and is where it is fixed.
+/// `values_of` and NOT `iterate`, for the reason `iterate::values_of` states:
+/// the array this built was read straight back out with `.cloned()` and
+/// dropped, so every combinator paid a cell and two copies of the element list.
 fn elements_of(iterable: u64) -> Vec<u64> {
-    let array = super::iterate::iterate(iterable);
-    with_current(|context| {
-        Value(array)
-            .as_slot()
-            .and_then(|cell| context.elements_at(cell).cloned())
-            .unwrap_or_default()
-    })
+    super::iterate::values_of(iterable)
 }
 
 /// A promise that is already settled, for a host answering an async-shaped API.
