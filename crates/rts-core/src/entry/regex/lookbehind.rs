@@ -42,6 +42,11 @@
 //! the middle of a pattern is a question about a position only the engine knows,
 //! and nothing here can reach it.
 //!
+//! **First thing in the pattern, or first thing in a top-level BRANCH** — which
+//! is the widening [`branches`] exists for and the reason it lives in this
+//! module rather than beside the engines. Nothing else about the check changes:
+//! each branch is still a pattern whose lookbehind is leading.
+//!
 //! And the lookbehind's own content must capture nothing. That is not a
 //! convenience: JavaScript matches a lookbehind RIGHT TO LEFT, so a group inside
 //! one captures a different substring than the same group read forwards
@@ -86,6 +91,11 @@ pub(super) enum Reason {
     /// A backreference inside the lookbehind. Every group it could name is in
     /// the body, which the check never sees.
     Backreference,
+    /// A numbered backreference in a branch after the first of a top-level
+    /// alternation that has to be split — see
+    /// [`holds_numbered_backreference`] for why a split would answer a
+    /// different regular expression rather than refuse.
+    SplitBackreference,
 }
 
 impl Reason {
@@ -103,6 +113,9 @@ impl Reason {
             Reason::EndAnchor => "`$` inside a lookbehind is not supported",
             Reason::WordBoundary => "`\\b` inside a lookbehind is not supported",
             Reason::Backreference => "a backreference inside a lookbehind is not supported",
+            Reason::SplitBackreference => {
+                "a numbered backreference after the first branch of an alternation holding a lookbehind of unbounded width is not supported"
+            }
         }
     }
 }
@@ -145,36 +158,76 @@ fn opens_lookbehind(pattern: &str) -> Option<bool> {
 
 /// Whether a lookbehind appears anywhere, which is what separates "refused for
 /// some other reason" from "refused for its position".
-fn finds_lookbehind(pattern: &str) -> bool {
+pub(super) fn finds_lookbehind(pattern: &str) -> bool {
     pattern.contains("(?<=") || pattern.contains("(?<!")
 }
 
-/// The index of the `)` closing the group that opened before `from`.
+/// The top-level alternatives of `pattern`, or `None` when it has only one.
 ///
-/// Escapes and character classes are walked rather than skipped by search: a
-/// `)` inside `[()]` closes nothing, and `\)` is a literal.
-fn closing_paren(pattern: &str, from: usize) -> Option<usize> {
-    let bytes = pattern.as_bytes();
-    let mut depth = 1usize;
-    let mut index = from;
-    let mut in_class = false;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index += 1,
-            b'[' if !in_class => in_class = true,
-            b']' if in_class => in_class = false,
-            b'(' if !in_class => depth += 1,
-            b')' if !in_class => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-        index += 1;
+/// # Why this is here, and what it is for
+///
+/// `(?<=\.\s*)x|z` is an alternation whose FIRST branch carries the
+/// lookbehind, and the split above answered it by taking the lookbehind off the
+/// front and matching `x|z` under the check — which applies the lookbehind to
+/// `z` as well. Node and Bun answer `["z"]` for `/(?<=\.\s*)[a-z]+|z/` over
+/// `"z"`; that reading answered `null`, silently. A lookbehind inside the
+/// SECOND branch was refused outright.
+///
+/// Both are one shape: the lookbehind is leading *within its branch*. So the
+/// branches are compiled separately and recombined by the rule JavaScript
+/// actually has — the leftmost position any branch matches at, and on a tie the
+/// EARLIEST branch, because an alternation is ordered rather than greedy.
+/// See [`super::compile`]'s alternation module for that recombination.
+pub(super) fn branches(pattern: &str) -> Option<Vec<&str>> {
+    let bars: Vec<usize> = Scan::over(pattern, 0)
+        .filter(|step| step.byte == b'|' && !step.in_class && step.depth == 0)
+        .map(|step| step.index)
+        .collect();
+    if bars.is_empty() {
+        return None;
     }
-    None
+    let mut parts = Vec::with_capacity(bars.len() + 1);
+    let mut from = 0usize;
+    for bar in bars {
+        parts.push(&pattern[from..bar]);
+        from = bar + 1;
+    }
+    parts.push(&pattern[from..]);
+    Some(parts)
+}
+
+/// Whether a NUMBERED backreference appears in `pattern` outside a character
+/// class.
+///
+/// # Why the number is what matters, and only after the first branch
+///
+/// Splitting a top-level alternation renumbers every group after the first
+/// branch, so `\1` in a LATER branch comes to name a different group:
+/// `/(a)|(?<=x*)(b)\1/` over `"bb"` answers `"b"` in node 22 and bun 1.4 — a
+/// backreference to a group that took part in nothing matches the empty string
+/// — and a split branch of `(b)\1` would answer `"bb"`. A wrong answer rather
+/// than a refusal, so that one is declined.
+///
+/// The FIRST branch keeps its numbering exactly (its groups still start at 1),
+/// which is why this is asked of the later branches only. That is not a
+/// nicety: `/(?<=x*)(b)\1|(a)/` is a pattern the leading-lookbehind split
+/// already answers correctly today, and refusing it to buy a simpler rule
+/// would be a capability lost to a tidier implementation.
+///
+/// A NAMED backreference is not counted at all. A name cannot be renumbered,
+/// and one naming a group in another branch leaves that branch with no such
+/// name — which either refuses loudly or matches the empty string, and the
+/// empty string is what the language answers for it anyway.
+pub(super) fn holds_numbered_backreference(pattern: &str) -> bool {
+    Scan::over(pattern, 0)
+        .any(|step| step.byte == b'\\' && !step.in_class && matches!(step.escaped, Some(b'1'..=b'9')))
+}
+
+/// The index of the `)` closing the group that opened before `from`.
+fn closing_paren(pattern: &str, from: usize) -> Option<usize> {
+    Scan::over(pattern, from)
+        .find(|step| step.byte == b')' && !step.in_class && step.depth == 0)
+        .map(|step| step.index)
 }
 
 /// The first construct inside a lookbehind that the runtime check cannot
@@ -183,36 +236,100 @@ fn closing_paren(pattern: &str, from: usize) -> Option<usize> {
 /// A nested lookbehind is NOT one of them: it asks about text further back,
 /// which is inside the prefix the check is given.
 fn unsupported_inside(inner: &str) -> Option<Reason> {
-    let bytes = inner.as_bytes();
-    let mut index = 0usize;
-    let mut in_class = false;
-    while index < bytes.len() {
-        match bytes[index] {
+    Scan::over(inner, 0).find_map(|step| match step.in_class {
+        true => None,
+        false => match step.byte {
+            b'\\' => match step.escaped {
+                Some(b'b') | Some(b'B') => Some(Reason::WordBoundary),
+                Some(b'1'..=b'9') | Some(b'k') => Some(Reason::Backreference),
+                _ => None,
+            },
+            b'$' => Some(Reason::EndAnchor),
+            b'(' => group_opener(&inner[step.index..]),
+            _ => None,
+        },
+    })
+}
+
+/// One byte of a pattern, with what a reader of regular-expression syntax has
+/// to know about it.
+struct Step {
+    /// Where it is, so a caller can slice from it.
+    index: usize,
+    byte: u8,
+    /// The byte a backslash escapes, which the scan does not report on its own.
+    escaped: Option<u8>,
+    in_class: bool,
+    /// For `(`, the depth the group opens AT; for `)`, the depth it closes
+    /// FROM. Asymmetric deliberately: it makes `depth == 0` on a `)` mean "this
+    /// one closes a group that opened before the scan started", which is the
+    /// question [`closing_paren`] asks and the only reading of the two that is
+    /// unambiguous for both parentheses of the same group.
+    depth: usize,
+}
+
+/// Walks a pattern's bytes, tracking character classes, escapes and group
+/// depth.
+///
+/// # Why one traversal rather than one per question
+///
+/// Four questions are asked of a pattern's bytes here — where a group closes,
+/// where a top-level `|` is, which construct a lookbehind may not hold, and
+/// whether a backreference appears — and every one of them has to know that a
+/// `)` inside `[()]` closes nothing and that `\)` is a literal. Four copies of
+/// that rule are four chances for one to be written differently, and the
+/// failure that produces is a pattern split in the wrong place: a regular
+/// expression that compiles and means something else.
+struct Scan<'a> {
+    bytes: &'a [u8],
+    index: usize,
+    in_class: bool,
+    depth: usize,
+}
+
+impl<'a> Scan<'a> {
+    fn over(pattern: &'a str, from: usize) -> Scan<'a> {
+        Scan {
+            bytes: pattern.as_bytes(),
+            index: from,
+            in_class: false,
+            depth: 0,
+        }
+    }
+}
+
+impl Iterator for Scan<'_> {
+    type Item = Step;
+
+    fn next(&mut self) -> Option<Step> {
+        let index = self.index;
+        let byte = *self.bytes.get(index)?;
+        let mut escaped = None;
+        let in_class = self.in_class;
+        let depth = self.depth;
+        match byte {
             b'\\' => {
-                let next = bytes.get(index + 1).copied();
-                match next {
-                    Some(b'b') | Some(b'B') if !in_class => {
-                        return Some(Reason::WordBoundary);
-                    }
-                    Some(b'1'..=b'9') if !in_class => return Some(Reason::Backreference),
-                    Some(b'k') if !in_class => return Some(Reason::Backreference),
-                    _ => {}
-                }
-                index += 1;
+                escaped = self.bytes.get(index + 1).copied();
+                self.index += 1;
             }
-            b'[' if !in_class => in_class = true,
-            b']' if in_class => in_class = false,
-            b'$' if !in_class => return Some(Reason::EndAnchor),
-            b'(' if !in_class => {
-                if let Some(reason) = group_opener(&inner[index..]) {
-                    return Some(reason);
-                }
-            }
+            b'[' if !in_class => self.in_class = true,
+            b']' if in_class => self.in_class = false,
+            b'(' if !in_class => self.depth += 1,
+            // Saturating because a scan started INSIDE a group reaches that
+            // group's own `)` with nothing left to subtract, and reporting
+            // zero there is what tells `closing_paren` it has arrived.
+            b')' if !in_class => self.depth = depth.saturating_sub(1),
             _ => {}
         }
-        index += 1;
+        self.index += 1;
+        Some(Step {
+            index,
+            byte,
+            escaped,
+            in_class,
+            depth,
+        })
     }
-    None
 }
 
 /// What the group opening at the head of `rest` is, if it is one the check
@@ -310,6 +427,34 @@ mod tests {
             Err(Some(Reason::Backreference))
         ));
         assert!(matches!(split(r"(?<=a+"), Err(Some(Reason::Unterminated))));
+    }
+
+    #[test]
+    fn only_a_top_level_bar_divides_the_branches() {
+        assert_eq!(branches("a"), None);
+        assert_eq!(branches("a|b|c"), Some(vec!["a", "b", "c"]));
+        // Inside a group, inside a class, and escaped: none of the three is a
+        // branch boundary, and splitting at one would compile a pattern that
+        // means something else.
+        assert_eq!(branches("(?:a|b)"), None);
+        assert_eq!(branches("[a|b]"), None);
+        assert_eq!(branches(r"a\|b"), None);
+        assert_eq!(branches("(?:a|b)|c"), Some(vec!["(?:a|b)", "c"]));
+        // An empty branch is legal JavaScript and matches the empty string.
+        assert_eq!(branches("a|"), Some(vec!["a", ""]));
+        assert_eq!(branches("|a"), Some(vec!["", "a"]));
+    }
+
+    #[test]
+    fn a_numbered_backreference_is_found_only_where_it_is_one() {
+        assert!(holds_numbered_backreference(r"(a)\1"));
+        // A NAME cannot be renumbered, so it is not one of these.
+        assert!(!holds_numbered_backreference(r"(?<n>a)\k<n>"));
+        // `\0` is NUL, not a group; a digit inside a class is a member; and
+        // `\\1` is a literal backslash followed by a one.
+        assert!(!holds_numbered_backreference(r"a\0b"));
+        assert!(!holds_numbered_backreference(r"[\1]"));
+        assert!(!holds_numbered_backreference(r"a\\1"));
     }
 
     #[test]

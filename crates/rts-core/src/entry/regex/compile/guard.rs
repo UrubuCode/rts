@@ -5,7 +5,24 @@
 //! question "does it end exactly here" is asked.
 
 use super::super::lookbehind::{self, Reason};
-use super::{Engine, Flags, Spans};
+use super::{branches, Engine, Flags, Spans};
+
+/// Everything this runtime answers that neither engine compiles, in the order
+/// the two have to be tried in.
+///
+/// The ALTERNATION comes first and that order is the fix, not a preference: a
+/// pattern whose leading lookbehind is followed by `|` has two readings, and
+/// [`guarded`]'s — strip the lookbehind, match the rest under the check — makes
+/// the lookbehind govern every branch. `/(?<=\.\s*)[a-z]+|z/` over `"z"`
+/// answers `["z"]` in node 22 and bun 1.4 and answered `null` that way. So a
+/// pattern with a top-level `|` is never offered to [`guarded`] whole; each of
+/// its branches is, one at a time.
+pub(super) fn fallback(pattern: &str, flags: Flags) -> Result<Engine, Option<Reason>> {
+    match lookbehind::branches(pattern) {
+        Some(parts) => branches::compiled(&parts, flags),
+        None => guarded(pattern, flags),
+    }
+}
 
 /// Whether `look`'s pattern ends exactly at `at`.
 ///
@@ -53,7 +70,7 @@ pub(super) fn guarded(
 /// the cache in [`super::compiled`].
 pub(in crate::entry::regex) fn refusal_detail(pattern: &str, flags: Flags) -> Option<String> {
     let translated = Engine::translated(pattern, flags);
-    let reason = guarded(&translated, flags).err()??;
+    let reason = fallback(&translated, flags).err()??;
     Some(reason.message().to_owned())
 }
 
