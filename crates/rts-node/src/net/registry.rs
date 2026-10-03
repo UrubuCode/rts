@@ -54,6 +54,14 @@ pub(super) struct SocketEntry {
     /// cliente que acabou de chamar `connect` emitia `'error'`.
     pub(super) pending: Vec<u8>,
     pub(super) closed: bool,
+    /// Whether this socket may hold the program open — `ref()`/`unref()`.
+    ///
+    /// Read by [`source`] and nowhere else. Before 2026-10-03 the two JS
+    /// methods were `noop_self`, which was defensible only while NOTHING here
+    /// held a program open; an open socket has answered [`entry::Pending::In`]
+    /// since before that, so `socket.unref()` was already a method that
+    /// returned `this` and did not do what its name means.
+    pub(super) refed: bool,
 }
 
 /// One observation off a server's accept thread.
@@ -82,6 +90,14 @@ pub(super) struct ServerEntry {
     /// named, not hidden, in `server.rs`'s own doc.
     pub(super) stop: Arc<AtomicBool>,
     pub(super) local_addr: Option<String>,
+    /// Whether this server may hold the program open — `ref()`/`unref()`.
+    ///
+    /// Read by [`source`] and nowhere else. It exists because making a
+    /// listening server hold the program open is what turns `unref()` from a
+    /// harmless no-op into a false one: in Node an unrefed listener is exactly
+    /// a listener that does not keep the process alive, and that is the only
+    /// thing it means.
+    pub(super) refed: bool,
 }
 
 static SOCKETS: Mutex<Option<HashMap<u64, SocketEntry>>> = Mutex::new(None);
@@ -387,12 +403,11 @@ const POLL: std::time::Duration = std::time::Duration::from_millis(1);
 /// This module as a loop source: deliver what its background threads queued,
 /// then say whether any is still live.
 ///
-/// # Why an open SOCKET answers `In` and a server still answers `Blocked`
+/// # Why an open SOCKET and a LISTENING server both answer `In`
 ///
 /// Both answered `Blocked`, and by `entry::loops`' contract that neither holds
-/// the program open nor bounds the host's sleep. For a server that is the
-/// deliberate divergence it is documented as — a listener nothing closes would
-/// hang every fixture. For a client socket it made the module unusable: a
+/// the program open nor bounds the host's sleep. For a client socket it made
+/// the module unusable: a
 /// program that called `net.connect` and waited exited before the connect thread
 /// had queued anything, and one kept alive by an unrelated `setTimeout` slept
 /// straight to that timer's deadline, ran the timer, and exited from inside it
@@ -402,35 +417,101 @@ const POLL: std::time::Duration = std::time::Duration::from_millis(1);
 ///
 /// A socket is therefore `In(POLL)` while it is open, which is also what Node
 /// does — a connected socket refs the loop. What makes that terminate rather
-/// than hang is the other half of this change: a socket whose reader reached
+/// than hang is the other half of that change: a socket whose reader reached
 /// EOF now closes, so a completed exchange stops holding the program open.
+///
+/// # And why a LISTENING server stopped answering `Blocked` (#2893)
+///
+/// It answered `Blocked`, and the reason written here was "a suite where one
+/// unclosed listener hangs every fixture is worse". That was the wrong trade,
+/// and the measurement that settles it is not about fixtures:
+///
+/// ```text
+/// const s = http.createServer(handler);
+/// s.listen(8160, () => console.log("listening"));
+/// ```
+///
+/// printed `listening` and the process exited, rc=0, immediately — so every
+/// connection after it was refused and **no server program could be written in
+/// this engine at all** without a `setTimeout` chain to hold the process up.
+/// One red fixture is a smaller price than the whole class of server programs,
+/// and the hazard the divergence was defending against is already handled a
+/// level up rather than here: `rts test` runs each file as a child with a 30 s
+/// budget, kills it, and reports it as a FAILURE — "a test that never finishes
+/// has not passed", in its own words. A listener nothing closes therefore costs
+/// one red file, which is what it should cost.
+///
+/// The second reader of that answer is what makes this more than a loop bug.
+/// `promise_await` treats `pump_sources() == None` as a deadlock and raises
+/// "this promise cannot settle", so `await new Promise(() => {})` beside a
+/// listening server — the ordinary way a server program parks — threw instead
+/// of waiting. One accounting, two readers; both were wrong because the
+/// accounting was.
+///
+/// **What this costs, measured rather than assumed — and it is not what it
+/// looks like.** `POLL` is 1 ms, so the obvious reading is that an idle
+/// listener now wakes the host a thousand times a second where the `setTimeout`
+/// workaround it replaces woke it once a second. That reading is wrong, because
+/// the workaround was ALREADY paying it: `entry::loops::BLOCKED_CAP` caps the
+/// host's sleep at 1 ms as soon as any source answers `Blocked`, so a listening
+/// server beside a 1 s timer already forced a 1 ms loop. Moving the listener
+/// from `Blocked` to `In(POLL)` keeps the same wake rate and changes who asks
+/// for it.
+///
+/// Measured 2026-10-03, CPU time over a 6 s idle window, three runs each, same
+/// machine: workaround on the old binary 141/203/250 ms, workaround on this one
+/// 156/203/219 ms, plain listener on this one 203/219/312 ms. The spread inside
+/// one configuration is as wide as the spread between them, so this cannot
+/// distinguish them — which is the answer the mechanism above predicts. The one
+/// genuinely new case is a program whose ONLY work is a listener, and that
+/// program did not run at all before, so there is no cost to compare it to.
+///
+/// What remains true is that 1 ms of polling is the wrong mechanism, for the
+/// reason named under `POLL` — nothing here can be notified by a background
+/// thread. That is #2868, and it is fixed in that one place rather than here.
 pub fn source() -> entry::Pending {
     pump();
     let mine = std::thread::current().id();
-    let sockets = with_sockets(|table| {
-        table.values().any(|entry| entry.owner == mine && !entry.closed)
+    // Both tables in one shape: whether anything of mine is still live AND
+    // counts (`holding`), and whether anything of mine is still live but was
+    // unrefed (`waiting`). The second is what tells `Blocked` from `Idle`.
+    let (mut holding, mut waiting) = with_sockets(|table| {
+        let mut holding = false;
+        let mut waiting = false;
+        for entry in table.values().filter(|entry| entry.owner == mine && !entry.closed) {
+            match entry.refed {
+                true => holding = true,
+                false => waiting = true,
+            }
+        }
+        (holding, waiting)
     });
-    if sockets {
+    with_servers(|table| {
+        for entry in table.values().filter(|entry| entry.owner == mine && !entry.closed) {
+            // A server that has not bound YET holds the program open whatever
+            // its ref flag says: its accept thread is about to queue
+            // `'listening'` or `'error'`, that is a bounded wait, and in Node
+            // the `listen` callback runs before `unref()` can have any meaning.
+            // It used to be `Blocked`, which meant a program whose only pending
+            // work was `server.listen(0, host, callback)` ended before the bind
+            // completed and the callback never ran at all.
+            match entry.refed || !entry.listening {
+                true => holding = true,
+                // Unrefed and listening: still pumped every pass, so it still
+                // accepts and emits while anything else keeps the loop turning,
+                // and contributes no deadline of its own. That is the whole of
+                // what `unref()` means.
+                false => waiting = true,
+            }
+        }
+    });
+    if holding {
         return entry::Pending::In(POLL);
     }
-    let (settling, listening) = with_servers(|table| {
-        let mine_only = || table.values().filter(|entry| entry.owner == mine && !entry.closed);
-        (mine_only().any(|entry| !entry.listening), mine_only().count() > 0)
-    });
-    // A server that has not bound YET has a deadline in the useful sense: its
-    // accept thread is about to queue `'listening'` or `'error'`, and that is a
-    // bounded wait. It used to be `Blocked` like any other, which meant a program
-    // whose only pending work was `server.listen(0, host, callback)` ended before
-    // the bind completed and the callback never ran at all.
-    //
-    // Once it IS listening it goes back to `Blocked`, which keeps the divergence
-    // this module documents rather than quietly removing it: a listening server
-    // does not hold the program open here, where Node's would, because a suite
-    // where one unclosed listener hangs every fixture is worse.
-    if settling {
-        return entry::Pending::In(POLL);
-    }
-    match listening {
+    // `Blocked` is "pumped, does not hold open", which is the honest answer for
+    // a handle a program asked not to count: an unrefed socket or listener is
+    // still delivered to while anything else turns the loop.
+    match waiting {
         true => entry::Pending::Blocked,
         false => entry::Pending::Idle,
     }

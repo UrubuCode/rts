@@ -23,16 +23,16 @@
 //! six the program happens to call next, on whichever thread issues it.
 //!
 //! **A timer scheduled with nothing after it DOES fire**, and that used to be
-//! the paragraph saying it never could. The host calls [`drain`] at the end of
-//! the turn, which pumps and then SLEEPS to the nearest deadline and pumps
-//! again — the waiting an event loop does, narrowed to what a host without one
-//! can honestly provide. A `setTimeout(cb, 0)` is clamped to `1`ms exactly as
+//! the paragraph saying it never could. This module registers [`source`] with
+//! `entry::loops`, and the host's loop asks it for what is due and then SLEEPS
+//! the duration it answers — the waiting an event loop does, narrowed to what a
+//! host without one can honestly provide. A `setTimeout(cb, 0)` is clamped to `1`ms exactly as
 //! Node clamps it, so a single pump could never have found it due; that, and
 //! not "nothing pumps", was the whole of the defect.
 //!
-//! An INTERVAL does not hold a program open, and that is a divergence from Node
-//! stated rather than discovered: `drain` waits only on non-periodic timers,
-//! because the alternative is every fixture with a stray interval hanging.
+//! An INTERVAL holds a program open, as it does in Node. It did not until
+//! 2026-10-03, and [`source`] carries why that divergence was wrong and what
+//! handles the hazard it was defending against.
 //!
 //! # Reuse-check
 //!
@@ -98,8 +98,7 @@
 //! `t.constructor` that cannot build a scheduled timer, and Node's
 //! underscore-prefixed internals.
 //!
-//! `setInterval` still does not hold the program open, and `unref()` does not
-//! change that in either direction — see [`source`]. Trailing `...args` forwarding
+//! Trailing `...args` forwarding
 //! beyond one value — this module's four-slot calling convention leaves one
 //! argument slot once the callback and delay are read; `setTimeout(cb, 10, a,
 //! b, c)` forwards only `a`. Delay clamping/`NaN` handling beyond a floor of
@@ -186,7 +185,7 @@ thread_local! {
     ///
     /// That is not hypothetical: two `#[test]`s scheduling timers run on two
     /// threads of one process, and each was firing the other's. It became
-    /// visible only when [`drain`] made the loop long enough for the two to
+    /// visible only when the host's loop grew long enough for the two to
     /// overlap; before that each pumped once and usually missed. A worker thread
     /// is the same shape with no test harness to notice.
     ///
@@ -206,9 +205,9 @@ fn with_timers<T>(body: impl FnOnce(&mut HashMap<u64, Timer>) -> T) -> T {
 
 /// Delivers every currently-DUE timer, oldest-registered-id first.
 ///
-/// Public because the host calls it too, and because [`drain`] is built on it:
+/// Public because the host calls it too, and because [`source`] is built on it:
 /// this fires what is already due and never waits, which is why one call could
-/// not run a `setTimeout(f, 0)` and `drain` can.
+/// not run a `setTimeout(f, 0)` and a loop that also sleeps can.
 ///
 /// Releases [`TIMERS`]'s borrow before calling anything. A callback that
 /// schedules or clears a timer is ordinary and expected, and it would otherwise
@@ -430,37 +429,56 @@ fn forget(id: u64) {
 /// the host waits that millisecond — which is the whole of why a single pump
 /// could never fire it.
 ///
-/// An INTERVAL answers `Blocked`, not `In`: it is pumped on every pass and does
-/// not hold the program open. That is a stated divergence from Node, where a
-/// live interval keeps a process alive — a suite where one stray interval hangs
-/// every fixture is worse, and the divergence is the conservative direction.
+/// An INTERVAL holds the program open, and the paragraph here said it did not.
 ///
-/// An UNREFED timer answers the same way, and that is not a divergence but the
-/// definition: `Timer::refed` is read here and nowhere else, so `unref()` removes
-/// a timer from the `In` set while leaving it pumped. A program whose only
-/// outstanding work is an unrefed timer therefore ENDS, which is what Node does
-/// and what `scripts`-level measurement of this change had to show before the
-/// method could ship.
+/// It answered `Blocked` — pumped on every pass, contributing no deadline — and
+/// called that "the conservative direction", the reason being that "a suite
+/// where one stray interval hangs every fixture is worse". Both halves have
+/// stopped being true, and one of them never was:
+///
+/// - The hazard is already handled, by the runner and not by this answer.
+///   `rts test` runs each file as a child with a 30 s budget
+///   (`RTS_TEST_TIMEOUT`), kills it, and reports it as a FAILURE — its own
+///   comment is "a test that never finishes has not passed". So a stray
+///   interval costs one red file, which is what it should cost, rather than
+///   silently changing what every correct program means.
+/// - The cost was never paid by fixtures alone. `setInterval` is how a
+///   JavaScript program says "keep doing this", and an engine that ends the
+///   program instead has no `setInterval` — only a name that fires while
+///   something else happens to be pending.
+///
+/// A periodic timer's deadline is a real deadline, so it belongs in `soonest`
+/// like any other, and the host then sleeps the whole period rather than
+/// polling. That makes this change CHEAPER rather than dearer, which is the
+/// opposite of what it looks like: `Blocked` forces
+/// `entry::loops::BLOCKED_CAP`, so an interval used to cap the host's sleep at
+/// 1 ms whenever anything else was pending. Measured 2026-10-03, CPU time over
+/// a 6 s idle window, three runs: `setInterval(f, 1000)` alone costs
+/// 31/47/63 ms — against 203/219/312 ms for a 1 ms polling loop on the same
+/// machine, and most of what is left is process start-up.
+///
+/// An UNREFED timer still answers `Blocked`, and that is not a divergence but
+/// the definition: `Timer::refed` is read here and nowhere else, so `unref()`
+/// removes a timer from the `In` set while leaving it pumped. A program whose
+/// only outstanding work is an unrefed timer therefore ENDS, which is what Node
+/// does.
 pub fn source() -> entry::Pending {
     pump();
     let now = Instant::now();
-    let (soonest, periodic) = with_timers(|table| {
+    let (soonest, unrefed) = with_timers(|table| {
         let soonest = table
             .values()
-            .filter(|timer| timer.period.is_none() && timer.refed)
+            .filter(|timer| timer.refed)
             .map(|timer| timer.deadline)
             .min();
         // `Blocked` and not `Idle` for an unrefed timer, which is the difference
         // between "does not hold the program open" and "will never fire": the
         // first is what `unref` means, and `Blocked` is pumped on every pass
-        // while contributing no deadline — exactly an interval's answer, for
-        // exactly the same reason.
-        let waiting = table
-            .values()
-            .any(|timer| timer.period.is_some() || !timer.refed);
+        // while contributing no deadline.
+        let waiting = table.values().any(|timer| !timer.refed);
         (soonest, waiting)
     });
-    match (soonest, periodic) {
+    match (soonest, unrefed) {
         (Some(deadline), _) => entry::Pending::In(deadline.saturating_duration_since(now)),
         (None, true) => entry::Pending::Blocked,
         (None, false) => entry::Pending::Idle,

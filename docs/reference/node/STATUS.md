@@ -58,10 +58,21 @@ Both that were are fixed.
 not the cause, which was true and stopped one step early: a delay of `0` is
 clamped to `1`ms exactly as Node clamps it, and the host's single end-of-turn
 pump ran microseconds after the schedule, so the timer was not due. Pumping once
-can only fire what is already due. `timers::drain` adds the waiting an event loop
-does — pump, sleep to the nearest deadline, repeat — and an interval deliberately
-does not hold a program open, because the alternative is every fixture with a
-stray interval hanging.
+can only fire what is already due. The host's `entry::loops` turn adds the
+waiting an event loop does — pump, sleep to the duration the source answers,
+repeat.
+
+**An interval holds a program open since 2026-10-03 (#2893), and so does a
+listening server.** This paragraph said an interval deliberately did not,
+"because the alternative is every fixture with a stray interval hanging". That
+trade was wrong in both directions: the hazard is already handled by `rts test`
+killing a child at `RTS_TEST_TIMEOUT` and reporting it FAILED, while the price
+was that no server program could be written in this engine at all —
+`http.createServer(...).listen(...)` printed its callback and exited with every
+later connection refused. `crates/rts-core/src/entry/loops.rs` carries the rule
+and the second reader it also broke: `await`'s deadlock detector reads the same
+accounting, so `await new Promise(() => {})` beside a listening server threw
+rather than waited.
 
 Finding it exposed a second, worse bug: the timer table was one process-wide
 `Mutex`, so one thread's pump fired another thread's callback with handles naming

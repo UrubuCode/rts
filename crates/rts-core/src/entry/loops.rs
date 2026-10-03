@@ -39,11 +39,40 @@
 //!
 //! Only a source that answers [`Pending::In`]. A source that answers
 //! [`Pending::Blocked`] is still pumped on every pass but does not keep the loop
-//! alive — a listening server would otherwise run forever, which is what Node
-//! does and what a test suite cannot.
+//! alive.
 //!
-//! Stated here rather than discovered: an interval and a listening socket both
-//! end a program that has nothing else to do.
+//! **Which of the two a handle deserves is the SOURCE's decision, and this
+//! module stopped having an opinion about it on 2026-10-03.** The paragraph here
+//! used to make that call itself — "a listening server would otherwise run
+//! forever, which is what Node does and what a test suite cannot", and then,
+//! stated as a conclusion, "an interval and a listening socket both end a
+//! program that has nothing else to do". Both sources read it and obeyed, so
+//! `setInterval` fired only while something else happened to be pending and a
+//! served `http.createServer(...).listen(...)` printed its callback and exited
+//! with every later connection refused (#2893). An engine in which no server
+//! program can be written is a worse outcome than the one being avoided.
+//!
+//! And the hazard it was avoiding is handled a level up, by something that
+//! already existed: `rts test` runs each file as a child with a 30 s budget
+//! (`RTS_TEST_TIMEOUT`), kills it, and reports it as a FAILURE — "a test that
+//! never finishes has not passed", in its own words. So a fixture that leaves a
+//! listener or an interval behind costs one red file, which is what it should
+//! cost, rather than changing what the same program means everywhere else.
+//!
+//! What `Blocked` is still FOR, and it is not a weaker `In`: work a program has
+//! explicitly asked not to count. An `unref()`ed timer or socket, and
+//! `AbortSignal.timeout`'s deadline, which Node unrefs too. Those are pumped,
+//! they fire, and they do not by themselves keep a process running.
+//!
+//! # The second reader of this accounting
+//!
+//! [`pump_sources`] answering `None` is also how `entry::promise::machine`
+//! decides an `await` can never finish, and raises "this promise cannot settle".
+//! One accounting, two readers — so a handle missing from it does not merely end
+//! the program early: it makes that detector give a confident wrong answer.
+//! `await new Promise(() => {})` beside a listening server, which is the
+//! ordinary way a server parks, threw rather than waited. A change to what holds
+//! a program open is a change to both, and has to be measured as both.
 
 use std::time::Duration;
 
@@ -170,7 +199,7 @@ fn one_pass() -> Option<Duration> {
 /// test can read, and shows up only as an event delivered too late.
 ///
 /// A `Blocked` source still does not hold the program open: `None` when nothing
-/// answered `In` is what ends a program whose last act was to start a listener.
+/// answered `In` is what ends a program whose only outstanding work is unrefed.
 /// What the cap does is bound the wait of a program that IS open, so that
 /// "pumped on every pass" means passes soon enough to matter.
 fn wait_for(soonest: Option<Duration>, blocked: bool) -> Option<Duration> {
@@ -201,8 +230,10 @@ mod tests {
 
     #[test]
     fn blocked_alone_still_ends_the_program() {
-        // The divergence `node:net`'s server and `node:stream` rely on: a source
-        // with no deadline does not keep a program running by itself.
+        // What `unref()` means, and what `node:stream`'s parked `next()` relies
+        // on: a source with no deadline does not keep a program running by
+        // itself. This is also what keeps `promise::machine`'s deadlock
+        // detector able to fire at all — see the module doc's second reader.
         assert_eq!(wait_for(None, true), None);
     }
 

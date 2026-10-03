@@ -454,9 +454,14 @@ fn affected(signal: u64) -> Vec<u64> {
 /// [`Pending::Blocked`] rather than [`Pending::In`] while something waits: a
 /// pending timeout does **not** hold the program open. Node unrefs the timer
 /// behind `AbortSignal.timeout`, so a signal does not keep its loop alive there
-/// either, and `entry::loops` made the same call for this engine — an interval
-/// does not hold a program open. The consequence, named: a program whose only
-/// outstanding work is the timeout exits before it fires.
+/// either, and `Blocked` is exactly `entry::loops`' answer for work a program
+/// asked not to count. The consequence, named: a program whose only outstanding
+/// work is the timeout exits before it fires, as in Node.
+///
+/// The second half of this paragraph used to read "and `entry::loops` made the
+/// same call for this engine — an interval does not hold a program open". That
+/// stopped being true on 2026-10-03 (#2893) and was never this module's reason:
+/// Node unrefing the timer is, and that is unchanged.
 ///
 /// The table's borrow is released before any signal is aborted, because
 /// aborting calls listeners, and a listener calling `AbortSignal.timeout()`
