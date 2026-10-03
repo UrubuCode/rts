@@ -44,6 +44,30 @@ pub enum Addressing {
         /// How many low bits select the region.
         selector_bits: u32,
         /// How far apart consecutive slots are.
+        ///
+        /// ONE stride for every shard, and that is the thing to notice when
+        /// size classes come up (plan 11.2 — a two-field object pays a whole
+        /// 128-byte cell today). A size class is naturally a shard with a
+        /// stride of its own: the reference already carries selector bits and
+        /// the bases already come from a table, so the shape is almost there.
+        ///
+        /// **What it would cost, stated here because this is where the
+        /// constraint lives.** The stride is a compile-time CONSTANT in both
+        /// forms, which is what makes the single form two instructions. A
+        /// per-shard stride has to be read, so every field access becomes load
+        /// the base, load the stride (or a shift), scale, add — roughly four
+        /// instructions where there are now two, on EVERY access, to buy cells
+        /// a quarter the size.
+        ///
+        /// So 11.2 is not blocked and it is not free either: it trades
+        /// instructions on every access for locality and footprint, and the
+        /// [`Addressing::Single`] doc above is explicit that contiguity buys
+        /// locality rather than correctness. Which way that comes out is a
+        /// MEASUREMENT nobody has taken, and it should be taken before the
+        /// work rather than after — the obvious cheaper variant being one
+        /// stride for all shards still, with the size class chosen per region
+        /// at placement time, which keeps two instructions and gives up mixing
+        /// sizes within a region.
         stride: u32,
     },
 }
