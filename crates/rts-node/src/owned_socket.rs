@@ -29,6 +29,17 @@
 //! reports it on itself — on a later turn, through `emit_error_later`, which
 //! is where a program's own `req.on('error', …)` has already run.
 //!
+//! Both halves of that sentence live here: [`absorb_errors`] records, and
+//! [`relay_errors`] is the reporting side. The reporting side used to be a
+//! private pair in `http::client` while `https::client` had none at all,
+//! because `https` blocked on its handshake and read the recorded error out
+//! of the socket by hand instead. When that block was removed (the deadlock
+//! `http::response_reader`'s doc measures, reached a second time through
+//! `tls`), `https` needed the same relay — and a rule written twice is the
+//! thing this module's own doc already names as the day's expense. So the
+//! relay moved here beside the recorder it pairs with, and `http::client`
+//! calls it rather than keeping its copy.
+//!
 //! This is `tls::socket::on_underlying_error`'s answer for the one socket
 //! `tls.connect` wraps, generalised: that function relays the inner socket's
 //! `'error'` onto the `TLSSocket` a program holds, for exactly this reason,
@@ -54,8 +65,13 @@ const SLOT: &str = "__ownedError__";
 ///
 /// Called once, as soon as the socket exists and BEFORE anything can make it
 /// fail — which for `http` is before `socket.connect(...)`, since a refused
-/// connection is delivered by `net::registry::pump`, and the first thing that
-/// pumps is `connect_blocking` one line later.
+/// connection is delivered by `net::registry::pump` and the first `write` is
+/// what pumps.
+///
+/// `https` cannot manage "before": `tls.connect` connects AND writes the
+/// ClientHello inside one call, so a refusal can already be in hand by the
+/// time this runs on the `TLSSocket` it answers with. That is what
+/// [`relay_errors`] reporting an already-recorded error exists for.
 pub(crate) fn absorb_errors(socket: u64) {
     let absent = entry::undefined_value();
     // A plain host callable, not a closure over the socket: `events::emit`
@@ -99,4 +115,108 @@ pub(crate) fn recorded_error(socket: u64) -> Option<u64> {
         true => None,
         false => Some(held),
     }
+}
+
+/// The property the relay listener reads its `ClientRequest` back out of.
+///
+/// A property of the socket and not a closure over the request: the closure
+/// form was tried in `http::client` first and never fired, and a property is
+/// a root the collector already walks (rule 10 of `rts-core`'s README).
+const REQUEST: &str = "__clientRequest__";
+
+/// Marks that the request has already reported a failure, so it reports one
+/// and not three.
+const REPORTED: &str = "__errored__";
+
+/// Relays `socket`'s failure onto the `ClientRequest` a program holds, on a
+/// later turn — and reports one already recorded.
+///
+/// Two deliveries, because the socket can fail on either side of this call.
+/// Afterwards: [`absorb_errors`]' recorder keeps absorbing (so nothing
+/// escapes to `entry::unhandled`) and this listener reports. Before: for
+/// `https` the connection attempt and the ClientHello both happen inside
+/// `tls.connect`, so `ECONNREFUSED` is already sitting in the socket's slot
+/// when the request is built — relying on the listener alone read as a
+/// request that never answers anything, which is the silent half of the
+/// failure this crate keeps paying for.
+pub(crate) fn relay_errors(request: u64, socket: u64) {
+    let absent = entry::undefined_value();
+    let on_fn = entry::with_runtime(|context| entry::get_member(context, socket, "on"));
+    if on_fn == absent {
+        return;
+    }
+    entry::with_runtime(|context| entry::put_member(context, socket, REQUEST, request));
+    let listener = entry::with_runtime(|context| entry::make_callable(context, relay));
+    let event = entry::with_runtime(|context| entry::make_string(context, "error"));
+    entry::call(on_fn, socket, event, listener, absent, absent);
+    if let Some(error) = recorded_error(socket) {
+        report_once(request, error);
+    }
+}
+
+/// The socket's `'error'`, reported on the `ClientRequest` a program holds.
+extern "C" fn relay(_e: u64, socket: u64, error: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let request = entry::with_runtime(|context| entry::get_member(context, socket, REQUEST));
+    if request != absent {
+        report_once(request, error);
+    }
+    absent
+}
+
+/// Once. A refused connection is followed by a reset and then a close, and
+/// `node:net` emits `'error'` for more than one of them; Node reports the
+/// first on the request and nothing after it.
+fn report_once(request: u64, error: u64) {
+    if entry::with_runtime(|context| entry::get_member(context, request, REPORTED)) == entry::boolean_value(true) {
+        return;
+    }
+    entry::with_runtime(|context| {
+        let held = entry::boolean_value(true);
+        entry::put_member(context, request, REPORTED, held);
+    });
+    report_error_later(request, error);
+}
+
+/// Emits `'error'` on `request` from a `setTimeout(fn, 0)` turn.
+///
+/// Later and not now: emitting from inside `http(s).request(...)` itself —
+/// before the value it is building has even been returned — makes
+/// `req.on('error', cb)` on the caller's next line impossible to run in
+/// time, and an `'error'` with no listener ends the process
+/// (`http::common::emit`'s own doc), uncatchably even from a `try`/`catch`
+/// around the whole call. Node never emits it synchronously either, for the
+/// same reason: a connection attempt there is always asynchronous.
+///
+/// `node:timers`' zero-delay `setTimeout` already IS "a later turn", so this
+/// reuses it rather than building a second queue-and-pump beside
+/// `net::registry`'s — there is nothing to poll for here, the outcome is
+/// already in hand.
+pub(crate) fn report_error_later(request: u64, error: u64) {
+    let state = entry::with_runtime(|context| {
+        let state = entry::make_object(context);
+        entry::put_member(context, state, "request", request);
+        entry::put_member(context, state, "error", error);
+        state
+    });
+    // Minted OUTSIDE the borrow above — `entry::closure_new` takes the
+    // runtime borrow itself.
+    let closure = entry::closure_new(deliver as *const () as usize as i64, state);
+    let (timers_ns, absent) = entry::with_runtime(|context| (entry::module_at_name(context, "node:timers"), entry::undefined_in(context)));
+    let set_timeout = entry::with_runtime(|context| entry::get_member(context, timers_ns, "setTimeout"));
+    let delay = entry::make_number(0.0);
+    entry::call(set_timeout, absent, closure, delay, absent, absent);
+}
+
+/// The `setTimeout` callback [`report_error_later`] schedules.
+extern "C" fn deliver(state: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let (request, error) =
+        entry::with_runtime(|context| (entry::get_member(context, state, "request"), entry::get_member(context, state, "error")));
+    let absent = entry::undefined_value();
+    let emit_fn = entry::with_runtime(|context| entry::get_member(context, request, "emit"));
+    if emit_fn != absent {
+        let event = entry::with_runtime(|context| entry::make_string(context, "error"));
+        entry::call(emit_fn, request, event, error, absent, absent);
+    }
+    absent
 }
