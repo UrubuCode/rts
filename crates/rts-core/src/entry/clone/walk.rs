@@ -164,7 +164,7 @@ impl Walker {
                 let Some(extra) = super::members::array_extra(context, value, cell) else {
                     return Ok(Some(task));
                 };
-                let held = context.elements_at(cell).cloned().unwrap_or_default();
+                let held = context.elements_at(cell).map(<[u64]>::to_vec).unwrap_or_default();
                 let elements = self.each(context, &held, depth)?;
                 let extra = self.members(context, extra, depth)?;
                 Node::Array { elements, extra }
@@ -229,7 +229,7 @@ impl Walker {
         let depth = task.depth + 1;
         let node = match task.kind {
             Kind::Array => {
-                let held = context.elements_at(task.cell).cloned().unwrap_or_default();
+                let held = context.elements_at(task.cell).map(<[u64]>::to_vec).unwrap_or_default();
                 let count = held.len();
                 let elements = self.each(context, &held, depth)?;
                 // The slow read names every own key, indices and `length`

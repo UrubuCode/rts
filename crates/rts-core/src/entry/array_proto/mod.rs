@@ -275,7 +275,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
 /// on `Array.prototype.push.call(1)` turns a `TypeError` into a dead process. Such a receiver takes [`generic`]'s arm instead.
 pub(super) fn staged(context: &Context, this: u64) -> Option<(u32, Vec<u64>)> {
     let cell = Value(this).as_slot()?;
-    Some((cell, context.elements_at(cell)?.clone()))
+    Some((cell, context.elements_at(cell)?.to_vec()))
 }
 
 /// The receiver's elements, BORROWED, for a method that only reads them.
@@ -287,7 +287,7 @@ pub(super) fn staged(context: &Context, this: u64) -> Option<(u32, Vec<u64>)> {
 ///
 /// The borrow is what enforces it: a caller holding this cannot call anything
 /// that takes the context, so the distinction cannot be got wrong quietly.
-pub(super) fn borrowed(context: &Context, this: u64) -> Option<&Vec<u64>> {
+pub(super) fn borrowed(context: &Context, this: u64) -> Option<&[u64]> {
     context.elements_at(Value(this).as_slot()?)
 }
 

@@ -189,7 +189,7 @@ pub(super) fn own_keys_of(target: u64) -> Vec<(Key, String)> {
             Value(listed)
                 .as_slot()
                 .and_then(|cell| context.elements_at(cell))
-                .cloned()
+                .map(<[u64]>::to_vec)
                 .unwrap_or_default()
         });
         let keys: Vec<Key> = with_current(|context| {

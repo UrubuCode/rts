@@ -65,14 +65,14 @@ fn forwarded_keys(target: u64) -> u64 {
         Value(named)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
-            .cloned()
+            .map(<[u64]>::to_vec)
             .unwrap_or_default()
     });
     let rest = with_current(|context| {
         Value(symbols)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
-            .cloned()
+            .map(<[u64]>::to_vec)
             .unwrap_or_default()
     });
     keys.extend(rest);
@@ -109,7 +109,7 @@ fn checked_keys(target: u64, listed: u64) {
         Value(listed)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
-            .cloned()
+            .map(<[u64]>::to_vec)
             .unwrap_or_default()
     });
     // Every entry a String or a Symbol. `property_key` would happily turn `1`
@@ -242,7 +242,7 @@ fn own_half(object: u64, symbols: bool) -> Option<u64> {
         Value(listed)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
-            .cloned()
+            .map(<[u64]>::to_vec)
             .unwrap_or_default()
     });
     let kept = keys
@@ -285,7 +285,7 @@ pub(in crate::entry) fn enumerable_keys(object: u64) -> Option<u64> {
         Value(listed)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
-            .cloned()
+            .map(<[u64]>::to_vec)
             .unwrap_or_default()
     });
 

@@ -107,7 +107,7 @@ pub(in crate::entry) fn shape_of(value: u64) -> Shape {
             return Shape::Text(text.to_rust_lossy());
         }
         match context.elements_at(cell) {
-            Some(elements) => Shape::List(elements.clone()),
+            Some(elements) => Shape::List(elements.to_vec()),
             None => Shape::Other,
         }
     })

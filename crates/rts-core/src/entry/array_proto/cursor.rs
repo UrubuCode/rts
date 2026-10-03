@@ -260,7 +260,7 @@ fn length_of(receiver: u64) -> Option<usize> {
         Value(receiver)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
-            .map(Vec::len)
+            .map(<[u64]>::len)
     });
     if let Some(count) = direct {
         return Some(count);

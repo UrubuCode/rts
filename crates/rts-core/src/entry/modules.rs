@@ -1538,7 +1538,7 @@ pub fn module_publish_all(specifier: i64, from: i64) -> u64 {
         let Some(cell) = Value(names).as_slot() else {
             return pairs;
         };
-        let Some(listed) = context.elements_at(cell).cloned() else {
+        let Some(listed) = context.elements_at(cell).map(<[u64]>::to_vec) else {
             return pairs;
         };
         for name in listed {

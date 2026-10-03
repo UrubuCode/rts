@@ -168,7 +168,7 @@ impl Writer {
         let names = with_current(|context| {
             Value(names)
                 .as_slot()
-                .and_then(|cell| context.elements_at(cell).cloned())
+                .and_then(|cell| context.elements_at(cell).map(<[u64]>::to_vec))
                 .unwrap_or_default()
         });
 

@@ -695,6 +695,6 @@ fn put(object: u64, name: &str, value: u64) {
 fn elements(array: u64) -> Option<Vec<u64>> {
     with_current(|context| {
         let cell = Value(array).as_slot()?;
-        Some(context.elements_at(cell)?.clone())
+        Some(context.elements_at(cell)?.to_vec())
     })
 }

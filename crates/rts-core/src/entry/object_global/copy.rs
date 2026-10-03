@@ -19,7 +19,7 @@ use crate::value::Value;
 pub(super) fn held(array: u64) -> Option<Vec<u64>> {
     with_current(|context: &mut Context| {
         let cell = Value(array).as_slot()?;
-        Some(context.elements_at(cell)?.clone())
+        Some(context.elements_at(cell)?.to_vec())
     })
 }
 

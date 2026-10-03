@@ -128,7 +128,7 @@ pub(super) fn requested(value: u64) -> Vec<String> {
         if let Some(text) = context.text_at(cell) {
             return text.to_rust().into_iter().collect();
         }
-        let Some(elements) = context.elements_at(cell).cloned() else {
+        let Some(elements) = context.elements_at(cell).map(<[u64]>::to_vec) else {
             return Vec::new();
         };
         elements

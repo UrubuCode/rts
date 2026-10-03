@@ -188,7 +188,7 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
             return None;
         };
         if let Some(at) = super::super::array::as_index(context, Value(key))
-            && let Some(count) = context.elements_at(slot).map(Vec::len)
+            && let Some(count) = context.elements_at(slot).map(<[u64]>::len)
         {
             // An element is not a shape property, so it never reaches
             // `resolve_store` below — the integrity questions have to be asked

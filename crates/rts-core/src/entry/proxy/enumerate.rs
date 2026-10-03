@@ -41,7 +41,7 @@ pub(in crate::entry) fn level_keys(object: u64) -> Option<Vec<Key>> {
     let entries = with_current(|context| {
         Value(listed)
             .as_slot()
-            .and_then(|cell| context.elements_at(cell).cloned())
+            .and_then(|cell| context.elements_at(cell).map(<[u64]>::to_vec))
             .unwrap_or_default()
     });
     Some(with_current(|context| {

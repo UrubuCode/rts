@@ -98,7 +98,7 @@ fn elements_of(array: u64) -> Vec<u64> {
         Value(array)
             .as_slot()
             .and_then(|cell| context.elements_at(cell))
-            .cloned()
+            .map(<[u64]>::to_vec)
             .unwrap_or_default()
     })
 }

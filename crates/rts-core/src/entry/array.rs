@@ -352,8 +352,22 @@ impl Context {
     }
 
     /// The elements of an array, if this reference names one.
-    pub(super) fn elements_at(&self, reference: u32) -> Option<&Vec<u64>> {
-        self.arrays.at(self.store_of(reference)?).ok()
+    ///
+    /// # Why a slice and not the `&Vec<u64>` this handed out
+    ///
+    /// A `&Vec<u64>` can only ever come from a `Vec`, which pins the elements
+    /// to the side `Slab` for as long as the signature stands: an array's
+    /// elements cannot live in the cell's own slots while the accessor promises
+    /// a `Vec`. A slice can come from either, so this is what makes inline
+    /// elements representable at all (plan 14.3) — the same move that let a
+    /// `Str` move into its cell without any of `text_at`'s 120 callers
+    /// changing.
+    ///
+    /// It is a pure narrowing: no caller gains anything and the ones that
+    /// wanted a `Vec` say `.to_vec()` where they said `.cloned()`, which is the
+    /// same copy under a name that admits it is one.
+    pub(super) fn elements_at(&self, reference: u32) -> Option<&[u64]> {
+        self.arrays.at(self.store_of(reference)?).ok().map(Vec::as_slice)
     }
 
     /// The same, to write through.

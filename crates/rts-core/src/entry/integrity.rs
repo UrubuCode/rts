@@ -445,7 +445,7 @@ fn restrict_proxy(object: u64, level: Integrity) {
     let keys = with_current(|context| {
         Value(listed)
             .as_slot()
-            .and_then(|cell| context.elements_at(cell).cloned())
+            .and_then(|cell| context.elements_at(cell).map(<[u64]>::to_vec))
             .unwrap_or_default()
     });
     for key in keys {
@@ -517,7 +517,7 @@ pub(in crate::entry) fn proxy_level(object: u64, level: Integrity) -> Option<boo
     let keys = with_current(|context| {
         Value(listed)
             .as_slot()
-            .and_then(|cell| context.elements_at(cell).cloned())
+            .and_then(|cell| context.elements_at(cell).map(<[u64]>::to_vec))
             .unwrap_or_default()
     });
     for key in keys {
@@ -625,7 +625,7 @@ pub(in crate::entry) fn is_sealed(context: &mut Context, cell: u32) -> bool {
 /// because that one allocates an array of interned strings to answer a question
 /// about a count.
 fn own_count(context: &mut Context, cell: u32) -> usize {
-    let elements = context.elements_at(cell).map_or(0, Vec::len);
+    let elements = context.elements_at(cell).map_or(0, <[u64]>::len);
     let properties = context
         .region
         .type_of(cell)

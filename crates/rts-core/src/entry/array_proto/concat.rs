@@ -84,7 +84,7 @@ fn spread(item: u64) -> Option<Vec<u64>> {
             // An array's elements are already here, so nothing about the
             // array-like protocol is worth running over one: it would read the
             // same words through a property lookup per index.
-            (true, true) => Some(Spread::Elements(context.elements_at(cell)?.clone())),
+            (true, true) => Some(Spread::Elements(context.elements_at(cell)?.to_vec())),
             (true, false) => Some(Spread::Like),
         }
     })?;

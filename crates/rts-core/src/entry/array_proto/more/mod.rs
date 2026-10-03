@@ -420,7 +420,7 @@ fn flattened_into(context: &Context, values: &[u64], depth: i32, out: &mut Vec<u
             Value(*value)
                 .as_slot()
                 .and_then(|cell| context.elements_at(cell))
-                .cloned()
+                .map(<[u64]>::to_vec)
         } else {
             None
         };

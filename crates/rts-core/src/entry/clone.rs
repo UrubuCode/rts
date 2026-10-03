@@ -194,7 +194,7 @@ fn detach_transferred(options: u64) {
     let Some(cells) = with_current(|context| {
         crate::value::Value(list)
             .as_slot()
-            .and_then(|cell| context.elements_at(cell).cloned())
+            .and_then(|cell| context.elements_at(cell).map(<[u64]>::to_vec))
     }) else {
         return;
     };

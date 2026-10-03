@@ -53,7 +53,7 @@ pub(super) fn replacer_of(replacer: u64) -> Replacer {
     let elements = with_current(|context| {
         Value(replacer)
             .as_slot()
-            .and_then(|cell| context.elements_at(cell).cloned())
+            .and_then(|cell| context.elements_at(cell).map(<[u64]>::to_vec))
     });
     let Some(elements) = elements else {
         return Replacer::None;
@@ -135,7 +135,7 @@ pub(super) fn internalized(holder: u64, key: u64, reviver: u64) -> u64 {
             let names = with_current(|context| {
                 Value(names)
                     .as_slot()
-                    .and_then(|cell| context.elements_at(cell).cloned())
+                    .and_then(|cell| context.elements_at(cell).map(<[u64]>::to_vec))
                     .unwrap_or_default()
             });
             for name in names {

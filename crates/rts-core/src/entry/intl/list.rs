@@ -111,7 +111,7 @@ fn strings_of(list: u64) -> Vec<String> {
         let Some(cell) = Value(list).as_slot() else {
             return Vec::new();
         };
-        let Some(elements) = context.elements_at(cell).cloned() else {
+        let Some(elements) = context.elements_at(cell).map(<[u64]>::to_vec) else {
             return Vec::new();
         };
         elements

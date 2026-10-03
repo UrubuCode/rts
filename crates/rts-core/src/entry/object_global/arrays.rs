@@ -104,7 +104,7 @@ fn length(cell: u32, wanted: &Descriptor) -> Option<Verdict> {
         return Some(Verdict::BadLength);
     }
     Some(with_current(|context| {
-        let held = context.elements_at(cell).map_or(0, Vec::len);
+        let held = context.elements_at(cell).map_or(0, <[u64]>::len);
         if held == wanted_length as usize {
             return Verdict::Done;
         }
@@ -157,7 +157,7 @@ fn element(cell: u32, at: usize, wanted: &Descriptor) -> Option<Verdict> {
         return None;
     }
     Some(with_current(|context| {
-        let held = context.elements_at(cell).map_or(0, Vec::len);
+        let held = context.elements_at(cell).map_or(0, <[u64]>::len);
         let grows = at >= held;
         // Growth is what every integrity level refuses, and an array's `length`
         // being non-writable refuses it a second way — `Object.freeze([1])`

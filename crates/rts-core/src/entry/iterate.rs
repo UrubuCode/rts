@@ -83,7 +83,7 @@ pub fn iterate(value: u64) -> u64 {
 /// [`iterate`]'s answer is a reference, so it has to allocate a cell; and a
 /// caller that only wants the elements then has to read them back out of that
 /// cell. `array_append_all` did exactly that — `iterate` built an array, and
-/// the next statement was `elements_at(source).cloned()`, a full copy of every
+/// the next statement was `elements_at(source).map(<[u64]>::to_vec)`, a full copy of every
 /// element straight back into a `Vec`. So `[...a]` allocated a whole array cell
 /// and copied the elements twice to produce one array.
 ///
@@ -475,7 +475,7 @@ pub fn array_append_all(array: u64, iterable: u64) -> u64 {
     // `values_of` and NOT `iterate`: this wants the elements, and `iterate`'s
     // answer is a reference — so asking it meant allocating an array cell to
     // hold them and then copying every element back out of it with
-    // `elements_at(source).cloned()`, which is where the fixed ~113 ns this
+    // `elements_at(source).map(<[u64]>::to_vec)`, which is where the fixed ~113 ns this
     // operation measured at two elements was going. `values_of`'s own doc has
     // the measurement.
     //

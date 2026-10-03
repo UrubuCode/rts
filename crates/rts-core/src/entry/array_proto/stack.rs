@@ -125,7 +125,7 @@ pub(super) fn refuses_append(context: &mut Context, cell: u32) -> bool {
 /// changed. One message for both would name the wrong one half the time.
 fn refusal(context: &Context, cell: u32) -> String {
     if super::super::integrity::refuses_write(context, cell) {
-        let at = context.elements_at(cell).map_or(0, Vec::len);
+        let at = context.elements_at(cell).map_or(0, <[u64]>::len);
         return format!("Cannot add property {at}, object is not extensible");
     }
     "Cannot assign to read only property 'length' of object '[object Array]'".to_owned()
@@ -157,7 +157,7 @@ pub(super) extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _
             Some(elements) => elements.pop(),
             None => return (Some(undefined_of(context)), None),
         };
-        let count = context.elements_at(cell).map_or(0, Vec::len);
+        let count = context.elements_at(cell).map_or(0, <[u64]>::len);
         super::super::array::set_length(context, cell, count);
         let taken = taken.unwrap_or_else(|| undefined_of(context));
         (Some(super::super::array::visible(context, taken)), None)
