@@ -127,23 +127,6 @@ pub fn import_meta(referrer: i64) -> u64 {
     }
 }
 
-/// `import(specifier)` — a promise for the module's namespace.
-///
-/// # Why the namespace is the SAME object a static import would read
-///
-/// Because there is one table, and this is a read of it. `import("./m")` twice
-/// answers one namespace, which is what makes `first === second` true — the
-/// module cache is not a second mechanism here, it is the fact that a specifier
-/// resolves to one entry.
-///
-/// # Why it is already resolved rather than settled later
-///
-/// The module has already RUN: the host compiles the whole graph, dependencies
-/// first, before the entry starts. So there is nothing left to wait for, and a
-/// promise that settled a turn later would be pretending to load something.
-/// The divergence that leaves is stated rather than hidden — a module reached
-/// only by `import()` is evaluated eagerly with the rest of the graph, where the
-/// language evaluates it at the call.
 /// Runs a module's body, if a module of that specifier still owes one.
 ///
 /// # Why this exists, and why it is OUTSIDE every borrow
@@ -199,6 +182,43 @@ pub(in crate::entry) fn ensure_module_ran(specifier: &str) {
     ensure_ran(specifier);
 }
 
+/// `import "m"` — the module RUNS, and nothing is read out of it.
+///
+/// # Why this is its own entry point and not a namespace read discarded
+///
+/// Because a side-effect import is the one import whose module may have no
+/// namespace. [`super::modules::module_publish`] creates one on the first
+/// export, so a module that only calls things — a polyfill, a format registry,
+/// the `import "./setup"` of a test file — has none, and both
+/// [`super::modules::module_binding`] and [`super::modules::module_namespace`]
+/// throw `cannot resolve module` when `module_at` answers nothing. Reusing
+/// either of them with the answer dropped would make the commonest shape of
+/// side-effect module a run-time failure.
+///
+/// So this is the half of them a side-effect import needs: [`ensure_ran`], with
+/// its borrow discipline, and no lookup at all.
+///
+/// # Why an unregistered specifier is silent here and raises there
+///
+/// Because reading a binding out of a module nothing registered produces a hole
+/// that is discovered later, somewhere else — the failure `module_binding`'s own
+/// doc describes. Here there is no value to produce: `import "node:fs"` and
+/// `import "reflect-metadata"` name things with no compiled body, and a bare or
+/// `node:` specifier is answered from the host's table rather than run. A
+/// relative specifier that names no file was already refused by the loader,
+/// which is the place that can say which file is missing. So an unknown
+/// specifier is a module with nothing to run rather than an error to invent.
+///
+/// A throw out of the body is left in flight for the compiled call site to
+/// re-raise, exactly as the three readers do — rule 8.
+#[rtse::entry]
+pub fn module_evaluate(specifier: i64) -> u64 {
+    if let Some(text) = with_current(|context| literal_text(context, specifier)) {
+        ensure_ran(&text);
+    }
+    with_current(|context| undefined_of(context))
+}
+
 /// `import(specifier)` — the module namespace, as a promise.
 ///
 /// The doc that stood here moved into [`ensure_ran`] along with the behaviour it
@@ -209,6 +229,24 @@ pub(in crate::entry) fn ensure_module_ran(specifier: &str) {
 /// expression whose value is a promise, so a specifier nothing registered and a
 /// module body that threw both travel as rejections rather than unwinding out of
 /// the expression.
+///
+/// # Why the namespace is the SAME object a static import would read
+///
+/// Because there is one table, and this is a read of it. `import("./m")` twice
+/// answers one namespace, which is what makes `first === second` true — the
+/// module cache is not a second mechanism here, it is the fact that a specifier
+/// resolves to one entry.
+///
+/// # A stale paragraph deleted rather than moved, 2026-10-03
+///
+/// Two sections of this doc had come loose from the item above [`ensure_ran`]
+/// and were being read as the first half of ITS doc. One of them said *"the
+/// module has already RUN: the host compiles the whole graph, dependencies
+/// first, before the entry starts"* — true before #2852 and false after it, and
+/// sitting on the very function that exists because a body has NOT run until
+/// something names it. The other is the paragraph above, which is still true and
+/// belongs here. Recorded because a doc that contradicts the function it is
+/// attached to is how the side-effect import defect read as intended behaviour.
 #[rtse::entry]
 pub fn module_import(specifier: u64, referrer: i64) -> u64 {
     // Two passes, for the reason `module_binding` records: raising takes its

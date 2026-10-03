@@ -274,8 +274,16 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 130 on 2026-09-30 for `spread_list` (`spread_list.rs`): `f(...xs)`
     // hands the array written instead of a copy of it, which REMOVES the copy —
     // 300 of 350 ns.
+    //
+    // Moved to 131 on 2026-10-03 for `module_evaluate`: `import "m"` emitted
+    // NOTHING, so a side-effect module was compiled into the program and never
+    // run. This one does not remove a cost — it is the first on this list added
+    // for a wrong ANSWER rather than for a measured one — and it is a new entry
+    // rather than a reuse because the two namespace-reading entries throw for a
+    // module that exports nothing, which is exactly the shape a side-effect
+    // module has.
     assert!(
-        CORE_ENTRY_COUNT <= 130,
+        CORE_ENTRY_COUNT <= 131,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );
