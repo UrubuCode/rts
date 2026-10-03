@@ -22,7 +22,7 @@ pub(super) fn module_item(cx: &mut Cx, item: &swc::ModuleItem) -> Result<Option<
         swc::ModuleItem::Stmt(statement) => Some(ModuleItem::Stmt(stmt(cx, statement)?)),
         swc::ModuleItem::ModuleDecl(declaration) => match declaration {
             swc::ModuleDecl::Import(import) => import_decl(cx, import)?.map(ModuleItem::Import),
-            other => Some(ModuleItem::Export(export_decl(cx, other)?)),
+            other => export_decl(cx, other)?.map(ModuleItem::Export),
         },
     })
 }
@@ -137,67 +137,53 @@ fn attributes(with: Option<&swc::ObjectLit>) -> Vec<ImportAttribute> {
         .collect()
 }
 
-pub(super) fn export_decl(cx: &mut Cx, declaration: &swc::ModuleDecl) -> Result<Export> {
+/// One `export`, or `None` when TypeScript erases the whole declaration.
+///
+/// The `None` is `export type`, and it is the other half of the elision
+/// `import_decl` above performs. The two spellings mirror the import's exactly
+/// — `export type { … }` and `export { type A, B }` — and until 2026-10-03 this
+/// function read neither flag, so `export type { Cfg }` reached the checker as
+/// an ordinary export of a name no runtime declaration produces and
+/// `check::module::unresolvable_export` refused the file:
+/// `` `Cfg` is exported and never declared ``. One rule applied on one side of
+/// the module boundary and never on the other.
+pub(super) fn export_decl(cx: &mut Cx, declaration: &swc::ModuleDecl) -> Result<Option<Export>> {
     let at = position(declaration.span());
     let kind = match declaration {
         swc::ModuleDecl::ExportDecl(export) => {
-            ExportKind::Declaration(Box::new(decl(cx, &export.decl)?))
+            Some(ExportKind::Declaration(Box::new(decl(cx, &export.decl)?)))
         }
 
-        swc::ModuleDecl::ExportNamed(named) => ExportKind::Named {
-            specifiers: named
-                .specifiers
-                .iter()
-                .map(|specifier| match specifier {
-                    swc::ExportSpecifier::Named(entry) => Ok(ExportSpecifier {
-                        local: export_name(&entry.orig),
-                        exported: entry
-                            .exported
-                            .as_ref()
-                            .map(export_name)
-                            .unwrap_or_else(|| export_name(&entry.orig)),
-                    }),
-                    swc::ExportSpecifier::Default(entry) => Ok(ExportSpecifier {
-                        local: entry.exported.sym.to_string(),
-                        exported: "default".to_owned(),
-                    }),
-                    swc::ExportSpecifier::Namespace(entry) => Ok(ExportSpecifier {
-                        local: "*".to_owned(),
-                        exported: export_name(&entry.name),
-                    }),
-                })
-                .collect::<Result<_>>()?,
-            source: named
-                .src
-                .as_ref()
-                .map(|s| s.value.to_string_lossy().to_string()),
-            attributes: attributes(named.with.as_deref()),
-        },
+        swc::ModuleDecl::ExportNamed(named) => export_named(named),
 
         swc::ModuleDecl::ExportDefaultDecl(default) => {
-            ExportKind::Default(ExportDefault::Declaration(Box::new(match &default.decl {
-                swc::DefaultDecl::Fn(function) => Stmt::new(
-                    StmtKind::Function(Box::new(function_expr(cx, function)?)),
-                    at,
-                ),
-                swc::DefaultDecl::Class(class) => {
-                    Stmt::new(StmtKind::Class(Box::new(class_expr(cx, class)?)), at)
-                }
-                swc::DefaultDecl::TsInterfaceDecl(interface) => {
-                    return unsupported("an exported interface", position(interface.span));
-                }
-            })))
+            Some(ExportKind::Default(ExportDefault::Declaration(Box::new(
+                match &default.decl {
+                    swc::DefaultDecl::Fn(function) => Stmt::new(
+                        StmtKind::Function(Box::new(function_expr(cx, function)?)),
+                        at,
+                    ),
+                    swc::DefaultDecl::Class(class) => {
+                        Stmt::new(StmtKind::Class(Box::new(class_expr(cx, class)?)), at)
+                    }
+                    swc::DefaultDecl::TsInterfaceDecl(interface) => {
+                        return unsupported("an exported interface", position(interface.span));
+                    }
+                },
+            ))))
         }
 
-        swc::ModuleDecl::ExportDefaultExpr(default) => {
-            ExportKind::Default(ExportDefault::Expr(expr(cx, &default.expr)?))
-        }
+        swc::ModuleDecl::ExportDefaultExpr(default) => Some(ExportKind::Default(
+            ExportDefault::Expr(expr(cx, &default.expr)?),
+        )),
 
-        swc::ModuleDecl::ExportAll(all) => ExportKind::All {
+        // `export * from "m"` carries no type-only spelling: there is no
+        // `export type * from "m"` in the language, so nothing here is erased.
+        swc::ModuleDecl::ExportAll(all) => Some(ExportKind::All {
             source: all.src.value.to_string_lossy().to_string(),
             alias: None,
             attributes: attributes(all.with.as_deref()),
-        },
+        }),
 
         swc::ModuleDecl::Import(_) => return unsupported("an import reached as an export", at),
         swc::ModuleDecl::TsImportEquals(_)
@@ -207,7 +193,74 @@ pub(super) fn export_decl(cx: &mut Cx, declaration: &swc::ModuleDecl) -> Result<
         }
     };
 
-    Ok(Export { kind, at })
+    Ok(kind.map(|kind| Export { kind, at }))
+}
+
+/// `export { … }` and `export { … } from "m"`, or `None` when it all erases.
+///
+/// Two spellings go, and they are the two TypeScript erases:
+/// - `export type { A }` and `export type { A } from "m"` — the whole
+///   declaration, the `from` included. **The source form matters even though
+///   `unresolvable_export` never looked at it**: it was emitted as a run-time
+///   re-export, so `import * as ns from "./c"` saw a `Cfg` key that `bun`
+///   does not. Measured 2026-10-03: `Object.keys(ns)` answered `Cfg,use` here
+///   against `use` in bun 1.4.0, and `"Cfg" in ns` answered `true` against
+///   `false`. Not harmless, so erased rather than documented as harmless.
+/// - `export { type A, B }` — each marked specifier, and then the declaration
+///   too if nothing is left.
+///
+/// A bare `export {}` survives, for the same reason `import "x"` does in
+/// `import_decl`: the guard is on what was WRITTEN, and an empty list that was
+/// written empty is a module marker rather than something erasure produced. The
+/// rejected alternative was dropping an empty specifier list unconditionally,
+/// which would also delete `export {} from "m"` — a declaration with no
+/// bindings that still EVALUATES the other module.
+fn export_named(named: &swc::NamedExport) -> Option<ExportKind> {
+    if named.type_only {
+        return None;
+    }
+    let had_specifiers = !named.specifiers.is_empty();
+    let specifiers: Vec<ExportSpecifier> = named
+        .specifiers
+        .iter()
+        .filter(|specifier| match specifier {
+            // `export { type A, B }` — only the marked one goes. Neither
+            // `export default` nor `export * as ns` has an inline modifier.
+            swc::ExportSpecifier::Named(entry) => !entry.is_type_only,
+            swc::ExportSpecifier::Default(_) | swc::ExportSpecifier::Namespace(_) => true,
+        })
+        .map(|specifier| match specifier {
+            swc::ExportSpecifier::Named(entry) => ExportSpecifier {
+                local: export_name(&entry.orig),
+                exported: entry
+                    .exported
+                    .as_ref()
+                    .map(export_name)
+                    .unwrap_or_else(|| export_name(&entry.orig)),
+            },
+            swc::ExportSpecifier::Default(entry) => ExportSpecifier {
+                local: entry.exported.sym.to_string(),
+                exported: "default".to_owned(),
+            },
+            swc::ExportSpecifier::Namespace(entry) => ExportSpecifier {
+                local: "*".to_owned(),
+                exported: export_name(&entry.name),
+            },
+        })
+        .collect();
+
+    if had_specifiers && specifiers.is_empty() {
+        return None;
+    }
+
+    Some(ExportKind::Named {
+        specifiers,
+        source: named
+            .src
+            .as_ref()
+            .map(|s| s.value.to_string_lossy().to_string()),
+        attributes: attributes(named.with.as_deref()),
+    })
 }
 
 fn export_name(name: &swc::ModuleExportName) -> String {
