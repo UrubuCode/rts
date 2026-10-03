@@ -51,6 +51,7 @@
 mod accessors;
 mod compile;
 pub(in crate::entry) mod indices;
+mod lookbehind;
 pub(in crate::entry) mod methods;
 mod translate;
 
@@ -90,9 +91,12 @@ pub(super) fn refusal(made: u64, source: &str, letters: &str) -> bool {
         None => super::throw::syntax_error(&format!(
             "invalid regular expression flags: {letters:?}"
         )),
-        Some(_) => super::throw::syntax_error(&format!(
-            "invalid regular expression: /{source}/{letters}"
-        )),
+        Some(flags) => super::throw::syntax_error(&match compile::refusal_detail(source, flags) {
+            None => format!("invalid regular expression: /{source}/{letters}"),
+            Some(detail) => {
+                format!("invalid regular expression: /{source}/{letters}: {detail}")
+            }
+        }),
     }
     true
 }
