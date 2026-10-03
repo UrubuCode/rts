@@ -157,7 +157,13 @@ fn host_function(store: &mut Store<HostState>, signature: FuncType, row: usize) 
         let memory_row = caller.data().row;
         // wasm → JavaScript: what the body has written so far.
         mirror_out(&mut caller, memory_row);
-        let answer = invoke(row, given);
+        // The `Caller` is registered for the duration of the JavaScript call and
+        // only for it: an export of THIS instance called from inside the callee
+        // has no other `&mut Store` to run on, and `__wbindgen_malloc` is that
+        // call. The mirroring above and below stays OUTSIDE the closure because
+        // `reentry`'s invariant is that this borrow is not touched while the
+        // frame is registered — folding them in would break it.
+        let answer = super::reentry::with_active(&mut caller, memory_row, || invoke(row, given));
         // JavaScript → wasm: what the callee wrote, before the body resumes.
         mirror_in(&mut caller, memory_row);
         let answer = answer?;

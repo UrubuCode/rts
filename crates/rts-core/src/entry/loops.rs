@@ -87,10 +87,25 @@ pub fn declare_loop_source(context: &mut Context, name: &'static str, source: So
     context.loop_sources.push((name, source));
 }
 
+/// The longest a caller may wait while some source answered [`Pending::Blocked`].
+///
+/// `Blocked` is documented as "pumped on every pass", and that sentence was
+/// false: the wait was the minimum over the `In` answers alone, so a `Blocked`
+/// source whose only company was a `setTimeout(f, 15_000)` was pumped twice —
+/// once before the sleep and once after, by which time the timer had already run
+/// and called `process.exit`. A socket connected in the first millisecond and
+/// its `'connect'` was never delivered.
+///
+/// A cap rather than a wake-up: nothing here can be notified by a background
+/// thread, because waiting at all is the host's (see [`Rest`]) and this crate
+/// must exist on targets with no threads to be notified from.
+const BLOCKED_CAP: Duration = Duration::from_millis(1);
+
 /// Asks every source to deliver, and answers how long the caller may wait.
 ///
 /// `None` when nothing is outstanding — the program can finish. `Some(d)` when
-/// something is, and `d` is the shortest any source asked for.
+/// something is, and `d` is the shortest any source asked for, capped at
+/// [`BLOCKED_CAP`] when any source is `Blocked`.
 ///
 /// # Why the borrow is released before a source runs
 ///
@@ -107,9 +122,11 @@ pub fn pump_sources() -> Option<Duration> {
             .collect()
     });
     let mut soonest: Option<Duration> = None;
+    let mut blocked = false;
     for source in sources {
         match source() {
-            Pending::Idle | Pending::Blocked => {}
+            Pending::Idle => {}
+            Pending::Blocked => blocked = true,
             Pending::In(wait) => {
                 soonest = Some(match soonest {
                     Some(held) => held.min(wait),
@@ -118,7 +135,57 @@ pub fn pump_sources() -> Option<Duration> {
             }
         }
     }
-    soonest
+    wait_for(soonest, blocked)
+}
+
+/// The two answers combined into the one duration a caller waits.
+///
+/// Split out from [`pump_sources`] so the rule can be asserted without a context
+/// and a background thread — the defect it fixes is invisible in any answer a
+/// test can read, and shows up only as an event delivered too late.
+///
+/// A `Blocked` source still does not hold the program open: `None` when nothing
+/// answered `In` is what ends a program whose last act was to start a listener.
+/// What the cap does is bound the wait of a program that IS open, so that
+/// "pumped on every pass" means passes soon enough to matter.
+fn wait_for(soonest: Option<Duration>, blocked: bool) -> Option<Duration> {
+    match (soonest, blocked) {
+        (Some(wait), true) => Some(wait.min(BLOCKED_CAP)),
+        (soonest, _) => soonest,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_blocked_source_is_not_starved_by_a_distant_deadline() {
+        // The measured defect: a socket's source answered `Blocked` while a
+        // `setTimeout(f, 15_000)` was the only other work, so the host slept
+        // fifteen seconds between pumps and the timer ran first on waking.
+        let waited = wait_for(Some(Duration::from_secs(15)), true);
+        assert_eq!(waited, Some(BLOCKED_CAP));
+    }
+
+    #[test]
+    fn a_nearer_deadline_than_the_cap_is_kept() {
+        let soon = Duration::from_micros(200);
+        assert_eq!(wait_for(Some(soon), true), Some(soon));
+    }
+
+    #[test]
+    fn blocked_alone_still_ends_the_program() {
+        // The divergence `node:net`'s server and `node:stream` rely on: a source
+        // with no deadline does not keep a program running by itself.
+        assert_eq!(wait_for(None, true), None);
+    }
+
+    #[test]
+    fn an_unblocked_deadline_is_untouched() {
+        let far = Duration::from_secs(15);
+        assert_eq!(wait_for(Some(far), false), Some(far));
+    }
 }
 
 /// How a host makes time pass.

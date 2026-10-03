@@ -21,9 +21,15 @@
 //! **That sentence is a precondition and not a reassurance, and it has one
 //! named enemy**: an import. The moment a wasm body can call a JavaScript
 //! function, that function runs with the memory mid-flight and would read the
-//! stale copy. `mod.rs` records that imports are absent, `store::call` holds its
-//! lock across the call for the same reason, and the lot that supplies them has
-//! to replace this mechanism rather than extend it.
+//! stale copy. What restores it is mirroring at every **traversal of control**
+//! rather than at every call, which `imports.rs` states as a table and performs
+//! — so the boundary above is "whoever just ran" rather than "the call".
+//!
+//! A REENTRANT call is one traversal more in each direction, and the growth is
+//! the part that bites: `__wbindgen_malloc` grows the memory from inside an
+//! import, so [`write_into`]'s replacement of the buffer has to happen on a copy
+//! out that is itself nested. `tests/claude-webassembly-imports.test.ts` measures
+//! exactly that against node rather than assuming it.
 //!
 //! # The cost, stated
 //!
@@ -194,11 +200,14 @@ fn rebuild(row: usize) {
 
 /// The same, over bytes the caller already has.
 ///
-/// Reached from inside a call, where [`rebuild`] cannot be: the instance is TAKEN
-/// out of the table while it runs (`store.rs` says why), so reading its memory
-/// through the table would answer an empty slice — and the buffer would be
-/// replaced with an empty one, which is a worse wrong answer than the one this
-/// whole path exists to fix.
+/// Reached from inside a call, where the caller already holds the bytes it is
+/// about to install — so re-reading them would be a second copy of the whole
+/// linear memory for no answer.
+///
+/// It used to be reached because [`rebuild`] could not be: reading a RUNNING
+/// instance's memory answered an empty slice, and the buffer would have been
+/// replaced with an empty one. `store::with_context` closed that, which is why
+/// this is now a saving rather than a workaround.
 fn rebuild_with(row: usize, bytes: &[u8]) {
     let Some((old_view, old_buffer, held)) =
         held_at(row, |linear| (linear.view, linear.buffer, linear.held))

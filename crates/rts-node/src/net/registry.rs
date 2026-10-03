@@ -138,8 +138,14 @@ pub(super) fn pump() {
     if ENTREGANDO.with(|f| f.replace(true)) {
         return;
     }
-    pump_sockets();
+    // Servers first, and the order is measured rather than chosen: a client
+    // connecting to a server in the SAME program has both events queued by the
+    // time one pass runs, and Node delivers `'connection'` before the client's
+    // `'connect'` — three runs out of three of `tests/claude-net-socket-events`'s
+    // program under Node 22. Sockets first gave the opposite order, which a
+    // program that answers on `'connection'` can observe.
     pump_servers();
+    pump_sockets();
     ENTREGANDO.with(|f| f.set(false));
 }
 
@@ -154,7 +160,8 @@ fn pump_sockets() {
     let absent = entry::undefined_value();
     for (id, events) in due {
         let Some(instance) = with_sockets(|table| table.get(&id).map(|e| e.instance)) else { continue };
-        for event in events {
+        let mut events = events.into_iter();
+        while let Some(event) = events.next() {
             match event {
                 SocketEvent::Connected { local, remote } => {
                     // Descarrega o que foi escrito ENQUANTO conectava, na ordem.
@@ -178,6 +185,24 @@ fn pump_sockets() {
                     super::common::emit(instance, "ready", absent, absent, absent);
                 }
                 SocketEvent::ConnectFailed(message) => {
+                    // A socket that never connected has nothing left to deliver,
+                    // and since an open socket now holds the program open
+                    // (`source`), one that is not marked closed holds it open
+                    // FOREVER. Marked here rather than on the connect thread
+                    // because `pump_sockets` skips a closed entry, and skipping
+                    // it would mean never emitting the `'error'` itself.
+                    with_sockets(|table| {
+                        if let Some(entry) = table.get_mut(&id) {
+                            entry.closed = true;
+                        }
+                    });
+                    // `connect` set this true and nothing ever set it back, so a
+                    // program that polled `socket.connecting` after a refused
+                    // connection waited on a flag that could not change. Node
+                    // clears it before the `'error'` fires.
+                    entry::with_runtime(|context| {
+                        super::common::set_bool(context, instance, "connecting", false)
+                    });
                     let error = error_value(&message, "ECONNREFUSED");
                     super::common::emit(instance, "error", error, absent, absent);
                     super::common::emit(instance, "close", entry::boolean_value(true), absent, absent);
@@ -202,12 +227,59 @@ fn pump_sockets() {
                         let null = entry::null_value();
                         entry::call(push_fn, instance, null, absent, absent, absent);
                     }
+                    // `push(null)` does not emit `'end'` — `stream::flowing`
+                    // SCHEDULES it and its own loop source delivers it, for the
+                    // reason that module's doc gives. That source is pumped after
+                    // this one, so draining the `Closed` that follows in this
+                    // same pass emitted `'close'` BEFORE `'end'`; Node emits
+                    // `'end'` first, three runs out of three.
+                    //
+                    // So the rest of this socket's queue goes back and the next
+                    // pass delivers it — a millisecond away, since an open socket
+                    // answers `In(POLL)`. The rejected alternative was calling
+                    // `flowing::pump` from here, which puts this module in charge
+                    // of another's delivery order and emits `'end'` inline, the
+                    // one thing that module exists to avoid.
+                    let rest: Vec<SocketEvent> = events.collect();
+                    if !rest.is_empty() {
+                        with_sockets(|table| {
+                            if let Some(entry) = table.get_mut(&id) {
+                                for event in rest.into_iter().rev() {
+                                    entry.queue.push_front(event);
+                                }
+                            }
+                        });
+                    }
+                    break;
                 }
                 SocketEvent::Error(message) => {
                     let error = error_value(&message, "ECONNRESET");
                     super::common::emit(instance, "error", error, absent, absent);
                 }
                 SocketEvent::Closed { had_error } => {
+                    // `'close'` is the last event a socket has, so the entry is
+                    // done — and an entry that is not closed keeps the program
+                    // open now that `source` answers `In` for an open socket.
+                    // Nothing used to set this: `destroy()` was the only path to
+                    // `closed`, so a socket the PEER closed stayed live in the
+                    // table and was rescanned on every pass forever.
+                    with_sockets(|table| {
+                        if let Some(entry) = table.get_mut(&id) {
+                            entry.closed = true;
+                            // And the OS socket goes with it. `'close'` means
+                            // the descriptor is gone in Node, and leaving it
+                            // open left the PEER reading a socket nobody would
+                            // ever write to or close: the server side of
+                            // `tests/claude-net-socket-events`'s exchange got an
+                            // ECONNRESET (os 10060) where Node gives it `'end'`
+                            // then `'close'`. Node does this because a socket
+                            // with the default `allowHalfOpen: false` ends its
+                            // writable half when its readable half ends.
+                            if let Some(stream) = entry.stream.take() {
+                                let _ = stream.shutdown(std::net::Shutdown::Both);
+                            }
+                        }
+                    });
                     super::common::emit(instance, "close", entry::boolean_value(had_error), absent, absent);
                 }
             }
@@ -244,6 +316,15 @@ fn pump_servers() {
                     super::common::emit(instance, "listening", absent, absent, absent);
                 }
                 ServerEvent::ListenFailed(message) => {
+                    // A bind that failed has nothing further to deliver, and a
+                    // server that is neither listening nor closed is what
+                    // `source` now answers `In` for — so leaving it would poll
+                    // forever rather than letting the program end.
+                    with_servers(|table| {
+                        if let Some(entry) = table.get_mut(&id) {
+                            entry.closed = true;
+                        }
+                    });
                     let error = error_value(&message, "EADDRINUSE");
                     super::common::emit(instance, "error", error, absent, absent);
                 }
@@ -286,25 +367,70 @@ pub(super) fn write_now(id: u64, bytes: &[u8]) -> std::io::Result<()> {
     })
 }
 
+/// How long the host may wait while this thread still owns an open socket.
+///
+/// A socket's events arrive on a reader thread with no deadline to report, and
+/// nothing in this engine can be waited on by the OS: `entry::loops` hands the
+/// host a DURATION, so the only way a socket's event reaches the program is for
+/// the host to come back and ask. One millisecond is short enough that a round
+/// trip over loopback is not noticeably slower than Node's and long enough that
+/// the cost is a sleep rather than a spin — a pump is a scan of two small maps.
+///
+/// The alternative, and the reason it is not here: a condition variable the
+/// reader threads notify and the host waits on. That is the right shape and it
+/// puts the WAITING in `rts-core`, whose `entry::loops` doc states the opposite
+/// rule — `std::thread::sleep` is kept out of that crate because its membership
+/// test is "exists on every target, wasm included". Changing where the waiting
+/// lives is a change to that rule, so it is not smuggled in here.
+const POLL: std::time::Duration = std::time::Duration::from_millis(1);
+
 /// This module as a loop source: deliver what its background threads queued,
 /// then say whether any is still live.
 ///
-/// `Blocked` and never `In`, because what this waits on is the outside world
-/// and that has no deadline to report. A `Blocked` source is pumped on every
-/// pass and does NOT hold the program open — `entry::loops` says why. It means
-/// a program whose last act is to start one of these still ends, where Node
-/// would keep running; the alternative is every fixture hanging on a listener
-/// nothing closes.
+/// # Why an open SOCKET answers `In` and a server still answers `Blocked`
+///
+/// Both answered `Blocked`, and by `entry::loops`' contract that neither holds
+/// the program open nor bounds the host's sleep. For a server that is the
+/// deliberate divergence it is documented as — a listener nothing closes would
+/// hang every fixture. For a client socket it made the module unusable: a
+/// program that called `net.connect` and waited exited before the connect thread
+/// had queued anything, and one kept alive by an unrelated `setTimeout` slept
+/// straight to that timer's deadline, ran the timer, and exited from inside it
+/// without `net` ever being pumped. Neither `'connect'` nor `'error'` was ever
+/// delivered to a program that only waited, which is Node's entire contract for
+/// this module.
+///
+/// A socket is therefore `In(POLL)` while it is open, which is also what Node
+/// does — a connected socket refs the loop. What makes that terminate rather
+/// than hang is the other half of this change: a socket whose reader reached
+/// EOF now closes, so a completed exchange stops holding the program open.
 pub fn source() -> entry::Pending {
     pump();
     let mine = std::thread::current().id();
     let sockets = with_sockets(|table| {
         table.values().any(|entry| entry.owner == mine && !entry.closed)
     });
-    let servers = with_servers(|table| {
-        table.values().any(|entry| entry.owner == mine && !entry.closed)
+    if sockets {
+        return entry::Pending::In(POLL);
+    }
+    let (settling, listening) = with_servers(|table| {
+        let mine_only = || table.values().filter(|entry| entry.owner == mine && !entry.closed);
+        (mine_only().any(|entry| !entry.listening), mine_only().count() > 0)
     });
-    match sockets || servers {
+    // A server that has not bound YET has a deadline in the useful sense: its
+    // accept thread is about to queue `'listening'` or `'error'`, and that is a
+    // bounded wait. It used to be `Blocked` like any other, which meant a program
+    // whose only pending work was `server.listen(0, host, callback)` ended before
+    // the bind completed and the callback never ran at all.
+    //
+    // Once it IS listening it goes back to `Blocked`, which keeps the divergence
+    // this module documents rather than quietly removing it: a listening server
+    // does not hold the program open here, where Node's would, because a suite
+    // where one unclosed listener hangs every fixture is worse.
+    if settling {
+        return entry::Pending::In(POLL);
+    }
+    match listening {
         true => entry::Pending::Blocked,
         false => entry::Pending::Idle,
     }

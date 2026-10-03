@@ -376,13 +376,14 @@ pub(super) fn constant_type_row(constant: &ImplItemConst) -> syn::Result<TokenSt
         _ => format!("{name}: string"),
     };
     let doc = doc_of(&constant.attrs);
-    let role = match constant
-        .attrs
-        .iter()
-        .any(|attribute| attribute.path().is_ident("stat"))
-    {
-        true => quote!(crate::entry::declared::Role::StaticConstant),
-        false => quote!(crate::entry::declared::Role::Constant),
+    // `#[settable]` on the constructor half is a THIRD role, because the only
+    // thing the printed declaration does differently for it is drop `readonly` —
+    // and printing `readonly` over a property the runtime installs as writable is
+    // a generated view contradicting its own source.
+    let role = match (has(constant, "stat"), has(constant, "settable")) {
+        (true, true) => quote!(crate::entry::declared::Role::StaticSetting),
+        (true, false) => quote!(crate::entry::declared::Role::StaticConstant),
+        (false, _) => quote!(crate::entry::declared::Role::Constant),
     };
     Ok(quote!(crate::entry::declared::Member {
         signature: #ts,
@@ -399,7 +400,18 @@ pub(super) fn constant_type_row(constant: &ImplItemConst) -> syn::Result<TokenSt
 /// attribute that guessed would be wrong for one of them every time.
 pub(super) fn constant_row(constant: &ImplItemConst) -> syn::Result<(TokenStream, bool)> {
     let value = &constant.expr;
+    // `#[settable]` is the third attribute set a number can need, and it exists
+    // because `Error.stackTraceLimit` is one: V8 publishes it as an ordinary
+    // `{ writable, enumerable, configurable }` data property, and a program
+    // LOWERING it is the whole point of the name. The plain `Number` spelling
+    // pins the value the way `Math.PI` is pinned, which would have made
+    // `Error.stackTraceLimit = 0` a silent no-op — a surface that does not do
+    // what its name says. Installing it by hand beside the derived list was the
+    // alternative and it is the one CLAUDE.md forbids: a class member written
+    // outside the declaration is a row nothing checks.
+    let settable = has(constant, "settable");
     let held = match spelled(&constant.ty).as_str() {
+        "f64" if settable => quote!(crate::entry::class_support::Constant::Settable(#value)),
         "f64" => quote!(crate::entry::class_support::Constant::Number(#value)),
         "&str" | "&'staticstr" => {
             quote!(crate::entry::class_support::Constant::Text(#value))
@@ -414,14 +426,25 @@ pub(super) fn constant_row(constant: &ImplItemConst) -> syn::Result<(TokenStream
             ));
         }
     };
+    if settable && spelled(&constant.ty) != "f64" {
+        return Err(syn::Error::new(
+            constant.ty.span(),
+            "`#[settable]` says a NUMBER is an ordinary data property. Text \
+             already is one, so the attribute would say nothing there.",
+        ));
+    }
     // The Rust name unchanged. `PI`, `E`, `LN2`, `MAX_SAFE_INTEGER` — every
     // constant JavaScript has is already spelled this way, so translating the
     // case would be inventing a difference to undo.
     let name = constant.ident.to_string();
-    let statics = constant
+    Ok((quote!((#name, #held)), has(constant, "stat")))
+}
+
+/// Whether a constant carries a bare marker attribute.
+fn has(constant: &ImplItemConst, marker: &str) -> bool {
+    constant
         .attrs
         .iter()
-        .any(|attribute| attribute.path().is_ident("stat"));
-    Ok((quote!((#name, #held)), statics))
+        .any(|attribute| attribute.path().is_ident(marker))
 }
 

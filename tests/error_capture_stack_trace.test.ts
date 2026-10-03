@@ -3,9 +3,11 @@ import { describe, test, expect } from "rts:test";
 let out: string = "";
 function print(v: string): void { out += v + "\n"; }
 
-// Error.captureStackTrace (V8/Node) — no-op em RTS. O padrao comum em libs
-// (`if (Error.captureStackTrace) Error.captureStackTrace(this, Ctor)`) deve
-// compilar e rodar sem afetar a construcao do erro.
+// Error.captureStackTrace (V8/Node). What this file pins is the GUARDED pattern
+// libraries write — `if (Error.captureStackTrace) Error.captureStackTrace(this,
+// Ctor)` — which must leave the construction of the error alone either way, so it
+// held while the name was absent and holds now that it writes a real `.stack`.
+// The entry's own contract is in tests/claude-error-capture-stack-trace.test.ts.
 class AppError extends Error {
   constructor(message: string, public code: number) {
     super(message);

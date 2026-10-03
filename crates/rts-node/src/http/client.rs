@@ -85,6 +85,10 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
     let absent = entry::undefined_value();
     let socket_ctor = entry::with_runtime(|context| entry::get_member(context, net_ns, "Socket"));
     let socket = entry::call(socket_ctor, absent, absent, absent, absent, absent);
+    // Before `connect`, because `connect_blocking` below is the first thing
+    // that pumps `node:net` and therefore the first thing that can deliver a
+    // refusal — see `crate::owned_socket`.
+    crate::owned_socket::absorb_errors(socket);
 
     let instance = entry::with_runtime(|context| {
         let prototype = prototype(context);
@@ -119,7 +123,13 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
     let host_v = entry::with_runtime(|context| entry::make_string(context, &host));
     entry::call(connect_fn, socket, port_v, host_v, absent, absent);
     if !connect_blocking(socket) {
-        emit_error_later(instance, error_object("ECONNREFUSED", "connect failed"));
+        // The socket's OWN error when it has one: `node:net` knows which of
+        // refused, unreachable and timed out happened, and "connect failed"
+        // with a guessed `ECONNREFUSED` erased that. Node reports the real
+        // code, and a program branching on `err.code` reads it.
+        let reported = crate::owned_socket::recorded_error(socket)
+            .unwrap_or_else(|| error_object("ECONNREFUSED", "connect failed"));
+        emit_error_later(instance, reported);
         return instance;
     }
 
@@ -377,7 +387,14 @@ extern "C" fn client_end(_e: u64, this: u64, chunk: u64, _encoding: u64, callbac
             emit(this, "response", message, absent, absent);
         }
         None => {
-            emit(this, "error", error_object("ETIMEDOUT", "response timed out"), absent, absent);
+            // A connection the peer RESET is the common way no response
+            // arrives, and calling that a timeout misreports it: WhatsApp's
+            // reset (`os error 10054`) read as `ETIMEDOUT` after ten seconds
+            // of waiting for bytes that were never coming. The recorded error
+            // is the socket's own, and it is only absent when nothing failed.
+            let reported = crate::owned_socket::recorded_error(socket)
+                .unwrap_or_else(|| error_object("ETIMEDOUT", "response timed out"));
+            emit(this, "error", reported, absent, absent);
         }
     }
     if callback != absent {

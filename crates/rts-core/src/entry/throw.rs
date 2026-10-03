@@ -220,7 +220,7 @@ pub fn pending() -> Option<(i64, String)> {
         }
         let described = super::text::to_text(context, value)
             .and_then(|text| text.to_rust())
-            .or_else(|| super::error::joined(context, value.as_slot()?));
+            .or_else(|| super::error_describe::joined(context, value.as_slot()?));
         Some((tag, described.unwrap_or_else(|| "an object".to_owned())))
     })
 }
