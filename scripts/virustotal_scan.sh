@@ -27,7 +27,24 @@ if [ -z "${VT_API_KEY:-}" ]; then
   exit 0
 fi
 
-vt() { curl -sS --retry 3 --retry-delay 5 -H "x-apikey: $VT_API_KEY" "$@"; }
+# A chave publica da VirusTotal e 4 pedidos por minuto e 500 por dia, e um 429
+# devolve um corpo sem `last_analysis_stats` — indistinguivel, para quem so olha
+# ao campo, de "nao conheco este ficheiro". Por isso cada pedido espera o seu
+# turno (VT_RATE_SLEEP) e um 429 e tratado como falta de quota e nao como
+# veredicto: o script diz que nao conseguiu consultar, e isso nao bloqueia o CI.
+RATE=${VT_RATE_SLEEP:-16}
+QUOTA_HIT=0
+vt() {
+  sleep "$RATE"
+  local out code
+  out=$(curl -sS --retry 2 --retry-delay 5 -w '
+%{http_code}' -H "x-apikey: $VT_API_KEY" "$@")
+  code=${out##*$'
+'}
+  if [ "$code" = "429" ]; then QUOTA_HIT=1; echo '{}'; return 0; fi
+  printf '%s' "${out%$'
+'*}"
+}
 
 entries=()
 status=0
@@ -47,12 +64,17 @@ for f in "$@"; do
     url=$(vt "$API/files/upload_url" | jq -r '.data')
     analysis=$(curl -sS --retry 3 -H "x-apikey: $VT_API_KEY" -F "file=@$f" "$url" | jq -r '.data.id')
     echo "   analise $analysis — a aguardar"
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 40); do
       a=$(vt "$API/analyses/$analysis")
       [ "$(printf '%s' "$a" | jq -r '.data.attributes.status')" = "completed" ] && break
       sleep 15
     done
     stats=$(printf '%s' "$a" | jq -c '.data.attributes.stats // empty')
+  fi
+
+  if [ -z "$stats" ] || [ "$stats" = "{}" ]; then
+    echo "   SEM veredicto (quota, ou analise ainda a decorrer) — nao conta como limpo"
+    continue
   fi
 
   mal=$(printf '%s' "$stats" | jq -r '.malicious // 0')
@@ -64,6 +86,8 @@ for f in "$@"; do
   [ "$hits" -ge "$MIN" ] && status=1
 done
 
+[ "$QUOTA_HIT" = "1" ] && echo "AVISO: a quota da API publica foi atingida nalgum pedido."
+
 printf '%s' "$(jq -nc --argjson fs "$(printf '%s\n' "${entries[@]:-}" | jq -sc '.')" \
-  --argjson min "$MIN" '{consulted:true,threshold:$min,files:$fs}')" > "$REPORT_FILE"
+  --argjson min "$MIN" --argjson q "$QUOTA_HIT"   '{consulted:true,threshold:$min,quota_hit:($q==1),files:$fs}')" > "$REPORT_FILE"
 exit $status
