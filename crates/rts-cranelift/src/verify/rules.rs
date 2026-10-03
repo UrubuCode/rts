@@ -82,7 +82,7 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 if !matches!(found, Repr::Ref(_)) {
                     errors.push(VerifyError::GuardTypeOnNonReference { from, found });
                 }
-                // What is stored is a JavaScript value. A proven double written
+                // What is stored is a generic value. A proven double written
                 // into a slot a later read takes as generic would be read as
                 // whatever its bits mean, which is the widening the builder
                 // inserts rather than a check anything can make here.
