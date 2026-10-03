@@ -74,6 +74,43 @@
 //! frame pointer in the middle of the chain, it is that the walk has no
 //! trustworthy place to BEGIN, because every capture point is a host frame.
 //!
+//! # MEASURED AGAIN 2026-10-03: the capability below was BUILT, and it is not enough
+//!
+//! The paragraph after this one prescribes a remedy — compiled code records its
+//! own frame pointer where the runtime can find it. That was implemented in
+//! full, across all three layers: `RtEntry::CrossingFrame` answering the address
+//! of a per-thread word, `rts_cranelift::lower::crossing` deciding at which
+//! calls to write it (derived from the callee's linkage, so no client can
+//! forget), and a staleness check here. It was reverted, and these are the three
+//! readings that reverted it:
+//!
+//! | start of the walk | frames walked | attributed |
+//! |---|---:|---:|
+//! | this frame, host built as usual | 1 | 0 |
+//! | the anchor, host built as usual | 1 | 0 |
+//! | the anchor, host with `force-frame-pointers` | 2 | 0 |
+//! | this frame, host with `force-frame-pointers` | 1 | 0 |
+//!
+//! **The anchor is the better START** — the chain moves outward and the return
+//! addresses are real code addresses, which neither of the other rows managed —
+//! and `force-frame-pointers=yes` on the host is what let it take a second step,
+//! so that flag is NOT inert as this module previously recorded. It was tried
+//! when the walk could not take a first step, which is why it looked inert.
+//!
+//! **And it still attributes nothing, for a reason no amount of chain-fixing
+//! reaches: the return address stored in a frame names that frame's CALLER.**
+//! So walking from the anchor — the innermost compiled frame — yields a return
+//! address inside the runtime that called it, and the code map has no range for
+//! host code. Starting one frame deeper would fix the naming and does not link
+//! at all: the capturing native's `[rbp]` was a heap address in both builds.
+//!
+//! So the gap is not the chain and not the start. It is that **the innermost
+//! compiled frame's own program counter is in a register at the moment of the
+//! crossing and nowhere on the stack**, and every frame a walk from the anchor
+//! can name is one the anchor already skipped past. A working version records
+//! the call site as well as the frame — V8's entry frames carry both — and that
+//! is a second machine capability rather than a refinement of the first.
+//!
 //! # What that leaves, and it is one machine capability
 //!
 //! The engines cited by that document do not start in a host frame either.
@@ -179,11 +216,21 @@ pub(in crate::entry) fn census(context: &Context) -> Option<(Vec<String>, usize,
     if comparing() {
         let mut at = from;
         for _ in 0..6 {
-            if at == 0 {
+            // BOUNDED THE SAME WAY THE WALK IS, and this is a fix rather than a
+            // tidy-up: the loop checked only for zero, so the first link that
+            // was not a frame pointer became an address it read anyway. On
+            // 2026-10-03 that was `0xfff9000000000000` — an encoded value left
+            // in the register by a host frame — and reading it took the process
+            // down inside the diagnostic, so the `machine:` line this function
+            // exists to print never appeared at all. An instrument that cannot
+            // survive the thing it was built to show is not an instrument.
+            if at == 0 || at % 8 != 0 || at >= high || high - at < 16 {
+                eprintln!("  rts-trace link fp={at:#x} is not a frame pointer; chain ends");
                 break;
             }
-            // SAFETY: the same argument the walk below makes, over the same
-            // range, and this loop is reached only under the switch.
+            // SAFETY: `at` is 8-aligned, below `high`, and has room for both
+            // words — the same three conditions `observe::Chain` checks before
+            // its own read, over the same range, and now checked here too.
             let (next, ret) = unsafe {
                 (
                     std::ptr::read(at as *const u64),
@@ -211,6 +258,13 @@ pub(in crate::entry) fn census(context: &Context) -> Option<(Vec<String>, usize,
         let Some((range, _)) = map.at(frame.call_site()) else {
             continue;
         };
+        // COUNTED HERE, and it was counted nowhere: `attributed` was declared
+        // and never incremented, so the diagnostic reported `0 attributed` for
+        // every walk, including one that worked. That is the exact failure this
+        // function's own documentation warns about — "an empty answer from a
+        // walk that saw forty is a map that attributes none of them" — written
+        // beside a counter that could not tell the two apart.
+        attributed += 1;
         // THE NAME COMES FROM `function_names`, through the range's entry
         // address, and not from the range itself — see the module header for why
         // two tables answering one question is the failure being avoided here.
