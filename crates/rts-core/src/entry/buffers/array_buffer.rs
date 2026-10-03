@@ -9,6 +9,25 @@ use super::with_current;
 use crate::entry::objects::undefined_of;
 use crate::value::Value;
 
+/// Installs `ArrayBuffer`, and its `Symbol.species`.
+///
+/// A wrapper around the generated registration rather than a line in
+/// [`crate::entry::global`]'s match arm, because that arm is not the only
+/// caller: `super::new_buffer` registers the class behind a program's back so
+/// that `new Uint8Array(8)` works in a program that never wrote the word
+/// `ArrayBuffer`, and a species installed only at the global would have been
+/// missing on exactly that path.
+///
+/// `get [Symbol.species] { return this; }` is the specification's own definition
+/// here, which is why this calls [`crate::entry::native::species`] instead of
+/// being a function of its own — see its documentation for why all of them are
+/// one function.
+pub(in crate::entry) fn array_buffer(context: &mut crate::entry::Context) -> u64 {
+    let made = register_array_buffer(context);
+    crate::entry::native::species(context, made);
+    made
+}
+
 /// `ArrayBuffer`.
 #[rtse::class("ArrayBuffer", tag)]
 impl ArrayBuffer {

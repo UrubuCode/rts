@@ -26,6 +26,19 @@ use super::with_current;
 use crate::entry::objects;
 use crate::value::Value;
 
+/// Installs `SharedArrayBuffer`, and its `Symbol.species`.
+///
+/// Separate from [`super::array_buffer::array_buffer`] for the reason the module
+/// header gives: the two constructors answer different prototypes so that
+/// `instanceof` tells them apart, and a species answering the RECEIVER is what
+/// keeps `sab.slice(…) instanceof SharedArrayBuffer` true rather than handing
+/// back a plain `ArrayBuffer`.
+pub(in crate::entry) fn shared_array_buffer(context: &mut crate::entry::Context) -> u64 {
+    let made = register_shared_array_buffer(context);
+    crate::entry::native::species(context, made);
+    made
+}
+
 /// `SharedArrayBuffer`.
 #[rtse::class("SharedArrayBuffer", tag)]
 impl SharedArrayBuffer {
