@@ -75,6 +75,23 @@ impl Dom {
         self.last_fragment.borrow_mut().remove(&node);
     }
 
+    /// Puts `value` in the computed-style memo of `idx` and answers what was
+    /// there. The rotated frame (`layout/block/rotated.rs`) installs the
+    /// frame's view of a vertical subtree's styles for the length of its
+    /// layout and puts the originals back after, which is how the hundred
+    /// physical call sites read logical sides without changing.
+    pub(crate) fn swap_computed_memo(
+        &self,
+        idx: NodeIdx,
+        value: Option<std::rc::Rc<crate::style::ComputedStyle>>,
+    ) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
+        let mut memo = self.computed_memo.borrow_mut();
+        if idx >= memo.len() {
+            memo.resize(self.nodes.len().max(idx + 1), None);
+        }
+        std::mem::replace(&mut memo[idx], value)
+    }
+
     pub(crate) fn fragment_get(
         &self,
         key: FragmentKey,
@@ -240,11 +257,22 @@ impl Dom {
         self.raw_css.capacity() + self.stylesheet.estimated_bytes()
     }
 
+    // The two measure caches are keyed by PHYSICAL constraints, and inside a
+    // rotated frame (`layout/block/rotated.rs`) the same node answers with
+    // the frame's styles: neither reads nor writes there. A frame is only
+    // entered at a writing-mode boundary, so this is one thread-local read
+    // where none exists.
     pub(crate) fn layout_measure_get(&self, key: LayoutMeasureKey) -> Option<(f32, f32)> {
+        if crate::layout::in_rotated_frame() {
+            return None;
+        }
         self.layout_measure_cache.borrow().get(&key).copied()
     }
 
     pub(crate) fn layout_measure_put(&self, key: LayoutMeasureKey, value: (f32, f32)) {
+        if crate::layout::in_rotated_frame() {
+            return;
+        }
         let mut cache = self.layout_measure_cache.borrow_mut();
         if cache.len() >= 4096 && !cache.contains_key(&key) {
             crate::bump!(measure_cache_evictions);
@@ -256,10 +284,16 @@ impl Dom {
     }
 
     pub(crate) fn intrinsic_width_get(&self, key: IntrinsicWidthKey) -> Option<f32> {
+        if crate::layout::in_rotated_frame() {
+            return None;
+        }
         self.intrinsic_width_cache.borrow().get(&key).copied()
     }
 
     pub(crate) fn intrinsic_width_put(&self, key: IntrinsicWidthKey, value: f32) {
+        if crate::layout::in_rotated_frame() {
+            return;
+        }
         let mut cache = self.intrinsic_width_cache.borrow_mut();
         if cache.len() >= 4096 && !cache.contains_key(&key) {
             crate::bump!(intrinsic_cache_evictions);

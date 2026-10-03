@@ -313,3 +313,95 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     }
     false
 }
+
+// ── The block-axis half: a vertical subtree seen through a rotated frame ────
+//
+// Everything above translates a logical NAME into a physical one while the
+// cascade runs. What follows runs at layout: a box whose `writing-mode` is
+// vertical is laid out by the horizontal algorithm in a ROTATED FRAME
+// (`layout/block/rotated.rs`, plan `docs/superpowers/plans/2026-09-26-
+// writing-mode.md` F1), and that algorithm reads `width`, `margin-left`,
+// `border-top` as inline size, inline-start, block-start. This function
+// re-labels the physical side properties so that they are.
+//
+// The frame's x axis runs from the mode's own inline-start edge (top, or the
+// bottom in `sideways-lr`) whatever `direction` says — `direction` stays on
+// the style and the horizontal algorithm flips the line inside the frame, as
+// it does on a horizontal page. That is why the inline half is asked of an
+// `ltr` map below.
+//
+// `float: left/right` is NOT permuted: in a vertical mode those keywords mean
+// line-left/line-right (CSS Writing Modes 4 §6.4), physical top/bottom, which
+// are the frame's left/right already. `margin_v` (the UA's block margins of
+// `p`/`h1`) is a block-axis margin, the frame's top/bottom: it stays too.
+
+/// The style `css` becomes inside a rotated frame of `frame`'s writing mode:
+/// the side properties permuted, the axes of the dimensions swapped, and the
+/// writing mode itself `horizontal-tb` — inside the frame nothing is vertical,
+/// which is also what keeps a nested box from entering a second frame.
+///
+/// A horizontal `frame` answers the style unchanged. Pure; the caller caches.
+pub(crate) fn rotate_into_frame(css: &ComputedStyle, frame: super::values::AxisMap) -> ComputedStyle {
+    use super::borders::SideName;
+    use super::values::{Axis, AxisMap, Edges};
+    let mut out = css.clone();
+    if frame.inline_is_horizontal() {
+        return out;
+    }
+    let m = AxisMap::new(frame.writing_mode(), Direction::Ltr);
+    // The physical side each frame side reads, in frame order top, right,
+    // bottom, left: block-start, inline-end, block-end, inline-start.
+    let src = [m.start(Axis::Block), m.end(Axis::Inline), m.end(Axis::Block), m.start(Axis::Inline)];
+    fn pick<T: Copy>(side: SideName, [t, r, b, l]: [T; 4]) -> T {
+        match side {
+            SideName::Top => t,
+            SideName::Right => r,
+            SideName::Bottom => b,
+            SideName::Left => l,
+        }
+    }
+    fn permute<T: Copy>(src: [SideName; 4], a: [T; 4]) -> [T; 4] {
+        [pick(src[0], a), pick(src[1], a), pick(src[2], a), pick(src[3], a)]
+    }
+    let four = |a| permute(src, a);
+    let edges = |e: &Edges| {
+        let [top, right, bottom, left] = four([e.top, e.right, e.bottom, e.left]);
+        Edges { top, right, bottom, left }
+    };
+    out.margin = edges(&css.margin);
+    out.padding = edges(&css.padding);
+    out.border_widths = edges(&css.border_widths);
+    [out.border_top_style, out.border_right_style, out.border_bottom_style, out.border_left_style] =
+        permute(src, [css.border_top_style, css.border_right_style, css.border_bottom_style, css.border_left_style]);
+    [out.border_top_color, out.border_right_color, out.border_bottom_color, out.border_left_color] =
+        permute(src, [css.border_top_color, css.border_right_color, css.border_bottom_color, css.border_left_color]);
+    [out.inset_top, out.inset_right, out.inset_bottom, out.inset_left] =
+        permute(src, [css.inset_top, css.inset_right, css.inset_bottom, css.inset_left]);
+    // The frame's width is the inline dimension: the physical height.
+    (out.width, out.height) = (css.height, css.width);
+    (out.min_width, out.min_height) = (css.min_height, css.min_width);
+    (out.max_width, out.max_height) = (css.max_height, css.max_width);
+    (out.overflow_x, out.overflow_y) = (css.overflow_y, css.overflow_x);
+    out.aspect_ratio = css.aspect_ratio.map(|r| if r != 0.0 { 1.0 / r } else { r });
+    // A corner is named by its two sides, and its two radii swap axes with
+    // the frame: the horizontal radius becomes the vertical one.
+    let corner = |a: SideName, b: SideName| -> (Option<f32>, Option<f32>) {
+        let (v, h) = if matches!(a, SideName::Top | SideName::Bottom) { (a, b) } else { (b, a) };
+        let (x, y) = match (v, h) {
+            (SideName::Top, SideName::Left) => (css.corner_tl, css.corner_tl_y),
+            (SideName::Top, _) => (css.corner_tr, css.corner_tr_y),
+            (_, SideName::Right) => (css.corner_br, css.corner_br_y),
+            _ => (css.corner_bl, css.corner_bl_y),
+        };
+        match y {
+            Some(y) => (Some(y), x),
+            None => (x, None),
+        }
+    };
+    (out.corner_tl, out.corner_tl_y) = corner(src[0], src[3]);
+    (out.corner_tr, out.corner_tr_y) = corner(src[0], src[1]);
+    (out.corner_br, out.corner_br_y) = corner(src[2], src[1]);
+    (out.corner_bl, out.corner_bl_y) = corner(src[2], src[3]);
+    out.writing_mode = Some(WritingMode::HorizontalTb);
+    out
+}

@@ -66,6 +66,7 @@ pub(in crate::layout) fn layout_button(
         italic: false,
         letter_spacing: 0.0,
         decoration: 0,
+        orientation: crate::paint::item::Orientation::Horizontal,
     });
     let rect = Rect::new(x, y, w, h);
     record_box_rect(list, box_id, rect);
@@ -367,6 +368,7 @@ pub(in crate::layout) fn layout_input(
             italic: false,
             letter_spacing: 0.0,
             decoration: 0,
+            orientation: crate::paint::item::Orientation::Horizontal,
         });
     }
     // Cursor: barrinha vertical após o texto do VALOR (não do placeholder), só com foco.

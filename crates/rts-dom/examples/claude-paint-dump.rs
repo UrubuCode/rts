@@ -207,6 +207,7 @@ fn item_linha(item: &DisplayItem, dx: f32, dy: f32, i: usize) -> Option<String> 
             decoration,
             is_ahem: _,
             family: _,
+            orientation: _,
         } => format!(
             "{pre},\"k\":\"text\",\"x\":{},\"y\":{},\"t\":{},\"color\":{color},\
              \"size\":{},\"mono\":{mono},\"bold\":{bold},\"italic\":{italic},\

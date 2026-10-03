@@ -225,7 +225,7 @@ fn main() {
                 }
                 pintados += 1;
             }
-            DisplayItem::Text { x, y, text, size, mono, is_ahem, family, color, bold, italic, letter_spacing, .. } => {
+            DisplayItem::Text { x, y, text, size, mono, is_ahem, family, color, bold, italic, letter_spacing, orientation, .. } => {
                 // Only the origin goes through a `transform`, as it always
                 // has here: glyphs are not rotated or skewed.
                 let (mx, my) = match mat {
@@ -244,6 +244,7 @@ fn main() {
                     bold: *bold,
                     italic: *italic,
                     letter_spacing: *letter_spacing,
+                    orientation: *orientation,
                 };
                 match painter.paint(&mut canvas, &run, clip) {
                     Outcome::Painted => {
