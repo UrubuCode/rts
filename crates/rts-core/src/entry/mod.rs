@@ -355,6 +355,17 @@ pub const CACHED_KEYS: [&str; 21] = [
 /// this exists to avoid writing. Pinned by `integrity::length_is_first`.
 pub(super) const LENGTH_KEY_AT: usize = 0;
 
+/// Where `"prototype"` and `"name"` sit in [`CACHED_KEYS`].
+///
+/// Beside [`LENGTH_KEY_AT`] and for the same reason: `Context::attributes_at`
+/// derives what a CALLABLE's three own properties permit rather than reading a
+/// record written per closure, and the derivation has to identify the key
+/// without a string compare. Pinned by `integrity::callable_keys_are_pinned`.
+pub(super) const PROTOTYPE_KEY_AT: usize = 1;
+
+/// See [`PROTOTYPE_KEY_AT`].
+pub(super) const NAME_KEY_AT: usize = 6;
+
 /// The strings the runtime builds as VALUES on a path that runs per operation.
 ///
 /// Different from [`CACHED_KEYS`] in what is saved. A key is a number and

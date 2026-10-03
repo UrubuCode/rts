@@ -58,6 +58,18 @@ pub(in crate::entry) enum Integrity {
     Frozen = 2,
 }
 
+/// What `name` and `length` permit on every function there is.
+///
+/// `SetFunctionName` and `SetFunctionLength` both spell
+/// `[[Writable]]: false`, so `f.name = "x"` stores nothing, and both are
+/// configurable so `Object.defineProperty` can replace them. The same three
+/// flags `native::INTROSPECTIVE` writes, which is what this replaces.
+const CALLABLE_INTROSPECTIVE: Attributes = Attributes {
+    writable: false,
+    enumerable: false,
+    configurable: true,
+};
+
 impl Context {
     /// How much a cell refuses, if anything.
     pub(in crate::entry) fn integrity_at(&self, cell: u32) -> Option<Integrity> {
@@ -159,13 +171,98 @@ impl Context {
     /// `Vec` at one, or hold the flags in a bitfield beside the cell). Rejected:
     /// both keep a per-cell copy of a per-kind constant, so both still pay the
     /// `Aside` and both can still drift from the language.
+    /// Whether a callable's own `key` has its attributes DERIVED.
+    ///
+    /// # Why this asks whether the key is owned, and why that is not caution
+    ///
+    /// Implied attributes describe what an EXISTING key permits. Answering for
+    /// a key the cell does not have yet inverts the creation of the property:
+    /// `closure_new` writes `name` through `objects::put`, whose first act is
+    /// to refuse a write to a non-writable key — so a derived
+    /// `writable: false` refused the very write that creates it, and `f.name`,
+    /// `f.length`, `"name" in f` and `getOwnPropertyNames(f)` all came back
+    /// empty. Every unit test passed; sixteen recorded descriptor facts are
+    /// what caught it.
+    ///
+    /// The array's `length` above never hit this because its derived
+    /// `writable` is TRUE, so nothing was ever refused — which is why the
+    /// precedent did not carry the lesson with it.
+    ///
+    /// The probe costs two lookups and is reached only once a key has already
+    /// matched one of the three pinned names AND the cell is callable, so it is
+    /// off the path of every other property in the program.
+    fn derives_callable(&self, cell: u32, key: ShapeKey) -> bool {
+        if self.callable_at(cell).is_none() {
+            return false;
+        }
+        self.region
+            .type_of(cell)
+            .and_then(|ty| self.shape_of(ty))
+            // `repr_of` and not `slot_of`: the latter takes `&mut self` because
+            // it memoises an index, and this is a `&self` path. It answers the
+            // same question by walking the shape's parent chain, which for a
+            // callable is at most the three properties it owns.
+            .and_then(|shape| self.shapes.repr_of(shape, key))
+            .is_some()
+    }
+
     fn implied_attributes(&self, cell: u32, key: ShapeKey) -> Attributes {
         // The key compare first, and the cell lookup only when it matches: this
         // function is on the miss path of every property write in the program,
         // and `array_elements` is an `Aside` probe.
-        if self.well_known_keys[super::LENGTH_KEY_AT] == Some(crate::object::Key::Name(key))
-            && self.array_elements.copied(cell).is_some()
+        let named = Some(crate::object::Key::Name(key));
+        if self.well_known_keys[super::LENGTH_KEY_AT] == named {
+            if self.array_elements.copied(cell).is_some() {
+                return Attributes {
+                    writable: true,
+                    enumerable: false,
+                    configurable: false,
+                };
+            }
+            // A FUNCTION's `length` — see the block below for why these are
+            // derived too. Under the array test rather than beside it, because
+            // one key cannot be both and the array is the commoner cell.
+            if self.derives_callable(cell, key) {
+                return CALLABLE_INTROSPECTIVE;
+            }
+            return Attributes::default();
+        }
+        // A CALLABLE's three own properties, by exactly the argument the array's
+        // `length` above is derived by: the flags are the same for every
+        // function there is, and they are derivable from the one fact the cell
+        // already stores — that `callables` names it.
+        //
+        // `closure_new` wrote them per closure, through `set_attributes` for
+        // `prototype` and `introspective_many` for the pair, and its own comment
+        // measured that reach at "98 ns of a 514 ns closure" — the same cost the
+        // array's record was (84 ns of 136.6 for `[]`) and for the same reason:
+        // the `Aside` has to GROW to reach a cell it has never held anything
+        // for, and a fresh closure is always such a cell.
+        //
+        // A program that CHANGES one still gets a record, and the record still
+        // wins: `Object.defineProperty(f, "name", …)` reaches `set_attributes`
+        // and `attributes_at`'s `find` answers before this does. So this is not
+        // a second source of truth replacing a first — it is the first one, read
+        // where it lives instead of copied per cell.
+        //
+        // Three compares where there was one, and that is deliberate against
+        // `LENGTH_KEY_AT`'s warning that "eight string compares there would cost
+        // more than the record this exists to avoid writing": these are
+        // `Option<Key>` compares against pinned indices, which is an integer
+        // test and not a string one. The `callable_at` probe happens only when a
+        // key matches.
+        if self.well_known_keys[super::NAME_KEY_AT] == named && self.derives_callable(cell, key) {
+            return CALLABLE_INTROSPECTIVE;
+        }
+        if self.well_known_keys[super::PROTOTYPE_KEY_AT] == named
+            && self.derives_callable(cell, key)
         {
+            // NOT the same three as `name` and `length`:
+            // `SetFunctionPrototype` spells `{writable: true, enumerable:
+            // false, configurable: false}`, so `f.prototype = X` assigns and
+            // `delete f.prototype` refuses. `closure_new` already stated this
+            // outright for that reason, and the words are moved here rather
+            // than copied.
             return Attributes {
                 writable: true,
                 enumerable: false,
@@ -204,6 +301,35 @@ pub(in crate::entry) fn effective(context: &Context, cell: u32, key: ShapeKey) -
 /// it would be a second store path with a second answer to what a frozen
 /// object is.
 pub(in crate::entry) fn clear_attributes(context: &mut Context, cell: u32, key: ShapeKey) {
+    // A DERIVED non-writable key is cleared by recording the permissive answer,
+    // not by removing a record it does not have.
+    //
+    // Without this, clearing a callable's `name` removed nothing — the flags
+    // come from `Context::implied_attributes` — so the write that follows was
+    // refused by the very `writable: false` this call exists to lift, and
+    // `Object.defineProperty(f, "name", {value: "renamed"})` left the name
+    // unchanged while reporting the descriptor it had asked for. Fifteen of
+    // sixteen recorded descriptor facts matched; this was the sixteenth.
+    //
+    // The cost lands only on a program that redefines one of these three, which
+    // is the trade `implied_attributes` already states: the common closure pays
+    // no record, and one that is CHANGED gets one. A derived key that is
+    // already permissive needs nothing, which is why the array's `length`
+    // never reached this.
+    // Only when the non-writability is DERIVED, which is what "has no record
+    // of its own" means here. A key with a real record is cleared by removing
+    // it, as it always was: that falls back to the implied answer, and taking
+    // the branch below for it would also run `set_attributes`' retype — a cost
+    // and a cache invalidation on the path of every `defineProperty` of a
+    // non-writable key, to reach the answer removal already gives.
+    let recorded = context
+        .attributes
+        .get(cell)
+        .is_some_and(|held| held.iter().any(|(at, _)| *at == key));
+    if !recorded && !context.attributes_at(cell, key).writable {
+        set_attributes(context, cell, key, Attributes::default());
+        return;
+    }
     let Some(held) = context.attributes.get(cell) else {
         return;
     };
@@ -217,58 +343,6 @@ pub(in crate::entry) fn clear_attributes(context: &mut Context, cell: u32, key: 
 /// The retype is the same mechanism `freeze` needs and for the same reason: a
 /// site that had warmed up writes at a remembered offset without asking, so the
 /// only way to stop it is to stop it recognising the object.
-/// Records what SEVERAL keys of one cell permit, reaching the table once.
-///
-/// # Why a second entry point rather than a loop over [`set_attributes`]
-///
-/// Because the cost is the reach, not the write. `context.attributes` is an
-/// `Aside`, a `Vec<Option<T>>` indexed by cell, and reaching a cell it has never
-/// held anything for GROWS it — so a caller recording two keys on a fresh cell
-/// paid that twice for one cell.
-///
-/// `closure_new` is the caller that made it worth having: it records `name` and
-/// `length` on every callable, and `prototype` and `constructor` on every
-/// constructible one, which is up to four reaches per closure on a path that
-/// runs once per CLOSURE rather than once per function.
-///
-/// ONE `Attributes` for every key rather than a pair per key, and the keys are
-/// taken as they already are — `crate::object::Key`, filtered here. Building a
-/// `Vec` of `(key, attributes)` for the caller to hand over was the first
-/// spelling and it was slower than the two calls it replaced, because that
-/// collection allocated once per closure. Measured 2026-08-25: 282 ns against
-/// 253. Every caller wants one set of attributes for a run of keys anyway.
-///
-/// `Vec::with_capacity(4)` and not `records.len()`, for the reason
-/// [`set_attributes`] states below: `RawVec`'s first block for an element this
-/// size is four, so asking for two would make a cell that later receives a
-/// third reallocate where it used to have room.
-pub(in crate::entry) fn set_attributes_many(
-    context: &mut Context,
-    cell: u32,
-    keys: &[crate::object::Key],
-    attributes: Attributes,
-) {
-    let named = keys.iter().filter_map(|key| match key {
-        crate::object::Key::Name(named) => Some(*named),
-        crate::object::Key::Index(_) => None,
-    });
-    match context.attributes.get_mut(cell) {
-        Some(held) => {
-            for key in named {
-                match held.iter_mut().find(|(at, _)| *at == key) {
-                    Some((_, existing)) => *existing = attributes,
-                    None => held.push((key, attributes)),
-                }
-            }
-        }
-        None => {
-            let mut fresh = Vec::with_capacity(4);
-            fresh.extend(named.map(|key| (key, attributes)));
-            context.attributes.set(cell, fresh);
-        }
-    }
-}
-
 pub(in crate::entry) fn set_attributes(
     context: &mut Context,
     cell: u32,
@@ -645,5 +719,18 @@ mod tests {
     #[test]
     fn length_is_first() {
         assert_eq!(crate::entry::CACHED_KEYS[crate::entry::LENGTH_KEY_AT], "length");
+    }
+
+    /// The other two indices `implied_attributes` derives a callable's own
+    /// properties from. An index that drifted would answer the flags of a
+    /// DIFFERENT key — silently, since every value involved is a valid
+    /// descriptor.
+    #[test]
+    fn callable_keys_are_pinned() {
+        assert_eq!(
+            crate::entry::CACHED_KEYS[crate::entry::PROTOTYPE_KEY_AT],
+            "prototype",
+        );
+        assert_eq!(crate::entry::CACHED_KEYS[crate::entry::NAME_KEY_AT], "name");
     }
 }

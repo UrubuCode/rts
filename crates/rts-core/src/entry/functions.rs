@@ -267,18 +267,13 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // program can act on — `Object.defineProperty(f, "prototype", …)`
             // succeeded where every runtime raises.
             //
-            // Stated outright rather than through one of `native`'s three
-            // helpers, because it matches none of them: `hidden` is
-            // configurable, `pinned` is not writable, and this property is
-            // writable and not configurable. A fourth helper for one caller
-            // would be a name to look up instead of three words to read.
-            if let crate::object::Key::Name(named) = key {
-                super::integrity::set_attributes(context, cell, named, super::integrity::Attributes {
-                    writable: true,
-                    enumerable: false,
-                    configurable: false,
-                });
-            }
+            // DERIVED now, not written here: `Context::implied_attributes`
+            // answers these three flags for the `prototype` of any cell
+            // `callables` names, by the same argument that moved an array's
+            // `length` attributes there. The flags and the reasoning above
+            // live in that function; a record is still written for the one
+            // case that genuinely differs, which is a CLASS's `prototype`
+            // being non-writable — see `class_prototype_is_fixed` below.
             // And the BACK-link, which nothing wrote: `f.prototype.constructor`
             // is `f`, so `new f().constructor === f` and `x.constructor.name`
             // both work. Every engine has it, a great deal of ordinary code
@@ -347,7 +342,15 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // so a non-writable record made every class definition a
             // `TypeError`. That store is now `accessor::set_function_name`, a
             // define, and the two halves land together for that reason.
-            super::native::introspective_many(context, cell, &[key, length_key]);
+            // DERIVED now, and this is the call the comment above priced at 98
+            // ns: `Context::implied_attributes` answers `{!writable,
+            // !enumerable, configurable}` for `name` and `length` on any cell
+            // `callables` names. The reach into the attribute table is what
+            // cost — it is indexed by cell and has to GROW to reach one it has
+            // never held anything for, and a fresh closure is always such a
+            // cell — so deriving removes the growth rather than making it
+            // cheaper, which is the same conclusion the array's `length`
+            // reached when the alternatives were weighed there.
         }
         // Recorded only when this closure took the long way, and read back out
         // of the SHAPE it actually reached rather than from anything decided
