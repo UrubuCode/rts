@@ -126,7 +126,45 @@ fn write_own(
 
 /// Makes a callable out of a code address and an environment.
 ///
-/// # What a closure costs here, decomposed by ablation (2026-10-03)
+/// # What a closure costs, by a CUMULATIVE ladder that closes (2026-10-03)
+///
+/// `RTS_STOP_AT` made this function return after step N and register the
+/// template with the `owned` that step actually had. Cumulative rather than
+/// subtractive, which is the whole reason it is trustworthy: the ladder's last
+/// rung IS the unmodified function, so the parts have to add up to the real
+/// number or the decomposition is wrong.
+///
+/// | stop | arrow | function expression |
+/// |---|---:|---:|
+/// | 1 — cell + `mark_callable` + the crossing and the loop | 53.3 | 50.0 |
+/// | 2 — + `external::hold`/`release` | 56.7 | 56.7 |
+/// | 3 — + the whole `prototype` | — | **153.3** |
+/// | 0 — + `name` and `length` (the real function) | **90.0** | **183.3** |
+///
+/// So: **the `prototype` is 96.6 ns**, `name` and `length` together are **30**,
+/// and the scoped hold is **6.7**. The arrow column closes on the same
+/// attribution — 90.0 − 53.3 = 36.7, which is exactly the hold plus the pair —
+/// and two independent columns agreeing is what a subtraction between different
+/// shapes can never give.
+///
+/// **This CORRECTS the subtractive reading below**, which put `name` and
+/// `length` at 10 ns. That ablation removed them from the middle and the
+/// cumulative one does not; 30 is the number, and the earlier 10 is what a
+/// broken template made it look like.
+///
+/// And the ~45 ns that were unattributed after the probe are not the closure's
+/// at all: they are in the **base of ~50**, which an object literal also pays
+/// (43.3 in the same loop). That is the cost of creating any value in
+/// JavaScript here, and it belongs to the crossing and the allocator — plan
+/// items 6.4/6.6 — rather than to this function.
+///
+/// Two ways to get this wrong, both paid here before the ladder closed:
+/// a stop that does not register the template leaves every later closure
+/// without one, so they all take `put` with a shape transition and the SHORTER
+/// configuration measures 143.3 against 103.3; and `stop == 4` stays an outlier
+/// even registered, which is why no attribution is read off it.
+///
+/// # The older, subtractive reading, kept for what it still shows
 ///
 /// One release binary, four configurations behind an env var read once, with an
 /// object literal as a control that is not a closure. An arrow, since it has no
