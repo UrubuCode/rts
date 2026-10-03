@@ -1,0 +1,17 @@
+[package]
+name = "rts-profile"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "What a program site actually saw, and how often. Counts, never types — the language turns a frequency into an assumption."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# Source positions, and the whole dependency. A site is keyed by the position the
+# CLIENT minted, which `rts_cranelift::fault::Position` already is -- "a number
+# the client gave us" that the machine never interprets. Spelling it again here
+# would be a second numbering of one space, which `reuse-check` section 3 calls a
+# bug rather than redundancy.
+rts-cranelift = { path = "../rts-cranelift" }

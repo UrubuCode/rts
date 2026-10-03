@@ -11,6 +11,7 @@ members = [
     "crates/rts-macro",
     "crates/rts-cranelift",
     "crates/rts-mir",
+    "crates/rts-profile",
     "crates/rts-codegen",
     "crates/rts-core",
     "crates/rts-ui",
