@@ -120,14 +120,26 @@ extern "C" fn call_export(environment: u64, _this: u64, a: u64, b: u64, c: u64, 
         errors::raise(errors::Which::Runtime, "a wasm export disappeared from under its callable");
         return entry::undefined_value();
     };
-    // The four slots a native is handed. A wasm function of more than four
-    // parameters reads `undefined` for the rest and therefore 0, which is the
-    // same limit every native here has — `#[rtse::class]` refuses a fifth
-    // argument by name, and reading the argument vector is what lifts it.
-    let slots = [a, b, c, d];
+    // Past the fourth parameter the argument is read from the RUNNING CALL
+    // rather than from a slot. A native is handed four slots, and a call that
+    // wrote more went through `call_with_args`, which puts the whole vector where
+    // `entry::argument_slot` reads it — so the limit is the convention's and
+    // never this surface's. It was: `wasm.hkdf(retptr, ptr0, len0, length,
+    // addHeapObject(info))` is five numbers, so `info` arrived as heap slot 0 and
+    // `whatsapp-rust-bridge` answered `invalid type: unit value, expected struct
+    // HkdfInfo` where node sees the string.
+    //
+    // `argument_slot` rather than `rest_arguments`, which was the other candidate:
+    // the array it builds is a fresh cell on a Rust frame that the next
+    // `make_number` could collect under (rule 10), and it allocates per call for
+    // values this loop reads once. `argument_slot` allocates nothing and answers
+    // `undefined` past the end, which is the 0 node gives a missing argument.
     let mut arguments = Vec::with_capacity(params.len());
     for (at, kind) in params.iter().enumerate() {
-        let held = slots.get(at).copied().unwrap_or_else(entry::undefined_value);
+        let held = match at < entry::ARGUMENT_SLOTS {
+            true => [a, b, c, d][at],
+            false => entry::argument_slot(a, b, c, d, entry::make_number(at as f64)),
+        };
         arguments.push(coerced(held, *kind));
     }
     // JavaScript's bytes in, wasm's bytes out. `memory.rs` has why this is

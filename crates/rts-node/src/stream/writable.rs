@@ -39,7 +39,9 @@ pub(super) const METHODS: &[(&str, Provided)] = &[
 ];
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
-    chained_prototype(context, "Stream", "Writable", METHODS)
+    let prototype = chained_prototype(context, "Stream", "Writable", METHODS);
+    super::state_view::install(context, prototype, "Writable", super::state_view::Sides::Writable);
+    prototype
 }
 
 pub(super) extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
@@ -100,6 +102,19 @@ thread_local! {
 /// `writable.write(chunk, encoding?, callback?)`.
 extern "C" fn write(_e: u64, this: u64, chunk: u64, encoding: u64, callback: u64, _d: u64) -> u64 {
     let absent = entry::undefined_value();
+    // `write(chunk[, encoding][, callback])` — a function in the encoding slot is
+    // the callback, which is the spelling every library uses: `ws`'s sender
+    // writes a frame as `socket.write(buffer, cb)`. Dropping it was invisible to
+    // a stream test (the bytes still go out, and `write` still answers the
+    // backpressure boolean) and fatal to anything that awaits the completion:
+    // `util.promisify(ws.send)` never settled, so a WhatsApp client never
+    // installed its Noise transport cipher and read the reply carrying its QR
+    // code as undecryptable bytes. Same shift `end` below already performs, same
+    // predicate — not a second rule.
+    let (encoding, callback) = match callback == absent && encoding != absent && entry::text_of(encoding).is_none() && is_callable(encoding) {
+        true => (absent, encoding),
+        false => (encoding, callback),
+    };
     if get_bool(this, "writableEnded") {
         // `ERR_STREAM_WRITE_AFTER_END` in real Node; refused silently — see
         // this crate's stated no-throw convention.

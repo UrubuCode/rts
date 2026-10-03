@@ -188,14 +188,34 @@ fn invoke(row: usize, given: &[Value]) -> Result<u64, wasmi::core::Trap> {
         .copied()
         .ok_or_else(|| wasmi::core::Trap::new("an imported function disappeared"))?;
     let absent = entry::undefined_value();
-    let mut slots = [absent; 4];
-    for (slot, value) in slots.iter_mut().zip(given.iter()) {
-        *slot = as_number(value);
-    }
-    // Four, because that is what a call carries here. A wasm import of more
-    // parameters gets `undefined` for the rest — the same limit every native in
-    // this workspace has, and `wasm-bindgen` emits none above four.
-    let produced = entry::call(callable, absent, slots[0], slots[1], slots[2], slots[3]);
+    // Two doors, and which one is decided by the count — the same division
+    // `rts-core`'s `functions` module makes, for its reason: four arguments or
+    // fewer ride the calling convention's slots and allocate nothing, and more
+    // than four go in a vector the runtime holds. A wasm import of five
+    // parameters used to get `undefined` for the fifth, which was named here as
+    // the four-slot limit "every native in this workspace has"; the limit is the
+    // CALL's, not the native's, and `call_with_args` is the door that has no such
+    // limit. The alternative — truncating and documenting it — is what stood here,
+    // and an argument that silently vanishes is a wrong program that runs.
+    let produced = match given.len() > entry::ARGUMENT_SLOTS {
+        true => {
+            // Built inside the borrow, called outside it: `call_with_args` runs
+            // user code, which rule 4 forbids under a borrow. Every element is a
+            // number, so the `Vec` names no cell the collector could lose, and
+            // nothing allocates between the array's own allocation and the push
+            // that makes it reachable from `pending_arguments`.
+            let rows: Vec<u64> = given.iter().map(as_number).collect();
+            let vector = entry::with_runtime(|context| entry::make_array_in(context, rows));
+            entry::call_with_args(callable, absent, vector, entry::NO_CALL_NAME)
+        }
+        false => {
+            let mut slots = [absent; entry::ARGUMENT_SLOTS];
+            for (slot, value) in slots.iter_mut().zip(given.iter()) {
+                *slot = as_number(value);
+            }
+            entry::call(callable, absent, slots[0], slots[1], slots[2], slots[3])
+        }
+    };
     // ASKED, not taken. `entry::thrown()` reads the tag without clearing the slot,
     // so the throw stays in flight and the compiled frame above `store::call`
     // re-raises the program's OWN value — where `take_thrown` here would consume

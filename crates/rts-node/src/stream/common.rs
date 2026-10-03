@@ -4,10 +4,16 @@
 //!
 //! Every property this module tracks (`readableEnded`, `writableLength`, …)
 //! is an ordinary **data** property, kept in sync by hand as state changes —
-//! not a computed accessor. `rts_core::entry::accessor` exists but is
-//! wired for `#[rtse::class]`-declared classes with compile-time-interned
-//! keys; a hand-written native module here follows the same plain-property
-//! convention `events.rs` and `fs/watch.rs` already use.
+//! not a computed accessor, following the same plain-property convention
+//! `events.rs` and `fs/watch.rs` already use.
+//!
+//! This said accessors were out of reach from a hand-written native module here
+//! (`rts_core::entry::accessor` being "wired for `#[rtse::class]`-declared
+//! classes"). That was stale: `entry::define_accessor_in` takes the `&mut
+//! Context` every prototype builder in this module already holds, and
+//! `state_view.rs` uses it for `_readableState`/`_writableState`. The data
+//! properties stay as they are — an accessor is for a DERIVED view, not for
+//! state that something has to own.
 
 use rts_core::entry::{self, Context, Provided};
 
