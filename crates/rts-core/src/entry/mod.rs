@@ -1069,6 +1069,17 @@ pub struct Context {
     /// template nao e testemunha do layout que o template descreve.
     prototype_layout: Option<u32>,
 
+    /// (tipo do construtor, slot do seu `prototype`) — uma entrada.
+    ///
+    /// Ver `functions::fast_instance`: o que e lembrado e o SLOT e nao o
+    /// valor, logo `C.prototype = X` continua visivel e nao ha cache a
+    /// invalidar. Uma entrada porque um laco constroi a mesma classe.
+    construct_prototype_slot: Option<(u32, u32)>,
+
+    /// (valor do prototype, tipo da instancia que lhe corresponde) — uma
+    /// entrada. Muda exactamente quando o prototype muda.
+    construct_instance_layout: Option<(u64, u32)>,
+
     /// Onde o `constructor` fica em [`Self::prototype_layout`].
     prototype_constructor_slot: Option<u32>,
     /// The sweep's scratch list of cells to free, kept across cycles for its
@@ -1493,6 +1504,8 @@ impl Context {
             array_layout: None,
             array_length_slot: None,
             prototype_layout: None,
+            construct_prototype_slot: None,
+            construct_instance_layout: None,
             prototype_constructor_slot: None,
             doomed: Vec::new(),
             json: json::Scratch::default(),

@@ -1530,6 +1530,73 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
 ///
 /// Split from [`allocate_for_target`] so that a caller inside a borrow of its
 /// own — `construct_plain` — asks the same question without a second one.
+/// O objecto fresco de um `new` ordinário, ou `None` para qualquer caso que o
+/// corpo de [`allocate_for`] tenha de resolver a andar.
+///
+/// # Porque não há cache a invalidar aqui, e isso é o ponto
+///
+/// A forma óbvia era lembrar o par (construtor → prototype) e reutilizá-lo. É
+/// também a forma que falha em silêncio: `C.prototype = X` é observável, e uma
+/// instância a herdar de um prototype que a sua classe já não tem é um
+/// programa errado que corre.
+///
+/// Então o que é lembrado é o **slot**, não o valor. O prototype é lido do slot
+/// em cada construção, logo está sempre actual por construção; o que a cache
+/// poupa é a RESOLUÇÃO — a chave, a pergunta por proxy, o passeio pelos bound,
+/// e a travessia da cadeia que `read_property` faz para encontrar uma
+/// propriedade que o construtor possui.
+///
+/// Os dois caches são de UMA entrada, e isso é deliberado: um laço constrói a
+/// mesma classe, logo monomórfico é o caso, e o polimórfico degrada para o
+/// caminho lento em vez de pagar uma tabela.
+///
+/// Recusa — e tem de recusar — tudo o que o corpo lento sabe tratar: um proxy
+/// como `new.target`, uma bound function (que não possui `prototype` nenhum),
+/// um construtor cuja shape não declara `prototype`, e um `prototype` que não
+/// é um objecto. Nenhum desses casos é raro o suficiente para ser tratado por
+/// aproximação.
+fn fast_instance(context: &mut Context, cell: u32) -> Option<u64> {
+    // Um proxy ou uma bound function mudam QUAL prototype conta, e o corpo
+    // lento é que sabe caminhar até ele.
+    if context.proxy_at(cell).is_some() || context.bound_at(cell).is_some() {
+        return None;
+    }
+    let ty = context.region.type_of(cell)?;
+    // O slot do `prototype` na shape deste construtor, lembrado por TIPO: os
+    // callables nascidos do mesmo template partilham o tipo, logo um laço
+    // acerta sempre.
+    let slot = match context.construct_prototype_slot {
+        Some((known, slot)) if known == ty => slot,
+        _ => {
+            let key = prototype_key(context);
+            let named = super::objects::machine_key(key)?;
+            let shape = context.shape_of(ty)?;
+            let slot = context.shapes.slot_of(shape, named)?;
+            context.construct_prototype_slot = Some((ty, slot));
+            slot
+        }
+    };
+    let prototype = super::objects::slot_value(context, cell, slot)?;
+    // Um `prototype` que não é um objecto manda `new` herdar de
+    // `Object.prototype`, e é o corpo lento que tem essa regra escrita.
+    Value(prototype).as_slot()?;
+    // O layout da instância, lembrado pelo VALOR do prototype: é a parte que
+    // `typed_as` tem de mintar ou encontrar, e muda exactamente quando o
+    // prototype muda.
+    let instance_ty = match context.construct_instance_layout {
+        Some((known, ty)) if known == prototype => ty,
+        _ => {
+            let shape = context.shapes.root();
+            let ty = context.typed_as(shape, Some(prototype)).index() as u32;
+            context.construct_instance_layout = Some((prototype, ty));
+            ty
+        }
+    };
+    let fresh = super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, instance_ty)?;
+    context.set_prototype(fresh, prototype);
+    Some(Value::from_slot(fresh).bits())
+}
+
 /// # What this costs, and what the CLR does instead (2026-10-03)
 ///
 /// Measured by a cumulative ladder — `RTS_STOP_AT=1` returning `undefined` in
@@ -1587,6 +1654,16 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
         // walks the prototype chain, for an answer it had already had. Measured
         // 2026-08-11: `new C()` on a class with no fields at all cost 597 ns,
         // which is where looking for the cost of construction led.
+        // O caminho rápido do caso comum, antes do passeio: plano 11.4/14.5.
+        //
+        // Medido por escada cumulativa em 2026-10-03: o objecto fresco custa
+        // ~60 dos ~73 ns de `new C()`, a alocação é ~9, e os outros ~50 são o
+        // que este corpo faz — sobretudo o `read_property` abaixo, que resolve
+        // a chave, pergunta por proxy e percorre a cadeia de protótipos para
+        // ler uma propriedade que o construtor POSSUI.
+        if let Some(fresh) = fast_instance(context, cell) {
+            return Some(fresh);
+        }
         let key = prototype_key(context);
         let mut resolved = cell;
         let prototype = loop {
