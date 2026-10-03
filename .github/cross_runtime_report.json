@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4432) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4624) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -20604,7 +20604,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'return')"
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'get')"
 }
 ,
 {
