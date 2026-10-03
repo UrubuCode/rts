@@ -1049,6 +1049,28 @@ pub struct Context {
     /// position. It lets array mutation write the already-known field directly;
     /// descriptor and integrity checks still run before the write when needed.
     array_length_slot: Option<u32>,
+
+    /// O layout que o objecto `prototype` de uma funcao ATINGE, e o slot do
+    /// seu `constructor`.
+    ///
+    /// # Porque e lembrado em vez de recalculado
+    ///
+    /// Pelo mesmo argumento que `array_layout`, e com o mesmo tamanho de
+    /// ganho: o prototype nascia no layout VAZIO e ganhava `constructor` por
+    /// transicao de shape, uma vez por cada funcao construtivel que o
+    /// programa cria. Medido por escada cumulativa em 2026-10-03, a escrita
+    /// do `constructor` custava **~48 ns dos 96,6 do prototype** — e
+    /// `allocate_array_cell_with_room` ja tinha medido a mesma coisa para
+    /// arrays ("those transitions were 78 ns of 218").
+    ///
+    /// Lido de volta da shape que a celula REALMENTE atingiu, na primeira
+    /// vez, em vez de ser derivado de algo decidido antes — que e o que o
+    /// `array_layout` faz e pela mesma razao: uma celula nascida de um
+    /// template nao e testemunha do layout que o template descreve.
+    prototype_layout: Option<u32>,
+
+    /// Onde o `constructor` fica em [`Self::prototype_layout`].
+    prototype_constructor_slot: Option<u32>,
     /// The sweep's scratch list of cells to free, kept across cycles for its
     /// capacity. See `collect_cycle::sweep`.
     doomed: Vec<u32>,
@@ -1470,6 +1492,8 @@ impl Context {
             resolves: 0,
             array_layout: None,
             array_length_slot: None,
+            prototype_layout: None,
+            prototype_constructor_slot: None,
             doomed: Vec::new(),
             json: json::Scratch::default(),
             census: std::env::var_os("RTS_CACHE_CENSUS")

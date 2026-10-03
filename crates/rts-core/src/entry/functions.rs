@@ -314,8 +314,14 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // Which keys this closure ends up owning, in the template's own order —
         // recorded below so a later closure of this shape is born holding them.
         let mut owned: [Option<crate::object::Key>; 3] = [None; 3];
+        // O layout que o prototype ATINGE quando já é conhecido, e o vazio na
+        // primeira vez — que é a vez em que ele passa a ser conhecido. Ver
+        // `Context::prototype_layout` para o número que isto vale.
+        let prototype_ty = context.prototype_layout.unwrap_or(empty_ty);
         if let Some(prototype) = has_prototype
-            .then(|| super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, empty_ty))
+            .then(|| {
+                super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, prototype_ty)
+            })
             .flatten()
         {
             // The same hazard one line later, and held for the same reason:
@@ -360,7 +366,46 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // program replace `constructor`, and a class body that declares a
             // method called `constructor` is doing exactly that.
             let constructor = context.well_known("constructor");
-            super::objects::put(context, prototype, constructor, made);
+            // Nascido no layout que o prototype ATINGE, em vez de no vazio e
+            // depois a transicionar — o mesmo movimento que
+            // `allocate_array_cell_with_room` faz para `length`, e pela mesma
+            // razao medida: a escrita do `constructor` custava ~48 ns dos 96,6
+            // do prototype, e quase tudo isso era a transicao de shape, porque
+            // o prototype nasce vazio e cresce uma propriedade a seguir.
+            //
+            // O `set_slot_value` nao e um atalho em volta da transicao: e a
+            // transicao JA TOMADA, lida de volta da shape que a primeira
+            // celula destas realmente atingiu. Uma celula nascida ao layout
+            // certo e uma que ja esta na forma final, logo o que falta e so a
+            // escrita do valor.
+            match (
+                context.prototype_layout,
+                context.prototype_constructor_slot,
+            ) {
+                (Some(known), Some(slot)) if context.region.type_of(prototype) == Some(known) => {
+                    super::objects::set_slot_value(context, prototype, slot, made);
+                }
+                _ => {
+                    super::objects::put(context, prototype, constructor, made);
+                    // Lembrado DEPOIS, da forma que a celula atingiu, e nunca
+                    // de algo decidido acima. `set_attributes` abaixo retipa
+                    // apenas uma chave nao-gravavel e `constructor` e
+                    // gravavel, logo o tipo lido aqui e o final.
+                    if context.prototype_layout.is_none() {
+                        let reached = context.region.type_of(prototype);
+                        let slot = reached
+                            .and_then(|ty| context.shape_of(ty))
+                                        .and_then(|shape| {
+                                super::objects::machine_key(constructor)
+                                    .and_then(|named| context.shapes.slot_of(shape, named))
+                            });
+                        if let (Some(ty), Some(at)) = (reached, slot) {
+                            context.prototype_layout = Some(ty);
+                            context.prototype_constructor_slot = Some(at);
+                        }
+                    }
+                }
+            }
             super::native::hidden(context, prototype, constructor);
             super::external::release(context, held_prototype);
         }
