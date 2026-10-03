@@ -162,7 +162,85 @@ compiled function — and would silently truncate the moment a native sat betwee
 them, which is most real traces. Writing it that way to have something is how a
 trace that is quietly wrong ships.
 
-## What wiring it would involve
+## The alternative the section above does not consider: a shadow stack
+
+*Added 2026-10-03, and it changes the recommendation rather than qualifying it.*
+
+Everything above is about **reconstructing** which values are live by reading
+the machine stack, and every difficulty in it comes from that one choice: the
+chain is not all ours, Rust frames may keep no frame pointer, so the walk needs
+unwind information and an OS API, and it must skip rather than stop.
+
+A shadow stack does not have those difficulties, because **it crosses nothing.**
+Compiled code DECLARES its live references into a stack the runtime owns —
+pushed where a value becomes live, popped at the end of the frame — and the
+collector reads that stack. The Rust frames between two compiled ones are not
+walked, not attributed, not skipped: they are irrelevant, because nobody is
+walking anything.
+
+**And this is not a new mechanism, which is the strongest argument for it.**
+`entry::rooted::Rooted` is already a shadow stack, for the Rust side, and this
+repository's own comments are full of it: *"the values interned so far are
+exposed between the steps of the very loop that makes them"*. So today two
+mechanisms answer "what is live" — `Rooted` for Rust and a conservative scan for
+compiled code — which is **P1 with the answer in the wrong shape**: two places
+can disagree, and `lost-roots.md` is the record of what that has already cost.
+A shadow stack makes it one mechanism with two callers.
+
+### What it costs, stated before it is built
+
+Not free, and the honest comparison is this:
+
+| | unwind walker | shadow stack |
+|---|---|---|
+| cost while nothing collects | **zero** | a store per live reference |
+| crosses Rust frames | needs unwind info + an OS API | **nothing to cross** |
+| per platform | Windows / Linux / macOS each | **one** |
+| JIT and AOT | two paths to make findable | **the same code** |
+| what `describe_frames` is for | map a return address to a frame | say where to push |
+
+So the walker is cheaper when the collector is idle and the shadow stack is
+cheaper to be CORRECT. For this engine the second wins, and the reason is the
+measured one: the conservative scan is why `examples/entry_probe` cannot run an
+allocating row past two thousand iterations, why `region.alloc` costs 8.65 ns
+instead of a bump, and why a cell is 128 bytes whatever its layout declares. A
+store per reference buys all three.
+
+### Why this belongs to a machine language specifically
+
+A browser engine can afford to reconstruct: it has one platform per port, a
+large team per port, and no AOT target. This compiles whole programs ahead of
+time to native code on several targets, and `docs/engine/a-second-language.md`
+says the machine layer must work with no front end present. A mechanism that
+needs `RtlVirtualUnwind` on one target and something else on the next is a
+mechanism with a port per target; one that emits two instructions is the same
+on all of them.
+
+**P3 is what this is really for**, and P3 says so: *"Go and C# relocate objects
+because the pointer map is derived; a conservative scan plus hand-written lists
+cannot, because a word that merely looks like a reference must not be
+rewritten. So P3 is not hygiene — it is the precondition for the whole of
+6.4/6.5."*
+
+### The order, revised
+
+1. **The shadow stack itself**, with the conservative scan still running beside
+   it and nothing depending on it yet. Then the two can be compared on a real
+   program: every cell the precise set finds must be in the conservative set,
+   and the difference is what a moving collector would gain.
+2. **`roots::scan_stack` reads it** and the conservative scan is kept behind a
+   switch rather than deleted, because this is the class
+   `docs/engine/lost-roots.md` is about and a wrong answer here is a
+   use-after-free rather than a slow program.
+3. **Then 6.4/6.6** — move, bump, exact sizes.
+
+`throw::stack_text` is NOT on this path and should not be made to be. It wants
+the frames that are RUNNING, which is a different question from which values
+are live, and the previous section's ordering advice — stack traces first
+because they do not touch the collector — applies to the walker it was written
+about, not to this.
+
+## What wiring the WALKER would involve, kept for the record
 
 Not attempted here, and stated so the size is not underestimated:
 

@@ -870,6 +870,34 @@ impl Region {
     /// rather than argued, because the cost of being wrong is a neighbouring
     /// cell silently zeroed.
     #[inline]
+    /// # Why the whole 120 bytes, and why narrowing it buys nothing
+    ///
+    /// Measured by ablation on 2026-10-03 — one binary, the slot count behind
+    /// an env var read once, `examples/entry_probe`'s `region.alloc` row:
+    ///
+    /// | slots zeroed | ns |
+    /// |---:|---:|
+    /// | 15 | 13.75 |
+    /// | 8 | 14.40 |
+    /// | 4 | 14.50 |
+    /// | 2 | 13.25 |
+    ///
+    /// **No trend**, with spreads of 50-82 %, and `alloc(cell)` flat beside it
+    /// (17.65 against 17.40). Zeroing 120 bytes costs what zeroing 16 costs: it
+    /// is one contiguous `write_bytes` the CPU does in a few wide stores, into a
+    /// line the header write has already pulled in.
+    ///
+    /// So the idea this was written to test is CLOSED: narrowing the width in
+    /// the header — which `objects::owned_slots` would have honoured for free,
+    /// since it answers `width_of(cell)` — would have bought no time on the
+    /// allocation path, and no memory either, because the stride is fixed by
+    /// `base + index * stride` addressing whatever the header says.
+    ///
+    /// What this leaves is the useful half of a negative result: the 8.65 ns a
+    /// `region.alloc` costs is NOT the zeroing. It is the free-list pop, the
+    /// header and the `compose` — which is exactly what bump allocation
+    /// replaces, so plan 6.6 is the item here by elimination rather than by
+    /// assumption.
     fn zero_payload(&mut self, at: usize) {
         let slots = INLINE_SLOTS as usize;
         debug_assert!(
