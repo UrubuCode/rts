@@ -62,7 +62,14 @@ const METHODS: &[(&str, Provided)] = &[
 ];
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
-    super::common::chained_prototype(context, "Duplex", "Socket", METHODS)
+    let prototype = super::common::chained_prototype(context, "Duplex", "Socket", METHODS);
+    // Installed here as well as on `Duplex`: a program that reaches `net` without
+    // ever importing `node:stream` gets the `Duplex` prototype from
+    // `chained_prototype`'s empty-member call, which never runs
+    // `duplex_prototype`. `state_view::install` is once per NAME, so the
+    // overlapping case costs one `HashSet` probe.
+    crate::stream::state_view::install(context, prototype, "Socket", crate::stream::state_view::Sides::Both);
+    prototype
 }
 
 /// `new net.Socket(options?)`.

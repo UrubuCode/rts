@@ -96,7 +96,11 @@ fn register_listener(this: u64, event: u64, listener: u64, method: &str) -> u64 
 /// Builds the class object `stream.Readable` is, with its own prototype
 /// chained onto `Stream`/`EventEmitter` — see `mod.rs::namespace`.
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
-    chained_prototype(context, "Stream", "Readable", METHODS)
+    let prototype = chained_prototype(context, "Stream", "Readable", METHODS);
+    // `_readableState` — see `state_view.rs` for why a `Readable` carries that
+    // half alone, which was measured against Node rather than assumed.
+    super::state_view::install(context, prototype, "Readable", super::state_view::Sides::Readable);
+    prototype
 }
 
 /// `new stream.Readable(options?)`.

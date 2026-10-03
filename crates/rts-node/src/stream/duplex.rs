@@ -41,6 +41,7 @@ pub(super) fn duplex_prototype(context: &mut entry::Context) -> u64 {
     let parent = readable::prototype(context);
     let prototype = entry::make_prototype(context, "Duplex", &duplex_methods());
     entry::set_prototype_in(context, prototype, parent);
+    super::state_view::install(context, prototype, "Duplex", super::state_view::Sides::Both);
     prototype
 }
 

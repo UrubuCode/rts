@@ -29,19 +29,23 @@
 //! traversal of control instead — at two copies of the memory per traversal.
 //! Waits on an `ArrayBuffer` over foreign bytes in `rts-core`, which closes this
 //! and `napi_create_external_buffer` with one mechanism |
-//! | an exported function of MORE THAN FOUR parameters | the fifth and later
-//! arguments read `undefined`, hence 0, which is the four-slot limit every native
-//! in this workspace has — `instance.rs` states it and `#[rtse::class]` refuses a
-//! fifth argument by name. **This is the blocker a real program meets now**, and it
-//! is measured rather than predicted: `whatsapp-rust-bridge`'s `hkdf` is reached as
-//! `wasm.hkdf(retptr, ptr0, len0, length, addHeapObject(info))`, so `info` arrives
-//! as heap slot 0 and the bridge answers `invalid type: unit value, expected struct
-//! HkdfInfo`. Waits on a native reading the argument vector, which is not this
-//! surface's to add. This row replaced "an import object", which the lot before
-//! this one supplied and which stood here stale |
 //! | `Table`, `Global` | nothing hands either one IN, which is the only way a
 //! module asks for one |
 //! | an `i64` as a `BigInt` | crosses as a `Number`. Recorded in `instance.rs` |
+//!
+//! **A parameter past the fourth is no longer among them**, and this table said it
+//! was — that the fifth argument "reads `undefined`, hence 0, which is the
+//! four-slot limit every native in this workspace has", waiting on "a native
+//! reading the argument vector, which is not this surface's to add". Both halves
+//! were wrong. The limit is the CALL's and not the native's: a site that writes
+//! more than four arguments already goes through `call_with_args`, which puts the
+//! whole vector where `entry::argument_slot` reads it, so nothing had to be added
+//! anywhere — `instance.rs` reads an export's parameters from there and
+//! `imports.rs` calls a JavaScript import through the same door in the other
+//! direction. `tests/claude-webassembly-six-arguments.test.ts` is the ruler, six
+//! parameters each way; what it unblocked is the row's own example,
+//! `whatsapp-rust-bridge`'s `hkdf`, reached as `wasm.hkdf(retptr, ptr0, len0,
+//! length, addHeapObject(info))`.
 //!
 //! A program that reaches one of those gets a named failure at the call, never a
 //! wrong answer — which is the half of the rule that makes shipping the rest of

@@ -41,7 +41,9 @@ const METHODS: &[(&str, Provided)] = &[
 ];
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
-    super::common::chained_prototype(context, "Socket", "TLSSocket", METHODS)
+    let prototype = super::common::chained_prototype(context, "Socket", "TLSSocket", METHODS);
+    crate::stream::state_view::install(context, prototype, "TLSSocket", crate::stream::state_view::Sides::Both);
+    prototype
 }
 
 /// `tls.connect(port[, host][, options][, callback])` /
