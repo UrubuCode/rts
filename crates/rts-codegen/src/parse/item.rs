@@ -759,6 +759,26 @@ pub(super) fn decorated_class_declaration(
     Ok(Stmt::new(StmtKind::Block(stmts), at))
 }
 
+/// Whether this module or namespace declaration is AMBIENT — a type-only
+/// declaration TypeScript erases whole, body included.
+///
+/// Three forms are ambient, and the first was the one being refused:
+/// `declare module "name" { … }` (module augmentation, which is the only way
+/// a library extends an interface it does not own), `declare global { … }`,
+/// and anything carrying the `declare` keyword (`declare namespace N`,
+/// `declare module Legado`). A string-named module is ambient even without
+/// the keyword, which is how a `.d.ts` writes one.
+///
+/// Erasing the WHOLE declaration is the point rather than a shortcut: an
+/// `export const n: number` inside an ambient body declares a type and
+/// nothing else, so lowering the body would bind `n` at run time where bun
+/// and node leave it unbound. Measured 2026-10-03 against bun 1.4.0 —
+/// `declare namespace N { const n: number }` answers `typeof N ===
+/// "undefined"` there, where this engine used to build the namespace object.
+fn is_ambient_module(module: &swc::TsModuleDecl) -> bool {
+    module.declare || module.global || matches!(module.id, swc::TsModuleName::Str(_))
+}
+
 /// `namespace N { … }` lowers to what TypeScript itself lowers it to: an IIFE
 /// that receives the namespace object and assigns each exported member onto
 /// it, called with `N || (N = {})` — TypeScript's own emit for this — so a
@@ -775,17 +795,24 @@ pub(super) fn decorated_class_declaration(
 /// wrong in general. Fixing it means rewriting internal references to the
 /// object parameter, which is `scope/`'s job (absent — see this crate's
 /// README) and not attempted here as a workaround.
+///
+/// An AMBIENT declaration never reaches any of that: `is_ambient_module`
+/// erases it first.
 pub(super) fn namespace_declaration(
     cx: &mut Cx,
     module: &swc::TsModuleDecl,
     at: rts_cranelift::fault::Position,
 ) -> Result<Stmt> {
-    if module.global {
-        return unsupported("a `declare global` augmentation", at);
+    if is_ambient_module(module) {
+        return Ok(Stmt::new(StmtKind::Empty, at));
     }
     let name = match &module.id {
         swc::TsModuleName::Ident(ident) => cx.name(&ident.sym),
         swc::TsModuleName::Str(_) => {
+            // Unreachable: a string-named module is ambient by construction and
+            // `is_ambient_module` erased it above. Kept as a refusal rather than
+            // an `unreachable!` because the discriminator is swc's and a parser
+            // upgrade is free to admit a form this one has not seen.
             return unsupported("a string-named TypeScript module", at);
         }
     };
