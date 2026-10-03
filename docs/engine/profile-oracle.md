@@ -244,6 +244,68 @@ several*, inside `rts-codegen`, and never as the premise of the mechanism. An
 observed frequency is the neutral source, which inverts the obvious ordering in
 the same way `a-second-language.md`'s conclusion does.
 
+## Where the writer belongs, found by trying to build it (2026-10-03)
+
+The obvious place is the inline cache: `cache_resolve(object, key, cache)` is
+handed the site and the receiver, and it is already the slow path, so counting
+there is a counter where the cost is paid. Two things found while wiring it say
+it is the wrong place, and the second is the useful one.
+
+### An armed site is invisible, and that is not a gap to document
+
+A cache that has armed answers INLINE. It never enters the runtime, so the
+runtime cannot observe it. The population a cache-side writer can see is
+therefore exactly the sites that FAILED to arm.
+
+And for those, a majority buys very little, because **the inline cache already
+is the guard the oracle would inform** — armed from what the site actually saw,
+at run time, with no profile and no recompilation. A site that keeps missing is
+one the dynamic guard already tried and lost on. Speculating statically on its
+majority gives about the same hit rate with the fall going to the generic path
+instead of to the resolver.
+
+So the property half of this design is competing with a mechanism that occupies
+the same niche and gets its information for free. That is a stronger argument
+than the 5.3% in the measurement above: it is not that the gain is small, it is
+that the gain is **already being collected by something else**.
+
+### The callee half is the one with nothing in that niche
+
+Which function a call site reaches is not cached anywhere. Every call goes
+through `functions::called`, which resolves the callee and pushes it onto
+`callees` — so the observation is one increment at a point that already has the
+answer in hand, and there is no inline cache arming itself on the side.
+
+That is also the half the measurement ranks first: 831 `call_counted` against
+zero direct calls across thirteen programs, and
+`docs/codegen/native-call-floor.md` puts a direct call at ~16 ns of a 23 ns
+call. The static producer covers the callees `emit/inline.rs` can already prove;
+an oracle would cover the rest — the call sites that are genuinely polymorphic,
+which is the one population no existing mechanism is already handling.
+
+**So if this crate acquires a writer, it is at the call door and not at the
+cache.** Stated here rather than attempted, because the stable key is a
+different problem at each site and only the second one is worth solving.
+
+### What a stable key costs at each of the two
+
+At the cache, three layers. A cache site reaches the runtime as the ADDRESS of
+its cell — `declare_caches` gives each one a `DataId` named
+`"{function}.cache.{n}"` — so a stable key needs an address-to-site table
+installed by the host (the same shape as `declare_code_map`), and a source
+position for the site, which does not exist: `CachedGet` is a TERMINATOR and
+`Function::position_of` is indexed by `InstId`. Positions on terminators is a
+machine change.
+
+At the call door, one layer. The callee is a value whose code address the
+runtime already resolves, and `function_names` already maps an entry address to
+a name — the same two lookups `machine_trace` makes. What is missing is which
+CALL SITE is asking, and that is the same question the direct call answers from
+the other side: a site whose callee is statically known needs no observation,
+and a site whose callee is not is reached through a door that could carry its
+identity. Worth doing after the direct call, not before, because the direct
+call is what makes the remaining set small enough to be interesting.
+
 ## What falsifies the design
 
 The toy domain is the model. A profile the three-type toy domain can write and

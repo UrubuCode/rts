@@ -93,11 +93,19 @@ Everything outside the two engine crates, per the root `CLAUDE.md`.
 **Nothing writes a record yet, and nothing reads one.** This crate is the format
 and its invariants; the two ends are named work and not done:
 
-- the **writer** — a `Recorder` reached from the cached-access miss path in
-  `rts-core`, where the name looked for and the layout found are already in
-  hand. That is the reason no instrumented tier is needed, and it is also the
-  reason this is cheap: the cost is a counter at a point the runtime is already
-  standing on.
+- the **writer** — and NOT at the cached-access miss path, which is where this
+  README said it belonged until 2026-10-03. Wiring it there found two things:
+  an armed cache answers inline and never enters the runtime, so the only sites
+  observable there are the ones that failed to arm; and for those **the inline
+  cache already IS the guard a profile would inform**, armed from what the site
+  saw, at run time, for free. The property half of this crate was competing with
+  a mechanism in the same niche that gets its information without being told.
+
+  The call door is where nothing occupies the niche: which function a call site
+  reaches is cached nowhere, every call passes `functions::called`, and the
+  answer is already in hand there. `docs/engine/profile-oracle.md` has both
+  findings and what a stable key costs at each of the two places — three layers
+  at the cache, one at the door.
 - the **reader** — in `rts-codegen`, producing `Assertion`s for `rts-mir`'s
   guards from a majority plus whatever static evidence that crate already has.
 
