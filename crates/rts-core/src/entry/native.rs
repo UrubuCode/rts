@@ -324,8 +324,16 @@ pub(in crate::entry) fn getter(context: &mut Context, cell: u32, name: &str, cod
 /// # Why every one of them is the same function
 ///
 /// Because `get [Symbol.species] { return this; }` IS the specification's
-/// definition, for `Array`, `Map`, `Set`, `Promise`, `RegExp`, `ArrayBuffer` and
-/// `%TypedArray%` alike. The whole point of the hook is that a SUBCLASS inherits
+/// definition, for `Array`, `Map`, `Set`, `Promise`, `RegExp`, `ArrayBuffer`,
+/// `SharedArrayBuffer` and `%TypedArray%` alike. All eight are wired; this list
+/// named the last three while nothing called the function for them, and
+/// `Buffer[Symbol.species]` — which is `Uint8Array`'s, inherited, because
+/// `Object.getPrototypeOf(Buffer)` is `Uint8Array` here as in Node — was
+/// therefore `undefined`. The `ws` package reads exactly that, as
+/// `const FastBuffer = Buffer[Symbol.species]`, and `new FastBuffer(…)` on the
+/// first frame it RECEIVES was `undefined is not a constructor`: a WebSocket
+/// that connected, sent, and died on the answer.
+/// The whole point of the hook is that a SUBCLASS inherits
 /// it and therefore answers itself, which is what makes `sub.map(f)` build a
 /// `Sub` — so a per-class function would be seven copies of `return this` that
 /// could only ever differ by being wrong.

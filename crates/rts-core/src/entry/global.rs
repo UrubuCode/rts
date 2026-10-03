@@ -137,7 +137,7 @@ pub(in crate::entry) fn supply(
             "Boolean" => super::number::register_boolean(context),
             "BigInt" => super::bigint_class::register_big_int_class(context),
             // The species hook is installed here rather than by the class
-            // attribute: only seven built-ins have one, so a member every
+            // attribute: only eight built-ins have one, so a member every
             // `#[rtse::class]` emitted would be six wrong answers to buy one
             // right one.
             "Promise" => {
@@ -163,7 +163,7 @@ pub(in crate::entry) fn supply(
         "Map" => super::collections::register_map(context),
             "Set" => super::collections::register_set(context),
             "Buffer" => super::buffer::register_buffer_with_aliases(context),
-            "ArrayBuffer" => super::buffers::register_array_buffer(context),
+            "ArrayBuffer" => super::buffers::array_buffer(context),
             "DataView" => super::buffers::register_data_view(context),
             "Int8Array" => super::buffers::int8_array(context),
             "Uint8Array" => super::buffers::uint8_array(context),
@@ -180,7 +180,7 @@ pub(in crate::entry) fn supply(
             "WeakSet" => super::collections::register_weak_set(context),
             "WeakRef" => super::collections::register_weak_ref(context),
             "FinalizationRegistry" => super::collections::register_finalization_registry(context),
-            "SharedArrayBuffer" => super::buffers::register_shared_array_buffer(context),
+            "SharedArrayBuffer" => super::buffers::shared_array_buffer(context),
             "Atomics" => super::buffers::register_atomics(context),
             "Iterator" => super::iterator::register(context),
             "String" => super::string::constructor(context),

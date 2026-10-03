@@ -350,6 +350,24 @@ macro_rules! declare {
             pub(in crate::entry) fn $wrapper(context: &mut Context) -> u64 {
                 let made = $generated(context);
                 per_element(context, made, $size);
+                // `C[Symbol.species]`, which the specification puts once on
+                // `%TypedArray%` and lets the eleven inherit. It is installed
+                // per class here because this engine has no `%TypedArray%`
+                // CONSTRUCTOR to hang it on — `super::typed_abstract` links the
+                // shared PROTOTYPE, so `Object.getPrototypeOf(Uint8Array)` is
+                // `Function.prototype` and an inherited getter would have
+                // nothing to be inherited from. Eleven identical installs of
+                // `return this` rather than eleven different answers: the hook
+                // is `get [Symbol.species] { return this; }` for every one of
+                // them, which is what `super::super::native::species` is.
+                //
+                // Here rather than in the `#[rtse::class]` attribute for the
+                // reason `entry::global` states for `Promise`, and here rather
+                // than in the global match arm because `ensure` registers a
+                // class a program never named: `t.subarray()` answers a
+                // `Uint8Array` in a program that never wrote the word, and its
+                // species would have been missing exactly there.
+                super::super::native::species(context, made);
                 // And puts `%TypedArray%.prototype` under this class's own.
                 // Here rather than through `#[rtse::class(extends = …)]`
                 // because that option reaches a parent through the parent's

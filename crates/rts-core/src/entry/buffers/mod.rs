@@ -99,13 +99,13 @@ mod typed_visit;
 // The declared-type consts travel with the registrations, for the same reason:
 // `entry::declared` names one class per line and cannot reach into a private
 // submodule to find it.
-pub(in crate::entry) use array_buffer::{ARRAY_BUFFER_TYPES, register_array_buffer};
+pub(in crate::entry) use array_buffer::{ARRAY_BUFFER_TYPES, array_buffer};
 pub(in crate::entry) use atomics::ATOMICS_TYPES;
 pub(in crate::entry) use data_view::DATA_VIEW_TYPES;
 pub(in crate::entry) use shared_array_buffer::SHARED_ARRAY_BUFFER_TYPES;
 pub(in crate::entry) use atomics::register_atomics;
 pub(in crate::entry) use data_view::register_data_view;
-pub(in crate::entry) use shared_array_buffer::register_shared_array_buffer;
+pub(in crate::entry) use shared_array_buffer::shared_array_buffer;
 // The argument rules, re-exported rather than moved at the call sites: every
 // member reads them as `super::range` and `super::optional_number`, and where
 // they are written is not a fact any of them should have to know.
@@ -228,7 +228,7 @@ pub(in crate::entry) fn new_buffer(context: &mut Context, length: usize) -> Opti
                 Some(found)
             }
             None => {
-                register_array_buffer(context);
+                array_buffer(context);
                 let found = super::class_support::prototype(context, "ArrayBuffer");
                 if let Some(prototype) = found {
                     context.array_buffer_prototype = Value(prototype).as_slot();
