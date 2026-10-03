@@ -39,10 +39,6 @@ use super::frame::Message;
 /// `readyState`, com os números que a API web define (e o `ws` copia).
 const CONNECTING: f64 = 0.0;
 const OPEN: f64 = 1.0;
-/// Never a `readyState` this implementation writes — a close here completes
-/// before it answers — but the npm `ws` exports the number, and a program that
-/// compares against `WebSocket.CLOSING` must not read `undefined`.
-const CLOSING: f64 = 2.0;
 const CLOSED: f64 = 3.0;
 
 /// Chama `this.emit(evento, …)`, sempre buscando `emit` de novo e nunca com um
@@ -490,28 +486,11 @@ pub(super) fn namespace(context: &mut Context) -> u64 {
     // e falhava a pedir `{ port }`.
     entry::put_member(context, namespace, "default", cliente);
 
-    // The four `readyState` numbers as STATICS of the class, which is where the
-    // npm `ws` has them: its `module.exports` is the class, so `ws.OPEN` and
-    // `WebSocket.OPEN` are one read of one object there. They were on neither,
-    // so `socket.readyState === WebSocket.OPEN` compared a number against
-    // `undefined` and was false for an open socket.
-    for (name, number) in [
-        ("CONNECTING", CONNECTING),
-        ("OPEN", OPEN),
-        ("CLOSING", CLOSING),
-        ("CLOSED", CLOSED),
-    ] {
-        let held = entry::make_number(number);
-        entry::put_member(context, cliente, name, held);
-    }
+    // The `readyState` numbers go on the CLASS, which is where the npm `ws` has
+    // them — its `module.exports` IS the class, so `ws.OPEN` and
+    // `WebSocket.OPEN` are one read of one object there. In `super::exports`
+    // beside the question of what that export is, and not here, for the reason
+    // that module's header gives.
+    super::exports::declare_ready_states(context, cliente);
     namespace
-}
-
-/// What `require("ws")` answers, for [`super::install`] to declare.
-///
-/// Read back off the namespace rather than returned beside it, so there is one
-/// statement of which member is the package's `module.exports` — the npm `ws`
-/// does `module.exports = WebSocket`.
-pub(super) fn common_export(context: &mut Context, namespace: u64) -> u64 {
-    entry::get_member(context, namespace, "WebSocket")
 }
