@@ -100,10 +100,11 @@ pub fn declare_eval_compiler_with_receiver(
 /// function only forwards the source and environment through the installed seam,
 /// so the runtime does not duplicate compilation or placement policy.
 ///
-/// `Option` and not the callback's `Result`: this is the shape its callers
-/// outside this crate already read, none of which raises, and `None` for "no
-/// evaluator installed" collapses into "did not compile" without losing
-/// anything they look at. The reason is kept where it is used — [`evaluate`].
+/// `Option` and not the callback's `Result`, and the reason is this function's
+/// own shape rather than its callers': it already folds "no evaluator
+/// installed" into the same absence, so a `Result` here would have to invent a
+/// reason for that case. The only place a reason is turned into something
+/// observable is [`evaluate`], which reads the callback directly.
 pub fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
     let compiler = with_current(|context| context.eval_compiler)?;
     compiler(source, environment).ok()

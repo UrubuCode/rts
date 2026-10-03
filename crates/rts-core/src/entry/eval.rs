@@ -68,7 +68,8 @@ use crate::value::Value;
 /// This was `Option`, and a `None` had nowhere to put the reason — so the only
 /// message the caller could build repeated the body back at the program:
 /// `the Function body did not compile: let const = 1;`. The parser knew the
-/// answer (`Unexpected token 'const'`) and the signature threw it away.
+/// answer — `Expected ';', '}' or <eof>`, where node says `Unexpected token
+/// 'const'` — and the signature threw it away.
 ///
 /// # Why the reason is a `String` and not a type
 ///
@@ -84,9 +85,10 @@ use crate::value::Value;
 /// threads it here today: `parse_with` in `rts-codegen` keeps
 /// `error.kind().msg()` and drops `error.span()`, and the two error enums
 /// between here and there (`ParseError`, `HostError`) are both rendered into
-/// CLI output with `{:?}`, so widening them changes text the suite compares.
-/// Stated rather than faked, which is the honesty floor: a wrong column is
-/// worse than no column.
+/// CLI output with `{:?}`, so widening them re-decides what every command
+/// prints. Stated rather than faked, which is the honesty floor: a wrong
+/// column is worse than no column, and node's own `.message` carries none
+/// either.
 ///
 /// Also rejected: an error enum declared here. The variants would be a list of
 /// the ways JavaScript source can be wrong, which is the language deciding what
