@@ -57,6 +57,33 @@ use rts_core::value::{Kinds, Singletons, Value};
 /// Iterations inside one round, for a case that allocates nothing.
 const EACH: u64 = 200_000;
 
+/// # AVISO, medido em 2026-10-03: as linhas que alocam SUBESTIMAM por ~3x
+///
+/// Uma linha que aloca aqui corre numa região FRESCA — duas mil alocações num
+/// espaço de 65 536 células —, logo toma o caminho de *bump*, que, como o
+/// comentário de `Region::alloc` diz, não zera nada: *"the fields are zeroed by
+/// construction for a cell that has never been handed out before"*.
+///
+/// Um programa em estado estacionário não faz isso. Recicla pela **free list**,
+/// que faz pop de um link, zera 120 bytes, e paga a coleta amortizada. Medido
+/// por escada cumulativa dentro de `new C()` em JavaScript:
+///
+/// | | ns |
+/// |---|---:|
+/// | `probe_cell_only` / `alloc(cell)` aqui | **~9** |
+/// | a MESMA alocação no caminho de um programa | **30-33** |
+///
+/// Logo uma linha daqui é um piso do caminho de bump e não do caminho que corre.
+/// Isto não é uma ressalva nova — o cabeçalho acima já diz que estas linhas não
+/// têm coleta nenhuma — mas o FACTOR estava por medir, e três vezes é grande
+/// demais para se ler uma linha destas como o custo de alocar.
+///
+/// Custou uma conclusão errada: a ablação que fechou o plano 11.2 ("zerar menos
+/// não ganha nada") correu AQUI, num caminho onde `zero_payload` nunca é
+/// chamado, logo não testou o que dizia testar. Refeita no caminho real, a
+/// conclusão manteve-se — sem tendência entre 15, 8, 4 e 2 slots — mas foi por
+/// sorte e não por método.
+///
 /// Iterations for a case that allocates, and why it is not [`EACH`].
 ///
 /// The region starts at 65 536 cells and grows to a reservation of 524 288

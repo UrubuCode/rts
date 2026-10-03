@@ -1530,6 +1530,36 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
 ///
 /// Split from [`allocate_for_target`] so that a caller inside a borrow of its
 /// own — `construct_plain` — asks the same question without a second one.
+/// # Onde estão os ~47 ns que o commit anterior deixou por localizar
+///
+/// Escada cumulativa dentro desta função, `new C()` de uma classe sem campos,
+/// duas corridas idênticas:
+///
+/// | | ns | acrescenta |
+/// |---|---:|---|
+/// | nada | 13,3 | — |
+/// | resolveu tudo, sem alocar | 16,7 | **+3,4** os dois probes, `type_of`, os caches e o `slot_value` |
+/// | alocou, sem ligar | 46,7 / 50,0 | **+30 a +33 — A ALOCAÇÃO** |
+/// | normal | 50,0 | +0 a +3,3 o `set_prototype` |
+///
+/// **A alocação é tudo.** O caminho rápido desta função custa 3,4 ns e o
+/// `set_prototype` cabe num tick; os ~30 ns são `alloc_after_collecting` no
+/// caminho que um programa toma.
+///
+/// E isso é TRÊS VEZES o que a sonda diz: `probe_cell_only` mede ~9 porque
+/// corre numa região fresca, logo pelo caminho de *bump*, que não zera. Um
+/// programa recicla pela free list — pop de um link, 120 bytes zerados, e a
+/// coleta amortizada. `examples/entry_probe` tem agora esse aviso no topo.
+///
+/// Medido a seguir e **não é o memset**: ablando `zero_payload` para 15, 8, 4 e
+/// 2 slots no caminho real, `new C()` deu 53,3 / 56,7 / 56,7 / 50,0 — sem
+/// tendência, com o objecto literal e um array de catorze a mexer um tick. O
+/// que sobra é o pop da free list, que é um acesso indirecto ao link da célula
+/// livre, e a coleta que o plano já cifra em ~11 ns amortizados.
+///
+/// Logo o item aqui não é esta função: é 6.4/6.6, e o número é 30 ns por
+/// alocação em vez dos 9 que uma sonda em Rust sugere.
+///
 /// O objecto fresco de um `new` ordinário, ou `None` para qualquer caso que o
 /// corpo de [`allocate_for`] tenha de resolver a andar.
 ///
