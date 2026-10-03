@@ -183,7 +183,8 @@ pub use page_scope::{page_global_get, page_global_set};
 pub use iterate::{array_append, array_append_all, iterate, iterator_result};
 pub use common_js::{module_publish_common, require_function};
 pub use dynamic_module::{
-    Resolver, declare_module_meta, declare_resolver, import_meta, module_import, resolve_specifier,
+    Resolver, declare_module_meta, declare_resolver, import_meta, module_evaluate, module_import,
+    resolve_specifier,
 };
 pub use modules::{
     module_publish_all,

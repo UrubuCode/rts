@@ -111,12 +111,36 @@ pub fn emit_import(
     let specifier = ctx.literal(&import.source);
     let specifier = number(builder, u64::from(specifier));
 
+    // `import "m"` and `import {} from "m"` bind nothing, and the module still
+    // RUNS. Nothing was emitted for them, and since #2852 a module body runs
+    // only when something NAMES it at run time — so a side-effect import was
+    // compiled into the program and never evaluated. Measured 2026-10-03:
+    // `import "./side"` where `side.ts` logs and appends to an imported array
+    // printed neither the log nor the elements, where `bun` printed both, and
+    // `require("./side")` of the same file in the same graph ran it.
+    //
+    // `ModuleEvaluate` and not `ModuleNamespace` with the answer dropped,
+    // because a side-effect module commonly exports nothing and both
+    // namespace-reading entry points throw when there is no namespace to find —
+    // the operation's own doc has that argument.
+    //
+    // The list is checked rather than the SOURCE spelling: `import {} from "m"`
+    // was written with an empty list and `import "m"` with none, and the
+    // language evaluates the module for both. `import { type A } from "m"` never
+    // reaches here — `parse::module::import_decl` erases that statement whole,
+    // which is what TypeScript does and is why the empty list left here always
+    // means evaluation.
+    if import.bindings.is_empty() {
+        super::expr::call(builder, ctx, RuntimeOp::ModuleEvaluate, &[specifier])?;
+        return Ok(());
+    }
+
     // The namespace, once per `import` statement, however many names it brings
     // in: all of them read the same object, and asking the runtime again per name
     // would be the crossing this change exists to remove.
     //
-    // `None` until some named binding needs it, so `import "./side-effect.js"`
-    // and `import d from "m"` still cross exactly as often as they did.
+    // `None` until some named binding needs it, so `import d from "m"` still
+    // crosses exactly as often as it did.
     let mut namespace = None;
     for binding in &import.bindings {
         let (local, value) = match binding {
