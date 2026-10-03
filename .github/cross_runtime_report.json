@@ -802,7 +802,7 @@
   "status": "rts_diverge",
   "bun": "trunc=[0,1] len=2\nidx2=undefined has2=false\ngrow=5 holes=yynnn\nstrLen=1 [1]\nthrow -1 -> RangeError\nthrow 1.5 -> RangeError\nthrow NaN -> RangeError\nthrow 4294967296 -> RangeError\nthrow Infinity -> RangeError\nblockedSet=false\nblockedLen=3 kept=0,1,22\ndesc=true,false,false\nfrozenSet=false len=2\nfrozenDesc=false",
   "node": "trunc=[0,1] len=2\nidx2=undefined has2=false\ngrow=5 holes=yynnn\nstrLen=1 [1]\nthrow -1 -> RangeError\nthrow 1.5 -> RangeError\nthrow NaN -> RangeError\nthrow 4294967296 -> RangeError\nthrow Infinity -> RangeError\nblockedSet=false\nblockedLen=3 kept=0,1,22\ndesc=true,false,false\nfrozenSet=false len=2\nfrozenDesc=false",
-  "rts": "trunc=[0,1] len=2\nidx2=undefined has2=false\ngrow=5 holes=yynnn\nstrLen=1 []\nok -1 -> -1\nok 1.5 -> 1.5\nok NaN -> NaN\nok 4294967296 -> 4294967296\nok Infinity -> Infinity\nblockedSet=true\nblockedLen=0 kept=\ndesc=true,false,false\nfrozenSet=false len=2\nfrozenDesc=false",
+  "rts": "trunc=[0,1] len=2\nidx2=undefined has2=false\ngrow=5 holes=yynnn\nstrLen=1 {}\nok -1 -> -1\nok 1.5 -> 1.5\nok NaN -> NaN\nok 4294967296 -> 4294967296\nok Infinity -> Infinity\nblockedSet=true\nblockedLen=0 kept=\ndesc=true,false,false\nfrozenSet=false len=2\nfrozenDesc=false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4682) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4459) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -3095,10 +3095,10 @@
 ,
 {
   "name": "claude-subclass-array-species",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "len=4\ntag=mine\nis-array=true\ntostring=[object Array]\njoin=1,2,3,4\nmap-ctor=MyArr\nmap-instanceof=true\nmap-tag=mine\nmap-values=2,4,6,8\nfilter-instanceof=true\nfilter-values=2,4\nslice-instanceof=true\nslice-values=2,3\nsplice-instanceof=true\nsplice-values=1,2\nconcat-instanceof=true\nconcat-values=1,2,3,4,9\nfrom-instanceof=true\nof-instanceof=true\ntosorted-ctor=Array\ntosorted-values=4,3,2,1\ntoreversed-ctor=Array\nspecies-ctor=Array\nspecies-instanceof=false\nspecies-is-array=true\nspecies-filter=false\ngrow-len=4\ngrow-after-trunc=1:undefined\nsized-len=3\nsized-holes=false\nsized-instanceof=true\ndeep-ctor=Deeper\ndeep-instanceof-my=true\ndeep-tag=mine\narray-species-getter=function\narray-species-setter=undefined\narray-species-value=true\nmyarr-species=true",
   "node": "len=4\ntag=mine\nis-array=true\ntostring=[object Array]\njoin=1,2,3,4\nmap-ctor=MyArr\nmap-instanceof=true\nmap-tag=mine\nmap-values=2,4,6,8\nfilter-instanceof=true\nfilter-values=2,4\nslice-instanceof=true\nslice-values=2,3\nsplice-instanceof=true\nsplice-values=1,2\nconcat-instanceof=true\nconcat-values=1,2,3,4,9\nfrom-instanceof=true\nof-instanceof=true\ntosorted-ctor=Array\ntosorted-values=4,3,2,1\ntoreversed-ctor=Array\nspecies-ctor=Array\nspecies-instanceof=false\nspecies-is-array=true\nspecies-filter=false\ngrow-len=4\ngrow-after-trunc=1:undefined\nsized-len=3\nsized-holes=false\nsized-instanceof=true\ndeep-ctor=Deeper\ndeep-instanceof-my=true\ndeep-tag=mine\narray-species-getter=function\narray-species-setter=undefined\narray-species-value=true\nmyarr-species=true",
-  "rts": "len=4\ntag=mine\nis-array=true\ntostring=[object Array]\njoin=1,2,3,4\nmap-ctor=MyArr\nmap-instanceof=true\nmap-tag=mine\nmap-values=2,4,6,8\nfilter-instanceof=true\nfilter-values=2,4\nslice-instanceof=true\nslice-values=2,3\nsplice-instanceof=true\nsplice-values=1,2\nconcat-instanceof=true\nconcat-values=1,2,3,4,9\nfrom-instanceof=true\nof-instanceof=true\ntosorted-ctor=Array\ntosorted-values=4,3,2,1\ntoreversed-ctor=Array\nspecies-ctor=Array\nspecies-instanceof=false\nspecies-is-array=true\nspecies-filter=false\ngrow-len=4\ngrow-after-trunc=1:undefined\nsized-len=3\nsized-holes=false\nsized-instanceof=true\ndeep-ctor=Deeper\ndeep-instanceof-my=true\ndeep-tag=mine\narray-species-getter=function\narray-species-setter=undefined\narray-species-value=true\nmyarr-species=true",
+  "rts": "len=4\ntag=mine\nis-array=true\ntostring=[object Array]\njoin=1,2,3,4\nmap-ctor=MyArr\nmap-instanceof=true\nmap-tag=mine\nmap-values=2,4,6,8\nfilter-instanceof=true\nfilter-values=\nslice-instanceof=true\nslice-values=2,3\nsplice-instanceof=true\nsplice-values=1,2\nconcat-instanceof=true\nconcat-values=1,2,3,4,9\nfrom-instanceof=true\nof-instanceof=true\ntosorted-ctor=Array\ntosorted-values=4,3,2,1\ntoreversed-ctor=Array\nspecies-ctor=Array\nspecies-instanceof=false\nspecies-is-array=true\nspecies-filter=false\ngrow-len=4\ngrow-after-trunc=1:undefined\nsized-len=3\nsized-holes=false\nsized-instanceof=true\ndeep-ctor=Deeper\ndeep-instanceof-my=true\ndeep-tag=mine\narray-species-getter=function\narray-species-setter=undefined\narray-species-value=true\nmyarr-species=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9661,9 +9661,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -18400,7 +18400,7 @@
   "status": "rts_diverge",
   "bun": "array=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nmap=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nset=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\npromise=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nregexp=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\narraybuffer=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nobject=absent\nstring=absent\nweakmap=absent\nfrom_is_subclass=true\nmap=Sub\nfilter=Sub\nslice=Sub\nsplice=Sub\nconcat=Sub\nflat=Sub\nflatMap=Sub\ntoReversed=Array\ntoSorted=Array\ntoSpliced=Array\nwith=Array\nreverse_in_place=Sub\nsort_in_place=Sub\narray_of=Sub\nplain_self=true\nplain_map=false:true\nplain_filter_proto=true\nspecies_undefined=ok:Array\nspecies_null=ok:Array\nspecies_number=TypeError\nspecies_plain_object=TypeError\nspecies_arrow=TypeError\nspecies_map_ctor=TypeError\nspecies_call_args=1:0|1:2\nmapsub_self=true\nmapsub_entries_iter=a:1\nsetsub_union_kind=false:true\npromise_resolve_kind=true\npromise_then_kind=true\npromise_catch_kind=true\npromise_finally_kind=true\npromise_species_plain=true:false\nbuffer_slice_kind=true:true\nbuffer_slice_len=4\nbuffer_species_plain=false\nregexp_split=a,b,c\nregexp_species_consulted=true\ntypedarray_subarray=true\ntypedarray_slice=true\ntypedarray_map=true\ntypedarray_filter=true",
   "node": "array=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nmap=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nset=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\npromise=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nregexp=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\narraybuffer=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nobject=absent\nstring=absent\nweakmap=absent\nfrom_is_subclass=true\nmap=Sub\nfilter=Sub\nslice=Sub\nsplice=Sub\nconcat=Sub\nflat=Sub\nflatMap=Sub\ntoReversed=Array\ntoSorted=Array\ntoSpliced=Array\nwith=Array\nreverse_in_place=Sub\nsort_in_place=Sub\narray_of=Sub\nplain_self=true\nplain_map=false:true\nplain_filter_proto=true\nspecies_undefined=ok:Array\nspecies_null=ok:Array\nspecies_number=TypeError\nspecies_plain_object=TypeError\nspecies_arrow=TypeError\nspecies_map_ctor=TypeError\nspecies_call_args=1:0|1:2\nmapsub_self=true\nmapsub_entries_iter=a:1\nsetsub_union_kind=false:true\npromise_resolve_kind=true\npromise_then_kind=true\npromise_catch_kind=true\npromise_finally_kind=true\npromise_species_plain=true:false\nbuffer_slice_kind=true:true\nbuffer_slice_len=4\nbuffer_species_plain=false\nregexp_split=a,b,c\nregexp_species_consulted=true\ntypedarray_subarray=true\ntypedarray_slice=true\ntypedarray_map=true\ntypedarray_filter=true",
-  "rts": "array=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nmap=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nset=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\npromise=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nregexp=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\narraybuffer=absent\nobject=absent\nstring=absent\nweakmap=absent\nfrom_is_subclass=true\nmap=Sub\nfilter=Sub\nslice=Sub\nsplice=Sub\nconcat=Sub\nflat=Sub\nflatMap=Array\ntoReversed=Array\ntoSorted=Array\ntoSpliced=Array\nwith=Array\nreverse_in_place=Sub\nsort_in_place=Sub\narray_of=Sub\nplain_self=true\nplain_map=false:true\nplain_filter_proto=true\nspecies_undefined=ok:Array\nspecies_null=ok:Array\nspecies_number=ok:Array\nspecies_plain_object=ok:Array\nspecies_arrow=TypeError\nspecies_map_ctor=TypeError\nspecies_call_args=1:0|1:2\nmapsub_self=true\nmapsub_entries_iter=a:1\nsetsub_union_kind=false:true\npromise_resolve_kind=true\npromise_then_kind=true\npromise_catch_kind=true\npromise_finally_kind=true\npromise_species_plain=true:false\nbuffer_slice_kind=false:true\nbuffer_slice_len=4\nbuffer_species_plain=false\nregexp_split=a,b,c\nregexp_species_consulted=false\ntypedarray_subarray=false\ntypedarray_slice=true\ntypedarray_map=true\ntypedarray_filter=true",
+  "rts": "array=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nmap=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nset=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\npromise=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nregexp=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\narraybuffer=function:get [Symbol.species]:len=0:set=undefined:false:true:returns_this=true\nobject=absent\nstring=absent\nweakmap=absent\nfrom_is_subclass=true\nmap=Sub\nfilter=Sub\nslice=Sub\nsplice=Sub\nconcat=Sub\nflat=Sub\nflatMap=Array\ntoReversed=Array\ntoSorted=Array\ntoSpliced=Array\nwith=Array\nreverse_in_place=Sub\nsort_in_place=Sub\narray_of=Sub\nplain_self=true\nplain_map=false:true\nplain_filter_proto=true\nspecies_undefined=ok:Array\nspecies_null=ok:Array\nspecies_number=ok:Array\nspecies_plain_object=ok:Array\nspecies_arrow=TypeError\nspecies_map_ctor=TypeError\nspecies_call_args=1:0|1:2\nmapsub_self=true\nmapsub_entries_iter=a:1\nsetsub_union_kind=false:true\npromise_resolve_kind=true\npromise_then_kind=true\npromise_catch_kind=true\npromise_finally_kind=true\npromise_species_plain=true:false\nbuffer_slice_kind=false:true\nbuffer_slice_len=4\nbuffer_species_plain=false\nregexp_split=a,b,c\nregexp_species_consulted=false\ntypedarray_subarray=false\ntypedarray_slice=true\ntypedarray_map=true\ntypedarray_filter=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -20469,16 +20469,16 @@
 ,
 {
   "name": "claude2-arraybuffer-slice-and-isview",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "slice_range=3,4,5\nslice_from=7,8\nslice_all=1,2,3,4,5,6,7,8 len=8\nslice_negative_start=6,7,8\nslice_negative_end=2,3\nslice_both_negative=5,6\nslice_inverted=0\nslice_past_end=7,8\nslice_before_start=1,2\nslice_empty=0\nslice_undefined_end=6\nslice_fraction=2 values=2,3\nslice_string=6\nslice_nan=2\nslice_no_args=8\nslice_is_copy=1/false\nslice_kind=true tag=[object ArrayBuffer]\nspecies_default=true\nspecies_desc=function/undefined/true\nsubclass_slice=Sub\nspecies_override=ArrayBuffer\nspecies_bad=throw:TypeError\nslice_wrong_receiver=throw:TypeError\nslice_detached=throw:TypeError\ndetached_byteLength=0\nslice_of_resizable=2/false/2\nisView_Uint8Array=true\nisView_Float64Array=true\nisView_BigInt64Array=true\nisView_Uint8ClampedArray=true\nisView_subarray=true\nisView_DataView=true\nisView_ArrayBuffer=false\nisView_Array=false\nisView_null=false\nisView_undefined=false\nisView_number=false\nisView_object=false\nisView_proto=false\nisView_detached_view=true\nisView_no_arg=false\nisView_length=1 zero_buffer=0",
   "node": "slice_range=3,4,5\nslice_from=7,8\nslice_all=1,2,3,4,5,6,7,8 len=8\nslice_negative_start=6,7,8\nslice_negative_end=2,3\nslice_both_negative=5,6\nslice_inverted=0\nslice_past_end=7,8\nslice_before_start=1,2\nslice_empty=0\nslice_undefined_end=6\nslice_fraction=2 values=2,3\nslice_string=6\nslice_nan=2\nslice_no_args=8\nslice_is_copy=1/false\nslice_kind=true tag=[object ArrayBuffer]\nspecies_default=true\nspecies_desc=function/undefined/true\nsubclass_slice=Sub\nspecies_override=ArrayBuffer\nspecies_bad=throw:TypeError\nslice_wrong_receiver=throw:TypeError\nslice_detached=throw:TypeError\ndetached_byteLength=0\nslice_of_resizable=2/false/2\nisView_Uint8Array=true\nisView_Float64Array=true\nisView_BigInt64Array=true\nisView_Uint8ClampedArray=true\nisView_subarray=true\nisView_DataView=true\nisView_ArrayBuffer=false\nisView_Array=false\nisView_null=false\nisView_undefined=false\nisView_number=false\nisView_object=false\nisView_proto=false\nisView_detached_view=true\nisView_no_arg=false\nisView_length=1 zero_buffer=0",
-  "rts": "slice_range=3,4,5\nslice_from=7,8\nslice_all=1,2,3,4,5,6,7,8 len=8\nslice_negative_start=6,7,8\nslice_negative_end=2,3\nslice_both_negative=5,6\nslice_inverted=0\nslice_past_end=7,8\nslice_before_start=1,2\nslice_empty=0\nslice_undefined_end=6\nslice_fraction=2 values=2,3\nslice_string=6\nslice_nan=2\nslice_no_args=8\nslice_is_copy=1/false\nslice_kind=true tag=[object ArrayBuffer]\nspecies_default=false",
+  "rts": "slice_range=3,4,5\nslice_from=7,8\nslice_all=1,2,3,4,5,6,7,8 len=8\nslice_negative_start=6,7,8\nslice_negative_end=2,3\nslice_both_negative=5,6\nslice_inverted=0\nslice_past_end=7,8\nslice_before_start=1,2\nslice_empty=0\nslice_undefined_end=6\nslice_fraction=2 values=2,3\nslice_string=6\nslice_nan=2\nslice_no_args=8\nslice_is_copy=1/false\nslice_kind=true tag=[object ArrayBuffer]\nspecies_default=true\nspecies_desc=function/undefined/true\nsubclass_slice=ArrayBuffer\nspecies_override=ArrayBuffer\nspecies_bad=[object ArrayBuffer]\nslice_wrong_receiver=undefined\nslice_detached=[object ArrayBuffer]\ndetached_byteLength=0\nslice_of_resizable=2/undefined/undefined\nisView_Uint8Array=true\nisView_Float64Array=true\nisView_BigInt64Array=true\nisView_Uint8ClampedArray=true\nisView_subarray=true\nisView_DataView=true\nisView_ArrayBuffer=false\nisView_Array=false\nisView_null=false\nisView_undefined=false\nisView_number=false\nisView_object=false\nisView_proto=false\nisView_detached_view=true\nisView_no_arg=false\nisView_length=1 zero_buffer=0",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'get')"
+  "rts_error": ""
 }
 ,
 {
@@ -21223,4 +21223,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1289,"reachable":1515,"rts_diverge":174,"bun_node_diverge":0,"errors":52,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1516,"pass":1287,"reachable":1514,"rts_diverge":176,"bun_node_diverge":1,"errors":51,"rejected":0,"upstream_defect":1}}
